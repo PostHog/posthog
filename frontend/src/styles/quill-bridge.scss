@@ -110,10 +110,12 @@
  * win inside the subtree even if PostHog later adds a same-named class.
  */
 
+[data-quill].bg-background,
 [data-quill] .bg-background {
     background-color: var(--background);
 }
 
+[data-quill].bg-card,
 [data-quill] .bg-card {
     background-color: var(--card);
 }
@@ -125,151 +127,195 @@
  * PostHog's utilities are `!important` in a layer, so this rule must be too, in the same layer.
  */
 @layer utilities {
+    [data-quill].bg-muted,
     [data-quill] .bg-muted {
         background-color: var(--muted) !important;
     }
+
+    [data-quill].bg-muted\/30,
+    [data-quill] .bg-muted\/30 {
+        background-color: color-mix(in oklab, var(--muted) 30%, transparent) !important;
+    }
 }
 
+[data-quill].bg-popover,
 [data-quill] .bg-popover {
     background-color: var(--popover);
 }
 
+[data-quill].bg-input,
 [data-quill] .bg-input {
     background-color: var(--input);
 }
 
+[data-quill].bg-fill-hover,
 [data-quill] .bg-fill-hover {
     background-color: var(--fill-hover);
 }
 
+[data-quill].bg-fill-selected,
 [data-quill] .bg-fill-selected {
     background-color: var(--fill-selected);
 }
 
+[data-quill].bg-fill-expanded,
 [data-quill] .bg-fill-expanded {
     background-color: var(--fill-expanded);
 }
 
-/* stylelint-disable-next-line selector-class-pattern -- the name of Tailwind's hover variant class */
+/* stylelint-disable selector-class-pattern -- the name of Tailwind's hover variant class */
+[data-quill].hover\:bg-fill-selected:hover,
 [data-quill] .hover\:bg-fill-selected:hover {
     background-color: var(--fill-selected);
 }
+/* stylelint-enable selector-class-pattern */
 
 /*
  * Use this for a quill hover fill, not `hover:bg-muted`. PostHog's compiled `hover:bg-muted` reads `--muted-3000`,
  * a dark text colour, and it is `!important` inside a cascade layer, so no rule in this file can override it.
  */
-/* stylelint-disable-next-line selector-class-pattern -- the name of Tailwind's hover variant class */
+/* stylelint-disable selector-class-pattern -- the name of Tailwind's hover variant class */
+[data-quill].hover\:bg-fill-hover:hover,
 [data-quill] .hover\:bg-fill-hover:hover {
     background-color: var(--fill-hover);
 }
+/* stylelint-enable selector-class-pattern */
 
+[data-quill].bg-destructive-foreground,
 [data-quill] .bg-destructive-foreground {
     background-color: var(--destructive-foreground);
 }
 
+[data-quill].bg-foreground,
 [data-quill] .bg-foreground {
     background-color: var(--foreground);
 }
 
+[data-quill].bg-muted-foreground,
 [data-quill] .bg-muted-foreground {
     background-color: var(--muted-foreground);
 }
 
+[data-quill].text-foreground,
 [data-quill] .text-foreground {
     color: var(--foreground);
 }
 
+[data-quill].text-foreground\/70,
 [data-quill] .text-foreground\/70 {
     color: color-mix(in oklab, var(--foreground) 70%, transparent);
 }
 
-/* stylelint-disable-next-line selector-class-pattern -- the name of Tailwind's hover variant class */
+/* stylelint-disable selector-class-pattern -- the name of Tailwind's hover variant class */
+[data-quill].hover\:text-foreground:hover,
 [data-quill] .hover\:text-foreground:hover {
     color: var(--foreground);
 }
+/* stylelint-enable selector-class-pattern */
 
+[data-quill].text-muted-foreground,
 [data-quill] .text-muted-foreground {
     color: var(--muted-foreground);
 }
 
+[data-quill].text-background,
 [data-quill] .text-background {
     color: var(--background);
 }
 
+[data-quill].text-subtle-foreground,
 [data-quill] .text-subtle-foreground {
     color: var(--subtle-foreground);
 }
 
+[data-quill].text-card-foreground,
 [data-quill] .text-card-foreground {
     color: var(--card-foreground);
 }
 
+[data-quill].text-popover-foreground,
 [data-quill] .text-popover-foreground {
     color: var(--popover-foreground);
 }
 
+[data-quill].text-primary-foreground,
 [data-quill] .text-primary-foreground {
     color: var(--primary-foreground);
 }
 
+[data-quill].text-primary-on-foreground,
 [data-quill] .text-primary-on-foreground {
     color: var(--primary-on-foreground);
 }
 
+[data-quill].text-destructive-foreground,
 [data-quill] .text-destructive-foreground {
     color: var(--destructive-foreground);
 }
 
+[data-quill].text-success-foreground,
 [data-quill] .text-success-foreground {
     color: var(--success-foreground);
 }
 
+[data-quill].text-info-foreground,
 [data-quill] .text-info-foreground {
     color: var(--info-foreground);
 }
 
+[data-quill].text-warning-foreground,
 [data-quill] .text-warning-foreground {
     color: var(--warning-foreground);
 }
 
+[data-quill].text-completed-foreground,
 [data-quill] .text-completed-foreground {
     color: var(--completed-foreground);
 }
 
+[data-quill].text-accent-foreground,
 [data-quill] .text-accent-foreground {
     color: var(--accent-foreground);
 }
 
+[data-quill].border-border,
 [data-quill] .border-border {
     border-color: var(--border);
 }
 
+[data-quill].border-muted-foreground,
 [data-quill] .border-muted-foreground {
     border-color: var(--muted-foreground);
 }
 
+[data-quill].border-foreground,
 [data-quill] .border-foreground {
     border-color: var(--foreground);
 }
 
-/* stylelint-disable-next-line selector-class-pattern -- the name of Tailwind's hover variant class */
+/* stylelint-disable selector-class-pattern -- the name of Tailwind's hover variant class */
+[data-quill].hover\:border-foreground:hover,
 [data-quill] .hover\:border-foreground:hover {
     border-color: var(--foreground);
 }
+/* stylelint-enable selector-class-pattern */
 
+[data-quill].border-input,
 [data-quill] .border-input {
     border-color: var(--input);
 }
 
+[data-quill].border-ring,
 [data-quill] .border-ring {
     border-color: var(--ring);
 }
 
-/* stylelint-disable-next-line selector-class-pattern -- the name of Tailwind's focus-visible variant class */
+/* stylelint-disable selector-class-pattern -- the name of Tailwind's focus-visible variant class */
+[data-quill].focus-visible\:outline-ring:focus-visible,
 [data-quill] .focus-visible\:outline-ring:focus-visible {
     outline-color: var(--ring);
 }
+/* stylelint-enable selector-class-pattern */
 
 /*
  * Tailwind ring utilities with quill colour names. `ring-1`, `ring-2`, etc.
@@ -278,34 +324,42 @@
  * `[data-quill]` so the colour part (`ring-foreground`, `ring-ring`) lands
  * even though PostHog's tailwind config never declared those names.
  */
+[data-quill].ring-foreground,
 [data-quill] .ring-foreground {
     --tw-ring-color: var(--foreground);
 }
 
+[data-quill].ring-foreground\/10,
 [data-quill] .ring-foreground\/10 {
     --tw-ring-color: color-mix(in oklab, var(--foreground) 10%, transparent);
 }
 
+[data-quill].ring-foreground\/20,
 [data-quill] .ring-foreground\/20 {
     --tw-ring-color: color-mix(in oklab, var(--foreground) 20%, transparent);
 }
 
+[data-quill].ring-border,
 [data-quill] .ring-border {
     --tw-ring-color: var(--border);
 }
 
+[data-quill].ring-background,
 [data-quill] .ring-background {
     --tw-ring-color: var(--background);
 }
 
+[data-quill].ring-ring,
 [data-quill] .ring-ring {
     --tw-ring-color: var(--ring);
 }
 
+[data-quill].ring-ring\/30,
 [data-quill] .ring-ring\/30 {
     --tw-ring-color: color-mix(in oklab, var(--ring) 30%, transparent);
 }
 
+[data-quill].ring-destructive\/20,
 [data-quill] .ring-destructive\/20 {
     --tw-ring-color: color-mix(in oklab, var(--destructive) 20%, transparent);
 }

@@ -70,6 +70,7 @@ from products.signals.dags.inbox_ranking.dataset.project_vectors import (
     PROJECT_VECTORS_SCHEMA_VERSION,
     USER_VECTORS_SCHEMA_VERSION,
 )
+from products.signals.dags.inbox_ranking.multihead.local import report_vector_presence, report_vectors
 from products.signals.dags.inbox_ranking.training.calibration import (
     BUCKETS,
     calibration_buckets,
@@ -117,6 +118,7 @@ from products.signals.dags.inbox_ranking.training.promotion import (
     AUC_TOLERANCE,
     ECE_TOLERANCE,
     PromotionDecision,
+    auto_promotion_candidate,
     decide_promotion,
 )
 from products.signals.dags.inbox_ranking.training.served import (
@@ -1478,6 +1480,82 @@ def test_decide_promotion(candidate, champion, expected_promote, reason_fragment
     assert reason_fragment in decision.reason
 
 
+_AUTO_SERVED_KEY = model_key(EMBEDDINGS_MODEL_NAME, "2026-08-10")
+_AUTO_POINTER = {
+    "model_key": _AUTO_SERVED_KEY,
+    "model_name": EMBEDDINGS_MODEL_NAME,
+    "model_version": "2026-08-10",
+    "promoted_at": "2026-08-10T05:02:00+00:00",
+}
+
+
+def _decision(would_promote: bool, incumbent_key: str | None = _AUTO_SERVED_KEY) -> dict[str, Any]:
+    return {"would_promote": would_promote, "reason": "open regressed", "incumbent_key": incumbent_key}
+
+
+@pytest.mark.parametrize(
+    "decisions,today,interval_days,pause,expected_version,reason_fragment",
+    [
+        # 05:00 three calendar days after a 05:02 promotion is under 72 hours, and still due.
+        ({"2026-08-12": _decision(True)}, datetime.date(2026, 8, 13), 3, {}, "2026-08-12", "auto: newest"),
+        ({"2026-08-12": _decision(True)}, datetime.date(2026, 8, 12), 3, {}, None, "promoted 2d ago"),
+        (
+            {"2026-08-11": _decision(True), "2026-08-12": _decision(False)},
+            datetime.date(2026, 8, 13),
+            3,
+            {},
+            "2026-08-11",
+            "auto: newest",
+        ),
+        # Graded against a model that no longer serves, for example before a manual rollback.
+        (
+            {"2026-08-12": _decision(True, model_key(EMBEDDINGS_MODEL_NAME, "2026-08-01"))},
+            datetime.date(2026, 8, 13),
+            3,
+            {},
+            None,
+            "graded against",
+        ),
+        # The run's own partition can still be training when the publish starts.
+        ({"2026-08-13": _decision(True)}, datetime.date(2026, 8, 14), 3, {}, None, "no "),
+        # A backfilled decision at or before the served version must not move the pointer back.
+        ({"2026-08-10": _decision(True)}, datetime.date(2026, 8, 13), 3, {}, None, "no "),
+        ({"2026-08-12": _decision(True)}, datetime.date(2026, 8, 13), 0, {}, None, "off"),
+        ({"2026-08-12": _decision(True)}, datetime.date(2026, 8, 13), 3, {"held": True}, None, "held"),
+        (
+            {"2026-08-12": _decision(True)},
+            datetime.date(2026, 8, 13),
+            3,
+            {"served_override": model_key(EMBEDDINGS_MODEL_NAME, "2026-08-01")},
+            None,
+            "served override",
+        ),
+    ],
+    ids=[
+        "newest_passes",
+        "interval_not_elapsed",
+        "older_passes_when_newest_fails",
+        "other_incumbent",
+        "partition_version",
+        "not_newer_than_served",
+        "interval_zero",
+        "held",
+        "served_override",
+    ],
+)
+def test_auto_promotion_candidate(decisions, today, interval_days, pause, expected_version, reason_fragment):
+    choice = auto_promotion_candidate(
+        _AUTO_POINTER,
+        decisions,
+        partition_key="2026-08-13",
+        today=today,
+        interval_days=interval_days,
+        **{"held": False, **pause},
+    )
+    assert choice.model_version == expected_version
+    assert reason_fragment in choice.reason
+
+
 def test_decide_promotion_grades_the_champion_on_the_candidate_holdout():
     candidate = _metadata("d2", open=0.66)
     champion = {**_metadata("d1", open=0.60), "promoted_at": "2026-08-10T00:00:00+00:00"}
@@ -1951,6 +2029,44 @@ def test_reading_a_moment_needs_the_vectors_landing_time(feature_set):
     vectors = {feature_set.extras_keys[0]: pd.DataFrame({EMBEDDING_COLUMN: [_embedding()]}, index=["a"])}
     with pytest.raises(ValueError, match=EMBEDDING_INSERTED_AT_COLUMN):
         feature_set.buildable(_state(["a"]), vectors, as_of=SNAPSHOT_END)
+
+
+@pytest.mark.parametrize("as_of", [None, SNAPSHOT_END], ids=["serving", "as_of_a_moment"])
+def test_the_light_vector_side_input_keeps_the_rows_the_vectors_keep(as_of):
+    # The nn examples step selects its rows from the vector lengths alone, so any drift from the
+    # vector frame would change the examples while no vector is ever read.
+    report_ids = ["landed", "landed_later", "no_landing_time", "tombstoned", "another_width", "twice", "twice"]
+    embeddings = pa.table(
+        {
+            "report_id": report_ids,
+            EMBEDDING_COLUMN: [_embedding(), _embedding(), _embedding(), None, [0.5] * 8, [0.5] * 8, _embedding()],
+            EMBEDDING_INSERTED_AT_COLUMN: [
+                LANDED_EARLY,
+                SNAPSHOT_END + datetime.timedelta(days=1),
+                None,
+                LANDED_EARLY,
+                LANDED_EARLY,
+                LANDED_EARLY,
+                LANDED_EARLY,
+            ],
+        },
+        schema=pa.schema(
+            [
+                ("report_id", pa.string()),
+                (EMBEDDING_COLUMN, pa.list_(pa.float32())),
+                (EMBEDDING_INSERTED_AT_COLUMN, pa.timestamp("us", tz="UTC")),
+            ]
+        ),
+    )
+    sink = io.BytesIO()
+    pq.write_table(embeddings, sink)
+    rows = _state([*report_ids[:-1], "absent"])
+    expected = [True, as_of is None, as_of is None, False, False, False, False]
+    # Two rows per batch, so a report's rows and the batches do not line up.
+    presence = report_vector_presence(pq.ParquetFile(pa.BufferReader(sink.getvalue())), batch_rows=2)
+
+    assert REPORT_EMBEDDINGS_FEATURE_SET.buildable(rows, report_vectors(embeddings), as_of=as_of).tolist() == expected
+    assert REPORT_EMBEDDINGS_FEATURE_SET.buildable(rows, presence, as_of=as_of).tolist() == expected
 
 
 @pytest.mark.parametrize(
@@ -2453,6 +2569,7 @@ def _mirror_vectors_metadata(engagement_offset: int, schema_version: int = PROJE
     "mirror_days,expected_offset,skip_reason",
     [
         ({0: _mirror_vectors_metadata(1)}, 0, None),
+        ({0: _mirror_vectors_metadata(1, schema_version=1)}, 0, None),
         ({1: _mirror_vectors_metadata(2)}, 1, None),
         (
             {

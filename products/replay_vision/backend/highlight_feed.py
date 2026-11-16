@@ -15,8 +15,8 @@ HIGHLIGHT_FEED_MIN_ITEMS = 3
 class HighlightFeedEntry:
     observation_id: UUID
     reason: dict[str, Any]
-    # None opts the entry out of session spacing.
-    session_id: str | None = None
+    # None opts the entry out of person spacing.
+    person_key: int | None = None
 
 
 # One incident can put many near-identical sessions on one scanner, so each scanner holds at most this share of the
@@ -45,24 +45,24 @@ def spread_scanners(ordered: list[tuple[Any, HighlightFeedEntry]]) -> list[Highl
     return placed + deferred
 
 
-# Several scanners can pick one recording. Its cards stay this many places apart, so the feed never
-# shows the same session twice in a row.
-SESSION_SPACING = 5
+# Several scanners can pick one recording, and one person can have many. A person's cards stay this many places
+# apart, so the feed never shows the same person twice in a row.
+PERSON_SPACING = 5
 
 
-def space_sessions(entries: list[HighlightFeedEntry]) -> list[HighlightFeedEntry]:
-    """Keep each session's cards at least SESSION_SPACING places apart, reordering but never dropping one.
+def space_people(entries: list[HighlightFeedEntry]) -> list[HighlightFeedEntry]:
+    """Keep each person's cards at least PERSON_SPACING places apart, reordering but never dropping one.
 
-    A held card returns at the first place its session allows, so score order holds otherwise. A feed
-    with too few other sessions to space every repeat still ends with every card, in score order.
+    A held card returns at the first place its person allows, so score order holds otherwise. A feed
+    with too few other people to space every repeat still ends with every card, in score order.
     """
     placed: list[HighlightFeedEntry] = []
     waiting: list[HighlightFeedEntry] = []
     for entry in entries:
         waiting.append(entry)
         while waiting:
-            recent = {placed_entry.session_id for placed_entry in placed[-(SESSION_SPACING - 1) :]} - {None}
-            ready = next((held for held in waiting if held.session_id not in recent), None)
+            recent = {placed_entry.person_key for placed_entry in placed[-(PERSON_SPACING - 1) :]} - {None}
+            ready = next((held for held in waiting if held.person_key not in recent), None)
             if ready is None:
                 break
             waiting.remove(ready)
@@ -82,5 +82,5 @@ def finish_feed(
         entry = HighlightFeedEntry(observation_id=row["id"], reason={"kind": "recent" if viewed else "unviewed_recent"})
         filler.append((not viewed, row["created_at"], entry))
     filler.sort(key=lambda item: (item[0], item[1]), reverse=True)
-    placed = space_sessions(spread_scanners([(scanner_id, entry) for _, _, scanner_id, entry in ordered]))
+    placed = space_people(spread_scanners([(scanner_id, entry) for _, _, scanner_id, entry in ordered]))
     return placed + [entry for *_, entry in filler][: max(0, HIGHLIGHT_FEED_MIN_ITEMS - len(placed))]

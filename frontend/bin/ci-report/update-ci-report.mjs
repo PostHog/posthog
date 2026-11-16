@@ -23,6 +23,7 @@ export const SECTIONS = [
     { id: 'cached-schema-removals', title: 'Cached schema removals' },
     { id: 'bundle-size', title: 'Bundle size' },
     { id: 'eager-graph', title: 'Eager graph' },
+    { id: 'frontend-layers', title: 'Frontend layers' },
     { id: 'toolbar-size', title: 'Toolbar bundle' },
     { id: 'dist-size', title: 'Dist folder size' },
     { id: 'mcp-ui-apps', title: 'MCP UI apps size' },

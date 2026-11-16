@@ -5,6 +5,7 @@ from django.test import TestCase
 
 from parameterized import parameterized
 
+from posthog.llm.system_one import NoulAnswer, SystemOneRequestFailed, SystemOneResult
 from posthog.models.integration import Integration
 from posthog.models.organization import Organization
 from posthog.models.team.team import Team
@@ -15,6 +16,7 @@ from products.slack_app.backend.temporal import (
     PostHogCodeSlackMentionWorkflowInputs,
     cascade_posthog_code_repository_activity,
 )
+from products.slack_app.backend.temporal.activities.classifiers import NEEDS_REPO_QUESTION_ID
 
 
 def _make_inputs(
@@ -162,14 +164,116 @@ class TestCascadeTeamInstall(TestCase):
         ]
         mock_user_github_class.return_value = mock_user_github
 
-        outcome = cascade_posthog_code_repository_activity(
-            _make_inputs(self.slack_integration.id, self.user.id),
-            event_text,
-            self.user.id,
-            [SlackThreadMessage(**message) for message in thread_messages],
-            "2.000000",
-        )
+        with patch("products.slack_app.backend.analytics.ph_background_capture") as mock_capture_factory:
+            outcome = cascade_posthog_code_repository_activity(
+                _make_inputs(self.slack_integration.id, self.user.id),
+                event_text,
+                self.user.id,
+                [SlackThreadMessage(**message) for message in thread_messages],
+                "2.000000",
+            )
 
         assert outcome.mode == expected_mode
         assert outcome.repository == expected_repository
         assert outcome.reason == expected_reason
+        captured = [
+            c.kwargs["properties"]
+            for c in mock_capture_factory.return_value.call_args_list
+            if c.kwargs["event"] == "slack app repository resolved"
+        ]
+        assert len(captured) == 1
+        assert captured[0]["resolution"] == expected_reason
+        assert captured[0]["has_repository"] is (expected_repository is not None)
+        assert captured[0]["is_final"] is (expected_mode != "agent_needed")
+        assert captured[0]["connected_repo_count"] == 2
+        assert captured[0]["slack_session_id"] == "T_SLACK:C123:1234.5678"
+
+
+ONE_REPO = [{"id": 1, "name": "posthog", "full_name": "posthog/posthog"}]
+TWO_REPOS = [*ONE_REPO, {"id": 2, "name": "posthog-js", "full_name": "posthog/posthog-js"}]
+
+
+def _jev_client(probability: float | None) -> MagicMock:
+    client = MagicMock()
+    if probability is None:
+        client.decide.side_effect = SystemOneRequestFailed("gateway timeout")
+    else:
+        client.decide.return_value = SystemOneResult(
+            model="jeeves", answers={NEEDS_REPO_QUESTION_ID: NoulAnswer(probability=probability)}, input_tokens=1
+        )
+    return client
+
+
+class TestCascadeWithJevNeedsRepo(TestCase):
+    def setUp(self):
+        from posthog.models.user_integration import UserIntegration
+
+        cache.clear()
+        self.team = Team.objects.create(organization=Organization.objects.create(name="TestOrg"), name="TestTeam")
+        self.user = User.objects.create(email="alice@test.com")
+        self.slack_integration = Integration.objects.create(
+            team=self.team, kind="slack", integration_id="T_SLACK", config={}
+        )
+        UserIntegration.objects.create(
+            user=self.user,
+            kind=UserIntegration.IntegrationKind.GITHUB,
+            integration_id="gh-user-1",
+            config={},
+            sensitive_config={"access_token": "gh-user-token"},
+        )
+
+    @parameterized.expand(
+        [
+            ("no_code_needed_skips_the_single_repo", ONE_REPO, 0.1, "fix the thing", "no_repo", None),
+            ("code_needed_uses_the_single_repo", ONE_REPO, 0.9, "fix the thing", "auto", "posthog/posthog"),
+            (
+                "code_needed_uses_the_named_repo",
+                TWO_REPOS,
+                0.9,
+                "fix it in posthog/posthog-js",
+                "auto",
+                "posthog/posthog-js",
+            ),
+            ("code_needed_hands_off_to_discovery", TWO_REPOS, 0.9, "fix the thing", "agent_needed", None),
+            ("failed_call_means_no_repo", ONE_REPO, None, "fix the thing", "no_repo", None),
+        ]
+    )
+    @patch("products.slack_app.backend.temporal.activities.repo_selection.is_slack_app_jev_needs_repo_enabled")
+    @patch("products.slack_app.backend.temporal.activities.classifiers.build_system_one_client")
+    @patch("products.slack_app.backend.api.UserGitHubIntegration")
+    def test_jev_decides_before_any_repository_is_picked(
+        self,
+        _name,
+        repos,
+        probability,
+        event_text,
+        expected_mode,
+        expected_repository,
+        mock_user_github_class,
+        mock_build_client,
+        mock_flag,
+    ):
+        mock_flag.return_value = True
+        mock_user_github_class.return_value.list_all_cached_repositories.return_value = repos
+        mock_build_client.return_value = _jev_client(probability)
+
+        with patch("products.slack_app.backend.analytics.ph_background_capture") as mock_capture_factory:
+            outcome = cascade_posthog_code_repository_activity(
+                _make_inputs(self.slack_integration.id, self.user.id), event_text, self.user.id
+            )
+
+        assert outcome.mode == expected_mode
+        assert outcome.repository == expected_repository
+        assert outcome.needs_repo_classified is (expected_mode == "agent_needed")
+        steps = [
+            (c.kwargs["properties"]["resolution"], c.kwargs["properties"]["is_final"])
+            for c in mock_capture_factory.return_value.call_args_list
+            if c.kwargs["event"] == "slack app repository resolved"
+        ]
+        jev_step = {0.1: ("classifier_no_repo", True), None: ("classifier_failed", True)}.get(
+            probability, ("classifier_needs_repo", False)
+        )
+        assert steps[0] == jev_step
+        assert len(steps) == (1 if expected_mode == "no_repo" else 2)
+        if expected_mode != "no_repo":
+            assert steps[1] == (outcome.reason, expected_mode != "agent_needed")

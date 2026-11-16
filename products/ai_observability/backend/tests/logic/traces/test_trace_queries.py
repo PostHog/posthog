@@ -134,25 +134,35 @@ class TestLoadTrace(TraceEventsMixin, ClickhouseTestMixin, BaseTest):
     def test_ingested_values_read_like_the_legacy_view(self) -> None:
         self._ingest(
             "00000000-0000-0000-0000-000000000001",
-            {"$ai_error": "", "$ai_input_tokens": {"total": 7}, "$ai_git_branch": ""},
+            {
+                "$ai_error": "",
+                "$ai_input_tokens": {"total": 7},
+                "$ai_input_state": None,
+                "$ai_output_state": {},
+                "$ai_git_branch": "",
+            },
+            event="$ai_trace",
         )
         self._ingest(
             "00000000-0000-0000-0000-000000000002",
             {
                 "$ai_error": {"message": "boom"},
                 "$ai_input_tokens": 3,
+                "$ai_output_state": {"answer": "hi"},
                 "$ai_git_branch": "feat/rag",
                 "$ai_git_repo": "acme/app",
             },
+            event="$ai_trace",
         )
 
         rows = load_trace(self.team, None, "trace-1", None).rows
 
         assert sorted(
-            (row.uuid, row.error_is_truthy, row.input_tokens, row.git_branch, row.git_repo) for row in rows
+            (row.uuid, row.error_is_truthy, row.input_tokens, row.has_state, row.git_branch, row.git_repo)
+            for row in rows
         ) == [
-            ("00000000-0000-0000-0000-000000000001", False, 7, None, None),
-            ("00000000-0000-0000-0000-000000000002", True, 3, "feat/rag", "acme/app"),
+            ("00000000-0000-0000-0000-000000000001", False, 7, False, None, None),
+            ("00000000-0000-0000-0000-000000000002", True, 3, True, "feat/rag", "acme/app"),
         ]
 
     def test_person_comes_from_the_trace_event_distinct_id(self) -> None:
@@ -258,7 +268,7 @@ class TestLoadTraceNode(TraceEventsMixin, ClickhouseTestMixin, BaseTest):
     def test_merges_the_heavy_columns_back_into_the_properties(self) -> None:
         self._ingest(
             NODE,
-            {"$ai_input": QUESTION, "$ai_output_choices": ANSWER, "$ai_model": "gpt-4.1-mini"},
+            {"$ai_input": QUESTION, "$ai_output_choices": ANSWER, "$ai_model": "gpt-6-luna"},
             event="$ai_generation",
         )
 
@@ -267,7 +277,7 @@ class TestLoadTraceNode(TraceEventsMixin, ClickhouseTestMixin, BaseTest):
         assert row is not None
         assert (row.uuid, row.event) == (NODE, "$ai_generation")
         assert (row.properties["$ai_input"], row.properties["$ai_output_choices"]) == (QUESTION, ANSWER)
-        assert row.properties["$ai_model"] == "gpt-4.1-mini"
+        assert row.properties["$ai_model"] == "gpt-6-luna"
 
     @parameterized.expand(
         [
@@ -362,7 +372,7 @@ class TestEventsFallback(TraceEventsMixin, ClickhouseTestMixin, BaseTest):
             "$ai_error": {"message": "boom"},
             "$ai_git_branch": "feat/rag",
         }
-        clean_span: dict[str, object] = {"$ai_error": "", "$ai_input_tokens": {"total": 7}}
+        clean_span: dict[str, object] = {"$ai_error": "", "$ai_input_tokens": {"total": 7}, "$ai_output_state": None}
         bulk_create_events(
             [
                 self._event("00000000-0000-0000-0000-000000000001", properties=old_span),
@@ -373,10 +383,11 @@ class TestEventsFallback(TraceEventsMixin, ClickhouseTestMixin, BaseTest):
         loaded = load_trace(self.team, None, "trace-1", timestamp_hint)
 
         assert sorted(
-            (row.uuid, row.span_name, row.error_is_truthy, row.input_tokens, row.git_branch) for row in loaded.rows
+            (row.uuid, row.span_name, row.error_is_truthy, row.input_tokens, row.has_state, row.git_branch)
+            for row in loaded.rows
         ) == [
-            ("00000000-0000-0000-0000-000000000001", "old", True, None, "feat/rag"),
-            ("00000000-0000-0000-0000-000000000002", None, False, 7, None),
+            ("00000000-0000-0000-0000-000000000001", "old", True, None, False, "feat/rag"),
+            ("00000000-0000-0000-0000-000000000002", None, False, 7, False, None),
         ]
 
     def test_hint_bounds_the_fallback_window(self) -> None:

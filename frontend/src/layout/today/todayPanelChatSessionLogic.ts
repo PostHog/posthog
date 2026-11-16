@@ -1,8 +1,7 @@
 import { MakeLogicType, actions, afterMount, connect, kea, listeners, path, reducers } from 'kea'
 
-import { MAX_SIDE_PANEL_ID } from 'scenes/max/components/PhaiSidePanelChat'
-
-import { type ActiveCreation, runnerPanelLogic } from 'products/posthog_ai/frontend/api/logics'
+import { MAX_SIDE_PANEL_ID } from '~/layout/ai/aiPanelIds'
+import { type ActiveCreation, runnerPanelLogic } from '~/layout/ai/runnerPanelLogic'
 
 import { TodayPanelChatTask, runnerCreationFor } from './todayPanelChat'
 import { projectSessionKey, readSessionValue, writeSessionValue } from './todaySessionStorage'

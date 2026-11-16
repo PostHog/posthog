@@ -1,3 +1,4 @@
+import re
 import json
 from collections.abc import Callable
 from copy import deepcopy
@@ -5,7 +6,9 @@ from enum import Enum, auto
 from functools import lru_cache
 from typing import Optional, cast
 
+from django.db.backends.base.base import BaseDatabaseWrapper
 from django.db.models import F
+from django.db.models.lookups import Contains
 
 from posthog.schema import (
     AutocompleteCompletionItem,
@@ -75,6 +78,13 @@ from common.hogvm.python.stl.bytecode import BYTECODE_STL
 ALL_HOG_FUNCTIONS = sorted(list(STL.keys()) + list(BYTECODE_STL.keys()))
 MATCH_ANY_CHARACTER = "$$_POSTHOG_ANY_$$"
 PROPERTY_DEFINITION_LIMIT = 220
+
+
+class _PostgresILikeContains(Contains):
+    def get_rhs_op(self, connection: BaseDatabaseWrapper, rhs: str) -> str:
+        return f"ILIKE {rhs}"
+
+
 # The one path through a Hog function's globals that holds an event's own property bag. Other
 # `properties` bags (person, groups, a user-defined input) never carry person property setters.
 EVENT_PROPERTIES_GLOBALS_CHAIN = ["event", "properties"]
@@ -220,6 +230,22 @@ def append_function_suggestions(
         AutocompleteCompletionItemKind.FUNCTION,
         insert_text=lambda key: f"{key}()",
         sort_texts=sort_texts,
+    )
+
+
+_SNIPPETS: dict[str, str] = {
+    "CASE WHEN": "CASE WHEN condition THEN result ELSE other END",
+}
+
+
+def append_snippet_suggestions(suggestions: list[AutocompleteCompletionItem], prefix: str = "") -> None:
+    labels = [label for label in _SNIPPETS if label.lower().startswith(prefix.lower())]
+    extend_responses(
+        labels,
+        suggestions,
+        AutocompleteCompletionItemKind.SNIPPET,
+        insert_text=lambda label: _SNIPPETS[label],
+        details=["Snippet"] * len(labels),
     )
 
 
@@ -500,6 +526,7 @@ def append_table_field_to_response(
         context=context,
         expected_type=expected_type_at_position(node, parent_node, table, context),
     )
+    append_snippet_suggestions(suggestions)
 
 
 def extend_responses(
@@ -787,8 +814,8 @@ def _suggest_property_names(
             effective_project_id=effective_project_id_expr(),
             group_type_index_key=group_type_index_key_expr(),
         ).filter(
+            _PostgresILikeContains(F("name"), match_term),
             effective_project_id=context.team.project_id,  # type: ignore
-            name__contains=match_term,
             type=property_type,
         )
         group_type_index_key = _group_type_index_key(table, property_type, joined_group_index)
@@ -862,6 +889,7 @@ def _suggest_select_fields(
                 context=context,
                 prefix=prefix,
             )
+            append_snippet_suggestions(response.suggestions, prefix)
         return _VariantFlow.TRY_NEXT_VARIANT
 
     table_has_alias = select_from.alias is not None
@@ -963,7 +991,8 @@ def _suggest_table_names(
     else:
         node_chain_arr = [str(x) for x in node.chain if x != MATCH_ANY_CHARACTER]
         node_chain = ".".join(node_chain_arr)
-        filtered_table_names = [x.replace(f"{node_chain}.", "") for x in table_names if node_chain in x]
+        node_chain_prefix = re.compile(re.escape(f"{node_chain}."), re.IGNORECASE)
+        filtered_table_names = [node_chain_prefix.sub("", x) for x in table_names if node_chain.lower() in x.lower()]
 
         extend_responses(
             keys=filtered_table_names,
@@ -1053,7 +1082,12 @@ def _suggest_from_schema(
         # Handle table names
         with timings.measure("table_name"):
             _suggest_table_names(node=node, database=database, context=context, response=response)
-    elif isinstance(node, ast.Field) and isinstance(parent_node, ast.Placeholder):
+    elif (
+        isinstance(node, ast.Field)
+        and isinstance(parent_node, ast.Placeholder)
+        # Only full SQL queries replace {variables.*}, so an expression that uses one fails when it runs
+        and query.language == HogLanguage.HOG_QL
+    ):
         _suggest_insight_variables(node=node, team=team, response=response)
 
     return _VariantFlow.PROCEED

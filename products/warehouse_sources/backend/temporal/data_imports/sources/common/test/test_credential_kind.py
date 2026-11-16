@@ -1,7 +1,6 @@
 import pytest
 from unittest.mock import PropertyMock, patch
 
-import products.warehouse_sources.backend.temporal.data_imports.sources._load_all  # noqa: F401
 from products.warehouse_sources.backend.facade.credential_kinds import CREDENTIAL_KINDS
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.credential_kind import (
     CREDENTIAL_KIND_MAX_LENGTH,
@@ -16,7 +15,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.cre
     render_credential_kinds,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
-from products.warehouse_sources.backend.types import ExternalDataSourceType
+from products.warehouse_sources.backend.types import ExternalDataSourceType, SourceKey
 
 ALL_SOURCES = SourceRegistry.get_all_sources()
 SOURCE_TYPES = sorted(ALL_SOURCES.keys(), key=str)
@@ -113,8 +112,8 @@ def test_custom_source_has_no_credential_kind() -> None:
 
 
 @pytest.mark.parametrize("source_type", SOURCE_TYPES_WITH_KIND, ids=str)
-def test_every_source_has_a_valid_credential_kind(source_type: ExternalDataSourceType) -> None:
-    kind = CREDENTIAL_KINDS[source_type.value]
+def test_every_source_has_a_valid_credential_kind(source_type: SourceKey) -> None:
+    kind = CREDENTIAL_KINDS[str(source_type)]
 
     assert 0 < len(kind) <= CREDENTIAL_KIND_MAX_LENGTH
     assert kind == kind.lower()

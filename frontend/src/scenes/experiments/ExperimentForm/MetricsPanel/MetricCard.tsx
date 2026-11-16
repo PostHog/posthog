@@ -11,6 +11,7 @@ import { getDefaultMetricTitle, getMetricTag } from '~/scenes/experiments/Metric
 
 import type { MetricContext } from 'products/experiments/frontend/modals/ExperimentMetricModal/experimentMetricModalLogic'
 import { experimentMetricModalLogic } from 'products/experiments/frontend/modals/ExperimentMetricModal/experimentMetricModalLogic'
+import { metricUsesWarehouseNativeSource } from 'products/experiments/frontend/warehouseNative/warehouseNativeSources'
 
 import { MetricConversionWindow } from './MetricConversionWindow'
 import { MetricEventDetails } from './MetricEventDetails'
@@ -98,7 +99,9 @@ export const MetricCard = ({ metric, metricContext, onDelete, filterTestAccounts
                         <MetricOutlierHandling metric={metric} />
                     </div>
 
-                    <MetricRecentActivity metric={metric} filterTestAccounts={filterTestAccounts} />
+                    {!metricUsesWarehouseNativeSource(metric) && (
+                        <MetricRecentActivity metric={metric} filterTestAccounts={filterTestAccounts} />
+                    )}
                 </div>
             </div>
         </div>

@@ -16,7 +16,6 @@ import {
 import {
     createValidateEventMetadataStep,
     createValidateEventPropertiesStep,
-    createValidateHistoricalMigrationStep,
 } from '~/ingestion/common/steps/event-preprocessing'
 import { createApplyBasicEventRestrictionsStep } from '~/ingestion/common/steps/event-preprocessing/apply-event-restrictions'
 import { createDropOldEventsStep } from '~/ingestion/common/steps/event-processing/drop-old-events-step'
@@ -74,7 +73,6 @@ export function createClientWarningsPipeline<
         .pipeChunk(prefetchTeamsStep(teamManager, teamsPrefetchEnabled))
         .parseMessage()
         .resolveTeam()
-        .pipe(createValidateHistoricalMigrationStep())
         .pipe(createValidateEventMetadataStep())
         .pipe(createValidateEventPropertiesStep())
         .pipe(createApplyEventFiltersStep(eventFilterManager))

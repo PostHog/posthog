@@ -82,6 +82,17 @@ function rows(state: SessionThreadState): string[] {
 }
 
 describe('session thread reducer', () => {
+    test('preserves the trace and source run of a completed turn across replay', () => {
+        const frame = notification('_posthog/turn_complete', { traceId: 'trace-1' })
+        for (const context of [LIVE, REPLAY]) {
+            expect(play([message('The answer'), frame], context).items.at(-1)).toMatchObject({
+                kind: 'turn_end',
+                traceId: 'trace-1',
+                runId: RUN,
+            })
+        }
+    })
+
     test('folds a stored run log into the thread the web shows', () => {
         const state = play(
             [
@@ -423,6 +434,31 @@ describe('session thread reducer', () => {
             update({ sessionUpdate: 'error', message: 'out of memory' }),
         ])
         expect(rows(state)).toEqual(['user: Try again', 'error(undelivered): out of memory'])
+    })
+
+    test.each([LIVE, REPLAY])('keeps one active compaction notice for $source frames', (context) => {
+        const start = notification('_posthog/status', { status: 'compacting' })
+        const compacting = play([start, start, start], context)
+        expect(rows(compacting)).toEqual(['notice(info, spinning): Compacting the conversation'])
+
+        const completed = play([notification('_posthog/compact_boundary', { trigger: 'auto' })], context, compacting)
+        expect(rows(completed)).toEqual(['notice(info): Compacted the conversation'])
+
+        const nextCompaction = play([start, start], context, completed)
+        expect(rows(nextCompaction)).toEqual([
+            'notice(info): Compacted the conversation',
+            'notice(info, spinning): Compacting the conversation',
+        ])
+        expect(new Set(nextCompaction.items.map((item) => item.id)).size).toBe(nextCompaction.items.length)
+        expect(
+            rows(
+                play(
+                    [notification('_posthog/status', { status: 'compacting', isComplete: true })],
+                    context,
+                    nextCompaction
+                )
+            )
+        ).toEqual(['notice(info): Compacted the conversation'])
     })
 
     test('progress steps group by id and status spinners leave when their work completes', () => {

@@ -136,9 +136,13 @@ describe('FrontierPublisher', () => {
         })
     })
 
-    it('groups delayed jobs by destination topic and registrable domain', async () => {
+    it('groups delayed jobs by destination topic, registrable domain and asset', async () => {
         const { batch, sent } = build()
         const second = candidate({ originalRef: `imageurl:v4:7:2026-10:${'b'.repeat(22)}` })
+        const font = candidate({
+            originalRef: `fonturl:v4:7:2026-10:${'d'.repeat(22)}`,
+            currentUrl: 'https://cdn.example.com/a.woff2',
+        })
         const other = candidate({
             originalRef: `imageurl:v4:7:2026-10:${'c'.repeat(22)}`,
             currentUrl: 'https://img.other.net/c.png',
@@ -148,17 +152,21 @@ describe('FrontierPublisher', () => {
         })
 
         await batch.republish(candidate(), candidate(), 'retry', 30_000)
+        await batch.republish(font, font, 'retry', 30_000)
         await batch.republish(second, second, 'not_ready', 30_000)
         await batch.republish(other, other, 'retry', 30_000)
         await batch.flush()
 
-        expect(sent).toHaveLength(2)
-        const example = sent.find((item) => item.key === 'example.com')!
-        expect(example.topic).toBe('retry_1m')
-        expect(parseCollectedUrlsRecord(example.value, 'example.com')).toMatchObject({
-            ok: true,
-            candidates: [{ originalRef: candidate().originalRef }, { originalRef: second.originalRef }],
-        })
+        expect(sent).toHaveLength(3)
+        const example = sent.filter((item) => item.key === 'example.com')
+        expect(example.map((item) => item.topic)).toEqual(['retry_1m', 'retry_1m'])
+        expect(example.map((item) => parseCollectedUrlsRecord(item.value, 'example.com'))).toMatchObject([
+            {
+                ok: true,
+                candidates: [{ originalRef: candidate().originalRef }, { originalRef: second.originalRef }],
+            },
+            { ok: true, candidates: [{ originalRef: font.originalRef }] },
+        ])
     })
 
     it('keeps configured destination topics separate when they share a metric class', async () => {

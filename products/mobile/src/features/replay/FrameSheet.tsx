@@ -1,6 +1,6 @@
-import { type ReactElement, useRef } from 'react'
-import { Text, useWindowDimensions, View } from 'react-native'
-
+import { type ReactElement, useMemo, useRef } from 'react'
+import { ScrollView, Text, View } from 'react-native'
+import { Gesture, GestureDetector } from 'react-native-gesture-handler'
 import { BottomSheet } from '@/ui/BottomSheet'
 import { ChevronLeftIcon } from '@/ui/icons/ChevronLeftIcon'
 import { ChevronRightIcon } from '@/ui/icons/ChevronRightIcon'
@@ -10,6 +10,7 @@ import { Pressable44 } from '@/ui/Pressable44'
 import { SegmentedPill } from '@/ui/SegmentedPill'
 import { createStyles, useColors } from '@/ui/theme'
 import { iconSizes, radii, type } from '@/ui/tokens'
+import { useSceneDimensions } from '@/ui/useSceneDimensions'
 
 import { FrameImage } from './FrameImage'
 import type { SummaryChapter } from './replayModel'
@@ -37,7 +38,8 @@ export function FrameSheet({
 }: FrameSheetProps): ReactElement {
     const colors = useColors()
     const styles = useStyles()
-    const { width } = useWindowDimensions()
+    const { width } = useSceneDimensions()
+    const scrollGesture = useMemo(() => Gesture.Native(), [])
     // The last chapter stays drawn while the sheet slides out.
     const shown = useRef<number>(0)
     if (position !== null) {
@@ -45,84 +47,90 @@ export function FrameSheet({
     }
     const index = shown.current
     const chapter = chapters[index]
-    const frameWidth = width - SHEET_PADDING * 2
+    const frameWidth = Math.min(600, width) - SHEET_PADDING * 2
     return (
         <BottomSheet
             visible={position !== null}
             onClose={onClose}
             paddingHorizontal={SHEET_PADDING}
+            scrollGesture={scrollGesture}
             accessibilityLabel="Chapter frame"
             testID="session-frame-sheet"
         >
             {chapter ? (
-                <View style={styles.body}>
-                    <View style={styles.header}>
-                        <Text style={styles.title} accessibilityRole="header">
-                            {`Frame at ${formatOffset(chapter.frameMs ?? chapter.startMs)}`}
-                        </Text>
-                        <Pressable44
-                            onPress={onClose}
-                            accessibilityLabel="Close"
-                            pressedBackground={colors.sunken}
-                            style={styles.close}
-                            testID="session-frame-close"
-                        >
-                            <CloseIcon size={iconSizes.control} />
-                        </Pressable44>
-                    </View>
-                    <FrameImage
-                        observationId={chapter.hasFrame ? observationId : null}
-                        chapter={chapter.index}
-                        style={{ width: frameWidth, height: Math.round(frameWidth / FRAME_ASPECT) }}
-                        accessibilityLabel={`Frame of ${chapter.title}`}
-                    />
-                    <View style={styles.captionRow}>
-                        <View style={styles.caption}>
-                            <Text style={styles.chapterTitle}>{chapter.title}</Text>
-                            <Text style={styles.meta}>
-                                {`Chapter ${index + 1} of ${chapters.length} · ${formatOffset(chapter.startMs)}`}
+                <GestureDetector gesture={scrollGesture}>
+                    <ScrollView style={styles.scroll} contentContainerStyle={styles.body}>
+                        <View style={styles.header}>
+                            <Text style={styles.title} accessibilityRole="header">
+                                {`Frame at ${formatOffset(chapter.frameMs ?? chapter.startMs)}`}
                             </Text>
+                            <Pressable44
+                                onPress={onClose}
+                                accessibilityLabel="Close"
+                                pressedBackground={colors.sunken}
+                                style={styles.close}
+                                testID="session-frame-close"
+                            >
+                                <CloseIcon size={iconSizes.control} />
+                            </Pressable44>
                         </View>
-                        {chapter.isKeyMoment ? (
-                            <View style={styles.keyChip}>
-                                <FlagIcon size={iconSizes.small} color={colors.orange} />
-                                <Text style={styles.keyText}>Key moment</Text>
-                            </View>
-                        ) : null}
-                    </View>
-                    {chapters.length > 1 ? (
-                        <SegmentedPill
-                            style={styles.pager}
-                            height={46}
-                            segmentWidth={52}
-                            segments={[
-                                {
-                                    key: 'previous',
-                                    accessibilityLabel: 'Previous chapter',
-                                    onPress: () => onChangePosition(index - 1),
-                                    disabled: index === 0,
-                                    testID: 'session-frame-previous',
-                                    children: <ChevronLeftIcon size={iconSizes.control} />,
-                                },
-                                {
-                                    key: 'next',
-                                    accessibilityLabel: 'Next chapter',
-                                    onPress: () => onChangePosition(index + 1),
-                                    disabled: index === chapters.length - 1,
-                                    testID: 'session-frame-next',
-                                    children: <ChevronRightIcon size={iconSizes.control} />,
-                                },
-                            ]}
+                        <FrameImage
+                            observationId={chapter.hasFrame ? observationId : null}
+                            chapter={chapter.index}
+                            style={{ width: frameWidth, height: Math.round(frameWidth / FRAME_ASPECT) }}
+                            accessibilityLabel={`Frame of ${chapter.title}`}
                         />
-                    ) : null}
-                    <Text style={styles.note}>Frames can show text that the recording did not mask.</Text>
-                </View>
+                        <View style={styles.captionRow}>
+                            <View style={styles.caption}>
+                                <Text style={styles.chapterTitle}>{chapter.title}</Text>
+                                <Text style={styles.meta}>
+                                    {`Chapter ${index + 1} of ${chapters.length} · ${formatOffset(chapter.startMs)}`}
+                                </Text>
+                            </View>
+                            {chapter.isKeyMoment ? (
+                                <View style={styles.keyChip}>
+                                    <FlagIcon size={iconSizes.small} color={colors.orange} />
+                                    <Text style={styles.keyText}>Key moment</Text>
+                                </View>
+                            ) : null}
+                        </View>
+                        {chapters.length > 1 ? (
+                            <SegmentedPill
+                                style={styles.pager}
+                                height={46}
+                                segmentWidth={52}
+                                segments={[
+                                    {
+                                        key: 'previous',
+                                        accessibilityLabel: 'Previous chapter',
+                                        onPress: () => onChangePosition(index - 1),
+                                        disabled: index === 0,
+                                        testID: 'session-frame-previous',
+                                        children: <ChevronLeftIcon size={iconSizes.control} />,
+                                    },
+                                    {
+                                        key: 'next',
+                                        accessibilityLabel: 'Next chapter',
+                                        onPress: () => onChangePosition(index + 1),
+                                        disabled: index === chapters.length - 1,
+                                        testID: 'session-frame-next',
+                                        children: <ChevronRightIcon size={iconSizes.control} />,
+                                    },
+                                ]}
+                            />
+                        ) : null}
+                        <Text style={styles.note}>Frames can show text that the recording did not mask.</Text>
+                    </ScrollView>
+                </GestureDetector>
             ) : null}
         </BottomSheet>
     )
 }
 
 const useStyles = createStyles(({ colors }) => ({
+    scroll: {
+        flexShrink: 1,
+    },
     body: {
         gap: 14,
         paddingBottom: 8,

@@ -65,6 +65,14 @@ CREATE TABLE posthog.kafka_error_tracking_issue_fingerprint_overrides (
   is_deleted Int8,
   version Int64
 ) ENGINE = Kafka(msk_cluster) SETTINGS kafka_format = 'JSONEachRow', kafka_group_name = 'clickhouse-error-tracking-issue-fingerprint-overrides', kafka_topic_list = 'clickhouse_error_tracking_issue_fingerprint';
+CREATE TABLE posthog.kafka_error_tracking_issue_tags (
+  team_id Int64,
+  issue_id UUID,
+  key String,
+  value Nullable(Int8),
+  is_deleted Int8,
+  version Int64
+) ENGINE = Kafka(warpstream_shared) SETTINGS kafka_flush_interval_ms = 7500, kafka_format = 'JSONEachRow', kafka_group_name = 'clickhouse_error_tracking_issue_tags', kafka_max_block_size = 100000, kafka_num_consumers = 1, kafka_poll_timeout_ms = 10000, kafka_skip_broken_messages = 100, kafka_thread_per_consumer = 1, kafka_topic_list = 'clickhouse_error_tracking_issue_tags';
 CREATE TABLE posthog.kafka_events_dead_letter_queue (
   id UUID,
   event_uuid UUID,
@@ -429,6 +437,17 @@ CREATE TABLE posthog.writable_error_tracking_issue_fingerprint_overrides (
   _offset UInt64,
   _partition UInt64
 ) ENGINE = Distributed('posthog_single_shard', 'posthog', 'error_tracking_issue_fingerprint_overrides');
+CREATE TABLE posthog.writable_error_tracking_issue_tags (
+  team_id Int64,
+  issue_id UUID,
+  key String,
+  value Nullable(Int8),
+  is_deleted Int8,
+  version Int64,
+  _timestamp DateTime,
+  _offset UInt64,
+  _partition UInt64
+) ENGINE = Distributed('aux', 'posthog', 'raw_error_tracking_issue_tags');
 CREATE TABLE posthog.writable_events_dead_letter_queue (
   id UUID,
   event_uuid UUID,
@@ -693,6 +712,17 @@ CREATE MATERIALIZED VIEW posthog.error_tracking_issue_fingerprint_overrides_mv T
   _partition
 FROM posthog.kafka_error_tracking_issue_fingerprint_overrides
 WHERE version > 0;
+CREATE MATERIALIZED VIEW posthog.error_tracking_issue_tags_mv TO posthog.writable_error_tracking_issue_tags (team_id Int64, issue_id UUID, key String, value Nullable(Int8), is_deleted Int8, version Int64, _timestamp Nullable(DateTime), _offset UInt64, _partition UInt64) AS SELECT
+  team_id,
+  issue_id,
+  key,
+  value,
+  is_deleted,
+  version,
+  _timestamp,
+  _offset,
+  _partition
+FROM posthog.kafka_error_tracking_issue_tags;
 CREATE MATERIALIZED VIEW posthog.events_dead_letter_queue_mv TO posthog.writable_events_dead_letter_queue (id UUID, event_uuid UUID, event String, properties String, distinct_id String, team_id Int64, elements_chain String, created_at DateTime64(6, 'UTC'), ip String, site_url String, now DateTime64(6, 'UTC'), raw_payload String, error_timestamp DateTime64(6, 'UTC'), error_location String, error String, tags Array(String), _timestamp Nullable(DateTime), _offset UInt64) AS SELECT
   id,
   event_uuid,

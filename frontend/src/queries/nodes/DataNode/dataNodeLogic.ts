@@ -20,22 +20,37 @@ import { subscriptions } from 'kea-subscriptions'
 import posthog from 'posthog-js'
 
 import api, { ApiMethodOptions } from 'lib/api'
+import { ApiRequestTiming } from 'lib/apiRequestTiming'
 import { dayjs } from 'lib/dayjs'
 import { ConcurrencyController } from 'lib/utils/concurrencyController'
-import { inStorybook, inStorybookTestRunner, uuid } from 'lib/utils/dom'
+import { inStorybook, uuid } from 'lib/utils/dom'
 import { shouldCancelQuery } from 'lib/utils/requests'
 import type { TaskQueue } from 'scenes/dashboard/dashboardUtils'
 import { UNSAVED_INSIGHT_MIN_REFRESH_INTERVAL_MINUTES } from 'scenes/insights/insightLogic'
-import { compareDataNodeQuery, haveVariablesOrFiltersChanged, validateQuery } from 'scenes/insights/utils/queryUtils'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import { DataNodeCollectionProps, dataNodeCollectionLogic } from '~/queries/nodes/DataNode/dataNodeCollectionLogic'
+import { getRegexFilterPatterns, hasInvalidRegexPattern } from '~/queries/nodes/DataNode/hasInvalidRegexFilter'
 import { QueryScanPollResult, QueryScanState, resolveQueryScan } from '~/queries/nodes/DataNode/queryScan'
+import { getSingleRequestServerMs } from '~/queries/nodes/DataNode/queryTimeBreakdown'
 import { removeExpressionComment } from '~/queries/nodes/DataTable/utils'
+import {
+    compareDataNodeQuery,
+    haveVariablesOrFiltersChanged,
+    validateQuery,
+} from '~/queries/nodes/InsightViz/queryUtils'
 import { performQuery } from '~/queries/query'
+import {
+    isActorsQuery,
+    isDataVisualizationNode,
+    isHogQLQuery,
+    isInsightQueryNode,
+    isPersonsNode,
+    isWebStatsTableQuery,
+} from '~/queries/schema/node-guards'
 import {
     AccountsQuery,
     AccountsQueryResponse,
@@ -81,21 +96,15 @@ import {
 import {
     isAccountsQuery,
     isAccountsTableQuery,
-    isActorsQuery,
     isErrorTrackingIssueEventsQuery,
     isErrorTrackingQuery,
     isEventsQuery,
     isGroupsQuery,
-    isDataVisualizationNode,
-    isHogQLQuery,
     isInsightActorsQuery,
-    isInsightQueryNode,
     isMarketingAnalyticsTableQuery,
-    isPersonsNode,
     isSessionQuery,
     isSessionsQuery,
     isTracesQuery,
-    isWebStatsTableQuery,
 } from '~/queries/utils'
 import { TeamType } from '~/types'
 
@@ -175,6 +184,8 @@ export const QUERY_SCAN_POLL_DEADLINE_MS = 600000
 // Loading and error states render the query id, so a random id per load
 // makes Storybook visual regression captures differ on every run
 const STORYBOOK_QUERY_ID = '00000000-0000-4000-8000-000000000000'
+// A measured query duration differs on every Storybook run; 180 ms matches what several stories pinned by hand.
+const STORYBOOK_ELAPSED_TIME_MS = 180
 
 const VALID_REFRESH_TYPES: ReadonlySet<RefreshType> = new Set([
     'async',
@@ -201,6 +212,7 @@ const webAnalyticsPreAggConcurrencyController = new ConcurrencyController(6)
 const marketingAnalyticsConcurrencyController = new ConcurrencyController(6)
 const productAnalyticsHomeConcurrencyController = new ConcurrencyController(6, { batchStart: true })
 const notebookConcurrencyController = new ConcurrencyController(4)
+const aiChatConcurrencyController = new ConcurrencyController(4)
 // The priority queue doesn't keep insertion order for equal priorities, so notebook loads count up instead.
 let notebookLoadOrder = 0
 
@@ -227,6 +239,10 @@ function getConcurrencyController(query: DataNode, currentTeam: TeamType): Concu
 
     if (activeScene === Scene.SavedInsights || activeScene === Scene.AnalyticsProductHome) {
         return productAnalyticsHomeConcurrencyController
+    }
+
+    if (activeScene === Scene.Max) {
+        return aiChatConcurrencyController
     }
 
     if (activeScene === Scene.Notebook) {
@@ -369,6 +385,7 @@ export interface dataNodeLogicValues {
     responseError: string | null
     responseErrorObject: Record<string, any> | null
     responseLoading: boolean
+    serverDurationMs: number | null
     shouldCalculateCount: boolean
     timings: QueryTiming[] | null
     totalCount: number | null
@@ -650,8 +667,12 @@ export interface dataNodeLogicActions {
     resetLoadingTimer: () => {
         value: true
     }
-    setElapsedTime: (elapsedTime: number) => {
+    setElapsedTime: (
+        elapsedTime: number,
+        serverDurationMs?: number | null
+    ) => {
         elapsedTime: number
+        serverDurationMs: number | null
     }
     setLoadingTime: (seconds: number) => {
         seconds: number
@@ -1068,7 +1089,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
             overrideQuery?: DataNode<Record<string, any>>
         ) => ({
             refresh: sanitizeRefreshType(refresh),
-            queryId: alreadyRunningQueryId || (inStorybook() || inStorybookTestRunner() ? STORYBOOK_QUERY_ID : uuid()),
+            queryId: alreadyRunningQueryId || (inStorybook() ? STORYBOOK_QUERY_ID : uuid()),
             pollOnly: !!alreadyRunningQueryId,
             overrideQuery,
         }),
@@ -1082,7 +1103,10 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
         stopAutoLoad: true,
         toggleAutoLoad: true,
         highlightRows: (rows: any[]) => ({ rows }),
-        setElapsedTime: (elapsedTime: number) => ({ elapsedTime }),
+        setElapsedTime: (elapsedTime: number, serverDurationMs: number | null = null) => ({
+            elapsedTime: inStorybook() ? STORYBOOK_ELAPSED_TIME_MS : elapsedTime,
+            serverDurationMs,
+        }),
         setPollResponse: (status: QueryStatus | null) => ({ status }),
         setLoadingTime: (seconds: number) => ({ seconds }),
         resetLoadingTimer: true,
@@ -1188,6 +1212,17 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                     if (!validateQuery(query)) {
                         return null
                     }
+                    // Only a query with a regex filter waits for the RE2 engine.
+                    const regexPatterns = getRegexFilterPatterns(query)
+                    if (regexPatterns.length > 0) {
+                        const hasInvalidPattern = await hasInvalidRegexPattern(regexPatterns)
+                        // A newer load may have started during the engine load. This one must not touch its request.
+                        breakpoint()
+                        // A cancel during the engine load finds no request to abort yet.
+                        if (hasInvalidPattern || values.queryCancelled) {
+                            return null
+                        }
+                    }
 
                     const abortController = new AbortController()
                     // A retained query keeps running when the node unmounts, so a remount can pick it up.
@@ -1197,8 +1232,10 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                             pauseOnPageHidden: false,
                         })
                     }
+                    const requestTimings: ApiRequestTiming[] = []
                     const methodOptions: ApiMethodOptions = {
                         signal: abortController.signal,
+                        onRequestTiming: (timing) => requestTimings.push(timing),
                     }
                     try {
                         // For shared contexts, create a minimal team object if needed
@@ -1212,7 +1249,11 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                         ) {
                             reclaimReleasedQuery()
                         }
-                        const runQuery = async (): Promise<{ duration: number; data: Record<string, any> }> => {
+                        const runQuery = async (): Promise<{
+                            duration: number
+                            serverDurationMs: number | null
+                            data: Record<string, any>
+                        }> => {
                             const now = performance.now()
                             try {
                                 breakpoint()
@@ -1229,7 +1270,8 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                                         props.limitContext
                                     )) ?? null
                                 const duration = performance.now() - now
-                                return { data, duration }
+                                const serverDurationMs = getSingleRequestServerMs(requestTimings, duration)
+                                return { data, duration, serverDurationMs }
                             } catch (error: any) {
                                 const duration = performance.now() - now
                                 error.duration = duration
@@ -1267,7 +1309,7 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                         }
                         const response = await responsePromise
                         breakpoint()
-                        actions.setElapsedTime(response.duration)
+                        actions.setElapsedTime(response.duration, response.serverDurationMs)
                         return response.data
                     } catch (error: any) {
                         if (error.duration) {
@@ -1576,6 +1618,16 @@ export const dataNodeLogic = kea<dataNodeLogicType>([
                     response && 'error' in response ? (response.error ?? null) : null,
                 loadNewDataSuccess: (_, { response }) =>
                     response && 'error' in response ? (response.error ?? null) : null,
+            },
+        ],
+        serverDurationMs: [
+            null as number | null,
+            {
+                setElapsedTime: (_, { serverDurationMs }) => serverDurationMs,
+                loadData: () => null,
+                loadNewData: () => null,
+                loadNextData: () => null,
+                cancelQuery: () => null,
             },
         ],
         elapsedTime: [

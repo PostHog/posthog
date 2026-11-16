@@ -1,10 +1,18 @@
 import { SearchItem, filterNewItems } from 'lib/components/Search/searchItems'
 import { SETTINGS_THEME_ITEM_ID, filterSearchItems } from 'lib/components/Search/utils'
 
+import type { SearchCorrection } from './commandKCorrection'
 import { CursorContext, FilterDefinition, FilterOptions, ValueOption, matchValueOptions } from './commandKQuery'
 import { buildRankedResults } from './commandKRankedResults'
-import { FILTER_TOKEN, freeWords, strictLocalMatches } from './commandKRanking'
-import { REMOTE_SOURCES, RESULTS_LIMIT, RemoteSource, SECONDARY_LIMIT } from './commandKSources'
+import {
+    FILTER_TOKEN,
+    MAX_LOCAL_QUERY_LENGTH,
+    freeWords,
+    searchWords,
+    strictLocalMatches,
+    tokenTypos,
+} from './commandKRanking'
+import { REMOTE_SOURCES, RESULTS_LIMIT, RemotePage, RemoteSource, SECONDARY_LIMIT } from './commandKSources'
 
 export const RECENTS_LIMIT = 5
 export const SUGGESTIONS_LIMIT = 8
@@ -18,7 +26,7 @@ const LOCAL_SOURCES = [
     'data-management',
     'people',
     'health',
-    'misc',
+    'actions',
     'shortcuts',
     'settings',
     'create',
@@ -58,7 +66,8 @@ export type CommandKRow =
       }
     | { kind: 'ask-ai'; key: string; question: string }
     | { kind: 'scope'; key: string; type: string; label: string }
-    | { kind: 'notice'; key: string; reason: 'partial' | 'typos'; missing: string[]; shown: string[] }
+    | { kind: 'expand'; key: string; group: string; label: string }
+    | { kind: 'notice'; key: string; reason: 'partial' | 'typos' | 'corrected'; missing: string[]; shown: string[] }
     | { kind: 'loading-more'; key: string }
 
 export interface CommandKSection {
@@ -80,6 +89,8 @@ export interface ViewAll {
 export interface RemoteSlot {
     cache: Record<string, SearchItem[]>
     failed?: Record<string, true>
+    /** Queries the API said match more than it returned, so their section ends with a See all row. */
+    more?: Record<string, true>
 }
 
 export type RemoteSlots = Record<RemoteSource, RemoteSlot>
@@ -97,7 +108,7 @@ const SECTION_LABELS: Record<Exclude<CommandKSectionKey, `group-${string}`>, str
     'data-management': 'Data management',
     people: 'People',
     health: 'Health',
-    misc: 'Misc',
+    actions: 'Actions',
     shortcuts: 'Shortcuts',
     settings: 'Settings',
     create: 'Create new',
@@ -161,14 +172,35 @@ const loadingSection = (key: Exclude<CommandKSectionKey, `group-${string}`>): Co
 
 const isSettled = (slot: RemoteSlot, query: string | undefined): boolean => !query || query in slot.cache
 
+/** The `is:` type a source's See all row scopes the search to. Only sources whose API reports more have one. */
+const SEE_ALL_TYPES: Partial<Record<RemoteSource, string>> = { persons: 'person' }
+
 function remoteSection(
     source: RemoteSource,
-    items: SearchItem[],
+    { items, more }: RemotePage,
     state: CommandKSection['state']
 ): CommandKSection | null {
     const limit = source === 'results' ? RESULTS_LIMIT : SECONDARY_LIMIT
-    return items.length > 0 ? { ...readySection(source, itemRows(source, items, limit)), state } : null
+    const type = SEE_ALL_TYPES[source]
+    const seeAll: CommandKRow[] =
+        more && type
+            ? [
+                  {
+                      kind: 'scope',
+                      key: `${source}/see-all`,
+                      type,
+                      label: `See all ${SECTION_LABELS[source].toLowerCase()}`,
+                  },
+              ]
+            : []
+    // When ranking moves every item into Results, the section keeps only its See all row.
+    const rows = [...itemRows(source, items, limit), ...seeAll]
+    return rows.length > 0 ? { ...readySection(source, rows), state } : null
 }
+
+/** A cached query's page, as the request returned it. */
+export const cachedPage = (slot: RemoteSlot, query: string): RemotePage =>
+    slot.more?.[query] ? { items: slot.cache[query], more: true } : { items: slot.cache[query] }
 
 export interface SuggestionsLoading {
     members: boolean
@@ -234,7 +266,8 @@ export interface SectionsInput extends SectionsQuery {
     remote: RemoteSlots
     stale: boolean
     personsFirst: boolean
-    settingsInResults: boolean
+    searchCorrection: SearchCorrection | null
+    expandedGroups?: string[]
 }
 
 const isRanked = (query: SectionsQuery): boolean =>
@@ -261,6 +294,29 @@ export function pickDisplayedQuery(
 const exactSettingsMatches = (settings: SearchItem[], localQuery: string): SearchItem[] =>
     localQuery ? matchLocal('settings', settings, localQuery, true) : []
 
+const matchesWord = (words: string[]) => (token: string) => words.some((word) => tokenTypos(token, word) === 0)
+
+function settingsMatches(items: SearchItem[], fullQuery: string): SearchItem[] {
+    const query = fullQuery.trim().replace(/\s+/g, ' ').slice(0, MAX_LOCAL_QUERY_LENGTH)
+    const tokens = searchWords(query)
+    if (!tokens.length) {
+        return []
+    }
+    const byNameOrAlias = strictLocalMatches(items, query)
+    const named = new Set(byNameOrAlias.map((item) => item.id))
+    const acrossFields = items.filter((item) => {
+        if (named.has(item.id)) {
+            return false
+        }
+        const own = matchesWord(
+            [String(item.displayName || item.name), ...(item.searchKeywords ?? [])].flatMap(searchWords)
+        )
+        const context = matchesWord([item.parentName ?? '', ...(item.contextKeywords ?? [])].flatMap(searchWords))
+        return tokens.some(own) && tokens.every((token) => own(token) || context(token))
+    })
+    return [...byNameOrAlias, ...acrossFields]
+}
+
 const LOCAL_MATCH_CACHE_SIZE = 50
 const localMatchCache = new WeakMap<SearchItem[], Map<string, SearchItem[]>>()
 
@@ -276,8 +332,14 @@ function matchLocal(source: LocalSource, items: SearchItem[], query: string, ran
     if (cached) {
         return cached
     }
-    const fuzzy = source === 'create' ? filterNewItems(items, query) : filterSearchItems(items, query)
-    const matches = strict ? strictLocalMatches(fuzzy, query) : fuzzy
+    const matches =
+        strict && source === 'settings'
+            ? settingsMatches(items, query)
+            : strict
+              ? strictLocalMatches(items, query)
+              : source === 'create'
+                ? filterNewItems(items, query)
+                : filterSearchItems(items, query)
     if (byQuery.size >= LOCAL_MATCH_CACHE_SIZE) {
         byQuery.delete(byQuery.keys().next().value!)
     }
@@ -304,8 +366,12 @@ const plainName = (item: SearchItem): string =>
         .trim()
 
 export function rankableSettings(local: LocalLists, localQuery: string): SearchItem[] {
-    const productNames = new Set(local.products.map(plainName))
-    return exactSettingsMatches(local.settings, localQuery).filter((item) => !productNames.has(plainName(item)))
+    const productDestinations = new Set(
+        local.products.filter((item) => !item.parentName).map((item) => `${plainName(item)}|${item.href ?? ''}`)
+    )
+    return exactSettingsMatches(local.settings, localQuery).filter(
+        (item) => !productDestinations.has(`${plainName(item)}|${item.href ?? ''}`)
+    )
 }
 
 function rankedResultsSections(
@@ -316,14 +382,24 @@ function rankedResultsSections(
     state: CommandKSection['state'],
     persons: SearchItem[],
     accounts: SearchItem[],
-    settingsInResults: boolean
+    themeItem: SearchItem | null,
+    expandedGroups: string[]
 ): CommandKSection[] {
     const words = freeWords(query)
+    // The scorer splits words on underscores, so the settings it ranks are matched the same way.
+    const rankedSettingsQuery = localQuery.replace(/_/g, ' ')
+    const rankable = rankableSettings(local, rankedSettingsQuery)
+    // The scorer reads punctuation, so a domain or an email address keeps it.
+    const freeText = query.replace(FILTER_TOKEN, ' ').replace(/\s+/g, ' ').trim()
     return buildRankedResults({
         persons,
         accounts,
-        settings: settingsInResults ? rankableSettings(local, localQuery) : [],
-        query: words.join(' '),
+        settings: [...(themeItem ? [themeItem] : []), ...rankable],
+        unrankedSettings: exactSettingsMatches(local.settings, rankedSettingsQuery).filter(
+            (item) => !rankable.some((ranked) => ranked.id === item.id)
+        ),
+        expandedGroups,
+        query: freeText,
         highlightWords: words,
         results,
         products: localQuery ? local.products : [],
@@ -332,11 +408,19 @@ function rankedResultsSections(
     })
 }
 
+interface LowerSectionsContext {
+    ranked: boolean
+    state: CommandKSection['state']
+    /** Item IDs already shown above, so no item repeats. */
+    shown: Set<string>
+    settingsRanked: boolean
+    /** Section keys already placed above. Persons lead an email search, and then own their section there. */
+    placedAbove: Set<string>
+}
+
 function lowerSections(
     input: SectionsInput,
-    ranked: boolean,
-    state: CommandKSection['state'],
-    shown: Set<string>
+    { ranked, state, shown, settingsRanked, placedAbove }: LowerSectionsContext
 ): CommandKSection[] {
     const { local, remote, remoteQueries, localQuery } = input
     const sections: (CommandKSection | null)[] = []
@@ -346,7 +430,7 @@ function lowerSections(
             ? loaded()
             : [...loaded(), readySection('loading-more', [{ kind: 'loading-more', key: 'loading-more/row' }])]
     const appendInOrder = (sources: RemoteSource[]): boolean => {
-        for (const source of sources) {
+        for (const source of sources.filter((source) => !placedAbove.has(source))) {
             const query = remoteQueries[source]
             if (!isSettled(remote[source], query)) {
                 return false
@@ -355,7 +439,10 @@ function lowerSections(
                 query
                     ? remoteSection(
                           source,
-                          remote[source].cache[query].filter((item) => !shown.has(item.id)),
+                          {
+                              ...cachedPage(remote[source], query),
+                              items: remote[source].cache[query].filter((item) => !shown.has(item.id)),
+                          },
                           state
                       )
                     : null
@@ -365,11 +452,15 @@ function lowerSections(
     }
     if (localQuery) {
         for (const source of LOCAL_SOURCES) {
-            if (ranked && source === 'products') {
+            const themeItem =
+                source === 'settings' && input.themeItem && !shown.has(input.themeItem.id) ? input.themeItem : null
+            if (ranked && (source === 'products' || (source === 'settings' && settingsRanked && !themeItem))) {
                 continue
             }
-            const filtered = matchLocal(source, local[source], localQuery, ranked).filter((item) => !shown.has(item.id))
-            const themeItem = source === 'settings' ? input.themeItem : null
+            const filtered =
+                ranked && source === 'settings' && settingsRanked
+                    ? []
+                    : matchLocal(source, local[source], localQuery, ranked).filter((item) => !shown.has(item.id))
             const rows = themeItem
                 ? itemRows(source, [themeItem, ...filtered], SECONDARY_LIMIT + 1)
                 : itemRows(source, filtered, SECONDARY_LIMIT)
@@ -395,7 +486,31 @@ function lowerSections(
         : all
 }
 
+function withCorrectionNotice(sections: CommandKSection[], correction: SearchCorrection | null): CommandKSection[] {
+    if (!correction || !sections.some((section) => section.rows.some((row) => row.kind === 'item'))) {
+        return sections
+    }
+    const row: CommandKRow = {
+        kind: 'notice',
+        key: 'notice/corrected',
+        reason: 'corrected',
+        missing: [correction.from],
+        shown: [correction.to],
+    }
+    const notice = sections.find((section) => section.key === 'notice')
+    if (notice) {
+        return sections.map((section) => (section === notice ? { ...section, rows: [row, ...section.rows] } : section))
+    }
+    const index = sections.findIndex((section) => section.key !== 'filters' && section.key !== 'suggestions')
+    const at = index < 0 ? sections.length : index
+    return [...sections.slice(0, at), readySection('notice', [row]), ...sections.slice(at)]
+}
+
 export function buildSections(input: SectionsInput): CommandKSection[] {
+    return withCorrectionNotice(buildSectionsForQuery(input), input.searchCorrection)
+}
+
+function buildSectionsForQuery(input: SectionsInput): CommandKSection[] {
     const { mode, context, local, remote, remoteQueries, localQuery } = input
     if (mode === 'empty') {
         return [
@@ -443,8 +558,8 @@ export function buildSections(input: SectionsInput): CommandKSection[] {
         return sections.filter((section): section is CommandKSection => section !== null)
     }
     const leadingPersons = personsQuery ? remote.persons.cache[personsQuery] : []
-    if (!ranked && leadingPersons.length) {
-        sections.push(remoteSection('persons', leadingPersons, state))
+    if (!ranked && personsQuery && leadingPersons.length) {
+        sections.push(remoteSection('persons', cachedPage(remote.persons, personsQuery), state))
     }
     if (ranked && results && resultsQuery) {
         const rankedSections = rankedResultsSections(
@@ -455,7 +570,8 @@ export function buildSections(input: SectionsInput): CommandKSection[] {
             state,
             leadingPersons,
             accountsQuery ? remote.accounts.cache[accountsQuery] : [],
-            input.settingsInResults
+            input.themeItem,
+            input.expandedGroups ?? []
         )
         sections.push(
             ...(rankedSections.some((section) => section.key === 'results')
@@ -465,15 +581,45 @@ export function buildSections(input: SectionsInput): CommandKSection[] {
                 : [...rankedSections, withViewAll(null, input.viewAll)])
         )
     } else {
-        sections.push(withViewAll(results ? remoteSection('results', results, state) : null, input.viewAll))
+        sections.push(withViewAll(results ? remoteSection('results', { items: results }, state) : null, input.viewAll))
     }
     if (mode !== 'value') {
+        const themeItem = input.themeItem
+        const settingsGroupIndex = sections.findIndex((section) => section?.key === 'group-settings')
+        const settingsGroup = sections[settingsGroupIndex]
+        if (
+            ranked &&
+            themeItem &&
+            settingsGroup &&
+            !sections.some((section) =>
+                section?.rows.some((row) => row.kind === 'item' && row.item.id === themeItem.id)
+            )
+        ) {
+            sections[settingsGroupIndex] = {
+                ...settingsGroup,
+                rows: [
+                    {
+                        kind: 'item',
+                        key: `group-settings/${themeItem.id}`,
+                        item: themeItem,
+                        section: 'settings',
+                        ranked: true,
+                        highlightWords: freeWords(localQuery),
+                    },
+                    ...settingsGroup.rows,
+                ],
+            }
+        }
         const shown = new Set(
             sections.flatMap(
                 (section) => section?.rows.flatMap((row) => (row.kind === 'item' ? [row.item.id] : [])) ?? []
             )
         )
-        sections.push(...lowerSections(input, ranked, state, shown))
+        const settingsRanked = sections.some(
+            (section) => section?.rows.some((row) => row.kind === 'item' && row.item.category === 'settings') ?? false
+        )
+        const placedAbove = new Set(sections.flatMap((section) => (section ? [section.key] : [])))
+        sections.push(...lowerSections(input, { ranked, state, shown, settingsRanked, placedAbove }))
     }
     return sections.filter((section): section is CommandKSection => section !== null)
 }

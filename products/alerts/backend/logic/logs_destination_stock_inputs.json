@@ -1,0 +1,533 @@
+{
+    "template-microsoft-teams": {
+        "text": [
+            "**🔴 Log alert '{event.properties.alert_name}' is firing**\n\n**Threshold breached:** {event.properties.result_count} logs in {event.properties.window_minutes}m (threshold: {event.properties.threshold_operator} {event.properties.threshold_count})\n\n[View logs]({project.url}/logs?{event.properties.logs_url_params})",
+            "**🟢 Log alert '{event.properties.alert_name}' has resolved**\n\n**Current count:** {event.properties.result_count} logs in {event.properties.window_minutes}m (threshold: {event.properties.threshold_operator} {event.properties.threshold_count})\n\n[View logs]({project.url}/logs?{event.properties.logs_url_params})",
+            "**⚠️ Log alert '{event.properties.alert_name}' was auto-disabled**\n\n**Reason:** {event.properties.consecutive_failures} consecutive check failures.\n\n**Last error:** {event.properties.last_error_message}\n\n[View alert]({project.url}/logs/alerts/{event.properties.alert_id})",
+            "**🟡 Log alert '{event.properties.alert_name}' couldn't evaluate**\n\n**Reason:** {event.properties.error_message}\n\n**Failure count:** {event.properties.consecutive_failures}\n\n[View alert]({project.url}/logs/alerts/{event.properties.alert_id})"
+        ]
+    },
+    "template-pagerduty": {
+        "custom_details": [
+            {
+                "Threshold breached": "{event.properties.result_count} logs in {event.properties.window_minutes}m (threshold: {event.properties.threshold_operator} {event.properties.threshold_count})"
+            },
+            {
+                "Reason": "{event.properties.reason}"
+            }
+        ],
+        "dedup_key": ["posthog-alert-{event.properties.alert_id}"],
+        "event_action": ["trigger", "resolve"],
+        "links": [
+            [
+                {
+                    "href": "{project.url}/logs?{event.properties.logs_url_params}",
+                    "text": "View logs"
+                },
+                {
+                    "href": "{project.url}/logs/alerts/{event.properties.alert_id}",
+                    "text": "View alert"
+                }
+            ],
+            [
+                {
+                    "href": "{project.url}/logs/alerts/{event.properties.alert_id}",
+                    "text": "View alert"
+                }
+            ]
+        ],
+        "source": ["{project.name}"],
+        "summary": [
+            "🔴 Log alert '{event.properties.alert_name}' is firing: {event.properties.result_count} logs in {event.properties.window_minutes}m (threshold: {event.properties.threshold_operator} {event.properties.threshold_count})",
+            "Log alert '{event.properties.alert_name}' stopped firing: {event.properties.reason}"
+        ]
+    },
+    "template-slack": {
+        "blocks": [
+            [
+                {
+                    "text": {
+                        "text": "🔴 Log alert '{event.properties.alert_name}' is firing",
+                        "type": "plain_text"
+                    },
+                    "type": "header"
+                },
+                {
+                    "text": {
+                        "text": "*Threshold breached:* {event.properties.result_count} logs in {event.properties.window_minutes}m (threshold: {event.properties.threshold_operator} {event.properties.threshold_count})",
+                        "type": "mrkdwn"
+                    },
+                    "type": "section"
+                },
+                {
+                    "elements": [
+                        {
+                            "text": "{if(length(event.properties.severity_levels) > 0 or length(event.properties.service_names) > 0, concat(  if(length(event.properties.severity_levels) > 0,    concat('Severity: ', arrayStringConcat(event.properties.severity_levels, ', ')),    ''),  if(length(event.properties.severity_levels) > 0 and length(event.properties.service_names) > 0,    ' | ', ''),  if(length(event.properties.service_names) > 0,    concat('Services: ', arrayStringConcat(event.properties.service_names, ', ')),    '') ), 'All log levels and services')}",
+                            "type": "mrkdwn"
+                        },
+                        {
+                            "text": "Project: <{project.url}|{project.name}>",
+                            "type": "mrkdwn"
+                        }
+                    ],
+                    "type": "context"
+                },
+                {
+                    "type": "divider"
+                },
+                {
+                    "elements": [
+                        {
+                            "text": {
+                                "text": "View logs",
+                                "type": "plain_text"
+                            },
+                            "type": "button",
+                            "url": "{project.url}/logs?{event.properties.logs_url_params}"
+                        }
+                    ],
+                    "type": "actions"
+                }
+            ],
+            [
+                {
+                    "text": {
+                        "text": "🟢 Log alert '{event.properties.alert_name}' has resolved",
+                        "type": "plain_text"
+                    },
+                    "type": "header"
+                },
+                {
+                    "text": {
+                        "text": "*Current count:* {event.properties.result_count} logs in {event.properties.window_minutes}m (threshold: {event.properties.threshold_operator} {event.properties.threshold_count})",
+                        "type": "mrkdwn"
+                    },
+                    "type": "section"
+                },
+                {
+                    "elements": [
+                        {
+                            "text": "{if(length(event.properties.severity_levels) > 0 or length(event.properties.service_names) > 0, concat(  if(length(event.properties.severity_levels) > 0,    concat('Severity: ', arrayStringConcat(event.properties.severity_levels, ', ')),    ''),  if(length(event.properties.severity_levels) > 0 and length(event.properties.service_names) > 0,    ' | ', ''),  if(length(event.properties.service_names) > 0,    concat('Services: ', arrayStringConcat(event.properties.service_names, ', ')),    '') ), 'All log levels and services')}",
+                            "type": "mrkdwn"
+                        },
+                        {
+                            "text": "Project: <{project.url}|{project.name}>",
+                            "type": "mrkdwn"
+                        }
+                    ],
+                    "type": "context"
+                },
+                {
+                    "type": "divider"
+                },
+                {
+                    "elements": [
+                        {
+                            "text": {
+                                "text": "View logs",
+                                "type": "plain_text"
+                            },
+                            "type": "button",
+                            "url": "{project.url}/logs?{event.properties.logs_url_params}"
+                        }
+                    ],
+                    "type": "actions"
+                }
+            ],
+            [
+                {
+                    "text": {
+                        "text": "⚠️ Log alert '{event.properties.alert_name}' was auto-disabled",
+                        "type": "plain_text"
+                    },
+                    "type": "header"
+                },
+                {
+                    "text": {
+                        "text": "*Reason:* {event.properties.consecutive_failures} consecutive check failures.\n*Last error:* {event.properties.last_error_message}",
+                        "type": "mrkdwn"
+                    },
+                    "type": "section"
+                },
+                {
+                    "elements": [
+                        {
+                            "text": "{if(length(event.properties.severity_levels) > 0 or length(event.properties.service_names) > 0, concat(  if(length(event.properties.severity_levels) > 0,    concat('Severity: ', arrayStringConcat(event.properties.severity_levels, ', ')),    ''),  if(length(event.properties.severity_levels) > 0 and length(event.properties.service_names) > 0,    ' | ', ''),  if(length(event.properties.service_names) > 0,    concat('Services: ', arrayStringConcat(event.properties.service_names, ', ')),    '') ), 'All log levels and services')}",
+                            "type": "mrkdwn"
+                        },
+                        {
+                            "text": "Project: <{project.url}|{project.name}>",
+                            "type": "mrkdwn"
+                        }
+                    ],
+                    "type": "context"
+                },
+                {
+                    "type": "divider"
+                },
+                {
+                    "elements": [
+                        {
+                            "text": {
+                                "text": "View alert",
+                                "type": "plain_text"
+                            },
+                            "type": "button",
+                            "url": "{project.url}/logs/alerts/{event.properties.alert_id}"
+                        }
+                    ],
+                    "type": "actions"
+                }
+            ],
+            [
+                {
+                    "text": {
+                        "text": "🟡 Log alert '{event.properties.alert_name}' couldn't evaluate",
+                        "type": "plain_text"
+                    },
+                    "type": "header"
+                },
+                {
+                    "text": {
+                        "text": "*Reason:* {event.properties.error_message}\n*Failure count:* {event.properties.consecutive_failures}",
+                        "type": "mrkdwn"
+                    },
+                    "type": "section"
+                },
+                {
+                    "elements": [
+                        {
+                            "text": "{if(length(event.properties.severity_levels) > 0 or length(event.properties.service_names) > 0, concat(  if(length(event.properties.severity_levels) > 0,    concat('Severity: ', arrayStringConcat(event.properties.severity_levels, ', ')),    ''),  if(length(event.properties.severity_levels) > 0 and length(event.properties.service_names) > 0,    ' | ', ''),  if(length(event.properties.service_names) > 0,    concat('Services: ', arrayStringConcat(event.properties.service_names, ', ')),    '') ), 'All log levels and services')}",
+                            "type": "mrkdwn"
+                        },
+                        {
+                            "text": "Project: <{project.url}|{project.name}>",
+                            "type": "mrkdwn"
+                        }
+                    ],
+                    "type": "context"
+                },
+                {
+                    "type": "divider"
+                },
+                {
+                    "elements": [
+                        {
+                            "text": {
+                                "text": "View alert",
+                                "type": "plain_text"
+                            },
+                            "type": "button",
+                            "url": "{project.url}/logs/alerts/{event.properties.alert_id}"
+                        }
+                    ],
+                    "type": "actions"
+                }
+            ],
+            [
+                {
+                    "text": {
+                        "text": "Log alert '{event.properties.alert_name}' has resolved",
+                        "type": "plain_text"
+                    },
+                    "type": "header"
+                },
+                {
+                    "text": {
+                        "text": "*Current count:* {event.properties.result_count} logs in {event.properties.window_minutes}m (threshold: {event.properties.threshold_operator} {event.properties.threshold_count})",
+                        "type": "mrkdwn"
+                    },
+                    "type": "section"
+                },
+                {
+                    "type": "context",
+                    "elements": [
+                        {
+                            "text": "{if(length(event.properties.severity_levels) > 0 or length(event.properties.service_names) > 0, concat(  if(length(event.properties.severity_levels) > 0,    concat('Severity: ', arrayStringConcat(event.properties.severity_levels, ', ')),    ''),  if(length(event.properties.severity_levels) > 0 and length(event.properties.service_names) > 0,    ' | ', ''),  if(length(event.properties.service_names) > 0,    concat('Services: ', arrayStringConcat(event.properties.service_names, ', ')),    '') ), 'All log levels and services')}",
+                            "type": "mrkdwn"
+                        },
+                        {
+                            "text": "Project: <{project.url}|{project.name}>",
+                            "type": "mrkdwn"
+                        }
+                    ]
+                },
+                {
+                    "type": "divider"
+                },
+                {
+                    "type": "actions",
+                    "elements": [
+                        {
+                            "url": "{project.url}/logs?{event.properties.logs_url_params}",
+                            "text": {
+                                "text": "View logs",
+                                "type": "plain_text"
+                            },
+                            "type": "button"
+                        }
+                    ]
+                }
+            ],
+            [
+                {
+                    "text": {
+                        "text": "Log alert '{event.properties.alert_name}' {if(event.event == '$logs_alert_resolved', 'has resolved', 'is firing')}",
+                        "type": "plain_text"
+                    },
+                    "type": "header"
+                },
+                {
+                    "text": {
+                        "text": "*{if(event.event == '$logs_alert_resolved', 'Current count', 'Threshold breached')}:* {event.properties.result_count} logs in {event.properties.window_minutes}m (threshold: {event.properties.threshold_operator} {event.properties.threshold_count})",
+                        "type": "mrkdwn"
+                    },
+                    "type": "section"
+                },
+                {
+                    "type": "context",
+                    "elements": [
+                        {
+                            "text": "{if(length(event.properties.severity_levels) > 0 or length(event.properties.service_names) > 0, concat(if(length(event.properties.severity_levels) > 0, concat('Severity: ', arrayStringConcat(event.properties.severity_levels, ', ')), ''),if(length(event.properties.severity_levels) > 0 and length(event.properties.service_names) > 0, ' | ', ''),if(length(event.properties.service_names) > 0, concat('Services: ', arrayStringConcat(event.properties.service_names, ', ')), '')), 'All log levels and services')}",
+                            "type": "mrkdwn"
+                        },
+                        {
+                            "text": "Project: <{project.url}|{project.name}>",
+                            "type": "mrkdwn"
+                        }
+                    ]
+                },
+                {
+                    "type": "divider"
+                },
+                {
+                    "type": "actions",
+                    "elements": [
+                        {
+                            "url": "{project.url}/logs?{event.properties.logs_url_params}",
+                            "text": {
+                                "text": "View logs",
+                                "type": "plain_text"
+                            },
+                            "type": "button"
+                        }
+                    ]
+                }
+            ],
+            [
+                {
+                    "text": {
+                        "text": "Log alert '{event.properties.alert_name}' is firing",
+                        "type": "plain_text"
+                    },
+                    "type": "header"
+                },
+                {
+                    "text": {
+                        "text": "*Threshold breached:* {event.properties.result_count} logs in {event.properties.window_minutes}m (threshold: {event.properties.threshold_operator} {event.properties.threshold_count})",
+                        "type": "mrkdwn"
+                    },
+                    "type": "section"
+                },
+                {
+                    "type": "context",
+                    "elements": [
+                        {
+                            "text": "{if(length(event.properties.severity_levels) > 0 or length(event.properties.service_names) > 0, concat(  if(length(event.properties.severity_levels) > 0,    concat('Severity: ', arrayStringConcat(event.properties.severity_levels, ', ')),    ''),  if(length(event.properties.severity_levels) > 0 and length(event.properties.service_names) > 0,    ' | ', ''),  if(length(event.properties.service_names) > 0,    concat('Services: ', arrayStringConcat(event.properties.service_names, ', ')),    '') ), 'All log levels and services')}",
+                            "type": "mrkdwn"
+                        },
+                        {
+                            "text": "Project: <{project.url}|{project.name}>",
+                            "type": "mrkdwn"
+                        }
+                    ]
+                },
+                {
+                    "type": "divider"
+                },
+                {
+                    "type": "actions",
+                    "elements": [
+                        {
+                            "url": "{project.url}/logs?{event.properties.logs_url_params}",
+                            "text": {
+                                "text": "View logs",
+                                "type": "plain_text"
+                            },
+                            "type": "button"
+                        }
+                    ]
+                }
+            ],
+            [
+                {
+                    "text": {
+                        "text": "Log alert '{event.properties.alert_name}' is firing",
+                        "type": "plain_text"
+                    },
+                    "type": "header"
+                },
+                {
+                    "text": {
+                        "text": "*Threshold breached:* {event.properties.threshold_count} logs in {event.properties.window_minutes}m (limit: {event.properties.threshold_operator} {event.properties.threshold_value})",
+                        "type": "mrkdwn"
+                    },
+                    "type": "section"
+                },
+                {
+                    "type": "context",
+                    "elements": [
+                        {
+                            "text": "Project: <{project.url}|{project.name}>",
+                            "type": "mrkdwn"
+                        }
+                    ]
+                },
+                {
+                    "type": "divider"
+                },
+                {
+                    "type": "actions",
+                    "elements": [
+                        {
+                            "url": "{project.url}/logs?{event.properties.logs_url_params}",
+                            "text": {
+                                "text": "View logs",
+                                "type": "plain_text"
+                            },
+                            "type": "button"
+                        }
+                    ]
+                }
+            ],
+            [
+                {
+                    "text": {
+                        "text": "Log alert '{event.properties.alert_name}' was auto-disabled",
+                        "type": "plain_text"
+                    },
+                    "type": "header"
+                },
+                {
+                    "text": {
+                        "text": "*Reason:* {event.properties.consecutive_failures} consecutive check failures.\n*Last error:* {event.properties.last_error_message}",
+                        "type": "mrkdwn"
+                    },
+                    "type": "section"
+                },
+                {
+                    "type": "context",
+                    "elements": [
+                        {
+                            "text": "{if(length(event.properties.severity_levels) > 0 or length(event.properties.service_names) > 0, concat(  if(length(event.properties.severity_levels) > 0,    concat('Severity: ', arrayStringConcat(event.properties.severity_levels, ', ')),    ''),  if(length(event.properties.severity_levels) > 0 and length(event.properties.service_names) > 0,    ' | ', ''),  if(length(event.properties.service_names) > 0,    concat('Services: ', arrayStringConcat(event.properties.service_names, ', ')),    '') ), 'All log levels and services')}",
+                            "type": "mrkdwn"
+                        },
+                        {
+                            "text": "Project: <{project.url}|{project.name}>",
+                            "type": "mrkdwn"
+                        }
+                    ]
+                },
+                {
+                    "type": "divider"
+                },
+                {
+                    "type": "actions",
+                    "elements": [
+                        {
+                            "url": "{project.url}/logs?alertId={event.properties.alert_id}",
+                            "text": {
+                                "text": "View alert",
+                                "type": "plain_text"
+                            },
+                            "type": "button"
+                        }
+                    ]
+                }
+            ]
+        ],
+        "text": [
+            "🔴 Log alert '{event.properties.alert_name}' is firing",
+            "🟢 Log alert '{event.properties.alert_name}' has resolved",
+            "⚠️ Log alert '{event.properties.alert_name}' was auto-disabled",
+            "🟡 Log alert '{event.properties.alert_name}' couldn't evaluate",
+            "Log alert '{event.properties.alert_name}' has resolved",
+            "Log alert '{event.properties.alert_name}' {if(event.event == '$logs_alert_resolved', 'has resolved', 'is firing')}",
+            "Log alert '{event.properties.alert_name}' is firing",
+            "Log alert '{event.properties.alert_name}' was auto-disabled"
+        ]
+    },
+    "template-webhook": {
+        "body": [
+            {
+                "data": {
+                    "alert_id": "{event.properties.alert_id}",
+                    "alert_name": "{event.properties.alert_name}",
+                    "alert_url": "{project.url}/logs/alerts/{event.properties.alert_id}",
+                    "logs_url": "{project.url}/logs?{event.properties.logs_url_params}",
+                    "result_count": "{event.properties.result_count}",
+                    "service_names": "{event.properties.service_names}",
+                    "severity_levels": "{event.properties.severity_levels}",
+                    "threshold_count": "{event.properties.threshold_count}",
+                    "threshold_operator": "{event.properties.threshold_operator}",
+                    "window_minutes": "{event.properties.window_minutes}"
+                },
+                "id": "{event.uuid}",
+                "timestamp": "{event.properties.triggered_at}",
+                "type": "logs_alert.firing"
+            },
+            {
+                "data": {
+                    "alert_id": "{event.properties.alert_id}",
+                    "alert_name": "{event.properties.alert_name}",
+                    "alert_url": "{project.url}/logs/alerts/{event.properties.alert_id}",
+                    "logs_url": "{project.url}/logs?{event.properties.logs_url_params}",
+                    "result_count": "{event.properties.result_count}",
+                    "service_names": "{event.properties.service_names}",
+                    "severity_levels": "{event.properties.severity_levels}",
+                    "threshold_count": "{event.properties.threshold_count}",
+                    "threshold_operator": "{event.properties.threshold_operator}",
+                    "window_minutes": "{event.properties.window_minutes}"
+                },
+                "id": "{event.uuid}",
+                "timestamp": "{event.properties.triggered_at}",
+                "type": "logs_alert.resolved"
+            },
+            {
+                "data": {
+                    "alert_id": "{event.properties.alert_id}",
+                    "alert_name": "{event.properties.alert_name}",
+                    "alert_url": "{project.url}/logs/alerts/{event.properties.alert_id}",
+                    "consecutive_failures": "{event.properties.consecutive_failures}",
+                    "last_error_message": "{event.properties.last_error_message}",
+                    "service_names": "{event.properties.service_names}",
+                    "severity_levels": "{event.properties.severity_levels}"
+                },
+                "id": "{event.uuid}",
+                "timestamp": "{event.properties.triggered_at}",
+                "type": "logs_alert.auto_disabled"
+            },
+            {
+                "data": {
+                    "alert_id": "{event.properties.alert_id}",
+                    "alert_name": "{event.properties.alert_name}",
+                    "alert_url": "{project.url}/logs/alerts/{event.properties.alert_id}",
+                    "consecutive_failures": "{event.properties.consecutive_failures}",
+                    "error_message": "{event.properties.error_message}",
+                    "service_names": "{event.properties.service_names}",
+                    "severity_levels": "{event.properties.severity_levels}"
+                },
+                "id": "{event.uuid}",
+                "timestamp": "{event.properties.triggered_at}",
+                "type": "logs_alert.errored"
+            }
+        ],
+        "headers": [
+            {
+                "Content-Type": "application/json",
+                "X-PostHog-Webhook-Version": "1"
+            }
+        ],
+        "method": ["POST"]
+    }
+}

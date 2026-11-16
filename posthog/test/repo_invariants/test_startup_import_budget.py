@@ -5,6 +5,8 @@ import weakref
 import subprocess
 from pathlib import Path
 
+import pytest
+
 from django.db.models.signals import post_save
 
 # Heavy subsystems that must NOT be imported by a bare ``django.setup()``. Each one was
@@ -145,6 +147,7 @@ def test_all_models_register_at_app_population_not_via_router() -> None:
 # alerts, ee, and posthog core); this guards against new viewset-only receivers sneaking back in.
 _ROUTER_RECEIVER_DIFF = """
 import os
+import sys
 import weakref
 
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "posthog.settings")
@@ -155,14 +158,21 @@ from django.contrib.auth import signals as auth_signals
 from django.db.models import signals
 from posthog.models.signals import model_activity_signal
 
+# Looked up instead of imported: an import here would connect the experiments save receivers before `before`, so the
+# diff would miss them if only the router imported their module.
+experiment_changed = sys.modules["products.experiments.backend.facade.change_signals"].experiment_changed
+
 _SIGNALS = ["pre_save", "post_save", "pre_delete", "post_delete", "m2m_changed", "pre_init", "post_init"]
 # model_activity_signal is PostHog's custom audit-log signal, not a django.db.models one. Its
 # `handle_*_change` receivers live in viewset modules, so they are exactly the kind that the eager
 # router used to wire as a side effect — include it or this whole class of regression is invisible.
 # Auth signals are included for parity with the setup-receivers baseline: an auth receiver wired
 # only via a viewset import would otherwise slip past both guards.
+# experiment_changed is the experiments facade's hook for experiment saves and deletes. Its receivers take the place
+# of model-signal receivers on the experiment model, so they need the same guard.
 _CUSTOM_SIGNALS = {
     "model_activity": model_activity_signal,
+    "experiment_changed": experiment_changed,
     "user_logged_in": auth_signals.user_logged_in,
     "user_logged_out": auth_signals.user_logged_out,
     "user_login_failed": auth_signals.user_login_failed,
@@ -234,6 +244,7 @@ _RECEIVERS_BASELINE = Path(__file__).parent / "setup_receivers_baseline.txt"
 
 _SETUP_RECEIVERS_CAPTURE = """
 import os
+import sys
 import weakref
 
 os.environ.setdefault("DJANGO_SETTINGS_MODULE", "posthog.settings")
@@ -251,6 +262,9 @@ _SIGNALS = {
 }
 _SIGNALS |= {name: getattr(auth_signals, name) for name in ("user_logged_in", "user_logged_out", "user_login_failed")}
 _SIGNALS["model_activity"] = model_activity_signal
+# Looked up instead of imported: an import here would connect the experiments save receivers itself, which would hide
+# a dropped import from an AppConfig.ready().
+_SIGNALS["experiment_changed"] = sys.modules["products.experiments.backend.facade.change_signals"].experiment_changed
 
 out = set()
 for signal_name, signal in _SIGNALS.items():
@@ -491,3 +505,36 @@ print("WSGI_PREBUILD_OK")
     )
     assert result.returncode == 0, f"posthog.wsgi import failed:\n{result.stderr[-2000:]}"
     assert "WSGI_PREBUILD_OK" in result.stdout, result.stdout[-500:]
+
+
+# A web worker finalizes Celery on its first `.delay()`. A first-party import during that finalize can
+# deadlock with a thread lazily importing a task module, which hangs that worker for good.
+_WEB_FINALIZE_IMPORTS_PROBE = """
+import importlib
+import os
+import sys
+os.environ.setdefault("DJANGO_SETTINGS_MODULE", "posthog.settings")
+importlib.import_module(sys.argv[1])
+from posthog.celery import app
+before = set(sys.modules)
+app.finalize()
+new = sorted(m for m in set(sys.modules) - before if m.split(".")[0] in {"posthog", "ee", "products"})
+print("FINALIZE_IMPORTS=" + ",".join(new))
+"""
+
+
+@pytest.mark.parametrize("entrypoint", ["posthog.wsgi", "posthog.asgi"])
+def test_celery_finalize_in_a_web_worker_imports_no_first_party_module(entrypoint: str) -> None:
+    result = subprocess.run(
+        [sys.executable, "-c", _WEB_FINALIZE_IMPORTS_PROBE, entrypoint],
+        capture_output=True,
+        text=True,
+        timeout=300,
+    )
+    assert result.returncode == 0, f"{entrypoint} failed to import:\n{result.stderr[-2000:]}"
+    imported = next(line for line in result.stdout.splitlines() if line.startswith("FINALIZE_IMPORTS="))
+    assert imported == "FINALIZE_IMPORTS=", (
+        f"Celery finalize in {entrypoint} imported {imported.removeprefix('FINALIZE_IMPORTS=')}. A web worker "
+        "finalizes on its first `.delay()`, and an import there can deadlock with a lazy task import. Keep "
+        "imports out of `on_after_finalize` receivers: periodic tasks register on `import_modules` in posthog/celery.py."
+    )

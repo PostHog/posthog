@@ -1,5 +1,7 @@
 import os
+import json
 import importlib
+from collections.abc import Iterator
 
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
@@ -8,11 +10,21 @@ from django.test import override_settings
 
 from anthropic.types import Message, TextBlock, Usage
 
+from products.signals.backend.llm_spend import _generation_source
 from products.signals.backend.temporal import llm
 from products.signals.backend.temporal.llm import call_llm
 from products.signals.eval.llm_gen.client import CanonicalSignal, CanonicalSignalBatch, generate_canonical_signals
 
 MODULE_PATH = "products.signals.backend.temporal.llm"
+
+
+@pytest.fixture(autouse=True)
+def no_trial() -> Iterator[None]:
+    with (
+        patch("products.signals.backend.trial.reports.requires_trial_accounting", return_value=False),
+        patch("products.signals.backend.llm_spend.TrialLLMExecution.prepare", return_value=None),
+    ):
+        yield
 
 
 def _text_response(text: str) -> Message:
@@ -33,6 +45,41 @@ def _mock_anthropic_client() -> MagicMock:
 
 
 @pytest.mark.asyncio
+@pytest.mark.parametrize("model", [None, "claude-opus-5"])
+async def test_trial_short_stage_preserves_regular_model_profile(model: str | None) -> None:
+    client = _mock_anthropic_client()
+    client.with_options.return_value = client
+    client.default_headers = {}
+    source_token = _generation_source.set("generation:trial")
+    try:
+        with (
+            patch("products.signals.backend.trial.reports.requires_trial_accounting", return_value=True),
+            patch(f"{MODULE_PATH}.build_async_anthropic_client", return_value=client),
+        ):
+            assert (
+                await call_llm(
+                    team_id=1,
+                    system_prompt="s",
+                    user_prompt="u",
+                    validate=lambda text: text,
+                    thinking=True,
+                    model=model,
+                    ai_product="signals_grouping",
+                )
+                == "ok"
+            )
+    finally:
+        _generation_source.reset(source_token)
+    request = client.messages.create.call_args.kwargs
+    assert request["model"] == (model or llm.MATCHING_MODEL)
+    assert request["thinking"] == {"type": "adaptive"}
+    assert request["output_config"] == llm.effort_kwargs(model or llm.MATCHING_MODEL)["output_config"]
+    assert request["messages"] == [{"role": "user", "content": "u"}]
+    assert json.loads(request["extra_headers"]["X-PostHog-Properties"])["signals_cost_source_id"] == "generation:trial"
+    client.with_options.assert_called_with(max_retries=0)
+
+
+@pytest.mark.asyncio
 @pytest.mark.parametrize("has_text", [False, True])
 async def test_explicit_refusal_is_not_treated_as_text(has_text: bool) -> None:
     response = _text_response("refused")
@@ -41,9 +88,11 @@ async def test_explicit_refusal_is_not_treated_as_text(has_text: bool) -> None:
         response.content = []
     client = _mock_anthropic_client()
     client.messages.create.return_value = response
-    with patch(f"{MODULE_PATH}.get_async_anthropic_gateway_client", return_value=client):
+    with patch(f"{MODULE_PATH}.build_async_anthropic_client", return_value=client):
         with pytest.raises(llm.LLMRefusalError):
-            await call_llm(team_id=1, system_prompt="s", user_prompt="u", validate=lambda text: text)
+            await call_llm(
+                team_id=1, system_prompt="s", user_prompt="u", validate=lambda text: text, ai_product="signals_grouping"
+            )
 
 
 @pytest.mark.asyncio
@@ -84,23 +133,6 @@ async def test_fallback_mode_sends_legacy_stage_header():
         )
 
     # On the Python-gateway fallback the stage still rides as a per-key header the route reads.
-    assert client.messages.create.call_args.kwargs["extra_headers"] == {"x-posthog-property-ai_stage": "match"}
-
-
-@pytest.mark.asyncio
-@override_settings(AI_GATEWAY_URL="https://ai-gateway.example/v1", AI_GATEWAY_API_KEY="phs_test")
-async def test_without_ai_product_stays_on_python_gateway_even_with_env_set():
-    client = _mock_anthropic_client()
-    with (
-        patch(f"{MODULE_PATH}.get_async_anthropic_gateway_client", return_value=client) as legacy,
-        patch(f"{MODULE_PATH}.build_async_anthropic_client") as gateway,
-    ):
-        await call_llm(team_id=1, system_prompt="s", user_prompt="u", validate=lambda text: text, stage="match")
-
-    # A call site that hasn't opted in (no ai_product) never touches the Go-gateway builder, even
-    # with the env configured, and keeps the legacy per-key stage header.
-    legacy.assert_called_once()
-    gateway.assert_not_called()
     assert client.messages.create.call_args.kwargs["extra_headers"] == {"x-posthog-property-ai_stage": "match"}
 
 
@@ -150,11 +182,6 @@ async def test_non_message_response_raises_descriptive_error():
         )
 
 
-# `ai_product` is the opt-in switch, not just a label: dropping it from a call site silently
-# reverts that site to the Python gateway and unattributes its spend, with no failing call to
-# notice. Each site that opts in pins its own tag and stage.
-
-
 @pytest.mark.asyncio
 async def test_eval_fixture_generation_opts_in_as_signals_eval():
     batch = CanonicalSignalBatch(signals=[CanonicalSignal(title="a" * 10, body="b" * 20)])
@@ -185,7 +212,7 @@ async def test_request_shape_follows_model_capabilities(
     client = _mock_anthropic_client()
     with (
         patch(f"{MODULE_PATH}.MATCHING_MODEL", model),
-        patch(f"{MODULE_PATH}.get_async_anthropic_gateway_client", return_value=client),
+        patch(f"{MODULE_PATH}.build_async_anthropic_client", return_value=client),
     ):
         await call_llm(
             team_id=1,
@@ -194,6 +221,7 @@ async def test_request_shape_follows_model_capabilities(
             validate=lambda text: text,
             thinking=thinking,
             stage="match",
+            ai_product="signals_grouping",
         )
 
     kwargs = client.messages.create.call_args.kwargs
@@ -209,7 +237,7 @@ async def test_explicit_model_overrides_the_matching_model() -> None:
     client = _mock_anthropic_client()
     with (
         patch(f"{MODULE_PATH}.MATCHING_MODEL", "claude-sonnet-4-5"),
-        patch(f"{MODULE_PATH}.get_async_anthropic_gateway_client", return_value=client),
+        patch(f"{MODULE_PATH}.build_async_anthropic_client", return_value=client),
     ):
         await call_llm(
             team_id=1,
@@ -217,6 +245,7 @@ async def test_explicit_model_overrides_the_matching_model() -> None:
             user_prompt="u",
             validate=lambda text: text,
             stage="safety_filter",
+            ai_product="signals_safety",
             model="claude-sonnet-5",
         )
 

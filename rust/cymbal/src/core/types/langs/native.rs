@@ -4,7 +4,7 @@ use common_types::error_tracking::FrameId;
 use serde::{Deserialize, Serialize};
 use sha2::{Digest, Sha512};
 use symbolic::common::Name;
-use symbolic::demangle::{Demangle, DemangleOptions};
+use symbolic_demangle::{Demangle, DemangleOptions};
 
 use crate::{
     error::{FrameError, NativeError, ResolveError, UnhandledError},
@@ -699,25 +699,25 @@ pub(crate) mod test_support {
                 config.object_storage_bucket.clone(),
             ),
             ChunkIdFetcher::new(
-                HermesMapProvider {},
+                HermesMapProvider::new(&config),
                 client.clone(),
                 db.clone(),
                 config.object_storage_bucket.clone(),
             ),
             ChunkIdFetcher::new(
-                ProguardProvider {},
+                ProguardProvider::new(&config),
                 client.clone(),
                 db.clone(),
                 config.object_storage_bucket.clone(),
             ),
             ChunkIdFetcher::new(
-                AppleProvider {},
+                AppleProvider::new(&config),
                 client.clone(),
                 db.clone(),
                 config.object_storage_bucket.clone(),
             ),
             ChunkIdFetcher::new(
-                NativeProvider {},
+                NativeProvider::new(&config),
                 client.clone(),
                 db.clone(),
                 config.object_storage_bucket.clone(),

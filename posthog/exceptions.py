@@ -1,4 +1,5 @@
 import random
+from collections.abc import Sequence
 from typing import Any, Optional, Protocol, TypedDict
 
 from django.http.request import HttpRequest
@@ -6,12 +7,18 @@ from django.http.response import JsonResponse
 
 import structlog
 from rest_framework import status
-from rest_framework.exceptions import APIException, Throttled, ValidationError
+from rest_framework.exceptions import APIException, PermissionDenied, Throttled, ValidationError
 from rest_framework.response import Response
 
 from posthog.clickhouse.query_tagging import get_query_tags
 from posthog.cloud_utils import is_cloud
 from posthog.exceptions_capture import capture_exception
+from posthog.scopes import (
+    INTERNAL_API_SCOPE_OBJECTS,
+    scopes_covered_by_legacy_fallback,
+    scopes_not_covered,
+    scopes_within_ceiling,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -67,6 +74,25 @@ class PaidFeatureException(APIException):
     def __init__(self, feature: Optional[str] = None) -> None:
         feature_name = feature.capitalize().replace("_", " ") if feature else "This feature"
         super().__init__(detail=f"{feature_name} requires a paid PostHog plan. Please upgrade to access this feature.")
+
+
+class InsufficientScope(PermissionDenied):
+    """A 403 for a token that lacks a scope the request needs.
+
+    Raise it wherever code finds a missing scope. The exception handler decides if the response
+    carries an RFC 6750 section 3.1 `insufficient_scope` challenge, so callers never check the token type.
+    `required_scopes` are the scopes the request requires. The MCP step-up flow has the client union
+    them with the scopes it holds, so a check that guards one extra scope can name only that scope.
+    """
+
+    def __init__(
+        self, required_scopes: Sequence[str], detail: str | None = None, extra: dict[str, Any] | None = None
+    ) -> None:
+        super().__init__(detail=detail or f"API key missing required scope '{required_scopes[0]}'")
+        self.required_scopes = list(required_scopes)
+        # drf-exceptions-hog adds `extra` to the error body, for example the scopes a workload token misses.
+        if extra:
+            self.extra = extra
 
 
 class Conflict(APIException):
@@ -233,6 +259,12 @@ def exception_handler(exc: Exception, context: ExceptionContext) -> Optional[Res
     from posthog.utils import absolute_uri
 
     response = _exceptions_hog_handler(exc, context)
+    if response is not None and isinstance(exc, PermissionDenied) and exc.get_codes() == "ip_not_allowed":
+        # Keep IP diagnostics consistent with denials from middleware without importing auth at startup.
+        from posthog.ip_restrictions import get_restriction_client_ip  # noqa: PLC0415
+
+        request = context.get("request")
+        response.data["ip"] = get_restriction_client_ip(getattr(request, "_request", request))
     if response is not None and response.status_code == status.HTTP_401_UNAUTHORIZED:
         # A view may pin its own challenge (e.g. the skills marketplace git endpoints, which
         # git clients can only satisfy with Basic — they cannot complete a Bearer/OAuth flow).
@@ -247,4 +279,36 @@ def exception_handler(exc: Exception, context: ExceptionContext) -> Optional[Res
             # attacker-controlled origin.
             metadata_url = absolute_uri("/.well-known/oauth-protected-resource")
             response["WWW-Authenticate"] = f'Bearer resource_metadata="{metadata_url}"'
+    elif response is not None and isinstance(exc, InsufficientScope):
+        if challenge := _insufficient_scope_challenge(context.get("request"), exc.required_scopes):
+            response["WWW-Authenticate"] = challenge
     return response
+
+
+def _insufficient_scope_challenge(request: object, required_scopes: Sequence[str]) -> str | None:
+    """Only tokens from step-up apps get the challenge. Every other caller gets the same 403 without it."""
+    from posthog.auth import (  # noqa: PLC0415 - posthog.auth needs the app registry
+        OAuthAccessTokenAuthentication,
+        WorkloadAccessTokenAuthentication,
+    )
+
+    authenticator = getattr(request, "successful_authenticator", None)
+    # hog reads the scopes from a workload token's challenge to tell the user what to add to the trust policy.
+    if isinstance(authenticator, WorkloadAccessTokenAuthentication):
+        return f'Bearer error="insufficient_scope", scope="{" ".join(required_scopes)}"'
+    if not isinstance(authenticator, OAuthAccessTokenAuthentication) or not authenticator.access_token.supports_step_up:
+        return None
+    # Internal scopes cannot be granted at consent, so a challenge naming one could never succeed.
+    if any(scope.split(":", 1)[0] in INTERNAL_API_SCOPE_OBJECTS for scope in required_scopes):
+        return None
+    # Consent drops a scope outside the app's ceiling, so the client would re-consent and still lack it.
+    # Only the scopes the token lacks matter: a held or legacy-covered scope needs no new grant.
+    held = str(authenticator.access_token.scope or "").split()
+    lacking = scopes_not_covered(held, required_scopes)
+    lacking = [scope for scope in lacking if scope not in scopes_covered_by_legacy_fallback(held, lacking)]
+    application = authenticator.access_token.application
+    if application is None or not scopes_within_ceiling(
+        lacking, application.ceiling_scopes, allow_wildcard_under_empty_ceiling=True
+    ):
+        return None
+    return f'Bearer error="insufficient_scope", scope="{" ".join(required_scopes)}"'

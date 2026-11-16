@@ -3,6 +3,7 @@ import { forms } from 'kea-forms'
 import type { DeepPartialMap, ValidationErrorType } from 'kea-forms'
 import type { DeepPartial, FieldName } from 'kea-forms'
 
+import { ApiError } from 'lib/api-error'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
@@ -47,6 +48,10 @@ export interface DestinationFormValues extends Record<string, any> {
 
 const DEFAULT_TYPE: CreatableDestinationType = 'Postgres'
 
+function findIntegration(integrations: IntegrationType[] | null, id: number | null): IntegrationType | null {
+    return (id && integrations?.find((one) => one.id === id)) || null
+}
+
 export function newDestinationForm(type: CreatableDestinationType = DEFAULT_TYPE): DestinationFormValues {
     const definition = WAREHOUSE_DESTINATIONS[type]
     return {
@@ -78,6 +83,7 @@ export interface destinationModalLogicValues {
     isDestinationFormSubmitting: boolean
     isDestinationFormValid: boolean
     isOpen: boolean
+    selectedIntegration: IntegrationType | null
     showDestinationFormErrors: boolean
 }
 
@@ -129,6 +135,7 @@ export interface destinationModalLogicActions {
             | 'customerio-webhook'
             | 'databricks'
             | 'email'
+            | 'email_sandbox'
             | 'firebase'
             | 'github'
             | 'gitlab'
@@ -192,6 +199,7 @@ export interface destinationModalLogicMeta {
         definition: (destinationForm: any) => WarehouseDestinationDefinition
         availableIntegrations: (integrations: any, destinationForm: any) => IntegrationType[]
         editingIntegration: (editing: any, integrations: any) => IntegrationType | null
+        selectedIntegration: (integrations: any, destinationForm: any) => IntegrationType | null
     }
 }
 
@@ -247,6 +255,7 @@ export const destinationModalLogic = kea<destinationModalLogicType>([
                     {
                         isNew: !values.editing,
                         formValues,
+                        selectedIntegration: findIntegration(values.integrations, formValues.integrationId),
                     }
                 ),
             }),
@@ -294,8 +303,13 @@ export const destinationModalLogic = kea<destinationModalLogicType>([
             (
                 editing: ExternalDataDestinationApi | null,
                 integrations: IntegrationType[] | null
-            ): IntegrationType | null =>
-                (editing?.integration && integrations?.find((one) => one.id === editing.integration)) || null,
+            ): IntegrationType | null => findIntegration(integrations, editing?.integration ?? null),
+        ],
+        // The connection picked in the form, so a type's fields can depend on how it signs in.
+        selectedIntegration: [
+            (s: any) => [s.integrations, s.destinationForm],
+            (integrations: IntegrationType[] | null, destinationForm: DestinationFormValues): IntegrationType | null =>
+                findIntegration(integrations, destinationForm.integrationId),
         ],
     }),
     listeners(({ actions, values, props }: any) => ({
@@ -322,6 +336,17 @@ export const destinationModalLogic = kea<destinationModalLogicType>([
                 },
                 secondaryButton: { children: 'Cancel' },
             })
+        },
+        // The server tests a new destination's connection before it saves. kea-forms swallows a
+        // rejected submit, so the reason has to be shown here or the modal gives no feedback.
+        submitDestinationFormFailure: ({ error }: { error: Error }) => {
+            // A client-side validation failure lands here too, and its fields already show the errors.
+            if (!(error instanceof ApiError)) {
+                return
+            }
+            lemonToast.error(
+                error.detail ?? "Couldn't save this destination. Check the connection details, then try again."
+            )
         },
         openForCreate: () => {
             actions.loadIntegrations()

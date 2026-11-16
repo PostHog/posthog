@@ -15,7 +15,7 @@ from posthog.models.team import Team
 RETENTION_MONTHS_HELP = (
     "Events are deleted one calendar month at a time. A month is deleted only when every event in it is "
     "older than this many months. For example, with 13 months, the events of March 2025 are deleted on "
-    "the first monthly run after 1 May 2026."
+    "the first cleanup after 1 May 2026."
 )
 
 
@@ -34,8 +34,8 @@ class OrganizationEventsRetentionConfig(models.Model):
         "posthog.Organization", on_delete=models.CASCADE, primary_key=True, db_constraint=False, related_name="+"
     )
     default_events_retention_months = _months_field(
-        "Applies to every team in the organization that has no value of its own. Leave empty to keep the events "
-        f"of those teams. {RETENTION_MONTHS_HELP}"
+        "Applies to every team in the organization that has no value of its own. Leave empty to use the plan's "
+        f"default period. {RETENTION_MONTHS_HELP}"
     )
     min_events_retention_months = _months_field("The shortest retention a team in this organization may set.")
     max_events_retention_months = _months_field("The longest retention a team in this organization may set.")
@@ -115,8 +115,7 @@ class TeamEventsRetentionConfig(models.Model):
     team = models.OneToOneField(Team, on_delete=models.CASCADE, primary_key=True, db_constraint=False)
     events_retention_months = _months_field(
         "Overrides the organization's default and has to fall within the organization's range. Leave empty to use "
-        "the organization's default. Events are kept only when neither this nor the organization's default is set. "
-        f"{RETENTION_MONTHS_HELP}"
+        f"the organization's default. {RETENTION_MONTHS_HELP}"
     )
 
     class Meta:

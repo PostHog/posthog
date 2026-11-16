@@ -9,8 +9,9 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 
 import { useMocks } from '~/mocks/jest'
 import { examples } from '~/queries/examples'
-import { LATEST_VERSIONS } from '~/queries/latest-versions'
 import { nodeKindToDefaultQuery } from '~/queries/nodes/InsightQuery/defaults'
+import { LATEST_VERSIONS } from '~/queries/schema/latest-versions'
+import { setLatestVersionsOnQuery } from '~/queries/schema/query-versions'
 import {
     Breakdown,
     BreakdownFilter,
@@ -26,7 +27,6 @@ import {
     StickinessQuery,
     TrendsQuery,
 } from '~/queries/schema/schema-general'
-import { setLatestVersionsOnQuery } from '~/queries/utils'
 import { initKeaTests } from '~/test/init'
 import {
     BaseMathType,

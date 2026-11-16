@@ -9,8 +9,8 @@ import { CLICK_OUTSIDE_BLOCK_CLASS } from 'lib/hooks/useOutsideClickHandler'
 import { DateRange } from '~/queries/nodes/DataNode/DateRange'
 import { TestAccountFilters } from '~/queries/nodes/DataNode/TestAccountFilters'
 import { EventPropertyFilters } from '~/queries/nodes/EventsNode/EventPropertyFilters'
+import { isHogQLQuery } from '~/queries/schema/node-guards'
 import type { HogQLFilters, HogQLQuery } from '~/queries/schema/schema-general'
-import { isHogQLQuery } from '~/queries/utils'
 
 import { sqlEditorLogic } from './sqlEditorLogic'
 

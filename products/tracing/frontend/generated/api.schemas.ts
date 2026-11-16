@@ -1178,6 +1178,14 @@ export interface _TracingTraceRequestApi {
      * @minimum 0
      */
     offset?: number
+    /** Return a compact digest of the trace in `summary` instead of every span (`results` comes back empty): duration, root span, span/service/error counts, the top spans by self time, the critical path from the root, span names that repeat (N+1 queries), and error spans with their message. Covers the first 2000 spans; `summary.truncated` is true when the trace has more. Ignores `offset` and `excludeAttributes`. */
+    summary?: boolean
+    /**
+     * With `summary`, how many entries each summary list keeps (1-50). Defaults to 10.
+     * @minimum 1
+     * @maximum 50
+     */
+    summaryLimit?: number
 }
 
 /**
@@ -1251,9 +1259,116 @@ export interface _TraceSpanApi {
     events?: _SpanEventApi[]
 }
 
+export interface _TraceSummarySpanApi {
+    /** Span's ID within the trace. */
+    span_id?: string
+    /** Span name, truncated to 120 characters. */
+    name: string
+    /** Service that emitted the span. Omitted when it is the root span's service. */
+    service?: string
+    /** Span duration in milliseconds. */
+    duration_ms: number
+    /** Duration not covered by child spans, in milliseconds. */
+    self_ms: number
+    /** Present and true when the span has error status. */
+    error?: boolean
+}
+
+export interface _TraceSummaryPathEntryApi {
+    /** Span's ID within the trace. */
+    span_id?: string
+    /** Span name, truncated to 120 characters. */
+    name: string
+    /** Service that emitted the span. Omitted when it is the root span's service. */
+    service?: string
+    /** Span duration in milliseconds. */
+    duration_ms: number
+    /** Duration not covered by child spans, in milliseconds. */
+    self_ms: number
+    /** Present and true when the span has error status. */
+    error?: boolean
+    /** Nesting depth below the root, which is 0. */
+    depth: number
+    /** Present when consecutive same-named siblings were collapsed into this entry; durations are summed. */
+    count?: number
+}
+
+export interface _TraceSummaryRepeatedApi {
+    /** Span name, truncated to 120 characters. */
+    name: string
+    /** Service that emitted the spans. Omitted when it is the root span's service. */
+    service?: string
+    /** How many spans in the trace have this service and name. */
+    count: number
+    /** Summed duration of those spans, in milliseconds. */
+    total_ms: number
+    /** Longest of those spans, in milliseconds. */
+    max_ms: number
+}
+
+export interface _TraceSummaryErrorApi {
+    /** Span's ID within the trace. */
+    span_id?: string
+    /** Span name, truncated to 120 characters. */
+    name: string
+    /** Service that emitted the span. Omitted when it is the root span's service. */
+    service?: string
+    /** Span duration in milliseconds. */
+    duration_ms: number
+    /** Duration not covered by child spans, in milliseconds. */
+    self_ms: number
+    /** Present and true when the span has error status. */
+    error?: boolean
+    /**
+     * The exception message, or the error attribute the span carries. Null when the span records none.
+     * @nullable
+     */
+    message: string | null
+}
+
+/**
+ * Span count per service, largest first (top 10).
+ */
+export type _TraceSummaryApiServices = { [key: string]: number }
+
+export interface _TraceSummaryApi {
+    /** The trace ID. */
+    trace_id?: string
+    /** When the earliest span started (ISO 8601). */
+    start?: string
+    /** First span start to last span end, in milliseconds. */
+    duration_ms?: number
+    /** Spans summarized. */
+    span_count: number
+    /** Distinct services in the trace. */
+    service_count?: number
+    /** Spans with error status. */
+    error_count?: number
+    /** True when the trace has more spans than were summarized, so counts are lower bounds. */
+    truncated: boolean
+    /** The trace's root span. */
+    root?: _TraceSummarySpanApi
+    /** Span count per service, largest first (top 10). */
+    services?: _TraceSummaryApiServices
+    /** Spans with the most self time, largest first. Self time on a parent is uninstrumented work. */
+    top_self_time?: _TraceSummarySpanApi[]
+    /** The spans the trace's end time waits on, in start order, walking back from the root's end. Spans that ran in parallel and finished earlier are left out. */
+    critical_path?: _TraceSummaryPathEntryApi[]
+    /** Spans on the critical path left out because each took under 1% of the root's duration. */
+    critical_path_omitted?: number
+    /** True when the critical path was cut at summaryLimit entries (at most 20). */
+    critical_path_truncated?: boolean
+    /** Service and name pairs that occur more than once, by total duration. Many fast repeats point at an N+1 pattern. */
+    repeated_spans?: _TraceSummaryRepeatedApi[]
+    /** Error spans, earliest first. */
+    errors?: _TraceSummaryErrorApi[]
+}
+
 export interface _TracingTraceResponseApi {
-    /** Spans in the trace, earliest first. */
+    /** Spans in the trace, earliest first. Empty when `summary` is requested. */
     results: _TraceSpanApi[]
+    /** The trace digest, present when `summary` is true. */
+    summary?: _TraceSummaryApi
     /** Whether a further page of spans exists. */
     hasMore: boolean
     /**
@@ -1570,7 +1685,6 @@ export type TracingSpansAttributesRetrieveParams = {
     offset?: number
     /**
      * Search filter for attribute names.
-     * @minLength 1
      */
     search?: string
     /**
@@ -1653,7 +1767,6 @@ export type TracingSpansValuesRetrieveParams = {
     offset?: number
     /**
      * Search filter for attribute values.
-     * @minLength 1
      */
     value?: string
 }

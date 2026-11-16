@@ -4,18 +4,16 @@ import api from 'lib/api'
 
 import { initKeaTests } from '~/test/init'
 
-import { warehouseTablesList, warehouseTablesReplaceFileCreate } from 'products/data_warehouse/frontend/generated/api'
-import type { PaginatedTableListApi, TableApi } from 'products/data_warehouse/frontend/generated/api.schemas'
+import { warehouseTablesReplaceFileCreate } from 'products/data_warehouse/frontend/generated/api'
+import type { TableApi } from 'products/data_warehouse/frontend/generated/api.schemas'
 
 import { MAX_FILE_UPLOAD_SIZE_BYTES } from '../../NewSourceScene/fileUploadSourceLogic'
-import { detectFileFormat, replaceFileLogic } from './replaceFileLogic'
+import { detectFileFormat, replaceFileLogic, replaceFileTarget } from './replaceFileLogic'
 
 jest.mock('products/data_warehouse/frontend/generated/api', () => ({
-    warehouseTablesList: jest.fn(),
     warehouseTablesReplaceFileCreate: jest.fn(),
 }))
 
-const mockList = warehouseTablesList as jest.MockedFunction<typeof warehouseTablesList>
 const mockReplace = warehouseTablesReplaceFileCreate as jest.MockedFunction<typeof warehouseTablesReplaceFileCreate>
 
 const UPLOAD = { upload_id: 'upload-1', filename: 'orders.csv', file_format: 'csv', size_bytes: 3 }
@@ -43,7 +41,7 @@ describe('replaceFileLogic', () => {
     })
 
     it('uploads the file, replaces the table file and closes the modal', async () => {
-        logic.actions.openReplaceFile({ tableId: 'table-1', tableName: 'orders' })
+        logic.actions.openReplaceFile({ tableId: 'table-1', tableName: 'orders', schemaId: 'schema-1' })
         logic.actions.selectFile(csvFile())
 
         await expectLogic(logic, () => {
@@ -55,51 +53,24 @@ describe('replaceFileLogic', () => {
             filename: 'orders.csv',
             file_format: 'csv',
         })
-        expect(mockList).not.toHaveBeenCalled()
         expect(logic.values.isReplaceFileModalOpen).toBe(false)
         expect(logic.values.isReplacing).toBe(false)
     })
 
-    it('finds a table the source does not link to yet by its exact name', async () => {
-        mockList.mockResolvedValue({
-            count: 2,
-            results: [
-                { id: 'other', name: 'orders_backup' },
-                { id: 'table-9', name: 'orders' },
-            ],
-        } as PaginatedTableListApi)
-        logic.actions.openReplaceFile({ tableId: null, tableName: 'orders' })
-        logic.actions.selectFile(csvFile())
-
-        await expectLogic(logic, () => {
-            logic.actions.submitReplaceFile()
-        }).toDispatchActions(['replaceFileSuccess'])
-
-        expect(mockReplace).toHaveBeenCalledWith(expect.any(String), 'table-9', expect.anything())
-    })
-
-    it('follows the result pages when the exact name is not on the first page', async () => {
-        mockList
-            .mockResolvedValueOnce({
-                count: 2,
-                next: 'next-page',
-                results: [{ id: 'other', name: 'orders_backup' }],
-            } as PaginatedTableListApi)
-            .mockResolvedValueOnce({
-                count: 2,
-                next: null,
-                results: [{ id: 'table-9', name: 'orders' }],
-            } as PaginatedTableListApi)
-        logic.actions.openReplaceFile({ tableId: null, tableName: 'orders' })
-        logic.actions.selectFile(csvFile())
-
-        await expectLogic(logic, () => {
-            logic.actions.submitReplaceFile()
-        }).toDispatchActions(['replaceFileSuccess'])
-
-        expect(mockList).toHaveBeenCalledTimes(2)
-        expect(mockList).toHaveBeenLastCalledWith(expect.any(String), expect.objectContaining({ offset: 1 }))
-        expect(mockReplace).toHaveBeenCalledWith(expect.any(String), 'table-9', expect.anything())
+    it.each([
+        {
+            name: 'a linked table',
+            schema: { table: { id: 'table-1', name: 'orders' }, table_id: 'table-1' },
+            id: 'table-1',
+        },
+        { name: 'a table the schema only pins', schema: { table: undefined, table_id: 'table-9' }, id: 'table-9' },
+        { name: 'a table without a table_id', schema: { table: { id: 'table-2', name: 'orders' } }, id: 'table-2' },
+        { name: 'no table at all', schema: { table: undefined, table_id: null }, id: null },
+    ])('targets the table id of $name', ({ schema, id }) => {
+        expect(
+            replaceFileTarget({ id: 'schema-1', name: 'orders', ...schema } as Parameters<typeof replaceFileTarget>[0])
+                .tableId
+        ).toBe(id)
     })
 
     it.each([
@@ -122,9 +93,7 @@ describe('replaceFileLogic', () => {
         },
         {
             stage: 'replace without a table',
-            fail: (): void => {
-                mockList.mockResolvedValue({ count: 0, results: [] } as PaginatedTableListApi)
-            },
+            fail: (): void => {},
             message: 'Could not find the table orders. Refresh the page and try again.',
         },
     ])('shows the API error and keeps the modal open when the $stage step fails', async ({ stage, fail, message }) => {
@@ -132,6 +101,7 @@ describe('replaceFileLogic', () => {
         logic.actions.openReplaceFile({
             tableId: stage === 'replace without a table' ? null : 'table-1',
             tableName: 'orders',
+            schemaId: 'schema-1',
         })
         logic.actions.selectFile(csvFile())
 
@@ -147,7 +117,7 @@ describe('replaceFileLogic', () => {
     it('ignores a second submit while the first one is in flight', async () => {
         let releaseUpload: (value: typeof UPLOAD) => void = () => {}
         uploadSpy.mockReturnValue(new Promise<typeof UPLOAD>((resolve) => (releaseUpload = resolve)))
-        logic.actions.openReplaceFile({ tableId: 'table-1', tableName: 'orders' })
+        logic.actions.openReplaceFile({ tableId: 'table-1', tableName: 'orders', schemaId: 'schema-1' })
         logic.actions.selectFile(csvFile())
 
         logic.actions.submitReplaceFile()
@@ -165,7 +135,7 @@ describe('replaceFileLogic', () => {
     it('does not submit a file the backend would refuse', () => {
         const oversized = csvFile()
         Object.defineProperty(oversized, 'size', { value: MAX_FILE_UPLOAD_SIZE_BYTES + 1 })
-        logic.actions.openReplaceFile({ tableId: 'table-1', tableName: 'orders' })
+        logic.actions.openReplaceFile({ tableId: 'table-1', tableName: 'orders', schemaId: 'schema-1' })
         logic.actions.selectFile(oversized)
 
         logic.actions.submitReplaceFile()

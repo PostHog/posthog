@@ -22,10 +22,12 @@ import type {
     GitHubReposResponseApi,
     GitHubRepositoryAccessResponseApi,
     GitHubTeamsResponseApi,
+    GitLabProjectsResponseApi,
     IntegrationAccessRequestApi,
     IntegrationAccessRequestResponseApi,
     IntegrationAssigneesResponseApi,
     IntegrationConfigApi,
+    IntegrationConfigCreateApi,
     IntegrationsChannelsRetrieveParams,
     IntegrationsDomainConnectCheckRetrieveParams,
     IntegrationsEmailStatusRetrieveParams,
@@ -35,6 +37,7 @@ import type {
     IntegrationsGithubRepositoryAccessRetrieveParams,
     IntegrationsGithubTeamsRetrieveParams,
     IntegrationsGitlabMembersRetrieveParams,
+    IntegrationsGitlabProjectsRetrieveParams,
     IntegrationsJiraAssignableUsersRetrieveParams,
     IntegrationsLinearTeamMembersRetrieveParams,
     IntegrationsListParams,
@@ -229,14 +232,14 @@ export const getIntegrationsCreateUrl = (projectId: string) => {
 
 export const integrationsCreate = async (
     projectId: string,
-    integrationConfigApi: NonReadonly<IntegrationConfigApi>,
+    integrationConfigCreateApi: NonReadonly<IntegrationConfigCreateApi>,
     options?: RequestInit
 ): Promise<IntegrationConfigApi> => {
     return apiMutator<IntegrationConfigApi>(getIntegrationsCreateUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(integrationConfigApi),
+        body: JSON.stringify(integrationConfigCreateApi),
     })
 }
 
@@ -674,6 +677,38 @@ export const integrationsGitlabMembersRetrieve = async (
     })
 }
 
+export const getIntegrationsGitlabProjectsRetrieveUrl = (
+    projectId: string,
+    id: number,
+    params?: IntegrationsGitlabProjectsRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/integrations/${id}/gitlab_projects/?${stringifiedParams}`
+        : `/api/projects/${projectId}/integrations/${id}/gitlab_projects/`
+}
+
+export const integrationsGitlabProjectsRetrieve = async (
+    projectId: string,
+    id: number,
+    params?: IntegrationsGitlabProjectsRetrieveParams,
+    options?: RequestInit
+): Promise<GitLabProjectsResponseApi> => {
+    return apiMutator<GitLabProjectsResponseApi>(getIntegrationsGitlabProjectsRetrieveUrl(projectId, id, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
 export const getIntegrationsGoogleAccessibleAccountsRetrieveUrl = (projectId: string, id: number) => {
     return `/api/projects/${projectId}/integrations/${id}/google_accessible_accounts/`
 }
@@ -839,7 +874,7 @@ export const getIntegrationsPushTokensCreateUrl = (projectId: string, id: number
 }
 
 /**
- * Register existing device tokens, for example exported from another provider, on this push channel. Each token is stored encrypted on its person, as the mobile SDK stores it.
+ * Register existing device tokens, for example exported from another provider, on this push channel. Each token is stored encrypted on its person, as the mobile SDK stores it. A row fails when no person has its distinct ID, unless create_missing_persons is set, or when the token is the wrong kind for the channel. Send dry_run first to see every failure without storing anything.
  * @summary Import push device tokens
  */
 export const integrationsPushTokensCreate = async (

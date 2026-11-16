@@ -57,6 +57,53 @@ describe('projectTreeDataLogic', () => {
         expect(logic.values.currentHomeFolder?.path).toBe('Research/My work')
     })
 
+    it.each([
+        { name: 'nothing when both lists show it', shortcut: true, rootFolder: true, reloads: [] },
+        {
+            name: 'the shortcuts when its shortcut is missing',
+            shortcut: false,
+            rootFolder: true,
+            reloads: ['shortcuts'],
+        },
+        { name: 'the root folder when its parent is missing', shortcut: true, rootFolder: false, reloads: ['root'] },
+        {
+            name: 'both lists for a new home folder',
+            shortcut: false,
+            rootFolder: false,
+            reloads: ['shortcuts', 'root'],
+        },
+    ])('after the home folder loads, reloads $name', async ({ shortcut, rootFolder, reloads }) => {
+        useMocks({ post: { '/api/projects/:team_id/file_system/home_folder/': { id: 'home', path: 'Users/Alex' } } })
+        logic.actions.loadShortcutsSuccess(
+            shortcut ? [{ id: 'star-home', path: 'Alex', type: 'folder', ref: 'Users/Alex' }] : []
+        )
+        logic.actions.loadFolderSuccess(
+            '',
+            rootFolder ? [{ id: 'users', path: 'Users', type: 'folder' }] : [],
+            false,
+            rootFolder ? 1 : 0
+        )
+
+        await expectLogic(logic, () => logic.actions.loadHomeFolder()).toDispatchActions(['loadHomeFolderSuccess'])
+
+        expect(api.fileSystemShortcuts.list).toHaveBeenCalledTimes(reloads.includes('shortcuts') ? 1 : 0)
+        expect(api.fileSystem.list).toHaveBeenCalledTimes(reloads.includes('root') ? 1 : 0)
+    })
+
+    it('checks each list once its own boot load ends', async () => {
+        useMocks({ post: { '/api/projects/:team_id/file_system/home_folder/': { id: 'home', path: 'Users/Alex' } } })
+        logic.actions.loadFolderStart('')
+
+        await expectLogic(logic, () => logic.actions.loadHomeFolder()).toDispatchActions(['loadHomeFolderSuccess'])
+        expect(api.fileSystem.list).not.toHaveBeenCalled()
+        expect(api.fileSystemShortcuts.list).toHaveBeenCalledTimes(1)
+
+        logic.actions.loadFolderSuccess('', [{ id: 'users', path: 'Users', type: 'folder' }], false, 1)
+
+        expect(api.fileSystem.list).not.toHaveBeenCalled()
+        expect(api.fileSystemShortcuts.list).toHaveBeenCalledTimes(1)
+    })
+
     it.each(['loaded', 'loading', 'has-more', 'populated'] as const)(
         'renders a starred nested folder with %s contents',
         (state) => {
@@ -87,17 +134,25 @@ describe('projectTreeDataLogic', () => {
         }
     )
 
-    it.each([false, true])('shows a starred flagged product only while its flag is on (%s)', (flagOn) => {
-        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.WAREHOUSE_MULTI_DESTINATION]: flagOn })
+    it.each<[string, string[], string[]]>([
+        ['its flag is off', [], ['Models', 'SQL editor']],
+        ['its flag is on', [FEATURE_FLAGS.WAREHOUSE_MULTI_DESTINATION], ['ELT', 'Models', 'SQL editor']],
+        [
+            'both catalog flags hide Models',
+            [FEATURE_FLAGS.TODAY_RAIL_NAV, FEATURE_FLAGS.DATA_CATALOG_RESTRUCTURE],
+            ['SQL editor'],
+        ],
+        ['one catalog flag keeps Models', [FEATURE_FLAGS.DATA_CATALOG_RESTRUCTURE], ['Models', 'SQL editor']],
+    ])('shows starred products by their flags when %s', (_case, enabledFlags, expectedNames) => {
+        featureFlagLogic.actions.setFeatureFlags([], Object.fromEntries(enabledFlags.map((flag) => [flag, true])))
         logic.actions.loadShortcutsSuccess([
             { id: 'star-elt', path: 'ELT', type: 'product', href: urls.etlOverview() },
+            { id: 'star-models', path: 'Models', type: 'product', href: urls.models() },
             { id: 'star-sql', path: 'SQL editor', type: 'product', href: urls.sqlEditor() },
         ])
 
-        expect(logic.values.getShortcutTreeItems('', false).map((item) => item.name)).toEqual(
-            flagOn ? ['ELT', 'SQL editor'] : ['SQL editor']
-        )
-        expect(logic.values.shortcutData).toHaveLength(2)
+        expect(logic.values.getShortcutTreeItems('', false).map((item) => item.name)).toEqual(expectedNames)
+        expect(logic.values.shortcutData).toHaveLength(3)
     })
 
     it('reloads starred folders after a move, preserving custom labels and untouched environments', async () => {
@@ -161,6 +216,31 @@ describe('projectTreeDataLogic', () => {
         expect(capture.mock.calls.filter(([event]) => event === 'navbar starred item added')).toHaveLength(
             created ? 1 : 0
         )
+    })
+
+    it.each([
+        { type: 'dashboard', path: 'Weekly KPIs', itemName: 'Weekly KPIs' },
+        { type: 'person', path: 'ada@example.com', itemName: undefined },
+    ])('leaves customer record names out of star telemetry ($type)', async ({ type, path, itemName }) => {
+        await expectLogic(logic).toFinishAllListeners()
+        const star = { id: 'star-1', path, type, href: '/somewhere' }
+        logic.actions.loadShortcutsSuccess([])
+        jest.spyOn(api.fileSystemShortcuts, 'create').mockResolvedValue({ shortcut: star, created: true })
+        jest.spyOn(api.fileSystemShortcuts, 'delete').mockResolvedValue(undefined as any)
+        const capture = jest.spyOn(posthog, 'capture')
+
+        await expectLogic(logic, () => {
+            logic.actions.addShortcutItem({ id: 'item', path, type, href: '/somewhere' })
+        }).toFinishAllListeners()
+        await expectLogic(logic, () => {
+            logic.actions.deleteShortcut('star-1')
+        }).toFinishAllListeners()
+
+        const starEvents = capture.mock.calls.filter(([event]) => String(event).startsWith('navbar starred item'))
+        expect(starEvents).toEqual([
+            ['navbar starred item added', { item_type: type, item_name: itemName }],
+            ['navbar starred item removed', { item_type: type, item_name: itemName }],
+        ])
     })
 
     it.each([false, true])('keeps starred navigation in place unless explicitly revealed (%s)', async (explicit) => {

@@ -1,12 +1,12 @@
 import type { ReactElement } from 'react'
 import { Text, View } from 'react-native'
-import { KeyboardStickyView } from 'react-native-keyboard-controller'
 
 import type { ActionBarState, ReportActions, ReportView } from '@/model/types'
 import { ComposeIcon } from '@/ui/icons/ComposeIcon'
 import { Pressable44 } from '@/ui/Pressable44'
 import { createStyles, useTheme } from '@/ui/theme'
 import { iconSizes, layout, radii, type } from '@/ui/tokens'
+import { useAppLayout } from '@/ui/useAppLayout'
 import { bottomOffset, useScreenInsets } from '@/ui/useScreenInsets'
 
 import { ActionPill } from './ActionPill'
@@ -49,6 +49,9 @@ export function ActionBar({
     const { colors, shadows } = useTheme()
     const styles = useStyles()
     const insets = useScreenInsets()
+    const { rail } = useAppLayout()
+    const bottomPadding =
+        rail && Math.max(insets.left, insets.right) > insets.bottom ? layout.minBottomPadding : bottomOffset(insets, 38)
     const unstartedTaskId =
         useHandoffEntry(report.id)?.unstartedTaskId ??
         (report.task?.status === 'not_started' && !report.task.runId ? report.task.taskId : undefined)
@@ -112,50 +115,45 @@ export function ActionBar({
     )
 
     return (
-        <KeyboardStickyView offset={{ opened: insets.bottom }}>
-            <View
-                style={[styles.bar, { paddingBottom: bottomOffset(insets, 38) }]}
-                testID={`action-bar-${footerState}`}
-            >
-                {notice ? (
-                    <Text style={styles.notice} accessibilityRole="alert" testID="handoff-notice">
-                        {notice}
-                    </Text>
-                ) : null}
-                {hasPullRequests ? (
-                    <PullRequestCard
-                        pullRequests={state.pullRequests}
-                        onTaskChat={onTaskChat ? () => onTaskChat('pr_card') : undefined}
-                        reportId={report.id}
-                    >
-                        {activity || state.request || state.answer ? activityContent : null}
-                    </PullRequestCard>
-                ) : activity || state.request || state.answer ? (
-                    <View style={styles.panel}>{activityContent}</View>
-                ) : null}
-                {showHandoff ? (
-                    <HandoffSplitButton
-                        report={report}
-                        onHandOff={() => void actions.handOff()}
-                        onOpenPicker={onOpenHandoff}
-                        pending={actions.pending.handOff}
-                    />
-                ) : null}
-                <View style={styles.pillRow}>
-                    <ActionPill onReassign={onReassign} onResolve={onResolve} onDismiss={onDismiss} />
-                    <Pressable44
-                        onPress={onChat}
-                        accessibilityLabel="Chat"
-                        pressedBackground={colors.inkHover}
-                        style={[styles.chat, shadows.fab]}
-                        haptic="selection"
-                        testID="action-chat"
-                    >
-                        <ComposeIcon size={iconSizes.navigation} color={colors.onInk} />
-                    </Pressable44>
-                </View>
+        <View style={[styles.bar, { paddingBottom: bottomPadding }]} testID={`action-bar-${footerState}`}>
+            {notice ? (
+                <Text style={styles.notice} accessibilityRole="alert" testID="handoff-notice">
+                    {notice}
+                </Text>
+            ) : null}
+            {hasPullRequests ? (
+                <PullRequestCard
+                    pullRequests={state.pullRequests}
+                    onTaskChat={onTaskChat ? () => onTaskChat('pr_card') : undefined}
+                    reportId={report.id}
+                >
+                    {activity || state.request || state.answer ? activityContent : null}
+                </PullRequestCard>
+            ) : activity || state.request || state.answer ? (
+                <View style={styles.panel}>{activityContent}</View>
+            ) : null}
+            {showHandoff ? (
+                <HandoffSplitButton
+                    report={report}
+                    onHandOff={() => void actions.handOff()}
+                    onOpenPicker={onOpenHandoff}
+                    pending={actions.pending.handOff}
+                />
+            ) : null}
+            <View style={styles.pillRow}>
+                <ActionPill onReassign={onReassign} onResolve={onResolve} onDismiss={onDismiss} />
+                <Pressable44
+                    onPress={onChat}
+                    accessibilityLabel="Chat"
+                    pressedBackground={colors.inkHover}
+                    style={[styles.chat, shadows.fab]}
+                    haptic="selection"
+                    testID="action-chat"
+                >
+                    <ComposeIcon size={iconSizes.navigation} color={colors.onInk} />
+                </Pressable44>
             </View>
-        </KeyboardStickyView>
+        </View>
     )
 }
 

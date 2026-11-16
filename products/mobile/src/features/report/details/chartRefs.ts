@@ -2,8 +2,8 @@ import type { MarkdownIt } from 'react-native-markdown-display'
 
 type Token = ReturnType<MarkdownIt['parse']>[number]
 
-// Report summaries point at their charts with `[label](chart:chart_id)`. The web draws the chart there; the full
-// report leaves charts to the report screen, so a reference reads as its label.
+// Report summaries point at their charts with `[label](chart:chart_id)`. Both mobile report views draw charts in a
+// separate section, so an inline reference reads as its label.
 const CHART_HREF = /^chart:/i
 
 function isChartLinkOpen(token: Token): boolean {

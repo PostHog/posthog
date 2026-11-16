@@ -26,7 +26,6 @@ from posthog.clickhouse.preaggregation.web_overview_preaggregated_sql import (
     DISTRIBUTED_WEB_OVERVIEW_PREAGGREGATED_TABLE,
 )
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
-from posthog.hogql_queries.query_runner import resolve_series_custom_name
 from posthog.hogql_queries.utils.timestamp_utils import format_label_date
 from posthog.models.team import Team
 from posthog.week_start_day import WeekStartDay
@@ -39,7 +38,10 @@ from products.web_analytics.backend.hogql_queries.web_analytics_lazy_precompute 
     ceil_utc_day,
     floor_utc_day,
 )
-from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common import handle_stale_served
+from products.web_analytics.backend.hogql_queries.web_lazy_precompute_common import (
+    handle_stale_served,
+    range_reaches_retention_floor,
+)
 from products.web_analytics.backend.hogql_queries.web_overview import WebOverviewQueryRunner
 from products.web_analytics.backend.hogql_queries.web_overview_lazy_precompute import (
     _READ_SETTINGS,
@@ -301,29 +303,13 @@ def _series_dict(
 
     series_object: dict[str, Any] = {
         "data": data,
-        # Labels are formatted in the CURRENT range's context and action.days is
-        # always the current range, even for the previous compare series — the
-        # live runner does both (build_series_response passes
-        # self.query_date_range regardless of series period).
+        # The live runner also formats the previous compare series' labels in the current range
         "labels": [format_label_date(item, runner.query_date_range, runner.team.week_start_day) for item in buckets],
         "days": [item.strftime(day_fmt) for item in buckets],
         "count": float(sum(data)),
         "label": "All events" if series_label is None else series_label,
-        "filter": runner._query_to_filter(),
-        "action": {
-            "days": runner.query_date_range.all_values(),
-            "id": series_label,
-            "type": "events",
-            "order": 0,
-            "name": series_label or "All events",
-            "custom_name": resolve_series_custom_name(series, series_label),
-            "math": series.math,
-            "math_property": series.math_property,
-            "math_hogql": series.math_hogql,
-            "math_group_type_index": series.math_group_type_index,
-            "properties": {},
-        },
         "order": 0,
+        "custom_name": runner.series_custom_name(series),
     }
     if query.compareFilter is not None and query.compareFilter.compare:
         series_object["compare"] = True
@@ -457,6 +443,11 @@ def execute_lazy_precomputed_trends(runner: "WebTrendsQueryRunner") -> Optional[
         if time_range_start >= time_range_end:
             WEB_ANALYTICS_LAZY_PRECOMPUTE_FALLBACK.labels(family=_FAMILY, reason="empty_range").inc()
             return None
+        # Interval alignment can move the first bucket before `date_from`, so the shared gate
+        # on the inner runner does not cover this start.
+        if range_reaches_retention_floor(team, time_range_start):
+            WEB_ANALYTICS_LAZY_PRECOMPUTE_FALLBACK.labels(family=_FAMILY, reason="retention_floor").inc()
+            return None
 
         result = ensure_web_overview_precomputed(
             runner=inner_runner,
@@ -493,6 +484,9 @@ def execute_lazy_precomputed_trends(runner: "WebTrendsQueryRunner") -> Optional[
             prev_end_utc = prev_to.astimezone(UTC)
             prev_range_start = floor_utc_day(prev_start_utc)
             prev_range_end = ceil_utc_day(prev_end_utc)
+            if range_reaches_retention_floor(team, prev_range_start):
+                WEB_ANALYTICS_LAZY_PRECOMPUTE_FALLBACK.labels(family=_FAMILY, reason="retention_floor").inc()
+                return None
             if prev_range_start < prev_range_end:
                 prev_result = ensure_web_overview_precomputed(
                     runner=inner_runner,

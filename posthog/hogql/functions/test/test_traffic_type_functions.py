@@ -26,7 +26,7 @@ from posthog.hogql.query import execute_hogql_query
 
 from posthog.schema_enums import FilterLogicalOperator
 
-from products.actions.backend.models.action import Action
+from products.actions.backend.facade.testing import create_action
 from products.web_analytics.backend.hogql_queries.bot_definitions import BOT_DEFINITIONS
 from products.web_analytics.backend.hogql_queries.bot_ip_definitions import BOT_IP_DEFINITIONS
 
@@ -691,7 +691,7 @@ class TestMacroExpansionGuard(BaseTest):
         # matchesAction expands a user-defined action, whose hogql property filters re-parse
         # arbitrary user HogQL. A guarded macro referenced there must still expand — the guard
         # must not fire across matchesAction's (bounded) action expansion.
-        action = Action.objects.create(
+        action = create_action(
             team=self.team,
             steps_json=[
                 {
@@ -702,7 +702,7 @@ class TestMacroExpansionGuard(BaseTest):
                 }
             ],
         )
-        printed = self._print(f"SELECT matchesAction({action.pk}) FROM events")
+        printed = self._print(f"SELECT matchesAction({action.id}) FROM events")
         assert "multiMatchAnyIndex" in printed
 
 
@@ -947,6 +947,9 @@ class TestCustomBotDefinitions(ClickhouseTestMixin, BaseTest):
         assert is_bot is False
 
 
+COOKIELESS_DEVICE_ID = "cookielessd_dGVzdGRldmljZQ"
+
+
 class TestCookielessClassification(ClickhouseTestMixin, BaseTest):
     def _classify(
         self,
@@ -978,11 +981,16 @@ class TestCookielessClassification(ClickhouseTestMixin, BaseTest):
         assert response.results is not None
         return response.results[0]
 
-    @parameterized.expand(
-        [("missing", {}), ("empty", {"$raw_user_agent": ""}), ("string_flag", {"$cookieless_mode": "true"})]
-    )
+    @parameterized.expand([("missing", {}), ("empty", {"$raw_user_agent": ""})])
     def test_a_cookieless_event_is_regular_traffic(self, _name: str, properties: dict) -> None:
-        assert self._classify({"$cookieless_mode": True, **properties}) == (False, "Regular", "regular", "", "", "")
+        assert self._classify({"$device_id": COOKIELESS_DEVICE_ID, **properties}) == (
+            False,
+            "Regular",
+            "regular",
+            "",
+            "",
+            "",
+        )
 
     @parameterized.expand(
         [
@@ -1000,7 +1008,7 @@ class TestCookielessClassification(ClickhouseTestMixin, BaseTest):
             if with_project_rules
             else None
         )
-        assert self._classify({"$cookieless_mode": True, **properties}, definitions=definitions) == (
+        assert self._classify({"$device_id": COOKIELESS_DEVICE_ID, **properties}, definitions=definitions) == (
             True,
             "Bot",
             "search_crawler",
@@ -1010,7 +1018,7 @@ class TestCookielessClassification(ClickhouseTestMixin, BaseTest):
         )
 
     def test_a_cookieless_event_is_still_automation_while_the_rollout_is_off(self):
-        assert self._classify({"$cookieless_mode": True}, cookieless_traffic_is_regular=False) == (
+        assert self._classify({"$device_id": COOKIELESS_DEVICE_ID}, cookieless_traffic_is_regular=False) == (
             True,
             "Automation",
             "no_user_agent",
@@ -1022,19 +1030,22 @@ class TestCookielessClassification(ClickhouseTestMixin, BaseTest):
     def test_a_non_cookieless_event_with_no_user_agent_is_still_automation(self):
         assert self._classify({}) == (True, "Automation", "no_user_agent", "", "", "no_user_agent")
 
-    def test_the_flag_is_read_as_a_value_not_as_presence(self):
-        is_bot, traffic_type, _category, _name, _operator, _bot_type = self._classify(
-            {"$cookieless_mode": False, "$raw_user_agent": "Googlebot/2.1 (+http://www.google.com/bot.html)"}
+    def test_a_device_id_without_the_cookieless_prefix_is_still_automation(self):
+        assert self._classify({"$device_id": "0190a1b2-c3d4-7e5f-8a9b-cookielessd_"}) == (
+            True,
+            "Automation",
+            "no_user_agent",
+            "",
+            "",
+            "no_user_agent",
         )
-
-        assert (is_bot, traffic_type) == (True, "Bot")
 
     @parameterized.expand(
         [("no_builtin", {}), ("user_agent", {"$raw_user_agent": "Googlebot/2.1"}), ("ip", {"$ip": "66.249.66.1"})]
     )
     def test_a_project_rule_still_names_a_cookieless_event(self, _name: str, properties: dict) -> None:
         is_bot, traffic_type, category, name, _operator, bot_type = self._classify(
-            {"$cookieless_mode": True, "$host": "staging.example.com", **properties},
+            {"$device_id": COOKIELESS_DEVICE_ID, "$host": "staging.example.com", **properties},
             definitions=[
                 _custom_bot(
                     name="Staging checker", key=CustomBotField.FIELD_HOST, pattern="staging", category="monitoring"
@@ -1079,6 +1090,8 @@ class TestServerAndMobileSdkClassification(ClickhouseTestMixin, BaseTest):
         [
             ("node", "posthog-node", {}),
             ("python_empty_user_agent", "posthog-python", {"$raw_user_agent": ""}),
+            ("laravel", "posthog-laravel", {}),
+            ("laravel_empty_user_agent", "posthog-laravel", {"$raw_user_agent": ""}),
             ("react_native", "posthog-react-native", {}),
             ("ios", "posthog-ios", {}),
         ]

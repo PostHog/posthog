@@ -12,6 +12,7 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.companion_jobs
     COMPANION_JOB_IDS_KEY,
     record_companion_job,
     retire_orphaned_companions,
+    run_completed_on_every_table,
 )
 from products.warehouse_sources.backend.temporal.data_imports.cdc.source_manager import (
     BUFFER_LISTED_AT_KEY,
@@ -198,6 +199,37 @@ class TestBufferExpiredUnread(BaseTest):
         ExternalDataJob.objects.filter(id=companion.id).update(status=ExternalDataJob.Status.COMPLETED)
 
         assert buffer_may_have_expired_unread(schema, dt.datetime.now(tz=dt.UTC)) is False
+
+
+class TestRunCompletedOnEveryTable(BaseTest):
+    @parameterized.expand(
+        [
+            ("no_companion", "Completed", None, True),
+            ("companion_still_loading", "Completed", "Running", False),
+            ("companion_failed", "Completed", "Failed", False),
+            ("parent_still_loading", "Running", "Completed", False),
+            ("both_completed", "Completed", "Completed", True),
+        ]
+    )
+    def test_both_jobs_of_a_run_agree_whether_every_table_completed(
+        self, _name: str, parent_status: str, companion_status: str | None, expected: bool
+    ) -> None:
+        source = ExternalDataSource.objects.create(
+            team=self.team, source_id="s", connection_id="c", status="Running", source_type="Postgres"
+        )
+        schema = ExternalDataSchema.objects.create(team=self.team, source=source, name="users")
+
+        def _job(status: str, snapshot: dict) -> ExternalDataJob:
+            return ExternalDataJob.objects.create(
+                team=self.team, pipeline=source, schema=schema, status=status, rows_synced=0, schema_snapshot=snapshot
+            )
+
+        jobs = [_job(parent_status, {})]
+        if companion_status is not None:
+            jobs.append(_job(companion_status, {"companion_of": str(jobs[0].id)}))
+            record_companion_job(str(jobs[0].id), self.team.id, str(jobs[1].id), first_of_attempt=True)
+
+        assert [run_completed_on_every_table(str(job.id), self.team.id) for job in jobs] == [expected] * len(jobs)
 
 
 class TestRecordCompanionJob(BaseTest):

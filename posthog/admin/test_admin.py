@@ -6,13 +6,17 @@ from django.contrib import admin
 from django.contrib.admin import AdminSite
 from django.test import RequestFactory, SimpleTestCase
 
+from parameterized import parameterized
+
 from posthog.admin import _OAUTH_ADMIN_MODEL_NAMES, install_admin_app_list_overrides, register_all_admin
 from posthog.admin.admins.event_ingestion_restriction_config import EventIngestionRestrictionConfigAdmin
 from posthog.admin.admins.global_rate_limit_threshold_config import GlobalRateLimitThresholdConfigAdmin
+from posthog.admin.admins.organization_admin import OrganizationAdmin
 from posthog.admin.admins.personal_api_key_admin import PersonalAPIKeyAdmin
 from posthog.admin.admins.user_admin import UserAdmin, UserChangeForm
+from posthog.admin.inlines.organization_ip_restrictions_inline import OrganizationIPRestrictionsForm
 from posthog.admin.inlines.organization_member_inline import OrganizationMemberForUserInline, OrganizationMemberInline
-from posthog.models import PersonalAPIKey, User
+from posthog.models import Organization, PersonalAPIKey, User
 from posthog.models.event_ingestion_restriction_config import EventIngestionRestrictionConfig
 from posthog.models.global_rate_limit_threshold_config import GlobalRateLimitThresholdConfig
 from posthog.models.utils import generate_random_token_personal, hash_key_value
@@ -24,7 +28,6 @@ from products.cdp.backend.models.plugin import Plugin, PluginConfig
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_templates import DashboardTemplate
 from products.dashboards.backend.models.dashboard_tile import Text
-from products.experiments.backend.models.experiment import Experiment, ExperimentSavedMetric
 from products.product_analytics.backend.facade.models import Insight
 from products.product_tours.backend.models import ProductTour
 from products.surveys.backend.models import Survey
@@ -226,8 +229,6 @@ class TestProductAdminRegistration:
             Text,
             DataWarehouseTable,
             ExternalDataSchema,
-            Experiment,
-            ExperimentSavedMetric,
             Insight,
             ProductTour,
             Survey,
@@ -247,6 +248,50 @@ class TestOrganizationMemberInlineConfig(SimpleTestCase):
         assert "invited_by" in OrganizationMemberInline.readonly_fields
         assert "invited_by" in OrganizationMemberForUserInline.fields
         assert "invited_by" in OrganizationMemberForUserInline.readonly_fields
+
+
+class TestOrganizationIPRestrictionsForm(SimpleTestCase):
+    @parameterized.expand(
+        [
+            (" 192.0.2.1 , 2001:db8::/32,192.0.2.1", ["192.0.2.1", "2001:db8::/32"]),
+            ("", []),
+        ],
+    )
+    def test_entries_are_normalized(self, entries: str, expected: list[str]) -> None:
+        form = OrganizationIPRestrictionsForm(data={"ip_restrictions": entries})
+
+        assert form.is_valid(), form.errors
+        assert form.cleaned_data["ip_restrictions"] == expected
+
+    @parameterized.expand([("invalid",), ("192.0.2.1,invalid",), ("192.0.2.1,",)])
+    def test_invalid_entry_is_rejected(self, entries: str) -> None:
+        form = OrganizationIPRestrictionsForm(data={"ip_restrictions": entries})
+
+        assert not form.is_valid()
+        assert "ip_restrictions" in form.errors
+
+    def test_blank_extra_form_is_unchanged(self) -> None:
+        form = OrganizationIPRestrictionsForm(data={"enabled": "on", "ip_restrictions": ""})
+
+        assert not form.has_changed()
+
+
+class TestOrganizationAdminUsageDisplay(SimpleTestCase):
+    def test_usage_display_renders_products_next_to_billing_status_stamps(self):
+        organization = Organization(
+            usage={
+                "events": {"usage": 1000, "limit": 5000, "todays_usage": 10},
+                "period": ["2026-08-01T00:00:00Z", "2026-09-01T00:00:00Z"],
+                "billing_status_computed_at": "2026-08-02T00:00:00+00:00",
+                "billing_latest_usage_report_date": None,
+            }
+        )
+
+        html = OrganizationAdmin(Organization, AdminSite()).usage_display(organization)
+
+        assert "events" in html
+        assert "5,000" in html
+        assert "billing_status_computed_at" not in html
 
 
 class TestPersonalAPIKeyAdminForm(BaseTest):

@@ -2,11 +2,11 @@ import { useActions } from 'kea'
 
 import { playlistFiltersLogic } from 'scenes/session-recordings/playlist/playlistFiltersLogic'
 
+import type { AttachedContextItem } from '~/layout/ai/attachedContext'
 import { NodeKind, RecordingsQuery } from '~/queries/schema/schema-general'
 import { RecordingUniversalFilters } from '~/types'
 
 import { useAttachedContext, useMcpToolApplyBack } from 'products/posthog_ai/frontend/api/logics'
-import type { AttachedContextItem } from 'products/posthog_ai/frontend/api/types'
 
 import {
     DEFAULT_RECORDING_FILTERS_ORDER_BY,

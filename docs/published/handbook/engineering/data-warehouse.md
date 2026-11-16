@@ -10,6 +10,22 @@ Projects with a connected warehouse source or warehouse table use ordinary empty
 
 Onboarding only checks warehouse setup for non-demo projects without events. Source detection returns an existence flag without serializing schemas, and table detection omits columns. Navigation refreshes an empty result so returning after source creation opens the Sources list.
 
+## Warehouse CDP producer
+
+Each team is limited to `ROWS_PER_SECOND` (2,000 rows per second) in `cdp_producer_rate.py`.
+All producer runs of a team share one Redis bucket, across every table.
+
+The producer deletes each staged file only after Kafka confirms delivery of its rows.
+Checkpoints record progress after 10,000 produced rows or 30 seconds while processing rows.
+Each file also has an end checkpoint.
+Activity retries resume from the last heartbeat checkpoint.
+Failed or canceled attempts retain unfinished files, so retries can produce duplicate rows.
+The activity has a five-minute heartbeat timeout and permits up to ten attempts.
+
+## Direct SQL validation
+
+**Send raw query** checks statement boundaries and read-only restrictions using the selected connection's SQL dialect. Quoted strings, identifiers, and comments follow that dialect, including backslashes in LIKE and regex patterns. Queries with unfinished quotes or comments are rejected before execution. For PostgreSQL, Redshift, and MySQL, quoting must have the same boundaries with and without session-level backslash escaping; use doubled quotes when embedding a quote in a string.
+
 ## Model namespace reservation
 
 The shared PostHog catalog reserves `models.*` for authored data models. New warehouse tables, endpoint saved queries, and managed viewsets cannot claim that namespace. The bare name `models` is reserved for the namespace container; use a name such as `models.revenue` for a model. Names such as `models_v2` remain available. Saved queries with no origin are treated as authored models for compatibility.
@@ -23,6 +39,7 @@ This reservation does not add qualified names to existing models or require a na
 ## Model materialization usage
 
 The Models **Usage** tab shows bytes read, CPU time, and run counts for materializations over a preset or custom range of complete UTC days.
+The initial load keeps section titles visible and shows skeletons for the metric values, charts, model table, and job rows. Refreshes keep the loaded data visible while new data loads.
 The totals and model breakdown follow saved-query access controls. The breakdown sorts by bytes read and includes soft-deleted models while their saved queries and job history exist.
 Usage includes schema checks, retries, failed runs, and canceled runs, and is attributed to the UTC day each run finished.
 The date and materialized-view filters apply to the whole tab. The jobs table also has a status filter. Projects with the Trino managed warehouse enabled also get a tab-level engine filter, daily bars stacked by engine, and separate ClickHouse and managed warehouse byte totals per model. Legacy Duckgres runs are not included.
@@ -39,6 +56,11 @@ The totals cover measured runs only; missing measurements and days without measu
 The current UTC day is excluded because usage is updated daily.
 These measurements describe query work and are not billing amounts.
 
+## SQL table headers
+
+SQL and Trends table headers stay visible while scrolling inside a bounded table, including horizontal scrolling.
+On a full page, headers pin when the table fits its container and the scene is wide enough for sticky controls; wider tables keep horizontal scrolling.
+
 ## SQL editor drafts
 
 Saving a view infers its column types with LIMIT 0 on the outer SELECT branches and explicit IN subqueries.
@@ -49,7 +71,11 @@ The SQL editor keeps unrun edits in browser storage, scoped to the user, project
 An **Edited** label marks changes to a saved view or insight. **Discard changes** restores the saved copy already loaded in memory, then refreshes it from the server. The refresh preserves edits made after discarding.
 Insights can be saved or updated before running the SQL. Updating a view still requires a successful run of the current SQL so its result types match the saved query. **Continue in a notebook** is in the update button's dropdown for saved views and insights.
 
+**Fix errors with AI** keeps its pending state and suggestion in the SQL tab that requested the fix. Other open tabs keep their own queries and can request independent fixes.
+
 The data warehouse sidebar lets you rename saved views. The dialog lists references from data model lineage. Renaming does not update SQL references in saved views, materialized views, endpoints, insights, dashboards, notebooks, or external systems.
+
+Saved-query lineage endpoints return only neighboring saved views and warehouse tables the caller can read. PostHog system tables remain visible, denied nodes do not stop the walk, and dependency counts use the same filtered neighbors.
 
 Returning to a notebook can reuse completed query results from the last two minutes in the same browser session. Saved insights still fetch their latest definition; changed queries load their own results. Explicit **Run** and refresh actions fetch results again. This browser cache is bounded and excludes shared notebooks, errors, incomplete responses, and large results; it does not change server cache freshness.
 
@@ -57,7 +83,7 @@ Returning to a notebook can reuse completed query results from the last two minu
 
 Business intelligence is in beta. The product has a beta label, and the worksheet index shows a dismissible notice with a **Send feedback** button. To collect feedback, launch a survey with **Feedback button → Custom** presentation targeting `#business-intelligence-feedback-button` in the project that collects the app's analytics. No survey ID is needed in the frontend.
 
-**Business intelligence** lists saved worksheets at `/bi` when the `sql-editor-bi-mode` feature flag is enabled. Search all worksheets or switch to those viewed in the last 30 days. **New worksheet** opens `/bi/new`; selecting a saved worksheet opens `/bi/<short_id>` in edit mode. The project tree's **New → Worksheet** entry opens the same editor. Worksheets retain their insight identities and folder placements, but use their own file subtype and no longer appear in the Product analytics insights list. Legacy `/bi?open_insight=...` links and shared worksheet URLs still open the editor. Business intelligence and SQL keep separate unsaved working copies, and existing SQL editor links with `mode=bi` open in Business intelligence.
+**Business intelligence** lists saved worksheets at `/bi`. Search all worksheets or switch to those viewed in the last 30 days. **New worksheet** opens `/bi/new`; selecting a saved worksheet opens `/bi/<short_id>` in edit mode. The project tree's **New → Worksheet** entry opens the same editor. Worksheets retain their insight identities and folder placements, but use their own file subtype and no longer appear in the Product analytics insights list. Legacy `/bi?open_insight=...` links and shared worksheet URLs still open the editor. Business intelligence and SQL keep separate unsaved working copies, and existing SQL editor links with `mode=bi` open in Business intelligence.
 
 Choose a connection in the **Data** panel, then select a table below it. Certified sources have a checkmark beside their table icon and appear in a separate **Certified sources** folder. All table folders can be expanded and collapsed, including while searching. Deprecated sources have a warning icon. Hover over either status icon for details. Deprecated and uncertified sources remain selectable; search preserves the same ordering. **Run** is the first toolbar action, before **Swap rows and columns**.
 
@@ -71,7 +97,8 @@ Panes share their value scale by default; **Independent value scales** lets each
 
 Use **Add calculated field** beneath Measures or **+ Field** on a shelf. The editor shows SQL validation progress and infers the return type; you can override the type of a dimension. Cmd+Space (Ctrl+Space on Windows or Linux) opens field autocomplete.
 
-The Series panel accepts custom colors for individual breakdown values. Display settings control value-label placement, background, size, and rotation, and bar spacing can be set to **None** for adjoining bars. The legend-position selector sits beside its label.
+The Series panel accepts custom colors for individual breakdown values. The settings button beside a breakdown value lets you change its label without changing the query or grouping; clearing the label restores the original name. Clearing a color keeps the custom label. These controls also work in the SQL editor.
+Display settings control value-label placement, background, size, and rotation, and bar spacing can be set to **None** for adjoining bars. The legend-position selector sits beside its label.
 
 Single-value filters distinguish selecting **(empty string)** from clearing the input: the former matches an empty value, while the latter removes the condition.
 
@@ -131,6 +158,9 @@ The **Marks** card offers table calculations per measure: percent of total, runn
 
 **Table** automatically uses a pivot layout when **Columns** contains dimensions, including when **Rows** contains only measures. Row members run down the table; column members run across it. Measures placed on **Rows** appear vertically, and measures placed on **Columns** appear beneath each column header. Measures split between both shelves appear as columns with guidance to place them together. Move all dimensions onto **Rows** to return to a flat table. Period comparisons keep their comparison table layout. Direct database connections keep the flat table layout. Large pivots virtualize rows and columns while retaining grouped headers and the sticky row labels. Pivots support up to 10,000 measure columns and 100,000 displayed rows, including measures on Rows. Larger results ask you to reduce dimensions or measures, or use Top N. Text-valued custom aggregates retain their values. The explicit **Pivot table** chart uses the same pivot layout. Expand or collapse a row or column header to move between hierarchy levels. Collapsed values are reaggregated from source rows, including averages and distinct counts. **Subtotals** also shows the intermediate aggregates while expanded. Row and column grand totals retain their separate controls, and total cells keep drill-down scoped to the visible dimensions. Expansion is local to the view; the worksheet's shelves and settings remain unchanged. Tracking records hierarchy expansion with axis and depth, and adds missing-date and full-window settings to the existing worksheet events.
 
+Saved BI pivot tables display their results on dashboards, including tiles that ignore dashboard filters.
+Dashboard tiles preserve the worksheet's column groups and measure placement.
+
 **Hierarchies** in the data pane names an ordered set of dimensions, such as Country → State → City. Create a hierarchy with 2–10 levels, then start it on rows or columns. The level list marks the current field and shows the next levels. Selecting a result offers **Drill to** the next level in the current editor worksheet, retaining parent filters, date range, measures, variables, and formatting. The path above the result offers **Drill up**, removing only filters introduced by that drill. Navigation participates in undo/redo and respects Auto update. Changed or removed hierarchy levels disable an incompatible return path. Outside the editor, the action explicitly opens a new worksheet. Leaf values and levels already on a shelf do not offer another drill action; nested pivot expansion remains available for those shelves. Definitions stay with the saved worksheet and survive **Clear sheet**. **Import from worksheet** copies a hierarchy from an accessible saved worksheet using the same table and connection. The copy is independent: edits do not change the source worksheet or create global fields. Deleting a local calculated field removes its uses from hierarchy levels, dropping definitions with fewer than two remaining levels.
 
 The **Analysis** card ranks **Top N** categories by a selected measure across the full current date range. **Include "Other"** combines the remaining source rows and re-aggregates them, including averages and distinct counts. Removing the ranking measure turns Top N off. Previous-period comparisons use the current period's category selection. Tables offer a grand total; pivot tables offer row and column grand totals. Both support hierarchy subtotals when an axis has multiple dimensions. Totals re-aggregate source rows; table-calculation cells remain blank on total rows. Summary rows can occupy at most half the result limit, reserving room for detail cells. The BI visualization requests an extra row to determine whether more results exist, then removes it before building tables and charts. Saved SQL and exports retain the worksheet's configured limit. A notice identifies confirmed extra groups. New worksheets default to 50,000 aggregated rows. At the 50,000-row execution cap, it instead says more groups may exist because the extra-row probe cannot complete. The **Aggregated rows** limit applies after aggregation, not to scanned source rows. Limited results can make totals, rankings, running totals, and comparisons incomplete; narrow filters or increase the limit where possible.
@@ -145,7 +175,7 @@ BI worksheet menus and the left-click **Explore this result** dialog offer **Fil
 
 **Compare previous period** turns date comparison on or off in one click. The adjacent comparison picker still supports custom offsets. Select a bounded date range before enabling comparison.
 
-With `SQL_EDITOR_BI_MODE` enabled, choose **Add calculated field** in the data pane or the plus button on Rows or Columns. Nothing is added until **Add field** is clicked; Cancel or the close button discards the draft. A shelf's plus button places the saved field on that shelf. Select a row-level dimension or an aggregate measure, then enter a name and a plain HogQL expression using fields from the selected table. Dimensions can use expressions such as `coalesce(properties.plan, 'Unknown')`; measures can use `sum(revenue) / nullIf(count(DISTINCT user_id), 0)`.
+Choose **Add calculated field** in the data pane or the plus button on Rows or Columns. Nothing is added until **Add field** is clicked; Cancel or the close button discards the draft. A shelf's plus button places the saved field on that shelf. Select a row-level dimension or an aggregate measure, then enter a name and a plain HogQL expression using fields from the selected table. Dimensions can use expressions such as `coalesce(properties.plan, 'Unknown')`; measures can use `sum(revenue) / nullIf(count(DISTINCT user_id), 0)`.
 
 Calculated fields appear in Dimensions or Measures with a ƒ indicator. Drag or double-click them to reuse the definition. Editing a definition updates its name and expression on every shelf, including duplicated uses; date granularities and measure display settings remain independent. A field's role cannot change after creation. **Delete field and all uses** removes the local definition and its shelf/filter uses; Undo restores them. Clear sheet retains the definitions. Save, reload, and Save a copy preserve them inside the worksheet, without creating source-table or project-wide fields.
 
@@ -341,6 +371,14 @@ TikTok Ads requests `total_landing_page_view`, `engaged_view_15s`, `cta_conversi
 The CTA fields describe app conversions and purchases attributed to clicks; they do not establish a click-only website purchase metric.
 The optional `advertiser_report` table requests daily `spend` and `cash_spend` at advertiser level.
 Cash spend can arrive later than other performance metrics.
+
+TikTok Ads API v2.0 adds the optional `campaign_website_attribution_report`, `ad_group_website_attribution_report`, and `ad_website_attribution_report` tables.
+Select API v2.0 on the source and enable these tables to import `cta_complete_payment` (website purchases attributed to clicks) and `cta_complete_payment_value` (their purchase value).
+Existing report, audience, entity, and creative tables continue using v1.3 under either source version.
+The separate tables preserve the existing ad report IDs: in v2.0, `ad_id` identifies the ad asset group for Upgraded Smart+ campaigns rather than the legacy creative.
+Do not join that ID directly to legacy creative IDs for those campaigns.
+Existing v1.3 pins keep their table catalog until the source version changes; no automatic repin or historical backfill runs.
+The new tables use the advertiser account time zone and the same date-window, incremental, and resume behavior as other TikTok reports.
 
 Reddit Ads requests purchase click and view counts, sign-up click counts, average purchase value, fully viewable video impressions, and viewable video impressions in its campaign, ad group, ad, and breakdown reports.
 The conversion window still follows the account's attribution settings.

@@ -24,6 +24,7 @@ import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-genera
 
 import { QueryFailedOverlay } from 'products/logs/frontend/components/QueryFailedOverlay'
 
+import { TracesAlertsTab } from './alerting/TracesAlertsTab'
 import { ComparisonBar } from './components/Comparison/ComparisonBar'
 import { TracingFacetRail } from './components/FacetRail/TracingFacetRail'
 import { TraceDrawer } from './components/TraceDrawer/TraceDrawer'
@@ -48,6 +49,12 @@ import { traceViewId, tracingViewerLogic } from './tracingViewerLogic'
 import type { Span, SpanInspectorTab } from './types'
 
 const TRACING_FEEDBACK_SURVEY_ID = '019e6a26-4943-0000-24a0-dc46310f6b7c'
+
+const SCENE_TAB_LABELS: Record<TracingSceneTab, string> = {
+    viewer: 'Viewer',
+    sql: 'SQL',
+    alerts: 'Alerts',
+}
 
 export const scene: SceneExport = {
     component: TracingScene,
@@ -127,6 +134,7 @@ function TracingSceneContents(): JSX.Element {
         displayMode,
         compareActive,
         sceneTabsEnabled,
+        availableSceneTabs,
         activeSceneTab,
     } = useValues(tracingSceneLogic())
     const { traceLoadFiltersActive } = useValues(tracingDataLogic)
@@ -274,10 +282,7 @@ function TracingSceneContents(): JSX.Element {
                 <LemonTabs<TracingSceneTab>
                     activeKey={activeSceneTab}
                     onChange={selectSceneTab}
-                    tabs={[
-                        { key: 'viewer', label: 'Viewer' },
-                        { key: 'sql', label: 'SQL' },
-                    ]}
+                    tabs={availableSceneTabs.map((key) => ({ key, label: SCENE_TAB_LABELS[key] }))}
                     sceneInset
                 />
             )}
@@ -346,6 +351,7 @@ function TracingSceneContents(): JSX.Element {
                                     dataSource={listRows}
                                     spanColumns={spanColumns}
                                     showRootTag={filters.viewMode === 'spans'}
+                                    showTraceDuration={filters.viewMode === 'traces'}
                                     loading={spansLoading}
                                     hasMoreToLoad={hasMoreToLoad}
                                     onLoadMore={fetchNextPage}
@@ -384,6 +390,7 @@ function TracingSceneContents(): JSX.Element {
                 </div>
             </div>
             {activeSceneTab === 'sql' && <TracingSqlEditor id={TRACING_SCENE_VIEWER_ID} />}
+            {activeSceneTab === 'alerts' && <TracesAlertsTab />}
             <TraceDrawer
                 viewId={traceViewId(TRACING_SCENE_VIEWER_ID)}
                 isOpen={isTraceOpen}

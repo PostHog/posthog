@@ -39,8 +39,8 @@ from products.endpoints.backend.logic.materialization import (
     OrphanedEndpointSavedQueryError,
     prepare_executable_query,
 )
-from products.endpoints.backend.materialization_transforms import build_endpoint_hogql
-from products.endpoints.backend.models import EndpointVersion
+from products.endpoints.backend.materialization_transforms import MaterializationNotSupportedError, build_endpoint_hogql
+from products.endpoints.backend.models import Endpoint, EndpointVersion
 from products.endpoints.backend.rate_limit import is_endpoint_materialization_ready, set_endpoint_materialization_ready
 from products.endpoints.backend.tests.conftest import create_endpoint_with_version
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable
@@ -120,7 +120,6 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
         self.assertEqual(saved_query.query, version.query)
         self.assertTrue(saved_query.is_materialized)
         self.assertEqual(saved_query.origin, DataWarehouseSavedQuery.Origin.ENDPOINT)
-        self.assertIsNone(saved_query.sync_frequency_interval)
         self.assertEqual(get_declared_target(Node.objects.get(saved_query=saved_query)), timedelta(hours=24))
         view_events = [
             call for call in mock_capture.call_args_list if call.kwargs.get("event") in {"view created", "view updated"}
@@ -483,7 +482,6 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
         saved_query = version.saved_query
         assert saved_query is not None
         node = Node.objects.get(saved_query=saved_query)
-        self.assertIsNone(saved_query.sync_frequency_interval)
         self.assertEqual(get_declared_target(node), timedelta(hours=24))
 
         # Update to 12-hour frequency
@@ -500,7 +498,6 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
 
         saved_query.refresh_from_db()
         node.refresh_from_db()
-        self.assertIsNone(saved_query.sync_frequency_interval)
         self.assertEqual(get_declared_target(node), timedelta(hours=12))
 
         # Update to 1-hour frequency
@@ -517,7 +514,6 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
 
         saved_query.refresh_from_db()
         node.refresh_from_db()
-        self.assertIsNone(saved_query.sync_frequency_interval)
         self.assertEqual(get_declared_target(node), timedelta(hours=1))
 
         # Update to 30-minute frequency
@@ -534,7 +530,6 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
 
         saved_query.refresh_from_db()
         node.refresh_from_db()
-        self.assertIsNone(saved_query.sync_frequency_interval)
         self.assertEqual(get_declared_target(node), timedelta(minutes=30))
 
         # Update to 15-minute frequency (the new floor)
@@ -551,7 +546,6 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
 
         saved_query.refresh_from_db()
         node.refresh_from_db()
-        self.assertIsNone(saved_query.sync_frequency_interval)
         self.assertEqual(get_declared_target(node), timedelta(minutes=15))
 
     @parameterized.expand(
@@ -1110,7 +1104,6 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
             query=self.sample_hogql_query,
             is_materialized=True,
             status=DataWarehouseSavedQuery.Status.COMPLETED,
-            sync_frequency_interval=timedelta(hours=1),
             last_run_at=now - timedelta(hours=2),  # Last run 2 hours ago, freshness target 1 hour = stale
         )
         saved_query.table = DataWarehouseTable.objects.create(
@@ -1187,7 +1180,6 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
             query=self.sample_hogql_query,
             is_materialized=True,
             status=DataWarehouseSavedQuery.Status.COMPLETED,
-            sync_frequency_interval=timedelta(hours=1),
             last_run_at=now - timedelta(minutes=30),  # Last run 30 min ago, sync every 1 hour = fresh
         )
         saved_query.table = DataWarehouseTable.objects.create(
@@ -1236,8 +1228,8 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
         ]
     )
     def test_v2_migrated_staleness_keys_on_data_freshness(self, _name, materialized_age, expected_path):
-        """Migration to v2 DAG schedules nulls sync_frequency_interval; the serve-time staleness
-        guard must key on the version's data_freshness_seconds or stale data is served forever."""
+        """The serve-time staleness guard must key on the version's data_freshness_seconds,
+        or stale data is served forever."""
         now = timezone.now()
         saved_query = DataWarehouseSavedQuery.objects.create(
             team=self.team,
@@ -1245,7 +1237,6 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
             query=self.sample_hogql_query,
             is_materialized=True,
             status=DataWarehouseSavedQuery.Status.COMPLETED,
-            sync_frequency_interval=None,
             last_run_at=now - materialized_age,
         )
         saved_query.table = DataWarehouseTable.objects.create(
@@ -1403,7 +1394,6 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
             query=self.sample_hogql_query,
             is_materialized=True,
             status=DataWarehouseSavedQuery.Status.COMPLETED,
-            sync_frequency_interval=timedelta(hours=1),
             last_run_at=now - timedelta(minutes=30),
         )
         saved_query.table = DataWarehouseTable.objects.create(
@@ -1454,7 +1444,6 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
             query=self.sample_hogql_query,
             is_materialized=True,
             status=DataWarehouseSavedQuery.Status.COMPLETED,
-            sync_frequency_interval=timedelta(hours=1),
             last_run_at=now - timedelta(minutes=30),
         )
         saved_query.table = DataWarehouseTable.objects.create(
@@ -2127,7 +2116,6 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
             team=self.team,
             query=initial_query,
             is_materialized=True,
-            sync_frequency_interval=timedelta(hours=24),
             origin=DataWarehouseSavedQuery.Origin.ENDPOINT,
         )
         table = DataWarehouseTable.objects.create(
@@ -2237,6 +2225,82 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
 
         with self.assertRaises(OrphanedEndpointSavedQueryError):
             prepare_executable_query(saved_query)
+
+    @parameterized.expand(
+        [
+            ("multi_arg_concat_equality", "properties.label = concat('x-', {variables.item})"),
+            ("like_concat", "properties.$current_url LIKE concat('%', {variables.item}, '%')"),
+            ("multi_arg_range_wrapper", "timestamp >= toDateTime64({variables.item}, 6, 'UTC')"),
+        ]
+    )
+    def test_prepare_executable_query_turns_off_version_that_no_longer_materializes(self, _name: str, predicate: str):
+        saved_query, version = self._unmaterializable_endpoint_version(_name, predicate)
+        previously_built = saved_query.query
+
+        with self.assertRaises(MaterializationNotSupportedError) as raised:
+            prepare_executable_query(saved_query)
+
+        self.assertIn("turned off", str(raised.exception))
+        saved_query.refresh_from_db()
+        self.assertEqual(saved_query.query, previously_built)
+        self.assertTrue(saved_query.deleted)
+        version.refresh_from_db()
+        self.assertIsNone(version.saved_query)
+        log = ActivityLog.objects.get(
+            team_id=self.team.pk, scope="EndpointVersion", activity="materialization_disabled"
+        )
+        self.assertIsNone(log.user)
+        assert log.detail is not None
+        self.assertIn("compared directly", log.detail["context"]["reason"])
+
+    def test_prepare_executable_query_keeps_version_another_endpoint_reads(self):
+        saved_query, version = self._unmaterializable_endpoint_version(
+            "read_by_other", "properties.label = concat('x-', {variables.item})"
+        )
+        reader = Endpoint.objects.create(name="reader", team=self.team, created_by=self.user)
+        EndpointVersion.objects.create(
+            endpoint=reader,
+            version=1,
+            query={"kind": "HogQLQuery", "query": f"SELECT * FROM {saved_query.name}"},
+            created_by=self.user,
+        )
+
+        with self.assertRaises(MaterializationNotSupportedError) as raised:
+            prepare_executable_query(saved_query)
+
+        self.assertNotIn("turned off", str(raised.exception))
+        saved_query.refresh_from_db()
+        self.assertFalse(saved_query.deleted)
+        version.refresh_from_db()
+        self.assertEqual(version.saved_query, saved_query)
+
+    def _unmaterializable_endpoint_version(
+        self, _name: str, predicate: str
+    ) -> tuple[DataWarehouseSavedQuery, EndpointVersion]:
+        version_query = {
+            "kind": "HogQLQuery",
+            "query": f"SELECT count() AS c FROM events WHERE event = '$pageview' AND {predicate}",
+            "variables": {"var-1": {"variableId": "var-1", "code_name": "item", "value": "1"}},
+        }
+        endpoint = create_endpoint_with_version(
+            name=f"legacy_{_name}",
+            team=self.team,
+            query=version_query,
+            created_by=self.user,
+            is_active=True,
+        )
+        previously_built = {"kind": "HogQLQuery", "query": "SELECT count() AS c, properties.label AS item FROM events"}
+        saved_query = DataWarehouseSavedQuery.objects.create(
+            name=f"legacy_{_name}_v1",
+            team=self.team,
+            query=previously_built,
+            created_by=self.user,
+            origin=DataWarehouseSavedQuery.Origin.ENDPOINT,
+        )
+        version = endpoint.versions.first()
+        version.saved_query = saved_query
+        version.save(update_fields=["saved_query"])
+        return saved_query, version
 
     def test_enable_materialization_links_version_before_immediate_run(self):
         endpoint = create_endpoint_with_version(
@@ -2757,7 +2821,6 @@ class TestEndpointMaterializationTemporal:
             name=endpoint.name,
             query=version.query,
             is_materialized=True,
-            sync_frequency_interval=timedelta(hours=12),
             origin=DataWarehouseSavedQuery.Origin.ENDPOINT,
         )
         saved_query.columns = await sync_to_async(saved_query.get_columns)()

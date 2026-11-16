@@ -404,6 +404,14 @@ describe('MCPClientProfile', () => {
             expect(new MCPClientProfile(input).isRenderUiHost()).toBe(false)
         })
 
+        it('follows the MCP Apps declaration from the Claude desktop Code tab', () => {
+            const profile = new MCPClientProfile({
+                userAgent: 'claude-code/2.1.309 (claude-desktop, agent-sdk/0.3.309)',
+                uiSupported: true,
+            })
+            expect(profile.isRenderUiHost()).toBe(true)
+        })
+
         it('Claude Code stays a coding agent and is not a UI host', () => {
             const profile = new MCPClientProfile({ clientName: 'Anthropic/ClaudeAI', vendorClient: 'ClaudeCode' })
             expect(profile.isCliModeEnabled()).toBe(true)

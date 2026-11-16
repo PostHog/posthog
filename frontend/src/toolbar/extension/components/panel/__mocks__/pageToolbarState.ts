@@ -1,5 +1,6 @@
 import { DEFAULT_HEATMAP_FILTERS } from 'lib/components/IframedToolbarBrowser/utils'
 
+import type { FlagComparison } from '~/toolbar/shared/flags/flagComparisonLogic'
 import type { ActionForm } from '~/toolbar/shared/types'
 
 import type { PageToolbarMode, PageToolbarState } from '../../../messaging/pageToolbarBridge'
@@ -37,6 +38,17 @@ export function pageToolbarState(mode: PageToolbarMode): PageToolbarState {
             heatmapFixedPositionMode: 'fixed',
             viewportRange: { min: 1152, max: 1408 },
             rawHeatmapLoading: false,
+            variantFilter: null,
+            variantFlags: [
+                {
+                    flagKey: 'pricing-page-redesign',
+                    variants: [
+                        { flagKey: 'pricing-page-redesign', variant: 'control' },
+                        { flagKey: 'pricing-page-redesign', variant: 'test' },
+                    ],
+                },
+            ],
+            variantFilterGate: true,
             heatmapsCollection: 'enabled',
             scrollDepthPosthogJsError: null,
             clickmapsEnabled: true,
@@ -114,6 +126,8 @@ export function pageToolbarState(mode: PageToolbarMode): PageToolbarState {
             mutationPending: false,
             mutationError: null,
             mutationRevision: 0,
+            comparingFlagKey: null,
+            comparisonError: null,
         },
         events: {
             available: true,
@@ -190,4 +204,40 @@ export function pageToolbarState(mode: PageToolbarMode): PageToolbarState {
             },
         },
     }
+}
+
+function pricingPageImage(buttonColor: string, buttonText: string): string {
+    const svg = `<svg xmlns="http://www.w3.org/2000/svg" width="640" height="480"><rect width="640" height="480" fill="#fff"/><rect x="40" y="40" width="560" height="40" fill="#e5e7eb"/><text x="40" y="150" font-family="sans-serif" font-size="32" fill="#111">Pricing</text><rect x="40" y="200" width="260" height="56" rx="6" fill="${buttonColor}"/><text x="60" y="236" font-family="sans-serif" font-size="20" fill="#fff">${buttonText}</text></svg>`
+    return `data:image/svg+xml,${encodeURIComponent(svg)}`
+}
+
+export const flagComparison: FlagComparison = {
+    flagKey: 'checkout-button-copy',
+    identical: false,
+    captures: [
+        {
+            value: false,
+            label: 'Off',
+            url: pricingPageImage('#1d4ed8', 'Start free trial'),
+            width: 640,
+            height: 480,
+            sameAsOff: true,
+        },
+        {
+            value: 'control',
+            label: 'control',
+            url: pricingPageImage('#15803d', 'Start free trial'),
+            width: 640,
+            height: 480,
+            sameAsOff: false,
+        },
+        {
+            value: 'test',
+            label: 'test',
+            url: pricingPageImage('#15803d', 'Try it free'),
+            width: 640,
+            height: 480,
+            sameAsOff: false,
+        },
+    ],
 }

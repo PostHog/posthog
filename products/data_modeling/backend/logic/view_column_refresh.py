@@ -1,6 +1,5 @@
 from collections.abc import Collection
 from datetime import datetime
-from graphlib import TopologicalSorter
 from typing import TYPE_CHECKING
 from uuid import UUID
 
@@ -8,8 +7,16 @@ from django.utils import timezone
 
 import structlog
 
+from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
+from posthog.uuidt import UUIDT
+
 from products.access_control.backend.facade.api import get_restricted_properties_with_group_type_index_for_team
-from products.data_modeling.backend.logic.saved_query_reads import dependent_saved_query_ids
+from products.access_control.backend.facade.user_access_control import UserAccessControl
+from products.data_modeling.backend.logic.saved_query_reads import (
+    allowed_saved_query_ids,
+    downstream_saved_query_ids,
+    saved_query_ids_upstream_first,
+)
 from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
 
 if TYPE_CHECKING:
@@ -20,40 +27,61 @@ logger = structlog.get_logger(__name__)
 
 
 def refresh_view_columns(team: "Team", saved_query_ids: Collection[UUID | str], user: "User | None") -> set[UUID]:
-    """Re-infer the stored columns of these views, upstream first, and return the ids whose columns changed."""
+    """Re-infer the stored columns of these views, upstream first, and return the ids whose columns changed.
+
+    With no user, inference runs as the system and bypasses warehouse access control.
+    """
     if _infers_masked_columns(team, user):
         return set()
     views = {
         view.id: view
         for view in DataWarehouseSavedQuery.objects.select_related("team")
-        .filter(team_id=team.pk, id__in=list(saved_query_ids), managed_viewset__isnull=True)
+        .filter(team_id=team.pk, id__in=_saved_query_uuids(saved_query_ids), managed_viewset__isnull=True)
         .exclude(deleted=True)
     }
-    return {view_id for view_id in _upstream_first(team.pk, set(views)) if _refresh_columns(views[view_id], user)}
+    return {
+        view_id
+        for view_id in saved_query_ids_upstream_first(team.pk, set(views))
+        if _refresh_columns(views[view_id], user)
+    }
 
 
 def views_updated_since(team: "Team", saved_query_ids: Collection[UUID | str], since: datetime) -> bool:
     """Whether any of these views was written after ``since``, for example by another request's refresh."""
     return DataWarehouseSavedQuery.objects.filter(
-        team_id=team.pk, id__in=list(saved_query_ids), updated_at__gt=since
+        team_id=team.pk, id__in=_saved_query_uuids(saved_query_ids), updated_at__gt=since
     ).exists()
+
+
+def refresh_downstream_view_columns(team: "Team", saved_query_id: UUID | str, user: "User | None") -> set[UUID]:
+    """Re-infer the stored columns of every view that reads from this one, directly or through other views."""
+    downstream_ids = downstream_saved_query_ids(team.pk, saved_query_id)
+    return refresh_view_columns(team, _readable_by(team, user, downstream_ids), user)
+
+
+def _readable_by(team: "Team", user: "User | None", view_ids: Collection[UUID]) -> Collection[UUID]:
+    if user is None:
+        return view_ids
+    return allowed_saved_query_ids(team.pk, UserAccessControl(user=user, team=team), ids=view_ids)
+
+
+def _saved_query_uuids(saved_query_ids: Collection[UUID | str]) -> list[UUID]:
+    return [UUID(str(value)) for value in saved_query_ids if UUIDT.is_valid_uuid(str(value))]
 
 
 def _infers_masked_columns(team: "Team", user: "User | None") -> bool:
     return bool(get_restricted_properties_with_group_type_index_for_team(user=user, team_id=team.pk))
 
 
-def _upstream_first(team_id: int, view_ids: set[UUID]) -> list[UUID]:
-    sorter: TopologicalSorter[UUID] = TopologicalSorter({view_id: set() for view_id in view_ids})
-    for source_id, target_ids in dependent_saved_query_ids(team_id, view_ids).items():
-        for target_id in target_ids & view_ids:
-            sorter.add(target_id, source_id)
-    return list(sorter.static_order())
-
-
 def _refresh_columns(view: DataWarehouseSavedQuery, user: "User | None") -> bool:
+    # Inference uses the team's default modifiers, so a materialized upstream view is read from its backing table.
+    # A query with useMaterializedViews=False reads that view's SQL instead. When the SQL changed and the view has
+    # not materialized again, such a query can still fail on stale columns after this refresh. The refresh that
+    # runs when materialization publishes the new backing table fixes it.
     try:
-        columns = view.get_columns(user=user)
+        columns = view.get_columns(user=user, bypass_warehouse_access_control=user is None)
+    except ConcurrencyLimitExceeded:
+        raise
     except Exception:
         logger.warning("view_column_refresh_failed", team_id=view.team_id, saved_query_id=str(view.id), exc_info=True)
         return False

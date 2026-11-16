@@ -6,6 +6,7 @@ import { useViewer } from '@/auth/useViewer'
 import { useDemoMode } from '@/demo/demoMode'
 import { track } from '@/lib/analytics'
 import { isInternalBuild } from '@/lib/environment'
+import { READING_WIDTH } from '@/ui/adaptiveLayout'
 import { EnvironmentRibbon } from '@/ui/EnvironmentRibbon'
 import { ScreenChrome } from '@/ui/ScreenChrome'
 import { SCREEN_CONTENT_TOP } from '@/ui/screenLayout'
@@ -131,6 +132,9 @@ const useStyles = createStyles(({ colors }) => ({
         backgroundColor: colors.background,
     },
     content: {
+        width: '100%',
+        maxWidth: READING_WIDTH,
+        alignSelf: 'center',
         paddingHorizontal: layout.detailGutter,
     },
     title: {

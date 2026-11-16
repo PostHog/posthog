@@ -41,6 +41,7 @@ from posthog.models.group_type_mapping import (
 from posthog.models.instance_setting import get_instance_setting, override_instance_config
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.models.organization import Organization, OrganizationMembership
+from posthog.models.organization_ip_restrictions import OrganizationIPRestrictions
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.product_intent import ProductIntent
 from posthog.models.project import Project
@@ -2047,17 +2048,36 @@ def team_api_test_factory():
                 == "You must be an admin of both the source and target organizations to move a project."
             )
 
-        def test_can_change_organization(self):
+        @parameterized.expand([(False,), (True,)])
+        def test_can_change_organization(self, restrict_destination: bool) -> None:
             other_org, _ = self._create_other_org_and_team(OrganizationMembership.Level.ADMIN)
             self.organization_membership.level = OrganizationMembership.Level.ADMIN
             self.organization_membership.save()
+            if restrict_destination:
+                with self.captureOnCommitCallbacks(execute=True):
+                    OrganizationIPRestrictions.objects.create(
+                        organization=other_org, ip_restrictions=["203.0.113.0/24"]
+                    )
+                denied = self.client.post(
+                    f"/api/projects/{self.team.project.id}/change_organization/",
+                    {"organization_id": other_org.id},
+                    REMOTE_ADDR="198.51.100.7",
+                )
+                assert denied.status_code == status.HTTP_403_FORBIDDEN
+                assert denied.json()["code"] == "ip_not_allowed"
+                self.project.refresh_from_db()
+                self.team.refresh_from_db()
+                assert self.project.organization_id == self.organization.id
+                assert self.team.organization_id == self.organization.id
             source_org_url = f"/api/organizations/{self.organization.id}/"
             # Populates the source organization's cached project list before the move.
             assert [team["id"] for team in self.client.get(source_org_url).json()["teams"]] == [self.team.id]
 
             with self.captureOnCommitCallbacks(execute=True):
                 res = self.client.post(
-                    f"/api/projects/{self.team.project.id}/change_organization/", {"organization_id": other_org.id}
+                    f"/api/projects/{self.team.project.id}/change_organization/",
+                    {"organization_id": other_org.id},
+                    REMOTE_ADDR="203.0.113.7",
                 )
 
             assert res.status_code == status.HTTP_200_OK, res.json()
@@ -3451,7 +3471,7 @@ class TestTeamAPI(team_api_test_factory()):  # type: ignore
         OrganizationFeatureFlagsConfig.objects.filter(organization=self.organization).update(
             flag_evaluations_mode=stored_mode
         )
-        request = RequestFactory().get("/")
+        request = RequestFactory().get("/?deferred_app_context=0")
         request.user = self.user
         request.session = self.client.session
 
@@ -4332,6 +4352,92 @@ class TestGetOrMintLiveEventsToken(APIBaseTest):
         with override_settings(JWT_SIGNING_KEY="completely-different-rotated-secret"):
             token_new_key = get_or_mint_live_events_token(self.team, self.user.id)
         assert token_old_key != token_new_key
+
+
+class TestSecretApiTokenVisibility(APIBaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        self.team.secret_api_token = "phs_JVRb8fNi0XyIKGgUCyi29ZJUOXEr6NF2dKBy5Ws8XVeF11C"
+        self.team.secret_api_token_backup = "phs_ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
+        self.team.save()
+
+    def _oauth_token(self, scope: str) -> str:
+        application = OAuthApplication.objects.create(
+            name="Test OAuth App",
+            client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
+            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+            redirect_uris="https://example.com/callback",
+            algorithm="RS256",
+            user=self.user,
+        )
+        return OAuthAccessToken.objects.create(
+            application=application,
+            user=self.user,
+            token="pha_secret_token_visibility",
+            scope=scope,
+            expires=timezone.now() + timedelta(hours=1),
+        ).token
+
+    @parameterized.expand(
+        [
+            ("session", None, [], True, True),
+            ("personal_api_key_project_read", "personal_api_key", ["project:read"], True, False),
+            (
+                "personal_api_key_mirrored_scopes_legacy_tokens_on",
+                "personal_api_key",
+                ["project:read", "feature_flag:read", "support_ticket:read"],
+                True,
+                False,
+            ),
+            (
+                "personal_api_key_mirrored_scopes_legacy_tokens_off",
+                "personal_api_key",
+                ["project:read", "feature_flag:read", "support_ticket:read"],
+                False,
+                True,
+            ),
+            ("personal_api_key_all_scopes", "personal_api_key", ["*"], True, True),
+            ("oauth_project_read", "oauth", ["project:read"], True, False),
+        ]
+    )
+    @patch("posthog.event_usage.report_user_action")
+    def test_secret_api_tokens_are_visible_only_to_callers_that_hold_their_authority(
+        self,
+        _name: str,
+        credential: str | None,
+        scopes: list[str],
+        accept_team_secret_tokens: bool,
+        visible: bool,
+        _mock_report_user_action: MagicMock,
+    ) -> None:
+        headers: dict[str, str] = {}
+        if credential is not None:
+            token = (
+                self.create_personal_api_key_with_scopes(scopes)
+                if credential == "personal_api_key"
+                else self._oauth_token(" ".join(scopes))
+            )
+            headers["authorization"] = f"Bearer {token}"
+            self.client.logout()
+
+        with override_settings(ACCEPT_TEAM_SECRET_TOKENS=accept_team_secret_tokens):
+            responses = self._read_both_serializers(headers)
+
+        expected = (self.team.secret_api_token, self.team.secret_api_token_backup) if visible else (None, None)
+        for serializer_name, response in responses.items():
+            assert response.status_code in (status.HTTP_200_OK, status.HTTP_201_CREATED), response.json()
+            body = response.json()
+            assert (body["secret_api_token"], body["secret_api_token_backup"]) == expected, serializer_name
+
+    def _read_both_serializers(self, headers: dict[str, str]) -> dict[str, Any]:
+        return {
+            "ProjectBackwardCompatSerializer": self.client.get(f"/api/projects/{self.project.id}/", headers=headers),
+            "TeamSerializer": self.client.patch(
+                f"/api/projects/{self.project.id}/add_product_intent/",
+                {"product_type": "product_analytics"},
+                headers=headers,
+            ),
+        }
 
 
 # Sensitive Team/Project settings the frontend gates behind

@@ -323,15 +323,17 @@
     --color-product-session-replay-light: rgb(235 162 18);
     --color-product-session-replay-dark: rgb(247 165 1);
     --color-product-heatmaps-light: rgb(220 152 16);
-    --color-product-heatmaps-dark: rgb(247 165 1);
+    --color-product-heatmaps-dark: rgb(240 175 45);
     --color-product-logs-light: rgb(214 37 123);
     --color-product-logs-dark: rgb(240 92 161);
     --color-product-marketing-analytics-light: rgb(214 37 123);
     --color-product-marketing-analytics-dark: rgb(240 92 161);
     --color-product-feature-flags-light: rgb(48 171 198);
+    --color-product-feature-flags-dark: rgb(79 189 212);
     --color-product-experiments-light: rgb(182 42 217);
+    --color-product-experiments-dark: rgb(212 106 240);
     --color-product-error-tracking-light: rgb(211 148 24);
-    --color-product-error-tracking-dark: rgb(247 165 1);
+    --color-product-error-tracking-dark: rgb(229 162 29);
     --color-product-autoresearch-light: rgb(182 42 217);
     --color-product-autoresearch-dark: rgb(212 106 240);
     --color-product-alerts-light: rgb(229 142 0);
@@ -347,7 +349,7 @@
     --color-product-data-warehouse-light: rgb(133 103 255);
     --color-product-data-warehouse-dark: rgb(160 135 255);
     --color-product-data-catalog-light: rgb(101 78 196);
-    --color-product-data-catalog-dark: rgb(139 118 232);
+    --color-product-data-catalog-dark: rgb(159 145 218);
     --color-product-llm-analytics-light: rgb(99 102 241);
     --color-product-llm-analytics-dark: rgb(129 140 248);
     --color-product-llm-clusters-light: rgb(110 92 238);
@@ -358,7 +360,7 @@
     --color-product-notebooks-light: rgb(239 68 68);
     --color-product-notebooks-dark: rgb(252 165 165);
     --color-product-tracing-light: rgb(6 182 212);
-    --color-product-tracing-dark: rgb(34 211 238);
+    --color-product-tracing-dark: rgb(12 199 231);
     --color-product-metrics-light: rgb(234 88 12);
     --color-product-metrics-dark: rgb(251 146 60);
     --color-product-revenue-analytics-light: rgb(52 175 102);
@@ -368,7 +370,7 @@
     --color-product-early-access-features-light: rgb(39 171 151);
     --color-product-early-access-features-dark: rgb(53 213 189);
     --color-product-support-light: rgb(243 84 84);
-    --color-product-support-dark: rgb(247 165 1);
+    --color-product-support-dark: rgb(248 121 121);
     --color-product-subscriptions-light: rgb(20 144 232);
     --color-product-subscriptions-dark: rgb(93 187 250);
     --color-product-visual-review-light: rgb(101 163 13);
@@ -401,11 +403,11 @@
     --color-product-property-groups-light: rgb(101 163 13);
     --color-product-property-groups-dark: rgb(163 230 53);
     --color-product-sql-variables-light: rgb(29 78 216);
-    --color-product-sql-variables-dark: rgb(96 165 250);
+    --color-product-sql-variables-dark: rgb(123 153 237);
     --color-product-mcp-servers-light: rgb(27 113 208);
     --color-product-mcp-servers-dark: rgb(95 190 246);
     --color-product-warehouse-properties-light: rgb(79 70 229);
-    --color-product-warehouse-properties-dark: rgb(129 140 248);
+    --color-product-warehouse-properties-dark: rgb(139 133 238);
     --color-product-sources-light: rgb(210 106 11);
     --color-product-sources-dark: rgb(251 163 41);
     --color-product-destinations-light: rgb(234 179 8);
@@ -431,7 +433,7 @@
     --color-product-business-knowledge-light: rgb(202 138 4);
     --color-product-business-knowledge-dark: rgb(250 204 21);
     --color-product-models-light: rgb(79 70 229);
-    --color-product-models-dark: rgb(129 140 248);
+    --color-product-models-dark: rgb(139 133 238);
     --color-product-broadcasts-light: rgb(14 165 233);
     --color-product-broadcasts-dark: rgb(56 189 248);
     --color-product-code-review-light: rgb(22 163 74);
@@ -442,6 +444,14 @@
     --color-product-identity-matching-dark: rgb(45 212 191);
     --color-product-managed-viewsets-light: rgb(202 138 4);
     --color-product-managed-viewsets-dark: rgb(250 204 21);
+    --color-product-uptime-monitoring-light: rgb(5 150 105);
+    --color-product-uptime-monitoring-dark: rgb(52 211 153);
+    --color-product-sdk-health-light: rgb(94 140 97);
+    --color-product-sdk-health-dark: rgb(134 190 137);
+    --color-product-stamphog-light: rgb(146 97 54);
+    --color-product-stamphog-dark: rgb(201 148 102);
+    --color-product-exports-light: rgb(84 110 140);
+    --color-product-exports-dark: rgb(148 170 196);
 
     // Generic brand color assignments
     // Change these to change the brand colors
@@ -1168,7 +1178,6 @@
     --danger-3000-frame-bg: var(--danger-3000-frame-bg-dark);
     --danger-3000-button-border: var(--danger-3000-button-border-dark);
     --danger-3000-button-border-hover: var(--danger-3000-button-border-hover-dark);
-    --tooltip-bg: var(--tooltip-bg-dark);
     --data-color-2: #7f26d9;
     --data-color-3: #3e7a76;
     --data-color-4: #bf0d6c;
@@ -1595,6 +1604,16 @@
     }
 
     // Bottom notice (DEBUG=1 mode)
+
+    // DebugNotice removes the fixed bar when it mounts in the classic navbar. A layout without DebugNotice keeps the
+    // bar, so the app layout subtracts this height to stop the bar from covering its bottom edge.
+    :root:has(#bottom-notice.tricolor) {
+        --bottom-notice-height: 1.5rem;
+
+        @media screen and (min-width: 750px) {
+            --bottom-notice-height: 2rem;
+        }
+    }
 
     #bottom-notice {
         position: fixed;

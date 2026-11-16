@@ -1,6 +1,7 @@
 import '@testing-library/jest-dom'
 
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { getContext } from 'kea'
 
 import api from 'lib/api'
 import { consumePersonsModalClick } from 'lib/components/ResultMenu/personsModalCapture'
@@ -8,7 +9,7 @@ import { openPersonsModal, OpenPersonsModalProps } from 'scenes/trends/persons-m
 
 import * as queryRunner from '~/queries/query'
 import { BIVisualizationNode } from '~/queries/schema/schema-business-intelligence'
-import { NodeKind, ActorsQueryResponse, HogQLQuery } from '~/queries/schema/schema-general'
+import { NodeKind, ActorsQueryResponse, DataVisualizationNode, HogQLQuery } from '~/queries/schema/schema-general'
 import { insightOnDashboard } from '~/scenes/dashboard/dashboardLogic.testHelpers'
 import { initKeaTests } from '~/test/init'
 import { BaseMathType, ChartDisplayType, GroupMathType } from '~/types'
@@ -23,6 +24,10 @@ jest.mock('scenes/trends/persons-modal/PersonsModal', () => ({
         }
     },
 }))
+
+// Every dashboard tile renders the menu trigger, so a closed menu must not mount its result logic.
+const resultLogicMounted = (): boolean =>
+    Object.keys(getContext().mount.mounted).some((path) => path.includes('dashboardInsightResultMenuLogic'))
 
 afterEach(() => {
     cleanup()
@@ -59,8 +64,10 @@ describe('dashboard result menu', () => {
                 <button onClick={() => openPersonsModal(request)}>Lifecycle point</button>
             </DashboardInsightResultMenu>
         )
+        expect(resultLogicMounted()).toBe(false)
         fireEvent.contextMenu(screen.getByText('Lifecycle point'))
         await waitFor(() => expect(screen.getByText('Open in SQL editor').closest('a')).not.toBeNull())
+        expect(resultLogicMounted()).toBe(true)
         expect(screen.queryByText('View recordings')).not.toBeInTheDocument()
         expect(queryRunner.performQuery).toHaveBeenCalledWith(
             expect.objectContaining({ source: request.query, select: ['actor'] }),
@@ -107,6 +114,24 @@ describe('dashboard result menu', () => {
             })
         }
         expect(queryRunner.performQuery).not.toHaveBeenCalled()
+    })
+
+    it('opens a SQL chart in the SQL editor with its chart display and its rows as a table', () => {
+        const query: DataVisualizationNode = {
+            kind: NodeKind.DataVisualizationNode,
+            source: { kind: NodeKind.HogQLQuery, query: 'SELECT day, count() FROM events GROUP BY day' },
+            display: ChartDisplayType.ActionsLineGraph,
+        }
+        render(
+            <DashboardInsightResultMenu insight={{ ...insightOnDashboard(1, [1]), query }}>
+                <div>SQL chart</div>
+            </DashboardInsightResultMenu>
+        )
+        fireEvent.contextMenu(screen.getByText('SQL chart'))
+        const openQuery = (label: string): unknown =>
+            JSON.parse(new URL(screen.getByText(label).closest('a')!.href).searchParams.get('open_query')!)
+        expect(openQuery('Open in SQL editor')).toEqual(query)
+        expect(openQuery('View underlying rows')).toEqual({ ...query, display: ChartDisplayType.ActionsTable })
     })
 
     it.each([undefined, 0] as const)(

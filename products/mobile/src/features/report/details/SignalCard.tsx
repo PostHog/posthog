@@ -2,6 +2,7 @@ import { useRouter } from 'expo-router'
 import type { ReactElement } from 'react'
 import { Text, View } from 'react-native'
 
+import { useProjectScopeOverride } from '@/auth/projectScope'
 import { useDataMode } from '@/demo/demoMode'
 import { track } from '@/lib/analytics'
 import { formatActivityTime } from '@/lib/dates'
@@ -25,6 +26,8 @@ export function SignalCard({ signal, reportId, now }: SignalCardProps): ReactEle
     const colors = useColors()
     const router = useRouter()
     const demo = useDataMode() === 'demo'
+    // The replay screen reads the session's project, so a report opened from another project plays on the web.
+    const otherProject = useProjectScopeOverride() !== null
     const { Icon } = sourceInfo(signal.sourceProduct)
     const meta = [
         signal.sourceLabel,
@@ -35,7 +38,7 @@ export function SignalCard({ signal, reportId, now }: SignalCardProps): ReactEle
         .join(' · ')
     const { replayUrl, sessionId } = signal
     const watch = (): void => {
-        if (demo || !sessionId) {
+        if (demo || otherProject || !sessionId) {
             // Demo sessions exist in no project, so the session screen would have nothing to load.
             if (replayUrl) {
                 openDetailsLink(replayUrl, reportId, 'replay')

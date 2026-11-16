@@ -260,33 +260,6 @@ BATCH_EXPORT_BACKFILL_ORDERING_FIELDS = ("created_at", "start_at")
 
 
 @dataclass(frozen=True)
-class ListPageBound:
-    """Where a page of an ordered list starts.
-
-    Only the items whose first ordering field sorts before ``value`` (when ``before``) or after
-    it (otherwise) are on the page. ``value`` is the field's value as text, as an API cursor carries it.
-    """
-
-    value: str
-    before: bool
-
-
-@dataclass(frozen=True)
-class ListPage:
-    """One page of an ordered list.
-
-    ``ordering`` names the fields to sort by, most significant first. A leading ``-`` sorts that
-    field in descending order. The page skips ``offset`` items past ``bound`` and holds at most
-    ``limit`` items.
-    """
-
-    ordering: tuple[str, ...]
-    bound: ListPageBound | None
-    offset: int
-    limit: int
-
-
-@dataclass(frozen=True)
 class DatetimeRange:
     """A range of time that includes both of its ends."""
 

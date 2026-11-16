@@ -159,7 +159,7 @@ export function HighlightPicksStaleBanner(): JSX.Element | null {
                     disabledReason={editDisabledReason}
                     to={combineUrl(urls.replayVisionNewScanner(), { goal: starter.goal }).url}
                     onClick={() => {
-                        markScannerGoalDraftIntent(starter.goal)
+                        markScannerGoalDraftIntent({ goal: starter.goal })
                         pickSharperGoal(starter.key)
                     }}
                     data-attr={`vision-highlight-picks-stale-goal-${starter.key}`}

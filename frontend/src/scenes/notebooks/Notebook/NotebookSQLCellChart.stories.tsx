@@ -1,10 +1,12 @@
 import { Meta, StoryObj } from '@storybook/react'
+import { waitFor, within } from '@testing-library/dom'
 
-import { FEATURE_FLAGS } from 'lib/constants'
 import { App } from 'scenes/App'
 import { urls } from 'scenes/urls'
 
 import { mswDecorator } from '~/mocks/browser'
+
+import { expect } from 'storybook/test'
 
 import { notebookTestTemplate } from './__mocks__/notebook-template-for-snapshot'
 import { buildMarkdownNotebookContent } from './markdownNotebookV2'
@@ -55,7 +57,6 @@ const meta: Meta = {
         layout: 'fullscreen',
         viewMode: 'story',
         mockDate: '2023-07-04',
-        featureFlags: [FEATURE_FLAGS.REVAMPED_PY_NOTEBOOKS],
         testOptions: {
             waitForSelector: '.DataVisualization canvas',
         },
@@ -111,5 +112,18 @@ export default meta
 
 type Story = StoryObj<{}>
 
-export const BarChart: Story = { parameters: { pageUrl: urls.notebook('sql-cell-bar-chart') } }
-export const LineChart: Story = { parameters: { pageUrl: urls.notebook('sql-cell-line-chart') } }
+// Opening the notebook autosaves it, and the "Saved" tag shows for 3 s of real time, so wait it out.
+const waitForAutosaveTag: Story['play'] = async ({ canvasElement }) => {
+    const canvas = within(canvasElement)
+    await waitFor(() => expect(canvas.queryByText('Saved')).not.toBeNull(), { timeout: 3000 }).catch(() => undefined)
+    await waitFor(() => expect(canvas.queryByText('Saved')).toBeNull(), { timeout: 5000 })
+}
+
+export const BarChart: Story = {
+    parameters: { pageUrl: urls.notebook('sql-cell-bar-chart') },
+    play: waitForAutosaveTag,
+}
+export const LineChart: Story = {
+    parameters: { pageUrl: urls.notebook('sql-cell-line-chart') },
+    play: waitForAutosaveTag,
+}

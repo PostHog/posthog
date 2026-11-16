@@ -135,6 +135,8 @@ async fn the_row_filter_drops_rows_no_program_can_match() {
         r#"{"$feature_flag":"another-flag"}"#,
         r#"{"$feature_flag":"MY-FLAG"}"#,
         r#"{"$feature_flag":null}"#,
+        r#"{"$feature_flag":true}"#,
+        r#"{"$feature_flag":false}"#,
         r#"{"$feature_flag":5}"#,
         r#"{"$feature_flag":["my-flag"]}"#,
         r#"{"nested":{"$feature_flag":"my-flag"}}"#,

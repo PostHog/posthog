@@ -17,7 +17,6 @@ import { urls } from 'scenes/urls'
 
 import { primaryEventPropertiesModel } from '~/models/primaryEventPropertiesModel'
 import { updatePropertyDefinitions } from '~/models/propertyDefinitionsModel'
-import { tagsModel } from '~/models/tagsModel'
 import { Definition, EventDefinition, PropertyDefinition } from '~/types'
 
 import type {
@@ -67,9 +66,6 @@ export interface definitionEditLogicActions {
     setLocalPropertyDefinition: (definition: PropertyDefinition) => {
         definition: PropertyDefinition
     } // propertyDefinitionsTableLogic
-    loadTags: () => {
-        value: true
-    } // tagsModel
     resetEditDefinition: (values?: Definition) => {
         values?: Definition
     }
@@ -85,28 +81,6 @@ export interface definitionEditLogicActions {
         editDefinition:
             | {
                   created_at?: string | undefined
-                  default_columns?: string[] | undefined
-                  description?: string | undefined
-                  enforcement_mode?: SchemaEnforcementMode | undefined
-                  hidden?: boolean | undefined
-                  id: string
-                  is_action?: boolean | undefined
-                  is_data_warehouse?: boolean | undefined
-                  last_seen_at?: string | undefined
-                  last_updated_at?: string | undefined
-                  media_preview_urls?: string[] | undefined
-                  name: string
-                  owner?: UserBasicType | null | undefined
-                  primary_property?: string | null | undefined
-                  tags?: string[] | undefined
-                  updated_at?: string | undefined
-                  updated_by?: UserBasicType | null | undefined
-                  verified?: boolean | undefined
-                  verified_at?: string | undefined
-                  verified_by?: string | undefined
-              }
-            | {
-                  created_at?: string | undefined
                   description?: string | undefined
                   example?: string | undefined
                   hidden?: boolean | undefined
@@ -126,34 +100,35 @@ export interface definitionEditLogicActions {
                   verified_by?: string | undefined
                   virtual?: boolean | undefined
                   warehouse_origin?: WarehousePropertyOrigin | null | undefined
+              }
+            | {
+                  created_at?: string | undefined
+                  default_columns?: string[] | undefined
+                  description?: string | undefined
+                  enforcement_mode?: SchemaEnforcementMode | undefined
+                  hidden?: boolean | undefined
+                  id: string
+                  is_action?: boolean | undefined
+                  is_data_warehouse?: boolean | undefined
+                  last_seen_at?: string | undefined
+                  last_updated_at?: string | undefined
+                  media_preview_urls?: string[] | undefined
+                  name: string
+                  owner?: UserBasicType | null | undefined
+                  primary_property?: string | null | undefined
+                  scheduled_deletion_at?: string | null | undefined
+                  tags?: string[] | undefined
+                  updated_at?: string | undefined
+                  updated_by?: UserBasicType | null | undefined
+                  verified?: boolean | undefined
+                  verified_at?: string | undefined
+                  verified_by?: string | undefined
               },
         payload?: any
     ) => {
         editDefinition:
             | {
                   created_at?: string | undefined
-                  default_columns?: string[] | undefined
-                  description?: string | undefined
-                  enforcement_mode?: SchemaEnforcementMode | undefined
-                  hidden?: boolean | undefined
-                  id: string
-                  is_action?: boolean | undefined
-                  is_data_warehouse?: boolean | undefined
-                  last_seen_at?: string | undefined
-                  last_updated_at?: string | undefined
-                  media_preview_urls?: string[] | undefined
-                  name: string
-                  owner?: UserBasicType | null | undefined
-                  primary_property?: string | null | undefined
-                  tags?: string[] | undefined
-                  updated_at?: string | undefined
-                  updated_by?: UserBasicType | null | undefined
-                  verified?: boolean | undefined
-                  verified_at?: string | undefined
-                  verified_by?: string | undefined
-              }
-            | {
-                  created_at?: string | undefined
                   description?: string | undefined
                   example?: string | undefined
                   hidden?: boolean | undefined
@@ -173,6 +148,29 @@ export interface definitionEditLogicActions {
                   verified_by?: string | undefined
                   virtual?: boolean | undefined
                   warehouse_origin?: WarehousePropertyOrigin | null | undefined
+              }
+            | {
+                  created_at?: string | undefined
+                  default_columns?: string[] | undefined
+                  description?: string | undefined
+                  enforcement_mode?: SchemaEnforcementMode | undefined
+                  hidden?: boolean | undefined
+                  id: string
+                  is_action?: boolean | undefined
+                  is_data_warehouse?: boolean | undefined
+                  last_seen_at?: string | undefined
+                  last_updated_at?: string | undefined
+                  media_preview_urls?: string[] | undefined
+                  name: string
+                  owner?: UserBasicType | null | undefined
+                  primary_property?: string | null | undefined
+                  scheduled_deletion_at?: string | null | undefined
+                  tags?: string[] | undefined
+                  updated_at?: string | undefined
+                  updated_by?: UserBasicType | null | undefined
+                  verified?: boolean | undefined
+                  verified_at?: string | undefined
+                  verified_by?: string | undefined
               }
         payload?: any
     }
@@ -235,8 +233,6 @@ export const definitionEditLogic = kea<definitionEditLogicType>([
             ['setLocalPropertyDefinition'],
             eventDefinitionsTableLogic,
             ['setLocalEventDefinition'],
-            tagsModel,
-            ['loadTags'],
             primaryEventPropertiesModel,
             ['refreshLoadedPrimaryProperties'],
         ],
@@ -303,7 +299,6 @@ export const definitionEditLogic = kea<definitionEditLogicType>([
                         actions.setLocalPropertyDefinition(definition)
                     }
                     actions.setDefinition(definition)
-                    actions.loadTags() // reload tags in case new tags are being saved
                     if (values.isEvent) {
                         actions.refreshLoadedPrimaryProperties()
                     }
