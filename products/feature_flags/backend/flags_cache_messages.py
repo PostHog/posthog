@@ -20,11 +20,12 @@ flags_cache.py. ``shadow=False`` is omitted from the wire, so a real
 invalidation stays byte-identical to v1 and any consumer that predates the
 field can still read it.
 
-The optional ``source`` field (fixture: flags_cache_invalidation_v1_refresh.json)
-says which producer raised the message: ``edit`` for a flag change reaching a
-signal handler, ``refresh`` for the hourly expiry sweep. The consumer builds
-both identically and uses the value to attribute builds, failures and
-end-to-end latency. ``edit`` is the default and is omitted from the wire, on the
+The optional ``source`` field (fixtures: flags_cache_invalidation_v1_refresh.json
+and flags_cache_invalidation_v1_cohort.json) says which producer raised the
+message: ``edit`` for a flag change reaching a signal handler, ``cohort`` for a
+cohort change that affects the team's flags, ``refresh`` for the hourly expiry
+sweep. The consumer builds all three identically and uses the value to
+attribute builds, failures and end-to-end latency. ``edit`` is the default and is omitted from the wire, on the
 same compatibility contract as ``shadow``.
 
 That contract cuts one way only. A consumer that predates the field rejects a

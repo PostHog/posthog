@@ -1324,6 +1324,7 @@ mod tests {
         // since that worst-case staleness is what stamps the DLQ message.
         let got = fold_edits(vec![(7, ts(300), 0), (7, ts(100), 1), (7, ts(200), 2)]);
         assert_eq!(got[&7].oldest_emitted_at, ts(100));
+        assert_eq!(got[&7].attributed_emitted_at(), ts(100));
         assert_eq!(got[&7].offsets, vec![0, 1, 2]);
     }
 

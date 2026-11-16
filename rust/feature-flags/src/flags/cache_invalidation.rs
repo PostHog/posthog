@@ -33,9 +33,10 @@ pub enum Operation {
 }
 
 /// What raised the invalidation. `Edit` is a flag change reaching a signal
-/// handler; `Refresh` is the hourly expiry sweep asking for a rebuild before the
-/// entry's TTL runs out. The consumer builds both identically — the value exists
-/// so a build, a failure and an end-to-end latency can be attributed to the path
+/// handler. `Cohort` is a cohort change that affects the team's flags. `Refresh`
+/// is the hourly expiry sweep asking for a rebuild before the entry's TTL runs
+/// out. The consumer builds all three identically. The value exists so a
+/// build, a failure and an end-to-end latency can be attributed to the path
 /// that caused them. Without it the sweep's volume buries the edit path, which
 /// is the one with a serve-latency expectation.
 ///
