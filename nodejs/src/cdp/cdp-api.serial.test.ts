@@ -87,6 +87,7 @@ import {
     buildAttachmentStore,
 } from './services/messaging/attachment-store'
 import { ATTACHMENT_VERIFICATION_DEADLINE_MS, AttachmentUploads } from './services/messaging/attachment-uploads'
+import { cdpEmailQueuedTotal } from './services/messaging/email-priority'
 import { SuppressionLookupError } from './services/messaging/email-suppression.service'
 import { UTM_VALUE_LIMIT_CHARS } from './services/messaging/helpers/utm'
 import { InFlightRegistry } from './services/messaging/in-flight-registry'
@@ -305,6 +306,67 @@ describe('CDP API', () => {
         expect(res.status).toEqual(200)
         expect(res.body.errors).toEqual([])
     })
+
+    it.each([
+        ['hog function', () => `hog_functions/${hogFunction.id}`, 'Received invocation', 200],
+        ['hog flow', () => 'hog_flows/new', 'Received hogflow invocation', undefined],
+    ])('keeps event data out of the received %s invocation log', async (_name, path, message, expectedStatus) => {
+        const sentinel = `sample-value-${randomUUID()}`
+        const emitted = emittedLogLines()
+        let res: supertest.Response
+        try {
+            res = await supertest(app)
+                .post(`/api/projects/${hogFunction.team_id}/${path()}/invocations`)
+                .send({
+                    globals: { ...globals, event: { ...globals.event, properties: { email: sentinel } } },
+                    clickhouse_event: { event: '$exception', properties: JSON.stringify({ email: sentinel }) },
+                    mock_async_functions: true,
+                })
+        } finally {
+            emitted.stop()
+        }
+
+        if (expectedStatus) {
+            expect(res.status).toEqual(expectedStatus)
+        }
+        expect(emitted.lines.some((line) => String(parseJSON(line).msg).endsWith(message))).toBe(true)
+        expect(emitted.lines.join('')).not.toContain(sentinel)
+    })
+
+    it.each([
+        ['hog function', 'one line', () => `hog_functions/${hogFunction.id}`, (s: string) => s],
+        ['hog flow', 'one line', () => 'hog_flows/new', (s: string) => s],
+        ['hog function', 'several lines', () => `hog_functions/${hogFunction.id}`, (s: string) => `x\n${s}`],
+        ['hog flow', 'several lines', () => 'hog_flows/new', (s: string) => `x\n${s}`],
+    ])(
+        'keeps event data out of the error log when a %s test event is malformed on %s',
+        async (_name, _shape, path, payload) => {
+            const sentinel = `x${randomUUID().slice(0, 7)}`
+            const emitted = emittedLogLines()
+            let res: supertest.Response
+            try {
+                res = await supertest(app)
+                    .post(`/api/projects/${hogFunction.team_id}/${path()}/invocations`)
+                    .send({
+                        clickhouse_event: {
+                            event: '$exception',
+                            timestamp: '2021-09-28 14:00:00.000',
+                            properties: payload(sentinel),
+                        },
+                        mock_async_functions: true,
+                    })
+            } finally {
+                emitted.stop()
+            }
+
+            expect(res.status).toEqual(500)
+            expect(JSON.stringify(res.body)).toContain(sentinel)
+            expect(emitted.lines.some((line) => String(parseJSON(line).msg).endsWith('Test invocation failed'))).toBe(
+                true
+            )
+            expect(emitted.lines.join('')).not.toContain(sentinel)
+        }
+    )
 
     it("does not error if hog function is 'new'", async () => {
         const res = await supertest(app)
@@ -2626,6 +2688,194 @@ describe('CDP API', () => {
             jest.restoreAllMocks()
         })
 
+        describe('with its team in intake shadow mode', () => {
+            const intakeMessages = (): { key: unknown; value: Buffer }[] =>
+                produceOutput.mock.calls
+                    .filter(([output]) => output === 'cdp_intake_transactional_email')
+                    .map(([, message]) => message)
+
+            beforeEach(() => {
+                api['config'].CDP_INTAKE_KAFKA_SHADOW_TEAMS = String(team.id)
+            })
+
+            afterEach(() => {
+                api['config'].CDP_INTAKE_KAFKA_SHADOW_TEAMS = ''
+            })
+
+            it('answers from its own insert and produces the run to the intake topic, keyed by its run id', async () => {
+                const res = await send(hogFlow.id, { Authorization: `Bearer ${mintToken(team.id, hogFlow.id)}` })
+
+                expect(res.status).toEqual(202)
+                expect(mockQueueInvocations).toHaveBeenCalledTimes(1)
+                expect(intakeMessages()).toEqual([expect.objectContaining({ key: res.body.invocation_id })])
+                expect(parseJSON(intakeMessages()[0].value.toString())).toMatchObject({
+                    kind: 'transactional-email',
+                    job: { id: res.body.invocation_id, state: { state: { event: { event: '$transactional_email' } } } },
+                })
+            })
+
+            it('inserts a sensitive send without producing it, so its secret stays off Kafka', async () => {
+                const res = await sendAccepted(hogFlow.id, { ...body, send: { ...codeSend, sensitive: true } })
+
+                expect(res.status).toEqual(202)
+                expect(mockQueueInvocations).toHaveBeenCalledTimes(1)
+                expect(intakeMessages()).toEqual([])
+            })
+
+            it('claims a run without a key on its own id, so the consumer replays the produced copy', async () => {
+                const res = await send(hogFlow.id, { Authorization: `Bearer ${mintToken(team.id, hogFlow.id)}` })
+
+                expect(await api['hogflowQueue'].findIdempotencyKey(res.body.invocation_id)).toEqual({
+                    fingerprint: res.body.invocation_id,
+                })
+            })
+
+            it('keeps its answer when the broker refuses the run', async () => {
+                produceOutput.mockImplementation((output: string) =>
+                    output === 'cdp_intake_transactional_email'
+                        ? Promise.reject(new Error('Broker: Not enough in-sync replicas'))
+                        : Promise.resolve()
+                )
+
+                const res = await send(hogFlow.id, { Authorization: `Bearer ${mintToken(team.id, hogFlow.id)}` })
+
+                expect(res.status).toEqual(202)
+                expect(mockQueueInvocations).toHaveBeenCalledTimes(1)
+            })
+        })
+
+        describe('with its team in intake async mode', () => {
+            const authorized = () => ({ Authorization: `Bearer ${mintToken(team.id, hogFlow.id)}` })
+            const producedTo = (prefix: string) =>
+                produceOutput.mock.calls.filter(([output]) => output.startsWith(prefix)).map(([, message]) => message)
+
+            beforeEach(() => {
+                api['config'].CDP_INTAKE_KAFKA_ASYNC_TEAMS = String(team.id)
+            })
+
+            afterEach(() => {
+                api['config'].CDP_INTAKE_KAFKA_ASYNC_TEAMS = ''
+            })
+
+            it('answers on the broker ack and leaves the insert and its rows to the consumer', async () => {
+                const queuedEmails = async () =>
+                    (await cdpEmailQueuedTotal.get()).values.find((v) => v.labels.priority_class === 'fast')?.value ?? 0
+                const queuedBefore = await queuedEmails()
+
+                const res = await send(hogFlow.id, authorized())
+
+                expect(res.status).toEqual(202)
+                expect(res.body).toMatchObject({ status: 'queued', replayed: false })
+                expect(producedTo('cdp_intake_transactional_email')).toEqual([
+                    expect.objectContaining({ key: res.body.invocation_id }),
+                ])
+                expect(mockQueueInvocations).not.toHaveBeenCalled()
+                expect(emailStatusRows()).toEqual([])
+                expect(producedTo('hog_invocation_results')).toEqual([])
+                expect(await queuedEmails()).toBe(queuedBefore)
+            })
+
+            it('answers 503 intake_unavailable when the broker refuses the run', async () => {
+                produceOutput.mockImplementation((output: string) =>
+                    output === 'cdp_intake_transactional_email'
+                        ? Promise.reject(new Error('Broker: Not enough in-sync replicas'))
+                        : Promise.resolve()
+                )
+
+                const res = await send(hogFlow.id, authorized())
+
+                expect(res.status).toEqual(503)
+                expect(res.body).toEqual({ error: 'intake_unavailable' })
+            })
+
+            it('answers 413 for a send too large for the intake topic', async () => {
+                const res = await sendAccepted(hogFlow.id, {
+                    ...body,
+                    send: { ...codeSend, content: { ...codeSend.content, html: 'x'.repeat(2 * 1024 * 1024) } },
+                })
+
+                expect(res.status).toEqual(413)
+                expect(producedTo('cdp_intake_')).toEqual([])
+            })
+
+            it('replays a keyed retry from its claim without producing it again', async () => {
+                api['config'].CDP_INTAKE_KAFKA_ASYNC_TEAMS = ''
+                const headers = authorized()
+                const keyed = { ...body, idempotency_key: `key-${new UUIDT().toString()}` }
+                const first = await send(hogFlow.id, headers, keyed)
+                api['config'].CDP_INTAKE_KAFKA_ASYNC_TEAMS = String(team.id)
+
+                const retry = await send(hogFlow.id, headers, keyed)
+
+                expect(retry.status).toEqual(202)
+                expect(retry.body).toMatchObject({ invocation_id: first.body.invocation_id, replayed: true })
+                expect(producedTo('cdp_intake_')).toEqual([])
+            })
+
+            it('queues a keyed send and its retry under one run id while Valkey is down', async () => {
+                const keys = api['transactionalEmailIdempotencyKeys']
+                for (const method of ['reserve', 'markQueued', 'queuedReplay', 'release'] as const) {
+                    jest.spyOn(keys, method).mockRejectedValue(new Error('valkey unavailable'))
+                }
+                const headers = authorized()
+                const keyed = { ...body, idempotency_key: `key-${new UUIDT().toString()}` }
+
+                const first = await send(hogFlow.id, headers, keyed)
+                const retry = await send(hogFlow.id, headers, keyed)
+
+                expect(first.status).toEqual(202)
+                expect(retry.status).toEqual(202)
+                expect(retry.body.invocation_id).toEqual(first.body.invocation_id)
+                expect(producedTo('cdp_intake_transactional_email')).toHaveLength(2)
+            })
+
+            it('inserts a sensitive send synchronously, so its secret never reaches Kafka', async () => {
+                const res = await sendAccepted(hogFlow.id, { ...body, send: { ...codeSend, sensitive: true } })
+
+                expect(res.status).toEqual(202)
+                expect(mockQueueInvocations).toHaveBeenCalledTimes(1)
+                expect(producedTo('cdp_intake_')).toEqual([])
+            })
+
+            it('produces a keyed send when its claim lookup does not answer in time', async () => {
+                jest.spyOn(api['hogflowQueue'], 'findIdempotencyKey').mockReturnValue(new Promise(() => {}))
+
+                const res = await send(hogFlow.id, authorized(), {
+                    ...body,
+                    idempotency_key: `key-${new UUIDT().toString()}`,
+                })
+
+                expect(res.status).toEqual(202)
+                expect(producedTo('cdp_intake_transactional_email')).toHaveLength(1)
+            })
+
+            it('produces a send when its refusal checks do not answer in time', async () => {
+                jest.spyOn(api['teamWorkflowsConfigService'], 'getEmailSendingSuspension').mockReturnValue(
+                    new Promise(() => {})
+                )
+
+                const res = await send(hogFlow.id, authorized())
+
+                expect(res.status).toEqual(202)
+                expect(producedTo('cdp_intake_transactional_email')).toHaveLength(1)
+            })
+
+            it('still refuses a marketing send over quota when its other refusal checks do not answer in time', async () => {
+                jest.spyOn(api['teamWorkflowsConfigService'], 'getEmailSendingSuspension').mockReturnValue(
+                    new Promise(() => {})
+                )
+                jest.spyOn(api['deps'].quotaLimiting, 'isTeamQuotaLimited').mockResolvedValue(true)
+                const marketingFlow = await insertHogFlow(transactionalFlow('api', 'active', 'marketing'))
+
+                const res = await send(marketingFlow.id, {
+                    Authorization: `Bearer ${mintToken(team.id, marketingFlow.id)}`,
+                })
+
+                expect(res.status).toEqual(429)
+                expect(producedTo('cdp_intake_transactional_email')).toEqual([])
+            })
+        })
+
         it('queues one run on the email fast lane with the recipient and the data', async () => {
             const queueAppMetric = jest.spyOn(api['invocationResultsService'].monitoringService, 'queueAppMetric')
             const queuedBefore = await outcomeCount('queued')
@@ -2655,6 +2905,8 @@ describe('CDP API', () => {
                 total: 1,
             })
             expect(mockQueueInvocations).toHaveBeenCalledTimes(1)
+            // The intake topic stays empty while the team is in no intake list.
+            expect(produceOutput.mock.calls.filter(([output]) => output.startsWith('cdp_intake_'))).toEqual([])
             const [invocation] = mockQueueInvocations.mock.calls[0][0]
             expect(invocation).toMatchObject({
                 id: res.body.invocation_id,

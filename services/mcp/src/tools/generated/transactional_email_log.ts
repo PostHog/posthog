@@ -163,6 +163,7 @@ const workflowsTransactionalEmailsList = (): ToolBase<
                 date_to: params.date_to,
                 limit: params.limit,
                 offset: params.offset,
+                reason: params.reason,
                 search: params.search,
                 status: params.status,
                 workflow_id: params.workflow_id,

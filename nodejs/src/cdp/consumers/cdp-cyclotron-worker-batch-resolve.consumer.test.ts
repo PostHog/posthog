@@ -177,7 +177,7 @@ describe('CdpCyclotronWorkerBatchResolve', () => {
             Object.assign(consumer, {
                 config: { SITE_URL: 'https://us.posthog.com' },
                 deps: { teamManager: { getTeam: jest.fn().mockResolvedValue(team) } },
-                hogFlowManager: { getHogFlow: jest.fn().mockResolvedValue(hogFlow) },
+                hogFlowManager: { getHogFlowCheckingPrimaryOnMiss: jest.fn().mockResolvedValue(hogFlow) },
                 hogFlowBatchPersonQueryService: {
                     getBlastRadiusPersons: jest.fn().mockResolvedValue({
                         users_affected: ['person-1', 'person-2'],
@@ -288,7 +288,7 @@ describe('CdpCyclotronWorkerBatchResolve', () => {
                     } as any,
                 ],
             }
-            ;(consumer as any).hogFlowManager.getHogFlow.mockResolvedValue(flow)
+            ;(consumer as any).hogFlowManager.getHogFlowCheckingPrimaryOnMiss.mockResolvedValue(flow)
             await processPage()
 
             const { newJobs } = bulkCreateAndCheckIn.mock.calls[0][0]
@@ -425,7 +425,7 @@ describe('CdpCyclotronWorkerBatchResolve', () => {
             Object.assign(consumer, {
                 config: { SITE_URL: 'https://us.posthog.com' },
                 deps: { teamManager: { getTeam: jest.fn().mockResolvedValue(team) } },
-                hogFlowManager: { getHogFlow: jest.fn().mockResolvedValue(hogFlow) },
+                hogFlowManager: { getHogFlowCheckingPrimaryOnMiss: jest.fn().mockResolvedValue(hogFlow) },
                 hogFlowBatchPersonQueryService: { getBlastRadiusPersons },
                 hogMasker: {
                     filterByMasking: jest.fn((invocations) => ({
@@ -478,7 +478,7 @@ describe('CdpCyclotronWorkerBatchResolve', () => {
             Object.assign(consumer, {
                 config: { SITE_URL: 'https://us.posthog.com' },
                 deps: { teamManager: { getTeam: jest.fn().mockResolvedValue(team) } },
-                hogFlowManager: { getHogFlow: jest.fn().mockResolvedValue(hogFlow) },
+                hogFlowManager: { getHogFlowCheckingPrimaryOnMiss: jest.fn().mockResolvedValue(hogFlow) },
                 hogFlowBatchPersonQueryService: { requestAudienceSnapshot, getBlastRadiusPersons: jest.fn() },
                 hogFunctionMonitoringService: {
                     queueAppMetrics: jest.fn(),
@@ -602,7 +602,7 @@ describe('CdpCyclotronWorkerBatchResolve', () => {
             Object.assign(consumer, {
                 config: { SITE_URL: 'https://us.posthog.com' },
                 deps: { teamManager: { getTeam: jest.fn().mockResolvedValue(team) } },
-                hogFlowManager: { getHogFlow: jest.fn().mockResolvedValue(hogFlow) },
+                hogFlowManager: { getHogFlowCheckingPrimaryOnMiss: jest.fn().mockResolvedValue(hogFlow) },
                 hogFlowBatchPersonQueryService: { getBlastRadiusPersons },
                 hogFunctionMonitoringService: {
                     queueAppMetrics: jest.fn(),
@@ -725,7 +725,9 @@ describe('CdpCyclotronWorkerBatchResolve', () => {
                     quotaLimiting: { isTeamQuotaLimited: jest.fn().mockResolvedValue(true) },
                 },
                 hogFlowManager: {
-                    getHogFlow: jest.fn().mockResolvedValue({ ...hogFlow, billable_action_types: ['function_email'] }),
+                    getHogFlowCheckingPrimaryOnMiss: jest
+                        .fn()
+                        .mockResolvedValue({ ...hogFlow, billable_action_types: ['function_email'] }),
                 },
                 hogFunctionMonitoringService: {
                     queueAppMetric: jest.fn(),
