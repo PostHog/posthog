@@ -149246,14 +149246,6 @@ export namespace Schemas {
     offset?: number;
     };
 
-    export type UserToolbarEntitlementsRetrieveParams = {
-    /**
-     * The project the toolbar session is scoped to. Defaults to the user's current project.
-     * @minimum 1
-     */
-    team_id?: number;
-    };
-
     export type UserFacetSettingsRetrieveParams = {
     /**
      * Which product's custom facets to read or update.
