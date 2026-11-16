@@ -341,7 +341,8 @@ class TransactionalEmailLogViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             message_id = UUID(str(pk))
         except ValueError:
             raise NotFound()
-        detail = get_transactional_email(self.team_id, message_id, access=self._workflow_access())
+        with query_concurrency_slots(self.team):
+            detail = get_transactional_email(self.team_id, message_id, access=self._workflow_access())
         if detail is None:
             raise NotFound()
         data = {

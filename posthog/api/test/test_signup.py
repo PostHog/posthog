@@ -1,4 +1,5 @@
 import uuid
+import hashlib
 from datetime import datetime, timedelta
 from typing import Optional, cast
 from zoneinfo import ZoneInfo
@@ -17,6 +18,7 @@ from django.test import override_settings
 from django.urls.base import reverse
 from django.utils import timezone
 
+import requests
 from parameterized import parameterized
 from rest_framework import status
 
@@ -792,6 +794,29 @@ class TestSignupAPI(APIBaseTest):
                 "detail": detail,
                 "attr": "password",
             }, [password, res.json()]
+
+    @override_settings(PWNED_PASSWORDS_CHECK_ENABLED=True)
+    def test_cant_sign_up_with_breached_password(self):
+        password = "vX9#qLm2$rTp-unique"
+        breached = requests.Response()
+        breached.status_code = 200
+        breached._content = f"{hashlib.sha1(password.encode()).hexdigest().upper()[5:]}:3".encode()
+        count = User.objects.count()
+
+        with patch("requests.request", return_value=breached):
+            res = self.client.post(
+                "/api/signup/",
+                {"first_name": "Jane", "email": "failed@posthog.com", "password": password},
+            )
+
+        assert res.status_code == status.HTTP_400_BAD_REQUEST, res.json()
+        assert res.json() == {
+            "type": "validation_error",
+            "code": "password_compromised",
+            "detail": "This password appeared in a known data breach. Choose a different password.",
+            "attr": "password",
+        }
+        assert User.objects.count() == count
 
     def test_default_dashboard_is_created_on_signup(self):
         """
@@ -2517,6 +2542,18 @@ class TestInviteSignupAPI(APIBaseTest):
                     "attr": None,
                 },
             )
+
+    @patch("posthog.utils.get_ip_address", return_value="192.168.1.100")
+    def test_invite_signup_attempts_are_limited_by_ip_but_page_loads_are_not(self, _mock_get_ip):
+        cache.clear()
+        invite_url = f"/api/signup/{uuid.uuid4()}/"
+        attempt = {"first_name": "Bob", "password": VALID_TEST_PASSWORD}
+
+        for _ in range(10):
+            assert self.client.post(invite_url, attempt).status_code == status.HTTP_400_BAD_REQUEST
+
+        assert self.client.post(invite_url, attempt).status_code == status.HTTP_429_TOO_MANY_REQUESTS
+        assert self.client.get(invite_url).status_code == status.HTTP_400_BAD_REQUEST
 
     def test_existing_user_cant_claim_invite_if_it_doesnt_match_target_email(self):
         user = self._create_user("test+39@posthog.com", VALID_TEST_PASSWORD)

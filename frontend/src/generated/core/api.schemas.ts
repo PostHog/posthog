@@ -441,6 +441,11 @@ export interface IdentityProviderConfigApi {
      * @items.maxLength 256
      */
     id_jag_allowed_clients?: string[]
+    /**
+     * Name of the OAuth application that registered this ID-JAG issuer through enterprise-managed auth setup, or null when the issuer was entered by hand.
+     * @nullable
+     */
+    readonly id_jag_registered_by_application_name: string | null
 }
 
 export interface PaginatedIdentityProviderConfigListApi {
@@ -542,6 +547,11 @@ export interface PatchedIdentityProviderConfigApi {
      * @items.maxLength 256
      */
     id_jag_allowed_clients?: string[]
+    /**
+     * Name of the OAuth application that registered this ID-JAG issuer through enterprise-managed auth setup, or null when the issuer was entered by hand.
+     * @nullable
+     */
+    readonly id_jag_registered_by_application_name?: string | null
 }
 
 export interface SCIMTokenResponseApi {
@@ -5212,6 +5222,11 @@ export interface PatchedFileSystemApi {
     readonly user_access_level?: string | null
 }
 
+export interface FileSystemMoveRequestApi {
+    /** Full new path for the entry, including its own name as the last segment, such as 'Experiments/Q4/Weekly signups'. Missing parent folders are created. Escape a '/' inside a name as '\/'. */
+    new_path: string
+}
+
 export interface FileSystemHomeFolderApi {
     /**
      * The user's home folder ID, or null if deleted.
@@ -7555,9 +7570,25 @@ export type FileSystemListParams = {
      */
     offset?: number
     /**
+     * Only entries under this folder path, at any depth, such as 'Experiments/Q4'.
+     */
+    parent?: string
+    /**
+     * Only the entry at exactly this path.
+     */
+    path?: string
+    /**
+     * Only entries pointing at this item: the insight or notebook short_id, or the dashboard id. Combine with type to find an item's entry in the project tree.
+     */
+    ref?: string
+    /**
      * A search term.
      */
     search?: string
+    /**
+     * Only entries of this type, such as 'insight', 'dashboard', 'notebook' or 'folder'.
+     */
+    type?: string
 }
 
 export type FileSystemDestroyParams = {

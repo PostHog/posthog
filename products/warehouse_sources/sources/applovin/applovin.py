@@ -48,11 +48,15 @@ AUTH_ERROR_PREFIX = "AppLovin denied the request"
 BAD_REQUEST_ERROR_PREFIX = "AppLovin rejected the report request"
 MANAGEMENT_AUTH_ERROR_PREFIX = "AppLovin denied the Campaign Management API request"
 MANAGEMENT_CREDENTIALS_MISSING_PREFIX = "AppLovin Campaign Management API credentials are missing"
+ADVERTISER_KEY_ON_PUBLISHER_REPORT_PREFIX = "AppLovin Report Key belongs to an advertiser account"
 # Deliberately NOT registered as non-retryable: the tracked session already retried the request,
 # and an upstream outage must not permanently disable the source.
 TRANSIENT_ERROR_PREFIX = "AppLovin API error (retryable)"
 
 _AUTH_STATUS_CODES = (401, 403)
+# `/report` checks the columns of a publisher request against the advertiser column list when the
+# Report Key belongs to an advertiser-only account, and names the first column it refuses.
+_ADVERTISER_COLUMN_REJECTION = "Invalid Advertiser Column"
 
 
 class AppLovinAPIError(Exception):
@@ -173,6 +177,15 @@ def _fetch_page(
     logger: FilteringBoundLogger,
 ) -> list[dict[str, Any]]:
     response = _get(session, _build_url(config, api_key, start, end, offset), api_key)
+    if (
+        response.status_code == 400
+        and config.extra_params.get("report_type") == "publisher"
+        and _ADVERTISER_COLUMN_REJECTION in response.text
+    ):
+        raise AppLovinAPIError(
+            f"{ADVERTISER_KEY_ON_PUBLISHER_REPORT_PREFIX}: endpoint={config.path}, "
+            f"body={_redacted(response.text, api_key)[:500]}"
+        )
     _raise_for_status(response, config.path, api_key)
     body = _json_body(response, config.path, api_key)
 

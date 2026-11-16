@@ -31,6 +31,8 @@ from .. import libraries, logic
 from ..constants import (
     BK_DRILLDOWN_DEFAULT_RADIUS,
     BK_DRILLDOWN_MAX_RADIUS,
+    BK_RERANK_REQUEST_MAX_RETRIES,
+    BK_RERANK_REQUEST_TIMEOUT,
     BK_SEARCH_DEFAULT_LIMIT,
     BK_SEARCH_MAX_LIMIT,
     MAX_URLS_PER_SOURCE,
@@ -741,7 +743,15 @@ class KnowledgeDocumentViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             self.team, query.strip(), limit=search_limit, trace=trace, library_id=library_id
         )
         if rerank:
-            results = logic.rerank_chunks(self.team, query.strip(), results, top_k=limit, trace=trace)
+            results = logic.rerank_chunks(
+                self.team,
+                query.strip(),
+                results,
+                top_k=limit,
+                trace=trace,
+                timeout=BK_RERANK_REQUEST_TIMEOUT,
+                max_retries=BK_RERANK_REQUEST_MAX_RETRIES,
+            )
         # `search_knowledge` expands each anchor with its ordinal neighbours, so it
         # can return up to ~3x the anchor limit. Trim to honor the requested bound.
         results = results[:limit]

@@ -16,12 +16,16 @@ import { METRIC_CONTEXTS } from '../modals/ExperimentMetricModal/experimentMetri
 import { metricSourceModalLogic } from '../modals/MetricSourceModal/metricSourceModalLogic'
 import type { ExperimentHealthFindingActionKind } from './experimentHealthFindingEvents'
 import { HealthFreezeExposureButton } from './HealthFreezeExposureButton'
+import { HealthMoveStartDateButton } from './HealthMoveStartDateButton'
+import type { HealthPanelFinding } from './healthPanelFindings'
 
 export function HealthFindingActionButton({
     actionKind,
+    evidence,
     onClick,
 }: {
     actionKind: ExperimentHealthFindingActionKind
+    evidence: HealthPanelFinding['evidence']
     onClick: () => void
 }): JSX.Element | null {
     const { experiment, exposureCriteria } = useValues(experimentLogic)
@@ -155,5 +159,7 @@ export function HealthFindingActionButton({
             )
         case 'freeze_exposure':
             return <HealthFreezeExposureButton buttonProps={editProps} onClick={onClick} />
+        case 'move_start_date':
+            return <HealthMoveStartDateButton evidence={evidence} buttonProps={editProps} onClick={onClick} />
     }
 }

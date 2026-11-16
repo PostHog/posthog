@@ -120,7 +120,12 @@ export class JwtVerifier {
     constructor(private readonly keys: SigningKeyLoader) {}
 
     async verify(token: string): Promise<CallerIdentity> {
-        const { deployment, payload } = await verifyDeploymentToken(hmacKeys(this.keys), token, {
+        // Keys and allowlists are read together before any await, so a reload that lands while the
+        // signature is checked cannot pair the old key with the new allowlist.
+        const registry = hmacKeys(this.keys)
+        const entries = registry.entries()
+        const allowlists = new Map(entries.map(([name]) => [name, this.keys.allowedSecrets(name)]))
+        const { deployment, payload } = await verifyDeploymentToken({ entries: () => entries }, token, {
             audience: AUDIENCE,
             algorithms: ['HS256'],
         })
@@ -135,7 +140,7 @@ export class JwtVerifier {
             caller: typeof payload['caller'] === 'string' ? payload['caller'] : '',
             // A repeat would otherwise be resolved, counted and logged once per occurrence.
             requestedKeys: [...new Set(requested)],
-            allowedKeys: this.keys.allowedSecrets(deployment),
+            allowedKeys: allowlists.get(deployment) ?? null,
         }
     }
 }

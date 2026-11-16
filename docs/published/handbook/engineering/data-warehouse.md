@@ -56,6 +56,11 @@ The totals cover measured runs only; missing measurements and days without measu
 The current UTC day is excluded because usage is updated daily.
 These measurements describe query work and are not billing amounts.
 
+## SQL table headers
+
+SQL and Trends table headers stay visible while scrolling inside a bounded table, including horizontal scrolling.
+On a full page, headers pin when the table fits its container and the scene is wide enough for sticky controls; wider tables keep horizontal scrolling.
+
 ## SQL editor drafts
 
 Saving a view infers its column types with LIMIT 0 on the outer SELECT branches and explicit IN subqueries.
@@ -65,6 +70,8 @@ API-key requests and background jobs retain the query runner's existing exemptio
 The SQL editor keeps unrun edits in browser storage, scoped to the user, project, and saved query. Explicit logout clears these drafts.
 An **Edited** label marks changes to a saved view or insight. **Discard changes** restores the saved copy already loaded in memory, then refreshes it from the server. The refresh preserves edits made after discarding.
 Insights can be saved or updated before running the SQL. Updating a view still requires a successful run of the current SQL so its result types match the saved query. **Continue in a notebook** is in the update button's dropdown for saved views and insights.
+
+**Fix errors with AI** keeps its pending state and suggestion in the SQL tab that requested the fix. Other open tabs keep their own queries and can request independent fixes.
 
 The data warehouse sidebar lets you rename saved views. The dialog lists references from data model lineage. Renaming does not update SQL references in saved views, materialized views, endpoints, insights, dashboards, notebooks, or external systems.
 
@@ -76,7 +83,7 @@ Returning to a notebook can reuse completed query results from the last two minu
 
 Business intelligence is in beta. The product has a beta label, and the worksheet index shows a dismissible notice with a **Send feedback** button. To collect feedback, launch a survey with **Feedback button → Custom** presentation targeting `#business-intelligence-feedback-button` in the project that collects the app's analytics. No survey ID is needed in the frontend.
 
-**Business intelligence** lists saved worksheets at `/bi` when the `sql-editor-bi-mode` feature flag is enabled. Search all worksheets or switch to those viewed in the last 30 days. **New worksheet** opens `/bi/new`; selecting a saved worksheet opens `/bi/<short_id>` in edit mode. The project tree's **New → Worksheet** entry opens the same editor. Worksheets retain their insight identities and folder placements, but use their own file subtype and no longer appear in the Product analytics insights list. Legacy `/bi?open_insight=...` links and shared worksheet URLs still open the editor. Business intelligence and SQL keep separate unsaved working copies, and existing SQL editor links with `mode=bi` open in Business intelligence.
+**Business intelligence** lists saved worksheets at `/bi`. Search all worksheets or switch to those viewed in the last 30 days. **New worksheet** opens `/bi/new`; selecting a saved worksheet opens `/bi/<short_id>` in edit mode. The project tree's **New → Worksheet** entry opens the same editor. Worksheets retain their insight identities and folder placements, but use their own file subtype and no longer appear in the Product analytics insights list. Legacy `/bi?open_insight=...` links and shared worksheet URLs still open the editor. Business intelligence and SQL keep separate unsaved working copies, and existing SQL editor links with `mode=bi` open in Business intelligence.
 
 Choose a connection in the **Data** panel, then select a table below it. Certified sources have a checkmark beside their table icon and appear in a separate **Certified sources** folder. All table folders can be expanded and collapsed, including while searching. Deprecated sources have a warning icon. Hover over either status icon for details. Deprecated and uncertified sources remain selectable; search preserves the same ordering. **Run** is the first toolbar action, before **Swap rows and columns**.
 
@@ -90,7 +97,8 @@ Panes share their value scale by default; **Independent value scales** lets each
 
 Use **Add calculated field** beneath Measures or **+ Field** on a shelf. The editor shows SQL validation progress and infers the return type; you can override the type of a dimension. Cmd+Space (Ctrl+Space on Windows or Linux) opens field autocomplete.
 
-The Series panel accepts custom colors for individual breakdown values. Display settings control value-label placement, background, size, and rotation, and bar spacing can be set to **None** for adjoining bars. The legend-position selector sits beside its label.
+The Series panel accepts custom colors for individual breakdown values. The settings button beside a breakdown value lets you change its label without changing the query or grouping; clearing the label restores the original name. Clearing a color keeps the custom label. These controls also work in the SQL editor.
+Display settings control value-label placement, background, size, and rotation, and bar spacing can be set to **None** for adjoining bars. The legend-position selector sits beside its label.
 
 Single-value filters distinguish selecting **(empty string)** from clearing the input: the former matches an empty value, while the latter removes the condition.
 
@@ -167,7 +175,7 @@ BI worksheet menus and the left-click **Explore this result** dialog offer **Fil
 
 **Compare previous period** turns date comparison on or off in one click. The adjacent comparison picker still supports custom offsets. Select a bounded date range before enabling comparison.
 
-With `SQL_EDITOR_BI_MODE` enabled, choose **Add calculated field** in the data pane or the plus button on Rows or Columns. Nothing is added until **Add field** is clicked; Cancel or the close button discards the draft. A shelf's plus button places the saved field on that shelf. Select a row-level dimension or an aggregate measure, then enter a name and a plain HogQL expression using fields from the selected table. Dimensions can use expressions such as `coalesce(properties.plan, 'Unknown')`; measures can use `sum(revenue) / nullIf(count(DISTINCT user_id), 0)`.
+Choose **Add calculated field** in the data pane or the plus button on Rows or Columns. Nothing is added until **Add field** is clicked; Cancel or the close button discards the draft. A shelf's plus button places the saved field on that shelf. Select a row-level dimension or an aggregate measure, then enter a name and a plain HogQL expression using fields from the selected table. Dimensions can use expressions such as `coalesce(properties.plan, 'Unknown')`; measures can use `sum(revenue) / nullIf(count(DISTINCT user_id), 0)`.
 
 Calculated fields appear in Dimensions or Measures with a ƒ indicator. Drag or double-click them to reuse the definition. Editing a definition updates its name and expression on every shelf, including duplicated uses; date granularities and measure display settings remain independent. A field's role cannot change after creation. **Delete field and all uses** removes the local definition and its shelf/filter uses; Undo restores them. Clear sheet retains the definitions. Save, reload, and Save a copy preserve them inside the worksheet, without creating source-table or project-wide fields.
 

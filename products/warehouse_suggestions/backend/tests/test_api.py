@@ -472,6 +472,46 @@ class TestWarehouseSuggestionAPI(APIBaseTest):
         assert (shown.status_code, shown.json()["surfaced"]) == (status.HTTP_200_OK, expected_surfaced)
         assert surfaced_views == ({self.view.id} if expected_surfaced else set())
 
+    def test_show_more_without_a_surface_counts_and_shows_every_kind(self) -> None:
+        WarehouseSuggestionTeamConfig.objects.create(team=self.team, eligible=True)
+        catalog_only = ingest_one(
+            self.team.id,
+            make_draft(
+                fingerprint=f"certify:{self.table.id}",
+                subject_kind=WarehouseSuggestionSubjectKind.TABLE,
+                subject_id=self.table.id,
+            ),
+        )
+        models_only = ingest_one(
+            self.team.id,
+            replace(
+                make_draft(fingerprint=f"materialize:{self.view.id}", subject_id=self.view.id),
+                kind=WarehouseSuggestionKind.MATERIALIZE,
+                payload=MaterializePayload(
+                    subject_name=self.view.name,
+                    refresh_interval_seconds=86400,
+                    saves_seconds_per_month=900.0,
+                    saves_bytes_per_month=0.0,
+                    freshness_today_seconds=None,
+                    freshness_after_seconds=86400,
+                    live_sources=(),
+                    unknown_sources=(),
+                ),
+            ),
+        )
+
+        waiting = self.client.get(f"{self.url}/status/").json()
+        shown = self.client.post(f"{self.url}/surface_more/", {})
+        surfaced = set(
+            WarehouseSuggestion.objects.for_team(self.team.id)
+            .filter(surfaced_at__isnull=False)
+            .values_list("id", flat=True)
+        )
+
+        assert (waiting["waiting"], waiting["can_show_more"]) == (2, True)
+        assert (shown.status_code, shown.json()["surfaced"]) == (status.HTTP_200_OK, 2)
+        assert surfaced == {catalog_only.id, models_only.id}
+
     def test_a_member_sees_nothing_about_subjects_they_cannot_read(self) -> None:
         visible = self._suggest(self.table.id, subject_kind=WarehouseSuggestionSubjectKind.TABLE)
         denied_view = self._suggest(self.view.id)

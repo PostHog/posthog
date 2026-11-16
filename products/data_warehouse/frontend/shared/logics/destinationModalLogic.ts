@@ -134,6 +134,7 @@ export interface destinationModalLogicActions {
             | 'customerio-webhook'
             | 'databricks'
             | 'email'
+            | 'email_sandbox'
             | 'firebase'
             | 'github'
             | 'gitlab'

@@ -939,8 +939,16 @@ If automatic creation failed with a permissions error, the fix depends on how yo
     def create_webhook(
         self, config: GithubSourceConfig, webhook_url: str, team_id: int, api_version: str | None = None
     ) -> WebhookCreationResult:
-        access_token = self._get_access_token(config, team_id)
-        egress_identity = self._egress_identity(config, team_id)
+        try:
+            access_token = self._get_access_token(config, team_id)
+            egress_identity = self._egress_identity(config, team_id)
+        except ValueError:
+            # Same customer-side state as in delete_webhook: the OAuth integration is gone or the token
+            # is unset. Report it so the setup flow can say so, instead of raising into the view.
+            return WebhookCreationResult(
+                success=False,
+                error="Couldn't create the GitHub webhook because the connected account is no longer available. Reconnect your GitHub account, then try again.",
+            )
         # GitHub's webhook secret is creator-supplied, so we mint one, hand it to GitHub as the
         # hook's config.secret, and return it via extra_inputs so it lands on the hog function for
         # signature verification. (Contrast Stripe, which generates and returns its own secret.)

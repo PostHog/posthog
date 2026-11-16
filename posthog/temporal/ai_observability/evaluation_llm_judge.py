@@ -32,7 +32,6 @@ from posthog.temporal.ai_observability.evaluation_errors import (
 )
 from posthog.temporal.ai_observability.evaluation_event_io import (
     GenerationNotFoundError,
-    extract_event_io,
     extract_event_tools,
     hydrate_event_reference,
 )
@@ -42,7 +41,6 @@ from posthog.temporal.ai_observability.evaluation_types import (
     build_skipped_evaluation_result,
 )
 from posthog.temporal.ai_observability.judge_attachments import AttachmentPrompt, build_attachment_prompt
-from posthog.temporal.ai_observability.message_utils import extract_text_from_messages, format_tool_definitions
 from posthog.temporal.ai_observability.metrics import (
     increment_errors,
     increment_key_type,
@@ -55,6 +53,11 @@ from posthog.temporal.ai_observability.retries import is_last_attempt
 from posthog.temporal.common.errors import NonReportableApplicationError, NonReportableError
 from posthog.temporal.common.utils import close_db_connections
 
+from products.ai_observability.backend.facade.evaluation_runtime import (
+    extract_event_io,
+    extract_text_from_messages,
+    format_tool_definitions,
+)
 from products.ai_observability.backend.llm import DEFAULT_MODEL_BY_PROVIDER, Client, CompletionRequest, Usage
 from products.ai_observability.backend.llm.attachments import AttachmentPart
 from products.ai_observability.backend.llm.decisions import (

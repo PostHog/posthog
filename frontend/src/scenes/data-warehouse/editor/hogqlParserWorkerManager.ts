@@ -1,3 +1,5 @@
+import { createWorker } from 'lib/utils/createWorker'
+
 import {
     type AstRange,
     type SelectComparison,
@@ -13,7 +15,6 @@ import type { HogqlParserQuestion, HogqlParserRequest, HogqlParserResponse } fro
 // isn't served, init times out, or a request fails. The fallback is slow but correct, and it runs
 // the same walkers as the worker, so behavior does not change with it.
 
-const WORKER_URL = '/static/hogqlParserWorker.js'
 const READY_TIMEOUT_MS = 5000
 const REQUEST_TIMEOUT_MS = 60000
 
@@ -54,7 +55,7 @@ function getWorker(): Promise<Worker> {
             reject(new Error('Worker is not available'))
             return
         }
-        const created = new Worker(WORKER_URL, { type: 'module' })
+        const created = createWorker('hogqlParserWorker.js', { type: 'module' })
         worker = created
 
         const timer = setTimeout(() => reject(new Error('Parser worker init timed out')), READY_TIMEOUT_MS)

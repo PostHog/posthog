@@ -1,4 +1,5 @@
 import type { HookCallback, HookInput } from "@anthropic-ai/claude-agent-sdk";
+import { isGitlabRun } from "@posthog/git/gitlab";
 import type { Logger } from "../../../utils/logger";
 
 export const BUDGET_CAP_ENV = "AI_GATEWAY_TOKEN_CAP_USD";
@@ -216,6 +217,7 @@ export class RunBudgetGuard {
   private steerMode: BudgetSteerMode;
   private readonly steers: BudgetSteerRecord[] = [];
   private stopTaken = false;
+  private gitlab = false;
 
   constructor(
     readonly capUsd: number,
@@ -239,7 +241,9 @@ export class RunBudgetGuard {
     const prices =
       parseModelPricesJson(env[BUDGET_PRICES_ENV], logger) ??
       DEFAULT_MODEL_PRICES;
-    return new RunBudgetGuard(capUsd, prices, logger, mode);
+    const guard = new RunBudgetGuard(capUsd, prices, logger, mode);
+    guard.gitlab = isGitlabRun(env);
+    return guard;
   }
 
   get mode(): BudgetSteerMode {
@@ -388,6 +392,22 @@ export class RunBudgetGuard {
   steerText(stage: BudgetSteerStage): string {
     const spent = formatUsd(this.spentUsd);
     const cap = formatUsd(this.capUsd);
+    if (this.gitlab) {
+      const publish =
+        "Stage and commit your changes with git commit, push with git push, and open or update the merge request using gitlab_merge_request. ";
+      const instruction =
+        this.mode === "publish"
+          ? publish
+          : "If the user requested a merge request, " + publish;
+      return (
+        `Budget ${stage === "critical" ? "critical" : "notice"}: this run has used about ${spent} of its ${cap} model budget. Wrap up now. ` +
+        instruction +
+        (stage === "critical"
+          ? "The gateway will refuse further calls very soon. Do not start subagents or workflows, or run further tests. "
+          : "Skip optional checks and parallel subagents. ") +
+        "End your turn with a summary of what is done and what remains."
+      );
+    }
     if (this.mode === "publish") {
       if (stage === "critical") {
         return (
@@ -455,7 +475,9 @@ export class RunBudgetGuard {
       );
       const next =
         this.mode === "publish"
-          ? "Commit what is on disk with the git_signed_commit tool and open or update the pull request yourself."
+          ? this.gitlab
+            ? "Commit with git commit, push with git push, and open or update the merge request with gitlab_merge_request."
+            : "Commit what is on disk with the git_signed_commit tool and open or update the pull request yourself."
           : "Finish with the result you have.";
       return {
         continue: true,
