@@ -845,11 +845,10 @@ class _JSONNullResponse(Response):
     # This response renders the JSON literal null. Its .data stays None, so the Rust shadow comparison,
     # which reads .data, still sees no payload.
     def __init__(self) -> None:
-        super().__init__(None)
+        super().__init__(None, headers={"Content-Type": "application/json"})
 
     @property
     def rendered_content(self) -> bytes:
-        self["Content-Type"] = "application/json"
         return b"null"
 
 
@@ -6693,17 +6692,13 @@ class FeatureFlagViewSet(
         # usage numbers.
         should_count = is_service_auth(request)
 
-        if not feature_flag.active:
+        if not feature_flag.active or not feature_flag.has_encrypted_payloads:
+            if should_count:
+                increment_request_count(self.team.pk, 1, FlagRequestType.REMOTE_CONFIG)
             # A disabled flag evaluates as off in local evaluation and /flags, so it serves no payload here either.
-            if should_count:
-                increment_request_count(self.team.pk, 1, FlagRequestType.REMOTE_CONFIG)
-            return _JSONNullResponse()
-
-        if not feature_flag.has_encrypted_payloads:
-            payloads = feature_flag.filters.get("payloads", {})
-            if should_count:
-                increment_request_count(self.team.pk, 1, FlagRequestType.REMOTE_CONFIG)
-            return Response(payloads.get("true") or None)
+            if not feature_flag.active:
+                return _JSONNullResponse()
+            return Response(feature_flag.filters.get("payloads", {}).get("true") or None)
 
         # Note: This decryption step is protected by the feature_flag:read scope, so we can assume the
         # user has access to the flag. However get_decrypted_flag_payloads_protected will also check the authentication
