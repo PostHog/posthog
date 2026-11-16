@@ -21,6 +21,7 @@ from posthog.management.commands.start_temporal_worker import (
     workflows_include_data_import_syncs,
 )
 from posthog.temporal.ai_observability import BatchTraceSummarizationWorkflow
+from posthog.temporal.common.registration import combined_registration
 from posthog.temporal.usage_report.activities import aggregate_and_chunk_org_reports
 from posthog.temporal.usage_report.workflow import RunUsageReportsWorkflow
 
@@ -185,3 +186,9 @@ def test_hogql_shadow_sample_rate_override(
     monkeypatch.setattr(hogql_parser, "_SHADOW_SAMPLE_RATE", 0.001)
     apply_hogql_shadow_sample_rate_override()
     assert hogql_parser._SHADOW_SAMPLE_RATE == expected
+
+
+def test_the_worker_hosts_every_binding_that_a_product_declares() -> None:
+    for binding in combined_registration().queues:
+        assert set(binding.workflows) <= WORKFLOWS_DICT[binding.task_queue]
+        assert set(binding.activities) <= ACTIVITIES_DICT[binding.task_queue]

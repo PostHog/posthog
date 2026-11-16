@@ -308,11 +308,12 @@ records the decrease. See `products/architecture.md` § Wiring couplings.
 3. Introduce a thin facade in `backend/facade/api.py`.
    - Map ORM instances to contracts with explicit mapper functions.
    - Keep method names capability-oriented and stable.
-   - Wiring that core registers (celery beat tasks, temporal workflows/activities/metrics/
-     schedule constants, query-runner registry hooks, Dagster assets) crosses the boundary
-     as objects, not data — give each its own facade submodule (`facade/tasks.py`,
-     `facade/temporal.py`, `facade/queries.py`, `facade/dags.py`) re-exporting exactly what
-     core touches. Registry-style consumers dispatch on class identity (`isinstance`), so
+   - Wiring that core registers (celery beat tasks, query-runner registry hooks, Dagster
+     assets) crosses the boundary as objects, not data — give each its own facade submodule
+     (`facade/tasks.py`, `facade/queries.py`, `facade/dags.py`) re-exporting exactly what
+     core touches. Temporal code is the exception: `facade/temporal.py` holds one
+     `TEMPORAL = TemporalRegistration(...)` declaration that core discovers and validates,
+     not re-exported lists (products/architecture.md § Temporal). Registry-style consumers dispatch on class identity (`isinstance`), so
      re-export the class itself; monkeypatch consumers need the module object, so re-export
      that too. Keep `facade/api.py` free of heavy imports (HogQL, temporalio) so config-only
      consumers don't drag them onto the `django.setup()` path — and split light shared

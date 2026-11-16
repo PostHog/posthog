@@ -51,6 +51,7 @@ from posthog.temporal.alerts.schedule import (
     create_schedule_due_alert_checks_schedule,
 )
 from posthog.temporal.common.client import async_connect
+from posthog.temporal.common.registration import combined_registration
 from posthog.temporal.common.schedule import a_create_schedule, a_delete_schedule, a_schedule_exists, a_update_schedule
 from posthog.temporal.health_checks.schedule import create_health_check_schedules
 from posthog.temporal.ingestion_acceptance_test.schedule import create_ingestion_acceptance_test_schedule
@@ -149,7 +150,6 @@ from products.replay_vision.backend.temporal.learned_rules import create_replay_
 from products.replay_vision.backend.temporal.read_meter import create_replay_vision_read_meter_schedule
 from products.replay_vision.backend.temporal.reconciler import create_replay_vision_reconciler_schedule
 from products.replay_vision.backend.temporal.vision_alerts.schedule import create_vision_alert_check_schedule
-from products.review_hog.backend.facade.temporal import create_review_hog_finding_outcomes_schedule
 from products.security.backend.facade.temporal import create_sync_access_rules_schedule
 from products.signals.backend.facade.temporal import (
     create_activity_summary_tick_schedule,
@@ -1033,7 +1033,6 @@ schedules = [
     create_replay_vision_read_meter_schedule,
     create_replay_vision_highlight_rebuild_schedule,
     create_github_job_logs_coordinator_schedule,
-    create_review_hog_finding_outcomes_schedule,
     create_knowledge_writer_merge_reconcile_schedule,
     create_ci_signals_coordinator_schedule,
     create_cleanup_data_quality_check_runs_schedule,
@@ -1087,7 +1086,7 @@ async def a_init_general_queue_schedules():
     temporal = await async_connect()
     try:
         async with asyncio.TaskGroup() as tg:
-            for schedule in schedules:
+            for schedule in [*schedules, *combined_registration().schedules]:
                 tg.create_task(schedule(temporal))
     except* Exception as eg:
         for exc in eg.exceptions:

@@ -78,3 +78,7 @@ rules:
           - '/workflow_catalog.json'
           - '/tests/test_workflow_catalog.py'
       owners: team-cloud-foundations
+    - match:
+          - '/common/registration.py'
+          - '/common/test_registration.py'
+      owners: team-devex
