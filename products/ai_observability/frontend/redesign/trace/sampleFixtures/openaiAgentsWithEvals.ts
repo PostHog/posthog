@@ -244,8 +244,6 @@ export const openaiAgentsWithEvals: SampleTraceFixture = {
     header: {
         name: 'Trip Planning',
         hasError: false,
-        olderHref: '/older',
-        newerHref: '/newer',
         backLink: { label: 'Back to traces', href: '/traces' },
     },
     summary: {

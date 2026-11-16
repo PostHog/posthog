@@ -125,7 +125,7 @@ const meta: Meta<typeof ReportExpectedImpact> = {
         layout: 'centered',
         viewMode: 'story',
         mockDate: '2026-08-29T12:00:00Z',
-        featureFlags: [FEATURE_FLAGS.SIGNALS_REPORT_CHECKS_REPLACE],
+        featureFlags: [FEATURE_FLAGS.SIGNALS_REPORT_MONITORING],
     },
     args: { report, reportUrl: 'https://example.com/report' },
     decorators: [
@@ -166,7 +166,7 @@ type Story = StoryObj<typeof ReportExpectedImpact>
 export const MonitoringDefinitionFlagOff: Story = {
     parameters: {
         check: flagOffCheck,
-        featureFlags: { [FEATURE_FLAGS.SIGNALS_REPORT_CHECKS_REPLACE]: true, 'signals-report-monitoring': false },
+        featureFlags: { 'signals-report-checks-replace': true, [FEATURE_FLAGS.SIGNALS_REPORT_MONITORING]: false },
     },
 }
 
@@ -174,7 +174,7 @@ export const MonitoringDefinition: Story = {
     args: { report: { ...report, monitoring_started_at: monitoringStartedAt } },
     parameters: {
         check: monitoringCheck,
-        featureFlags: [FEATURE_FLAGS.SIGNALS_REPORT_CHECKS_REPLACE, 'signals-report-monitoring'],
+        featureFlags: [FEATURE_FLAGS.SIGNALS_REPORT_MONITORING],
     },
 }
 
@@ -183,7 +183,7 @@ export const MonitoringDefinitionNarrow: Story = {
     parameters: {
         check: monitoringCheck,
         narrow: true,
-        featureFlags: [FEATURE_FLAGS.SIGNALS_REPORT_CHECKS_REPLACE, 'signals-report-monitoring'],
+        featureFlags: [FEATURE_FLAGS.SIGNALS_REPORT_MONITORING],
     },
 }
 
@@ -191,7 +191,7 @@ export const MonitoringFixedTarget: Story = {
     args: MonitoringDefinition.args,
     parameters: {
         check: fixedTargetCheck,
-        featureFlags: [FEATURE_FLAGS.SIGNALS_REPORT_CHECKS_REPLACE, 'signals-report-monitoring'],
+        featureFlags: [FEATURE_FLAGS.SIGNALS_REPORT_MONITORING],
     },
 }
 
@@ -210,7 +210,7 @@ export const MonitoringWindowEnded: Story = {
                 next_measurement_at: null,
             },
         },
-        featureFlags: [FEATURE_FLAGS.SIGNALS_REPORT_CHECKS_REPLACE, 'signals-report-monitoring'],
+        featureFlags: [FEATURE_FLAGS.SIGNALS_REPORT_MONITORING],
     },
 }
 export const RangeGoal: Story = { parameters: { check: rangeCheck } }
@@ -219,13 +219,13 @@ export const Failed: Story = { parameters: { check: failedCheck } }
 export const LoadFailure: Story = { parameters: { loadFailure: true } }
 
 export const ReplacementUnavailable: Story = {
-    parameters: { featureFlags: { [FEATURE_FLAGS.SIGNALS_REPORT_CHECKS_REPLACE]: false } },
+    parameters: { featureFlags: { [FEATURE_FLAGS.SIGNALS_REPORT_MONITORING]: false } },
 }
 
 export const MonitoringRateTarget: Story = {
     args: MonitoringDefinition.args,
     parameters: {
         check: rateTargetCheck,
-        featureFlags: [FEATURE_FLAGS.SIGNALS_REPORT_CHECKS_REPLACE, 'signals-report-monitoring'],
+        featureFlags: [FEATURE_FLAGS.SIGNALS_REPORT_MONITORING],
     },
 }

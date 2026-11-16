@@ -1,5 +1,6 @@
 import { expectLogic } from 'kea-test-utils'
 
+import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
 import { createPromptConfig, llmPlaygroundPromptsLogic } from './llmPlaygroundPromptsLogic'
@@ -8,6 +9,38 @@ import { llmPlaygroundVariablesLogic } from './llmPlaygroundVariablesLogic'
 describe('llmPlaygroundVariablesLogic', () => {
     beforeEach(() => {
         initKeaTests()
+        useMocks({
+            get: {
+                '/api/environments/:team_id/llm_analytics/provider_keys/': {
+                    results: [{ id: 'key-s1', provider: 'system_one', name: 'System One', state: 'ok' }],
+                },
+                '/api/environments/:team_id/llm_analytics/evaluation_config/': { active_provider_key: null },
+                '/api/llm_proxy/models/': ({ request }) => [
+                    200,
+                    new URL(request.url).searchParams.get('provider_key_id')
+                        ? [{ id: 'jev-1', name: 'jev-1', provider: 'System One', supports_chat: false }]
+                        : [{ id: 'gpt-5-mini', name: 'GPT-5 Mini', provider: 'OpenAI', description: '' }],
+                ],
+            },
+        })
+    })
+
+    it('detects only the texts a System One panel sends', async () => {
+        const logic = llmPlaygroundVariablesLogic()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+
+        llmPlaygroundPromptsLogic.actions.setMessages([{ role: 'user', content: 'Hidden {{message_only}}' }])
+        llmPlaygroundPromptsLogic.actions.setModel('jev-1', 'key-s1')
+        llmPlaygroundPromptsLogic.actions.setDecisionInput('About {{topic}}')
+        llmPlaygroundPromptsLogic.actions.setDecisionQuestions([
+            { id: 'q1', type: 'noul', instructions: 'Is {{tone}} kind?', options: [] },
+        ])
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.detectedVariables).toEqual(['topic', 'tone'])
+
+        logic.unmount()
     })
 
     it('detects variables across all comparison panels and shares values by name', async () => {

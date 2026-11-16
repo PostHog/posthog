@@ -153,15 +153,6 @@ export class DashboardPage {
             .not.toBe(sourceDashboardId)
     }
 
-    async deleteDashboard(): Promise<void> {
-        await this.openInfoPanel()
-        await this.page.getByRole('button', { name: 'Delete dashboard' }).click()
-
-        const modal = this.page.locator('.LemonModal').filter({ hasText: 'Delete dashboard' })
-        await expect(modal).toBeVisible()
-        await this.page.getByTestId('dashboard-delete-submit').click()
-    }
-
     async setDateFilter(option: string): Promise<void> {
         const dataAttr = `date-filter-${option.toLowerCase().replace(/\s+/g, '-')}`
         await this.dateFilter.click()

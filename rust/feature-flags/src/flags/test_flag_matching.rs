@@ -5124,10 +5124,21 @@ mod tests {
         );
     }
 
+    // A behavioral-cohort non-match must report NoConditionMatchCohortNotEvaluated, not a bare
+    // NoConditionMatch: the evaluator can't resolve behavioral membership, so the negative is unreliable.
+    // An operator the matcher does not honor rejects the person whatever the membership is, so that
+    // negative is reliable and keeps the bare reason.
+    #[rstest::rstest]
+    #[case::supported_operator(None, FeatureFlagMatchReason::NoConditionMatchCohortNotEvaluated)]
+    #[case::unsupported_operator(
+        Some(OperatorType::Exact),
+        FeatureFlagMatchReason::NoConditionMatch
+    )]
     #[tokio::test]
-    async fn test_behavioral_cohort_non_match_surfaces_cohort_not_evaluated_reason() {
-        // A behavioral-cohort non-match must report NoConditionMatchCohortNotEvaluated, not a bare
-        // NoConditionMatch: the evaluator can't resolve behavioral membership, so the negative is unreliable.
+    async fn test_behavioral_cohort_non_match_reason_follows_the_cohort_operator(
+        #[case] operator_override: Option<OperatorType>,
+        #[case] expected_reason: FeatureFlagMatchReason,
+    ) {
         let context = TestContext::new(None).await;
         let cohort_cache = Arc::new(CohortCacheManager::new(
             context.non_persons_reader.clone(),
@@ -5158,7 +5169,10 @@ mod tests {
             .await
             .unwrap();
 
-        let flag = flag_targeting_cohort(team.id, cohort.id);
+        let mut flag = flag_targeting_cohort(team.id, cohort.id);
+        if let Some(operator) = operator_override {
+            flag.filters.groups[0].properties.as_mut().unwrap()[0].operator = Some(operator);
+        }
 
         let mut matcher = FeatureFlagMatcher::new(
             distinct_id.clone(),
@@ -5179,10 +5193,7 @@ mod tests {
         let result = matcher.get_match(&flag, None, None, None, &None).unwrap();
 
         assert!(!result.matches);
-        assert_eq!(
-            result.reason,
-            FeatureFlagMatchReason::NoConditionMatchCohortNotEvaluated
-        );
+        assert_eq!(result.reason, expected_reason);
         // Serializes as the backward-compatible code; the enriched signal rides the description.
         assert_eq!(result.reason.to_string(), "no_condition_match");
     }
@@ -8332,6 +8343,8 @@ mod tests {
             "a persons call that starts after the deadline must not take a connection"
         );
         assert_eq!(log.persons_db_deadline_exceeded, Some(first_stopped_call));
+        assert!(log.outcome_marks.needs_persons());
+        assert!(log.outcome_marks.degraded());
         for operation in [first_stopped_call, "fetch_properties"] {
             assert_eq!(
                 counter_total(
@@ -8346,6 +8359,53 @@ mod tests {
                 "{operation} stop counted once"
             );
         }
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn test_db_free_flags_do_not_need_persons() {
+        let stalled_db = Arc::new(StalledPgClient::default());
+        let router = PostgresRouter::new(
+            stalled_db.clone(),
+            stalled_db.clone(),
+            stalled_db.clone(),
+            stalled_db.clone(),
+        );
+        let mut matcher = FeatureFlagMatcher::new(
+            "db_free_user".to_string(),
+            None,
+            1,
+            router,
+            Arc::new(CohortCacheManager::new(stalled_db.clone(), None, None)),
+            Arc::new(GroupTypeCacheManager::new(stalled_db.clone(), None, None)),
+            None,
+        );
+        let flags = flag_list_with_metadata(vec![
+            mock!(FeatureFlag, id: 1, key: "rollout_flag".mock_into()),
+        ]);
+
+        let (response, log) = run_with_canonical_log(
+            FlagsCanonicalLogLine::new(Uuid::new_v4(), "127.0.0.1".to_string()),
+            tokio::time::timeout(
+                Duration::from_secs(60),
+                matcher.evaluate_all_feature_flags(
+                    flags,
+                    None,
+                    None,
+                    None,
+                    Uuid::new_v4(),
+                    None,
+                    false,
+                ),
+            ),
+        )
+        .await;
+        response
+            .expect("database-free flags must not wait on the database")
+            .unwrap();
+
+        assert_eq!(stalled_db.connection_requests.load(Ordering::SeqCst), 0);
+        assert!(!log.outcome_marks.needs_persons());
+        assert!(!log.outcome_marks.degraded());
     }
 
     #[tokio::test]

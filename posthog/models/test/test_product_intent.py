@@ -26,7 +26,7 @@ from posthog.utils import get_instance_realm
 
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.event_definitions.backend.models.event_definition import EventDefinition
-from products.experiments.backend.models.experiment import Experiment
+from products.experiments.backend.facade.testing import create_experiment
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.product_analytics.backend.facade.models import Insight
 from products.surveys.backend.models import Survey
@@ -175,7 +175,7 @@ class TestProductIntent(BaseTest):
         )
 
         # Create an experiment without a start date (not launched)
-        Experiment.objects.create(team=self.team, name="Not launched", feature_flag=feature_flag)
+        create_experiment(team_id=self.team.id, name="Not launched", feature_flag_id=feature_flag.id)
         self.assertFalse(self.product_intent.has_activated_experiments())
 
         # Create another feature flag for the launched experiment
@@ -187,8 +187,8 @@ class TestProductIntent(BaseTest):
         )
 
         # Create an experiment with a start date (launched)
-        Experiment.objects.create(
-            team=self.team, name="Launched", start_date=datetime.now(tz=UTC), feature_flag=launched_flag
+        create_experiment(
+            team_id=self.team.id, name="Launched", start_date=datetime.now(tz=UTC), feature_flag_id=launched_flag.id
         )
         self.assertTrue(self.product_intent.has_activated_experiments())
 
@@ -242,7 +242,7 @@ class TestProductIntent(BaseTest):
             name="Feature Flag for Experiment Test",
             filters={"groups": [{"properties": [{"key": "email", "value": "test@test.com"}]}]},
         )
-        Experiment.objects.create(team=self.team, name="Experiment Test", feature_flag=feature_flag)
+        create_experiment(team_id=self.team.id, name="Experiment Test", feature_flag_id=feature_flag.id)
         survey_flag = FeatureFlag.objects.create(
             team=self.team,
             key="targeting-flag-for-survey-test",

@@ -60,7 +60,7 @@ Run the smallest relevant set first.
 hogli test products/dashboards/backend/api/test/test_run_insights.py
 hogli test products/dashboards/backend/api/test/test_run_widgets.py
 hogli test frontend/src/scenes/dashboard/dashboardLogic.test.ts
-hogli test frontend/src/scenes/dashboard/DashboardItems.test.tsx
+hogli test products/dashboards/frontend/DashboardItems.test.tsx
 ```
 
 Also run focused tests for the changed API, sharing, template, or layout behavior.

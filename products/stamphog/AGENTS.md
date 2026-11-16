@@ -64,7 +64,7 @@ A team left with none of those is not a digest audience at all.
 Subtracting rather than only dropping the all-generated case came from the same channel getting swept again: one regenerated file next to one real one read as a two-file stake, which is above the graze rule's threshold, so the sweep looked like ownership.
 Three things keep it from being the harmless-file rule above.
 It decides who hears about a merge, never whether code is safe to approve.
-The root `CLAUDE.md` forbids hand-editing those files, so the hand-edited-and-still-ships case does not apply to this path.
+[`.agents/architecture.md`](../../.agents/architecture.md) forbids hand-editing those files, so the hand-edited-and-still-ships case does not apply to this path.
 And it names one exact directory shape rather than any `generated/` directory, which is the match that would catch hand-editable code elsewhere.
 
 Both sides are read with `compare_diff`, from the base and head shas the run and the payload already fixed.
@@ -171,8 +171,8 @@ narrow:
 - These runs bypass the review-mode and author-write-permission gates: the reviewers' toggle is
   the gate, and the App's machine user is not a collaborator (the permission lookup would always
   deny). `review_mode` keeps governing human PRs only.
-- A refused or escalated verdict hands the PR to ReviewHog (`post_verdict` adds the `posthog-review`
-  label) **only** for these runs. A human author reads their own refusal and decides what comes next.
+- A refused or escalated verdict hands the PR to ReviewHog (`post_verdict` sets `request_external_review` on the
+  `FinishedReviewRun` it passes to the hooks in `facade/finished_review_hooks.py`) **only** for these runs. A human author reads their own refusal and decides what comes next.
   A self-driving PR has no such author, and its refusal otherwise sits unread until Inbox triage.
   In ALL mode an unconditional handoff also fires a second bot review on every PR the repo opens.
   The condition is the derived `ReviewTrigger`, not the raw provenance flag, so it stays aligned with
@@ -278,6 +278,15 @@ Its fast verdict (a gate refusal, or the pending-migration WAIT) may only be one
 Every input the sandbox reads from its checkout must reach the tree too, or finality must not depend on it: the folder files decide the size gate, and the manifest scripts scan still needs git, so a dependency manifest keeps the pending-migration case undecided.
 `pregate()` decides that finality in the engine, and the server adds the file-list guards in `pregate_skip_reason` (head moved, list truncated, renames).
 Anything in doubt, and any error, falls through to the full review.
+
+The sandbox runs over a PR-controlled checkout, and nothing authenticates its stdout, so `post_verdict` never posts an approval on the sandbox's report alone.
+Before the approve branch, `_attest_gates` runs `review_local.py --attest` on the worker in the same tree as the pre-check, and a run that does not attest is posted as ESCALATE.
+The check reads the file list from a compare pinned to the merge base and the reviewed head, never from `get_pr_files`, which answers for whatever head is live.
+It reads each dependency manifest at both commits as a git blob, so the scripts scan runs without a checkout and sees a symlink as its link text, as `git show` does.
+Never read them through the contents API, which follows an in-repo symlink to its target.
+Every input the worker cannot confirm fails the check: a file list GitHub may have cut short, one that differs from the stored list, unread folder files or manifests, or an engine error.
+A retry of `post_verdict` reuses the stored answer, because a second check that attests would post an approval over a delivered escalation.
+A new path to an approval must go through this check too.
 
 A pending `Migration risk` check returns WAIT rather than falling through to a refusal, because a
 refusal costs a trigger-label strip, and a ReviewHog handoff on a self-driving PR, over what is a

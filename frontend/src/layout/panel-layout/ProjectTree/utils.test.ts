@@ -10,6 +10,7 @@ import { productsItemName } from '../navbar/tabs/productsCatalog'
 import { getCustomIcon } from './customIconRegistry'
 import { getDefaultTreeData, getDefaultTreeProducts, iconForType } from './defaultTree'
 import {
+    DATA_SOURCE_SHORTCUT_TYPE,
     convertFileSystemEntryToTreeDataItem,
     escapePath,
     isFileSystemEntryTypeEnabled,
@@ -143,6 +144,21 @@ describe('project tree utils', () => {
                 item: shortcuts[0],
                 folder: 'Research',
             })
+        })
+
+        it.each([
+            ['shortcuts://My home', 'onto', null],
+            ['project://Research', 'onto', null],
+            [
+                'shortcuts://My home',
+                'before',
+                { type: 'reorder', activeId: 'shortcuts/source', overId: 'shortcuts://My home' },
+            ],
+        ] as const)('keeps a source star out of folder moves when dropped on %s (%s)', (overId, position, expected) => {
+            const sourceStar = { id: 'source', type: DATA_SOURCE_SHORTCUT_TYPE, ref: 'source-id', path: 'Stripe' }
+            expect(
+                resolveProjectTreeDrop('shortcuts/source', overId, [folder], [...shortcuts, sourceStar], position)
+            ).toEqual(expected)
         })
     })
 

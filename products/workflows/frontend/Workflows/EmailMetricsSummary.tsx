@@ -6,6 +6,7 @@ import { AppMetricsTimeSeriesResponse, appMetricsLogic } from 'lib/components/Ap
 import { AppMetricsTrends } from 'lib/components/AppMetrics/AppMetricsTrends'
 import { percentage } from 'lib/utils/numbers'
 
+import { EmailMetricsIncidentBanner } from '../EmailMetricsIncidentBanner'
 import { WorkflowMetricCard } from './WorkflowMetricCard'
 import {
     EMAIL_METRIC_INVOCATION_FILTERS,
@@ -32,7 +33,10 @@ export function EmailMetricsSummary({
     onMetricClick?: (metricKey: EmailMetricName) => void
     compact?: boolean
 }): JSX.Element {
-    const { appMetricsTrendsLoading, appMetricsTrends, getSingleTrendSeries } = useValues(appMetricsLogic({ logicKey }))
+    const { appMetricsTrendsLoading, appMetricsTrends, getSingleTrendSeries, getDateRangeAbsolute } = useValues(
+        appMetricsLogic({ logicKey })
+    )
+    const { dateFrom, dateTo } = getDateRangeAbsolute()
 
     const emailTrends = useMemo(
         () =>
@@ -64,6 +68,7 @@ export function EmailMetricsSummary({
 
     return (
         <>
+            <EmailMetricsIncidentBanner dateFrom={dateFrom} dateTo={dateTo} />
             <div className="flex flex-row gap-2 flex-wrap justify-center">
                 {EMAIL_METRIC_KEYS.map((key) => {
                     const metric = WORKFLOW_EMAIL_METRICS[key]

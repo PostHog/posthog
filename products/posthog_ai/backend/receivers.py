@@ -48,6 +48,13 @@ def _feature_flags() -> Any:
     return feature_flags
 
 
+def _has_posthog_ai_access(team: Team, user: User) -> bool:
+    # Deferred for the same reason as the flag helpers: the gate pulls in the tasks API stack.
+    from products.tasks.backend.facade.access import get_posthog_ai_access_decision  # noqa: PLC0415
+
+    return get_posthog_ai_access_decision(user, team.organization).allowed
+
+
 def connect() -> None:
     register_task_read_exclusion(copied_chats_hidden_without_sandbox_mode, name="posthog_ai_copied_chats")
     register_task_run_start_guard(catch_up_conversation_copy_before_run, name="posthog_ai_conversation_copy")
@@ -78,7 +85,7 @@ def copied_chats_hidden_without_sandbox_mode(team_id: int, user_id: int | None) 
         return ()
     team = Team.objects.filter(id=team_id).only("id", "organization_id").first()
     user = User.objects.filter(id=user_id).only("id", "distinct_id").first()
-    if team is None or user is None or flags.has_sandbox_mode_feature_flag(team, user):
+    if team is None or user is None or _has_posthog_ai_access(team, user):
         return ()
     return copied_task_ids
 
@@ -98,7 +105,7 @@ def catch_up_conversation_copy_before_run(task_id: str, team_id: int, user_id: i
     )
     if conversation is None:
         return None
-    if not flags.has_sandbox_mode_feature_flag(conversation.team, conversation.user):
+    if not _has_posthog_ai_access(conversation.team, conversation.user):
         return SANDBOX_MODE_REQUIRED_MESSAGE
     if not flags.has_conversation_task_mirror_feature_flag(conversation.team, conversation.user):
         # The kill switch stops copying altogether; a stale copy is then expected, not a reason to refuse.
@@ -130,7 +137,7 @@ def mark_conversation_sandbox_on_first_run(sender: type, instance: Any, created:
             task_id=instance.task_id, agent_runtime=Conversation.AgentRuntime.LANGGRAPH
         )
         for conversation in conversations:
-            if not flags.has_sandbox_mode_feature_flag(conversation.team, conversation.user):
+            if not _has_posthog_ai_access(conversation.team, conversation.user):
                 # Without the flag the legacy screen cannot send to the sandbox path, so the chat stays put.
                 continue
             Conversation.objects.filter(id=conversation.id, agent_runtime=Conversation.AgentRuntime.LANGGRAPH).update(

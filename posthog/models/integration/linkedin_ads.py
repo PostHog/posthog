@@ -5,6 +5,7 @@ import structlog
 from rest_framework.exceptions import ValidationError
 
 from posthog.egress.slack.client import SlackWebClient as WebClient
+from posthog.integrations.contracts import IntegrationRecord
 
 from . import common, model
 
@@ -14,11 +15,11 @@ logger = structlog.get_logger(__name__)
 class LinkedInAdsIntegration:
     integration: model.Integration
 
-    def __init__(self, integration: model.Integration) -> None:
+    def __init__(self, integration: IntegrationRecord) -> None:
         if integration.kind != "linkedin-ads":
             raise Exception("LinkedInAdsIntegration init called with Integration with wrong 'kind'")
 
-        self.integration = integration
+        self.integration = model.integration_model(integration)
 
     @property
     def client(self) -> WebClient:

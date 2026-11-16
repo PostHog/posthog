@@ -37,6 +37,7 @@ from products.mcp_store.backend.models import (
     MCPServiceAccount,
     MCPServiceAccountServerAccess,
 )
+from products.mcp_store.backend.tools import UpstreamToolList
 
 
 class TestGetActiveInstallations(BaseTest):
@@ -477,6 +478,27 @@ class TestGetInstallationsForSandbox(BaseTest):
             credential_owner_id=self.user.id,
         )
         assert mismatched_results == []
+
+        profiled_results = resolve_installations_for_sandbox(
+            self.team.id,
+            user_id=self.user.id,
+            include_personal=True,
+            task_origin="user_created",
+            task_agent_key="support",
+            has_profile=True,
+            profile_agent_key="support",
+            credential_owner_id=self.user.id,
+        ).mounted
+        assert [result.id for result in profiled_results] == [str(personal.id)]
+
+        profiled_member_results = resolve_installations_for_sandbox(
+            self.team.id,
+            user_id=self.user.id,
+            include_personal=True,
+            task_origin="support_reply",
+            has_profile=True,
+        ).mounted
+        assert {result.name for result in profiled_member_results} == {"Personal", "Ungranted"}
 
     def test_built_in_agent_only_gets_the_run_credential_owner_s_grants(self) -> None:
         account = self._support_agent()
@@ -999,7 +1021,9 @@ class TestCallMemberServerTool(BaseTest):
         # A connection whose connect-time listing never landed holds no rows, and
         # without a re-listing it refuses every call for the life of the connection.
         self._installation()
-        mock_fetch.return_value = [{"name": "list_events", "annotations": {"readOnlyHint": True}}]
+        mock_fetch.return_value = UpstreamToolList(
+            tools=[{"name": "list_events", "annotations": {"readOnlyHint": True}}]
+        )
 
         # Freshly listed tools are opt-in, so policy answers the call now.
         assert self._call().status == "needs_approval"
@@ -1010,7 +1034,9 @@ class TestCallMemberServerTool(BaseTest):
     def test_a_removed_tool_the_server_brought_back_is_callable_again(self, mock_call, mock_fetch) -> None:
         installation = self._installation()
         self._tool(installation, removed_at=timezone.now())
-        mock_fetch.return_value = [{"name": "list_events", "annotations": {"readOnlyHint": True}}]
+        mock_fetch.return_value = UpstreamToolList(
+            tools=[{"name": "list_events", "annotations": {"readOnlyHint": True}}]
+        )
 
         assert self._call().status == "ok"
         mock_call.assert_called_once()
@@ -1115,9 +1141,16 @@ class TestCallMemberServerTool(BaseTest):
     @parameterized.expand(
         [("disabled", "do_not_use", None, "blocked"), ("removed", "needs_approval", "removed", "tool_missing")]
     )
+    @patch("products.mcp_store.backend.tools.fetch_upstream_tools", return_value=UpstreamToolList(tools=[]))
     @patch("products.mcp_store.backend.facade.api.call_upstream_tool")
     def test_approval_does_not_override_blocks(
-        self, _name: str, approval_state: str, removed: str | None, expected: str, mock_call: MagicMock
+        self,
+        _name: str,
+        approval_state: str,
+        removed: str | None,
+        expected: str,
+        mock_call: MagicMock,
+        _mock_fetch: MagicMock,
     ) -> None:
         installation = self._installation()
         self._tool(installation)

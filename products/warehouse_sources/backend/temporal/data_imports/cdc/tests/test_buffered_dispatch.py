@@ -4,6 +4,7 @@ import pytest
 from unittest.mock import ANY, AsyncMock, MagicMock, call, patch
 
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
+from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import LEGACY_HISTORY_NAMING
 from products.warehouse_sources.backend.temporal.data_imports.cdc.lane_position import LanePosition
 from products.warehouse_sources.backend.temporal.data_imports.cdc.source_manager import ListingProof
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
@@ -15,6 +16,7 @@ _MANAGER = "products.warehouse_sources.backend.temporal.data_imports.cdc.source_
 _COMPANIONS = "products.warehouse_sources.backend.temporal.data_imports.cdc.companion_jobs"
 _SOURCE = "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source"
 _SNAPSHOT_LANE = "products.warehouse_sources.backend.temporal.data_imports.cdc.snapshot_lane"
+_HISTORY_TABLE = "products.warehouse_sources.backend.temporal.data_imports.cdc.history_table"
 
 
 def _schema(**overrides) -> MagicMock:
@@ -89,6 +91,11 @@ def _dispatch(
         patch(f"{_MANAGER}.completed_listing_proof", AsyncMock(return_value=proof)),
         patch(f"{_MANAGER}.buffer_expired_unread", expired or AsyncMock(return_value=False)),
         patch(f"{_SNAPSHOT_LANE}.hand_reset_to_capture", hand_reset or MagicMock()),
+        # The schemas are mocks, so the registered naming cannot be read. Every history table here is legacy.
+        patch(
+            f"{_HISTORY_TABLE}.kept_history_naming",
+            side_effect=lambda schema: LEGACY_HISTORY_NAMING if schema.cdc_table_mode in ("cdc_only", "both") else None,
+        ),
         patch.object(PostgresSource, "make_ssh_tunnel_func", return_value=MagicMock()),
     ):
         objects.select_related.return_value.get.return_value = schema

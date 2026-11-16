@@ -32,4 +32,18 @@ describe('broadcastsLogic', () => {
         expect(logic.values.filters.search).toEqual('welcome')
         expect(router.values.searchParams).toMatchObject({ status: 'sent', search: 'welcome' })
     })
+
+    it('defaults the tags filter when the saved filters have none', () => {
+        logic.actions.setFilters({ search: 'welcome' })
+        const key = Object.keys(localStorage).find((k) => k.includes('broadcasts_list_filters'))!
+        const { tags: _, ...savedBeforeTags } = JSON.parse(localStorage.getItem(key)!)
+        localStorage.setItem(key, JSON.stringify(savedBeforeTags))
+        logic.unmount()
+        router.actions.push('/broadcasts')
+
+        logic = broadcastsLogic()
+        logic.mount()
+
+        expect(logic.values.filters).toMatchObject({ search: 'welcome', tags: [] })
+    })
 })

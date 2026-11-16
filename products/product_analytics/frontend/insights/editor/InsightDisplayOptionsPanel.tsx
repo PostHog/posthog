@@ -1,10 +1,12 @@
 import { useState } from 'react'
 
+import { DisplayOptionSection, DisplayOptionTab, DisplayOptionTabKey } from 'lib/components/ChartOptions/displayOptions'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { cn } from 'lib/utils/css-classes'
 
-import { SectionHeader } from './DisplayOptions'
-import { DisplayOptionSection, DisplayOptionTab, DisplayOptionTabKey } from './insightDisplayOptions'
+import { QuillInsightDisplayOptionsPanel } from './QuillInsightDisplayOptionsPanel'
+import { SectionHeader } from './SectionHeader'
 
 function DisplayOptionSectionList({ sections }: { sections: DisplayOptionSection[] }): JSX.Element {
     return (
@@ -17,11 +19,12 @@ function DisplayOptionSectionList({ sections }: { sections: DisplayOptionSection
                                 {section.title}
                             </SectionHeader>
                         )}
-                        <ul className="deprecated-space-y-px" data-attr={section.title ? undefined : section.dataAttr}>
-                            {section.items.map((Item, index) => (
-                                <li key={index}>
-                                    <Item />
-                                </li>
+                        <ul
+                            className="flex flex-col gap-2 px-2 pt-1 pb-2"
+                            data-attr={section.title ? undefined : section.dataAttr}
+                        >
+                            {section.items.map((item) => (
+                                <li key={item.name}>{item.element}</li>
                             ))}
                         </ul>
                     </section>
@@ -32,11 +35,16 @@ function DisplayOptionSectionList({ sections }: { sections: DisplayOptionSection
 }
 
 export function InsightDisplayOptionsPanel({ tabs }: { tabs: DisplayOptionTab[] }): JSX.Element | null {
+    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
     const [activeKey, setActiveKey] = useState<DisplayOptionTabKey>(tabs[0]?.key ?? 'general')
     const activeTab = tabs.find((tab) => tab.key === activeKey) ?? tabs[0]
 
     if (!activeTab) {
         return null
+    }
+
+    if (todayRailNav) {
+        return <QuillInsightDisplayOptionsPanel tabs={tabs} />
     }
 
     if (tabs.length === 1) {

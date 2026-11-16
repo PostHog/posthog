@@ -10,7 +10,7 @@ export type KeyIntent =
     | { type: 'remove-chip'; index: number }
     | { type: 'edit-chip'; index: number }
     | { type: 'clear' }
-    | { type: 'clear-or-close' }
+    | { type: 'close' }
 
 export interface KeyState {
     /** The caret sits at the very start of the text with nothing selected. */
@@ -49,7 +49,7 @@ export function keyIntent(
         case 'Tab':
             return state.tabHasAction ? { type: 'complete' } : null
         case 'Escape':
-            return { type: 'clear-or-close' }
+            return { type: 'close' }
         case 'Delete':
             return chipSelection === 'all' ? { type: 'clear' } : null
         case 'Backspace':

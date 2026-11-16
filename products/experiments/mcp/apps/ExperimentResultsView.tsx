@@ -1,4 +1,4 @@
-import type { ReactElement } from 'react'
+import { Fragment, type ReactElement } from 'react'
 
 import { DataTable, type DataTableColumn } from '@posthog/mcp-ui'
 import { Badge, Card, CardContent, Progress } from '@posthog/quill'
@@ -29,14 +29,11 @@ export interface ExperimentMetricRun {
     error_message?: string | null
 }
 
-export interface LegacyMetricResult {
-    name?: string
-    variant: string
-    count?: number
-    exposure?: number
-    absolute_exposure?: number
-    probability?: number
-    significant?: boolean
+export interface ExperimentMetricResultRow {
+    index: number
+    metric?: { uuid?: string | null; name?: string | null } | null
+    // null when the metric query failed
+    data?: ExperimentMetricResult | null
 }
 
 export interface ExperimentResultsData {
@@ -52,13 +49,14 @@ export interface ExperimentResultsData {
     result_source?: string
     active_run?: { id?: string } | null
     results?: ExperimentMetricRun[]
-    // The legacy fields below are produced by the handwritten experiment-results-get tool
+    // The fields below come from the handwritten experiment-results-get tool
     // (services/mcp/src/tools/experiments/getResults.ts), which shares this app with
-    // experiment-metrics-recalculation-latest. Drop them when that tool is removed.
+    // experiment-metrics-recalculation-latest-retrieve.
     experiment?: { id: number; name?: string }
-    primaryMetricsResults?: LegacyMetricResult[][]
-    secondaryMetricsResults?: LegacyMetricResult[][]
-    exposures?: Record<string, number>
+    metrics?: {
+        primary?: { results?: ExperimentMetricResultRow[] }
+        secondary?: { results?: ExperimentMetricResultRow[] }
+    }
     _posthogUrl?: string
 }
 
@@ -147,7 +145,9 @@ function significanceCell(row: VariantRow): ReactElement | string {
     if (parts.length === 0) {
         return '—'
     }
-    return <div className="flex items-center gap-2 justify-end">{parts}</div>
+    // The table grows to the width of its widest row and scrolls sideways past the card edge,
+    // so stack the parts to keep this column narrow.
+    return <div className="flex flex-col items-end gap-1">{parts}</div>
 }
 
 function buildRows(result: ExperimentMetricResult): VariantRow[] {
@@ -181,7 +181,48 @@ function buildRows(result: ExperimentMetricResult): VariantRow[] {
     return rows
 }
 
-function MetricCard({ entry, index }: { entry: ExperimentMetricRun; index: number }): ReactElement {
+interface MetricEntry {
+    key: string
+    name: string
+    result: ExperimentMetricResult | null
+    failed: boolean
+    errorMessage: string | null
+}
+
+interface MetricSection {
+    label: string | null
+    entries: MetricEntry[]
+}
+
+function entriesFromResultRows(rows: ExperimentMetricResultRow[]): MetricEntry[] {
+    return rows.map((row) => ({
+        key: String(row.index),
+        name: row.metric?.name || `Metric ${row.index + 1}`,
+        result: row.data ?? null,
+        failed: row.data == null,
+        errorMessage: null,
+    }))
+}
+
+function metricSections(data: ExperimentResultsData): MetricSection[] {
+    if (data.metrics) {
+        const sections: MetricSection[] = [
+            { label: 'Primary metrics', entries: entriesFromResultRows(data.metrics.primary?.results ?? []) },
+            { label: 'Secondary metrics', entries: entriesFromResultRows(data.metrics.secondary?.results ?? []) },
+        ]
+        return sections.filter((section) => section.entries.length > 0)
+    }
+    const entries = (data.results ?? []).map((run, index) => ({
+        key: run.metric_uuid,
+        name: `Metric ${index + 1}`,
+        result: run.result ?? null,
+        failed: Boolean(run.error_message),
+        errorMessage: run.error_message ?? null,
+    }))
+    return entries.length > 0 ? [{ label: null, entries }] : []
+}
+
+function MetricCard({ entry }: { entry: MetricEntry }): ReactElement {
     const result = entry.result
     const rows = result ? buildRows(result) : []
     const isFunnel =
@@ -223,10 +264,12 @@ function MetricCard({ entry, index }: { entry: ExperimentMetricRun; index: numbe
         <Card>
             <CardContent>
                 <div className="flex flex-col gap-2">
-                    <span className="text-sm font-semibold">Metric {index + 1}</span>
-                    {entry.error_message ? (
+                    <span className="text-sm font-semibold">{entry.name}</span>
+                    {entry.failed ? (
                         <span className="text-sm text-muted-foreground">
-                            This metric failed to calculate: {entry.error_message}
+                            {entry.errorMessage
+                                ? `This metric failed to calculate: ${entry.errorMessage}`
+                                : 'This metric failed to calculate. Recalculate the experiment to try again.'}
                         </span>
                     ) : (
                         <DataTable<VariantRow>
@@ -241,95 +284,15 @@ function MetricCard({ entry, index }: { entry: ExperimentMetricRun; index: numbe
     )
 }
 
-function LegacyResultsView({ data }: ExperimentResultsViewProps): ReactElement {
-    const exposureEntries = Object.entries(data.exposures ?? {}).map(([variant, count]) => ({ variant, count }))
-
-    const exposureColumns: DataTableColumn<{ variant: string; count: number }>[] = [
-        { key: 'variant', header: 'Variant', sortable: true },
-        { key: 'count', header: 'Exposures', align: 'right', sortable: true },
-    ]
-
-    const metricColumns: DataTableColumn<LegacyMetricResult>[] = [
-        { key: 'variant', header: 'Variant', sortable: true },
-        { key: 'count', header: 'Count', align: 'right' },
-        {
-            key: 'probability',
-            header: 'Probability',
-            align: 'right',
-            render: (row) => (row.probability != null ? <ChanceToWinBar value={row.probability} /> : '—'),
-        },
-        {
-            key: 'significant',
-            header: 'Significant',
-            render: (row) =>
-                row.significant != null ? (
-                    <Badge variant={row.significant ? 'success' : 'default'}>{row.significant ? 'Yes' : 'No'}</Badge>
-                ) : (
-                    '—'
-                ),
-        },
-    ]
-
-    const sections: { label: string; rows: LegacyMetricResult[] }[] = [
-        { label: 'Primary metrics', rows: (data.primaryMetricsResults ?? []).flat() },
-        { label: 'Secondary metrics', rows: (data.secondaryMetricsResults ?? []).flat() },
-    ]
-
-    return (
-        <div className="p-4">
-            <div className="flex flex-col gap-3">
-                {data.experiment?.name && <span className="text-lg font-semibold">{data.experiment.name}</span>}
-
-                {exposureEntries.length > 0 && (
-                    <Card>
-                        <CardContent>
-                            <div className="flex flex-col gap-2">
-                                <span className="text-sm font-semibold">Exposures</span>
-                                <DataTable<{ variant: string; count: number }>
-                                    columns={exposureColumns}
-                                    data={exposureEntries}
-                                    emptyMessage="No exposure data"
-                                />
-                            </div>
-                        </CardContent>
-                    </Card>
-                )}
-
-                {sections.map(
-                    ({ label, rows }) =>
-                        rows.length > 0 && (
-                            <Card key={label}>
-                                <CardContent>
-                                    <div className="flex flex-col gap-2">
-                                        <span className="text-sm font-semibold">{label}</span>
-                                        <DataTable<LegacyMetricResult>
-                                            columns={metricColumns}
-                                            data={rows}
-                                            emptyMessage="No metric results"
-                                        />
-                                    </div>
-                                </CardContent>
-                            </Card>
-                        )
-                )}
-            </div>
-        </div>
-    )
-}
-
 export function ExperimentResultsView({ data }: ExperimentResultsViewProps): ReactElement {
-    const results = data.results ?? []
+    const sections = metricSections(data)
     const isPreliminary = data.result_source === 'timeseries_fallback'
 
-    if (results.length === 0 && (data.primaryMetricsResults || data.secondaryMetricsResults || data.exposures)) {
-        return <LegacyResultsView data={data} />
-    }
-
     return (
         <div className="p-4">
             <div className="flex flex-col gap-3">
-                <div className="flex items-center gap-2">
-                    <span className="text-lg font-semibold">Experiment results</span>
+                <div className="flex items-center gap-2 flex-wrap">
+                    <span className="text-lg font-semibold">{data.experiment?.name || 'Experiment results'}</span>
                     {isPreliminary && <Badge variant="warning">Preliminary</Badge>}
                     {data.status === 'failed' && <Badge variant="destructive">Failed</Badge>}
                 </div>
@@ -348,16 +311,29 @@ export function ExperimentResultsView({ data }: ExperimentResultsViewProps): Rea
                     </span>
                 )}
 
-                {results.length === 0 ? (
+                {sections.length === 0 ? (
                     <Card>
                         <CardContent>
                             <span className="text-sm text-muted-foreground">
-                                No results yet. Recalculate, or wait for the experiment to collect more data.
+                                {data.metrics
+                                    ? 'This experiment has no metrics. Add a metric to see results.'
+                                    : 'No results yet. Recalculate, or wait for the experiment to collect more data.'}
                             </span>
                         </CardContent>
                     </Card>
                 ) : (
-                    results.map((entry, index) => <MetricCard key={entry.metric_uuid} entry={entry} index={index} />)
+                    sections.map((section) => (
+                        <Fragment key={section.label ?? 'metrics'}>
+                            {section.label && (
+                                <span className="text-xs font-medium text-muted-foreground uppercase tracking-wide">
+                                    {section.label}
+                                </span>
+                            )}
+                            {section.entries.map((entry) => (
+                                <MetricCard key={entry.key} entry={entry} />
+                            ))}
+                        </Fragment>
+                    ))
                 )}
             </div>
         </div>

@@ -21,6 +21,7 @@ from posthog.schema import (
     ExperimentMetricMathType,
     ExperimentRatioMetric,
     ExperimentRetentionMetric,
+    ExperimentWarehouseNativeNode,
 )
 
 from posthog.hogql import ast
@@ -176,7 +177,7 @@ class MetricEventsPrecompute:
             return "retention_window"
 
     def _source_ineligibility_reason(
-        self, source: EventsNode | ActionsNode | ExperimentDataWarehouseNode
+        self, source: EventsNode | ActionsNode | ExperimentDataWarehouseNode | ExperimentWarehouseNativeNode
     ) -> Optional[str]:
         """The per-source rules for a mean-shaped build: a mean metric's source or either ratio side."""
         if not isinstance(source, (EventsNode, ActionsNode)):

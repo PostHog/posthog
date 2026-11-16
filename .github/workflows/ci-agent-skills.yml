@@ -73,6 +73,16 @@ jobs:
             contents: read
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  sparse-checkout: |
+                      /.github/actions/setup-uv/
+                      /.agents/skills/
+                      /products/__init__.py
+                      /products/posthog_ai/__init__.py
+                      /products/posthog_ai/scripts/build_skills/
+                      /products/*/skills/
+                      /services/mcp/schema/
+                  sparse-checkout-cone-mode: false
 
             - name: Install uv
               uses: ./.github/actions/setup-uv

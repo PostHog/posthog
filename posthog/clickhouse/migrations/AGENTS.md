@@ -337,6 +337,9 @@ run_sql_with_exceptions(
 )
 ```
 
+`INGESTION_SMALL` is only the default.
+Choose small, medium or events with the node role guide in `.agents/skills/clickhouse-migrations/SKILL.md`.
+
 ### Required settings
 
 `kafka_engine()` returns the ENGINE clause only, so each table appends its own `SETTINGS`.
@@ -347,6 +350,7 @@ SETTINGS kafka_skip_broken_messages = 100,
          kafka_num_consumers = {kafka_num_consumers(1)},
          kafka_thread_per_consumer = 1,
          kafka_poll_timeout_ms = 10000,
+         kafka_flush_interval_ms = 7500,
          kafka_max_block_size = 100000
 ```
 
@@ -357,8 +361,8 @@ SETTINGS kafka_skip_broken_messages = 100,
   `fetch.min.bytes`, so a short timeout buys many small fetches instead of a few large ones.
 - `kafka_thread_per_consumer` serializes flushes when off, and changes nothing unless
   `kafka_num_consumers` is above 1.
-- Leave `kafka_flush_interval_ms` unset; it defaults to 7500. Leave `kafka_max_wait_ms` alone, it is
-  a user-profile setting.
+- `kafka_flush_interval_ms` matches the default of 7500. Set it so the table shows its flush interval.
+- Leave `kafka_max_wait_ms` alone, it is a user-profile setting.
 
 ### Sizing
 
@@ -371,8 +375,8 @@ about 1000 to avoid trading tiny parts for merge pressure.
 `kafka_num_consumers` is per node. Nodes of a role share the topic's partitions and a consumer with
 no partition still holds a thread, so the total across the role must not exceed the partition count
 — a role on many nodes reaches that ceiling at 1. Each consumer also takes a slot in
-`background_message_broker_schedule_pool_size`, a server-level pool of 16 shared by every Kafka
-table on the node. Resolve the count through `kafka_num_consumers()` in
+`background_message_broker_schedule_pool_size`, a server-level pool shared by every Kafka
+table on the node. Check its live size with Housekeeper. Resolve the count through `kafka_num_consumers()` in
 `posthog/clickhouse/kafka_engine.py`, which returns 1 outside deployed cloud.
 
 ### Changing a Kafka table or its materialized view

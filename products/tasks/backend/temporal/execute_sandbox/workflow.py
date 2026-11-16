@@ -55,9 +55,6 @@ from products.tasks.backend.temporal.process_task.activities.emit_progress_activ
     emit_progress_activity,
 )
 from products.tasks.backend.temporal.process_task.activities.forward_pending_message import forward_pending_user_message
-from products.tasks.backend.temporal.process_task.activities.get_sandbox_for_repository import (
-    GetSandboxForRepositoryOutput,
-)
 from products.tasks.backend.temporal.process_task.activities.get_task_processing_context import (
     GetTaskProcessingContextInput,
     TaskProcessingContext,
@@ -67,6 +64,7 @@ from products.tasks.backend.temporal.process_task.activities.provision_sandbox i
     CheckoutBranchInSandboxInput,
     CloneRepositoryInSandboxInput,
     CreateSandboxForRepositoryInput,
+    GetSandboxForRepositoryOutput,
     InjectFreshTokensOnResumeInput,
     PrepareSandboxForRepositoryInput,
     checkout_branch_in_sandbox,

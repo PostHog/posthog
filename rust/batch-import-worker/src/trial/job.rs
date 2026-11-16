@@ -13,7 +13,7 @@ use crate::{
         cleanup_committed_part_if_done,
         config::SinkConfig,
         handle_fetch_error, load_or_init_state,
-        model::{JobModel, JobState},
+        model::{JobModel, JobState, JobStatus},
         select_and_fetch_next_chunk,
     },
     parse::{format::ParserFnFor, Parsed},
@@ -158,36 +158,55 @@ impl TrialJob {
                 Err(e) => Err(e),
             };
 
-            if let Err(e) = outcome {
-                // Same classification as the import path: transient errors
-                // (source rate limits, object-store weather) back off and the
-                // trial resumes from its persisted progress; anything else
-                // pauses with a user-facing message.
-                handle_fetch_error(
-                    &e,
-                    &self.context,
-                    &self.model,
-                    &self.state,
-                    self.source.as_ref(),
-                )
-                .await?;
-                return Ok(());
+            match outcome {
+                Ok(true) => {}
+                Ok(false) => return self.stop().await,
+                Err(e) => {
+                    // Same classification as the import path: transient errors
+                    // (source rate limits, object-store weather) back off and the
+                    // trial resumes from its persisted progress; anything else
+                    // pauses with a user-facing message.
+                    handle_fetch_error(
+                        &e,
+                        &self.context,
+                        &self.model,
+                        &self.state,
+                        self.source.as_ref(),
+                    )
+                    .await?;
+                    return Ok(());
+                }
             }
         }
 
         self.complete().await
     }
 
+    /// Stop a trial whose row is no longer running because an operator or a customer
+    /// changed its status. Progress is already saved, so a resume continues from it.
+    async fn stop(self) -> Result<(), Error> {
+        info!(job_id = %self.job_id, "Trial job is no longer running, stopping");
+        if let Err(e) = self.source.release_job_resources().await {
+            warn!("Failed to release trial job source resources: {:?}", e);
+        }
+        self.model
+            .lock()
+            .await
+            .release_lease(&self.context.db)
+            .await
+    }
+
     /// Persist one fetched chunk: write its records as pages, fold them into the
     /// running summary, then flush the advanced offsets and trial progress.
     /// Ordering matters — pages first, progress second — so a crash in between
-    /// re-fetches the chunk and overwrites the same pages.
+    /// re-fetches the chunk and overwrites the same pages. Returns false when the
+    /// job is no longer running.
     async fn commit_chunk(
         &self,
         key: &str,
         parsed: Parsed<Vec<TrialRecord>>,
         reset_backoff: bool,
-    ) -> Result<(), Error> {
+    ) -> Result<bool, Error> {
         let mut progress = {
             let state = self.state.lock().await;
             state.trial.clone().unwrap_or_default()
@@ -210,17 +229,17 @@ impl TrialJob {
             state.clone()
         };
 
-        {
+        let written = {
             let mut model = self.model.lock().await;
             if reset_backoff && model.backoff_attempt > 0 {
                 model.reset_backoff_in_db(&self.context.db).await?;
             }
             model.state = Some(state_snapshot);
-            model.flush(&self.context.db, true).await?;
-        }
+            model.save_progress(&self.context.db, true, false).await?
+        };
 
         cleanup_committed_part_if_done(self.source.as_ref(), &self.model, key).await;
-        Ok(())
+        Ok(written.status == JobStatus::Running)
     }
 
     /// Write the summary and mark the job completed. Idempotent: a resume after
@@ -238,11 +257,16 @@ impl TrialJob {
         self.sink.write_summary(&progress).await?;
 
         let mut model = self.model.lock().await;
-        info!(
-            job_id = %self.job_id,
-            records = progress.records_emitted,
-            "Trial job completed"
-        );
-        model.complete(&self.context.db).await
+        let status = model.complete(&self.context.db).await?;
+        if status == JobStatus::Completed {
+            info!(
+                job_id = %self.job_id,
+                records = progress.records_emitted,
+                "Trial job completed"
+            );
+        } else {
+            info!(job_id = %self.job_id, %status, "Trial job reached its end, but an operator status was kept");
+        }
+        Ok(())
     }
 }

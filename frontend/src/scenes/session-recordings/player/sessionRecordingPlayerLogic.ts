@@ -15,7 +15,6 @@ import {
 } from 'kea'
 import { router, urlToAction } from 'kea-router'
 import { subscriptions } from 'kea-subscriptions'
-import { delay } from 'kea-test-utils'
 import posthog from 'posthog-js'
 import { ReplayPlugin, Replayer, playerConfig } from 'posthog-js/rrweb'
 import { EventType, IncrementalSource, eventWithTime } from 'posthog-js/rrweb-types'
@@ -35,18 +34,19 @@ import {
 
 import api from 'lib/api'
 import { exportsLogic } from 'lib/components/ExportButton/exportsLogic'
+import { preloadRichContent } from 'lib/components/RichContentEditor/LazyRichContent'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs, now } from 'lib/dayjs'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { preflightLogic } from 'lib/logic/preflightLogic'
 import { findLastIndex } from 'lib/utils/arrays'
+import { delay } from 'lib/utils/async'
 import { downloadFile } from 'lib/utils/dom'
 import { clamp } from 'lib/utils/numbers'
 import { objectsEqual } from 'lib/utils/objects'
 import { openBillingPopupModal } from 'scenes/billing/BillingPopup'
-import { MAX_SIDE_PANEL_ID } from 'scenes/max/components/PhaiSidePanelChat'
-import { PhaiViewMode, maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
+import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
 import { autoRunMaxPrompt } from 'scenes/max/maxPrompt'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { playerCommentModel } from 'scenes/session-recordings/player/commenting/playerCommentModel'
 import { sessionPlayerModalLogic } from 'scenes/session-recordings/player/modal/sessionPlayerModalLogic'
 import { debugReplayChatLogic } from 'scenes/session-recordings/player/player-meta/debugReplayChatLogic'
@@ -64,6 +64,10 @@ import { MatchingEventsMatchType } from 'scenes/session-recordings/playlist/sess
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
+import { MAX_SIDE_PANEL_ID, type PhaiViewMode } from '~/layout/ai/aiPanelIds'
+import { AttachedContextItem } from '~/layout/ai/attachedContext'
+import { attachedContextLogic } from '~/layout/ai/attachedContextLogic'
+import { runnerPanelLogic } from '~/layout/ai/runnerPanelLogic'
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import {
     AvailableFeature,
@@ -74,13 +78,7 @@ import {
     SidePanelTab,
 } from '~/types'
 
-import {
-    ATTACHMENT_MAX_SIZE_BYTES,
-    attachedContextLogic,
-    composerAttachmentsLogic,
-    runnerPanelLogic,
-} from 'products/posthog_ai/frontend/api/logics'
-import { AttachedContextItem } from 'products/posthog_ai/frontend/api/types'
+import { ATTACHMENT_MAX_SIZE_BYTES, composerAttachmentsLogic } from 'products/posthog_ai/frontend/api/logics'
 import {
     MAX_REPLAY_IFRAME_HTML_CHARS,
     ReplayIframeData,
@@ -102,6 +100,7 @@ import { clipWindowSeconds } from './controller/clipRange'
 import { getPlayerFrameLoadDiagnostics } from './playerFrameLoadDiagnostics'
 import { playerSettingsLogic } from './playerSettingsLogic'
 import { snapshotDataLogic } from './snapshotDataLogic'
+import type { SnapshotLoadErrorKind } from './snapshotDataLogic'
 import {
     addAssetError,
     DoctorDiagnostics,
@@ -370,6 +369,8 @@ export interface SessionRecordingPlayerLogicProps extends SessionRecordingDataCo
     // The experiment whose recordings list the player was opened from. Its first in-session exposure
     // becomes a target for the initial skip, alongside any filtered events.
     exposureSkipExperimentId?: number
+    // Only the replay playlist offers the watch layout. Embedded, modal and single-recording players keep the classic chrome.
+    watchLayout?: boolean
 }
 
 export type MatchingEventSkipTarget = 'filtered-event' | 'experiment-exposure'
@@ -770,8 +771,9 @@ export interface sessionRecordingPlayerLogicValues {
         url: string
     }[] // sessionRecordingDataCoordinatorLogic
     allSourcesLoaded: boolean // snapshotDataLogic
-    isSnapshotUnauthorized: boolean // snapshotDataLogic
+    isLoadingSnapshots: boolean // snapshotDataLogic
     replayProxyToken: string | null // snapshotDataLogic
+    snapshotLoadErrorKind: SnapshotLoadErrorKind | null // snapshotDataLogic
     snapshotSources: SessionRecordingSnapshotSource[] | null // snapshotDataLogic
     snapshotStore: SnapshotStore // snapshotDataLogic
     snapshotsLoaded: boolean // snapshotDataLogic
@@ -1467,14 +1469,18 @@ function encodeRecording(recording: ExportedSessionRecordingFileV2): string[] {
 }
 
 async function loadAllSnapshots(
-    values: Pick<sessionRecordingPlayerLogicValues, 'sessionPlayerData'>,
+    values: Pick<sessionRecordingPlayerLogicValues, 'sessionPlayerData' | 'isLoadingSnapshots'>,
     actions: { loadAllSources: () => void; loadNextSnapshotSource: () => void }
 ): Promise<void> {
     actions.loadAllSources()
 
     const delayTime = 1000
     const maxStallIterations = 15
+    // One request fetches a whole batch of sources, so a slow request adds no snapshots for a long time.
+    // A request in flight gets this higher limit, which still stops the export when a request never answers.
+    const maxLoadingStallIterations = 120
     let stallCount = 0
+    let loadingStallCount = 0
     let lastSnapshotCount = 0
     while (!values.sessionPlayerData.fullyLoaded) {
         const currentCount = values.sessionPlayerData.snapshotsByWindowId
@@ -1482,11 +1488,14 @@ async function loadAllSnapshots(
             : 0
         if (currentCount > lastSnapshotCount) {
             stallCount = 0
+            loadingStallCount = 0
             lastSnapshotCount = currentCount
+        } else if (values.isLoadingSnapshots) {
+            loadingStallCount++
         } else {
             stallCount++
         }
-        if (stallCount >= maxStallIterations) {
+        if (stallCount >= maxStallIterations || loadingStallCount >= maxLoadingStallIterations) {
             throw new Error('Timeout waiting for recording to load')
         }
         actions.loadNextSnapshotSource()
@@ -1513,7 +1522,8 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 'snapshotStore',
                 'allSourcesLoaded',
                 'storeVersion',
-                'isSnapshotUnauthorized',
+                'snapshotLoadErrorKind',
+                'isLoadingSnapshots',
             ],
             sessionRecordingDataCoordinatorLogic(props),
             [
@@ -2678,6 +2688,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         },
         setIsCommenting: ({ isCommenting }) => {
             if (isCommenting) {
+                preloadRichContent()
                 actions.setPause()
             } else {
                 actions.setPlay()
@@ -3269,26 +3280,20 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         loadSnapshotsForSourceFailure: () => {
             if (Object.keys(values.sessionPlayerData.snapshotsByWindowId).length === 0) {
                 console.error('PostHog Recording Playback Error: No snapshots loaded')
-                actions.setPlayerError(
-                    values.isSnapshotUnauthorized ? 'snapshotUnauthorized' : 'loadSnapshotsForSourceFailure'
-                )
+                actions.setPlayerError(values.snapshotLoadErrorKind ?? 'loadSnapshotsForSourceFailure')
             }
         },
         loadSnapshotSourcesFailure: () => {
             if (Object.keys(values.sessionPlayerData.snapshotsByWindowId).length === 0) {
                 console.error('PostHog Recording Playback Error: No snapshots loaded')
-                actions.setPlayerError(
-                    values.isSnapshotUnauthorized ? 'snapshotUnauthorized' : 'loadSnapshotSourcesFailure'
-                )
+                actions.setPlayerError(values.snapshotLoadErrorKind ?? 'loadSnapshotSourcesFailure')
             }
         },
         // Both are terminal give-ups: unlike the per-attempt failures above they fire even when other
         // data already loaded, because the missing range would otherwise buffer forever with no error.
         snapshotSourceLoadExhausted: () => {
             console.error('PostHog Recording Playback Error: A snapshot source repeatedly failed to load')
-            actions.setPlayerError(
-                values.isSnapshotUnauthorized ? 'snapshotUnauthorized' : 'snapshotSourceLoadExhausted'
-            )
+            actions.setPlayerError(values.snapshotLoadErrorKind ?? 'snapshotSourceLoadExhausted')
         },
         snapshotProcessingFailed: () => {
             console.error('PostHog Recording Playback Error: Snapshot processing repeatedly failed')

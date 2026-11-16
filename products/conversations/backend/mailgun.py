@@ -1,6 +1,10 @@
 """Mailgun integration helpers for conversations email channel."""
 
+from email.generator import BytesGenerator
+from io import BytesIO
 from typing import Any, TypedDict
+
+from django.core.mail import EmailMessage
 
 import requests
 import structlog
@@ -208,6 +212,17 @@ def delete_domain(domain: str) -> None:
         logger.info("mailgun_domain_not_found_on_delete", domain=domain)
         return
     resp.raise_for_status()
+
+
+def mime_bytes_with_crlf(email_message: EmailMessage) -> bytes:
+    """Serialize a Django email to MIME bytes with the CRLF line endings RFC 5322 requires.
+
+    Django 6 returns a stdlib `EmailMessage` from `message()`, whose `as_bytes()` has no `linesep`
+    argument, so this calls `BytesGenerator` directly. That works for the older MIME classes too.
+    """
+    buffer = BytesIO()
+    BytesGenerator(buffer, mangle_from_=False).flatten(email_message.message(), linesep="\r\n")
+    return buffer.getvalue()
 
 
 def send_mime(domain: str, mime_bytes: bytes, recipients: list[str]) -> str:

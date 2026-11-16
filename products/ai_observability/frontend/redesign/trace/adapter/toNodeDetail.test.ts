@@ -1,9 +1,9 @@
-import type { TraceNodeApi } from '../../../generated/api.schemas'
-import { EvalResult, EvalsState, NodeLoad } from '../types'
+import type { TraceEvaluationResultApi, TraceNodeApi, TraceNodeDetailApi } from '../../../generated/api.schemas'
+import { EvalResult, EvalsState, NodeContent, NodeLoad } from '../types'
 import { makeEvaluationResult, makeNodeDetail } from './testFixtures'
 import { toNodeDetail } from './toNodeDetail'
 
-const node = (id: string, kind: 'trace' | 'span' | 'generation'): TraceNodeApi => ({
+const node = (id: string, kind: TraceNodeApi['kind']): TraceNodeApi => ({
     id,
     kind,
     name: id,
@@ -20,7 +20,7 @@ const node = (id: string, kind: 'trace' | 'span' | 'generation'): TraceNodeApi =
     },
 })
 
-const result = (overrides: Parameters<typeof makeEvaluationResult>[0] = {}): ReturnType<typeof makeEvaluationResult> =>
+const result = (overrides: Partial<TraceEvaluationResultApi> = {}): TraceEvaluationResultApi =>
     makeEvaluationResult({ targetNodeId: 'gen-1', ...overrides })
 
 function readyResults(evals: EvalsState): EvalResult[] {
@@ -30,7 +30,7 @@ function readyResults(evals: EvalsState): EvalResult[] {
     return evals.results
 }
 
-const ready = (detail: ReturnType<typeof makeNodeDetail>): NodeLoad => ({ status: 'ready', node: detail })
+const ready = (detail: TraceNodeDetailApi): NodeLoad => ({ status: 'ready', node: detail })
 
 describe('toNodeDetail', () => {
     const base = {
@@ -42,7 +42,7 @@ describe('toNodeDetail', () => {
         trace: { createdAt: '2026-09-01T10:15:00Z', sessionId: 'sess-1' },
     }
 
-    it.each<[string, NodeLoad, unknown]>([
+    it.each<[string, NodeLoad, NodeContent]>([
         ['loading', { status: 'loading' }, { kind: 'loading' }],
         [
             'not found',

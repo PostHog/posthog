@@ -2,6 +2,13 @@
     /* =========================================================================
        Base
        ========================================================================= */
+
+    /* The ring on a highlighted row of any menu. It is set on the row so that `--ring` resolves in the row's theme. */
+    :is(.quill-button, .quill-select__item) {
+        --quill-row-ring-color: color-mix(in oklab, var(--ring) 30%, transparent);
+        --quill-row-ring: 0 0 0 1px var(--card), 0 0 0 3px var(--quill-row-ring-color);
+    }
+
     .quill-button {
         font-size: var(--text-ui, 0.8125rem);
         font-weight: 500;
@@ -114,13 +121,11 @@
         background-color: var(--fill-selected);
     }
 
+    /* The row keyboard input or a filter would act on takes the ring. A row under the pointer stays a plain hover. */
     .quill-button--variant-default[data-highlighted] {
         background-color: var(--fill-hover);
-    }
-
-    .quill-button--variant-default[data-highlighted]:not(:hover) {
         border-color: var(--ring);
-        box-shadow: 0 0 0 2px color-mix(in oklab, var(--ring) 30%, transparent);
+        box-shadow: var(--quill-row-ring);
     }
 
     /* Consecutive selected items collapse corners for a seamless stack */
@@ -268,8 +273,24 @@
         box-shadow: 0 0 0 2px color-mix(in oklab, var(--destructive-foreground) 60%, transparent);
     }
 
+    :is(.quill-button--variant-destructive, .quill-button--variant-destructive-outline)[data-highlighted] {
+        --quill-row-ring-color: color-mix(in oklab, var(--destructive-foreground) 60%, transparent);
+
+        border-color: currentColor;
+        box-shadow: var(--quill-row-ring);
+    }
+
+    :is(
+        .quill-button--variant-default,
+        .quill-button--variant-destructive,
+        .quill-button--variant-destructive-outline
+    )[data-highlighted]:hover {
+        border-color: transparent;
+        box-shadow: none;
+    }
+
     /* =========================================================================
-       Variant: link / link-muted
+       Variant: link / link-foreground / link-muted
        ========================================================================= */
     .quill-button--variant-link {
         color: var(--primary);
@@ -279,6 +300,15 @@
     .quill-button--variant-link:not(:disabled, [aria-disabled='true']):hover,
     .quill-button--variant-link[data-popup-open] {
         text-decoration: underline;
+    }
+
+    .quill-button--variant-link-foreground {
+        color: var(--foreground);
+    }
+
+    .quill-button--variant-link-foreground:not(:disabled, [aria-disabled='true']):hover,
+    .quill-button--variant-link-foreground[data-popup-open] {
+        background-color: var(--fill-hover);
     }
 
     .quill-button--variant-link-muted {
@@ -622,6 +652,10 @@
 
     .quill-button--variant-link[data-loading] > .quill-spinner {
         color: var(--primary);
+    }
+
+    .quill-button--variant-link-foreground[data-loading] > .quill-spinner {
+        color: var(--foreground);
     }
 
     .quill-button--variant-link-muted[data-loading] > .quill-spinner {

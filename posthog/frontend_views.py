@@ -1,16 +1,19 @@
 import json
-from typing import Any
+from typing import Any, cast
 from urllib.parse import urlparse
 
 from django.conf import settings
-from django.http import HttpRequest, HttpResponse, HttpResponseRedirect
+from django.http import HttpRequest, HttpResponse, HttpResponseRedirect, JsonResponse
+from django.utils.cache import patch_cache_control
 from django.utils.http import url_has_allowed_host_and_scheme
 from django.views.decorators.csrf import ensure_csrf_cookie
 
 from posthog.cloud_utils import is_cloud
 from posthog.dataclasses import frozen
 from posthog.models.instance_setting import get_instance_setting
-from posthog.utils import render_template
+from posthog.models.user import User
+from posthog.templatetags.posthog_filters import TolerantJSONEncoder
+from posthog.utils import add_user_app_context, feature_flag_bootstrap, full_stage_user_app_context, render_template
 from posthog.views import login_required
 
 APP_POSTHOG_HOST = "app.posthog.com"
@@ -171,3 +174,27 @@ def home_with_region_redirect(request: HttpRequest, *args: Any, **kwargs: Any) -
     if region_redirect is not None:
         return region_redirect
     return _login_required_render_home(request, *args, **kwargs)
+
+
+def app_context(request: HttpRequest) -> JsonResponse:
+    """The signed-in user's part of the app context, for an app page rendered without it.
+
+    The `boot` stage, the default, has what the first screen reads. The page boots on it, then fetches the `full`
+    stage for the rest."""
+    if not request.user.is_authenticated:
+        return JsonResponse({"detail": "Authentication credentials were not provided."}, status=401)
+    stage = request.GET.get("stage", "boot")
+    if stage == "full":
+        body: dict[str, Any] = {"app_context": full_stage_user_app_context(request)}
+    elif stage == "boot":
+        posthog_app_context: dict[str, Any] = {}
+        add_user_app_context(request, posthog_app_context, stage="boot")
+        body = {
+            "app_context": posthog_app_context,
+            "feature_flags": feature_flag_bootstrap(cast(User, request.user), posthog_app_context["current_user"]),
+        }
+    else:
+        return JsonResponse({"detail": "stage must be boot or full."}, status=400)
+    response = JsonResponse(body, encoder=TolerantJSONEncoder)
+    patch_cache_control(response, no_store=True)
+    return response
