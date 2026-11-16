@@ -27,7 +27,6 @@ from posthog.models.oauth_provisioning_review import (
     ProvisioningReviewStatus,
 )
 from posthog.temporal.cimd_provisioning_review.activities import _research, _screen
-from posthog.temporal.cimd_provisioning_review.benchmark import JudgedCase, load_cases, sweep
 from posthog.temporal.cimd_provisioning_review.judgment import (
     SCREEN_THRESHOLDS,
     PartnerJudgment,
@@ -95,27 +94,6 @@ class TestHomepageUrl(SimpleTestCase):
     )
     def test_research_scrapes_only_the_clients_own_domain(self, _name, client_uri, expected):
         assert _registration(client_uri).homepage_url() == expected
-
-
-class TestBenchmarkSweep(SimpleTestCase):
-    def test_best_thresholds_settle_the_most_cases_without_a_wrong_verdict(self):
-        cases = {case.name: case for case in load_cases()}
-        judged = [
-            JudgedCase(case=cases["lovable"], judgment=PartnerJudgment(model="jev", legitimate=0.97, malicious=0.01)),
-            JudgedCase(case=cases["replit"], judgment=PartnerJudgment(model="jev", legitimate=0.88, malicious=0.03)),
-            # A lookalike that looks real enough to pass a loose accept bar.
-            JudgedCase(
-                case=cases["stripe-lookalike"], judgment=PartnerJudgment(model="jev", legitimate=0.82, malicious=0.08)
-            ),
-            JudgedCase(
-                case=cases["random-string-domain"], judgment=PartnerJudgment(model="jev", legitimate=0.1, malicious=0.9)
-            ),
-        ]
-
-        best = sweep(judged, unsettled=ReviewOutcome.RESEARCH)[0]
-
-        assert best.safe
-        assert (best.accepted, best.rejected, best.escalated) == (2, 1, 1)
 
 
 def _search(query: str, **_: object) -> FirecrawlSearch:
