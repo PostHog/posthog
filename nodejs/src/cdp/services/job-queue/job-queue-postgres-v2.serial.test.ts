@@ -189,7 +189,11 @@ describe('CyclotronJobQueuePostgresV2 on Cyclotron Postgres', () => {
         scheduledAt: inAnHour(),
     })
 
-    async function lateness(queue: string, wait: 'deferred' | 'scheduled'): Promise<{ count: number; sum: number }> {
+    async function lateness(
+        queue: string,
+        wait: 'deferred' | 'scheduled',
+        outcome: 'processed' | 'parked' = 'processed'
+    ): Promise<{ count: number; sum: number }> {
         const metric = register.getSingleMetric('cdp_cyclotron_job_lateness_seconds')
         const samples = metric ? (await metric.get()).values : []
         const series = (name: 'count' | 'sum'): number =>
@@ -198,7 +202,8 @@ describe('CyclotronJobQueuePostgresV2 on Cyclotron Postgres', () => {
                     'metricName' in sample &&
                     sample.metricName === `cdp_cyclotron_job_lateness_seconds_${name}` &&
                     sample.labels.queue === queue &&
-                    sample.labels.wait === wait
+                    sample.labels.wait === wait &&
+                    sample.labels.outcome === outcome
             )?.value ?? 0
         return { count: series('count'), sum: series('sum') }
     }
@@ -419,7 +424,8 @@ describe('CyclotronJobQueuePostgresV2 on Cyclotron Postgres', () => {
 
         expect(again).toMatchObject({ id, queueMetadata: { attachmentDeferrals: 1, attachmentDueAt: firstDueAt } })
         expect(new Date((await jobRow(id)).scheduled)).toEqual(scheduledAt)
-        expect(await lateness(queueName, 'scheduled')).toMatchObject({ count: 1 })
+        await queue.queueInvocationResults([finished(again)])
+        expect(await lateness(queueName, 'scheduled', 'parked')).toMatchObject({ count: 1 })
         const late = await lateness(queueName, 'deferred')
         expect(late.count).toBe(1)
         expect(late.sum).toBeGreaterThanOrEqual(60)

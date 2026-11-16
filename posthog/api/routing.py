@@ -6,6 +6,7 @@ from typing import TYPE_CHECKING, Any, Literal, Optional, cast
 from uuid import UUID
 
 from django.core.exceptions import ImproperlyConfigured
+from django.db.models import Model
 from django.db.models.query import QuerySet
 
 import structlog
@@ -55,8 +56,11 @@ from posthog.scopes import APIScopeObjectOrNotSupported
 from posthog.user_permissions import UserPermissions
 
 from products.access_control.backend.facade.contracts import ObjectAccessRef
-from products.access_control.backend.facade.user_access_control import UserAccessControl
+from products.access_control.backend.facade.user_access_control import UserAccessControl, model_to_resource
 from products.authorization.backend.facade import api as authorization
+from products.authorization.backend.facade.contracts import Resource
+from products.authorization.backend.facade.enums import ResourceType
+from products.authorization.backend.presentation.querysets import can_filter_queryset, filter_queryset
 
 if TYPE_CHECKING:
     _GenericViewSet = GenericViewSet
@@ -565,8 +569,21 @@ class TeamAndOrgViewSetMixin(_GenericViewSet):
         if self.scope_object == "early_access_feature" and self.request.GET.get("ids") is not None:
             include_all_if_admin = True
 
-        return self.user_access_control.filter_queryset_by_access_level(
-            queryset, include_all_if_admin=include_all_if_admin
+        access = self.user_access_control
+        # A list outside a project reads organization-wide rules, and some models the SDK cannot filter
+        # yet, so those lists stay on the current filter.
+        if (
+            access.team is None
+            or not (self._is_team_view or self._is_project_view)
+            or not can_filter_queryset(queryset.model)
+        ):
+            return access.filter_queryset_by_access_level(queryset, include_all_if_admin=include_all_if_admin)
+        return filter_queryset(
+            queryset,
+            resource=Resource(
+                type=ResourceType(cast(str, model_to_resource(cast(Model, queryset.model)))), project_id=access.team.id
+            ),
+            include_all_if_admin=include_all_if_admin,
         )
 
     def dangerously_get_object(self) -> Any:

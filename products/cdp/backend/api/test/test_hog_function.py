@@ -1843,6 +1843,25 @@ class TestHogFunctionAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             "bytecode": ["_H", HOGQL_BYTECODE_VERSION, 32, "email", 32, "properties", 32, "person", 1, 3],
         }
 
+    @parameterized.expand(
+        [
+            ("missing_ttl", {"threshold": 20, "hash": "{person.properties.email}"}, "ttl"),
+            ("missing_hash", {"ttl": 60, "threshold": 20}, "hash"),
+        ]
+    )
+    def test_patch_rejects_incomplete_masking_config(self, _name, masking, missing_field):
+        created = self.client.post(f"/api/projects/{self.team.id}/hog_functions/", data=EXAMPLE_FULL)
+        assert created.status_code == status.HTTP_201_CREATED, created.json()
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_functions/{created.json()['id']}/",
+            data={"masking": masking},
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert response.json()["attr"] == f"masking__{missing_field}"
+        assert HogFunction.objects.get(id=created.json()["id"]).masking is None
+
     @patch("posthog.permissions.posthoganalytics.feature_enabled", return_value=True)
     def test_loads_status_when_enabled_and_available(self, *args):
         with patch("posthog.plugins.plugin_server_api.internal_requests.get") as mock_get:

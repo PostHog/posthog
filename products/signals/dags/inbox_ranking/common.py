@@ -6,6 +6,7 @@ live in sibling packages and import from here so they share one destination and 
 definition.
 """
 
+import shutil
 import datetime
 import tempfile
 
@@ -26,6 +27,10 @@ DATASET_VERSION = "v1"
 S3_BUCKET_ENV = "INBOX_RANKING_DATASET_S3_BUCKET"
 
 PARQUET_PART_NAME = "part-00000.parquet"
+
+_READ_CHUNK_BYTES = 8 << 20
+# An embeddings row holds 1536 float32 values (6 KiB), so a batch of them stays near 100 MiB.
+_READ_BATCH_ROWS = 16384
 
 # Earliest label event worth reading: report-attributed pr_created starts 2026-04-20, and the
 # other label streams start later. Also the earliest backfillable partition.
@@ -241,19 +246,42 @@ def merge_emission_rows(existing: pa.Table, fresh: pa.Table, key_columns: tuple[
     return pa.concat_tables([existing, fresh.filter(mask)])
 
 
-def read_parquet(client, bucket: str, key: str, columns: list[str] | None = None) -> pa.Table:
-    body = client.get_object(Bucket=bucket, Key=key)["Body"].read()
-    return pq.read_table(pa.BufferReader(body), columns=columns)
+def read_parquet(
+    client, bucket: str, key: str, columns: list[str] | None = None, *, skip_absent_columns: bool = False
+) -> pa.Table:
+    """Read one Parquet object, or only `columns` of it.
+
+    The object is streamed to a temp file and decoded in record batches, for the reason
+    `write_parquet` spools: the embeddings snapshot carries a 1536-float vector per live report.
+    A read from the object bytes holds those bytes, the pre-buffered row group and the decoded
+    table at the same time, which costs several times the table. The batch read holds the table
+    and one batch only, and its read buffer decodes a column chunk page by page.
+
+    With `skip_absent_columns`, a requested column that the object's schema does not have is left
+    out instead of failing the read, because older snapshots lack the columns added later."""
+    with tempfile.NamedTemporaryFile() as spool:
+        shutil.copyfileobj(client.get_object(Bucket=bucket, Key=key)["Body"], spool, _READ_CHUNK_BYTES)
+        spool.flush()
+        with pq.ParquetFile(spool.name, pre_buffer=False, buffer_size=_READ_CHUNK_BYTES) as parquet:
+            schema = parquet.schema_arrow
+            if columns is not None:
+                if skip_absent_columns:
+                    columns = [column for column in columns if column in schema.names]
+                schema = schema.empty_table().select(columns).schema
+            batches = parquet.iter_batches(batch_size=_READ_BATCH_ROWS, columns=columns)
+            return pa.Table.from_batches(batches, schema=schema)
 
 
 def _never_written(error: ClientError) -> bool:
     return error.response.get("Error", {}).get("Code") in ("404", "NoSuchKey", "NotFound")
 
 
-def read_parquet_if_exists(client, bucket: str, key: str, columns: list[str] | None = None) -> pa.Table | None:
+def read_parquet_if_exists(
+    client, bucket: str, key: str, columns: list[str] | None = None, *, skip_absent_columns: bool = False
+) -> pa.Table | None:
     """The object's rows, or None when it was never written."""
     try:
-        return read_parquet(client, bucket, key, columns)
+        return read_parquet(client, bucket, key, columns, skip_absent_columns=skip_absent_columns)
     except ClientError as error:
         if _never_written(error):
             return None

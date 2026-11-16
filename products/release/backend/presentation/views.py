@@ -27,7 +27,7 @@ from posthog.scopes import scopes_not_covered
 from products.feature_flags.backend.facade.api import existing_flag_ids
 from products.feature_flags.backend.facade.release_candidates import list_release_import_flags
 from products.product_analytics.backend.facade.api import existing_insight_ids, insight_summaries
-from products.surveys.backend.facade.api import existing_survey_ids
+from products.surveys.backend.facade.api import existing_survey_ids, survey_summaries
 from products.workflows.backend.facade.api import (
     get_recent_batch_jobs,
     get_workflow_summaries,
@@ -41,6 +41,7 @@ from .serializers import (
     BroadcastOptionSerializer,
     BroadcastSearchQuerySerializer,
     ImportAllResponseSerializer,
+    MergeReleasesSerializer,
     ReleaseSerializer,
     UpdateReleaseSerializer,
     WriteReleaseSerializer,
@@ -54,7 +55,7 @@ class ReleaseViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     scope_object = "feature_flag"
     requires_resource_level_access = True
     scope_object_read_actions = ["list", "retrieve", "broadcast_search"]
-    scope_object_write_actions = ["create", "update", "partial_update", "destroy", "import_all"]
+    scope_object_write_actions = ["create", "update", "partial_update", "destroy", "import_all", "merge"]
     serializer_class = ReleaseSerializer
     pagination_class = FacadeLimitOffsetPagination
     path_parameters = {"pk": UUID}
@@ -114,10 +115,25 @@ class ReleaseViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         existing = frozenset(existing_survey_ids(survey_ids, team_id=self.team_id)) if survey_ids else frozenset()
         if not existing or not self._holds_scope("survey:read"):
             return contracts.SurveyVisibility(existing=existing, visible=frozenset(), linkable=frozenset())
-        visible = frozenset(
-            existing_survey_ids(survey_ids, team_id=self.team_id, access_control=self.user_access_control)
+        summaries = survey_summaries(survey_ids, team_id=self.team_id, access_control=self.user_access_control)
+        visible = frozenset(summary.id for summary in summaries)
+        return contracts.SurveyVisibility(
+            existing=existing,
+            visible=visible,
+            linkable=visible,
+            summaries=tuple(
+                contracts.LinkedSurveyDTO(
+                    id=summary.id,
+                    name=summary.name,
+                    created_at=summary.created_at,
+                    start_date=summary.start_date,
+                    end_date=summary.end_date,
+                    linked_flag_id=summary.linked_flag_id,
+                    archived=summary.archived,
+                )
+                for summary in summaries
+            ),
         )
-        return contracts.SurveyVisibility(existing=existing, visible=visible, linkable=visible)
 
     def _insight_visibility(self, insight_ids: list[int]) -> contracts.InsightVisibility:
         if not insight_ids:
@@ -198,16 +214,8 @@ class ReleaseViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             dto = api.create(
                 contracts.CreateReleaseInput(team_id=self.team_id, **request.validated_data), self._lookups
             )
-        except api.UnknownFeatureFlagsError as error:
-            raise ValidationError({"feature_flag_ids": f"These flags do not exist in this project: {error.flag_ids}"})
-        except api.UnknownBroadcastsError as error:
-            raise ValidationError(
-                {"broadcast_ids": f"These broadcasts do not exist in this project: {error.broadcast_ids}"}
-            )
-        except api.UnknownSurveysError as error:
-            raise ValidationError({"survey_ids": f"These surveys do not exist in this project: {error.survey_ids}"})
-        except api.UnknownInsightsError as error:
-            raise ValidationError({"insight_ids": f"These insights do not exist in this project: {error.insight_ids}"})
+        except api.UnknownLinkedObjectsError as error:
+            raise ValidationError({error.field: f"These {error.noun} do not exist in this project: {error.ids}"})
         return Response(ReleaseSerializer(dto).data, status=status.HTTP_201_CREATED)
 
     @validated_request(
@@ -221,16 +229,8 @@ class ReleaseViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             dto = api.update(self.team_id, pk, request.validated_data, self._lookups)
         except api.ReleaseNotFoundError:
             raise NotFound("Release not found.")
-        except api.UnknownFeatureFlagsError as error:
-            raise ValidationError({"feature_flag_ids": f"These flags do not exist in this project: {error.flag_ids}"})
-        except api.UnknownBroadcastsError as error:
-            raise ValidationError(
-                {"broadcast_ids": f"These broadcasts do not exist in this project: {error.broadcast_ids}"}
-            )
-        except api.UnknownSurveysError as error:
-            raise ValidationError({"survey_ids": f"These surveys do not exist in this project: {error.survey_ids}"})
-        except api.UnknownInsightsError as error:
-            raise ValidationError({"insight_ids": f"These insights do not exist in this project: {error.insight_ids}"})
+        except api.UnknownLinkedObjectsError as error:
+            raise ValidationError({error.field: f"These {error.noun} do not exist in this project: {error.ids}"})
         return Response(ReleaseSerializer(dto).data)
 
     @validated_request(
@@ -249,6 +249,40 @@ class ReleaseViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             limit=BROADCAST_SEARCH_LIMIT,
         )
         return Response(BroadcastOptionSerializer(options, many=True).data)
+
+    @validated_request(
+        request_serializer=MergeReleasesSerializer,
+        responses={200: OpenApiResponse(response=ReleaseSerializer)},
+    )
+    @action(detail=True, methods=["post"])
+    def merge(self, request: TypedRequest[dict[str, Any]], pk: str, **kwargs) -> Response:
+        """Merge other releases into this one. This release keeps its name, gains their links, then they are deleted."""
+        try:
+            target_id = UUID(str(pk))
+        except ValueError:
+            raise NotFound("Release not found.")
+        source_ids = request.validated_data["release_ids"]
+        try:
+            dto = api.merge(
+                self.team_id,
+                target_id,
+                source_ids,
+                self._lookups,
+                request.validated_data.get("name", "").strip() or None,
+            )
+        except api.ReleaseNotFoundError as error:
+            if error.args and error.args[0] == target_id:
+                raise NotFound("Release not found.")
+            raise ValidationError({"release_ids": f"These releases do not exist in this project: {list(error.args)}"})
+        except api.InvalidMergeError as error:
+            raise ValidationError({"release_ids": str(error)})
+        report_user_action(
+            request.user,
+            "releases merged",
+            {"release_id": str(target_id), "merged_count": len(set(source_ids) - {target_id})},
+            request=request,
+        )
+        return Response(ReleaseSerializer(dto).data)
 
     @extend_schema(request=None, responses={201: ImportAllResponseSerializer})
     @action(detail=False, methods=["post"], pagination_class=None)
