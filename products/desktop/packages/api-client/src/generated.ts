@@ -6013,14 +6013,14 @@ export namespace Schemas {
          */
         build: CohortHistoryBuild | null;
         /**
-         * Why feature flags can't target the cohort. `history_over_limit`, on a `daily` cohort: its criteria look back further than `history_limit_days`. `too_large_to_build`, on a `needs_attention` cohort: the events in its criteria happen too often for PostHog to prepare it automatically. Null in every other case, including a `daily` cohort that other criteria keep off realtime.
+         * Why feature flags can't target the cohort. `history_over_limit`, on a `daily` cohort: its criteria look back further than realtime cohorts can. On an `off` cohort: its criteria look back further than the project's plan allows, so it can't be turned on. `too_large_to_build`, on a `needs_attention` cohort: the events in its criteria happen too often for PostHog to prepare it automatically. Null in every other case, including a `daily` cohort that other criteria keep off realtime.
          *
          * * `history_over_limit` - History over limit
          * * `too_large_to_build` - Too large to build
          */
         reason: CohortRealtimeUnavailableReasonEnum | NullEnum;
         /**
-         * The most days realtime cohort criteria can look back. Null unless the reason is `history_over_limit`.
+         * The most days realtime cohort criteria can look back on the project's plan. Null unless the reason is `history_over_limit`.
          */
         history_limit_days: number | null;
     };
@@ -17254,6 +17254,18 @@ export namespace Schemas {
          * * `serving` - Serving
          */
         access: RealtimeCohortsAccessEnum;
+        /**
+         * How many cohorts in this project have realtime on. Null when `access` is `off`.
+         */
+        cohorts_used: number | null;
+        /**
+         * How many cohorts in this project the plan allows to have realtime on. Null when `access` is `off`, or when the plan sets no limit.
+         */
+        max_cohorts: number | null;
+        /**
+         * How many days back the criteria of a realtime cohort can look on the plan. Null when `access` is `off`.
+         */
+        max_history_days: number | null;
     };
     export type TeamRevenueAnalyticsConfig = Partial<{
         base_currency: BaseCurrencyEnum;
