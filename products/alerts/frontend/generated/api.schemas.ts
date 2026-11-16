@@ -1210,28 +1210,6 @@ export interface AlertSimulateResponseApi {
     breakdown_results?: BreakdownSimulationResultApi[]
 }
 
-export interface ThresholdWithAlertApi {
-    readonly id: string
-    readonly created_at: string
-    /**
-     * Optional name for the threshold.
-     * @maxLength 255
-     */
-    name?: string
-    /** Threshold bounds and type. Includes bounds (lower/upper floats) and type (absolute or percentage). For threshold-based alerts (no detector_config), at least one of lower or upper must be set. */
-    configuration: InsightThresholdApi
-    readonly alerts: readonly AlertApi[]
-}
-
-export interface PaginatedThresholdWithAlertListApi {
-    count: number
-    /** @nullable */
-    next?: string | null
-    /** @nullable */
-    previous?: string | null
-    results: ThresholdWithAlertApi[]
-}
-
 export type AlertsListParams = {
     /**
      * Optional. Restrict results to alerts created by the user with this UUID.
@@ -1312,14 +1290,3 @@ export const AlertsPagerdutyAvailabilityRetrieveCalculationInterval = {
     Weekly: 'weekly',
     Monthly: 'monthly',
 } as const
-
-export type InsightsThresholdsListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number
-}
