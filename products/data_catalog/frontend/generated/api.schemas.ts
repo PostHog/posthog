@@ -136,6 +136,11 @@ export interface CertificationCreateApi {
     proposed_status?: ProposedStatusEnumApi
 }
 
+export interface MetricAvailabilityApi {
+    /** Whether the project has any live metric, counted before per-table access checks. */
+    has_metrics: boolean
+}
+
 /**
  * * `user` - user
  * * `ai_generated` - ai_generated

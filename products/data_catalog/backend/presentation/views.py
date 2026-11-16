@@ -49,6 +49,7 @@ from .serializers import (
     CertificationCreateSerializer,
     CertificationSerializer,
     MetricApproveRequestSerializer,
+    MetricAvailabilitySerializer,
     MetricBulkApproveResponseSerializer,
     MetricBulkChangeOwnerRequestSerializer,
     MetricBulkChangeOwnerResponseSerializer,
@@ -662,7 +663,7 @@ class UsageSnapshotViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         return Response(UsageSnapshotSerializer(snapshot).data)
 
 
-class PendingReviewViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
+class CatalogViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     scope_object = "data_catalog"
 
     @action(
@@ -675,3 +676,13 @@ class PendingReviewViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         """How many items wait in each review queue, counted as the list of that queue shows them to you."""
         counts = api.pending_review_counts(self.team, cast(User, request.user), self.user_access_control)
         return Response(PendingReviewCountsSerializer(counts).data)
+
+    @action(
+        detail=False,
+        methods=["GET"],
+        required_scopes=["data_catalog:read"],
+        responses={200: MetricAvailabilitySerializer},
+    )
+    def metric_availability(self, request: Request, **kwargs) -> Response:
+        """Whether the project has any live metric. Skips the list's per-table access checks, which build the whole HogQL schema."""
+        return Response(MetricAvailabilitySerializer({"has_metrics": api.metrics_for_team(self.team).exists()}).data)

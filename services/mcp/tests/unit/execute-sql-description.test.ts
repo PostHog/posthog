@@ -29,11 +29,13 @@ describe('formatExecuteSqlDescription', () => {
 
     it('swaps the metric rule for the save offer when a project has no saved metrics', () => {
         const rendered = builder.formatExecuteSqlDescription({
-            metricCatalog: { count: 0 },
+            metricCatalog: { hasMetrics: false },
         } as unknown as ExecToolState)
 
         expect(rendered).not.toContain('The first call for that shape is `metric-list`')
-        expect(rendered).toContain('This project has no saved metrics, so skip `metric-list`.')
+        expect(rendered).toContain(
+            'This project has no saved metrics, so skip `metric-list`, even where a skill says to call it first.'
+        )
         expect(rendered).toContain('#### Regular schema discovery')
     })
 

@@ -321,14 +321,18 @@ describe('InstructionsFormatter', () => {
         it.each(
             surfaces.flatMap(({ surface, render }) => [
                 { surface, render, name: 'unread catalog', catalog: undefined, empty: false },
-                { surface, render, name: 'saved metrics', catalog: { count: 3 }, empty: false },
-                { surface, render, name: 'no saved metrics', catalog: { count: 0 }, empty: true },
+                { surface, render, name: 'saved metrics', catalog: { hasMetrics: true }, empty: false },
+                { surface, render, name: 'no saved metrics', catalog: { hasMetrics: false }, empty: true },
             ])
         )('$surface: $name', ({ surface, render, catalog, empty }) => {
             const result = render({ ...fullCtx, metricCatalog: catalog })
 
             expect(/`metric-list` first|call metric-list|with `metric-list` before/.test(result)).toBe(!empty)
-            expect(result.includes('This project has no saved metrics, so skip `metric-list`.')).toBe(empty)
+            expect(
+                result.includes(
+                    'This project has no saved metrics, so skip `metric-list`, even where a skill says to call it first.'
+                )
+            ).toBe(empty)
             const offersToSave = surface !== 'Claude exec command reference' || empty
             expect(result.includes('Offer to save a reusable settled measure as a proposed metric')).toBe(offersToSave)
             if (empty) {

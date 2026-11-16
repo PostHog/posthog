@@ -720,19 +720,18 @@ export class StateManager {
             cacheKey: `metricCatalog:${projectId}` as const,
             fetchedAtKey: `metricCatalogFetchedAt:${projectId}` as const,
             fetcher: async () => {
-                const page = await this._api.request<Schemas.PaginatedDataCatalogMetricList>({
+                const availability = await this._api.request<Schemas.MetricAvailability>({
                     method: 'GET',
-                    path: `/api/projects/${encodeURIComponent(projectId)}/data_catalog/metrics/`,
-                    query: { limit: 1 },
+                    path: `/api/projects/${encodeURIComponent(projectId)}/data_catalog/metric_availability/`,
                     timeoutMs: METRIC_CATALOG_TIMEOUT_MS,
                     signal: AbortSignal.timeout(METRIC_CATALOG_TIMEOUT_MS),
                 })
-                return { count: page.count }
+                return { hasMetrics: availability.has_metrics }
             },
-            ttlMs: (cached) => (cached?.count === 0 ? NO_DATA_CACHE_TTL_MS : CACHE_TTL_MS),
+            ttlMs: (cached) => (cached?.hasMetrics === false ? NO_DATA_CACHE_TTL_MS : CACHE_TTL_MS),
             expectTimeouts: true,
             // A stale "no metrics" would keep agents skipping a metric saved since, so fall back to lookup.
-            discardOnError: (cached) => cached?.count === 0,
+            discardOnError: (cached) => cached?.hasMetrics === false,
         })
     }
 

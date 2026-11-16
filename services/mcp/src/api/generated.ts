@@ -70942,6 +70942,11 @@ export namespace Schemas {
       Auto: 'auto',
     } as const;
 
+    export interface MetricAvailability {
+      /** Whether the project has any live metric, counted before per-table access checks. */
+      has_metrics: boolean;
+    }
+
     /**
      * * `precise` - Precise
      * * `coarse` - Coarse

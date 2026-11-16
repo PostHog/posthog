@@ -7,10 +7,12 @@ import METRIC_ROUTING_EMPTY from '@/templates/sections/metric-routing-empty.md'
 import METRIC_ROUTING from '@/templates/sections/metric-routing.md'
 import type { MetricCatalogContent } from '@/tools/types'
 
+export const METRIC_LIST_TOOL = 'metric-list'
+
 export type MetricCatalogMode = 'lookup' | 'empty'
 
 export function resolveMetricCatalogMode(content: MetricCatalogContent | undefined): MetricCatalogMode {
-    return content?.count === 0 ? 'empty' : 'lookup'
+    return content?.hasMetrics === false ? 'empty' : 'lookup'
 }
 
 export function metricCatalogPromptVars(mode: MetricCatalogMode): Record<string, string> {

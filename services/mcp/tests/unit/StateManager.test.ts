@@ -1387,14 +1387,17 @@ describe('StateManager', () => {
             vi.useFakeTimers()
             const request = vi
                 .fn()
-                .mockResolvedValueOnce({ count: 0, results: [] })
-                .mockResolvedValueOnce({ count: 1, results: [{ name: 'revenue_weekly' }] })
+                .mockResolvedValueOnce({ has_metrics: false })
+                .mockResolvedValueOnce({ has_metrics: true })
             ;(stateManager as any)._api = { config: { apiToken: 'phx_test' }, request }
 
-            expect(await stateManager.getOrFetchMetricCatalog('42')).toEqual({ count: 0 })
+            expect(await stateManager.getOrFetchMetricCatalog('42')).toEqual({ hasMetrics: false })
             vi.advanceTimersByTime(61 * 1000)
 
-            expect(await stateManager.getOrFetchMetricCatalog('42')).toEqual({ count: 1 })
+            expect(await stateManager.getOrFetchMetricCatalog('42')).toEqual({ hasMetrics: true })
+            expect(request).toHaveBeenCalledWith(
+                expect.objectContaining({ path: '/api/projects/42/data_catalog/metric_availability/' })
+            )
         })
 
         it('drops a cached empty catalog when its refresh fails', async () => {
@@ -1402,11 +1405,11 @@ describe('StateManager', () => {
             vi.spyOn(stateManager as any, '_reportException').mockImplementation(() => {})
             const request = vi
                 .fn()
-                .mockResolvedValueOnce({ count: 0, results: [] })
-                .mockRejectedValue(new Error('Synthetic metric list failure'))
+                .mockResolvedValueOnce({ has_metrics: false })
+                .mockRejectedValue(new Error('Synthetic metric availability failure'))
             ;(stateManager as any)._api = { config: { apiToken: 'phx_test' }, request }
 
-            expect(await stateManager.getOrFetchMetricCatalog('42')).toEqual({ count: 0 })
+            expect(await stateManager.getOrFetchMetricCatalog('42')).toEqual({ hasMetrics: false })
             vi.advanceTimersByTime(61 * 1000)
 
             expect(await stateManager.getOrFetchMetricCatalog('42')).toBeUndefined()
@@ -1415,7 +1418,7 @@ describe('StateManager', () => {
 
         it('reads a failed lookup as unknown', async () => {
             vi.spyOn(stateManager as any, '_reportException').mockImplementation(() => {})
-            const request = vi.fn(() => Promise.reject(new Error('Synthetic metric list failure')))
+            const request = vi.fn(() => Promise.reject(new Error('Synthetic metric availability failure')))
             ;(stateManager as any)._api = { config: { apiToken: 'phx_test' }, request }
 
             expect(await stateManager.getOrFetchMetricCatalog('42')).toBeUndefined()

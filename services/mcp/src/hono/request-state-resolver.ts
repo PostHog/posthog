@@ -4,6 +4,7 @@ import { isCloudApi, isLocalApi, MCP_GATEWAY_FLAG } from '@/lib/constants'
 import { env } from '@/lib/env'
 import { McpSessionResetRequiredError } from '@/lib/errors'
 import { EVENT_SOURCE, resolveEventSource } from '@/lib/event-source'
+import { METRIC_LIST_TOOL } from '@/lib/metric-catalog'
 import { buildMCPAnalyticsGroups, type MCPAnalyticsContext } from '@/lib/posthog/analytics'
 import {
     type EvaluatedFlags,
@@ -171,8 +172,6 @@ const BUSINESS_KNOWLEDGE_SEARCH_TOOLS: ReadonlySet<string> = new Set([
     'business-knowledge-documents-search',
     'business-knowledge-repositories-search',
 ])
-
-const METRIC_LIST_TOOL = 'metric-list'
 
 function mountsGatewayServersDirectly(taskOriginProduct: string | undefined): boolean {
     return taskOriginProduct !== undefined && DIRECT_GATEWAY_MOUNT_ORIGINS.has(taskOriginProduct)

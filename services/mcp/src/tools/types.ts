@@ -51,7 +51,7 @@ export type BusinessKnowledgeContent = {
 }
 
 export type MetricCatalogContent = {
-    count: number
+    hasMetrics: boolean
 }
 
 export type State = {
