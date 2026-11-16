@@ -109,7 +109,8 @@ MSSQLErrors = {
     # pymssql raises this as an `InterfaceError`, not an `OperationalError`, when the login itself
     # succeeded but the driver's post-connect `SET` batch then fails outright (`db_sqlexec` returns
     # FAIL in `_mssql.pyx`) — the same mid-handshake drop class as "Adaptive Server connection
-    # failed" above, just surfacing one step later. See `get_non_retryable_errors` below.
+    # failed" above, just surfacing one step later. Unlike that entry, a sync hitting this is kept
+    # retryable (see `get_retryable_errors` below) rather than disabled outright.
     "Could not set connection properties": _CONNECTION_DROPPED_ERROR,
     "Lock request time out period exceeded": _LOCK_TIMEOUT_VALIDATION_ERROR,
 }
@@ -177,6 +178,12 @@ class MSSQLSource(
             # covers (that helper only wraps schema discovery). A fresh connection from the next
             # Temporal retry resolves it.
             _TRANSIENT_CONNECTION_ERROR,
+            # pymssql's `connect()` wraps this as an `InterfaceError` when the login itself
+            # succeeded but the driver's post-connect `SET` batch then fails outright
+            # (`db_sqlexec` returns FAIL in `_mssql.pyx`) — the same connection-death class as
+            # "Not connected to any MS SQL server" above, just surfacing one step earlier in the
+            # handshake. A fresh connection from the next Temporal retry resolves it.
+            "Could not set connection properties",
             # SQL Server error 1222. A metadata statement waited longer than the `SET LOCK_TIMEOUT`
             # that `MSSQLImplementation.connect` sets, because another session held a lock on the
             # catalog or on the table. The lock belongs to the customer's own workload and goes
@@ -209,10 +216,6 @@ class MSSQLSource(
             # phrase, not the volatile server name / client IP the rest of the message echoes.
             "is not allowed to access the server": _FIREWALL_BLOCKED_ERROR,
             "Adaptive Server connection failed": None,
-            # pymssql raises this as an `InterfaceError` (see `MSSQLErrors` above), not through the
-            # `OperationalError` the rest of this dict matches on error-message text; the generic
-            # substring match here doesn't care which exception type carried it.
-            "Could not set connection properties": None,
             # pymssql DB-Lib error 20009 — the server host can't be reached for the whole
             # connection attempt. On a managed instance this is a persistent connectivity issue
             # (security group doesn't allow PostHog's IPs, the instance is stopped, or the

@@ -825,11 +825,22 @@ class TestMSSQLSourceRetryableErrors:
                 b"Transaction (Process ID 116) was deadlocked on lock resources with another process and has been "
                 b"chosen as the deadlock victim. Rerun the transaction.",
             ),
+            # pymssql's own InterfaceError, raised when the login succeeded but the driver's
+            # post-connect `SET` batch then failed outright (see `MSSQLSource.get_retryable_errors`)
+            # — the same connection-death class as "Not connected to any MS SQL server" above.
+            pymssql.InterfaceError("Could not set connection properties"),
         ],
     )
     def test_transient_connection_errors_are_retryable(self, error):
         retryable = MSSQLSource().get_retryable_errors()
         assert any(pattern.lower() in str(error).lower() for pattern in retryable), str(error)
+
+    def test_could_not_set_connection_properties_is_not_non_retryable(self):
+        # A sync hitting this must keep retrying rather than being disabled outright: the login
+        # succeeded, so it's a connection-death blip, not a permanent config problem.
+        error_msg = "Could not set connection properties"
+        non_retryable = MSSQLSource().get_non_retryable_errors()
+        assert not any(pattern in error_msg for pattern in non_retryable.keys()), error_msg
 
     @pytest.mark.parametrize(
         "error_msg",
