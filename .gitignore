@@ -27,6 +27,7 @@ posthog/hogql/test/fixtures/real_queries/
 .yalc
 *-esbuild-bundle-visualization.html
 *-esbuild-meta.json
+frontend/vite-app-graph.json
 *.code-workspace
 *.db
 *.isorted

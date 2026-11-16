@@ -76,6 +76,7 @@ rules:
           - '/slo/test/test_*.py'
           - '/test/repo_invariants/test_*.py'
           - '/test/test_cascade_delete.py'
+          - '/test/test_vite_app.py'
       owners: team-devex
     - match:
           - '/security/test/test_*.py'

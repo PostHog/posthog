@@ -30,6 +30,7 @@ from posthog.utils import (
     get_persisted_feature_flags_for_app_context,
     signed_out_session_reason,
 )
+from posthog.vite_app import ViteApp
 
 from products.conversations.backend.services.identity import IDENTITY_CLAIM_MAX_AGE_SECONDS
 
@@ -433,6 +434,40 @@ class TestGetContextForTemplate(APIBaseTest):
             }
         else:
             assert "stable_chunks_importmap" not in context
+
+    def test_a_staff_member_who_chose_the_vite_build_boots_on_it_alone(self):
+        vite_app = ViteApp(
+            entry="static/vite/index-S0000000000.js",
+            asset_prefix="static/vite/",
+            imports={"static/vite/chunk-a.js": "static/vite/chunk-S1111111111.js"},
+            logged_out_specifiers=frozenset(),
+            eager_css_urls=("static/vite/assets/index-AAAA.css",),
+            preload_js_urls=("static/vite/index-S0000000000.js",),
+            authenticated_preload_js_urls=("static/vite/chunk-S2222222222.js",),
+            preload_css_urls=(),
+            authenticated_preload_css_urls=(),
+            chunk_map="static/vite/chunk-map-BBBB.js",
+        )
+        self.user.is_staff = True
+        request = RequestFactory().get("/?frontend_build=vite")
+        SessionMiddleware(lambda _request: HttpResponse()).process_request(request)
+        request.user = self.user
+
+        with (
+            mock.patch("posthog.vite_app._resolve_vite_app", return_value=vite_app),
+            mock.patch("posthog.stable_chunks._resolve_stable_chunks", return_value=STABLE_CHUNKS),
+        ):
+            context = get_context_for_template("index.html", request)
+
+        assert context["frontend_build"] == "vite"
+        assert context["vite_app_boot"]["entry"] == "static/vite/index-S0000000000.js"
+        assert "stable_chunks" not in context
+        assert json.loads(context["stable_chunks_importmap"]) == {
+            "imports": {
+                f"{context['js_url']}/static/vite/chunk-a.js": f"{context['js_url']}/static/vite/chunk-S1111111111.js"
+            }
+        }
+        assert context["preload_js_urls"] == ("static/vite/index-S0000000000.js", "static/vite/chunk-S2222222222.js")
 
     @mock.patch("posthog.utils.posthoganalytics.get_all_flags", return_value={"some-flag": True})
     @mock.patch("posthog.utils.posthoganalytics.feature_flag_definitions", return_value=[{"key": "some-flag"}])

@@ -21,6 +21,7 @@
         "build": "pnpm copy-scripts && pnpm build:esbuild",
         "build:with-report": "pnpm build && node ./bin/build-bundle-report.mjs && node ./bin/build-bundle-size-report.mjs && node ./bin/check-eager-graph.mjs --report-only && node ./bin/check-layers.mjs --report-only --html layer-graph.html && node ./bin/check-toolbar-size.mjs --report-only && node ./bin/check-fixed-name-assets.mjs",
         "build:esbuild": "DEBUG=0 node ./build.mjs",
+        "build:vite-app": "pnpm build:products && DEBUG=0 vite build --config vite.app.config.mts && node ./bin/build-vite-app.mjs",
         "build:products": "DEBUG=0 node build-products.mjs",
         "build:app-urls": "node bin/build-app-url-manifest.mjs",
         "build:app-urls:check": "node bin/build-app-url-manifest.mjs --check",

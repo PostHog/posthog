@@ -1,0 +1,121 @@
+{# The boot script of the app build that Vite makes. frontend/src/index.html includes it when #}
+{# posthog/vite_app.py picks that build. It does what the esbuild build's boot script does #}
+{# (see copyIndexHtml in common/esbuilder/utils.mjs) with the file names from the Vite manifest. #}
+{{ vite_app_boot|page_json_script:"vite-app-boot" }}
+<script nonce="{{ request.csp_nonce }}">
+    (function () {
+        var boot = JSON.parse(document.getElementById('vite-app-boot').textContent)
+        var base = (window.JS_URL || '') + '/'
+        var nonce = document.currentScript && document.currentScript.nonce
+
+        // The build's code asks this function for the URL of each stylesheet and image it loads,
+        // because only the page knows the asset host (see renderBuiltUrl in frontend/vite.app.config.mts).
+        window.VITE_APP_ASSET_URL = function (file) {
+            return base + boot.assetPrefix + file
+        }
+
+        // The server always answers ?stable_chunks=fallback with the default build and stores no
+        // choice for it, so this reload cannot loop, and the next page load tries this build again.
+        function reloadOnDefaultBuild() {
+            var url = new URL(window.location.href)
+            url.searchParams.set('stable_chunks', 'fallback')
+            window.location.replace(url.toString())
+        }
+
+        // A stalled stylesheet request fires no error event, so each attempt has its own timeout.
+        var STYLESHEET_TIMEOUT_MS = 10000
+        function loadStylesheet(href, replaces) {
+            return new Promise(function (resolve) {
+                var link = document.createElement('link')
+                link.rel = 'stylesheet'
+                // The same fetch mode as the preload hint in <head>, so the browser uses that response.
+                link.crossOrigin = 'anonymous'
+                link.href = href
+                var timer = setTimeout(function () {
+                    resolve({ link: link, applied: false })
+                }, STYLESHEET_TIMEOUT_MS)
+                link.onload = function () {
+                    clearTimeout(timer)
+                    // A response that is not CSS also fires load, and leaves no sheet.
+                    resolve({ link: link, applied: !!link.sheet })
+                }
+                link.onerror = function () {
+                    clearTimeout(timer)
+                    resolve({ link: link, applied: false })
+                }
+                // A retry takes the place of the failed link, because the cascade follows document order.
+                if (replaces) {
+                    replaces.replaceWith(link)
+                } else {
+                    document.head.appendChild(link)
+                }
+            })
+        }
+        function loadEagerStylesheet(path) {
+            return loadStylesheet(base + path).then(function (first) {
+                if (first.applied) {
+                    return true
+                }
+                // A new query string gets past a poisoned cache entry or a hung connection.
+                return loadStylesheet(base + path + '?retry=' + Date.now(), first.link).then(function (second) {
+                    return second.applied
+                })
+            })
+        }
+        // The app entry waits on this promise before its first render (frontend/src/index.tsx).
+        window.ESBUILD_CSS_READY = Promise.all(boot.eagerCss.map(loadEagerStylesheet)).then(function (applied) {
+            if (applied.indexOf(false) === -1) {
+                return true
+            }
+            reloadOnDefaultBuild()
+            // The page is going away, so the app must not render without its styles in the meantime.
+            return new Promise(function () {})
+        })
+
+        // When the entry or one of its static imports fails to load, no app code runs, so the
+        // recovery that the app has for a failed chunk cannot start. The page recovers here.
+        import(base + boot.entry).catch(function (error) {
+            console.error('Error loading the app entry', error)
+            reloadOnDefaultBuild()
+        })
+
+        // The chunk map lists every chunk that each lazy module needs, so the scene loader can ask
+        // for them all at once and not level by level. It only saves time: import() of the scene
+        // resolves the same chunks without it.
+        var preloaded = new Set()
+        var scenesBeforeMap = []
+        window.ESBUILD_LOAD_CHUNKS = function (name) {
+            var map = window.VITE_APP_CHUNK_MAP
+            if (!map) {
+                if (scenesBeforeMap) {
+                    scenesBeforeMap.push(name)
+                }
+                return
+            }
+            ;(map.scenes[name] || []).forEach(function (index) {
+                if (!preloaded.has(index)) {
+                    preloaded.add(index)
+                    var link = document.createElement('link')
+                    link.rel = 'modulepreload'
+                    link.href = window.VITE_APP_ASSET_URL(map.files[index])
+                    document.head.appendChild(link)
+                }
+            })
+        }
+        var chunkMap = document.createElement('script')
+        chunkMap.async = true
+        if (nonce) {
+            chunkMap.nonce = nonce
+        }
+        chunkMap.src = base + boot.chunkMap
+        chunkMap.onload = function () {
+            var scenes = scenesBeforeMap
+            scenesBeforeMap = null
+            scenes.forEach(window.ESBUILD_LOAD_CHUNKS)
+        }
+        chunkMap.onerror = function () {
+            scenesBeforeMap = null
+        }
+        document.head.appendChild(chunkMap)
+    })()
+</script>
