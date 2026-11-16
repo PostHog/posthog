@@ -1,0 +1,79 @@
+rules:
+    - id: no-pattern-lookup-from-outer-row
+      message: |
+          This pattern lookup builds its pattern from the outer row (`OuterRef`), so the subquery
+          becomes a `LIKE` or regex whose pattern changes on every outer row.
+
+          Postgres can use an index for `LIKE` only when the pattern is a constant. With a pattern
+          built from the outer row, the subquery reads every row in its scope once per outer row.
+          It stays fast on small test data and times out on large projects.
+
+          A JSON or array `__contains` compares values (`@>`) instead of matching a pattern, so a
+          `JSONArray`, `JSONObject` or list value does not count.
+
+          Match against constant values instead: loop over the known prefixes and build one
+          uncorrelated `Exists` per prefix, as `_visible_files` in
+          `posthog/api/file_system/file_system.py` does. Or join on an exact column such as a
+          parent id. If the outer query is bounded to a few rows by construction, suppress this
+          finding with `# nosemgrep: no-pattern-lookup-from-outer-row -- <why the outer query stays small>`.
+      languages: [python]
+      severity: ERROR
+      pattern-either:
+          - patterns:
+                - pattern: $CALL(..., $LOOKUP=$VALUE, ...)
+                - metavariable-regex:
+                      metavariable: $LOOKUP
+                      regex: ^\w+__i?(contains|startswith|endswith|regex)$
+                - metavariable-pattern:
+                      metavariable: $VALUE
+                      patterns:
+                          - pattern-either:
+                                - pattern: OuterRef(...)
+                                - pattern: models.OuterRef(...)
+                          - pattern-not-inside: JSONArray(...)
+                          - pattern-not-inside: JSONObject(...)
+                          - pattern-not-inside: '[...]'
+          - patterns:
+                - pattern: '$CALL(..., **{$KEY: $VALUE}, ...)'
+                - metavariable-regex:
+                      metavariable: $KEY
+                      regex: ^["']\w+__i?(contains|startswith|endswith|regex)["']$
+                - metavariable-pattern:
+                      metavariable: $VALUE
+                      patterns:
+                          - pattern-either:
+                                - pattern: OuterRef(...)
+                                - pattern: models.OuterRef(...)
+                          - pattern-not-inside: JSONArray(...)
+                          - pattern-not-inside: JSONObject(...)
+                          - pattern-not-inside: '[...]'
+          - patterns:
+                - pattern-inside: |
+                      $PATTERN = <... OuterRef(...) ...>
+                      ...
+                - pattern: $CALL(..., $LOOKUP=<... $PATTERN ...>, ...)
+                - metavariable-regex:
+                      metavariable: $LOOKUP
+                      regex: ^\w+__i?(contains|startswith|endswith|regex)$
+          - patterns:
+                - pattern: $LOOKUPCLASS($LHS, $VALUE)
+                - metavariable-regex:
+                      metavariable: $LOOKUPCLASS
+                      regex: ^(lookups\.)?I?(Contains|StartsWith|EndsWith|Regex)$
+                - metavariable-pattern:
+                      metavariable: $VALUE
+                      patterns:
+                          - pattern-either:
+                                - pattern: OuterRef(...)
+                                - pattern: models.OuterRef(...)
+                          - pattern-not-inside: JSONArray(...)
+                          - pattern-not-inside: JSONObject(...)
+                          - pattern-not-inside: '[...]'
+      paths:
+          include:
+              - ee/**/*.py
+              - posthog/**/*.py
+              - products/**/*.py
+      metadata:
+          category: performance
+          confidence: HIGH
