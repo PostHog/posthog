@@ -13094,16 +13094,16 @@ Note: Parsed the live OpenAPI specification and checked all GET operations, incl
 
 ## Veracode — **thin**
 
-Today (4): `applications`, `findings`, `sandboxes`, `sca_findings`
+Today (8): `applications`, `categories`, `cwes`, `findings`, `sandboxes`, `sca_findings`, `scans`, `summary_report`
 
 Diffed against: <https://api.swaggerhub.com/apis/Veracode?limit=100>
 
-- [ ] `GET /appsec/v2/applications/{app_guid}/summary_report` — Veracode's headline per-application result: policy compliance status, security score and flaw counts by severity (high)
-- [ ] `GET /appsec/v1/cwes` — lookup table resolving the CWE id carried on every findings row we already sync (high)
-- [ ] `GET /appsec/v1/categories` — lookup table resolving the finding category id on findings we already sync (high)
+- [x] `GET /appsec/v2/applications/{app_guid}/summary_report` — Veracode's headline per-application result: policy compliance status, security score and flaw counts by severity (high)
+- [x] `GET /appsec/v1/cwes` — lookup table resolving the CWE id carried on every findings row we already sync (high)
+- [x] `GET /appsec/v1/categories` — lookup table resolving the finding category id on findings we already sync (high)
 - [ ] `GET /appsec/v1/policies` — lookup resolving the policy GUID/name attached to each application we sync (high)
 - [ ] `GET /v2/teams (Identity API)` — lookup resolving the team GUIDs on applications, enabling per-team risk rollups (high)
-- [ ] `POST /appsec/v1/analytics/report + GET /appsec/v1/analytics/report/{id} (report_type SCANS)` — org-wide scan history — there is no scan/build table at all today, only findings (high)
+- [x] `POST /appsec/v1/analytics/report + GET /appsec/v1/analytics/report/{id} (report_type SCANS)` — org-wide scan history — there is no scan/build table at all today, only findings (high) — built on the v2 `POST /analytics/scans/report` endpoint, because Veracode deprecated `report_type` on the v1 endpoint
 - [ ] `POST /appsec/v1/analytics/report (report_type FINDINGS)` — bulk org-wide findings export without per-application fan-out, the vendor's designated warehouse path (medium)
 - [ ] `GET /v2/business_units (Identity API)` — lookup resolving business unit on applications for org-level breakdowns (medium)
 - [ ] `GET /v2/users (Identity API)` — lookup resolving user ids on annotations, mitigations and application owners (medium)
@@ -13630,12 +13630,12 @@ Today (12): `calls`, `contacts`, `deals`, `leads`, `notes`, `orders`, `pipelines
 
 Diffed against: <https://developer.zendesk.com/api-reference/sales-crm/resources/introduction/>
 
-- [ ] `associated_contacts (GET /v2/deals/{deal_id}/associated_contacts)` — the deal-to-contact junction table; without it you cannot attribute deals to the contacts involved (high)
-- [ ] `line_items (GET /v2/orders/{order_id}/line_items)` — per-order product lines with quantity, price and discount - the revenue detail behind orders we already sync (high)
-- [ ] `loss_reasons` — lookup table resolving the loss_reason_id already present on deals; required for any win/loss analysis (high)
-- [ ] `deal_sources` — lookup table resolving deals.source_id; unlocks pipeline-by-source attribution (high)
-- [ ] `lead_sources` — lookup table resolving leads.source_id; unlocks lead-source attribution (high)
-- [ ] `lead_conversions` — the lead-to-contact/deal transition record - the only way to build a conversion funnel across the objects we already sync (high)
+- [x] `associated_contacts (GET /v2/deals/{deal_id}/associated_contacts)` — the deal-to-contact junction table; without it you cannot attribute deals to the contacts involved (high)
+- [x] `line_items (GET /v2/orders/{order_id}/line_items)` — per-order product lines with quantity, price and discount - the revenue detail behind orders we already sync (high)
+- [x] `loss_reasons` — lookup table resolving the loss_reason_id already present on deals; required for any win/loss analysis (high)
+- [x] `deal_sources` — lookup table resolving deals.source_id; unlocks pipeline-by-source attribution (high)
+- [x] `lead_sources` — lookup table resolving leads.source_id; unlocks lead-source attribution (high)
+- [x] `lead_conversions` — the lead-to-contact/deal transition record - the only way to build a conversion funnel across the objects we already sync (high)
 - [ ] `custom_fields` — field-definition lookup that names and types the custom_fields blobs on contacts, deals and leads (medium)
 - [ ] `deal_unqualified_reasons` — lookup resolving the unqualified_reason_id on deals (medium)
 - [ ] `lead_unqualified_reasons` — lookup resolving the unqualified_reason_id on leads (medium)
@@ -13657,14 +13657,14 @@ Note: Coverage of the /api/sunshine surface is essentially complete: object_type
 
 ## Zenduty — gaps
 
-Today (12): `account_members`, `escalation_policies`, `incidents`, `maintenance_windows`, `postmortems`, `roles`, `schedules`, `services`, `slas`, `tags`, `team_members`, `teams`
+Today (16): `account_members`, `escalation_policies`, `incident_alerts`, `incident_responders`, `incidents`, `maintenance_windows`, `oncall`, `postmortems`, `priorities`, `roles`, `schedules`, `services`, `slas`, `tags`, `team_members`, `teams`
 
 Diffed against: <https://apidocs.zenduty.com/openapi.json>
 
-- [ ] `incidents/{incident_number}/alerts/` — the raw alerts that rolled up into each incident - core noise/alert-volume analysis (high)
-- [ ] `account/teams/{team_id}/oncall/ (v2)` — resolved on-call shifts per team; the headline output of schedules and escalation policies we already sync (high)
-- [ ] `incidents/{incident_number}/responders/ (v2)` — who was engaged on each incident - the membership table for responder load and MTTA analysis (high)
-- [ ] `account/teams/{team_id}/priority/` — lookup table resolving the priority ID carried on incidents (high)
+- [x] `incidents/{incident_number}/alerts/` — the raw alerts that rolled up into each incident - core noise/alert-volume analysis (high) → `incident_alerts` (full refresh, fan-out over `incidents`, off by default)
+- [x] `account/teams/{team_id}/oncall/ (v2)` — resolved on-call shifts per team; the headline output of schedules and escalation policies we already sync (high) → `oncall` (full refresh, fan-out over `teams`; current on-call per escalation policy rule, not shift history)
+- [x] `incidents/{incident_number}/responders/ (v2)` — who was engaged on each incident - the membership table for responder load and MTTA analysis (high) → `incident_responders` (full refresh, fan-out over `incidents`, off by default)
+- [x] `account/teams/{team_id}/priority/` — lookup table resolving the priority ID carried on incidents (high) → `priorities` (full refresh, fan-out over `teams`)
 - [ ] `incidents/{incident_number}/note/` — incident timeline notes, the qualitative record alongside postmortems we already sync (medium)
 - [ ] `incidents/{incident_number}/tags/` — incident-to-tag junction; we sync team tags but not which incidents carry them (medium)
 - [ ] `account/teams/{team_id}/schedules/{schedule_id}/overrides/` — schedule overrides explain why actual on-call differed from the rotation (medium)
