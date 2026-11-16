@@ -5066,7 +5066,8 @@ describe('Workflows E2E: batch resolver dispatch via cdp-api', () => {
             await resolverWorker.start()
             await waitForExpect(() => expect(statusPuts).toEqual([{ status: 'completed' }]), 20000)
 
-            const eventRun = createHogFlowInvocation(createHogExecutionGlobals({}), flow, {} as any)
+            const globals = createHogExecutionGlobals({})
+            const eventRun = createHogFlowInvocation(globals, flow, convertToHogFunctionFilterGlobal(globals))
             await hogflowQueue.startAsProducer()
             await hogflowQueue.queueInvocations([eventRun])
             const claimed: string[] = []

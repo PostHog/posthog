@@ -8,6 +8,7 @@ import { HogFunctionInvocationGlobalsSchema } from '../schema/cyclotron'
 import { CyclotronJobConflictError } from '../services/cyclotron-v2'
 import { createHogFlowInvocation } from '../services/hogflows/hogflow-executor.service'
 import { HogFlowManagerService } from '../services/hogflows/hogflow-manager.service'
+import { HOGFLOW_QUEUE_PRIORITY, HogFlowQueuePriority } from '../services/hogflows/hogflow-queue-priority'
 import { CyclotronJobQueuePostgresV2 } from '../services/job-queue/job-queue-postgres-v2'
 import { JobQueue } from '../services/job-queue/job-queue.interface'
 import { HogFunctionManagerService } from '../services/managers/hog-function-manager.service'
@@ -147,7 +148,10 @@ export class RerunPaginatorService {
         private jobQueues: RerunJobQueues,
         private monitoringService: HogFunctionMonitoringService,
         // Mirror of the Django serializer cap (HOG_INVOCATION_RERUN_MAX_COUNT env var).
-        private maxCount: number
+        private maxCount: number,
+        // Broadcast children must re-enter the queue at the priority the batch resolver gave them,
+        // or a bulk rerun of a broadcast competes with event-triggered runs again.
+        private broadcastChildPriority: HogFlowQueuePriority = HOGFLOW_QUEUE_PRIORITY.triggered
     ) {}
 
     /**
@@ -913,6 +917,9 @@ export class RerunPaginatorService {
 
             invocation.id = row.invocation_id
             invocation.parentRunId = row.parent_run_id || null
+            if (invocation.parentRunId) {
+                invocation.queuePriority = this.broadcastChildPriority
+            }
             invocation.state = {
                 ...invocation.state!,
                 event: eventForFilter,

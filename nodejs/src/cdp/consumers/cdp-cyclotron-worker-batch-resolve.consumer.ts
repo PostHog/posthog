@@ -20,7 +20,7 @@ import {
     AudienceFetchTimeoutError,
     HogFlowBatchPersonQueryService,
 } from '../services/hogflows/hogflow-batch-person-query.service'
-import { HOGFLOW_QUEUE_PRIORITY } from '../services/hogflows/hogflow-queue-priority'
+import { broadcastChildQueuePriority } from '../services/hogflows/hogflow-queue-priority'
 import { HOG_FLOW_QUOTA_LIMITED_MESSAGE } from '../services/hogflows/hogflow-quota-limiting'
 import { hasSensitiveMessageStep } from '../services/hogflows/hogflow-sensitivity'
 import { RealtimeCohortAudienceService } from '../services/hogflows/realtime-cohort-audience.service'
@@ -542,9 +542,7 @@ export class CdpCyclotronWorkerBatchResolve extends CdpConsumerBase<PluginsServe
         const pageTruncated = eligibleIds.length < page.ids.length
 
         const defaultVariables = mergeDefaultVariables(hogFlow.variables, state.variables)
-        const queuePriority = this.config.CDP_HOGFLOW_BROADCAST_LOW_PRIORITY
-            ? HOGFLOW_QUEUE_PRIORITY.background
-            : HOGFLOW_QUEUE_PRIORITY.triggered
+        const queuePriority = broadcastChildQueuePriority(this.config.CDP_HOGFLOW_BROADCAST_LOW_PRIORITY)
         const builtInvocations: CyclotronJobInvocationHogFlow[] = eligibleIds.map((id) =>
             isAccountAudience
                 ? buildAccountHogFlowInvocation({

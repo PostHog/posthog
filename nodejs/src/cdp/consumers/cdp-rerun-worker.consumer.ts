@@ -11,6 +11,7 @@ import { RERUN_PAGE_ERROR_BACKOFF_MAX_MS, RERUN_QUEUE_NAME, RerunJobState } from
 import { RerunJobQueues, RerunPaginatorService } from '../rerun/rerun-paginator.service'
 import { CyclotronV2Worker } from '../services/cyclotron-v2'
 import { CyclotronV2DequeuedJob } from '../services/cyclotron-v2/types'
+import { broadcastChildQueuePriority } from '../services/hogflows/hogflow-queue-priority'
 import { CdpConsumerBase, CdpConsumerBaseDeps } from './cdp-base.consumer'
 
 // Heartbeat interval — the cyclotron-v2 lock timeout is 30s by default, send
@@ -102,7 +103,8 @@ export class CdpRerunWorkerConsumer extends CdpConsumerBase<PluginsServerConfig>
             this.invocationResultsService.invocationResultsRowsService,
             this.jobQueues,
             this.invocationResultsService.monitoringService,
-            this.config.HOG_INVOCATION_RERUN_MAX_COUNT
+            this.config.HOG_INVOCATION_RERUN_MAX_COUNT,
+            broadcastChildQueuePriority(this.config.CDP_HOGFLOW_BROADCAST_LOW_PRIORITY)
         )
 
         this.worker = new CyclotronV2Worker({
