@@ -225,7 +225,7 @@ It holds the report facts the scoring sweep recorded when it scored each report 
 
 `inbox_report_feature_backfill` (`dataset/feature_backfill.py`) is an opt-in, report-grain leaf with its own `FEATURE_BACKFILL_SCHEMA_VERSION`.
 It gives the ML-feature groups that older partitions never recorded a value for each report born on the partition day, and says where each value came from.
-It never writes to `inbox_report_state` or `inbox_report_scored_facts`, and nothing reads it yet.
+It never writes to `inbox_report_state` or `inbox_report_scored_facts`. Only the backfill experiments read it (see [Reading a batch](#reading-a-batch)).
 
 ```text
 s3://<bucket>/<prefix>/inbox_report_feature_backfill/v1/batch=<batch_id>/dt=YYYY-MM-DD/part-00000.parquet
@@ -256,7 +256,20 @@ Each group carries `<group>_provenance`, `<group>_observed_at` (the moment the v
 
 To run it, launch `inbox_ranking_feature_backfill_job` from the Dagster UI: no schedule runs it. Select the birth days, set the config, and run a dry run first. A failed day can be re-run alone, and the days already written are skipped, so a partial backfill resumes. To remove a batch, delete its `batch=<batch_id>/` prefix: no other object depends on it.
 
-A training reader selects one `batch_id` and joins it to the birth-grain examples on `report_id`. It takes a group's value only for the provenances it accepts, and it keeps the example's own state value where the snapshot recorded one. Nothing has to rebuild first: the examples and the existing partitions do not change.
+#### Reading a batch
+
+An experiment family reads a batch when its `feature_backfill` selection names one (`training/families.py`), and `nn/feature_backfill.py` fills its examples in the experiments job. Nothing has to rebuild first: the examples object and the existing partitions do not change.
+
+- **Precedence.** A row keeps every late-group value its own birth-day snapshot recorded. Only a row whose snapshot recorded none takes the batch's value, from the batch row of the same `report_id`, birth day and team, and only when that value's provenance is one the selection accepts. Every other row keeps an unknown value, which the set reads as not recorded, never as zero.
+- **Families.** `nn_with_prio_ml_features_backfill_v1` accepts every provenance but `missing`. `nn_with_prio_ml_features_backfill_as_of_v1` accepts `scoring_time` and `historical` only, on the same rows, so a gain that needs the approximate values shows as the gap between the two. Both read batch `ML_FEATURES_BACKFILL_BATCH_ID` and compare against `nn_with_prio_v2` on the same seeds, train rows and holdout rows as every experiment.
+- **Isolation.** The batch id, the accepted provenances and the backfill schema version are in the family's recipe, so the other families keep their hashes and a new batch takes a new `model_name`. Only a report-grain experiment can set a selection. The provenance and the batch id never reach the network's inputs.
+- **Consent.** The family drops the example rows of teams that no longer allow AI training before it fits either arm, because a batch written before an opt-out keeps their rows.
+- **No batch, no fit.** While the batch holds none of the examples' birth days, the family skips the partition and keeps what it holds, because its fit would be the plain ML-features fit under another name. A batch that covers some days trains, and the readiness block shows the gap.
+- **The zeroing gate stays.** A late group that too few fit rows carry is still zeroed. The readiness block says which groups training read and why the others are off, so a fit is never called full-feature from the schema alone.
+
+Every family with late feature groups writes a `readiness` block to `metadata.json`: per head and split, the rows, positives, birth-day range and the source of each late group's values (`snapshot`, an accepted provenance, `<provenance>_not_accepted`, `missing` or `not_recorded`), and for the network's fit rows the same counts, each group's carried share and the columns that vary, with `enabled_feature_groups` and `zeroed_feature_groups`. Each group's source counts add up to its rows. The `inbox_ranking_experiment_compared` events carry `enabled_feature_groups`, `feature_backfill_batch_id` and `<group>_fit_carried_share`.
+
+The operator order: write the batch with a dry run first, check its coverage per birth day, write it for the training lookback, then read the readiness block and the paired deltas of both backfill families on spaced partitions before any decision about a serving family.
 
 ## The training dag
 
