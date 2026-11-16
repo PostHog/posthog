@@ -28,6 +28,7 @@ Nothing in this domain runs `CRITICAL`, because what gets scraped comes from use
 
 Firecrawl documents no rate-limit status headers, so the domain declares no gauges.
 A 429 carries `Retry-After`, and the caller owns the retry.
+`FirecrawlScrapeFailed` and `FirecrawlSearchFailed` carry Firecrawl's HTTP status in `status_code` when it answered with an error, so a caller can tell a retryable 429 or 5xx from a failed page.
 The counter is `firecrawl_api_requests_total`, labeled `account, method, endpoint, status_code, source`.
 
 ## Auth

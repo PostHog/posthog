@@ -17,8 +17,9 @@ from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
 from posthog.api.oauth.provisioning_review import settle_review
-from posthog.egress.firecrawl import FirecrawlNotConfigured
+from posthog.egress.firecrawl import FirecrawlNotConfigured, FirecrawlScrape, FirecrawlScrapeFailed, FirecrawlSearch
 from posthog.llm.system_one import NoulAnswer, RefusalAnswer, SystemOneResult
+from posthog.models import Organization
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.models.oauth_provisioning import ProvisioningConfig
 from posthog.models.oauth_provisioning_review import (
@@ -33,6 +34,7 @@ from posthog.temporal.cimd_provisioning_review.judgment import (
     PartnerRegistration,
     outcome_for,
 )
+from posthog.temporal.cimd_provisioning_review.research import research_domain
 from posthog.temporal.cimd_provisioning_review.types import (
     CIMDProvisioningReviewInputs,
     ReviewOutcome,
@@ -95,7 +97,66 @@ class TestHomepageUrl(SimpleTestCase):
         assert _registration(client_uri).homepage_url() == expected
 
 
-def _make_app(client_id: str = "https://app.example.com/client.json", **provisioning: bool) -> OAuthApplication:
+def _search(query: str, **_: object) -> FirecrawlSearch:
+    return FirecrawlSearch(query=query, results=())
+
+
+class TestResearchDomain(SimpleTestCase):
+    @parameterized.expand(
+        [
+            (
+                "own_page",
+                FirecrawlScrape(url="u", final_url="https://www.example.com/", title="Example", status_code=200),
+                True,
+                "Example",
+                None,
+            ),
+            (
+                "page_not_found",
+                FirecrawlScrape(url="u", final_url="https://example.com/", status_code=404),
+                False,
+                None,
+                None,
+            ),
+            # Another company's site says nothing about this client, so its content never reaches Jev.
+            (
+                "redirect_elsewhere",
+                FirecrawlScrape(url="u", final_url="https://stripe.com/", title="Stripe", status_code=200),
+                True,
+                None,
+                "stripe.com",
+            ),
+            ("site_failed_to_load", FirecrawlScrapeFailed("unsuccessful"), False, None, None),
+        ]
+    )
+    def test_homepage_evidence(self, _name, scraped, reachable, title, redirected_to):
+        with (
+            patch("posthog.temporal.cimd_provisioning_review.research.scrape", side_effect=[scraped]),
+            patch("posthog.temporal.cimd_provisioning_review.research.search", side_effect=_search),
+        ):
+            homepage = research_domain("example.com", homepage_url="https://example.com/").homepage
+
+        assert (homepage.reachable, homepage.title, homepage.redirected_to_domain) == (reachable, title, redirected_to)
+
+    @parameterized.expand([("rate_limited", 429), ("firecrawl_down", 503)])
+    def test_a_firecrawl_outage_is_retried_not_reported_as_a_dead_site(self, _name, status_code):
+        with (
+            patch(
+                "posthog.temporal.cimd_provisioning_review.research.scrape",
+                side_effect=FirecrawlScrapeFailed("busy", status_code=status_code),
+            ),
+            patch("posthog.temporal.cimd_provisioning_review.research.search", side_effect=_search),
+            pytest.raises(FirecrawlScrapeFailed),
+        ):
+            research_domain("example.com", homepage_url="https://example.com/")
+
+
+def _make_app(
+    client_id: str = "https://app.example.com/client.json",
+    *,
+    organization: Organization | None = None,
+    **provisioning: bool,
+) -> OAuthApplication:
     return OAuthApplication.objects.create(
         name="Example",
         client_id=client_id,
@@ -106,6 +167,7 @@ def _make_app(client_id: str = "https://app.example.com/client.json", **provisio
         redirect_uris="https://app.example.com/callback",
         algorithm="RS256",
         is_provisioning_partner=True,
+        organization=organization,
         _provisioning_config=ProvisioningConfig(
             can_create_accounts=True, can_provision_resources=True, **provisioning
         ).model_dump(mode="json"),
@@ -176,21 +238,41 @@ class TestReviewStages(APIBaseTest):
     def _patch_jev(self, fake: _FakeSystemOne):
         return patch("posthog.temporal.cimd_provisioning_review.judgment.build_system_one_client", return_value=fake)
 
-    def test_screen_accepts_a_second_client_on_an_accepted_domain_without_asking_jev(self):
-        accepted = _make_app(client_id="https://app.example.com/client.json", active=True)
-        CIMDProvisioningReview.objects.create(
-            application=accepted, domain="example.com", status=ProvisioningReviewStatus.ACCEPTED
+    @parameterized.expand(
+        [
+            ("same_organization", "same", "example.com", False, True),
+            # A shared host serves documents that different tenants control, so the domain alone proves nothing.
+            ("different_organization", "other", "example.com", False, False),
+            ("unattested", None, "example.com", False, False),
+            # Blocking the accepted partner withdraws its vouching for the domain.
+            ("accepted_partner_disabled", "same", "example.com", True, False),
+            # IP hosts have no registrable domain, and one accepted IP client must not vouch for the rest.
+            ("no_registrable_domain", "same", "", False, False),
+        ]
+    )
+    def test_screen_reuses_an_accepted_domain_only_for_the_same_owner(
+        self, _name, second_organization, domain, accepted_disabled, expected_shortcut
+    ):
+        other_organization = Organization.objects.create(name="Other")
+        accepted = _make_app(
+            client_id="https://app.example.com/client.json",
+            organization=self.organization,
+            active=True,
+            disabled=accepted_disabled,
         )
-        second = _make_app(client_id="https://staging.example.com/client.json")
-        CIMDProvisioningReview.objects.create(application=second, domain="example.com")
-        jev = _FakeSystemOne(legitimate=0.0, malicious=1.0)
+        CIMDProvisioningReview.objects.create(
+            application=accepted, domain=domain, status=ProvisioningReviewStatus.ACCEPTED
+        )
+        organization = {"same": self.organization, "other": other_organization, None: None}[second_organization]
+        second = _make_app(client_id="https://staging.example.com/client.json", organization=organization)
+        CIMDProvisioningReview.objects.create(application=second, domain=domain)
+        jev = _FakeSystemOne(legitimate=0.6, malicious=0.3)
 
         with self._patch_jev(jev):
             result = _screen(str(second.pk))
 
-        assert result.outcome == ReviewOutcome.ACCEPT
-        assert result.stage == ProvisioningReviewStage.DOMAIN_ALREADY_ACCEPTED
-        assert jev.states == []
+        assert (result.stage == ProvisioningReviewStage.DOMAIN_ALREADY_ACCEPTED) is expected_shortcut
+        assert (jev.states == []) is expected_shortcut
 
     def test_screen_sends_unsure_registrations_to_research_and_keeps_the_judgment(self):
         app = _make_app()
@@ -204,6 +286,24 @@ class TestReviewStages(APIBaseTest):
         assert jev.states[0]["client"]["domain"] == "example.com"
         review = CIMDProvisioningReview.objects.get(application=app)
         assert review.screen_judgment == {"model": "jev-test", "legitimate": 0.6, "malicious": None}
+
+    def test_research_retry_judges_the_saved_evidence_without_searching_again(self):
+        app = _make_app()
+        saved = {"homepage": {"url": "https://example.com/", "reachable": True}}
+        CIMDProvisioningReview.objects.create(application=app, domain="example.com", research_evidence=saved)
+        jev = _FakeSystemOne(legitimate=0.95, malicious=0.01)
+
+        with (
+            self._patch_jev(jev),
+            patch(
+                "posthog.temporal.cimd_provisioning_review.research.scrape",
+                side_effect=FirecrawlNotConfigured("must not be called"),
+            ),
+        ):
+            result = _research(str(app.pk))
+
+        assert result.outcome == ReviewOutcome.ACCEPT
+        assert jev.states[0]["evidence"] == saved
 
     def test_research_without_firecrawl_hands_the_review_to_staff(self):
         app = _make_app()

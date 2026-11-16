@@ -12,7 +12,7 @@ from posthog.models.oauth_provisioning_review import (
     ProvisioningReviewStage,
     ProvisioningReviewStatus,
 )
-from posthog.sync import database_sync_to_async
+from posthog.sync import database_sync_to_async_pool
 from posthog.temporal.cimd_provisioning_review.judgment import (
     RESEARCH_THRESHOLDS,
     SCREEN_THRESHOLDS,
@@ -84,8 +84,12 @@ def _screen(application_id: str) -> StageResult:
     review = _pending_review(application_id)
     if review is None:
         return _ALREADY_SETTLED
-    if domain_already_accepted(review.domain, excluding_application_id=application_id):
-        reason = f"Another client on {review.domain} was accepted"
+    if domain_already_accepted(
+        review.domain,
+        organization_id=review.application.organization_id,
+        excluding_application_id=application_id,
+    ):
+        reason = f"Another client on {review.domain} from the same organization was accepted"
         append_run_log(application_id, "screen", reason)
         return StageResult(
             outcome=ReviewOutcome.ACCEPT, stage=ProvisioningReviewStage.DOMAIN_ALREADY_ACCEPTED, reason=reason
@@ -106,22 +110,25 @@ def _research(application_id: str) -> StageResult:
         return _ALREADY_SETTLED
 
     registration = _registration(review)
-    try:
-        found = research_domain(review.domain, homepage_url=registration.homepage_url())
-    except FirecrawlNotConfigured as error:
-        raise ApplicationError(str(error), non_retryable=True) from error
-    evidence = found.to_json()
-    review.research_evidence = evidence
-    review.save(update_fields=["research_evidence"])
-    append_run_log(
-        application_id,
-        "research",
-        (
-            f"Homepage {found.homepage.url} {'reachable' if found.homepage.reachable else 'unreachable'}, "
-            f"{len(found.about_the_domain.results)} results about the domain, "
-            f"{len(found.abuse_reports.results)} results for abuse reports"
-        ),
-    )
+    # A retry after a failed judgment reuses the evidence, so it does not pay for the searches again.
+    evidence = review.research_evidence
+    if evidence is None:
+        try:
+            found = research_domain(review.domain, homepage_url=registration.homepage_url())
+        except FirecrawlNotConfigured as error:
+            raise ApplicationError(str(error), non_retryable=True) from error
+        evidence = found.to_json()
+        review.research_evidence = evidence
+        review.save(update_fields=["research_evidence"])
+        append_run_log(
+            application_id,
+            "research",
+            (
+                f"Homepage {found.homepage.url} {'reachable' if found.homepage.reachable else 'unreachable'}, "
+                f"{len(found.about_the_domain.results)} results about the domain, "
+                f"{len(found.abuse_reports.results)} results for abuse reports"
+            ),
+        )
 
     judgment = _judge(registration, evidence=evidence)
     review.research_judgment = judgment.to_json()
@@ -148,18 +155,18 @@ def _settle(inputs: SettleReviewInputs) -> bool:
 
 @activity.defn(name="cimd-provisioning-review-screen")
 async def screen_partner(inputs: CIMDProvisioningReviewInputs) -> StageResult:
-    return await database_sync_to_async(_logged_step)(
+    return await database_sync_to_async_pool(_logged_step)(
         inputs.application_id, "screen", lambda: _screen(inputs.application_id)
     )
 
 
 @activity.defn(name="cimd-provisioning-review-research")
 async def research_partner(inputs: CIMDProvisioningReviewInputs) -> StageResult:
-    return await database_sync_to_async(_logged_step)(
+    return await database_sync_to_async_pool(_logged_step)(
         inputs.application_id, "research", lambda: _research(inputs.application_id)
     )
 
 
 @activity.defn(name="cimd-provisioning-review-settle")
 async def settle_partner_review(inputs: SettleReviewInputs) -> bool:
-    return await database_sync_to_async(_settle)(inputs)
+    return await database_sync_to_async_pool(_settle)(inputs)

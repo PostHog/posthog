@@ -10,6 +10,7 @@ import asyncio
 from collections.abc import Mapping
 from typing import Any
 from urllib.parse import urlencode
+from uuid import UUID
 
 from django.conf import settings
 from django.core.cache import cache
@@ -18,7 +19,9 @@ from django.utils import timezone
 
 import structlog
 import posthoganalytics
+from celery import shared_task
 
+from posthog.cloud_utils import is_cloud
 from posthog.llm.system_one_client import system_one_configured
 from posthog.models.oauth import OAuthApplication, revoke_application_sessions
 from posthog.models.oauth_provisioning_review import (
@@ -31,6 +34,7 @@ from posthog.utils import get_instance_region
 logger = structlog.get_logger(__name__)
 
 REVIEW_DISPATCH_TIMEOUT_SECONDS = 5
+REVIEW_DISPATCH_MAX_RETRIES = 8
 # A partner polls the registration endpoint while it waits, and every poll asks for the review to
 # be running. Inside this window that request costs no Temporal round trip.
 REVIEW_DISPATCH_DEDUP_SECONDS = 60
@@ -41,8 +45,12 @@ MAX_RUN_LOG_ENTRIES = 200
 
 def review_required() -> bool:
     """Self-hosted instances have no System One server, so a review there could never finish.
-    Their partners keep the self-serve behavior of being active as soon as they register."""
-    return system_one_configured()
+    Their partners keep the self-serve behavior of being active as soon as they register.
+
+    Cloud always reviews, so a missing or broken gateway setting sends every partner to staff
+    instead of letting them in unreviewed.
+    """
+    return is_cloud() or system_one_configured()
 
 
 def review_console_url(review_id: object) -> str:
@@ -83,17 +91,26 @@ def review_workflow_id(application_id: str) -> str:
 
 
 def start_review(application_id: str) -> None:
-    """Start the review workflow, or do nothing when a run for this app is already in flight.
+    """Queue the start of the review workflow, at most once per dedup window.
 
-    A failure to reach Temporal is logged and swallowed, because the registration that called this
-    has already committed. The partner then stays pending, and its next registration call starts
-    the review again (see ``ensure_review_running``).
+    The registration request only enqueues, so a slow or unreachable Temporal never holds it.
+    The task retries on its own, and a partner's next registration call queues it again once
+    the window passes (see ``ensure_review_running``).
     """
-    dispatch_key = f"cimd-provisioning-review-dispatch:{application_id}"
-    if not cache.add(dispatch_key, True, timeout=REVIEW_DISPATCH_DEDUP_SECONDS):
-        return
+    if cache.add(f"cimd-provisioning-review-dispatch:{application_id}", True, timeout=REVIEW_DISPATCH_DEDUP_SECONDS):
+        start_review_workflow_task.delay(application_id)
 
-    # Imports deferred to keep the Temporal stack off the request import path.
+
+@shared_task(
+    ignore_result=True,
+    autoretry_for=(Exception,),
+    retry_backoff=True,
+    retry_backoff_max=300,
+    max_retries=REVIEW_DISPATCH_MAX_RETRIES,
+)
+def start_review_workflow_task(application_id: str) -> None:
+    """Start the review workflow, or join the run already in flight for this app."""
+    # Imports deferred to keep the Temporal stack off the web import path.
     from temporalio.common import WorkflowIDConflictPolicy
 
     from posthog.temporal.cimd_provisioning_review.types import CIMDProvisioningReviewInputs
@@ -113,11 +130,7 @@ def start_review(application_id: str) -> None:
             timeout=REVIEW_DISPATCH_TIMEOUT_SECONDS,
         )
 
-    try:
-        asyncio.run(_connect_and_start())
-    except Exception:
-        cache.delete(dispatch_key)
-        logger.warning("cimd_provisioning_review_dispatch_failed", application_id=application_id, exc_info=True)
+    asyncio.run(_connect_and_start())
 
 
 def pending_review(app: OAuthApplication) -> CIMDProvisioningReview | None:
@@ -136,9 +149,26 @@ def ensure_review_running(app: OAuthApplication) -> CIMDProvisioningReview | Non
     return review
 
 
-def domain_already_accepted(domain: str, *, excluding_application_id: str) -> bool:
+def domain_already_accepted(domain: str, *, organization_id: UUID | None, excluding_application_id: str) -> bool:
+    """Whether the same owner already passed a review for another client on this domain.
+
+    A registrable domain alone does not prove one owner: a shared host serves documents that
+    different tenants control under its paths. So the earlier client must be attested to the same
+    PostHog organization, and still be an active partner. An IP host has no registrable domain, so
+    an empty domain never matches.
+    """
+    if not domain or organization_id is None:
+        return False
     return (
-        CIMDProvisioningReview.objects.filter(domain=domain, status=ProvisioningReviewStatus.ACCEPTED)
+        CIMDProvisioningReview.objects.filter(
+            domain=domain,
+            status=ProvisioningReviewStatus.ACCEPTED,
+            application__organization_id=organization_id,
+            application__is_provisioning_partner=True,
+            application___provisioning_config__active=True,
+        )
+        # Blocking a partner after it was accepted withdraws its vouching for the domain too.
+        .exclude(application___provisioning_config__disabled=True)
         .exclude(application_id=excluding_application_id)
         .exists()
     )
@@ -191,9 +221,9 @@ def settle_review(
             app.update_provisioning(active=True)
         elif status == ProvisioningReviewStatus.REJECTED:
             app.update_provisioning(active=False, disabled=True)
-
-    if status == ProvisioningReviewStatus.REJECTED:
-        revoke_application_sessions(app)
+            # In the same transaction as the verdict: a revocation that failed after a committed
+            # rejection would leave live tokens that no retry revisits, since the review is settled.
+            revoke_application_sessions(app)
 
     posthoganalytics.capture(
         distinct_id=app.client_id,
