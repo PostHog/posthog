@@ -3127,7 +3127,7 @@ def _parse_tags_filter(values: list[str]) -> list[str]:
         if value.lstrip().startswith("["):
             try:
                 decoded = json.loads(value)
-            except (json.JSONDecodeError, RecursionError):
+            except (ValueError, RecursionError):
                 decoded = None
             if isinstance(decoded, list):
                 tags.extend(tag for tag in decoded if isinstance(tag, str))

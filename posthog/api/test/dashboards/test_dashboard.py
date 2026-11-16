@@ -100,6 +100,7 @@ class TestDashboardTagFilter(SimpleTestCase):
             ("leading_json_whitespace", ['\t\r\n["tag"]'], ["tag"]),
             ("literal_tag_whitespace", [" tag"], [" tag"]),
             ("deeply_nested_array", ["[" * 100000], ["[" * 100000]),
+            ("oversized_integer", ["[" + "1" * 5000 + "]"], ["[" + "1" * 5000 + "]"]),
         ]
     )
     def test_parse_tags_filter(self, _name: str, values: list[str], expected: list[str]) -> None:
