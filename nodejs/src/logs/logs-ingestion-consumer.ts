@@ -1532,12 +1532,13 @@ export class LogsIngestionConsumer {
 
                     let team
                     try {
-                        if (isDevEnv() && token === 'phc_local') {
-                            // phc_local is a special token used in dev to refer to team 1
-                            team = await this.deps.teamManager.getTeam(1)
-                        } else {
-                            team = await this.deps.teamManager.getTeamByToken(token)
-                        }
+                        // phc_local is a special token used in dev to refer to team 1. A Postgres blip is
+                        // retried in place, so it cannot drop good data; only an outage past the backoff drops.
+                        team = await this.retryOnDependencyUnavailable(() =>
+                            isDevEnv() && token === 'phc_local'
+                                ? this.deps.teamManager.getTeam(1)
+                                : this.deps.teamManager.getTeamByToken(token)
+                        )
                     } catch (e) {
                         logger.error('team_lookup_error', { error: e })
                         logMessageDroppedCounter.inc({ reason: 'team_lookup_error', team_id: 'unknown' })
