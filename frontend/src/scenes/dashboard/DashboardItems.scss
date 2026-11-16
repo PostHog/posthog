@@ -164,10 +164,19 @@
     z-index: 2;
     max-width: 100%;
     user-select: none;
-    border: 1px solid var(--color-accent);
+    background:
+        linear-gradient(var(--color-accent-highlight-secondary), var(--color-accent-highlight-secondary)),
+        var(--color-bg-surface-primary);
+    border: 2px dashed var(--color-accent);
     border-radius: var(--radius);
-    outline: 1px solid var(--color-accent);
     transition: 100ms ease;
+
+    // A resize preview sits under the tile, so a fill would hide its content.
+    &.placeholder-resizing {
+        background: none;
+        border: 1px solid var(--color-accent);
+        outline: 1px solid var(--color-accent);
+    }
 }
 
 .react-resizable-hide > .react-resizable-handle {

@@ -6,6 +6,7 @@ import { LemonButton, LemonDialog, LemonTag, Tooltip } from '@posthog/lemon-ui'
 import type { ReviewRepositoryOverviewEntryApi } from 'products/review_hog/frontend/generated/api.schemas'
 
 import { FLASH_FOR_OPTIONS, canTakeFromOtherProject, projectName } from './repositoryChoices'
+import { RepositoryDraftsSwitch } from './RepositoryDraftsSwitch'
 import { reviewHogProjectSettingsLogic } from './reviewHogProjectSettingsLogic'
 import { reviewHogRepositoriesLogic } from './reviewHogRepositoriesLogic'
 import { RuleControls } from './RuleControls'
@@ -36,6 +37,8 @@ export function RepositoryProjectCell({
     const takeable = canTakeFromOtherProject(entry, installation)
     const canInclude = canEdit && (entry.owner === 'none' || takeable)
     const canRemove = canEdit && entry.in_project && entry.selected && installation?.scope !== 'all'
+    // An exception row puts the switch on the line of its select, so each row keeps one draft control.
+    const draftsOnStatusLine = entry.in_project && entry.exception === null
 
     const include = (): void => {
         if (!takeable) {
@@ -97,8 +100,9 @@ export function RepositoryProjectCell({
             {(status || canInclude || canRemove) && (
                 <div className="flex min-h-7 flex-wrap items-center gap-2">
                     {status}
-                    {(canInclude || canRemove) && (
-                        <span className="ml-auto flex items-center gap-1">
+                    {(canInclude || canRemove || draftsOnStatusLine) && (
+                        <span className="ml-auto flex items-center gap-2">
+                            {draftsOnStatusLine && <RepositoryDraftsSwitch entry={entry} />}
                             {canInclude ? (
                                 <LemonButton
                                     size="xsmall"
@@ -137,9 +141,12 @@ export function RepositoryProjectCell({
                     onAddPerson={(userId, kind) => addExceptionPerson(entry, userId, kind)}
                     onRemovePerson={(person) => removeExceptionPerson(entry, person)}
                     tag={
-                        <LemonTag type="warning" size="small">
-                            Exception
-                        </LemonTag>
+                        <span className="flex items-center gap-2">
+                            <LemonTag type="warning" size="small">
+                                Exception
+                            </LemonTag>
+                            <RepositoryDraftsSwitch entry={entry} />
+                        </span>
                     }
                     removeException={canEdit ? { projectFlashFor, onRemove: () => clearException(entry) } : undefined}
                     dataAttr="review-hog-repository-flash-for"

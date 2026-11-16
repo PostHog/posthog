@@ -56,12 +56,9 @@ def mobile_push_delivery_allowed(user: User, data: dict[str, Any] | None) -> boo
             "posthog-code-mobile-push", user.distinct_id or f"user_{user.id}", send_feature_flag_events=False
         ):
             return False
-        from products.access_control.backend.facade.user_access_control import (
-            UserAccessControl,  # noqa: PLC0415 — keep access control off the startup path
+        from products.signals.backend.facade.reports import (  # noqa: PLC0415 — keep signals off the startup path
+            user_may_receive_report_push,
         )
-        from products.signals.backend.models import SignalReport  # noqa: PLC0415 — keep signals off the startup path
-        from products.signals.backend.report_access import may_read_reports  # noqa: PLC0415
-        from products.signals.backend.scout_authorship import report_is_hidden_from_inbox  # noqa: PLC0415
 
         category: MobilePushCategory = (
             "reports" if payload.get("notificationKind") == "report_visible" else "report_updates"
@@ -72,23 +69,7 @@ def mobile_push_delivery_allowed(user: User, data: dict[str, Any] | None) -> boo
         report_id = payload.get("report_id")
         if not isinstance(project_id, (int, str)) or not isinstance(report_id, str):
             return False
-        report = (
-            SignalReport.objects.filter(team_id=project_id, id=report_id)
-            .exclude(status__in=[SignalReport.Status.DELETED, SignalReport.Status.SUPPRESSED])
-            .select_related("team")
-            .first()
-        )
-        return bool(
-            report
-            and not report_is_hidden_from_inbox(report.team_id, str(report.id))
-            and User.objects.filter(
-                id=user.id,
-                is_active=True,
-                organization_membership__organization_id=report.team.organization_id,
-            ).exists()
-            and UserAccessControl(user=user, team=report.team).has_project_access
-            and may_read_reports(user=user, team=report.team)
-        )
+        return user_may_receive_report_push(user=user, team_id=project_id, report_id=report_id)
 
     if not mobile_push_preference_enabled(user, "tasks") or not payload.get("taskId"):
         return False

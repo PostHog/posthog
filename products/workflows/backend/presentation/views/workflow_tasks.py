@@ -34,6 +34,7 @@ from products.workflows.backend.facade.api import (
     get_workflow_task_daily_limits,
 )
 from products.workflows.backend.facade.service_jwt import TASKS_CREATE_PURPOSE
+from products.workflows.backend.presentation.views.hog_flow import REPOSITORY_SHAPE
 from products.workflows.backend.presentation.views.workflow_step_auth import WorkflowStepJWTAuthentication
 
 logger = structlog.get_logger(__name__)
@@ -90,7 +91,13 @@ class WorkflowTaskCreateSerializer(serializers.Serializer):
         max_length=255,
         required=False,
         allow_blank=True,
-        help_text="GitHub repository as organization/repo. Omit for a task with no code access.",
+        help_text="Deprecated: use `repositories`. One GitHub repository as organization/repo.",
+    )
+    repositories = serializers.ListField(
+        child=serializers.CharField(max_length=255),
+        required=False,
+        max_length=10,
+        help_text="GitHub repositories the agent can work in, each as organization/repo. Omit for a task with no code access.",
     )
     channel = serializers.CharField(
         max_length=200,
@@ -148,6 +155,17 @@ class WorkflowTaskCreateSerializer(serializers.Serializer):
             "result as `output.<name>`; text fields are cut at 1500 characters."
         ),
     )
+
+    def validate_repository(self, value: str) -> str:
+        if value and not REPOSITORY_SHAPE.fullmatch(value):
+            raise serializers.ValidationError("Repository must be an organization/repo name.")
+        return value
+
+    def validate_repositories(self, value: list[str]) -> list[str]:
+        repositories = [self.validate_repository(repository).lower() for repository in value]
+        if len(set(repositories)) != len(repositories):
+            raise serializers.ValidationError("Repositories must be unique.")
+        return repositories
 
     def validate_output_fields(self, value: dict[str, str] | None) -> dict[str, Any] | None:
         if value is None:
@@ -223,7 +241,7 @@ class WorkflowTaskViewSet(viewsets.GenericViewSet):
                 prompt=data["prompt"].strip(),
                 title=data.get("title"),
                 channel_ref=data.get("channel") or None,
-                repository=data.get("repository") or None,
+                repositories=data.get("repositories") or ([data["repository"]] if data.get("repository") else None),
                 model=data.get("model") or None,
                 reasoning_effort=data.get("reasoning_effort") or None,
                 connector_ids=data.get("connectors"),

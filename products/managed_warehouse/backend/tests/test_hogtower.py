@@ -294,6 +294,16 @@ class TestWarehouseRoutes:
 
         assert (out.status_code, out.json()) == (200, {"name": "acme", "available": True})
 
+    @_routes({("GET", "/database-names/acme"): (200, {"name": "acme", "available": True, "reason": ""})})
+    @pytest.mark.parametrize("org_id, params", [(ORG, {"org_id": ORG}), ("", None)])
+    def test_check_name_asks_for_the_calling_org(
+        self, fake: FakeHogtower, org_id: str, params: dict[str, str] | None
+    ) -> None:
+        # hogtower treats a name the org's own warehouses carried as free only when told the org.
+        hogtower.request("GET", org_id, "database-name/check", params={"name": "acme"})
+
+        assert fake.calls[0]["params"] == params
+
     @_routes(
         {
             ("GET", f"{W}/monitoring/snapshot"): (200, {"sessions": 1}),
@@ -507,6 +517,7 @@ class TestViewsUseHogtower:
         resp = managed_warehouse.check_name(ORG, "acme")
 
         assert (resp.status_code, resp.data) == (200, {"name": "acme", "available": False})
+        assert fake.calls[0]["params"] == {"org_id": ORG}
 
     @_routes(
         {

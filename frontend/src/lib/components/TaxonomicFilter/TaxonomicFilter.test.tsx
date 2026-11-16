@@ -602,7 +602,6 @@ describe('TaxonomicFilter', () => {
 
         // Searching an event this picker hides has to say so. Dropping it from the list and then
         // reporting "no results" tells someone who knows the event exists that it never did.
-        // The rebuild's half of this lives in menu/Combobox.test.tsx.
         describe('an event hidden because its data is moving', () => {
             beforeEach(() => {
                 setFlagEvaluationsMode(FlagEvaluationsModeEnumApi.Number1)
@@ -1157,6 +1156,29 @@ describe('TaxonomicFilter', () => {
             }).not.toThrow()
         })
 
+        it('shows the popover when the highlight moves from an event to an "On this page" match', async () => {
+            renderFilter({
+                groupType: TaxonomicFilterGroupType.MaxAIContext,
+                taxonomicGroupTypes: [TaxonomicFilterGroupType.MaxAIContext, TaxonomicFilterGroupType.Events],
+                maxContextOptions: [
+                    { id: 'insight-1', value: 'insight-1', name: 'event conversion', icon: () => <span /> },
+                ],
+                popoverEnabled: true,
+            })
+            await userEvent.click(screen.getByTestId('taxonomic-tab-suggested_filters'))
+            // Real timers: with withoutDebounceDelay the All list stays empty after the search.
+            await userEvent.type(screen.getByTestId('taxonomic-filter-searchfield'), 'event')
+
+            // The popover logic is shared by every row, so on the first render after the move it
+            // still holds the event's definition while the group is already "On this page".
+            const popoverHeader = (): Element | null => document.querySelector('.definition-popover-header-row-title')
+            await userEvent.hover(await screen.findByTestId('prop-filter-suggested_filters-1'))
+            await waitFor(() => expect(popoverHeader()).toHaveTextContent('Unverified event'))
+            await userEvent.hover(screen.getByTestId('prop-filter-suggested_filters-0'))
+
+            await waitFor(() => expect(popoverHeader()).toHaveTextContent('On this page'))
+        })
+
         it('renders correctly when search matches no items', async () => {
             renderFilter()
 
@@ -1433,7 +1455,7 @@ describe('TaxonomicFilter', () => {
                     filterValue: '/pricing',
                     propertyFilterType: PropertyFilterType.Event,
                     // Tagged so commit telemetry can distinguish the URL-contains shortcut
-                    // from keyword shortcuts (parity with the rebuild's wasUrlContainsShortcut).
+                    // from keyword shortcuts.
                     isContainsShortcut: true,
                 })
             )

@@ -32,6 +32,13 @@ class DeliveryError(Exception):
     """A send the provider refused. The caller decides whether to retry."""
 
 
+class DestinationMisconfigured(DeliveryError):
+    """A refusal that only the destination's owner can fix, such as a channel the bot is not in.
+
+    The platform did its part, so its own reliability metrics count this apart from a failure.
+    """
+
+
 class DeliveryTransport(Protocol):
     provider: str
 

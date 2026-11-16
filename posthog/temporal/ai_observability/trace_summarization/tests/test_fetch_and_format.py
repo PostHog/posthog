@@ -10,6 +10,8 @@ from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
+from posthog.constants import AvailableFeature
+from posthog.models import PropertyDefinition
 from posthog.models.ai_events.test_util import bulk_create_ai_events
 from posthog.temporal.ai_observability.trace_summarization.fetch_and_format import (
     _fetch_and_format_trace,
@@ -18,6 +20,8 @@ from posthog.temporal.ai_observability.trace_summarization.fetch_and_format impo
 )
 from posthog.temporal.ai_observability.trace_summarization.models import FetchAndFormatInput
 from posthog.temporal.ai_observability.trace_summarization.queries import TraceSize
+
+from products.access_control.backend.models.property_access_control import PropertyAccessControl
 
 
 @asynccontextmanager
@@ -141,10 +145,11 @@ class TestFetchAndFormatTrace:
 class TestFetchAndFormatTraceSizePreflight(ClickhouseTestMixin, BaseTest):
     @parameterized.expand(
         [
-            ("heavy_content_outside_window", 5_000, None, True),
-            ("small_trace", 10, None, False),
-            ("root_and_duplicate_rows_not_counted", 10, 2, False),
-            ("over_event_limit", 10, 1, True),
+            ("heavy_content_outside_window", 5_000, None, True, False),
+            ("restricted_heavy_content_outside_window", 5_000, None, True, True),
+            ("small_trace", 10, None, False, False),
+            ("root_and_duplicate_rows_not_counted", 10, 2, False, False),
+            ("over_event_limit", 10, 1, True, False),
         ]
     )
     @patch("posthog.temporal.ai_observability.trace_summarization.fetch_and_format.fetch_trace", return_value=None)
@@ -154,8 +159,18 @@ class TestFetchAndFormatTraceSizePreflight(ClickhouseTestMixin, BaseTest):
         old_input_length: int,
         max_trace_events: int | None,
         expect_skip: bool,
+        restricted_input: bool,
         mock_fetch: MagicMock,
     ) -> None:
+        if restricted_input:
+            self.organization.available_product_features = [
+                {"name": AvailableFeature.PROPERTY_ACCESS_CONTROL, "key": AvailableFeature.PROPERTY_ACCESS_CONTROL}
+            ]
+            self.organization.save()
+            definition = PropertyDefinition.objects.create(
+                team=self.team, name="$ai_input", type=PropertyDefinition.Type.EVENT
+            )
+            PropertyAccessControl.objects.create(team=self.team, property_definition=definition, access_level="none")
         trace_id = str(uuid.uuid4())
         window_end = datetime.now(UTC)
         window_start = window_end - timedelta(hours=1)
@@ -186,6 +201,7 @@ class TestFetchAndFormatTraceSizePreflight(ClickhouseTestMixin, BaseTest):
             window_end=window_end.isoformat(),
             max_raw_trace_size=1_000,
             max_trace_events=max_trace_events,
+            bypass_property_access_control=restricted_input,
         )
 
         if expect_skip:

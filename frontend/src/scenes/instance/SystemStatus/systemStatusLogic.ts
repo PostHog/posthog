@@ -5,8 +5,8 @@ import posthog from 'posthog-js'
 
 import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { preflightLogic } from 'lib/logic/preflightLogic'
 import { isUserLoggedIn } from 'lib/utils/getAppContext'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import { InstanceSetting, SystemStatus, SystemStatusQueriesResult, SystemStatusRow } from '~/types'

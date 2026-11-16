@@ -27,12 +27,11 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import SerializedGroupActorSerializer, SerializedPersonActorSerializer
 from posthog.api.utils import action
 from posthog.clickhouse.query_tagging import Feature, tag_queries
+from posthog.constants import GroupTypeIndex
 from posthog.helpers.dashboard_templates import create_group_type_mapping_detail_dashboard
 from posthog.helpers.impersonation import is_impersonated
-from posthog.models import GroupUsageMetric
 from posthog.models.activity_logging.activity_log import Change, Detail, load_activity, log_activity
 from posthog.models.activity_logging.activity_page import activity_page_response, parse_activity_page_params
-from posthog.models.filters.utils import GroupTypeIndex
 from posthog.models.group import Group
 from posthog.models.group.util import (
     GroupAlreadyExistsError,
@@ -70,7 +69,6 @@ from products.notebooks.backend.facade.content import (
     create_paragraph_with_text,
     create_text_content,
 )
-from products.warehouse_sources.backend.facade.models import DataWarehouseTable
 
 logger = structlog.get_logger(__name__)
 tracer = trace.get_tracer(__name__)
@@ -961,116 +959,3 @@ class GroupsViewSet(TeamAndOrgViewSetMixin, mixins.ListModelMixin, mixins.Create
             convert_notebook_content_to_markdown({"type": "doc", "content": template_nodes})
         )
         notebooks.create_group_notebook(self.team.id, group.id, title=notebook_title, content=notebook_content)
-
-
-_DW_FILTER_REQUIRED_FIELDS = ("table_name", "timestamp_field", "key_field")
-
-
-class GroupUsageMetricSerializer(serializers.ModelSerializer, UserAccessControlSerializerMixin):
-    name = serializers.CharField(
-        max_length=255,
-        help_text="Name of the usage metric. Must be unique per group type within the project.",
-    )
-    format = serializers.ChoiceField(
-        choices=GroupUsageMetric.Format.choices,
-        default=GroupUsageMetric.Format.NUMERIC,
-        help_text="How the metric value is formatted in the UI. One of `numeric` or `currency`.",
-    )
-    interval = serializers.IntegerField(
-        default=7,
-        help_text="Rolling time window in days used to compute the metric. Defaults to 7.",
-    )
-    display = serializers.ChoiceField(
-        choices=GroupUsageMetric.Display.choices,
-        default=GroupUsageMetric.Display.NUMBER,
-        help_text="Visual representation in the UI. One of `number` or `sparkline`.",
-    )
-    filters = serializers.DictField(
-        help_text=(
-            "Filter definition for the metric. Two shapes are accepted, discriminated by an optional "
-            "`source` key.\n\n"
-            '**Events** (default, when `source` is missing or `"events"`): HogFunction filter shape — '
-            "`events: [...]`, optional `actions: [...]`, `properties: [...]`, `filter_test_accounts: bool`.\n\n"
-            '**Data warehouse** (`source: "data_warehouse"`): `table_name` (synced DW table), '
-            "`timestamp_field` (timestamp column or HogQL expression), `key_field` (column whose value "
-            "matches the entity key). Currently DW metrics only render on group profiles — person profiles "
-            "are not yet supported."
-        ),
-    )
-    math = serializers.ChoiceField(
-        choices=GroupUsageMetric.Math.choices,
-        default=GroupUsageMetric.Math.COUNT,
-        help_text=(
-            "Aggregation function. `count` counts matching events; `sum` sums the value of `math_property` "
-            "on matching events."
-        ),
-    )
-    math_property = serializers.CharField(
-        max_length=255,
-        required=False,
-        allow_null=True,
-        allow_blank=True,
-        help_text=(
-            "Required when `math` is `sum`; must be empty when `math` is `count`. For events metrics this "
-            "is an event property name. For data warehouse metrics this is the column name (or HogQL "
-            "expression) to sum on the DW table."
-        ),
-    )
-
-    class Meta:
-        model = GroupUsageMetric
-        fields = ("id", "name", "format", "interval", "display", "filters", "math", "math_property")
-
-    def validate(self, data: dict[str, Any]) -> dict[str, Any]:
-        data = super().validate(data)
-
-        math = data.get("math", self.instance.math if self.instance else GroupUsageMetric.Math.COUNT)
-        math_property = data.get("math_property", self.instance.math_property if self.instance else None)
-        filters = data.get("filters", self.instance.filters if self.instance else None)
-
-        source = (filters or {}).get("source") if isinstance(filters, dict) else None
-
-        if source == GroupUsageMetric.Source.DATA_WAREHOUSE:
-            self._validate_data_warehouse(cast(dict, filters), math, math_property)
-        elif source in (None, GroupUsageMetric.Source.EVENTS):
-            self._validate_events(math, math_property)
-        else:
-            raise serializers.ValidationError({"filters": f"Unknown source: {source!r}"})
-
-        return data
-
-    def _validate_events(self, math: str, math_property: str | None) -> None:
-        if math == GroupUsageMetric.Math.SUM and not math_property:
-            raise serializers.ValidationError({"math_property": "math_property is required when math is 'sum'."})
-        if math == GroupUsageMetric.Math.COUNT and math_property:
-            raise serializers.ValidationError({"math_property": "math_property must be empty when math is 'count'."})
-
-    def _validate_data_warehouse(self, filters: dict, math: str, math_property: str | None) -> None:
-        missing = [field for field in _DW_FILTER_REQUIRED_FIELDS if not filters.get(field)]
-        if missing:
-            raise serializers.ValidationError(
-                {"filters": f"Data warehouse metrics require {', '.join(_DW_FILTER_REQUIRED_FIELDS)}."}
-            )
-
-        if math == GroupUsageMetric.Math.SUM and not math_property:
-            raise serializers.ValidationError(
-                {"math_property": "math_property (column to sum) is required when math is 'sum'."}
-            )
-        if math == GroupUsageMetric.Math.COUNT and math_property:
-            raise serializers.ValidationError({"math_property": "math_property must be empty when math is 'count'."})
-
-        team = self.context["get_team"]()
-        if not DataWarehouseTable.objects.filter(team=team, name=filters["table_name"]).exclude(deleted=True).exists():
-            raise serializers.ValidationError(
-                {"filters": f"Data warehouse table {filters['table_name']!r} does not exist."}
-            )
-
-
-@extend_schema(extensions={"x-product": "customer_analytics"})
-class GroupUsageMetricViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
-    scope_object = "usage_metric"
-    queryset = GroupUsageMetric.objects.all()
-    serializer_class = GroupUsageMetricSerializer
-
-    def perform_create(self, serializer: serializers.BaseSerializer) -> None:
-        serializer.save(team=self.team, group_type_index=self.parents_query_dict["group_type_index"])

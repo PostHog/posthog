@@ -593,6 +593,40 @@ class TestRoutePostHogCodeEventToRelevantRegion(TestCase):
         mock_sync_connect.return_value.start_workflow.assert_called_once()
         assert awaited_request_from("T12345", "C001", message_ts, now=now) is None
 
+    @parameterized.expand(
+        [
+            ("unlinked_member", "stranger@example.com", {}, True),
+            ("known_member", "dev@example.com", {}, True),
+            ("other_workspace_guest", "stranger@example.com", {"user_team": "T_OTHER"}, False),
+        ]
+    )
+    @patch("products.slack_app.backend.api.request_onboarding")
+    @patch("products.slack_app.backend.api._post_slack_user_feedback")
+    @patch("products.slack_app.backend.api.asyncio.run")
+    @patch("products.slack_app.backend.api.sync_connect")
+    @override_settings(DEBUG=False, CLOUD_DEPLOYMENT="US")
+    def test_a_mention_starts_the_onboarding_after_the_mention_is_handled(
+        self, _name, email, extra, starts, sync_connect, _asyncio_run, _post_feedback, request_onboarding
+    ):
+        SlackUserProfileCache.objects.filter(slack_user_id="U123").delete()
+        self._seed_slack_user_cache("U123", email)
+        calls = MagicMock()
+        calls.attach_mock(sync_connect, "mention_workflow")
+        calls.attach_mock(request_onboarding, "onboarding")
+
+        from products.slack_app.backend.api import route_posthog_code_event_to_relevant_region
+
+        request = self.factory.post("/slack/event-callback/", HTTP_HOST="us.posthog.com")
+        route_posthog_code_event_to_relevant_region(request, {**self.event, **extra}, "T12345")
+
+        assert request_onboarding.called is starts
+        if starts:
+            assert request_onboarding.call_args.args[1] == "U123"
+            assert request_onboarding.call_args.kwargs == {"may_start": True, "start_only": True}
+            # A slow onboarding start must not delay the answer, so it runs after the mention's own workflow start.
+            order = [call[0] for call in calls.mock_calls if call[0] in ("mention_workflow", "onboarding")]
+            assert order[-1] == "onboarding"
+
     @patch("products.slack_app.backend.api.posthoganalytics.capture")
     @patch("products.slack_app.backend.api._post_slack_user_feedback")
     @patch("products.slack_app.backend.api.asyncio.run")

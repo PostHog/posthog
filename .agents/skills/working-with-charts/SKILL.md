@@ -52,6 +52,12 @@ Load only the relevant topic:
 
 Render at the intended container sizes and in light and dark themes.
 Check missing values, long labels, and any interactions you changed.
-Extend relevant tests and stories; use the [consumer testing guide](../../../packages/quill/packages/charts/src/docs/TESTING.md#testing-code-that-uses-hog-charts) for chart accessors.
+Extend relevant tests and stories; use the [consumer testing guide](../../../packages/quill/packages/charts/src/docs/TESTING.md#testing-code-that-uses-charts) for chart accessors.
 
 Keep detailed API behavior in the package docs rather than copying it into this skill.
+
+## Report library gaps
+
+If the package has a missing feature, a bug, or an API that is hard to use, add a comment on [issue #123088](https://github.com/PostHog/posthog/issues/123088).
+Name the chart, the props you used, the expected behavior, and the actual behavior.
+Do not patch the library from consumer code without a comment on that issue.

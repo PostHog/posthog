@@ -18,6 +18,7 @@ const TIERS = [
     { topic: 'retry_10m', delayMs: 600_000, metricTopic: 'retry_10m' as const },
     { topic: 'retry_1h', delayMs: 3_600_000, metricTopic: 'retry_1h' as const },
 ]
+const MAX_URL_AGE_MS = 24 * 60 * 60 * 1000
 
 function candidate(overrides: Partial<FetchCandidate> = {}): FetchCandidate {
     return {
@@ -43,7 +44,7 @@ interface SentMessage {
     headers?: Record<string, string>
 }
 
-function build(): {
+function build(maxUrlAgeFromMs = 0): {
     publisher: FrontierPublisher
     batch: RepublishBatch
     sent: SentMessage[]
@@ -59,6 +60,8 @@ function build(): {
         frontierTopic: FRONTIER,
         delayTiers: TIERS,
         maxConcurrentRepublishes: 2,
+        maxUrlAgeMs: MAX_URL_AGE_MS,
+        maxUrlAgeFromMs,
     })
     return { publisher, batch: publisher.createRepublishBatch(), sent }
 }
@@ -125,7 +128,7 @@ describe('FrontierPublisher', () => {
         expect(await batch.republish(candidate(), candidate(), 'retry', waitMs)).toBe('queued')
         await batch.flush()
 
-        expect(republished).toHaveBeenCalledWith('retry', 'delay')
+        expect(republished).toHaveBeenCalledWith('retry', 'delay', 0)
         expect(sent[0].topic).toBe(topic)
         expect(parseCollectedUrlsRecord(sent[0].value, 'example.com')).toMatchObject({
             ok: true,
@@ -133,9 +136,13 @@ describe('FrontierPublisher', () => {
         })
     })
 
-    it('groups delayed jobs by destination topic and registrable domain', async () => {
+    it('groups delayed jobs by destination topic, registrable domain and asset', async () => {
         const { batch, sent } = build()
         const second = candidate({ originalRef: `imageurl:v4:7:2026-10:${'b'.repeat(22)}` })
+        const font = candidate({
+            originalRef: `fonturl:v4:7:2026-10:${'d'.repeat(22)}`,
+            currentUrl: 'https://cdn.example.com/a.woff2',
+        })
         const other = candidate({
             originalRef: `imageurl:v4:7:2026-10:${'c'.repeat(22)}`,
             currentUrl: 'https://img.other.net/c.png',
@@ -145,17 +152,21 @@ describe('FrontierPublisher', () => {
         })
 
         await batch.republish(candidate(), candidate(), 'retry', 30_000)
+        await batch.republish(font, font, 'retry', 30_000)
         await batch.republish(second, second, 'not_ready', 30_000)
         await batch.republish(other, other, 'retry', 30_000)
         await batch.flush()
 
-        expect(sent).toHaveLength(2)
-        const example = sent.find((item) => item.key === 'example.com')!
-        expect(example.topic).toBe('retry_1m')
-        expect(parseCollectedUrlsRecord(example.value, 'example.com')).toMatchObject({
-            ok: true,
-            candidates: [{ originalRef: candidate().originalRef }, { originalRef: second.originalRef }],
-        })
+        expect(sent).toHaveLength(3)
+        const example = sent.filter((item) => item.key === 'example.com')
+        expect(example.map((item) => item.topic)).toEqual(['retry_1m', 'retry_1m'])
+        expect(example.map((item) => parseCollectedUrlsRecord(item.value, 'example.com'))).toMatchObject([
+            {
+                ok: true,
+                candidates: [{ originalRef: candidate().originalRef }, { originalRef: second.originalRef }],
+            },
+            { ok: true, candidates: [{ originalRef: font.originalRef }] },
+        ])
     })
 
     it('keeps configured destination topics separate when they share a metric class', async () => {
@@ -188,22 +199,26 @@ describe('FrontierPublisher', () => {
         expect(sent.map((message) => message.topic).sort()).toEqual(['long', 'short'])
     })
 
-    it('records messages, registrable domains, and delivery time for each destination topic', async () => {
+    it('records URL age, messages, registrable domains, and delivery time for each destination topic', async () => {
         const { batch } = build()
         const observeRepublishBatch = jest.spyOn(ImageFetchRequestMetrics, 'observeRepublishBatch').mockImplementation()
         const observeRepublishFlush = jest.spyOn(ImageFetchRequestMetrics, 'observeRepublishFlush').mockImplementation()
+        const incRepublished = jest.spyOn(ImageFetchRequestMetrics, 'incRepublished').mockImplementation()
         const other = candidate({
             originalRef: `imageurl:v4:7:2026-10:${'b'.repeat(22)}`,
             currentUrl: 'https://img.other.net/b.png',
             host: 'img.other.net',
             origin: 'https://img.other.net',
             registrableDomain: 'other.net',
+            firstSeenAtMs: 1_700_000_000_000 - 7_200_000,
         })
 
         await batch.republish(candidate(), candidate(), 'pass_deadline')
         await batch.republish(other, other, 'retry', 30_000)
         await batch.flush()
 
+        expect(incRepublished).toHaveBeenCalledWith('pass_deadline', 'frontier', 0)
+        expect(incRepublished).toHaveBeenCalledWith('retry', 'delay', 7_200)
         expect(observeRepublishBatch).toHaveBeenCalledWith('frontier', 1, 1, expect.any(Number))
         expect(observeRepublishBatch).toHaveBeenCalledWith('retry_1m', 1, 1, expect.any(Number))
         expect(observeRepublishFlush).toHaveBeenCalledWith(expect.any(Number))
@@ -242,20 +257,39 @@ describe('FrontierPublisher', () => {
         expect(sent.every((item) => item.value.length <= MAX_RECORD_BYTES)).toBe(true)
     })
 
-    it('refuses a delay longer than the largest deployed tier', async () => {
+    it.each([
+        ['a delay longer than the largest deployed tier', candidate(), 'retry', 3_600_001, 'refused_delay'],
+        [
+            'a redirect that has no hop left after republishing',
+            candidate({ remainingHops: 1 }),
+            'redirect',
+            0,
+            'refused_delay',
+        ],
+        [
+            'a URL captured longer ago than the age limit',
+            candidate({ firstSeenAtMs: 1_700_000_000_000 - MAX_URL_AGE_MS }),
+            'pass_deadline',
+            0,
+            'refused_age',
+        ],
+    ] as const)('refuses %s', async (_name, job, reason, waitMs, expected) => {
         const { batch, sent } = build()
 
-        expect(await batch.republish(candidate(), candidate(), 'retry', 3_600_001)).toBe('refused_delay')
+        expect(await batch.republish(job, candidate(), reason, waitMs)).toBe(expected)
         await batch.flush()
         expect(sent).toEqual([])
     })
 
-    it('refuses a redirect that has no hop left after republishing', async () => {
-        const { batch, sent } = build()
+    it('republishes a URL past the age limit that was captured before the limit applies', async () => {
+        const capturedAtMs = 1_700_000_000_000 - MAX_URL_AGE_MS
+        const { batch, sent } = build(capturedAtMs + 1)
 
-        expect(await batch.republish(candidate({ remainingHops: 1 }), candidate(), 'redirect')).toBe('refused_delay')
+        expect(await batch.republish(candidate({ firstSeenAtMs: capturedAtMs }), candidate(), 'pass_deadline')).toBe(
+            'queued'
+        )
         await batch.flush()
-        expect(sent).toEqual([])
+        expect(sent).toHaveLength(1)
     })
 
     it('publishes every target-domain group from redirect fanout to the frontier', async () => {

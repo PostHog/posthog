@@ -12,6 +12,12 @@ from pydantic import ValidationError
 
 from posthog.schema import CachedTeamTaxonomyQueryResponse, SubscriptionAIPromptMaxLength, TeamTaxonomyQuery
 
+from posthog.hogql import ast
+from posthog.hogql.errors import BaseHogQLError
+from posthog.hogql.functions import find_hogql_function
+from posthog.hogql.parser import parse_select
+from posthog.hogql.visitor import TraversingVisitor
+
 from posthog.hogql_queries.ai.team_taxonomy_query_runner import TeamTaxonomyQueryRunner
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models import EventDefinition, EventProperty, PropertyDefinition, Team, User
@@ -87,12 +93,12 @@ DATE_RANGE_PLACEHOLDER = "{{date_range}}"
 COMPARE_DATE_RANGE_PLACEHOLDER = "{{compare_date_range}}"
 WINDOW_START_PLACEHOLDER = "{{window_start}}"
 WINDOW_END_PLACEHOLDER = "{{window_end}}"
-WINDOW_PLACEHOLDERS = (
-    DATE_RANGE_PLACEHOLDER,
-    COMPARE_DATE_RANGE_PLACEHOLDER,
-    WINDOW_START_PLACEHOLDER,
-    WINDOW_END_PLACEHOLDER,
-)
+COMPARE_WINDOW_START_PLACEHOLDER = "{{compare_window_start}}"
+WINDOW_FILTER_PLACEHOLDERS = (DATE_RANGE_PLACEHOLDER, COMPARE_DATE_RANGE_PLACEHOLDER)
+WINDOW_BOUND_PLACEHOLDERS = (WINDOW_START_PLACEHOLDER, WINDOW_END_PLACEHOLDER, COMPARE_WINDOW_START_PLACEHOLDER)
+WINDOW_PLACEHOLDERS = (*WINDOW_FILTER_PLACEHOLDERS, *WINDOW_BOUND_PLACEHOLDERS)
+_SILENT_ON_FAILURE_SUFFIXES = ("OrNull", "OrZero")
+_PLACEHOLDER_TOKEN = re.compile(r"\{\{[^{}]*\}\}|[{<][^{}<>A-Za-z_]*[A-Za-z_][^{}<>]*[}>]")
 # Bumping invalidates every frozen plan (they lazily re-plan on next delivery), so prompt/harness
 # improvements reach existing subscriptions instead of only new ones.
 AI_QUERY_PLAN_VERSION = 8
@@ -227,7 +233,75 @@ class ReportWindow:
             .replace(COMPARE_DATE_RANGE_PLACEHOLDER, self.compare_filter_sql)
             .replace(WINDOW_START_PLACEHOLDER, f"toDateTime('{self.start_literal}')")
             .replace(WINDOW_END_PLACEHOLDER, f"toDateTime('{self.end_literal}')")
+            .replace(COMPARE_WINDOW_START_PLACEHOLDER, f"toDateTime('{self.compare_start_literal}')")
         )
+
+
+class _PlaceholderTokenFinder(TraversingVisitor):
+    def __init__(self, hogql: str) -> None:
+        self.hogql = hogql
+        self.tokens: list[str] = []
+        self.quoted_window_tokens: list[str] = []
+        self.compared_filter_tokens: list[str] = []
+
+    def _text(self, node: ast.Placeholder) -> str | None:
+        if node.start is None or node.end is None:
+            return None
+        return self.hogql[node.start : node.end]
+
+    def visit_placeholder(self, node: ast.Placeholder) -> None:
+        if (text := self._text(node)) is not None:
+            self.tokens.append(text)
+
+    def visit_compare_operation(self, node: ast.CompareOperation) -> None:
+        for side in (node.left, node.right):
+            if isinstance(side, ast.Placeholder) and self._text(side) in WINDOW_FILTER_PLACEHOLDERS:
+                self.compared_filter_tokens.append(self.hogql[side.start : side.end])
+        super().visit_compare_operation(node)
+
+    def visit_constant(self, node: ast.Constant) -> None:
+        if isinstance(node.value, str):
+            self.quoted_window_tokens.extend(token for token in WINDOW_PLACEHOLDERS if token in node.value)
+        super().visit_constant(node)
+
+    def visit_call(self, node: ast.Call) -> None:
+        literal = node.args[0] if node.args else None
+        function = find_hogql_function(node.name)
+        if (
+            function is not None
+            and function.clickhouse_name.endswith(_SILENT_ON_FAILURE_SUFFIXES)
+            and isinstance(literal, ast.Constant)
+            and isinstance(literal.value, str)
+        ):
+            self.tokens.extend(_PLACEHOLDER_TOKEN.findall(literal.value))
+        super().visit_call(node)
+
+
+def _backticked(tokens: Sequence[str]) -> str:
+    return ", ".join(f"`{token}`" for token in dict.fromkeys(tokens))
+
+
+def window_token_problems(hogql: str) -> list[str]:
+    try:
+        query = parse_select(hogql)
+    except BaseHogQLError:
+        return []
+    finder = _PlaceholderTokenFinder(hogql)
+    finder.visit(query)
+    problems = []
+    if unknown := [token for token in finder.tokens if token not in WINDOW_PLACEHOLDERS]:
+        problems.append(f"The query uses {_backticked(unknown)}, which the report doesn't fill in.")
+    if finder.quoted_window_tokens:
+        problems.append(
+            f"The query puts {_backticked(finder.quoted_window_tokens)} inside quotes, where the report "
+            "can't fill it in."
+        )
+    if finder.compared_filter_tokens:
+        problems.append(
+            f"The query compares a value with {_backticked(finder.compared_filter_tokens)}, which is a whole "
+            "time filter, not a timestamp."
+        )
+    return problems
 
 
 def _in_tz(dt: datetime, tz: tzinfo) -> datetime:

@@ -186,9 +186,9 @@ describe('createForkFlagEvaluationsStep', () => {
         })
 
         it.each([
-            // 2026-07-05 is the oldest UTC day a 90-day TTL keeps on 2026-10-02.
-            { timestamp: '2026-07-04T23:59:59.999Z', forked: false, outcome: 'continued_past_retention' },
-            { timestamp: '2026-07-05T00:00:00.000Z', forked: true, outcome: 'dual_written' },
+            // 2026-07-03 is the oldest UTC day a 92-day TTL keeps on 2026-10-02.
+            { timestamp: '2026-07-02T23:59:59.999Z', forked: false, outcome: 'continued_past_retention' },
+            { timestamp: '2026-07-03T00:00:00.000Z', forked: true, outcome: 'dual_written' },
         ])('forks a call dated $timestamp -> $forked', async ({ timestamp, forked, outcome }) => {
             jest.useFakeTimers({ now: new Date('2026-10-02T15:00:00.000Z') })
             const { step, outputs } = createStep(enabledService())
@@ -415,7 +415,7 @@ describe('createForkFlagEvaluationsStep', () => {
                 name: 'the call is past the flag_evaluations retention',
                 mode: FlagEvaluationsMode.FlagEvaluationsOnly,
                 buildService: () => enabledService(),
-                flagCalledOverrides: { timestamp: DateTime.utc().minus({ days: 91 }).toISO() as ISOTimestamp },
+                flagCalledOverrides: { timestamp: DateTime.utc().minus({ days: 93 }).toISO() as ISOTimestamp },
             },
             {
                 name: 'queueing the row throws',

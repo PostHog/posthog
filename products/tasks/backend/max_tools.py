@@ -6,6 +6,7 @@ from asgiref.sync import async_to_sync, sync_to_async
 from pydantic import BaseModel, Field
 
 from posthog.egress.limiter.policies import Priority
+from posthog.integrations import IntegrationManager
 from posthog.storage import object_storage
 
 from ee.hogai.tool import MaxTool
@@ -72,14 +73,12 @@ By default, the task will be created and immediately executed. Set run=false to 
     async def _arun_impl(
         self, title: str, description: str, repository: str, run: bool = True
     ) -> tuple[str, dict[str, Any]]:
-        from posthog.models.integration import Integration
-
         slack_thread_context = (self._config.get("configurable") or {}).get("slack_thread_context")
 
         @sync_to_async
         @transaction.atomic
         def create_task_and_maybe_run():
-            github_integration = Integration.objects.filter(team=self._team, kind="github").first()
+            github_integration = IntegrationManager.github.oauth.find(self._team.id)
 
             task = Task.objects.create(
                 team=self._team,
@@ -89,7 +88,7 @@ By default, the task will be created and immediately executed. Set run=false to 
                 description=description,
                 origin_product=Task.OriginProduct.USER_CREATED,
                 repository=repository,
-                github_integration=github_integration,
+                github_integration_id=github_integration.id if github_integration is not None else None,
             )
 
             task_run = None
@@ -406,7 +405,7 @@ Use this tool when the user wants to:
         def query_tasks():
             qs = (
                 Task.objects.filter(team=self._team, deleted=False, internal=False)
-                .filter(task_visibility_q(self._user.id))
+                .filter(task_visibility_q(self._user.id, self._team.id))
                 .order_by("-created_at")
             )
 
@@ -551,11 +550,11 @@ Use this tool when the user wants to:
     args_schema: type[BaseModel] = ListRepositoriesArgs
 
     async def _arun_impl(self, search: str | None = None) -> tuple[str, dict[str, Any]]:
-        from posthog.models.integration import GitHubIntegration, Integration
+        from posthog.models.integration import GitHubIntegration
 
         @sync_to_async
         def get_repositories():
-            integrations = Integration.objects.filter(team=self._team, kind="github")
+            integrations = IntegrationManager.github.oauth.list(self._team.id)
 
             all_repos: list[dict[str, str]] = []
 

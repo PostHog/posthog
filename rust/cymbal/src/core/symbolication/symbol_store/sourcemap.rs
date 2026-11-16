@@ -9,7 +9,9 @@ use async_trait::async_trait;
 use base64::Engine;
 use bytes::Bytes;
 use futures::StreamExt;
-use posthog_symbol_data::{read_symbol_data_with_byte_count, write_symbol_data, SourceAndMap};
+use posthog_symbol_data::{
+    read_symbol_data_with_byte_count_limited, write_symbol_data, SourceAndMap,
+};
 use reqwest::Url;
 use serde::Deserialize;
 use sourcemap::{DecodedMap, SourceMap};
@@ -31,7 +33,7 @@ use super::{
     caching::Countable,
     chunk_id::{load_symbol_set_data, SymbolSetLoadResult},
     dart_minified_names::parse_dart_minified_names,
-    BlobClient, Fetcher, ParsePermit, Parser,
+    record_size_limit_exceeded, BlobClient, Fetcher, ParsePermit, Parser,
 };
 
 pub struct SourcemapProvider {
@@ -39,6 +41,7 @@ pub struct SourcemapProvider {
     pub chunk_id_rescue: Option<ChunkIdRescue>,
     pub max_response_bytes: usize,
     allow_internal_ips: bool,
+    max_decompressed_bytes: usize,
 }
 
 /// How many redirects we follow. Installing a custom policy to vet each hop replaces reqwest's
@@ -363,6 +366,7 @@ impl SourcemapProvider {
             chunk_id_rescue: None,
             max_response_bytes: config.sourcemap_max_response_bytes,
             allow_internal_ips,
+            max_decompressed_bytes: config.symbol_set_max_decompressed_bytes.get(),
         }
     }
 
@@ -499,14 +503,17 @@ impl Parser for SourcemapProvider {
     type Err = ResolveError;
     async fn parse(&self, data: Bytes, permit: ParsePermit) -> Result<Self::Set, Self::Err> {
         let start = common_metrics::timing_guard(SOURCEMAP_PARSE, &[]);
-        // `read_symbol_data_with_byte_count` zstd-decompresses a potentially large blob, and
-        // `SourceMapCacheWriter::new` is a CPU-bound serializer. Running them on a tokio
+        // `read_symbol_data_with_byte_count_limited` zstd-decompresses a potentially large blob,
+        // and `SourceMapCacheWriter::new` is a CPU-bound serializer. Running them on a tokio
         // worker blocks the runtime; offload to a blocking thread instead.
+        let max_decompressed_bytes = self.max_decompressed_bytes;
         let smc =
             tokio::task::spawn_blocking(move || -> Result<OwnedSourceMapCache, ResolveError> {
                 let _permit = permit;
                 let (sam, decompressed_bytes): (SourceAndMap, usize) =
-                    read_symbol_data_with_byte_count(&data).map_err(JsResolveErr::JSDataError)?;
+                    read_symbol_data_with_byte_count_limited(&data, max_decompressed_bytes)
+                        .inspect_err(|e| record_size_limit_exceeded(e, "sourcemap", "container"))
+                        .map_err(JsResolveErr::JSDataError)?;
                 metrics::histogram!(SYMBOL_SET_DECOMPRESSED_BYTES, "kind" => "sourcemap")
                     .record(decompressed_bytes as f64);
                 OwnedSourceMapCache::from_source_and_map(sam, decompressed_bytes)
@@ -849,6 +856,7 @@ mod test {
     use crate::error::FrameError;
     use common_dns::test_util::capture_oob_logs;
     use httpmock::MockServer;
+    use posthog_symbol_data::read_symbol_data_with_byte_count;
     use sourcemap::SourceMapBuilder;
 
     const MINIFIED: &[u8] = include_bytes!("../../../../tests/static/chunk-PGUQKT6S.js");

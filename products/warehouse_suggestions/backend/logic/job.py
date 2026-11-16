@@ -13,11 +13,11 @@ from posthog.models.team.extensions import get_or_create_team_extension
 from ..facade.enums import WarehouseSuggestionKind, WarehouseSuggestionStatus
 from ..models import WarehouseSuggestion, WarehouseSuggestionTeamConfig
 from .analytics import report_candidates
-from .candidates.base import CandidateContext, CandidateResult
+from .candidates.base import CandidateContext, CandidateResult, MeasurementRequest
 from .candidates.registry import evaluate_candidates
 from .inventory import load_inventory
 from .lifecycle import FLIP_KINDS, LifecycleResult, apply_run
-from .reads import ReadWindow, RollupDays, Subject, TeamReads, read_rollup_days, read_team_reads
+from .reads import ReadWindow, RollupDays, TeamReads, read_rollup_days, read_team_reads
 from .rules import RULES, EligibilityRules, Rules
 
 MAINTAINED_STATUSES = (WarehouseSuggestionStatus.PROPOSED, WarehouseSuggestionStatus.ACCEPTED)
@@ -35,7 +35,7 @@ class TeamRunResult:
     status: TeamRunStatus
     drafts: int = 0
     lifecycle: LifecycleResult | None = None
-    measurement_requests: tuple[Subject, ...] = ()
+    measurement_requests: tuple[MeasurementRequest, ...] = ()
 
 
 def run_team(
@@ -70,7 +70,7 @@ def run_team(
         status=status,
         drafts=len(drafts),
         lifecycle=lifecycle,
-        measurement_requests=tuple(subject for result in results.values() for subject in result.measurement_requests),
+        measurement_requests=tuple(request for result in results.values() for request in result.measurement_requests),
     )
 
 

@@ -3,7 +3,10 @@ import posthog from 'posthog-js'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
+import { LemonDialog, LemonDialogProps } from 'lib/lemon-ui/LemonDialog'
+
 import { useMocks } from '~/mocks/jest'
+import { MockResolverInfo, MockSignature } from '~/mocks/utils'
 import { initKeaTests } from '~/test/init'
 
 import { resourceEditedLogic } from 'products/notifications/frontend/resourceEditedLogic'
@@ -190,6 +193,32 @@ describe('workflowLogic auto-save', () => {
 
             // Without this the next save sees no schedule and creates a second one.
             expect(logic.values.currentSchedule?.id).toBe('schedule-created')
+        })
+
+        it('keeps the other schedules when a manual save writes the edited one', async () => {
+            useMocks({
+                patch: {
+                    '/api/environments/:team_id/hog_flows/:id/schedules/:schedule_id/': (req: any) => [
+                        200,
+                        { id: req.params.schedule_id, rrule: 'FREQ=DAILY', starts_at: STARTS_AT, timezone: 'UTC' },
+                    ],
+                },
+            })
+            const first: HogFlowSchedule = { id: 'schedule-1', rrule: 'FREQ=WEEKLY', starts_at: STARTS_AT }
+            const second: HogFlowSchedule = { id: 'schedule-2', rrule: 'FREQ=MONTHLY', starts_at: STARTS_AT }
+            logic.actions.setSchedules([first, second])
+            logic.actions.selectSchedule(second)
+            logic.actions.setScheduleStartsAt('2026-05-05T09:00:00.000Z')
+
+            await expectLogic(logic, () => {
+                logic.actions.saveWorkflow(logic.values.workflow)
+            }).toDispatchActions(['saveWorkflowSuccess', 'setSchedules'])
+
+            expect(logic.values.schedules.map((s) => [s.id, s.rrule])).toEqual([
+                ['schedule-1', 'FREQ=WEEKLY'],
+                ['schedule-2', 'FREQ=DAILY'],
+            ])
+            expect(logic.values.currentSchedule?.id).toBe('schedule-2')
         })
 
         it('does not re-save when nothing changed during the round-trip', async () => {
@@ -754,6 +783,33 @@ describe('workflowLogic auto-save', () => {
             await new Promise((resolve) => setTimeout(resolve, 300))
         })
 
+        it.each([2, 3])('keeps the latest edit when %i saves queue behind a slow one', async (saves) => {
+            for (let i = 1; i <= saves; i++) {
+                logic.actions.setWorkflowValue('name', `Edit ${i}`)
+                logic.actions.markAutoSave(true)
+                logic.actions.saveWorkflow(logic.values.workflow)
+                if (i === 1) {
+                    await firstPatchSeen
+                }
+            }
+
+            releaseFirstPatch?.()
+            await expectLogic(logic).toDispatchActions(['saveWorkflowSuccess'])
+
+            // The first response carries "Edit 1" only. Resetting the form to it puts that stale
+            // copy back on the canvas, which the live email editor then reloads.
+            expect(logic.values.workflow.name).toBe(`Edit ${saves}`)
+
+            // Once the queue drains, the form matches what was saved, so no further save starts.
+            await new Promise((resolve) => setTimeout(resolve, 300))
+            expect({
+                name: logic.values.workflow.name,
+                rejected,
+                patches: events.filter((event) => event === 'patch').length,
+                workflowChanged: logic.values.workflowChanged,
+            }).toEqual({ name: `Edit ${saves}`, rejected: 0, patches: saves, workflowChanged: false })
+        })
+
         it('keeps the form submitting until the queued manual save lands', async () => {
             logic.actions.setWorkflowValue('name', 'Renamed by me')
             await expectLogic(logic).toDispatchActions(['saveWorkflow'])
@@ -839,6 +895,208 @@ describe('workflowLogic auto-save', () => {
             logic = workflowLogic({ id: WORKFLOW_ID })
             logic.mount()
             await expectLogic(logic).toDispatchActions(['loadWorkflowSuccess'])
+        })
+
+        describe('publish, discard and resume email sending', () => {
+            const PUBLISH_URL = '/api/environments/:team_id/hog_flows/:id/publish/'
+            const preview = {
+                published: false,
+                in_flight_runs: 2,
+                draft_updated_at: staged.draft_updated_at,
+                confirm_token: 'preview-token',
+                impact: null,
+            }
+            let dialogs: LemonDialogProps[]
+            let reloads: number
+            let publishBodies: Record<string, any>[]
+
+            const serverMocks = (post: Record<string, MockSignature>): Parameters<typeof useMocks>[0] => ({
+                get: {
+                    '/api/environments/:team_id/hog_flows/:id/': () => {
+                        reloads += 1
+                        return [200, staged]
+                    },
+                },
+                post,
+            })
+            const recordPublish =
+                (respond: (body: Record<string, any>) => unknown): MockSignature =>
+                async ({ request }: MockResolverInfo) => {
+                    const body = (await request.json()) as Record<string, any>
+                    publishBodies.push(body)
+                    return respond(body)
+                }
+            const clickConfirm = (title: string): void => {
+                const onConfirm = dialogs.find((d) => d.title === title)?.primaryButton?.onClick
+                if (!onConfirm) {
+                    throw new Error(`No open dialog titled "${title}"`)
+                }
+                ;(onConfirm as () => void)()
+            }
+
+            beforeEach(() => {
+                dialogs = []
+                reloads = 0
+                publishBodies = []
+                jest.spyOn(LemonDialog, 'open').mockImplementation((props) => {
+                    dialogs.push(props)
+                })
+            })
+
+            afterEach(() => {
+                jest.restoreAllMocks()
+            })
+
+            it('publishes with the token its impact preview minted, then reloads the workflow', async () => {
+                useMocks(
+                    serverMocks({
+                        [PUBLISH_URL]: recordPublish((body) => [200, { ...preview, published: !!body.confirm }]),
+                    })
+                )
+                const successToast = jest.spyOn(lemonToast, 'success')
+
+                logic.actions.publishDraft()
+                expect(logic.values.draftActionPending).toBe('publish')
+                await expectLogic(logic).toFinishAllListeners()
+                expect(publishBodies).toEqual([{ confirm: false }])
+                expect(logic.values.draftActionPending).toBeNull()
+
+                clickConfirm('Publish staged changes?')
+                await expectLogic(logic).toDispatchActions(['loadWorkflowSuccess']).toFinishAllListeners()
+
+                expect(publishBodies).toEqual([{ confirm: false }, { confirm: true, confirm_token: 'preview-token' }])
+                expect(successToast).toHaveBeenCalledWith('Changes published')
+                expect(reloads).toBe(1)
+                expect(logic.values.draftActionPending).toBeNull()
+            })
+
+            it('shows no publish dialog and frees the buttons when the preview fails', async () => {
+                useMocks(serverMocks({ [PUBLISH_URL]: recordPublish(() => [500, { detail: 'boom' }]) }))
+                const errorToast = jest.spyOn(lemonToast, 'error')
+
+                await expectLogic(logic, () => logic.actions.publishDraft()).toFinishAllListeners()
+
+                expect(dialogs).toEqual([])
+                expect(errorToast).toHaveBeenCalledWith('Could not load the publish preview. Please try again.')
+                expect(publishBodies).toEqual([{ confirm: false }])
+                expect(logic.values.draftActionPending).toBeNull()
+                expect(logic.values.discardDisabledReason).toBeUndefined()
+            })
+
+            it('reloads to show the current draft when the confirmed publish is refused', async () => {
+                // A refused confirm is usually a stale token: the draft moved after the preview.
+                useMocks(serverMocks({ [PUBLISH_URL]: recordPublish(() => [409, { detail: 'stale' }]) }))
+                const errorToast = jest.spyOn(lemonToast, 'error')
+
+                logic.actions.confirmPublishDraft('old-token')
+                await expectLogic(logic).toDispatchActions(['loadWorkflowSuccess']).toFinishAllListeners()
+
+                expect(errorToast).toHaveBeenCalledWith('Publishing failed. Review the staged changes and try again.')
+                expect(reloads).toBe(1)
+                expect(logic.values.draftActionPending).toBeNull()
+            })
+
+            it('sends one publish and starts no other draft action while a publish is in flight', async () => {
+                let release: () => void = () => {}
+                const held = new Promise<void>((resolve) => {
+                    release = resolve
+                })
+                useMocks(
+                    serverMocks({
+                        [PUBLISH_URL]: recordPublish(async () => {
+                            await held
+                            return [200, { ...preview, published: true }]
+                        }),
+                    })
+                )
+
+                logic.actions.confirmPublishDraft('preview-token')
+                logic.actions.confirmPublishDraft('preview-token')
+                expect(logic.values.draftActionPending).toBe('publish')
+                expect(logic.values.discardDisabledReason).toBe('Publishing is in progress')
+                logic.actions.publishDraft()
+                logic.actions.discardDraft()
+                expect(dialogs).toEqual([])
+
+                release()
+                await expectLogic(logic).toDispatchActions(['loadWorkflowSuccess']).toFinishAllListeners()
+
+                expect(publishBodies).toEqual([{ confirm: true, confirm_token: 'preview-token' }])
+            })
+
+            it.each([
+                {
+                    action: 'discardDraft' as const,
+                    title: 'Discard staged changes?',
+                    url: '/api/environments/:team_id/hog_flows/:id/discard_draft/',
+                    ok: true,
+                    toast: ['success', 'Staged changes discarded'] as const,
+                    expectedReloads: 1,
+                    inFlight: { draftActionPending: 'discard' },
+                },
+                {
+                    action: 'discardDraft' as const,
+                    title: 'Discard staged changes?',
+                    url: '/api/environments/:team_id/hog_flows/:id/discard_draft/',
+                    ok: false,
+                    toast: ['error', 'Could not discard the staged changes. Please try again.'] as const,
+                    expectedReloads: 0,
+                    inFlight: { draftActionPending: 'discard' },
+                },
+                {
+                    action: 'resumeEmailSending' as const,
+                    title: 'Resume email sending?',
+                    url: '/api/projects/:team_id/hog_flows/:id/resume_email_sending/',
+                    ok: true,
+                    toast: ['success', 'Email sending resumed'] as const,
+                    expectedReloads: 1,
+                    inFlight: { resumeEmailSendingPending: true },
+                },
+                {
+                    // Another editor may have resumed it already, so the banner state is re-read.
+                    action: 'resumeEmailSending' as const,
+                    title: 'Resume email sending?',
+                    url: '/api/projects/:team_id/hog_flows/:id/resume_email_sending/',
+                    ok: false,
+                    toast: ['error', 'Could not resume email sending. Please try again.'] as const,
+                    expectedReloads: 1,
+                    inFlight: { resumeEmailSendingPending: true },
+                },
+            ])(
+                '$action posts once, only after the dialog is confirmed (ok: $ok)',
+                async ({ action, title, url, ok, toast, expectedReloads, inFlight }) => {
+                    let posts = 0
+                    useMocks(
+                        serverMocks({
+                            [url]: () => {
+                                posts += 1
+                                return ok ? [200, staged] : [500, { detail: 'boom' }]
+                            },
+                        })
+                    )
+                    const [kind, message] = toast
+                    const toastSpy = jest.spyOn(lemonToast, kind)
+
+                    logic.actions[action]()
+                    await expectLogic(logic).toFinishAllListeners()
+                    expect(posts).toBe(0)
+
+                    // A double-click lands during the dialog's close animation, and a third click
+                    // on the action button while the request runs must not open another dialog.
+                    clickConfirm(title)
+                    clickConfirm(title)
+                    expect(logic.values).toMatchObject(inFlight)
+                    logic.actions[action]()
+                    await expectLogic(logic).toFinishAllListeners()
+
+                    expect(dialogs).toHaveLength(1)
+                    expect(posts).toBe(1)
+                    expect(toastSpy).toHaveBeenCalledWith(message)
+                    expect(reloads).toBe(expectedReloads)
+                    expect(logic.values.draftActionPending).toBeNull()
+                    expect(logic.values.resumeEmailSendingPending).toBe(false)
+                }
+            )
         })
 
         it('keeps the draft actions mounted and blocks publish while edits are unsaved', () => {

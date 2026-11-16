@@ -18,6 +18,7 @@ from posthog.personhog_client.interceptor import (
     RetryInterceptor,
     _MutableClientCallDetails,
     is_transient_rpc_error,
+    semantic_refusal_reason,
 )
 from posthog.personhog_client.proto import GetPersonRequest, GetPersonResponse
 
@@ -372,3 +373,34 @@ class TestIsTransientRpcError:
     )
     def test_classifies_transport_failures(self, _name: str, exc: BaseException, codes, expected: bool):
         assert is_transient_rpc_error(exc, codes=codes) is expected
+
+
+_REFUSAL_TRAILER = (("x-semantic-refusal", "op_id_reused"),)
+
+
+class TestSemanticRefusalReason:
+    @parameterized.expand(
+        [
+            (
+                "refusal",
+                _make_rpc_error(grpc.StatusCode.FAILED_PRECONDITION, trailing_metadata=_REFUSAL_TRAILER),
+                "op_id_reused",
+            ),
+            ("bare_failed_precondition", _make_rpc_error(grpc.StatusCode.FAILED_PRECONDITION), None),
+            (
+                "trailer_on_another_code",
+                _make_rpc_error(grpc.StatusCode.UNAVAILABLE, trailing_metadata=_REFUSAL_TRAILER),
+                None,
+            ),
+            (
+                "wrapped_refusal",
+                _wrapped_in_database_error(
+                    _make_rpc_error(grpc.StatusCode.FAILED_PRECONDITION, trailing_metadata=_REFUSAL_TRAILER)
+                ),
+                "op_id_reused",
+            ),
+            ("not_an_rpc_error", ValueError("boom"), None),
+        ]
+    )
+    def test_reads_the_refusal_slug(self, _name: str, exc: BaseException, expected: str | None):
+        assert semantic_refusal_reason(exc) == expected

@@ -34,3 +34,7 @@ Run `posthog:query-trends` on a key engagement event filtered to that segment, t
 With a sticky and a non-sticky cohort, run `posthog:query-trends` on candidate core
 events scoped to each (filter via `properties` cohort filter). Events where the two
 diverge are the ones driving stickiness.
+
+## Next
+
+Return to SKILL.md for Step 4 (cross-check) and Step 5 (write findings), in the format you chose in Step 1.

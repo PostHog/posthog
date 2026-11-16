@@ -11,8 +11,8 @@ from rest_framework.exceptions import PermissionDenied
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 
-from products.approvals.backend.mixins import ApprovalHandlingMixin
 from products.approvals.backend.models import ChangeRequest, ChangeRequestState
+from products.approvals.backend.presentation.mixins import ApprovalHandlingMixin
 from products.approvals.backend.scheduled_changes import gate_scheduled_change
 from products.approvals.backend.serializers import ChangeRequestSummarySerializer
 from products.feature_flags.backend.api.feature_flag import CanEditFeatureFlag

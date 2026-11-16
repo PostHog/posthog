@@ -16,16 +16,19 @@ much it costs, how fresh the data is, and what shape it has after import.
 
 ## The five sync types
 
-| Sync type      | What it does                                             | Requires                                       | Good for                                             |
-| -------------- | -------------------------------------------------------- | ---------------------------------------------- | ---------------------------------------------------- |
-| `full_refresh` | Drops everything, re-imports the whole table each sync   | Nothing                                        | Small tables, dimension tables, when in doubt        |
-| `incremental`  | Imports only rows where `incremental_field > last_value` | `incremental_field` + `incremental_field_type` | Large tables with an `updated_at` / `modified_at`    |
-| `append`       | Like incremental but keeps prior versions of rows        | `incremental_field` + `incremental_field_type` | Immutable or append-only tables (events, logs)       |
-| `cdc`          | Streams changes via Postgres logical replication         | Postgres, primary keys, wal_level=logical      | Near-real-time, large Postgres tables                |
-| `webhook`      | Real-time push ingestion via source-side webhook         | Source must implement `WebhookSource`          | Near-real-time from sources that support it (Stripe) |
+| Sync type      | What it does                                           | Requires                                       | Good for                                             |
+| -------------- | ------------------------------------------------------ | ---------------------------------------------- | ---------------------------------------------------- |
+| `full_refresh` | Drops everything, re-imports the whole table each sync | Nothing                                        | Small tables, dimension tables, when in doubt        |
+| `incremental`  | Imports changed rows, files, or Delta versions         | `incremental_field` + `incremental_field_type` | Large tables with changes since the last sync        |
+| `append`       | Like incremental but keeps prior versions of rows      | `incremental_field` + `incremental_field_type` | Immutable or append-only tables (events, logs)       |
+| `cdc`          | Streams changes via Postgres logical replication       | Postgres, primary keys, wal_level=logical      | Near-real-time, large Postgres tables                |
+| `webhook`      | Real-time push ingestion via source-side webhook       | Source must implement `WebhookSource`          | Near-real-time from sources that support it (Stripe) |
 
 Not every source supports every type — the `db-schema` response surfaces which are available per-table via
 `incremental_available`, `append_available`, `cdc_available`, `supports_webhooks`.
+
+For database tables, incremental sync imports rows where `incremental_field > last_value`. For object storage files,
+it tracks changed files with `_file_modified_at`. For Delta tables, it tracks changed versions with `_delta_version`.
 
 ## How to choose
 
@@ -61,8 +64,9 @@ not sufficient. Tables on the same source that don't support webhooks need a nor
 
 ## Picking an `incremental_field`
 
-Must be present in the `incremental_fields` list returned by `db-schema`. Not every column qualifies — the source
-only surfaces timestamp/integer/ObjectID columns that it can filter cheaply.
+Must be present in the `incremental_fields` list returned by `db-schema`. Database sources offer columns they can
+filter, such as timestamps, integers, or ObjectIDs. Object storage sources offer `_file_modified_at` for files or
+`_delta_version` for Delta tables.
 
 Priority order:
 

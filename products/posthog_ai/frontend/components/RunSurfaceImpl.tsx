@@ -3,14 +3,13 @@ import { createContext, type ReactNode, useCallback, useContext, useEffect, useM
 
 import { LemonBanner, LemonButton, LemonDivider } from '@posthog/lemon-ui'
 
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { cn } from 'lib/utils/css-classes'
 
 import { useThreadSkin } from '../hooks/useThreadSkin'
 import { isLogicRetained, RETAINED_RUN_STREAMS, retainMountedLogic } from '../logics/retainedLogics'
 import { findLiveRunStreamKey, isTerminalRunStatus, runStreamLogic } from '../logics/runStreamLogic'
 import { taskLogic } from '../logics/taskLogic'
-import { isPiTaskRuntime, OriginProduct } from '../types/taskTypes'
+import { OriginProduct } from '../types/taskTypes'
 import { type TurnTrailer } from '../utils/turnTrailers'
 import { ContextUsageChip } from './ContextUsageChip'
 import { FeedbackPromptTrailer } from './FeedbackPromptTrailer'
@@ -128,7 +127,6 @@ function RunSurfaceRoot({
     // The runtime and scout flag live on the task (not the run), so the surface owns loading it once and
     // exposing it to the slots. The runner already has the task loaded; an embed fetches it here.
     const { task, taskLoading, taskError, taskNotFound } = useValues(taskLogic({ taskId }))
-    const piAcpEnabled = useFeatureFlag('PI_ACP')
     const { loadTask } = useActions(taskLogic({ taskId }))
     useEffect(() => {
         // A pending surface (optimistic create) has no task yet, so don't fetch an empty id.
@@ -151,10 +149,6 @@ function RunSurfaceRoot({
         if (!hasThreadItems && !hasOptimisticClientStream) {
             return <RunLogSkeleton listClassName="py-4" rowClassName="px-4" />
         }
-    }
-
-    if (task && isPiTaskRuntime(task.runtime) && !piAcpEnabled) {
-        return <LemonBanner type="info">Pi session logs aren't available in PostHog yet.</LemonBanner>
     }
 
     const isScout = task?.origin_product === OriginProduct.SIGNALS_SCOUT

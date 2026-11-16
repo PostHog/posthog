@@ -16,8 +16,11 @@ from bs4 import BeautifulSoup, NavigableString, PageElement, Tag
 
 from posthog.dataclasses import frozen
 from posthog.egress.google_workspace import google_workspace_request
-from posthog.models.integration import ERROR_TOKEN_REFRESH_FAILED, Integration, OauthIntegration
+from posthog.integrations import IntegrationManager, IntegrationNotFound, IntegrationRecord
+from posthog.models.integration import ERROR_TOKEN_REFRESH_FAILED, OauthIntegration
 from posthog.models.organization import OrganizationMembership
+from posthog.models.team import Team
+from posthog.models.user import User
 
 from products.conversations.backend.models import EmailChannel, EmailChannelKind, EmailThreadMessageDirection
 from products.conversations.backend.services.email_thread_ingestion import (
@@ -63,29 +66,24 @@ class _EmailBodies:
     html: str
 
 
-def integration_has_gmail_scope(integration: Integration) -> bool:
+def integration_has_gmail_scope(integration: IntegrationRecord) -> bool:
     scopes = integration.config.get("scope") or ""
     return GMAIL_READONLY_SCOPE in scopes.split()
 
 
 def can_sync_gmail_integration(integration_id: int, team_id: int) -> bool:
-    integration = (
-        Integration.objects.select_related("created_by")
-        .filter(id=integration_id, team_id=team_id, kind="google-calendar")
-        .first()
-    )
-    if integration is None or not integration_has_gmail_scope(integration) or not _has_active_owner(integration):
+    try:
+        integration = IntegrationManager.google_calendar.oauth.get(team_id, integration_id)
+    except IntegrationNotFound:
+        return False
+    if not integration_has_gmail_scope(integration) or not _has_active_owner(integration):
         return False
     email = str(integration.config.get("email") or "").strip()
     return "@" in email
 
 
 def sync_gmail_integration(integration_id: int, team_id: int) -> None:
-    integration = Integration.objects.select_related("team", "created_by").get(
-        id=integration_id,
-        team_id=team_id,
-        kind="google-calendar",
-    )
+    integration = IntegrationManager.google_calendar.oauth.get(team_id, integration_id)
     if not integration_has_gmail_scope(integration) or not _has_active_owner(integration):
         return
 
@@ -113,10 +111,14 @@ def sync_gmail_integration(integration_id: int, team_id: int) -> None:
     if next_history_id is None:
         return
 
-    integration.refresh_from_db(fields=["config"])
-    integration.config[GMAIL_HISTORY_ID_CONFIG_KEY] = next_history_id
-    integration.config[GMAIL_LAST_SYNCED_AT_CONFIG_KEY] = timezone.now().isoformat()
-    integration.save(update_fields=["config"])
+    IntegrationManager.google_calendar.oauth.update(
+        integration.team_id,
+        integration.id,
+        config_patch={
+            GMAIL_HISTORY_ID_CONFIG_KEY: next_history_id,
+            GMAIL_LAST_SYNCED_AT_CONFIG_KEY: timezone.now().isoformat(),
+        },
+    )
 
 
 def sync_gmail_backfill_batch(
@@ -127,11 +129,7 @@ def sync_gmail_backfill_batch(
     end_at: datetime,
     page_token: str | None = None,
 ) -> tuple[str | None, int]:
-    integration = Integration.objects.select_related("team", "created_by").get(
-        id=integration_id,
-        team_id=team_id,
-        kind="google-calendar",
-    )
+    integration = IntegrationManager.google_calendar.oauth.get(team_id, integration_id)
     if not integration_has_gmail_scope(integration) or not _has_active_owner(integration):
         raise GmailSyncError(f"Integration {integration.id} cannot sync Gmail")
 
@@ -162,12 +160,18 @@ def sync_gmail_backfill_batch(
     return next_page_token, len(message_ids)
 
 
-def _has_active_owner(integration: Integration) -> bool:
-    owner = integration.created_by
+def _owner(integration: IntegrationRecord) -> User | None:
+    if integration.created_by_id is None:
+        return None
+    return User.objects.filter(id=integration.created_by_id).first()
+
+
+def _has_active_owner(integration: IntegrationRecord) -> bool:
+    owner = _owner(integration)
     return bool(owner and owner.is_active and owner.teams.filter(id=integration.team_id).exists())
 
 
-def _get_fresh_access_token(integration: Integration) -> str:
+def _get_fresh_access_token(integration: IntegrationRecord) -> str:
     oauth = OauthIntegration(integration)
     if integration.errors != ERROR_TOKEN_REFRESH_FAILED and oauth.access_token_expired():
         oauth.refresh_access_token()
@@ -179,15 +183,15 @@ def _get_fresh_access_token(integration: Integration) -> str:
     return token
 
 
-def _email_channel(integration: Integration) -> EmailChannel:
-    owner = integration.created_by
+def _email_channel(integration: IntegrationRecord) -> EmailChannel:
+    owner = _owner(integration)
     email = str(integration.config.get("email") or "").strip().lower()
     if owner is None or not email or "@" not in email:
         raise GmailSyncError(f"Integration {integration.id} has no mailbox owner")
 
     name = " ".join(part for part in (owner.first_name, owner.last_name) if part).strip() or email
     return EmailChannel(
-        team=integration.team,
+        team=Team.objects.get(id=integration.team_id),
         kind=EmailChannelKind.CUSTOMER_COMMUNICATION,
         owner=owner,
         inbound_token="",
@@ -200,11 +204,11 @@ def _email_channel(integration: Integration) -> EmailChannel:
     )
 
 
-def _organization_member_emails(integration: Integration) -> set[str]:
+def _organization_member_emails(integration: IntegrationRecord) -> set[str]:
     return {
         email.lower()
         for email in OrganizationMembership.objects.filter(
-            organization_id=integration.team.organization_id,
+            organization_id=Team.objects.values_list("organization_id", flat=True).get(id=integration.team_id),
             user__is_active=True,
         ).values_list("user__email", flat=True)
     }
@@ -212,7 +216,7 @@ def _organization_member_emails(integration: Integration) -> set[str]:
 
 def _initial_sync(
     *,
-    integration: Integration,
+    integration: IntegrationRecord,
     channel: EmailChannel,
     access_token: str,
     internal_emails: set[str],
@@ -246,7 +250,7 @@ def _initial_sync(
 
 def _sync_history(
     *,
-    integration: Integration,
+    integration: IntegrationRecord,
     channel: EmailChannel,
     access_token: str,
     start_history_id: str,
@@ -254,8 +258,7 @@ def _sync_history(
 ) -> str | None:
     processed_messages = 0
     while processed_messages < HISTORY_MESSAGE_BATCH_SIZE:
-        integration.refresh_from_db(fields=["config"])
-        config = integration.config or {}
+        config = IntegrationManager.google_calendar.oauth.get(integration.team_id, integration.id).config or {}
         progress_start_id = str(config.get(GMAIL_HISTORY_START_ID_CONFIG_KEY) or start_history_id)
         page_token = str(config.get(GMAIL_HISTORY_PAGE_TOKEN_CONFIG_KEY) or "") or None
         target_history_id = str(config.get(GMAIL_HISTORY_TARGET_ID_CONFIG_KEY) or "") or None
@@ -326,36 +329,41 @@ def _sync_history(
 
 
 def _save_history_progress(
-    integration: Integration,
+    integration: IntegrationRecord,
     *,
     start_history_id: str,
     page_token: str | None,
     target_history_id: str | None,
     pending_message_ids: list[str],
 ) -> None:
-    integration.refresh_from_db(fields=["config"])
-    integration.config[GMAIL_HISTORY_START_ID_CONFIG_KEY] = start_history_id
-    integration.config[GMAIL_HISTORY_PAGE_TOKEN_CONFIG_KEY] = page_token
-    integration.config[GMAIL_HISTORY_TARGET_ID_CONFIG_KEY] = target_history_id
-    integration.config[GMAIL_PENDING_MESSAGE_IDS_CONFIG_KEY] = pending_message_ids
-    integration.save(update_fields=["config"])
+    IntegrationManager.google_calendar.oauth.update(
+        integration.team_id,
+        integration.id,
+        config_patch={
+            GMAIL_HISTORY_START_ID_CONFIG_KEY: start_history_id,
+            GMAIL_HISTORY_PAGE_TOKEN_CONFIG_KEY: page_token,
+            GMAIL_HISTORY_TARGET_ID_CONFIG_KEY: target_history_id,
+            GMAIL_PENDING_MESSAGE_IDS_CONFIG_KEY: pending_message_ids,
+        },
+    )
 
 
-def _clear_history_progress(integration: Integration) -> None:
-    integration.refresh_from_db(fields=["config"])
-    for key in (
-        GMAIL_HISTORY_START_ID_CONFIG_KEY,
-        GMAIL_HISTORY_PAGE_TOKEN_CONFIG_KEY,
-        GMAIL_HISTORY_TARGET_ID_CONFIG_KEY,
-        GMAIL_PENDING_MESSAGE_IDS_CONFIG_KEY,
-    ):
-        integration.config.pop(key, None)
-    integration.save(update_fields=["config"])
+def _clear_history_progress(integration: IntegrationRecord) -> None:
+    IntegrationManager.google_calendar.oauth.update(
+        integration.team_id,
+        integration.id,
+        config_remove=(
+            GMAIL_HISTORY_START_ID_CONFIG_KEY,
+            GMAIL_HISTORY_PAGE_TOKEN_CONFIG_KEY,
+            GMAIL_HISTORY_TARGET_ID_CONFIG_KEY,
+            GMAIL_PENDING_MESSAGE_IDS_CONFIG_KEY,
+        ),
+    )
 
 
 def _ingest_message_ids(
     *,
-    integration: Integration,
+    integration: IntegrationRecord,
     channel: EmailChannel,
     access_token: str,
     message_ids: list[str],
@@ -373,7 +381,7 @@ def _ingest_message_ids(
 
 def _ingest_message_id(
     *,
-    integration: Integration,
+    integration: IntegrationRecord,
     channel: EmailChannel,
     access_token: str,
     gmail_message_id: str,
@@ -635,7 +643,7 @@ def _has_external_participant(email: ParsedEmail, internal_emails: set[str]) -> 
 
 def _request(
     *,
-    integration: Integration,
+    integration: IntegrationRecord,
     access_token: str,
     url: str,
     endpoint: str,
@@ -655,7 +663,7 @@ def _request(
 
 def _get_json(
     *,
-    integration: Integration,
+    integration: IntegrationRecord,
     access_token: str,
     url: str,
     endpoint: str,
@@ -673,7 +681,7 @@ def _get_json(
 
 def _get_json_allowing_missing(
     *,
-    integration: Integration,
+    integration: IntegrationRecord,
     access_token: str,
     url: str,
     endpoint: str,

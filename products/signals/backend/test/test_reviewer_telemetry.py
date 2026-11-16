@@ -74,3 +74,29 @@ def test_never_raises_on_missing_team():
         )
 
     mock_capture.assert_not_called()
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    "scout_kwargs,expected",
+    [
+        (
+            {"proposed_count": 0, "reviewer_outcome": "omitted", "report_status": "ready"},
+            {"proposed_count": 0, "reviewer_outcome": "omitted", "report_status": "ready"},
+        ),
+        ({}, {}),
+    ],
+)
+def test_empty_scout_report_carries_proposal_properties(team, scout_kwargs, expected):
+    with patch(
+        "products.signals.backend.report_generation.reviewer_telemetry.posthoganalytics.capture"
+    ) as mock_capture:
+        capture_suggested_reviewers_resolved(
+            team_id=team.id, report_id="report-1", github_logins=[], source="scout", **scout_kwargs
+        )
+
+    props = mock_capture.call_args.kwargs["properties"]
+    assert props["suggested_count"] == 0
+    assert {
+        key: props[key] for key in ("proposed_count", "reviewer_outcome", "report_status") if key in props
+    } == expected

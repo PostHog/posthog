@@ -52,7 +52,8 @@ from posthog.models.person.util import create_person, create_person_distinct_id
 from posthog.models.team.team import Team
 from posthog.uuidt import UUIDT
 
-from products.actions.backend.models.action import Action
+from products.actions.backend.facade.api import create_action, find_actions_by_name
+from products.actions.backend.facade.contracts import steps_from_json
 
 TARGET_EVENT = "report_shared"
 # The horizon the printed follow-up commands use.
@@ -373,12 +374,13 @@ class Command(BaseCommand):
         # Action rows live on the project's root team; a child environment would miss them and duplicate the action.
         root_team = team.parent_team or team
         # Names are not unique, so reuse only an action with the seeded steps and never edit someone else's.
-        same_name = Action.objects.filter(team=root_team, name=ACTION_NAME, deleted=False).order_by("pk")
-        action = next((a for a in same_name if a.steps_json == steps_json), None)
+        same_name = find_actions_by_name(team_id=root_team.id, name=ACTION_NAME)
+        seeded_steps = steps_from_json(steps_json)
+        action = next((a for a in same_name if a.steps == seeded_steps), None)
         if action is not None:
             action_status = "already existed"
         else:
-            action = Action.objects.create(
+            action = create_action(
                 team=root_team,
                 name=ACTION_NAME,
                 description=f"`{TARGET_EVENT}` with share_type = external. Seeded by autoresearch_seed_demo.",
@@ -387,7 +389,7 @@ class Command(BaseCommand):
             action_status = "created"
 
         self.stdout.write(self.style.SUCCESS(f"\n✓ Wrote {len(users)} persons and {total_events} events."))
-        self.stdout.write(f"  Action '{ACTION_NAME}' id={action.pk} ({action_status})")
+        self.stdout.write(f"  Action '{ACTION_NAME}' id={action.id} ({action_status})")
         member = team.all_users_with_access().order_by("pk").first()
         user_id = str(member.pk) if member else "<USER_ID>"
         self.stdout.write("\nNext, once ingestion has caught up (it runs asynchronously):")

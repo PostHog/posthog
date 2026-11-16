@@ -1,7 +1,8 @@
 from dataclasses import dataclass
-from typing import Literal
+from typing import Literal, get_args
 
-from pydantic import BaseModel, ConfigDict, Field, StrictBool
+import structlog
+from pydantic import BaseModel, ConfigDict, Field, StrictBool, field_validator
 
 from posthog.dataclasses import frozen
 
@@ -34,6 +35,17 @@ PromotionRejectionCode = Literal[
     "low_confidence",
     "stale_candidate",
 ]
+
+logger = structlog.get_logger(__name__)
+
+
+def _known_rejection_code(value: object, allowed: tuple[str, ...], stage: str) -> object:
+    # Tool input does not enforce the schema enum, and temperature 0 returns the same invented code on every retry.
+    # A rejection stops publication, so mapping an unknown code to one fails closed and lets the run complete.
+    if value in allowed:
+        return value
+    logger.warning("business_knowledge.learning.unknown_rejection_code", stage=stage)
+    return "not_useful"
 
 
 @dataclass(frozen=True)
@@ -87,6 +99,11 @@ class ExtractedKnowledge(BaseModel):
     confidence: float = Field(ge=0, le=1)
     rejection_code: ExtractionRejectionCode
 
+    @field_validator("rejection_code", mode="before")
+    @classmethod
+    def _unknown_rejection_code_rejects(cls, value: object) -> object:
+        return _known_rejection_code(value, get_args(ExtractionRejectionCode), "extraction")
+
 
 class PiiVerdict(BaseModel):
     model_config = ConfigDict(extra="forbid", strict=True)
@@ -105,6 +122,11 @@ class PromotionDecision(BaseModel):
     conflicting_index: int | None = Field(default=None, ge=0)
     confidence: float = Field(ge=0, le=1)
     rejection_code: PromotionRejectionCode
+
+    @field_validator("rejection_code", mode="before")
+    @classmethod
+    def _unknown_rejection_code_rejects(cls, value: object) -> object:
+        return _known_rejection_code(value, get_args(PromotionRejectionCode), "promotion")
 
 
 class ContradictionVerdict(BaseModel):

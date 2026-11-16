@@ -16,7 +16,7 @@ from posthog.schema import (
 
 from posthog.models import EventDefinition, Person, PropertyDefinition
 
-from products.actions.backend.models.action import Action
+from products.actions.backend.facade.api import create_action
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
 from products.product_analytics.backend.facade.models import Insight
@@ -65,9 +65,9 @@ class RevenueDataGenerator(DataGenerator):
                     )
 
     def create_actions_dashboards(self):
-        purchase_action = Action.objects.create(team=self.team, name="Purchase", steps_json=[{"event": "purchase"}])
+        purchase_action = create_action(team=self.team, name="Purchase", steps_json=[{"event": "purchase"}])
 
-        Action.objects.create(team=self.team, name="Entered Free Trial", steps_json=[{"event": "entered_free_trial"}])
+        create_action(team=self.team, name="Entered Free Trial", steps_json=[{"event": "entered_free_trial"}])
 
         dashboard = Dashboard.objects.create(name="Sales & Revenue", pinned=True, team=self.team)
         insight = Insight.objects.create(

@@ -2,6 +2,7 @@
 import { RETENTION_FIRST_OCCURRENCE_MATCHING_FILTERS } from 'lib/constants'
 
 import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
+import { setLatestVersionsOnQuery } from '~/queries/schema/query-versions'
 import {
     ActionsNode,
     DataTableNode,
@@ -40,7 +41,6 @@ import {
 } from '~/types'
 
 import { WEB_VITALS_THRESHOLDS } from './nodes/WebVitals/definitions'
-import { setLatestVersionsOnQuery } from './utils'
 
 const Events: EventsQuery = {
     kind: NodeKind.EventsQuery,

@@ -5,10 +5,10 @@ from drf_spectacular.utils import OpenApiParameter, extend_schema
 from rest_framework import viewsets
 from rest_framework.decorators import action
 from rest_framework.exceptions import NotFound, PermissionDenied, ValidationError
-from rest_framework.pagination import LimitOffsetPagination
 from rest_framework.request import Request
 from rest_framework.response import Response
 
+from posthog.api.pagination import BoundedLimitOffsetPagination
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.auth import OAuthAccessTokenAuthentication
 from posthog.permissions import PostHogFeatureFlagPermission
@@ -33,7 +33,7 @@ _DISCOVER_DEFAULT_LIMIT = 5
 _DISCOVER_MAX_LIMIT = 20
 
 
-class MCPRegistryPagination(LimitOffsetPagination):
+class MCPRegistryPagination(BoundedLimitOffsetPagination):
     default_limit = 50
     max_limit = 200
 

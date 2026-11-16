@@ -32,7 +32,8 @@ from temporalio.exceptions import ApplicationError
 from posthog.dataclasses import frozen
 from posthog.egress.limiter.policies import Priority
 from posthog.github.merge_queue import MergeQueueState
-from posthog.models.integration import GitHubIntegration, Integration
+from posthog.integrations import IntegrationManager
+from posthog.models.integration import GitHubIntegration
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.scoped import scoped_temporal
@@ -112,8 +113,8 @@ from products.review_hog.backend.temporal.activities import (
     validate_github_integration_activity,
 )
 from products.review_hog.backend.temporal.types import TRIGGER_MANUAL, ResolvePRWorkflowInputs
-from products.signals.backend.artefact_attribution import ArtefactAttribution
-from products.signals.backend.artefact_schemas import Commit, NoteArtefact, TaskRunArtefact
+from products.signals.backend.facade.report_artefacts import Commit, NoteArtefact, TaskRunArtefact
+from products.signals.backend.facade.taxonomy import ArtefactAttribution
 
 logger = logging.getLogger(__name__)
 
@@ -211,7 +212,7 @@ def _fetch_pr_metadata(input: ResolveThreadsInput, token: str, installation_id: 
 def _run_github(team_id: int, integration_row_id: int) -> GitHubIntegration:
     """The run-pinned installation, rebuilt from its row so every call mints a fresh token."""
     return GitHubIntegration(
-        Integration.objects.get(id=integration_row_id, team_id=team_id), source="review_hog", priority=Priority.NORMAL
+        IntegrationManager.github.oauth.get(team_id, integration_row_id), source="review_hog", priority=Priority.NORMAL
     )
 
 

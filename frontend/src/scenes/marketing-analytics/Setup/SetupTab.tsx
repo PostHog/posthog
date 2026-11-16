@@ -149,11 +149,9 @@ export function SetupTab(): JSX.Element {
                 )}
                 {/* Skipped for "Suggested setup", which renders the whole ranked list
                     itself and would otherwise show everything twice. */}
-                {active.key !== SetupSection.SUGGESTIONS &&
-                    !(
-                        active.key === SetupSection.SOURCES &&
-                        featureFlags[FEATURE_FLAGS.MARKETING_ANALYTICS_SOURCE_ONBOARDING]
-                    ) && <SectionSuggestions section={active.key} />}
+                {active.key !== SetupSection.SUGGESTIONS && active.key !== SetupSection.SOURCES && (
+                    <SectionSuggestions section={active.key} />
+                )}
                 {featureFlags[FEATURE_FLAGS.MARKETING_ANALYTICS_CONVERSION_SETUP_AI] &&
                     (active.key === SetupSection.SUGGESTIONS || active.key === SetupSection.CONVERSION_GOALS) && (
                         <ConversionGoalRecommendations

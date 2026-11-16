@@ -11,13 +11,13 @@ from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
 from posthog.hogql.database.models import SavedQuery
 from posthog.hogql.errors import QueryError
-from posthog.hogql.parser import parse_select
 from posthog.hogql.resolver import Resolver, ResolverFactory
 from posthog.hogql.visitor import TraversingVisitor
 
 from posthog.models.team import Team
 
 from products.data_modeling.backend.facade.system_tables import DATA_MODELING_ALLOWED_SYSTEM_TABLES
+from products.data_modeling.backend.logic.incremental_filter import parse_model_query
 
 LabelPath = list[str]
 
@@ -135,6 +135,7 @@ class BoundedResolver(Resolver):
     When `enforce_bounds=False`, depth and deadline violations emit metrics but
     do not raise. Cycle detection still raises unconditionally — without it the
     resolver would loop forever and the deadline check would never run.
+    The core Resolver's hard compilation limits still apply in observe-only mode.
 
     The deadline is checked on every `visit()` call, not only at view boundaries,
     so expensive non-join work between views is also interruptible. Metrics
@@ -493,7 +494,7 @@ def get_parents_from_model_query(
         model_query: The HogQL query string to parse.
         database: An optional prebuilt database to reuse for dependency resolution.
     """
-    hogql_query = parse_select(model_query)
+    hogql_query = parse_model_query(model_query)
     context = HogQLContext(
         team_id=team.pk,
         team=team,

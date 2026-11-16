@@ -16,6 +16,7 @@ import {
 } from '@posthog/lemon-ui'
 import { Button } from '@posthog/quill'
 
+import 'lib/components/Cards/InsightCard/InsightCard.scss'
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { FEATURE_FLAGS } from 'lib/constants'

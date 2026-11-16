@@ -492,6 +492,13 @@ class TestTrainingRunHistory(TeamScopedTestMixin, APIBaseTest):
         )
         self._flag_patcher.start()
         self.addCleanup(self._flag_patcher.stop)
+        # Each completed run promotes its draft to live, and some tests promote more pipelines than the default cap.
+        limits_patcher = patch(
+            "products.autoresearch.backend.limits.posthoganalytics.get_feature_flag_payload",
+            return_value={"default_team_config": {"max_live_pipelines": 10}},
+        )
+        limits_patcher.start()
+        self.addCleanup(limits_patcher.stop)
         self.pipeline = AutoresearchPipeline.objects.create(
             team=self.team, created_by=self.user, name="Main", target_event="downloaded_file", horizon_days=30
         )

@@ -297,7 +297,7 @@ pub fn stl() -> Vec<(String, NativeFunction)> {
                 match args[0].deref(&vm.heap)? {
                     HogLiteral::Array(vals) => {
                         for val in vals.iter() {
-                            if *needle.equals(val, &vm.heap)?.try_as()? {
+                            if vm.values_equal(needle, val)? {
                                 return Ok(HogLiteral::Boolean(true).into());
                             }
                         }
@@ -316,7 +316,7 @@ pub fn stl() -> Vec<(String, NativeFunction)> {
                 match haystack {
                     HogLiteral::Array(vals) => {
                         for (i, val) in vals.iter().enumerate() {
-                            if *needle.equals(val, &vm.heap)?.try_as()? {
+                            if vm.values_equal(needle, val)? {
                                 return Ok((i as i64).saturating_add(1).into());
                             }
                         }
@@ -1461,7 +1461,7 @@ pub fn stl() -> Vec<(String, NativeFunction)> {
                 match args[1].deref(&vm.heap)? {
                     HogLiteral::Array(vals) | HogLiteral::Tuple(vals) => {
                         for val in vals.iter() {
-                            if *needle.equals(val, &vm.heap)?.try_as()? {
+                            if vm.values_equal(needle, val)? {
                                 return Ok(HogLiteral::Boolean(true).into());
                             }
                         }

@@ -91,8 +91,6 @@ export interface SeriesData {
     compare_label?: string
     /** Index of the query series this row belongs to — stamped by the mock resolver. */
     seriesIndex?: number
-    /** Event name of the query series this row belongs to — stamped by the mock resolver. */
-    eventName?: string
 }
 
 type CannedSeries = SeriesData & { labels: string[]; days: string[] }
