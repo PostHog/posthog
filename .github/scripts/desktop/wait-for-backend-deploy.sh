@@ -83,15 +83,23 @@ list_deployments() {
         | .[] | "\(.id) \(.sha)"' <<<"$all_json"
 }
 
-# Prints the sha of the live deployment, or nothing when no listed deployment
-# has a trusted `success` as its newest status, or when a record's newest
-# trusted status cannot be read. An empty answer holds the release. Returns 1 on
-# an API failure.
+# A record whose trusted state is failure, error or inactive never changes again, because every
+# deploy gets a new record. Each poll skips those records, so the polls stay inside the hourly
+# API budget of the workflow token, which the repository's other workflows share.
+declare -A FINAL_RECORDS=()
+
+# Sets LIVE_SHA to the sha of the live deployment, or to nothing when no listed
+# deployment has a trusted `success` as its newest status, or when a record's
+# newest trusted status cannot be read. An empty answer holds the release.
+# Returns 1 on an API failure. It runs in the calling shell, so FINAL_RECORDS
+# keeps what it learned.
 find_live_sha() {
     local environment="$1" deployments id sha statuses state
+    LIVE_SHA=""
     deployments=$(list_deployments "$environment") || return 1
     while read -r id sha; do
         [ -n "$id" ] || continue
+        [ -z "${FINAL_RECORDS[$id]:-}" ] || continue
         # The newest trusted status counts. A status from another creator on top of it changes nothing.
         statuses=$(gh api "repos/$REPOSITORY/deployments/$id/statuses?per_page=$STATUSES_PER_PAGE") || return 1
         state=$(jq -r --arg creator "$TRUSTED_CREATOR" '[.[] | select(.creator.login == $creator)][0].state // ""' <<<"$statuses") || return 1
@@ -100,10 +108,13 @@ find_live_sha() {
         if [ -z "$state" ] && [ "$(jq 'length' <<<"$statuses")" -ge "$STATUSES_PER_PAGE" ]; then
             return 0
         fi
-        if [ "$state" = "success" ]; then
-            echo "$sha"
-            return 0
-        fi
+        case "$state" in
+            success)
+                LIVE_SHA="$sha"
+                return 0
+                ;;
+            failure | error | inactive) FINAL_RECORDS[$id]=1 ;;
+        esac
     done <<<"$deployments"
 }
 
@@ -126,11 +137,12 @@ check_commit_in_master() {
 check_environments() {
     local environment live status result=0
     for environment in $ENVIRONMENTS; do
-        if ! live=$(find_live_sha "$environment"); then
+        if ! find_live_sha "$environment"; then
             echo "$environment: GitHub API request failed, contains: unknown"
             result=2
             continue
         fi
+        live="$LIVE_SHA"
         if [ -z "$live" ]; then
             echo "$environment: no live deployment found, contains: no"
             [ "$result" -eq 2 ] || result=1

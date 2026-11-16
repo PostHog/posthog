@@ -23,6 +23,7 @@ for arg in "$@"; do
     esac
 done
 slug=$(printf '%s' "${path:?}" | tr '/?&=' '____')
+echo "$slug" >>"$GH_FIXTURE_DIR/calls"
 if [ -f "$GH_FIXTURE_DIR/$slug.fail" ]; then
     echo "stubbed API failure for $path" >&2
     exit 1
@@ -142,6 +143,20 @@ buried=$(printf 'inactive@someone-else,%.0s' $(seq 1 100))
 register_page "$workdir/buried" prod-us 1 "62:$c1:59:${buried%,}" "61:$c4:10:success"
 register_page "$workdir/buried" prod-eu 1 "63:$c4:10:success"
 assert_result "a status page full of foreign statuses holds the release" "$workdir/buried" 3 "prod-us: no live deployment found"
+
+# Final records never change, so a second poll does not read their statuses again.
+register_page "$workdir/cached" prod-us 1 "71:$c4:30:failure" "72:$c4:20:inactive,success" "73:$c1:10:success"
+register_page "$workdir/cached" prod-eu 1 "74:$c4:10:success"
+assert_result "a held release polls more than once" "$workdir/cached" 3 "prod-us: live ${c1:0:12}, contains: no"
+for id in 71 72; do
+    reads=$(grep -c "deployments_${id}_statuses" "$workdir/cached/calls")
+    polls=$(grep -c "deployments_73_statuses" "$workdir/cached/calls")
+    if [ "$reads" -ne 1 ] || [ "$polls" -lt 2 ]; then
+        echo "FAIL: final record $id read $reads times over $polls polls"
+        exit 1
+    fi
+done
+echo "ok: final records are read once"
 
 register_page "$workdir/api-failure" prod-us 1 "15:$c4:10:success"
 touch "$workdir/api-failure/repos_PostHog_posthog_deployments_environment_prod-eu_task_deploy_per_page_30_page_1.fail"
