@@ -751,6 +751,7 @@ def _fetch_contacts(clients: Mapping[MailgunRegion, MailgunClient], context: Imp
                 rows=everyone,
             ),
             lists,
+            contacts.other_spellings,
         ),
     )
 

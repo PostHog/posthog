@@ -599,6 +599,32 @@ class TestMailgunContacts(ClickhouseTestMixin, BaseTest):
             "Acme ñews (from Mailgun)": "created",
         }
 
+    def test_an_opt_out_covers_every_spelling_of_the_address(self) -> None:
+        # Left unsubscribed from one list and is still on another under a lowercase spelling.
+        self.mailgun.data["us"]["members"]["acme@acme.example.com"].append(
+            {"address": "left@example.com", "name": "", "vars": {}, "subscribed": True}
+        )
+
+        run = runs.start_run(
+            self.team.id,
+            "mailgun",
+            ["mailing_lists", "contacts", "new_people"],
+            FULL_KEY,
+            self.user.id,
+            {"region": "both"},
+        )
+        with self.captureOnCommitCallbacks(execute=True):
+            for step in run.steps:
+                runs.run_step(self.team.id, run.id, step, attempt=1)
+
+        preferences = dict(
+            MessageRecipientPreference.objects.filter(
+                team_id=self.team.id, identifier__in=["Left@example.com", "left@example.com"]
+            ).values_list("identifier", "preferences")
+        )
+        assert preferences["Left@example.com"]
+        assert preferences["left@example.com"] == preferences["Left@example.com"]
+
 
 class TestMailgunSettings(SimpleTestCase):
     @parameterized.expand(
