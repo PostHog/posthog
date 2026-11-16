@@ -70,14 +70,14 @@ function summaryOf(scorecard: Scorecard): RunSummary {
     }
 }
 
-// A run directory holds a scorecard only once its run ended, so a directory without one is a run
-// in progress or a run that crashed, and the list leaves it out.
 export function listRuns(stateDir: string): RunSummary[] {
     if (!existsSync(stateDir)) {
         return []
     }
     return readdirSync(stateDir)
-        .filter((name) => isRunId(name) && statSync(path.join(stateDir, name)).isDirectory())
+        .filter(
+            (name) => isRunId(name) && statSync(path.join(stateDir, name), { throwIfNoEntry: false })?.isDirectory()
+        )
         .flatMap((runId) => {
             const scorecard = readJson<Scorecard>(path.join(stateDir, runId, 'scorecard.json'))
             return scorecard?.runId === runId ? [summaryOf(scorecard)] : []

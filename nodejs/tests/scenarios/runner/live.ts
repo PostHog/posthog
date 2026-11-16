@@ -22,7 +22,7 @@ export type LivePhase = 'reset' | 'seed' | 'drive' | 'converge' | 'judge' | 'end
 export type LiveTruth = Pick<TruthRecord, 'seq' | 'at' | 'kind' | 'unitId' | 'actionId' | 'status' | 'fault'>
 
 export type LiveRecord =
-    | { type: 'start'; at: number; runId: string; cardId: string }
+    | { type: 'start'; at: number; runId: string; cardId: string; cardHash: string }
     | { type: 'phase'; at: number; phase: LivePhase; driveForMs?: number }
     | {
           type: 'tick'
@@ -31,7 +31,7 @@ export type LiveRecord =
           samples: MetricSample[]
           queue: QueueSample[]
           writer: WriterSample[]
-          journal: Pick<JournalEntry, 'unitId' | 'kind' | 'offeredAt' | 'answer'>[]
+          journal: Pick<JournalEntry, 'unitId' | 'kind' | 'offeredAt' | 'answer' | 'expect'>[]
           truth: LiveTruth[]
       }
     | { type: 'end'; at: number; status: string; statusReason: string }
@@ -140,12 +140,15 @@ export function openLiveLog(evidenceDir: string, beatMs = TICK_MS): LiveLog {
                         samples: fresh(sources.samples(), 'samples'),
                         queue: fresh(sources.queue(), 'queue'),
                         writer: fresh(sources.writer(), 'writer'),
-                        journal: fresh(sources.journal(), 'journal').map(({ unitId, kind, offeredAt, answer }) => ({
-                            unitId,
-                            kind,
-                            offeredAt,
-                            answer,
-                        })),
+                        journal: fresh(sources.journal(), 'journal').map(
+                            ({ unitId, kind, offeredAt, answer, expect }) => ({
+                                unitId,
+                                kind,
+                                offeredAt,
+                                answer,
+                                expect,
+                            })
+                        ),
                         truth,
                     })
                 }

@@ -13,6 +13,7 @@ const STALE_AFTER_MS = 15_000
 export type LiveView = {
     runId: string
     cardId: string
+    cardHash: string
     startedAt: string
     phase: LivePhase
     phases: { phase: LivePhase; at: number }[]
@@ -107,6 +108,7 @@ export function liveOf(stateDir: string, now = Date.now()): LiveView | undefined
     return {
         runId: start.runId,
         cardId: start.cardId,
+        cardHash: start.cardHash,
         startedAt: new Date(start.at).toISOString(),
         phase: ended ? 'end' : (phases.at(-1)?.phase ?? 'reset'),
         phases,

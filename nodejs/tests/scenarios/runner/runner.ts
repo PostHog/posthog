@@ -379,7 +379,7 @@ export function createRunner(
             })
             const valves = createValves()
             const live = openLiveLog(evidenceDir)
-            live.write({ type: 'start', at: Date.now(), runId, cardId: card.id })
+            live.write({ type: 'start', at: Date.now(), runId, cardId: card.id, cardHash: loaded.cardHash })
             let outcome: Outcome = {
                 status: 'invalid',
                 statusReason: 'not started',

@@ -21,7 +21,11 @@
     --serious: #ec835a;
     --critical: #d03b3b;
 
-    font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
+    font-family:
+        system-ui,
+        -apple-system,
+        'Segoe UI',
+        sans-serif;
     color-scheme: dark;
 }
 
@@ -451,7 +455,6 @@ th.num {
     border-radius: 2px;
 }
 
-/* Delivery path diagram */
 .path-wrap {
     position: relative;
 }
