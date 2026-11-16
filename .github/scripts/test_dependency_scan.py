@@ -42,6 +42,7 @@ PNPM_HEAD = PNPM_BASE.replace(
     "  left-pad@1.3.0:\n    resolution: {integrity: sha512-bbbb}",
     "  '@scope/added@2.0.0-beta.1':\n    resolution: {integrity: sha512-cccc}\n\n"
     "  tarball-dep@https://example.com/tarball-dep.tgz:\n    resolution: {tarball: https://example.com/tarball-dep.tgz}\n\n"
+    "  renamed-tarball@1.0.0:\n    resolution: {integrity: sha512-eeee, tarball: https://example.com/renamed.tgz}\n\n"
     "  left-pad@1.3.1:\n    resolution: {integrity: sha512-dddd}",
 ).replace("left-pad@1.3.0(@scope/kept@1.0.0)", "left-pad@1.3.1(@scope/kept@1.0.0)")
 
@@ -114,13 +115,36 @@ GO_HEAD = (
         "\texample.com/kept v1.0.0\n", "\texample.com/kept v1.0.0\n\texample.com/added/v2 v2.0.1\n"
     )
     + "\nrequire example.com/single v0.0.0-20260101000000-abcdefabcdef\n"
+    + "\nrequire\t(\n\texample.com/tabbed v1.0.1\n)\n"
+    + "\nreplace example.com/kept v1.0.0 => example.com/fork v1.0.2\n"
+)
+
+PNPM_V5_BASE = """lockfileVersion: 5.4
+
+packages:
+
+  /kept/1.0.0:
+    resolution: {integrity: sha512-aaaa}
+"""
+PNPM_V5_HEAD = (
+    PNPM_V5_BASE
+    + """
+  /@scope/added/2.0.0_react@18.2.0:
+    resolution: {integrity: sha512-bbbb}
+"""
 )
 
 
 PNPM_ADDED = {
-    ("npm", "@scope/added", "2.0.0-beta.1"),
-    ("npm", "left-pad", "1.3.1"),
-    ("npm", "tarball-dep", "https://example.com/tarball-dep.tgz"),
+    ("npm", "@scope/added", "2.0.0-beta.1", ""),
+    ("npm", "left-pad", "1.3.1", ""),
+    ("npm", "tarball-dep", "https://example.com/tarball-dep.tgz", '{"tarball": "https://example.com/tarball-dep.tgz"}'),
+    (
+        "npm",
+        "renamed-tarball",
+        "1.0.0",
+        '{"integrity": "sha512-eeee", "tarball": "https://example.com/renamed.tgz"}',
+    ),
 }
 
 
@@ -129,36 +153,56 @@ PNPM_ADDED = {
     [
         ("pnpm-lock.yaml", PNPM_BASE, PNPM_HEAD, PNPM_ADDED),
         ("pnpm-lock.yaml", PNPM_BASE, PNPM_HEAD.replace("\npackages:\n", "\npackages: # comment\n"), PNPM_ADDED),
-        ("pnpm-lock.yaml", "", PNPM_BASE, {("npm", "@scope/kept", "1.0.0"), ("npm", "left-pad", "1.3.0")}),
-        ("uv.lock", UV_BASE, UV_HEAD, {("pypi", "bumped", "2.1.0")}),
-        ("Cargo.lock", CARGO_BASE, CARGO_HEAD, {("crates", "added", "0.4.2")}),
+        ("pnpm-lock.yaml", "", PNPM_BASE, {("npm", "@scope/kept", "1.0.0", ""), ("npm", "left-pad", "1.3.0", "")}),
+        ("pnpm-lock.yaml", PNPM_V5_BASE, PNPM_V5_HEAD, {("npm", "@scope/added", "2.0.0", "")}),
+        (
+            "uv.lock",
+            UV_BASE,
+            UV_HEAD,
+            {
+                ("pypi", "bumped", "2.1.0", ""),
+                ("pypi", "from-git", "3.0.0", '{"git": "https://example.com/from-git.git?rev=abc#abc"}'),
+            },
+        ),
+        (
+            "Cargo.lock",
+            CARGO_BASE,
+            CARGO_HEAD,
+            {
+                ("crates", "added", "0.4.2", ""),
+                ("crates", "from-git", "0.1.0", "git+https://example.com/from-git.git#abc"),
+            },
+        ),
         (
             "go.mod",
             GO_BASE,
             GO_HEAD,
             {
-                ("go", "example.com/bumped", "v1.3.0"),
-                ("go", "example.com/added/v2", "v2.0.1"),
-                ("go", "example.com/single", "v0.0.0-20260101000000-abcdefabcdef"),
+                ("go", "example.com/bumped", "v1.3.0", ""),
+                ("go", "example.com/added/v2", "v2.0.1", ""),
+                ("go", "example.com/single", "v0.0.0-20260101000000-abcdefabcdef", ""),
+                ("go", "example.com/tabbed", "v1.0.1", ""),
+                ("go", "example.com/fork", "v1.0.2", ""),
             },
         ),
     ],
 )
-def test_added_packages_are_the_registry_releases_new_to_the_head_lockfile(filename, base, head, expected):
+def test_added_packages_are_the_releases_new_to_the_head_lockfile(filename, base, head, expected):
     added = scanner.added_packages(filename, base, head)
 
-    assert {(package.ecosystem, package.name, package.version) for package in added} == expected
+    assert {(package.ecosystem, package.name, package.version, package.source) for package in added} == expected
 
 
 @pytest.mark.parametrize(
     "lockfile,package,line",
     [
         (PNPM_HEAD, ("npm", "@scope/added", "2.0.0-beta.1"), 16),
-        (PNPM_HEAD, ("npm", "left-pad", "1.3.1"), 22),
+        (PNPM_HEAD, ("npm", "left-pad", "1.3.1"), 25),
         (UV_HEAD, ("pypi", "bumped", "2.1.0"), 9),
         (CARGO_HEAD, ("crates", "added", "0.4.2"), 13),
         (GO_HEAD, ("go", "example.com/bumped", "v1.3.0"), 8),
         (GO_HEAD, ("go", "example.com/single", "v0.0.0-20260101000000-abcdefabcdef"), 13),
+        (GO_HEAD, ("go", "example.com/fork", "v1.0.2"), 19),
     ],
 )
 def test_a_finding_points_at_the_lockfile_line_that_adds_the_package(lockfile, package, line):
@@ -204,6 +248,10 @@ def test_only_a_registry_name_and_version_reach_the_scanner(ecosystem, name, ver
     assert scanner.Package(ecosystem, name, version).scannable is scannable
 
 
+def test_a_package_from_outside_the_registry_is_not_scanned_under_its_registry_name():
+    assert not scanner.Package("crates", "itoa", "1.0.15", "git+https://example.com/itoa.git#abc").scannable
+
+
 @pytest.mark.parametrize(
     "errors,label",
     [
@@ -215,6 +263,14 @@ def test_a_package_that_makes_a_rule_fail_is_not_scanned(monkeypatch, errors, la
     report = {"errors": errors, "results": {}, "risk_score": {"label": "no_risks_detected", "score": 0.0}}
     monkeypatch.setattr(scanner, "GUARDDOG", [sys.executable, "-c", f"print({json.dumps(report)!r})"])
 
-    finding = scanner.scan(scanner.Package("npm", "left-pad", "1.3.1"))
+    finding = scanner.scan(scanner.Package("npm", "left-pad", "1.3.1"), deadline=float("inf"))
 
     assert finding.label == label
+
+
+def test_a_package_left_when_the_batch_deadline_passes_is_not_scanned(monkeypatch):
+    monkeypatch.setattr(scanner, "GUARDDOG", [sys.executable, "-c", "raise SystemExit('guarddog must not run')"])
+
+    finding = scanner.scan(scanner.Package("npm", "left-pad", "1.3.1"), deadline=0.0)
+
+    assert finding.label == "not_scanned"

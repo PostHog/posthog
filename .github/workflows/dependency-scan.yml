@@ -34,7 +34,6 @@ jobs:
         permissions: {}
         outputs:
             findings: ${{ steps.scan.outputs.findings }}
-            sarif: ${{ steps.scan.outputs.sarif }}
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
@@ -61,7 +60,14 @@ jobs:
               id: scan
               env:
                   BASE_REF: ${{ github.event_name == 'push' && github.event.before || 'HEAD^1' }}
+                  SARIF_FILE: guarddog.sarif
               run: uv run --frozen --script .github/scripts/dependency_scan.py
+
+            - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+              with:
+                  name: guarddog-sarif
+                  path: guarddog.sarif
+                  retention-days: 1
 
     code-scanning:
         name: Upload the scan to code scanning
@@ -72,20 +78,20 @@ jobs:
         permissions:
             security-events: write
         steps:
-            - name: Write the scan results to a file
-              env:
-                  SARIF: ${{ needs.scan.outputs.sarif }}
-              run: printf '%s' "$SARIF" > guarddog.sarif
+            - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+              with:
+                  name: guarddog-sarif
 
             - uses: github/codeql-action/upload-sarif@33d7b85da1a04171e211befe2c739303b9a4c066 # v4.39.3
               with:
                   sarif_file: guarddog.sarif
                   category: guarddog
 
+    # hogli-lint: not-a-required-gate — reads the scan result only to pick the CI report message
     report:
         name: Post the scan to the CI report
         needs: scan
-        if: github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && !startsWith(github.head_ref, 'trunk-merge/')
+        if: ${{ !cancelled() && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository && !startsWith(github.head_ref, 'trunk-merge/') }}
         runs-on: ubuntu-24.04
         timeout-minutes: 5
         permissions:
@@ -109,4 +115,5 @@ jobs:
               env:
                   GITHUB_TOKEN: ${{ github.token }}
                   FINDINGS: ${{ needs.scan.outputs.findings }}
+                  SCAN_RESULT: ${{ needs.scan.result }}
               run: node .github/scripts/post-dependency-scan-section.mjs
