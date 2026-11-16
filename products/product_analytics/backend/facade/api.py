@@ -316,6 +316,14 @@ def insight_ids_modified_since(*, team_ids: Collection[int], since: datetime) ->
     return logic.insight_ids_modified_since(team_ids=team_ids, since=since)
 
 
+def insight_ids_named_like(*, team_id: int, search: str) -> set[int]:
+    """Live insights of this team whose name contains ``search``, ignoring case, in one query.
+
+    The generated name counts only for an insight without a saved name, so a match is the name the insight shows.
+    """
+    return logic.insight_ids_named_like(team_id=team_id, search=search)
+
+
 def recent_viewers_by_insight(
     *, team_id: int, insight_ids: Collection[int], since: datetime, max_per_insight: int
 ) -> dict[int, list["User"]]:
