@@ -430,7 +430,7 @@ def delete_source_destination_rows(
 ) -> DeletedSourceDestinations:
     """Deletes the alert's rows named by id or that copy any of `hog_function_ids`. The HogFunctions it
     returns are only those copied by rows named by id: a delete by HogFunction ids keeps to the group it
-    names, and a row that copies a group since split into two takes no other."""
+    names, and a row that copies a group since split into two takes no other. Call it in a transaction."""
     if not destination_ids and not hog_function_ids:
         return DeletedSourceDestinations(row_types={}, copied_hog_function_ids=frozenset())
     rows = AlertDestination.objects.for_team(team_id).filter(
@@ -438,7 +438,8 @@ def delete_source_destination_rows(
         configuration__in=_configurations_by_public_id(team_id, public_id),
     )
     named = set(destination_ids)
-    found = list(rows.values_list("id", "type", "legacy_hog_function_ids"))
+    # Locked, so a delete that waits on a rollback's rebuild reads the HogFunctions it linked.
+    found = list(rows.select_for_update(of=("self",)).values_list("id", "type", "legacy_hog_function_ids"))
     rows.delete()
     return DeletedSourceDestinations(
         row_types={row_id: row_type for row_id, row_type, _ in found},
