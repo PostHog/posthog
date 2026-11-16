@@ -285,7 +285,7 @@ class TestRuleLinkedExperiment(ExperimentQueryRunnerBaseTest):
         assert runner._multivariate_data() == {
             "variants": [{"key": "control", "rollout_percentage": 30}, {"key": "test", "rollout_percentage": 70}]
         }
-        assert {(check.status, check.reason) for check in response.health_checks} == {
+        assert {(check.status, check.reason) for check in response.health_checks or []} == {
             (ExperimentExposureHealthCheckStatus.NOT_CHECKED, NOT_ON_FLAG_RULE)
         }
         assert response.health_findings == []
