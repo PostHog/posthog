@@ -24,7 +24,7 @@ import {
 } from '../types'
 import { getAsyncFunctionHandler, getRegisteredAsyncFunctionNames } from './async-function-registry'
 import './async-functions'
-import { createCdpCoreServices } from './cdp-services'
+import { CdpOutputs, createCdpCoreServices } from './cdp-services'
 import { CdpConsumerBaseDeps } from './consumers/cdp-base.consumer'
 import {
     CdpSourceWebhooksConsumer,
@@ -32,6 +32,7 @@ import {
     SourceWebhookError,
 } from './consumers/cdp-source-webhooks.consumer'
 import { HogTransformerService, createHogTransformerService } from './hog-transformations/hog-transformer.service'
+import { IntakeProducer, intakeModeOf } from './intake/intake-producer'
 import { RunIntake } from './intake/run-intake'
 import { RerunJobManager } from './rerun/rerun-job.manager'
 import { RerunRequest } from './rerun/rerun-job.types'
@@ -295,6 +296,8 @@ const TRANSACTIONAL_SEND_REFUSAL_STATUS: Record<TransactionalSendRefusal, number
     idempotency_key_in_flight: 409,
     idempotency_key_reused: 422,
     idempotency_unavailable: 503,
+    intake_unavailable: 503,
+    invalid_request: 400,
     not_sendable: 400,
     sending_suspended: 422,
     sending_paused: 422,
@@ -314,6 +317,7 @@ const sendBodies = (invocation: CyclotronJobInvocationHogFlow): MessageBodies =>
 }
 
 export class CdpApi {
+    private outputs: CdpOutputs
     private hogExecutorAsync: HogExecutorAsyncService
     private hogInputsService: HogInputsService
     private nativeDestinationExecutorService: NativeDestinationExecutorService
@@ -385,6 +389,7 @@ export class CdpApi {
         this.invocationResultsService = services.invocationResultsService
         this.workflowsActivationReporter = services.workflowsActivationReporter
         this.emailStatusService = services.emailStatusService
+        this.outputs = services.outputs
         this.personsManager = services.personsManager
 
         // API-only services. The hog-transformer's monitoring service reuses the same
@@ -399,7 +404,11 @@ export class CdpApi {
             config,
             deps,
             jobQueues,
-            new IdempotencyKeys(deps.idempotencyValkey ?? null, 'workflow-webhook')
+            new IdempotencyKeys(
+                deps.idempotencyValkey ?? null,
+                'workflow-webhook',
+                config.CDP_IDEMPOTENCY_VALKEY_ENABLED
+            )
         )
         this.emailTrackingCodeSigner = new EmailTrackingCodeSigner(
             config.ENCRYPTION_SALT_KEYS,
@@ -455,7 +464,8 @@ export class CdpApi {
         )
         this.transactionalEmailIdempotencyKeys = new IdempotencyKeys(
             deps.idempotencyValkey ?? null,
-            'transactional-email'
+            'transactional-email',
+            config.CDP_IDEMPOTENCY_VALKEY_ENABLED
         )
         this.transactionalPushIdempotencyKeys = new IdempotencyKeys(
             deps.idempotencyValkey ?? null,
@@ -1836,6 +1846,7 @@ export class CdpApi {
             runIntake: new RunIntake({
                 hogflowQueue: this.hogflowQueue,
                 invocationResultsRowsService: this.invocationResultsService.invocationResultsRowsService,
+                intake: { modeOf: intakeModeOf(this.config), producer: new IntakeProducer(this.outputs) },
             }),
             invocationResultsRows: this.invocationResultsService.invocationResultsRowsService,
             emailStatus: this.emailStatusService,

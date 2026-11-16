@@ -26,7 +26,10 @@ from products.access_control.backend.facade.user_access_control import access_le
 from products.data_warehouse.backend.facade.api import get_direct_query_engine, get_namespaced_resource_adapter
 from products.warehouse_sources.backend.facade.column_sensitivity import classify_column_sensitivity
 from products.warehouse_sources.backend.facade.incremental_field_model import (
+    MAX_COLUMNS_PER_CALL,
     MAX_TABLES_PER_CALL,
+    WIZARD_PATH,
+    fits_one_call,
     recommend_for_candidates,
 )
 from products.warehouse_sources.backend.facade.models import (
@@ -126,8 +129,20 @@ class IncrementalFieldRecommendationsRequestSerializer(serializers.Serializer):
     tables = LengthFirstListField(
         child=IncrementalFieldTableSerializer(),
         max_length=MAX_TABLES_PER_CALL,
-        help_text="Tables from database_schema to get a recommended incremental field for.",
+        help_text=(
+            "Tables from database_schema to get a recommended incremental field for. One request is one "
+            f"model call: up to {MAX_TABLES_PER_CALL} tables with up to {MAX_COLUMNS_PER_CALL} candidate "
+            "fields in total, or a single table of any size."
+        ),
     )
+
+    def validate_tables(self, tables: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        if not fits_one_call([len(table["incremental_fields"]) for table in tables]):
+            raise serializers.ValidationError(
+                f"Send at most {MAX_COLUMNS_PER_CALL} candidate fields across the tables of one request, "
+                "or one table on its own."
+            )
+        return tables
 
 
 class IncrementalFieldRecommendationsResponseSerializer(serializers.Serializer):
@@ -450,6 +465,7 @@ class ExternalDataSourceSchemaOperationsMixin(base.ExternalDataSourceViewSetBase
         picks = recommend_for_candidates(
             [(table["table"], table["incremental_fields"]) for table in request.validated_data["tables"]],
             team=self.team,
+            path=WIZARD_PATH,
         )
         return Response(
             IncrementalFieldRecommendationsResponseSerializer(

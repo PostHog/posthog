@@ -17,6 +17,7 @@ import { batchEmailDequeueSeqs, timeEnqueuePhase } from './manager'
 import { createCyclotronPool } from './pg-pool'
 import {
     CYCLOTRON_COUNTER_MAX,
+    CYCLOTRON_TRANSITION_CHURN_RATE_PER_HOUR,
     CYCLOTRON_TRANSITION_CHURN_THRESHOLD,
     CyclotronV2BulkCreateAndCheckInInput,
     CyclotronV2DequeuedJob,
@@ -45,12 +46,19 @@ export interface RawJobRow {
     lock_id: string
 }
 
-// Read off the row the dequeue already returns, so tracking churn costs no extra query.
 const highTransitionDequeuesCounter = new Counter({
     name: 'cdp_cyclotron_v2_high_transition_dequeues',
-    help: `Jobs dequeued with transition_count at or above ${CYCLOTRON_TRANSITION_CHURN_THRESHOLD}, meaning they are cycling without completing.`,
+    help: `Jobs dequeued with transition_count at or above ${CYCLOTRON_TRANSITION_CHURN_THRESHOLD} and at least ${CYCLOTRON_TRANSITION_CHURN_RATE_PER_HOUR} transitions per hour of age, meaning they are cycling without completing.`,
     labelNames: ['queue'] as const,
 })
+
+function isChurning(row: RawJobRow): boolean {
+    if (row.transition_count < CYCLOTRON_TRANSITION_CHURN_THRESHOLD) {
+        return false
+    }
+    const ageHours = (Date.now() - new Date(row.created).getTime()) / 3_600_000
+    return row.transition_count >= CYCLOTRON_TRANSITION_CHURN_RATE_PER_HOUR * ageHours
+}
 
 // The loop swallows the error and retries, so without this counter a queue whose every
 // dequeue throws looks exactly like an idle queue. Exported for the rate-limited
@@ -441,7 +449,7 @@ export class CyclotronV2Worker {
         let releaseStartedAt: number | null = null
         let releaseWritten = false
 
-        if (row.transition_count >= CYCLOTRON_TRANSITION_CHURN_THRESHOLD) {
+        if (isChurning(row)) {
             highTransitionDequeuesCounter.labels({ queue: row.queue_name }).inc()
         }
 

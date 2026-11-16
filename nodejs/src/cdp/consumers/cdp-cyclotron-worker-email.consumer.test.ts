@@ -40,20 +40,10 @@ describe('CdpCyclotronWorkerEmail', () => {
     })
 
     it.each([
-        [
-            'counts a job the transactional email API marked once, not again on its reschedule',
-            CdpCyclotronWorkerEmail,
-            true,
-            [1, 0],
-        ],
-        ['does not count a job without the mark', CdpCyclotronWorkerEmail, false, [0, 0]],
-        [
-            'counts a job the transactional push API marked on the workflow queue once',
-            CdpCyclotronWorkerHogFlow,
-            true,
-            [1, 0],
-        ],
-    ])('%s', async (_desc, Worker, marked, expectedTriggeredPerRun) => {
+        ['counts a job the transactional email API marked once, not again on its reschedule', 'email', true, [1, 0]],
+        ['does not count a job without the mark', 'email', false, [0, 0]],
+        ['counts a workflow run the intake consumer queued marked, on the hogflow worker', 'hogflow', true, [1, 0]],
+    ] as const)('%s', async (_desc, queue, marked, expectedTriggeredPerRun) => {
         const { team } = await createTestTeamFixture(hub.postgres)
         // The delay parks the run, so the second dequeue is a reschedule of the same job.
         const hogFlow: HogFlow = await insertHogFlow(
@@ -74,6 +64,7 @@ describe('CdpCyclotronWorkerEmail', () => {
                 } as any)
                 .build()
         )
+        const Worker = queue === 'email' ? CdpCyclotronWorkerEmail : CdpCyclotronWorkerHogFlow
         const worker = new Worker(hub, createCdpConsumerDeps(hub), createMockJobQueue())
         const triggered = (result: CyclotronJobInvocationResult) =>
             result.metrics.filter((metric) => metric.metric_name === 'triggered')
@@ -83,7 +74,7 @@ describe('CdpCyclotronWorkerEmail', () => {
             id: new UUIDT().toString(),
             teamId: team.id,
             functionId: hogFlow.id,
-            queue: 'email',
+            queue,
             queuePriority: 0,
             queueCreatedAt,
             state: createHogFlowInvocationContext({
