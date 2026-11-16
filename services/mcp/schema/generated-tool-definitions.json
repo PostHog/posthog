@@ -17977,7 +17977,7 @@
         "feature_flag": "warehouse-suggestions"
     },
     "warehouse-suggestions-dismiss": {
-        "description": "Dismiss a proposed warehouse suggestion with a reason: not_useful, not_now or other, plus an optional note. Nothing changes on the view or table. warehouse-suggestions-resume brings it back.",
+        "description": "Dismiss a proposed warehouse suggestion with a reason: not_useful, not_now, wrong_estimate, already_handled, not_owner or other, plus an optional note. Only not_now lets it come back, and only if the case for it grows a lot. Nothing changes on the view or table. warehouse-suggestions-resume brings it back.",
         "category": "Warehouse suggestions",
         "feature": "warehouse_suggestions",
         "summary": "Dismiss a warehouse suggestion",
