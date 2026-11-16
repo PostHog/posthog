@@ -50,6 +50,10 @@ POLICY_REASONS = frozenset(
 )
 LIMITED_APPROVALS = frozenset({"APPROVED_LIMITED", "AREA_OF_INTEREST_ONLY"})
 DISAPPROVED = "DISAPPROVED"
+# Google also lists findings that do not restrict an ad, such as the language it detected.
+POLICY_ISSUE_TYPES = frozenset({"PROHIBITED", "LIMITED", "FULLY_LIMITED", "AREA_OF_INTEREST_ONLY"})
+POLICY_ADS_SHOWN = 3
+POLICY_EVIDENCE_SHOWN = 3
 # Modifiers that match almost any search, so they say nothing about whether a query fits the account.
 GENERIC_WORDS = frozenset(
     {
@@ -212,12 +216,22 @@ class KeywordTracking:
 
 
 @frozen
+class PolicyTopic:
+    topic: str
+    type: str
+    texts: tuple[str, ...] = ()
+
+
+@frozen
 class Ad:
     ad_group_id: str
     campaign_id: str
     texts: tuple[str, ...]
     final_urls: tuple[str, ...]
     approval_status: str = ""
+    ad_id: str = ""
+    headline: str = ""
+    policy_topics: tuple[PolicyTopic, ...] = ()
 
 
 @frozen
@@ -308,6 +322,28 @@ def _singular(word: str) -> str:
     if len(word) > 3 and word.endswith("s") and not word.endswith("ss"):
         return word[:-1]
     return word
+
+
+def _policy_issues(ad: Ad) -> tuple[PolicyTopic, ...]:
+    return tuple(topic for topic in ad.policy_topics if topic.type in POLICY_ISSUE_TYPES)
+
+
+def _policy_issue_text(topic: PolicyTopic) -> str:
+    # Google names a policy by its topic id, such as TRADEMARKS_IN_AD_TEXT.
+    name = topic.topic.replace("_", " ").capitalize()
+    # Only a prohibited topic is a violation. The other types restrict where the ad can show.
+    verb = "breaks" if topic.type == "PROHIBITED" else "is limited by"
+    if not topic.texts:
+        return f'{verb} the policy "{name}"'
+    quoted = ", ".join(f'"{text}"' for text in topic.texts[:POLICY_EVIDENCE_SHOWN])
+    return f'{verb} the policy "{name}" (flagged text: {quoted})'
+
+
+def _policy_fix(ad: Ad) -> Step:
+    issues = " and ".join(_policy_issue_text(topic) for topic in _policy_issues(ad))
+    if ad.headline:
+        return Step(text=f'The ad "{ad.headline}" {issues}.', copyValue=ad.headline)
+    return Step(text=f"The ad with ID {ad.ad_id} {issues}.", copyValue=ad.ad_id or None)
 
 
 def _word_stems(text: str) -> frozenset[str]:
@@ -449,11 +485,14 @@ class _Recommender:
         self.keyword_insertion_groups: set[str] = set()
         self.disapproved_ads: dict[str, int] = defaultdict(int)
         self.limited_ads: dict[str, int] = defaultdict(int)
+        self.policy_issue_ads: dict[str, list[Ad]] = defaultdict(list)
         for ad in inputs.ads:
             if ad.approval_status == DISAPPROVED:
                 self.disapproved_ads[ad.campaign_id] += 1
             elif ad.approval_status in LIMITED_APPROVALS:
                 self.limited_ads[ad.campaign_id] += 1
+            if (ad.approval_status == DISAPPROVED or ad.approval_status in LIMITED_APPROVALS) and _policy_issues(ad):
+                self.policy_issue_ads[ad.campaign_id].append(ad)
             for text in ad.texts:
                 self.copy_stems[ad.ad_group_id] |= _word_stems(text)
                 if "{keyword:" in text.lower():
@@ -1576,6 +1615,7 @@ class _Recommender:
             if counts
             else "Some ads or asset groups are limited or disapproved by Google policy, which cuts the campaign's reach."
         )
+        fix: tuple[Step, ...]
         if campaign.channel_type == "PERFORMANCE_MAX":
             find = Step(
                 text="Open Asset groups and look for assets whose status shows a policy issue. "
@@ -1583,7 +1623,24 @@ class _Recommender:
                 url=ADS_ASSET_GROUPS_URL,
                 linkText="Asset groups",
             )
-            fix = Step(text="Replace each affected asset with one that follows the policy.")
+            fix = (Step(text="Replace each affected asset with one that follows the policy."),)
+        elif flagged := self.policy_issue_ads[campaign.id]:
+            find = Step(
+                text="Open Ads and search for each ad below. Fix the flagged text or the landing page, then save. "
+                "Saving sends the ad to review again. A limited ad may need a certification from Google instead.",
+                url=ADS_ADS_URL,
+                linkText="Ads",
+            )
+            shown = flagged[:POLICY_ADS_SHOWN]
+            fix = tuple(_policy_fix(ad) for ad in shown)
+            # Some affected ads come without findings, so the count comes from the approval status.
+            if (others := disapproved + limited - len(shown)) > 0:
+                fix += (
+                    Step(
+                        text=f"Filter Ads by the status Disapproved or Eligible (limited) to find {others} more "
+                        f"{'ad' if others == 1 else 'ads'}. Hover the status of each ad to see which policy it breaks."
+                    ),
+                )
         else:
             find = Step(
                 text="Open Ads and filter by the status Disapproved or Eligible (limited). "
@@ -1591,13 +1648,15 @@ class _Recommender:
                 url=ADS_ADS_URL,
                 linkText="Ads",
             )
-            fix = Step(
-                text="Edit the ad text or landing page so it follows the policy, then save. Saving sends the ad to review again."
+            fix = (
+                Step(
+                    text="Edit the ad text or landing page so it follows the policy, then save. Saving sends the ad to review again."
+                ),
             )
         steps = (
             self._open_campaign(campaign.name),
             find,
-            fix,
+            *fix,
             Step(
                 text="If a decision looks wrong, open Policy manager and appeal it from the Policy issues tab.",
                 url=ADS_POLICY_ISSUES_URL,

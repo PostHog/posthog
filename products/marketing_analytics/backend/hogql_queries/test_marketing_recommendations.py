@@ -14,6 +14,7 @@ from products.marketing_analytics.backend.hogql_queries.marketing_recommendation
     CampaignStats,
     KeywordTracking,
     OrganicQueryStats,
+    PolicyTopic,
     RankingPage,
     RecommendationInputs,
     SearchTermStats,
@@ -26,6 +27,12 @@ from products.marketing_analytics.backend.hogql_queries.marketing_recommendation
 from products.marketing_analytics.backend.hogql_queries.recommendation_identity import validate_identity
 
 COPY = ("Product analytics for teams", "Understand your users")
+TRADEMARK = PolicyTopic(topic="TRADEMARKS_IN_AD_TEXT", type="PROHIBITED", texts=("Acme", "Acme Pro"))
+DESCRIPTIVE = PolicyTopic(topic="LANGUAGE_DETECTED", type="DESCRIPTIVE")
+ALCOHOL = PolicyTopic(topic="ALCOHOL", type="LIMITED")
+GENERIC_POLICY_FIX = (
+    "Edit the ad text or landing page so it follows the policy, then save. Saving sends the ad to review again."
+)
 
 
 def _campaign(**overrides: object) -> CampaignStats:
@@ -732,40 +739,96 @@ class TestMarketingRecommendations(SimpleTestCase):
         [
             (
                 "counts_only_the_campaigns_ads",
-                ("DISAPPROVED", "DISAPPROVED", "APPROVED_LIMITED", "APPROVED"),
+                (("DISAPPROVED", ()), ("DISAPPROVED", ()), ("APPROVED_LIMITED", ()), ("APPROVED", ())),
                 "2 ads are disapproved and 1 ad is limited by Google policy, which cuts the campaign's reach.",
+                [GENERIC_POLICY_FIX],
             ),
             (
                 "area_of_interest_only_is_limited",
-                ("AREA_OF_INTEREST_ONLY",),
+                (("AREA_OF_INTEREST_ONLY", ()),),
                 "1 ad is limited by Google policy, which cuts the campaign's reach.",
+                [GENERIC_POLICY_FIX],
             ),
             (
                 "no_ad_data",
                 (),
                 "Some ads or asset groups are limited or disapproved by Google policy, which cuts the campaign's reach.",
+                [GENERIC_POLICY_FIX],
+            ),
+            (
+                "names_the_policy_and_text_of_each_ad",
+                (("DISAPPROVED", (TRADEMARK, DESCRIPTIVE, ALCOHOL)), ("APPROVED", (TRADEMARK,))),
+                "1 ad is disapproved by Google policy, which cuts the campaign's reach.",
+                [
+                    'The ad "Ad 0" breaks the policy "Trademarks in ad text" (flagged text: "Acme", "Acme Pro") '
+                    'and is limited by the policy "Alcohol".'
+                ],
+            ),
+            (
+                "only_informational_findings",
+                (("APPROVED_LIMITED", (DESCRIPTIVE,)),),
+                "1 ad is limited by Google policy, which cuts the campaign's reach.",
+                [GENERIC_POLICY_FIX],
+            ),
+            (
+                "more_ads_than_shown_including_ads_without_findings",
+                (*(("DISAPPROVED", (TRADEMARK,)) for _ in range(4)), ("APPROVED_LIMITED", ())),
+                "4 ads are disapproved and 1 ad is limited by Google policy, which cuts the campaign's reach.",
+                [
+                    *(
+                        f'The ad "Ad {i}" breaks the policy "Trademarks in ad text" (flagged text: "Acme", "Acme Pro").'
+                        for i in range(3)
+                    ),
+                    "Filter Ads by the status Disapproved or Eligible (limited) to find 2 more ads. "
+                    "Hover the status of each ad to see which policy it breaks.",
+                ],
             ),
         ]
     )
     def test_policy_limited_counts_affected_ads_and_links_to_the_fix(
-        self, _name: str, statuses: tuple[str, ...], expected_reason: str
+        self,
+        _name: str,
+        ads_spec: tuple[tuple[str, tuple[PolicyTopic, ...]], ...],
+        expected_reason: str,
+        expected_fixes: list[str],
     ) -> None:
         campaign = _campaign(status_reasons=("HAS_ADS_DISAPPROVED",))
         ads = (
             *(
-                Ad(ad_group_id="ag1", campaign_id="c1", texts=COPY, final_urls=(), approval_status=status)
-                for status in statuses
+                Ad(
+                    ad_group_id="ag1",
+                    campaign_id="c1",
+                    texts=COPY,
+                    final_urls=(),
+                    approval_status=status,
+                    headline=f"Ad {i}",
+                    policy_topics=topics,
+                )
+                for i, (status, topics) in enumerate(ads_spec)
             ),
-            Ad(ad_group_id="ag9", campaign_id="other", texts=COPY, final_urls=(), approval_status="DISAPPROVED"),
+            Ad(
+                ad_group_id="ag9",
+                campaign_id="other",
+                texts=COPY,
+                final_urls=(),
+                approval_status="DISAPPROVED",
+                headline="Other campaign",
+                policy_topics=(TRADEMARK,),
+            ),
         )
 
         rec = next(rec for rec in recommend(replace(_inputs((campaign,)), ads=ads)) if rec.rule == "policy_limited")
 
         assert rec.reason == expected_reason
         steps = rec.steps or []
-        assert [step.copyValue for step in steps if step.copyValue] == ["Search"]
+        assert [step.text for step in steps[2:-2]] == expected_fixes
         assert [step.linkText for step in steps if step.url] == ["Campaigns", "Ads", "Policy manager"]
         assert all(step.linkText and step.linkText in step.text for step in steps if step.url)
+        named = [fix for fix in expected_fixes if fix.startswith('The ad "')]
+        assert [step.copyValue for step in steps if step.copyValue] == [
+            "Search",
+            *(f"Ad {i}" for i in range(len(named))),
+        ]
 
     def test_performance_max_gets_brand_exclusion_and_rank_advice(self) -> None:
         pmax = _campaign(

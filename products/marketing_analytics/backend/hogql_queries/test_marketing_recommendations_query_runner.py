@@ -1,3 +1,4 @@
+import json
 from pathlib import Path
 from tempfile import TemporaryDirectory
 
@@ -20,6 +21,7 @@ from posthog.models.organization import OrganizationMembership
 from posthog.models.utils import uuid7
 
 from products.access_control.backend.models.access_control import AccessControl
+from products.marketing_analytics.backend.hogql_queries.marketing_recommendations import PolicyTopic
 from products.marketing_analytics.backend.hogql_queries.marketing_recommendations_query_runner import (
     MarketingAnalyticsRecommendationsQueryRunner,
 )
@@ -285,15 +287,24 @@ class TestMarketingAnalyticsRecommendationsQueryRunner(ClickhouseTestMixin, Base
             "ad_group_ad_ad_final_urls": "String",
             "ad_group_ad_ad_expanded_text_ad_headline_part1": "String",
             "ad_group_ad_policy_summary_approval_status": "String",
+            "ad_group_ad_ad_id": "Int64",
+            "ad_group_ad_policy_summary_policy_topic_entries": "String",
         }
+        policy_entry = {
+            "topic": "TRADEMARKS_IN_AD_TEXT",
+            "type": "PROHIBITED",
+            "evidences": [{"textList": {"texts": ["Acme"]}}],
+        }
+        policy_topics = json.dumps([json.dumps(policy_entry)]).replace('"', '""')
         # The sync stores each text asset as a JSON message inside a JSON list. The paused ad does not show.
         ads = self._table(
             "ad",
             ad_columns,
             ",".join(ad_columns) + "\n"
-            '11,1,ENABLED,"[""{\\""text\\"": \\""Product analytics\\""}""]","[]","[""https://example.com/product""]",,DISAPPROVED\n'
-            '11,1,PAUSED,"[""{\\""text\\"": \\""CRM for dentists\\""}""]","[]","[""https://example.com/crm""]",,APPROVED\n'
-            "11,1,ENABLED,[],[],[],Patient records made simple,APPROVED_LIMITED\n",
+            '11,1,ENABLED,"[""{\\""text\\"": \\""Product analytics\\""}""]","[]","[""https://example.com/product""]",,DISAPPROVED,'
+            f'101,"{policy_topics}"\n'
+            '11,1,PAUSED,"[""{\\""text\\"": \\""CRM for dentists\\""}""]","[]","[""https://example.com/crm""]",,APPROVED,102,[]\n'
+            "11,1,ENABLED,[],[],[],Patient records made simple,APPROVED_LIMITED,103,[]\n",
         )
         source = MarketingAnalyticsRecommendationsSource(
             sourceType="GoogleAds",
@@ -312,9 +323,19 @@ class TestMarketingAnalyticsRecommendationsQueryRunner(ClickhouseTestMixin, Base
 
         response = runner.calculate()
 
-        assert [(ad.campaign_id, ad.final_urls, ad.approval_status) for ad in runner._ads(source)] == [
-            ("1", ("https://example.com/product",), "DISAPPROVED"),
-            ("1", (), "APPROVED_LIMITED"),
+        assert [
+            (ad.campaign_id, ad.final_urls, ad.approval_status, ad.ad_id, ad.headline, ad.policy_topics)
+            for ad in runner._ads(source)
+        ] == [
+            (
+                "1",
+                ("https://example.com/product",),
+                "DISAPPROVED",
+                "101",
+                "Product analytics",
+                (PolicyTopic(topic="TRADEMARKS_IN_AD_TEXT", type="PROHIBITED", texts=("Acme",)),),
+            ),
+            ("1", (), "APPROVED_LIMITED", "103", "Patient records made simple", ()),
         ]
         wasted = [rec for rec in response.results if rec.rule == "spend_without_conversions"]
         assert [rec.subject for rec in wasted] == ["dentist crm", "analytics pricing", "patient records"]
