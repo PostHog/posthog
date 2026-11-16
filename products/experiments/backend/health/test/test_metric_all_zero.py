@@ -371,8 +371,8 @@ class TestMetricAllZero(TestCase):
 
         assert isinstance(outcome, ExperimentHealthFinding)
         self.assertEqual(
-            "The results cover 4 days since the start date. An outcome that comes later after exposure, such as a "
-            "trial that converts when it ends, reads 0 until then." in outcome.detail,
+            "The results cover 4 days since the start date. An outcome that comes days after exposure, such as a "
+            "trial that converts when it ends, reads 0 until it happens." in outcome.detail,
             names_it,
         )
 

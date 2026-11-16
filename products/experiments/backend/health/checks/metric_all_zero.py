@@ -246,7 +246,7 @@ def _detail(worded: list[_Worded], *, hours_of_data: float, has_ended: bool) -> 
         if not has_ended:
             sentences.append(
                 f"The results cover {duration(hours_of_data * _SECONDS_PER_HOUR)} since the start date. An outcome that "
-                "comes later after exposure, such as a trial that converts when it ends, reads 0 until then."
+                "comes days after exposure, such as a trial that converts when it ends, reads 0 until it happens."
             )
         sentences.extend(_usual_causes(without_a_cause))
     return " ".join(dict.fromkeys(sentences))

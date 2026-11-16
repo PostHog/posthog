@@ -255,7 +255,8 @@ def change_finding(
             **change_evidence(
                 history, effect, kind_evidence=kind_evidence, exposed_before_change=history.exposed_before_first
             ),
-            # pinned: a lower bound, because the count stops at MIN_EXPOSED_UNITS_TO_WARN. None when unknown.
+            # pinned: a lower bound once the count reaches its cap (`MAX_COUNTED_BEFORE_CHANGE` rows in
+            # `exposure_gate.py`). None when unknown.
             "min_units_exposed_before_last_change": history.exposed_units_before_last.get(kind),
             # pinned: the start date that MOVE_START_DATE sets, in UTC.
             **(
