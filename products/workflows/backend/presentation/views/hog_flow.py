@@ -86,7 +86,7 @@ from posthog.plugins.plugin_server_api import (
     get_hog_flow_in_flight_count,
     rerun_hog_invocations,
 )
-from posthog.scopes import scopes_not_covered
+from posthog.scopes.checks import scopes_not_covered
 from posthog.synthetic_user import SyntheticUser
 from posthog.user_permissions import UserPermissions
 from posthog.utils import absolute_uri, relative_date_parse_with_delta_mapping

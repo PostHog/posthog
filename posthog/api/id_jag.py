@@ -29,7 +29,7 @@ from posthog.jwt import ASYMMETRIC_SIGNING_ALGORITHMS
 from posthog.models.id_jag_identity import IDENTITY_FIELD_MAX_LENGTH, IdJagIdentity
 from posthog.models.identity_provider_config import IdentityProviderConfig
 from posthog.models.user import User
-from posthog.scopes import OAUTH_SCOPES_SUPPORTED
+from posthog.scopes.oauth import OAUTH_SCOPES_SUPPORTED
 from posthog.security.url_validation import is_url_allowed
 
 logger = structlog.get_logger(__name__)
