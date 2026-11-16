@@ -23,6 +23,7 @@ from posthog.tasks import exporter
 
 from products.access_control.backend.models.access_control import AccessControl
 from products.dashboards.backend.models.dashboard import Dashboard
+from products.dashboards.backend.models.dashboard_tile import DashboardTile, Text
 from products.exports.backend.facade import exporters as export_handlers
 from products.exports.backend.models.exported_asset import DATASET_EXPORT_KIND, ExportedAsset
 from products.exports.backend.tasks.failure_handler import (
@@ -70,6 +71,7 @@ class TestExporterTask(APIBaseTest):
     def setUpTestData(cls) -> None:
         super().setUpTestData()
         dashboard = Dashboard.objects.create(team=cls.team, name="example dashboard", created_by=cls.user)
+        DashboardTile.objects.create(dashboard=dashboard, text=Text.objects.create(team=cls.team, body="example"))
         cls.exported_asset = ExportedAsset.objects.create(
             team=cls.team, dashboard_id=dashboard.id, export_format="image/png"
         )

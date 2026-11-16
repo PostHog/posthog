@@ -22,7 +22,7 @@ from collections.abc import Collection, Sequence
 from datetime import datetime
 from typing import TYPE_CHECKING, Any
 
-from django.db.models import Exists, OuterRef, Prefetch, QuerySet
+from django.db.models import Exists, OuterRef, Prefetch, Q, QuerySet
 from django.utils.timezone import now
 
 from posthog.helpers.full_text_search import to_search_results
@@ -411,6 +411,16 @@ def live_tile_insight_ids(dashboard_id: int) -> list[int]:
             dashboard_id=dashboard_id, insight_id__isnull=False, insight__deleted=False
         ).values_list("insight_id", flat=True)
     )
+
+
+def has_tiles_shown_in_image_export(dashboard_id: int) -> bool:
+    """Whether an image export of this dashboard renders at least one tile. The export view hides widget tiles."""
+    # The caller resolved this id through a team-scoped dashboard lookup first.
+    # nosemgrep: idor-lookup-without-team
+    return DashboardTile.objects.filter(
+        Q(insight__isnull=False, insight__deleted=False) | Q(text__isnull=False) | Q(button_tile__isnull=False),
+        dashboard_id=dashboard_id,
+    ).exists()
 
 
 def unknown_dashboard_ids(dashboard_ids: Collection[int], *, team_id: int) -> list[int]:
@@ -1036,6 +1046,7 @@ __all__ = [
     "dashboards_by_insight",
     "get_dashboard",
     "get_dashboards",
+    "has_tiles_shown_in_image_export",
     "hide_tiles_for_insights",
     "home_dashboard_insights",
     "insight_has_listed_tile",

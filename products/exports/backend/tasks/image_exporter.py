@@ -160,7 +160,7 @@ MEASURE_CONTENT_WIDTH_JS = f"""
         """
 
 ScreenWidth = Literal[600, 800, 1920, 1400, 4000]
-CSSSelector = Literal[".InsightCard", ".ExportedInsight", ".replayer-wrapper", ".heatmap-exporter"]
+CSSSelector = Literal[".DashboardTileCard", ".ExportedInsight", ".replayer-wrapper", ".heatmap-exporter"]
 
 
 def _insight_query_wants_legend(query: dict) -> bool:
@@ -260,7 +260,8 @@ def _export_to_png(
         elif exported_asset.dashboard is not None:
             cache_keys_param = _build_cache_keys_param(insight_cache_keys)
             url_to_render = _exporter_url(f"token={access_token}{cache_keys_param}")
-            wait_for_css_selector = ".InsightCard"
+            # Insight, text and button tiles all carry this class, so a dashboard without insights still renders.
+            wait_for_css_selector = ".DashboardTileCard"
             screenshot_width = 1920
         elif exported_asset.export_context and exported_asset.export_context.get("session_recording_id"):
             # Handle replay export using /exporter route (same as insights/dashboards)
@@ -637,6 +638,13 @@ def export_image(
                     "export_image.calculate_dashboard_insights",
                     dashboard_id=exported_asset.dashboard.id,
                 )
+                # The render waits for a tile, so a dashboard that renders none would hold a browser
+                # session until the page-load timeout on every retry.
+                if not dashboards_api.has_tiles_shown_in_image_export(exported_asset.dashboard.id):
+                    raise InvalidExportContext(
+                        "This dashboard has no insights or text cards to show in an image. "
+                        "Add an insight to the dashboard, then export it again."
+                    )
                 # Use variable overrides from export_context (user's current unsaved selection),
                 # falling back to saved dashboard variables
                 export_context = exported_asset.export_context or {}
