@@ -9,7 +9,7 @@ import { cn } from 'lib/utils/css-classes'
 import { truncate } from 'lib/utils/strings'
 
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
-import { AnyResponseType, MetricsQuery, MetricsQueryLanguage } from '~/queries/schema/schema-general'
+import { AnyResponseType, DashboardFilter, MetricsQuery, MetricsQueryLanguage } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
 
 import { MetricsQueryEditor } from '../components/MetricsQueryEditor'
@@ -33,6 +33,7 @@ interface MetricsQueryNodeProps {
     /** With `setQuery`, shows the builder above the chart, as the insight editor does. */
     editMode?: boolean
     setQuery?: (query: MetricsQuery) => void
+    filtersOverride?: DashboardFilter | null
 }
 
 /** Renders a `MetricsQuery` wherever the generic `Query` component is used —
@@ -52,7 +53,11 @@ export function MetricsQueryNode(props: MetricsQueryNodeProps): JSX.Element | nu
         const { display: _display, ...rest } = props.query
         return rest
     }, [props.query])
-    const dataKey = metricsDataNodeKey('MetricsQueryNode', dataQuery, props.context.insightProps)
+    const dataKey = metricsDataNodeKey(
+        'MetricsQueryNode',
+        props.filtersOverride ? { query: dataQuery, filters: props.filtersOverride } : dataQuery,
+        props.context.insightProps
+    )
     const language = queryLanguage(props.query)
 
     // A new insight starts with no clauses, which the backend rejects, so there is nothing to run yet.
@@ -123,6 +128,7 @@ function MetricsQueryResults({ dataKey: key, ...props }: MetricsQueryNodeProps &
     }, [props.query])
     const logic = dataNodeLogic({
         query: dataQuery,
+        filtersOverride: props.filtersOverride,
         key,
         cachedResults: props.cachedResults,
         loadQueue: props.context.loadQueue,

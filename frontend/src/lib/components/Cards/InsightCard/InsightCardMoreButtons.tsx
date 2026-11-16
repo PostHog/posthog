@@ -41,7 +41,13 @@ export function InsightCardMoreButtons({
                 </LemonButton>
             )}
             {menu.edit && (
-                <LemonButton to={menu.edit.url} fullWidth {...menu.edit.overrideWarning}>
+                <LemonButton
+                    to={menu.edit.onClick ? undefined : menu.edit.url}
+                    onClick={menu.edit.onClick}
+                    data-attr={menu.edit.onClick ? 'dashboard-metrics-panel-edit' : undefined}
+                    fullWidth
+                    {...menu.edit.overrideWarning}
+                >
                     Edit
                 </LemonButton>
             )}

@@ -1,5 +1,6 @@
 import type { Meta, StoryObj } from '@storybook/react'
 
+import { FEATURE_FLAGS } from 'lib/constants'
 import { useDelayedOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { newDashboardLogic } from 'scenes/dashboard/newDashboardLogic'
 import { NewDashboardModal as NewDashboardModalComponent } from 'scenes/dashboard/NewDashboardModal'
@@ -19,6 +20,12 @@ const meta: Meta<typeof NewDashboardModalComponent> = {
             get: {
                 '/api/projects/:team_id/dashboard_templates/': __dashboard_templates as any,
                 '/api/projects/:team_id/dashboard_templates/json_schema/': __dashboard_template_schema as any,
+                '/api/environments/:team_id/metrics/names/': {
+                    results: [{ name: 'http_requests_total', metric_type: 'sum' }],
+                },
+                '/api/environments/:team_id/metrics/attribute_values/': {
+                    results: [{ id: 'example-api', name: 'example-api', count: 1 }],
+                },
             },
         }),
     ],
@@ -42,6 +49,11 @@ export const NewDashboardModal: Story = {
 
         return <NewDashboardModalComponent />
     },
+}
+
+export const NewDashboardWithObservability: Story = {
+    ...NewDashboardModal,
+    parameters: { featureFlags: [FEATURE_FLAGS.METRICS, FEATURE_FLAGS.METRICS_INSIGHT_BUILDER] },
 }
 
 export const NewSelectVariables: Story = {

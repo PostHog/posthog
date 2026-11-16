@@ -72,6 +72,7 @@ describe('metricsStarterDashboardLogic', () => {
     })
 
     it('creates the dashboard, then one unaggregated insight per metric with the service filter', async () => {
+        const onCreated = jest.fn()
         logic.actions.openModal()
         await expectLogic(logic).toDispatchActions(['loadMetricOptionsSuccess'])
         logic.actions.setDashboardName('Billing service')
@@ -82,11 +83,28 @@ describe('metricsStarterDashboardLogic', () => {
         ])
 
         await expectLogic(logic, () => {
-            logic.actions.createDashboard()
+            logic.actions.createDashboard(onCreated)
         }).toDispatchActions(['createDashboardSuccess'])
 
         expect(apiCreateSpy).toHaveBeenCalledTimes(1)
-        expect(apiCreateSpy.mock.calls[0][1]).toEqual({ name: 'Billing service' })
+        expect(onCreated).toHaveBeenCalledTimes(1)
+        expect(apiCreateSpy.mock.calls[0][1]).toEqual({
+            name: 'Billing service',
+            filters: {
+                date_from: '-1h',
+                metricVariables: [
+                    {
+                        name: 'service',
+                        label: 'Service',
+                        source: 'custom',
+                        customValues: ['billing-worker', 'checkout'],
+                        includeAll: true,
+                        current: { values: ['billing-worker'] },
+                    },
+                ],
+            },
+            customization: { tile_spacing: 'condensed' },
+        })
 
         expect(mockInsightCreate).toHaveBeenCalledTimes(2)
         const [countInsight, histogramInsight] = mockInsightCreate.mock.calls.map(([insight]) => insight)
@@ -98,7 +116,7 @@ describe('metricsStarterDashboardLogic', () => {
                     name: 'a',
                     metricName: 'billing.invoices.processed',
                     metricType: 'sum',
-                    filters: [{ key: 'service.name', op: 'eq', value: 'billing-worker' }],
+                    filters: [{ key: 'service.name', op: 'eq', value: '$service' }],
                 },
             ],
         })
