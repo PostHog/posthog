@@ -34,6 +34,24 @@ class TestFindColumnPatterns(SimpleTestCase):
                 ["correlated"],
             ),
             (
+                "outer_ref_after_a_constant_argument",
+                'SELECT "posthog_filesystem"."id" FROM "posthog_filesystem" WHERE EXISTS(SELECT %s AS "a" '
+                'FROM "posthog_filesystem" "U0" WHERE "U0"."path"::text LIKE '
+                '(COALESCE(%s, %s) || COALESCE("posthog_filesystem"."path", %s)) || \'%%\' LIMIT 1)',
+                ["correlated"],
+            ),
+            (
+                "joined_table_prefix_inside_exists",
+                "SELECT 1 FROM posthog_filesystem a WHERE EXISTS(SELECT 1 FROM posthog_filesystem b "
+                "JOIN posthog_filesystem c ON b.path LIKE c.path || '/%%')",
+                ["cross-table"],
+            ),
+            (
+                "operator_inside_a_string_literal",
+                "SELECT a.id FROM posthog_filesystem a WHERE a.path = 'x LIKE b.path' AND a.type = 'y ~ b.type'",
+                [],
+            ),
+            (
                 "joined_table_prefix",
                 "SELECT b.id FROM posthog_filesystem a JOIN posthog_filesystem b ON b.path LIKE a.path || '/%%'",
                 ["cross-table"],

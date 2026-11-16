@@ -20,9 +20,8 @@ _OPERATOR_TAIL = re.compile(r"\*?\s+")
 _CONSTANT_START = re.compile(r"(?:%s|'|E'|\$\d|%\(\w+\)s)")
 # Function wrappers and `'..' ||` prefixes that still leave a constant pattern when their argument is a parameter.
 _WRAPPER = re.compile(r"(?:(?:UPPER|LOWER|ANY|ALL)\s*\(\s*|'(?:[^']|'')*'\s*\|\|\s*|\(\s*)", re.IGNORECASE)
-_OPERAND_END = re.compile(
-    r"\s+(?:AND|OR|THEN|ELSE|END|WHEN|ESCAPE|ORDER|GROUP|LIMIT|HAVING|UNION)\b|[),]|$", re.IGNORECASE
-)
+_OPERAND_STOP = re.compile(r"\s+(?:AND|OR|THEN|ELSE|END|WHEN|ESCAPE|ORDER|GROUP|LIMIT|HAVING|UNION)\b", re.IGNORECASE)
+_LITERAL_OR_COMMENT = re.compile(r"\bE'(?:[^'\\]|\\.|'')*'|'(?:[^']|'')*'|--[^\n]*", re.IGNORECASE)
 _NON_COLUMN_TOKENS = re.compile(
     r"'(?:[^']|'')*'|%s|%\(\w+\)s|\$\d+|::\s*\w+|\b[A-Za-z_]\w*\s*\(|\b(?:E|TEXT|VARCHAR|NULL)\b|\d+", re.IGNORECASE
 )
@@ -54,10 +53,21 @@ class OuterRowPatternError(AssertionError):
 def find_column_patterns(sql: str) -> list[ColumnPattern]:
     if "LIKE" not in sql and "~" not in sql and "like" not in sql and "SIMILAR" not in sql and "similar" not in sql:
         return []
+    masked = _LITERAL_OR_COMMENT.sub(_blank, sql)
     return [
-        ColumnPattern(kind=_classify(sql, position, operand), operand=operand.strip(), position=position)
-        for position, operand in _column_pattern_operands(sql)
+        ColumnPattern(kind=_classify(masked, position, operand), operand=operand.strip(), position=position)
+        for position, operand in _column_pattern_operands(masked)
     ]
+
+
+def _blank(match: re.Match[str]) -> str:
+    # Keeps the length, so positions in the masked statement still index the original one, and keeps the quotes, so a
+    # blanked literal still reads as a constant.
+    text = match.group()
+    if text.startswith("--"):
+        return " " * len(text)
+    quote = text.index("'")
+    return text[: quote + 1] + " " * (len(text) - quote - 2) + "'"
 
 
 def _operator_spans(sql: str) -> Iterator[tuple[int, int]]:
@@ -86,11 +96,24 @@ def _column_pattern_operands(sql: str) -> list[tuple[int, str]]:
             pos = wrapper.end()
         if _CONSTANT_START.match(sql, pos):
             continue
-        end = _OPERAND_END.search(sql, pos)
-        operand = sql[pos : end.start() if end else len(sql)]
+        operand = sql[pos : _operand_end(sql, pos)]
         if _IDENTIFIER.search(_NON_COLUMN_TOKENS.sub(" ", operand)):
             operands.append((op_start, operand))
     return operands
+
+
+def _operand_end(sql: str, pos: int) -> int:
+    depth = 0
+    for i in range(pos, len(sql)):
+        if sql[i] == "(":
+            depth += 1
+        elif sql[i] == ")":
+            if depth == 0:
+                return i
+            depth -= 1
+        elif depth == 0 and (sql[i] == "," or _OPERAND_STOP.match(sql, i)):
+            return i
+    return len(sql)
 
 
 def _matching_paren(sql: str, open_pos: int) -> int:
@@ -149,10 +172,12 @@ def _classify(sql: str, op_pos: int, operand: str) -> PatternKind:
     if not refs:
         return "unknown"
     enclosing = _enclosing_select(sql, op_pos)
+    scope_start = 0
     if enclosing is not None:
-        inner = _scope_aliases(sql[enclosing[0] + 1 : enclosing[1]])
-        return "correlated" if refs - inner else "same-row"
-    lhs = set(_qualified_refs(sql[max(0, op_pos - 120) : op_pos])[-1:])
+        if refs - _scope_aliases(sql[enclosing[0] + 1 : enclosing[1]]):
+            return "correlated"
+        scope_start = enclosing[0]
+    lhs = set(_qualified_refs(sql[max(scope_start, op_pos - 120) : op_pos])[-1:])
     if lhs and refs - lhs:
         return "cross-table"
     return "same-row"
