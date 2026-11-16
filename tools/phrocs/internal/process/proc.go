@@ -24,6 +24,7 @@ import (
 )
 
 const metricsSampleInterval = 1 * time.Second
+const cpuBaselineMaxAge = 10 * time.Second
 const flushInterval = 16 * time.Millisecond
 const stopGracePeriod = 3 * time.Second
 const defaultShell = "/bin/bash"
@@ -101,6 +102,9 @@ type Metrics struct {
 	Children   int       `json:"child_process_count"`
 	FDs        int32     `json:"fd_count"`
 	SampledAt  time.Time `json:"last_sampled_at"`
+
+	cpuKnown bool
+	cpuByPID map[int32]float64
 }
 
 // Snapshot is a point-in-time view of a process suitable for serialization.
@@ -151,6 +155,7 @@ type Process struct {
 	exitCode       *int
 	metrics        *Metrics
 	metricsEnabled atomic.Bool
+	sampleMu       sync.Mutex
 
 	restartCount int // consecutive rapid autorestarts since the last healthy run
 	startGen     int // incremented by every start, so a spawn can tell that a newer start replaced it
@@ -397,7 +402,9 @@ func (p *Process) LastSnapshot() Snapshot {
 	if m := p.metrics; m != nil {
 		snap.MemRSSMB = ptr(m.MemRSSMB)
 		snap.PeakMemRSSMB = ptr(m.PeakMemMB)
-		snap.CPUPercent = ptr(m.CPUPercent)
+		if m.cpuKnown {
+			snap.CPUPercent = ptr(m.CPUPercent)
+		}
 		snap.CPUTimeS = ptr(m.CPUTimeS)
 		snap.ThreadCount = ptr(m.Threads)
 		snap.ChildProcessCount = ptr(m.Children)
@@ -407,8 +414,30 @@ func (p *Process) LastSnapshot() Snapshot {
 	return snap
 }
 
+// cpuPercentSince is false without a recent baseline. Per-PID times keep an
+// exited child from cancelling out the CPU the rest of the tree used.
+func cpuPercentSince(prev map[int32]float64, prevAt time.Time, cur map[int32]float64, now time.Time) (float64, bool) {
+	elapsed := now.Sub(prevAt).Seconds()
+	if prevAt.IsZero() || elapsed <= 0 || now.Sub(prevAt) > cpuBaselineMaxAge {
+		return 0, false
+	}
+	var used float64
+	for pid, cpu := range cur {
+		if before, ok := prev[pid]; ok {
+			used += max(0, cpu-before)
+		} else {
+			used += cpu
+		}
+	}
+	return used / elapsed * 100, true
+}
+
 // sampleMetrics collects resource usage for the process tree and stores it.
 func (p *Process) sampleMetrics(tree processTree) {
+	// The sampler loop and an IPC status request may sample concurrently.
+	p.sampleMu.Lock()
+	defer p.sampleMu.Unlock()
+
 	p.mu.Lock()
 	pid := 0
 	if p.cmd != nil && p.cmd.Process != nil {
@@ -429,17 +458,16 @@ func (p *Process) sampleMetrics(tree processTree) {
 	all := tree.withDescendants(ps)
 
 	var rssBytes uint64
-	var cpuPct, cpuTime float64
+	var cpuTime float64
+	cpuByPID := make(map[int32]float64, len(all))
 	var threads, fds int32
 	for _, proc := range all {
 		if mem, err := proc.MemoryInfo(); err == nil {
 			rssBytes += mem.RSS
 		}
-		if c, err := proc.CPUPercent(); err == nil {
-			cpuPct += c
-		}
 		if ct, err := proc.Times(); err == nil {
 			cpuTime += ct.User + ct.System
+			cpuByPID[proc.Pid] = ct.User + ct.System
 		}
 		if t, err := proc.NumThreads(); err == nil {
 			threads += t
@@ -450,6 +478,7 @@ func (p *Process) sampleMetrics(tree processTree) {
 	}
 
 	rssMB := float64(rssBytes) / 1024 / 1024
+	now := time.Now()
 
 	p.mu.Lock()
 	if p.metrics == nil {
@@ -459,12 +488,13 @@ func (p *Process) sampleMetrics(tree processTree) {
 	if rssMB > p.metrics.PeakMemMB {
 		p.metrics.PeakMemMB = rssMB
 	}
-	p.metrics.CPUPercent = cpuPct
+	p.metrics.CPUPercent, p.metrics.cpuKnown = cpuPercentSince(p.metrics.cpuByPID, p.metrics.SampledAt, cpuByPID, now)
+	p.metrics.cpuByPID = cpuByPID
 	p.metrics.CPUTimeS = cpuTime
 	p.metrics.Threads = threads
 	p.metrics.Children = len(all) - 1
 	p.metrics.FDs = fds
-	p.metrics.SampledAt = time.Now()
+	p.metrics.SampledAt = now
 	p.mu.Unlock()
 }
 
@@ -599,8 +629,6 @@ func (p *Process) startInternal(send func(tea.Msg), isAutoRestart bool) error {
 	// Send initial status message
 	send(StatusMsg{Name: p.Name, Status: currentStatus})
 
-	go p.startMetricsSampler(cmd.Process.Pid, send)
-
 	outChannel := make(chan tea.Msg, 256)
 
 	go func() {
@@ -699,8 +727,6 @@ func (p *Process) startWithPipe(cmd *exec.Cmd, send func(tea.Msg), gen int) erro
 	p.mu.Unlock()
 
 	send(StatusMsg{Name: p.Name, Status: currentStatus})
-
-	go p.startMetricsSampler(cmd.Process.Pid, send)
 
 	outChannel := make(chan tea.Msg, 256)
 
@@ -949,35 +975,6 @@ func (p *Process) readLoop(r io.Reader, outChannel chan tea.Msg) {
 		case <-flushTicker.C:
 			trySend()
 		}
-	}
-}
-
-// Sampling CPU/mem/threads every metricsSampleInterval when metrics are enabled.
-func (p *Process) startMetricsSampler(pid int, send func(tea.Msg)) {
-	origPID := pid
-
-	ticker := time.NewTicker(metricsSampleInterval)
-	defer ticker.Stop()
-
-	for range ticker.C {
-		p.mu.Lock()
-		st := p.status
-		currentPID := 0
-		if p.cmd != nil && p.cmd.Process != nil {
-			currentPID = p.cmd.Process.Pid
-		}
-		p.mu.Unlock()
-
-		if !st.IsRunning() || (currentPID != 0 && currentPID != origPID) {
-			return
-		}
-
-		if !p.metricsEnabled.Load() {
-			continue
-		}
-
-		p.sampleMetrics(loadProcessTree())
-		send(MetricsMsg{})
 	}
 }
 

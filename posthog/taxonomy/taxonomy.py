@@ -522,6 +522,10 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
             "label": "Error tracking issue split",
             "description": "Fires when fingerprints are split out of an error tracking issue into new issues.",
         },
+        "$signals_report_ready": {
+            "label": "Inbox report ready",
+            "description": "Fires when a self-driving Inbox report becomes ready. Destinations use it to act on a new report.",
+        },
         "$conversation_message_sent": {
             "label": "Conversation message sent",
             "description": "Fires when a message is sent in a support conversation.",

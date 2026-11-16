@@ -1,0 +1,29 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "/* service='personhog-replica', operation='claim_lifecycle_marks_read_persons' */\n        SELECT id::bigint as \"id!\", uuid as \"uuid!\"\n        FROM posthog_person\n        WHERE team_id = $1 AND uuid = ANY($2)\n        ORDER BY id\n        ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "id!",
+        "type_info": "Int8"
+      },
+      {
+        "ordinal": 1,
+        "name": "uuid!",
+        "type_info": "Uuid"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int4",
+        "UuidArray"
+      ]
+    },
+    "nullable": [
+      false,
+      false
+    ]
+  },
+  "hash": "29f79782ed89b62462fa767062823b892dcca848d6ec9acc9c23f0d00bfc4ecf"
+}

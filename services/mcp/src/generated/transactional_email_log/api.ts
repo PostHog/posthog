@@ -26,6 +26,8 @@ export const transactionalEmailLogListQueryLimitMax = 200
 export const transactionalEmailLogListQueryOffsetDefault = 0
 export const transactionalEmailLogListQueryOffsetMin = 0
 
+export const transactionalEmailLogListQueryReasonMax = 64
+
 export const TransactionalEmailLogListQueryParams = () => zod.object({
     date_from: zod.iso
         .datetime({ offset: true })
@@ -46,6 +48,14 @@ export const TransactionalEmailLogListQueryParams = () => zod.object({
         .min(transactionalEmailLogListQueryOffsetMin)
         .default(transactionalEmailLogListQueryOffsetDefault)
         .describe('Sends to skip.'),
+    reason: zod
+        .string()
+        .min(1)
+        .max(transactionalEmailLogListQueryReasonMax)
+        .optional()
+        .describe(
+            'Only sends whose delivery status has this reason, such as `soft` for a soft bounce or `sending_paused` for a send skipped while sending was paused.'
+        ),
     search: zod
         .string()
         .optional()
