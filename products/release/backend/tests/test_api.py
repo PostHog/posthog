@@ -344,6 +344,17 @@ class TestReleaseAPI(APIBaseTest):
         ]
         assert self.client.get(self._url("catalog_releases/?search=secret")).json()["results"] == []
 
+    def test_catalog_releases_search_gives_no_hint_of_restricted_generated_names(self) -> None:
+        hidden = [self._flag(key) for key in ("secret-launch", "secret-pricing")]
+        self.client.post(self._url("import_all/"))
+        for flag_id in hidden:
+            self._restrict_as_admin(f"feature_flags/{flag_id}")
+        self.client.force_login(self._create_user("member@example.com"))
+
+        response = self.client.get(self._url("catalog_releases/?search=secret&limit=1"))
+
+        assert response.json() == {"results": [], "has_more": False}
+
     def test_merge_moves_every_link_into_the_kept_release_and_deletes_the_others(self) -> None:
         flags = [self._flag(key) for key in ("checkout-button", "checkout-copy", "checkout-form")]
         survey_id, _ = self._linked_object("survey", "Checkout feedback")

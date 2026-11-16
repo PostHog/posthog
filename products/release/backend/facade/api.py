@@ -147,20 +147,21 @@ def list_page(team_id: int, page: PageRequest, lookups: LinkLookups) -> Page[con
 def list_catalog_page(
     team_id: int, flags: FlagVisibilityLookup, *, search: str, limit: int, offset: int
 ) -> tuple[list[contracts.CatalogReleaseDTO], bool]:
-    releases = list(logic.list_catalog_releases(team_id, search)[offset : offset + limit + 1])
+    releases = list(
+        logic.list_catalog_releases(team_id, search, lambda flag_ids: flags(flag_ids).hidden)[
+            offset : offset + limit + 1
+        ]
+    )
     page = releases[:limit]
     hidden = flags(sorted({flag_id for obj in page for flag_id in obj.feature_flag_ids})).hidden
-    results = []
-    for obj in page:
-        restricted = obj.auto_named and any(flag_id in hidden for flag_id in obj.feature_flag_ids)
-        if restricted and search:
-            continue
-        results.append(
-            contracts.CatalogReleaseDTO(
-                id=obj.id, name=RESTRICTED_NAME if restricted else obj.name, created_at=obj.created_at
-            )
+    return [
+        contracts.CatalogReleaseDTO(
+            id=obj.id,
+            name=RESTRICTED_NAME if obj.auto_named and hidden & set(obj.feature_flag_ids) else obj.name,
+            created_at=obj.created_at,
         )
-    return results, len(releases) > limit
+        for obj in page
+    ], len(releases) > limit
 
 
 def create(input: contracts.CreateReleaseInput, lookups: LinkLookups) -> contracts.ReleaseDTO:
