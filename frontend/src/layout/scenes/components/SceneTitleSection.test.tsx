@@ -2,10 +2,16 @@ import '@testing-library/jest-dom'
 
 import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 
-import { SceneDescription } from './SceneDescription'
-import { SceneName } from './SceneTitleSection'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
-describe('SceneName', () => {
+import { aiShellLogic } from '~/layout/ai/aiShellLogic'
+import { initKeaTests } from '~/test/init'
+
+import { SceneDescription } from './SceneDescription'
+import { SceneName, SceneTitleSection } from './SceneTitleSection'
+
+describe('SceneTitleSection', () => {
     afterEach(() => {
         cleanup()
     })
@@ -119,4 +125,28 @@ describe('SceneName', () => {
         rerenderDescription(<SceneDescription description="Rolled back" canEdit saveOnBlur onChange={jest.fn()} />)
         expect(screen.getByRole('textbox')).toHaveValue('Rolled back')
     })
+
+    // Guards the rail title: it has no PostHog AI button, so without its own registration the open scene's
+    // context (the SQL editor's query) never reaches PostHog AI.
+    test.each([{ railEnabled: true }, { railEnabled: false }])(
+        'registers the scene tool context with PostHog AI, rail enabled: $railEnabled',
+        ({ railEnabled }) => {
+            initKeaTests()
+            featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.TODAY_RAIL_NAV]: railEnabled })
+            aiShellLogic.mount()
+
+            render(
+                <SceneTitleSection
+                    name="SQL editor"
+                    resourceType={{ type: 'sql_editor' }}
+                    maxToolProps={{ identifier: 'execute_sql', context: { current_query: 'SELECT 1' } }}
+                />
+            )
+
+            expect(aiShellLogic.values.registeredToolMap['execute_sql']).toMatchObject({
+                identifier: 'execute_sql',
+                context: { current_query: 'SELECT 1' },
+            })
+        }
+    )
 })

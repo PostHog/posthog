@@ -6,6 +6,7 @@ import { Button, cn } from '@posthog/quill'
 
 import { releaseStageProductForScene } from 'lib/components/ReleaseStageTag/releaseStage'
 import { ReleaseStageTag } from 'lib/components/ReleaseStageTag/ReleaseStageTag'
+import { useMaxTool } from 'scenes/max/useMaxTool'
 import { sceneLogic } from 'scenes/sceneLogic'
 
 import { breadcrumbsLogic } from '~/layout/navigation/Breadcrumbs/breadcrumbsLogic'
@@ -47,12 +48,15 @@ export function QuillSceneTitleSection({
     isGeneratingMetadata,
     descriptionMaxLength,
     sceneId,
+    maxToolProps,
 }: SceneMainTitleProps): JSX.Element {
     const { breadcrumbs } = useValues(breadcrumbsLogic)
     const { activeSceneId } = useValues(sceneLogic)
     const { showDescription } = useValues(sceneLayoutLogic)
     const { toggleShowDescription } = useActions(sceneLayoutLogic)
     const { phoneHeaderShown, sidebarBreadcrumbShown } = useValues(todayShellLogic)
+    // The rail has no PostHog AI button in the title, so the title registers the scene's tool context itself.
+    useMaxTool(maxToolProps ? { ...maxToolProps, active: true } : { identifier: 'read_data', active: false })
     // The phone header shows the title, so this row keeps only the actions. A new resource keeps its name field.
     const titleInPhoneHeader = phoneHeaderShown && !forceEdit
     const releaseStageSceneId = sceneId ?? activeSceneId
