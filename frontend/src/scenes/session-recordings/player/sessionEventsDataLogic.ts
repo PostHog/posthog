@@ -378,9 +378,13 @@ AND properties.$lib != 'web'` +
                     const timestamps = existingEvents.map((ee) => dayjs(ee.timestamp).utc().valueOf())
                     const eventNames = Array.from(new Set(existingEvents.map((ee) => ee.event)))
                     const eventIds = existingEvents.map((ee) => ee.id)
-                    const flagCallIds = flagCallsOnlyInFlagEvaluations(values.currentTeam)
-                        ? existingEvents.filter((ee) => ee.event === FEATURE_FLAG_CALLED_EVENT).map((ee) => ee.id)
+                    const flagCallEvents = flagCallsOnlyInFlagEvaluations(values.currentTeam)
+                        ? existingEvents.filter((ee) => ee.event === FEATURE_FLAG_CALLED_EVENT)
                         : []
+                    const flagCallIds = flagCallEvents.map((ee) => ee.id)
+                    const flagCallDistinctIds = Array.from(
+                        new Set(flagCallEvents.map((ee) => ee.distinct_id).filter(Boolean))
+                    )
                     const earliestTimestamp = timestamps.reduce((a, b) => Math.min(a, b))
                     const latestTimestamp = timestamps.reduce((a, b) => Math.max(a, b))
 
@@ -397,7 +401,8 @@ AND properties.$lib != 'web'` +
                             AND event in ${eventNames}
                             AND uuid in ${eventIds}`
                         // The rows carry exact timestamps, so a few minutes of padding finds them.
-                        // An empty session_id matches the server-side flag calls that loadEvents lists.
+                        // An empty session_id matches the server-side flag calls that loadEvents lists. A row does not
+                        // record which read listed it, and an OR across session_id and distinct_id stops both indexes.
                         const flagCallsQuery = flagCallIds.length
                             ? hogql`
                             SELECT properties, uuid
@@ -405,6 +410,7 @@ AND properties.$lib != 'web'` +
                             WHERE timestamp > ${utcBound(dayjs(earliestTimestamp).subtract(FIVE_MINUTES_IN_MS, 'ms'))}
                             AND timestamp < ${utcBound(dayjs(latestTimestamp).add(FIVE_MINUTES_IN_MS, 'ms'))}
                             AND session_id in ${[props.sessionRecordingId, '']}
+                            AND distinct_id in ${flagCallDistinctIds}
                             AND uuid in ${flagCallIds}`
                             : null
 
