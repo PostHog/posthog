@@ -619,18 +619,19 @@ func (p *Process) startInternal(send func(tea.Msg), isAutoRestart bool) error {
 		exitErr := cmd.Wait()
 		close(waitDone)
 
-		// Close the pty master to unblock readLoop
+		// Close the pty master to unblock readLoop. A start that ran during
+		// Stop's grace period owns p.ptmx by now, so only clear our own.
 		p.mu.Lock()
-		if p.ptmx != nil {
-			_ = p.ptmx.Close()
+		if p.ptmx == ptmx {
 			p.ptmx = nil
 		}
 		p.mu.Unlock()
+		_ = ptmx.Close()
 
 		// Wait for readLoop to drain all buffered output before updating status
 		<-readDone
 		close(outChannel)
-		p.handleExit(cmd, exitErr, send)
+		p.handleExit(cmd, exitErr, send, gen)
 	}()
 
 	return nil
@@ -723,7 +724,7 @@ func (p *Process) startWithPipe(cmd *exec.Cmd, send func(tea.Msg), gen int) erro
 
 		<-readDone
 		close(outChannel)
-		p.handleExit(cmd, exitErr, send)
+		p.handleExit(cmd, exitErr, send, gen)
 	}()
 
 	return nil
@@ -760,7 +761,7 @@ func abandonChild(cmd *exec.Cmd, files ...*os.File) {
 
 // handleExit updates process status after cmd.Wait returns and triggers
 // autorestart if configured. Shared by PTY and pipe paths.
-func (p *Process) handleExit(cmd *exec.Cmd, exitErr error, send func(tea.Msg)) {
+func (p *Process) handleExit(cmd *exec.Cmd, exitErr error, send func(tea.Msg), gen int) {
 	st := StatusDone
 	if exitErr != nil {
 		st = StatusCrashed
@@ -786,7 +787,8 @@ func (p *Process) handleExit(cmd *exec.Cmd, exitErr error, send func(tea.Msg)) {
 		p.restartCount++
 		attempt = p.restartCount
 	}
-	if p.logFile != nil {
+	// A newer start already closed this run's log file and opened its own.
+	if p.startGen == gen && p.logFile != nil {
 		_ = p.logFile.Close()
 		p.logFile = nil
 	}
