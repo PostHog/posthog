@@ -348,10 +348,9 @@ SOCIAL_AUTH_PIPELINE = (
     # that resolve the existing account
     "posthog.api.authentication.social_access_rules_allow",
     "posthog.api.signup.social_create_user",
-    "social_core.pipeline.social_auth.associate_user",
-    # Must run after association, so the account exists, and before the end of the pipeline, where
-    # the session starts
+    # Must run before associate_user, so an unproven identity is never linked to the account
     "posthog.api.authentication.social_require_idp_email_verification",
+    "social_core.pipeline.social_auth.associate_user",
     "social_core.pipeline.social_auth.load_extra_data",
     "social_core.pipeline.user.user_details",
     "posthog.api.authentication.social_grant_staff_to_google_workspace_members",

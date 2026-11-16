@@ -8,6 +8,9 @@ UNVERIFIED_SOCIAL_EMAIL_ERROR = (
 )
 GITHUB_EMAIL_LOOKUP_ERROR = "Couldn't check your email address with GitHub. Wait a minute, then sign in again."
 
+# Backends whose sign-in proves the asserted address by emailing a code to it.
+IDP_SSO_BACKENDS = ("saml", "oidc")
+
 
 def get_safe_next_url(next_url: str | None, request: HttpRequest) -> str | None:
     """Return next_url only when it's a safe same-origin/relative redirect target, else None.

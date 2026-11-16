@@ -58,6 +58,7 @@ from posthog.api.email_verification import email_verification_code_verifier, is_
 from posthog.auth import ACCOUNT_BLOCKED_DETAIL
 from posthog.caching.login_device_cache import check_and_cache_login_device
 from posthog.constants import AUTH_BACKEND_DISPLAY_NAMES, POSTHOG_INTERNAL_EMAIL_SUFFIX
+from posthog.dataclasses import frozen
 from posthog.email import EmailRecipientUndeliverableError, is_email_available
 from posthog.event_usage import report_user_logged_in, report_user_password_reset
 from posthog.exceptions_capture import capture_exception
@@ -68,6 +69,7 @@ from posthog.helpers.email_utils import EmailLookupHandler
 from posthog.helpers.impersonation import end_impersonation
 from posthog.helpers.sso import (
     GITHUB_EMAIL_LOOKUP_ERROR,
+    IDP_SSO_BACKENDS,
     UNVERIFIED_SOCIAL_EMAIL_ERROR,
     is_sso_reauth_begin,
     sso_failure_redirect_url,
@@ -131,6 +133,7 @@ from products.security.backend.facade.enums import Surface as SecuritySurface
 
 if TYPE_CHECKING:
     from posthog.api.oidc import MultitenantOIDCAuth
+    from posthog.api.sso import MultitenantSAMLAuth
 
 logger = structlog.get_logger("posthog.auth")
 mfa_logger = structlog.get_logger("posthog.auth.mfa")
@@ -140,6 +143,15 @@ class WebauthnCredentialPrecheck(TypedDict):
     id: str
     type: str
     transports: list[str]
+
+
+class PendingIdPEmailVerification(TypedDict):
+    provider: str
+    issuer: str
+    subject: str
+    uid: str
+    email: str
+    backend: str
 
 
 def sso_enforcement_for_login_address(email: str, user: User | None) -> str | None:
@@ -285,6 +297,13 @@ class LoginCodeEmailUndeliverable(APIException):
     status_code = 400
     default_detail = "We can't send email to this address, so we can't send you a login code."
     default_code = "login_code_email_undeliverable"
+
+
+def _clear_unverified_local_credentials(user: User) -> bool:
+    # Deferred because posthog.api.signup imports posthog.api.webauthn, which imports this module.
+    from posthog.api.signup import clear_unverified_local_credentials
+
+    return clear_unverified_local_credentials(user)
 
 
 def _send_login_code(
@@ -1194,6 +1213,26 @@ class TwoFactorPasskeyViewSet(NonCreatingViewSetMixin, viewsets.GenericViewSet):
         return Response(json.loads(options_to_json(options)))
 
 
+def _complete_idp_login(request: Request, user: User, pending: PendingIdPEmailVerification) -> None:
+    social = UserSocialAuth.objects.filter(provider=pending["provider"], uid=pending["uid"]).first()
+    if social is not None and social.user_id != user.pk:
+        raise serializers.ValidationError(
+            {"detail": "This identity is linked to another account."}, code="identity_linked_elsewhere"
+        )
+    if social is None:
+        # `associate_user` runs after the gate, so the row is created only once the code accepted.
+        UserSocialAuth.objects.create(user=user, provider=pending["provider"], uid=pending["uid"])
+    IdentityProviderEmailVerification.objects.update_or_create(
+        provider=pending["provider"],
+        issuer=pending["issuer"],
+        subject=pending["subject"],
+        defaults={"user": user, "email": pending["email"]},
+    )
+    _clear_unverified_local_credentials(user)
+    login(request, user, backend=pending["backend"])
+    _notify_social_login(request, user, pending["provider"])
+
+
 class CodeBasedVerificationSerializer(serializers.Serializer):
     code = serializers.CharField(
         help_text="The 6-digit verification code emailed to the user. Whitespace, invisible characters, "
@@ -1266,14 +1305,10 @@ class CodeBasedVerificationViewSet(NonCreatingViewSetMixin, viewsets.GenericView
             raise invalid_error
 
         # Code valid - invalidate the pending state and complete login.
-        sso = request.session.get(CODE_BASED_VERIFICATION_SSO_SESSION_KEY)
+        sso: PendingIdPEmailVerification | None = request.session.get(CODE_BASED_VERIFICATION_SSO_SESSION_KEY)
         code_based_verifier.clear_pending(request)
         if sso:
-            # Record the proof for that issuer, and start the session on the provider's backend so
-            # the SSO-only exemptions still apply.
-            IdentityProviderEmailVerification.objects.get_or_create(user=user, issuer=sso["issuer"])
-            login(request, user, backend=sso["backend"])
-            _notify_social_login(request, user, str(sso["provider"]))
+            _complete_idp_login(request, user, sso)
         else:
             login(request, user, backend="django.contrib.auth.backends.ModelBackend")
             report_user_logged_in(user, social_provider="")
@@ -1651,79 +1686,100 @@ def social_access_rules_allow(
         raise AuthFailed(backend, SECURITY_REFUSAL_CODE)
 
 
-IDP_EMAIL_VERIFICATION_BACKENDS = ("saml", "oidc")
+@frozen
+class IdPIdentity:
+    provider: str
+    issuer: str
+    subject: str
 
 
-def _identity_provider_issuer(backend: BaseAuth, response: dict[str, Any] | None) -> str | None:
-    """The identity provider's own identifier, which is what scopes the emailed-code proof.
+def _identity_provider_identity(
+    backend: BaseAuth, details: dict[str, Any] | None, response: dict[str, Any] | None
+) -> IdPIdentity | None:
+    """Which identity provider identity made this login, or None when it cannot be scoped.
 
-    OIDC keeps the issuer on its config. SAML names the config by relay state in `idp_name`, and the
-    config holds the provider's entity ID, so read the entity ID: two configs can front one provider,
-    and a user who proved the address through one has proved it for the other.
+    `issuer` is the provider's own identifier, so a config repointed to a different provider presents
+    a different value. OIDC keeps the issuer on its config; SAML names the config by relay state in
+    `idp_name`, and the config holds the provider's entity ID.
     """
     if backend.name == "oidc":
         try:
             oidc_config = cast("MultitenantOIDCAuth", backend).identity_provider_config
         except AuthFailed:
             return None
-        return oidc_config.oidc_issuer_url.rstrip("/") or None
+        issuer = oidc_config.oidc_issuer_url.rstrip("/")
+    else:
+        relay_state = (response or {}).get("idp_name")
+        if not relay_state:
+            return None
+        issuer = (
+            IdentityProviderConfig.objects.filter(saml_relay_state=relay_state)
+            .values_list("saml_entity_id", flat=True)
+            .first()
+            or ""
+        )
 
-    relay_state = (response or {}).get("idp_name")
-    if not relay_state:
-        return None
-    issuer = (
-        IdentityProviderConfig.objects.filter(saml_relay_state=relay_state)
-        .values_list("saml_entity_id", flat=True)
-        .first()
+    subject = cast("MultitenantOIDCAuth | MultitenantSAMLAuth", backend).get_identity_subject(
+        details or {}, response or {}
     )
-    return issuer or None
+    if not issuer or not subject:
+        return None
+    return IdPIdentity(provider=backend.name, issuer=issuer, subject=subject)
 
 
 def social_require_idp_email_verification(
     strategy: DjangoStrategy,
     backend: BaseAuth,
+    uid: str | None = None,
     user: User | None = None,
     details: dict[str, Any] | None = None,
     response: dict[str, Any] | None = None,
     **kwargs: Any,
 ) -> HttpResponse | None:
-    """Hold the first login through an identity provider until the user enters a code mailed to the
-    address that provider asserted.
+    """Hold a login through an identity provider until the user enters a code mailed to the address
+    that provider asserted for this identity.
 
-    A response from a pipeline step makes `do_complete` return it instead of starting a session, so
-    the login stays incomplete until the verification endpoint accepts the code.
+    Runs before `associate_user`, so an unproven identity is never linked to the account, and a
+    response from a pipeline step makes `do_complete` return it instead of starting a session.
     """
-    if user is None or backend.name not in IDP_EMAIL_VERIFICATION_BACKENDS:
+    if user is None or not uid or backend.name not in IDP_SSO_BACKENDS:
         return None
     if _sso_reauth_request(strategy):
-        # A step-up re-auth continues a signed-in session, so it is not that user's first login.
+        # A step-up re-auth continues a signed-in session, so it is not a new identity.
         return None
 
-    issuer = _identity_provider_issuer(backend, response)
-    email = ((details or {}).get("email") or "").strip()
-    if not issuer or not email:
+    identity = _identity_provider_identity(backend, details, response)
+    email = ((details or {}).get("email") or "").strip().lower()
+    if identity is None or not email:
         return None
-    if IdentityProviderEmailVerification.objects.filter(user=user, issuer=issuer).exists():
+
+    if IdentityProviderEmailVerification.objects.filter(
+        provider=identity.provider, issuer=identity.issuer, subject=identity.subject, email=email
+    ).exists():
+        # The identity proved this address before, so the account can drop local credentials it
+        # never trusted. A refused send below leaves them in place.
+        _clear_unverified_local_credentials(user)
         return None
 
     request = strategy.request
     try:
         sent = _send_login_code(request, user, target_email=email)
     except LoginCodeEmailUndeliverable:
-        # The provider refuses mail for this address, so the user cannot complete the step. Refusing
-        # the login as well would lock the account out, and the step retries on the next login.
+        # The provider refuses mail for this address, so refusing the login as well would lock the
+        # account out. The step retries on the next login.
         logger.warning("idp_email_verification_code_undeliverable", user_id=user.pk, backend=backend.name)
         sent = False
     if not sent:
-        # No email configured, or an access rule exempts the address. A refused send must not lock
-        # out every account this provider signs in.
         return None
 
-    request.session[CODE_BASED_VERIFICATION_SSO_SESSION_KEY] = {
-        "issuer": issuer,
-        "backend": f"{backend.__module__}.{backend.__class__.__name__}",
-        "provider": backend.name,
-    }
+    request.session[CODE_BASED_VERIFICATION_SSO_SESSION_KEY] = PendingIdPEmailVerification(
+        provider=identity.provider,
+        issuer=identity.issuer,
+        subject=identity.subject,
+        uid=str(uid),
+        email=email,
+        backend=f"{backend.__module__}.{backend.__class__.__name__}",
+    )
     query = {"code_verification_pending": "1", "email": email}
     next_url = strategy.session_get("next") or ""
     if next_url:

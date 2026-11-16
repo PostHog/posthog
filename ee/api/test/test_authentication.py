@@ -254,6 +254,8 @@ class TestOIDCAuthentication(APILicensedTest):
             self.assertEqual(query["code_verification_pending"], ["1"])
             self.assertEqual(query["email"], ["member@example.com"])
             self.assertNotIn("_auth_user_id", self.client.session)
+            # The identity is linked only once the code is accepted.
+            self.assertFalse(UserSocialAuth.objects.filter(user=self.user, provider="oidc").exists())
 
             code = mock_send.call_args[0][1]
             response = self.client.post("/api/login/code-based-verification/", {"code": code})
@@ -264,8 +266,16 @@ class TestOIDCAuthentication(APILicensedTest):
         self.assertEqual(self.client.session["_auth_user_backend"], "posthog.api.oidc.MultitenantOIDCAuth")
         self.assertTrue(
             IdentityProviderEmailVerification.objects.filter(
-                user=self.user, issuer=self.config.oidc_issuer_url
+                user=self.user,
+                provider="oidc",
+                issuer=self.config.oidc_issuer_url,
+                subject="example-user",
+                email="member@example.com",
             ).exists()
+        )
+        self.assertEqual(
+            UserSocialAuth.objects.get(user=self.user, provider="oidc").uid,
+            f"{self.config.oidc_issuer_url}:example-user",
         )
 
         self.client.logout()
@@ -275,17 +285,66 @@ class TestOIDCAuthentication(APILicensedTest):
         self.assertEqual(self.client.session["_auth_user_id"], str(self.user.pk))
 
     @pytest.mark.disable_mock_code_based_verifier
+    def test_a_second_identity_at_the_same_issuer_needs_its_own_code(self) -> None:
+        # Proving the mailbox for one identity must not enroll every identity at that provider, or a
+        # second account asserting the same address would skip the check.
+        self.user.email = "member@example.com"
+        self.user.save()
+        self.client.logout()
+        IdentityProviderEmailVerification.objects.create(
+            user=self.user,
+            provider="oidc",
+            issuer=self.config.oidc_issuer_url,
+            subject="example-user",
+            email="member@example.com",
+        )
+
+        with enable_code_sending() as mock_send:
+            response = self._complete_oidc_login("member@example.com", sub="another-identity")
+
+        self.assertIn("code_verification_pending=1", response["Location"])
+        self.assertTrue(mock_send.called)
+        self.assertNotIn("_auth_user_id", self.client.session)
+        self.assertFalse(UserSocialAuth.objects.filter(user=self.user, provider="oidc").exists())
+
+    @pytest.mark.disable_mock_code_based_verifier
     def test_the_proof_is_scoped_to_the_issuer(self) -> None:
         self.user.email = "member@example.com"
         self.user.save()
         self.client.logout()
-        IdentityProviderEmailVerification.objects.create(user=self.user, issuer="https://other-idp.example.com")
+        IdentityProviderEmailVerification.objects.create(
+            user=self.user,
+            provider="oidc",
+            issuer="https://other-idp.example.com",
+            subject="example-user",
+            email="member@example.com",
+        )
 
         with enable_code_sending() as mock_send:
             response = self._complete_oidc_login("member@example.com")
 
         self.assertIn("code_verification_pending=1", response["Location"])
         self.assertTrue(mock_send.called)
+        self.assertNotIn("_auth_user_id", self.client.session)
+
+    @pytest.mark.disable_mock_code_based_verifier
+    def test_a_changed_asserted_address_needs_a_new_code(self) -> None:
+        self.user.email = "member@example.com"
+        self.user.save()
+        self.client.logout()
+        IdentityProviderEmailVerification.objects.create(
+            user=self.user,
+            provider="oidc",
+            issuer=self.config.oidc_issuer_url,
+            subject="example-user",
+            email="previously-asserted@example.com",
+        )
+
+        with enable_code_sending() as mock_send:
+            response = self._complete_oidc_login("member@example.com")
+
+        self.assertIn("code_verification_pending=1", response["Location"])
+        self.assertEqual(mock_send.call_args.kwargs["to_email"], "member@example.com")
         self.assertNotIn("_auth_user_id", self.client.session)
 
     @pytest.mark.disable_mock_code_based_verifier
@@ -307,6 +366,35 @@ class TestOIDCAuthentication(APILicensedTest):
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(self.client.session["_auth_user_id"], str(self.user.pk))
+        self.assertEqual(
+            IdentityProviderEmailVerification.objects.get(user=self.user, provider="oidc").email,
+            "member@example.com",
+        )
+
+    @pytest.mark.disable_mock_code_based_verifier
+    def test_a_gated_login_leaves_the_account_alone_until_the_code_is_accepted(self) -> None:
+        self.user.email = "member@example.com"
+        self.user.is_email_verified = None
+        self.user.save()
+        self.assertTrue(self.user.has_usable_password())
+        self.client.logout()
+
+        with enable_code_sending() as mock_send:
+            response = self._complete_oidc_login("member@example.com", sub="new-identity")
+
+            self.assertIn("code_verification_pending=1", response["Location"])
+            self.user.refresh_from_db()
+            self.assertTrue(self.user.has_usable_password())
+            self.assertIsNone(self.user.is_email_verified)
+            self.assertFalse(UserSocialAuth.objects.filter(user=self.user, provider="oidc").exists())
+
+            code = mock_send.call_args[0][1]
+            response = self.client.post("/api/login/code-based-verification/", {"code": code})
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.user.refresh_from_db()
+        self.assertFalse(self.user.has_usable_password())
+        self.assertTrue(self.user.is_email_verified)
 
     @pytest.mark.disable_mock_code_based_verifier
     def test_login_continues_when_the_asserted_address_refuses_mail(self) -> None:
@@ -1569,6 +1657,7 @@ class TestEESAMLAuthenticationAPI(APILicensedTest):
             self.assertEqual(response.status_code, 302)
             self.assertIn("code_verification_pending=1", response["Location"])
             self.assertNotIn("_auth_user_id", self.client.session)
+            self.assertFalse(UserSocialAuth.objects.filter(user=user, provider="saml").exists())
 
             config = cast(IdentityProviderConfig, self.organization_domain.saml_identity_provider_configs.first())
             code = mock_send.call_args[0][1]
@@ -1578,7 +1667,13 @@ class TestEESAMLAuthenticationAPI(APILicensedTest):
         self.assertEqual(self.client.session["_auth_user_id"], str(user.pk))
         self.assertEqual(self.client.session["_auth_user_backend"], "posthog.api.sso.MultitenantSAMLAuth")
         self.assertTrue(
-            IdentityProviderEmailVerification.objects.filter(user=user, issuer=config.saml_entity_id).exists()
+            IdentityProviderEmailVerification.objects.filter(
+                user=user,
+                provider="saml",
+                issuer=config.saml_entity_id,
+                subject="engineering@posthog.com",
+                email="engineering@posthog.com",
+            ).exists()
         )
 
         self.client.logout()

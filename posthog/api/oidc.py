@@ -246,9 +246,13 @@ class MultitenantOIDCAuth(OpenIdConnectAuth):
             raise AuthFailed(self, "The OIDC email domain does not belong to this identity provider configuration.")
         return userinfo
 
+    def get_identity_subject(self, details: dict[str, Any], response: dict[str, Any]) -> str:
+        """The provider's stable identifier for this user, which scopes the emailed-code proof."""
+        return response["sub"]
+
     def get_user_id(self, details: dict[str, Any], response: dict[str, Any]) -> str:
         issuer = self.identity_provider_config.oidc_issuer_url.rstrip("/")
-        user_id = f"{issuer}:{response['sub']}"
+        user_id = f"{issuer}:{self.get_identity_subject(details, response)}"
         if len(user_id) > 255:
             raise AuthFailed(self, "The OIDC user identifier is too long.")
         return user_id

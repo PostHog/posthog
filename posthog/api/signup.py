@@ -46,6 +46,7 @@ from posthog.helpers.oauth_pending_connection import (
     apply_pending_connection_onboarding_skip,
     read_pending_oauth_connection,
 )
+from posthog.helpers.sso import IDP_SSO_BACKENDS
 from posthog.helpers.verified_domain_enforcement import resolve_login_organization
 from posthog.inbox_providers import InboxProvider, InboxProviderLookup
 from posthog.models import (
@@ -1229,6 +1230,19 @@ def _resolve_invite_organization(invite_id: str) -> Optional[Organization]:
     return invite.organization
 
 
+def clear_unverified_local_credentials(user: User) -> bool:
+    """Clear credentials an unverified account never trusted, once the asserted address is proven."""
+    if user.is_email_verified:
+        return False
+    logger.info(f"social_create_user_is_not_new_unverified_clearing_local_credentials")
+    user.set_unusable_password()
+    WebauthnCredential.objects.filter(user=user).delete()
+    user.passkeys_enabled_for_2fa = False
+    user.is_email_verified = True
+    user.save()
+    return True
+
+
 @partial
 def social_create_user(
     strategy: DjangoStrategy,
@@ -1279,15 +1293,9 @@ def social_create_user(
         # on the organization domain or if JIT provisioning is enabled, we'll provision them.
         logger.info(f"social_create_user_is_not_new")
 
-        if not user.is_email_verified:
-            # Email isn't verified yet — anyone could have set these local credentials.
-            # Wipe them before linking the SSO identity.
-            logger.info(f"social_create_user_is_not_new_unverified_clearing_local_credentials")
-            user.set_unusable_password()
-            WebauthnCredential.objects.filter(user=user).delete()
-            user.passkeys_enabled_for_2fa = False
-            user.is_email_verified = True
-            user.save()
+        if backend.name not in IDP_SSO_BACKENDS:
+            # A SAML or OIDC login clears these only once the emailed code proves the address.
+            clear_unverified_local_credentials(user)
 
         if invite_id:
             process_social_invite_signup(strategy, invite_id, user.email, user.first_name, user, backend=backend)

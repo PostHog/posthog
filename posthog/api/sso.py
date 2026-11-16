@@ -433,14 +433,16 @@ class MultitenantSAMLAuth(SAMLAuth):
             "Authentication failed. The email domain from your identity provider does not match the configured domain.",
         )
 
+    def get_identity_subject(self, details, response):
+        USER_ID_ATTRIBUTES = ["name_id", "NAME_ID", "nameId", OID_USERID]
+        return self._get_attr(response["attributes"], USER_ID_ATTRIBUTES)
+
     def get_user_id(self, details, response):
         """
         Overridden to find user ID across multiple attribute names.
         Get the permanent ID for this user from the response.
         """
-        USER_ID_ATTRIBUTES = ["name_id", "NAME_ID", "nameId", OID_USERID]
-        uid = self._get_attr(response["attributes"], USER_ID_ATTRIBUTES)
-        return f"{response['idp_name']}:{uid}"
+        return f"{response['idp_name']}:{self.get_identity_subject(details, response)}"
 
 
 class CustomGoogleOAuth2(GoogleOAuth2):

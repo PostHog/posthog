@@ -4,11 +4,13 @@ from posthog.models.utils import UUIDModel
 
 
 class IdentityProviderEmailVerification(UUIDModel):
-    """The user entered a code mailed to the address an identity provider asserted for them.
+    """The user entered a code mailed to the address an identity provider asserted for one identity.
 
-    Scoped by the provider's issuer rather than by `IdentityProviderConfig`: two configs can front
-    the same IdP, so proving the address through one proves it for the other. A different issuer is
-    a different IdP, and needs its own proof.
+    Keyed by the provider's issuer and its subject (OIDC `sub`, SAML name ID) rather than by
+    `IdentityProviderConfig` or by user: two configs can front the same IdP, but a second identity
+    at that IdP has proved nothing, and a config repointed to a different IdP presents a different
+    issuer, so neither inherits this row. `email` is the address the code was mailed to, so a
+    changed assertion needs a new code.
     """
 
     objects: models.Manager["IdentityProviderEmailVerification"]
@@ -21,9 +23,21 @@ class IdentityProviderEmailVerification(UUIDModel):
         db_constraint=False,
         related_name="identity_provider_email_verifications",
     )
+    provider = models.CharField(
+        max_length=32,
+        help_text="SSO backend that issued the assertion, such as saml or oidc.",
+    )
     issuer = models.CharField(
         max_length=512,
         help_text="OIDC issuer URL or SAML entity ID of the identity provider that asserted the address.",
+    )
+    subject = models.CharField(
+        max_length=255,
+        help_text="The identity provider's own identifier for the user, such as an OIDC sub or a SAML name ID.",
+    )
+    email = models.EmailField(
+        max_length=254,
+        help_text="The asserted address the code was mailed to. A different address needs a new code.",
     )
     verified_at = models.DateTimeField(
         auto_now_add=True,
@@ -33,8 +47,8 @@ class IdentityProviderEmailVerification(UUIDModel):
     class Meta:
         verbose_name = "identity provider email verification"
         constraints = [
-            models.UniqueConstraint(fields=["user", "issuer"], name="unique_idp_email_verification"),
+            models.UniqueConstraint(fields=["provider", "issuer", "subject"], name="unique_idp_email_verification"),
         ]
 
     def __str__(self) -> str:
-        return self.issuer
+        return f"{self.issuer} {self.subject}"
