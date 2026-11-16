@@ -1013,16 +1013,14 @@ function mapOf(topology) {
         for (const c of card ? [card] : allCards) {
             for (const valve of c.valves ?? []) {
                 const part = partOfTarget(valve.target)
-                const entry = perPart.get(part) ?? { cards: new Set(), labels: [] }
+                const entry = perPart.get(part) ?? { cards: new Set(), valves: [] }
                 entry.cards.add(c.id)
-                if (!entry.labels.includes(valvePlain(valve))) {
-                    entry.labels.push(valvePlain(valve))
-                }
+                entry.valves.push(valve)
                 perPart.set(part, entry)
             }
         }
         let row = 0
-        for (const [part, { cards: hitBy, labels }] of perPart) {
+        for (const [part, { cards: hitBy, valves }] of perPart) {
             const p = placed[part]
             if (!p) {
                 continue
@@ -1037,7 +1035,13 @@ function mapOf(topology) {
                     card ? s('line', { x1: cx, y1: cy, x2: cx, y2: labelY + 4 }) : null,
                     s('circle', { cx, cy, r: 10 }),
                     s('text', { x: cx, y: cy + 4, class: 'pin-mark' }, card ? '!' : String(hitBy.size)),
-                    card ? s('text', { x: cx - 6, y: labelY, class: 'pin-label' }, labels.join('; ')) : null
+                    card
+                        ? s(
+                              'text',
+                              { x: cx - 6, y: labelY, class: 'pin-label' },
+                              [...new Set(valveLines(valves))].join('; ')
+                          )
+                        : null
                 )
             )
         }
