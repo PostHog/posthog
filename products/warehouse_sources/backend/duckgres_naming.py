@@ -18,13 +18,13 @@ def duckgres_data_imports_table_name_for_version(
 ) -> str:
     raw_name = f"{source_type}_{prefix}_{normalized_name}" if prefix else f"{source_type}_{normalized_name}"
     if naming_version == "copy_v1":
-        return _sanitize_identifier(raw_name, default_prefix="data_import")
+        return sanitize_duckgres_identifier(raw_name, default_prefix="data_import")
     if naming_version == "legacy_batch_v1":
         return NamingConvention.normalize_identifier(raw_name, max_length=_DUCKGRES_IDENTIFIER_MAX_LENGTH)
     raise ValueError(f"Unsupported Duckgres data imports table naming version: {naming_version!r}")
 
 
-def _sanitize_identifier(raw: str, *, default_prefix: str) -> str:
+def sanitize_duckgres_identifier(raw: str, *, default_prefix: str) -> str:
     cleaned = _IDENTIFIER_SANITIZE_RE.sub("_", (raw or "").strip()).strip("_").lower()
     if not cleaned:
         cleaned = default_prefix
