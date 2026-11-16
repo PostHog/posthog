@@ -75,8 +75,8 @@ export function DashboardIntervalFilter(): JSX.Element {
                 value={effectiveEditBarFilters.interval ?? null}
                 dropdownMatchSelectWidth={false}
                 onChange={(interval) => {
-                    if (!dashboardEditing?.filters) {
-                        setDashboardEditing({ filters: true, layout: false }, DashboardEventSource.DashboardFilters)
+                    if (!dashboardEditing) {
+                        setDashboardEditing(true, DashboardEventSource.DashboardFilters)
                     }
                     setInterval(interval)
                 }}
@@ -119,9 +119,7 @@ export function DashboardEditBar({ showDateFilter = true, className }: Dashboard
                 className ??
                 clsx(
                     'flex gap-2 items-end flex-wrap border',
-                    dashboardEditing?.filters
-                        ? '-m-1.5 p-1.5 border-primary border-dashed rounded-lg'
-                        : 'border-transparent'
+                    dashboardEditing ? '-m-1.5 p-1.5 border-primary border-dashed rounded-lg' : 'border-transparent'
                 )
             }
         >
@@ -147,11 +145,8 @@ export function DashboardEditBar({ showDateFilter = true, className }: Dashboard
                             dateTo={effectiveEditBarFilters.date_to}
                             explicitDate={effectiveEditBarFilters.explicitDate}
                             onChange={(from_date, to_date, explicitDate) => {
-                                if (!dashboardEditing?.filters) {
-                                    setDashboardEditing(
-                                        { filters: true, layout: false },
-                                        DashboardEventSource.DashboardFilters
-                                    )
+                                if (!dashboardEditing) {
+                                    setDashboardEditing(true, DashboardEventSource.DashboardFilters)
                                 }
                                 setDates(from_date, to_date, explicitDate)
                             }}
@@ -181,8 +176,8 @@ export function DashboardEditBar({ showDateFilter = true, className }: Dashboard
             >
                 <PropertyFilters
                     onChange={(properties) => {
-                        if (!dashboardEditing?.filters) {
-                            setDashboardEditing({ filters: true, layout: false }, DashboardEventSource.DashboardFilters)
+                        if (!dashboardEditing) {
+                            setDashboardEditing(true, DashboardEventSource.DashboardFilters)
                         }
                         setProperties(properties)
                     }}
@@ -218,11 +213,8 @@ export function DashboardEditBar({ showDateFilter = true, className }: Dashboard
                         isFunnels={false}
                         showLabel={false}
                         updateBreakdownFilter={(breakdown_filter) => {
-                            if (!dashboardEditing?.filters) {
-                                setDashboardEditing(
-                                    { filters: true, layout: false },
-                                    DashboardEventSource.DashboardFilters
-                                )
+                            if (!dashboardEditing) {
+                                setDashboardEditing(true, DashboardEventSource.DashboardFilters)
                             }
                             let saved_breakdown_filter: BreakdownFilter | null = breakdown_filter
                             // taxonomicBreakdownFilterLogic can generate an empty breakdown_filter object

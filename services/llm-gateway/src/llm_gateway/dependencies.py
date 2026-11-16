@@ -19,14 +19,13 @@ from llm_gateway.circuit_breaker import AnthropicCircuitBreaker
 from llm_gateway.config import get_settings
 from llm_gateway.flags import evaluate_flag
 from llm_gateway.products.config import (
-    ALLOWED_PRODUCTS,
     INTERNAL_RUN_SCOPE,
     POSTHOG_CODE_PRODUCT,
     check_free_tier_model_access,
     check_product_access,
     get_product_config,
     get_required_model_flag,
-    resolve_product_alias,
+    validate_product,
 )
 from llm_gateway.rate_limiting.cost_refresh import ensure_costs_fresh
 from llm_gateway.rate_limiting.runner import ThrottleRunner
@@ -72,13 +71,7 @@ async def get_authenticated_user(
 
 
 def get_product_from_request(request: Request) -> str:
-    path = request.url.path
-    parts = path.strip("/").split("/")
-    if parts:
-        product = resolve_product_alias(parts[0])
-        if product in ALLOWED_PRODUCTS:
-            return product
-    return "llm_gateway"
+    return validate_product(request.url.path.strip("/").split("/")[0])
 
 
 async def get_cached_body(request: Request) -> bytes | None:

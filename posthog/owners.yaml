@@ -14,7 +14,7 @@ rules:
     - match: '/egress/'
       owners: team-devex
     - match: '/email.py'
-      owners: team-platform-features
+      owners: team-workflows
     - match: '/heatmaps/'
       owners: team-web-analytics
     - match: '/hogql/'
@@ -70,7 +70,14 @@ rules:
           - '/ownership/test/test_*.py'
           - '/scheduling/test/test_*.py'
           - '/slo/test/test_*.py'
+          - '/test/repo_invariants/test_*.py'
       owners: team-devex
+    - match:
+          - '/security/test/test_*.py'
+      owners: team-security
+    - match:
+          - '/credentials_service/test/test_*.py'
+      owners: team-warehouse-sources
     - match:
           - '/kafka_client/test/test_*.py'
           - '/personhog_client/test_*.py'

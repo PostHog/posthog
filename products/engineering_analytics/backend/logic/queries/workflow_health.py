@@ -31,6 +31,7 @@ from products.engineering_analytics.backend.facade.contracts import (
     WorkflowHealthItem,
     WorkflowHealthRunScope,
 )
+from products.engineering_analytics.backend.logic._shared import _prior_window
 from products.engineering_analytics.backend.logic.queries._buckets import (
     Granularity,
     bucket_expr,
@@ -230,7 +231,7 @@ def query_time_to_green_series(
     }
     date_to_clause = date_to_filter_clause(date_to, placeholders)
     sql = (
-        _TIME_TO_GREEN_SELECT.replace("__RUNS_SOURCE__", curated.run_source(started_floor=True))
+        _TIME_TO_GREEN_SELECT.replace("__RUNS_SOURCE__", curated.run_source(started_floor=True, since=date_from))
         .replace("__DATE_TO__", date_to_clause)
         .replace("__BUCKET_FN__", bucket_expr(granularity, "round_start"))
     )
@@ -272,7 +273,7 @@ def query_time_to_green_window(
     }
     date_to_clause = date_to_filter_clause(date_to, placeholders)
     sql = (
-        _TIME_TO_GREEN_WINDOW_SELECT.replace("__RUNS_SOURCE__", curated.run_source(started_floor=True))
+        _TIME_TO_GREEN_WINDOW_SELECT.replace("__RUNS_SOURCE__", curated.run_source(started_floor=True, since=prev_from))
         .replace("__DATE_TO__", date_to_clause)
         .replace("__CUR__", windows.current)
         .replace("__PREV__", windows.previous)
@@ -302,7 +303,9 @@ def query_workflow_health(
     run_scope_clause = run_scope_filter_clause(run_scope)
     workflow_clause = workflow_name_filter_clause(workflow_name, placeholders)
 
-    runs_source = curated.run_source(started_floor=True)
+    prev_from = _prior_window(date_from, date_to).scan_from
+    # One source feeds both the current and the previous window, so it must cover the earlier start.
+    runs_source = curated.run_source(started_floor=True, since=prev_from)
 
     def fill(template: str) -> str:
         return (
@@ -314,8 +317,6 @@ def query_workflow_health(
             .replace("__BUCKET_FN__", bucket_expr(granularity))
         )
 
-    end = date_to or datetime.now(tz=date_from.tzinfo)
-    prev_from = date_from - (end - date_from)
     with curated.concurrent_reads() as reads:
         headline_read = reads.submit(
             lambda: curated.run(

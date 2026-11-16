@@ -60,7 +60,8 @@ Create an **API key** in your Squarespace site under **Settings → Advanced →
 - **Orders** (orders, transactions)
 - **Products** (products, inventory, store pages)
 - **Profiles** (profiles)
-- **Discounts** (fulfillment options)
+- **Contacts** (contacts, contact address book)
+- **Discounts** (discounts, fulfillment options)
 
 The Commerce APIs (orders, inventory) require the merchant to be on a Commerce plan. Webhook subscriptions are not available with API-key auth, so this source polls on a schedule.""",
             iconPath="/static/services/squarespace.png",
@@ -94,6 +95,12 @@ The Commerce APIs (orders, inventory) require the merchant to be on a Commerce p
                 "Your Squarespace API key (or the site's plan) is missing access needed to sync this data. "
                 "Grant the relevant permission — and ensure the site is on a Commerce plan for orders/inventory — "
                 "then reconnect."
+            ),
+            # Squarespace returns 402 for every request against a site with expired billing, per its
+            # changelog. Resyncing can't fix the merchant's own billing state.
+            "402 Client Error: Payment Required for url: https://api.squarespace.com": (
+                "Your Squarespace site's billing is expired, so Squarespace is refusing API access. "
+                "Resolve the site's billing in Squarespace, then reconnect."
             ),
         }
 

@@ -635,6 +635,28 @@ class TestGenerateChangeSummary:
         messages = mock_client.chat.completions.create.call_args.kwargs["messages"]
         assert isinstance(messages[-1]["content"], str)
 
+    @parameterized.expand(
+        [
+            ("trends_only", ["TrendsQuery"], True),
+            ("stickiness_only", ["StickinessQuery"], False),
+            ("stickiness_with_trends", ["StickinessQuery", "TrendsQuery"], True),
+        ]
+    )
+    @patch("products.subscriptions.backend.temporal.llm_change_summary._get_openai_client")
+    def test_adds_trend_field_rules_only_for_calendar_time_series(self, _name, query_kinds, expected, mock_get_client):
+        mock_client = mock_get_client.return_value
+        mock_client.chat.completions.create.return_value = _mock_openai_response("- ok")
+
+        current = [
+            _make_state(index, f"Insight {index}", "...", query_kind=kind, timestamp="2025-04-15T10:00:00Z")
+            for index, kind in enumerate(query_kinds, start=1)
+        ]
+
+        generate_change_summary(None, current, team=None)
+
+        system_content = mock_client.chat.completions.create.call_args.kwargs["messages"][0]["content"]
+        assert ("Trend series fields:" in system_content) is expected
+
     @patch("products.subscriptions.backend.temporal.llm_change_summary._get_openai_client")
     def test_skips_images_for_insights_not_in_current_states(self, mock_get_client):
         mock_client = mock_get_client.return_value

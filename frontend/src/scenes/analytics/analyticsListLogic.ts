@@ -13,7 +13,6 @@ import { userLogic } from 'scenes/userLogic'
 
 import { projectTreeDataLogic } from '~/layout/panel-layout/ProjectTree/projectTreeDataLogic'
 import { isPathUnder, joinPath, splitPath } from '~/layout/panel-layout/ProjectTree/utils'
-import { todayAnalyticsLogic } from '~/layout/today/todayAnalyticsLogic'
 import { uiCustomizationLogic } from '~/layout/uiCustomizationLogic'
 import {
     AnalyticsListDisplayConfiguration,
@@ -21,6 +20,8 @@ import {
     UserUIConfiguration,
 } from '~/queries/schema/schema-general'
 import type { UserBasicType, UserType } from '~/types'
+
+import { todayAnalyticsLogic } from 'products/today/frontend/analytics/todayAnalyticsLogic'
 
 import {
     ANALYTICS_FEED_PAGE_SIZE,
@@ -236,6 +237,13 @@ export interface analyticsListLogicActions {
     clearNarrowingFilters: () => {
         value: true
     }
+    itemOpened: (
+        item: AnalyticsItem,
+        position: number
+    ) => {
+        item: AnalyticsItem
+        position: number
+    }
     loadFolderContents: (_: void) => void
     loadFolderContentsFailure: (
         error: string,
@@ -421,6 +429,7 @@ export const analyticsListLogic = kea<analyticsListLogicType>([
     })),
     actions({
         setScope: (scope: AnalyticsListScope) => ({ scope }),
+        itemOpened: (item: AnalyticsItem, position: number) => ({ item, position }),
         setInsightsHidden: (hidden: boolean) => ({ hidden }),
         setFilters: (filters: Partial<AnalyticsListFilters>) => ({ filters }),
         setDefaultSort: (orderBy: NonNullable<AnalyticsListDisplayConfiguration['default_sort']>) => ({ orderBy }),
@@ -761,6 +770,7 @@ export const analyticsListLogic = kea<analyticsListLogicType>([
                 view_count: viewCount,
                 has_more: hasMore,
                 mode: values.mode,
+                scope: values.scope,
             })
             cache.visitStartedAt = undefined
         }
@@ -831,6 +841,21 @@ export const analyticsListLogic = kea<analyticsListLogicType>([
                 } else {
                     actions.ensureFeed(values.feedQuery, values.feed.items.length + ANALYTICS_PREFETCH_COUNT)
                 }
+            },
+            // urlToAction dispatches this only when the scope actually changed, so every event is a real switch.
+            setScope: ({ scope }) => {
+                // pinned: analytics event name and properties. Renaming them breaks dashboards.
+                posthog.capture('views scope changed', { scope })
+            },
+            itemOpened: ({ item, position }) => {
+                // pinned: analytics event name and properties. Renaming them breaks dashboards.
+                posthog.capture('views list item opened', {
+                    object_type: item.type,
+                    position,
+                    mode: values.mode,
+                    folder: values.filters.folder !== null,
+                    scope: values.scope,
+                })
             },
             setSearchInput: async ({ search }, breakpoint) => {
                 if (search.trim() !== values.filters.search.trim()) {

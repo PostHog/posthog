@@ -49,6 +49,7 @@ import {
 import { canCheckOngoingInterval, getAlertFormValidationErrors } from './alertFormSchema'
 import { alertLogic } from './alertLogic'
 import { alertNotificationLogic } from './alertNotificationLogic'
+import { ALERT_NOTIFICATION_TYPE_PAGERDUTY } from './alertNotifications'
 import { getDefaultAnomalyDetectorConfig } from './detectorConfigDefaults'
 import { deriveFunnelAlertPreview, FunnelAlertPreview } from './funnelAlertPreview'
 import { columnIsNumeric, deriveHogQLAlertPreview, HogQLAlertPreview } from './hogqlAlertPreview'
@@ -688,6 +689,25 @@ export const alertFormLogic = kea<alertFormLogicType>([
 
                 const existingAlertId = alert.id
                 const isNewAlert = existingAlertId === undefined
+                // The answer may be for settings the person has since changed, so ask again for the payload.
+                if (
+                    isNewAlert &&
+                    alert.calculation_interval &&
+                    notifLogic.values.pendingNotifications.some(
+                        (notification) => notification.type === ALERT_NOTIFICATION_TYPE_PAGERDUTY
+                    )
+                ) {
+                    await notifLogic.asyncActions.loadNewAlertPagerDutyAvailable({
+                        calculationInterval: alert.calculation_interval,
+                        investigationAgentEnabled: payload.investigation_agent_enabled ?? false,
+                    })
+                    if (!notifLogic.values.newAlertPagerDutyAvailable) {
+                        lemonToast.error(
+                            "PagerDuty isn't available for this alert yet. Remove the PagerDuty destination to save it."
+                        )
+                        throw new Error('PagerDuty is not available for this alert')
+                    }
+                }
                 let updatedAlert: AlertType
                 try {
                     updatedAlert = isNewAlert

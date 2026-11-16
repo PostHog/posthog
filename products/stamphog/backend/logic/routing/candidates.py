@@ -7,6 +7,7 @@ path and owners of additions are pinned: the cut step never removes them (SPEC s
 from __future__ import annotations
 
 from collections.abc import Iterable, Mapping, Sequence
+from dataclasses import field
 from pathlib import PurePosixPath
 
 from owners_yaml import Resolution, path_matches_pattern
@@ -101,6 +102,10 @@ class OwnerCandidate:
     kind: OwnerKind
     files: tuple[ChangedFile, ...]
     pins: frozenset[Pin]
+    # Changed path -> the ownership file whose `owners` list names this owner for it. A path the owner
+    # reached only through an additions declaration has no entry, because additions collect from every
+    # file on the walk and no single file decides them.
+    owners_sources: Mapping[str, str] = field(default_factory=dict)
 
     @property
     def lines(self) -> int:
@@ -148,14 +153,19 @@ class _CandidateCollector:
     def __init__(self) -> None:
         self._files: dict[str, dict[str, ChangedFile]] = {}
         self._pins: dict[str, set[Pin]] = {}
+        self._sources: dict[str, dict[str, str]] = {}
 
-    def add(self, owner: str, file: ChangedFile, pin: Pin | None = None) -> None:
+    def add(self, owner: str, file: ChangedFile, *, pin: Pin | None = None, source: str | None = None) -> None:
         if not owner:
             return
         self._files.setdefault(owner, {})[file.path] = file
         pins = self._pins.setdefault(owner, set())
         if pin is not None:
             pins.add(pin)
+        sources = self._sources.setdefault(owner, {})
+        # The first file that names the owner wins. The plain ownership of the path is collected first.
+        if source and file.path not in sources:
+            sources[file.path] = source
 
     def candidates(self) -> list[OwnerCandidate]:
         return [
@@ -164,6 +174,7 @@ class _CandidateCollector:
                 kind=_owner_kind(owner),
                 files=tuple(files.values()),
                 pins=frozenset(self._pins[owner]),
+                owners_sources=self._sources[owner],
             )
             for owner, files in self._files.items()
         ]
@@ -173,7 +184,7 @@ def _collect_owned(collector: _CandidateCollector, file: ChangedFile, resolution
     if resolution is None or is_excluded(file.path) or _is_generated_or_vendored(file.path, resolution):
         return
     for owner in resolution.owners or []:
-        collector.add(owner, file)
+        collector.add(owner, file, source=resolution.source)
 
 
 def _collect_additions(collector: _CandidateCollector, file: ChangedFile, resolution: Resolution | None) -> None:
@@ -186,7 +197,7 @@ def _collect_additions(collector: _CandidateCollector, file: ChangedFile, resolu
         return
     pin = Pin(reason=PinReason.NEW_PATH, path=resolution.added.path)
     for owner in resolution.added.additions:
-        collector.add(owner, file, pin)
+        collector.add(owner, file, pin=pin)
 
 
 def _collect_sensitive(
@@ -200,7 +211,7 @@ def _collect_sensitive(
             continue
         pin = Pin(reason=PinReason.SENSITIVE, path=path)
         for owner in resolution.owners or []:
-            collector.add(owner, file, pin)
+            collector.add(owner, file, pin=pin, source=resolution.source)
 
 
 def find_candidates(files: Sequence[ChangedFile], resolutions: Mapping[str, Resolution]) -> tuple[OwnerCandidate, ...]:

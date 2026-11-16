@@ -1,18 +1,17 @@
-from datetime import timedelta
+from urllib.parse import parse_qs, urlsplit
 
-import time_machine
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
 from django.contrib.admin import AdminSite
 from django.contrib.auth.hashers import check_password
 from django.test import RequestFactory
-from django.utils import timezone
 
 from parameterized import parameterized
 
 from posthog.admin.admins.oauth_admin import OAuthApplicationAdmin
-from posthog.models.oauth import OAuthAccessToken, OAuthApplication, OAuthRefreshToken
+from posthog.admin.console.oauth_tool import RevokeSessionsForm
+from posthog.models.oauth import OAuthApplication
 
 
 class TestOAuthApplicationAdmin(BaseTest):
@@ -225,58 +224,40 @@ class TestOAuthApplicationAdmin(BaseTest):
         plaintext = message.rsplit(": ", 1)[1]
         assert check_password(plaintext, app.client_secret)
 
-    @time_machine.travel("2026-01-01 00:00:00", tick=False)
-    def test_revoke_all_sessions_action_force_invalidates_tokens(self):
-        app = OAuthApplication.objects.create(
-            name="Revoke Action App",
-            client_id="revoke_action_client_id",
-            client_secret="revoke_action_client_secret",
-            client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
-            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
-            redirect_uris="https://example.com/callback",
-            organization=self.organization,
-            algorithm="RS256",
-        )
-        access_token = OAuthAccessToken.objects.create(
-            application=app, user=self.user, token="at_revoke_action", expires=timezone.now() + timedelta(minutes=5)
-        )
-        OAuthRefreshToken.objects.create(
-            application=app, user=self.user, token="rt_revoke_action", access_token=access_token
-        )
+    @parameterized.expand([("within_the_limit", 2, True), ("over_the_limit", 1, False)])
+    def test_revoke_all_sessions_action_sends_the_picked_applications_to_the_console(
+        self, _name: str, max_applications: int, expect_redirect: bool
+    ):
+        apps = [
+            OAuthApplication.objects.create(
+                name=f"Revoke action app {index}",
+                client_id=f"revoke_action_client_id_{index}",
+                client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
+                authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+                redirect_uris="https://example.com/callback",
+                organization=self.organization,
+                algorithm="RS256",
+            )
+            for index in range(2)
+        ]
 
-        request = RequestFactory().post("/", {"confirm": "yes"})
-        with patch.object(self.admin, "message_user") as message_user:
-            self.admin.revoke_all_sessions(request=request, queryset=OAuthApplication.objects.filter(id=app.id))
+        with (
+            patch.object(RevokeSessionsForm, "MAX_APPLICATIONS", max_applications),
+            patch.object(self.admin, "message_user") as message_user,
+        ):
+            response = self.admin.revoke_all_sessions(
+                request=RequestFactory().post("/"),
+                queryset=OAuthApplication.objects.filter(id__in=[app.id for app in apps]),
+            )
 
-        self.assertEqual(OAuthAccessToken.objects.filter(application=app).count(), 0)
-        self.assertEqual(OAuthRefreshToken.objects.filter(application=app, revoked__isnull=True).count(), 0)
-        message_user.assert_called_once()
-
-    @time_machine.travel("2026-01-01 00:00:00", tick=False)
-    def test_revoke_all_sessions_without_confirm_renders_page_and_keeps_tokens(self):
-        app = OAuthApplication.objects.create(
-            name="Revoke Confirm App",
-            client_id="revoke_confirm_client_id",
-            client_secret="revoke_confirm_client_secret",
-            client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
-            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
-            redirect_uris="https://example.com/callback",
-            organization=self.organization,
-            algorithm="RS256",
-        )
-        OAuthAccessToken.objects.create(
-            application=app, user=self.user, token="at_revoke_confirm", expires=timezone.now() + timedelta(minutes=5)
-        )
-
-        self.user.is_staff = True
-        request = RequestFactory().post("/")
-        request.user = self.user
-        response = self.admin.revoke_all_sessions(request=request, queryset=OAuthApplication.objects.filter(id=app.id))
-
-        self.assertEqual(response.status_code, 200)
-        self.assertIn("revoke_all_sessions_confirm.html", response.template_name)
-        # Nothing revoked until the operator confirms.
-        self.assertEqual(OAuthAccessToken.objects.filter(application=app).count(), 1)
+        if not expect_redirect:
+            self.assertIsNone(response)
+            self.assertIn("1 applications or fewer", message_user.call_args.args[1])
+            return
+        message_user.assert_not_called()
+        location = urlsplit(response["Location"])
+        self.assertEqual(location.path, "/admin/console/tools/oauth-sessions/revoke/")
+        self.assertEqual(set(parse_qs(location.query)["application"]), {str(app.id) for app in apps})
 
     @parameterized.expand(
         [

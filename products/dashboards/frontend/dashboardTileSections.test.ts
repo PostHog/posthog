@@ -242,6 +242,13 @@ describe('dashboardTileSections', () => {
             choices: { plans: false, regions: true },
             expected: ['regions'],
         },
+        {
+            name: 'a group with no tiles that the viewer closed',
+            tiles: [tile(1, 'plans')],
+            groups: { plans: {}, empty: {} },
+            choices: { empty: true },
+            expected: ['empty'],
+        },
     ])('getCollapsedTileGroupKeys finds $name', ({ tiles, groups, choices, expected }) => {
         expect(getCollapsedTileGroupKeys({ tiles, groups, choices })).toEqual(expected)
     })

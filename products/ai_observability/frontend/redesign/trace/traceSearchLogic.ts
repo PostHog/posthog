@@ -1,6 +1,5 @@
 import { MakeLogicType, actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
-import posthog from 'posthog-js'
 
 import { ApiConfig, ApiError } from 'lib/api'
 
@@ -8,6 +7,7 @@ import { aiObservabilityTracesSearchRetrieve } from '../../generated/api'
 import type { TraceSearchResultsApi } from '../../generated/api.schemas'
 import { encodeTraceIdSegment } from './traceIdSegment'
 import { elapsedMs, traceViewLogic } from './traceViewLogic'
+import { traceViewTracking } from './traceViewTracking'
 import type { TraceSearchFailure, TraceSearchStatus } from './types'
 
 export interface TraceSearchLogicProps {
@@ -162,12 +162,12 @@ export const traceSearchLogic = kea<traceSearchLogicType>([
         setQuery: () => actions.loadSearchResults(),
         loadSearchResultsSuccess: ({ searchResults }) => {
             if (searchResults) {
-                posthog.capture('llma trace view searched', {
-                    query_length: values.query.trim().length,
-                    total: searchResults.total,
-                    matching_steps: searchResults.matches.length,
-                    load_ms: elapsedMs(cache.searchRequestedAt),
-                })
+                traceViewTracking.searched(
+                    values.query.trim().length,
+                    searchResults.total,
+                    searchResults.matches.length,
+                    elapsedMs(cache.searchRequestedAt)
+                )
             }
         },
         loadTraceSuccess: () => {

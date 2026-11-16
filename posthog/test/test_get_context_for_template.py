@@ -6,6 +6,7 @@ from unittest import mock
 from unittest.mock import MagicMock
 
 from django.conf import settings
+from django.contrib.auth import get_user
 from django.contrib.auth.models import AnonymousUser
 from django.contrib.sessions.middleware import SessionMiddleware
 from django.http import HttpRequest, HttpResponse
@@ -18,6 +19,8 @@ from parameterized import parameterized
 from posthog.api.tagged_item import set_tags_on_object
 from posthog.frontend_views import app_context
 from posthog.models import Team, User, UserHomeSettings
+from posthog.session.backend import SessionStore
+from posthog.session.models import Session
 from posthog.stable_chunks import StableChunks
 from posthog.templatetags.posthog_filters import TolerantJSONEncoder
 from posthog.utils import (
@@ -27,6 +30,7 @@ from posthog.utils import (
     feature_flag_bootstrap,
     get_context_for_template,
     get_persisted_feature_flags_for_app_context,
+    signed_out_session_reason,
 )
 
 from products.conversations.backend.services.identity import IDENTITY_CLAIM_MAX_AGE_SECONDS
@@ -153,6 +157,35 @@ class TestFeatureFlagBootstrap(SimpleTestCase):
         get_all_flags.assert_not_called()
 
 
+class TestSignedOutSessionReason(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("no session cookie", False, False, {}, None),
+            ("a session the store did not return", True, False, {}, "session_not_found"),
+            ("a stored session that auth flushed", True, True, {}, "session_without_user"),
+            (
+                "a session that names a user who did not authenticate",
+                True,
+                True,
+                {"_auth_user_id": "1"},
+                "user_not_resolved",
+            ),
+        ]
+    )
+    def test_names_why_a_request_with_a_session_cookie_is_signed_out(
+        self, _name, has_cookie, store_found_row, session_data, expected
+    ):
+        request = RequestFactory().get("/login")
+        if has_cookie:
+            request.COOKIES[settings.SESSION_COOKIE_NAME] = "a-session-key"
+        session = SessionStore()
+        session.__dict__["_session_cache"] = session_data
+        session.loaded_row = Session() if store_found_row else None
+        request.session = session
+
+        assert signed_out_session_reason(request) == expected
+
+
 class TestShouldDeferAppContext(SimpleTestCase):
     @parameterized.expand(
         [
@@ -184,6 +217,19 @@ class TestShouldDeferAppContext(SimpleTestCase):
 
 
 class TestGetContextForTemplate(APIBaseTest):
+    def test_signed_out_session_reason_survives_auth_flushing_a_stale_session(self):
+        self.client.force_login(self.user)
+        session_key = self.client.session.session_key
+        assert session_key is not None
+        self.user.set_password("a-different-password-1234")
+        self.user.save()
+        request = RequestFactory().get("/")
+        request.COOKIES[settings.SESSION_COOKIE_NAME] = session_key
+        request.session = SessionStore(session_key)
+
+        assert get_user(request).is_anonymous
+        assert signed_out_session_reason(request) == "session_without_user"
+
     def test_get_context_for_template(self):
         with (
             self.settings(STRIPE_PUBLIC_KEY=None, PERSISTED_FEATURE_FLAGS=["the_persisted_flags"]),

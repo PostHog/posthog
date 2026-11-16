@@ -610,6 +610,19 @@ class TestGetRetryableErrors(SimpleTestCase):
             f"MongoDB connection reset should be classified retryable: {error_msg}"
         )
 
+    def test_connection_closed_is_classified_retryable(self):
+        # AutoReconnect wrapping a clean EOF (network_layer.py's OSError("connection closed"), not
+        # a reset or a timeout) mid-cursor-read — an idle-connection reaper, a load balancer, or
+        # Atlas maintenance ending the socket. The next connection attempt succeeds once the
+        # network recovers, so this must not flood error tracking as an unclassified exception.
+        error_msg = (
+            "cluster0.example.mongodb.net:27017: connection closed "
+            "(configured timeouts: socketTimeoutMS: 600000.0ms, connectTimeoutMS: 10000.0ms)"
+        )
+        assert any(pattern in error_msg for pattern in self.retryable), (
+            f"MongoDB connection closed should be classified retryable: {error_msg}"
+        )
+
     def test_interrupted_at_shutdown_is_classified_retryable(self):
         # NotPrimaryError raised when a read is killed by a routine replica-set failover (the
         # primary shutting down or stepping down); the next retry hits the new primary.

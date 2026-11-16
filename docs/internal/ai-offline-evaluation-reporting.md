@@ -17,7 +17,9 @@ They require `OPENAI_API_KEY` and honor `OPENAI_BASE_URL` when set; they do not 
 Scorer models and other provider credentials are unchanged.
 
 Offline API uploads run through the Python SDK independently of `TEST` and `OPT_OUT_CAPTURE`.
-The shared trace client retains its existing `TEST` and `OPT_OUT_CAPTURE` guards for `$ai_generation`, `$ai_span`, and `$ai_trace` events.
+The harness's dedicated trace client captures `$ai_generation`, `$ai_span`, and `$ai_trace` events despite the harness's `TEST` database setting, and honors `OPT_OUT_CAPTURE`.
+During teardown, the harness waits up to five seconds for trace shutdown before continuing infrastructure cleanup.
+Pending traces may be lost if delivery does not finish before the process exits.
 
 ## Result contents and scope
 
@@ -215,7 +217,8 @@ A failed scorer does not replace successful results from other scorers on the sa
 Scorer metadata and `reason` or `rationale` explanations are retained for each trial, including skip reasons and judge errors.
 The scorer recorder observes return values and exceptions only when a suite has valid offline publishing configuration and allows uploads. Other runs pass scorers directly to Braintrust.
 Braintrust still owns scorer execution, return-value validation, and numeric aggregation.
-Application and evaluator trace links are included when capture is enabled and the trace and offline destinations match.
+The harness publishes case `trace_id` values as `application_trace_id` and recorded scorer trace IDs as `evaluator_trace_id` when the trace and offline destinations match.
+Existing IDs are retained even when capture is disabled; the inspector checks that the trace exists before showing a button.
 Application and dataset revisions use the commit captured at run start.
 
 Items include available input, output, expected output, and case metadata.
@@ -504,9 +507,23 @@ The hourly cleanup marks expired datasets and snapshots unavailable before delet
 
 A failed dataset cleanup rolls back its content changes but preserves its attempt timestamp, so later candidates can still be processed. The next sweep rotates past the failed dataset before retrying it. Task time limits still stop the sweep. Cleanup reports failed dataset counts and uses `completed_with_errors` when it finishes with individual failures.
 
-Dataset and revision responses expose `expires_at` and `expiring_soon`. The UI shows **Expiring soon** in the final seven days, replacing the Active or Archived status label, without an extension button. Normal use refreshes retention. The deadline is the earliest cleanup eligibility time, not a promise of immediate deletion. Cleanup emits a `dataset retention run` event with expiry and deletion counts, duration, completion status, and whether the time budget was exhausted.
+Dataset and revision responses expose `expires_at` and `expiring_soon`.
+The datasets UI shows a compact warning in the final seven days, with a link to [dataset data retention](https://posthog.com/docs/ai-evals/datasets#data-retention).
+Expanding it shows a paginated list of accessible datasets or older revisions across the project, including archived datasets, independent of the main list's filters and page.
+The latest revision is covered by its dataset and is not counted again as an older revision.
+Listing this retention information does not refresh usage.
+**Extend** resets the dataset's retention clock, or the selected revision's clock and its dataset's clock, without changing contents or archived status.
+Explicit extensions bypass read coalescing, and have the same read access requirements as opening the resource.
+Unrelated older revisions keep their own deadlines.
+Dataset and revision links open in a new tab; reading their contents refreshes retention as usual, and returning to the list refreshes the warning.
+Changing the main list's filters or page does not refresh the retention warning.
+If a background check fails, the last known warning remains; an expanded warning offers a retry and labels its deadlines as the last known values.
+Successful extensions show the expiry date returned by the server.
+The deadline is the earliest cleanup eligibility time, not a promise of immediate deletion.
+Entries past that deadline but not yet expired are labeled **Eligible for deletion** and can still be extended; already expired data cannot be restored this way.
+Cleanup emits a `dataset retention run` event with expiry and deletion counts, duration, completion status, and whether the time budget was exhausted.
 
-Staff can pause or resume cleanup under **Organization tools > AI observability dataset retention** in Django admin (`/admin/posthog/organization/ai-observability-dataset-retention/`). The `AI_OBSERVABILITY_DATASET_RETENTION_ENABLED` instance setting defaults to enabled and applies separately to each region. Disabling stops both new expiry and unfinished deletion; a running sweep checks the setting before each dataset and finishes its current dataset before stopping. Re-enabling resumes the hourly schedule. Disabling does not restore deleted content or make already expired datasets available. Successful expiry/deletion logs include the team and dataset IDs after the transaction commits, and setting changes log the staff user and old/new state.
+Staff can pause or resume cleanup in the **AI observability** tool of PostHog Admin (`/admin/console/tools/ai-observability/`). The `AI_OBSERVABILITY_DATASET_RETENTION_ENABLED` instance setting defaults to enabled and applies separately to each region. Disabling stops both new expiry and unfinished deletion; a running sweep checks the setting before each dataset and finishes its current dataset before stopping. Re-enabling resumes the hourly schedule. Disabling does not restore deleted content or make already expired datasets available. Successful expiry/deletion logs include the team and dataset IDs after the transaction commits, and setting changes log the staff user and old/new state.
 
 Candidate selection skips expired revisions that are retained only for shared versions or evaluation provenance, while continuing unfinished version and reference deletion. HogQL's `system.datasets` and `system.dataset_revisions` expose `expired_at`; queries must check the dataset and requested snapshot are available. Do not filter out a version solely because its introducing revision expired: retained snapshots can still need that version. HogQL queries and listing metadata do not refresh usage.
 

@@ -10,6 +10,7 @@ from typing import TYPE_CHECKING, Any
 from posthog.integrations.contracts import (
     SOURCE_MARKER_CONFIG_KEY,
     ConfigValue,
+    CrossTeamFilter,
     IntegrationConflict,
     IntegrationInUse,
     IntegrationNotFound,
@@ -71,6 +72,7 @@ __all__ = [
     "AuthAccessor",
     "AuthType",
     "ConfigValue",
+    "CrossTeamFilter",
     "IntegrationAuthType",
     "IntegrationConflict",
     "IntegrationInUse",

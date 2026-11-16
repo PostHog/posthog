@@ -205,6 +205,13 @@ class GoogleAnalyticsSource(ResumableSource[GoogleAnalyticsSourceConfig, GoogleA
             # `session.post()` before any HTTP status is available to match on, so match Google's
             # stable OAuth error code instead.
             "invalid_grant": "Your Google Analytics connection has expired or been revoked. Please reconnect your account.",
+            # A custom report was removed or renamed in the source settings while its table was still
+            # enabled. Schema discovery disables that table only on its next run, so until then every
+            # sync of it fails identically.
+            "Unknown Google Analytics schema": (
+                "This table's custom report was removed or renamed in the source settings. Add the report "
+                "back to keep syncing this table, or turn off syncing for it."
+            ),
         }
 
     def get_retryable_errors(self) -> set[str]:

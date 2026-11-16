@@ -26,7 +26,7 @@ from posthog.models.team.team import Team
 from posthog.redis import get_client
 from posthog.security.url_validation import is_url_allowed
 
-from products.conversations.backend.models import TeamConversationsTeamsConfig
+from products.conversations.backend.models import TeamConversationsTeamsChannelSync, TeamConversationsTeamsConfig
 
 if TYPE_CHECKING:
     from posthog.models.user import User
@@ -487,6 +487,11 @@ def save_teams_token(
         )
         locked_team.save(update_fields=["conversations_settings"])
         team.conversations_settings = settings_blob
+
+    # A new token can read channels the old one could not, so poll them again now.
+    TeamConversationsTeamsChannelSync.objects.for_team(team.pk).filter(denied_until__isnull=False).update(
+        denied_until=None
+    )
 
     log_activity(
         organization_id=team.organization_id,

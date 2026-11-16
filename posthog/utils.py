@@ -25,6 +25,7 @@ from zoneinfo import ZoneInfo
 
 from django.apps import apps
 from django.conf import settings
+from django.contrib.auth import SESSION_KEY
 from django.core.cache import cache
 from django.db import ProgrammingError, models
 from django.db.models.functions import Coalesce
@@ -599,6 +600,21 @@ def flag_identity(
     )
 
 
+def signed_out_session_reason(request: HttpRequest) -> Optional[str]:
+    """
+    Why a request that carries a session cookie is still signed out, or None without the cookie.
+    The app can find a user through the API straight after such a page renders, and nobody knows why yet.
+    """
+    if settings.SESSION_COOKIE_NAME not in request.COOKIES:
+        return None
+    if SESSION_KEY in request.session:
+        return "user_not_resolved"
+    # Auth flushes a session whose hash fails before this runs, so only the loaded row tells it apart from a miss.
+    if getattr(request.session, "loaded_row", None) is None:
+        return "session_not_found"
+    return "session_without_user"
+
+
 @tracer.start_as_current_span("template.context")
 def get_context_for_template(
     template_name: str,
@@ -775,6 +791,9 @@ def _build_template_context(
     # Only the SPA shell references these; other templates (exporter, layout, ...) load different bundles
     if template_name == "index.html":
         is_authenticated = bool(request.user and request.user.is_authenticated)
+        if not is_authenticated and (reason := signed_out_session_reason(request)):
+            # Never log the path or the cookie: both can carry a credential.
+            logger.info("signed_out_page_with_session_cookie", reason=reason)
         context["preload_css_url"], context["preload_js_urls"], context["preload_font_url"] = _resolve_entry_assets(
             is_authenticated
         )
@@ -1241,7 +1260,7 @@ def _default_event_info_cache_key(team_id: int) -> str:
 
 @tracer.start_as_current_span("template.default_event_info")
 def get_default_event_info(team: "Team") -> dict:
-    from posthog.models import EventDefinition
+    from products.event_definitions.backend.models import EventDefinition
 
     cache_key = _default_event_info_cache_key(team.id)
     cached = get_safe_cache(cache_key)
@@ -1320,8 +1339,7 @@ def _has_person_email_ttl(team: "Team", has_person_email: bool) -> int:
 
 @tracer.start_as_current_span("template.has_person_email")
 def get_has_person_email(team: "Team") -> bool:
-    from posthog.models import PropertyDefinition
-
+    from products.event_definitions.backend.models import PropertyDefinition
     from products.event_definitions.backend.models.property_definition import PERSON_EMAIL_PROPERTY_NAME
 
     cache_key = _has_person_email_cache_key(team.project_id)

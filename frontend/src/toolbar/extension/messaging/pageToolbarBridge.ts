@@ -1,3 +1,4 @@
+import type { HeatmapVariantFilter, HeatmapVariantFlag } from 'lib/components/heatmaps/heatmapVariantFilter'
 import type {
     CommonFilters,
     HeatmapFilters,
@@ -140,6 +141,9 @@ export interface PageToolbarHeatmapState {
     heatmapFixedPositionMode: HeatmapFixedPositionMode
     viewportRange: { min: number; max: number }
     rawHeatmapLoading: boolean
+    variantFilter: HeatmapVariantFilter | null
+    variantFlags: HeatmapVariantFlag[]
+    variantFilterGate: boolean
     /** Whether the page's posthog-js collects heatmap data. `unknown` when the page has no `window.posthog`. */
     heatmapsCollection: 'enabled' | 'disabled' | 'unsupported' | 'unknown'
     scrollDepthPosthogJsError: ScrollDepthPosthogJsError

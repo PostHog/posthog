@@ -596,6 +596,15 @@ class TestScoutPrecheckTestAPI(ClickhouseTestMixin, APIBaseTest):
                 False,
             ),
             (
+                "binds_managed_by_from_the_config",
+                None,
+                {"precheck_query": "SELECT {managed_by} = 'team'"},
+                True,
+                "rows",
+                1,
+                False,
+            ),
+            (
                 "query_error_runs_the_scout",
                 None,
                 {"precheck_query": "SELECT nope FROM not_a_table"},

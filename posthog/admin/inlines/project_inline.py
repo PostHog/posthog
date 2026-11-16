@@ -18,10 +18,10 @@ class ProjectInline(TabularInlinePaginated):
         "displayed_name",
         "created_at",
     )
-    # Exclude ProjectAdmin's change-page display methods (e.g. trigger_deletion_display,
-    # delete_now_display) — they resolve on the admin, not on the inline or the Project model.
+    # Exclude ProjectAdmin's change-page display methods, which resolve on the admin, not on the inline or the
+    # Project model.
     readonly_fields = [
-        *(f for f in ProjectAdmin.readonly_fields if f not in ("trigger_deletion_display", "delete_now_display")),
+        *(f for f in ProjectAdmin.readonly_fields if f != "deletion_moved"),
         "displayed_name",
     ]
 

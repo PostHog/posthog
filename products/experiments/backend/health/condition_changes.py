@@ -2,7 +2,8 @@
 Changes of the flag's release conditions, read from the flag's activity log. Pure functions, no I/O.
 
 The flags facade (`facade/edits.py`) owns which condition changes move people to another variant. A rollout change
-alone moves people in or out too, but an increase is harmless, so it is not a change here.
+alone moves people in or out too. A lower rollout stops serving people who were already exposed, so it is a change
+here. A higher rollout only lets in new people, so it is not.
 
 Each change pairs the conditions before it with the conditions after it, as the flag page's history does, so an
 override stays with its condition when the filters of that condition change.
@@ -38,6 +39,7 @@ class ConditionsChangeShape(StrEnum):
     # pinned: the finding's subcodes. The page sends them as `finding_subcode` on the health finding events.
     VARIANT_OVERRIDE_CHANGED = "variant_override_changed"
     CONDITIONS_CHANGED = "conditions_changed"
+    ROLLOUT_REDUCED = "rollout_reduced"
     REVERTED = "reverted"
 
 
@@ -83,6 +85,15 @@ class OverrideChanges:
 
 
 @frozen
+class LoweredRollout:
+    condition_number: int
+    # The highest rollout before a lowering, so the users this condition no longer serves are the ones it served then.
+    before: float
+    after: float
+    lowered_at: datetime
+
+
+@frozen
 class ConditionsNetEffect:
     shape: ConditionsChangeShape
     from_conditions: ReleaseConditions
@@ -97,6 +108,7 @@ class ConditionsNetEffect:
     # The conditions that kept their override while their criteria changed. The people who match them differently
     # move between the override's variant and a random one.
     edited_overrides: tuple[EditedOverride, ...]
+    lowered_rollouts: tuple[LoweredRollout, ...]
 
 
 def conditions_change_from_activity(
@@ -110,9 +122,9 @@ def conditions_change_from_activity(
     before_variants: object,
     after_variants: object,
 ) -> ConditionsChange | None:
-    """The release-condition change in one activity log row of the flag, or None when the row does not change who
-    the conditions match or which variant they serve. The aggregations and variants are the flag-level ones of the
-    row."""
+    """The release-condition change in one activity log row of the flag, or None when the row does not change which
+    variant the conditions serve, does not change who they match, and lowers no rollout. The aggregations and
+    variants are the flag-level ones of the row."""
     if job_type in EXPOSURE_FREEZE_JOB_TYPES:
         return None
     if before_groups == after_groups and before_aggregation == after_aggregation:
@@ -127,7 +139,8 @@ def conditions_change_from_activity(
         flag_aggregation=after_aggregation,
         variant_keys=split_variant_keys(parse_variants(after_variants)),
     )
-    if conditions_shape(before, after) is None:
+    pairs = pair_conditions(before, after)
+    if _shape(before, after, pairs) is None and not _lowered_rollouts(before, after, pairs):
         return None
     return ConditionsChange(changed_at=changed_at, before=before, after=after)
 
@@ -166,8 +179,19 @@ def conditions_net_effect(
         for index, condition_id in enumerate(followed.end_ids)
         if condition_id in start_index
     }
+    lowered = _net_lowered_rollouts(now_ids, now, numbers, followed.lowerings)
+    shape = _shape(first.before, last.after, net_pairs)
+    if shape is None:
+        if lowered:
+            shape = ConditionsChangeShape.ROLLOUT_REDUCED
+        elif all(conditions_shape(change.before, change.after) is None for change in changes):
+            # Only rollouts were lowered, and a later save raised them back. Like a past pause, that left the users
+            # their variants, so there is nothing to report.
+            return None
+        else:
+            shape = ConditionsChangeShape.REVERTED
     return ConditionsNetEffect(
-        shape=_shape(first.before, last.after, net_pairs) or ConditionsChangeShape.REVERTED,
+        shape=shape,
         from_conditions=first.before,
         to_conditions=last.after,
         first=first,
@@ -190,7 +214,42 @@ def conditions_net_effect(
             and new.rollout > 0
             and new.criteria != old.criteria
         ),
+        lowered_rollouts=lowered,
     )
+
+
+@frozen
+class _Lowering:
+    peak: float
+    lowered_at: datetime
+    # The condition right after the last lowering.
+    condition: ReleaseCondition
+
+
+def _net_lowered_rollouts(
+    now_ids: tuple[int, ...], now: ReleaseConditions, numbers: Mapping[int, int], lowerings: Mapping[int, _Lowering]
+) -> tuple[LoweredRollout, ...]:
+    return tuple(
+        LoweredRollout(
+            condition_number=numbers[condition_id],
+            before=lowering.peak,
+            after=condition.rollout,
+            lowered_at=lowering.lowered_at,
+        )
+        for condition_id, condition in zip(now_ids, now)
+        if (lowering := lowerings.get(condition_id)) is not None
+        and condition.criteria == lowering.condition.criteria
+        and condition.variant == lowering.condition.variant
+        and condition.rollout < lowering.peak
+    )
+
+
+def _lowered_rollouts(before: ReleaseConditions, after: ReleaseConditions, pairs: Mapping[int, int]) -> bool:
+    return any(_lowers_rollout(before[before_index], after[after_index]) for after_index, before_index in pairs.items())
+
+
+def _lowers_rollout(old: ReleaseCondition, new: ReleaseCondition) -> bool:
+    return new.criteria == old.criteria and new.rollout < old.rollout
 
 
 @frozen
@@ -207,6 +266,7 @@ class _Followed:
     start_ids: tuple[int, ...]
     end_ids: tuple[int, ...]
     variant_changes: tuple[_VariantChange, ...]
+    lowerings: Mapping[int, _Lowering]
 
 
 def _follow(changes: Sequence[ConditionsChange]) -> _Followed:
@@ -214,9 +274,10 @@ def _follow(changes: Sequence[ConditionsChange]) -> _Followed:
     start_ids = tuple(next(new_ids) for _ in changes[0].before)
     conditions, ids = changes[0].before, start_ids
     variant_changes = []
+    lowerings: dict[int, _Lowering] = {}
     for change in changes:
-        # A save that changes only what this module ignores, such as a rollout, is not a change, and neither is an
-        # exposure freeze. A change can then start from other conditions than the ones the change before it ended
+        # A save that changes only what this module ignores, such as a higher rollout, is not a change, and neither is
+        # an exposure freeze. A change can then start from other conditions than the ones the change before it ended
         # with, so those are paired too.
         before_ids = _carry_ids(conditions, ids, change.before, new_ids)
         after_ids = _carry_ids(change.before, before_ids, change.after, new_ids)
@@ -234,8 +295,16 @@ def _follow(changes: Sequence[ConditionsChange]) -> _Followed:
                         before_audience=_audience(old) if old is not None else None,
                     )
                 )
+        for condition_id, new in after.items():
+            old = before.get(condition_id)
+            if old is None or not _lowers_rollout(old, new):
+                continue
+            # A higher rollout is no change, so the condition before a lowering shows any raise since the last one.
+            earlier = lowerings.get(condition_id)
+            peak = old.rollout if earlier is None else max(earlier.peak, old.rollout)
+            lowerings[condition_id] = _Lowering(peak=peak, lowered_at=change.changed_at, condition=new)
         conditions, ids = change.after, after_ids
-    return _Followed(start_ids=start_ids, end_ids=ids, variant_changes=tuple(variant_changes))
+    return _Followed(start_ids=start_ids, end_ids=ids, variant_changes=tuple(variant_changes), lowerings=lowerings)
 
 
 def _rejoin(followed: _Followed, start: ReleaseConditions, end: ReleaseConditions) -> _Followed:
@@ -256,6 +325,9 @@ def _rejoin(followed: _Followed, start: ReleaseConditions, end: ReleaseCondition
             replace(change, condition_id=joined.get(change.condition_id, change.condition_id))
             for change in followed.variant_changes
         ),
+        lowerings={
+            joined.get(condition_id, condition_id): lowering for condition_id, lowering in followed.lowerings.items()
+        },
     )
 
 

@@ -1,8 +1,5 @@
 import { act, fireEvent, render, screen } from '@testing-library/react'
 
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-
 import { initKeaTests } from '~/test/init'
 
 import { Command } from './Command'
@@ -20,10 +17,6 @@ describe('Command', () => {
 
     beforeEach(() => {
         initKeaTests()
-        featureFlagLogic.mount()
-        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.NEW_COMMAND_K_SEARCH], {
-            [FEATURE_FLAGS.NEW_COMMAND_K_SEARCH]: true,
-        })
         commandLogic.mount()
     })
 

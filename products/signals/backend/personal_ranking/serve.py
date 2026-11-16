@@ -38,7 +38,7 @@ from posthog.token_bucket import BucketDecision, BucketUnavailable, Budget, cons
 from products.signals.backend.models import PersonalInboxRanking
 from products.signals.backend.personal_ranking.build_budget import DAILY_BUILD_COST, spend_shared_build
 from products.signals.backend.personal_ranking.candidates import Candidate, gather_candidates, stored_candidates
-from products.signals.backend.personal_ranking.config import PersonalRankingConfig, read_config
+from products.signals.backend.personal_ranking.config import PersonalRankingConfig, list_limit, read_config
 from products.signals.backend.personal_ranking.logic import (
     RETRYABLE_FALLBACK_REASONS,
     input_hash,
@@ -377,7 +377,7 @@ def serve_personal_ranking(
     config = config or read_config()
     if not config.enabled:
         return UNAVAILABLE
-    limit = min(max(limit or config.default_limit, 1), config.max_limit)
+    limit = list_limit(config, limit)
     focus = normalize_focus(focus, config.focus_max_chars)
     wait_seconds = min(max(wait_seconds, 0), MAX_WAIT_SECONDS)
     started = time.monotonic()
@@ -396,7 +396,12 @@ def serve_personal_ranking(
 
     def serve_stored(row: PersonalInboxRanking, *, cached: bool) -> ServedRanking:
         stored = stored_candidates(team, user, row.candidate_ids or ())
-        stale = input_hash(stored, activity_summary_version=summary_version, focus=None) != row.input_hash
+        # The limit the list was built with, so a read with another limit does not mark it stale.
+        built_limit = list_limit(config, (row.result or {}).get("limit"))
+        stale = (
+            input_hash(stored, config=config, limit=built_limit, activity_summary_version=summary_version, focus=None)
+            != row.input_hash
+        )
         return _serve_row(row, stored, limit=limit, cached=cached, stale=stale, building=False)
 
     now = timezone.now()
@@ -438,7 +443,9 @@ def serve_personal_ranking(
 
     gather_started = time.monotonic()
     candidates = gather_candidates(team, user, config, now=now, with_sources=False)
-    current_hash = input_hash(candidates, activity_summary_version=summary_version, focus=focus)
+    current_hash = input_hash(
+        candidates, config=config, limit=limit, activity_summary_version=summary_version, focus=focus
+    )
     # Read again, because a build can store a row while the candidates are gathered.
     latest = latest_row(team, user)
     retryable = latest is not None and latest.fallback_reason in RETRYABLE_FALLBACK_REASONS

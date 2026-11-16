@@ -1,4 +1,5 @@
 import json
+from typing import Any
 
 from posthog.test.base import APIBaseTest, BaseTest
 from unittest.mock import patch
@@ -6,13 +7,18 @@ from unittest.mock import patch
 from django.test import Client, override_settings
 from django.urls import reverse
 
+import responses
 from parameterized import parameterized
-from requests import Response
+from requests import PreparedRequest, Response
 from rest_framework import status
 
 import posthog.plugins.plugin_server_api as plugin_server_api
+from posthog.kafka_client.client import KafkaProducerForTests
+from posthog.kafka_client.topics import KAFKA_APP_METRICS2
+from posthog.models.organization_ip_restrictions import OrganizationIPRestrictions
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.utils import generate_random_token_personal, hash_key_value
+from posthog.settings.ingestion import CAPTURE_INTERNAL_URL, CAPTURE_V1_INTERNAL_ENDPOINT
 
 from products.messaging.backend.models.message_category import MessageCategory, MessageCategoryType
 from products.messaging.backend.models.message_preferences import (
@@ -32,12 +38,51 @@ SEND_CLAIMS = {
 
 STYLESHEET_LINK = '<link rel="stylesheet" href="/static/message-preferences.css" />'
 
+DELETED_TEAM_ID = 999_999_999
+
 
 def mock_response(status_code: int, response_json: dict):
     response = Response()
     response.status_code = status_code
     response.json = lambda: response_json  # type: ignore
     return response
+
+
+APP_METRICS2_KAFKA_TABLE_COLUMNS = frozenset(
+    {"team_id", "timestamp", "app_source", "app_source_id", "instance_id", "metric_kind", "metric_name", "count"}
+)
+
+
+class AppMetricsTopic:
+    def __init__(self) -> None:
+        self.rows: list[dict[str, Any]] = []
+
+    def receive(self, topic: str, value: bytes) -> None:
+        if topic != KAFKA_APP_METRICS2:
+            return
+        row = json.loads(value)
+        if set(row) != APP_METRICS2_KAFKA_TABLE_COLUMNS:
+            raise ValueError(f"app_metrics2 row does not match the Kafka table: {sorted(row)}")
+        self.rows.append({key: value for key, value in row.items() if key != "timestamp"})
+
+
+ADDED_BY_CAPTURE_INTERNAL = "$geoip_disable"
+
+
+class CaptureRs:
+    def __init__(self) -> None:
+        self.events: list[dict[str, Any]] = []
+
+    def receive(self, request: PreparedRequest) -> tuple[int, dict, str]:
+        assert request.body is not None
+        body = json.loads(request.body)
+        token = request.headers["Authorization"].removeprefix("Bearer ")
+        for entry in body["batch"]:
+            properties = {key: value for key, value in entry["properties"].items() if key != ADDED_BY_CAPTURE_INTERNAL}
+            self.events.append(
+                {"token": token, "event": entry["event"], "distinct_id": entry["distinct_id"], "properties": properties}
+            )
+        return 200, {}, json.dumps({"results": {entry["uuid"]: {"result": "ok"} for entry in body["batch"]}})
 
 
 # Production storage, so a `{% static %}` link to the stylesheet fails to render here as it 404s there.
@@ -70,6 +115,23 @@ class TestMessagePreferencesViews(BaseTest):
         self._token_patch.start()
         self.token = plugin_server_api.generate_messaging_preferences_token(self.team.id, self.recipient.identifier)
 
+        self.app_metrics = AppMetricsTopic()
+        kafka_patch = patch.object(
+            KafkaProducerForTests,
+            "produce",
+            lambda _producer, topic, value, **_kwargs: self.app_metrics.receive(topic, value),
+        )
+        kafka_patch.start()
+        self.addCleanup(kafka_patch.stop)
+
+        self.capture_rs = CaptureRs()
+        capture_http = responses.RequestsMock(assert_all_requests_are_fired=False)
+        capture_http.add_callback(
+            responses.POST, f"{CAPTURE_INTERNAL_URL}{CAPTURE_V1_INTERNAL_ENDPOINT}", self.capture_rs.receive
+        )
+        capture_http.start()
+        self.addCleanup(capture_http.stop)
+
     def tearDown(self):
         self._token_patch.stop()
         super().tearDown()
@@ -80,12 +142,24 @@ class TestMessagePreferencesViews(BaseTest):
             {"List-Unsubscribe": "One-Click"},
         )
 
+    def _captured(self, event: str, properties: dict[str, Any]) -> dict[str, Any]:
+        return {
+            "token": self.team.api_token,
+            "event": event,
+            "distinct_id": self.recipient.identifier,
+            "properties": {"$email": self.recipient.identifier, **properties},
+        }
+
     @patch("products.messaging.backend.presentation.views.recipient_preferences.validate_messaging_preferences_token")
     def test_preferences_page_valid_token(self, mock_validate_messaging_preferences_token):
         mock_validate_messaging_preferences_token.return_value = mock_response(
             200, {"valid": True, "team_id": self.team.id, "identifier": self.recipient.identifier}
         )
-        response = self.client.get(reverse("message_preferences", kwargs={"token": self.token}))
+        OrganizationIPRestrictions.objects.create(organization=self.organization, ip_restrictions=["203.0.113.0/24"])
+        self.client.force_login(self.user)
+        response = self.client.get(
+            reverse("message_preferences", kwargs={"token": self.token}), REMOTE_ADDR="198.51.100.7"
+        )
 
         self.assertEqual(response.status_code, 200)
         self.assertTemplateUsed(response, "message_preferences/preferences.html")
@@ -159,13 +233,37 @@ class TestMessagePreferencesViews(BaseTest):
         self.assertTemplateUsed(response, "message_preferences/error.html")
         self.assertContains(response, STYLESHEET_LINK, status_code=400)
 
+    @parameterized.expand(
+        [
+            ("page_view", "get", "", {}),
+            ("one_click_unsubscribe", "post", "?one_click_unsubscribe=1", {"List-Unsubscribe": "One-Click"}),
+        ]
+    )
+    @patch("products.messaging.backend.presentation.views.recipient_preferences.validate_messaging_preferences_token")
+    def test_preferences_page_rejects_token_of_deleted_team(
+        self, _name, method, query, body, mock_validate_messaging_preferences_token
+    ):
+        mock_validate_messaging_preferences_token.return_value = mock_response(
+            200, {"valid": True, "team_id": DELETED_TEAM_ID, "identifier": self.recipient.identifier}
+        )
+
+        response = getattr(self.client, method)(
+            reverse("message_preferences", kwargs={"token": self.token}) + query, body
+        )
+
+        self.assertEqual(response.status_code, 400)
+        self.assertTemplateUsed(response, "message_preferences/error.html")
+        self.assertFalse(MessageRecipientPreference.objects.filter(team_id=DELETED_TEAM_ID).exists())
+
     @patch("products.messaging.backend.presentation.views.recipient_preferences.validate_messaging_preferences_token")
     def test_update_preferences_valid(self, mock_validate_messaging_preferences_token):
         data = {"token": self.token, "preferences[]": [f"{self.category.id}:true", f"{self.category2.id}:false"]}
         mock_validate_messaging_preferences_token.return_value = mock_response(
             200, {"valid": True, "team_id": self.team.id, "identifier": self.recipient.identifier}
         )
-        response = self.client.post(reverse("message_preferences_update"), data)
+        OrganizationIPRestrictions.objects.create(organization=self.organization, ip_restrictions=["203.0.113.0/24"])
+        self.client.force_login(self.user)
+        response = self.client.post(reverse("message_preferences_update"), data, REMOTE_ADDR="198.51.100.7")
         self.assertEqual(response.status_code, 200)
         self.assertEqual(json.loads(response.content), {"success": True})
 
@@ -201,19 +299,24 @@ class TestMessagePreferencesViews(BaseTest):
 
     @parameterized.expand(
         [
-            ("invalid-token", mock_response(400, {"error": "Invalid token"})),
-            ("invalid-token", mock_response(200, {"valid": False})),
+            ("rejected_by_cdp", mock_response(400, {"error": "Invalid token"}), "Invalid token"),
+            ("not_valid", mock_response(200, {"valid": False}), "Invalid recipient token"),
+            (
+                "deleted_team",
+                mock_response(200, {"valid": True, "team_id": DELETED_TEAM_ID, "identifier": "test@example.com"}),
+                "Invalid recipient",
+            ),
         ]
     )
     @patch("products.messaging.backend.presentation.views.recipient_preferences.validate_messaging_preferences_token")
     def test_update_preferences_invalid_token(
-        self, token, mock_response_value, mock_validate_messaging_preferences_token
+        self, _name, mock_response_value, expected_error, mock_validate_messaging_preferences_token
     ):
-        data = {"token": token, "preferences[]": [f"{self.category.id}:true"]}
+        data = {"token": "invalid-token", "preferences[]": [f"{self.category.id}:true"]}
         mock_validate_messaging_preferences_token.return_value = mock_response_value
         response = self.client.post(reverse("message_preferences_update"), data)
         self.assertEqual(response.status_code, 400)
-        self.assertIn("error", json.loads(response.content))
+        self.assertEqual(json.loads(response.content), {"error": expected_error})
 
     @parameterized.expand(["invalid", "TRUE", "", "1"])
     @patch("products.messaging.backend.presentation.views.recipient_preferences.validate_messaging_preferences_token")
@@ -239,10 +342,9 @@ class TestMessagePreferencesViews(BaseTest):
             ("unknown_category_alone", "junk_alone", {}, False),
         ]
     )
-    @patch("products.messaging.backend.services.unsubscribe_metrics.get_producer")
     @patch("products.messaging.backend.presentation.views.recipient_preferences.validate_messaging_preferences_token")
     def test_opt_out_records_unsubscribed_metric_for_the_sending_email(
-        self, _name, action, prior_preferences, expect_metric, mock_validate, mock_get_producer
+        self, _name, action, prior_preferences, expect_metric, mock_validate
     ):
         run_id = "0192a3b4-c5d6-7e8f-9a0b-1c2d3e4f5a6b"
         self.recipient.preferences = prior_preferences
@@ -258,39 +360,33 @@ class TestMessagePreferencesViews(BaseTest):
             },
         )
 
-        if action == "one_click":
-            response = self._post_one_click()
-        elif action == "view":
-            response = self.client.get(reverse("message_preferences", kwargs={"token": self.token}))
-        else:
+        def act():
+            if action == "one_click":
+                return self._post_one_click()
+            if action == "view":
+                return self.client.get(reverse("message_preferences", kwargs={"token": self.token}))
             prefs = {
                 "opt_out": [f"{self.category.id}:false"],
                 "opt_in": [f"{self.category.id}:true"],
                 "junk_opt_out": [f"{self.category.id}:true", "not-a-real-category:false"],
                 "junk_alone": ["not-a-real-category:false"],
             }[action]
-            response = self.client.post(
+            return self.client.post(
                 reverse("message_preferences_update"), {"token": self.token, "preferences[]": prefs}
             )
 
-        self.assertEqual(response.status_code, 200)
-        produce = mock_get_producer.return_value.produce
-        if not expect_metric:
-            produce.assert_not_called()
-            return
-        produce.assert_called_once()
-        self.assertEqual(
-            {k: v for k, v in produce.call_args.kwargs["data"].items() if k != "timestamp"},
-            {
-                "team_id": self.team.id,
-                "app_source": "hog_flow",
-                "app_source_id": run_id,
-                "instance_id": "action_function_email_1",
-                "metric_kind": "email",
-                "metric_name": "email_unsubscribed",
-                "count": 1,
-            },
-        )
+        expected_metric = {
+            "team_id": self.team.id,
+            "app_source": "hog_flow",
+            "app_source_id": run_id,
+            "instance_id": "action_function_email_1",
+            "metric_kind": "email",
+            "metric_name": "email_unsubscribed",
+            "count": 1,
+        }
+        for _ in range(2):
+            self.assertEqual(act().status_code, 200)
+            self.assertEqual(self.app_metrics.rows, [expected_metric] if expect_metric else [])
 
     @parameterized.expand(
         [
@@ -300,11 +396,8 @@ class TestMessagePreferencesViews(BaseTest):
             ("instance_id_missing", {"app_source_id": "0192a3b4-c5d6-7e8f-9a0b-1c2d3e4f5a6b"}),
         ]
     )
-    @patch("products.messaging.backend.services.unsubscribe_metrics.get_producer")
     @patch("products.messaging.backend.presentation.views.recipient_preferences.validate_messaging_preferences_token")
-    def test_one_click_without_usable_source_opts_out_without_metric(
-        self, _name, claims, mock_validate, mock_get_producer
-    ):
+    def test_one_click_without_usable_source_opts_out_without_metric(self, _name, claims, mock_validate):
         mock_validate.return_value = mock_response(
             200, {"valid": True, "team_id": self.team.id, "identifier": self.recipient.identifier, **claims}
         )
@@ -316,7 +409,7 @@ class TestMessagePreferencesViews(BaseTest):
         self.assertEqual(
             self.recipient.get_all_preferences()[ALL_MESSAGE_PREFERENCE_CATEGORY_ID], PreferenceStatus.OPTED_OUT
         )
-        mock_get_producer.return_value.produce.assert_not_called()
+        self.assertEqual(self.app_metrics.rows, [])
 
     @patch("products.messaging.backend.services.unsubscribe_metrics.get_producer")
     @patch("products.messaging.backend.presentation.views.recipient_preferences.validate_messaging_preferences_token")
@@ -378,43 +471,25 @@ class TestMessagePreferencesViews(BaseTest):
             ),
         ]
     )
-    @patch("products.messaging.backend.presentation.views.recipient_preferences.capture_internal")
     @patch("products.messaging.backend.presentation.views.recipient_preferences.validate_messaging_preferences_token")
     def test_one_click_unsubscribe_emits_unsubscribed_event(
-        self, _name, token_claims, send_properties, mock_validate_messaging_preferences_token, mock_capture_internal
+        self, _name, token_claims, send_properties, mock_validate_messaging_preferences_token
     ):
         self._enable_engagement_events()
         mock_validate_messaging_preferences_token.return_value = mock_response(
             200, {"valid": True, "team_id": self.team.id, "identifier": self.recipient.identifier, **token_claims}
         )
 
-        response = self._post_one_click()
-
-        self.assertEqual(response.status_code, 200)
-        mock_capture_internal.assert_called_once_with(
-            token=self.team.api_token,
-            event_name="$workflows_email_unsubscribed",
-            event_source="workflows_unsubscribe",
-            distinct_id=self.recipient.identifier,
-            properties={
-                "$email": self.recipient.identifier,
-                "category": ALL_MESSAGE_PREFERENCE_CATEGORY_ID,
-                "source": "one_click",
-                **send_properties,
-            },
+        expected_event = self._captured(
+            "$workflows_email_unsubscribed",
+            {"category": ALL_MESSAGE_PREFERENCE_CATEGORY_ID, "source": "one_click", **send_properties},
         )
+        for _ in range(2):
+            self.assertEqual(self._post_one_click().status_code, 200)
+            self.assertEqual(self.capture_rs.events, [expected_event])
 
-        # A replay (scanner prefetch, reused token) is not a transition and must not emit again
-        mock_capture_internal.reset_mock()
-        response = self._post_one_click()
-        self.assertEqual(response.status_code, 200)
-        mock_capture_internal.assert_not_called()
-
-    @patch("products.messaging.backend.presentation.views.recipient_preferences.capture_internal")
     @patch("products.messaging.backend.presentation.views.recipient_preferences.validate_messaging_preferences_token")
-    def test_update_preferences_emits_only_for_newly_opted_out(
-        self, mock_validate_messaging_preferences_token, mock_capture_internal
-    ):
+    def test_update_preferences_emits_only_for_newly_opted_out(self, mock_validate_messaging_preferences_token):
         self._enable_engagement_events()
         # category is already opted out, so only category2 and $all are genuine transitions;
         # the bogus id must be dropped because it isn't one of the team's categories
@@ -438,34 +513,42 @@ class TestMessagePreferencesViews(BaseTest):
         response = self.client.post(reverse("message_preferences_update"), data)
 
         self.assertEqual(response.status_code, 200)
-        emitted_categories = [call.kwargs["properties"]["category"] for call in mock_capture_internal.call_args_list]
-        self.assertEqual(
-            sorted(emitted_categories), sorted([str(self.category2.id), ALL_MESSAGE_PREFERENCE_CATEGORY_ID])
+        send_properties = {
+            "source": "preferences_page",
+            "$workflow_id": "flow-1",
+            "$workflow_action_id": "action-1",
+            "$workflow_invocation_id": "run-1",
+            "$workflow_version": 3,
+        }
+        self.assertCountEqual(
+            self.capture_rs.events,
+            [
+                self._captured("$workflows_email_unsubscribed", {"category": category_id, **send_properties})
+                for category_id in (str(self.category2.id), ALL_MESSAGE_PREFERENCE_CATEGORY_ID)
+            ],
         )
-        for call in mock_capture_internal.call_args_list:
-            self.assertEqual(call.kwargs["properties"]["source"], "preferences_page")
-            self.assertEqual(call.kwargs["properties"]["$workflow_invocation_id"], "run-1")
 
     @parameterized.expand(["one_click", "preferences_form"])
-    @patch("products.messaging.backend.presentation.views.recipient_preferences.capture_internal")
     @patch("products.messaging.backend.presentation.views.recipient_preferences.validate_messaging_preferences_token")
-    def test_no_unsubscribed_event_when_flag_off(
-        self, code_path, mock_validate_messaging_preferences_token, mock_capture_internal
-    ):
+    def test_no_unsubscribed_event_when_flag_off(self, code_path, mock_validate_messaging_preferences_token):
         mock_validate_messaging_preferences_token.return_value = mock_response(
             200, {"valid": True, "team_id": self.team.id, "identifier": self.recipient.identifier}
         )
 
         if code_path == "one_click":
             response = self._post_one_click()
+            opted_out_id = ALL_MESSAGE_PREFERENCE_CATEGORY_ID
         else:
             response = self.client.post(
                 reverse("message_preferences_update"),
                 {"token": self.token, "preferences[]": [f"{self.category.id}:false"]},
             )
+            opted_out_id = str(self.category.id)
 
         self.assertEqual(response.status_code, 200)
-        mock_capture_internal.assert_not_called()
+        self.recipient.refresh_from_db()
+        self.assertEqual(self.recipient.get_all_preferences()[opted_out_id], PreferenceStatus.OPTED_OUT)
+        self.assertEqual(self.capture_rs.events, [])
 
     def _set_tracking_consent_mode(self, mode: str):
         config = self.team.workflows_config
@@ -591,37 +674,21 @@ class TestMessagePreferencesViews(BaseTest):
         self.recipient.refresh_from_db()
         self.assertEqual(self.recipient.get_all_preferences()[EMAIL_TRACKING_PREFERENCE_ID], PreferenceStatus.OPTED_OUT)
 
-    @patch("products.messaging.backend.presentation.views.recipient_preferences.capture_internal")
     @patch("products.messaging.backend.presentation.views.recipient_preferences.validate_messaging_preferences_token")
-    def test_tracking_consent_change_emits_event_only_on_transition(
-        self, mock_validate_messaging_preferences_token, mock_capture_internal
-    ):
+    def test_tracking_consent_change_emits_event_only_on_transition(self, mock_validate_messaging_preferences_token):
         self._enable_engagement_events()
         mock_validate_messaging_preferences_token.return_value = mock_response(
             200, {"valid": True, "team_id": self.team.id, "identifier": self.recipient.identifier}
         )
         data = {"token": self.token, "preferences[]": [f"{EMAIL_TRACKING_PREFERENCE_ID}:false"]}
 
-        response = self.client.post(reverse("message_preferences_update"), data)
-
-        self.assertEqual(response.status_code, 200)
-        mock_capture_internal.assert_called_once_with(
-            token=self.team.api_token,
-            event_name="$workflows_email_tracking_consent_updated",
-            event_source="workflows_preferences",
-            distinct_id=self.recipient.identifier,
-            properties={
-                "$email": self.recipient.identifier,
-                "status": PreferenceStatus.OPTED_OUT.value,
-                "source": "preferences_page",
-            },
+        expected_event = self._captured(
+            "$workflows_email_tracking_consent_updated",
+            {"status": PreferenceStatus.OPTED_OUT.value, "source": "preferences_page"},
         )
-
-        # A repeated save with the same value is not a transition and must not emit again
-        mock_capture_internal.reset_mock()
-        response = self.client.post(reverse("message_preferences_update"), data)
-        self.assertEqual(response.status_code, 200)
-        mock_capture_internal.assert_not_called()
+        for _ in range(2):
+            self.assertEqual(self.client.post(reverse("message_preferences_update"), data).status_code, 200)
+            self.assertEqual(self.capture_rs.events, [expected_event])
 
 
 class TestMessagePreferencesAPIViewSet(APIBaseTest):

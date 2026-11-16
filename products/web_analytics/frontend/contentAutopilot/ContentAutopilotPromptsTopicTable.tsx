@@ -19,7 +19,7 @@ const RateCell = ({ rate, answers }: { rate: number | null; answers: number }): 
         </span>
     )
 
-/** One row per topic. Picking a row filters the prompt list below to that topic. */
+/** One row per topic. Picking a row opens the prompt list filtered to that topic. */
 export const ContentAutopilotPromptsTopicTable = ({
     rows,
     selectedTopic,
@@ -85,7 +85,7 @@ export const ContentAutopilotPromptsTopicTable = ({
             emptyState="No topics yet"
             footer={
                 <span className="px-3 py-2 text-xs text-muted">
-                    {pluralize(rows.length, 'topic')}. Pick one to filter the prompts below.
+                    {pluralize(rows.length, 'topic')}. Pick one to see its prompts.
                 </span>
             }
         />

@@ -12,9 +12,12 @@ import { parseHost } from './host'
 import { KeySession } from './key-session'
 import { HOG_CLIENT_ID } from './oauth'
 
-const SettingsLogins = z.object({ logins: z.record(z.string(), z.record(z.string(), z.unknown())) })
+const SettingsLogins = z.object({
+    logins: z.record(z.string(), z.record(z.string(), z.record(z.string(), z.unknown()))),
+})
 
 const EU = 'https://eu.posthog.com'
+const ITEM = `${EU}#42`
 const START = Date.UTC(2026, 0, 1)
 const SETTINGS_FILE = '/home/test/.config/hog/settings.json'
 const LOCK = /^\/home\/test\/\.config\/hog\/refresh-[0-9a-f]+\.lock$/
@@ -30,7 +33,7 @@ function settings(expiresInMs: number): string {
         scopes: ['openid', 'insight:read'],
         loginId: 'login-1',
     }
-    return JSON.stringify({ logins: { [EU]: record }, host: EU })
+    return JSON.stringify({ logins: { [EU]: { '42': record } }, host: EU })
 }
 
 function secret(accessToken: string): string {
@@ -41,11 +44,11 @@ function stored(
     accessToken: string,
     expiresInMs: number
 ): { files: Record<string, string>; keychain: Record<string, string> } {
-    return { files: { [SETTINGS_FILE]: settings(expiresInMs) }, keychain: { [EU]: secret(accessToken) } }
+    return { files: { [SETTINGS_FILE]: settings(expiresInMs) }, keychain: { [ITEM]: secret(accessToken) } }
 }
 
 function sessionFor(runtime: FakeRuntime, credentials: Credentials): KeySession {
-    return new KeySession(runtime, credentials.key, credentials.source === 'store' ? credentials.storage : null)
+    return new KeySession(runtime, credentials.key, credentials.storage)
 }
 
 const OK = { name: 'Hedgebox' }
@@ -80,7 +83,7 @@ describe('OAuth credentials', () => {
         expect(outcome).toMatchObject(expected)
         expect(tokenRequests(runtime)).toHaveLength(1)
         expect(runtime.requests.filter((request) => request.url.includes('/api/'))).toHaveLength(apiCalls)
-        expect(readJson(runtime.keychain[EU] ?? '{}')).toMatchObject({ accessToken: renewedToken })
+        expect(readJson(runtime.keychain[ITEM] ?? '{}')).toMatchObject({ accessToken: renewedToken })
     })
 
     test('a 401 that a renewed token gets too stops renewing for the rest of the command', async () => {
@@ -103,16 +106,16 @@ describe('OAuth credentials', () => {
         expect(runtime.requests.filter((request) => request.url.includes('/api/'))).toHaveLength(3)
     })
 
-    test('a login that replaced this one mid-command stops it instead of sending to its project', async () => {
+    test('a new login to the same project mid-command stops it instead of switching to it', async () => {
         const runtime = fakeRuntime({
             ...stored('pha_old', 3_600_000),
             respond: () => ({ status: 401, body: { detail: 'Invalid token' } }),
         })
         const api = new PostHogApi(sessionFor(runtime, await resolveCredentials(runtime, {})), runtime.fetch)
         const replaced = readJson(settings(3_600_000), SettingsLogins)
-        replaced.logins[EU] = { ...replaced.logins[EU], projectId: '99', loginId: 'login-2' }
+        replaced.logins[EU] = { '42': { ...replaced.logins[EU]?.['42'], loginId: 'login-2' } }
         runtime.files[SETTINGS_FILE] = JSON.stringify(replaced)
-        runtime.keychain[EU] = secret('pha_other')
+        runtime.keychain[ITEM] = secret('pha_other')
 
         const outcome = await api.get('', z.unknown()).catch((error: unknown) => error)
 
@@ -123,8 +126,8 @@ describe('OAuth credentials', () => {
     test('a stored personal API key that PostHog rejects is sent only once', async () => {
         const record = { store: 'keychain', type: 'personal_api_key', projectId: '42', host: EU }
         const runtime = fakeRuntime({
-            files: { [SETTINGS_FILE]: JSON.stringify({ logins: { [EU]: record }, host: EU }) },
-            keychain: { [EU]: JSON.stringify({ apiKey: 'phx_deleted' }) },
+            files: { [SETTINGS_FILE]: JSON.stringify({ logins: { [EU]: { '42': record } }, host: EU }) },
+            keychain: { [ITEM]: JSON.stringify({ apiKey: 'phx_deleted' }) },
             respond: () => ({ status: 401, body: { detail: 'Invalid personal API key' } }),
         })
         const api = new PostHogApi(sessionFor(runtime, await resolveCredentials(runtime, {})), runtime.fetch)
@@ -148,8 +151,8 @@ describe('OAuth credentials', () => {
         expect(tokenRequests(runtime).map((request) => request.body)).toEqual([
             { grant_type: 'refresh_token', refresh_token: 'phr_old', client_id: HOG_CLIENT_ID },
         ])
-        expect(readJson(runtime.keychain[EU] ?? '{}')).toEqual({ accessToken: 'pha_new', refreshToken: 'phr_old' })
-        expect(readJson(runtime.files[SETTINGS_FILE] ?? '{}', SettingsLogins).logins[EU]).toMatchObject({
+        expect(readJson(runtime.keychain[ITEM] ?? '{}')).toEqual({ accessToken: 'pha_new', refreshToken: 'phr_old' })
+        expect(readJson(runtime.files[SETTINGS_FILE] ?? '{}', SettingsLogins).logins[EU]?.['42']).toMatchObject({
             expiresAt: START + 3_600_000,
             scopes: ['openid'],
             loginId: 'login-1',
@@ -174,7 +177,7 @@ describe('OAuth credentials', () => {
 
         expect(credentials.key).toMatchObject({ token: 'pha_new' })
         expect(tokenRequests(runtime)).toHaveLength(2)
-        expect(readJson(runtime.keychain[EU] ?? '{}')).toEqual({ accessToken: 'pha_new', refreshToken: 'phr_new' })
+        expect(readJson(runtime.keychain[ITEM] ?? '{}')).toEqual({ accessToken: 'pha_new', refreshToken: 'phr_new' })
     })
 
     test('use a token with time left as it is', async () => {
@@ -203,7 +206,7 @@ describe('OAuth credentials', () => {
         let settingsReads = 0
         runtime.readFile = async (path) =>
             path === SETTINGS_FILE && settingsReads++ > 0 ? settings(3_600_000) : readFile(path)
-        const lock = `/home/test/.config/hog/refresh-${createHash('sha256').update(EU).digest('hex').slice(0, 16)}.lock`
+        const lock = `/home/test/.config/hog/refresh-${createHash('sha256').update(ITEM).digest('hex').slice(0, 16)}.lock`
         runtime.files[lock] = lockContents
 
         const credentials = await resolveCredentials(runtime, {})

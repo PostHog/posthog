@@ -240,6 +240,7 @@ describe('SegmentDestinationExecutorService', () => {
                 dump: () => Promise.resolve(),
             })
 
+            let minBackoffMs = DateTime.utc().plus({ milliseconds: defaultConfig.CDP_FETCH_BACKOFF_BASE_MS }).toMillis()
             const result = await service.execute(invocation)
 
             expect(result.finished).toBe(false)
@@ -284,15 +285,18 @@ describe('SegmentDestinationExecutorService', () => {
                 teamId: 1,
             })
 
-            let minBackoffMs = DateTime.utc().plus({ milliseconds: defaultConfig.CDP_FETCH_BACKOFF_BASE_MS }).toMillis()
             let maxBackoffMs = DateTime.utc()
                 .plus({ milliseconds: defaultConfig.CDP_FETCH_BACKOFF_BASE_MS * 2 })
                 .toMillis()
             let scheduledAt = result.invocation.queueScheduledAt!.toMillis()
-            expect(scheduledAt > minBackoffMs && scheduledAt < maxBackoffMs).toBe(true)
+            expect(scheduledAt).toBeGreaterThanOrEqual(minBackoffMs)
+            expect(scheduledAt).toBeLessThan(maxBackoffMs)
 
             // second fetch call
 
+            minBackoffMs = DateTime.utc()
+                .plus({ milliseconds: defaultConfig.CDP_FETCH_BACKOFF_BASE_MS * 2 })
+                .toMillis()
             const invocationResults2 = await service.execute(result.invocation)
 
             expect(invocationResults2.finished).toBe(false)
@@ -315,14 +319,12 @@ describe('SegmentDestinationExecutorService', () => {
                 teamId: 1,
             })
 
-            minBackoffMs = DateTime.utc()
-                .plus({ milliseconds: defaultConfig.CDP_FETCH_BACKOFF_BASE_MS * 2 })
-                .toMillis()
             maxBackoffMs = DateTime.utc()
                 .plus({ milliseconds: defaultConfig.CDP_FETCH_BACKOFF_BASE_MS * 3 })
                 .toMillis()
             scheduledAt = invocationResults2.invocation.queueScheduledAt!.toMillis()
-            expect(scheduledAt > minBackoffMs && scheduledAt < maxBackoffMs).toBe(true)
+            expect(scheduledAt).toBeGreaterThanOrEqual(minBackoffMs)
+            expect(scheduledAt).toBeLessThan(maxBackoffMs)
 
             // third fetch call
 

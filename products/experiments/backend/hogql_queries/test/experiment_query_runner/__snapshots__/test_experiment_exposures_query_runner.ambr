@@ -4,7 +4,8 @@
   WITH first_exposures AS
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
             if(greater(uniqExact(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), 1), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''))) AS variant,
-            toDateOrNull(toString(min(toTimeZone(events.timestamp, 'UTC')))) AS day
+            toDateOrNull(toString(min(toTimeZone(events.timestamp, 'UTC')))) AS day,
+            argMin(multiIf(in(coalesce(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$lib'), ''), 'null'), '^"|"$', '')), '$$_posthog_breakdown_null_$$'), tuple('web', 'posthog-ios', 'posthog-android', 'posthog-java', 'posthog-server', 'posthog-node', 'posthog-python', 'posthog-php', 'posthog-laravel', 'posthog-ruby', 'posthog-go', 'posthog-flutter', 'posthog-react-native', 'posthog-kmp', 'posthog-dotnet', 'posthog-elixir', 'posthog-unity', 'posthog-node-mcp', 'posthog-python-mcp', 'posthog-edge', 'posthog-convex', 'posthog-rails', 'posthog-aspnetcore', 'posthog-rs', 'posthog-rs-mcp', 'posthog-godot', 'posthog-unreal', 'posthog-go-mcp', 'posthog-ruby-mcp', 'posthog-roblox', 'js')), coalesce(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$lib'), ''), 'null'), '^"|"$', '')), '$$_posthog_breakdown_null_$$'), ifNull(equals(coalesce(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$lib'), ''), 'null'), '^"|"$', '')), '$$_posthog_breakdown_null_$$'), '$$_posthog_breakdown_null_$$'), 0), coalesce(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$lib'), ''), 'null'), '^"|"$', '')), '$$_posthog_breakdown_null_$$'), '$$_posthog_breakdown_other_$$'), toTimeZone(events.timestamp, 'UTC')) AS library
      FROM events
      LEFT OUTER JOIN
        (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
@@ -17,7 +18,8 @@
      GROUP BY entity_id)
   SELECT first_exposures.day AS day,
          first_exposures.variant AS variant,
-         count(first_exposures.entity_id) AS exposed_count
+         count(first_exposures.entity_id) AS exposed_count,
+         sumMap([first_exposures.library], [1]) AS exposed_by_library
   FROM first_exposures
   WHERE notEmpty(variant)
   GROUP BY first_exposures.day,
@@ -42,7 +44,8 @@
   WITH first_exposures AS
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
             if(greater(uniqExact(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), 1), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''))) AS variant,
-            toDateOrNull(toString(min(toTimeZone(events.timestamp, 'UTC')))) AS day
+            toDateOrNull(toString(min(toTimeZone(events.timestamp, 'UTC')))) AS day,
+            argMin(multiIf(in(coalesce(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$lib'), ''), 'null'), '^"|"$', '')), '$$_posthog_breakdown_null_$$'), tuple('web', 'posthog-ios', 'posthog-android', 'posthog-java', 'posthog-server', 'posthog-node', 'posthog-python', 'posthog-php', 'posthog-laravel', 'posthog-ruby', 'posthog-go', 'posthog-flutter', 'posthog-react-native', 'posthog-kmp', 'posthog-dotnet', 'posthog-elixir', 'posthog-unity', 'posthog-node-mcp', 'posthog-python-mcp', 'posthog-edge', 'posthog-convex', 'posthog-rails', 'posthog-aspnetcore', 'posthog-rs', 'posthog-rs-mcp', 'posthog-godot', 'posthog-unreal', 'posthog-go-mcp', 'posthog-ruby-mcp', 'posthog-roblox', 'js')), coalesce(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$lib'), ''), 'null'), '^"|"$', '')), '$$_posthog_breakdown_null_$$'), ifNull(equals(coalesce(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$lib'), ''), 'null'), '^"|"$', '')), '$$_posthog_breakdown_null_$$'), '$$_posthog_breakdown_null_$$'), 0), coalesce(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$lib'), ''), 'null'), '^"|"$', '')), '$$_posthog_breakdown_null_$$'), '$$_posthog_breakdown_other_$$'), toTimeZone(events.timestamp, 'UTC')) AS library
      FROM events
      LEFT OUTER JOIN
        (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
@@ -55,7 +58,8 @@
      GROUP BY entity_id)
   SELECT first_exposures.day AS day,
          first_exposures.variant AS variant,
-         count(first_exposures.entity_id) AS exposed_count
+         count(first_exposures.entity_id) AS exposed_count,
+         sumMap([first_exposures.library], [1]) AS exposed_by_library
   FROM first_exposures
   WHERE notEmpty(variant)
   GROUP BY first_exposures.day,
@@ -80,7 +84,8 @@
   WITH first_exposures AS
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
             if(greater(uniqExact(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), 1), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''))) AS variant,
-            toDateOrNull(toString(min(toTimeZone(events.timestamp, 'UTC')))) AS day
+            toDateOrNull(toString(min(toTimeZone(events.timestamp, 'UTC')))) AS day,
+            argMin(multiIf(in(coalesce(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$lib'), ''), 'null'), '^"|"$', '')), '$$_posthog_breakdown_null_$$'), tuple('web', 'posthog-ios', 'posthog-android', 'posthog-java', 'posthog-server', 'posthog-node', 'posthog-python', 'posthog-php', 'posthog-laravel', 'posthog-ruby', 'posthog-go', 'posthog-flutter', 'posthog-react-native', 'posthog-kmp', 'posthog-dotnet', 'posthog-elixir', 'posthog-unity', 'posthog-node-mcp', 'posthog-python-mcp', 'posthog-edge', 'posthog-convex', 'posthog-rails', 'posthog-aspnetcore', 'posthog-rs', 'posthog-rs-mcp', 'posthog-godot', 'posthog-unreal', 'posthog-go-mcp', 'posthog-ruby-mcp', 'posthog-roblox', 'js')), coalesce(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$lib'), ''), 'null'), '^"|"$', '')), '$$_posthog_breakdown_null_$$'), ifNull(equals(coalesce(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$lib'), ''), 'null'), '^"|"$', '')), '$$_posthog_breakdown_null_$$'), '$$_posthog_breakdown_null_$$'), 0), coalesce(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$lib'), ''), 'null'), '^"|"$', '')), '$$_posthog_breakdown_null_$$'), '$$_posthog_breakdown_other_$$'), toTimeZone(events.timestamp, 'UTC')) AS library
      FROM events
      LEFT OUTER JOIN
        (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
@@ -93,7 +98,8 @@
      GROUP BY entity_id)
   SELECT first_exposures.day AS day,
          first_exposures.variant AS variant,
-         count(first_exposures.entity_id) AS exposed_count
+         count(first_exposures.entity_id) AS exposed_count,
+         sumMap([first_exposures.library], [1]) AS exposed_by_library
   FROM first_exposures
   WHERE notEmpty(variant)
   GROUP BY first_exposures.day,
@@ -118,7 +124,8 @@
   WITH first_exposures AS
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
             argMin(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''), toTimeZone(events.timestamp, 'UTC')) AS variant,
-            toDateOrNull(toString(min(toTimeZone(events.timestamp, 'UTC')))) AS day
+            toDateOrNull(toString(min(toTimeZone(events.timestamp, 'UTC')))) AS day,
+            argMin(multiIf(in(coalesce(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$lib'), ''), 'null'), '^"|"$', '')), '$$_posthog_breakdown_null_$$'), tuple('web', 'posthog-ios', 'posthog-android', 'posthog-java', 'posthog-server', 'posthog-node', 'posthog-python', 'posthog-php', 'posthog-laravel', 'posthog-ruby', 'posthog-go', 'posthog-flutter', 'posthog-react-native', 'posthog-kmp', 'posthog-dotnet', 'posthog-elixir', 'posthog-unity', 'posthog-node-mcp', 'posthog-python-mcp', 'posthog-edge', 'posthog-convex', 'posthog-rails', 'posthog-aspnetcore', 'posthog-rs', 'posthog-rs-mcp', 'posthog-godot', 'posthog-unreal', 'posthog-go-mcp', 'posthog-ruby-mcp', 'posthog-roblox', 'js')), coalesce(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$lib'), ''), 'null'), '^"|"$', '')), '$$_posthog_breakdown_null_$$'), ifNull(equals(coalesce(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$lib'), ''), 'null'), '^"|"$', '')), '$$_posthog_breakdown_null_$$'), '$$_posthog_breakdown_null_$$'), 0), coalesce(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$lib'), ''), 'null'), '^"|"$', '')), '$$_posthog_breakdown_null_$$'), '$$_posthog_breakdown_other_$$'), toTimeZone(events.timestamp, 'UTC')) AS library
      FROM events
      LEFT OUTER JOIN
        (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
@@ -131,7 +138,8 @@
      GROUP BY entity_id)
   SELECT first_exposures.day AS day,
          first_exposures.variant AS variant,
-         count(first_exposures.entity_id) AS exposed_count
+         count(first_exposures.entity_id) AS exposed_count,
+         sumMap([first_exposures.library], [1]) AS exposed_by_library
   FROM first_exposures
   WHERE notEmpty(variant)
   GROUP BY first_exposures.day,
@@ -156,7 +164,8 @@
   WITH first_exposures AS
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
             if(greater(uniqExact(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), 1), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''))) AS variant,
-            toDateOrNull(toString(min(toTimeZone(events.timestamp, 'UTC')))) AS day
+            toDateOrNull(toString(min(toTimeZone(events.timestamp, 'UTC')))) AS day,
+            argMin(multiIf(in(coalesce(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$lib'), ''), 'null'), '^"|"$', '')), '$$_posthog_breakdown_null_$$'), tuple('web', 'posthog-ios', 'posthog-android', 'posthog-java', 'posthog-server', 'posthog-node', 'posthog-python', 'posthog-php', 'posthog-laravel', 'posthog-ruby', 'posthog-go', 'posthog-flutter', 'posthog-react-native', 'posthog-kmp', 'posthog-dotnet', 'posthog-elixir', 'posthog-unity', 'posthog-node-mcp', 'posthog-python-mcp', 'posthog-edge', 'posthog-convex', 'posthog-rails', 'posthog-aspnetcore', 'posthog-rs', 'posthog-rs-mcp', 'posthog-godot', 'posthog-unreal', 'posthog-go-mcp', 'posthog-ruby-mcp', 'posthog-roblox', 'js')), coalesce(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$lib'), ''), 'null'), '^"|"$', '')), '$$_posthog_breakdown_null_$$'), ifNull(equals(coalesce(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$lib'), ''), 'null'), '^"|"$', '')), '$$_posthog_breakdown_null_$$'), '$$_posthog_breakdown_null_$$'), 0), coalesce(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$lib'), ''), 'null'), '^"|"$', '')), '$$_posthog_breakdown_null_$$'), '$$_posthog_breakdown_other_$$'), toTimeZone(events.timestamp, 'UTC')) AS library
      FROM events
      LEFT OUTER JOIN
        (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
@@ -169,7 +178,8 @@
      GROUP BY entity_id)
   SELECT first_exposures.day AS day,
          first_exposures.variant AS variant,
-         count(first_exposures.entity_id) AS exposed_count
+         count(first_exposures.entity_id) AS exposed_count,
+         sumMap([first_exposures.library], [1]) AS exposed_by_library
   FROM first_exposures
   WHERE notEmpty(variant)
   GROUP BY first_exposures.day,
@@ -225,13 +235,15 @@
   WITH first_exposures AS
     (SELECT if(less(toTimeZone(events.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), '', events.`$group_0`) AS entity_id,
             if(greater(uniqExact(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), 1), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''))) AS variant,
-            toDateOrNull(toString(min(toTimeZone(events.timestamp, 'UTC')))) AS day
+            toDateOrNull(toString(min(toTimeZone(events.timestamp, 'UTC')))) AS day,
+            argMin(multiIf(in(coalesce(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$lib'), ''), 'null'), '^"|"$', '')), '$$_posthog_breakdown_null_$$'), tuple('web', 'posthog-ios', 'posthog-android', 'posthog-java', 'posthog-server', 'posthog-node', 'posthog-python', 'posthog-php', 'posthog-laravel', 'posthog-ruby', 'posthog-go', 'posthog-flutter', 'posthog-react-native', 'posthog-kmp', 'posthog-dotnet', 'posthog-elixir', 'posthog-unity', 'posthog-node-mcp', 'posthog-python-mcp', 'posthog-edge', 'posthog-convex', 'posthog-rails', 'posthog-aspnetcore', 'posthog-rs', 'posthog-rs-mcp', 'posthog-godot', 'posthog-unreal', 'posthog-go-mcp', 'posthog-ruby-mcp', 'posthog-roblox', 'js')), coalesce(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$lib'), ''), 'null'), '^"|"$', '')), '$$_posthog_breakdown_null_$$'), ifNull(equals(coalesce(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$lib'), ''), 'null'), '^"|"$', '')), '$$_posthog_breakdown_null_$$'), '$$_posthog_breakdown_null_$$'), 0), coalesce(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$lib'), ''), 'null'), '^"|"$', '')), '$$_posthog_breakdown_null_$$'), '$$_posthog_breakdown_other_$$'), toTimeZone(events.timestamp, 'UTC')) AS library
      FROM events
      WHERE and(equals(events.team_id, 99999), greaterOrEquals(events.timestamp, assumeNotNull(toDateTime('2024-01-01 00:00:00', 'UTC'))), lessOrEquals(events.timestamp, assumeNotNull(toDateTime('2024-01-28 00:00:00', 'UTC'))), and(in(events.event, ['$feature_flag_called', '$experiment_exposure']), ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag'), ''), 'null'), '^"|"$', ''), 'test-experiment'), 0)), ifNull(notILike(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.person_properties, 'email'), ''), 'null'), '^"|"$', '')), '%@posthog.com%'), 1), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''), ['control', 'test']), notEmpty(if(less(toTimeZone(events.timestamp, 'UTC'), toDateTime64('today', 6, 'UTC')), '', events.`$group_0`)))
      GROUP BY entity_id)
   SELECT first_exposures.day AS day,
          first_exposures.variant AS variant,
-         count(first_exposures.entity_id) AS exposed_count
+         count(first_exposures.entity_id) AS exposed_count,
+         sumMap([first_exposures.library], [1]) AS exposed_by_library
   FROM first_exposures
   WHERE notEmpty(variant)
   GROUP BY first_exposures.day,
@@ -256,7 +268,8 @@
   WITH first_exposures AS
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
             if(greater(uniqExact(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')), 1), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''))) AS variant,
-            toDateOrNull(toString(min(toTimeZone(events.timestamp, 'UTC')))) AS day
+            toDateOrNull(toString(min(toTimeZone(events.timestamp, 'UTC')))) AS day,
+            argMin(multiIf(in(coalesce(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$lib'), ''), 'null'), '^"|"$', '')), '$$_posthog_breakdown_null_$$'), tuple('web', 'posthog-ios', 'posthog-android', 'posthog-java', 'posthog-server', 'posthog-node', 'posthog-python', 'posthog-php', 'posthog-laravel', 'posthog-ruby', 'posthog-go', 'posthog-flutter', 'posthog-react-native', 'posthog-kmp', 'posthog-dotnet', 'posthog-elixir', 'posthog-unity', 'posthog-node-mcp', 'posthog-python-mcp', 'posthog-edge', 'posthog-convex', 'posthog-rails', 'posthog-aspnetcore', 'posthog-rs', 'posthog-rs-mcp', 'posthog-godot', 'posthog-unreal', 'posthog-go-mcp', 'posthog-ruby-mcp', 'posthog-roblox', 'js')), coalesce(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$lib'), ''), 'null'), '^"|"$', '')), '$$_posthog_breakdown_null_$$'), ifNull(equals(coalesce(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$lib'), ''), 'null'), '^"|"$', '')), '$$_posthog_breakdown_null_$$'), '$$_posthog_breakdown_null_$$'), 0), coalesce(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$lib'), ''), 'null'), '^"|"$', '')), '$$_posthog_breakdown_null_$$'), '$$_posthog_breakdown_other_$$'), toTimeZone(events.timestamp, 'UTC')) AS library
      FROM events
      LEFT OUTER JOIN
        (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
@@ -269,7 +282,8 @@
      GROUP BY entity_id)
   SELECT first_exposures.day AS day,
          first_exposures.variant AS variant,
-         count(first_exposures.entity_id) AS exposed_count
+         count(first_exposures.entity_id) AS exposed_count,
+         sumMap([first_exposures.library], [1]) AS exposed_by_library
   FROM first_exposures
   WHERE notEmpty(variant)
   GROUP BY first_exposures.day,
@@ -294,7 +308,8 @@
   WITH first_exposures AS
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
             if(greater(uniqExact(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', '')), 1), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature/test-experiment'), ''), 'null'), '^"|"$', ''))) AS variant,
-            toDateOrNull(toString(min(toTimeZone(events.timestamp, 'UTC')))) AS day
+            toDateOrNull(toString(min(toTimeZone(events.timestamp, 'UTC')))) AS day,
+            argMin(multiIf(in(coalesce(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$lib'), ''), 'null'), '^"|"$', '')), '$$_posthog_breakdown_null_$$'), tuple('web', 'posthog-ios', 'posthog-android', 'posthog-java', 'posthog-server', 'posthog-node', 'posthog-python', 'posthog-php', 'posthog-laravel', 'posthog-ruby', 'posthog-go', 'posthog-flutter', 'posthog-react-native', 'posthog-kmp', 'posthog-dotnet', 'posthog-elixir', 'posthog-unity', 'posthog-node-mcp', 'posthog-python-mcp', 'posthog-edge', 'posthog-convex', 'posthog-rails', 'posthog-aspnetcore', 'posthog-rs', 'posthog-rs-mcp', 'posthog-godot', 'posthog-unreal', 'posthog-go-mcp', 'posthog-ruby-mcp', 'posthog-roblox', 'js')), coalesce(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$lib'), ''), 'null'), '^"|"$', '')), '$$_posthog_breakdown_null_$$'), ifNull(equals(coalesce(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$lib'), ''), 'null'), '^"|"$', '')), '$$_posthog_breakdown_null_$$'), '$$_posthog_breakdown_null_$$'), 0), coalesce(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$lib'), ''), 'null'), '^"|"$', '')), '$$_posthog_breakdown_null_$$'), '$$_posthog_breakdown_other_$$'), toTimeZone(events.timestamp, 'UTC')) AS library
      FROM events
      LEFT OUTER JOIN
        (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
@@ -307,7 +322,8 @@
      GROUP BY entity_id)
   SELECT first_exposures.day AS day,
          first_exposures.variant AS variant,
-         count(first_exposures.entity_id) AS exposed_count
+         count(first_exposures.entity_id) AS exposed_count,
+         sumMap([first_exposures.library], [1]) AS exposed_by_library
   FROM first_exposures
   WHERE notEmpty(variant)
   GROUP BY first_exposures.day,
@@ -332,7 +348,8 @@
   WITH first_exposures AS
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
             if(greater(uniqExact(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), 1), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''))) AS variant,
-            toDateOrNull(toString(min(toTimeZone(events.timestamp, 'UTC')))) AS day
+            toDateOrNull(toString(min(toTimeZone(events.timestamp, 'UTC')))) AS day,
+            argMin(multiIf(in(coalesce(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$lib'), ''), 'null'), '^"|"$', '')), '$$_posthog_breakdown_null_$$'), tuple('web', 'posthog-ios', 'posthog-android', 'posthog-java', 'posthog-server', 'posthog-node', 'posthog-python', 'posthog-php', 'posthog-laravel', 'posthog-ruby', 'posthog-go', 'posthog-flutter', 'posthog-react-native', 'posthog-kmp', 'posthog-dotnet', 'posthog-elixir', 'posthog-unity', 'posthog-node-mcp', 'posthog-python-mcp', 'posthog-edge', 'posthog-convex', 'posthog-rails', 'posthog-aspnetcore', 'posthog-rs', 'posthog-rs-mcp', 'posthog-godot', 'posthog-unreal', 'posthog-go-mcp', 'posthog-ruby-mcp', 'posthog-roblox', 'js')), coalesce(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$lib'), ''), 'null'), '^"|"$', '')), '$$_posthog_breakdown_null_$$'), ifNull(equals(coalesce(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$lib'), ''), 'null'), '^"|"$', '')), '$$_posthog_breakdown_null_$$'), '$$_posthog_breakdown_null_$$'), 0), coalesce(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$lib'), ''), 'null'), '^"|"$', '')), '$$_posthog_breakdown_null_$$'), '$$_posthog_breakdown_other_$$'), toTimeZone(events.timestamp, 'UTC')) AS library
      FROM events
      LEFT OUTER JOIN
        (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
@@ -345,7 +362,8 @@
      GROUP BY entity_id)
   SELECT first_exposures.day AS day,
          first_exposures.variant AS variant,
-         count(first_exposures.entity_id) AS exposed_count
+         count(first_exposures.entity_id) AS exposed_count,
+         sumMap([first_exposures.library], [1]) AS exposed_by_library
   FROM first_exposures
   WHERE notEmpty(variant)
   GROUP BY first_exposures.day,
@@ -370,7 +388,8 @@
   WITH first_exposures AS
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
             if(greater(uniqExact(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), 1), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''))) AS variant,
-            toDateOrNull(toString(min(toTimeZone(events.timestamp, 'UTC')))) AS day
+            toDateOrNull(toString(min(toTimeZone(events.timestamp, 'UTC')))) AS day,
+            argMin(multiIf(in(coalesce(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$lib'), ''), 'null'), '^"|"$', '')), '$$_posthog_breakdown_null_$$'), tuple('web', 'posthog-ios', 'posthog-android', 'posthog-java', 'posthog-server', 'posthog-node', 'posthog-python', 'posthog-php', 'posthog-laravel', 'posthog-ruby', 'posthog-go', 'posthog-flutter', 'posthog-react-native', 'posthog-kmp', 'posthog-dotnet', 'posthog-elixir', 'posthog-unity', 'posthog-node-mcp', 'posthog-python-mcp', 'posthog-edge', 'posthog-convex', 'posthog-rails', 'posthog-aspnetcore', 'posthog-rs', 'posthog-rs-mcp', 'posthog-godot', 'posthog-unreal', 'posthog-go-mcp', 'posthog-ruby-mcp', 'posthog-roblox', 'js')), coalesce(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$lib'), ''), 'null'), '^"|"$', '')), '$$_posthog_breakdown_null_$$'), ifNull(equals(coalesce(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$lib'), ''), 'null'), '^"|"$', '')), '$$_posthog_breakdown_null_$$'), '$$_posthog_breakdown_null_$$'), 0), coalesce(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$lib'), ''), 'null'), '^"|"$', '')), '$$_posthog_breakdown_null_$$'), '$$_posthog_breakdown_other_$$'), toTimeZone(events.timestamp, 'UTC')) AS library
      FROM events
      LEFT OUTER JOIN
        (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
@@ -383,7 +402,8 @@
      GROUP BY entity_id)
   SELECT first_exposures.day AS day,
          first_exposures.variant AS variant,
-         count(first_exposures.entity_id) AS exposed_count
+         count(first_exposures.entity_id) AS exposed_count,
+         sumMap([first_exposures.library], [1]) AS exposed_by_library
   FROM first_exposures
   WHERE notEmpty(variant)
   GROUP BY first_exposures.day,
@@ -408,7 +428,8 @@
   WITH first_exposures AS
     (SELECT if(not(empty(events__override.distinct_id)), events__override.person_id, events.person_id) AS entity_id,
             if(greater(uniqExact(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', '')), 1), '$multiple', any(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$feature_flag_response'), ''), 'null'), '^"|"$', ''))) AS variant,
-            toDateOrNull(toString(min(toTimeZone(events.timestamp, 'UTC')))) AS day
+            toDateOrNull(toString(min(toTimeZone(events.timestamp, 'UTC')))) AS day,
+            argMin(multiIf(in(coalesce(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$lib'), ''), 'null'), '^"|"$', '')), '$$_posthog_breakdown_null_$$'), tuple('web', 'posthog-ios', 'posthog-android', 'posthog-java', 'posthog-server', 'posthog-node', 'posthog-python', 'posthog-php', 'posthog-laravel', 'posthog-ruby', 'posthog-go', 'posthog-flutter', 'posthog-react-native', 'posthog-kmp', 'posthog-dotnet', 'posthog-elixir', 'posthog-unity', 'posthog-node-mcp', 'posthog-python-mcp', 'posthog-edge', 'posthog-convex', 'posthog-rails', 'posthog-aspnetcore', 'posthog-rs', 'posthog-rs-mcp', 'posthog-godot', 'posthog-unreal', 'posthog-go-mcp', 'posthog-ruby-mcp', 'posthog-roblox', 'js')), coalesce(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$lib'), ''), 'null'), '^"|"$', '')), '$$_posthog_breakdown_null_$$'), ifNull(equals(coalesce(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$lib'), ''), 'null'), '^"|"$', '')), '$$_posthog_breakdown_null_$$'), '$$_posthog_breakdown_null_$$'), 0), coalesce(toString(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(events.properties, '$lib'), ''), 'null'), '^"|"$', '')), '$$_posthog_breakdown_null_$$'), '$$_posthog_breakdown_other_$$'), toTimeZone(events.timestamp, 'UTC')) AS library
      FROM events
      LEFT OUTER JOIN
        (SELECT argMax(person_distinct_id_overrides.person_id, person_distinct_id_overrides.version) AS person_id,
@@ -421,7 +442,8 @@
      GROUP BY entity_id)
   SELECT first_exposures.day AS day,
          first_exposures.variant AS variant,
-         count(first_exposures.entity_id) AS exposed_count
+         count(first_exposures.entity_id) AS exposed_count,
+         sumMap([first_exposures.library], [1]) AS exposed_by_library
   FROM first_exposures
   WHERE notEmpty(variant)
   GROUP BY first_exposures.day,

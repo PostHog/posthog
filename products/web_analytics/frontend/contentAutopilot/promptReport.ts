@@ -31,11 +31,19 @@ export interface KpiCardContent {
     delta: KpiDelta | null
 }
 
+export interface PromptPositionKpi {
+    /** Mean rank of your first link among the sources, over the cited answers in the window. Lower is better. */
+    average: number | null
+    latest: number | null
+    latestDate: string | null
+}
+
 export interface PromptReportKpis {
     answers: number
     days: number
     visibility: PromptRateKpi
     citation: PromptRateKpi
+    position: PromptPositionKpi
 }
 
 export interface PromptConsensusCell {
@@ -116,6 +124,61 @@ export const pointsDelta = (delta: number, tooltip: string): KpiDelta => {
     }
 }
 
+export const POSITION_DESCRIPTION =
+    'Where your site sits among the sources of an answer that cites it. #1 is the first source listed. Lower is better.'
+
+export const positionLabel = (position: number): string => `#${Math.round(position * 10) / 10}`
+
+/** A rank is better when it is lower, so a drop in the number reads as a gain. */
+export const positionDelta = (change: number, tooltip: string): KpiDelta => {
+    const rounded = Math.round(change * 10) / 10
+    return {
+        label: rounded === 0 ? 'No change' : `${Math.abs(rounded)} ${rounded < 0 ? 'better' : 'worse'}`,
+        direction: rounded === 0 ? 'flat' : rounded < 0 ? 'up' : 'down',
+        tooltip,
+    }
+}
+
+/** Mean of per-row averages, weighted by the cited answers each one covers. */
+export const pooledPosition = (rows: { cited: number; avg_position?: number | null }[]): number | null => {
+    let cited = 0
+    let total = 0
+    for (const row of rows) {
+        if (row.avg_position !== null && row.avg_position !== undefined && row.cited > 0) {
+            cited += row.cited
+            total += row.avg_position * row.cited
+        }
+    }
+    return cited > 0 ? total / cited : null
+}
+
+const positionKpi = (
+    dates: string[],
+    byDate: Map<string, AEOPromptDailyEngineStatsApi[]>,
+    all: AEOPromptDailyEngineStatsApi[]
+): PromptPositionKpi => {
+    const latestDate = [...dates].reverse().find((date) => pooledPosition(byDate.get(date) ?? []) !== null) ?? null
+    return {
+        average: pooledPosition(all),
+        latest: latestDate ? pooledPosition(byDate.get(latestDate) ?? []) : null,
+        latestDate,
+    }
+}
+
+export const positionKpiCard = (kpi: PromptPositionKpi): KpiCardContent => ({
+    value: kpi.average === null ? 'Not cited' : positionLabel(kpi.average),
+    note:
+        kpi.average === null
+            ? 'No cited answers in the last 30 days'
+            : kpi.latest === null || !kpi.latestDate
+              ? 'Average over the last 30 days'
+              : `Average over the last 30 days. On ${dayjs(kpi.latestDate).format('MMM D')}: ${positionLabel(kpi.latest)}`,
+    delta:
+        kpi.average === null || kpi.latest === null
+            ? null
+            : positionDelta(kpi.latest - kpi.average, 'The latest day against the 30-day average. Lower is better'),
+})
+
 export const countDelta = (change: number, tooltip: string): KpiDelta => ({
     label: change === 0 ? 'No change' : `${change > 0 ? '+' : ''}${change}`,
     direction: change === 0 ? 'flat' : change > 0 ? 'up' : 'down',
@@ -154,6 +217,7 @@ export const promptReportKpis = (stats: AEOPromptStatsApi): PromptReportKpis => 
             days.map((day) => ({ ...day, count: day.cited })),
             { ...totals, count: totals.cited }
         ),
+        position: positionKpi(dates, byDate, stats.daily),
     }
 }
 

@@ -61,6 +61,26 @@ describe("RunBudgetGuard", () => {
   });
 
   test.each([
+    ["claude-fable-5-2", 48.2],
+    ["claude-fable-5-1", 61],
+  ])("prices %s at its own fable rates", (model, perMillionEach) => {
+    const cost = estimateMessageCostUsd(
+      {
+        id: "m1",
+        model,
+        usage: {
+          input_tokens: 1_000_000,
+          output_tokens: 1_000_000,
+          cache_read_input_tokens: 1_000_000,
+          cache_creation_input_tokens: 0,
+        },
+      },
+      DEFAULT_MODEL_PRICES,
+    );
+    expect(cost).toBeCloseTo(perMillionEach, 6);
+  });
+
+  test.each([
     ["@cf/zai-org/glm-5.2", 5.94],
     ["zai-org/glm-5.3", 5.94],
     ["zai-org/glm-5.3-flash", 0.68],

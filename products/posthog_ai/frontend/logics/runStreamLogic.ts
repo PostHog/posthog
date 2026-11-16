@@ -95,6 +95,7 @@ import {
 } from '../types/wireTypes'
 import { extractContextBlockLines } from '../utils/posthogContextBlock'
 import { reconcileThreadItems, reconcileToolInvocations } from '../utils/reconcileFoldedThread'
+import { type ReplySuggestions, parseReplySuggestionsParams } from '../utils/replySuggestions'
 import { extractAgentToolName, getClaudeCodeMeta, resolveToolCall } from '../utils/toolResolver'
 import { parseTurnSuggestionParams } from '../utils/turnSuggestions'
 import { computeTurnTrailers } from '../utils/turnTrailers'
@@ -2667,6 +2668,8 @@ export interface runStreamLogicValues {
         maxAttempts: number
         phase: RecoveryPhase
     } | null
+    replySuggestions: ReplySuggestions | null
+    replySuggestionsFrame: ReplySuggestions | null
     resolvedPermissionRequestIds: Set<string>
     respondingToPermission: boolean
     runArtifacts: RunArtifacts
@@ -2958,6 +2961,9 @@ export interface runStreamLogicActions {
     setPendingRunMessage: (message: PendingRunMessage | null) => {
         message: PendingRunMessage | null
     }
+    setReplySuggestions: (replySuggestions: ReplySuggestions | null) => {
+        replySuggestions: ReplySuggestions | null
+    }
     setRunOpening: (opening: boolean) => {
         opening: boolean
     }
@@ -3031,6 +3037,11 @@ export interface runStreamLogicMeta {
             bootstrappedTaskId: string | null,
             historyTurnBase: number
         ) => TurnSuggestion | null
+        replySuggestions: (
+            replySuggestionsFrame: ReplySuggestions | null,
+            threadItems: ThreadItem[],
+            historyTurnBase: number
+        ) => ReplySuggestions | null
         latestTurnTraceId: (threadItems: ThreadItem[]) => string | null
         threadItems: (foldedThread: FoldedThread, showDebugLogs: boolean) => ThreadItem[]
         hasThreadItems: (threadItems: ThreadItem[]) => boolean
@@ -3274,6 +3285,7 @@ export const runStreamLogic = kea<runStreamLogicType>([
         /** Records an outcome this tab sent to the server, so the card closes before the frame echoes back. */
         recordTurnSuggestionOutcome: (turnIndex: number, outcome: string) => ({ turnIndex, outcome }),
         markTurnSuggestionAccepted: (turnIndex: number) => ({ turnIndex }),
+        setReplySuggestions: (replySuggestions: ReplySuggestions | null) => ({ replySuggestions }),
         markTurnSuggestionExpanded: (turnIndex: number) => ({ turnIndex }),
         /**
          * Reopens the turn for a follow-up that started outside this composer, such as one sent from Slack
@@ -3694,6 +3706,17 @@ export const runStreamLogic = kea<runStreamLogicType>([
         ],
         // The turn whose card this tab accepted. That card stays up to show what it created, while
         // every other tab hides it so a second accept cannot create a duplicate.
+        replySuggestionsFrame: [
+            null as ReplySuggestions | null,
+            {
+                setReplySuggestions: (state, { replySuggestions }) =>
+                    state && replySuggestions && replySuggestions.turnIndex < state.turnIndex
+                        ? state
+                        : replySuggestions,
+                pushHumanMessage: () => null,
+                reset: () => null,
+            },
+        ],
         turnSuggestionAcceptedHere: [
             null as number | null,
             {
@@ -3885,6 +3908,21 @@ export const runStreamLogic = kea<runStreamLogicType>([
                     offer.turnIndex in outcomesHere ||
                     ledger.resolvedTurns.includes(offer.turnIndex)
                 return muted || resolved ? null : offer
+            },
+        ],
+        replySuggestions: [
+            (s) => [s.replySuggestionsFrame, s.threadItems, s.historyTurnBase],
+            (
+                frame: ReplySuggestions | null,
+                threadItems: ThreadItem[],
+                historyTurnBase: number
+            ): ReplySuggestions | null => {
+                if (!frame) {
+                    return null
+                }
+                const latestPromptIndex =
+                    historyTurnBase + threadItems.filter((item) => item.type === 'human_message').length - 1
+                return frame.turnIndex === latestPromptIndex ? frame : null
             },
         ],
         latestTurnTraceId: [
@@ -4570,6 +4608,10 @@ export const runStreamLogic = kea<runStreamLogicType>([
                 )
                 cache.isBootstrapping = false
                 actions.markRunStarted()
+                return
+            }
+            if (method === '_posthog/reply_suggestions') {
+                actions.setReplySuggestions(parseReplySuggestionsParams(notification.params))
                 return
             }
             if (method === '_posthog/turn_suggestion') {

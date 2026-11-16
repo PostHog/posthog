@@ -39,7 +39,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.mix
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import (
+    SourceSchema,
+    rank_incremental_fields,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql import resolve_detected_primary_keys
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.base import SQLSource
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.keyset import KeysetResumeState
@@ -1524,6 +1527,26 @@ class PostgresSource(
             # file-descriptor exhaustion that clears once load on the source drops, so that case
             # must stay retryable. The volatile file path is excluded from the match.
             "Input/output error": _SOURCE_PAGE_CORRUPTION_ERROR,
+            # The server's dynamic loader failed to `dlopen()` a native extension library it needs
+            # to evaluate a column or function — `UndefinedFile` (SQLSTATE 58P01), observed as
+            # PostGIS's library failing to load because the server is missing GEOS, one of its own
+            # OS-level dependencies: `could not load library "...": libgeos_c.so.1: cannot open
+            # shared object file: No such file or directory`. The missing library lives in the
+            # server's own package install, not anything in our query, so every retry dlopens the
+            # same absent file. `dlerror()` reports the same "cannot open shared object file:"
+            # prefix for any errno, including transient `EMFILE`/`ENFILE` ("Too many open files")
+            # when the server has exhausted file descriptors for an otherwise-installed library —
+            # the sibling trap the file-descriptor-exhaustion case above guards against. Match the
+            # specific "No such file or directory" (`ENOENT`) reason so that case stays retryable,
+            # and exclude the volatile library path, which embeds the server's build/version.
+            "cannot open shared object file: No such file or directory": (
+                "Your PostgreSQL server failed to load a native extension library it needs to read "
+                'this data ("could not load library ... cannot open shared object file"). This '
+                "usually means the extension (for example PostGIS) is missing one of its own "
+                "OS-level dependencies on the database server. Reinstall or repair the extension's "
+                "dependencies on your database server, or ask your database provider to, then "
+                "re-enable the sync."
+            ),
             # Raised when a Postgres numeric value cannot be represented in any Delta-compatible
             # decimal type — the pipeline falls back through the best-fit decimal and
             # `decimal256(76, 32)` before giving up. Only triggers when source data genuinely
@@ -2056,17 +2079,19 @@ class PostgresSource(
             # None when index discovery failed for the whole listing — default to True so
             # a transient permission/query error never produces a misleading warning.
             indexed_cols = indexed_columns_by_table.get(table_name) if indexed_columns_by_table is not None else None
-            incremental_fields: list[IncrementalField] = [
-                {
-                    "label": field_name,
-                    "type": field_type,
-                    "field": field_name,
-                    "field_type": field_type,
-                    "nullable": nullable,
-                    "is_indexed": True if indexed_cols is None else field_name in indexed_cols,
-                }
-                for field_name, field_type, nullable in incremental_field_tuples
-            ]
+            incremental_fields: list[IncrementalField] = rank_incremental_fields(
+                [
+                    {
+                        "label": field_name,
+                        "type": field_type,
+                        "field": field_name,
+                        "field_type": field_type,
+                        "nullable": nullable,
+                        "is_indexed": True if indexed_cols is None else field_name in indexed_cols,
+                    }
+                    for field_name, field_type, nullable in incremental_field_tuples
+                ]
+            )
             # `supports_incremental`/`supports_append` must reflect the real cursor fields only —
             # compute them before appending the synthetic xmin entry.
             supports_real_cursor = len(incremental_fields) > 0
@@ -2387,6 +2412,11 @@ class PostgresSource(
         # own reset whenever it can resume.
         if table_rebuild_pending:
             resumable_source_manager.clear_state()
+
+        if schema.is_cdc:
+            self._record_cdc_snapshot_position(
+                schema, inputs, rebuild=table_rebuild_pending, resuming=resumable_source_manager.can_resume()
+            )
 
         # Prefer the per-row `schema_metadata.source_schema` so multi-schema warehouse sources work
         # without needing to encode the schema in `config.schema`. Falls back to `config.schema` for

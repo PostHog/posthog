@@ -105,12 +105,23 @@ def upsert_prompts(team: Team, candidates: list[PromptCandidate]) -> dict[str, i
             updated_at=now,
         )
     with team_scope(team_id), transaction.atomic():
-        existing = dict(AEOPrompt.objects.filter(prompt_hash__in=rows.keys()).values_list("prompt_hash", "archived_at"))
+        # Locked in hash order, so a concurrent import cannot overwrite evidence this one merged.
+        existing = {
+            key: (archived_at, evidence)
+            for key, archived_at, evidence in AEOPrompt.objects.filter(prompt_hash__in=rows.keys())
+            .select_for_update()
+            .order_by("prompt_hash")
+            .values_list("prompt_hash", "archived_at", "evidence")
+        }
         # An archived prompt stays archived, so re-importing its text neither revives nor duplicates it.
-        archived = {key for key, archived_at in existing.items() if archived_at is not None}
+        archived = {key for key, (archived_at, _) in existing.items() if archived_at is not None}
         skipped += sum(1 for key in candidate_keys if key in archived)
         for key in archived:
             del rows[key]
+        # A re-import that leaves out a field, such as external_visibility, keeps the value already stored.
+        for key, (_, evidence) in existing.items():
+            if key in rows:
+                rows[key].evidence = (evidence or {}) | rows[key].evidence
         # `active` is left out of the update, so a re-import keeps prompts someone turned off. So is `prompt`:
         # it copies the current version's text, which only a version change may rewrite.
         # Sorted so concurrent imports lock conflicting rows in the same order and cannot deadlock.

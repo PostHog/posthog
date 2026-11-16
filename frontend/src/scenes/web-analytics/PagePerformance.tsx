@@ -1,5 +1,4 @@
 import { useActions, useMountedLogic, useValues } from 'kea'
-import { useMemo } from 'react'
 
 import { LemonBanner, LemonButton, Link } from '@posthog/lemon-ui'
 
@@ -7,45 +6,27 @@ import { useChartTheme } from 'lib/charts/hooks'
 import { seriesColor } from 'lib/charts/utils/theme'
 import { urls } from 'scenes/urls'
 
-import { DataTableNode, InsightVizNode, ProductKey } from '~/queries/schema/schema-general'
-import { QueryContext } from '~/queries/types'
+import { ProductKey } from '~/queries/schema/schema-general'
 import { OnboardingStepKey } from '~/types'
 
+import { PageReportsDirectoryCta } from 'products/web_analytics/frontend/pageReports/PageReportsDirectoryCta'
+import { AiAssistantsCard } from 'products/web_analytics/frontend/searchAndAi/AiAssistantsCard'
+import { AiTableCard } from 'products/web_analytics/frontend/searchAndAi/AiTableCard'
+import { AiTrendCard } from 'products/web_analytics/frontend/searchAndAi/AiTrendCard'
+import { CRAWLER_COLUMNS } from 'products/web_analytics/frontend/searchAndAi/crawlerColumns'
 import { SearchAndAiLoading } from 'products/web_analytics/frontend/searchAndAi/SearchAndAiLoading'
-import { SearchAndAiQuery } from 'products/web_analytics/frontend/searchAndAi/SearchAndAiQuery'
+import { SearchAndAiSectionHeading } from 'products/web_analytics/frontend/searchAndAi/SearchAndAiSectionHeading'
 import { SearchAndAiTable } from 'products/web_analytics/frontend/searchAndAi/SearchAndAiTable'
-import { SearchAndAiTrendHeader } from 'products/web_analytics/frontend/searchAndAi/SearchAndAiTrendHeader'
 
 import { TileId } from './common'
 import { PagePerformanceBreakdownModal } from './PagePerformanceBreakdownModal'
 import { PagePerformanceCard } from './PagePerformanceCard'
-import { PagePerformanceCardHeader } from './PagePerformanceCardHeader'
 import { PagePerformanceEmptyState } from './PagePerformanceEmptyState'
-import {
-    PagePerformanceCrawlerState,
-    PagePerformanceTabState,
-    createPagePerformanceInsightProps,
-    pagePerformanceLogic,
-} from './pagePerformanceLogic'
+import { PagePerformanceCrawlerState, PagePerformanceTabState, pagePerformanceLogic } from './pagePerformanceLogic'
 import { PagePerformanceMetricCard } from './PagePerformanceMetricCard'
-import { WebQuery, webAnalyticsDataTableQueryContext } from './tiles/WebAnalyticsTile'
-import { webAnalyticsLogic } from './webAnalyticsLogic'
 
 const CRAWLER_CAVEAT =
     "AI crawlers don't run JavaScript, so the browser SDK never sees them. Forward your server access logs to count them."
-
-const SectionHeading = ({
-    children,
-    description,
-}: {
-    children: React.ReactNode
-    description?: string
-}): JSX.Element => (
-    <div className="mb-4">
-        <h2 className="mb-0 text-xl font-semibold text-primary">{children}</h2>
-        {description ? <p className="m-0 text-sm text-secondary">{description}</p> : null}
-    </div>
-)
 
 const SERVER_LOGS_DOCS = 'https://posthog.com/docs/web-analytics/sending-http-logs'
 
@@ -123,71 +104,6 @@ const CrawlersEmptyState = ({ state }: { state: PagePerformanceCrawlerState }): 
         </PagePerformanceEmptyState>
     )
 
-const AiTableCard = ({
-    title,
-    query,
-    tileId,
-}: {
-    title: string
-    query: DataTableNode
-    tileId: TileId
-}): JSX.Element => {
-    const context = useMemo(
-        (): QueryContext => ({
-            ...webAnalyticsDataTableQueryContext,
-            insightProps: createPagePerformanceInsightProps(tileId, 'table'),
-            showLoadNextButton: true,
-            tableLayout: 'fixed',
-            suppressSlowQuerySuggestions: true,
-        }),
-        [tileId]
-    )
-    return (
-        <PagePerformanceCard className="flex-1 min-w-0">
-            <SearchAndAiQuery
-                uniqueKey={`page-performance-${tileId}`}
-                query={query}
-                insightProps={context.insightProps!}
-                context={context}
-                header={<PagePerformanceCardHeader title={title} />}
-            />
-        </PagePerformanceCard>
-    )
-}
-
-const AiTrendCard = ({
-    title,
-    query,
-    tileId,
-    uniqueKey,
-}: {
-    title: string
-    query: InsightVizNode
-    tileId: TileId
-    uniqueKey: string
-}): JSX.Element => {
-    const logic = useMountedLogic(webAnalyticsLogic)
-    return (
-        <div className="@min-[48rem]/search-ai:col-span-2 min-h-88 min-w-0 flex flex-col">
-            <SearchAndAiQuery
-                uniqueKey={uniqueKey}
-                query={query}
-                insightProps={createPagePerformanceInsightProps(tileId)}
-                renderQuery={(insightProps) => (
-                    <WebQuery
-                        attachTo={logic}
-                        uniqueKey={uniqueKey}
-                        query={query}
-                        insightProps={insightProps}
-                        tileId={tileId}
-                        headerSlot={<SearchAndAiTrendHeader title={title} />}
-                    />
-                )}
-            />
-        </div>
-    )
-}
-
 export const PagePerformance = (): JSX.Element => {
     useMountedLogic(pagePerformanceLogic)
     const {
@@ -200,11 +116,12 @@ export const PagePerformance = (): JSX.Element => {
         overviewLoading,
         aiSectionQueries,
         dataState,
+        showPagesSection,
     } = useValues(pagePerformanceLogic)
     const { loadOverview, loadCandidates } = useActions(pagePerformanceLogic)
     const theme = useChartTheme()
 
-    const feedbackBanner = (
+    const feedbackBanner = showPagesSection ? (
         <LemonBanner
             type="info"
             dismissKey="web-analytics-search-and-ai-feedback-banner"
@@ -212,6 +129,17 @@ export const PagePerformance = (): JSX.Element => {
         >
             We'd love to hear what you think about search and AI.
         </LemonBanner>
+    ) : null
+
+    const feedbackButton = showPagesSection ? null : (
+        <LemonButton
+            type="tertiary"
+            size="small"
+            id="web-analytics-search-and-ai-feedback-button"
+            data-attr="web-analytics-search-and-ai-feedback-button"
+        >
+            Send feedback
+        </LemonButton>
     )
 
     const overviewErrorBanner = overviewError && (
@@ -241,7 +169,10 @@ export const PagePerformance = (): JSX.Element => {
         <div className="SearchAndAiDashboard @container/search-ai flex flex-col gap-5 min-w-0">
             {feedbackBanner}
             <section>
-                <SectionHeading>Key metrics</SectionHeading>
+                <div className="flex items-start justify-between gap-2">
+                    <SearchAndAiSectionHeading>Key metrics</SearchAndAiSectionHeading>
+                    {feedbackButton}
+                </div>
                 {overviewErrorBanner}
                 {(!overviewError || overviewTotals) && (
                     <SearchAndAiLoading loading={overviewLoading && !!overviewTotals}>
@@ -267,38 +198,43 @@ export const PagePerformance = (): JSX.Element => {
                     </SearchAndAiLoading>
                 )}
             </section>
-            <section>
-                <SectionHeading description="How each page earns its traffic, from search engines through to AI crawlers.">
-                    Pages
-                </SectionHeading>
-                <PagePerformanceCard>
-                    {candidatesError && (
-                        <LemonBanner
-                            type="error"
-                            className="m-3"
-                            action={{
-                                children: 'Try again',
-                                onClick: () => loadCandidates(),
-                                loading: candidatesLoading,
-                            }}
-                        >
-                            {pageCandidates
-                                ? 'Could not update the page list. Showing the previous results. Try again to refresh.'
-                                : 'Could not load the page list. Try again to reload.'}
-                        </LemonBanner>
-                    )}
+            {showPagesSection ? null : <PageReportsDirectoryCta />}
+            {showPagesSection && (
+                <section>
+                    <SearchAndAiSectionHeading description="How each page earns its traffic, from search engines through to AI crawlers.">
+                        Pages
+                    </SearchAndAiSectionHeading>
+                    <PagePerformanceCard>
+                        {candidatesError && (
+                            <LemonBanner
+                                type="error"
+                                className="m-3"
+                                action={{
+                                    children: 'Try again',
+                                    onClick: () => loadCandidates(),
+                                    loading: candidatesLoading,
+                                }}
+                            >
+                                {pageCandidates
+                                    ? 'Could not update the page list. Showing the previous results. Try again to refresh.'
+                                    : 'Could not load the page list. Try again to reload.'}
+                            </LemonBanner>
+                        )}
 
-                    {pageCandidates === null ? (
-                        !candidatesError && <SearchAndAiLoading loading label="Loading pages" className="min-h-64" />
-                    ) : (
-                        <SearchAndAiTable />
-                    )}
-                </PagePerformanceCard>
-            </section>
+                        {pageCandidates === null ? (
+                            !candidatesError && (
+                                <SearchAndAiLoading loading label="Loading pages" className="min-h-64" />
+                            )
+                        ) : (
+                            <SearchAndAiTable />
+                        )}
+                    </PagePerformanceCard>
+                </section>
+            )}
             <section>
-                <SectionHeading description="People who landed on your site from an AI assistant such as ChatGPT, Claude, or Perplexity.">
+                <SearchAndAiSectionHeading description="People who landed on your site from an AI assistant such as ChatGPT, Claude, or Perplexity.">
                     Traffic from AI
-                </SectionHeading>
+                </SearchAndAiSectionHeading>
 
                 {dataState.aiTraffic === 'empty' ? (
                     <SearchAndAiLoading loading={overviewLoading}>
@@ -307,28 +243,43 @@ export const PagePerformance = (): JSX.Element => {
                 ) : (
                     <div className="grid grid-cols-1 @min-[48rem]/search-ai:grid-cols-2 gap-4">
                         <AiTrendCard
+                            className="@min-[48rem]/search-ai:col-span-2"
                             title="Referrals over time"
                             query={aiSectionQueries.referralTrend}
                             tileId={TileId.AI_REFERRALS_TREND}
                             uniqueKey="page-performance-ai-referrals-trend"
                         />
-                        <AiTableCard
-                            title="By engine"
-                            query={aiSectionQueries.byEngine}
-                            tileId={TileId.AI_REFERRALS_BY_ENGINE}
-                        />
-                        <AiTableCard
-                            title="Landing pages from AI"
-                            query={aiSectionQueries.landingPages}
-                            tileId={TileId.AI_LANDING_PAGES}
-                        />
+                        {showPagesSection ? (
+                            <>
+                                <AiTableCard
+                                    title="By engine"
+                                    query={aiSectionQueries.byEngine}
+                                    tileId={TileId.AI_REFERRALS_BY_ENGINE}
+                                />
+                                <AiTableCard
+                                    title="Landing pages from AI"
+                                    query={aiSectionQueries.landingPages}
+                                    tileId={TileId.AI_LANDING_PAGES}
+                                />
+                            </>
+                        ) : (
+                            <div className="@min-[48rem]/search-ai:col-span-2 grid grid-cols-1 @min-[64rem]/search-ai:grid-cols-2 gap-4">
+                                <AiAssistantsCard />
+                                <AiTableCard
+                                    title="Landing pages from AI"
+                                    query={aiSectionQueries.landingPages}
+                                    tileId={TileId.AI_LANDING_PAGES}
+                                    tableLayout="auto"
+                                />
+                            </div>
+                        )}
                     </div>
                 )}
             </section>
             <section>
-                <SectionHeading description="Bots that read your pages to train a model or to answer someone's question about you.">
+                <SearchAndAiSectionHeading description="Bots that read your pages to train a model or to answer someone's question about you.">
                     AI crawlers
-                </SectionHeading>
+                </SearchAndAiSectionHeading>
 
                 {dataState.crawlers === 'empty' || dataState.crawlers === 'needs-server-logs' ? (
                     <SearchAndAiLoading loading={overviewLoading}>
@@ -337,6 +288,7 @@ export const PagePerformance = (): JSX.Element => {
                 ) : (
                     <div className="grid grid-cols-1 @min-[48rem]/search-ai:grid-cols-2 gap-4">
                         <AiTrendCard
+                            className="@min-[48rem]/search-ai:col-span-2"
                             title="Crawler activity over time"
                             query={aiSectionQueries.crawlerTrend}
                             tileId={TileId.AI_CRAWLERS_TREND}
@@ -346,11 +298,13 @@ export const PagePerformance = (): JSX.Element => {
                             title="By crawler"
                             query={aiSectionQueries.byCrawler}
                             tileId={TileId.AI_CRAWLERS}
+                            columns={showPagesSection ? undefined : CRAWLER_COLUMNS}
                         />
                         <AiTableCard
                             title="Pages they read"
                             query={aiSectionQueries.crawledPages}
                             tileId={TileId.AI_CRAWLED_PAGES}
+                            columns={showPagesSection ? undefined : CRAWLER_COLUMNS}
                         />
                     </div>
                 )}

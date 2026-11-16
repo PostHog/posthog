@@ -29,7 +29,14 @@ from posthog.hogql.database.database import (
     _use_person_properties_from_events,
 )
 from posthog.hogql.database.lazy_join_tags import PERSONS
-from posthog.hogql.database.models import LazyJoin, VirtualTable
+from posthog.hogql.database.models import (
+    IntegerDatabaseField,
+    LazyJoin,
+    LazyTable,
+    LazyTableToAdd,
+    TableNode,
+    VirtualTable,
+)
 from posthog.hogql.database.schema.traffic_type import create_is_bot_field
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import prepare_and_print_ast
@@ -38,10 +45,11 @@ from posthog.hogql.property_metadata import PropertyMetadata
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.test.utils import pretty_print_in_tests
 
-from posthog.models import Organization, PropertyDefinition, Team
+from posthog.models import Organization, Team
 from posthog.schema_enums import PersonsArgMaxVersion
 
 from products.data_tools.backend.models.join import DataWarehouseJoin
+from products.event_definitions.backend.models import PropertyDefinition
 
 
 class TestNamespacedLazyTables(SimpleTestCase):
@@ -161,6 +169,70 @@ BUILT_IN_FIELDS = (
     "$group_3",
     "$group_4",
 )
+
+
+class _ProbeLazyTable(LazyTable):
+    fields: dict = {
+        "x": IntegerDatabaseField(name="x"),
+        "v___x": IntegerDatabaseField(name="v___x"),
+        "v": VirtualTable(fields={"x": IntegerDatabaseField(name="x")}),
+    }
+
+    def lazy_select(self, table_to_add: LazyTableToAdd, context, node):
+        return ast.SelectQuery(
+            select=[ast.Alias(alias=name, expr=ast.Constant(value=name)) for name in table_to_add.fields_accessed]
+        )
+
+    def to_printed_clickhouse(self, context):
+        return "probe"
+
+    def to_printed_hogql(self):
+        return "probe"
+
+
+class TestVirtualFieldExports(SimpleTestCase):
+    @parameterized.expand([("bare", "probe", "probe"), ("aliased", "probe AS p", "p")])
+    def test_virtual_field_export_never_takes_the_name_of_another_export(
+        self, _name: str, source: str, prefix: str
+    ) -> None:
+        database = Database()
+        database.tables.children["probe"] = TableNode(name="probe", table=_ProbeLazyTable())
+        context = HogQLContext(
+            team_id=1,
+            team=Team(id=1, organization=Organization()),
+            database=database,
+            enable_select_queries=True,
+            use_new_events_schema=False,
+        )
+
+        with patch("posthog.hogql.transforms.property_types.load_property_metadata", return_value=PropertyMetadata()):
+            printed, _ = prepare_and_print_ast(
+                parse_select(f"SELECT {prefix}.x, {prefix}.v.x, {prefix}.v___x FROM {source}"), context, "clickhouse"
+            )
+
+        values = re.findall(r"%\(hogql_val_\d+\)s AS (`?\w+`?)", printed)
+        assert sorted(name.strip("`") for name in values) == ["v___x", "v___x_2", "x"]
+        assert printed.startswith(f"SELECT {prefix}.x, {prefix}.v___x_2 AS x, {prefix}.v___x AS v___x FROM")
+
+    def test_virtual_field_read_through_a_wrapped_lazy_join_names_the_column_the_wrapper_exports(self) -> None:
+        context = HogQLContext(
+            team_id=1,
+            team=Team(id=1, organization=Organization()),
+            database=Database(),
+            enable_select_queries=True,
+            apply_events_retention_floor=False,
+            use_new_events_schema=False,
+        )
+        query = (
+            "SELECT r.events.poe.created_at, r.events.created_at FROM events AS e "
+            "JOIN raw_session_replay_events AS r ON r.events.event = e.event"
+        )
+
+        with patch("posthog.hogql.transforms.property_types.load_property_metadata", return_value=PropertyMetadata()):
+            printed, _ = prepare_and_print_ast(parse_select(query), context, "clickhouse")
+
+        assert printed.startswith("SELECT r.events___poe___created_at, r.events___created_at AS created_at FROM")
+        assert "AS events___poe___created_at" in printed
 
 
 class TestWrappedEventJoins(SimpleTestCase):

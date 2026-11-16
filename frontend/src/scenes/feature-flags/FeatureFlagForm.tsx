@@ -66,7 +66,6 @@ import { urls } from 'scenes/urls'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { cohortsModel } from '~/models/cohortsModel'
-import { tagsModel } from '~/models/tagsModel'
 import {
     FeatureFlagBucketingIdentifier,
     FeatureFlagEvaluationRuntime,
@@ -206,7 +205,6 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
         setAlsoCreateInProjects,
         startNewFlagDisabled,
     } = useActions(featureFlagLogic)
-    const { tags: availableTags } = useValues(tagsModel)
     const { isApprovalRequired } = useValues(approvalsGateLogic)
     const { allCohorts } = useValues(cohortsModel)
     const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
@@ -673,10 +671,6 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
                                                                                     updatedEvaluationContexts
                                                                                 )
                                                                             }}
-                                                                            tagsAvailable={availableTags.filter(
-                                                                                (tag: string) =>
-                                                                                    !formTags?.includes(tag)
-                                                                            )}
                                                                         />
                                                                     )}
                                                                 </LemonField>
@@ -689,9 +683,6 @@ export function FeatureFlagForm({ id }: FeatureFlagLogicProps): JSX.Element {
                                                                     tags={formTags}
                                                                     onChange={onChangeTags}
                                                                     saving={false}
-                                                                    tagsAvailable={availableTags.filter(
-                                                                        (tag: string) => !formTags?.includes(tag)
-                                                                    )}
                                                                 />
                                                             )}
                                                         </LemonField>
