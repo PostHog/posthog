@@ -9,6 +9,10 @@ interface SlowRead {
 const reads = new Map<string, SlowRead>()
 addSessionEndTask(() => reads.clear())
 
+export function clearSlowLiveQuery(key: string): void {
+    reads.delete(key)
+}
+
 export function readSlowLiveQuery(key: string, now: number, read: () => Promise<unknown>): Promise<unknown> {
     const cached = reads.get(key)
     if (

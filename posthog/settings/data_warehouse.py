@@ -209,6 +209,12 @@ DATA_WAREHOUSE_DELTALITE_GOVERNOR_BORROW_MAX_SLICES = get_from_env(
 # size comes from the DELTALITE_PROBE_CACHE_BYTES environment variable (default 128 MiB per process). False makes every merge read each
 # candidate file again, and needs a deltalite build that has the probe cache.
 DATA_WAREHOUSE_DELTALITE_PROBE_CACHE = get_from_env("DATA_WAREHOUSE_DELTALITE_PROBE_CACHE", True, type_cast=str_to_bool)
+# The pre-write and post-load compaction passes compact at most this many partitions, the ones with the
+# most removable files. Each partition is one bin, so a table of tens of thousands of tiny partitions would
+# otherwise hold its batch past the stuck-batch timeout of the loader. The next pass compacts the rest.
+DATA_WAREHOUSE_COMPACT_MAX_PARTITIONS_PER_PASS = get_from_env(
+    "DATA_WAREHOUSE_COMPACT_MAX_PARTITIONS_PER_PASS", 2_000, type_cast=int
+)
 # A rebuild run (first sync, reset, full refresh) compacts its own files once a compaction would remove
 # this many, so a long rebuild does not leave one post-load pass that outlasts the stuck-batch timeout.
 DATA_WAREHOUSE_REBUILD_COMPACT_MIN_REMOVABLE_FILES = get_from_env(
