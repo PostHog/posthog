@@ -72048,6 +72048,20 @@ export namespace Schemas {
       results: MemberProjectAccess[];
     }
 
+    export interface MergeReleases {
+      /**
+         * IDs of the releases to merge into this one. Their flags, broadcasts, surveys and insights move to this release, then they are deleted.
+         * @minItems 1
+         * @maxItems 100
+         */
+      release_ids: string[];
+      /**
+         * New name for the merged release. Keeps the current name when left out.
+         * @maxLength 255
+         */
+      name?: string;
+    }
+
     export type MessageContextualTools = { [key: string]: unknown };
 
     /**
