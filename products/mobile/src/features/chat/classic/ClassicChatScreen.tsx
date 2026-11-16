@@ -31,7 +31,9 @@ import { type ChatSheetSource, useChatSheetEvents } from '../chatSheetEvents'
 import { SessionThread, type SessionThreadState } from '../session/SessionThread'
 import { useChatDraft } from '../useChatDraft'
 import { ClassicComposer } from './ClassicComposer'
+import { ClassicFormPanel } from './ClassicFormPanel'
 import { classicToolInvocations } from './classicActivity'
+import type { ClassicFormDraft } from './classicForm'
 import { classicThreadItems } from './classicMessages'
 import { useClassicChat } from './useClassicChat'
 
@@ -55,6 +57,26 @@ export function ClassicChatScreen({
     const colors = useColors()
     const styles = useStyles()
     const chat = useClassicChat(conversationId, initialConversation)
+    const formDraft = useRef<{ key: string; formId: string; value: ClassicFormDraft } | null>(null)
+    const formId = chat.form?.id
+    const formDraftKey = JSON.stringify([chat.id, formId])
+    const rememberFormDraft = useCallback(
+        (value: ClassicFormDraft): void => {
+            if (formId) formDraft.current = { key: formDraftKey, formId, value }
+        },
+        [formDraftKey, formId]
+    )
+    useEffect(() => {
+        const saved = formDraft.current
+        if (
+            saved &&
+            chat.state.messages.some(
+                (message) => message.data.type === 'tool' && message.data.tool_call_id === saved.formId
+            )
+        ) {
+            formDraft.current = null
+        }
+    }, [chat.state.messages])
     const events = useChatSheetEvents(
         { ...source, conversationId: chat.id, runtime: 'langgraph', hasContext: false, resumed: !!conversationId },
         null
@@ -221,7 +243,20 @@ export function ClassicChatScreen({
                             {showErrorNotice ? (
                                 <ChatErrorNotice message={chat.error ?? ''} onDismiss={chat.dismissError} />
                             ) : null}
-                            {approval ? (
+                            {chat.form ? (
+                                <ClassicFormPanel
+                                    key={chat.form.id}
+                                    form={chat.form}
+                                    draft={
+                                        formDraft.current?.key === formDraftKey ? formDraft.current.value : undefined
+                                    }
+                                    onDraftChange={rememberFormDraft}
+                                    pending={chat.working || chat.loading}
+                                    webUrl={conversationWebUrl(scope, chat.id)}
+                                    onSubmit={chat.submitForm}
+                                    onDismiss={chat.dismissForm}
+                                />
+                            ) : approval ? (
                                 <View style={styles.approval} testID="classic-approval">
                                     <Text style={styles.label}>{approval.toolName}</Text>
                                     <Text style={styles.body}>{approval.preview}</Text>
@@ -268,6 +303,7 @@ export function ClassicChatScreen({
                     onBack={close}
                     onNewChat={() => {
                         lifetime.current++
+                        formDraft.current = null
                         events.countNewChat()
                         chat.reset()
                         onNewChat()
