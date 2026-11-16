@@ -25,6 +25,23 @@ const SAVED_DRAFT = {
     actions: [{ id: 'trigger_node', type: 'trigger', config: { type: 'batch', filters: { properties: PRO_PLAN } } }],
 }
 
+// The keys `CohortPropertyFilter` and `PersonPropertyFilter` accept in `posthog/schema.py`. Both forbid any other.
+const ACCEPTED_FILTER_KEYS: Record<string, string[]> = {
+    cohort: ['cohort_deleted', 'cohort_missing', 'cohort_name', 'key', 'label', 'operator', 'type', 'value'],
+    person: ['key', 'label', 'operator', 'type', 'value'],
+}
+const savedCondition = (filter: Record<string, unknown>, negation: boolean): Record<string, unknown> => ({
+    ...filter,
+    negation,
+    bytecode: ['_H', 1, 29],
+    conditionHash: 'hash',
+})
+const savedBroadcast = (properties: Record<string, unknown>[]): Record<string, unknown> => ({
+    id: 'broadcast-1',
+    status: 'draft',
+    actions: [{ id: 'trigger_node', type: 'trigger', config: { type: 'batch', filters: { properties } } }],
+})
+
 describe('broadcastPreviewLogic', () => {
     let wizard: ReturnType<typeof broadcastWizardLogic.build>
     let logic: ReturnType<typeof broadcastPreviewLogic.build>
@@ -83,6 +100,59 @@ describe('broadcastPreviewLogic', () => {
 
         expect(query.mock.lastCall?.[0].properties).toEqual(PRO_PLAN)
         expect(logic.values.persons.map((person) => person.id)).toEqual(['person-ada'])
+    })
+
+    describe('a saved broadcast with a cohort audience', () => {
+        let saved: Record<string, unknown>[]
+        let received: Record<string, unknown>[][]
+
+        beforeEach(() => {
+            received = []
+            useMocks({
+                get: { '/api/projects/:team_id/hog_flows/:id/': () => [200, savedBroadcast(saved)] },
+                post: {
+                    '/api/environments/:team_id/query/:kind': async ({ request }) => {
+                        const sent: Record<string, unknown>[] = ((await request.json()) as any).query.properties
+                        received.push(sent)
+                        const rejected = sent.flatMap((filter) =>
+                            Object.keys(filter).filter(
+                                (key) => !ACCEPTED_FILTER_KEYS[String(filter.type)]?.includes(key)
+                            )
+                        )
+                        return rejected.length
+                            ? [400, { type: 'validation_error', detail: `Extra inputs: ${rejected.join(', ')}` }]
+                            : [200, { results: sent.length ? [ADA] : [] }]
+                    },
+                },
+            })
+        })
+
+        const resume = async (properties: Record<string, unknown>[]): Promise<void> => {
+            saved = properties
+            silenceKeaLoadersErrors()
+            wizard.unmount()
+            wizard = broadcastWizardLogic({ id: 'broadcast-1' })
+            wizard.mount()
+            logic = broadcastPreviewLogic({ id: 'broadcast-1' })
+            logic.mount()
+            await expectLogic(logic).toDispatchActions(['loadPersons', 'loadPersons']).toFinishAllListeners()
+        }
+
+        it('loads preview people for an included cohort', async () => {
+            await resume([
+                savedCondition({ key: 'id', type: 'cohort', value: 42, operator: 'in' }, false),
+                savedCondition({ key: 'plan', type: 'person', value: ['pro'], operator: 'exact' }, false),
+            ])
+
+            expect(logic.values.persons.map((person) => person.id)).toEqual(['person-ada'])
+        })
+
+        it('still leaves out the members of an excluded cohort', async () => {
+            await resume([savedCondition({ key: 'id', type: 'cohort', value: 42, operator: 'in' }, true)])
+
+            expect(logic.values.persons.map((person) => person.id)).toEqual(['person-ada'])
+            expect(received.at(-1)).toEqual([{ key: 'id', type: 'cohort', value: 42, operator: 'not_in' }])
+        })
     })
 
     it.each([
