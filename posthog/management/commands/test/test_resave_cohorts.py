@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import signal
 import threading
+from datetime import UTC, datetime
 from io import StringIO
 from typing import Any
 
@@ -855,7 +856,9 @@ class TestResaveCohortsCommandTeamSelection(BaseTest):
                 "values": [{"type": "person", "key": "email", "operator": "exact", "value": "a@example.com"}],
             }
         }
-        cohort = Cohort.objects.create(team=self.team, name="rt", filters=person_filters)
+        cohort = Cohort.objects.create(
+            team=self.team, name="rt", filters=person_filters, realtime_enabled_at=datetime(2026, 1, 1, tzinfo=UTC)
+        )
         # A stale person hash makes the resave an edit of the person shape, which enqueues a run.
         Cohort.objects.filter(id=cohort.id).update(condition_type=None, person_filters_shape_hash="stale")
         access.save_triggers_backfill = True

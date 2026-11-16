@@ -49,8 +49,9 @@ class VeracodeSource(ResumableSource[VeracodeSourceConfig, VeracodeResumeConfig]
                 "**Account settings → API credentials** in the Veracode Platform. Requests are signed with "
                 "Veracode's HMAC scheme.\n\n"
                 "The service account needs the **Results API** and **Applications API** roles to read the "
-                "application portfolio and findings. Pick the region your Veracode account lives in — data is "
-                "isolated per region."
+                "application portfolio and findings. The `scans` table also needs the **Reporting API** role, "
+                "and Veracode support must turn on the Reporting API for your account. Pick the region your "
+                "Veracode account lives in — data is isolated per region."
             ),
             docsUrl="https://posthog.com/docs/cdp/sources/veracode",
             iconPath="/static/services/veracode.png",
@@ -102,7 +103,8 @@ class VeracodeSource(ResumableSource[VeracodeSourceConfig, VeracodeResumeConfig]
             ),
             "403 Client Error: Forbidden": (
                 "The Veracode service account is missing the roles needed to sync this data. Grant the Results "
-                "API and Applications API roles to the account, then reconnect."
+                "API and Applications API roles to the account, and the Reporting API role for the scans "
+                "table, then reconnect."
             ),
         }
 
