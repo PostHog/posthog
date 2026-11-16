@@ -32,6 +32,7 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
+import { openEmailMetricSends } from '../Transactional/log/emailMetricSends'
 import { TransactionalEmailLog } from '../Transactional/log/TransactionalEmailLog'
 import { transactionalEditorGlobals, variablesInEmail } from '../Transactional/wizard/emailVariables'
 import { WorkflowInvocations } from '../Workflows/WorkflowInvocations'
@@ -186,7 +187,12 @@ export function MessageTemplate(props: MessageTemplateSceneLogicProps): JSX.Elem
                           {
                               key: 'metrics' as const,
                               label: 'Metrics',
-                              content: <WorkflowMetrics id={transactionalHogFlowId} />,
+                              content: (
+                                  <WorkflowMetrics
+                                      id={transactionalHogFlowId}
+                                      onEmailMetricClick={sendLinks ? openEmailMetricSends : undefined}
+                                  />
+                              ),
                           },
                           ...(sendLinks
                               ? [

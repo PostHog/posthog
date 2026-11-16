@@ -1667,6 +1667,12 @@ export type TransactionalEmailLogListParams = {
      */
     offset?: number
     /**
+     * Only sends whose delivery status has this reason, such as `soft` for a soft bounce or `sending_paused` for a send skipped while sending was paused.
+     * @minLength 1
+     * @maxLength 64
+     */
+    reason?: string
+    /**
      * A `message_id` for an exact match, or part of the recipient's email address.
      */
     search?: string

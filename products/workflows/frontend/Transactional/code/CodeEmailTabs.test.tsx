@@ -1,6 +1,6 @@
 import '@testing-library/jest-dom'
 
-import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { BindLogic, Provider } from 'kea'
 import { router } from 'kea-router'
 
@@ -77,7 +77,10 @@ describe('CodeEmailTabs', () => {
         )
     }
 
-    const renderTabs = ({ sendLinks = true }: { sendLinks?: boolean } = {}): void => {
+    const renderTabs = ({
+        sendLinks = true,
+        quillFilters = false,
+    }: { sendLinks?: boolean; quillFilters?: boolean } = {}): void => {
         sendRequests = []
         sends = [
             {
@@ -89,9 +92,16 @@ describe('CodeEmailTabs', () => {
         ]
         initKeaTests()
         featureFlagLogic.mount()
-        featureFlagLogic.actions.setFeatureFlags(sendLinks ? [FEATURE_FLAGS.WORKFLOWS_EMAIL_SEND_LINKS] : [], {
+        const flags = {
             [FEATURE_FLAGS.WORKFLOWS_EMAIL_SEND_LINKS]: sendLinks,
-        })
+            [FEATURE_FLAGS.TODAY_RAIL_NAV]: quillFilters,
+        }
+        featureFlagLogic.actions.setFeatureFlags(
+            Object.entries(flags)
+                .filter(([, on]) => on)
+                .map(([flag]) => flag),
+            flags
+        )
         mountTabs()
     }
 
@@ -157,6 +167,20 @@ describe('CodeEmailTabs', () => {
         expect(recipient.closest('a')?.getAttribute('href')).toMatch(/\/transactional\/log\/msg-1\?status=bounced$/)
     })
 
+    it('narrows the sends to a reason picked from the filter menu, and widens them again for any reason', async () => {
+        useMocks(mocks(() => [200, { id: 'flow-id', actions: [] }]))
+        renderTabs({ quillFilters: true })
+        router.actions.push(urls.transactionalCodeEmail('email-id'), { tab: 'sends', status: 'bounced' })
+        await screen.findByText('ada@example.com')
+
+        fireEvent.click(document.querySelector('[data-attr=transactional-email-log-filter-menu]')!)
+        fireEvent.click(await screen.findByText('Reason'))
+        fireEvent.click(await screen.findByText('Hard bounce'))
+        await waitFor(() => expect(sendRequests.at(-1)).toMatchObject({ status: 'bounced', reason: 'hard' }))
+        fireEvent.click(await screen.findByText('Any reason'))
+        await waitFor(() => expect(sendRequests.at(-1)).not.toHaveProperty('reason'))
+    })
+
     it('tells the reader this email had no sends, not that no sends match a filter, once its status filter is cleared', async () => {
         useMocks(mocks(() => [200, { id: 'flow-id', actions: [] }]))
         renderTabs()
@@ -170,7 +194,7 @@ describe('CodeEmailTabs', () => {
         expect(sendRequests.at(-1)).toMatchObject({ workflow_id: 'flow-id' })
     })
 
-    it('opens the run logs behind a clicked email metric on this page, also from a link opened again or saved before the Sends list, until the reader picks Sends', async () => {
+    it('opens the sends behind a clicked email metric on this page, also when the link is opened again, but the run logs from a link saved before the Sends list until the reader picks Sends', async () => {
         useMocks(
             mocks(() => [
                 200,
@@ -186,12 +210,22 @@ describe('CodeEmailTabs', () => {
 
         fireEvent.click(await screen.findByText(/^3 soft bounced/))
 
-        expect(await screen.findByText('Re-run…')).toBeInTheDocument()
+        const reasonFilter = (): Element | null =>
+            document.querySelector('[data-attr=transactional-email-log-reason-filter]')
+        await waitFor(() => expect(reasonFilter()).toHaveTextContent('Soft bounce'))
         expect(router.values.location.pathname).toEqual(page)
-        expect(router.values.searchParams).toMatchObject({ inv_search: 'Transient bounce' })
+        await waitFor(() => expect(sendRequests.at(-1)).toMatchObject({ status: 'bounced', reason: 'soft' }))
 
         reopenTabs()
-        expect(await screen.findByText('Re-run…')).toBeInTheDocument()
+        await waitFor(() => expect(reasonFilter()).toHaveTextContent('Soft bounce'))
+
+        fireEvent.click(reasonFilter()!)
+        fireEvent.click(await screen.findByText('Hard bounce'))
+        await waitFor(() => expect(sendRequests.at(-1)).toMatchObject({ status: 'bounced', reason: 'hard' }))
+        fireEvent.click(reasonFilter()!)
+        fireEvent.click(await screen.findByText('Any reason'))
+        await waitFor(() => expect(sendRequests.at(-1)).not.toHaveProperty('reason'))
+        expect(sendRequests.at(-1)).toMatchObject({ status: 'bounced' })
 
         router.actions.push(page, { tab: 'sends', inv_search: 'Permanent bounce' })
         expect(await screen.findByText('Re-run…')).toBeInTheDocument()
@@ -206,11 +240,25 @@ describe('CodeEmailTabs', () => {
         expect(await screen.findByText('Re-run…')).toBeInTheDocument()
     })
 
-    it('keeps the run logs on the Sends tab without the send links flag, also for a saved Sends link', async () => {
-        useMocks(mocks(() => [200, { id: 'flow-id', actions: [] }]))
+    it('keeps the run logs on the Sends tab without the send links flag, for a clicked email metric and a saved Sends link', async () => {
+        useMocks(
+            mocks(() => [
+                200,
+                {
+                    id: 'flow-id',
+                    actions: [{ id: 'email-step', name: 'Password reset email', type: 'function_email', config: {} }],
+                },
+            ])
+        )
         renderTabs({ sendLinks: false })
-        router.actions.push(urls.transactionalCodeEmail('email-id'), { tab: 'sends' })
+        router.actions.push(urls.transactionalCodeEmail('email-id'))
 
+        fireEvent.click(await screen.findByText(/^3 soft bounced/))
+
+        expect(await screen.findByText('Re-run…')).toBeInTheDocument()
+        expect(router.values.searchParams).toMatchObject({ inv_search: 'Transient bounce' })
+
+        router.actions.push(urls.transactionalCodeEmail('email-id'), { tab: 'sends' })
         expect(await screen.findByText('Re-run…')).toBeInTheDocument()
         expect(screen.queryByText('Run logs')).not.toBeInTheDocument()
         expect(screen.queryByText('ada@example.com')).not.toBeInTheDocument()

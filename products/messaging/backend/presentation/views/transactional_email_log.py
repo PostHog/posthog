@@ -60,6 +60,12 @@ class TransactionalEmailLogListQuerySerializer(DateRangeQuerySerializer):
     status = serializers.ChoiceField(
         choices=EmailDeliveryStatus.choices, required=False, help_text="Only sends in this delivery status."
     )
+    reason = serializers.CharField(
+        required=False,
+        max_length=64,
+        help_text="Only sends whose delivery status has this reason, such as `soft` for a soft bounce or "
+        "`sending_paused` for a send skipped while sending was paused.",
+    )
     workflow_id = serializers.UUIDField(
         required=False, help_text="Only sends of the transactional email backed by this workflow."
     )
@@ -322,6 +328,7 @@ class TransactionalEmailLogViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                 self.team_id,
                 search=query.get("search"),
                 status=EmailDeliveryStatus(query["status"]) if query.get("status") else None,
+                reason=query.get("reason") or None,
                 workflow_id=str(query["workflow_id"]) if query.get("workflow_id") else None,
                 date_from=query.get("date_from"),
                 date_to=query.get("date_to"),

@@ -136,7 +136,7 @@ describe('MessageTemplate', () => {
     it.each([
         ['the transactional library', urls.transactionalTemplate(TEMPLATE_ID)],
         ['the workflows library', urls.workflowsLibraryTemplate(TEMPLATE_ID)],
-    ])("opens the Sends tab a send's page links back to from %s, listing only this email's sends", async (_, url) => {
+    ])("opens the sends behind a clicked email metric on the template's own Sends tab, from %s", async (_, url) => {
         const sendRequests: Record<string, string>[] = []
         useMocks({
             get: {
@@ -145,14 +145,40 @@ describe('MessageTemplate', () => {
                     sendRequests.push(Object.fromEntries(new URL(request.url).searchParams))
                     return [200, { results: [], has_more: false }]
                 },
+                '/api/environments/:team_id/hog_flows/:id/': {
+                    id: 'flow-1',
+                    actions: [{ id: 'email-step', name: 'Password reset email', type: 'function_email', config: {} }],
+                },
+            },
+            post: {
+                '/api/environments/:team_id/query/:query_kind/': async ({ request }) => {
+                    const { query } = ((await request.json()) as { query: { query: string } }).query
+                    const isEmailTotals =
+                        query.includes('instance_id, metric_name') && query.includes('email_bounced_hard')
+                    return [
+                        200,
+                        {
+                            results: isEmailTotals
+                                ? [
+                                      [10, 'email-step', 'email_sent'],
+                                      [2, 'email-step', 'email_bounced_hard'],
+                                  ]
+                                : [],
+                        },
+                    ]
+                },
             },
         })
         await renderAs(AccessControlLevel.Editor, PASSWORD_RESET_WITH_DRAFT.name)
 
-        router.actions.push(url, { tab: 'sends', status: 'failed' })
+        router.actions.push(url)
+        const page = router.values.location.pathname
+        fireEvent.click(screen.getByText('Metrics'))
+        fireEvent.click(await screen.findByText(/^2 hard bounced/))
 
         await screen.findByText('No sends match these filters')
-        expect(sendRequests.at(-1)).toMatchObject({ workflow_id: 'flow-1', status: 'failed' })
+        expect(router.values.location.pathname).toEqual(page)
+        expect(sendRequests.at(-1)).toMatchObject({ workflow_id: 'flow-1', status: 'bounced', reason: 'hard' })
     })
 
     it('opens the run logs from a template link saved before the Sends list, until the reader picks Sends', async () => {
