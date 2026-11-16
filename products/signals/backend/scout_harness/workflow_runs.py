@@ -54,6 +54,7 @@ from products.signals.backend.scout_harness.workflow_trigger_queue import (
     expire_pending_triggers,
     pending_trigger_lanes,
     pending_trigger_team_ids,
+    withdraw_pending_trigger,
 )
 from products.skills.backend.models.skills import LLMSkill
 
@@ -155,9 +156,10 @@ def start_workflow_scout_run(
             raise WorkflowScoutRunRejected(rejection)
 
     queue_limits = workflow_trigger_queue_limits_for_team(team_id)
+    may_queue = queue_when_busy and queue_limits.queue_enabled
 
     def _busy(rejection: ScoutRunRejection) -> WorkflowScoutRunQueued:
-        if not (queue_when_busy and queue_limits.queue_enabled):
+        if not may_queue:
             raise WorkflowScoutRunRejected(rejection)
         queued = enqueue_workflow_trigger(
             team=team,
@@ -178,15 +180,16 @@ def start_workflow_scout_run(
     # Fires queued earlier still wait for the coordinator. This fire joins them, and the run takes
     # them all in arrival order, so an older subject is not left behind a newer one.
     pending_ids = _pending_ids(team_id, skill_name)
+    joined_trigger_id: str | None = None
     if pending_ids:
-        enqueue_workflow_trigger(
+        joined_trigger_id = enqueue_workflow_trigger(
             team=team,
             skill_name=skill_name,
             note=run_note,
             workflow_id=trigger_workflow_id,
             reason="joined_pending",
             limits=queue_limits,
-        )
+        ).trigger_id
         pending_ids = _pending_ids(team_id, skill_name)
 
     workflow_id = workflow_triggered_run_workflow_id(team_id, skill_name)
@@ -203,9 +206,12 @@ def start_workflow_scout_run(
     except WorkflowAlreadyStartedError:
         # A run was dispatched between the in-flight check and the start call. The endpoint's
         # idempotency cache is what replays a retry whose response was lost, so a collision
-        # reaching here is a genuine one. A fire that joined the queue above already waits there.
-        if pending_ids:
+        # reaching here is a genuine one. A fire that joined the queue above already waits there,
+        # unless this fire may not queue, in which case it leaves the queue and is rejected.
+        if pending_ids and may_queue:
             return WorkflowScoutRunQueued(skill_name=skill_name, pending_count=len(pending_ids))
+        if joined_trigger_id is not None:
+            withdraw_pending_trigger(team_id, skill_name, joined_trigger_id)
         return _busy(
             ScoutRunRejection(
                 kind=ScoutRunRejectionKind.CONFLICT,

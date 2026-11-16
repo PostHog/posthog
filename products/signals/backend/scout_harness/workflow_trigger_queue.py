@@ -52,12 +52,13 @@ TRIGGERS_CLAIMED_EVENT = "signals_scout_workflow_triggers_claimed"
 class QueuedWorkflowTrigger:
     """What queuing one fire did. `duplicate` means a pending fire already carried the same note,
     so nothing was added. `dropped_count` is how many of the oldest fires the cap pushed out, and
-    `expired_count` how many had outlived the TTL."""
+    `expired_count` how many had outlived the TTL. `trigger_id` is the row this fire added."""
 
     pending_count: int
     duplicate: bool = False
     dropped_count: int = 0
     expired_count: int = 0
+    trigger_id: str | None = None
 
 
 @frozen
@@ -111,7 +112,7 @@ def enqueue_workflow_trigger(
         if any(existing_note == note_text for _, existing_note in existing):
             result = QueuedWorkflowTrigger(pending_count=len(existing), duplicate=True, expired_count=expired)
         else:
-            SignalScoutPendingTrigger.objects.for_team(team.id).create(
+            created = SignalScoutPendingTrigger.objects.for_team(team.id).create(
                 team_id=team.id,
                 skill_name=skill_name,
                 note=note_text,
@@ -122,7 +123,10 @@ def enqueue_workflow_trigger(
             if overflow:
                 pending.filter(id__in=[trigger_id for trigger_id, _ in existing[:overflow]]).delete()
             result = QueuedWorkflowTrigger(
-                pending_count=len(existing) + 1 - overflow, dropped_count=overflow, expired_count=expired
+                pending_count=len(existing) + 1 - overflow,
+                dropped_count=overflow,
+                expired_count=expired,
+                trigger_id=str(created.id),
             )
 
     log = logger.warning if result.dropped_count else logger.info
@@ -241,6 +245,11 @@ def pending_trigger_lanes(lanes: set[tuple[int, str]]) -> list[PendingTriggerLan
         )
         for (team_id, skill_name), entries in by_lane.items()
     ]
+
+
+def withdraw_pending_trigger(team_id: int, skill_name: str, trigger_id: str) -> None:
+    """Delete one fire that joined the queue on its way to a run that never started."""
+    SignalScoutPendingTrigger.objects.for_team(team_id).filter(skill_name=skill_name, id=trigger_id).delete()
 
 
 def drop_pending_triggers(team_id: int, skill_name: str, *, reason: str) -> int:

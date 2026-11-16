@@ -228,6 +228,23 @@ class TestWorkflowScoutRunDispatch(_ScoutLaneTestCase):
         )
         assert self._pending() == []
 
+    @parameterized.expand(["step_when_busy_skip", "team_queue_off"])
+    def test_a_collision_does_not_leave_a_joined_fire_queued_when_it_may_not_queue(self, source: str) -> None:
+        self._queue("Issue #1")
+        if source == "team_queue_off":
+            self._enrol(
+                {"guaranteed_team_ids": [self.team.id], "default_team_config": {"queue_workflow_triggers": False}}
+            )
+
+        self._assert_rejected(
+            "run_in_flight",
+            ScoutRunRejectionKind.CONFLICT,
+            run_note="Issue #2",
+            queue_when_busy=source != "step_when_busy_skip",
+            dispatch_error=_COLLISION,
+        )
+        assert self._pending() == [("Issue #1", "flow-1")]
+
     def test_the_queue_drops_duplicate_notes_and_then_the_oldest_fires(self) -> None:
         self._make_busy("in_flight")
 
