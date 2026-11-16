@@ -4922,14 +4922,17 @@ export namespace Schemas {
         subtotals: boolean | null;
     }>;
     export type DisplayType = "auto" | "line" | "bar" | "area";
+    export type LinkTarget = "none" | "person" | "event";
     export type ValueLabels = "auto" | "show" | "hide";
     export type YAxisPosition = "left" | "right";
     export type ChartSettingsDisplay = Partial<{
         color: string | null;
         description: string | null;
         displayType: DisplayType | null;
+        eventTimestampColumn: string | null;
         excludeFromTotal: boolean | null;
         label: string | null;
+        linkTarget: LinkTarget | null;
         trendLine: boolean | null;
         valueLabels: ValueLabels | null;
         yAxisPosition: YAxisPosition | null;
