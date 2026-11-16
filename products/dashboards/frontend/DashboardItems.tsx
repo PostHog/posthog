@@ -168,6 +168,7 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
         updateContainerWidth,
         toggleTileDescription,
         updateTileDisplayOptions,
+        setTileProperty,
         removeTile,
         duplicateTile,
         loadDashboard,
@@ -835,6 +836,20 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
                     dashboardId={dashboard?.id}
                     isDraggingRef={isDragging}
                     onEdit={tileActions.edit}
+                    onTextSaved={(saved) =>
+                        setTileProperty(tile.id, {
+                            text: {
+                                ...text,
+                                id: saved.id,
+                                body: saved.body ?? '',
+                                last_modified_at: saved.last_modified_at,
+                                dashboard_tiles: saved.dashboard_tiles.map((placement) => ({
+                                    ...placement,
+                                    deleted: placement.deleted ?? false,
+                                })),
+                            },
+                        })
+                    }
                     onMoveToDashboard={commonTileProps.moveToDashboard}
                     tileGroupMoveOptions={commonTileProps.tileGroupMoveOptions}
                     onMoveToTileGroup={commonTileProps.moveToTileGroup}

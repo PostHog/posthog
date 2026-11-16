@@ -15,6 +15,7 @@ export function QuillDashboardTileMenuItems({
     editLabel,
     editDataAttr,
     onEdit,
+    onEditSettings,
     placement,
     onDuplicate,
     duplicateDataAttr,
@@ -25,6 +26,7 @@ export function QuillDashboardTileMenuItems({
     editLabel: string
     editDataAttr: string
     onEdit: () => void
+    onEditSettings?: () => void
     placement: InsightCardMenuPlacement
     onDuplicate: () => void
     duplicateDataAttr: string
@@ -37,6 +39,7 @@ export function QuillDashboardTileMenuItems({
             <DropdownMenuItem onClick={onEdit} data-attr={editDataAttr}>
                 {editLabel}
             </DropdownMenuItem>
+            {onEditSettings && <DropdownMenuItem onClick={onEditSettings}>Edit card settings</DropdownMenuItem>}
             {displayOptions && (
                 <DropdownMenuSub>
                     <DropdownMenuSubTrigger data-attr="dashboard-tile-display-options">

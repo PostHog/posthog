@@ -1649,11 +1649,17 @@ export interface dashboardLogicActions {
     setTileProperty: (
         tileId: number,
         properties: Partial<
-            Pick<DashboardTile, 'color' | 'group_key' | 'layouts' | 'show_description' | 'transparent_background'>
+            Pick<
+                DashboardTile,
+                'color' | 'group_key' | 'layouts' | 'show_description' | 'text' | 'transparent_background'
+            >
         >
     ) => {
         properties: Partial<
-            Pick<DashboardTile, 'color' | 'group_key' | 'layouts' | 'show_description' | 'transparent_background'>
+            Pick<
+                DashboardTile,
+                'color' | 'group_key' | 'layouts' | 'show_description' | 'text' | 'transparent_background'
+            >
         >
         tileId: number
     }
@@ -2520,7 +2526,10 @@ export const dashboardLogic = kea<dashboardLogicType>([
         setTileProperty: (
             tileId: number,
             properties: Partial<
-                Pick<DashboardTile, 'color' | 'group_key' | 'layouts' | 'show_description' | 'transparent_background'>
+                Pick<
+                    DashboardTile,
+                    'color' | 'group_key' | 'layouts' | 'show_description' | 'transparent_background' | 'text'
+                >
             >
         ) => ({
             tileId,

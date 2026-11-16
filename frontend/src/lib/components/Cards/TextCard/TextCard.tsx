@@ -17,6 +17,7 @@ interface TextCardProps extends React.HTMLAttributes<HTMLDivElement>, Resizeable
     textTile: DashboardTile
     placement: DashboardPlacement
     children?: JSX.Element
+    bodyContent?: React.ReactNode
     moreButtonOverlay?: MoreProps['overlay']
     /** Quill rows for the "more" menu, shown instead of `moreButtonOverlay`. */
     quillMenuItems?: JSX.Element
@@ -29,6 +30,7 @@ function TextCardInternal(
         textTile,
         showResizeHandles,
         children,
+        bodyContent,
         className,
         moreButtonOverlay,
         quillMenuItems,
@@ -66,7 +68,12 @@ function TextCardInternal(
             )}
 
             <div className="DashboardTileCard__body TextCard__body w-full" data-not-quill>
-                <LazyTextContent text={text.body} className={shouldHideMoreButton ? 'p-4' : 'p-4 pr-14'} />
+                {bodyContent ?? (
+                    <LazyTextContent
+                        text={text.body}
+                        className={clsx('TextCard__content', shouldHideMoreButton ? 'p-4' : 'p-4 pr-14')}
+                    />
+                )}
             </div>
 
             {showResizeHandles && <DashboardResizeHandles />}

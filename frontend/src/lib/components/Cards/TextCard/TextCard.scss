@@ -1,7 +1,9 @@
 .TextCard__body {
     flex: 1;
     overflow-y: auto;
+}
 
+.TextCard__content {
     ul {
         padding-left: 1.5rem;
         list-style-position: outside;

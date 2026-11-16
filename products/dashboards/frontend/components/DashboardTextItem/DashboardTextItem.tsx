@@ -1,5 +1,5 @@
 import { useValues } from 'kea'
-import React from 'react'
+import React, { Suspense, useState } from 'react'
 
 import { IconChevronRight } from '@posthog/icons'
 
@@ -13,14 +13,21 @@ import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonDivider } from 'lib/lemon-ui/LemonDivider'
 import { LemonDropdown } from 'lib/lemon-ui/LemonDropdown'
+import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
+import { lazyWithRetry } from 'lib/utils/retryImport'
 import type { TileDisplayOptions } from 'scenes/dashboard/dashboardLogic'
 
 import { DashboardPlacement, DashboardTile, DashboardType } from '~/types'
 
+import type { TextApi } from '../../generated/api.schemas'
 import { DashboardImageTile } from '../ImageTile/DashboardImageTile'
 import { getImageOnlyTextCardImage } from '../ImageTile/imageTileUtils'
 import { QuillDashboardTileMenuItems } from '../QuillDashboardTileMenuItems'
 import { TransparentBackgroundOption } from '../TransparentBackgroundOption'
+
+const DashboardTextEditor = lazyWithRetry(() =>
+    import('./DashboardTextEditor').then((m) => ({ default: m.DashboardTextEditor }))
+)
 
 type BaseTextCardProps = React.ComponentProps<typeof TextCard>
 
@@ -32,6 +39,7 @@ interface DashboardTextItemProps
     placement: DashboardPlacement
     dashboardId?: number | null
     onEdit: () => void
+    onTextSaved?: (text: TextApi) => void
     onMoveToDashboard?: (target: Pick<DashboardType, 'id' | 'name'>) => void
     onCopyToDashboard?: (target: Pick<DashboardType, 'id' | 'name'>) => void
     onDuplicate: () => void
@@ -47,6 +55,7 @@ function DashboardTextItemInternal(
         placement,
         dashboardId,
         onEdit,
+        onTextSaved,
         onMoveToDashboard,
         onCopyToDashboard,
         tileGroupMoveOptions,
@@ -60,6 +69,7 @@ function DashboardTextItemInternal(
     }: DashboardTextItemProps,
     ref: React.ForwardedRef<HTMLDivElement>
 ): JSX.Element {
+    const [editing, setEditing] = useState(false)
     const textId = tile.text?.id
     const { copyToDestinations } = useValues(
         dashboardWidgetMenusLogic({
@@ -73,6 +83,8 @@ function DashboardTextItemInternal(
 
     const image = tile.text ? getImageOnlyTextCardImage(tile.text.body) : null
     const tileType = image ? 'image' : 'text'
+    const canEditInline = !image && placement === DashboardPlacement.Dashboard && !!dashboardId && !!onTextSaved
+    const editText = canEditInline ? () => setEditing(true) : onEdit
     const displayOptions = onUpdateDisplayOptions ? (
         <TransparentBackgroundOption
             tile={tile}
@@ -85,7 +97,8 @@ function DashboardTextItemInternal(
         <QuillDashboardTileMenuItems
             editLabel={`Edit ${tileType}`}
             editDataAttr={`edit-${tileType}`}
-            onEdit={onEdit}
+            onEdit={editText}
+            onEditSettings={canEditInline ? onEdit : undefined}
             placement={{
                 destinations: copyToDestinations,
                 onMoveToDashboard,
@@ -102,9 +115,14 @@ function DashboardTextItemInternal(
     ) : undefined
     const moreButtonOverlay = (
         <>
-            <LemonButton fullWidth onClick={onEdit} data-attr={`edit-${tileType}`}>
+            <LemonButton fullWidth onClick={editText} data-attr={`edit-${tileType}`}>
                 Edit {tileType}
             </LemonButton>
+            {canEditInline && (
+                <LemonButton fullWidth onClick={onEdit}>
+                    Edit card settings
+                </LemonButton>
+            )}
             {displayOptions && (
                 <LemonDropdown
                     overlay={<div className="w-60 px-2 py-1">{displayOptions}</div>}
@@ -167,8 +185,30 @@ function DashboardTextItemInternal(
             ref={ref}
             textTile={tile}
             placement={placement}
-            moreButtonOverlay={moreButtonOverlay}
-            quillMenuItems={quillMenuItems}
+            moreButtonOverlay={editing ? undefined : moreButtonOverlay}
+            quillMenuItems={editing ? undefined : quillMenuItems}
+            bodyContent={
+                editing && canEditInline ? (
+                    <Suspense
+                        fallback={
+                            <div className="p-4">
+                                <Spinner />
+                            </div>
+                        }
+                    >
+                        <DashboardTextEditor
+                            dashboardId={dashboardId!}
+                            tileId={tile.id}
+                            initialBody={tile.text?.body ?? ''}
+                            onSaved={(text) => {
+                                onTextSaved!(text)
+                                setEditing(false)
+                            }}
+                            onCancel={() => setEditing(false)}
+                        />
+                    </Suspense>
+                ) : undefined
+            }
             {...textCardProps}
         />
     )
