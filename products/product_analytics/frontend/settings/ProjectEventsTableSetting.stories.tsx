@@ -18,10 +18,10 @@ const eventsTableMock = (eventsTable: EventsTableApi): ReturnType<typeof mswDeco
 
 export const OnTheOldTable: Story = {
     render: () => <ProjectEventsTableSetting />,
-    decorators: [eventsTableMock({ use_new_events_table: null, reads_new_events_table: false, can_choose: true })],
+    decorators: [eventsTableMock({ use_new_events_table: false, reads_new_events_table: false, can_choose: true })],
 }
 
 export const MovedByPostHog: Story = {
     render: () => <ProjectEventsTableSetting />,
-    decorators: [eventsTableMock({ use_new_events_table: null, reads_new_events_table: true, can_choose: true })],
+    decorators: [eventsTableMock({ use_new_events_table: false, reads_new_events_table: true, can_choose: false })],
 }

@@ -114,12 +114,10 @@ def _allowlisted_team_ids() -> set[int]:
 # Staff set the share of projects that read events_json, and the projects to keep on the legacy table, in this
 # flag's release conditions. The conditions can filter on the person property project_id.
 EVENTS_TABLE_ROLLOUT_FLAG = "new-events-table-rollout"
-# While this flag is off for a project, the project cannot choose its events table and a stored choice is ignored,
-# so turning the flag off puts every project back on the staff switches and the rollout.
 EVENTS_TABLE_SELF_SERVE_FLAG = "new-events-table-self-serve"
 
-_PROJECT_CHOICES_TTL_SECONDS = 60
-_project_choices: tuple[float, dict[int, bool]] | None = None
+_OPT_INS_TTL_SECONDS = 60
+_opted_in_projects: tuple[float, set[int]] | None = None
 
 
 def _flag_enabled_for_project(flag: str, team_id: int) -> bool:
@@ -137,71 +135,72 @@ def _flag_enabled_for_project(flag: str, team_id: int) -> bool:
     )
 
 
-def clear_project_events_table_choices() -> None:
-    global _project_choices
-    _project_choices = None
+def clear_events_table_opt_ins() -> None:
+    global _opted_in_projects
+    _opted_in_projects = None
 
 
-def _project_events_table_choices() -> dict[int, bool]:
-    # One cached map for every project, as get_instance_setting caches one value per key. A lookup per project
+def _opted_in_project_ids() -> set[int]:
+    # One cached set for every project, as get_instance_setting caches one value per key. A lookup per project
     # would add a database read to the first query of each project on each worker.
-    global _project_choices
-    if _project_choices is not None and time.monotonic() - _project_choices[0] < _PROJECT_CHOICES_TTL_SECONDS:
-        return _project_choices[1]
+    global _opted_in_projects
+    if _opted_in_projects is not None and time.monotonic() - _opted_in_projects[0] < _OPT_INS_TTL_SECONDS:
+        return _opted_in_projects[1]
 
     # Deferred: this module is imported at django.setup(), before the models load.
     from posthog.models.team import Team  # noqa: PLC0415
     from posthog.models.team.team_events_table_config import TeamEventsTableConfig  # noqa: PLC0415
 
-    choices: dict[int, bool] = {
-        team_id: choice
-        for team_id, choice in TeamEventsTableConfig.objects.unscoped().values_list("team_id", "use_new_events_table")
-        if choice is not None
-    }
-    # A choice is stored on the project's root team, and queries run with the id of the environment they read.
-    for child_id, root_id in Team.objects.filter(parent_team_id__in=choices).values_list("id", "parent_team_id"):
-        choices[child_id] = choices[root_id]
-    _project_choices = (time.monotonic(), choices)
-    return choices
+    opted_in = set(
+        TeamEventsTableConfig.objects.unscoped().filter(use_new_events_table=True).values_list("team_id", flat=True)
+    )
+    # An opt-in is stored on the project's root team, and queries run with the id of the environment they read.
+    opted_in.update(Team.objects.filter(parent_team_id__in=opted_in).values_list("id", flat=True))
+    _opted_in_projects = (time.monotonic(), opted_in)
+    return opted_in
 
 
-def project_can_choose_events_table(team_id: int) -> bool:
+def project_can_opt_in_to_new_events_table(team_id: int) -> bool:
     return _flag_enabled_for_project(EVENTS_TABLE_SELF_SERVE_FLAG, team_id)
 
 
-def project_events_table_choice(team_id: int) -> bool | None:
-    """The table the project chose for itself: True for events_json, False for events, None for no choice."""
-    if not project_can_choose_events_table(team_id):
-        return None
-    return _project_events_table_choices().get(team_id)
+def project_opted_in_to_new_events_table(team_id: int) -> bool:
+    return project_can_opt_in_to_new_events_table(team_id) and team_id in _opted_in_project_ids()
 
 
-def set_project_events_table_choice(team: "Team", use_new_events_table: bool | None) -> None:
-    """Store the project's choice. Other workers read it once their cached choices expire, within a minute."""
+def set_project_events_table_opt_in(team: "Team", opted_in: bool) -> None:
+    """Store the project's opt-in. Other workers read it once their cached opt-ins expire, within a minute."""
     from posthog.models.team.team_events_table_config import TeamEventsTableConfig  # noqa: PLC0415
 
     TeamEventsTableConfig.objects.unscoped().update_or_create(
-        team_id=team.parent_team_id or team.pk, defaults={"use_new_events_table": use_new_events_table}
+        team_id=team.parent_team_id or team.pk, defaults={"use_new_events_table": opted_in}
     )
-    clear_project_events_table_choices()
+    clear_events_table_opt_ins()
 
 
-def project_reads_new_events_table(team_id: int | None) -> bool:
-    """Whether the project reads events_json when no query modifier or staff cookie says otherwise.
+def project_moved_to_new_events_table(team_id: int | None) -> bool:
+    """Whether staff or the rollout moved the project to events_json, whatever the project chose for itself.
 
-    The first of these that has an answer decides: the project's own choice, CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA
-    for every project, CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA_TEAMS for a listed project, then the rollout flag.
-    Callers that pass no project, such as usage reports, follow CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA alone.
+    CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA moves every project, CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA_TEAMS moves
+    a listed project, and the rollout flag moves the rest. Callers that pass no project, such as usage reports,
+    follow CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA alone.
     """
-    if team_id is not None:
-        choice = project_events_table_choice(team_id)
-        if choice is not None:
-            return choice
     if get_instance_setting("CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA"):
         return True
     if team_id is None:
         return False
     return team_id in _allowlisted_team_ids() or _flag_enabled_for_project(EVENTS_TABLE_ROLLOUT_FLAG, team_id)
+
+
+def project_reads_new_events_table(team_id: int | None) -> bool:
+    """Whether the project reads events_json when no query modifier or staff cookie says otherwise.
+
+    A project reads events_json once it opts in or is moved. An opt-in only moves a project early: a project that
+    staff or the rollout moved cannot go back by itself.
+    """
+    if team_id is not None and project_opted_in_to_new_events_table(team_id):
+        return True
+    return project_moved_to_new_events_table(team_id)
 
 
 def use_new_events_schema(team_id: int | None = None, modifiers: "HogQLQueryModifiers | None" = None) -> bool:
@@ -210,7 +209,7 @@ def use_new_events_schema(team_id: int | None = None, modifiers: "HogQLQueryModi
     Three switches, each wider than the one before it: the query's useNewEventsSchema modifier, for one query;
     a staff person's cookie, for every request from that browser (see new_events_schema_for_request); and the
     project's table, for a project everywhere, background jobs included (see project_reads_new_events_table).
-    The instance settings and the projects' own choices are cached for up to 60s per worker. Nested reads
+    The instance settings and the projects' opt-ins are cached for up to 60s per worker. Nested reads
     inherit the running query's choice unless their own modifier overrides it.
     Code running inside a query should prefer HogQLContext.uses_new_events_schema(), which
     resolves this once so a mid-query flip can't mix schemas.

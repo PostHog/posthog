@@ -11,10 +11,11 @@ from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.event_usage import report_user_action
 from posthog.models.event.new_events_schema import (
-    project_can_choose_events_table,
-    project_events_table_choice,
+    project_can_opt_in_to_new_events_table,
+    project_moved_to_new_events_table,
+    project_opted_in_to_new_events_table,
     project_reads_new_events_table,
-    set_project_events_table_choice,
+    set_project_events_table_opt_in,
 )
 from posthog.models.user import User
 from posthog.permissions import OrganizationAdminWritePermissions
@@ -24,23 +25,21 @@ from posthog.permissions import OrganizationAdminWritePermissions
 class EventsTableSerializer(serializers.Serializer):
     use_new_events_table = serializers.BooleanField(
         read_only=True,
-        allow_null=True,
-        help_text="The events table this project chose: true for the new table, false for the old table, null while the project has made no choice.",
+        help_text="Whether this project opted in to the new events table before PostHog moves it there.",
     )
     reads_new_events_table = serializers.BooleanField(
         read_only=True,
-        help_text="Whether this project's queries read the new events table now, by its own choice or because PostHog moved it.",
+        help_text="Whether this project's queries read the new events table now, because it opted in or because PostHog moved it.",
     )
     can_choose = serializers.BooleanField(
         read_only=True,
-        help_text="Whether this project can choose its events table. While false, a save is refused.",
+        help_text="Whether this project can opt in or undo its opt-in. False once PostHog has moved the project, which can't be undone, and while opting in is not open yet. While false, a save is refused.",
     )
 
 
 class EventsTableUpdateSerializer(serializers.Serializer):
     use_new_events_table = serializers.BooleanField(
-        allow_null=True,
-        help_text="True to read the new events table, false to read the old table, null to drop the project's choice and follow PostHog's rollout. A change reaches every query within about a minute.",
+        help_text="True to move this project to the new events table before PostHog moves it. False to undo that. A change reaches every query within about a minute.",
     )
 
 
@@ -50,13 +49,18 @@ class EventsTableViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     pagination_class = None
     permission_classes = [OrganizationAdminWritePermissions]
 
+    def _can_choose(self) -> bool:
+        return project_can_opt_in_to_new_events_table(self.team_id) and not project_moved_to_new_events_table(
+            self.team_id
+        )
+
     def _events_table_response(self) -> Response:
         return Response(
             EventsTableSerializer(
                 {
-                    "use_new_events_table": project_events_table_choice(self.team_id),
+                    "use_new_events_table": project_opted_in_to_new_events_table(self.team_id),
                     "reads_new_events_table": project_reads_new_events_table(self.team_id),
-                    "can_choose": project_can_choose_events_table(self.team_id),
+                    "can_choose": self._can_choose(),
                 }
             ).data
         )
@@ -65,8 +69,8 @@ class EventsTableViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         operation_id="events_table_retrieve",
         summary="Get the events table a project reads",
         description=(
-            "Returns which events table this project's queries read, the choice the project made for itself, and "
-            "whether the project can choose yet."
+            "Returns which events table this project's queries read, whether the project opted in early, and "
+            "whether it can still choose."
         ),
         responses={200: EventsTableSerializer},
     )
@@ -78,22 +82,27 @@ class EventsTableViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         operation_id="events_table_update",
         summary="Choose the events table a project reads",
         description=(
-            "Switches this project's queries to the new events table or back to the old one. The switch deletes "
-            "nothing and can be reversed. Batch exports are not affected. Organization admins only."
+            "Moves this project's queries to the new events table before PostHog moves it, or undoes that. Once "
+            "PostHog has moved the project, it can't switch back. The switch deletes nothing. Organization admins "
+            "only."
         ),
         responses={
             200: OpenApiResponse(response=EventsTableSerializer, description="The project's new choice."),
             403: OpenApiResponse(
-                description="The user isn't an organization admin, or the project can't choose its events table yet."
+                description="The user isn't an organization admin, PostHog already moved the project, or opting in isn't open yet."
             ),
         },
     )
     def create(self, request: ValidatedRequest, *args: Any, **kwargs: Any) -> Response:
-        if not project_can_choose_events_table(self.team_id):
-            raise exceptions.PermissionDenied("This project can't choose its events table yet.")
+        if project_moved_to_new_events_table(self.team_id):
+            raise exceptions.PermissionDenied(
+                "PostHog moved this project to the new events table. It can't switch back."
+            )
+        if not project_can_opt_in_to_new_events_table(self.team_id):
+            raise exceptions.PermissionDenied("This project can't switch its events table yet.")
 
         use_new_events_table = request.validated_data["use_new_events_table"]
-        set_project_events_table_choice(self.team, use_new_events_table)
+        set_project_events_table_opt_in(self.team, use_new_events_table)
         report_user_action(
             cast(User, request.user),
             "events table choice changed",

@@ -109,7 +109,7 @@ export const defaultMocks: Mocks = {
         '/api/projects/:team_id/ui_customization/analytics_sidebar/': todayAnalyticsSidebar,
         '/api/projects/:team_id/actions/': EMPTY_PAGINATED_RESPONSE,
         '/api/projects/:team_id/events_table/': {
-            use_new_events_table: null,
+            use_new_events_table: false,
             reads_new_events_table: false,
             can_choose: true,
         },
