@@ -16,7 +16,7 @@ the stable chunk build does, and gets the default esbuild build.
 import json
 from functools import lru_cache
 from pathlib import Path
-from typing import Any, Literal, Optional
+from typing import Any, Final, Literal, Optional
 
 from django.conf import settings
 from django.http import HttpRequest, HttpResponse
@@ -32,8 +32,8 @@ logger = structlog.get_logger(__name__)
 
 FRONTEND_BUILD_PARAM = "frontend_build"
 FRONTEND_BUILD_COOKIE = "ph_frontend_build"
-VITE_BUILD = "vite"
-DEFAULT_BUILD = "default"
+VITE_BUILD: Final = "vite"
+DEFAULT_BUILD: Final = "default"
 
 _COOKIE_SALT = "posthog.vite_app.frontend_build"
 _COOKIE_MAX_AGE_SECONDS = 30 * 24 * 60 * 60
