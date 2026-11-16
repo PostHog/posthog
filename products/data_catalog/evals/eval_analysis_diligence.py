@@ -1,7 +1,8 @@
 """Analysis diligence evals: does the agent verify the premise, flag anomalies, and test hypotheses?
 
 Each case plants one truth from the scenario pack (``scenario_synthesizer.py``) and pairs a
-deterministic check on the tool chain with a judge on the answer.
+deterministic check on the tool chain with a judge on the answer. The two midchain cases seed
+governed metrics instead, and grade that the agent uses them inside a larger task.
 
 To run the suite, once per surface:
 
@@ -11,6 +12,12 @@ To run the suite, once per surface:
 
 from __future__ import annotations
 
+from products.data_catalog.evals.catalog_seeders import seed_catalog_for_board_update, seed_pricing_metrics
+from products.data_catalog.evals.catalog_synthesizer import (
+    ACCOUNT_ENGAGEMENT_METRIC,
+    MRR_METRIC,
+    PAYING_CUSTOMERS_METRIC,
+)
 from products.data_catalog.evals.offline_config import offline_suite
 from products.data_catalog.evals.scenario_seeder import (
     seed_flat_wau,
@@ -45,7 +52,13 @@ from products.data_catalog.evals.scenario_synthesizer import (
     build_slack_export,
     crm_deals_table,
 )
-from products.data_catalog.evals.scorers import MetricsCatalogQueried
+from products.data_catalog.evals.scorers import (
+    CanonicalMetricRun,
+    MetricFound,
+    MetricsCatalogBeforeDataDiscovery,
+    MetricsCatalogQueried,
+    SemanticLayerAnswer,
+)
 from products.data_catalog.evals.scorers_analysis import (
     AnalysisDiligence,
     AnnotationsRead,
@@ -302,6 +315,41 @@ async def eval_analysis_diligence(ctx: EvalContext) -> None:
             },
             setup=seed_health_check_mix,
         ),
+        SandboxedEvalCase(
+            name="midchain_pricing_case",
+            prompt="Should we raise the personal/pro price from $10 to $12 a month? Build the case with numbers.",
+            expected={
+                "metrics_catalog_before_data_discovery": {},
+                "metric_found": {"metric_name": MRR_METRIC.name},
+                "semantic_layer_answer": {
+                    "expected_behavior": (
+                        f"Use the governed {MRR_METRIC.name} and {PAYING_CUSTOMERS_METRIC.name} metrics for the "
+                        "current revenue and customer numbers before any ad hoc query. Derive the personal/pro "
+                        "share and the price-change estimate from event data, and label those parts as estimates "
+                        "that are not governed metrics."
+                    )
+                },
+            },
+            setup=seed_pricing_metrics,
+        ),
+        SandboxedEvalCase(
+            name="midchain_board_update",
+            prompt="Draft a one-paragraph growth update for the board.",
+            expected={
+                "canonical_metric_run": {
+                    "metric_name": [MRR_METRIC.name, PAYING_CUSTOMERS_METRIC.name, ACCOUNT_ENGAGEMENT_METRIC.name],
+                    "outcome": "succeeded",
+                },
+                "semantic_layer_answer": {
+                    "expected_behavior": (
+                        f"Ground the update in the approved {MRR_METRIC.name}, {PAYING_CUSTOMERS_METRIC.name}, and "
+                        f"{ACCOUNT_ENGAGEMENT_METRIC.name} metrics, cite them as governed numbers, and keep any "
+                        "figure that does not come from them clearly marked as derived."
+                    )
+                },
+            },
+            setup=seed_catalog_for_board_update,
+        ),
     ]
     await SandboxedEval(
         experiment_name="sandboxed-analysis-diligence-cli",
@@ -320,6 +368,10 @@ async def eval_analysis_diligence(ctx: EvalContext) -> None:
             AnomalyFlagged(),
             AnswerCorrectness(),
             SurfacesAllFindingsWhenListed(),
+            MetricsCatalogBeforeDataDiscovery(),
+            MetricFound(),
+            CanonicalMetricRun(),
+            SemanticLayerAnswer(),
         ],
         ctx=ctx,
         offline_suite=offline_suite(
@@ -338,6 +390,10 @@ async def eval_analysis_diligence(ctx: EvalContext) -> None:
                 "anomaly_flagged",
                 "answer_correctness",
                 "surfaces_all_findings",
+                "metrics_catalog_before_data_discovery",
+                "metric_found",
+                "canonical_metric_run",
+                "semantic_layer_answer",
             ],
         ),
     )
