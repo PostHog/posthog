@@ -1,9 +1,7 @@
 from dataclasses import field
 from typing import Any
 
-from posthog.dataclasses import frozen
-
-from products.warehouse_sources.sources.sdk import DependentEndpointConfig, IncrementalField
+from products.warehouse_sources.sources.sdk import DependentEndpointConfig, IncrementalField, frozen
 
 # Vultr caps per_page at 500 (default 100). Fewer requests keeps us well under the ~30 req/s rate limit.
 VULTR_PER_PAGE = 500
