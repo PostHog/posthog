@@ -10,9 +10,11 @@ import { FAILOVER_RELEASE_WITHIN_MS } from '../environment/failover'
 import { FakeProjectApi, startFakeProjectApi } from '../scorecard/fake-project-api'
 import { FakeCloud, FakeCloudOptions, ReaderMinute } from './fake-cloud'
 import { PROFILE } from './fixtures'
+import { STOP_TIMEOUT_S, STOP_WAIT_MS } from './host'
 import { lease } from './lease'
 import { Controller, main } from './main'
 import { loadRunInputs } from './profile'
+import { POLL_MS } from './stack'
 
 const T = new Date('2026-03-02T10:00:00.000Z')
 const HOUR_MS = 60 * 60 * 1000
@@ -665,6 +667,12 @@ describe('cloud controller', () => {
             true,
         ],
         [
+            'the card cleans up until just before systemd would kill it',
+            { card: { stopTakesMs: STOP_TIMEOUT_S * 1000 - 1000 } },
+            () => undefined,
+            true,
+        ],
+        [
             'the stop command fails',
             {},
             (fake) => fake.failWhen('send-command', (args) => args.some((arg) => arg.includes('systemctl stop'))),
@@ -695,7 +703,7 @@ describe('cloud controller', () => {
 
         expect(evidenceAtDelete).toBe(uploaded)
         expect(err.join('\n').includes('did not finish cleanly')).toBe(!uploaded)
-        expect(deletedAt! - interruptedAt!).toBeLessThan(HOUR_MS / 3)
+        expect(deletedAt! - interruptedAt!).toBeLessThan(STOP_WAIT_MS + POLL_MS)
         expect(cloud.billable()).toEqual([])
         expect(cloud.schedules.size).toBe(0)
     })

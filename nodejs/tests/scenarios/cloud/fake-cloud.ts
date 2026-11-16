@@ -276,6 +276,9 @@ export class FakeCloud implements Aws {
 
     tick(): void {
         const now = this.options.now().getTime()
+        for (const promotion of this.pendingPromotions.filter(({ cluster }) => DELETED_STATES.has(cluster.state))) {
+            this.pendingPromotions.splice(this.pendingPromotions.indexOf(promotion), 1)
+        }
         for (const promotion of this.pendingPromotions.filter(({ showsAt }) => showsAt <= now)) {
             promotion.cluster.state = 'failing-over'
         }
@@ -665,7 +668,10 @@ export class FakeCloud implements Aws {
                     this.card.reportsDone = !killed
                 }
             }
-            command.settlesAt = Math.max(command.settlesAt, this.card?.endsAt ?? now)
+            const stoppedAt = Math.max(command.settlesAt, this.card?.endsAt ?? now)
+            command.settlesAt = Math.min(stoppedAt, now + timeoutMs)
+            command.status = stoppedAt > now + timeoutMs ? 'TimedOut' : 'Success'
+            command.code = stoppedAt > now + timeoutMs ? -1 : 0
         } else {
             throw new Error(`the fake cloud does not model the host command ${script}`)
         }
