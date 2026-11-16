@@ -1,9 +1,6 @@
 import { useActions, useValues } from 'kea'
 import { useEffect, useMemo, useRef } from 'react'
 
-import { IconChevronRight } from '@posthog/icons'
-import { Button, Switch } from '@posthog/quill'
-
 import { useResizeObserver } from 'lib/hooks/useResizeObserver'
 import {
     SessionRecordingPlayerLogicProps,
@@ -13,12 +10,7 @@ import {
 import { observationsDockLogic } from '../logics/observationsDockLogic'
 import { visionQuotaLogic } from '../logics/visionQuotaLogic'
 import { quotaUx } from '../utils/quotaProjection'
-import {
-    currentRowIndex,
-    nextTimelineStopMs,
-    timelineEndMs,
-    timelineRows as buildTimelineRows,
-} from '../utils/recordingTimeline'
+import { currentRowIndex, timelineEndMs, timelineRows as buildTimelineRows } from '../utils/recordingTimeline'
 import { recordingScanBlock } from '../utils/scanEligibility'
 import { QuillChapterFilmstrip } from './QuillChapterFilmstrip'
 import { QuillRecordingTimeline } from './QuillRecordingTimeline'
@@ -57,11 +49,10 @@ export function QuillRecordingMoments({
     playerLogicProps: SessionRecordingPlayerLogicProps
 }): JSX.Element {
     const logic = observationsDockLogic({ sessionId })
-    const { observations, timeline, followMoments, summarizePending } = useValues(logic)
-    const { setFollowMoments, summarize } = useActions(logic)
+    const { observations, timeline, summarizePending } = useValues(logic)
+    const { summarize } = useActions(logic)
     const { quota } = useValues(visionQuotaLogic)
     const { disabledReason: quotaDisabledReason } = quotaUx(quota)
-    const lastJumpMs = useRef<number | null>(null)
     const timelineRef = useRef<HTMLDivElement>(null)
     const followedIndex = useRef<number | null>(null)
     const { width, ref: rootRef } = useResizeObserver<HTMLDivElement>()
@@ -75,19 +66,6 @@ export function QuillRecordingMoments({
     }
     const scanBlock = recordingScanBlock(sessionPlayerMetaData)
     const filmstrip = width !== undefined && width >= FILMSTRIP_MIN_WIDTH_PX
-    // A seek can land short of its target. Step from the last jump while still on it.
-    const nextFrom =
-        lastJumpMs.current !== null && Math.abs(currentPlayerTime - lastJumpMs.current) < 1000
-            ? lastJumpMs.current
-            : currentPlayerTime
-    const nextStopMs = nextTimelineStopMs(timeline, nextFrom)
-    const jumpToNext = (): void => {
-        if (nextStopMs === null) {
-            return
-        }
-        lastJumpMs.current = nextStopMs
-        seekToTime(nextStopMs)
-    }
     const currentIndex = currentRowIndex(timelineRows, currentPlayerTime)
 
     useEffect(() => {
@@ -95,10 +73,6 @@ export function QuillRecordingMoments({
     }, [filmstrip])
 
     useEffect(() => {
-        if (!followMoments) {
-            followedIndex.current = null
-            return
-        }
         if (currentIndex < 0 || followedIndex.current === currentIndex) {
             return
         }
@@ -112,7 +86,7 @@ export function QuillRecordingMoments({
         } else {
             current.scrollIntoView({ block: 'nearest' })
         }
-    }, [currentIndex, followMoments, filmstrip, width])
+    }, [currentIndex, filmstrip, width])
 
     const timelineProps = {
         timeline,
@@ -127,33 +101,6 @@ export function QuillRecordingMoments({
     return (
         // A container, so long observation text wraps at the panel's width instead of widening it.
         <div ref={rootRef} className="@container flex flex-col flex-1 min-h-0" data-attr="vision-observations-tab">
-            {timelineRows.length > 0 && (
-                <div className="flex items-center gap-2 p-2 border-b border-border bg-muted">
-                    <div className="ml-auto flex items-center gap-2">
-                        <label className="flex items-center gap-1.5 text-xs">
-                            <Switch
-                                size="sm"
-                                checked={followMoments}
-                                onCheckedChange={setFollowMoments}
-                                data-attr="vision-follow-moments"
-                            />
-                            Follow
-                        </label>
-                        <span className="hidden @[400px]:block">
-                            <Button
-                                size="sm"
-                                variant="outline"
-                                disabledReason={nextStopMs !== null ? undefined : 'Nothing later in the recording'}
-                                onClick={jumpToNext}
-                                data-attr="vision-next-moment"
-                            >
-                                Next
-                                <IconChevronRight />
-                            </Button>
-                        </span>
-                    </div>
-                </div>
-            )}
             <div className="flex-1 min-h-0 overflow-y-auto" ref={timelineRef}>
                 {/* Nothing before the width is known, so posters are fetched once. */}
                 {width === undefined ? null : filmstrip ? (

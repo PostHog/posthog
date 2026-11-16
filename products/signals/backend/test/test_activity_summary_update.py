@@ -1,4 +1,5 @@
 import json
+import uuid
 import datetime
 from typing import Any
 
@@ -549,6 +550,12 @@ class TestUpdateActivitySummary(BaseTest):
             days_ago=0.5,
         )
         self._artefact(pricing, "note", {"note": "agent wrote this"}, days_ago=0.5, actor_kind="agent")
+        self._artefact(
+            self._report("Batch export retries"),
+            "reviewer_corrections",
+            {"pinned": [{"user_uuid": str(uuid.uuid4())}], "excluded": [{"user_uuid": str(self.user.uuid)}]},
+            days_ago=2,
+        )
         self._artefact(self._report("Deleted report", status="deleted"), "note", {"note": "gone"}, days_ago=1)
         llm = FakeLLM([ANSWER])
 
@@ -560,17 +567,18 @@ class TestUpdateActivitySummary(BaseTest):
             '- 2026-10-19 "Pageview drop on pricing": dismissed it as not interested '
             '(not relevant to this project, "internal test traffic"), opened it on more than one day'
         ) in result.rendered_input
+        assert '- 2026-10-17 "Batch export retries": removed themselves as reviewer' in result.rendered_input
         assert "agent wrote this" not in result.rendered_input and "Deleted report" not in result.rendered_input
         stored = self._stored()
         assert stored is not None
-        assert (stored.inputs_used["inbox_lines"], stored.inputs_used["drops"]) == (1, {"inbox_agent_actor": 1})
+        assert (stored.inputs_used["inbox_lines"], stored.inputs_used["drops"]) == (2, {"inbox_agent_actor": 1})
         assert stored.input_watermark == NOW - datetime.timedelta(days=0.5)
 
         excluded = render_as_of(self.team.id, self.user.id, NOW, exclude_products=frozenset({Product.INBOX}))
 
         assert excluded is not None
         assert "Pageview drop on pricing" not in excluded.rendered.text
-        assert excluded.inputs_used["drops"]["excluded_product"] == 3
+        assert excluded.inputs_used["drops"]["excluded_product"] == 4
 
     def test_a_build_as_of_a_past_date_reads_only_the_rows_before_it_and_writes_nothing(self) -> None:
         self._changes(3, days_ago=11)

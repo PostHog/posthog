@@ -43,7 +43,8 @@ A project is included when `ADAPTIVE_INGESTION_MODE=shadow` and its `adaptive_in
 
 The stage runs after the manual rate limits and counts the exceptions they admit, through the shared counters above.
 It compares rolling counts with the project's typical day: the median of the days that had exceptions among the previous 29 UTC days.
-A project has no typical day, and so no lines, until 14 of those days had exceptions.
+A project has no typical day, and so no lines, until 7 of those days had exceptions.
+A median over fewer days follows a new project's first days too closely.
 A typical day is never taken below 1,000 exceptions a month.
 
 | Line | An exception is over it when |
@@ -59,6 +60,7 @@ Within a batch, only the exceptions that arrive after a line is crossed are over
 | `ADAPTIVE_INGESTION_ISSUE_HOUR_MULTIPLE` | `12` | Issue line, in typical hours per rolling hour. |
 | `ADAPTIVE_INGESTION_ISSUE_DAY_MULTIPLE` | `2` | Issue line, in typical days per rolling 24 hours. |
 | `ADAPTIVE_INGESTION_PROJECT_DAY_MULTIPLE` | `3` | Project line, in typical days per rolling 24 hours. |
+| `ADAPTIVE_INGESTION_MIN_HISTORY_DAYS` | `7` | Days with exceptions a project needs before it has a typical day, from 1 to 29. |
 
 Each exception of an included project that has a typical day gets these properties.
 The lines are not stored on the exception: a query applies any threshold to the ratios.
@@ -70,6 +72,7 @@ Cymbal removes incoming properties with the `$adaptive_ingestion_` prefix, so on
 | `$adaptive_ingestion_issue_hour_ratio` | the issue's rolling hour divided by the typical hour |
 | `$adaptive_ingestion_issue_day_ratio` | the issue's rolling 24 hours divided by the typical day |
 | `$adaptive_ingestion_project_day_ratio` | the project's rolling 24 hours divided by the typical day |
+| `$adaptive_ingestion_history_days` | the days with exceptions behind the typical day |
 
 When the counters fail, the exception is kept and gets no property.
 `cymbal_adaptive_ingestion_events_total` counts exceptions by outcome: `seen`, `over_issue_line`, `over_project_line`, `no_baseline`, and `error`.

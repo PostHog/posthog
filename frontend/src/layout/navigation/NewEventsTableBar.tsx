@@ -5,10 +5,10 @@ import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { newEventsTableLogic } from './newEventsTableLogic'
 
 export function NewEventsTableBar(): JSX.Element | null {
-    const { newEventsTableActive } = useValues(newEventsTableLogic)
-    const { setNewEventsTable } = useActions(newEventsTableLogic)
+    const { newEventsTableActive, newEventsTableBarDismissed } = useValues(newEventsTableLogic)
+    const { setNewEventsTable, dismissNewEventsTableBar } = useActions(newEventsTableLogic)
 
-    if (!newEventsTableActive) {
+    if (!newEventsTableActive || newEventsTableBarDismissed) {
         return null
     }
 
@@ -21,6 +21,7 @@ export function NewEventsTableBar(): JSX.Element | null {
                     onClick: () => setNewEventsTable(false),
                     'data-attr': 'new-events-table-bar-switch-back',
                 }}
+                onClose={dismissNewEventsTableBar}
             >
                 This browser is reading the new events table.
             </LemonBanner>

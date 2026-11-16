@@ -22,7 +22,6 @@ from products.data_catalog.backend.logic.usage_adjusted import (
     CatalogCall,
     JudgeUnavailable,
     UsagePageTruncated,
-    _briefs,
     _DetectionPlan,
     _plan_detection,
     assemble_adjusted_runs,
@@ -32,6 +31,7 @@ from products.data_catalog.backend.logic.usage_adjusted import (
     fetch_agent_queries,
     fetch_catalog_calls,
     in_conversations,
+    metric_briefs,
     read_metric_first,
     select_for_judging,
 )
@@ -55,8 +55,12 @@ def _query(
     return AgentQuery(occurred_at=at, trace_id=trace, distinct_id="d1", intent=intent, sql=sql, is_scout=is_scout)
 
 
-def _call(tool: str, metric_name: str = "", *, trace: str = "t1", minutes: int = -1) -> CatalogCall:
-    return CatalogCall(trace_id=trace, occurred_at=AT + timedelta(minutes=minutes), tool=tool, metric_name=metric_name)
+def _call(
+    tool: str, metric_name: str = "", *, trace: str = "t1", minutes: int = -1, failed: bool = False
+) -> CatalogCall:
+    return CatalogCall(
+        trace_id=trace, occurred_at=AT + timedelta(minutes=minutes), tool=tool, metric_name=metric_name, failed=failed
+    )
 
 
 def _index() -> CatalogIndex:
@@ -80,6 +84,7 @@ class TestAdjustedRunDetection(SimpleTestCase):
             ("listed_only", [_call("metric-list")], False),
             ("described_another_metric", [_call("metric-describe", "revenue")], False),
             ("other_session", [_call("metric-describe", "signups", trace="t2")], False),
+            ("failed_describe", [_call("metric-describe", "signups", failed=True)], False),
         ]
     )
     def test_read_metric_first(self, _name: str, calls: list[CatalogCall], expected: bool) -> None:
@@ -91,6 +96,9 @@ class TestAdjustedRunDetection(SimpleTestCase):
         calls = calls_in_conversations({"t1": [_call("metric-describe", "signups", trace="t1")]}, units)
 
         assert read_metric_first(query, "signups", calls[query.trace_id])
+
+    def test_a_query_older_than_the_metric_is_no_candidate(self) -> None:
+        assert build_candidate_groups([_query(at=AT - timedelta(days=1))], _index()) == []
 
     def test_repeated_sql_is_judged_once_per_intent_and_scout_only_groups_go_last(self) -> None:
         sliced = "SELECT count() FROM events WHERE event = 'signup' AND properties.plan = 'pro'"
@@ -111,6 +119,21 @@ class TestAdjustedRunDetection(SimpleTestCase):
         assert sorted(len(group.occurrences) for group in groups) == [1, 2, 2]
         assert [(group.sql, group.intent) for group in selection.groups] == [(SIGNUPS, "weekly signups")]
         assert selection.over_cap == 2
+
+    def test_a_newer_metric_never_hides_an_older_match_for_an_earlier_query(self) -> None:
+        older, newer = uuid4(), uuid4()
+        index = CatalogIndex(
+            CatalogMeasure(metric_id=metric_id, status=status, created_at=created_at, fingerprint=fingerprint)
+            for metric_id, status, created_at in (
+                (older, MetricStatus.PROPOSED, AT - timedelta(days=30)),
+                (newer, MetricStatus.APPROVED, AT + timedelta(days=1)),
+            )
+            for fingerprint in extract_measures(SIGNUPS)
+        )
+
+        groups = build_candidate_groups([_query()], index)
+
+        assert [group.metric_id for group in groups] == [older]
 
     def test_only_matching_verdicts_become_runs(self) -> None:
         groups = build_candidate_groups([_query(), _query(trace="t2", is_scout=True)], _index())
@@ -230,7 +253,7 @@ class TestPlanDetection(BaseTest):
         upsert_metric(team=self.team, user=self.user, name="mrr", description="Monthly revenue")
 
         with patch(f"{_MODULE}.definition_to_hogql", side_effect=RecursionError()):
-            assert _briefs(self.team) == {}
+            assert metric_briefs(self.team) == {}
 
     def test_a_hogql_brief_carries_its_placeholder_values(self) -> None:
         metric = upsert_metric(
@@ -245,7 +268,7 @@ class TestPlanDetection(BaseTest):
             },
         )
 
-        assert '"event": "signup"' in _briefs(self.team)[metric.id].definition
+        assert '"event": "signup"' in metric_briefs(self.team)[metric.id].definition
 
     def test_refuses_to_scan_without_ai_consent(self) -> None:
         self.organization.is_ai_data_processing_approved = False
@@ -312,6 +335,27 @@ class TestAgentTelemetryQueries(ClickhouseTestMixin, BaseTest):
             at - timedelta(minutes=1),
             **{"$ai_input_state": json.dumps({"name": "signups"}), "$ai_is_error": True},
         )
+        self._telemetry(
+            "$ai_span",
+            "execute-sql",
+            "t1",
+            at - timedelta(minutes=2),
+            **{"$ai_input_state": json.dumps({"query": "SELECT table_name, description FROM tables"})},
+        )
+        self._telemetry(
+            "$ai_span",
+            "execute-sql",
+            "t1",
+            at - timedelta(minutes=3),
+            **{"$ai_input_state": json.dumps({"query": "SELECT column_name, data_type FROM columns"})},
+        )
+        self._telemetry(
+            "$ai_span",
+            "execute-sql",
+            "t1",
+            at - timedelta(minutes=4),
+            **{"$ai_input_state": json.dumps({"query": "SELECT name FROM system.information_schema.metrics"})},
+        )
         flush_persons_and_events()
 
         queries = fetch_agent_queries(
@@ -324,5 +368,22 @@ class TestAgentTelemetryQueries(ClickhouseTestMixin, BaseTest):
         assert [(query.trace_id, query.intent, query.sql, query.is_scout) for query in queries] == [
             ("t1", "weekly signups", SIGNUPS, True)
         ]
-        assert [(call.tool, call.metric_name) for call in calls["t1"]] == [("metric-describe", "signups")]
-        assert "failed-describe" not in calls
+        assert sorted((call.tool, call.metric_name) for call in calls["t1"]) == [
+            ("execute-sql", ""),
+            ("execute-sql", ""),
+            ("metric-describe", "signups"),
+        ]
+        # A failed describe stays in, marked, because asking the catalog counts even when the call failed.
+        assert [call.failed for call in calls["failed-describe"]] == [True]
+        start, only_failed = end - timedelta(days=2), ["failed-describe"]
+        assert (
+            fetch_agent_queries(
+                team=self.team, telemetry_team=self.team, window_start=start, window_end=end, trace_ids=only_failed
+            )
+            == []
+        )
+        assert list(
+            fetch_catalog_calls(
+                team=self.team, telemetry_team=self.team, window_start=start, window_end=end, trace_ids=only_failed
+            )
+        ) == ["failed-describe"]

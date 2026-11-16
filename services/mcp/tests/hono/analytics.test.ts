@@ -226,6 +226,23 @@ describe('Hono MCP analytics contexts', () => {
         ['an ordinary tool', 'query-logs', { query: 'level:error' }, true, true],
         ['execute-sql on plain data', 'execute-sql', { query: 'SELECT count() FROM events' }, true, false],
         [
+            'execute-sql with editor filters',
+            'execute-sql',
+            {
+                query: 'SELECT name FROM system.information_schema.metrics WHERE {filters}',
+                filters: { properties: [{ key: 'api_token', value: ['fake-token'] }] },
+            },
+            false,
+            false,
+        ],
+        [
+            'execute-sql through exec',
+            'exec',
+            { command: 'call execute-sql {"query":"SELECT 1","filters":{"properties":[{"value":"fake-token"}]}}' },
+            false,
+            false,
+        ],
+        [
             'execute-sql querying metadata',
             'execute-sql',
             { query: 'SELECT name FROM system.information_schema.metrics' },
@@ -237,6 +254,14 @@ describe('Hono MCP analytics contexts', () => {
         ['a connection forward', 'posthog-connection-forward', { id: '1', path: 'api/' }, false, false],
         ['an email log search', 'workflows-transactional-emails-list', { search: 'jane@example.com' }, false, false],
         ['an opt-out removal', 'opt-outs-remove', { identifier: 'ada@example.com' }, false, false],
+        ['an opt-out search', 'opt-outs-list', { search: 'reader@example.org' }, false, false],
+        [
+            'an opt-out search through exec',
+            'exec',
+            { command: 'call opt-outs-list {"search":"reader@example.org"}' },
+            false,
+            false,
+        ],
         [
             'an email send through exec',
             'exec',
@@ -305,11 +330,16 @@ describe('Hono MCP analytics contexts', () => {
     it('drops preloaded app data from the captured result for every consumer', async () => {
         const appData = { rows: [{ value: 'widget-only-data' }] }
         await trackToolCall('render-ui', 12, false, makeState(), undefined, {
-            response: { content: [{ type: 'text', text: 'ok' }], _meta: { 'com.posthog.mcp/app_data': appData } },
+            response: {
+                content: [{ type: 'text', text: 'ok' }],
+                structuredContent: { tool_name: 'survey-get', 'com.posthog.mcp/app_data': appData },
+                _meta: { 'com.posthog.mcp/app_data': appData },
+            },
         })
 
         expect(mockCaptureToolCall.mock.calls[0]![0].response).toEqual({
             content: [{ type: 'text', text: 'ok' }],
+            structuredContent: { tool_name: 'survey-get' },
             _meta: {},
         })
     })
@@ -614,6 +644,7 @@ describe('Hono MCP analytics contexts', () => {
             ['a different tool', 'query-logs', { query: 'SELECT 1' }],
             ['a missing query', 'execute-sql', {}],
             ['a non-string query', 'execute-sql', { query: 42 }],
+            ['editor filters', 'execute-sql', { query: 'SELECT count() FROM events WHERE {filters}', filters: {} }],
         ])('does not emit for %s', async (_case, toolName, args) => {
             await trackExecuteSqlGeneration(toolName, args, makeState(), { durationMs: 5, isError: false })
 
@@ -657,6 +688,21 @@ describe('Hono MCP analytics contexts', () => {
                 true,
             ],
             ['execute-sql on plain data', 'execute-sql', { query: 'SELECT count() FROM events' }, false],
+            [
+                'execute-sql metadata with editor filters',
+                'execute-sql',
+                {
+                    query: 'SELECT name FROM system.information_schema.metrics WHERE {filters}',
+                    filters: { properties: [{ key: 'api_token', value: ['fake-token'] }] },
+                },
+                false,
+            ],
+            [
+                'execute-sql through exec',
+                'exec',
+                { command: 'call execute-sql {"query":"SELECT 1","filters":{"properties":[{"value":"fake-token"}]}}' },
+                false,
+            ],
             [
                 'execute-sql with the marker only in a string literal',
                 'execute-sql',
@@ -734,6 +780,13 @@ describe('Hono MCP analytics contexts', () => {
                 false,
             ],
             ['email delivery stats', 'workflows-transactional-email-stats', { group_by: 'template' }, true],
+            ['an opt-out search', 'opt-outs-list', { search: 'reader@example.org' }, false],
+            [
+                'an opt-out search through exec',
+                'exec',
+                { command: 'call opt-outs-list {"search":"reader@example.org"}' },
+                false,
+            ],
             [
                 'preparing an email send',
                 'workflows-send-email-prepare',
@@ -899,7 +952,7 @@ describe('Hono MCP analytics contexts', () => {
 
     describe('trackSkillInvoked', () => {
         it.each<SkillInvocation['readKind']>(['skill', 'file', 'file_search', 'file_lines'])(
-            'captures %s reads with skill_read_kind so file-only consumption still counts',
+            'captures %s reads with skill_read_kind and the file path so file-only consumption still counts',
             async (readKind) => {
                 await trackSkillInvoked(makeState(), {
                     source: 'posthog',
@@ -916,6 +969,12 @@ describe('Hono MCP analytics contexts', () => {
                         skill_read_kind: readKind,
                     },
                 })
+                const properties = mockCapture.mock.calls[0]![0].properties
+                if (readKind === 'skill') {
+                    expect(properties).not.toHaveProperty('skill_file_path')
+                } else {
+                    expect(properties.skill_file_path).toBe('references/functions.md')
+                }
             }
         )
     })

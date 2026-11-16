@@ -300,6 +300,7 @@ export function BillingSpendView(): JSX.Element {
                         showLegend={false}
                         interval={filters.interval}
                         billingPeriodMarkers={billingPeriodMarkers}
+                        periodMarkerKind="pricing_reset"
                         chartType={effectiveChartType}
                         cumulativeLabel="Cumulative spend"
                     />

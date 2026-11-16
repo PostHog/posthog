@@ -1,4 +1,5 @@
-import { isDevEnv, isProdEnv, isTestEnv } from '~/common/utils/env-utils'
+import { isDevEnv, isProdEnv, isTestEnv, stringToBoolean } from '~/common/utils/env-utils'
+import { logger } from '~/common/utils/logger'
 
 import type { BaseServerConfig } from '../servers/base-server'
 
@@ -49,6 +50,8 @@ export enum PluginServerMode {
     cdp_data_warehouse_events = 'cdp-data-warehouse-events',
     cdp_internal_events = 'cdp-internal-events',
     cdp_ses_webhooks = 'cdp-ses-webhooks',
+    cdp_intake_transactional_email = 'cdp-intake-transactional-email',
+    cdp_intake_workflow_webhook = 'cdp-intake-workflow-webhook',
     cdp_cyclotron_worker = 'cdp-cyclotron-worker',
     // TODO: remove once charts stop setting PLUGIN_SERVER_MODE=cdp-precalculated-filters.
     // The consumer is gone; an unknown mode would throw at boot, so keep the member until then.
@@ -241,6 +244,11 @@ export type CommonConfig = BaseServerConfig & {
     // Takes the buildIntegerMatcherWithPercentage syntax: '2' for team 2 only, '2,*:0.1' for team 2 plus a tenth of
     // everyone else's requests, '*' for all.
     EXTERNAL_REQUEST_PROXY_TEAMS: string
+    // New third-party connections per second, per team and destination IP, across the fleet. 0 turns the limit off.
+    EXTERNAL_REQUEST_NEW_CONNECTIONS_PER_IP_PER_SECOND: number
+    EXTERNAL_REQUEST_NEW_CONNECTIONS_PER_IP_BURST: number
+    // When false, a connection over the limit opens anyway and only the metric counts it, to size the limit first.
+    EXTERNAL_REQUEST_NEW_CONNECTIONS_PER_IP_ENFORCED: boolean
 
     // PostHog analytics
     POSTHOG_API_KEY: string
@@ -281,19 +289,66 @@ export type ExternalRequestConfig = Pick<
     | 'EXTERNAL_REQUEST_CONNECTIONS'
     | 'EXTERNAL_REQUEST_H2_CONNECTIONS'
     | 'EXTERNAL_REQUEST_PROXY_TEAMS'
+    | 'EXTERNAL_REQUEST_NEW_CONNECTIONS_PER_IP_PER_SECOND'
+    | 'EXTERNAL_REQUEST_NEW_CONNECTIONS_PER_IP_BURST'
+    | 'EXTERNAL_REQUEST_NEW_CONNECTIONS_PER_IP_ENFORCED'
 >
+
+const EXTERNAL_REQUEST_NUMBER_KEYS = new Set<string>([
+    'EXTERNAL_REQUEST_TIMEOUT_MS',
+    'EXTERNAL_REQUEST_THIRD_PARTY_TIMEOUT_MS',
+    'EXTERNAL_REQUEST_CONNECT_TIMEOUT_MS',
+    'EXTERNAL_REQUEST_KEEP_ALIVE_TIMEOUT_MS',
+    'EXTERNAL_REQUEST_CONNECTIONS',
+    'EXTERNAL_REQUEST_H2_CONNECTIONS',
+    'EXTERNAL_REQUEST_NEW_CONNECTIONS_PER_IP_PER_SECOND',
+    'EXTERNAL_REQUEST_NEW_CONNECTIONS_PER_IP_BURST',
+])
+
+export function parseNumberFromEnv(key: string, raw: string, fallback: number): number {
+    const isExternalRequestKey = EXTERNAL_REQUEST_NUMBER_KEYS.has(key)
+    const toNumber = isExternalRequestKey ? Number : parseFloat
+    const trimmed = raw.trim()
+    const unquoted = trimmed.replace(/^(["'])(.*)\1$/, '$2').trim()
+    const value = unquoted === '' && trimmed !== '' ? NaN : toNumber(unquoted)
+    if (isExternalRequestKey ? Number.isFinite(value) : !Number.isNaN(value)) {
+        return value
+    }
+    logger.error(`Ignoring ${key}: its env value is not a number, keeping the default`, {
+        value: raw,
+        default: fallback,
+    })
+    return fallback
+}
+
+function numberFromEnv(key: keyof ExternalRequestConfig, fallback: number): number {
+    const raw = process.env[key]
+    return raw === undefined ? fallback : parseNumberFromEnv(key, raw, fallback)
+}
 
 export function getExternalRequestConfig(): ExternalRequestConfig {
     return {
-        EXTERNAL_REQUEST_TIMEOUT_MS: Number(process.env.EXTERNAL_REQUEST_TIMEOUT_MS ?? 3000),
-        EXTERNAL_REQUEST_THIRD_PARTY_TIMEOUT_MS: Number(
-            process.env.EXTERNAL_REQUEST_THIRD_PARTY_TIMEOUT_MS ?? DEFAULT_THIRD_PARTY_REQUEST_TIMEOUT_MS
+        EXTERNAL_REQUEST_TIMEOUT_MS: numberFromEnv('EXTERNAL_REQUEST_TIMEOUT_MS', 3000),
+        EXTERNAL_REQUEST_THIRD_PARTY_TIMEOUT_MS: numberFromEnv(
+            'EXTERNAL_REQUEST_THIRD_PARTY_TIMEOUT_MS',
+            DEFAULT_THIRD_PARTY_REQUEST_TIMEOUT_MS
         ),
-        EXTERNAL_REQUEST_CONNECT_TIMEOUT_MS: Number(process.env.EXTERNAL_REQUEST_CONNECT_TIMEOUT_MS ?? 3000),
-        EXTERNAL_REQUEST_KEEP_ALIVE_TIMEOUT_MS: Number(process.env.EXTERNAL_REQUEST_KEEP_ALIVE_TIMEOUT_MS ?? 10000),
-        EXTERNAL_REQUEST_CONNECTIONS: Number(process.env.EXTERNAL_REQUEST_CONNECTIONS ?? 500),
-        EXTERNAL_REQUEST_H2_CONNECTIONS: Number(process.env.EXTERNAL_REQUEST_H2_CONNECTIONS ?? 8),
+        EXTERNAL_REQUEST_CONNECT_TIMEOUT_MS: numberFromEnv('EXTERNAL_REQUEST_CONNECT_TIMEOUT_MS', 3000),
+        EXTERNAL_REQUEST_KEEP_ALIVE_TIMEOUT_MS: numberFromEnv('EXTERNAL_REQUEST_KEEP_ALIVE_TIMEOUT_MS', 10000),
+        EXTERNAL_REQUEST_CONNECTIONS: numberFromEnv('EXTERNAL_REQUEST_CONNECTIONS', 500),
+        EXTERNAL_REQUEST_H2_CONNECTIONS: numberFromEnv('EXTERNAL_REQUEST_H2_CONNECTIONS', 8),
         EXTERNAL_REQUEST_PROXY_TEAMS: process.env.EXTERNAL_REQUEST_PROXY_TEAMS ?? '',
+        EXTERNAL_REQUEST_NEW_CONNECTIONS_PER_IP_PER_SECOND: numberFromEnv(
+            'EXTERNAL_REQUEST_NEW_CONNECTIONS_PER_IP_PER_SECOND',
+            0
+        ),
+        EXTERNAL_REQUEST_NEW_CONNECTIONS_PER_IP_BURST: numberFromEnv(
+            'EXTERNAL_REQUEST_NEW_CONNECTIONS_PER_IP_BURST',
+            50
+        ),
+        EXTERNAL_REQUEST_NEW_CONNECTIONS_PER_IP_ENFORCED: stringToBoolean(
+            process.env.EXTERNAL_REQUEST_NEW_CONNECTIONS_PER_IP_ENFORCED
+        ),
     }
 }
 
@@ -456,6 +511,9 @@ export function getDefaultCommonConfig(): CommonConfig {
         EXTERNAL_REQUEST_CONNECTIONS: 500,
         EXTERNAL_REQUEST_H2_CONNECTIONS: 8,
         EXTERNAL_REQUEST_PROXY_TEAMS: '',
+        EXTERNAL_REQUEST_NEW_CONNECTIONS_PER_IP_PER_SECOND: 0,
+        EXTERNAL_REQUEST_NEW_CONNECTIONS_PER_IP_BURST: 50,
+        EXTERNAL_REQUEST_NEW_CONNECTIONS_PER_IP_ENFORCED: false,
 
         // PostHog analytics
         POSTHOG_API_KEY: '',

@@ -254,6 +254,7 @@ export interface PaginatedIntegrationConfigListApi {
  * * `linear` - Linear
  * * `linkedin-ads` - Linkedin Ads
  * * `meta-ads` - Meta Ads
+ * * `motherduck` - Motherduck
  * * `pardot` - Pardot
  * * `pinterest-ads` - Pinterest Ads
  * * `postgresql` - Postgresql
@@ -309,6 +310,7 @@ export const IntegrationKindEnumApi = {
     Linear: 'linear',
     LinkedinAds: 'linkedin-ads',
     MetaAds: 'meta-ads',
+    Motherduck: 'motherduck',
     Pardot: 'pardot',
     PinterestAds: 'pinterest-ads',
     Postgresql: 'postgresql',
@@ -369,6 +371,7 @@ export interface IntegrationConfigCreateApi {
      * * `linear` - Linear
      * * `linkedin-ads` - Linkedin Ads
      * * `meta-ads` - Meta Ads
+     * * `motherduck` - Motherduck
      * * `pardot` - Pardot
      * * `pinterest-ads` - Pinterest Ads
      * * `postgresql` - Postgresql
@@ -562,6 +565,7 @@ export interface EmailDomainStatusStepApi {
  * * `mail_from_mx` - MAIL FROM MX
  * * `mail_from_spf` - MAIL FROM SPF
  * * `dmarc` - DMARC
+ * * `organization` - Organization ownership
  */
 export type EmailDomainSetupRecordKindEnumApi =
     (typeof EmailDomainSetupRecordKindEnumApi)[keyof typeof EmailDomainSetupRecordKindEnumApi]
@@ -573,6 +577,7 @@ export const EmailDomainSetupRecordKindEnumApi = {
     MailFromMx: 'mail_from_mx',
     MailFromSpf: 'mail_from_spf',
     Dmarc: 'dmarc',
+    Organization: 'organization',
 } as const
 
 /**
@@ -604,14 +609,15 @@ export const EmailDomainSetupRecordStatusEnumApi = {
 } as const
 
 export interface EmailDomainStatusRecordApi {
-    /** What the record does: verification proves domain ownership, dkim signs email, spf and mail_from_spf list SES as an allowed sender, mail_from_mx routes bounces, dmarc sets the policy for unauthenticated mail.
+    /** What the record does: verification proves domain ownership, dkim signs email, spf and mail_from_spf list SES as an allowed sender, mail_from_mx routes bounces, dmarc sets the policy for unauthenticated mail, organization proves this organization owns a domain another organization also added.
      *
      * * `verification` - Domain ownership
      * * `dkim` - DKIM signing
      * * `spf` - SPF
      * * `mail_from_mx` - MAIL FROM MX
      * * `mail_from_spf` - MAIL FROM SPF
-     * * `dmarc` - DMARC */
+     * * `dmarc` - DMARC
+     * * `organization` - Organization ownership */
     kind: EmailDomainSetupRecordKindEnumApi
     /** Full DNS name to create the record at, including the domain. */
     hostname: string
@@ -1166,6 +1172,7 @@ export interface IntegrationAccessRequestApi {
      * * `linear` - Linear
      * * `linkedin-ads` - Linkedin Ads
      * * `meta-ads` - Meta Ads
+     * * `motherduck` - Motherduck
      * * `pardot` - Pardot
      * * `pinterest-ads` - Pinterest Ads
      * * `postgresql` - Postgresql
@@ -1333,6 +1340,7 @@ export type IntegrationsListParams = {
      * * `linear` - Linear
      * * `linkedin-ads` - Linkedin Ads
      * * `meta-ads` - Meta Ads
+     * * `motherduck` - Motherduck
      * * `pardot` - Pardot
      * * `pinterest-ads` - Pinterest Ads
      * * `postgresql` - Postgresql
@@ -1399,6 +1407,7 @@ export const IntegrationsListKind = {
     Linear: 'linear',
     LinkedinAds: 'linkedin-ads',
     MetaAds: 'meta-ads',
+    Motherduck: 'motherduck',
     Pardot: 'pardot',
     PinterestAds: 'pinterest-ads',
     Postgresql: 'postgresql',
