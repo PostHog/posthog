@@ -43,13 +43,13 @@ import { Button } from '@posthog/quill'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { JSONViewer } from 'lib/components/JSONViewer'
-import { KeyboardShortcut } from 'lib/components/KeyboardShortcut/KeyboardShortcut'
 import { NotFound } from 'lib/components/NotFound'
 import ViewRecordingButton, { RecordingPlayerType } from 'lib/components/ViewRecordingButton/ViewRecordingButton'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { useKeyboardHotkeys } from 'lib/hooks/useKeyboardHotkeys'
 import { IconWithCount } from 'lib/lemon-ui/icons/icons'
+import { KeyboardShortcut } from 'lib/lemon-ui/KeyboardShortcut/KeyboardShortcut'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { identifierToHuman, pluralize } from 'lib/utils/strings'
@@ -97,9 +97,7 @@ import { LLMInputOutput } from './LLMInputOutput'
 import { llmPersonsLazyLoaderLogic } from './llmPersonsLazyLoaderLogic'
 import { normalizeMessages } from './messageNormalization'
 import { openInPlayground } from './playground/llmPlaygroundPromptsLogic'
-import { TraceViewSwitch } from './redesign/trace/components/TraceViewSwitch'
 import { TraceScene } from './redesign/trace/TraceScene'
-import { traceViewPreferenceLogic } from './redesign/trace/traceViewPreferenceLogic'
 import { ReviewQueuePickerModal } from './reviewQueues/ReviewQueuePickerModal'
 import { reviewQueuesApi } from './reviewQueues/reviewQueuesApi'
 import { SearchHighlight } from './SearchHighlight'
@@ -455,19 +453,8 @@ function TraceNavigation(): JSX.Element {
 }
 
 function TraceSceneForFlag(): JSX.Element {
-    const { activeView } = useValues(traceViewPreferenceLogic)
-    const { switchView } = useActions(traceViewPreferenceLogic)
-    if (activeView === 'legacy') {
-        return <AIObservabilityTraceScene />
-    }
-    return (
-        <>
-            <div className="mb-2">
-                <TraceViewSwitch view="new" onSwitch={switchView} />
-            </div>
-            <TraceScene />
-        </>
-    )
+    const { featureFlags } = useValues(featureFlagLogic)
+    return featureFlags[FEATURE_FLAGS.AI_OBSERVABILITY_TRACE_REDESIGN] ? <TraceScene /> : <AIObservabilityTraceScene />
 }
 
 export const scene: SceneExport = {
@@ -546,8 +533,6 @@ function TraceSceneWrapper(): JSX.Element {
               ? { name: previousQueueTraceId ? 'Previous trace' : 'Reviews', path: backPath, key: 'reviews' }
               : { name: 'Traces', path: backPath, key: 'traces' }
     const showTraceNavigation = !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_TRACE_NAVIGATION]
-    const { isSwitchAvailable } = useValues(traceViewPreferenceLogic)
-    const { switchView } = useActions(traceViewPreferenceLogic)
 
     return (
         <>
@@ -564,12 +549,7 @@ function TraceSceneWrapper(): JSX.Element {
                             name={trace.id}
                             resourceType={{ type: 'llm_analytics' }}
                             forceBackTo={forceBackTo}
-                            actions={
-                                <>
-                                    {isSwitchAvailable && <TraceViewSwitch view="legacy" onSwitch={switchView} />}
-                                    {showTraceNavigation && <TraceNavigation />}
-                                </>
-                            }
+                            actions={showTraceNavigation ? <TraceNavigation /> : undefined}
                             noBorder
                         />
                         <div className="flex items-start justify-between">

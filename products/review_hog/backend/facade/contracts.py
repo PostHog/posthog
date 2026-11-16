@@ -269,6 +269,7 @@ class ReviewRepositorySettings:
     full_name: str
     selected: bool
     flash_for: AutomaticFlashFor | None
+    review_drafts: bool
     people: Sequence[ReviewRepositoryPersonEntry]
     created_by: ReviewUserRef | None
     created_at: datetime
@@ -352,6 +353,7 @@ class ReviewRepositoryOverviewEntry:
     selected: bool
     repository_id: UUID | None
     exception: ReviewRepositoryException | None
+    review_drafts: bool
     my_choice: ReviewUserRepositoryChoiceMode | None
     my_choice_id: UUID | None
     my_result: AutomaticReviewDecision

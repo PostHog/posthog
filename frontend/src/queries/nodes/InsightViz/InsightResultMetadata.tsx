@@ -1,12 +1,13 @@
 import { useValues } from 'kea'
 
+import { insightLogic } from 'scenes/insights/insightLogic'
+import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
+
 import {
     daysOfWeekLabel,
     getExcludedDaysOfWeek,
     querySupportsDaysOfWeek,
-} from 'scenes/insights/filters/InsightDateFilter/daysOfWeekFilterUtils'
-import { insightLogic } from 'scenes/insights/insightLogic'
-import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
+} from '~/queries/nodes/InsightViz/daysOfWeekFilterUtils'
 
 import { ComputationTimeWithRefresh } from './ComputationTimeWithRefresh'
 

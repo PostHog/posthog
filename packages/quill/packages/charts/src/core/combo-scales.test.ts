@@ -177,18 +177,61 @@ describe('combo-scales', () => {
             expect(scales.yAxes.right.position).toBe('right')
         })
 
-        it('floats a line-only axis with startAtZero false but keeps bar axes on a zero baseline', () => {
-            const bar = makeSeries({ key: 'bar', data: [800, 1000], type: 'bar' })
-            const line = makeSeries({ key: 'line', data: [800, 1000], type: 'line', yAxisId: 'right' })
+        it.each<[string, string, Partial<Parameters<typeof createComboScales>[3]>, [number, number] | 'floated']>([
+            [
+                'floats a line-only axis with startAtZero false',
+                'right',
+                {
+                    axes: [
+                        { id: DEFAULT_Y_AXIS_ID, position: 'left', startAtZero: false },
+                        { id: 'right', position: 'right', startAtZero: false },
+                    ],
+                },
+                'floated',
+            ],
+            [
+                'floats a line-only primary axis with floatBaseline',
+                DEFAULT_Y_AXIS_ID,
+                { floatBaseline: true },
+                'floated',
+            ],
+            [
+                'applies valueBounds to a line-only primary axis',
+                DEFAULT_Y_AXIS_ID,
+                { valueBounds: { min: 500, max: 2000 } },
+                [500, 2000],
+            ],
+            [
+                'applies a secondary axis min/max to a line-only axis',
+                'right',
+                { axes: [{ id: 'right', valueDomain: { min: 500, max: 2000 } }] },
+                [500, 2000],
+            ],
+        ])('%s, but keeps the bar axis on a zero baseline', (_, lineAxisId, options, expectedLineDomain) => {
+            const barAxisId = lineAxisId === 'right' ? DEFAULT_Y_AXIS_ID : 'right'
+            const bar = makeSeries({ key: 'bar', data: [800, 1000], type: 'bar', yAxisId: barAxisId })
+            const line = makeSeries({ key: 'line', data: [800, 1000], type: 'line', yAxisId: lineAxisId })
             const scales = createComboScales([bar, line], ['a', 'b'], dimensions, {
                 seriesTypeOf: typeOfWithDefault('line'),
-                axes: [
-                    { id: DEFAULT_Y_AXIS_ID, position: 'left', startAtZero: false },
-                    { id: 'right', position: 'right', startAtZero: false },
-                ],
+                ...options,
             })
-            expect(scales.yAxes[DEFAULT_Y_AXIS_ID].scale.domain()[0]).toBe(0)
-            expect(scales.yAxes.right.scale.domain()[0]).toBeGreaterThan(0)
+            expect(scales.yAxes[barAxisId].scale.domain()[0]).toBe(0)
+            const lineDomain = scales.yAxes[lineAxisId].scale.domain()
+            if (expectedLineDomain === 'floated') {
+                expect(lineDomain[0]).toBeGreaterThan(0)
+            } else {
+                expect(lineDomain).toEqual(expectedLineDomain)
+            }
+        })
+
+        it('keeps each axis its own bounds when the primary axis has no visible series', () => {
+            const line = makeSeries({ key: 'line', data: [800, 1000], type: 'line', yAxisId: 'right' })
+            const scales = createComboScales([line], ['a', 'b'], dimensions, {
+                seriesTypeOf: typeOfWithDefault('line'),
+                valueBounds: { min: 0, max: 10 },
+                axes: [{ id: DEFAULT_Y_AXIS_ID }, { id: 'right', valueDomain: { min: 500, max: 2000 } }],
+            })
+            expect(scales.yAxes.right.scale.domain()).toEqual([500, 2000])
         })
 
         it('points combo.y at the default axis when present', () => {

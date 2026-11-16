@@ -1,15 +1,17 @@
 import { ReactNode } from 'react'
 
-import { LemonSkeleton, LemonTabs } from '@posthog/lemon-ui'
+import { LemonTabs } from '@posthog/lemon-ui'
 
 import type { TraceNodeApi } from '../../../generated/api.schemas'
-import { EvalsState, NodeContent, NodeDetailTab, NodeProperties } from '../types'
-import { ErrorCallout } from './ErrorCallout'
+import { EvalsState, MessagesOpening, NodeContent, NodeDetailTab, NodeProperties } from '../types'
 import { EvalResultList } from './EvalResultList'
+import { NodeContentGate } from './NodeContentGate'
 import { NodeDetailHeader } from './NodeDetailHeader'
 import { NodeMessagesTab } from './NodeMessagesTab'
 import { NodePropertyList } from './NodePropertyList'
 import { NodeRawTab } from './NodeRawTab'
+import { StepFeedbackChipsProps } from './StepFeedbackChips'
+import { useSearchHighlight } from './useSearchHighlight'
 
 export interface NodeDetailProps {
     node: TraceNodeApi
@@ -21,14 +23,21 @@ export interface NodeDetailProps {
     evals: EvalsState
     raw: Record<string, unknown> | null
     onViewInThread: (() => void) | null
+    messagesOpening: MessagesOpening
+    onMessagesOpeningChange: (opening: MessagesOpening) => void
     onSelectNode: (nodeId: string) => void
     actions?: ReactNode
+    stepFeedback?: StepFeedbackChipsProps | null
+    highlightQuery?: string | null
+    matchStepCount?: number
 }
 
 export function NodeDetail(props: NodeDetailProps): JSX.Element {
+    const highlightRef = useSearchHighlight(props.highlightQuery ?? null, props.matchStepCount)
+    const propertyList = <NodePropertyList node={props.node} properties={props.properties} />
     return (
-        <div className="flex min-w-0 flex-col gap-2">
-            <NodeDetailHeader node={props.node} actions={props.actions} />
+        <div className="flex min-w-0 flex-col gap-2" ref={highlightRef}>
+            <NodeDetailHeader node={props.node} actions={props.actions} stepFeedback={props.stepFeedback} />
             <LemonTabs<NodeDetailTab>
                 size="small"
                 activeKey={props.tab}
@@ -41,9 +50,13 @@ export function NodeDetail(props: NodeDetailProps): JSX.Element {
                         'data-attr': 'trace-view-detail-tab-messages',
                         content: (
                             <NodeMessagesTab
+                                stepId={props.node.id}
                                 content={props.content}
                                 error={props.error}
                                 onViewInThread={props.onViewInThread}
+                                opening={props.messagesOpening}
+                                onOpeningChange={props.onMessagesOpeningChange}
+                                highlightQuery={props.highlightQuery}
                             />
                         ),
                     },
@@ -51,7 +64,13 @@ export function NodeDetail(props: NodeDetailProps): JSX.Element {
                         key: 'details',
                         label: 'Details',
                         'data-attr': 'trace-view-detail-tab-details',
-                        content: <NodePropertyList node={props.node} properties={props.properties} />,
+                        // The root's properties come from the trace, so they do not wait for its step read.
+                        content:
+                            props.node.kind === 'trace' ? (
+                                propertyList
+                            ) : (
+                                <NodeContentGate content={props.content}>{() => propertyList}</NodeContentGate>
+                            ),
                     },
                     {
                         key: 'evals',
@@ -63,14 +82,11 @@ export function NodeDetail(props: NodeDetailProps): JSX.Element {
                         key: 'raw',
                         label: 'Raw',
                         'data-attr': 'trace-view-detail-tab-raw',
-                        content:
-                            props.content.kind === 'loading' ? (
-                                <LemonSkeleton repeat={3} className="h-16" />
-                            ) : props.content.kind === 'error' ? (
-                                <ErrorCallout message={props.content.message} />
-                            ) : (
-                                <NodeRawTab raw={props.raw} />
-                            ),
+                        content: (
+                            <NodeContentGate content={props.content}>
+                                {() => <NodeRawTab raw={props.raw} />}
+                            </NodeContentGate>
+                        ),
                     },
                 ]}
             />

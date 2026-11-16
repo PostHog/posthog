@@ -939,25 +939,43 @@ class TestIdJagTokenEndpoint(APIBaseTest):
         self.assertEqual(resp.status_code, status.HTTP_401_UNAUTHORIZED)
         self.assertEqual(resp.json()["error"], "invalid_client")
 
-    def test_rejects_missing_resource_claim(self) -> None:
-        assertion = jwt.encode(
-            {
-                "iss": _IDP_ISSUER,
-                "sub": "user@example.com",
-                "aud": _AUTH_SERVER_URL,
-                "client_id": _RESOURCE_CLIENT_ID,
-                # resource intentionally missing
-                "scope": "feature_flag:read",
-                "iat": int(time.time()),
-                "exp": int(time.time()) + 300,
-            },
-            _IDP_PRIVATE_KEY_PEM,
-            algorithm="RS256",
-            headers={"typ": ID_JAG_TOKEN_TYPE},
+    @parameterized.expand(
+        [
+            ("parameter_only", None, "https://mcp.posthog.com/mcp", "https://mcp.posthog.com/mcp", None),
+            ("neither", None, None, _SITE_URL, None),
+            ("claim_and_parameter_differ", _SITE_URL, "https://mcp.posthog.com/mcp", None, "invalid_target"),
+            ("parameter_not_allowed", None, "https://other-resource.example.com", None, "invalid_target"),
+        ]
+    )
+    @override_settings(ID_JAG_ALLOWED_RESOURCES=["https://mcp.posthog.com/mcp"])
+    def test_resource_from_claim_or_request_parameter(
+        self,
+        _name: str,
+        claim_resource: str | None,
+        requested_resource: str | None,
+        expected_aud: str | None,
+        expected_error: str | None,
+    ) -> None:
+        assertion = _make_id_jag(resource=claim_resource) if claim_resource else _make_id_jag(omit_claims=("resource",))
+        body = {"grant_type": JWT_BEARER_GRANT_TYPE, "assertion": assertion}
+        if requested_resource:
+            body["resource"] = requested_resource
+
+        resp = self._post_token(body)
+
+        if expected_error:
+            self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST, resp.content)
+            self.assertEqual(resp.json()["error"], expected_error)
+            return
+        self.assertEqual(resp.status_code, status.HTTP_200_OK, resp.content)
+        claims = jwt.decode(
+            resp.json()["access_token"],
+            _public_key_for(_AS_PRIVATE_KEY_PEM),
+            algorithms=["RS256"],
+            audience=expected_aud,
+            issuer=_AUTH_SERVER_URL,
         )
-        resp = self._post_token({"grant_type": JWT_BEARER_GRANT_TYPE, "assertion": assertion})
-        self.assertEqual(resp.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(resp.json()["error"], "invalid_grant")
+        self.assertEqual(claims["aud"], expected_aud)
 
     def test_get_sub_format(self) -> None:
         self.assertEqual(_get_sub("example.com", "alice@example.com"), "example.com:alice@example.com")

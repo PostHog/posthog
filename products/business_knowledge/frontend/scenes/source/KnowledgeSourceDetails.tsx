@@ -7,6 +7,7 @@ import { TZLabel } from 'lib/components/TZLabel'
 
 import type { KnowledgeLibrary } from '../../api'
 import { StatusTag } from '../../components/StatusTag/StatusTag'
+import { formatFileSize } from '../../sourceFormUtils'
 import type { KnowledgeSource } from '../sources/businessKnowledgeLogic'
 import { SourceLibraries } from './SourceLibraries'
 
@@ -25,16 +26,6 @@ function inAppPath(url: string): string {
     } catch {
         return url
     }
-}
-
-function formatFileSize(bytes: number): string {
-    if (bytes < 1024) {
-        return `${bytes} B`
-    }
-    if (bytes < 1024 * 1024) {
-        return `${Math.round(bytes / 1024)} KB`
-    }
-    return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
 }
 
 function DetailRow({ label, children }: { label: string; children: ReactNode }): JSX.Element {

@@ -1,10 +1,14 @@
 import { combineUrl } from 'kea-router'
 
-import { ProductManifest } from '../../frontend/src/types'
+import { ActivityScope, ProductManifest } from '../../frontend/src/types'
 import type { InboxTabKey } from './frontend/inbox/types'
 
 export const manifest: ProductManifest = {
     name: 'Signals',
+    activityDescribers: {
+        [ActivityScope.SIGNAL_SCOUT_CONFIG]: () =>
+            import('./frontend/activityDescriber').then((module) => module.signalScoutConfigActivityDescriber),
+    },
     urls: {
         // Tab-first routing: /inbox, /inbox/<tab>, /inbox/<tab>/<reportId>.
         inbox: (tab?: InboxTabKey | ':tab'): string => `/inbox${tab ? `/${tab}` : ''}`,

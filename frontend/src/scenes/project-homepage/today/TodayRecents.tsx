@@ -58,8 +58,7 @@ function RecentObjectRow({
 
 export function TodayRecents(): JSX.Element {
     useMountedLogic(todayObjectGlanceLogic)
-    const { recentObjects, frequentObjectsLoading, recentsHasLoaded, listExpanded, useFrequentJumpBack } =
-        useValues(todayLogic)
+    const { recentObjects, frequentObjectsLoading, recentsHasLoaded, listExpanded } = useValues(todayLogic)
     const { setListExpanded } = useActions(todayLogic)
     const { pickPane } = useActions(todayShellLogic)
     const titleId = useId()
@@ -81,7 +80,7 @@ export function TodayRecents(): JSX.Element {
                     </Collapsible.Trigger>
                 )}
             </div>
-            {!recentsHasLoaded || (useFrequentJumpBack && frequentObjectsLoading) ? (
+            {!recentsHasLoaded || frequentObjectsLoading ? (
                 <p className="TodayHome__note">Finding your items…</p>
             ) : recentObjects.length === 0 ? (
                 <p className="TodayHome__note">

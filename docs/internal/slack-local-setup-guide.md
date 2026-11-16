@@ -92,7 +92,7 @@ features:
     always_online: true
   app_home:
     home_tab_enabled: true
-    messages_tab_enabled: false
+    messages_tab_enabled: true
     messages_tab_read_only_enabled: false
 oauth_config:
   redirect_urls:
@@ -140,7 +140,13 @@ Django must be up at that moment.
 > `link_shared` is left out on purpose — it needs the `links:read` scope (the manifest won't save
 > otherwise) and the coding agent doesn't use it.
 
-> The `app_home` block + `app_home_opened` bot event power the App Home tab; the
+> The `app_home` block + `app_home_opened` bot event power the App Home tab. With the
+> `slack-app-onboarding` flag on, the same event, an install, a reinstall, a `team_join` and a person's first `@PostHog` mention start the
+> `slack-app-onboarding` Temporal workflow, which posts a person's onboarding thread in the PostHog DM
+> once. It needs the Temporal worker running. The thread checks each step again before it shows it,
+> so a person who already linked their account or chose a model sees that step as already set.
+> To see the thread again in a dev workspace, clear the `onboarding` field of your row in
+> `slack_app_slacksettings`. The
 > Sign in with Slack (OpenID Connect) flow needs `user` scopes `openid` + `email` + `profile` and
 > the second redirect URL (`/complete/slack-link/`). Drop those if you don't want either feature
 > locally. Neither is behind a feature flag: the App Home tab renders for every install, and the
@@ -255,7 +261,7 @@ In a channel in your dev workspace:
 (The real @-handle is whatever Slack assigned — type `@p` and let autocomplete confirm.)
 
 A successful run reacts 🌱 `:seedling:` on your message and posts a threaded "Working on task… ⏳"
-with a **View agent logs** button — that's what we saw. You may also see 🔍 `:mag:` first, but only
+with a footer whose **View session** link opens the task — that's what we saw. You may also see 🔍 `:mag:` first, but only
 when the repo-discovery agent has to choose among repos (a no-repo prompt skips it, as ours did).
 
 Follow-ups — reply in-thread with another `@mention` — are forwarded to the running sandbox and

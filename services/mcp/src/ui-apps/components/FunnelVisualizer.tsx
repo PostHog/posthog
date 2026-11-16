@@ -19,7 +19,7 @@ const TITLE = 'Funnel'
 
 const NOOP = (): void => {}
 
-// The web container hides the x-axis and renders its own StepLegend row; this compact UI app instead
+// The web container hides the x-axis and renders its own StepNameLabel row; this compact UI app instead
 // shows the step names on the axis (truncated) and tracks the cursor with the tooltip.
 const CHART_CONFIG = buildFunnelStepsBarConfig({ maxCategoryLabelWidth: 120, tooltipPlacement: 'cursor' })
 

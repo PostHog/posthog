@@ -128,7 +128,7 @@ async def test_the_mission_runs_generate_and_caches_on_one_client_and_closes_it(
     attempts = AsyncMock(side_effect=RuntimeError("mission failed") if fails == "mission" else None, return_value={})
     module = "products.replay_vision.backend.temporal.activities.call_scanner_provider"
     with (
-        patch(f"{module}.replay_gemini_client", new=AsyncMock(return_value=gemini)),
+        patch(f"{module}.replay_gemini_client", MagicMock(return_value=gemini)),
         patch(f"{module}._maybe_create_video_cache", new=create_cache),
         patch(f"{module}._run_mission_attempts", new=attempts),
         patch(f"{module}.build_events_index", return_value={}),
@@ -163,7 +163,7 @@ async def test_the_mission_deletes_its_cache_before_closing_the_client() -> None
     gemini.aclose = AsyncMock(side_effect=lambda: order.append("aclose"))
     module = "products.replay_vision.backend.temporal.activities.call_scanner_provider"
     with (
-        patch(f"{module}.replay_gemini_client", new=AsyncMock(return_value=gemini)),
+        patch(f"{module}.replay_gemini_client", MagicMock(return_value=gemini)),
         patch(f"{module}._run_mission_attempts", new=AsyncMock(return_value={})),
         patch(f"{module}.build_events_index", return_value={}),
     ):
@@ -194,7 +194,7 @@ async def test_scanner_generations_include_team_attribution() -> None:
     with (
         patch(
             "products.replay_vision.backend.temporal.activities.call_scanner_provider.replay_gemini_client",
-            new=AsyncMock(return_value=_gemini()),
+            MagicMock(return_value=_gemini()),
         ) as client_factory,
         patch(
             "products.replay_vision.backend.temporal.activities.call_scanner_provider._maybe_create_video_cache",
@@ -454,7 +454,7 @@ async def test_signal_timestamps_use_recording_duration(
     )
     module = "products.replay_vision.backend.temporal.activities.call_scanner_provider"
     with (
-        patch(f"{module}.replay_gemini_client", new=AsyncMock(return_value=_gemini(client.models))),
+        patch(f"{module}.replay_gemini_client", MagicMock(return_value=_gemini(client.models))),
         patch(f"{module}.build_events_index", return_value={}),
         patch(f"{module}._maybe_create_video_cache", new=AsyncMock(return_value=None)),
     ):

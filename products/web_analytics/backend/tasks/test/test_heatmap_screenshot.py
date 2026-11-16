@@ -12,6 +12,7 @@ from parameterized import parameterized
 from prometheus_client import REGISTRY
 
 from posthog.models.team.team_heatmap_config import TeamHeatmapConfig
+from posthog.test.anti_ssrf import mock_anti_ssrf_dns_lookup
 
 from products.web_analytics.backend.api.heatmaps_utils import MAX_TARGET_WIDTHS, PREWARM_TTL
 from products.web_analytics.backend.models import HeatmapSnapshot, SavedHeatmap
@@ -64,6 +65,7 @@ def _make_response(
 class TestHeatmapScreenshotTask(APIBaseTest):
     def setUp(self) -> None:
         super().setUp()
+        self.enterContext(mock_anti_ssrf_dns_lookup())
         # Stub ph_scoped_capture so tests don't spin up a real PostHog client, and record the events.
         self.captured_events: list[dict] = []
 

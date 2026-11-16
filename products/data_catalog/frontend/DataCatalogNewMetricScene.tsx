@@ -39,7 +39,7 @@ const DEFINITION_TYPE_HINTS: Record<MetricDefinitionType, string> = {
 }
 
 export function DataCatalogNewMetricScene(): JSX.Element {
-    const { metricForm, metricFormValidationErrors, showMetricFormErrors, saving, sqlNameTaken } =
+    const { metricForm, metricFormValidationErrors, showMetricFormErrors, saving, saveDisabledReason, sqlNameTaken } =
         useValues(dataCatalogNewMetricSceneLogic)
     const { setMetricFormValues, submitMetric } = useActions(dataCatalogNewMetricSceneLogic)
     const unitInputRef = useRef<HTMLInputElement>(null)
@@ -64,7 +64,9 @@ export function DataCatalogNewMetricScene(): JSX.Element {
                             type="secondary"
                             onClick={() => submitMetric(false)}
                             loading={saving === 'propose'}
-                            disabledReason={saving === 'approve' ? 'Saving the metric' : undefined}
+                            disabledReason={
+                                saving === 'approve' ? 'Saving the metric' : (saveDisabledReason ?? undefined)
+                            }
                             data-attr="data-catalog-new-metric-save-proposed"
                         >
                             Save as proposed
@@ -74,7 +76,9 @@ export function DataCatalogNewMetricScene(): JSX.Element {
                             htmlType="submit"
                             onClick={() => submitMetric(true)}
                             loading={saving === 'approve'}
-                            disabledReason={saving === 'propose' ? 'Saving the metric' : undefined}
+                            disabledReason={
+                                saving === 'propose' ? 'Saving the metric' : (saveDisabledReason ?? undefined)
+                            }
                             data-attr="data-catalog-create-metric-submit"
                         >
                             Create and approve

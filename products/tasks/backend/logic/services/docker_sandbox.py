@@ -452,8 +452,8 @@ class DockerSandbox(AgentServerLaunchMixin):
     def _get_image(config: SandboxConfig) -> str:
         """Get the image to use, checking for snapshots first."""
         config.snapshot_restored = False
-        if config.snapshot_external_id:
-            snapshot_image = f"posthog-sandbox-snapshot:{config.snapshot_external_id}"
+        if config.resume_snapshot_external_id:
+            snapshot_image = f"posthog-sandbox-snapshot:{config.resume_snapshot_external_id}"
             result = DockerSandbox._run(["docker", "images", "-q", snapshot_image])
             if result.stdout.strip():
                 config.snapshot_restored = True

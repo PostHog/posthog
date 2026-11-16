@@ -20,7 +20,7 @@ from rest_framework_dataclasses.serializers import DataclassSerializer
 from posthog.api.fields import JSONTolerantListField, RepeatedOrCommaSeparatedListField
 from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
 from posthog.event_usage import groups
-from posthog.models.integration import Integration
+from posthog.integrations.fields import IntegrationReferenceField
 from posthog.models.user_integration import UserIntegration
 from posthog.oauth_provenance import get_oauth_client_id, is_interactive_desktop_grant
 from posthog.object_tags.kinds import OBJECT_KINDS
@@ -798,8 +798,8 @@ class TaskWriteSerializer(serializers.Serializer):
         max_length=10,
         help_text="GitHub repositories available to this task, each in `organization/repo` format.",
     )
-    github_integration = serializers.PrimaryKeyRelatedField(  # nosemgrep: unscoped-primary-key-related-field
-        queryset=Integration.objects.filter(kind="github"),
+    github_integration = IntegrationReferenceField(
+        kinds=["github"],
         required=False,
         allow_null=True,
         help_text="GitHub integration for this task.",
@@ -815,7 +815,7 @@ class TaskWriteSerializer(serializers.Serializer):
     # (team scope is enforced by validate_signal_report below). Bound lazily in __init__ so
     # importing this module never touches the signals model.
     signal_report = serializers.PrimaryKeyRelatedField(  # nosemgrep: unscoped-primary-key-related-field
-        queryset=Integration.objects.none(),
+        queryset=UserIntegration.objects.none(),  # placeholder, replaced in __init__
         required=False,
         allow_null=True,
         help_text="Signal report this task implements, when created from a report.",
@@ -940,7 +940,7 @@ class TaskWriteSerializer(serializers.Serializer):
         ),
     )
     channel = TeamScopedPrimaryKeyRelatedField(  # nosemgrep: unscoped-primary-key-related-field
-        queryset=Integration.objects.none(),
+        queryset=UserIntegration.objects.none(),  # placeholder, replaced in __init__
         required=False,
         allow_null=True,
         help_text="Channel this task is owned by (the channel it was kicked off in).",
@@ -950,10 +950,10 @@ class TaskWriteSerializer(serializers.Serializer):
         super().__init__(*args, **kwargs)
         # SignalReport is scoped to the request team by the field; bind its queryset lazily so
         # importing this module never touches the signals model at import time.
-        cast(
-            serializers.PrimaryKeyRelatedField, self.fields["signal_report"]
-        ).queryset = tasks_facade.signal_report_queryset()
-        cast(serializers.PrimaryKeyRelatedField, self.fields["channel"]).queryset = tasks_facade.channel_queryset()
+        signal_report_field = cast(serializers.PrimaryKeyRelatedField, self.fields["signal_report"])
+        signal_report_field.queryset = tasks_facade.signal_report_queryset()  # type: ignore[arg-type]  # DRF stubs type queryset as a Manager, which django-stubs treats as a descriptor
+        channel_field = cast(serializers.PrimaryKeyRelatedField, self.fields["channel"])
+        channel_field.queryset = tasks_facade.channel_queryset()  # type: ignore[arg-type]  # DRF stubs type queryset as a Manager, which django-stubs treats as a descriptor
 
     def validate_channel(self, value):
         request = self.context.get("request")
@@ -972,12 +972,6 @@ class TaskWriteSerializer(serializers.Serializer):
             raise serializers.ValidationError("Space not found")
         return value
 
-    def validate_github_integration(self, value):
-        """Validate that the GitHub integration belongs to the same team"""
-        if value and value.team_id != self.context["team"].id:
-            raise serializers.ValidationError("Integration must belong to the same team")
-        return value
-
     def validate_github_user_integration(self, value):
         """Validate that the GitHub user integration belongs to the authenticated user."""
         request = self.context.get("request")
@@ -988,39 +982,7 @@ class TaskWriteSerializer(serializers.Serializer):
 
     def validate_origin_product(self, value):
         """Reject internal-only origins that are set by server-side flows, never by API callers."""
-        reserved_origins = {
-            tasks_facade.TaskOriginProduct.SPACE_SETUP,
-            tasks_facade.TaskOriginProduct.IMAGE_BUILDER,
-            tasks_facade.TaskOriginProduct.EXPERIMENTS,
-            tasks_facade.TaskOriginProduct.SIGNALS_SCOUT,
-            tasks_facade.TaskOriginProduct.SIGNALS_SCOUT_SUGGESTIONS,
-            tasks_facade.TaskOriginProduct.SUPPORT_REPLY,
-            # Only the autoresearch training loop creates these, in-process. Nothing legitimately
-            # sets the origin from outside, so reserve it before anything starts depending on it.
-            tasks_facade.TaskOriginProduct.AUTORESEARCH,
-            # Routes the run's LLM traffic to the unbilled `onboarding` gateway product, so a
-            # forged origin would be free model access. Only create_wizard_cloud_run sets it,
-            # behind its own rate limits and daily cap.
-            tasks_facade.TaskOriginProduct.ONBOARDING,
-            tasks_facade.TaskOriginProduct.ACCOUNT_AUDIT,
-            # Exempt from the Desktop code-access gate on run endpoints, so a forged origin
-            # would bypass the waitlist. Only the signals scout-chat endpoint sets it.
-            tasks_facade.TaskOriginProduct.SIGNALS_CHAT,
-            # Attributes the task to a workflow, which the workflow_tasks endpoint proves
-            # via its service JWT. A forged origin would fake that provenance.
-            tasks_facade.TaskOriginProduct.WORKFLOW,
-            # Maps to the mintable `review_hog` gateway product, so a forged origin would
-            # mint an internally funded scoped token. Only ReviewHog's executor sets it.
-            tasks_facade.TaskOriginProduct.REVIEW_HOG,
-            tasks_facade.TaskOriginProduct.TASK_ANALYSIS,
-            # Maps to the mintable `slack_app` gateway product. Only the Slack app's server flows set it.
-            tasks_facade.TaskOriginProduct.SLACK,
-            # Internal business-knowledge sandbox runs. Only that product's sandbox endpoint sets it.
-            tasks_facade.TaskOriginProduct.BUSINESS_KNOWLEDGE,
-            # Maps to the billed `posthog_ai` gateway product. Only the metrics dashboard import sets it.
-            tasks_facade.TaskOriginProduct.METRICS_IMPORT,
-        }
-        if value in reserved_origins:
+        if value in tasks_facade.TASK_SERVER_ONLY_ORIGIN_PRODUCTS:
             raise serializers.ValidationError(f"origin_product '{value}' is reserved for server-created tasks")
         return value
 
@@ -2470,6 +2432,22 @@ class ChannelSerializer(DataclassSerializer):
         ]
 
 
+class ChannelPageSerializer(serializers.Serializer):
+    count = serializers.IntegerField(help_text="Number of channels the requester can access.")
+    next = serializers.URLField(allow_null=True, help_text="URL of the next page, or null on the last page.")
+    previous = serializers.URLField(allow_null=True, help_text="URL of the previous page, or null on the first page.")
+    results = ChannelSerializer(many=True, help_text="Channels on this page.")
+
+
+# The channel list is an array without `limit` and a page with `limit`, so its schema is one of the two.
+ChannelListResponseSerializer = PolymorphicProxySerializer(
+    component_name="ChannelListResponse",
+    serializers=[ChannelSerializer(many=True), ChannelPageSerializer],
+    resource_type_field_name=None,
+    many=False,
+)
+
+
 class ChannelContributorsSerializer(DataclassSerializer):
     """The people who own at least one task or canvas in a channel."""
 
@@ -2635,8 +2613,8 @@ class ChannelUpdateSerializer(serializers.Serializer):
         required=False,
         help_text="Channel name, rendered as #<name>. Normalized to lowercase-dashed.",
     )
-    github_integration = TeamScopedPrimaryKeyRelatedField(
-        queryset=Integration.objects.filter(kind="github"),
+    github_integration = IntegrationReferenceField(
+        kinds=["github"],
         required=False,
         allow_null=True,
         help_text="Team GitHub integration used for repositories linked to this channel.",
@@ -2666,11 +2644,6 @@ class ChannelUpdateSerializer(serializers.Serializer):
     def validate_name(self, value: str) -> str:
         if tasks_facade.is_reserved_channel_name(value):
             raise serializers.ValidationError("That name is reserved for a default space. Pick another name.")
-        return value
-
-    def validate_github_integration(self, value):
-        if value is not None and value.team_id != self.context["team_id"]:
-            raise serializers.ValidationError("GitHub integration must belong to this project")
         return value
 
     def validate_repositories(self, value: list[str]) -> list[str]:
@@ -3061,10 +3034,22 @@ class TaskActivityPageSerializer(DataclassSerializer):
         required=False,
         help_text="Activity ID to pass as before_id for the next page, or null on the final page.",
     )
+    next = serializers.URLField(
+        read_only=True,
+        allow_null=True,
+        default=None,
+        help_text="URL of the next page, with before and before_id set, or null on the final page.",
+    )
+    previous = serializers.URLField(
+        read_only=True,
+        allow_null=True,
+        default=None,
+        help_text="Always null: the feed pages forward only.",
+    )
 
     class Meta:
         dataclass = TaskActivityPageDTO
-        fields = ["results", "unread_count", "next_before", "next_before_id"]
+        fields = ["results", "unread_count", "next_before", "next_before_id", "next", "previous"]
 
 
 class TaskActivityReadMarkerSerializer(serializers.Serializer):
@@ -4146,7 +4131,7 @@ class WarmTaskRequestSerializer(serializers.Serializer):
         ),
     )
     signal_report = serializers.PrimaryKeyRelatedField(  # nosemgrep: unscoped-primary-key-related-field
-        queryset=Integration.objects.none(),
+        queryset=UserIntegration.objects.none(),  # placeholder, replaced in __init__
         required=False,
         default=None,
         allow_null=True,
@@ -4158,9 +4143,8 @@ class WarmTaskRequestSerializer(serializers.Serializer):
 
     def __init__(self, *args, **kwargs):
         super().__init__(*args, **kwargs)
-        cast(
-            serializers.PrimaryKeyRelatedField, self.fields["signal_report"]
-        ).queryset = tasks_facade.signal_report_queryset()
+        signal_report_field = cast(serializers.PrimaryKeyRelatedField, self.fields["signal_report"])
+        signal_report_field.queryset = tasks_facade.signal_report_queryset()  # type: ignore[arg-type]  # DRF stubs type queryset as a Manager, which django-stubs treats as a descriptor
 
     def validate_repository(self, value: str | None) -> str | None:
         if value is None:

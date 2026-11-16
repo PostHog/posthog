@@ -10,6 +10,7 @@ from django.test.utils import CaptureQueriesContext
 from kombu.exceptions import OperationalError
 
 from posthog.models import Team, User
+from posthog.paging import PageRequest
 
 from products.event_definitions.backend.models import EventDefinition
 from products.wizard.backend.facade import api as wizard_facade
@@ -102,7 +103,7 @@ def test_upsert_with_same_session_id_replaces_state(_mock_sync, team):
     assert sum("FOR UPDATE" in query["sql"] for query in queries.captured_queries) == 1
     assert updated.run_phase == WizardSessionRunPhase.COMPLETED
     assert updated.tasks[0].status == WizardSessionTaskStatus.COMPLETED
-    assert len(wizard_facade.list_for_team(team.id, limit=100)) == 1
+    assert wizard_facade.list_for_team(team.id, page=PageRequest(limit=100)).count == 1
 
 
 @pytest.mark.django_db
@@ -286,7 +287,7 @@ def test_upsert_with_different_session_id_creates_new_row(team):
     wizard_facade.upsert(_input(team.id, session_id="run-1"))
     wizard_facade.upsert(_input(team.id, session_id="run-2"))
 
-    assert len(wizard_facade.list_for_team(team.id, limit=100)) == 2
+    assert wizard_facade.list_for_team(team.id, page=PageRequest(limit=100)).count == 2
 
 
 @pytest.mark.django_db
@@ -401,8 +402,8 @@ def test_list_for_team_returns_sessions_ordered_by_started_at_desc(team):
         )
     )
 
-    sessions = wizard_facade.list_for_team(team.id, limit=100)
-    assert [s.session_id for s in sessions] == ["run-late", "run-early"]
+    sessions = wizard_facade.list_for_team(team.id, page=PageRequest(limit=100))
+    assert [s.session_id for s in sessions.results] == ["run-late", "run-early"]
 
 
 @pytest.mark.django_db

@@ -3,6 +3,7 @@ from temporalio import activity
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner, initial_watermark
 from products.replay_vision.backend.models.replay_scanner_backfill import BackfillStatus, ReplayScannerBackfill
 from products.replay_vision.backend.quota import compute_scanner_budget, current_period_bounds
+from products.replay_vision.backend.scanner_access import unrunnable_reason
 from products.replay_vision.backend.temporal.constants import CHECK_SCANNER_BUDGET_TIMEOUT
 from products.replay_vision.backend.temporal.decorators import track_activity
 from products.replay_vision.backend.temporal.metrics import record_sweep_outcome
@@ -107,11 +108,18 @@ def check_scanner_budget_activity(inputs: CheckScannerBudgetInputs) -> CheckScan
     the watermark: in-flight reservations can release without settling and must not permanently skip
     a window the scanner could still afford.
     """
-    scanner = ReplayScanner.objects.filter(pk=inputs.scanner_id, team_id=inputs.team_id).select_related("team").first()
+    scanner = (
+        ReplayScanner.objects.filter(pk=inputs.scanner_id, team_id=inputs.team_id)
+        .select_related("team__organization", "created_by")
+        .first()
+    )
     if scanner is None:
         # The reconciler removes schedules for deleted scanners. A racing tick just stops here.
         return CheckScannerBudgetOutput(capped=False)
     if not scanner.has_spend_ceiling:
+        return CheckScannerBudgetOutput(capped=False)
+    # Not capped, so the sweep reaches the step that turns an unrunnable scanner off.
+    if unrunnable_reason(scanner):
         return CheckScannerBudgetOutput(capped=False)
     # Resolve the period once so the cap decision and the notification stamp cannot straddle a rollover.
     period = current_period_bounds(scanner.team.organization_id)

@@ -50,6 +50,7 @@ import {
 import { createConnectionCallTool } from './posthogConnections/call'
 // Projects
 import createEventDefinition from './projects/createEventDefinition'
+import getEventDefinition from './projects/getEventDefinition'
 import getProjects from './projects/getProjects'
 import setActiveProject from './projects/setActive'
 import updateEventDefinition from './projects/updateEventDefinition'
@@ -86,6 +87,7 @@ export const TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = {
     'projects-get': getProjects,
     'switch-project': setActiveProject,
     'event-definition-create': createEventDefinition,
+    'event-definition-get': getEventDefinition,
     'event-definition-update': updateEventDefinition,
     'property-definition-update': updatePropertyDefinition,
 
@@ -192,6 +194,7 @@ export const getToolsFromContext = async (
             ...toolBase,
             title: definition.title,
             description: definition.description,
+            searchKeywords: definition.search_keywords,
             scopes: definition.required_scopes ?? [],
             annotations: definition.annotations,
         }

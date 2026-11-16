@@ -110,12 +110,12 @@ const ChannelListSchema = () => {
     return TaskChannelsListQueryParams
 }
 
-const channelList = (): ToolBase<ReturnType<typeof ChannelListSchema>, Schemas.PaginatedChannelDTOList> => ({
+const channelList = (): ToolBase<ReturnType<typeof ChannelListSchema>, Schemas.ChannelListResponse> => ({
     name: 'channel-list',
     schema: ChannelListSchema(),
     handler: async (context: Context, params: z.infer<ReturnType<typeof ChannelListSchema>>) => {
         const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.PaginatedChannelDTOList>({
+        const result = await context.api.request<Schemas.ChannelListResponse>({
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/task_channels/`,
             query: {

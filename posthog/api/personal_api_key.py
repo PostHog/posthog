@@ -16,15 +16,13 @@ from posthog.auth import PersonalAPIKeyAuthentication, SessionAuthentication
 from posthog.helpers.dev_api_key import get_local_dev_api_key_value
 from posthog.models import PersonalAPIKey, User
 from posthog.models.oauth import has_live_third_party_oauth_access
-from posthog.models.personal_api_key import LEGACY_HASH_PREFIX
+from posthog.models.personal_api_key import LEGACY_HASH_PREFIX, max_personal_api_keys_for_user
 from posthog.models.team.team import Team
 from posthog.models.utils import generate_random_token_personal, hash_key_value, mask_key_value
 from posthog.permissions import TimeSensitiveActionPermission
 from posthog.personal_api_key_minting import mint_personal_api_key
 from posthog.scopes import API_SCOPE_ACTIONS, GRANTABLE_API_SCOPE_OBJECTS
 from posthog.user_permissions import UserPermissions
-
-MAX_API_KEYS_PER_USER = 10  # Same as in scopes.tsx
 
 SCOPED_TEAMS_ACCESS_ERROR = "You must be a member of all teams that you are scoping the key to."
 SCOPE_ACCESS_ERROR = "You must be a member of all teams and organizations that you are scoping the key to."
@@ -222,9 +220,10 @@ class PersonalAPIKeySerializer(serializers.ModelSerializer):
         request = self.context["request"]
         user = request.user
         count = PersonalAPIKey.objects.filter(user=user).count()
-        if count >= MAX_API_KEYS_PER_USER:
+        limit = max_personal_api_keys_for_user(user)
+        if count >= limit:
             raise serializers.ValidationError(
-                f"You can only have {MAX_API_KEYS_PER_USER} personal API keys. Remove an existing key before creating a new one."
+                f"You can only have {limit} personal API keys. Remove an existing key before creating a new one."
             )
         try:
             minted = mint_personal_api_key(

@@ -30,6 +30,34 @@ Product suites can supply `case_runner=` to `SandboxedEval` with the `SandboxedC
 
 Test cases should keep the default `SandboxedEvalCase.inherit_demo_data=True` to inherit Hedgebox data. Setting it to `False` is an explicit opt-in only for cases that intentionally need an empty isolated project, such as testing abstention with insufficient data. The setup hook must seed any data the case needs. The sparse scout case uses this option to add just four signups: inheriting the populated Hedgebox dataset would invalidate that test. Regression and control cases keep the default.
 
+## Repository selection evals
+
+Two suites measure repository selection on a synthetic `fernhill` catalog that each case installs in its own isolated project: repository names, descriptions, READMEs, tree paths, visibility, and routing rules come from [`products/tasks/evals/repo_selection/fixtures.py`](../../tasks/evals/repo_selection/fixtures.py).
+No case depends on a real team's connected repositories, and expected answers stay out of the agent's input.
+
+- `slack_app/eval_repo_selection_routing` runs a Slack mention through the production cascade, the needs-repo classifier, and the discovery agent. It scores the terminal stage and outcome, and the routed repository.
+- `tasks/eval_repo_selection` runs only the production `select_repository` on the Self-Driving path, so classifier behavior cannot hide a difference between selector models. It scores accepted-set accuracy, correct abstention on cases with no plausible candidate, and completion.
+
+Selector errors, timeouts, and picks outside the candidates score zero.
+A trial that fails before the agent's first tool call, such as a gateway refusal at startup, is an infrastructure error, so the harness summary leaves it out of score averages.
+The report below counts every planned trial, and scores those trials as wrong.
+Compare selector models with per-arm settings, and set `EXPORT_EVAL_RESULTS=1` so each arm writes the per-trial results the report reads:
+
+```bash
+EXPORT_EVAL_RESULTS=1 hogli evals tasks/eval_repo_selection --trials 3 --max-sandboxes 4 \
+  --compare-model claude:claude-haiku-5-5 \
+  --compare-model codex:gpt-6-luna,reasoning_effort=medium \
+  --compare-model codex:gpt-6-luna,reasoning_effort=medium,service_tier=flex
+python -m products.tasks.evals.repo_selection.report <comparison-dir>
+```
+
+The report joins each trial with the eval gateway's ledger and request log. It lists accuracy, abstention, errors, latency, tokens, gateway-accounted cost, and the tier that served each call, so a Flex request that fell back to Standard is counted as Standard.
+The eval gateway declares a Baseten host when `AI_GATEWAY_BASETEN_API_KEY` is set, which open-weight arms such as DeepSeek need.
+
+The eval gateway posts every `$ai_generation` event to a local capture endpoint, and the run writes them to `logs/ai_gateway/<run>.generations.jsonl`, without prompt and completion bodies. The path prints as `AI GATEWAY GENERATIONS` and is saved in the run report. These events carry the requested and served service tier, Flex attempts, cache and reasoning tokens, and gateway cost, keyed by `task_run_id`.
+
+Repository-selection runs attribute their model calls to their production products: `signals_repo_selection` for the selector suite and `slack_app` for the routing suite. The gateway applies each product's model restrictions, so a model reserved for other products fails at agent startup and the trial counts as an error. The `slack_app` model pin covers only models in `products/tasks/backend/model_catalog.py`, so run the routing suite on a catalog model such as `claude-sonnet-5-5`.
+
 ## Running
 
 ```bash
@@ -85,6 +113,7 @@ python -m products.posthog_ai.eval_harness.harness --list
 | `--agent-runtime {claude,codex}`  | Agent runtime serving the model. Default `claude`.                                                       |
 | `--skill-delivery {bundled,exec}` | Skill delivery path. Default `bundled`; `exec` removes native sandbox skills.                            |
 | `--reasoning-effort <effort>`     | Agent reasoning effort; valid values depend on runtime+model.                                            |
+| `--service-tier <tier>`           | OpenAI service tier for codex runs (`default`, `flex`, `priority`). The claude runtime ignores it.       |
 | `--keep-sandbox-containers`       | Skip the end-of-run Docker sweep, to inspect a leftover container. Docker only.                          |
 | `--rebuild-sandbox-image`         | Force a rebuild of the `posthog-sandbox-base` image before the run. Docker only.                         |
 | `--create-db`                     | Rebuild the eval test database instead of reusing it.                                                    |
@@ -97,7 +126,7 @@ python -m products.posthog_ai.eval_harness.harness --list
 | `--fail-under <fraction>`         | Exit nonzero when the mean score across all experiments falls below this (0-1).                          |
 | `--list`                          | Print the discovered suite ids (with their kinds) and exit.                                              |
 
-Sandbox-only flags (`--provider`, `--max-sandboxes`, `--agent-runtime`, `--skill-delivery`, `--reasoning-effort`, `--keep-sandbox-containers`, `--rebuild-sandbox-image`) are rejected in preflight when no selected suite is sandboxed, instead of being silently ignored.
+Sandbox-only flags (`--provider`, `--max-sandboxes`, `--agent-runtime`, `--skill-delivery`, `--reasoning-effort`, `--service-tier`, `--keep-sandbox-containers`, `--rebuild-sandbox-image`) are rejected in preflight when no selected suite is sandboxed, instead of being silently ignored.
 
 The run exits with status 1 if a suite crashes or a case has an infrastructure error, even without `--fail-under`.
 Infrastructure errors remain separate from score averages.
@@ -219,6 +248,7 @@ Comparisons use plain text output so each model can finish without waiting for t
 Ctrl-C stops the comparison after the current child finishes cleanup.
 
 Use repeated `--compare-model claude:MODEL` and `--compare-model codex:MODEL` options to replace the default pair.
+An arm can add its own settings after commas, such as `--compare-model codex:gpt-6-luna,reasoning_effort=medium,service_tier=flex`. Per-arm settings override `--reasoning-effort` and `--service-tier`, so one comparison can hold the same model on Standard and Flex as separate arms. The arm label, run report, and experiment metadata record both settings.
 At least two distinct runtime/model pairs and one suite selector are required. Only sandboxed suites are supported;
 one-shot suites select their models internally. Do not combine comparison options with `--agent-model` or `--agent-runtime`.
 

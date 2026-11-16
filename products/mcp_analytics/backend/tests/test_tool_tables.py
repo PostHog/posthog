@@ -34,6 +34,7 @@ from products.mcp_analytics.backend.hogql_queries.tool_tables import (
     MCPToolStatsQueryRunner,
     MCPToolTopUsersQueryRunner,
 )
+from products.mcp_analytics.backend.models import MCPCustomHarness
 from products.mcp_analytics.backend.tests import _MCPAnalyticsTeamScopedTestMixin
 
 NEW_SDK_SOURCE = "posthog_mcp_analytics"
@@ -82,9 +83,11 @@ class TestMCPToolTopUsersQueryRunner(_MCPAnalyticsTeamScopedTestMixin, Clickhous
             ("sdk_mcp_remote_stripped", "claude-ai (via mcp-remote 0.1.37)", ["Claude.ai"]),
             ("sdk_cursor", "cursor-vscode", ["Cursor"]),
             ("sdk_unknown_to_other", "totally-unknown-thing", ["Other"]),
+            ("custom_rule_beats_built_in", "cursor-internal", ["Our Cursor"]),
         ]
     )
     def test_resolves_harness_labels(self, _name: str, client_name: str, expected: list[str]) -> None:
+        MCPCustomHarness.objects.create(team=self.team, name="Our Cursor", match_pattern="cursor-internal")
         self._emit(client_name=client_name)
         flush_persons_and_events()
 

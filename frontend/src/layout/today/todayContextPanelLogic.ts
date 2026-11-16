@@ -10,7 +10,6 @@ import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePane
 import { SidePanelTab } from '~/types'
 
 import { sidepanelTicketsLogic } from 'products/conversations/frontend/components/SidePanel/sidepanelTicketsLogic'
-import { ConversationTicket, SidePanelViewState } from 'products/conversations/frontend/types'
 
 import { projectSessionKey, readSessionValue, writeSessionValue } from './todaySessionStorage'
 import { todayShellLogic } from './todayShellLogic'
@@ -57,10 +56,8 @@ export interface todayContextPanelLogicValues {
     enabledTabs: SidePanelTab[] // sidePanelLogic
     selectedTab: SidePanelTab | null // sidePanelStateLogic
     sidePanelOpen: boolean // sidePanelStateLogic
-    canCreateTicket: boolean // sidepanelTicketsLogic
-    currentTicket: ConversationTicket | null // sidepanelTicketsLogic
-    supportView: SidePanelViewState // sidepanelTicketsLogic
-    tickets: ConversationTicket[] // sidepanelTicketsLogic
+    canAccessTickets: boolean // sidepanelTicketsLogic
+    myTicketsUrl: string // sidepanelTicketsLogic
     onAiPage: boolean // todayShellLogic
     activeTab: SidePanelTab
     canUndock: boolean
@@ -74,8 +71,8 @@ export interface todayContextPanelLogicValues {
     fullScreenUrl: string | null
     launcherAlign: TodayLauncherAlign
     launcherHidden: boolean
-    launcherHiddenByUser: boolean
     launcherHintVisible: boolean
+    launcherShown: boolean
     panelTabs: SidePanelTab[]
 }
 
@@ -143,7 +140,7 @@ export interface todayContextPanelLogicMeta {
         ) => TodayFloatingSession | null
         launcherHidden: (
             docked: boolean,
-            launcherHiddenByUser: boolean,
+            launcherShown: boolean,
             floatingOpen: boolean,
             panelTabs: SidePanelTab[]
         ) => boolean
@@ -154,10 +151,8 @@ export interface todayContextPanelLogicMeta {
         fullScreenUrl: (
             activeTab: SidePanelTab,
             selectedNotebook: string,
-            tickets: ConversationTicket[],
-            canCreateTicket: boolean,
-            supportView: SidePanelViewState,
-            currentTicket: ConversationTicket | null
+            canAccessTickets: boolean,
+            myTicketsUrl: string
         ) => string | null
     }
 }
@@ -184,7 +179,7 @@ export const todayContextPanelLogic = kea<todayContextPanelLogicType>([
             notebookPanelLogic,
             ['selectedNotebook'],
             sidepanelTicketsLogic,
-            ['tickets', 'canCreateTicket', 'view as supportView', 'currentTicket'],
+            ['canAccessTickets', 'myTicketsUrl'],
             todayShellLogic,
             ['onAiPage'],
         ],
@@ -239,13 +234,15 @@ export const todayContextPanelLogic = kea<todayContextPanelLogicType>([
                 setLauncherAlign: (_, { align }) => align,
             },
         ],
-        launcherHiddenByUser: [
+        launcherShown: [
             false,
             { persist: true },
             {
-                hideLauncher: () => true,
-                // The card closes back into the floating button, so closing it brings the button back.
-                setFloatingOpen: (state, { open }) => (open ? state : false),
+                undock: () => true,
+                // The card closes back into the floating button, so opening it floating counts as undocking.
+                setFloatingOpen: (state, { open }) => open || state,
+                dock: () => false,
+                hideLauncher: () => false,
             },
         ],
         launcherHintVisible: [
@@ -277,17 +274,13 @@ export const todayContextPanelLogic = kea<todayContextPanelLogicType>([
                 floatingOpen ? { tab: floatingActiveTab, offset: floatingOffset } : null,
         ],
         /**
-         * The button sinks away while docked and where the scene has no PostHog AI. The open card hangs off it, so it
-         * shows for as long as the card is open, even after the user dismissed it.
+         * The button sinks away while docked, until the user undocks, and where the scene has no PostHog AI. The
+         * open card hangs off it, so it shows for as long as the card is open.
          */
         launcherHidden: [
-            (s) => [s.docked, s.launcherHiddenByUser, s.floatingOpen, s.panelTabs],
-            (
-                docked: boolean,
-                launcherHiddenByUser: boolean,
-                floatingOpen: boolean,
-                panelTabs: SidePanelTab[]
-            ): boolean => docked || (launcherHiddenByUser && !floatingOpen) || !panelTabs.includes(SidePanelTab.Max),
+            (s) => [s.docked, s.launcherShown, s.floatingOpen, s.panelTabs],
+            (docked: boolean, launcherShown: boolean, floatingOpen: boolean, panelTabs: SidePanelTab[]): boolean =>
+                docked || !(launcherShown || floatingOpen) || !panelTabs.includes(SidePanelTab.Max),
         ],
         panelTabs: [
             (s) => [s.enabledTabs],
@@ -324,25 +317,20 @@ export const todayContextPanelLogic = kea<todayContextPanelLogicType>([
         ],
         fullScreenUrl: [
             // PostHog AI's URL comes from the chat logic, which the header reads only while the panel is open.
-            (s) => [s.activeTab, s.selectedNotebook, s.tickets, s.canCreateTicket, s.supportView, s.currentTicket],
+            (s) => [s.activeTab, s.selectedNotebook, s.canAccessTickets, s.myTicketsUrl],
             (
                 activeTab: SidePanelTab,
                 selectedNotebook: string,
-                tickets: ConversationTicket[],
-                canCreateTicket: boolean,
-                supportView: SidePanelViewState,
-                currentTicket: ConversationTicket | null
+                canAccessTickets: boolean,
+                myTicketsUrl: string
             ): string | null => {
                 switch (activeTab) {
                     case SidePanelTab.Activity:
                         return urls.advancedActivityLogs()
                     case SidePanelTab.Notebooks:
                         return urls.notebook(selectedNotebook)
-                    // Matches the support panel's own expand button: the tickets page, on the open ticket if any.
                     case SidePanelTab.Support:
-                        return canCreateTicket || tickets.length > 0
-                            ? urls.myTickets(supportView === 'ticket' ? currentTicket?.id : undefined)
-                            : null
+                        return canAccessTickets ? myTicketsUrl : null
                     default:
                         return null
                 }

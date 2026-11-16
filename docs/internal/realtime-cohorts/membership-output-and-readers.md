@@ -201,16 +201,26 @@ Its connection pool, cache and timeout settings are in [the flags service overvi
 
 ### When a cohort is read from the table
 
-For each request on a team in `REALTIME_COHORT_EVALUATION_TEAM_IDS`, the flags service routes a cohort to the table only if:
+For each request on a team in `REALTIME_COHORT_EVALUATION_TEAM_IDS`, or whose team access row is at `serving`, the flags service routes a cohort to the table only if:
 
 - the cohort's type is `realtime`, or the legacy `behavioral` type,
 - its `condition_type` marks a behavioral or lifecycle condition,
 - its [readiness stamps](completion-and-readiness.md#what-readiness-unlocks) satisfy the configured stamp policy.
 
+`/flags` reads the team access level from the team metadata cache, or from Postgres when the cache has no entry for the team.
+Batch flag evaluation always reads it from Postgres.
+A cache entry without the level reads as `off`.
+
 `condition_type` is derived by Django on save.
 A cohort whose `condition_type` is empty is never routed, and resaving it fills the column.
+A behavioral run refuses such a cohort, so it never reads as ready.
 
 Every other non-static cohort is evaluated dynamically from the person's properties, where a behavioral condition can never match.
+
+The team metadata cache that the flags service reads carries the team's access row level as `realtime_cohort_level`, or `off` when the team has no row.
+It carries the row's level, not Django's effective level, because `REALTIME_COHORT_TEAM_ALLOWLIST` can name every team.
+`realtime_cohort_team_access enable`, `grant` and `revoke` queue a refresh of the team's entry after they commit.
+The hourly team metadata verification repairs an entry whose level still differs from the row.
 
 ### How it reads
 

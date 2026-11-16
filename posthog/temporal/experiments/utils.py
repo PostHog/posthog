@@ -112,6 +112,8 @@ def check_significance_transition(
     fingerprint: str,
     result_dict: dict,
     query_to_utc: datetime,
+    *,
+    display_key: str | None = None,
 ) -> None:
     try:
         new_significant_keys = _get_significant_variant_keys(result_dict)
@@ -124,6 +126,7 @@ def check_significance_transition(
             metric_uuid=metric_uuid,
             calculation_key=fingerprint,
             before=query_to_utc,
+            display_key=display_key,
         )
 
         prev_significant_keys = _get_significant_variant_keys(previous_result) if previous_result else set()

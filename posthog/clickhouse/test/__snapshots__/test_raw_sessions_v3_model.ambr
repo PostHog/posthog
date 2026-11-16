@@ -1,5 +1,5 @@
 # serializer version: 1
-# name: TestRawSessionsModel.test_ad_ids_map_and_set
+# name: TestRawSessionsModel.test_ad_id_property_vs_url_param_precedence_0_property_wins
   '''
   
   select *
@@ -8,7 +8,88 @@
     AND team_id = 99999
   '''
 # ---
-# name: TestRawSessionsModel.test_autocapture_does_not_set_attribution_when_pageview_present
+# name: TestRawSessionsModel.test_ad_id_property_vs_url_param_precedence_1_empty_property_falls_back
+  '''
+  
+  select *
+  from raw_sessions_v3_v
+  where session_id_v7 = toUInt128(toUUID('00000000-0000-0000-0000-000000000000'))
+    AND team_id = 99999
+  '''
+# ---
+# name: TestRawSessionsModel.test_ad_id_url_param_decodes_plus_as_space
+  '''
+  
+  select *
+  from raw_sessions_v3_v
+  where session_id_v7 = toUInt128(toUUID('00000000-0000-0000-0000-000000000000'))
+    AND team_id = 99999
+  '''
+# ---
+# name: TestRawSessionsModel.test_ad_id_url_param_with_undecodable_bytes_is_normalized
+  '''
+  
+  select *
+  from raw_sessions_v3_v
+  where session_id_v7 = toUInt128(toUUID('00000000-0000-0000-0000-000000000000'))
+    AND team_id = 99999
+  '''
+# ---
+# name: TestRawSessionsModel.test_ad_ids_fall_back_to_url_params_0_gad_campaignid
+  '''
+  
+  select *
+  from raw_sessions_v3_v
+  where session_id_v7 = toUInt128(toUUID('00000000-0000-0000-0000-000000000000'))
+    AND team_id = 99999
+  '''
+# ---
+# name: TestRawSessionsModel.test_ad_ids_fall_back_to_url_params_1_utm_id
+  '''
+  
+  select *
+  from raw_sessions_v3_v
+  where session_id_v7 = toUInt128(toUUID('00000000-0000-0000-0000-000000000000'))
+    AND team_id = 99999
+  '''
+# ---
+# name: TestRawSessionsModel.test_ad_ids_fall_back_to_url_params_2_irclickid
+  '''
+  
+  select *
+  from raw_sessions_v3_v
+  where session_id_v7 = toUInt128(toUUID('00000000-0000-0000-0000-000000000000'))
+    AND team_id = 99999
+  '''
+# ---
+# name: TestRawSessionsModel.test_ad_ids_fall_back_to_url_params_3_snapchat_canonical
+  '''
+  
+  select *
+  from raw_sessions_v3_v
+  where session_id_v7 = toUInt128(toUUID('00000000-0000-0000-0000-000000000000'))
+    AND team_id = 99999
+  '''
+# ---
+# name: TestRawSessionsModel.test_ad_ids_fall_back_to_url_params_4_snapchat_sccid_cased
+  '''
+  
+  select *
+  from raw_sessions_v3_v
+  where session_id_v7 = toUInt128(toUUID('00000000-0000-0000-0000-000000000000'))
+    AND team_id = 99999
+  '''
+# ---
+# name: TestRawSessionsModel.test_ad_ids_fall_back_to_url_params_5_snapchat_sscid_cased
+  '''
+  
+  select *
+  from raw_sessions_v3_v
+  where session_id_v7 = toUInt128(toUUID('00000000-0000-0000-0000-000000000000'))
+    AND team_id = 99999
+  '''
+# ---
+# name: TestRawSessionsModel.test_ad_ids_set_collects_kv_pairs
   '''
   
   select *
@@ -26,7 +107,16 @@
     AND team_id = 99999
   '''
 # ---
-# name: TestRawSessionsModel.test_channel_type_properties
+# name: TestRawSessionsModel.test_channel_type_properties_0_click_ids_present
+  '''
+  
+  select *
+  from raw_sessions_v3_v
+  where session_id_v7 = toUInt128(toUUID('00000000-0000-0000-0000-000000000000'))
+    AND team_id = 99999
+  '''
+# ---
+# name: TestRawSessionsModel.test_channel_type_properties_1_empty_click_ids_are_not_present
   '''
   
   select *
@@ -36,6 +126,42 @@
   '''
 # ---
 # name: TestRawSessionsModel.test_counts_pageviews_autocaptures_and_events
+  '''
+  
+  select *
+  from raw_sessions_v3_v
+  where session_id_v7 = toUInt128(toUUID('00000000-0000-0000-0000-000000000000'))
+    AND team_id = 99999
+  '''
+# ---
+# name: TestRawSessionsModel.test_drops_events_far_from_the_session_id_timestamp_0_garbage_session_timestamp
+  '''
+  
+  select *
+  from raw_sessions_v3_v
+  where session_id_v7 = toUInt128(toUUID('00000000-0000-0000-0000-000000000000'))
+    AND team_id = 99999
+  '''
+# ---
+# name: TestRawSessionsModel.test_drops_events_far_from_the_session_id_timestamp_1_session_id_over_31_days_after_event
+  '''
+  
+  select *
+  from raw_sessions_v3_v
+  where session_id_v7 = toUInt128(toUUID('00000000-0000-0000-0000-000000000000'))
+    AND team_id = 99999
+  '''
+# ---
+# name: TestRawSessionsModel.test_drops_events_far_from_the_session_id_timestamp_2_client_clock_days_ahead
+  '''
+  
+  select *
+  from raw_sessions_v3_v
+  where session_id_v7 = toUInt128(toUUID('00000000-0000-0000-0000-000000000000'))
+    AND team_id = 99999
+  '''
+# ---
+# name: TestRawSessionsModel.test_drops_events_far_from_the_session_id_timestamp_3_late_event_within_31_days
   '''
   
   select *
@@ -63,15 +189,6 @@
   '''
 # ---
 # name: TestRawSessionsModel.test_event_names_are_collected
-  '''
-  
-  select *
-  from raw_sessions_v3_v
-  where session_id_v7 = toUInt128(toUUID('00000000-0000-0000-0000-000000000000'))
-    AND team_id = 99999
-  '''
-# ---
-# name: TestRawSessionsModel.test_flag_keys_are_collected
   '''
   
   select *
@@ -176,6 +293,42 @@
   '''
 # ---
 # name: TestRawSessionsModel.test_max_inserted_at
+  '''
+  
+  select *
+  from raw_sessions_v3_v
+  where session_id_v7 = toUInt128(toUUID('00000000-0000-0000-0000-000000000000'))
+    AND team_id = 99999
+  '''
+# ---
+# name: TestRawSessionsModel.test_non_pageview_event_does_not_set_attribution_when_pageview_present_0_autocapture_first
+  '''
+  
+  select *
+  from raw_sessions_v3_v
+  where session_id_v7 = toUInt128(toUUID('00000000-0000-0000-0000-000000000000'))
+    AND team_id = 99999
+  '''
+# ---
+# name: TestRawSessionsModel.test_non_pageview_event_does_not_set_attribution_when_pageview_present_1_pageleave_first
+  '''
+  
+  select *
+  from raw_sessions_v3_v
+  where session_id_v7 = toUInt128(toUUID('00000000-0000-0000-0000-000000000000'))
+    AND team_id = 99999
+  '''
+# ---
+# name: TestRawSessionsModel.test_non_pageview_event_does_not_set_attribution_when_pageview_present_2_custom_event_first
+  '''
+  
+  select *
+  from raw_sessions_v3_v
+  where session_id_v7 = toUInt128(toUUID('00000000-0000-0000-0000-000000000000'))
+    AND team_id = 99999
+  '''
+# ---
+# name: TestRawSessionsModel.test_non_pageview_event_does_not_set_attribution_when_pageview_present_3_pageview_inserted_before_earlier_event
   '''
   
   select *

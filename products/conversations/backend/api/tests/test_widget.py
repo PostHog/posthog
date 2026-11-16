@@ -20,6 +20,8 @@ from posthog.rate_limit import WidgetTeamPollThrottle
 from posthog.test.authentication_checks import covers_authentication
 
 from products.conversations.backend.api.serializers import WidgetMessageSerializer, WidgetTicketsQuerySerializer
+from products.conversations.backend.api.widget import WidgetTicketsTeamThrottle
+from products.conversations.backend.cache import get_session_has_tickets_cache_key
 from products.conversations.backend.models import SigningSecret, Ticket
 from products.conversations.backend.models.constants import Channel, ChannelDetail, Status
 from products.conversations.backend.services.identity import (
@@ -106,6 +108,12 @@ class TestWidgetAPI(BaseTest):
 
     def test_exhausted_poll_throttle_does_not_block_send(self):
         cache.clear()
+        Ticket.objects.create_with_number(
+            team=self.team,
+            widget_session_id=self.widget_session_id,
+            distinct_id=self.distinct_id,
+            channel_source="widget",
+        )
         tickets_url = f"/api/conversations/v1/widget/tickets?widget_session_id={self.widget_session_id}"
         try:
             with patch.object(WidgetTeamPollThrottle, "rate", "1/minute"):
@@ -125,6 +133,76 @@ class TestWidgetAPI(BaseTest):
             self.assertEqual(send.status_code, status.HTTP_200_OK)
         finally:
             cache.clear()
+
+    @parameterized.expand(
+        [
+            ("canonical", str),
+            ("uppercase", lambda session_id: session_id.upper()),
+            ("hyphenless", lambda session_id: session_id.replace("-", "")),
+        ]
+    )
+    def test_sessions_without_tickets_do_not_use_the_poll_bucket(self, _name, spell_session_id):
+        cache.clear()
+        Ticket.objects.create_with_number(
+            team=self.team,
+            widget_session_id=self.widget_session_id,
+            distinct_id=self.distinct_id,
+            channel_source="widget",
+        )
+        tickets_url = "/api/conversations/v1/widget/tickets?widget_session_id={}"
+        try:
+            with (
+                patch.object(WidgetTeamPollThrottle, "rate", "1/minute"),
+                patch.object(WidgetTicketsTeamThrottle, "new_session_rate", "1/minute"),
+            ):
+                self.client.get(tickets_url.format(self.widget_session_id), **self._get_headers())
+                existing_session = self.client.get(
+                    tickets_url.format(spell_session_id(self.widget_session_id)), **self._get_headers()
+                )
+                new_session = self.client.get(tickets_url.format(uuid.uuid4()), **self._get_headers())
+                other_new_session = self.client.get(tickets_url.format(uuid.uuid4()), **self._get_headers())
+            self.assertEqual(existing_session.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
+            self.assertEqual(new_session.status_code, status.HTTP_200_OK)
+            self.assertEqual(other_new_session.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
+        finally:
+            cache.clear()
+
+    def test_full_new_session_bucket_does_not_use_the_poll_bucket(self):
+        cache.clear()
+        Ticket.objects.create_with_number(
+            team=self.team,
+            widget_session_id=self.widget_session_id,
+            distinct_id=self.distinct_id,
+            channel_source="widget",
+        )
+        tickets_url = "/api/conversations/v1/widget/tickets?widget_session_id={}"
+        try:
+            with (
+                patch.object(WidgetTeamPollThrottle, "rate", "3/minute"),
+                patch.object(WidgetTicketsTeamThrottle, "new_session_rate", "1/minute"),
+                patch.object(WidgetTicketsTeamThrottle, "session_lookup_rate", "1/minute"),
+            ):
+                first_poll = self.client.get(tickets_url.format(self.widget_session_id), **self._get_headers())
+                cache.delete(get_session_has_tickets_cache_key(self.team.id, self.widget_session_id))
+                self.client.get(tickets_url.format(uuid.uuid4()), **self._get_headers())
+                returning_session = self.client.get(tickets_url.format(self.widget_session_id), **self._get_headers())
+                with patch("products.conversations.backend.api.widget._session_has_tickets") as ticket_lookup:
+                    overflow = self.client.get(tickets_url.format(uuid.uuid4()), **self._get_headers())
+                last_poll = self.client.get(tickets_url.format(self.widget_session_id), **self._get_headers())
+            self.assertEqual(first_poll.status_code, status.HTTP_200_OK)
+            self.assertEqual(returning_session.status_code, status.HTTP_200_OK)
+            self.assertEqual(overflow.status_code, status.HTTP_429_TOO_MANY_REQUESTS)
+            ticket_lookup.assert_not_called()
+            self.assertEqual(last_poll.status_code, status.HTTP_200_OK)
+        finally:
+            cache.clear()
+
+    @parameterized.expand([("not_a_uuid", "not-a-uuid"), ("nul_byte", "%00")])
+    def test_list_tickets_rejects_invalid_widget_session_id(self, _name, widget_session_id):
+        response = self.client.get(
+            f"/api/conversations/v1/widget/tickets?widget_session_id={widget_session_id}", **self._get_headers()
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
     def test_create_ticket_channel_detail_widget_enabled(self):
         self.team.conversations_settings = {**self.team.conversations_settings, "widget_enabled": True}

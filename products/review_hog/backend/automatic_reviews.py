@@ -4,11 +4,11 @@ from typing import Literal
 from prometheus_client import Counter
 
 from posthog.dataclasses import frozen
-from posthog.models.integration import Integration
+from posthog.integrations import IntegrationManager
 from posthog.otel_metrics import OtelInstrumentFactory
 
 from products.review_hog.backend.automatic_review_rules import AutomaticReviewReason, decide_automatic_review
-from products.review_hog.backend.models import ReviewReport, ReviewUserSettings
+from products.review_hog.backend.models import ReviewReport, ReviewRepository, ReviewUserSettings
 from products.review_hog.backend.ownership import RepositoryOwner, RepositoryOwnership, RepositoryRef
 from products.review_hog.backend.pr_owner import is_active_member
 from products.review_hog.backend.review_request_rules import full_review_published
@@ -46,10 +46,8 @@ def observe_dispatch(outcome: AuthoredPRReviewOutcome) -> None:
 
 def connector_user_id(*, team_id: int, installation_id: str) -> int | None:
     """The active member who connected the installation to the project. Bot pull requests run as them."""
-    creator_ids = Integration.objects.filter(
-        team_id=team_id, kind="github", integration_id=installation_id, created_by__isnull=False
-    ).values_list("created_by_id", flat=True)
-    for creator_id in creator_ids:
+    rows = IntegrationManager.github.oauth.list(team_id, external_id=installation_id)
+    for creator_id in (row.created_by_id for row in rows if row.created_by_id is not None):
         if is_active_member(team_id=team_id, user_id=creator_id):
             return creator_id
     return None
@@ -63,21 +61,27 @@ class AutomaticDispatch:
     run_as_user_id: int | None = None
 
 
+def drafts_reviewed(team_id: int, row: ReviewRepository | None, *, author_user_id: int | None) -> bool:
+    """Whether a draft gets its automatic review: the repository turned draft reviews on, and the author did not
+    turn them off for their own pull requests. A bot or an unmapped author follows the repository."""
+    if row is None or not row.review_drafts:
+        return False
+    if author_user_id is None:
+        return True
+    return ReviewUserSettings.load_preferences(team_id, author_user_id).review_drafts
+
+
 def plan_automatic_review(
     repository: RepositoryRef, owner: RepositoryOwner | None, *, author_login: str, draft: bool = False
 ) -> AutomaticDispatch:
     """Whether a push gets an automatic Flash review, in which project, and as which user."""
     # These clients pull in the signals product; planning a webhook must not load it at import.
-    from products.signals.backend.report_generation.resolve_reviewers import (  # noqa: PLC0415
-        resolve_org_github_login_to_users,
-    )
+    from products.signals.backend.facade.report_reviewers import org_user_ids_by_github_login  # noqa: PLC0415
 
     if owner is None:
         return AutomaticDispatch(outcome="repository_not_added")
     team_id = owner.team_id
-    has_integration = Integration.objects.filter(
-        team_id=team_id, kind="github", integration_id=owner.installation_id
-    ).exists()
+    has_integration = IntegrationManager.github.oauth.exists(team_id, external_id=owner.installation_id)
     if not has_integration:
         logger.warning(
             "Team %s has no GitHub integration for installation %s; skipping automatic review of %s",
@@ -86,10 +90,14 @@ def plan_automatic_review(
             repository.full_name,
         )
         return AutomaticDispatch(outcome="installation_mismatch", team_id=team_id)
-    author = resolve_org_github_login_to_users(team_id, [author_login]).get(author_login.strip().lower())
+    author_id = org_user_ids_by_github_login(team_id=team_id, github_logins=[author_login]).get(
+        author_login.strip().lower()
+    )
     # An inactive user cannot act: every user-scoped sandbox credential of the run would fail. So an
     # inactive author counts as unmapped, and unmapped authors follow the project's bot rule.
-    author_user_id = author.id if author is not None and is_active_member(team_id=team_id, user_id=author.id) else None
+    author_user_id = (
+        author_id if author_id is not None and is_active_member(team_id=team_id, user_id=author_id) else None
+    )
     decision = decide_automatic_review(
         team_id, repository, owner.row, author_user_id=author_user_id, author_login=author_login
     )
@@ -98,17 +106,15 @@ def plan_automatic_review(
             "bot_skipped" if decision.reason == AutomaticReviewReason.BOT_SKIPPED else "not_opted_in"
         )
         return AutomaticDispatch(outcome=outcome, team_id=team_id)
-    if decision.reason == AutomaticReviewReason.BOT_REVIEWED:
+    is_bot = decision.reason == AutomaticReviewReason.BOT_REVIEWED
+    # Before the bot branch, so a bot's drafts follow the repository too. A bot's mapped user is not its author.
+    if draft and not drafts_reviewed(team_id, owner.row, author_user_id=None if is_bot else author_user_id):
+        return AutomaticDispatch(outcome="draft_skipped", team_id=team_id)
+    if is_bot:
         run_as_user_id = connector_user_id(team_id=team_id, installation_id=owner.installation_id)
         if run_as_user_id is None:
             return AutomaticDispatch(outcome="bot_no_connector", team_id=team_id)
         return AutomaticDispatch(outcome="started", team_id=team_id, run_as_user_id=run_as_user_id)
-    if (
-        draft
-        and author_user_id is not None
-        and not ReviewUserSettings.load_preferences(team_id, author_user_id).review_drafts
-    ):
-        return AutomaticDispatch(outcome="draft_skipped", team_id=team_id)
     return AutomaticDispatch(outcome="started", team_id=team_id, run_as_user_id=author_user_id)
 
 
@@ -120,6 +126,7 @@ def automatic_flash_allowed(
     author_login: str,
     installation_id: str | None = None,
     github_repo_id: int | None = None,
+    draft: bool = False,
 ) -> bool:
     """Whether the rules still give this pull request an automatic Flash review run as `user_id`.
 
@@ -137,7 +144,7 @@ def automatic_flash_allowed(
     if owner is None or owner.team_id != team_id:
         return False
     ref = RepositoryRef(installation_id=owner.installation_id, github_repo_id=github_repo_id, full_name=repository)
-    return plan_automatic_review(ref, owner, author_login=author_login).run_as_user_id == user_id
+    return plan_automatic_review(ref, owner, author_login=author_login, draft=draft).run_as_user_id == user_id
 
 
 @frozen

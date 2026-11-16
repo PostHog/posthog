@@ -4,7 +4,7 @@ import { useState } from 'react'
 import { IconPlus } from '@posthog/icons'
 import { LemonButton, LemonInput, LemonTag } from '@posthog/lemon-ui'
 
-import { EmailTemplater } from 'scenes/hog-functions/email-templater/EmailTemplater'
+import { EmailTemplater, TemplatePickerModal } from 'scenes/hog-functions/email-templater/EmailTemplater'
 
 import { cleanVariableName } from '../emailVariables'
 import { transactionalEmailWizardLogic } from '../transactionalEmailWizardLogic'
@@ -13,6 +13,7 @@ export function ContentStep(): JSX.Element {
     const { draft, variables, panelVariables, editorGlobals } = useValues(transactionalEmailWizardLogic)
     const { updateDraft, addVariable } = useActions(transactionalEmailWizardLogic)
     const [newVariable, setNewVariable] = useState('')
+    const [templatePickerOpen, setTemplatePickerOpen] = useState(false)
     const newVariableName = cleanVariableName(newVariable)
     const submitNewVariable = (): void => {
         if (newVariableName) {
@@ -23,7 +24,17 @@ export function ContentStep(): JSX.Element {
 
     return (
         <div className="flex flex-col @min-[64rem]/main-content:flex-row gap-4 min-h-[36rem]">
-            <div className="flex flex-col flex-1 min-w-0">
+            <div className="flex flex-col flex-1 min-w-0 gap-2">
+                <div className="flex justify-end">
+                    <LemonButton
+                        type="secondary"
+                        size="small"
+                        onClick={() => setTemplatePickerOpen(true)}
+                        data-attr="transactional-email-wizard-template-picker"
+                    >
+                        Start from template
+                    </LemonButton>
+                </div>
                 <EmailTemplater
                     value={draft.email}
                     onChange={(email) => updateDraft({ email })}
@@ -31,6 +42,8 @@ export function ContentStep(): JSX.Element {
                     variables={editorGlobals}
                     layout="inline"
                 />
+                {/* The picker reads the unkeyed templater logic, so it renders after the editor to mount that logic with the editor's props. */}
+                <TemplatePickerModal isOpen={templatePickerOpen} onClose={() => setTemplatePickerOpen(false)} />
             </div>
             <div
                 className="flex flex-col gap-2 @min-[64rem]/main-content:w-64 shrink-0 border rounded p-3 self-start"

@@ -1,7 +1,7 @@
 import { useMergeRefs } from '@floating-ui/react'
 import clsx from 'clsx'
 import { useActions } from 'kea'
-import { forwardRef, memo, useEffect, useMemo, useState } from 'react'
+import { forwardRef, memo, useEffect, useMemo, useRef, useState } from 'react'
 import type { HTMLAttributes, ReactNode } from 'react'
 import { useInView } from 'react-intersection-observer'
 
@@ -18,6 +18,7 @@ import type { DashboardTile, InsightModel } from '~/types'
 import { DashboardPlacement } from '~/types'
 
 import { queueDashboardInsightMount } from './dashboardInsightMountQueue'
+import { type MountedTileHandle, trackMountedDashboardTile } from './dashboardMountedTiles'
 
 type DashboardInsightTileProps = InsightCardProps &
     Pick<HTMLAttributes<HTMLDivElement>, 'onMouseDown' | 'onMouseUp' | 'onTouchStart' | 'onTouchEnd'> & {
@@ -26,6 +27,8 @@ type DashboardInsightTileProps = InsightCardProps &
     }
 
 const MemoizedInsightCard = memo(InsightCard)
+const MOUNT_MARGIN = '500px'
+const UNMOUNT_MARGIN = '1500px'
 
 export const DashboardInsightTile = forwardRef<HTMLDivElement, DashboardInsightTileProps>(function DashboardInsightTile(
     {
@@ -52,16 +55,36 @@ export const DashboardInsightTile = forwardRef<HTMLDivElement, DashboardInsightT
     const [cardMounted, setCardMounted] = useState(false)
     const exportPlacement = cardProps.placement === DashboardPlacement.Export
     const { ref: visibilityRef, inView } = useInView({
-        rootMargin: '500px',
+        rootMargin: MOUNT_MARGIN,
         initialInView: exportPlacement,
-        skip: exportPlacement || cardMounted,
+        skip: exportPlacement,
     })
-    const mergedRefs = useMergeRefs([ref, visibilityRef])
+    // A wider band than the mount margin, so a tile at the edge does not mount and unmount on small scrolls.
+    const { ref: keepRef, inView: withinKeepBand } = useInView({
+        rootMargin: UNMOUNT_MARGIN,
+        initialInView: true,
+        skip: exportPlacement,
+    })
+    const mergedRefs = useMergeRefs([ref, visibilityRef, keepRef])
     useEffect(() => {
         if (inView && !cardMounted) {
             return queueDashboardInsightMount(() => setCardMounted(true))
         }
     }, [inView, cardMounted])
+    const mountedTileRef = useRef<MountedTileHandle | null>(null)
+    useEffect(() => {
+        if (cardMounted && !exportPlacement) {
+            const handle = trackMountedDashboardTile(() => setCardMounted(false))
+            mountedTileRef.current = handle
+            return () => {
+                handle.untrack()
+                mountedTileRef.current = null
+            }
+        }
+    }, [cardMounted, exportPlacement])
+    useEffect(() => {
+        mountedTileRef.current?.setReleasable(!withinKeepBand && !keepMountedForOverlay)
+    }, [cardMounted, withinKeepBand, keepMountedForOverlay])
     const sharedView = isSharedView()
     const tileActions = useMemo(() => {
         const refresh = (updatedInsight?: InsightModel): void => {

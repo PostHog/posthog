@@ -35,7 +35,7 @@ import structlog
 
 from posthog.dataclasses import frozen
 from posthog.egress.limiter.policies import Priority
-from posthog.ownership.github_files import GitHubFilesFetcher
+from posthog.ownership.github_files import GitHubFilesFetcher, is_absent
 
 from products.stamphog.backend.logic.github_client import StamphogGitHubClient
 
@@ -57,6 +57,8 @@ _OWNERS_SUBDIR = Path("tools") / "owners" / "owners_yaml"
 # Mirrors _FOLDER_POLICY_FILENAME in the engine's policy.py, which the backend cannot import.
 FOLDER_POLICY_FILENAME = "AGENT_APPROVALS.md"
 _FOLDER_POLICY_BUDGET_SECONDS = 10
+# post_verdict reads the manifests before it posts, so the reads share one budget well inside its timeout.
+_MANIFEST_BUDGET_SECONDS = 20
 # Well past the ancestor directories of any real PR, and small enough to stay one or two probes.
 _MAX_FOLDER_POLICY_CANDIDATES = 300
 # The files ride in run.output. A real folder file is a few hundred bytes of frontmatter and prose.
@@ -83,6 +85,18 @@ class PregateOutcome:
     result: dict | None
     # Why a non-final outcome needs the sandbox, for telemetry. Empty when final.
     not_final_reason: str = ""
+
+
+@frozen
+class GateAttestation:
+    # True only when the worker's own gate run allows the sandbox's approval to stand.
+    attested: bool
+    # The first condition that failed, or empty when attested.
+    reason: str
+    gates: list[dict]
+    # The manifests whose texts the engine needs for the scripts scan, when the reason is
+    # ``dependency_manifest``.
+    manifests: tuple[str, ...] = ()
 
 
 def pregate_skip_reason(pr: Mapping[str, object], files: list[dict], head_sha: str) -> str | None:
@@ -168,6 +182,39 @@ def fetch_folder_policy_files(
         return None
 
 
+def fetch_manifest_contents(
+    client: StamphogGitHubClient, repo: str, base_sha: str, head_sha: str, paths: tuple[str, ...]
+) -> dict[str, dict[str, str]] | None:
+    """Each manifest's text at the merge base and at the head, or None when they are unknown.
+
+    It reads git blobs over GraphQL, one batch per commit, so a symlink reads as its link text, the
+    same text `git show` gives the sandbox's scan. The contents API would follow the link instead.
+    A path absent at one commit reads as empty, as in that scan. Never raises.
+    """
+    deadline = time.monotonic() + _MANIFEST_BUDGET_SECONDS
+    try:
+        fetcher = GitHubFilesFetcher.from_token(
+            client.installation_token(),
+            installation_id=client.installation_id,
+            refresh=client.refresh_installation_token,
+            priority=Priority.NORMAL,
+        )
+        base_texts = fetcher.read_files(repo, base_sha, paths, deadline)
+        head_texts = fetcher.read_files(repo, head_sha, paths, deadline)
+    except Exception:
+        logger.warning("stamphog_manifest_fetch_failed", repo=repo, exc_info=True)
+        return None
+
+    def text(value: str) -> str:
+        return "" if is_absent(value) else value
+
+    return {
+        path: {"base": text(base_texts[path]), "head": text(head_texts[path])}
+        for path in paths
+        if path in base_texts and path in head_texts
+    }
+
+
 def engine_source_files() -> dict[str, str]:
     """The engine's Python modules and its shipped default policy files, by path under the engine directory."""
     if not ENGINE_DIR.is_dir():
@@ -244,16 +291,9 @@ def _parse_outcome(stdout: str) -> PregateOutcome:
     )
 
 
-def run_engine_pregate(
-    context: Mapping[str, object], policy_files: Mapping[str, str], *, environment: Mapping[str, str]
-) -> PregateOutcome:
-    """Run ``review_local.py --pregate`` on ``context`` under ``policy_files`` and parse its answer.
-
-    ``policy_files`` maps repo-relative paths to the effective trusted policy, the same set the
-    sandbox injects, plus any folder files from ``fetch_folder_policy_files``. ``environment`` is added to the child's otherwise empty environment: pass the
-    analytics keys only on the run whose result is posted, so the engine emits its
-    ``stamphog_review_completed`` event once.
-    """
+def _run_engine_gates_only(
+    context: Mapping[str, object], policy_files: Mapping[str, str], mode_flag: str, environment: Mapping[str, str]
+) -> str:
     with tempfile.TemporaryDirectory(prefix="stamphog-pregate-") as temp_dir:
         root = Path(temp_dir)
         _write_tree(root, policy_files)
@@ -266,7 +306,7 @@ def run_engine_pregate(
                     str(root / _ENGINE_SUBDIR / "review_local.py"),
                     "--context",
                     str(context_path),
-                    "--pregate",
+                    mode_flag,
                 ],
                 cwd=root,
                 env=_child_environment(root, environment),
@@ -276,8 +316,44 @@ def run_engine_pregate(
                 check=False,
             )
         except subprocess.TimeoutExpired as exc:
-            raise EnginePregateError("the engine pre-check timed out") from exc
+            raise EnginePregateError(f"the engine {mode_flag} run timed out") from exc
     if completed.returncode != 0:
         # Only the exit code: stderr can quote the PR title or file names, and callers log this text.
-        raise EnginePregateError(f"the engine pre-check exited with code {completed.returncode}")
-    return _parse_outcome(completed.stdout)
+        raise EnginePregateError(f"the engine {mode_flag} run exited with code {completed.returncode}")
+    return completed.stdout
+
+
+def run_engine_pregate(
+    context: Mapping[str, object], policy_files: Mapping[str, str], *, environment: Mapping[str, str]
+) -> PregateOutcome:
+    """Run ``review_local.py --pregate`` on ``context`` under ``policy_files`` and parse its answer.
+
+    ``policy_files`` maps repo-relative paths to the effective trusted policy, the same set the
+    sandbox injects, plus any folder files from ``fetch_folder_policy_files``. ``environment`` is added to the child's otherwise empty environment: pass the
+    analytics keys only on the run whose result is posted, so the engine emits its
+    ``stamphog_review_completed`` event once.
+    """
+    return _parse_outcome(_run_engine_gates_only(context, policy_files, "--pregate", environment))
+
+
+def run_engine_attest(context: Mapping[str, object], policy_files: Mapping[str, str]) -> GateAttestation:
+    """Run ``review_local.py --attest`` on ``context`` under ``policy_files`` and parse its answer.
+
+    It takes the same inputs as ``run_engine_pregate``. It emits no analytics event.
+    """
+    stdout = _run_engine_gates_only(context, policy_files, "--attest", {})
+    lines = [line for line in stdout.splitlines() if line.strip()]
+    try:
+        parsed = json.loads(lines[-1]) if lines else None
+    except json.JSONDecodeError as exc:
+        raise EnginePregateError("the engine attestation printed no JSON result") from exc
+    if not isinstance(parsed, dict):
+        raise EnginePregateError("the engine attestation result is not an object")
+    gates = parsed.get("gates")
+    manifests = parsed.get("manifests")
+    return GateAttestation(
+        attested=parsed.get("attested") is True,
+        reason=str(parsed.get("reason") or ""),
+        gates=[gate for gate in gates if isinstance(gate, dict)] if isinstance(gates, list) else [],
+        manifests=tuple(str(path) for path in manifests) if isinstance(manifests, list) else (),
+    )

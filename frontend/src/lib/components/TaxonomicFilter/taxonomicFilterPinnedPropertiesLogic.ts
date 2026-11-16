@@ -3,6 +3,7 @@ import posthog from 'posthog-js'
 
 import { getAppContext } from 'lib/utils/getAppContext'
 import { permanentlyMount } from 'lib/utils/kea-logic-builders'
+import { onFullStageTeamFieldsApplied } from 'scenes/fullStageAppContext'
 
 import { META_GROUP_TYPES, TaxonomicDefinitionTypes, TaxonomicFilterGroupType, TaxonomicFilterValue } from './types'
 
@@ -266,7 +267,7 @@ export const taxonomicFilterPinnedPropertiesLogic = kea<taxonomicFilterPinnedPro
             })
         },
     })),
-    events(({ actions, values }) => ({
+    events(({ actions, values, cache }) => ({
         afterMount: () => {
             if (typeof window === 'undefined') {
                 return
@@ -334,6 +335,9 @@ export const taxonomicFilterPinnedPropertiesLogic = kea<taxonomicFilterPinnedPro
 
             migrateOldQuickFilters()
             seedDefaultPinnedFilters()
+            cache.disposables.add(() => onFullStageTeamFieldsApplied(seedDefaultPinnedFilters), 'fullStageSeed', {
+                pauseOnPageHidden: false,
+            })
         },
     })),
     permanentlyMount(),

@@ -10,17 +10,22 @@ import {
     FIXTURE_GENERATION_INPUT,
     FIXTURE_GENERATION_OUTPUT,
     FIXTURE_GENERATION_PROPERTIES,
+    FIXTURE_LONG_AGENT_INPUT,
+    FIXTURE_LONG_AGENT_OUTPUT,
+    FIXTURE_LONG_ANSWER_MESSAGE,
     FIXTURE_SPAN_PROPERTIES,
+    FIXTURE_STEP_FEEDBACK,
     FIXTURE_TREE,
+    withStepScroller,
     withWidth,
 } from '../storyFixtures'
-import { NodeDetailTab } from '../types'
+import { MessagesOpening, NodeDetailTab } from '../types'
 import { NodeDetail, NodeDetailProps } from './NodeDetail'
 
 const generation = FIXTURE_TREE[0].children[1]
 const span = FIXTURE_TREE[0].children[0]
 
-const base: Omit<NodeDetailProps, 'tab' | 'onTabChange'> = {
+const base: Omit<NodeDetailProps, 'tab' | 'onTabChange' | 'messagesOpening' | 'onMessagesOpeningChange'> = {
     node: generation,
     content: { kind: 'messages', input: FIXTURE_GENERATION_INPUT, output: FIXTURE_GENERATION_OUTPUT },
     error: null,
@@ -33,9 +38,22 @@ const base: Omit<NodeDetailProps, 'tab' | 'onTabChange'> = {
 
 const failedGeneration = langchainCerebrasImageError.tree[0].children[0].children[0]
 
-function Stateful(props: Omit<NodeDetailProps, 'tab' | 'onTabChange'> & { initialTab?: NodeDetailTab }): JSX.Element {
+function Stateful(
+    props: Omit<NodeDetailProps, 'tab' | 'onTabChange' | 'messagesOpening' | 'onMessagesOpeningChange'> & {
+        initialTab?: NodeDetailTab
+    }
+): JSX.Element {
     const [tab, setTab] = useState<NodeDetailTab>(props.initialTab ?? 'messages')
-    return <NodeDetail {...props} tab={tab} onTabChange={setTab} />
+    const [opening, setOpening] = useState<MessagesOpening>('lastTurn')
+    return (
+        <NodeDetail
+            {...props}
+            tab={tab}
+            onTabChange={setTab}
+            messagesOpening={opening}
+            onMessagesOpeningChange={setOpening}
+        />
+    )
 }
 
 const meta: Meta<typeof Stateful> = {
@@ -76,8 +94,8 @@ export const ContentNotFound: Story = {
         },
     },
 }
-export const RawTabWhileLoading: Story = {
-    args: { ...base, content: { kind: 'loading' }, initialTab: 'raw' },
+export const DetailsTabWhileLoading: Story = {
+    args: { ...base, content: { kind: 'loading' }, initialTab: 'details' },
     parameters: { testOptions: { waitForLoadersToDisappear: false } },
 }
 export const WithError: Story = {
@@ -96,6 +114,13 @@ export const EvalsLoadError: Story = {
         initialTab: 'evals',
         evals: { status: 'error', errorMessage: 'Evaluation results could not be loaded. Try again later.' },
     },
+}
+export const LongConversation: Story = {
+    args: {
+        ...base,
+        content: { kind: 'messages', input: FIXTURE_LONG_AGENT_INPUT, output: FIXTURE_LONG_AGENT_OUTPUT },
+    },
+    decorators: [withStepScroller],
 }
 export const Narrow: Story = { args: base, decorators: [withWidth(520)] }
 export const NarrowWithActions: Story = {
@@ -117,4 +142,16 @@ export const FailedGenerationWithImage: Story = {
         onViewInThread: () => {},
         onSelectNode: () => {},
     },
+}
+export const WithFeedback: Story = {
+    args: { ...base, stepFeedback: { feedback: FIXTURE_STEP_FEEDBACK, onOpen: () => {} } },
+    decorators: [withWidth(520)],
+}
+export const LongMessage: Story = {
+    args: {
+        ...base,
+        content: { kind: 'messages', input: FIXTURE_GENERATION_INPUT, output: [FIXTURE_LONG_ANSWER_MESSAGE] },
+    },
+    decorators: [withStepScroller],
+    parameters: { testOptions: { snapshotBrowsers: [] } },
 }

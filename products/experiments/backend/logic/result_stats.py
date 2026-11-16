@@ -14,6 +14,7 @@ from posthog.schema import (
 from posthog.dataclasses import frozen
 
 StatsMethod = Literal["bayesian", "frequentist"]
+VariantResult = ExperimentVariantResultBayesian | ExperimentVariantResultFrequentist
 
 _INTERVAL_KEYS = ("credible_interval", "confidence_interval")
 
@@ -121,7 +122,7 @@ class VariantStats:
     significant: bool | None
 
     @classmethod
-    def from_schema(cls, variant: ExperimentVariantResultBayesian | ExperimentVariantResultFrequentist) -> Self:
+    def from_schema(cls, variant: VariantResult) -> Self:
         chance_to_win: float | None = None
         p_value: float | None = None
         if isinstance(variant, ExperimentVariantResultBayesian):
