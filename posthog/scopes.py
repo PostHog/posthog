@@ -470,8 +470,6 @@ OIDC_SCOPES: tuple[str, ...] = ("openid", "profile", "email")
 # `OAuthValidator._ALWAYS_ALLOWED_SCOPES` in `posthog/api/oauth/views.py`.
 ALWAYS_ALLOWED_SCOPES: frozenset[str] = frozenset(OIDC_SCOPES) | {"introspection"}
 
-# Registers an OAuth client's ID-JAG issuer as trusted for one organization. See
-# `posthog/api/oauth/ema_issuer.py` for the flow and the checks.
 EMA_ISSUER_MANAGE_SCOPE = "ema_issuer:manage"
 
 
@@ -503,19 +501,11 @@ def _build_oauth_scopes_supported() -> tuple[str, ...]:
 # injection.
 OAUTH_SCOPES_SUPPORTED: tuple[str, ...] = _build_oauth_scopes_supported()
 
-# Scopes that only the authorization server metadata lists. A client that offers the matching
-# feature looks for the scope there before it shows the feature, and only applications that PostHog
-# staff marked can be granted it.
-#
-# The protected resource metadata and the `WWW-Authenticate` challenge never list these. MCP clients
-# request every scope those name, so every MCP sign-in would ask for a scope that almost no app can
-# get. Generic OAuth clients can still copy the authorization server's whole list into `/authorize`,
-# so the authorization server starts one of these flows only when the scope comes alone or with
-# identity scopes (see `requests_ema_issuer`). Mixed with resource scopes, it is dropped like any
-# other scope outside the app's ceiling.
+# Clients look for these in the authorization server metadata before they offer the matching
+# feature. They must stay out of the protected resource metadata and `WWW-Authenticate`, because MCP
+# clients request every scope listed there. `authorization_server_metadata()` explains the rest.
 AUTHORIZATION_SERVER_ONLY_SCOPES: tuple[str, ...] = (EMA_ISSUER_MANAGE_SCOPE,)
 
-# `scopes_supported` in the RFC 8414 authorization server metadata.
 AUTHORIZATION_SERVER_SCOPES_SUPPORTED: tuple[str, ...] = (*OAUTH_SCOPES_SUPPORTED, *AUTHORIZATION_SERVER_ONLY_SCOPES)
 
 
