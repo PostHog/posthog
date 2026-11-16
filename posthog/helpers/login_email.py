@@ -43,3 +43,18 @@ class LoginEmailChange:
             IdJagIdentity.objects.filter(
                 user=self.user, identity_provider_config__organization_id=old_domain.organization_id
             ).delete()
+
+    @staticmethod
+    def remove_saml_links_keyed_by(user: User, email: str) -> None:
+        """Deletes the user's SAML links whose ID at the identity provider is this email.
+
+        For a rename by the identity provider itself. A link with an ID that is not this email is still
+        correct after the rename, so it stays. A link keyed by the old email would give the account to
+        whoever the provider gives that address to next. The next sign-in links the account again by
+        its new email.
+        """
+        links = UserSocialAuth.objects.filter(user=user, provider="saml")
+        # The stored ID is "<identity provider>:<ID from the provider>".
+        stale = [link.pk for link in links if link.uid.partition(":")[2].lower() == email.lower()]
+        if stale:
+            UserSocialAuth.objects.filter(pk__in=stale).delete()
