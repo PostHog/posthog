@@ -1,10 +1,11 @@
 import time_machine
+from unittest import mock
 
 from products.warehouse_sources.sources.amplitude._config import AmplitudeSourceConfig
 from products.warehouse_sources.sources.amplitude.amplitude import AMPLITUDE_INVALID_ARCHIVE_ERROR
 from products.warehouse_sources.sources.amplitude.settings import EVENTS_ENDPOINT
-from products.warehouse_sources.sources.amplitude.source import AmplitudeSource
-from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always
+from products.warehouse_sources.sources.amplitude.source import AMPLITUDE_SLOW_RESPONSE_MESSAGE, AmplitudeSource
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, error_message_matches
 
 
 class TestAmplitudeSource:
@@ -30,11 +31,18 @@ class TestAmplitudeSource:
         error_message = f"{AMPLITUDE_INVALID_ARCHIVE_ERROR}: url=https://amplitude.com/api/2/export?start=20260101T00&end=20260101T23"
         assert any(pattern in error_message for pattern in self.source.get_retryable_errors())
 
-    def test_exhausted_read_timeout_is_classified_retryable(self) -> None:
-        error_message = (
-            "HTTPSConnectionPool(host='amplitude.com', port=443): Max retries exceeded with url: "
-            "/api/2/export?start=20260101T00&end=20260101T23 (Caused by ReadTimeoutError("
-            "\"HTTPSConnectionPool(host='amplitude.com', port=443): Read timed out. (read timeout=299.99)\"))"
-        )
-        assert any(pattern in error_message for pattern in self.source.get_retryable_errors())
-        assert not any(pattern in error_message for pattern in self.source.get_non_retryable_errors())
+    def test_exhausted_read_timeout_stays_retryable_with_slow_response_copy(self) -> None:
+        with mock.patch("tenacity.nap.time.sleep"):
+            result = SourceDriver(self.source, self.config).run(
+                EVENTS_ENDPOINT, always(TimeoutError("timed out")), should_use_incremental_field=False
+            )
+
+        error_message = str(result.raised)
+        assert error_message_matches(error_message, self.source.get_retryable_errors())
+        assert not error_message_matches(error_message, self.source.get_non_retryable_errors().keys())
+        messages = [
+            message
+            for pattern, message in self.source.get_retry_exhausted_errors().items()
+            if error_message_matches(error_message, [pattern])
+        ]
+        assert messages == [AMPLITUDE_SLOW_RESPONSE_MESSAGE]

@@ -37,7 +37,10 @@ from products.experiments.backend.health.checks.early_significance import (
     early_significance_rows,
     early_significance_values,
 )
-from products.experiments.backend.health.checks.exposure_criteria import exposure_criteria_cannot_match
+from products.experiments.backend.health.checks.exposure_criteria import (
+    exposure_criteria_cannot_match,
+    exposure_criteria_values,
+)
 from products.experiments.backend.health.checks.exposure_filters import exposure_filters
 from products.experiments.backend.health.checks.filtered_exposures import (
     KEPT_SHARE_THRESHOLD,
@@ -47,7 +50,7 @@ from products.experiments.backend.health.checks.filtered_exposures import (
 )
 from products.experiments.backend.health.checks.flag_change_findings import flag_history_not_readable
 from products.experiments.backend.health.checks.flag_state import flag_state, flag_state_values
-from products.experiments.backend.health.checks.flag_variants import flag_variants_mismatch
+from products.experiments.backend.health.checks.flag_variants import flag_variants_mismatch, flag_variants_values
 from products.experiments.backend.health.checks.forced_variant import (
     forced_variant_release_condition,
     forced_variant_rows,
@@ -58,8 +61,14 @@ from products.experiments.backend.health.checks.metric_calculation_failed import
     metric_calculation_failed,
     metric_calculation_values,
 )
-from products.experiments.backend.health.checks.metric_cannot_compile import metric_cannot_compile
-from products.experiments.backend.health.checks.metric_event_not_ingested import metric_event_not_ingested
+from products.experiments.backend.health.checks.metric_cannot_compile import (
+    metric_cannot_compile,
+    metric_compile_values,
+)
+from products.experiments.backend.health.checks.metric_event_not_ingested import (
+    metric_event_not_ingested,
+    metric_event_rows,
+)
 from products.experiments.backend.health.checks.metrics_not_matured import (
     metrics_not_matured,
     metrics_not_matured_values,
@@ -75,7 +84,7 @@ from products.experiments.backend.health.checks.new_flag_no_traffic import (
     new_flag_no_traffic_values,
 )
 from products.experiments.backend.health.checks.no_metric import no_metric
-from products.experiments.backend.health.checks.shared_flag import flag_shared
+from products.experiments.backend.health.checks.shared_flag import flag_shared, flag_shared_values
 from products.experiments.backend.health.checks.split_changed import split_changed_mid_run, split_changed_rows
 from products.experiments.backend.health.checks.srm import (
     SAMPLE_RATIO_MISMATCH_P_VALUE,
@@ -132,6 +141,7 @@ EXPERIMENT_HEALTH_CHECKS: tuple[HealthCheck, ...] = (
             "the same users."
         ),
         run=flag_shared,
+        read=flag_shared_values,
     ),
     HealthCheck(
         key=ExperimentHealthCheckKey.FLAG_HISTORY,
@@ -182,6 +192,7 @@ EXPERIMENT_HEALTH_CHECKS: tuple[HealthCheck, ...] = (
             "can't assign users to the variants or compare the variants with the baseline."
         ),
         run=flag_variants_mismatch,
+        read=flag_variants_values,
     ),
     HealthCheck(
         key=ExperimentHealthCheckKey.FORCED_VARIANT_RELEASE_CONDITION,
@@ -221,6 +232,7 @@ EXPERIMENT_HEALTH_CHECKS: tuple[HealthCheck, ...] = (
             "stays at zero, so it can't show a difference between the variants."
         ),
         run=metric_event_not_ingested,
+        read_rows=metric_event_rows,
     ),
     HealthCheck(
         key=ExperimentHealthCheckKey.METRIC_CANNOT_COMPILE,
@@ -230,6 +242,7 @@ EXPERIMENT_HEALTH_CHECKS: tuple[HealthCheck, ...] = (
             "metric shows no results until you fix it."
         ),
         run=metric_cannot_compile,
+        read=metric_compile_values,
     ),
     HealthCheck(
         key=ExperimentHealthCheckKey.METRIC_CALCULATION_FAILED,
@@ -259,6 +272,7 @@ EXPERIMENT_HEALTH_CHECKS: tuple[HealthCheck, ...] = (
             "exposure event. Criteria that no event matches leave the experiment without exposed users."
         ),
         run=exposure_criteria_cannot_match,
+        read=exposure_criteria_values,
     ),
     HealthCheck(
         key=ExperimentHealthCheckKey.EXPOSURE_FILTERS,

@@ -242,6 +242,10 @@ class GoogleAnalyticsSource(ResumableSource[GoogleAnalyticsSourceConfig, GoogleA
             "Connection reset by peer",
             "Max retries exceeded with url",
             "Read timed out",
+            # `_run_report` already retries a 409 inline as Google's ABORTED concurrency conflict
+            # (see `_is_retryable_server_error`); if it's still 409 once that budget is spent, the
+            # conflict is still clearing on Google's end, so let Temporal retry the activity too.
+            "409 Client Error",
         }
 
     def get_schemas(

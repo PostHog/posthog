@@ -3,6 +3,7 @@ import json
 import math
 import time
 import uuid
+import dataclasses
 from collections.abc import Callable, Iterable, Sequence
 from contextlib import ExitStack
 from datetime import UTC, datetime, timedelta
@@ -165,7 +166,11 @@ from products.signals.backend.models import (
     SignalUserAutonomyConfig,
 )
 from products.signals.backend.personal_ranking.config import PERSONAL_INBOX_RANKING_FLAG
-from products.signals.backend.personal_ranking.list_sort import PersonalListOrder, personal_list_order
+from products.signals.backend.personal_ranking.list_sort import (
+    PersonalListOrder,
+    personal_list_order,
+    personal_ranking_status,
+)
 from products.signals.backend.personal_ranking.serve import serve_personal_ranking
 from products.signals.backend.pr_ci_status import pr_ci_statuses_for_references, rollup_ci_status
 from products.signals.backend.presentation.scout_permissions import ScoutCanonicalTeamAccessPermission
@@ -1532,6 +1537,50 @@ class SignalReportListPagination(FacadeLimitOffsetPagination):
                 "ranking_id on later pages, so a new ranking does not reorder them. Null when no personal "
                 "ranking applied, and for every other sort."
             ),
+        }
+        paginated["properties"]["personal_ranking_status"] = {
+            "type": "object",
+            "nullable": True,
+            "description": (
+                "Your own stored personal ranking, for every sort and also with scope=teammate. Read on the first "
+                "page only, and never starts a build. Null on later pages and when personal ranking is off for you."
+            ),
+            "properties": {
+                "state": {
+                    "type": "string",
+                    "enum": ["real", "one_report", "not_personalized", "empty", "fallback", "none"],
+                    "description": (
+                        "real: the model personalized 2 or more reports, so the ranking can reorder the list. "
+                        "one_report: it personalized a single report. not_personalized: the build finished "
+                        "without personalizing. empty: the build had no reports to rank. fallback: the build "
+                        "kept the default order, see fallback_reason. none: no ranking is stored."
+                    ),
+                },
+                "size": {
+                    "type": "integer",
+                    "nullable": True,
+                    "description": "Reports in the stored ranking. Null when state is none.",
+                },
+                "age_minutes": {
+                    "type": "integer",
+                    "nullable": True,
+                    "description": "Minutes since the ranking was built. Null when state is none.",
+                },
+                "checked_age_minutes": {
+                    "type": "integer",
+                    "nullable": True,
+                    "description": (
+                        "Minutes since a build or the scheduled check last confirmed the ranking's inputs. "
+                        "Null when state is none."
+                    ),
+                },
+                "fallback_reason": {
+                    "type": "string",
+                    "nullable": True,
+                    "description": "Why the build kept the default order, when state is fallback. Else null.",
+                },
+            },
+            "required": ["state", "size", "age_minutes", "checked_age_minutes", "fallback_reason"],
         }
         paginated["properties"]["count_is_capped"] = {
             "type": "boolean",
@@ -3042,6 +3091,19 @@ class SignalReportViewSet(
             return self._own_personal_order
         return personal_list_order(self.team, owner, request.query_params.get("ranking_id"))
 
+    def _personal_ranking_status(self) -> dict[str, object] | None:
+        """The caller's own stored ranking, also when `scope=teammate` orders the page by a teammate's."""
+        request = self.request
+        user = request.user
+        if (
+            is_service_auth(request)
+            or not isinstance(user, User)
+            or not user_flag_enabled(PERSONAL_INBOX_RANKING_FLAG, user, self.team)
+        ):
+            return None
+        status = personal_ranking_status(self.team, user, timezone.now())
+        return dataclasses.asdict(status) if status is not None else None
+
     def _personal_ranking_owner(self, user: User) -> User | None:
         """Whose stored ranking `sort=personal` reads: the teammate `scope=teammate` names, else the caller."""
         params = self.request.query_params
@@ -3526,6 +3588,10 @@ class SignalReportViewSet(
                 self._recommended_arm.ranking_pill if self._recommended_arm is not None else None
             )
             response.data["ranking_id"] = self._personal_order.ranking_id if self._personal_order is not None else None
+            # Later pages skip the read: the client records the status of the first page only.
+            response.data["personal_ranking_status"] = (
+                self._personal_ranking_status() if getattr(self.paginator, "offset", None) == 0 else None
+            )
             return response
         return Response(data)
 

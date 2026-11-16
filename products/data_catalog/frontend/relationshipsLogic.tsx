@@ -15,6 +15,7 @@ import { viewLinkLogic } from 'products/data_warehouse/frontend/shared/logics/vi
 import { itemsOnPage, pageCountFor } from './catalogPagination'
 import { ColumnSort, SortValueGetters, nextColumnSort, sortByColumn } from './catalogSort'
 import { PROPOSED_TABLES_FILTER, TABLES_FILTER_PARAM } from './catalogTableRows'
+import { refreshDataCatalogAttention } from './dataCatalogAttentionLogic'
 import {
     dataCatalogRelationshipProposalsCreate,
     dataCatalogRelationshipProposalsAcceptCreate,
@@ -461,6 +462,7 @@ export const relationshipsLogic = kea<relationshipsLogicType>([
         ],
     }),
     listeners(({ values, actions }) => ({
+        loadPendingCountSuccess: () => refreshDataCatalogAttention(),
         setFilters: ({ filters }) => {
             const { table, ...search } = router.values.searchParams
             if (typeof table === 'string' && filters.search !== undefined && filters.search !== table) {

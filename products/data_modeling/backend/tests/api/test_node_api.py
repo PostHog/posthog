@@ -436,6 +436,34 @@ class TestNodeViewSet(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertEqual(self.client.get(detail).json()["suspended"], {})
 
+    def _view_node(self, name: str, *job_statuses: str) -> Node:
+        saved_query = DataWarehouseSavedQuery.objects.create(
+            name=name, team=self.team, query={"query": "SELECT 1", "kind": "HogQLQuery"}
+        )
+        for minutes_ago, job_status in enumerate(reversed(job_statuses)):
+            DataModelingJob.objects.create(
+                team=self.team,
+                saved_query=saved_query,
+                status=job_status,
+                engine=DataModelingJobEngine.CLICKHOUSE,
+                last_run_at=timezone.now() - timedelta(minutes=minutes_ago),
+            )
+        return Node.objects.create(team=self.team, dag=self.dag, saved_query=saved_query, type=NodeType.VIEW)
+
+    def test_attention_count_counts_failed_and_suspended_models_once(self):
+        self._view_node("failing", DataModelingJob.Status.COMPLETED, DataModelingJob.Status.FAILED)
+        self._view_node("recovered", DataModelingJob.Status.FAILED, DataModelingJob.Status.COMPLETED)
+        self._suspend(self._view_node("failing_and_suspended", DataModelingJob.Status.FAILED))
+        self._suspend(self._view_node("suspended"))
+        legacy = self._view_node("legacy_failure")
+        legacy.properties = {"system": {"last_run_status": "Failed"}}
+        legacy.save(update_fields=["properties"])
+
+        response = self.client.get(f"/api/projects/{self.team.id}/data_modeling_nodes/attention_count/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.json(), {"count": 4})
+
     @patch("products.data_modeling.backend.logic.node_materialization.sync_connect")
     def test_run_resumes_every_node_it_was_asked_to_run(self, mock_sync_connect):
         # A suspended node is skipped by ExecuteDAGWorkflow, so without this the button is a no-op.

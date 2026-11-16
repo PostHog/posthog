@@ -21,7 +21,7 @@ const YC_DEAL_BOOKFACE = 'https://bookface.ycombinator.com/deals/687'
  * tokens inside the page's quill subtree - see styles/quill-bridge.scss.
  */
 export function StartupProgramForm(): JSX.Element {
-    const { startupProgram, isYC, ycBatchOptions } = useValues(startupProgramLogic)
+    const { startupProgram, isYC, isReferralProgram, ycBatchOptions } = useValues(startupProgramLogic)
     const { setStartupProgramValue } = useActions(startupProgramLogic)
 
     const { setFilesToUpload, filesToUpload, uploading } = useUploadFiles({
@@ -84,6 +84,16 @@ export function StartupProgramForm(): JSX.Element {
                                 selectionPeriod="past"
                             />
                         </LemonField>
+
+                        {!isReferralProgram && (
+                            <LemonField
+                                name="referrer"
+                                label="How did you hear about PostHog for Startups?"
+                                help="For example, an investor, a friend, or a Google search?"
+                            >
+                                <LemonInput placeholder="Where you found us" className="bg-bg-light" />
+                            </LemonField>
+                        )}
                     </>
                 )}
 

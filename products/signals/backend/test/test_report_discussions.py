@@ -10,6 +10,7 @@ from django.utils import timezone
 from parameterized import parameterized
 from rest_framework import status
 
+from posthog.models.integration import Integration
 from posthog.models.organization import Organization
 from posthog.models.team.team import Team
 from posthog.models.user import User
@@ -23,6 +24,8 @@ from products.signals.backend.task_run_artefacts import (
     append_task_run_artefact,
 )
 from products.signals.backend.test.test_scout_harness_api import _authenticate_as_scout, _make_run
+from products.slack_app.backend.models import SlackThreadTaskMapping
+from products.tasks.backend.facade.api import link_slack_task_to_report
 from products.tasks.backend.models import Channel, Task, TaskRun
 
 
@@ -82,7 +85,8 @@ class TestScoutReportDiscussionsAPI(APIBaseTest):
         assert set(rows) == {str(authored_task.id), str(edited_task.id)}
         assert rows[str(authored_task.id)]["involvement"] == "authored"
         assert rows[str(authored_task.id)]["task_summary"] == "Intended behavior."
-        assert "question" not in rows[str(authored_task.id)]
+        assert rows[str(authored_task.id)]["source"] == "inbox"
+        assert rows[str(authored_task.id)]["question"] is None
         assert rows[str(edited_task.id)]["involvement"] == "edited"
 
     @parameterized.expand(
@@ -95,9 +99,8 @@ class TestScoutReportDiscussionsAPI(APIBaseTest):
                 False,
                 None,
             ),
-            # Any member can drive a null-channel discussion task, so its summary may not be the creator's.
-            ("team_controlled_task", {"task_summary": "Anyone could write this."}, False, False, None),
-            ("creator_cannot_steer_scouts", {"task_summary": "From an outsider."}, True, True, None),
+            ("channel_less_task", {"task_summary": "Intended behavior."}, False, False, "Intended behavior."),
+            ("creator_cannot_steer_scouts", {"task_summary": "From an outsider."}, False, True, None),
         ]
     )
     def test_summary_is_returned_only_when_safe(
@@ -114,6 +117,63 @@ class TestScoutReportDiscussionsAPI(APIBaseTest):
 
         assert row["task_id"] == str(task.id)
         assert row["task_summary"] == expected
+
+    @parameterized.expand(
+        [
+            ("public_channel", SlackThreadTaskMapping.ConversationType.PUBLIC_CHANNEL, False, True),
+            ("private_channel", SlackThreadTaskMapping.ConversationType.PRIVATE_CHANNEL, False, False),
+            ("direct_message", SlackThreadTaskMapping.ConversationType.IM, False, False),
+            ("group_direct_message", SlackThreadTaskMapping.ConversationType.MPIM, False, False),
+            ("unclassified_thread", None, False, False),
+            ("lookup_failed", SlackThreadTaskMapping.ConversationType.UNKNOWN, False, False),
+            ("creator_cannot_steer_scouts", SlackThreadTaskMapping.ConversationType.PUBLIC_CHANNEL, True, True),
+        ]
+    )
+    def test_slack_discussion_is_returned_only_from_a_public_channel(
+        self, _name: str, conversation_type: str | None, outsider: bool, returned: bool
+    ) -> None:
+        creator = (
+            User.objects.create_and_join(Organization.objects.create(name="Elsewhere"), "outsider@example.com", None)
+            if outsider
+            else self.user
+        )
+        task = Task.objects.create(
+            team=self.team,
+            title="Is this expected?",
+            description="Rewritten through the tasks API after the thread linked it.",
+            origin_product=Task.OriginProduct.SLACK,
+            created_by=creator,
+            channel=self.channel,
+        )
+        task_run = TaskRun.objects.create(task=task, team=self.team, state={"task_summary": "Intended behavior."})
+        SlackThreadTaskMapping.objects.create(
+            team=self.team,
+            integration=Integration.objects.create(team=self.team, kind="slack", integration_id="T_SLACK", config={}),
+            slack_workspace_id="T_SLACK",
+            channel="C001",
+            thread_ts="1234.5678",
+            task=task,
+            task_run=task_run,
+            mentioning_slack_user_id="U_MENTIONER",
+            conversation_type=conversation_type,
+        )
+        link_slack_task_to_report(
+            team_id=self.team.id,
+            task_id=str(task.id),
+            report_id=str(self.authored.id),
+            user_id=creator.id,
+            question="Is this expected?",
+        )
+
+        rows = self._list()
+
+        if not returned:
+            assert rows == []
+            return
+        [row] = rows
+        assert row["source"] == "slack"
+        assert row["task_summary"] == (None if outsider else "Intended behavior.")
+        assert row["question"] == (None if outsider else "Is this expected?")
 
     def test_since_keeps_a_discussion_that_concluded_after_it(self) -> None:
         three_days_ago = timezone.now() - timedelta(days=3)

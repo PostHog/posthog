@@ -15,7 +15,8 @@ function renderCell(cell: HealthRowCell | undefined): JSX.Element | null {
     if ('time' in cell) {
         return <TZLabel time={cell.time} formatDate="MMMM D, YYYY" formatTime="h:mm A" />
     }
-    return <span className="tabular-nums">{cell.text}</span>
+    // A release condition change lists one condition set per line.
+    return <span className="tabular-nums whitespace-pre-line">{cell.text}</span>
 }
 
 export function HealthCheckRowsTable({ table }: { table: HealthRowsTable }): JSX.Element {

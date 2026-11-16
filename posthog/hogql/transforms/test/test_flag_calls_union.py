@@ -1,4 +1,5 @@
 import re
+import sys
 import json
 import uuid
 from datetime import UTC, datetime, timedelta
@@ -36,11 +37,13 @@ from posthog.hogql.database.models import DatabaseField, FieldTraverser, LazyJoi
 from posthog.hogql.database.schema.flag_evaluations import FLAG_EVALUATIONS_COMPLETE_DAYS
 from posthog.hogql.database.schema.util.where_clause_extractor import is_nondeterministic_function
 from posthog.hogql.errors import QueryError
+from posthog.hogql.flag_called_warnings import count_flag_calls_read_from_events
 from posthog.hogql.functions.mapping import HOGQL_CLICKHOUSE_FUNCTIONS
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import prepare_and_print_ast
 from posthog.hogql.query import HogQLQueryExecutor, execute_hogql_query
 from posthog.hogql.test.test_prompt_jev import gateway_response
+from posthog.hogql.transforms.flag_calls_from_flag_evaluations import EventsOnlyNames, swaps_flag_calls
 from posthog.hogql.transforms.flag_calls_union import rename_flag_call_scans_to_union
 from posthog.hogql.visitor import TraversingVisitor, clone_expr
 
@@ -221,6 +224,19 @@ def _long_with() -> ast.SelectQuery:
         f"c{n}": ast.CTE(name=f"c{n}", expr=ast.Constant(value=name), cte_type="column") for n, name in enumerate(names)
     }
     return select
+
+
+def _scan_of_events_in(events: list[str] | tuple[str, ...]) -> ast.SelectQuery:
+    events_match = ast.CompareOperation(
+        op=ast.CompareOperationOp.In, left=ast.Field(chain=["event"]), right=ast.Constant(value=events)
+    )
+    return cast(
+        ast.SelectQuery,
+        parse_select(
+            "SELECT count() FROM events WHERE timestamp > now() - INTERVAL 1 DAY AND {events_match}",
+            placeholders={"events_match": events_match},
+        ),
+    )
 
 
 def _set_mode(organization, mode: FlagEvaluationsMode) -> None:
@@ -1058,6 +1074,83 @@ class TestReadFlagCallsWithUnion(BaseTest):
         assert "UNION ALL" not in sql
         assert "flag_evaluations AS " in sql
 
+    @parameterized.expand(
+        [
+            ("mixed_list", ["$feature_flag_called", "$experiment_exposure"], True, "UNION ALL"),
+            ("mixed_tuple", ("$pageview", "$feature_flag_called"), True, "UNION ALL"),
+            ("flag_call_list", ["$feature_flag_called"], False, "FROM flag_evaluations AS events"),
+        ]
+    )
+    def test_mode_2_reads_flag_calls_that_a_query_builder_names_in_one_list_constant(
+        self, _name: str, events: list[str] | tuple[str, ...], union: bool, expected: str
+    ):
+        sql = self._sql(_scan_of_events_in(events), mode=ONLY, union=union)
+
+        assert expected in sql
+
+    @parameterized.expand([("legacy", False), ("native", True)])
+    def test_mode_2_reads_events_only_names_without_the_union_or_the_swap(self, _name: str, native: bool):
+        names = ["$feature_flag_called", "$experiment_exposure"]
+
+        plain = self._sql(_scan_of_events_in(names), mode=ONLY, new_events_schema=native)
+        events_only = self._sql(_scan_of_events_in(EventsOnlyNames(names)), mode=ONLY, new_events_schema=native)
+
+        assert "UNION ALL" in plain
+        assert "UNION ALL" not in events_only
+        assert "flag_evaluations" not in events_only
+
+    @parameterized.expand(
+        [
+            ("mode_0", EVENTS, False),
+            ("mode_0_native", EVENTS, True),
+            ("mode_1", READ, False),
+            ("mode_1_native", READ, True),
+        ]
+    )
+    def test_events_only_names_print_what_a_query_without_the_swap_prints_on_modes_0_and_1(
+        self, _name: str, mode: FlagEvaluationsMode, native: bool
+    ):
+        names = ["$feature_flag_called", "$experiment_exposure"]
+
+        sql = self._sql(_scan_of_events_in(EventsOnlyNames(names)), mode=mode, new_events_schema=native)
+
+        assert sql == self._sql(
+            _scan_of_events_in(names), mode=mode, new_events_schema=native, rewrite_flag_calls=False
+        )
+
+    def test_swaps_flag_calls_when_a_list_constant_names_them(self):
+        _set_mode(self.organization, ONLY)
+        with _enabled_flags(union=False), _flag_evaluations_table_in_catalog():
+            context = HogQLContext(team_id=self.team.pk, database=Database.create_for(team=self.team))
+
+            assert swaps_flag_calls(_scan_of_events_in(["$pageview", "$feature_flag_called"]), context)
+            assert not swaps_flag_calls(_scan_of_events_in(["$pageview"]), context)
+
+    def test_a_list_constant_nested_deeper_than_the_stack_allows_does_not_raise(self):
+        nested: list = ["$pageview"]
+        for _ in range(sys.getrecursionlimit() * 2):
+            nested = [nested]
+        _set_mode(self.organization, ONLY)
+        with _enabled_flags(union=False), _flag_evaluations_table_in_catalog():
+            context = HogQLContext(team_id=self.team.pk, database=Database.create_for(team=self.team))
+
+            events_match = ast.CompareOperation(
+                op=ast.CompareOperationOp.In, left=ast.Field(chain=["event"]), right=ast.Constant(value=nested)
+            )
+
+            assert not swaps_flag_calls(events_match, context)
+
+    @parameterized.expand([("list", ["$pageview", "$feature_flag_called"]), ("tuple", ("$feature_flag_called",))])
+    def test_counts_a_flag_call_read_from_events_that_a_list_constant_names(
+        self, _name: str, events: list[str] | tuple[str, ...]
+    ):
+        _set_mode(self.organization, FlagEvaluationsMode.EVENTS)
+        executor = HogQLQueryExecutor(query=_scan_of_events_in(events), team=self.team)
+        executor.generate_clickhouse_sql()
+
+        assert executor.clickhouse_prepared_ast is not None
+        assert count_flag_calls_read_from_events(executor.clickhouse_prepared_ast) == 1
+
     def test_mode_2_self_join_reads_its_mixed_side_from_the_union_and_its_flag_call_side_from_flag_evaluations(
         self,
     ):
@@ -1280,6 +1373,7 @@ class TestReadFlagCallsWithUnion(BaseTest):
         sql = self._sql(
             f"SELECT person.properties.email, count() FROM events SAMPLE 0.1 WHERE {MIXED} GROUP BY 1",
             persons_on_events=PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED,
+            person_id_pushdown=False,
         )
 
         assert sql.count("SAMPLE 0.1") == 2
@@ -1395,6 +1489,32 @@ class TestReadFlagCallsWithUnion(BaseTest):
         persons = sql[sql.index("FROM person_distinct_id_overrides") :]
         assert "GLOBAL IN" in sql or "globalIn" in sql
         assert "probe-distinct-id" in persons
+
+    @parameterized.expand(
+        [
+            ("union", f"FROM events WHERE {MIXED}", None, True),
+            (
+                "flag_calls_swapped_to_flag_evaluations",
+                "FROM events WHERE event = '$feature_flag_called' AND properties.$feature_flag = 'f'",
+                None,
+                True,
+            ),
+            ("flag_evaluations", "FROM posthog.flag_evaluations WHERE flag_key = 'f'", None, True),
+            ("flag_evaluations_turned_off", "FROM posthog.flag_evaluations WHERE flag_key = 'f'", False, False),
+            ("events_only", "FROM events WHERE event = '$pageview'", None, False),
+        ]
+    )
+    def test_person_id_pushdown_defaults_on_for_flag_evaluations(
+        self, _name: str, from_where: str, person_id_pushdown: bool | None, pushed: bool
+    ):
+        sql = self._sql(
+            f"SELECT person.properties.email {from_where} AND timestamp >= now() - INTERVAL 7 DAY",
+            persons_on_events=PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED,
+            person_id_pushdown=person_id_pushdown,
+        )
+
+        persons = sql[sql.index("FROM person_distinct_id_overrides") :]
+        assert ("SELECT DISTINCT" in persons) is pushed
 
     @parameterized.expand(
         [
@@ -1528,6 +1648,7 @@ class TestReadFlagCallsWithUnion(BaseTest):
         sql = self._sql(
             f"SELECT person_id, person.properties.email FROM events WHERE {MIXED}",
             persons_on_events=PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED,
+            person_id_pushdown=False,
         )
 
         assert sql.count("FROM person_distinct_id_overrides") == 2  # one inner, one outer for `person_id`
@@ -1539,6 +1660,7 @@ class TestReadFlagCallsWithUnion(BaseTest):
             f"SELECT toFloatOrZero(properties.amount), properties.amount FROM events "
             f"WHERE {MIXED} AND properties.amount > 9 AND person.properties.amount > 9",
             persons_on_events=PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED,
+            person_id_pushdown=False,
         )
 
         assert "accurateCastOrNull(accurateCastOrNull" not in sql
@@ -1846,6 +1968,15 @@ class TestFlagCallsUnionRows(ClickhouseTestMixin, APIBaseTest):
                 PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED,
                 "negatedPersonFiltersNotIn",
             ),
+            param(
+                "negated_person_filters_under_person_id_pushdown",
+                f"SELECT distinct_id, event FROM events WHERE {MIXED} AND person.properties.email != 'r@x.com' "
+                "ORDER BY timestamp, distinct_id",
+                PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED,
+                "negatedPersonFiltersNotIn",
+                shared_modifiers={"personIdPushdown": True},
+                pushed_sql="where_optimization",
+            ),
             (
                 "session_id_pushdown",
                 f"SELECT distinct_id, event, session.$session_duration FROM events WHERE {MIXED} "
@@ -1862,15 +1993,24 @@ class TestFlagCallsUnionRows(ClickhouseTestMixin, APIBaseTest):
             ),
         ]
     )
-    def test_pushdown_does_not_change_the_rows(self, _name: str, query: str, poe: PersonsOnEventsMode, modifier: str):
+    def test_pushdown_does_not_change_the_rows(
+        self,
+        _name: str,
+        query: str,
+        poe: PersonsOnEventsMode,
+        modifier: str,
+        shared_modifiers: dict[str, Any] | None = None,
+        pushed_sql: str | None = None,
+    ):
         self.addCleanup(cleanup_materialized_columns)
         materialize("person", "email")
 
-        pushed = self._run(query, READ, poe, **{modifier: True}).results
-        flat = self._run(query, READ, poe, **{modifier: False}).results
+        pushed = self._run(query, READ, poe, **{**(shared_modifiers or {}), modifier: True})
+        flat = self._run(query, READ, poe, **{**(shared_modifiers or {}), modifier: False}).results
 
-        assert len(pushed) >= 2
-        assert sorted(map(str, pushed)) == sorted(map(str, flat))
+        assert len(pushed.results) >= 2
+        assert sorted(map(str, pushed.results)) == sorted(map(str, flat))
+        assert pushed_sql is None or pushed_sql in (pushed.clickhouse or "")
 
     @parameterized.expand(
         [

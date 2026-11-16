@@ -136,6 +136,15 @@ class PersonalAPIKeySerializer(serializers.ModelSerializer):
     scopes = serializers.ListField(child=serializers.CharField(required=True), allow_empty=False)
     scoped_teams = serializers.ListField(child=serializers.IntegerField(required=False))
     scoped_organizations = serializers.ListField(child=serializers.CharField(required=False))
+    user_distinct_id = serializers.SerializerMethodField(
+        help_text="Distinct ID of the user who owns the key, for attributing analytics to that user."
+    )
+    current_organization_id = serializers.SerializerMethodField(
+        help_text="ID of the organization the key's owner last had open in the app. Null if they have none."
+    )
+    current_team_id = serializers.SerializerMethodField(
+        help_text="ID of the project the key's owner last had open in the app. Null if they have none."
+    )
 
     class Meta:
         model = PersonalAPIKey
@@ -155,6 +164,9 @@ class PersonalAPIKeySerializer(serializers.ModelSerializer):
             "scoped_organizations",
             "last_rolled_at",
             "expires_at",
+            "user_distinct_id",
+            "current_organization_id",
+            "current_team_id",
         ]
         read_only_fields = [
             "id",
@@ -166,7 +178,30 @@ class PersonalAPIKeySerializer(serializers.ModelSerializer):
             "last_used_at",
             "user_id",
             "last_rolled_at",
+            "user_distinct_id",
+            "current_organization_id",
+            "current_team_id",
         ]
+
+    def _owner(self, obj: PersonalAPIKey) -> User:
+        request = self.context.get("request")
+        if request is not None and request.user.id == obj.user_id:
+            return request.user
+        return obj.user
+
+    @extend_schema_field(serializers.CharField(allow_null=True))
+    def get_user_distinct_id(self, obj: PersonalAPIKey) -> str | None:
+        return self._owner(obj).distinct_id
+
+    @extend_schema_field(serializers.UUIDField(allow_null=True))
+    def get_current_organization_id(self, obj: PersonalAPIKey) -> str | None:
+        organization = self._owner(obj).organization
+        return str(organization.id) if organization else None
+
+    @extend_schema_field(serializers.IntegerField(allow_null=True))
+    def get_current_team_id(self, obj: PersonalAPIKey) -> int | None:
+        team = self._owner(obj).team
+        return team.id if team else None
 
     def get_key_value(self, obj: PersonalAPIKey) -> str:
         return getattr(obj, "_value", None)  # type: ignore

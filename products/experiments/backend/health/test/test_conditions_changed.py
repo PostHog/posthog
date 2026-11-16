@@ -8,6 +8,7 @@ from parameterized import parameterized
 
 from products.experiments.backend.facade.contracts import (
     ExperimentHealthFinding,
+    ExperimentHealthFindingActionKind,
     ExperimentHealthFindingCode,
     ExperimentHealthFindingSeverity,
     ExperimentHealthFlagChangeKind,
@@ -453,6 +454,9 @@ class TestReleaseConditionsChangedMidRun(TestCase):
         self.assertEqual(finding.reason, expected_reason)
         if expected_detail is not None:
             self.assertEqual(finding.detail, expected_detail)
+        names_start_date = "start date to" in finding.detail
+        self.assertEqual(ExperimentHealthFindingActionKind.MOVE_START_DATE in finding.actions, names_start_date)
+        self.assertEqual("suggested_start_date" in finding.evidence, names_start_date)
 
     @parameterized.expand(
         [
@@ -524,3 +528,18 @@ class TestReleaseConditionsChangedMidRun(TestCase):
         rows = release_conditions_changed_rows(ctx)
 
         self.assertEqual([row[ExperimentHealthValueKey.BEFORE_EXPOSURE] for row in rows], expected)
+
+    def test_lists_each_change_with_the_conditions_before_and_after(self) -> None:
+        rows = release_conditions_changed_rows(
+            _context([PRO_PINNED, EVERYONE], [PRO, {**EVERYONE, "rollout_percentage": 50}])
+        )
+
+        self.assertEqual(
+            [(row[ExperimentHealthValueKey.BEFORE], row[ExperimentHealthValueKey.AFTER]) for row in rows],
+            [
+                (
+                    'Set 1: 100%, filters on plan, forces "test"\nSet 2: 100%',
+                    "Set 1: 100%, filters on plan\nSet 2: 50%",
+                )
+            ],
+        )

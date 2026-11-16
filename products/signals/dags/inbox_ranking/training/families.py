@@ -45,7 +45,7 @@ from products.signals.dags.inbox_ranking.multihead.inputs import PairTrainingCon
 # servable by key, and their online grades keep their own series.
 NN_MODEL_NAME = "nn_v3"
 NN_WITH_PRIO_MODEL_NAME = "nn_with_prio_v2"
-NN_WITH_PRIO_SOURCES_MODEL_NAME = "nn_with_prio_sources_v1"
+NN_WITH_PRIO_SOURCES_MODEL_NAME = "nn_with_prio_sources_v2"
 NN_WITH_PRIO_ML_FEATURES_MODEL_NAME = "nn_with_prio_ml_features_v1"
 NN_WITH_PRIO_FIXED_MODEL_NAME = "nn_with_prio_fixed_v1"
 NN_WITH_PRIO_FIXED_NODISMISS_MODEL_NAME = "nn_with_prio_fixed_nodismiss_v1"
@@ -168,8 +168,9 @@ class ModelFamily:
 # torch, so the `signals_ml` location trains it. The main location fits no family. `nn` declares
 # the report embeddings set, because that set builds its report input in training and at serving.
 # `nn_with_prio_v2` is the same network with the report's priority levels as extra report inputs.
-# `nn_with_prio_sources_v1` is an experiment: `nn_with_prio_v2` plus the source products of the
-# report's signals as of the moment, graded against `nn_with_prio_v2`.
+# `nn_with_prio_sources_v2` is `nn_with_prio_v2` plus the source products of the report's signals. It
+# serves the recipe of the `nn_with_prio_sources_v1` experiment, so it gets online scores as a
+# challenger.
 # `nn_with_prio_ml_features_v1` is an experiment: the sources set plus one-hot report facts (length,
 # judgments, signal count, content counts and authorship, creation time), graded against
 # `nn_with_prio_v2`, with the holdout AUC each group carries recorded by shuffling it.
@@ -199,9 +200,6 @@ MODEL_FAMILIES: tuple[ModelFamily, ...] = (
         feature_set=REPORT_EMBEDDINGS_PRIORITY_SOURCES_FEATURE_SET,
         learner=ONNX_MODEL_KIND,
         location=ML_LOCATION,
-        experiment=True,
-        baseline=NN_WITH_PRIO_MODEL_NAME,
-        expires=datetime.date(2026, 11, 11),
     ),
     ModelFamily(
         name=NN_WITH_PRIO_ML_FEATURES_MODEL_NAME,
@@ -293,6 +291,9 @@ MODEL_FAMILIES: tuple[ModelFamily, ...] = (
 )
 NN_FAMILY = next(family for family in MODEL_FAMILIES if family.name == NN_MODEL_NAME)
 NN_WITH_PRIO_FAMILY = next(family for family in MODEL_FAMILIES if family.name == NN_WITH_PRIO_MODEL_NAME)
+NN_WITH_PRIO_SOURCES_FAMILY = next(
+    family for family in MODEL_FAMILIES if family.name == NN_WITH_PRIO_SOURCES_MODEL_NAME
+)
 
 
 def serving_families(families: Sequence[ModelFamily] = MODEL_FAMILIES) -> tuple[ModelFamily, ...]:
