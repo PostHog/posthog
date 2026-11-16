@@ -56,6 +56,11 @@ The totals cover measured runs only; missing measurements and days without measu
 The current UTC day is excluded because usage is updated daily.
 These measurements describe query work and are not billing amounts.
 
+## Table definitions in SQL
+
+Hover over a table name in a SQL `FROM` or `JOIN` clause to see whether it is a table or a saved view.
+Saved views also show their SQL and a link to open the definition.
+
 ## SQL table headers
 
 SQL and Trends table headers stay visible while scrolling inside a bounded table, including horizontal scrolling.
