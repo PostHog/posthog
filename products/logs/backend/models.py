@@ -8,7 +8,9 @@ from django.core.exceptions import ValidationError
 from django.db import models
 from django.db.models import Value
 
+from posthog.helpers.encrypted_fields import EncryptedTextField
 from posthog.models.activity_logging.model_activity import ModelActivityMixin
+from posthog.models.scoping.manager import EnvironmentScopedManager
 from posthog.models.scoping.root_mixin import TeamScopedRootMixin
 from posthog.models.utils import CreatedMetaFields, UpdatedMetaFields, UUIDModel
 from posthog.utils import generate_short_id
@@ -167,6 +169,37 @@ class TeamLogsConfig(models.Model):
         default=default_logs_pattern_message_keys,
         db_default=Value("{message,msg,event}"),
     )
+
+
+class LogsSigningSecret(UUIDModel):
+    """Per-team secret that a customer's server uses to sign log requests (HMAC).
+
+    The check needs the raw value on the server, so the secret is encrypted at rest and
+    not hashed. It is valid for signing only and never for API authentication, so a
+    leaked value cannot call any API.
+
+    Environment-scoped because log ingestion resolves a team from its own project token.
+    Read it with `objects.for_team(team.id)` and the environment's own id.
+    """
+
+    objects = EnvironmentScopedManager()
+
+    # db_constraint=False so that CreateModel takes no lock on posthog_team.
+    team = models.OneToOneField("posthog.Team", on_delete=models.CASCADE, db_constraint=False, related_name="+")
+    # The ciphertext is different on each write. Never filter by this value: fetch by team and compare.
+    secret = EncryptedTextField()
+    # The secret that `secret` replaced. It stays valid for a grace period after a rotation,
+    # because customers need a deploy window to move their servers to the new value.
+    previous_secret = EncryptedTextField(null=True)
+    previous_secret_rotated_at = models.DateTimeField(null=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        db_table = "logs_logssigningsecret"
+
+    def __str__(self) -> str:
+        return f"LogsSigningSecret(team={self.team_id})"
 
 
 # Upper bound on LogsAlertConfiguration.evaluation_periods. Doubles as the per-alert
