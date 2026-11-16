@@ -308,6 +308,54 @@ class TestTableNodeCaseInsensitiveLookup(TestCase):
 class TestUnknownTableSuggestions(TestCase):
     @parameterized.expand(
         [
+            ("ai_events", False),
+            ("trace_spans", False),
+            ("trace_attributes", False),
+            ("metrics", False),
+            ("metric_samples", False),
+            ("trace_spans", True),
+            ("trace_attributes", True),
+        ]
+    )
+    def test_missing_posthog_namespace(self, table_name: str, direct_query: bool) -> None:
+        database = Database()
+        if direct_query:
+            database._connection_id = "test-connection"
+            database.apply_schema_scope()
+        with self.assertRaises(QueryError) as error:
+            database.get_table(table_name)
+        if direct_query:
+            assert str(error.exception) == f"Unknown table `{table_name}`."
+        else:
+            assert str(error.exception) == f"Unknown table `{table_name}`. Did you mean: posthog.{table_name}?"
+            assert database.get_table(f"posthog.{table_name}") is not None
+
+    @parameterized.expand([("metrics", True), ("error_tracking_recent_issue_state", False)])
+    def test_does_not_suggest_denied_or_hidden_namespaced_tables(self, table_name: str, denied: bool) -> None:
+        database = Database()
+        if denied:
+            del database.tables.children["posthog"].children[table_name]
+            assert database._is_warehouse_table_denied(DataWarehouseTable(name=f"posthog.{table_name}"))
+            with self.assertRaises(TableAccessDeniedError):
+                database.get_table(f"posthog.{table_name}")
+        with self.assertRaises(QueryError) as error:
+            database.get_table(table_name)
+        assert f"posthog.{table_name}" not in str(error.exception)
+
+    @parameterized.expand([("events", "evnts"), ("posthog.metrics", "metrics")])
+    def test_denied_warehouse_name_does_not_hide_a_resolvable_suggestion(
+        self, table_name: str, unknown_name: str
+    ) -> None:
+        database = Database()
+        table = database.get_table(table_name)
+        assert database._is_warehouse_table_denied(DataWarehouseTable(name=table_name))
+        assert database.get_table(table_name) is table
+        with self.assertRaises(QueryError) as error:
+            database.get_table(unknown_name)
+        assert str(error.exception) == f"Unknown table `{unknown_name}`. Did you mean: {table_name}?"
+
+    @parameterized.expand(
+        [
             (
                 "cross_namespace_candidate_is_not_suggested",
                 [],

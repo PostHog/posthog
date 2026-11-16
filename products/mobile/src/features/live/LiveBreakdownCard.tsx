@@ -11,6 +11,7 @@ import { radii, type } from '@/ui/tokens'
 import { LiveCard, LiveCardNote, NOT_LOADED_TEXT } from './LiveCard'
 
 const TABS: readonly { key: LiveBreakdownKind; label: string; empty: string }[] = [
+    { key: 'platforms', label: 'Platforms', empty: 'No iOS or Android activity in the last 30 minutes' },
     { key: 'devices', label: 'Devices', empty: 'No device data' },
     { key: 'browsers', label: 'Browsers', empty: 'No browser data' },
     { key: 'countries', label: 'Countries', empty: 'No country data' },
@@ -110,9 +111,7 @@ const useStyles = createStyles(({ colors }) => ({
         paddingVertical: 6,
     },
     totalValue: {
-        fontSize: 32,
-        lineHeight: 38,
-        fontWeight: '700',
+        ...type.screenTitle,
         color: colors.ink,
         fontVariant: ['tabular-nums'],
     },
@@ -147,7 +146,7 @@ const useStyles = createStyles(({ colors }) => ({
         borderRadius: radii.pill,
     },
     percent: {
-        ...type.metaSmall,
+        ...type.meta,
         width: 44,
         textAlign: 'right',
         color: colors.secondary,

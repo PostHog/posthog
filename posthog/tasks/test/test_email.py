@@ -1,3 +1,4 @@
+import html
 import uuid
 import hashlib
 import datetime as dt
@@ -49,6 +50,7 @@ from posthog.tasks.email import (
     send_member_join,
     send_new_ticket_notification,
     send_password_reset,
+    send_personal_api_keys_changed_by_org_admin,
     send_posthog_ai_access_request,
     send_project_secret_api_key_exposed,
     send_provisioning_welcome,
@@ -496,6 +498,94 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
         assert len(mocked_email_messages) == 1
         assert mocked_email_messages[0].send.call_count == 1
         assert mocked_email_messages[0].html_body
+
+    @parameterized.expand(
+        [
+            (
+                "one_change",
+                "https://phish.example.com",
+                [{"label": "rolled-key", "mask_value": "phx_...aaaa", "outcome": "rolled"}],
+                "Your personal API key was rolled",
+                ["made this change to your personal API key", "Key rolled", "roll the key in personal settings"],
+            ),
+            (
+                "several_changes",
+                "https://phish.example.com",
+                [
+                    {"label": "rolled-key", "mask_value": "phx_...aaaa", "outcome": "rolled"},
+                    {"label": "deleted-key", "mask_value": "phx_...bbbb", "outcome": "deleted"},
+                ],
+                "Your personal API keys changed",
+                [
+                    "made these changes to your personal API keys",
+                    "Key rolled",
+                    "Key revoked",
+                    "This key was permanently deleted",
+                    "no longer works in any organization.",
+                    "create a new key in personal settings",
+                ],
+            ),
+            (
+                "one_revoked",
+                "Example organization",
+                [{"label": "deleted-key", "mask_value": "phx_...aaaa", "outcome": "deleted"}],
+                "Your personal API key was revoked",
+                ["Key revoked", "This key was permanently deleted", "create a new key in personal settings"],
+            ),
+            (
+                "many_rolled",
+                "Example organization",
+                [
+                    {"label": "first-key", "mask_value": "phx_...aaaa", "outcome": "rolled"},
+                    {"label": "second-key", "mask_value": "phx_...bbbb", "outcome": "rolled"},
+                ],
+                "Your personal API keys were rolled",
+                ["Keys rolled", "first-key", "second-key", "roll these keys in personal settings"],
+            ),
+            (
+                "many_revoked",
+                "Example organization",
+                [
+                    {"label": "first-key", "mask_value": "phx_...aaaa", "outcome": "deleted"},
+                    {"label": "second-key", "mask_value": "phx_...bbbb", "outcome": "deleted"},
+                ],
+                "Your personal API keys were revoked",
+                ["Keys revoked", "first-key", "second-key", "create replacement keys in personal settings"],
+            ),
+            (
+                "bare_domain",
+                "example.com",
+                [{"label": "rolled-key", "mask_value": "phx_...aaaa", "outcome": "rolled"}],
+                "Your personal API key was rolled",
+                ["example.\u200bcom", "roll the key in personal settings"],
+            ),
+        ]
+    )
+    def test_send_personal_api_keys_changed_by_org_admin(
+        self,
+        MockEmailMessage: MagicMock,
+        _name: str,
+        organization_name: str,
+        changes: list[dict[str, str]],
+        expected_subject: str,
+        expected_in_body: list[str],
+    ) -> None:
+        mocked_email_messages = mock_email_messages(MockEmailMessage)
+        self.organization.name = organization_name
+        self.organization.save()
+
+        send_personal_api_keys_changed_by_org_admin(self.user.id, str(self.organization.id), changes)
+
+        assert len(mocked_email_messages) == 1
+        message = mocked_email_messages[0]
+        assert message.send.call_count == 1
+        assert message.subject == expected_subject
+        assert "phish.example.com" not in message.html_body
+        assert message.html_body.count("To reconnect your integrations") == len(
+            {change["outcome"] for change in changes}
+        )
+        for expected in ["phx_...aaaa", *expected_in_body]:
+            assert expected in html.unescape(message.html_body), expected
 
     def test_send_provisioning_welcome(self, MockEmailMessage: MagicMock) -> None:
         mocked_email_messages = mock_email_messages(MockEmailMessage)
