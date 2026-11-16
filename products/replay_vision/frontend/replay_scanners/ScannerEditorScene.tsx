@@ -481,12 +481,11 @@ function EditorFooter({
     onAdvance: () => void
     onSave: () => void
 }): JSX.Element {
-    const { scanner, durationValidationError, hasUnsavedChanges, lockedToExperimentScanner } = useValues(
-        replayScannerLogic({ id: scannerId })
-    )
+    const { scanner, durationValidationError, hasUnsavedChanges, lockedToExperimentScanner, testAfterCreate } =
+        useValues(replayScannerLogic({ id: scannerId }))
     const { searchParams } = useValues(router)
     const { steps, stepLabels } = useValues(scannerEditorSceneLogic)
-    const { discardScannerDraft } = useActions(replayScannerLogic({ id: scannerId }))
+    const { discardScannerDraft, setTestAfterCreate } = useActions(replayScannerLogic({ id: scannerId }))
     const { dataProcessingAccepted, dataProcessingApprovalDisabledReason } = useValues(aiConsentLogic)
     const [consentRequested, setConsentRequested] = useState(false)
     // The backend rejects scanner creation without org AI consent, so the popover interposes at
@@ -584,37 +583,55 @@ function EditorFooter({
                                 Next: {stepLabels[nextStep]}
                             </LemonButton>
                         ) : (
-                            <AIConsentPopoverWrapper
-                                placement="top-end"
-                                showArrow
-                                ignoreDismissal
-                                hideTrainingDisclaimer
-                                hidden={!consentRequested}
-                                onApprove={() => {
-                                    setConsentRequested(false)
-                                    onSave()
-                                }}
-                                onDismiss={() => setConsentRequested(false)}
-                            >
-                                <LemonButton
-                                    type="primary"
-                                    loading={isSubmitting}
-                                    disabledReason={saveDisabledReason}
-                                    onClick={() => (needsConsent ? setConsentRequested(true) : onSave())}
-                                    // The consent popover anchors here, and a popover anchor gets a dropdown chevron unless told otherwise.
-                                    sideIcon={null}
-                                    data-attr="vision-editor-save"
-                                    data-ph-capture-attribute-scanner-type={scanner?.scanner_type}
+                            <>
+                                {/* The consent popover anchors on the create button, so this button shows only once consent is given. */}
+                                {isNew && !needsConsent ? (
+                                    <LemonButton
+                                        type="secondary"
+                                        loading={isSubmitting && testAfterCreate}
+                                        disabledReason={saveDisabledReason ?? (isSubmitting ? 'Saving…' : undefined)}
+                                        onClick={() => {
+                                            setTestAfterCreate(true)
+                                            onSave()
+                                        }}
+                                        data-attr="vision-editor-save-and-test"
+                                        data-ph-capture-attribute-scanner-type={scanner?.scanner_type}
+                                    >
+                                        Create and test on a recording
+                                    </LemonButton>
+                                ) : null}
+                                <AIConsentPopoverWrapper
+                                    placement="top-end"
+                                    showArrow
+                                    ignoreDismissal
+                                    hideTrainingDisclaimer
+                                    hidden={!consentRequested}
+                                    onApprove={() => {
+                                        setConsentRequested(false)
+                                        onSave()
+                                    }}
+                                    onDismiss={() => setConsentRequested(false)}
                                 >
-                                    {needsConsent
-                                        ? canApproveConsent
-                                            ? 'Allow AI analysis and create scanner'
-                                            : 'Ask an admin to enable AI analysis'
-                                        : isNew
-                                          ? 'Create scanner'
-                                          : 'Save changes'}
-                                </LemonButton>
-                            </AIConsentPopoverWrapper>
+                                    <LemonButton
+                                        type="primary"
+                                        loading={isSubmitting && !testAfterCreate}
+                                        disabledReason={saveDisabledReason ?? (isSubmitting ? 'Saving…' : undefined)}
+                                        onClick={() => (needsConsent ? setConsentRequested(true) : onSave())}
+                                        // The consent popover anchors here, and a popover anchor gets a dropdown chevron unless told otherwise.
+                                        sideIcon={null}
+                                        data-attr="vision-editor-save"
+                                        data-ph-capture-attribute-scanner-type={scanner?.scanner_type}
+                                    >
+                                        {needsConsent
+                                            ? canApproveConsent
+                                                ? 'Allow AI analysis and create scanner'
+                                                : 'Ask an admin to enable AI analysis'
+                                            : isNew
+                                              ? 'Create scanner'
+                                              : 'Save changes'}
+                                    </LemonButton>
+                                </AIConsentPopoverWrapper>
+                            </>
                         )}
                     </div>
                 </div>

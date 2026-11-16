@@ -819,6 +819,17 @@ describe('replayScannerLogic', () => {
                 expect.objectContaining({ button: expect.objectContaining({ label: 'Scan a recording now' }) })
             )
         })
+
+        it('the create-and-test intent lands on the run tab and ends with the submit', async () => {
+            router.actions.push('/replay-vision/new/budget')
+            scannerEditorSceneLogic.actions.setStep('budget')
+            logic.actions.setScannerValues({ name: 'Test scanner', scanner_config: { prompt: 'Q?' } })
+            logic.actions.setTestAfterCreate(true)
+            await expectLogic(logic, () => logic.actions.submitScanner()).toFinishAllListeners()
+            expect(router.values.location.pathname).toContain('/replay-vision/created-scanner')
+            expect(router.values.searchParams.tab).toBe('run')
+            expect(logic.values.testAfterCreate).toBe(false)
+        })
     })
 
     describe('submit intent in the recordings-first arm', () => {

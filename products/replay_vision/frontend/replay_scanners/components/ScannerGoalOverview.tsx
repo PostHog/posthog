@@ -75,7 +75,7 @@ function DraftReviewHeader(): JSX.Element {
                 </div>
                 <div className="text-sm text-muted">
                     The agent drafted this from your goal. Check each section and edit anything that is not right.
-                    Nothing runs until you click Create scanner.
+                    Nothing runs until you create the scanner.
                 </div>
             </div>
         </div>
@@ -329,6 +329,7 @@ export function ScannerGoalOverview({ scannerId }: { scannerId: string }): JSX.E
         scannerEstimateLoading,
         isScannerSubmitting,
         experimentContext,
+        testAfterCreate,
     } = useValues(logic)
     const { freeCreditsAllowance } = useValues(visionQuotaLogic)
     const { recordingsFirst, stepLabels } = useValues(scannerEditorSceneLogic)
@@ -336,7 +337,7 @@ export function ScannerGoalOverview({ scannerId }: { scannerId: string }): JSX.E
     const sectionLabels = goalOverviewSectionTitles(recordingsFirst)
     // Names the drafted cohort, which the query carries only by id.
     const { cohortsById } = useValues(cohortsModel)
-    const { submitScanner, loadScannerEstimate } = useActions(logic)
+    const { submitScanner, loadScannerEstimate, setTestAfterCreate } = useActions(logic)
 
     useEffect(() => {
         // On a reload the in-memory draft is gone but the form was restored, so count what it holds.
@@ -565,7 +566,7 @@ export function ScannerGoalOverview({ scannerId }: { scannerId: string }): JSX.E
                 ) : null}
             </OverviewSection>
 
-            <div className="flex items-center justify-end gap-2">
+            <div className="flex flex-wrap items-center justify-end gap-2">
                 <LemonButton
                     type="secondary"
                     onClick={() => router.actions.push(urls.replayVisionScannerGoal('new'))}
@@ -574,10 +575,22 @@ export function ScannerGoalOverview({ scannerId }: { scannerId: string }): JSX.E
                     Start over
                 </LemonButton>
                 <LemonButton
+                    type="secondary"
+                    onClick={() => {
+                        setTestAfterCreate(true)
+                        submitScanner()
+                    }}
+                    loading={isScannerSubmitting && testAfterCreate}
+                    disabledReason={saveDisabledReason ?? (isScannerSubmitting ? 'Saving…' : undefined)}
+                    data-attr="vision-goal-overview-create-and-test"
+                >
+                    Create and test on a recording
+                </LemonButton>
+                <LemonButton
                     type="primary"
                     onClick={() => submitScanner()}
-                    loading={isScannerSubmitting}
-                    disabledReason={saveDisabledReason}
+                    loading={isScannerSubmitting && !testAfterCreate}
+                    disabledReason={saveDisabledReason ?? (isScannerSubmitting ? 'Saving…' : undefined)}
                     icon={zeroMatchesWarning ? <IconWarning /> : undefined}
                     tooltip={zeroMatchesWarning}
                     data-attr="vision-goal-overview-create"

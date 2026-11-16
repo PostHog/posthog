@@ -606,6 +606,7 @@ export interface replayScannerLogicValues {
     showScannerErrors: boolean
     sidePanelContext: SidePanelSceneContext | null
     stepErrors: Partial<Record<ScannerEditorStep, string[]>>
+    testAfterCreate: boolean
     togglingEnabled: boolean
     triggeringOnDemandObservation: boolean
     turningOffFreeOnly: boolean
@@ -899,6 +900,9 @@ export interface replayScannerLogicActions {
     setScannerValues: (values: DeepPartial<ScannerFormValues>) => {
         values: DeepPartial<ScannerFormValues>
     }
+    setTestAfterCreate: (testAfterCreate: boolean) => {
+        testAfterCreate: boolean
+    }
     startFromScratch: () => {
         value: true
     }
@@ -1081,6 +1085,7 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
         setEntryPoint: (entryPoint: string | null) => ({ entryPoint }),
         setGoalDraftBaseline: (baseline: ScannerFormValues | null) => ({ baseline }),
         setCreationMethod: (creationMethod: ScannerCreationMethodEnumApi) => ({ creationMethod }),
+        setTestAfterCreate: (testAfterCreate: boolean) => ({ testAfterCreate }),
         loadObservations: (background = false) => ({ background }),
         loadObservationsSuccess: (observations: ReplayObservationApi[], total: number) => ({ observations, total }),
         loadObservationsFailure: true,
@@ -1258,16 +1263,21 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                             ...scannerModelChoice(values.creationMethod, values.goalDraftBaseline, scanner.model),
                         })
                         actions.scannerSaved(scanner)
-                        leaveScannerEditor(props.id, urls.replayVision(response.id))
-                        // First scheduled results are minutes away, so the copy matches the Overview's
-                        // pending panel and the button hands off to the instant on-demand tab.
-                        lemonToast.success('Scanner created. First scan in progress.', {
-                            button: {
-                                label: 'Scan a recording now',
-                                action: () => router.actions.push(`${urls.replayVision(response.id)}?tab=run`),
-                                dataAttr: 'vision-scanner-created-scan-now',
-                            },
-                        })
+                        if (values.testAfterCreate) {
+                            leaveScannerEditor(props.id, `${urls.replayVision(response.id)}?tab=run`)
+                            lemonToast.success('Scanner created. Test it on a recording below.')
+                        } else {
+                            leaveScannerEditor(props.id, urls.replayVision(response.id))
+                            // First scheduled results are minutes away, so the copy matches the Overview's
+                            // pending panel and the button hands off to the instant on-demand tab.
+                            lemonToast.success('Scanner created. First scan in progress.', {
+                                button: {
+                                    label: 'Scan a recording now',
+                                    action: () => router.actions.push(`${urls.replayVision(response.id)}?tab=run`),
+                                    dataAttr: 'vision-scanner-created-scan-now',
+                                },
+                            })
+                        }
                     } else {
                         // The toggles own `enabled`, and the sweep may have turned the scanner off while the form was open.
                         const { enabled: _enabled, ...editedFields } = body
@@ -1457,6 +1467,16 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                 draftScannerFromGoal: () => 'ai' as ScannerCreationMethodEnumApi,
                 startFromScratch: () => 'scratch' as ScannerCreationMethodEnumApi,
                 setCreationMethod: (_, { creationMethod }) => creationMethod,
+            },
+        ],
+        // Which create button started the submit. It resets when the submit ends, so Enter always creates without the test step.
+        testAfterCreate: [
+            false,
+            {
+                setTestAfterCreate: (_, { testAfterCreate }) => testAfterCreate,
+                submitScannerSuccess: () => false,
+                submitScannerFailure: () => false,
+                discardScannerDraft: () => false,
             },
         ],
         savingCohortKey: [
