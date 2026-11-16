@@ -42,7 +42,8 @@ from posthog.models.oauth import (
 )
 from posthog.ph_client import ph_scoped_capture
 from posthog.rate_limit import IPThrottle
-from posthog.scopes import OIDC_SCOPES, filter_self_registered_ceiling, filter_to_unprivileged_scopes
+from posthog.scopes.ceilings import filter_self_registered_ceiling, filter_to_unprivileged_scopes
+from posthog.scopes.oauth import OIDC_SCOPES
 from posthog.security.pinned_requests import PinnedIPAdapter, canonical_host, select_pinned_ip
 from posthog.security.url_validation import UNRESOLVED_HOST_REASON, is_url_allowed, validate_url_and_pin_ips
 
