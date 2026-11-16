@@ -6,6 +6,7 @@ import { LemonCollapse } from '@posthog/lemon-ui'
 import { DnsRecordRows } from '../components/DnsRecordRows'
 import { NextWorkflowCard } from '../components/NextWorkflowCard'
 import { SenderCard } from '../components/SenderCard'
+import { SendFromCodeNextCard } from '../components/SendFromCodeNextCard'
 import { StepHeading } from '../components/StepHeading'
 import { emailDomainAutoConfigureLogic } from '../emailDomainAutoConfigureLogic'
 import { emailDomainLogic } from '../emailDomainLogic'
@@ -17,6 +18,7 @@ import { HedgehogRocket } from '../hoggies'
 /** What a verified domain leads to, by where the setup started. */
 const NEXT_STEP: Record<EmailDomainSetupOrigin, () => JSX.Element> = {
     workflows: NextWorkflowCard,
+    transactional: SendFromCodeNextCard,
 }
 
 export function ReadyStep(): JSX.Element {
