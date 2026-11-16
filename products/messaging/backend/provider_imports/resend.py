@@ -780,6 +780,7 @@ def _save_automations(
                 emails,
                 step_emails=_step_emails(automation, senders),
                 segments={segment_id: segments[segment_id] for segment_id in _segment_references(automation)},
+                segment_members_imported="contacts" in context.steps,
             )
             counts["already_present" if result.status == "skipped" else result.status] += 1
             items.append(
