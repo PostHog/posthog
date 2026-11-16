@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { existsSync, readFileSync } from 'node:fs'
 import { pathToFileURL } from 'node:url'
 
 import { markdownCell } from '../../frontend/bin/ci-report/format.mjs'
@@ -56,7 +57,8 @@ const UNFINISHED_SCAN_SECTION = {
 }
 
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
-    const findings = JSON.parse(process.env.FINDINGS || 'null')
+    const findingsFile = process.env.FINDINGS_FILE
+    const findings = findingsFile && existsSync(findingsFile) ? JSON.parse(readFileSync(findingsFile, 'utf8')) : null
     if (findings) {
         await postSection({ id: 'dependency-scan', ...buildDependencyScanSection(findings) })
     } else if (process.env.SCAN_RESULT !== 'success') {

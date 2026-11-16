@@ -12,6 +12,7 @@ import time
 import signal
 import hashlib
 import tomllib
+import tempfile
 import subprocess
 from collections.abc import Callable, Iterable
 from concurrent.futures import ThreadPoolExecutor
@@ -227,16 +228,18 @@ def scan(package: Package, deadline: float) -> Finding:
         "json",
         *excluded,
     ]
-    env = {name: value for name, value in os.environ.items() if not name.startswith("GITHUB_")}
-    process = subprocess.Popen(
-        command, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True, env=env, start_new_session=True
-    )
-    try:
-        stdout, _ = process.communicate(timeout=min(SCAN_TIMEOUT_SECONDS, remaining))
-    except subprocess.TimeoutExpired:
-        os.killpg(process.pid, signal.SIGKILL)
-        process.wait()
-        return not_scanned(package, "GuardDog timed out")
+    with tempfile.TemporaryDirectory(prefix="guarddog-") as scratch:
+        env = {name: value for name, value in os.environ.items() if not name.startswith("GITHUB_")}
+        env["TMPDIR"] = scratch
+        process = subprocess.Popen(
+            command, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True, env=env, start_new_session=True
+        )
+        try:
+            stdout, _ = process.communicate(timeout=min(SCAN_TIMEOUT_SECONDS, remaining))
+        except subprocess.TimeoutExpired:
+            os.killpg(process.pid, signal.SIGKILL)
+            process.wait()
+            return not_scanned(package, "GuardDog timed out")
     try:
         report = json.loads(stdout)
         # GuardDog scores only the rules that ran, so a rule that failed can hide what it would find.
@@ -398,9 +401,9 @@ def main() -> int:
     if summary_path := os.environ.get("GITHUB_STEP_SUMMARY"):
         with open(summary_path, "a") as handle:
             handle.write(report)
-    if output_path := os.environ.get("GITHUB_OUTPUT"):
-        with open(output_path, "a") as handle:
-            handle.write(f"findings={findings_output(findings, skipped)}\n")
+    if findings_path := os.environ.get("FINDINGS_FILE"):
+        with open(findings_path, "w") as handle:
+            handle.write(findings_output(findings, skipped))
     if sarif_path := os.environ.get("SARIF_FILE"):
         with open(sarif_path, "w") as handle:
             handle.write(sarif_output(findings, locations))

@@ -32,8 +32,6 @@ jobs:
         runs-on: ubuntu-24.04
         timeout-minutes: 20
         permissions: {}
-        outputs:
-            findings: ${{ steps.scan.outputs.findings }}
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
@@ -57,16 +55,20 @@ jobs:
               run: git fetch --no-tags --depth=1 --filter=blob:none origin "$BEFORE"
 
             - name: Scan added and changed packages
-              id: scan
               env:
                   BASE_REF: ${{ github.event_name == 'push' && github.event.before || 'HEAD^1' }}
-                  SARIF_FILE: guarddog.sarif
-              run: uv run --frozen --script .github/scripts/dependency_scan.py
+                  SARIF_FILE: dependency-scan/guarddog.sarif
+                  FINDINGS_FILE: dependency-scan/findings.json
+              run: |
+                  mkdir -p dependency-scan
+                  uv run --frozen --script .github/scripts/dependency_scan.py
 
             - uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+              if: ${{ !cancelled() }}
               with:
-                  name: guarddog-sarif
-                  path: guarddog.sarif
+                  name: dependency-scan
+                  path: dependency-scan/
+                  if-no-files-found: ignore
                   retention-days: 1
 
     code-scanning:
@@ -80,12 +82,12 @@ jobs:
         steps:
             - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
               with:
-                  name: guarddog-sarif
+                  name: dependency-scan
 
             - uses: github/codeql-action/upload-sarif@33d7b85da1a04171e211befe2c739303b9a4c066 # v4.39.3
               with:
                   sarif_file: guarddog.sarif
-                  category: guarddog
+                  category: ${{ github.event_name == 'push' && format('guarddog/{0}', github.sha) || 'guarddog' }}
 
     # hogli-lint: not-a-required-gate — reads the scan result only to pick the CI report message
     report:
@@ -111,9 +113,15 @@ jobs:
               with:
                   node-version-file: .nvmrc
 
+            - uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+              continue-on-error: true
+              with:
+                  name: dependency-scan
+                  path: ${{ runner.temp }}/dependency-scan
+
             - name: Post the scan to the CI report
               env:
                   GITHUB_TOKEN: ${{ github.token }}
-                  FINDINGS: ${{ needs.scan.outputs.findings }}
+                  FINDINGS_FILE: ${{ runner.temp }}/dependency-scan/findings.json
                   SCAN_RESULT: ${{ needs.scan.result }}
               run: node .github/scripts/post-dependency-scan-section.mjs
