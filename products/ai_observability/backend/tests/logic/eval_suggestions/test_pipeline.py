@@ -600,8 +600,8 @@ class TestRunRecords(BaseTest):
                 SuggestionSettings(llm_drafting=True),
                 True,
                 None,
-                "no gateway route to calibrate judges on gemini-2.5-flash",
-                "gemini-2.5-flash",
+                "no gateway route to calibrate judges on unrouted-model",
+                "unrouted-model",
             ),
         ]
     )
