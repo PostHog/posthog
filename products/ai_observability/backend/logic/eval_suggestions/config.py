@@ -13,6 +13,9 @@ from posthog.dataclasses import frozen
 logger = structlog.get_logger(__name__)
 
 FEATURE_FLAG = "llm-analytics-eval-suggestions"
+# Runs for these organizations work when staff start them, but nothing reaches their users: the API, the evals page
+# and the weekly plan read only FEATURE_FLAG. Staff use it to check the cards on real traffic before a rollout.
+SHADOW_FEATURE_FLAG = "llm-analytics-eval-suggestions-shadow"
 
 
 @frozen
@@ -76,11 +79,21 @@ def load_settings() -> SuggestionSettings:
 
 
 def is_enabled_for_organization(organization_id: str) -> bool:
+    """Whether the organization's users get suggestions."""
+    return _flag_on(FEATURE_FLAG, organization_id)
+
+
+def runs_for_organization(organization_id: str) -> bool:
+    """Whether a run may measure and publish for the organization, which includes shadow runs nobody there sees."""
+    return is_enabled_for_organization(organization_id) or _flag_on(SHADOW_FEATURE_FLAG, organization_id)
+
+
+def _flag_on(flag: str, organization_id: str) -> bool:
     if settings.DEBUG or settings.E2E_TESTING:
         return True
     return (
         posthoganalytics.feature_enabled(
-            FEATURE_FLAG,
+            flag,
             organization_id,
             groups={"organization": organization_id},
             group_properties={"organization": {"id": organization_id}},
