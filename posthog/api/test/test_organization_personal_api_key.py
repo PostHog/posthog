@@ -607,7 +607,7 @@ class TestOrganizationPersonalAPIKeyAPI(APIBaseTest):
                 ("roll_all", {"rolled": 1, "deleted": 0, "skipped": 0, "failed": 0}),
                 ("revoke_all", {"rolled": 0, "deleted": 1, "skipped": 0, "failed": 0}),
             )
-            for change in ("scope", "membership")
+            for change in ("scope", "membership", "project")
         ]
     )
     def test_bulk_action_skips_key_that_left_org(
@@ -615,8 +615,10 @@ class TestOrganizationPersonalAPIKeyAPI(APIBaseTest):
     ) -> None:
         self._set_level(OrganizationMembership.Level.ADMIN)
         owner = self._create_owner_in_other_orgs()
+        moving_team = Team.objects.create(organization=self.organization, name="moving-team")
+        self.team_refs["moving"] = moving_team.id
         self._create_key(User.objects.create_and_join(self.organization, "single-org@example.com", None))
-        leaving_key = self._create_scoped_key(owner, (), ("O", "B"))
+        leaving_key = self._create_scoped_key(owner, ("moving",), ("O", "B"))
         real_lock = OrganizationPersonalAPIKeyActions._lock
         locked_key_ids: list[str] = []
 
@@ -626,6 +628,8 @@ class TestOrganizationPersonalAPIKeyAPI(APIBaseTest):
                 PersonalAPIKey.objects.filter(pk=key_id).update(scoped_organizations=[self.org_refs["B"]])
             if key_id == leaving_key.id and change == "membership":
                 OrganizationMembership.objects.filter(user_id=owner_id, organization=self.organization).delete()
+            if key_id == leaving_key.id and change == "project":
+                Team.objects.filter(pk=moving_team.pk).update(organization=self.org_b)
             return real_lock(key_id, owner_id)
 
         with patch.object(OrganizationPersonalAPIKeyActions, "_lock", side_effect=leave_then_lock):

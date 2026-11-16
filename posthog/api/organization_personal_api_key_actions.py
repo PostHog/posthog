@@ -127,16 +127,13 @@ class OrganizationPersonalAPIKeyActions:
             .first()
         )
 
-    def _lock_key_reaching_organization(
-        self, key_id: str, owner_id: int, team_organization_ids: Mapping[int, str] | None
-    ) -> PersonalAPIKey | None:
+    def _lock_key_reaching_organization(self, key_id: str, owner_id: int) -> PersonalAPIKey | None:
         key = self._lock(key_id, owner_id)
         if key is None:
             return None
-        scoped_team_ids = set(key.scoped_teams or [])
-        # A team that the bulk run did not load would make the key look out of reach.
-        if team_organization_ids is None or not scoped_team_ids <= team_organization_ids.keys():
-            team_organization_ids = load_team_organization_ids(scoped_team_ids)
+        # The teams are read after the key lock, so a project that moved to another organization during a bulk run
+        # takes the key out of reach.
+        team_organization_ids = load_team_organization_ids(key.scoped_teams or [])
         organization_ids_in_scope = get_organization_ids_in_key_scope(key, team_organization_ids)
         if organization_ids_in_scope is not None and self._organization_id not in organization_ids_in_scope:
             return None
@@ -176,7 +173,7 @@ class OrganizationPersonalAPIKeyActions:
         self, key_id: str, owner_id: int, act: Callable[[PersonalAPIKey], KeyActionResult]
     ) -> KeyActionResult | None:
         with transaction.atomic():
-            key = self._lock_key_reaching_organization(key_id, owner_id, team_organization_ids=None)
+            key = self._lock_key_reaching_organization(key_id, owner_id)
             if key is None:
                 return None
             result = act(key)
@@ -187,10 +184,9 @@ class OrganizationPersonalAPIKeyActions:
         self, act: Callable[[PersonalAPIKey], KeyActionResult], skip_rolled_since: datetime | None
     ) -> BulkKeyActionSummary:
         started_at = skip_rolled_since or timezone.now()
-        # Teams load once for the whole run. The keys are grouped by owner, so that an owner's email goes out when
-        # that owner's keys are done, not after the last key.
+        # The keys are grouped by owner, so that an owner's email goes out when that owner's keys are done, not after
+        # the last key.
         keys = list(get_organization_personal_api_keys(self._organization).order_by("user_id", "pk"))
-        team_organization_ids = load_team_organization_ids({team for key in keys for team in key.scoped_teams or []})
         outcomes: Counter[KeyActionOutcome] = Counter()
         skipped = failed = 0
         for owner_id, owner_keys in groupby(keys, key=attrgetter("user_id")):
@@ -198,7 +194,7 @@ class OrganizationPersonalAPIKeyActions:
             for listed_key in owner_keys:
                 try:
                     with transaction.atomic():
-                        key = self._lock_key_reaching_organization(listed_key.id, owner_id, team_organization_ids)
+                        key = self._lock_key_reaching_organization(listed_key.id, owner_id)
                         if key is None:
                             continue
                         if skip_rolled_since and key.last_rolled_at and key.last_rolled_at >= skip_rolled_since:
