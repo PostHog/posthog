@@ -1106,9 +1106,10 @@ def send_email_sender_domain_sending_stopped(team_id: int, domain: str, stopped_
     memberships_to_email = _get_project_admins_to_notify_of_email_sending_suspension(team)
     if not memberships_to_email:
         return
+    stop_digest = hashlib.sha256(f"{domain}|{stopped_at}".encode()).hexdigest()[:32]
     message = EmailMessage(
-        campaign_key=f"email_sender_domain_sending_stopped_{team_id}_{domain}_{stopped_at}",
-        subject=f"Emails from {domain} are failing in project '{team}'",
+        campaign_key=f"email_sender_domain_sending_stopped_{team_id}_{stop_digest}",
+        subject=f"Emails from {domain} are failing in project '{single_line(str(team))}'",
         template_name="email_sender_domain_sending_stopped",
         template_context={"team": team, "domain": domain, "channels_path": f"/project/{team.id}/workflows/channels"},
     )

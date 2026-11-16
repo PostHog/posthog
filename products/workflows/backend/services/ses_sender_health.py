@@ -2,10 +2,12 @@ from collections.abc import Iterable, Iterator, Mapping
 from functools import cache
 
 from django.utils import timezone
+from django.utils.text import Truncator
 
-import posthoganalytics
 import structlog
+import posthoganalytics
 
+from posthog.exceptions_capture import capture_exception
 from posthog.integrations import CrossTeamFilter, IntegrationManager, IntegrationPatch, IntegrationRecord, UpdatedRows
 from posthog.models.integration.email import SES_SENDING_FAILED, SES_SENDING_STATUS_KEY
 from posthog.models.team import Team
@@ -39,7 +41,10 @@ def record_ses_sending_status(failed_domains: Iterable[str]) -> None:
     rolled_out = cache(_rolled_out)
     for sender in _one_sender_per_project_domain(where_in={"domain": failed}):
         if rolled_out(sender.team_id) is True and _patch_domain(sender, _MARK).changed_ids:
-            _notify_sending_stopped(sender.team_id, sender.config["domain"])
+            if not _queue_sending_stopped_email(sender.team_id, sender.config["domain"]):
+                _patch_domain(sender, _UNMARK)
+                continue
+            _create_sending_stopped_notification(sender.team_id, sender.config["domain"])
     for sender in _one_sender_per_project_domain(where={SES_SENDING_STATUS_KEY: SES_SENDING_FAILED}):
         if sender.config["domain"] not in failed or rolled_out(sender.team_id) is False:
             _patch_domain(sender, _UNMARK)
@@ -86,29 +91,35 @@ def _one_sender_per_project_domain(
         after_id = page[-1].id
 
 
-# The mark is already stored, so a failed notice must not stop the notices of other domains.
-def _notify_sending_stopped(team_id: int, domain: str) -> None:
+def _queue_sending_stopped_email(team_id: int, domain: str) -> bool:
     try:
         send_email_sender_domain_sending_stopped.delay(
             team_id=team_id, domain=domain, stopped_at=timezone.now().isoformat()
         )
-    except Exception:
-        logger.exception("ses_sending_stopped_email_dispatch_failed", team_id=team_id)
+    except Exception as error:
+        logger.exception("ses_sending_stopped_email_dispatch_failed", team_id=team_id, domain=domain)
+        capture_exception(error, {"team_id": team_id, "domain": domain})
+        return False
+    return True
+
+
+def _create_sending_stopped_notification(team_id: int, domain: str) -> None:
     try:
         create_notification(
             NotificationData(
                 team_id=team_id,
                 notification_type=NotificationType.EMAIL_REPUTATION,
                 priority=Priority.NORMAL,
-                title=f"Emails from {domain} are failing",
+                title=Truncator(f"Emails from {domain} are failing").chars(255),
                 body=(
                     f"The DNS records of {domain} can no longer be verified, so every email sent from it fails. "
                     "Fix the records with your DNS provider, then verify the domain again in Channels."
                 ),
                 target_type=TargetType.TEAM,
                 target_id=str(team_id),
-                source_url="/workflows/channels",
+                source_url=f"/project/{team_id}/workflows/channels",
             )
         )
-    except Exception:
-        logger.exception("ses_sending_stopped_notification_failed", team_id=team_id)
+    except Exception as error:
+        logger.exception("ses_sending_stopped_notification_failed", team_id=team_id, domain=domain)
+        capture_exception(error, {"team_id": team_id, "domain": domain})

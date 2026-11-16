@@ -10,6 +10,8 @@ from parameterized import parameterized
 from rest_framework import status
 
 from posthog.models.instance_setting import override_instance_config
+from posthog.models.user import User
+from posthog.tasks.email import send_email_sender_domain_sending_stopped
 
 from products.notifications.backend.facade.testing import stored_notifications_for_team
 from products.workflows.backend.services.ses_sender_health import SES_SENDER_HEALTH_FLAG
@@ -30,6 +32,15 @@ class TestSesSenderHealth(EmailDomainApiTestCase):
             return self.rolled_out if key == SES_SENDER_HEALTH_FLAG else flag_client(key, *args, **kwargs)
 
         self.enterContext(patch("posthoganalytics.feature_enabled", side_effect=feature_enabled))
+
+    def deliver_notices(self) -> None:
+        self.enterContext(override_instance_config("EMAIL_HOST", "localhost"))
+        self.enterContext(
+            patch(
+                "posthoganalytics.feature_enabled",
+                side_effect=lambda key, *args, **kwargs: key != SES_SENDER_HEALTH_FLAG or self.rolled_out,
+            )
+        )
 
     def verified_sender(self, email: str) -> int:
         sender = self.create_sender(email)
@@ -99,13 +110,8 @@ class TestSesSenderHealth(EmailDomainApiTestCase):
         assert self.sending_stopped(sender) is still_stopped
 
     def test_tells_the_project_admins_once_when_a_domain_in_the_rollout_stops_sending(self) -> None:
-        self.enterContext(override_instance_config("EMAIL_HOST", "localhost"))
-        self.enterContext(
-            patch(
-                "posthoganalytics.feature_enabled",
-                side_effect=lambda key, *args, **kwargs: key != SES_SENDER_HEALTH_FLAG or self.rolled_out,
-            )
-        )
+        self.deliver_notices()
+        User.objects.create_and_join(self.organization, "member@example.com", None)
         self.verified_sender(f"hello@{DOMAIN}")
         self.verified_sender(f"news@{DOMAIN}")
         self.world.ses.identities[DOMAIN].forced_verification_status = "Failed"
@@ -123,3 +129,20 @@ class TestSesSenderHealth(EmailDomainApiTestCase):
         assert DOMAIN in message.subject
         [notification] = stored_notifications_for_team(self.team.id)
         assert DOMAIN in notification.body
+        assert notification.source_url == f"/project/{self.team.id}/workflows/channels"
+
+    def test_retries_the_notice_on_the_next_check_when_the_email_cannot_be_queued(self) -> None:
+        self.deliver_notices()
+        sender = self.verified_sender(f"hello@{DOMAIN}")
+        self.world.ses.identities[DOMAIN].forced_verification_status = "Failed"
+        mail.outbox.clear()
+        with patch.object(send_email_sender_domain_sending_stopped, "delay", side_effect=ConnectionError):
+            check_ses_sender_health()
+        assert mail.outbox == []
+        assert stored_notifications_for_team(self.team.id) == []
+
+        check_ses_sender_health()
+
+        assert self.sending_stopped(sender)
+        assert len(mail.outbox) == 1
+        assert len(stored_notifications_for_team(self.team.id)) == 1
