@@ -17,6 +17,7 @@ interface ReleaseMergeLogicValues {
     canEditReleases: boolean
     selection: RowSelectionState
     mergeOpen: boolean
+    mergeTargetId: string | null
     keepId: string | null
     mergeName: string
     mergeNameEdited: boolean
@@ -29,6 +30,9 @@ interface ReleaseMergeLogicActions {
     loadReleases: () => void
     setSelection: (selection: RowSelectionState) => { selection: RowSelectionState }
     setMergeOpen: (open: boolean) => { open: boolean }
+    openMergeInto: (releaseId: string) => { releaseId: string }
+    setMergeTarget: (releaseId: string | null) => { releaseId: string | null }
+    setMergeSources: (releaseIds: string[]) => { releaseIds: string[] }
     setKeepId: (keepId: string) => { keepId: string }
     setMergeName: (name: string) => { name: string }
     editMergeName: (name: string) => { name: string }
@@ -47,6 +51,9 @@ export const releaseMergeLogic = kea<releaseMergeLogicType>([
     actions({
         setSelection: (selection: RowSelectionState) => ({ selection }),
         setMergeOpen: (open: boolean) => ({ open }),
+        openMergeInto: (releaseId: string) => ({ releaseId }),
+        setMergeTarget: (releaseId: string | null) => ({ releaseId }),
+        setMergeSources: (releaseIds: string[]) => ({ releaseIds }),
         setKeepId: (keepId: string) => ({ keepId }),
         setMergeName: (name: string) => ({ name }),
         editMergeName: (name: string) => ({ name }),
@@ -56,6 +63,7 @@ export const releaseMergeLogic = kea<releaseMergeLogicType>([
     reducers({
         selection: [{} as RowSelectionState, { setSelection: (_, { selection }) => selection }],
         mergeOpen: [false, { setMergeOpen: (_, { open }) => open }],
+        mergeTargetId: [null as string | null, { setMergeTarget: (_, { releaseId }) => releaseId }],
         keepId: [null as string | null, { setKeepId: (_, { keepId }) => keepId }],
         mergeName: ['', { setMergeName: (_, { name }) => name, editMergeName: (_, { name }) => name }],
         mergeNameEdited: [false, { editMergeName: () => true, setMergeOpen: () => false }],
@@ -76,13 +84,32 @@ export const releaseMergeLogic = kea<releaseMergeLogicType>([
         ],
     }),
     listeners(({ actions, values }) => ({
+        openMergeInto: ({ releaseId }) => {
+            actions.setMergeTarget(releaseId)
+            actions.setSelection({ [releaseId]: true })
+            actions.setMergeOpen(true)
+        },
+        setMergeSources: ({ releaseIds }) => {
+            if (values.mergeTargetId) {
+                actions.setSelection(
+                    Object.fromEntries([values.mergeTargetId, ...releaseIds].map((releaseId) => [releaseId, true]))
+                )
+            }
+        },
         setMergeOpen: ({ open }) => {
+            if (!open && values.mergeTargetId) {
+                actions.setSelection({})
+                actions.setMergeTarget(null)
+            }
             if (open) {
-                const keepId = releaseToKeep(values.candidates)
+                const keepId = values.mergeTargetId ?? releaseToKeep(values.candidates)
                 if (keepId) {
                     actions.setKeepId(keepId)
                 }
-                posthog.capture('release merge dialog opened', { count: values.candidates.length })
+                posthog.capture('release merge dialog opened', {
+                    count: values.candidates.length,
+                    from: values.mergeTargetId ? 'release page' : 'release list',
+                })
             }
         },
         setKeepId: ({ keepId }) => {

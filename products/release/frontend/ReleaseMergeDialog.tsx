@@ -20,15 +20,16 @@ import {
 } from '@posthog/quill'
 
 import { releaseMergeLogic } from './releaseMergeLogic'
+import { ReleaseMergeWarning } from './ReleaseMergeWarning'
 
 export function ReleaseMergeDialog(): JSX.Element {
-    const { mergeOpen, merging, candidates, keepId, mergeName } = useValues(releaseMergeLogic)
+    const { mergeOpen, mergeTargetId, merging, candidates, keepId, mergeName } = useValues(releaseMergeLogic)
     const { setMergeOpen, setKeepId, editMergeName, mergeReleases } = useActions(releaseMergeLogic)
 
     const kept = candidates.find((candidate) => candidate.id === keepId)
 
     return (
-        <Dialog open={mergeOpen} onOpenChange={(open: boolean) => setMergeOpen(open)}>
+        <Dialog open={mergeOpen && !mergeTargetId} onOpenChange={(open: boolean) => setMergeOpen(open)}>
             <DialogContent>
                 <DialogHeader>
                     <DialogTitle>{`Merge ${candidates.length} releases`}</DialogTitle>
@@ -65,6 +66,11 @@ export function ReleaseMergeDialog(): JSX.Element {
                                 data-attr="release-merge-name"
                             />
                         </Field>
+                        <ReleaseMergeWarning
+                            deleted={candidates
+                                .filter((candidate) => candidate.id !== keepId)
+                                .map((candidate) => candidate.name)}
+                        />
                     </FieldGroup>
                 </DialogBody>
                 <DialogFooter>
@@ -72,7 +78,7 @@ export function ReleaseMergeDialog(): JSX.Element {
                         Cancel
                     </Button>
                     <Button
-                        variant="primary"
+                        variant="destructive"
                         loading={merging}
                         disabledReason={
                             !kept
