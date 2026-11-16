@@ -323,8 +323,8 @@ export interface todayLogicActions {
         primaryDashboard: FileSystemEntry | null,
         payload?: any
     ) => {
-        payload?: any
         primaryDashboard: FileSystemEntry | null
+        payload?: any
     }
     loadTopReports: () => any
     loadTopReportsFailure: (
