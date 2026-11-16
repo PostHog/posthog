@@ -257,6 +257,35 @@ export function hasValueLabels(
     return !!chartSettings.showValuesOnSeries || !!ySeriesData?.some(optsIntoValueLabels)
 }
 
+export function withCategoryBarColors(
+    series: Series<SqlLineSeriesMeta>[],
+    labels: string[],
+    visualizationType: ChartDisplayType,
+    chartSettings: ChartSettings,
+    colors: string[]
+): Series<SqlLineSeriesMeta>[] {
+    if (
+        !chartSettings.colorBarsByCategory ||
+        chartSettings.seriesBreakdownColumn ||
+        series.length !== 1 ||
+        ![ChartDisplayType.ActionsBar, ChartDisplayType.ActionsBarValue].includes(visualizationType)
+    ) {
+        return series
+    }
+    const colorByCategory = new Map<string, string | undefined>()
+    const bars = labels.map((value) => {
+        const key = String(value)
+        if (!colorByCategory.has(key)) {
+            colorByCategory.set(
+                key,
+                chartSettings.resultCustomizations?.[key]?.customColor ?? colors[colorByCategory.size % colors.length]
+            )
+        }
+        return { color: colorByCategory.get(key) }
+    })
+    return [{ ...series[0], bars }]
+}
+
 export function buildSeries(
     yData: SqlLineYSeries[],
     visualizationType: ChartDisplayType,

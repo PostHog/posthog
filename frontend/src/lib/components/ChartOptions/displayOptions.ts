@@ -133,6 +133,7 @@ export const DISPLAY_OPTIONS = [
         options: ROTATION_OPTIONS,
     },
     { name: 'lifecyclePercentages', label: 'Show percentages on series', group: 'display', control: 'checkbox' },
+    { name: 'colorBarsByCategory', label: 'Color bars by category', group: 'display', control: 'checkbox' },
     { name: 'percentStack', label: 'Show as % of total', group: 'display', advanced: true, control: 'checkbox' },
     { name: 'stackBreakdown', label: 'Stack breakdown values', group: 'display', advanced: true, control: 'checkbox' },
     { name: 'sliceNames', label: 'Show names on slices', group: 'display', control: 'checkbox' },

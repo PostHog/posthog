@@ -30,6 +30,7 @@ interface SqlDisplayContext
     isPartOfWholeChart: boolean
     isStackedBarChart: boolean
     isBarChart: boolean
+    hasSingleSeries: boolean
     isScatterPlot: boolean
     isBoxPlot: boolean
     isHorizontalBarChart: boolean
@@ -78,6 +79,7 @@ function useSqlDisplayContext(): SqlDisplayContext {
         isPartOfWholeChart,
         isStackedBarChart: type === ChartDisplayType.ActionsStackedBar,
         isBarChart: type === ChartDisplayType.ActionsBar,
+        hasSingleSeries: yData?.length === 1 && !chartSettings.seriesBreakdownColumn,
         isScatterPlot,
         isBoxPlot,
         isHorizontalBarChart,
@@ -191,6 +193,11 @@ const SQL_BINDINGS: DisplayOptionBindings<SqlDisplayContext> = {
         showCondition: (c) => c.showsSeriesOptions,
         value: (c) => c.chartSettings.showNullsAsZero ?? false,
         onChange: (showNullsAsZero, c) => c.updateChartSettings({ showNullsAsZero }),
+    },
+    colorBarsByCategory: {
+        showCondition: (c) => (c.isBarChart || c.isHorizontalBarChart) && c.hasSingleSeries,
+        value: (c) => c.chartSettings.colorBarsByCategory ?? false,
+        onChange: (colorBarsByCategory, c) => c.updateChartSettings({ colorBarsByCategory }),
     },
     barSpacing: {
         showCondition: (c) => c.isStackedBarChart || c.isHorizontalBarChart || c.isBarChart,

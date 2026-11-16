@@ -23,6 +23,7 @@ import {
     type BuildBarConfigArgs,
     type SqlLineSeriesMeta,
     buildSeries,
+    withCategoryBarColors,
     capYSeriesData,
     exceedsMaxSeries,
     warnTooManySeries,
@@ -72,12 +73,19 @@ export function useSqlChartModel<
 
     const ySeriesData = useMemo(() => capYSeriesData(yData), [yData])
 
-    const series = useMemo(
-        () => (ySeriesData ? buildSeries(ySeriesData, visualizationType, chartSettings.showValuesOnSeries) : []),
-        [ySeriesData, visualizationType, chartSettings.showValuesOnSeries]
-    )
-
     const theme = useChartTheme()
+
+    const series = useMemo(
+        () =>
+            withCategoryBarColors(
+                ySeriesData ? buildSeries(ySeriesData, visualizationType, chartSettings.showValuesOnSeries) : [],
+                xData?.data ?? [],
+                visualizationType,
+                chartSettings,
+                theme.colors
+            ),
+        [ySeriesData, xData, visualizationType, chartSettings, theme.colors]
+    )
 
     const legendRenderItem = useChartLegendSeriesMenu({ surface: 'sql', seriesCount: series.length })
 
