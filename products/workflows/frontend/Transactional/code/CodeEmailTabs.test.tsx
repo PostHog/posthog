@@ -4,6 +4,8 @@ import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 import { BindLogic, Provider } from 'kea'
 import { router } from 'kea-router'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { urls } from 'scenes/urls'
 
 import { useMocks } from '~/mocks/jest'
@@ -75,7 +77,7 @@ describe('CodeEmailTabs', () => {
         )
     }
 
-    const renderTabs = (): void => {
+    const renderTabs = ({ sendLinks = true }: { sendLinks?: boolean } = {}): void => {
         sendRequests = []
         sends = [
             {
@@ -86,6 +88,10 @@ describe('CodeEmailTabs', () => {
             },
         ]
         initKeaTests()
+        featureFlagLogic.mount()
+        featureFlagLogic.actions.setFeatureFlags(sendLinks ? [FEATURE_FLAGS.WORKFLOWS_EMAIL_SEND_LINKS] : [], {
+            [FEATURE_FLAGS.WORKFLOWS_EMAIL_SEND_LINKS]: sendLinks,
+        })
         mountTabs()
     }
 
@@ -199,6 +205,16 @@ describe('CodeEmailTabs', () => {
 
         router.actions.push(page, { tab: 'sends', inv_search: 'Transient bounce' })
         expect(await screen.findByText('Re-run…')).toBeInTheDocument()
+    })
+
+    it('keeps the run logs on the Sends tab without the send links flag, also for a saved Sends link', async () => {
+        useMocks(mocks(() => [200, { id: 'flow-id', actions: [] }]))
+        renderTabs({ sendLinks: false })
+        router.actions.push(urls.transactionalCodeEmail('email-id'), { tab: 'sends' })
+
+        expect(await screen.findByText('Re-run…')).toBeInTheDocument()
+        expect(screen.queryByText('Run logs')).not.toBeInTheDocument()
+        expect(screen.queryByText('ada@example.com')).not.toBeInTheDocument()
     })
 
     it('offers no re-run of a sensitive email, whose sends keep no content', async () => {

@@ -50,9 +50,13 @@ describe('MessageTemplate', () => {
         } as AppContext
         initKeaTests()
         featureFlagLogic.mount()
-        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.WORKFLOWS_TRANSACTIONAL_EMAIL_API], {
-            [FEATURE_FLAGS.WORKFLOWS_TRANSACTIONAL_EMAIL_API]: true,
-        })
+        featureFlagLogic.actions.setFeatureFlags(
+            [FEATURE_FLAGS.WORKFLOWS_TRANSACTIONAL_EMAIL_API, FEATURE_FLAGS.WORKFLOWS_EMAIL_SEND_LINKS],
+            {
+                [FEATURE_FLAGS.WORKFLOWS_TRANSACTIONAL_EMAIL_API]: true,
+                [FEATURE_FLAGS.WORKFLOWS_EMAIL_SEND_LINKS]: true,
+            }
+        )
 
         render(
             <Provider>

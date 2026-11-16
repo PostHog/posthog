@@ -2,6 +2,7 @@ import { BindLogic, useActions, useValues } from 'kea'
 
 import { LemonBanner } from '@posthog/lemon-ui'
 
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
 
 import type { CodeEmailApi } from 'products/messaging/frontend/generated/api.schemas'
@@ -19,6 +20,7 @@ export function CodeEmailTabs({ codeEmail }: { codeEmail: CodeEmailApi }): JSX.E
     const workflowProps = { id: codeEmail.hog_flow_id }
     const { originalWorkflow, workflowLoading } = useValues(workflowLogic(workflowProps))
     const { loadWorkflow } = useActions(workflowLogic(workflowProps))
+    const sendLinks = useFeatureFlag('WORKFLOWS_EMAIL_SEND_LINKS')
 
     // Metrics and sends name each step from the workflow, so without it they would show an empty workflow.
     const workflowFailed = !originalWorkflow && !workflowLoading
@@ -27,7 +29,9 @@ export function CodeEmailTabs({ codeEmail }: { codeEmail: CodeEmailApi }): JSX.E
             type="error"
             action={{ children: 'Try again', onClick: () => loadWorkflow(), 'data-attr': 'code-email-workflow-retry' }}
         >
-            This email's metrics and run logs couldn't load. Check your connection and try again.
+            {sendLinks
+                ? "This email's metrics and run logs couldn't load. Check your connection and try again."
+                : "This email's metrics and sends couldn't load. Check your connection and try again."}
         </LemonBanner>
     )
 
@@ -35,7 +39,8 @@ export function CodeEmailTabs({ codeEmail }: { codeEmail: CodeEmailApi }): JSX.E
         // The reused workflow tabs read workflowLogic without props, so bind it to this email's workflow.
         <BindLogic logic={workflowLogic} props={workflowProps}>
             <LemonTabs
-                activeKey={tab}
+                // Without the flag, the run logs keep their Sends label, and a `tab=sends` link opens them.
+                activeKey={!sendLinks && tab === 'sends' ? 'runs' : tab}
                 onChange={setTab}
                 tabs={[
                     {
@@ -47,14 +52,18 @@ export function CodeEmailTabs({ codeEmail }: { codeEmail: CodeEmailApi }): JSX.E
                             <WorkflowMetrics id={codeEmail.hog_flow_id} onShowInvocations={showRuns} />
                         ),
                     },
-                    {
-                        key: 'sends',
-                        label: 'Sends',
-                        content: <TransactionalEmailLog workflowId={codeEmail.hog_flow_id} />,
-                    },
+                    ...(sendLinks
+                        ? [
+                              {
+                                  key: 'sends' as const,
+                                  label: 'Sends',
+                                  content: <TransactionalEmailLog workflowId={codeEmail.hog_flow_id} />,
+                              },
+                          ]
+                        : []),
                     {
                         key: 'runs',
-                        label: 'Run logs',
+                        label: sendLinks ? 'Run logs' : 'Sends',
                         content: workflowFailed ? (
                             failedBanner
                         ) : (
