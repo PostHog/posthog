@@ -379,6 +379,27 @@ const externalDataSchemasPartitioningRetrieve = (): ToolBase<
     },
 })
 
+const ExternalDataSchemasReloadSchema = () => {
+    const ExternalDataSchemasReloadCreateParams = orvalSchemas.ExternalDataSchemasReloadCreateParams()
+    return z.preprocess(
+        normalizeParamAliases({ id: ['schema_id', 'schemaId'] }),
+        ExternalDataSchemasReloadCreateParams.omit({ project_id: true })
+    )
+}
+
+const externalDataSchemasReload = (): ToolBase<ReturnType<typeof ExternalDataSchemasReloadSchema>, unknown> => ({
+    name: 'external-data-schemas-reload',
+    schema: ExternalDataSchemasReloadSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof ExternalDataSchemasReloadSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<unknown>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/external_data_schemas/${encodeURIComponent(String(params.id))}/reload/`,
+        })
+        return result
+    },
+})
+
 const ExternalDataSchemasRepartitionCreateSchema = () => {
     const ExternalDataSchemasRepartitionCreateBody = orvalSchemas.ExternalDataSchemasRepartitionCreateBody()
     const ExternalDataSchemasRepartitionCreateParams = orvalSchemas.ExternalDataSchemasRepartitionCreateParams()
@@ -421,27 +442,6 @@ const externalDataSchemasRepartitionCreate = (): ToolBase<
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/external_data_schemas/${encodeURIComponent(String(params.id))}/repartition/`,
             body,
-        })
-        return result
-    },
-})
-
-const ExternalDataSchemasReloadSchema = () => {
-    const ExternalDataSchemasReloadCreateParams = orvalSchemas.ExternalDataSchemasReloadCreateParams()
-    return z.preprocess(
-        normalizeParamAliases({ id: ['schema_id', 'schemaId'] }),
-        ExternalDataSchemasReloadCreateParams.omit({ project_id: true })
-    )
-}
-
-const externalDataSchemasReload = (): ToolBase<ReturnType<typeof ExternalDataSchemasReloadSchema>, unknown> => ({
-    name: 'external-data-schemas-reload',
-    schema: ExternalDataSchemasReloadSchema(),
-    handler: async (context: Context, params: z.infer<ReturnType<typeof ExternalDataSchemasReloadSchema>>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<unknown>({
-            method: 'POST',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/external_data_schemas/${encodeURIComponent(String(params.id))}/reload/`,
         })
         return result
     },
@@ -1688,8 +1688,8 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'external-data-schemas-list': externalDataSchemasList,
     'external-data-schemas-partial-update': externalDataSchemasPartialUpdate,
     'external-data-schemas-partitioning-retrieve': externalDataSchemasPartitioningRetrieve,
-    'external-data-schemas-repartition-create': externalDataSchemasRepartitionCreate,
     'external-data-schemas-reload': externalDataSchemasReload,
+    'external-data-schemas-repartition-create': externalDataSchemasRepartitionCreate,
     'external-data-schemas-resync': externalDataSchemasResync,
     'external-data-schemas-retrieve': externalDataSchemasRetrieve,
     'external-data-sources-bulk-update-schemas': externalDataSourcesBulkUpdateSchemas,
