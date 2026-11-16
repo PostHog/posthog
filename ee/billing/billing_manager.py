@@ -175,7 +175,7 @@ def _access_block_change(organization: Organization, access_blocked: bool) -> tu
     return None
 
 
-def _apply_access_block(organization: Organization, access_blocked: bool) -> None:
+def _apply_access_block(organization: Organization, access_blocked: bool, computed_at: datetime | None) -> None:
     # Checking the loaded copy first keeps the flag check and the row lock off the hot path, where nothing changes.
     if _access_block_change(organization, access_blocked) is None:
         return
@@ -195,9 +195,16 @@ def _apply_access_block(organization: Organization, access_blocked: bool) -> Non
         if change is None:
             return
         locked.is_active, locked.is_not_active_reason = change
+        update_fields = ["is_active", "is_not_active_reason", "updated_at"]
+        # Stamp the status, so one computed before it and delivered late can't flip the block back.
+        if computed_at is not None and locked.usage is not None:
+            locked.usage["billing_status_computed_at"] = computed_at.isoformat()
+            update_fields.append("usage")
         # A save rather than an update, so the signals that react to is_active changing still run.
-        locked.save(update_fields=["is_active", "is_not_active_reason", "updated_at"])
+        locked.save(update_fields=update_fields)
     organization.is_active, organization.is_not_active_reason = change
+    if "usage" in update_fields and organization.usage is not None:
+        organization.usage["billing_status_computed_at"] = locked.usage["billing_status_computed_at"]
     logger.info("billing_access_block_applied", organization_id=organization_id, blocked=access_blocked)
 
 
@@ -980,7 +987,7 @@ class BillingManager:
 
         access_blocked = data.get("access_blocked")
         if isinstance(access_blocked, bool):
-            _apply_access_block(organization, access_blocked)
+            _apply_access_block(organization, access_blocked, computed_at)
 
         if events_retention_changed:
             apply_events_retention_change(organization, previous_retention_months, previous_standard_retention)

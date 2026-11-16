@@ -1204,7 +1204,9 @@ ABSENT = object()
 
 @patch("ee.billing.billing_manager.posthoganalytics.feature_enabled", return_value=True)
 class TestUpdateOrgDetailsAccessBlock(BaseTest):
-    def _status(self, access_blocked: object, events_usage: int = 1000) -> BillingStatus:
+    def _status(
+        self, access_blocked: object, events_usage: int = 1000, computed_at: str | None = None
+    ) -> BillingStatus:
         customer: dict[str, Any] = {
             "usage_summary": {
                 "events": {"usage": events_usage, "limit": None},
@@ -1217,7 +1219,10 @@ class TestUpdateOrgDetailsAccessBlock(BaseTest):
         }
         if access_blocked is not ABSENT:
             customer["access_blocked"] = access_blocked
-        return cast(BillingStatus, {"customer": customer})
+        status: dict[str, Any] = {"customer": customer}
+        if computed_at:
+            status["computed_at"] = computed_at
+        return cast(BillingStatus, status)
 
     @parameterized.expand(
         [
@@ -1281,6 +1286,21 @@ class TestUpdateOrgDetailsAccessBlock(BaseTest):
         assert self.organization.is_not_active_reason == COMPLIANCE_REVIEW
         assert self.organization.usage is not None
         assert self.organization.usage["events"]["usage"] == 4242
+
+    def test_an_older_blocked_status_does_not_undo_a_newer_lift(self, _feature_enabled: MagicMock):
+        manager = BillingManager(license=None)
+        self.organization.is_active = False
+        self.organization.is_not_active_reason = UNPAID_INVOICE
+        self.organization.save()
+        manager.update_org_details(self.organization, self._status(ABSENT, computed_at="2026-08-01T00:00:00Z"))
+
+        # The lift changes nothing else, and the blocked status computed before it arrives late.
+        manager.update_org_details(self.organization, self._status(False, computed_at="2026-08-03T00:00:00Z"))
+        manager.update_org_details(self.organization, self._status(True, computed_at="2026-08-02T00:00:00Z"))
+
+        self.organization.refresh_from_db()
+        assert self.organization.is_active is True
+        assert self.organization.is_not_active_reason is None
 
 
 class TestBillingSession(SimpleTestCase):
