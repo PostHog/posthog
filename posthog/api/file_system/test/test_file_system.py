@@ -2891,17 +2891,39 @@ class TestDestroyRepairsLeftoverHogFunctions(APIBaseTest):
                             f"Expected {field} change for {case['scope']} restore",
                         )
 
-    def test_deleting_an_insight_removes_its_alerts(self):
-        alert = create_insight_alert(self.team)
-        fs_entry = self._ensure_file_system_entry(
-            file_type="insight", ref=alert.insight.short_id, fallback_name=alert.insight.short_id
+    @parameterized.expand([("one_insight", 1), ("folder_of_insights", 2)])
+    def test_deleting_insights_removes_their_alerts_with_one_cleanup(self, _name: str, insight_count: int):
+        alerts = [create_insight_alert(self.team) for _ in range(insight_count)]
+        entries = [
+            self._ensure_file_system_entry(
+                file_type="insight", ref=alert.insight.short_id, fallback_name=alert.insight.short_id
+            )
+            for alert in alerts
+        ]
+        target = entries[0]
+        if insight_count > 1:
+            target = FileSystem.objects.create(
+                team=self.team, path="Alerted", depth=1, type="folder", created_by=self.user
+            )
+            for entry in entries:
+                entry.path = f"Alerted/{entry.ref}"
+                entry.depth = 2
+                entry.save()
+
+        with patch("products.alerts.backend.platform_native_cleanup.start_native_cleanup") as start_cleanup:
+            with self.captureOnCommitCallbacks(execute=True):
+                delete_response = self.client.delete(f"/api/projects/{self.team.id}/file_system/{target.pk}/")
+
+        self.assertIn(delete_response.status_code, (status.HTTP_200_OK, status.HTTP_204_NO_CONTENT))
+        for alert in alerts:
+            self.assertTrue(Insight.objects_including_soft_deleted.get(pk=alert.insight_id).deleted)
+            self.assertFalse(AlertConfiguration.objects.filter(pk=alert.pk).exists())
+        start_cleanup.assert_called_once()
+        ((insights_by_team,), _) = start_cleanup.call_args
+        self.assertEqual(
+            {team: sorted(ids) for team, ids in insights_by_team.items()},
+            {self.team.id: sorted(alert.insight_id for alert in alerts)},
         )
-
-        delete_response = self.client.delete(f"/api/projects/{self.team.id}/file_system/{fs_entry.pk}/")
-
-        self.assertEqual(delete_response.status_code, status.HTTP_200_OK, delete_response.content)
-        self.assertTrue(Insight.objects_including_soft_deleted.get(pk=alert.insight_id).deleted)
-        self.assertFalse(AlertConfiguration.objects.filter(pk=alert.pk).exists())
 
     def _ensure_file_system_entry(self, *, file_type: str, ref: str, fallback_name: str) -> FileSystem:
         fs_entry = (

@@ -7,6 +7,7 @@ from posthog.api.file_system.deletion import (
     DeletionContext,
     RestoreContext,
     register_file_system_type,
+    register_post_delete_batch_hook,
     register_post_delete_hook,
     register_post_restore_hook,
     register_pre_delete_hook,
@@ -109,10 +110,14 @@ def _dashboard_post_restore(context: RestoreContext, dashboard: Any) -> None:
     )
 
 
-def _insight_post_delete(context: DeletionContext, insight: Any) -> None:
+def _insights_post_delete(insights: list[Any]) -> None:
     # The insight API's delete removes the insight's alerts too. Without this, an alert outlives its
     # insight: the insight scheduler skips it, and it stays enabled with no check ever again.
-    delete_insight_alerts([insight.id])
+    # One call for the whole request, because each call starts a cleanup workflow after the commit.
+    delete_insight_alerts([insight.id for insight in insights])
+
+
+def _insight_post_delete(context: DeletionContext, insight: Any) -> None:
     _log_deletion_activity(
         context,
         scope="Insight",
@@ -358,6 +363,7 @@ def register_core_file_system_types() -> None:
         undo_message="Send PATCH /api/projects/@current/insights/{id} with deleted=false.",
     )
     register_post_delete_hook("insight", _insight_post_delete)
+    register_post_delete_batch_hook("insight", _insights_post_delete)
     register_post_restore_hook("insight", _insight_post_restore)
 
     register_file_system_type(

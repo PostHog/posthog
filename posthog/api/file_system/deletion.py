@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 import logging
+from collections import defaultdict
 from collections.abc import Callable, Iterable, Mapping
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 from typing import Any, Literal
 
 from django.apps import apps
@@ -63,6 +64,8 @@ class DeletionResult:
     mode: Literal["soft", "hard"]
     can_undo: bool
     undo: str
+    # The soft-deleted object, which `run_post_delete_batch_hooks` hands to its type's batch hook.
+    instance: Any = field(default=None, compare=False, repr=False)
 
 
 @dataclass(frozen=True)
@@ -103,6 +106,7 @@ DeleteLock = Callable[[Any], list[Any]]
 FileChangeCheck = Callable[[FileChangeContext, Any], None]
 PreDeleteHook = Callable[[DeletionContext, Any], None]
 PostDeleteHook = Callable[[DeletionContext, Any], None]
+PostDeleteBatchHook = Callable[[list[Any]], None]
 PreRestoreHook = Callable[[RestoreContext, Any], None]
 PostRestoreHook = Callable[[RestoreContext, Any], None]
 
@@ -112,6 +116,7 @@ _PRE_DELETE_HOOKS: dict[str, PreDeleteHook] = {}
 _FILE_CHANGE_CHECKS: dict[str, tuple[FileChangeCheck, tuple[str, ...]]] = {}
 _DELETE_LOCKS: dict[str, tuple[DeleteLock, tuple[str, ...]]] = {}
 _POST_DELETE_HOOKS: dict[str, PostDeleteHook] = {}
+_POST_DELETE_BATCH_HOOKS: dict[str, PostDeleteBatchHook] = {}
 _PRE_RESTORE_HOOKS: dict[str, PreRestoreHook] = {}
 _POST_RESTORE_HOOKS: dict[str, PostRestoreHook] = {}
 
@@ -221,6 +226,23 @@ def lock_file_system_objects(refs: Iterable[FileObjectRef]) -> dict[FileObjectRe
 
 def register_post_delete_hook(type_string: str, hook: PostDeleteHook) -> None:
     _POST_DELETE_HOOKS[type_string] = hook
+
+
+def register_post_delete_batch_hook(type_string: str, hook: PostDeleteBatchHook) -> None:
+    """Registers work that runs once for every object of a type that one delete request soft-deleted,
+    for work whose cost is per call rather than per object."""
+    _POST_DELETE_BATCH_HOOKS[type_string] = hook
+
+
+def run_post_delete_batch_hooks(results: Iterable[DeletionResult]) -> None:
+    """Runs each type's batch hook over the objects in `results`. Call it inside the transaction that
+    deleted them."""
+    instances_by_type: dict[str, list[Any]] = defaultdict(list)
+    for result in results:
+        if result.mode == "soft" and result.instance is not None and result.type in _POST_DELETE_BATCH_HOOKS:
+            instances_by_type[result.type].append(result.instance)
+    for type_string, instances in instances_by_type.items():
+        _POST_DELETE_BATCH_HOOKS[type_string](instances)
 
 
 def register_pre_restore_hook(type_string: str, hook: PreRestoreHook) -> None:
@@ -518,6 +540,7 @@ def delete_file_system_object(
             mode="soft",
             can_undo=capabilities.can_restore,
             undo=registration.undo_message,
+            instance=instance,
         )
 
     if capabilities.has_last_modified_by and context.user is not None:
