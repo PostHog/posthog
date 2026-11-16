@@ -60001,6 +60001,8 @@ export namespace Schemas {
       /** CPA figures in the account currency. */
       cpa?: MarketingAnalyticsRecommendationCpa | null;
       currency?: string | null;
+      /** The change in Google Ads that applied this recommendation, when the synced data shows one. A detected recommendation counts as applied, so it follows the same rules as a resolved one. */
+      detectedChange?: 'negative_keyword' | null;
       identity: MarketingAnalyticsRecommendationIdentity;
       /** Monthly money impact in the account currency. Null when the rule has no money impact. */
       impact?: number | null;
