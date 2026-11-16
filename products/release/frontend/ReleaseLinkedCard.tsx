@@ -101,7 +101,7 @@ const LINKED_LIMIT = 8
 export function ReleaseLinkedCard({ row }: { row: ReleaseRow }): JSX.Element {
     const [visible, setVisible] = useState(LINKED_LIMIT)
     const { canEditReleases } = useValues(releaseLogic)
-    const { updateRelease, unlinkBroadcast } = useActions(releaseLogic)
+    const { updateRelease, unlinkBroadcast, unlinkFlag } = useActions(releaseLogic)
     const { relatedByRelease } = useValues(releaseRelatedLogic)
     const { unlinkRelated } = useActions(releaseRelatedLogic)
     const related = relatedByRelease[row.id]
@@ -114,6 +114,7 @@ export function ReleaseLinkedCard({ row }: { row: ReleaseRow }): JSX.Element {
             badge: flag.active ? undefined : 'Disabled',
             badgeVariant: (flag.active ? 'success' : 'warning') as ReleaseBadgeVariant,
             to: urls.featureFlag(flag.id),
+            onRemove: canEditReleases ? () => unlinkFlag(row.id, flag.id) : undefined,
         })),
         ...row.experiments.map((experiment) => {
             const status = getExperimentStatus(experiment as never)
