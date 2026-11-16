@@ -765,8 +765,12 @@ class Team(UUIDTClassicModel):
         # where this model loads in every process.
         from posthog.schema import HogQLQueryModifiers  # noqa: PLC0415
 
+        from posthog.models.event.new_events_schema import project_moved_to_new_events_table  # noqa: PLC0415
+
         modifiers = HogQLQueryModifiers()
         set_default_modifier_values(modifiers, self)
+        # The table PostHog put the project on, which project settings shows in place of the early opt-in.
+        modifiers.useNewEventsSchema = project_moved_to_new_events_table(self.pk)
         return modifiers.model_dump()
 
     @property

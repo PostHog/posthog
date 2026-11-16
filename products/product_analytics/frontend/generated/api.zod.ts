@@ -245,18 +245,6 @@ export const EventsRetentionUpdateBody = /* @__PURE__ */ zod.object({
         ),
 })
 
-/**
- * Moves this project's queries to the new events table before PostHog moves it, or undoes that. Once PostHog has moved the project, it can't switch back. The switch deletes nothing. Organization admins only.
- * @summary Choose the events table a project reads
- */
-export const EventsTableUpdateBody = /* @__PURE__ */ zod.object({
-    use_new_events_table: zod
-        .boolean()
-        .describe(
-            'True to move this project to the new events table before PostHog moves it. False to undo that. A change reaches every query within about a minute.'
-        ),
-})
-
 export const InsightsCreateBody = /* @__PURE__ */ zod
     .record(zod.string(), zod.unknown())
     .describe('Deep\/recursive schema (opaque in Zod — use TypeScript types for full shape)')

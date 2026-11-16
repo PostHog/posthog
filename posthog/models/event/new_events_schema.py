@@ -1,4 +1,3 @@
-import time
 from collections.abc import Iterator
 from contextlib import contextmanager
 from contextvars import ContextVar
@@ -13,6 +12,8 @@ from posthog.models.instance_setting import get_instance_setting
 
 if TYPE_CHECKING:
     from posthog.schema import HogQLQueryModifiers
+
+    from posthog.models.team import Team
 
 
 # TODO: Remove the route helpers in this block after the events cluster migration is complete.
@@ -107,20 +108,12 @@ def new_events_schema_for_request(enabled: bool = True) -> Iterator[None]:
         _person_switch.reset(token)
 
 
-def _allowlisted_team_ids() -> set[int]:
-    raw = str(get_instance_setting("CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA_TEAMS") or "")
-    return {int(part) for part in raw.split(",") if part.strip()}
-
-
 # Both flags match by the project group. Staff set the share of projects that read events_json, and the projects
 # to keep on the legacy table, in the rollout flag's release conditions, which can filter on the group property id.
 EVENTS_TABLE_ROLLOUT_FLAG = "new-events-table-rollout"
 # The browser also evaluates this flag, to show the setting, and it hashes a different project key. Open it to
 # every project or to projects listed by id, never to a percentage, or the browser and the API disagree.
 EVENTS_TABLE_SELF_SERVE_FLAG = "new-events-table-self-serve"
-
-_OPT_INS_TTL_SECONDS = 60
-_opted_in_projects: tuple[float, set[int]] | None = None
 
 
 def _flag_enabled_for_project(flag: str, team_id: int) -> bool:
@@ -139,50 +132,8 @@ def _flag_enabled_for_project(flag: str, team_id: int) -> bool:
     )
 
 
-def clear_events_table_opt_ins() -> None:
-    global _opted_in_projects
-    _opted_in_projects = None
-
-
-def _opted_in_project_ids() -> set[int]:
-    # One cached set for every project, as get_instance_setting caches one value per key. A lookup per project
-    # would add a database read to the first query of each project on each worker.
-    global _opted_in_projects
-    # One read of the global: a write on another thread can clear it between two reads.
-    cached = _opted_in_projects
-    if cached is not None and time.monotonic() - cached[0] < _OPT_INS_TTL_SECONDS:
-        return cached[1]
-
-    # Deferred: this module is imported at django.setup(), before the models load.
-    from posthog.models.team.team_events_table_config import TeamEventsTableConfig  # noqa: PLC0415
-
-    opted_in = set(
-        TeamEventsTableConfig.objects.unscoped().filter(use_new_events_table=True).values_list("team_id", flat=True)
-    )
-    _opted_in_projects = (time.monotonic(), opted_in)
-    return opted_in
-
-
-def project_can_opt_in_to_new_events_table(team_id: int) -> bool:
-    return _flag_enabled_for_project(EVENTS_TABLE_SELF_SERVE_FLAG, team_id)
-
-
-def project_opted_in_to_new_events_table(team_id: int) -> bool:
-    return project_can_opt_in_to_new_events_table(team_id) and team_id in _opted_in_project_ids()
-
-
-def set_project_events_table_opt_in(team_id: int, opted_in: bool) -> None:
-    """Store the project's opt-in. Other workers read it once their cached opt-ins expire, within a minute."""
-    from posthog.models.team.team_events_table_config import TeamEventsTableConfig  # noqa: PLC0415
-
-    TeamEventsTableConfig.objects.for_team(team_id).update_or_create(
-        team_id=team_id, defaults={"use_new_events_table": opted_in}
-    )
-    clear_events_table_opt_ins()
-
-
 def project_moved_to_new_events_table(team_id: int | None) -> bool:
-    """Whether staff or the rollout moved the project to events_json, whatever the project chose for itself.
+    """Whether staff or the rollout moved the project to events_json. Every reader of the events table follows it.
 
     Callers that pass no project, such as usage reports, follow CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA alone.
     """
@@ -193,15 +144,25 @@ def project_moved_to_new_events_table(team_id: int | None) -> bool:
     return team_id in _allowlisted_team_ids() or _flag_enabled_for_project(EVENTS_TABLE_ROLLOUT_FLAG, team_id)
 
 
-def project_reads_new_events_table(team_id: int | None) -> bool:
-    """Whether the project reads events_json when no query modifier or staff switch says otherwise.
+def project_opted_in_to_new_events_table(team: "Team") -> bool:
+    """Whether the project chose events_json early, in project settings.
 
-    A project reads events_json once it opts in or is moved. An opt-in only moves a project early: a project that
-    staff or the rollout moved cannot go back by itself.
+    The choice is the useNewEventsSchema key of the project's stored modifiers, so it reaches HogQL queries and not
+    readers that write their own SQL. Only true counts: a project cannot choose the legacy table. It counts only
+    while the new-events-table-self-serve feature flag is on for the project.
     """
-    if team_id is not None and project_opted_in_to_new_events_table(team_id):
-        return True
-    return project_moved_to_new_events_table(team_id)
+    stored = team.modifiers if isinstance(team.modifiers, dict) else {}
+    return stored.get("useNewEventsSchema") is True and _flag_enabled_for_project(EVENTS_TABLE_SELF_SERVE_FLAG, team.pk)
+
+
+def events_table_override(modifiers: "HogQLQueryModifiers | None") -> bool | None:
+    """The table chosen for one query or one staff browser, or None when neither chose one."""
+    if modifiers is not None and modifiers.useNewEventsSchema is not None:
+        return modifiers.useNewEventsSchema
+    route = get_events_route()
+    if route is not None and route.useNewEventsSchema is not None:
+        return route.useNewEventsSchema
+    return _person_switch.get()
 
 
 def use_new_events_schema(team_id: int | None = None, modifiers: "HogQLQueryModifiers | None" = None) -> bool:
@@ -216,33 +177,30 @@ def use_new_events_schema(team_id: int | None = None, modifiers: "HogQLQueryModi
 
     The first three are overrides for one query or one staff browser. Each can choose either table.
 
-    The project reads the new table when any of these is true. None of them outranks another, and none of them
-    can choose the old table:
+    PostHog moves a project to the new table when any of these is true. None of them outranks another, and none of
+    them can choose the old table:
 
-    - It opted in early, in project settings. This counts only while the new-events-table-self-serve feature
-      flag is on for the project.
     - The instance setting CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA is on. It moves every project.
     - The instance setting CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA_TEAMS lists the project.
     - The new-events-table-rollout feature flag includes the project.
 
-    To hold one project on the old table, exclude it in both feature flags and keep it off the list. Once
-    CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA is on, no project can be held back. A changed setting, flag or opt-in
-    takes up to a couple of minutes to reach every worker.
+    To hold one project on the old table, exclude it in the flag and keep it off the list. Once
+    CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA is on, no project can be held back. A changed setting or flag takes up
+    to a couple of minutes to reach every worker.
+
+    A project can also move itself early (project_opted_in_to_new_events_table). create_default_modifiers_for_team
+    turns that into the query's modifier when none of the three overrides is set, so it moves the project's HogQL
+    queries and nothing else.
 
     Inside a query, use HogQLContext.uses_new_events_schema(). It decides once, so a query cannot mix the two
     tables.
     """
-    if modifiers is not None and modifiers.useNewEventsSchema is not None:
-        return modifiers.useNewEventsSchema
-    route = get_events_route()
-    if route is not None and route.useNewEventsSchema is not None:
-        return route.useNewEventsSchema
-    person_switch = _person_switch.get()
-    if person_switch is not None:
-        return person_switch
+    override = events_table_override(modifiers)
+    if override is not None:
+        return override
     if settings.TEST and settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
         return True
-    return project_reads_new_events_table(team_id)
+    return project_moved_to_new_events_table(team_id)
 
 
 def events_read_table(use_new_events_schema: bool) -> str:
@@ -275,3 +233,8 @@ def events_read_settings(use_new_events_schema: bool) -> dict[str, int]:
     printed against.
     """
     return dict(EVENTS_JSON_READ_SETTINGS) if use_new_events_schema else {}
+
+
+def _allowlisted_team_ids() -> set[int]:
+    raw = str(get_instance_setting("CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA_TEAMS") or "")
+    return {int(part) for part in raw.split(",") if part.strip()}

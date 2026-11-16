@@ -46844,20 +46844,6 @@ export namespace Schemas {
       retention_months: EventsRetentionMonthsEnum | null;
     }
 
-    export interface EventsTable {
-      /** Whether this project opted in to the new events table before PostHog moves it there. */
-      readonly use_new_events_table: boolean;
-      /** Whether this project's queries read the new events table now, because it opted in or because PostHog moved it. */
-      readonly reads_new_events_table: boolean;
-      /** Whether this project can opt in or undo its opt-in. False once PostHog has moved the project, which can't be undone, and while opting in is not open yet. While false, a save is refused. */
-      readonly can_choose: boolean;
-    }
-
-    export interface EventsTableUpdate {
-      /** True to move this project to the new events table before PostHog moves it. False to undo that. A change reaches every query within about a minute. */
-      use_new_events_table: boolean;
-    }
-
     export interface ExcerptChoice {
       /**
          * The excerpt that shows what the finding describes, or null when unsure.

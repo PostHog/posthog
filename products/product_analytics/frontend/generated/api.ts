@@ -25,8 +25,6 @@ import type {
     EventsRetentionApi,
     EventsRetentionDeletionCountParams,
     EventsRetentionUpdateApi,
-    EventsTableApi,
-    EventsTableUpdateApi,
     InsightApi,
     InsightBulkDeleteRequestApi,
     InsightBulkDeleteResponseApi,
@@ -535,42 +533,6 @@ export const eventsRetentionDeletionCount = async (
     return apiMutator<EventsDeletedApi>(getEventsRetentionDeletionCountUrl(projectId, params), {
         ...options,
         method: 'GET',
-    })
-}
-
-export const getEventsTableRetrieveUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/events_table/`
-}
-
-/**
- * Returns which events table this project's queries read, whether the project opted in early, and whether it can still choose.
- * @summary Get the events table a project reads
- */
-export const eventsTableRetrieve = async (projectId: string, options?: RequestInit): Promise<EventsTableApi> => {
-    return apiMutator<EventsTableApi>(getEventsTableRetrieveUrl(projectId), {
-        ...options,
-        method: 'GET',
-    })
-}
-
-export const getEventsTableUpdateUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/events_table/`
-}
-
-/**
- * Moves this project's queries to the new events table before PostHog moves it, or undoes that. Once PostHog has moved the project, it can't switch back. The switch deletes nothing. Organization admins only.
- * @summary Choose the events table a project reads
- */
-export const eventsTableUpdate = async (
-    projectId: string,
-    eventsTableUpdateApi: EventsTableUpdateApi,
-    options?: RequestInit
-): Promise<EventsTableApi> => {
-    return apiMutator<EventsTableApi>(getEventsTableUpdateUrl(projectId), {
-        ...options,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(eventsTableUpdateApi),
     })
 }
 

@@ -5,7 +5,6 @@ import posthog.temporal.ai  # noqa: F401
 from posthog.api import (
     data_color_theme,
     data_deletion_request,
-    events_table,
     metalytics,
     my_notifications,
     project,
@@ -561,8 +560,6 @@ projects_router.register(
 projects_router.register(
     r"data_color_themes", data_color_theme.DataColorThemeViewSet, "project_data_color_themes", ["team_id"]
 )
-
-projects_router.register(r"events_table", events_table.EventsTableViewSet, "project_events_table", ["team_id"])
 
 projects_router.register(
     r"web_vitals",

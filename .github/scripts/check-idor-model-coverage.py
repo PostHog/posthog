@@ -244,9 +244,6 @@ def get_scoped_models() -> tuple[dict[str, set[str]], set[str], set[str], set[st
         # OneToOne extension keyed on the authorized Team; no independently addressable config ID.
         "TeamHeatmapConfig",
         "TeamEventVolume",
-        # OneToOne extension keyed on the team; the one endpoint that reads or writes it takes the team from the
-        # URL and no config ID.
-        "TeamEventsTableConfig",
         "TeamTasksConfig",
         "TeamLogsConfig",
         "TeamMarketingAnalyticsConfig",
