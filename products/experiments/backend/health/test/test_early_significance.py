@@ -26,6 +26,7 @@ from products.experiments.backend.health.checks.early_significance import (
     early_significance_values,
 )
 from products.experiments.backend.health.context import HealthContext, PrimaryMetric
+from products.experiments.backend.health.primary_metric import load_primary_metric
 from products.experiments.backend.health.skips import CheckSkip
 from products.experiments.backend.health.test.factories import ENDED, RUNNING_CONTEXT
 from products.experiments.backend.logic.result_stats import BaselineStats, Interval, MetricResultStats, VariantStats
@@ -42,7 +43,10 @@ from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 Status = ExperimentHealthCheckStatus
 NO_QUERIES = ExperimentHealthReaderAccess(
-    can_read_flag_history=False, can_query_events=False, denied_event_properties=frozenset()
+    can_read_flag_history=False,
+    can_query_events=False,
+    denied_event_properties=frozenset(),
+    restricted_properties=frozenset(),
 )
 FUNNEL = {"kind": "ExperimentMetric", "metric_type": "funnel", "series": [{"kind": "EventsNode", "event": "purchase"}]}
 
@@ -338,3 +342,5 @@ class TestEarlySignificanceFromStoredResults(BaseTest):
         )
         if finding:
             self.assertIn('"Checkout funnel"' if shared else '"purchase conversion"', finding.detail)
+        primary = load_primary_metric(experiment)
+        self.assertEqual(primary.exposures if primary else None, 2000 if under_current_key else None)

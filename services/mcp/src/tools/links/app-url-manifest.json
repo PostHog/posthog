@@ -364,6 +364,11 @@
         "params": ["id"],
         "scope": "project"
     },
+    "businessKnowledgeUsage": {
+        "template": "/business-knowledge/usage",
+        "params": [],
+        "scope": "project"
+    },
     "canvas": {
         "template": "/canvas",
         "params": [],
@@ -606,6 +611,11 @@
     },
     "dataCatalogNewMetric": {
         "template": "/data-catalog/new-metric",
+        "params": [],
+        "scope": "project"
+    },
+    "dataDeletionRequestNew": {
+        "template": "/settings/environment-danger-zone/data-deletion/new",
         "params": [],
         "scope": "project"
     },
@@ -1497,6 +1507,11 @@
     "release": {
         "template": "/releases/{id}",
         "params": ["id"],
+        "scope": "project"
+    },
+    "releaseCalendar": {
+        "template": "/releases/calendar",
+        "params": [],
         "scope": "project"
     },
     "releaseList": {

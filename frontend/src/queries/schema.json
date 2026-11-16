@@ -25253,7 +25253,8 @@
                 "lof",
                 "ocsvm",
                 "pca",
-                "llm"
+                "llm",
+                "forecast"
             ],
             "type": "string"
         },
@@ -26591,6 +26592,20 @@
                 },
                 "status": {
                     "$ref": "#/definitions/ErrorTrackingIssueStatus"
+                },
+                "tags": {
+                    "anyOf": [
+                        {
+                            "items": {
+                                "$ref": "#/definitions/ErrorTrackingIssueTag"
+                            },
+                            "type": "array"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "The enabled tags that are applied to the issue, on issue list results and issue detail. Null or absent when the project has no enabled tag."
                 }
             },
             "required": [
@@ -26875,6 +26890,20 @@
                 },
                 "status": {
                     "$ref": "#/definitions/ErrorTrackingIssueStatus"
+                },
+                "tags": {
+                    "anyOf": [
+                        {
+                            "items": {
+                                "$ref": "#/definitions/ErrorTrackingIssueTag"
+                            },
+                            "type": "array"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "The enabled tags that are applied to the issue, on issue list results and issue detail. Null or absent when the project has no enabled tag."
                 }
             },
             "required": ["assignee", "description", "first_seen", "id", "last_seen", "library", "name", "status"],
@@ -27321,6 +27350,44 @@
             "title": "ErrorTrackingIssueStatus",
             "type": "string"
         },
+        "ErrorTrackingIssueTag": {
+            "additionalProperties": false,
+            "properties": {
+                "description": {
+                    "description": "What the tag means, for a tooltip.",
+                    "type": "string"
+                },
+                "key": {
+                    "description": "Key of the tag definition.",
+                    "type": "string"
+                },
+                "label": {
+                    "description": "Short name of the tag.",
+                    "type": "string"
+                },
+                "source": {
+                    "description": "The tagger that applied the tag: `jev` for AI, `manual` for a person. Issue detail sets it, list results send null.",
+                    "type": ["string", "null"]
+                }
+            },
+            "required": ["key", "label", "description"],
+            "type": "object"
+        },
+        "ErrorTrackingIssueTagFilter": {
+            "additionalProperties": false,
+            "properties": {
+                "applied": {
+                    "description": "True matches the issues the tag is applied to. False matches every other issue.",
+                    "type": "boolean"
+                },
+                "key": {
+                    "description": "Key of the tag definition.",
+                    "type": "string"
+                }
+            },
+            "required": ["key", "applied"],
+            "type": "object"
+        },
         "ErrorTrackingOrderBy": {
             "enum": ["last_seen", "first_seen", "occurrences", "users", "sessions", "severity"],
             "title": "ErrorTrackingOrderBy",
@@ -27428,6 +27495,17 @@
                 "issueId": {
                     "description": "Filter to a specific error tracking issue by ID.",
                     "type": "string"
+                },
+                "issueTag": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/ErrorTrackingIssueTagFilter"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "Filter by whether one issue tag is applied. Ignored when issue tags or this tag are off for the project."
                 },
                 "kind": {
                     "const": "ErrorTrackingQuery",
@@ -27669,6 +27747,20 @@
                 },
                 "status": {
                     "$ref": "#/definitions/ErrorTrackingIssueStatus"
+                },
+                "tags": {
+                    "anyOf": [
+                        {
+                            "items": {
+                                "$ref": "#/definitions/ErrorTrackingIssueTag"
+                            },
+                            "type": "array"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "The enabled tags that are applied to the issue, on issue list results and issue detail. Null or absent when the project has no enabled tag."
                 }
             },
             "required": ["id", "name", "description", "assignee", "status", "first_seen"],
@@ -31713,6 +31805,45 @@
             "required": ["key", "operator", "type", "value"],
             "type": "object"
         },
+        "ForecastDetectorConfig": {
+            "additionalProperties": false,
+            "description": "Forecasts the next point from the points before it, then compares the actual value with the forecast. Carries no preprocessing block: the forecast reads the series as it is. With neither side set, it fires outside the 0.05 to 0.95 forecast range on either side.",
+            "properties": {
+                "above": {
+                    "$ref": "#/definitions/ForecastSideRule",
+                    "description": "Rule for a value higher than expected. Omit to ignore that side."
+                },
+                "below": {
+                    "$ref": "#/definitions/ForecastSideRule",
+                    "description": "Rule for a value lower than expected. Omit to ignore that side."
+                },
+                "type": {
+                    "const": "forecast",
+                    "type": "string"
+                }
+            },
+            "required": ["type"],
+            "type": "object"
+        },
+        "ForecastSideRule": {
+            "additionalProperties": false,
+            "description": "One side of a forecast detector. The side fires when every condition it sets is true.",
+            "properties": {
+                "min_absolute_change": {
+                    "description": "The value is at least this far from the expected value, in the series' units",
+                    "type": "number"
+                },
+                "min_relative_change": {
+                    "description": "The value is at least this fraction away from the expected value. 1 = 100%",
+                    "type": "number"
+                },
+                "quantile": {
+                    "description": "The value is beyond this forecast quantile. Above: 0.55 to 0.95 in steps of 0.05, or 0.99. Below: 0.01, or 0.05 to 0.45 in steps of 0.05.",
+                    "type": "number"
+                }
+            },
+            "type": "object"
+        },
         "FormDismissPayload": {
             "additionalProperties": false,
             "properties": {
@@ -32955,6 +33086,9 @@
                 "xAxisLabel": {
                     "type": "string"
                 },
+                "xAxisSortOrder": {
+                    "$ref": "#/definitions/HeatmapSortOrder"
+                },
                 "yAxisColumn": {
                     "type": "string"
                 },
@@ -33524,7 +33658,7 @@
                     "type": "string"
                 },
                 "personIdPushdown": {
-                    "description": "Push an `id IN (SELECT person_id FROM <left table> WHERE …)` predicate into the joined persons subquery, so the latest-version lookup only reads persons that the outer query's left-table filters can reach. Applies only to a persons join from the query's own FROM table.",
+                    "description": "Push an `id IN (SELECT person_id FROM <left table> WHERE …)` predicate into the joined persons subquery, so the latest-version lookup only reads persons that the outer query's left-table filters can reach. Applies only to a persons join from the query's own FROM table. Unset, it applies to a persons join from `posthog.flag_evaluations` or from the union of events and flag_evaluations, and to no other join.",
                     "type": "boolean"
                 },
                 "personsArgMaxVersion": {
@@ -40403,6 +40537,17 @@
                 "reason": {
                     "type": "string"
                 },
+                "resolution": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/MarketingAnalyticsRecommendationResolution"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "Set only when the query includes resolved recommendations and someone dismissed this one or marked it as applied."
+                },
                 "rule": {
                     "$ref": "#/definitions/MarketingAnalyticsRecommendationRule"
                 },
@@ -40513,6 +40658,24 @@
             "enum": ["account", "campaign", "search_term"],
             "type": "string"
         },
+        "MarketingAnalyticsRecommendationResolution": {
+            "additionalProperties": false,
+            "properties": {
+                "id": {
+                    "description": "The resolution id. Delete it through the resolutions API to show the recommendation again.",
+                    "type": "string"
+                },
+                "resolution": {
+                    "$ref": "#/definitions/MarketingAnalyticsRecommendationResolutionState"
+                },
+                "resolved_at": {
+                    "description": "When someone last dismissed the recommendation or marked it as applied, as an ISO 8601 timestamp.",
+                    "type": "string"
+                }
+            },
+            "required": ["id", "resolution", "resolved_at"],
+            "type": "object"
+        },
         "MarketingAnalyticsRecommendationResolutionState": {
             "enum": ["dismissed", "applied"],
             "type": "string"
@@ -40588,6 +40751,11 @@
                 },
                 "dateRange": {
                     "$ref": "#/definitions/DateRange"
+                },
+                "includeResolved": {
+                    "default": false,
+                    "description": "Also return recommendations that someone in the project dismissed or marked as applied, with their `resolution`.",
+                    "type": "boolean"
                 },
                 "kind": {
                     "const": "MarketingAnalyticsRecommendationsQuery",
@@ -40707,6 +40875,10 @@
         "MarketingAnalyticsRecommendationsSource": {
             "additionalProperties": false,
             "properties": {
+                "adTable": {
+                    "description": "Google Ads ad table, used to read the ad copy of each ad group.",
+                    "type": "string"
+                },
                 "campaignConversionActionTable": {
                     "description": "Google Ads daily campaign conversions split by conversion action.",
                     "type": "string"
@@ -58056,6 +58228,9 @@
                 },
                 "hidden": {
                     "type": "boolean"
+                },
+                "label": {
+                    "type": "string"
                 }
             },
             "required": ["assignmentBy"],
@@ -60038,6 +60213,9 @@
                 },
                 {
                     "$ref": "#/definitions/LLMDetectorConfig"
+                },
+                {
+                    "$ref": "#/definitions/ForecastDetectorConfig"
                 }
             ],
             "required": ["type"],

@@ -807,8 +807,10 @@ export const getExperimentsHealthRetrieveUrl = (projectId: string, id: number) =
  * The severity of the `some_conditions_pinned` finding follows the largest share that the
  * users of the pinned release conditions make up among the users who got one variant from
  * the flag, in the last 7 days, or since launch or the flag's last save if later. It reads
- * the flag's calls that name the matched condition, not the experiment's exposure criteria:
- * info up to 5%, warning above, and no finding under 1% when at least half of the calls
+ * the flag's calls that name the matched condition, not the experiment's exposure criteria.
+ * When the experiment applies the filter for internal and test users, the counts leave out the
+ * calls that the filter excludes, so pinned users that the filter excludes add nothing. The
+ * severity is info up to 5%, warning above, and no finding under 1% when at least half of the calls
  * that returned a variant name a condition. The finding is info when the share is unknown,
  * and `reason` says why: `not_measured` (for example an API key without
  * `query:read`, or a caller denied a flag call property), `too_few_people` (under 100), or
@@ -820,7 +822,9 @@ export const getExperimentsHealthRetrieveUrl = (projectId: string, id: number) =
  * Two findings say that the variants are assigned outside PostHog, as info. A running
  * experiment whose flag has a 0% rollout gets `assigned_outside_flag_service` instead of
  * `running_but_no_rollout` when 10 or more people got a variant from flag calls without a
- * flag version that are no local evaluation, from an hour after the window starts. When
+ * flag version that are no local evaluation, from an hour after the window starts. The
+ * count leaves out the calls that the filter for internal and test users excludes, when the
+ * experiment applies it. When
  * every condition that includes users pins the variant whose key one property holds,
  * `assigned_by_property` replaces `all_conditions_pinned`. When none of them includes
  * everyone, so that every other user gets no variant, `closed_to_matched_users` replaces it,

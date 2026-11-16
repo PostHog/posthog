@@ -26,17 +26,16 @@ function invariantProperties(result: RunVerdict): Record<string, Property> {
 
 function measurementProperties(result: RunVerdict): Record<string, Property> {
     return Object.fromEntries(
-        result.measurements.flatMap(({ name, key, value, incomplete }) => {
+        result.measurements.flatMap(({ name, key, value, incomplete, censored }) => {
             const property = ['m', name, key]
                 .filter((part) => part !== undefined)
                 .join('_')
                 .replace(/-/g, '_')
-            return incomplete
-                ? [
-                      [property, value],
-                      [`${property}_incomplete`, true],
-                  ]
-                : [[property, value]]
+            return [
+                [property, value],
+                ...(incomplete ? [[`${property}_incomplete`, true]] : []),
+                ...(censored ? [[`${property}_censored`, true]] : []),
+            ]
         })
     )
 }
@@ -80,8 +79,11 @@ export function scorecardOf(
         units_offered: result.units?.offeredUnits ?? null,
         converged: result.convergence?.converged ?? null,
         unfinished_jobs: result.convergence?.unfinishedJobs ?? null,
+        janitor_resets: result.janitorResets ?? null,
         ...invariantProperties(result),
         ...measurementProperties(result),
+        admissions: result.admissions,
+        bars: result.bars,
         valve_timeline: result.timeline,
         evidence_dir: result.evidenceDir,
     }
