@@ -187,6 +187,22 @@ describe('email domain setup entry points', () => {
             expect(onClose).not.toHaveBeenCalled()
         }
     )
+
+    it('opens the existing sender when the new address already has one', async () => {
+        const existing = backend.addSender({ email: `hello@${DOMAIN}` })
+        await renderInApp(<EmailSetupModal onClose={jest.fn()} onComplete={jest.fn()} />)
+
+        fireEvent.change(document.getElementById('email-domain-another-domain') as HTMLInputElement, {
+            target: { value: 'acme.com' },
+        })
+        fireEvent.click(element('email-domain-use-custom-domain'))
+        await flush()
+        fireEvent.click(screen.getByText('Open it'))
+        await flush()
+
+        expect(router.values.location.pathname).toMatch(new RegExp(`${urls.workflowsEmailDomain(existing.id)}$`))
+    })
+
     describe('adding a sender to an existing domain', () => {
         const OTHER_DOMAIN = 'news.example.com'
 
