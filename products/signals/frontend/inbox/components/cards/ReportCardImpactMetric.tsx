@@ -5,7 +5,6 @@ import { TZLabel } from 'lib/components/TZLabel'
 import type { ReportMetricApi } from 'products/signals/frontend/generated/api.schemas'
 
 import {
-    formatReportMetricParts,
     formatReportMetricValue,
     reportMetricChartType,
     reportMetricRowParts,
@@ -29,18 +28,15 @@ export function ReportCardImpactMetric({ metrics }: { metrics?: ReportMetricApi[
     }
 
     const series = metric.series?.filter((point) => Number.isFinite(point)) ?? []
-    const shortened = formatReportMetricParts(metric, metric.value)?.value !== parts.value
 
     return (
         <Tooltip
             title={
                 <div className="flex flex-col gap-0.5">
                     <span>{metric.title}</span>
-                    {shortened ? (
-                        <span className="font-mono text-xs tabular-nums">
-                            {formatReportMetricValue(metric, metric.value)}
-                        </span>
-                    ) : null}
+                    <span className="font-mono text-xs tabular-nums">
+                        {formatReportMetricValue(metric, metric.value)}
+                    </span>
                     {metric.value_at ? (
                         <span className="text-xs">
                             Measured <TZLabel time={metric.value_at} showPopover={false} timestampStyle="absolute" />
