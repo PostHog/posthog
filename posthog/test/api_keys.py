@@ -8,6 +8,7 @@ def create_project_secret_api_key(
     label: str = "Test key",
     scopes: list[str] | None = None,
     value: str | None = None,
+    is_legacy_mirror: bool = False,
 ) -> tuple[ProjectSecretAPIKey, str]:
     """Create a PSAK the way the API does (hashed secure_value, masked display value) and
     return it along with the plaintext token, which is never stored. Pass ``value`` to
@@ -20,5 +21,6 @@ def create_project_secret_api_key(
         mask_value=mask_key_value(value),
         created_by=created_by,
         scopes=scopes or ["feature_flag:read"],
+        is_legacy_mirror=is_legacy_mirror,
     )
     return key, value

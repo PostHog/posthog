@@ -8,6 +8,7 @@ from unittest.mock import patch
 
 from django.core.cache import cache
 from django.db import connection
+from django.test import override_settings
 from django.test.utils import CaptureQueriesContext
 
 from parameterized import parameterized
@@ -126,6 +127,24 @@ class TestExternalAccountListAPI(APIBaseTest):
         response = self._get(token=self.team.secret_api_token)
 
         self.assertEqual(response.status_code, status.HTTP_401_UNAUTHORIZED)
+
+    @override_settings(ACCEPT_TEAM_SECRET_TOKENS=False)
+    def test_rejects_legacy_mirror_key(self):
+        # After the flip (#66179) the legacy token resolves as its mirror PSAK. The mirror
+        # keeps single-account access elsewhere but must not unlock this bulk export either.
+        self.team.secret_api_token = generate_random_token_secret()
+        self.team.save(update_fields=["secret_api_token"])
+        create_project_secret_api_key(
+            self.team,
+            label="Migrated legacy secret API key",
+            scopes=["feature_flag:read", "support_ticket:read"],
+            value=self.team.secret_api_token,
+            is_legacy_mirror=True,
+        )
+
+        response = self._get(token=self.team.secret_api_token)
+
+        self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
 
     @parameterized.expand([("project",), ("personal",)])
     def test_rejects_key_without_account_read_scope(self, key_type: str) -> None:

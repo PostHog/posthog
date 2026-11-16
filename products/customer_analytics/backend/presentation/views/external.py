@@ -151,8 +151,9 @@ class ExternalAccountProjectSecretAPIKeyAuthentication(ProjectSecretAPIKeyAuthen
     cannot reveal that the key exists or which scopes it carries."""
 
     activity_credential_type = "project_secret_key"
-    # A migrated legacy token (#63111) must keep the legacy path: account updates accept
-    # it there but refuse PSAKs.
+    # While the legacy verifiers are on, a migrated legacy token (#63111) keeps the legacy
+    # path. With them off it authenticates here, where its mirror flag keeps the token's
+    # single-account powers.
     defer_migrated_team_tokens = True
 
     def authenticate(self, request: HttpRequest | Request) -> tuple[Any, None] | None:
@@ -247,20 +248,37 @@ def _authenticate_psak_team(request: Request, required_scope: str) -> tuple[Team
     return psak.team, None
 
 
+def _mirrored_legacy_token_team(request: Request) -> Team | None:
+    """The mirror row IS the legacy token (#63111), so it keeps the token's single-account
+    powers after the legacy verifiers go away. It never unlocks the bulk account export,
+    which checks scopes directly and so keeps refusing it."""
+    authenticator = cast(ProjectSecretAPIKeyAuthentication, request.successful_authenticator)
+    psak = authenticator.project_secret_api_key
+    return psak.team if psak.is_legacy_mirror else None
+
+
 def _authenticate_team_or_psak(request: Request, psak_scope: str) -> tuple[Team, None] | tuple[None, Response]:
     if is_authenticated_via_project_secret_api_key(request):
+        if (team := _mirrored_legacy_token_team(request)) is not None:
+            return team, None
         return _authenticate_psak_team(request, psak_scope)
     return _authenticate_team(request)
 
 
 def _get_auth_method_label(request: Request) -> str:
-    return "project_secret_api_key" if is_authenticated_via_project_secret_api_key(request) else "secret_api_token"
+    if is_authenticated_via_project_secret_api_key(request):
+        if _mirrored_legacy_token_team(request) is not None:
+            return "migrated_secret_api_token"
+        return "project_secret_api_key"
+    return "secret_api_token"
 
 
 def _authenticate_team_for_update(request: Request) -> tuple[Team, None] | tuple[None, Response]:
     """Updates require ``account:write`` on a project secret API key; reads alone don't
     grant tag, relationship or churn changes. The team token keeps working unchanged."""
     if is_authenticated_via_project_secret_api_key(request):
+        if (team := _mirrored_legacy_token_team(request)) is not None:
+            return team, None
         authenticator = cast(ProjectSecretAPIKeyAuthentication, request.successful_authenticator)
         key_scopes = set(get_authenticator_scopes(authenticator) or [])
         if "*" not in key_scopes and EXTERNAL_ACCOUNT_WRITE_SCOPE not in key_scopes:
@@ -325,9 +343,9 @@ class ExternalAccountView(APIView):
     PATCH /api/customer_analytics/external/account — Update an account's relationships, tags, and churn state
 
     GET accepts either the team secret_api_token or a project secret API key with the
-    ``account:read`` scope as a Bearer token. POST accepts the team secret_api_token or a
-    project secret API key with the ``account:write`` scope. PATCH accepts only the team
-    secret_api_token.
+    ``account:read`` scope as a Bearer token. POST and PATCH accept the team
+    secret_api_token or a project secret API key with the ``account:write`` scope.
+    The hashed mirror of a legacy token (#63111) counts as the token itself on all three.
     """
 
     authentication_classes = [ExternalAccountProjectSecretAPIKeyAuthentication]

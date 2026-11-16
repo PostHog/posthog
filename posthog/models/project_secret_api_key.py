@@ -51,6 +51,11 @@ class ProjectSecretAPIKey(ModelActivityMixin, models.Model):
 
     scopes: ArrayField = ArrayField(models.CharField(max_length=100), null=True)
 
+    # Marks the hashed mirror of a legacy team secret token (#63111). Surfaces that grant
+    # the legacy token powers its scopes do not cover key off this, never off the label,
+    # which a customer can duplicate. db_default: rust test fixtures insert raw rows.
+    is_legacy_mirror = models.BooleanField(default=False, db_default=False)
+
     class Meta:
         db_table = "posthog_projectsecretapikey"
         indexes = [
@@ -120,4 +125,5 @@ def create_project_secret_api_key_for_token(team_id: int, token: str) -> None:
         mask_value=mask_key_value(token),
         secure_value=secure_value,
         scopes=MIRRORED_LEGACY_TOKEN_SCOPES,
+        is_legacy_mirror=True,
     )

@@ -215,11 +215,34 @@ class TestExternalAccountAPI(APIBaseTest):
         self.account.refresh_from_db()
         self.assertIsNotNone(self.account.churned_at)
 
+    @parameterized.expand([("get",), ("post",), ("patch",)])
     @override_settings(ACCEPT_TEAM_SECRET_TOKENS=False)
-    def test_kill_switch_off_migrated_token_lacks_account_scopes(self) -> None:
-        # Flip semantics (#66179): the mirror rows carry only flag/ticket read scopes, so on
-        # this surface a migrated legacy token resolves as a PSAK and fails the scope check.
-        # Legacy traffic here was confirmed at zero before shipping the switch.
+    def test_kill_switch_off_mirror_row_keeps_single_account_access(self, method: str) -> None:
+        # Flip semantics (#66179): a migrated legacy token resolves as its mirror PSAK, whose
+        # flag keeps the token's single-account read and write powers across both auth helpers.
+        create_project_secret_api_key(
+            self.team,
+            label="Migrated legacy secret API key",
+            scopes=["feature_flag:read", "support_ticket:read"],
+            value=self.team.secret_api_token,
+            is_legacy_mirror=True,
+        )
+        if method == "get":
+            response = self._get()
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+        elif method == "post":
+            response = self._post({"external_id": "acme-new", "name": "Acme New"})
+            self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        else:
+            response = self._patch({"external_id": "acme-1", "churned_at": "2026-08-01"})
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+            self.account.refresh_from_db()
+            self.assertIsNotNone(self.account.churned_at)
+
+    @override_settings(ACCEPT_TEAM_SECRET_TOKENS=False)
+    def test_kill_switch_off_unflagged_key_with_mirror_scopes_is_refused(self) -> None:
+        # The legacy token's powers come from the flag alone: a key that merely carries the
+        # mirror scopes (or copies the mirror label) still fails the account scope check.
         create_project_secret_api_key(
             self.team,
             label="Migrated legacy secret API key",
