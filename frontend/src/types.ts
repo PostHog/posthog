@@ -1083,6 +1083,8 @@ export interface ToolbarParams {
     accessToken?: string /** OAuth access token (Bearer) */
     refreshToken?: string /** OAuth refresh token */
     clientId?: string /** OAuth client_id for token refresh */
+    teamId?: number /** Team the OAuth token is scoped to */
+    projectId?: number /** Project of that team */
     actionId?: number
     experimentId?: ExperimentIdType
     userIntent?: ToolbarUserIntent
