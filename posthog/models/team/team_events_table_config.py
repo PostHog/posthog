@@ -14,4 +14,6 @@ class TeamEventsTableConfig(TeamScopedRootMixin):
 
     team = models.OneToOneField(Team, on_delete=models.CASCADE, primary_key=True, db_constraint=False)
 
-    use_new_events_table = field_access_control(models.BooleanField(null=True, blank=True), "project", "admin")
+    use_new_events_table = field_access_control(
+        models.BooleanField(default=False, db_default=False), "project", "admin"
+    )

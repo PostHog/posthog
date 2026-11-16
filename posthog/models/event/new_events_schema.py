@@ -114,9 +114,11 @@ def _allowlisted_team_ids() -> set[int]:
     return {int(part) for part in raw.split(",") if part.strip()}
 
 
-# Staff set the share of projects that read events_json, and the projects to keep on the legacy table, in this
-# flag's release conditions. The conditions can filter on the person property project_id.
+# Both flags match by the project group. Staff set the share of projects that read events_json, and the projects
+# to keep on the legacy table, in the rollout flag's release conditions, which can filter on the group property id.
 EVENTS_TABLE_ROLLOUT_FLAG = "new-events-table-rollout"
+# The browser also evaluates this flag, to show the setting, and it hashes a different project key. Open it to
+# every project or to projects listed by id, never to a percentage, or the browser and the API disagree.
 EVENTS_TABLE_SELF_SERVE_FLAG = "new-events-table-self-serve"
 
 _OPT_INS_TTL_SECONDS = 60
@@ -131,7 +133,8 @@ def _flag_enabled_for_project(flag: str, team_id: int) -> bool:
         posthoganalytics.feature_enabled(
             flag,
             str(team_id),
-            person_properties={"project_id": str(team_id)},
+            groups={"project": str(team_id)},
+            group_properties={"project": {"id": str(team_id)}},
             only_evaluate_locally=True,
             send_feature_flag_events=False,
         )
@@ -147,8 +150,10 @@ def _opted_in_project_ids() -> set[int]:
     # One cached set for every project, as get_instance_setting caches one value per key. A lookup per project
     # would add a database read to the first query of each project on each worker.
     global _opted_in_projects
-    if _opted_in_projects is not None and time.monotonic() - _opted_in_projects[0] < _OPT_INS_TTL_SECONDS:
-        return _opted_in_projects[1]
+    # One read of the global: a write on another thread can clear it between two reads.
+    cached = _opted_in_projects
+    if cached is not None and time.monotonic() - cached[0] < _OPT_INS_TTL_SECONDS:
+        return cached[1]
 
     # Deferred: this module is imported at django.setup(), before the models load.
     from posthog.models.team import Team  # noqa: PLC0415
@@ -175,8 +180,9 @@ def set_project_events_table_opt_in(team: "Team", opted_in: bool) -> None:
     """Store the project's opt-in. Other workers read it once their cached opt-ins expire, within a minute."""
     from posthog.models.team.team_events_table_config import TeamEventsTableConfig  # noqa: PLC0415
 
-    TeamEventsTableConfig.objects.unscoped().update_or_create(
-        team_id=team.parent_team_id or team.pk, defaults={"use_new_events_table": opted_in}
+    root_team_id = team.parent_team_id or team.pk
+    TeamEventsTableConfig.objects.for_team(root_team_id, canonical=True).update_or_create(
+        team_id=root_team_id, defaults={"use_new_events_table": opted_in}
     )
     clear_events_table_opt_ins()
 

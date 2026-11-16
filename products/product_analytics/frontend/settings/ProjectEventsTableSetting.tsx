@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonSwitch, Link } from '@posthog/lemon-ui'
+import { LemonButton, LemonSkeleton, LemonSwitch, Link } from '@posthog/lemon-ui'
 
 import { useRestrictedArea } from 'lib/components/RestrictedArea'
 import { OrganizationMembershipLevel } from 'lib/constants'
@@ -10,12 +10,28 @@ import { eventsTableSettingLogic } from './eventsTableSettingLogic'
 const EVENT_STORAGE_CHANGES_URL = 'https://posthog.com/blog/changing-event-storage'
 
 export function ProjectEventsTableSetting(): JSX.Element | null {
-    const { eventsTable, eventsTableLoading } = useValues(eventsTableSettingLogic)
-    const { updateEventsTable } = useActions(eventsTableSettingLogic)
+    const { eventsTable, eventsTableLoading, eventsTableLoadFailed } = useValues(eventsTableSettingLogic)
+    const { loadEventsTable, updateEventsTable } = useActions(eventsTableSettingLogic)
     const restrictionReason = useRestrictedArea({ minimumAccessLevel: OrganizationMembershipLevel.Admin })
 
     if (!eventsTable) {
-        return null
+        if (!eventsTableLoadFailed) {
+            return <LemonSkeleton className="h-10 w-80" />
+        }
+        return (
+            <div className="flex flex-wrap items-center gap-2 text-sm text-secondary">
+                <span>Couldn't load this setting.</span>
+                <LemonButton
+                    type="secondary"
+                    size="small"
+                    onClick={loadEventsTable}
+                    loading={eventsTableLoading}
+                    data-attr="project-events-table-retry"
+                >
+                    Try again
+                </LemonButton>
+            </div>
+        )
     }
 
     const learnMore = (

@@ -1,4 +1,4 @@
-import { MakeLogicType, afterMount, connect, kea, listeners, path } from 'kea'
+import { MakeLogicType, afterMount, connect, kea, listeners, path, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
@@ -11,6 +11,7 @@ import type { EventsTableApi } from 'products/product_analytics/frontend/generat
 export interface eventsTableSettingLogicValues {
     currentTeamId: number | null // teamLogic
     eventsTable: EventsTableApi | null
+    eventsTableLoadFailed: boolean
     eventsTableLoading: boolean
 }
 
@@ -76,6 +77,15 @@ export const eventsTableSettingLogic = kea<eventsTableSettingLogicType>([
             },
         ],
     })),
+    reducers({
+        eventsTableLoadFailed: [
+            false,
+            {
+                loadEventsTable: () => false,
+                loadEventsTableFailure: () => true,
+            },
+        ],
+    }),
     listeners(() => ({
         updateEventsTableSuccess: ({ eventsTable }) => {
             lemonToast.success(

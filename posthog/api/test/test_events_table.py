@@ -27,7 +27,7 @@ class TestEventsTableAPI(APIBaseTest):
         self.organization_membership.save()
         self.flags: dict[str, bool] = {EVENTS_TABLE_SELF_SERVE_FLAG: True}
         self.enterContext(patch("posthog.models.event.new_events_schema.is_cloud", return_value=True))
-        self.enterContext(
+        self.flag_calls = self.enterContext(
             patch(
                 "posthog.models.event.new_events_schema.posthoganalytics.feature_enabled",
                 side_effect=lambda flag, *args, **kwargs: self.flags.get(flag, False),
@@ -43,6 +43,10 @@ class TestEventsTableAPI(APIBaseTest):
             response.json(), {"use_new_events_table": True, "reads_new_events_table": True, "can_choose": True}
         )
         self.assertTrue(use_new_events_schema(self.team.pk))
+        project = str(self.team.pk)
+        for call in self.flag_calls.call_args_list:
+            self.assertEqual(call.kwargs["groups"], {"project": project})
+            self.assertEqual(call.kwargs["group_properties"], {"project": {"id": project}})
 
         response = self.client.post(self.url, {"use_new_events_table": False}, format="json")
 

@@ -25,3 +25,8 @@ export const MovedByPostHog: Story = {
     render: () => <ProjectEventsTableSetting />,
     decorators: [eventsTableMock({ use_new_events_table: false, reads_new_events_table: true, can_choose: false })],
 }
+
+export const LoadFailed: Story = {
+    render: () => <ProjectEventsTableSetting />,
+    decorators: [mswDecorator({ get: { '/api/projects/:team_id/events_table/': () => [500, { detail: 'Error' }] } })],
+}

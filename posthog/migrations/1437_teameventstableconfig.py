@@ -21,7 +21,7 @@ class Migration(migrations.Migration):
                 ),
                 (
                     "use_new_events_table",
-                    models.BooleanField(blank=True, null=True),
+                    models.BooleanField(db_default=False, default=False),
                 ),
             ],
         ),
