@@ -183,11 +183,11 @@ tail -f /tmp/phrocs-debug.log
 phrocs exposes process data over a Unix domain socket (IPC) so external tools can query status and logs.
 `phrocs mcp` runs an MCP server over stdio that talks to this socket. `.mcp.json` starts it through `mcp.sh`, which builds phrocs first when Go is available. The tools are:
 
-- `get_process_status`: status, readiness, exit code and resource metrics for one or all processes
-- `get_process_logs`: recent log lines, optionally filtered by a regex across the whole buffer
-- `send_keys`: input for a process waiting on a prompt
-- `toggle_process`: stop a running process or start a stopped one
-- `restart_process`: restart a process in any state
+- `get_process_status`: one summary line per process, failures first with their last output line; `detail: full` adds timings and resource metrics
+- `get_process_logs`: output of the current run, optionally filtered by a regex across the whole buffer
+- `wait_ready`: block until one or all processes are ready, one crashes, or a timeout passes
+- `start_process`, `stop_process`, `restart_process`: control a process
+- `send_keys`: input for a running process waiting on a prompt, with `submit` to press enter
 
 The socket path is derived from a hash of the workspace directory, so multiple phrocs instances can coexist.
 
