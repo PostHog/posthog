@@ -983,6 +983,30 @@ describe('billingLogic', () => {
             expect(billingLogic.values.billingAlert).toBeNull()
         })
 
+        it('keeps the banner closed when billing reloads in the same session', async () => {
+            await loadAlert([200, { count: 1, link: HOSTED_INVOICE_URL }])
+            billingLogic.values.billingAlert?.onClose?.()
+
+            await expectLogic(billingLogic, () => billingLogic.actions.loadBilling()).toFinishAllListeners()
+
+            expect(billingLogic.values.billingAlert).toBeNull()
+        })
+
+        it('keeps the hosted invoice URL out of alert analytics', async () => {
+            const capture = jest.spyOn(posthog, 'capture')
+            await loadAlert([200, { count: 1, link: HOSTED_INVOICE_URL }])
+            const alert = billingLogic.values.billingAlert
+            expect(alert?.action?.to).toBe(HOSTED_INVOICE_URL)
+
+            billingLogic.actions.reportBillingAlertShown(alert!)
+            billingLogic.actions.reportBillingAlertActionClicked(alert!)
+
+            const alertEvents = capture.mock.calls.filter(([event]) => String(event).startsWith('billing alert'))
+            expect(alertEvents.length).toBeGreaterThanOrEqual(2)
+            expect(JSON.stringify(alertEvents)).not.toContain(HOSTED_INVOICE_URL)
+            capture.mockRestore()
+        })
+
         it('links several unpaid invoices to the billing portal', async () => {
             await loadAlert([200, { count: 3, link: HOSTED_INVOICE_URL }])
 

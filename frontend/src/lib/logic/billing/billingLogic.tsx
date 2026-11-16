@@ -90,6 +90,12 @@ export interface BillingAlertConfig {
 
 const isManagedBillingAlert = (billingAlert: BillingAlertConfig | null): boolean => billingAlert?.kind !== undefined
 
+// A hosted invoice URL lets anyone who holds it view and pay the invoice, so it stays out of analytics.
+const alertAnalyticsProperties = (alertConfig: BillingAlertConfig): Record<string, any> =>
+    alertConfig.kind === 'unpaid_invoice' && alertConfig.action
+        ? { ...alertConfig, action: { ...alertConfig.action, to: undefined } }
+        : { ...alertConfig }
+
 export enum BillingAPIErrorCodes {
     OPEN_INVOICES_ERROR = 'open_invoices_error',
     NO_ACTIVE_PAYMENT_METHOD_ERROR = 'no_active_payment_method_error',
@@ -369,6 +375,7 @@ export interface billingLogicValues {
     timeTotalInSeconds: number
     uncollectibleInvoices: OpenInvoices | null
     uncollectibleInvoicesLoading: boolean
+    unpaidInvoiceAlertDismissed: boolean
     unsubscribeError: UnsubscribeError | null
     unusedPlatformAddonAmount: number
     upgradeLink: string
@@ -409,6 +416,9 @@ export interface billingLogicActions {
         payload?: string
     }
     determineBillingAlert: () => {
+        value: true
+    }
+    dismissUnpaidInvoiceAlert: () => {
         value: true
     }
     loadBilling: () => any
@@ -836,6 +846,7 @@ export const billingLogic = kea<billingLogicType>([
         setShowLicenseDirectInput: (show: boolean) => ({ show }),
         reportBillingAlertShown: (alertConfig: BillingAlertConfig) => ({ alertConfig }),
         reportBillingAlertActionClicked: (alertConfig: BillingAlertConfig) => ({ alertConfig }),
+        dismissUnpaidInvoiceAlert: true,
         reportCreditsFormSubmitted: (creditInput: number) => ({ creditInput }),
         reportCreditsModalShown: true,
         reportBillingShown: true,
@@ -888,6 +899,13 @@ export const billingLogic = kea<billingLogicType>([
             null as BillingAlertConfig | null,
             {
                 setBillingAlert: (_, { billingAlert }) => billingAlert,
+            },
+        ],
+        // Closing the unpaid invoice banner hides it until the next page load, even when billing reloads.
+        unpaidInvoiceAlertDismissed: [
+            false,
+            {
+                dismissUnpaidInvoiceAlert: () => true,
             },
         ],
         registeredCustomLimitKeys: [
@@ -1736,14 +1754,10 @@ export const billingLogic = kea<billingLogicType>([
             posthog.capture('billing v2 shown')
         },
         reportBillingAlertShown: ({ alertConfig }) => {
-            posthog.capture('billing alert shown', {
-                ...alertConfig,
-            })
+            posthog.capture('billing alert shown', alertAnalyticsProperties(alertConfig))
         },
         reportBillingAlertActionClicked: ({ alertConfig }) => {
-            posthog.capture('billing alert action clicked', {
-                ...alertConfig,
-            })
+            posthog.capture('billing alert action clicked', alertAnalyticsProperties(alertConfig))
         },
         reportCreditsModalShown: () => {
             posthog.capture('credits modal shown')
@@ -1935,7 +1949,10 @@ export const billingLogic = kea<billingLogicType>([
             // An unpaid invoice outranks a usage warning. Reading the lazy value starts its only load, whose
             // success runs this listener again.
             const unpaidInvoices =
-                values.canAccessBilling && !values.billing.has_active_subscription && !values.isExternallyBilled
+                values.canAccessBilling &&
+                !values.billing.has_active_subscription &&
+                !values.isExternallyBilled &&
+                !values.unpaidInvoiceAlertDismissed
                     ? values.uncollectibleInvoices
                     : null
             if (unpaidInvoices?.count) {
@@ -1946,7 +1963,10 @@ export const billingLogic = kea<billingLogicType>([
                         ...alert.action,
                         onClick: () => actions.reportBillingAlertActionClicked(alert),
                     },
-                    onClose: () => actions.setBillingAlert(null),
+                    onClose: () => {
+                        actions.dismissUnpaidInvoiceAlert()
+                        actions.setBillingAlert(null)
+                    },
                 })
                 return
             }
