@@ -20,6 +20,7 @@ from posthog.schema import (
     ExperimentEventExposureConfig,
     ExperimentExposureCriteria,
     ExperimentExposureHealthCheckKey,
+    ExperimentExposureHealthFindingActionKind,
     ExperimentExposureHealthFindingCode,
     ExperimentExposureHealthFindingSeverity,
     ExperimentExposureQuery,
@@ -1668,11 +1669,12 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
             ("reader_of_the_flag", True, None, "split_changed"),
             ("userless_run", False, None, None),
             ("reader_after_the_end", True, datetime(2024, 1, 6, 12, tzinfo=UTC), "split_changed"),
+            ("exposure_action", True, None, "split_changed", True),
         ]
     )
     @time_machine.travel("2024-01-07T12:00:00Z", tick=False)
     def test_srm_names_a_split_change_for_a_reader_of_the_flag_history(
-        self, _name: str, as_user: bool, end_date: datetime | None, subcode: str | None
+        self, _name: str, as_user: bool, end_date: datetime | None, subcode: str | None, exposure_action: bool = False
     ) -> None:
         ff_property = f"$feature/{self.feature_flag.key}"
         # 90/10 before the change on 2024-01-03, and the current 50/50 split after it.
@@ -1700,6 +1702,9 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
         )
         flush_persons_and_events()
         self._log_split_change_from_90_10_on_2024_01_03()
+        if exposure_action:
+            action = create_action(name="Flag call", team=self.team, steps_json=[{"event": "$feature_flag_called"}])
+            self.experiment.exposure_criteria = {"exposure_config": ActionsNode(id=action.id).model_dump(mode="json")}
         query = self._running_exposure_query()
         if end_date is not None:
             self.experiment.end_date = end_date
@@ -1711,8 +1716,14 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
         ).calculate()
 
         self.assertEqual(
-            [(finding.code, finding.subcode) for finding in response.health_findings or []],
-            [(ExperimentExposureHealthFindingCode.SRM, subcode)],
+            [(finding.code, finding.subcode, finding.actions) for finding in response.health_findings or []],
+            [
+                (
+                    ExperimentExposureHealthFindingCode.SRM,
+                    subcode,
+                    [ExperimentExposureHealthFindingActionKind.MOVE_START_DATE] if exposure_action else [],
+                )
+            ],
         )
 
     @time_machine.travel("2024-01-07T12:00:00Z", tick=False)

@@ -117,7 +117,8 @@ APPLOVIN_ENDPOINTS: dict[str, AppLovinEndpointConfig] = {
         path="/report",
         dimensions=[
             "day",
-            "application",
+            # The docs list `application` for publisher reports, but `/report` answers
+            # `400 Invalid Column: application` with report_type=publisher.
             "package_name",
             "store_id",
             "platform",
@@ -152,9 +153,9 @@ APPLOVIN_ENDPOINTS: dict[str, AppLovinEndpointConfig] = {
             "campaign_type",
             "campaign_ad_type",
             "campaign_package_name",
-            # The docs list `application` for advertiser reports, but `/report` answers
-            # `400 Invalid Column: application` for report_type=advertiser.
-            "app_id_external",
+            # The docs list the source-app columns `application` and `app_id_external` for
+            # advertiser reports, but `/report` answers `400 Invalid Column: <column>` for both
+            # with report_type=advertiser.
             "platform",
             "country",
             "device_type",
@@ -175,7 +176,6 @@ APPLOVIN_ENDPOINTS: dict[str, AppLovinEndpointConfig] = {
         primary_keys=[
             "day",
             "campaign_id_external",
-            "app_id_external",
             "platform",
             "country",
             "device_type",

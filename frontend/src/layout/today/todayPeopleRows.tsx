@@ -28,10 +28,10 @@ import { AccessControlResourceType, FileSystemIconColor } from '~/types'
 import { todayShellLogic } from './todayShellLogic'
 
 // pinned: persisted section ids and the `section` property of `people section toggled`.
-export type TodayPeopleSection = 'recents' | 'groups' | 'customer-analytics'
+export type TodayPeopleSection = 'pinned' | 'recents' | 'groups' | 'customer-analytics'
 
 /** A titled section under Recents. A row with no section sits on top of the pane. */
-export type TodayPeopleRowSection = Exclude<TodayPeopleSection, 'recents'>
+export type TodayPeopleRowSection = Exclude<TodayPeopleSection, 'pinned' | 'recents'>
 
 export const TODAY_PEOPLE_ROW_SECTION_LABELS: Record<TodayPeopleRowSection, string> = {
     groups: 'Groups',
@@ -149,6 +149,20 @@ export const TODAY_PEOPLE_ROWS = {
         section: 'customer-analytics',
         href: () => urls.customerAnalyticsJourneys(),
         enabled: withCustomerAnalytics(FEATURE_FLAGS.CUSTOMER_ANALYTICS_JOURNEYS),
+    },
+    product_activity: {
+        label: 'Product activity',
+        icon: <IconPulse />,
+        explainer: {
+            description: 'Compare account activity across products and time periods.',
+            example: 'See which accounts started using a product this week.',
+        },
+        section: 'customer-analytics',
+        href: () => urls.customerAnalyticsProductActivity(),
+        enabled: withCustomerAnalytics(
+            FEATURE_FLAGS.CUSTOMER_ANALYTICS_CSP,
+            FEATURE_FLAGS.CUSTOMER_ANALYTICS_DOT_MATRIX
+        ),
     },
     notes: {
         label: 'Notes',

@@ -19,7 +19,9 @@ class FlagEvaluationsMode(LabeledIntEnum):
     READ_FLAG_EVALUATIONS = 1, "Read flag evaluations"
     # As READ_FLAG_EVALUATIONS, and ingestion stops writing $feature_flag_called to events. A team outside
     # the ingestion allowlist still writes to events. INGESTION_FLAG_EVALUATIONS_ONLY_DISABLED makes
-    # ingestion treat this mode as READ_FLAG_EVALUATIONS for every organization.
+    # ingestion treat this mode as READ_FLAG_EVALUATIONS for every organization. HogQL reads the flag calls of a query
+    # that mixes them with other events from events and flag_evaluations together on this mode.
+    # FLAG_EVALUATIONS_UNION_DISABLED makes those queries read events only.
     FLAG_EVALUATIONS_ONLY = 2, "Flag evaluations only"
 
 

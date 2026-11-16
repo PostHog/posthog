@@ -9,6 +9,7 @@ import type { AEOKeywordApi } from 'products/web_analytics/frontend/generated/ap
 
 import { ContentAutopilotKeywordAddForm } from './ContentAutopilotKeywordAddForm'
 import { contentAutopilotKeywordsLogic } from './contentAutopilotKeywordsLogic'
+import { ContentAutopilotKeywordSuggestButton } from './ContentAutopilotKeywordSuggestButton'
 import { MAX_KEYWORDS } from './keywordsReport'
 
 export const ContentAutopilotKeywordList = ({ keywords }: { keywords: AEOKeywordApi[] }): JSX.Element => {
@@ -17,7 +18,10 @@ export const ContentAutopilotKeywordList = ({ keywords }: { keywords: AEOKeyword
 
     return (
         <PagePerformanceCard className="min-w-0">
-            <PagePerformanceCardHeader title={`Keywords (${keywords.length} of ${MAX_KEYWORDS})`} />
+            <PagePerformanceCardHeader
+                title={`Keywords (${keywords.length} of ${MAX_KEYWORDS})`}
+                actions={<ContentAutopilotKeywordSuggestButton size="small" />}
+            />
             <div className="flex flex-col gap-3 p-3" data-attr="content-autopilot-keywords-list">
                 <div className="flex flex-wrap gap-1">
                     {keywords.map((keyword) => (

@@ -18,6 +18,11 @@ export default defineConfig({
             fileName: (format, entryName) => `${entryName}.${format === 'es' ? 'js' : 'cjs'}`,
         },
         rollupOptions: {
+            // One ES file per source module. See the primitives config for the reason.
+            output: [
+                { format: 'es', preserveModules: true, preserveModulesRoot: 'src', entryFileNames: '[name].js' },
+                { format: 'cjs', entryFileNames: '[name].cjs' },
+            ],
             external: [
                 'react',
                 'react-dom',

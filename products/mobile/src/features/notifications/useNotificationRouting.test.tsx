@@ -109,6 +109,38 @@ test.each(['expo', 'persisted'] as const)(
     }
 )
 
+const REPORT_PUSH = 'push /report/report-1?from=push'
+
+test.each([
+    {
+        name: 'a cold-start tap opens the report above the inbox',
+        coldStart: true,
+        calls: ['navigate /inbox', REPORT_PUSH],
+    },
+    { name: 'a tap while the app runs opens the report above the screen', coldStart: false, calls: [REPORT_PUSH] },
+])('$name', async ({ coldStart, calls }) => {
+    const response = { notification: notification(`report-cold-${coldStart}`), actionIdentifier: 'default' }
+    jest.mocked(Notifications.getLastNotificationResponse).mockReturnValue(coldStart ? response : null)
+    renderHook(useNotificationRouting)
+    const listener = jest.mocked(Notifications.addNotificationResponseReceivedListener).mock.calls[0]?.[0]
+    if (!listener) {
+        throw new Error('Notification tap listener was not registered')
+    }
+    act(() => listener(response))
+
+    await waitFor(() => expect(router.push).toHaveBeenCalled())
+    const routed = [
+        { kind: 'navigate', mock: jest.mocked(router.navigate).mock },
+        { kind: 'push', mock: jest.mocked(router.push).mock },
+    ].flatMap(({ kind, mock }) =>
+        mock.calls.map((call, index) => ({
+            call: `${kind} ${String(call[0])}`,
+            order: mock.invocationCallOrder[index],
+        }))
+    )
+    expect(routed.sort((a, b) => (a.order ?? 0) - (b.order ?? 0)).map(({ call }) => call)).toEqual(calls)
+})
+
 test('suppresses the viewed report only while that route is on screen', () => {
     jest.mocked(usePathname).mockReturnValue('/report/report-1')
     const hook = renderHook(useNotificationRouting)

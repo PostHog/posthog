@@ -22,8 +22,10 @@ const passed = (cardId: string): RunResult => ({
     cardHash: 'card-hash',
     profileHash: 'profile-hash',
     origin: 'local-agent',
+    bars: [],
     invariants: [],
     measurements: [],
+    admissions: [],
     timeline: [],
     startedAt: '2026-01-01T00:00:00.000Z',
     endedAt: '2026-01-01T00:00:01.000Z',
@@ -50,9 +52,13 @@ function environmentWhoseResetFails(): Environment {
             }
             return edgeUrl
         },
-        role: (name) => ({ name, metricsUrl: '' }),
+        role: (name) => ({ name, replica: 0, url: '', metricsUrl: '' }),
+        roles: () => [],
         dependencyHealth: () => Promise.resolve({ healthy: true, down: [] }),
+        actuate: () => Promise.reject(new Error('the main test schedules no valves')),
+        writerCpu: () => Promise.reject(new Error('these runs read no writer CPU')),
         exits: () => [],
+        groupLag: () => Promise.resolve(0),
         down: () => Promise.resolve(),
     }
 }

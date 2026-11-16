@@ -7,6 +7,7 @@ import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { InsightSubscribeProminentButton } from 'lib/components/Scenes/InsightSubscribeProminentButton'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { AnalyticsScenePinButton } from 'scenes/analytics/AnalyticsScenePinButton'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
@@ -119,6 +120,7 @@ export function InsightPageHeader({ insightLogicProps }: { insightLogicProps: In
 
             <SceneTitleSection
                 name={defaultInsightName || ''}
+                nameAction={<AnalyticsScenePinButton dataAttrKey="insight" />}
                 description={insight?.description || ''}
                 resourceType={{
                     type: getInsightIconTypeFromQuery(query),

@@ -1,5 +1,6 @@
 import { describe, expect, test } from 'bun:test'
 
+import { EXIT_SUCCESS, EXIT_USAGE } from '@/core/errors'
 import { readJson, runHog, TEST_CREDENTIALS } from '@/testing'
 
 // hog logins for each host, the first one the last login.
@@ -32,7 +33,7 @@ describe('global options', () => {
         ['cli.noFail in posthog.json', [], {}, { '/work/posthog.json': JSON.stringify({ cli: { noFail: true } }) }],
     ])('%s turns a failure into exit code 0 and still prints it', async (_name, flags, env, files) => {
         const result = await runHog(['endpoints', 'list', ...flags], { env: { ...AGENT, ...env }, files })
-        expect(result.exitCode).toBe(0)
+        expect(result.exitCode).toBe(EXIT_SUCCESS)
         expect(result.error().code).toBe('not_authenticated')
     })
 
@@ -43,12 +44,12 @@ describe('global options', () => {
             respond: () => ({ status: 200, body: { results: [] } }),
         })
         expect(result.json()).toMatchObject({ plan: [expect.objectContaining({ action: 'create' })] })
-        expect(result.exitCode).toBe(0)
+        expect(result.exitCode).toBe(EXIT_SUCCESS)
     })
 
     test('--no-fail keeps usage errors at exit code 2', async () => {
         const result = await runHog(['endpoints', 'run', '--no-fail'], { env: { ...AGENT, ...TEST_CREDENTIALS } })
-        expect(result.exitCode).toBe(2)
+        expect(result.exitCode).toBe(EXIT_USAGE)
     })
 
     test.each([
@@ -104,7 +105,7 @@ describe('global options', () => {
         ['a host with a password in it', ['endpoints', 'list'], { HOG_HOST: 'https://user:secret@ph.example.com' }],
     ])('%s is a usage error', async (_name, argv, env) => {
         const result = await runHog(argv, { env: { ...AGENT, ...TEST_CREDENTIALS, ...env } })
-        expect(result.exitCode).toBe(2)
+        expect(result.exitCode).toBe(EXIT_USAGE)
         expect(result.error().code).toBe('invalid_setting')
     })
 
@@ -135,7 +136,7 @@ describe('global options', () => {
         expect(pull.files).toEqual({})
 
         const logout = await runHog(['auth', 'logout'], { env, ...storedLogins('https://stored.example.com') })
-        expect(logout.exitCode).toBe(2)
+        expect(logout.exitCode).toBe(EXIT_USAGE)
         expect(logout.error().code).toBe('dry_run_unsupported')
         expect(logout.files).toEqual(storedLogins('https://stored.example.com').files)
     })

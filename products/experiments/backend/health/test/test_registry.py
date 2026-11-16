@@ -350,12 +350,29 @@ class TestEvaluate(TestCase):
                         FlagVariant(key="test", rollout_percentage=100),
                     ),
                 ),
+                "The split now serves one variant, so the split of the run isn't tested",
+            ),
+            (
+                "one_variant_in_the_split_and_one_exposed",
+                replace(
+                    UNEVEN_FLAG,
+                    variants=(
+                        FlagVariant(key="control", rollout_percentage=0),
+                        FlagVariant(key="test", rollout_percentage=100),
+                    ),
+                ),
                 "Needs two or more variants in the split",
+                {"control": 0, "test": 500},
             ),
         ]
     )
-    def test_srm_says_why_it_did_not_run(self, _name: str, flag: FlagState, reason: str) -> None:
-        health = evaluate(replace(RUNNING_UNEVEN_SPLIT, flag=flag), EXPOSURE_HEALTH_CHECKS)
+    def test_srm_says_why_it_did_not_run(
+        self, _name: str, flag: FlagState, reason: str, total_exposures: dict[str, int] | None = None
+    ) -> None:
+        exposures = UNEVEN_SPLIT_TOTALS
+        if total_exposures is not None:
+            exposures = replace(exposures, total_exposures=total_exposures)
+        health = evaluate(replace(RUNNING_UNEVEN_SPLIT, flag=flag, exposures=exposures), EXPOSURE_HEALTH_CHECKS)
 
         srm = next(check for check in health.checks if check.key == Key.SRM)
         self.assertEqual((srm.status, srm.reason), (Status.NOT_APPLICABLE, reason))

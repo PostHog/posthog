@@ -18,6 +18,7 @@ import type {
     LineageResponseApi,
     ModelUsageApi,
     NodeApi,
+    NodeAttentionCountApi,
     NodeFrequencyBoundsApi,
     NodeResumeApi,
     NodeRunApi,
@@ -353,6 +354,23 @@ export const dataModelingNodesWatchCreate = async (
     return apiMutator<NodeWatchingApi>(getDataModelingNodesWatchCreateUrl(projectId, id), {
         ...options,
         method: 'POST',
+    })
+}
+
+export const getDataModelingNodesAttentionCountRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/data_modeling_nodes/attention_count/`
+}
+
+/**
+ * How many of the models the list shows have failed their last run or are suspended.
+ */
+export const dataModelingNodesAttentionCountRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<NodeAttentionCountApi> => {
+    return apiMutator<NodeAttentionCountApi>(getDataModelingNodesAttentionCountRetrieveUrl(projectId), {
+        ...options,
+        method: 'GET',
     })
 }
 

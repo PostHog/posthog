@@ -51,12 +51,19 @@ const activitySummarySearch = (): ToolBase<
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/activity_summary_members/search/`,
             query: {
+                active_since_days: params.active_since_days,
                 exclude_user_uuids: params.exclude_user_uuids,
                 include_profile: params.include_profile,
                 limit: params.limit,
+                mode: params.mode,
+                object_id: params.object_id,
+                object_relation: params.object_relation,
+                object_type: params.object_type,
+                offset: params.offset,
                 product: params.product,
                 query: params.query,
                 search_mode: params.search_mode,
+                user_uuids: params.user_uuids,
             },
         })
         return result
@@ -136,7 +143,10 @@ const anomalySearch = (): ToolBase<ReturnType<typeof AnomalySearchSchema>, Schem
                 insight_id: params.insight_id,
                 interval: params.interval,
                 limit: params.limit,
+                offset: params.offset,
                 only_flagged: params.only_flagged,
+                order: params.order,
+                search: params.search,
             },
         })
         return result
@@ -3166,6 +3176,30 @@ const scoutTrialStart = (): ToolBase<ReturnType<typeof ScoutTrialStartSchema>, u
     },
 })
 
+const SelfDrivingStatusGetSchema = () => z.object({})
+
+const selfDrivingStatusGet = (): ToolBase<
+    ReturnType<typeof SelfDrivingStatusGetSchema>,
+    Schemas.InboxOnboardingState
+> => ({
+    name: 'self-driving-status-get',
+    schema: SelfDrivingStatusGetSchema(),
+    handler: async (context: Context, _params: z.infer<ReturnType<typeof SelfDrivingStatusGetSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.InboxOnboardingState>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/onboarding/`,
+        })
+        const filtered = pickResponseFields(result, [
+            'completed_at',
+            'github_optional_available',
+            'jobs',
+            'first_report',
+        ]) as typeof result
+        return filtered
+    },
+})
+
 const SignalsScoutConfigCreateSchema = () => {
     const SignalsScoutConfigCreateBody = orvalSchemas.SignalsScoutConfigCreateBody()
     return SignalsScoutConfigCreateBody
@@ -4002,6 +4036,7 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'scout-trial-resume': scoutTrialResume,
     'scout-trial-setup': scoutTrialSetup,
     'scout-trial-start': scoutTrialStart,
+    'self-driving-status-get': selfDrivingStatusGet,
     'signals-scout-config-create': signalsScoutConfigCreate,
     'signals-scout-config-delete': signalsScoutConfigDelete,
     'signals-scout-config-list': signalsScoutConfigList,

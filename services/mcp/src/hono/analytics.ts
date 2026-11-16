@@ -16,7 +16,7 @@ import {
 } from '@/lib/posthog/analytics'
 import { type RequestProperties, sanitizeToolFilterNames } from '@/lib/request-properties'
 import { resolveScopePreset } from '@/lib/scope-preset'
-import { isPrivateScoutTrialTool } from '@/lib/tool-privacy'
+import { hasSqlFilters, isPrivateScoutTrialTool } from '@/lib/tool-privacy'
 import type { SkillInvocation } from '@/tools/exec-learn'
 import { EXECUTE_SQL_TOOL_NAME } from '@/tools/posthogAiTools/executeSql'
 import { MAX_CAPTURED_DESCRIPTION_LENGTH, getToolCategory, getToolDescription } from '@/tools/toolDefinitions'
@@ -276,7 +276,7 @@ export async function trackExecuteSqlGeneration(
     meta: ExecuteSqlGenerationMeta,
     analyticsMeta?: ToolCallAnalyticsMeta
 ): Promise<void> {
-    if (toolName !== EXECUTE_SQL_TOOL_NAME) {
+    if (toolName !== EXECUTE_SQL_TOOL_NAME || !shouldCaptureToolCall(toolName, args)) {
         return
     }
     const query = (args as { query?: unknown } | null | undefined)?.query
@@ -385,6 +385,7 @@ type EmailRecipientExposure = 'arguments' | 'arguments-and-result'
 const EMAIL_RECIPIENT_TOOLS: ReadonlyMap<string, EmailRecipientExposure> = new Map([
     ['workflows-transactional-emails-list', 'arguments-and-result'],
     ['workflows-transactional-email-get', 'arguments-and-result'],
+    ['opt-outs-list', 'arguments-and-result'],
     ['opt-outs-remove', 'arguments-and-result'],
     ['opt-outs-add', 'arguments'],
     ['suppressions-add', 'arguments'],
@@ -418,6 +419,10 @@ function emailRecipientExposure(toolName: string, input: unknown): EmailRecipien
 }
 
 function shouldCaptureToolCall(toolName: string, input: unknown): boolean {
+    // Property-filter values can contain credentials under the generic `value` key.
+    if (hasSqlFilters(toolName, input)) {
+        return false
+    }
     if (isPrivateScoutTrialTool(toolName)) {
         return false
     }
@@ -582,13 +587,20 @@ function omitAppData(output: unknown): unknown {
         return output
     }
     const result = output as Record<string, unknown>
-    const meta = result._meta
-    if (typeof meta !== 'object' || meta === null || Array.isArray(meta) || !(APP_DATA_META_KEY in meta)) {
-        return output
+    const sanitized: Record<string, unknown> = { ...result }
+    for (const field of ['_meta', 'structuredContent']) {
+        const carrier = result[field]
+        if (
+            typeof carrier === 'object' &&
+            carrier !== null &&
+            !Array.isArray(carrier) &&
+            APP_DATA_META_KEY in carrier
+        ) {
+            const { [APP_DATA_META_KEY]: _appData, ...rest } = carrier as Record<string, unknown>
+            sanitized[field] = rest
+        }
     }
-    const sanitizedMeta: Record<string, unknown> = { ...meta }
-    delete sanitizedMeta[APP_DATA_META_KEY]
-    return { ...result, _meta: sanitizedMeta }
+    return sanitized
 }
 
 /**
@@ -745,6 +757,7 @@ export async function trackSkillInvoked(state: ResolvedState, invocation: SkillI
                 skill_name: invocation.skill,
                 skill_identifier: `${invocation.source}:${invocation.skill}`,
                 skill_read_kind: invocation.readKind,
+                ...(invocation.path ? { skill_file_path: invocation.path } : {}),
             },
         })
     } catch {

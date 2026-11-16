@@ -115,10 +115,12 @@ from products.warehouse_sources.backend.presentation.views.external_data_schema 
     WEBHOOK_MISSING_BY_SOURCE_CONTEXT_KEY,
     ExternalDataSchemaListSerializer,
     ExternalDataSchemaSerializer,
+    ExternalDataSchemaSummarySerializer,
     canonical_masked_columns,
     masked_columns_error,
     pinned_table_ids,
     source_supports_column_selection,
+    truncate_error,
     unsupported_row_filter_reason,
 )
 from products.warehouse_sources.backend.presentation.views.external_data_source.source_type_field import SourceTypeField
@@ -154,6 +156,25 @@ def _payload_sync_frequency_interval(frequency: Any) -> timedelta:
     return interval or timedelta(hours=6)
 
 
+COMPACT_CONTEXT_KEY = "compact"
+INCLUDE_SCHEMAS_CONTEXT_KEY = "include_schemas"
+# Source health only: no connection settings (`job_inputs`) and no configuration flags.
+COMPACT_SOURCE_FIELDS = frozenset(
+    {
+        "id",
+        "created_at",
+        "source_type",
+        "prefix",
+        "description",
+        "access_method",
+        "status",
+        "latest_error",
+        "last_run_at",
+        "schemas",
+    }
+)
+
+
 class ExternalDataSourceListSerializer(serializers.ListSerializer):
     def to_representation(
         self, data: models.manager.BaseManager[ExternalDataSource] | Iterable[ExternalDataSource]
@@ -162,7 +183,9 @@ class ExternalDataSourceListSerializer(serializers.ListSerializer):
         child = self.child
         assert isinstance(child, ExternalDataSourceSerializers)
         child.preloaded_source_inputs = SourceInputsStore.load_many(sources)
-        child.preloaded_webhook_missing_by_source = self._webhook_missing_by_source(child, sources)
+        # The compact form has no webhook field, so it skips the lookup.
+        if not child.context.get(COMPACT_CONTEXT_KEY):
+            child.preloaded_webhook_missing_by_source = self._webhook_missing_by_source(child, sources)
         return super().to_representation(sources)
 
     def _webhook_missing_by_source(
@@ -358,6 +381,14 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
             "connection_warning",
         ]
 
+    def get_fields(self) -> dict[str, serializers.Field]:
+        fields = super().get_fields()
+        if self.context.get(COMPACT_CONTEXT_KEY):
+            fields = {name: field for name, field in fields.items() if name in COMPACT_SOURCE_FIELDS}
+        if self.context.get(INCLUDE_SCHEMAS_CONTEXT_KEY) is False:
+            fields.pop("schemas", None)
+        return fields
+
     def _source_inputs(self, instance: ExternalDataSource) -> dict[str, Any]:
         if instance.id in self.preloaded_source_inputs:
             return self.preloaded_source_inputs[instance.id]
@@ -489,7 +520,8 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
             schema_with_error = instance.schemas.filter(latest_error__isnull=False).first()
         if schema_with_error is None:
             return None
-        return helpers.redact_error_message(schema_with_error.latest_error, self._error_redaction_values(instance))
+        redacted = helpers.redact_error_message(schema_with_error.latest_error, self._error_redaction_values(instance))
+        return truncate_error(redacted) if self.context.get(COMPACT_CONTEXT_KEY) else redacted
 
     def _error_redaction_values(self, instance: ExternalDataSource) -> frozenset[str]:
         cached = getattr(instance, "_error_redaction_values", None)
@@ -509,6 +541,13 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
             schemas = [schema for schema in prefetched_schemas if not schema.deleted]
         else:
             schemas = list(instance.schemas.exclude(deleted=True).order_by("name"))
+        if self.context.get(COMPACT_CONTEXT_KEY):
+            return ExternalDataSchemaSummarySerializer(
+                schemas,
+                many=True,
+                read_only=True,
+                context={**self.context, "error_redaction_values": self._error_redaction_values(instance)},
+            ).data
         # The source list embeds every schema of every source; large projects have tens of thousands.
         # The list UI only reads a handful of per-schema fields, so serialize the trimmed shape there
         # and reserve the full serializer for single-source reads.

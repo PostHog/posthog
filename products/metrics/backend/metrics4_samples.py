@@ -23,6 +23,21 @@ METRICS4_CUTOVER = dt.datetime.fromisoformat(METRICS4_VIEW_CUTOVER).replace(tzin
 
 METRICS_RETENTION = dt.timedelta(days=DEFAULT_RETENTION_DAYS)
 
+# Prometheus's `StaleNaN`. Only the bits identify it, because NaN never equals itself.
+STALE_NAN_BITS = 0x7FF0000000000002
+
+
+def not_stale_marker_expr(value: ast.Expr | None = None) -> ast.Expr:
+    """Return true for a point that is not a Prometheus stale marker. `value` defaults to the `value` field."""
+    return parse_expr(
+        "reinterpretAsUInt64({value}) != {stale}",
+        placeholders={
+            "value": value if value is not None else ast.Field(chain=["value"]),
+            "stale": ast.Constant(value=STALE_NAN_BITS),
+        },
+    )
+
+
 # Each point column of `metrics` maps to one array of `metric_samples`.
 _POINT_ARRAYS: dict[str, str] = {
     "timestamp": "timestamp_arr",
@@ -118,13 +133,21 @@ def samples_points_query(
     `dedupe_points` drops exact copies of a point. A replayed Kafka batch writes
     its points again, and they stay in the arrays after merges. A copy has the same
     series, timestamp and value in every selected column. Other points stay.
+    Prometheus stale markers are never returned. Only the value identifies one, and
+    a histogram marker has zero bucket counts, so the value array is read even when
+    `value` is not selected.
     """
     unknown = [column for column in columns if column not in _POINT_ARRAYS and column not in _ROW_COLUMNS]
     if unknown:
         raise ValueError(f"Unknown metric_samples columns: {unknown!r}")
 
-    # The time filter always needs the timestamp array.
-    point_columns = ["timestamp", *(column for column in columns if column in _POINT_ARRAYS and column != "timestamp")]
+    # The time filter always needs the timestamp array, and the stale marker filter the value array.
+    selected_point_columns = [column for column in columns if column in _POINT_ARRAYS and column != "timestamp"]
+    point_columns = [
+        "timestamp",
+        *selected_point_columns,
+        *(["value"] if "value" not in selected_point_columns else []),
+    ]
     row_columns = [column for column in columns if column in _ROW_COLUMNS]
     if dedupe_points and "series_fingerprint" not in row_columns:
         row_columns.append("series_fingerprint")
@@ -167,11 +190,11 @@ def samples_points_query(
             )
             for column in point_columns
         ],
-        where=ast.And(exprs=[point_range, *point_filters]),
+        where=ast.And(exprs=[point_range, not_stale_marker_expr(), *point_filters]),
         limit_by=dedupe_points_limit_by(
             [
                 "point_timestamp",
-                *point_columns[1:],
+                *selected_point_columns,
                 *(column for column in row_columns if column != "series_fingerprint"),
             ]
         )
@@ -191,7 +214,8 @@ def dedupe_points_limit_by(point_fields: Sequence[str]) -> ast.LimitByExpr:
 def series_in_range_query(metric_name: str, date_from: dt.datetime, date_to: dt.datetime) -> ast.SelectQuery:
     """Return the fingerprints of the series with a point in `[date_from, date_to)`.
 
-    This read needs no `ARRAY JOIN`. It checks the timestamp array of each row.
+    This read needs no `ARRAY JOIN`. It checks the timestamp and value arrays of each row,
+    so a series whose only points in the range are stale markers is left out.
     """
     query = parse_select(
         """
@@ -199,7 +223,7 @@ def series_in_range_query(metric_name: str, date_from: dt.datetime, date_to: dt.
             FROM posthog.metric_samples
             WHERE metric_name = {metric_name}
               AND {row_range}
-              AND arrayExists(t -> t >= {date_from} AND t < {date_to}, timestamp_arr)
+              AND arrayExists((t, v) -> t >= {date_from} AND t < {date_to} AND {not_stale}, timestamp_arr, value_arr)
             GROUP BY series_fingerprint
         """,
         placeholders={
@@ -207,6 +231,7 @@ def series_in_range_query(metric_name: str, date_from: dt.datetime, date_to: dt.
             "row_range": _row_range_expr(date_from, date_to),
             "date_from": ast.Constant(value=date_from),
             "date_to": ast.Constant(value=date_to),
+            "not_stale": not_stale_marker_expr(ast.Field(chain=["v"])),
         },
     )
     assert isinstance(query, ast.SelectQuery)
