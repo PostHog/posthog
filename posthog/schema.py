@@ -2029,6 +2029,27 @@ class FlagPropertyFilter(BaseModel):
     value: bool | str = Field(..., description="The value can be true, false, or a variant name")
 
 
+class ForecastSideRule(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    min_absolute_change: float | None = Field(
+        default=None,
+        description=("The value is at least this far from the expected value, in the series' units"),
+    )
+    min_relative_change: float | None = Field(
+        default=None,
+        description=("The value is at least this fraction away from the expected value. 1 = 100%"),
+    )
+    quantile: float | None = Field(
+        default=None,
+        description=(
+            "The value is beyond this forecast quantile. Above: 0.55 to 0.95 in steps"
+            " of 0.05, or 0.99. Below: 0.01, or 0.05 to 0.45 in steps of 0.05."
+        ),
+    )
+
+
 class FormDismissPayload(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -6504,6 +6525,21 @@ class FileSystemImport(BaseModel):
     visualOrder: float | None = Field(default=None, description="Order of object in tree")
 
 
+class ForecastDetectorConfig(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    above: ForecastSideRule | None = Field(
+        default=None,
+        description="Rule for a value higher than expected. Omit to ignore that side.",
+    )
+    below: ForecastSideRule | None = Field(
+        default=None,
+        description="Rule for a value lower than expected. Omit to ignore that side.",
+    )
+    type: Literal["forecast"] = "forecast"
+
+
 class FormResumePayload(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -6565,6 +6601,7 @@ class HeatmapSettings(BaseModel):
     valueColumn: str | None = None
     xAxisColumn: str | None = None
     xAxisLabel: str | None = None
+    xAxisSortOrder: HeatmapSortOrder | None = None
     yAxisColumn: str | None = None
     yAxisLabel: str | None = None
 
@@ -7349,6 +7386,10 @@ class MarketingAnalyticsRecommendationsDataGap(BaseModel):
 class MarketingAnalyticsRecommendationsSource(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
+    )
+    adTable: str | None = Field(
+        default=None,
+        description="Google Ads ad table, used to read the ad copy of each ad group.",
     )
     campaignConversionActionTable: str | None = Field(
         default=None,
@@ -36951,6 +36992,7 @@ class DetectorConfig(
         | OCSVMDetectorConfig
         | PCADetectorConfig
         | LLMDetectorConfig
+        | ForecastDetectorConfig
     ]
 ):
     root: (
@@ -36968,6 +37010,7 @@ class DetectorConfig(
         | OCSVMDetectorConfig
         | PCADetectorConfig
         | LLMDetectorConfig
+        | ForecastDetectorConfig
     ) = Field(..., description="Detector configuration types", discriminator="type")
 
 
@@ -37035,7 +37078,7 @@ class ErrorTrackingQuery(BaseModel):
     useQueryV2: bool | None = None
     useQueryV3: bool | None = None
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
-    volumeResolution: int
+    volumeResolution: conint(ge=0, le=200)
     withAggregations: bool | None = None
     withFirstEvent: bool | None = None
     withLastEvent: bool | None = None

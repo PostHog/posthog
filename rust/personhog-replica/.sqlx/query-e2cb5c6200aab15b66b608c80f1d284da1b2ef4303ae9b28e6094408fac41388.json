@@ -1,0 +1,23 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "/* service='personhog-replica', operation='split_person_read_version' */\n            SELECT COALESCE(version, 0)::bigint as \"version!\"\n            FROM posthog_person\n            WHERE team_id = $1 AND id = $2\n            ",
+  "describe": {
+    "columns": [
+      {
+        "ordinal": 0,
+        "name": "version!",
+        "type_info": "Int8"
+      }
+    ],
+    "parameters": {
+      "Left": [
+        "Int4",
+        "Int8"
+      ]
+    },
+    "nullable": [
+      null
+    ]
+  },
+  "hash": "e2cb5c6200aab15b66b608c80f1d284da1b2ef4303ae9b28e6094408fac41388"
+}

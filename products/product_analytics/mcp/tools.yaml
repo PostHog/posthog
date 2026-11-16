@@ -172,6 +172,12 @@ tools:
             `{filters(created_at AS timestamp)}`.
 
 
+            A `HogQLQuery` without its own `LIMIT` returns only the first 100 rows, and the chart draws only those rows.
+            A time series then stops early and shows no error. Before you save a SQL insight, add a `LIMIT` that is more
+            than the number of rows the query can return, up to 50000. For example, 30 days with 8 breakdown values is
+            240 rows, so `LIMIT 1000` is sufficient.
+
+
             Save a `MetricsQuery` or `MetricsHistogramQuery` bare, as the top-level `query`. Do not put it in an
             `InsightVizNode`.
 

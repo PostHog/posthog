@@ -41,7 +41,7 @@ from opentelemetry import trace
 from prometheus_client import Counter, Histogram
 from rest_framework.exceptions import PermissionDenied, ValidationError
 from social_core.backends.utils import load_backends
-from social_core.exceptions import AuthCanceled, AuthException, AuthFailed
+from social_core.exceptions import AuthCanceled, AuthException, AuthFailed, AuthStateForbidden, AuthStateMissing
 from statshog.defaults.django import statsd
 
 from posthog.api.shared import UserBasicSerializer
@@ -65,7 +65,11 @@ from posthog.models.activity_logging.utils import (
     client_from_header,
     record_agent_intent,
 )
-from posthog.models.event.new_events_schema import NEW_EVENTS_SCHEMA_COOKIE, new_events_schema_for_request
+from posthog.models.event.new_events_schema import (
+    NEW_EVENTS_SCHEMA_COOKIE,
+    NEW_EVENTS_SCHEMA_HEADER,
+    new_events_schema_for_request,
+)
 from posthog.session.activity import session_activity_credential
 from posthog.settings import PROJECT_SWITCHING_TOKEN_ALLOWLIST, SITE_URL
 from posthog.utils import get_ip_address, get_trusted_client_ip
@@ -1409,23 +1413,24 @@ class AutoLogoutImpersonateMiddleware:
 
 
 class NewEventsSchemaCookieMiddleware:
-    """A staff person's requests read the native JSON events table while their browser carries the cookie.
+    """A staff person's requests read the events table their browser tab or their browser chose.
 
     The switch is per person, so one person can check a project on events_json, an impersonated one included,
     without switching the project for everyone. An impersonated session counts as staff because only staff can
-    start one.
+    start one. The tab's header wins over the browser's cookie, so two tabs can compare the two tables.
     """
 
     def __init__(self, get_response: Callable[[HttpRequest], HttpResponse]) -> None:
         self.get_response = get_response
 
     def __call__(self, request: HttpRequest) -> HttpResponse:
-        if request.COOKIES.get(NEW_EVENTS_SCHEMA_COOKIE) != "1":
+        requested = request.headers.get(NEW_EVENTS_SCHEMA_HEADER) or request.COOKIES.get(NEW_EVENTS_SCHEMA_COOKIE)
+        if requested not in ("0", "1"):
             return self.get_response(request)
         user = cast(User, request.user)
         if not (user.is_staff or is_impersonated_session(request)):
             return self.get_response(request)
-        with new_events_schema_for_request():
+        with new_events_schema_for_request(requested == "1"):
             return self.get_response(request)
 
 
@@ -1699,6 +1704,11 @@ class SocialAuthExceptionMiddleware:
             ):
                 return redirect(sso_failure_redirect_url(request, error))
 
+        # The OAuth `state` saved in the session when the flow started is gone or does not match the callback.
+        # The library text gives the person no next step, so the login page shows its own copy for this code.
+        if isinstance(exception, (AuthStateMissing, AuthStateForbidden)):
+            return redirect(sso_failure_redirect_url(request, "oauth_state_invalid"))
+
         # Handle any other social auth exception by passing the error detail to the frontend
         if isinstance(exception, AuthException):
             error_detail = self._get_error_detail(exception)
@@ -1969,7 +1979,7 @@ READ_ONLY_IMPERSONATION_ALLOWLISTED_PATHS: list[tuple[str, str | re.Pattern]] = 
     ("POST", re.compile(r"^/logout/?$")),
     # OAuth consent submission and token exchange. Both run as POST during the OAuth flow.
     # Scopes minted while read-only impersonation is active are filtered through
-    # `posthog.scopes.downgrade_scopes_to_read_only` in `OAuthAuthorizationView` so the
+    # `posthog.scopes.checks.downgrade_scopes_to_read_only` in `OAuthAuthorizationView` so the
     # resulting tokens can't grant write access. Tokens minted here are also tagged with
     # the impersonator and revoked when impersonation ends.
     ("POST", re.compile(r"^/oauth/authorize/?$")),

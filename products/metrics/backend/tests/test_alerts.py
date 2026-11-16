@@ -74,7 +74,7 @@ class TestMetricsAlertCreate(APIBaseTest):
         super().setUp()
         self.enterContext(patch("posthoganalytics.feature_enabled", return_value=True))
 
-    def _create(self, source_config: dict[str, object], **fields: object) -> Any:
+    def _create(self, source_config: dict[str, object], **settings: object) -> Any:
         return self.client.post(
             f"/api/projects/{self.team.id}/platform_alerts/",
             {
@@ -82,17 +82,51 @@ class TestMetricsAlertCreate(APIBaseTest):
                 "name": "Consumer lag",
                 "enabled": True,
                 "source_config": source_config,
-                **fields,
+                **settings,
             },
             format="json",
         )
 
-    def test_a_metrics_alert_is_created_through_the_platform_api(self) -> None:
-        response = self._create({"query": _QUERY, "condition": {"operator": "gt", "threshold": 1000}})
+    @parameterized.expand([("default", {}, 1), ("every_5_minutes", {"check_interval_minutes": 5}, 5)])
+    def test_a_metrics_alert_is_created_through_the_platform_api(
+        self, _name: str, settings: dict[str, object], expected_interval: int
+    ) -> None:
+        response = self._create({"query": _QUERY, "condition": {"operator": "gt", "threshold": 1000}}, **settings)
 
         assert response.status_code == status.HTTP_201_CREATED, response.json()
         assert response.json()["source_kind"] == "metrics"
-        assert response.json()["check_interval_minutes"] == 1
+        assert response.json()["check_interval_minutes"] == expected_interval
+
+    @parameterized.expand([("not_dividing_an_hour", 7), ("over_an_hour", 120), ("zero", 0)])
+    def test_an_interval_outside_the_allowed_set_is_refused(self, _name: str, minutes: int) -> None:
+        created = self._create({"query": _QUERY, "condition": {"kind": "present"}}).json()
+        url = f"/api/projects/{self.team.id}/platform_alerts/{created['id']}/"
+
+        refused_create = self._create(
+            {"query": _QUERY, "condition": {"kind": "present"}}, check_interval_minutes=minutes
+        )
+        refused_edit = self.client.patch(url, {"check_interval_minutes": minutes}, format="json")
+
+        assert refused_create.status_code == status.HTTP_400_BAD_REQUEST, refused_create.json()
+        assert refused_create.json()["attr"] == "check_interval_minutes"
+        assert refused_edit.status_code == status.HTTP_400_BAD_REQUEST, refused_edit.json()
+        assert refused_edit.json()["attr"] == "check_interval_minutes"
+        assert self.client.get(url).json()["check_interval_minutes"] == 1
+
+    def test_an_edit_moves_the_alert_to_a_new_interval_and_a_later_edit_keeps_it(self) -> None:
+        created = self._create({"query": _QUERY, "condition": {"kind": "present"}}).json()
+        url = f"/api/projects/{self.team.id}/platform_alerts/{created['id']}/"
+        with team_scope(self.team.id):
+            platform_testing.set_check_interval_minutes(UUID(created["id"]), 60)
+            platform_testing.set_due_at(UUID(created["id"]), timezone.now() + timedelta(minutes=50))
+
+        moved = self.client.patch(url, {"check_interval_minutes": 5}, format="json")
+        renamed = self.client.patch(url, {"name": "Consumer lag, renamed"}, format="json")
+
+        assert moved.status_code == status.HTTP_200_OK, moved.json()
+        assert datetime.fromisoformat(moved.json()["next_check_at"]) <= timezone.now() + timedelta(minutes=2)
+        assert renamed.status_code == status.HTTP_200_OK, renamed.json()
+        assert renamed.json()["check_interval_minutes"] == 5
 
     @parameterized.expand([("an_hour", 60, status.HTTP_201_CREATED), ("past_an_hour", 61, status.HTTP_400_BAD_REQUEST)])
     def test_a_metrics_alert_can_look_back_over_an_hour_of_checks(

@@ -2,6 +2,13 @@ from posthog.test.base import APIBaseTest
 
 from django.utils import timezone
 
+from parameterized import parameterized
+
+from posthog.constants import AvailableFeature
+
+from products.access_control.backend.models.property_access_control import PropertyAccessControl
+from products.access_control.backend.property_access_control import PropertyAccessLevel
+from products.event_definitions.backend.models import PropertyDefinition
 from products.mcp_analytics.backend import logic
 from products.mcp_analytics.backend.constants import MAX_SNAPSHOT_CLUSTERS
 from products.mcp_analytics.backend.facade import contracts, enums
@@ -67,7 +74,7 @@ class TestMCPAnalyticsLogic(_MCPAnalyticsTeamScopedTestMixin, APIBaseTest):
 
 class TestGetIntentClusterSnapshot(_MCPAnalyticsTeamScopedTestMixin, APIBaseTest):
     def test_returns_empty_idle_snapshot_when_no_row_exists(self) -> None:
-        snapshot = logic.get_intent_cluster_snapshot(self.team)
+        snapshot = logic.get_intent_cluster_snapshot(self.team, user=self.user)
 
         assert snapshot.status == MCPIntentClusterSnapshot.Status.IDLE
         assert snapshot.clusters == []
@@ -108,7 +115,7 @@ class TestGetIntentClusterSnapshot(_MCPAnalyticsTeamScopedTestMixin, APIBaseTest
             },
         )
 
-        snapshot = logic.get_intent_cluster_snapshot(self.team)
+        snapshot = logic.get_intent_cluster_snapshot(self.team, user=self.user)
 
         assert snapshot.status == MCPIntentClusterSnapshot.Status.IDLE
         assert snapshot.last_computed_by_email == self.user.email
@@ -122,6 +129,67 @@ class TestGetIntentClusterSnapshot(_MCPAnalyticsTeamScopedTestMixin, APIBaseTest
         assert cluster.tool_distribution[0].error_rate_pct == 8.3
         assert snapshot.computed_with is not None
         assert snapshot.computed_with.n_clusters == 1
+        # Blobs written before the recurring split carry neither key.
+        assert snapshot.long_tail is None
+        assert snapshot.recurring == []
+
+    @parameterized.expand(
+        [
+            ("unrestricted_reads_intent_text", None, False),
+            ("restricted_intent_is_blanked_everywhere", "$mcp_intent", True),
+            ("restricted_description_leaves_intents_readable", "$mcp_tool_description", False),
+        ]
+    )
+    def test_property_access_control_applies_to_stored_text(
+        self, _name: str, restricted_property: str | None, intent_hidden: bool
+    ) -> None:
+        if restricted_property is not None:
+            self.organization.available_product_features = [
+                {"name": AvailableFeature.PROPERTY_ACCESS_CONTROL, "key": AvailableFeature.PROPERTY_ACCESS_CONTROL}
+            ]
+            self.organization.save()
+            definition = PropertyDefinition.objects.create(
+                team=self.team, name=restricted_property, property_type="String", type=PropertyDefinition.Type.EVENT
+            )
+            PropertyAccessControl.objects.create(
+                team=self.team, property_definition=definition, access_level=PropertyAccessLevel.NONE.value
+            )
+        MCPIntentClusterSnapshot.objects.create(
+            team=self.team,
+            status=MCPIntentClusterSnapshot.Status.IDLE,
+            clusters={
+                "clusters": [
+                    {
+                        "id": 0,
+                        "label": "secret cluster label",
+                        "intent_count": 2,
+                        "call_count": 3,
+                        "tool_distribution": [],
+                        "sample_intents": ["secret sample"],
+                    }
+                ],
+                "long_tail": {"intent_count": 1, "call_count": 1, "sample_intents": ["secret tail"]},
+                "recurring": [{"intent_text": "secret scout run", "session_count": 9, "call_count": 20}],
+                "tools": [{"tool": "execute_sql", "call_count": 3, "description": "Runs SQL"}],
+            },
+        )
+
+        snapshot = logic.get_intent_cluster_snapshot(self.team, user=self.user)
+
+        assert snapshot.long_tail is not None
+        texts = [
+            snapshot.clusters[0].label,
+            *snapshot.clusters[0].sample_intents,
+            *snapshot.long_tail.sample_intents,
+            snapshot.recurring[0].intent_text,
+        ]
+        assert snapshot.intent_text_redacted is intent_hidden
+        assert texts == (
+            ["", ""] if intent_hidden else ["secret cluster label", "secret sample", "secret tail", "secret scout run"]
+        )
+        assert snapshot.recurring[0].session_count == 9
+        description_hidden = restricted_property == "$mcp_tool_description"
+        assert snapshot.tools[0].description == (None if description_hidden else "Runs SQL")
 
     def test_caps_clusters_from_an_oversized_stored_blob(self) -> None:
         # Snapshots persisted before the build-side cap can hold hundreds of
@@ -158,7 +226,7 @@ class TestGetIntentClusterSnapshot(_MCPAnalyticsTeamScopedTestMixin, APIBaseTest
             },
         )
 
-        snapshot = logic.get_intent_cluster_snapshot(self.team)
+        snapshot = logic.get_intent_cluster_snapshot(self.team, user=self.user)
 
         assert len(snapshot.clusters) == MAX_SNAPSHOT_CLUSTERS
         assert snapshot.clusters[0].call_count == n_total
@@ -179,7 +247,7 @@ class TestGetIntentClusterSnapshot(_MCPAnalyticsTeamScopedTestMixin, APIBaseTest
         stale = timezone.now() - STALE_COMPUTING_THRESHOLD - timedelta(seconds=30)
         MCPIntentClusterSnapshot.objects.filter(pk=row.pk).update(updated_at=stale)
 
-        snapshot = logic.get_intent_cluster_snapshot(self.team)
+        snapshot = logic.get_intent_cluster_snapshot(self.team, user=self.user)
 
         assert snapshot.status == MCPIntentClusterSnapshot.Status.ERROR
         assert "didn't finish" in snapshot.error_message
@@ -203,7 +271,7 @@ class TestGetIntentClusterSnapshot(_MCPAnalyticsTeamScopedTestMixin, APIBaseTest
             status=MCPIntentClusterSnapshot.Status.COMPUTING,
         )
 
-        snapshot = logic.get_intent_cluster_snapshot(self.team)
+        snapshot = logic.get_intent_cluster_snapshot(self.team, user=self.user)
 
         # Recently updated COMPUTING rows pass through unmodified.
         assert snapshot.status == MCPIntentClusterSnapshot.Status.COMPUTING

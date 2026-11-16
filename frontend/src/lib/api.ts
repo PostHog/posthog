@@ -2056,6 +2056,25 @@ function clientBuildHeader(url: string): Record<string, string> {
     return { 'X-PostHog-Client-Build': clientBuild }
 }
 
+// pinned: a URL parameter in shared links, and the cookie name that NewEventsSchemaCookieMiddleware reads
+export const NEW_EVENTS_SCHEMA = 'ph_new_events_schema'
+
+/**
+ * The events table the page's URL asks for, so two tabs of one browser, which share one cookie, can
+ * show the two tables side by side. Same-origin only, for the same CORS reason as the build header.
+ */
+function newEventsTableHeader(url: string): Record<string, string> {
+    const requested = new URLSearchParams(window.location.search).get(NEW_EVENTS_SCHEMA)
+    if (
+        (requested !== '0' && requested !== '1') ||
+        new URL(url, window.location.origin).origin !== window.location.origin
+    ) {
+        return {}
+    }
+    // pinned: NewEventsSchemaCookieMiddleware reads this header name and the values "1" and "0"
+    return { 'X-PostHog-New-Events-Schema': requested }
+}
+
 const PROJECT_ID_REGEX = /\/api\/(project|environment)s\/(\w+)(?:$|[/?#])/
 
 const ensureProjectIdNotInvalid = (url: string): void => {
@@ -2370,6 +2389,7 @@ const api = {
             createdAtLt,
             searchNameOnly,
             includeTags,
+            tags,
             signal,
         }: {
             parent?: string
@@ -2387,6 +2407,7 @@ const api = {
             createdAtLt?: string
             searchNameOnly?: boolean
             includeTags?: boolean
+            tags?: string[]
             signal?: AbortSignal
         }): Promise<CountedPaginatedResponseWithUsers<FileSystemEntry>> {
             return await new ApiRequest()
@@ -2407,6 +2428,7 @@ const api = {
                     created_at__lt: createdAtLt,
                     search_name_only: searchNameOnly,
                     include_tags: includeTags,
+                    tags: tags?.length ? tags : undefined,
                 })
                 .get({ signal })
         },
@@ -3458,6 +3480,7 @@ const api = {
             fetchEventSource(url, {
                 signal: abortController.signal,
                 credentials: 'include',
+                headers: newEventsTableHeader(url),
                 openWhenHidden: true,
                 onopen: async (response) => {
                     apiStatusLogic.findMounted()?.actions.onApiResponse(response.clone())
@@ -6859,6 +6882,7 @@ const api = {
                     ...objectClean(options?.headers ?? {}),
                     ...tracingHeaders({ includeDistinctId: true }),
                     ...clientBuildHeader(url),
+                    ...newEventsTableHeader(url),
                     ...oauthAuthHeaders(url),
                     ...authHeaders,
                 },
@@ -6887,6 +6911,7 @@ const api = {
                     'X-CSRFToken': getCookie(CSRF_COOKIE_NAME) || '',
                     ...tracingHeaders(),
                     ...clientBuildHeader(url),
+                    ...newEventsTableHeader(url),
                     ...oauthAuthHeaders(url),
                 },
                 body: isFormData ? data : JSON.stringify(data),
@@ -6932,6 +6957,7 @@ const api = {
                     'X-CSRFToken': getCookie(CSRF_COOKIE_NAME) || '',
                     ...tracingHeaders(),
                     ...clientBuildHeader(url),
+                    ...newEventsTableHeader(url),
                     ...oauthAuthHeaders(url),
                 },
                 body: data ? (isFormData ? data : JSON.stringify(data)) : undefined,
@@ -6968,6 +6994,7 @@ const api = {
                     'X-CSRFToken': getCookie(CSRF_COOKIE_NAME) || '',
                     ...tracingHeaders(),
                     ...clientBuildHeader(url),
+                    ...newEventsTableHeader(url),
                     ...oauthAuthHeaders(url),
                 },
             })
@@ -7025,6 +7052,7 @@ const api = {
                 'X-CSRFToken': getCookie('posthog_csrftoken') || '',
                 ...tracingHeaders(),
                 ...clientBuildHeader(url),
+                ...newEventsTableHeader(url),
                 ...objectClean(headers ?? {}),
             },
             body: data !== undefined ? JSON.stringify(data) : undefined,
@@ -7302,6 +7330,7 @@ function xhrPost(url: string, data: FormData, options?: ApiUploadOptions): Promi
             'X-CSRFToken': getCookie(CSRF_COOKIE_NAME) || '',
             ...tracingHeaders(),
             ...clientBuildHeader(url),
+            ...newEventsTableHeader(url),
             ...oauthAuthHeaders(url),
         }
         for (const [name, value] of Object.entries(headers)) {

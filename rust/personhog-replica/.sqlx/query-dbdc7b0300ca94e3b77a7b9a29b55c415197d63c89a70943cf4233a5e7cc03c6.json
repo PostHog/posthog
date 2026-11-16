@@ -1,0 +1,17 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "/* service='personhog-replica', operation='split_person_reassign_distinct_ids' */\n            UPDATE posthog_persondistinctid AS pdi\n            SET person_id = m.new_person_id, version = m.new_version\n            FROM unnest($2::text[], $3::bigint[], $4::bigint[]) AS m(distinct_id, new_person_id, new_version)\n            WHERE pdi.team_id = $1 AND pdi.distinct_id = m.distinct_id\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int4",
+        "TextArray",
+        "Int8Array",
+        "Int8Array"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "dbdc7b0300ca94e3b77a7b9a29b55c415197d63c89a70943cf4233a5e7cc03c6"
+}
