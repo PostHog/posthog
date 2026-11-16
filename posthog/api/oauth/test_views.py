@@ -52,13 +52,9 @@ from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.organization_ip_restrictions import OrganizationIPRestrictions
 from posthog.models.team.team import Team
 from posthog.models.user import User
-from posthog.scopes import (
-    ALL_SCOPES,
-    ALWAYS_ALLOWED_SCOPES,
-    EMA_ISSUER_MANAGE_SCOPE,
-    MIN_SCOPES_BEFORE_TRUNCATION,
-    OAUTH_SCOPES_SUPPORTED,
-)
+from posthog.scopes.ceilings import MIN_SCOPES_BEFORE_TRUNCATION
+from posthog.scopes.exposure import ALL_SCOPES
+from posthog.scopes.oauth import ALWAYS_ALLOWED_SCOPES, EMA_ISSUER_MANAGE_SCOPE, OAUTH_SCOPES_SUPPORTED
 from posthog.settings.utils import generate_rsa_private_key_pem
 from posthog.utils import absolute_uri
 
