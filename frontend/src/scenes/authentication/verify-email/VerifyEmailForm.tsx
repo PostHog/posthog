@@ -13,7 +13,7 @@ import { AuthBanner } from 'scenes/authentication/shared/authScene/AuthBanner'
 import { AUTH_NOTES } from 'scenes/authentication/shared/authScene/authNotes'
 import { AuthScene, AuthSceneCard } from 'scenes/authentication/shared/authScene/AuthScene'
 import { parseInboxProvider } from 'scenes/authentication/shared/inboxProvider'
-import { OpenInboxButton } from 'scenes/authentication/shared/OpenInboxButton'
+import { OpenInboxLink } from 'scenes/authentication/shared/OpenInboxLink'
 import { pendingOAuthConnectionLogic } from 'scenes/authentication/shared/pendingOAuthConnectionLogic'
 import { getPendingVerification, isValidVerificationCode } from 'scenes/authentication/shared/verificationCode'
 import { VerificationCodeInput } from 'scenes/authentication/shared/VerificationCodeInput'
@@ -202,7 +202,12 @@ function CheckYourInbox(): JSX.Element {
                     </>
                 ) : (
                     <>We sent you a 6-digit code. It's valid for 30 minutes.</>
-                )}
+                )}{' '}
+                <OpenInboxLink
+                    provider={parseInboxProvider(pendingVerification?.inboxProvider)}
+                    email={verificationEmail ?? null}
+                    step="verify_email"
+                />
             </p>
             {pendingConnection && (
                 <p className="AuthScene__sub -mt-2 mb-4 text-sm text-secondary text-center text-pretty">
@@ -211,12 +216,6 @@ function CheckYourInbox(): JSX.Element {
                     }.`}
                 </p>
             )}
-            <OpenInboxButton
-                provider={parseInboxProvider(pendingVerification?.inboxProvider)}
-                email={verificationEmail ?? null}
-                step="verify_email"
-                className="mb-4"
-            />
             <VerificationCodeEntry />
             <div className="mt-3">
                 <NotSeeingIt />

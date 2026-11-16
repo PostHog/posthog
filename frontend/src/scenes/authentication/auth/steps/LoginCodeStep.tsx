@@ -12,7 +12,7 @@ import { Link } from 'lib/lemon-ui/Link'
 import { preflightLogic } from 'lib/logic/preflightLogic'
 import { AuthCardTitle } from 'scenes/authentication/shared/authScene/AuthCardTitle'
 import { AuthSceneCard } from 'scenes/authentication/shared/authScene/AuthScene'
-import { OpenInboxButton } from 'scenes/authentication/shared/OpenInboxButton'
+import { OpenInboxLink } from 'scenes/authentication/shared/OpenInboxLink'
 import { isValidVerificationCode, normalizeVerificationCode } from 'scenes/authentication/shared/verificationCode'
 import { VerificationCodeInput } from 'scenes/authentication/shared/VerificationCodeInput'
 
@@ -45,15 +45,14 @@ export function LoginCodeStep(): JSX.Element {
                 sub={
                     <>
                         For your security, we've emailed a 6-digit verification code to{' '}
-                        <strong>{codeVerificationEmail}</strong>.
+                        <strong>{codeVerificationEmail}</strong>.{' '}
+                        <OpenInboxLink
+                            provider={codeVerificationInboxProvider}
+                            email={codeVerificationEmail}
+                            step="login_code"
+                        />
                     </>
                 }
-            />
-            <OpenInboxButton
-                provider={codeVerificationInboxProvider}
-                email={codeVerificationEmail}
-                step="login_code"
-                className="mb-4"
             />
             <LoginErrorBanner />
             <Form

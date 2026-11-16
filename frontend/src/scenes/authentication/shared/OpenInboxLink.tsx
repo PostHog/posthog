@@ -2,26 +2,25 @@ import { useValues } from 'kea'
 import posthog from 'posthog-js'
 
 import { FEATURE_FLAGS } from 'lib/constants'
-import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { Link } from 'lib/lemon-ui/Link'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { type AuthStep, pendingOAuthConnectionProperties } from './authStepViewed'
 import { type InboxProvider, inboxProviderLink } from './inboxProvider'
 
 // pinned: autocapture selectors
-const DATA_ATTR: Record<OpenInboxButtonProps['step'], string> = {
+const DATA_ATTR: Record<OpenInboxLinkProps['step'], string> = {
     verify_email: 'verify-email-open-inbox',
     login_code: 'login-code-open-inbox',
 }
 
-export interface OpenInboxButtonProps {
+export interface OpenInboxLinkProps {
     provider: InboxProvider | null
     email: string | null
     step: Extract<AuthStep, 'verify_email' | 'login_code'>
-    className?: string
 }
 
-export function OpenInboxButton({ provider, email, step, className }: OpenInboxButtonProps): JSX.Element | null {
+export function OpenInboxLink({ provider, email, step }: OpenInboxLinkProps): JSX.Element | null {
     const { featureFlags } = useValues(featureFlagLogic)
 
     // Reading the flag records an exposure, so only people with a recognized inbox read it.
@@ -31,14 +30,10 @@ export function OpenInboxButton({ provider, email, step, className }: OpenInboxB
 
     const { name, url } = inboxProviderLink(provider, email)
     return (
-        <LemonButton
-            type="secondary"
-            size="large"
-            center
-            fullWidth
-            className={className}
+        <Link
             to={url}
-            targetBlank
+            target="_blank"
+            className="font-semibold"
             onClick={() =>
                 // pinned: analytics event and property names
                 posthog.capture('open inbox clicked', {
@@ -49,7 +44,7 @@ export function OpenInboxButton({ provider, email, step, className }: OpenInboxB
             }
             data-attr={DATA_ATTR[step]}
         >
-            {`Open ${name}`}
-        </LemonButton>
+            {`Check your ${name} inbox`}
+        </Link>
     )
 }
