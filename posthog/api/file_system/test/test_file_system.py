@@ -3174,6 +3174,14 @@ LINEAR_GROWTH_LIMIT = 1.5 * LARGE_PROJECT / SMALL_PROJECT
 WORKFLOW_REF = "0f1e2d3c-4b5a-4987-a6b5-c4d3e2f1a0b9"
 
 
+def _files_returned(body: Any) -> int:
+    if isinstance(body, list):
+        return len(body)
+    if "results" in body:
+        return len(body["results"])
+    return body["count"]
+
+
 class TestFileSystemReadsAtScale(APIBaseTest):
     def setUp(self) -> None:
         super().setUp()
@@ -3213,7 +3221,7 @@ class TestFileSystemReadsAtScale(APIBaseTest):
                     type="notebook",
                     ref=f"notebook-{i}",
                     viewed_at=now,
-                    view_days=[now.date()],
+                    view_days=[now.date(), (now - timedelta(days=1)).date()],
                 )
                 for i in new_items
             ]
@@ -3229,6 +3237,7 @@ class TestFileSystemReadsAtScale(APIBaseTest):
         before = self._tree_rows_read_in_this_transaction()
         response = self.client.get(f"/api/projects/{self.team.id}/file_system/{action}", params)
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+        self.assertGreater(_files_returned(response.json()), 0, f"{action or 'list'} {params} returned no files")
         return self._tree_rows_read_in_this_transaction() - before
 
     def _tree_rows_read_in_this_transaction(self) -> int:
