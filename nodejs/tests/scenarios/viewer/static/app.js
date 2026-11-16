@@ -508,13 +508,14 @@ function lineChart({
     height = 220,
     xLabels = sinceStart(from),
     xTicks = 8,
+    empty = 'No samples in this run',
 }) {
     const width = 640
     const pad = { l: 48, r: 26, t: 10, b: 26 }
     const all = series.flatMap(({ points }) => points.map(([, v]) => v)).filter((v) => v !== null)
     const container = h('div', { class: 'panel chart' }, h('h3', {}, `${title}${unit ? ` (${unit})` : ''}`))
     if (all.length === 0 || to <= from) {
-        container.append(h('div', { class: 'empty' }, 'No samples in this run'))
+        container.append(h('div', { class: 'empty' }, empty))
         return { el: container, cursor: () => undefined }
     }
     const legend = h('div', { class: 'legend' })
@@ -1293,7 +1294,7 @@ async function mapPage(render) {
             )
             return
         }
-        const now = live?.inProgress ? live : null
+        const now = live?.state === 'running' ? live : null
         document.querySelectorAll('.live-badge').forEach((badge) => (badge.hidden = badge.dataset.card !== now?.cardId))
         running.hidden = !now
         running.replaceChildren(
@@ -1526,6 +1527,7 @@ async function cardPage(id, render) {
         from: chronological.length ? Date.parse(chronological[0].startedAt) : 0,
         to: chronological.length ? Date.parse(chronological.at(-1).startedAt) : 0,
         xLabels: { tick: fmtWhen, tip: fmtWhen },
+        empty: 'No delivery latency recorded in these runs',
     })
     render(
         h('a', { href: '#/scenarios' }, '← Scenarios'),
@@ -2299,6 +2301,8 @@ const liveDetail = (live) => ({
     scorecard: { timeline: live.timeline, cardHash: live.cardHash },
 })
 
+const LIVE_TITLES = { running: 'Live: ', ended: 'Just ended: ', stopped: 'Stopped: ' }
+
 async function livePage(render) {
     stopReplay()
     const all = await cards()
@@ -2325,7 +2329,7 @@ async function livePage(render) {
                       h(
                           'a',
                           { href: `#/runs/${last.runId}` },
-                          `Replay the last run: ${last.cardId}, ${last.ended?.status ?? 'stopped'}, ${ago(new Date(last.updatedAt).toISOString())} →`
+                          `Replay the last run: ${last.cardId}, ${last.ended?.status ?? last.state}, ${ago(new Date(last.updatedAt).toISOString())} →`
                       )
                   )
                 : null
@@ -2360,10 +2364,10 @@ async function livePage(render) {
         busy = true
         try {
             const live = await getJson('/api/live')
-            if (live?.inProgress) {
+            if (live?.state === 'running') {
                 watched = live.runId
             }
-            if (!live || (!live.inProgress && watched !== live.runId)) {
+            if (!live || (live.state !== 'running' && watched !== live.runId)) {
                 showIdle(live)
                 empty.hidden = false
                 body.hidden = true
@@ -2372,8 +2376,7 @@ async function livePage(render) {
             }
             empty.hidden = true
             body.hidden = false
-            const lost = !live.inProgress && !live.ended
-            const lastSeen = lost ? live.updatedAt : live.now
+            const lastSeen = live.state === 'stopped' ? live.updatedAt : live.now
             const detail = liveDetail(live)
             const cardView = all.find((c) => c.id === live.cardId)
             const windows = valveWindows(detail, cardView)
@@ -2387,7 +2390,7 @@ async function livePage(render) {
             )
             const t = live.ended ? lastData : lastSeen - live.series.bucketMs
             const to = live.ended ? Math.max(lastData, from + 1000) : Math.max(planned, t, from + 1000)
-            const shown = `${live.runId}/${live.phase}/${live.hasScorecard}/${live.inProgress}`
+            const shown = `${live.runId}/${live.phase}/${live.hasScorecard}/${live.state}`
             if (shownRun !== shown) {
                 shownRun = shown
                 header.replaceChildren(
@@ -2395,10 +2398,10 @@ async function livePage(render) {
                         h(
                             'h1',
                             {},
-                            live.ended ? 'Just ended: ' : lost ? 'Stopped: ' : 'Live: ',
+                            LIVE_TITLES[live.state],
                             h('a', { href: `#/cards/${live.cardId}` }, live.cardId),
                             ' ',
-                            statusPill(live.ended ? live.ended.status : lost ? 'stopped' : 'running')
+                            statusPill(live.ended?.status ?? live.state)
                         ),
                         h('p', { class: 'sub mono' }, `run ${live.runId}, started ${fmtTime(live.startedAt)}`),
                         live.ended
@@ -2410,7 +2413,7 @@ async function livePage(render) {
                                       ? h('a', { href: `#/runs/${live.runId}`, class: 'open' }, ' Open the scorecard →')
                                       : null
                               )
-                            : lost
+                            : live.state === 'stopped'
                               ? h('div', { class: 'reason invalid' }, stoppedLine)
                               : null,
                     ].filter(Boolean)
@@ -2429,9 +2432,10 @@ async function livePage(render) {
                     )
                 )
             }
-            stoppedLine.textContent = lost
-                ? `The runner stopped writing ${ago(new Date(live.updatedAt).toISOString())} without a verdict, so this run has no scorecard. Its process most likely died.`
-                : ''
+            stoppedLine.textContent =
+                live.state === 'stopped'
+                    ? `The runner stopped writing ${ago(new Date(live.updatedAt).toISOString())} without a verdict, so this run has no scorecard. Its process most likely died.`
+                    : ''
             diagram.paint(viewAt(detail, windows, t))
             clock.textContent = live.drive
                 ? `t+${fmtDuration(Math.max(0, (live.ended ? lastData : lastSeen) - from))}${live.drive.forMs ? ` of ${fmtDuration(live.drive.forMs)} drive` : ''}`

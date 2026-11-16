@@ -10,6 +10,7 @@ import { internalFetch } from '~/common/utils/request'
 import { waitForExpect } from '../../helpers/expectations'
 import type { MetricSample } from '../judge/measurements'
 import { LIVE_FILE, openLiveLog } from '../runner/live'
+import { liveOf } from './live'
 import { createViewerServer } from './server'
 
 const RUN_ID = '0b5e7f3a-1c2d-4e5f-8a9b-0c1d2e3f4a5b'
@@ -444,7 +445,7 @@ describe('scenario viewer', () => {
             phase: 'end',
             drive: { startedAt: at(0), endedAt: at(30), forMs: 30_000 },
             ended: { status: 'passed', statusReason: 'every invariant held' },
-            inProgress: false,
+            state: 'ended',
             hasScorecard: false,
             timeline,
         })
@@ -455,45 +456,55 @@ describe('scenario viewer', () => {
         ])
     })
 
-    it('keeps a run live while its runner beats, even through a phase that writes nothing, and drops it once the beat stops', async () => {
+    it('keeps a run live while its runner beats, even through a phase that writes nothing', async () => {
         const ownStateDir = mkdtempSync(path.join(os.tmpdir(), 'scenario-viewer-live-'))
         const ownServer = createViewerServer({ stateDir: ownStateDir, cardsDir })
         await new Promise<void>((resolve) => ownServer.listen(0, '127.0.0.1', resolve))
         const own = `http://127.0.0.1:${(ownServer.address() as AddressInfo).port}`
-        const live = async (): Promise<any> => parseJSON(await (await internalFetch(`${own}/api/live`)).text())
         const runDir = path.join(ownStateDir, LIVE_RUN_ID)
-        const file = path.join(runDir, LIVE_FILE)
         const minuteAgo = new Date(Date.now() - 60_000)
         const log = openLiveLog(runDir, 10)
         log.write({ type: 'start', at: Date.now(), runId: LIVE_RUN_ID, cardId: 'smoke', cardHash: 'c4rd' })
         log.write({ type: 'phase', at: Date.now(), phase: 'seed' })
 
-        utimesSync(file, minuteAgo, minuteAgo)
+        utimesSync(path.join(runDir, LIVE_FILE), minuteAgo, minuteAgo)
         const seeding = await waitForExpect(
             async () => {
-                const view = await live()
-                expect(view.inProgress).toBe(true)
+                const view = parseJSON(await (await internalFetch(`${own}/api/live`)).text())
+                expect(view.state).toBe('running')
                 return view
             },
             2000,
             20
         )
-        log.write({ type: 'end', at: Date.now(), status: 'passed', statusReason: 'every invariant held' })
-        const killedDir = path.join(ownStateDir, UNFINISHED_RUN_ID)
-        mkdirSync(killedDir)
-        writeFileSync(
-            path.join(killedDir, LIVE_FILE),
-            `${JSON.stringify({ type: 'start', at: Date.now(), runId: UNFINISHED_RUN_ID, cardId: 'smoke', cardHash: 'c4rd' })}\n`
-        )
-        const halfMinuteAgo = new Date(Date.now() - 30_000)
-        utimesSync(path.join(killedDir, LIVE_FILE), halfMinuteAgo, halfMinuteAgo)
-        utimesSync(file, minuteAgo, minuteAgo)
-        await new Promise((resolve) => setTimeout(resolve, 50))
-        const killed = await live()
+        await log.stop()
         await new Promise((resolve) => ownServer.close(resolve))
         rmSync(ownStateDir, { recursive: true, force: true })
 
-        expect(seeding).toMatchObject({ runId: LIVE_RUN_ID, phase: 'seed', inProgress: true, ended: null })
-        expect(killed).toMatchObject({ runId: UNFINISHED_RUN_ID, inProgress: false, ended: null })
+        expect(seeding).toMatchObject({ runId: LIVE_RUN_ID, phase: 'seed', state: 'running', ended: null })
+    })
+
+    it('reads a run as stopped once its runner stops without an end record', async () => {
+        const ownStateDir = mkdtempSync(path.join(os.tmpdir(), 'scenario-viewer-stopped-'))
+        const runDir = path.join(ownStateDir, UNFINISHED_RUN_ID)
+        jest.useFakeTimers()
+        try {
+            const log = openLiveLog(runDir, 10)
+            log.write({ type: 'start', at: Date.now(), runId: UNFINISHED_RUN_ID, cardId: 'smoke', cardHash: 'c4rd' })
+            log.write({ type: 'phase', at: Date.now(), phase: 'drive' })
+            await log.stop()
+            const minuteAgo = new Date(Date.now() - 60_000)
+            utimesSync(path.join(runDir, LIVE_FILE), minuteAgo, minuteAgo)
+            jest.advanceTimersByTime(1000)
+
+            expect(liveOf(ownStateDir, Date.now())).toMatchObject({
+                runId: UNFINISHED_RUN_ID,
+                state: 'stopped',
+                ended: null,
+            })
+        } finally {
+            jest.useRealTimers()
+            rmSync(ownStateDir, { recursive: true, force: true })
+        }
     })
 })

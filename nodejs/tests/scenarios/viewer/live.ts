@@ -19,7 +19,7 @@ export type LiveView = {
     phases: { phase: LivePhase; at: number }[]
     drive: { startedAt: number; endedAt: number | null; forMs: number } | null
     ended: { status: string; statusReason: string } | null
-    inProgress: boolean
+    state: 'running' | 'ended' | 'stopped'
     updatedAt: number
     hasScorecard: boolean
     now: number
@@ -114,7 +114,7 @@ export function liveOf(stateDir: string, now = Date.now()): LiveView | undefined
         phases,
         drive,
         ended,
-        inProgress: ended === null && now - mtimeMs < STALE_AFTER_MS,
+        state: ended ? 'ended' : now - mtimeMs < STALE_AFTER_MS ? 'running' : 'stopped',
         updatedAt: mtimeMs,
         hasScorecard: existsSync(path.join(dir, 'scorecard.json')),
         now,
