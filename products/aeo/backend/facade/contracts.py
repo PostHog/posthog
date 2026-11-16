@@ -392,6 +392,7 @@ BRAND_NAME_MAX_LENGTH = 200
 KEYWORD_MAX_LENGTH = 100
 MAX_KEYWORDS_PER_TEAM = 200
 BRAND_DOMAIN_MAX_LENGTH = 253
+COMPETITOR_CANDIDATE_DAYS = 7
 
 
 class BrandKind(LabeledStrEnum):
@@ -425,6 +426,17 @@ class Brand:
     aliases: tuple[str, ...]
     created_at: dt.datetime
     updated_at: dt.datetime | None
+
+
+@frozen
+class CompetitorCandidate:
+    """A suggested brand that answers to non-branded prompts both name and cite, so likely a competitor."""
+
+    brand_id: str
+    name: str
+    domain: str
+    answers_naming: int
+    answers_citing: int
 
 
 @frozen
