@@ -17244,6 +17244,51 @@
             "validators": []
         }
     },
+    "error-tracking-external-references-link": {
+        "name": "error-tracking-external-references-link",
+        "kind": "http",
+        "requires": [],
+        "hooks": null,
+        "uiApp": null,
+        "request": {
+            "method": "POST",
+            "path": "/api/projects/{project_id}/error_tracking/external_references/link_issue/",
+            "pathParams": [],
+            "fallbacks": [],
+            "query": null,
+            "body": [
+                {
+                    "param": "integration_id",
+                    "key": "integration_id"
+                },
+                {
+                    "param": "issue",
+                    "key": "issue"
+                },
+                {
+                    "param": "external_context",
+                    "key": "external_context"
+                }
+            ],
+            "injectBody": {},
+            "softDelete": null,
+            "transformBody": false
+        },
+        "response": {
+            "list": false,
+            "filter": null,
+            "stripNulls": false,
+            "enrich": null,
+            "agentNote": null,
+            "informational": null,
+            "textInclude": []
+        },
+        "input": {
+            "aliases": {},
+            "casts": {},
+            "validators": []
+        }
+    },
     "error-tracking-grouping-rules-create": {
         "name": "error-tracking-grouping-rules-create",
         "kind": "http",
