@@ -131,6 +131,17 @@ class TestSesSenderHealth(EmailDomainApiTestCase):
         assert DOMAIN in notification.body
         assert notification.source_url == f"/project/{self.team.id}/workflows/channels"
 
+    def test_tells_the_admins_again_when_the_domain_stops_again_after_recovering(self) -> None:
+        self.deliver_notices()
+        self.verified_sender(f"hello@{DOMAIN}")
+        mail.outbox.clear()
+        for ses_status in ("Failed", None, "Failed"):
+            self.world.ses.identities[DOMAIN].forced_verification_status = ses_status
+            check_ses_sender_health()
+
+        assert len(mail.outbox) == 2
+        assert len(stored_notifications_for_team(self.team.id)) == 2
+
     @parameterized.expand(
         [
             ("the_broker_refuses_it", False),

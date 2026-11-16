@@ -27,8 +27,11 @@ SES_SENDER_HEALTH_FLAG = "workflows-ses-sender-health"
 
 _PAGE_SIZE = 500
 
+_NOTICE_PENDING_KEY = "ses_sending_notice_pending"
+
 _MARK = IntegrationPatch(config_patch={SES_SENDING_STATUS_KEY: SES_SENDING_FAILED})
-_UNMARK = IntegrationPatch(config_remove=(SES_SENDING_STATUS_KEY,))
+_UNMARK = IntegrationPatch(config_remove=(SES_SENDING_STATUS_KEY, _NOTICE_PENDING_KEY))
+_NOTICE_SENT = IntegrationPatch(config_remove=(_NOTICE_PENDING_KEY,))
 
 
 def record_ses_sending_status(failed_domains: Iterable[str]) -> None:
@@ -40,10 +43,11 @@ def record_ses_sending_status(failed_domains: Iterable[str]) -> None:
     failed = tuple(sorted({domain.lower() for domain in failed_domains}))
     rolled_out = cache(_rolled_out)
     for sender in _one_sender_per_project_domain(where_in={"domain": failed}):
-        if rolled_out(sender.team_id) is True and _patch_domain(sender, _MARK).changed_ids:
-            if not _queue_sending_stopped_email(sender.team_id, sender.config["domain"]):
-                _patch_domain(sender, _UNMARK)
-                continue
+        if rolled_out(sender.team_id) is not True:
+            continue
+        stopped_at = _stop_awaiting_notice(sender, _patch_domain(sender, _MARK))
+        if stopped_at and _queue_sending_stopped_email(sender.team_id, sender.config["domain"], stopped_at):
+            _patch_domain(sender, _NOTICE_SENT)
             _create_sending_stopped_notification(sender.team_id, sender.config["domain"])
     for sender in _one_sender_per_project_domain(where={SES_SENDING_STATUS_KEY: SES_SENDING_FAILED}):
         if sender.config["domain"] not in failed or rolled_out(sender.team_id) is False:
@@ -60,6 +64,14 @@ def _rolled_out(team_id: int) -> bool | None:
         group_properties={"organization": {"id": organization_id}, "project": {"id": str(team_id)}},
         send_feature_flag_events=False,
     )
+
+
+def _stop_awaiting_notice(sender: IntegrationRecord, marked: UpdatedRows) -> str | None:
+    if marked.changed_ids:
+        stopped_at = timezone.now().isoformat()
+        _patch_domain(sender, IntegrationPatch(config_patch={_NOTICE_PENDING_KEY: stopped_at}))
+        return stopped_at
+    return next((row.config[_NOTICE_PENDING_KEY] for row in marked.records if _NOTICE_PENDING_KEY in row.config), None)
 
 
 def _patch_domain(sender: IntegrationRecord, patch: IntegrationPatch) -> UpdatedRows:
@@ -91,11 +103,9 @@ def _one_sender_per_project_domain(
         after_id = page[-1].id
 
 
-def _queue_sending_stopped_email(team_id: int, domain: str) -> bool:
+def _queue_sending_stopped_email(team_id: int, domain: str, stopped_at: str) -> bool:
     try:
-        send_email_sender_domain_sending_stopped.delay(
-            team_id=team_id, domain=domain, stopped_on=timezone.now().date().isoformat()
-        )
+        send_email_sender_domain_sending_stopped.delay(team_id=team_id, domain=domain, stopped_at=stopped_at)
     except Exception as error:
         logger.exception("ses_sending_stopped_email_dispatch_failed", team_id=team_id, domain=domain)
         capture_exception(error, {"team_id": team_id, "domain": domain})
