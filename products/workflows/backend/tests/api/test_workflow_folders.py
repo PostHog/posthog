@@ -1048,7 +1048,7 @@ class TestWorkflowFolders(APIBaseTest):
         self.assertEqual(filed.status_code, 400, filed.content)
         self.assertEqual(filed.json()["attr"], "_create_in_folder")
 
-    def test_disabled_files_do_not_leave_an_empty_unfiled_tree(self) -> None:
+    def test_disabled_files_hide_by_type_and_leave_their_unfiled_folders(self) -> None:
         self.client.post(
             f"/api/projects/{self.team.id}/messaging_templates/",
             {"name": "Synthetic email", "type": "email"},
@@ -1058,13 +1058,17 @@ class TestWorkflowFolders(APIBaseTest):
             FileSystem.objects.create(team=self.team, path=path, depth=len(path.split("/")), type="folder")
         with patch("posthoganalytics.feature_enabled", return_value=False):
             with CaptureQueriesContext(connection) as queries:
-                response = self.client.get(f"/api/projects/{self.team.id}/file_system/", {"search": "Unfiled"})
-            self.assertEqual(response.json()["results"], [])
-            # A LIKE pattern built from a row's own path renders as LIKE REPLACE(...) and scans the project per row.
-            self.assertEqual([q["sql"] for q in queries.captured_queries if "LIKE REPLACE(" in q["sql"]], [])
-            FileSystem.objects.filter(team=self.team, type="message_template").delete()
-            response = self.client.get(f"/api/projects/{self.team.id}/file_system/", {"path": "Unfiled"})
-        self.assertEqual([entry["path"] for entry in response.json()["results"]], ["Unfiled"])
+                searched = self.client.get(f"/api/projects/{self.team.id}/file_system/", {"search": "Unfiled"})
+                listed = self.client.get(
+                    f"/api/projects/{self.team.id}/file_system/", {"parent": "Unfiled/Email templates"}
+                )
+        # A LIKE pattern built from a row's own path renders as LIKE REPLACE(...) and scans the project per row.
+        self.assertEqual([q["sql"] for q in queries.captured_queries if "LIKE REPLACE(" in q["sql"]], [])
+        self.assertEqual(
+            sorted((entry["path"], entry["type"]) for entry in searched.json()["results"]),
+            [("Unfiled", "folder"), ("Unfiled/Email templates", "folder")],
+        )
+        self.assertEqual(listed.json()["results"], [])
 
     def test_unfiled_for_the_template_type_with_the_flag_off_files_no_template(self) -> None:
         self.client.post(
