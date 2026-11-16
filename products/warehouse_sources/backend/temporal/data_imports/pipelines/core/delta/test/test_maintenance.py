@@ -333,6 +333,36 @@ class TestCompactIfFragmented:
             assert table.version() - version_before == expected_commits
             assert table.to_pyarrow_table().num_rows == rows_before
 
+    @parameterized.expand(
+        [
+            # Nine tiny files in each of four partitions. A capped pass compacts the two it may take.
+            ("capped_delta_rs", False, 2, 2 + 2 * 9),
+            ("capped_deltalite", True, 2, 2 + 2 * 9),
+            ("under_the_cap_delta_rs", False, 4, 4),
+            ("under_the_cap_deltalite", True, 4, 4),
+        ]
+    )
+    @pytest.mark.asyncio
+    async def test_one_pass_compacts_at_most_the_partition_cap(
+        self, _name: str, deltalite_engine: bool, max_partitions: int, files_after: int
+    ):
+        with (
+            tempfile.TemporaryDirectory() as path,
+            override_settings(
+                DATA_WAREHOUSE_DELTALITE_COMPACTION=deltalite_engine,
+                DATA_WAREHOUSE_COMPACT_MAX_PARTITIONS_PER_PASS=max_partitions,
+            ),
+        ):
+            TestCompactDuringRebuild._fill(path, partitions=4, files_per_partition=9)
+            rows_before = deltalake.DeltaTable(path).to_pyarrow_table().sort_by("id").to_pydict()
+
+            ran = await DeltaMaintenance(make_local_table_ref(path)).compact_if_fragmented(threshold=1)
+
+            table = deltalake.DeltaTable(path)
+            assert ran is True
+            assert len(table.file_uris()) == files_after
+            assert table.to_pyarrow_table().sort_by("id").to_pydict() == rows_before
+
 
 class TestCompactConflictRetry:
     @pytest.mark.asyncio
