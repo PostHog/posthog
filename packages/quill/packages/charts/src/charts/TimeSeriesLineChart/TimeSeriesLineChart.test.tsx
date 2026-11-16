@@ -646,6 +646,28 @@ describe('TimeSeriesLineChart', () => {
             )
             expect(chart.seriesCount).toBe(2)
         })
+
+        it('dims a comparison series swatch in the legend like its line', () => {
+            const series: Series[] = [
+                { key: 'a', label: 'A', data: [1, 2, 3], color: '#112233' },
+                { key: 'a-prev', label: 'A', data: [1, 2, 3], color: '#112233' },
+            ]
+            const { container } = renderChart(
+                <TimeSeriesLineChart
+                    series={series}
+                    labels={LABELS}
+                    theme={THEME}
+                    config={{ comparisonOf: { 'a-prev': 'a' }, legend: { show: true } }}
+                />
+            )
+            const swatches = container.querySelectorAll<HTMLElement>(
+                '[data-attr="hog-chart-timeseries-line-legend"] [aria-hidden="true"]'
+            )
+            expect(Array.from(swatches, (s) => s.style.backgroundColor)).toEqual([
+                'rgb(17, 34, 51)',
+                'rgba(17, 34, 51, 0.5)',
+            ])
+        })
     })
 
     it('forwards children alongside built-in overlays', () => {
