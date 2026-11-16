@@ -43,6 +43,8 @@ EVIDENCE_LIMIT = 5
 # Judges run on a rollout that keeps them near this many runs a week, so a large team does not pay
 # for every trace while it decides whether the check is useful.
 WEEKLY_JUDGE_RUNS = 1000
+# Every matching trace starts a workflow even when the check is free, so the largest teams get a sample.
+WEEKLY_HOG_RUNS = 100_000
 JUDGE_COST_FACTOR = 0.8
 SIMILAR_FACTOR = 0.5
 # Decision-model screening flags many traces that a person would not; only part of them count.
@@ -119,11 +121,13 @@ def judge_input_price(model: str) -> float | None:
     return price.input_per_token if price else None
 
 
+def capped_rollout(weekly_units: float, weekly_runs: int) -> float:
+    # The scheduler samples in 0.01% steps, so the largest teams still land near the cap.
+    return 100.0 if weekly_units <= weekly_runs else max(0.01, round(100 * weekly_runs / weekly_units, 2))
+
+
 def judge_cost(weekly_units: float, mean_input_tokens: float | None, model: str) -> JudgeCost:
-    # The scheduler samples in 0.01% steps, so the largest teams still land near WEEKLY_JUDGE_RUNS.
-    rollout = (
-        100.0 if weekly_units <= WEEKLY_JUDGE_RUNS else max(0.01, round(100 * WEEKLY_JUDGE_RUNS / weekly_units, 2))
-    )
+    rollout = capped_rollout(weekly_units, WEEKLY_JUDGE_RUNS)
     weekly_runs = round(weekly_units * rollout / 100)
     price = judge_input_price(model)
     cost = weekly_runs * mean_input_tokens * price if mean_input_tokens and price else None
@@ -294,7 +298,9 @@ def code_check_proposal(
     failing = [outcome for outcome in main if outcome.failed]
     weekly_units = profile.traces * applicable / max(len(sample.main), 1)
     segment = normalize_segment_value(filters[0]["value"][0]) if filters else None
-    text = cards.code_check_text(check, failed / applicable, segment)
+    scope_units = profile.traces * _scope_share(filters, sample.main)
+    rollout = capped_rollout(scope_units, WEEKLY_HOG_RUNS)
+    text = cards.code_check_text(check, failed / applicable, segment, rollout)
     return Proposal(
         kind=EvalSuggestionKind.NEW_HOG,
         template_key=check.key,
@@ -312,7 +318,7 @@ def code_check_proposal(
             "target": "trace",
         },
         filters=filters,
-        rollout_percentage=100.0,
+        rollout_percentage=rollout,
         measured_failure_rate=failed / applicable,
         sample_size=applicable,
         evidence=[Evidence(trace_id=o.trace_id, reason=o.reasoning[:160]) for o in failing[:EVIDENCE_LIMIT]],
@@ -322,7 +328,7 @@ def code_check_proposal(
             judge=False,
             similar=similar_evaluation_id is not None,
         ),
-        estimated_weekly_runs=round(profile.traces * _scope_share(filters, sample.main)),
+        estimated_weekly_runs=round(scope_units * rollout / 100),
         similar_evaluation_id=similar_evaluation_id,
     )
 

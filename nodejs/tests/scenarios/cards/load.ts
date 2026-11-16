@@ -75,6 +75,7 @@ function checkNames(card: Card, definitions: Definitions): string[] {
         ...card.measure.flatMap((entry, i) =>
             checkNamed('measurement', `measure.${i}`, entry, definitions.measurements)
         ),
+        ...card.bars.flatMap((entry, i) => checkNamed('bar', `bars.${i}`, entry, definitions.bars)),
         ...card.valves.flatMap((entry, i) => {
             const definition = definitions.valves.find(({ name }) => name === entry.valve)
             if (!definition) {
@@ -176,6 +177,10 @@ function loadProfile(card: Card, profilePath: string | undefined): { profile: Pr
     if (profilePath === undefined && !existsSync(file)) {
         return { problems: [`profile: no shipped profile ${card.profile}; pass its file with --profile`] }
     }
+    return readProfile(file)
+}
+
+export function readProfile(file: string): { profile: Profile } | { problems: string[] } {
     const read = readYaml(file, 'profile')
     if ('problem' in read) {
         return { problems: [read.problem] }

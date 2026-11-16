@@ -1534,6 +1534,11 @@ class TestPipelineStageTelemetry:
             "signal_data_source_entered",
             "signal_data_source_filtered",
         ]
+        (filtered_call,) = [
+            call for call in capture.call_args_list if call.kwargs["event"] == "signal_data_source_filtered"
+        ]
+        assert filtered_call.kwargs["properties"]["filter_reason"] == "not_actionable"
+        assert filtered_call.kwargs["properties"]["steering_applied"] is False
 
 
 @pytest.mark.django_db(transaction=True)
@@ -1579,7 +1584,10 @@ class TestRunSignalPipelineSteering:
         filtered_calls = [
             call for call in capture.call_args_list if call.kwargs["event"] == "signal_data_source_filtered"
         ]
-        assert [call.kwargs["properties"]["steering_applied"] for call in filtered_calls] == [True]
+        assert [
+            (call.kwargs["properties"]["filter_reason"], call.kwargs["properties"]["steering_applied"])
+            for call in filtered_calls
+        ] == [("not_actionable", True)]
 
     @pytest.mark.asyncio
     async def test_without_source_config_prompt_is_unchanged(self, team):

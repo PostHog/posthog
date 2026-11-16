@@ -124,6 +124,19 @@ describe('warehouseSuggestionsSectionLogic', () => {
         )
     })
 
+    it('counts each assignee option over the other filters and leaves the filter menu inactive', () => {
+        logic.actions.setFilters({ assignee: 'me', search: 'o' })
+
+        expect(logic.values.assigneeCounts).toEqual({ anyone: 2, me: 0, unassigned: 2 })
+        expect(logic.values.filtersActive).toBe(false)
+    })
+
+    it('counts no suggestion as assigned to me while the current user is unknown', () => {
+        userLogic.actions.loadUserSuccess(null)
+
+        expect(logic.values.assigneeCounts.me).toEqual(0)
+    })
+
     it.each<[string, Parameters<typeof logic.actions.setAcceptChoices>[0], Record<string, unknown>]>([
         ['each view keeps its suggested interval', {}, { refresh_interval_seconds: 86400 }],
         [

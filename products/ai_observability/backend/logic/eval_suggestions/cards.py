@@ -132,7 +132,9 @@ def cost_clause(weekly_cost_usd: float | None, *, free: bool) -> str:
     return f"About ${weekly_cost_usd:,.2f} a week on your AI provider key."
 
 
-def code_check_text(check: AdaptedCheck, failure_rate: float, segment: str | None) -> CardText:
+def code_check_text(
+    check: AdaptedCheck, failure_rate: float, segment: str | None, rollout_percentage: float = 100.0
+) -> CardText:
     """`segment` is the value the check's filter keeps, such as "batch", or None when it runs on all traffic."""
     words = CHECKS.get(check.key) or _CheckWords(
         noun="traces",
@@ -148,7 +150,10 @@ def code_check_text(check: AdaptedCheck, failure_rate: float, segment: str | Non
         if failure_rate < ONE_IN_N_BELOW
         else f"{failure_rate:.0%} of {noun} {words.plural}"
     )
-    return CardText(headline=headline, outcome=f"{words.checks.replace('{scope}', scope)} {FREE}", reason=words.reason)
+    checks = words.checks.replace("{scope}", scope)
+    if rollout_percentage < 100:
+        checks = checks.replace(f"every {scope}trace", f"{rollout_percentage:g}% of {scope}traces")
+    return CardText(headline=headline, outcome=f"{checks} {FREE}", reason=words.reason)
 
 
 @frozen
