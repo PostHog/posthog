@@ -7,14 +7,19 @@ import { CyclotronJobInvocationHogFlow } from '~/cdp/types'
 
 export type Run = {
     invocation: CyclotronJobInvocationHogFlow
-    claim?: { fingerprint: string }
+    claim?: { fingerprint: string; reply?: Record<string, unknown> }
 }
 
 export type Claim = { runId: string; fingerprint: string }
 
 export type Recalled =
     | { status: 'absent' }
-    | { status: 'replayed' | 'mismatch'; runId: string; claimedFingerprint: string }
+    | {
+          status: 'replayed' | 'mismatch'
+          runId: string
+          claimedFingerprint: string
+          reply: Record<string, unknown> | null
+      }
 
 // `claimedFingerprint` is set when a keyed run found an existing claim: the fingerprint of the request that made it.
 export type Committed = { runId: string; outcome: CyclotronV2IdempotentClaim['outcome']; claimedFingerprint?: string }
@@ -43,6 +48,7 @@ export class RunIntake {
             status: claimed.fingerprint === fingerprint ? 'replayed' : 'mismatch',
             runId,
             claimedFingerprint: claimed.fingerprint,
+            reply: claimed.reply,
         }
     }
 
@@ -68,14 +74,14 @@ export class RunIntake {
 
     private async insert(runs: Run[]): Promise<CyclotronV2IdempotentClaim[]> {
         const claims: CyclotronV2IdempotentClaim[] = runs.map(() => ({ outcome: 'created' }))
-        const keyed = runs.flatMap((run, i) => (run.claim ? [{ i, fingerprint: run.claim.fingerprint }] : []))
+        const keyed = runs.flatMap((run, i) => (run.claim ? [{ i, ...run.claim }] : []))
         const keyless = runs.filter((run) => !run.claim).map((run) => run.invocation)
         if (keyless.length > 0) {
             await this.deps.hogflowQueue.queueInvocations(keyless)
         }
         if (keyed.length > 0) {
             const claimed = await this.deps.hogflowQueue.queueInvocationsIdempotently(
-                keyed.map(({ i, fingerprint }) => ({ invocation: runs[i].invocation, fingerprint }))
+                keyed.map(({ i, fingerprint, reply }) => ({ invocation: runs[i].invocation, fingerprint, reply }))
             )
             keyed.forEach(({ i }, k) => (claims[i] = claimed[k]))
         }

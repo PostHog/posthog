@@ -385,7 +385,7 @@ export function QueryWindow({
 
             {showQueryPanel ? (
                 <QueryPane
-                    originalValue={originalQueryInput ?? ''}
+                    originalValue={originalQueryInput ?? undefined}
                     queryInput={(suggestedQueryInput || queryInput) ?? ''}
                     sourceQuery={sourceQuery.source}
                     promptError={null}

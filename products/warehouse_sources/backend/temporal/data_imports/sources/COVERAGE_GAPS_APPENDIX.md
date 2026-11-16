@@ -12710,14 +12710,14 @@ Today (11): `cryptocurrencies`, `dividends`, `earnings`, `etfs`, `exchanges`, `f
 
 Diffed against: <https://twelvedata.com/docs>
 
-- [ ] `income_statement (and income_statement/consolidated)` — core fundamentals; revenue and margin history per symbol (high)
+- [x] `income_statement (and income_statement/consolidated)` — core fundamentals; revenue and margin history per symbol (high) → `income_statements` (full refresh, quarterly; the `/consolidated` raw layout is not synced)
 - [x] `balance_sheet (and balance_sheet/consolidated)` — assets, liabilities and equity history per symbol (high) → `balance_sheets` (full refresh, quarterly; the `/consolidated` raw layout is not synced)
 - [x] `cash_flow (and cash_flow/consolidated)` — operating, investing and financing cash flow history (high) → `cash_flows` (full refresh, quarterly; the `/consolidated` raw layout is not synced)
 - [x] `statistics` — valuation and financial ratio snapshot; the most-queried fundamentals object (high) → `statistics` (full refresh snapshot)
 - [x] `profile` — company metadata lookup (sector, industry, country) that resolves the symbols already synced in stocks (high) → `profiles` (full refresh)
-- [ ] `market_cap` — market capitalization time series, a standard breakdown dimension (medium)
-- [ ] `earnings_calendar, dividends_calendar, splits_calendar, ipo_calendar` — forward-looking market-wide event feeds; the existing earnings/dividends/splits tables are per-symbol history only (medium)
-- [ ] `institutional_holders, fund_holders, direct_holders` — ownership breakdown per symbol (medium)
+- [x] `market_cap` — market capitalization time series, a standard breakdown dimension (medium) → `market_cap` (incremental on `date`)
+- [x] `earnings_calendar, dividends_calendar, splits_calendar, ipo_calendar` — forward-looking market-wide event feeds; the existing earnings/dividends/splits tables are per-symbol history only (medium) → `earnings_calendar`, `dividends_calendar`, `splits_calendar`, `ipo_calendar` (full refresh over a rolling window from 7 days back to 30 days ahead)
+- [x] `institutional_holders, fund_holders, direct_holders` — ownership breakdown per symbol (medium) → `institutional_holders`, `fund_holders`, `direct_holders` (full refresh snapshot)
 - [ ] `insider_transactions` — insider buy/sell transaction rows, a classic analytical dataset (medium)
 - [ ] `recommendations, price_target, analyst_ratings` — sell-side estimates and rating changes per symbol (medium)
 - [ ] `funds (mutual funds list), bonds, commodities` — asset catalogs missing alongside the stocks/etfs/forex/crypto catalogs already synced (medium)
@@ -12889,15 +12889,15 @@ Note: The v2 public API is small; the llms.txt index lists every operation. Cove
 
 ## Upstash — gaps
 
-Today (5): `audit_logs`, `redis_databases`, `redis_stats`, `teams`, `vector_indexes`
+Today (9): `audit_logs`, `qstash_stats`, `redis_databases`, `redis_stats`, `search_indexes`, `team_members`, `teams`, `vector_index_stats`, `vector_indexes`
 
 Diffed against: <https://upstash.com/docs/llms.txt>
 
-- [ ] `GET /v2/teams/{team_id} (Get Team Members)` — membership rows resolving which users belong to each team we already sync (high)
-- [ ] `GET /v2/vector/index/stats (Get Vector Stats)` — per-index query/usage metrics — the vector equivalent of redis_stats, which we do sync (high)
-- [ ] `GET /v2/search (List Search Indexes)` — Upstash Search is a first-class product with no table at all today (medium)
+- [x] `GET /v2/teams/{team_id} (Get Team Members)` — membership rows resolving which users belong to each team we already sync (high)
+- [x] `GET /v2/vector/index/stats (Get Vector Stats)` — per-index query/usage metrics — the vector equivalent of redis_stats, which we do sync (high) — synced as `vector_index_stats` from the per-index `GET /v2/vector/index/{id}/stats`; the listed endpoint is one account-wide total with no id
+- [x] `GET /v2/search (List Search Indexes)` — Upstash Search is a first-class product with no table at all today (medium)
 - [ ] `GET /v2/qstash (List QStash Users)` — QStash is the third product line and is entirely unrepresented (medium)
-- [ ] `GET /v2/qstash/stats/{id} (Get QStash Stats)` — daily request/bandwidth/billing time series for QStash usage analysis (medium)
+- [x] `GET /v2/qstash/stats/{id} (Get QStash Stats)` — daily request/bandwidth/billing time series for QStash usage analysis (medium)
 - [ ] `GET /v2/redis/list-backup/{id} (List Backup)` — backup inventory per Redis database for retention/compliance reporting (low)
 
 Note: Diffed against the Developer API inventory in the docs llms.txt; individual endpoint paths confirmed by fetching the per-endpoint .md pages (each embeds the OpenAPI operation, e.g. `get /teams/{team\_id}`, `get /vector/index/stats`, `get /search`, `get /qstash/stats/{id}`). Source already fans out redis_stats per database, so the same fan-out shape would work for vector/search stats.
@@ -12909,13 +12909,13 @@ Today (6): `alert_contacts`, `maintenance_windows`, `monitor_logs`, `monitors`, 
 Diffed against: <https://cdn.uptimerobot.com/api/openapi.yaml>
 
 - [x] `GET /incidents` — the downtime incident record — the headline analytical object for uptime reporting (high)
-- [ ] `GET /monitors/uptime-stats and GET /monitors/{id}/stats/uptime` — uptime percentage / SLA metric, the vendor's headline number (high)
+- [x] `GET /monitors/uptime-stats and GET /monitors/{id}/stats/uptime` — uptime percentage / SLA metric, the vendor's headline number (high)
 - [x] `GET /monitor-groups` — lookup resolving the groupId carried on monitors we already sync (high)
 - [x] `GET /tags` — lookup resolving tag ids on monitors; the main breakdown dimension (high)
-- [ ] `GET /incidents/{id}/alerts` — which alert contacts were notified and when, per incident (medium)
-- [ ] `GET /incidents/{id}/activity-log` — state-transition history of an incident (acknowledge, resolve, escalate) (medium)
+- [x] `GET /incidents/{id}/alerts` — which alert contacts were notified and when, per incident (medium)
+- [x] `GET /incidents/{id}/activity-log` — state-transition history of an incident (acknowledge, resolve, escalate) (medium)
 - [ ] `GET /incidents/{id}/comments` — human annotations on incidents, useful for postmortem analysis (low)
-- [ ] `GET /psps/{pspId}/announcements` — published status-page announcements tied to status_pages we already sync (low)
+- [x] `GET /psps/{pspId}/announcements` — published status-page announcements tied to status_pages we already sync (low)
 
 Note: The source is pinned to the legacy v2 API (UPTIMEROBOT_BASE_URL = https://api.uptimerobot.com/v2), and it covers essentially all of v2 (getMonitors, getAlertContacts, getMWindows, getPSPs, plus logs/response-times unpacked from getMonitors). All gaps above come from the current v3 REST API, whose OpenAPI spec is served at cdn.uptimerobot.com/api/openapi.yaml; capturing them means moving to v3 (or dual-pathing), not just adding endpoints. Excluded /integrations, /alert-contacts config CRUD and /user/me as plumbing/account settings.
 
@@ -12948,18 +12948,18 @@ Note: Downloaded the official Swagger ZIP and parsed all 231 paths in its JSON s
 
 ## US Treasury Fiscal Data — **thin**
 
-Today (3): `avg_interest_rates`, `debt_to_penny`, `rates_of_exchange`
+Today (7): `auctions_query`, `avg_interest_rates`, `debt_to_penny`, `interest_expense`, `mts_table_1`, `ofs2_estimated_ownership_treasury_securities`, `rates_of_exchange`
 
 Diffed against: <https://fiscaldata.treasury.gov/page-data/sq/d/707360527.json>
 
-- [ ] `Summary of Receipts, Outlays, and the Deficit/Surplus (GET /v1/accounting/mts/mts_table_1)` — measure the federal deficit and its revenue and spending components, which debt balances cannot reproduce (high)
-- [ ] `Treasury Securities Auctions Data (GET /v1/accounting/od/auctions_query)` — analyze auction yields, demand, accepted bids, and government financing costs (high)
-- [ ] `Interest Expense on the Public Debt Outstanding (GET /v2/accounting/od/interest_expense)` — measure actual debt servicing costs alongside outstanding debt and average interest rates (high)
+- [x] `Summary of Receipts, Outlays, and the Deficit/Surplus (GET /v1/accounting/mts/mts_table_1)` — measure the federal deficit and its revenue and spending components, which debt balances cannot reproduce (high)
+- [x] `Treasury Securities Auctions Data (GET /v1/accounting/od/auctions_query)` — analyze auction yields, demand, accepted bids, and government financing costs (high)
+- [x] `Interest Expense on the Public Debt Outstanding (GET /v2/accounting/od/interest_expense)` — measure actual debt servicing costs alongside outstanding debt and average interest rates (high)
 - [ ] `Detail of Treasury Securities Outstanding (GET /v1/debt/mspd/mspd_table_3)` — break down outstanding debt by security and maturity for financing and refinancing analysis (medium)
 - [ ] `Deposits and Withdrawals of Operating Cash (GET /v1/accounting/dts/deposits_withdrawals_operating_cash)` — track daily government cash receipts and payments by source (medium)
 - [ ] `Debt Subject to Limit (GET /v1/accounting/dts/debt_subject_to_limit)` — measure debt ceiling headroom using the statutory debt measure rather than total public debt (medium)
 - [ ] `U.S. Government Revenue Collections (GET /v2/revenue/rcm)` — analyze government receipts by agency and collection category (medium)
-- [ ] `Estimated Ownership of Treasury Securities (GET /v1/accounting/tb/ofs2_estimated_ownership_treasury_securities)` — compare holdings across investor classes to assess changes in demand for Treasury securities (medium)
+- [x] `Estimated Ownership of Treasury Securities (GET /v1/accounting/tb/ofs2_estimated_ownership_treasury_securities)` — compare holdings across investor classes to assess changes in demand for Treasury securities (medium)
 
 Note: Fetched the official API documentation, then followed its Gatsby query references to the dataset catalog JSON cited here. Parsed every table endpoint and compared it with the three source paths. These public collection GET endpoints need no credentials, but each new table needs its own key and date cursor. Specialized trust funds and duplicate summary tables were omitted in favor of fiscal flows, financing, and debt composition.
 
@@ -12969,10 +12969,10 @@ Today (6): `AcsDemographicsByCounty`, `AcsDemographicsByState`, `CountyBusinessP
 
 Diffed against: <https://api.census.gov/data.json>
 
-- [ ] `2024/acs/acs5 for=zip code tabulation area` — ZCTA-level demographics is the join key for customer postal codes — the single most requested Census cut (high)
-- [ ] `2024/geoinfo` — geography lookup table (names, land/water area, centroid) that resolves the bare state/county FIPS codes every other table returns (high)
-- [ ] `2023/cbp for=county` — county business patterns is only synced at state grain today; county is the useful market-sizing grain (high)
-- [ ] `2021/pep/population for=county` — population estimates are state-only today, so county-level denominators are missing (high)
+- [x] `2024/acs/acs5 for=zip code tabulation area` — ZCTA-level demographics is the join key for customer postal codes — the single most requested Census cut (high)
+- [x] `2024/geoinfo` — geography lookup table (names, land/water area, centroid) that resolves the bare state/county FIPS codes every other table returns (high)
+- [x] `2023/cbp for=county` — county business patterns is only synced at state grain today; county is the useful market-sizing grain (high)
+- [ ] `2021/pep/population for=county` — population estimates are state-only today, so county-level denominators are missing (high) — not available: `2021/pep/population` has no county geography (only us, region, division and state); the county-level `2023/pep/charv` cube needs undocumented total codes for its default-displayed AGE/SEX/HISP predicates
 - [ ] `2024/acs/acs5 for=tract and for=place` — tract/place demographics for catchment and store-level analysis (medium)
 - [ ] `2018/zbp (ZIP Code Business Patterns)` — establishment and payroll counts by ZIP, the business-side complement to ZCTA demographics (medium)
 - [ ] `2024/acs/acs1` — 1-year estimates are a year fresher than acs5 for states and large metros (medium)
@@ -13000,10 +13000,10 @@ Today (10): `comments`, `forums`, `labels`, `notes`, `nps_ratings`, `suggestion_
 
 Diffed against: <https://uservoice.uservoice.com/api/v2/public/doc/api-v2-reference>
 
-- [ ] `GET /admin/supporters` — the supporter/vote membership linking users to the suggestions we already sync (high)
-- [ ] `GET /admin/features` — roadmap features that suggestions roll up to; resolves the feature_ids on suggestions (high)
-- [ ] `GET /admin/categories` — lookup resolving the category id carried on every suggestion (high)
-- [ ] `GET /admin/status_updates` — state-transition history of suggestions (status changes and their messages) (high)
+- [x] `GET /admin/supporters` — the supporter/vote membership linking users to the suggestions we already sync (high)
+- [x] `GET /admin/features` — roadmap features that suggestions roll up to; resolves the feature_ids on suggestions (high)
+- [x] `GET /admin/categories` — lookup resolving the category id carried on every suggestion (high)
+- [x] `GET /admin/status_updates` — state-transition history of suggestions (status changes and their messages) (high)
 - [ ] `GET /admin/external_accounts` — the CRM account (and its revenue/MRR fields) that feedback is attributed to (high)
 - [ ] `GET /admin/external_users` — lookup joining UserVoice users to CRM contacts/accounts (high)
 - [ ] `GET /admin/feedback_records` — raw captured feedback items that suggestions and impact scores are derived from (high)
@@ -13181,10 +13181,10 @@ Today (6): `genres`, `networks`, `regions`, `releases`, `sources`, `titles`
 
 Diffed against: <https://api.watchmode.com/openapi.json>
 
-- [ ] `GET /v1/title/{title_id}/sources` — per-title streaming availability — Watchmode's entire reason to exist, and a fan-out of the titles we already sync (high)
-- [ ] `GET /v1/title/{title_id}/details` — full title metadata (ratings, runtime, plot, network, genre ids); list-titles only returns a stub row (high)
-- [ ] `GET /v1/title/{title_id}/cast-crew` — title-to-person membership table linking titles we sync to people (high)
-- [ ] `GET /v1/person/{person_id}` — lookup resolving the person ids returned by cast-crew (high)
+- [x] `GET /v1/title/{title_id}/sources` — per-title streaming availability — Watchmode's entire reason to exist, and a fan-out of the titles we already sync (high). Added as `title_sources` (fan-out over `titles`).
+- [x] `GET /v1/title/{title_id}/details` — full title metadata (ratings, runtime, plot, network, genre ids); list-titles only returns a stub row (high). Added as `title_details` (fan-out over `titles`).
+- [x] `GET /v1/title/{title_id}/cast-crew` — title-to-person membership table linking titles we sync to people (high). Added as `title_cast_crew` (fan-out over `titles`).
+- [ ] `GET /v1/person/{person_id}` — lookup resolving the person ids returned by cast-crew (high); skipped: there is no person list, so a full table needs a second fan-out over every title's cast and crew that cannot resume, and removing duplicate people needs state that grows with the catalog. `title_cast_crew` already carries `person_id`, `full_name`, `type` and `role`.
 - [ ] `GET /v1/title/{title_id}/episodes` — per-episode rows for TV titles, the finest analytical grain available (medium)
 - [ ] `GET /v1/title/{title_id}/seasons` — season-level rollup between titles and episodes (medium)
 - [ ] `GET /v1/title-release-dates` — advanced release-date feed with source and region dimensions that the simple /releases table lacks (medium)
@@ -13236,14 +13236,14 @@ Note: The source already discovers CMS collection items dynamically: source.py/s
 
 ## WeightsAndBiases — gaps
 
-Today (5): `artifacts`, `projects`, `reports`, `runs`, `sweeps`
+Today (10): `artifact_collections`, `artifact_types`, `artifacts`, `members`, `projects`, `reports`, `run_artifacts`, `run_history`, `runs`, `sweeps`
 
 Diffed against: <https://api.wandb.ai/graphql>
 
-- [ ] `Run.history / Run.sampledHistory / Run.parquetHistory` — the logged metric time series per step — W&B's core dataset; today only the final summary metrics on runs are synced (high)
-- [ ] `Run.outputArtifacts and Run.inputArtifacts` — run-to-artifact lineage join table connecting the two largest tables already synced (high)
-- [ ] `Entity.members / Project.teamMembers` — lookup resolving the userId carried on every run, sweep and report (high)
-- [ ] `Project.artifactCollections and Project.artifactTypes` — lookup naming the collection and type each artifact version belongs to; the source already walks these to reach versions but never emits them (high)
+- [x] `Run.history / Run.sampledHistory / Run.parquetHistory` — the logged metric time series per step — W&B's core dataset; today only the final summary metrics on runs are synced (high). Added as `run_history` from `Run.history(minStep, maxStep, samples)`, one row per step with the logged values in a JSON `metrics` column; `sampledHistory` is a downsample and `parquetHistory` returns file URLs, so neither is a separate table
+- [x] `Run.outputArtifacts and Run.inputArtifacts` — run-to-artifact lineage join table connecting the two largest tables already synced (high). Added as `run_artifacts`
+- [x] `Entity.members / Project.teamMembers` — lookup resolving the userId carried on every run, sweep and report (high). Added as `members` from `Entity.members`; runs, sweeps and reports carry `user.username`, not a user id, so the join is on username
+- [x] `Project.artifactCollections and Project.artifactTypes` — lookup naming the collection and type each artifact version belongs to; the source already walks these to reach versions but never emits them (high). Added as `artifact_collections` and `artifact_types`
 - [ ] `Run.systemMetrics / Run.events` — GPU, CPU and memory utilization time series per run, the basis for compute-efficiency analysis (medium)
 - [ ] `Run.files` — per-run output file inventory with sizes, useful for storage attribution (medium)
 - [ ] `usage / usageByPeriod (Query root)` — account compute and storage consumption by period, the headline cost metric (medium)
@@ -13422,14 +13422,14 @@ Note: Parsed the live OData metadata, including entity sets and collection navig
 
 ## Wrike — gaps
 
-Today (7): `contacts`, `custom_fields`, `folders`, `project_dependencies`, `spaces`, `tasks`, `workflows`
+Today (10): `contacts`, `custom_fields`, `folders`, `groups`, `project_dependencies`, `spaces`, `tasks`, `timelog_categories`, `timelogs`, `workflows`
 
 Diffed against: <https://developers.wrike.com/sitemap.xml>
 
-- [ ] `timelogs (GET /timelogs, GET /tasks/{id}/timelogs)` — the time-tracking fact table; the headline analytical object in Wrike and completely absent (high)
-- [ ] `timelog_categories (GET /timelog_categories)` — lookup resolving the category id on every timelog entry (high)
-- [ ] `groups (GET /groups)` — user group membership lookup for the contacts we already sync (high)
-- [ ] `tasks_history (GET /tasks/{ids}/tasks_history)` — task status transition history, the only way to compute cycle time (high)
+- [x] `timelogs (GET /timelogs, GET /tasks/{id}/timelogs)` — the time-tracking fact table; the headline analytical object in Wrike and completely absent (high)
+- [x] `timelog_categories (GET /timelog_categories)` — lookup resolving the category id on every timelog entry (high)
+- [x] `groups (GET /groups)` — user group membership lookup for the contacts we already sync (high)
+- [ ] `tasks_history (GET /tasks/{ids}/tasks_history)` — task status transition history, the only way to compute cycle time (high); skipped: v4 returns only budget history (planned and actual cost and fees), not status transitions, and it needs one call per batch of task ids
 - [ ] `custom_item_types (GET /custom_item_types)` — lookup resolving customItemTypeId on tasks and folders (medium)
 - [ ] `jobroles (GET /jobroles)` — lookup resolving the job role id on contacts, bookings and timelogs (medium)
 - [ ] `comments (GET /comments, GET /tasks/{id}/comments)` — collaboration volume per task and folder (medium)

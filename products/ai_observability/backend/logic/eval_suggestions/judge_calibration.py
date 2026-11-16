@@ -13,15 +13,27 @@ from concurrent.futures import ThreadPoolExecutor
 from dataclasses import replace
 from typing import Any, Literal
 
+import httpx
 import openai
 import anthropic
 import structlog
 from anthropic.types import ToolParam, ToolUseBlock
+from google import genai
+from google.genai import (
+    errors as genai_errors,
+    types as genai_types,
+)
 
 from posthog.dataclasses import frozen
-from posthog.llm.gateway_client import build_openai_client, team_distinct_id
+from posthog.llm.gateway_client import (
+    GatewayNotConfiguredError,
+    build_gemini_client,
+    build_openai_client,
+    team_distinct_id,
+)
 
 from products.ai_observability.backend.llm import DEFAULT_MODEL_BY_PROVIDER
+from products.ai_observability.backend.llm.providers.gemini import GeminiConfig
 
 from . import call_review
 from .call_review import Rendering, ReviewCard, Verdict, parse_verdict
@@ -43,12 +55,16 @@ FAILS_PER_FALSE_ALARM = 2
 # A judge is trusted on calls it should pass only after it returned a verdict on this many, so a judge that fails
 # everything, or whose requests on passes all failed, cannot look clean.
 MIN_JUDGED_PASSES = 5
-# Calibration calls the OpenAI and Anthropic APIs through the Go gateway. A judge on another provider's default is
-# not calibrated, so the review does not run for it.
-GATEWAY_PROVIDERS: dict[str, Literal["openai", "anthropic"]] = {
+Provider = Literal["openai", "anthropic", "gemini"]
+JudgeClient = anthropic.Anthropic | openai.OpenAI | genai.Client
+# A judge on a model without a route here is not calibrated, so the review does not run for it.
+GATEWAY_PROVIDERS: dict[str, Provider] = {
     DEFAULT_MODEL_BY_PROVIDER["openai"]: "openai",
     DEFAULT_MODEL_BY_PROVIDER["anthropic"]: "anthropic",
+    DEFAULT_MODEL_BY_PROVIDER["gemini"]: "gemini",
 }
+# google-genai raises httpx transport failures, such as a connection reset or a read timeout, without wrapping them.
+_CALL_ERRORS = (anthropic.APIError, openai.APIError, genai_errors.APIError, httpx.TransportError)
 
 _VERDICT_SCHEMA: dict[str, Any] = {
     "type": "object",
@@ -98,6 +114,8 @@ class JudgeCall:
 class Calibration:
     review_fails: int
     caught: int
+    # A call the review found the question does not apply to counts as a pass: the evaluation runs on it too, and a
+    # fail there is a false alarm.
     review_passes: int
     # Review passes the judge returned a verdict on. Only these can show a false alarm.
     judged_passes: int
@@ -111,7 +129,7 @@ class Calibration:
 
 @frozen
 class _Projection:
-    """The judge's verdicts on the calibration calls, scaled to every applicable call the review labelled."""
+    """The judge's verdicts on the calibration calls, scaled to every call the review labelled."""
 
     review_fails: int
     caught: float
@@ -119,15 +137,27 @@ class _Projection:
     na: float
 
 
-def provider(model: str | None) -> Literal["openai", "anthropic"] | None:
+def provider(model: str | None) -> Provider | None:
     return GATEWAY_PROVIDERS.get(model) if model else None
 
 
-def build_client(team_id: int, run_id: str, model: str) -> anthropic.Anthropic | openai.OpenAI:
+def build_client(team_id: int, run_id: str, model: str) -> JudgeClient:
     """A Go gateway client for the model's provider, in privacy mode with the review's product tag and team."""
     kind = provider(model)
     if kind == "anthropic":
         return call_review.build_client(team_id, run_id)
+    if kind == "gemini":
+        gemini = build_gemini_client(
+            ai_product=AI_PRODUCT,
+            trace_id=run_id,
+            properties={"team_id": str(team_id)},
+            distinct_id=team_distinct_id(team_id),
+            privacy_mode=True,
+            timeout_ms=int(TIMEOUT_SECONDS * 1000),
+        )
+        if gemini is None:
+            raise GatewayNotConfiguredError("AI_GATEWAY_URL and AI_GATEWAY_API_KEY must be configured")
+        return gemini
     if kind is None:
         raise ValueError(f"No gateway route to calibrate on {model}")
     client = build_openai_client(
@@ -144,14 +174,18 @@ def build_client(team_id: int, run_id: str, model: str) -> anthropic.Anthropic |
 
 def calibration_calls(card: ReviewCard) -> list[int]:
     """The review's fails and passes, CALIBRATION_CALLS at most, half for each when both have that many: a judge
-    tested on fails alone would pass by failing everything. Calls the question does not apply to stay out, since a
-    fail rate counts only the calls it applies to."""
+    tested on fails alone would pass by failing everything. The pass slots go to real passes and to calls the
+    question does not apply to in their own proportion, so the judge's verdicts on them stand for both kinds."""
     labels = sorted(card.labels.items())
     fails = [number for number, verdict in labels if verdict == "fail"]
     passes = [number for number, verdict in labels if verdict == "pass"]
-    fail_slots = max(CALIBRATION_CALLS // 2, CALIBRATION_CALLS - len(passes))
+    skipped = [number for number, verdict in labels if verdict == "na"]
+    fail_slots = max(CALIBRATION_CALLS // 2, CALIBRATION_CALLS - len(passes) - len(skipped))
     picked_fails = fails[:fail_slots]
-    return picked_fails + passes[: CALIBRATION_CALLS - len(picked_fails)]
+    slots = CALIBRATION_CALLS - len(picked_fails)
+    share = round(slots * len(passes) / (len(passes) + len(skipped))) if passes or skipped else 0
+    pass_slots = min(len(passes), max(share, slots - len(skipped)))
+    return picked_fails + passes[:pass_slots] + skipped[: slots - pass_slots]
 
 
 def judge_request(card: ReviewCard, rendering: Rendering, number: int, model: str) -> JudgeRequest:
@@ -170,7 +204,14 @@ def max_cost_usd(requests: Sequence[JudgeRequest]) -> float:
     return call_review.ATTEMPTS * sum(_max_attempt_cost_usd(request) for request in requests)
 
 
-def _attempt(client: anthropic.Anthropic | openai.OpenAI, request: JudgeRequest) -> JudgeCall:
+def _json(text: str | None) -> Any:
+    try:
+        return json.loads(text or "")
+    except ValueError:
+        return None
+
+
+def _attempt(client: JudgeClient, request: JudgeRequest) -> JudgeCall:
     price = MODEL_PRICES[request.model]
     if isinstance(client, anthropic.Anthropic):
         response = client.messages.create(
@@ -185,6 +226,26 @@ def _attempt(client: anthropic.Anthropic | openai.OpenAI, request: JudgeRequest)
         answer: Any = next((block.input for block in response.content if isinstance(block, ToolUseBlock)), None)
         usage = response.usage
         cost = usage.input_tokens * price.input_per_token + usage.output_tokens * price.output_per_token
+    elif isinstance(client, genai.Client):
+        reply = client.models.generate_content(
+            model=request.model,
+            contents=request.prompt,
+            config=genai_types.GenerateContentConfig(
+                system_instruction=request.system,
+                temperature=GeminiConfig.TEMPERATURE,
+                response_mime_type="application/json",
+                response_json_schema=_VERDICT_SCHEMA,
+                max_output_tokens=MAX_OUTPUT_TOKENS,
+            ),
+        )
+        answer = _json(reply.text)
+        metadata = reply.usage_metadata
+        if metadata:
+            # Gemini bills thinking tokens as output but counts them apart from the reply's tokens.
+            output_tokens = (metadata.candidates_token_count or 0) + (metadata.thoughts_token_count or 0)
+            cost = (metadata.prompt_token_count or 0) * price.input_per_token + output_tokens * price.output_per_token
+        else:
+            cost = _max_attempt_cost_usd(request)
     else:
         completion = client.chat.completions.create(
             model=request.model,
@@ -196,10 +257,7 @@ def _attempt(client: anthropic.Anthropic | openai.OpenAI, request: JudgeRequest)
             max_completion_tokens=MAX_OUTPUT_TOKENS,
             timeout=TIMEOUT_SECONDS,
         )
-        try:
-            answer = json.loads(completion.choices[0].message.content or "") if completion.choices else None
-        except ValueError:
-            answer = None
+        answer = _json(completion.choices[0].message.content) if completion.choices else None
         tokens = completion.usage
         cost = (
             tokens.prompt_tokens * price.input_per_token + tokens.completion_tokens * price.output_per_token
@@ -210,21 +268,31 @@ def _attempt(client: anthropic.Anthropic | openai.OpenAI, request: JudgeRequest)
     return JudgeCall(verdict=verdict, cost_usd=cost)
 
 
-def _retryable(error: anthropic.APIError | openai.APIError) -> bool:
-    if isinstance(
+def _rate_limited(error: Exception) -> bool:
+    if isinstance(error, genai_errors.APIError):
+        return error.code == 429
+    return isinstance(error, anthropic.RateLimitError | openai.RateLimitError)
+
+
+def _retryable(error: Exception) -> bool:
+    if _rate_limited(error) or isinstance(
         error,
         anthropic.APIConnectionError
-        | anthropic.RateLimitError
         | anthropic.InternalServerError
         | openai.APIConnectionError
-        | openai.RateLimitError
-        | openai.InternalServerError,
+        | openai.InternalServerError
+        | genai_errors.ServerError
+        | httpx.TransportError,
     ):
         return True
-    return isinstance(error, anthropic.APIStatusError | openai.APIStatusError) and error.status_code == 408
+    if isinstance(error, genai_errors.APIError):
+        # Google ends a call it cancelled with a 499 CANCELLED error, and a retry usually gets past it.
+        return error.code == 499
+    # The Anthropic SDK raises an overloaded 529 as its own class, which is not an InternalServerError.
+    return isinstance(error, anthropic.APIStatusError | openai.APIStatusError) and error.status_code in (408, 529)
 
 
-def judge(client: anthropic.Anthropic | openai.OpenAI, request: JudgeRequest) -> JudgeCall:
+def judge(client: JudgeClient, request: JudgeRequest) -> JudgeCall:
     """One forced verdict. An attempt that fails may have billed, so it counts at its most, except a 429, which the
     provider refuses before any work. When every attempt fails, the call has no verdict."""
     unsettled = 0.0
@@ -232,8 +300,8 @@ def judge(client: anthropic.Anthropic | openai.OpenAI, request: JudgeRequest) ->
         try:
             served = _attempt(client, request)
             return replace(served, cost_usd=served.cost_usd + unsettled)
-        except (anthropic.APIError, openai.APIError) as error:
-            if not isinstance(error, anthropic.RateLimitError | openai.RateLimitError):
+        except _CALL_ERRORS as error:
+            if not _rate_limited(error):
                 unsettled += _max_attempt_cost_usd(request)
             if attempt == call_review.ATTEMPTS - 1 or not _retryable(error):
                 logger.warning(
@@ -244,9 +312,7 @@ def judge(client: anthropic.Anthropic | openai.OpenAI, request: JudgeRequest) ->
     return JudgeCall(verdict=None, cost_usd=unsettled)
 
 
-def judge_all(
-    client: anthropic.Anthropic | openai.OpenAI, requests: Sequence[JudgeRequest], deadline: float | None
-) -> list[JudgeCall | None]:
+def judge_all(client: JudgeClient, requests: Sequence[JudgeRequest], deadline: float | None) -> list[JudgeCall | None]:
     """Every request, CONCURRENCY at a time. A request starts only while its slowest run still ends before
     `deadline`, a time.monotonic() value. One that does not start is None and costs nothing."""
 
@@ -265,21 +331,21 @@ def calibrate(card: ReviewCard, numbers: Sequence[int], verdicts: Sequence[Verdi
     return Calibration(
         review_fails=sum(1 for label, _ in pairs if label == "fail"),
         caught=sum(1 for label, verdict in pairs if label == "fail" and verdict == "fail"),
-        review_passes=sum(1 for label, _ in pairs if label == "pass"),
-        judged_passes=sum(1 for label, verdict in pairs if label == "pass" and verdict is not None),
-        false_alarms=sum(1 for label, verdict in pairs if label == "pass" and verdict == "fail"),
+        review_passes=sum(1 for label, _ in pairs if label != "fail"),
+        judged_passes=sum(1 for label, verdict in pairs if label != "fail" and verdict is not None),
+        false_alarms=sum(1 for label, verdict in pairs if label != "fail" and verdict == "fail"),
         unjudged=sum(1 for _, verdict in pairs if verdict is None),
         na_on_fails=sum(1 for label, verdict in pairs if label == "fail" and verdict == "na"),
-        na_on_passes=sum(1 for label, verdict in pairs if label == "pass" and verdict == "na"),
+        na_on_passes=sum(1 for label, verdict in pairs if label != "fail" and verdict == "na"),
     )
 
 
 def _project(card: ReviewCard, calibration: Calibration) -> _Projection:
-    """The judge's verdicts scaled to the card's applicable calls. When the review passed more calls than the judge
-    returned verdicts on, its verdicts on those stand for the rest too."""
+    """The judge's verdicts scaled to every call the review labelled. When the review passed more calls than the
+    judge returned verdicts on, its verdicts on those stand for the rest too."""
     fails = sum(1 for verdict in card.labels.values() if verdict == "fail")
     fail_scale = fails / calibration.review_fails if calibration.review_fails else 0.0
-    pass_scale = (card.of - fails) / calibration.judged_passes if calibration.judged_passes else 0.0
+    pass_scale = (len(card.labels) - fails) / calibration.judged_passes if calibration.judged_passes else 0.0
     return _Projection(
         review_fails=fails,
         caught=calibration.caught * fail_scale,
@@ -300,8 +366,8 @@ def keeps(card: ReviewCard, calibration: Calibration) -> bool:
 
 
 def measured(card: ReviewCard, calibration: Calibration) -> ReviewCard:
-    """The card with the judge's own counts over the review's applicable calls: its fails, out of the calls it did
+    """The card with the judge's own counts over every call the review labelled: its fails, out of the calls it did
     not answer na on, as the evaluation's runtime rate counts them."""
     projected = _project(card, calibration)
     failed = round(projected.caught + projected.false_alarms)
-    return replace(card, failed=failed, of=max(failed, round(card.of - projected.na)))
+    return replace(card, failed=failed, of=max(failed, round(len(card.labels) - projected.na)))

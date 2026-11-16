@@ -525,8 +525,10 @@ def review_dedupe_key(card: ReviewCard) -> str:
 def review_proposal(card: ReviewCard, profile: TeamProfile, *, judge_model: str, calibration: Calibration) -> Proposal:
     """A judge on the generations of the card's call types, with the judge's counts and the review's examples."""
     filters = call_type_filters(card.call_types)
-    # Call types are counted over the last day. Without a filter the judge runs on every generation of the week.
-    weekly_units = 7 * sum(c.calls for c in card.call_types) if filters else profile.generations
+    # Call types are counted over the last day. Without a filter the judge runs on every generation of the week, but
+    # its failures still come only from its call types, so the score scales by their traffic.
+    reviewed_units = 7 * sum(c.calls for c in card.call_types)
+    weekly_units = reviewed_units if filters else profile.generations
     cost = judge_cost(weekly_units, profile.mean_input_tokens, judge_model)
     text = cards.review_text(card, cards.cost_clause(cost.weekly_cost_usd, free=False))
     return Proposal(
@@ -554,7 +556,7 @@ def review_proposal(card: ReviewCard, profile: TeamProfile, *, judge_model: str,
         evidence=[Evidence(trace_id=e.trace_id, reason=e.reason[:160]) for e in card.examples],
         score=_score(
             REVIEW_SEVERITY,
-            wilson_interval(card.failed, card.of).low * weekly_units,
+            wilson_interval(card.failed, card.of).low * reviewed_units,
             judge=True,
             similar=False,
         ),
