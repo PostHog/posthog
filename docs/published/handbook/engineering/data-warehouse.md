@@ -26,6 +26,10 @@ The activity has a five-minute heartbeat timeout and permits up to ten attempts.
 
 **Send raw query** checks statement boundaries and read-only restrictions using the selected connection's SQL dialect. Quoted strings, identifiers, and comments follow that dialect, including backslashes in LIKE and regex patterns. Queries with unfinished quotes or comments are rejected before execution. For PostgreSQL, Redshift, and MySQL, quoting must have the same boundaries with and without session-level backslash escaping; use doubled quotes when embedding a quote in a string.
 
+## Built-in SQL tables
+
+SQL autocomplete includes qualified table names from the visible schema alongside the existing unqualified shortcuts. Typing a namespace such as `posthog.` completes its tables, including when part of the table name is already entered. Unknown unqualified table names suggest the matching visible `posthog.*` table when one exists.
+
 ## Model namespace reservation
 
 The shared PostHog catalog reserves `models.*` for authored data models. New warehouse tables, endpoint saved queries, and managed viewsets cannot claim that namespace. The bare name `models` is reserved for the namespace container; use a name such as `models.revenue` for a model. Names such as `models_v2` remain available. Saved queries with no origin are treated as authored models for compatibility.
@@ -149,6 +153,13 @@ Direct connections group tables by schema. Search matches table and folder names
 **Related tables** exposes existing lazy joins, virtual tables, and configured warehouse joins as expandable nodes. Fields reached through a relation keep the original source and a qualified path, so adding a customer's field to a charges worksheet does not switch tables. PostHog property fields, including `person.properties` under events, expand into searchable, paginated property definitions. Numeric definitions become measures; other definitions become dimensions. Restricted and hidden properties are excluded. Warehouse relationships use the existing join configuration; the worksheet does not create joins or infer arbitrary JSON keys.
 
 **Search fields** also searches property definitions in the selected table and expanded related tables. Search for `$browser`, `$pathname`, or a custom property name to open matching property groups, then drag or double-click a property onto a shelf. Clearing the search restores each group's previous expansion and local search. Searching for a group's name, such as `properties`, shows all its definitions.
+
+## SQL heatmaps
+
+For a 2D heatmap, **X-axis order** in the Series settings sorts columns ascending or descending by their labels, with numeric labels in numeric order.
+Ascending order places numeric labels before text labels; descending order reverses both groups.
+**Query order** keeps the order in which values first appear in the results.
+Clicking a column header sorts rows by that column's values independently of the X-axis order.
 
 ## Calculated measures in BI mode
 
