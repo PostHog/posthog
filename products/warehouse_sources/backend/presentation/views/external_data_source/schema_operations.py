@@ -26,7 +26,10 @@ from products.access_control.backend.facade.user_access_control import access_le
 from products.data_warehouse.backend.facade.api import get_direct_query_engine, get_namespaced_resource_adapter
 from products.warehouse_sources.backend.facade.column_sensitivity import classify_column_sensitivity
 from products.warehouse_sources.backend.facade.incremental_field_model import (
+    MAX_COLUMNS_PER_CALL,
     MAX_TABLES_PER_CALL,
+    WIZARD_PATH,
+    fits_one_call,
     recommend_for_candidates,
 )
 from products.warehouse_sources.backend.facade.models import (
@@ -126,8 +129,20 @@ class IncrementalFieldRecommendationsRequestSerializer(serializers.Serializer):
     tables = LengthFirstListField(
         child=IncrementalFieldTableSerializer(),
         max_length=MAX_TABLES_PER_CALL,
-        help_text="Tables from database_schema to get a recommended incremental field for.",
+        help_text=(
+            "Tables from database_schema to get a recommended incremental field for. One request is one "
+            f"model call: up to {MAX_TABLES_PER_CALL} tables with up to {MAX_COLUMNS_PER_CALL} candidate "
+            "fields in total, or a single table of any size."
+        ),
     )
+
+    def validate_tables(self, tables: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        if not fits_one_call([len(table["incremental_fields"]) for table in tables]):
+            raise serializers.ValidationError(
+                f"Send at most {MAX_COLUMNS_PER_CALL} candidate fields across the tables of one request, "
+                "or one table on its own."
+            )
+        return tables
 
 
 class IncrementalFieldRecommendationsResponseSerializer(serializers.Serializer):
@@ -140,6 +155,11 @@ class IncrementalFieldRecommendationsResponseSerializer(serializers.Serializer):
 class ExternalDataSourceBulkUpdateSchemaSerializer(serializers.Serializer):
     id = serializers.UUIDField(help_text="Schema identifier to update.")
     should_sync = serializers.BooleanField(required=False, help_text="Whether the schema should be queryable/synced.")
+    live_query_enabled = serializers.BooleanField(
+        required=False,
+        help_text="Whether the table is queryable live without syncing it. Only for synced sources with live "
+        "queries on, and not for tables with row filters or masked columns.",
+    )
     sync_type = serializers.ChoiceField(
         required=False,
         allow_null=True,
@@ -262,12 +282,8 @@ class BulkSchemaSaveError(APIException):
             status.HTTP_400_BAD_REQUEST if only_validation_errors else status.HTTP_503_SERVICE_UNAVAILABLE
         )
         reasons = "; ".join(f"{name} ({reason})" for name, reason in failures.values())
-        super().__init__(
-            detail=(
-                f"These schemas in the batch could not be saved: {reasons}. "
-                "Any other schemas in the batch were saved successfully — retry the ones listed here."
-            )
-        )
+        # Each reason carries its own next step: retrying a webhook-only or missing table fails the same way.
+        super().__init__(detail=f"These schemas weren't saved: {reasons}. The other schemas in the batch were saved.")
 
 
 class ExternalDataSourceSchemaOperationsMixin(base.ExternalDataSourceViewSetBase):
@@ -449,6 +465,7 @@ class ExternalDataSourceSchemaOperationsMixin(base.ExternalDataSourceViewSetBase
         picks = recommend_for_candidates(
             [(table["table"], table["incremental_fields"]) for table in request.validated_data["tables"]],
             team=self.team,
+            path=WIZARD_PATH,
         )
         return Response(
             IncrementalFieldRecommendationsResponseSerializer(
@@ -662,7 +679,7 @@ class ExternalDataSourceSchemaOperationsMixin(base.ExternalDataSourceViewSetBase
             if discovered_schema.webhook_only:
                 failures[str(schema.id)] = (
                     schema.name,
-                    "can only be synced via webhooks; set up the webhook sync method instead",
+                    "can only be synced via webhooks; pick the Webhook sync method for it",
                 )
                 continue
             for key, value in build_default_sync_settings(discovered_schema).items():
@@ -776,7 +793,7 @@ class ExternalDataSourceSchemaOperationsMixin(base.ExternalDataSourceViewSetBase
                     )
                 else:
                     only_validation_errors = False
-                    reason = "a database error occurred while saving"
+                    reason = "a temporary error on our side; try again"
                     base.capture_exception(e)
                     base.logger.exception(
                         "bulk_update_schemas failed to persist schema",

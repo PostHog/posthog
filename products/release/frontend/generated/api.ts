@@ -74,7 +74,7 @@ export const getReleasesPartialUpdateUrl = (projectId: string, id: string) => {
 }
 
 /**
- * Change the name, description, owner or linked flags of a release.
+ * Change the name, description, owner or linked flags, broadcasts, surveys and insights of a release.
  */
 export const releasesPartialUpdate = async (
     projectId: string,

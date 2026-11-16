@@ -19,6 +19,7 @@ const icons = {
     next: ['ChevronRightIcon', 20, 2],
     external: ['ExternalLinkIcon', 20, 2],
     play: ['PlayIcon', 20, 0],
+    pause: ['PauseIcon', 20, 0],
     close: ['CloseIcon', 20, 2.4],
     done: ['CheckIcon', 20, 2],
 }

@@ -14,7 +14,7 @@ import { EmailIntegrationDomainGroupedType, IntegrationType } from '~/types'
 import { integrationsCreate, integrationsEmailVerifyCreate } from 'products/integrations/frontend/generated/api'
 import type { IntegrationConfigApi } from 'products/integrations/frontend/generated/api.schemas'
 
-import { openEmailDomainSetupPage } from './useStartEmailDomainSetup'
+import { openEmailDomainSetupPage } from './openEmailDomainSetupPage'
 
 export type AddEmailSenderEntry = 'catalog' | 'domain_row'
 

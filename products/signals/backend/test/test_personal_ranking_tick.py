@@ -267,13 +267,28 @@ class TestTickPair(_TickTest):
 
     @parameterized.expand(
         [
-            ("a_ranked_list_is_kept", 0, "built", "unchanged", 1),
-            ("a_failed_model_call_is_retried", 1, "failed", "built", 2),
+            ("a_ranked_list_is_kept", 0, "built", "unchanged", 1, {}),
+            ("a_failed_model_call_is_retried", 1, "failed", "built", 2, {}),
+            (
+                "a_ranked_list_of_a_model_arm_is_kept",
+                0,
+                "built",
+                "unchanged",
+                1,
+                {"model_arms": [{"name": "terra", "percentage": 100, "model": "gpt-terra"}]},
+            ),
         ]
     )
     def test_an_unchanged_pair_calls_no_model_unless_its_last_build_failed(
-        self, _name: str, malformed_answers: int, first: str, second: str, model_calls: int
+        self,
+        _name: str,
+        malformed_answers: int,
+        first: str,
+        second: str,
+        model_calls: int,
+        payload: dict[str, Any],
     ) -> None:
+        self.payload = payload
         self.malformed_answers = malformed_answers
         assert self._run() == PersonalRankingPairResult(
             status=first,  # type: ignore[arg-type]

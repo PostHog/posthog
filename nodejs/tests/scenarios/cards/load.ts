@@ -7,6 +7,7 @@ import { z } from 'zod'
 import { getDefaultConfig, overrideConfigWithEnv } from '~/common/config/config'
 
 import { durationMs } from '../duration'
+import { TRAFFIC } from '../generator/traffic'
 import { DEFINITIONS, Definition, Definitions } from './definitions'
 import { Card, Named, Profile } from './schema'
 
@@ -74,13 +75,18 @@ function checkNames(card: Card, definitions: Definitions): string[] {
         ...card.measure.flatMap((entry, i) =>
             checkNamed('measurement', `measure.${i}`, entry, definitions.measurements)
         ),
+        ...card.bars.flatMap((entry, i) => checkNamed('bar', `bars.${i}`, entry, definitions.bars)),
         ...card.valves.flatMap((entry, i) => {
             const definition = definitions.valves.find(({ name }) => name === entry.valve)
             if (!definition) {
                 return [`valves.${i}.valve: unknown valve ${entry.valve}`]
             }
+            const target = definition.target.safeParse(entry.target)
             const dose = definition.params.safeParse(entry.dose)
-            return dose.success ? [] : problemsOf(dose.error, `valves.${i}.dose`)
+            return [
+                ...(target.success ? [] : problemsOf(target.error, `valves.${i}.target`)),
+                ...(dose.success ? [] : problemsOf(dose.error, `valves.${i}.dose`)),
+            ]
         }),
     ]
 }
@@ -139,6 +145,18 @@ function checkSuppression(card: Card): string[] {
     )
 }
 
+const ANSWERED_AT_INTAKE = TRAFFIC.filter(({ intake }) => intake !== 'event').map(({ name }) => name)
+
+function checkIntakeVerdict(card: Card): string[] {
+    const unjudged = card.drive.traffic.filter(({ name }) => ANSWERED_AT_INTAKE.includes(name))
+    if (unjudged.length === 0 || card.invariants.some(({ name }) => name === 'refused_at_intake')) {
+        return []
+    }
+    return [
+        `invariants: ${unjudged.map(({ name }) => name).join(', ')} counts a unit its intake refused as offered, so the card needs refused_at_intake`,
+    ]
+}
+
 function checkProfile(card: Card, profile: Profile, definitions: Definitions, defaults: Record<string, unknown>) {
     const rolesRead = (name: string): boolean => Object.hasOwn(defaults, name) || PROCESS_ENV_SETTINGS.includes(name)
     const loadProducerReads = (name: string): boolean => name.startsWith(LOAD_PRODUCER_SETTING_PREFIX)
@@ -159,6 +177,10 @@ function loadProfile(card: Card, profilePath: string | undefined): { profile: Pr
     if (profilePath === undefined && !existsSync(file)) {
         return { problems: [`profile: no shipped profile ${card.profile}; pass its file with --profile`] }
     }
+    return readProfile(file)
+}
+
+export function readProfile(file: string): { profile: Profile } | { problems: string[] } {
     const read = readYaml(file, 'profile')
     if ('problem' in read) {
         return { problems: [read.problem] }
@@ -187,6 +209,7 @@ export function load(cardPath: string, options: LoadOptions = {}): LoadedCard {
         ...checkSchedules(card),
         ...checkStallBound(card, config),
         ...checkSuppression(card),
+        ...checkIntakeVerdict(card),
         ...('profile' in loaded ? checkProfile(card, loaded.profile, definitions, defaults) : loaded.problems),
     ]
     if (problems.length > 0 || !('profile' in loaded)) {

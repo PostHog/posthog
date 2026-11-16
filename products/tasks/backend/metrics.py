@@ -563,15 +563,15 @@ def observe_github_webhook_task_run_lookup(*, scoped: bool) -> None:
     GITHUB_WEBHOOK_TASK_RUN_LOOKUP_TOTAL.labels(scoped="true" if scoped else "false").inc()
 
 
-GITHUB_WEBHOOK_TASK_LOOKUP_SHADOW_TOTAL = Counter(
-    "posthog_tasks_github_webhook_task_lookup_shadow_total",
-    "GitHub webhook lookups by the run leg that matched, and whether the task column lookup found the same task",
-    labelnames=["leg", "outcome"],
+GITHUB_WEBHOOK_TASK_LOOKUP_TOTAL = Counter(
+    "posthog_tasks_github_webhook_task_lookup_total",
+    "GitHub webhook lookups by the leg that picked the run, and whether the task's pr_urls or head_branch named the task",
+    labelnames=["leg", "by_task_columns"],
 )
 
 
-def observe_github_webhook_task_lookup_shadow(*, leg: str, outcome: str) -> None:
-    GITHUB_WEBHOOK_TASK_LOOKUP_SHADOW_TOTAL.labels(leg=leg, outcome=outcome).inc()
+def observe_github_webhook_task_lookup(*, leg: str, by_task_columns: bool) -> None:
+    GITHUB_WEBHOOK_TASK_LOOKUP_TOTAL.labels(leg=leg, by_task_columns="true" if by_task_columns else "false").inc()
 
 
 MCP_EXCLUDE_TOOLS_OVER_CAP_TOTAL = Counter(
@@ -662,6 +662,27 @@ def observe_task_run_started_beside_live_run(task_run: "TaskRun") -> None:
 
 def observe_task_status_outside_transitions(*, from_status: str, to_status: str) -> None:
     TASK_STATUS_OUTSIDE_TRANSITIONS_TOTAL.labels(from_status=from_status, to_status=to_status).inc()
+
+
+TASK_DONE_TOTAL = Counter(
+    "posthog_tasks_done_total",
+    "Tasks moved to done, or that would move under shadow mode, by profile, reason and done mode",
+    labelnames=["profile", "reason", "mode"],
+)
+
+TASK_WAKE_REFUSED_TOTAL = Counter(
+    "posthog_tasks_wake_refused_total",
+    "Wakes refused because the task is done, or that would be refused under shadow mode",
+    labelnames=["profile", "source", "mode"],
+)
+
+
+def observe_task_done(*, profile: str, reason: str, mode: str) -> None:
+    TASK_DONE_TOTAL.labels(profile=profile, reason=reason, mode=mode).inc()
+
+
+def observe_task_wake_refused(*, profile: str, source: str, mode: str) -> None:
+    TASK_WAKE_REFUSED_TOTAL.labels(profile=profile, source=source, mode=mode).inc()
 
 
 def observe_contract_violation(*, check: str, profile: str) -> None:

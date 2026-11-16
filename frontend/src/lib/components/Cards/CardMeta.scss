@@ -1,5 +1,11 @@
 .DashboardTileCard {
     min-height: 0;
+
+    // Lemon content in a quill card keeps the app's body text size, not the card's.
+    &[data-quill] [data-not-quill] {
+        font-size: 14px;
+        line-height: 1.5715;
+    }
 }
 
 .CardMeta {
@@ -12,6 +18,11 @@
     max-height: calc(100% - 2rem);
     background: var(--color-bg-surface-primary);
     border-radius: var(--radius);
+
+    // Inside a quill Card the card paints the surface.
+    &.CardMeta--quill {
+        background: none;
+    }
 
     h5 {
         margin-bottom: 0;

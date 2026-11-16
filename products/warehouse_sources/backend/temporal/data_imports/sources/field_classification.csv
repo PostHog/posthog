@@ -167,6 +167,7 @@ Billit,,,,,,billit
 Billomat,billomat_id api_key registered_app,,,,,billomat
 BingAds,,bing_ads_integration_id,account_id,,,bing-ads
 BingWebmasterTools,api_key site_urls,,,,,bing-webmaster-tools
+Bird,api_key,,,,,bird
 Bitbucket,workspace auth_method,,,,,bitbucket
 Bitly,,,,,,bitly
 Bitrise,api_token,,,,,bitrise
@@ -181,6 +182,7 @@ Blueshift,api_key region,,,,,blueshift
 Bluesky,actor,,,,,bluesky
 Bluetally,api_key tenant_id,,,,,bluetally
 BolRetailer,client_id client_secret,,,,,bol-retailer
+BoldDesk,domain api_key,,,,,bolddesk
 BoldSign,api_key region,,,,,bold-sign
 Boulevard,,,,,,boulevard
 Box,,,,,,box
@@ -336,6 +338,7 @@ Curve,,,,,,curve
 Custom,manifest_json auth_token auth_api_key auth_password auth_oauth2_client_secret auth_oauth2_refresh_token auth_oauth2_integration_id,,,,,
 CustomerIO,app_api_key region,,,,,customer-io
 Customerly,access_token,,,,,customerly
+Cyberimpact,api_token,,,,,cyberimpact
 Cybersource,,,,,,cybersource
 D2lBrightspace,,,,,,d2l-brightspace
 DagsterCloud,organization deployment api_token,,,,,dagster-cloud
@@ -484,6 +487,7 @@ Freshdesk,subdomain api_key,,,,,freshdesk
 Freshsales,domain api_key,,,,,freshsales
 Freshservice,domain api_key,,,,,freshservice
 Frill,api_key,,,,,frill
+Frisbii,,,,,,frisbii
 Front,api_token,,,,,front
 Frontegg,client_id api_key region,,,,,frontegg
 Fulcrum,api_token,,,,,fulcrum
@@ -597,6 +601,7 @@ Height,api_key,,,,,height
 Helicone,api_key region,,,,,helicone
 Hellobaton,company api_key,,,,,hellobaton
 HelpScout,,helpscout_integration_id,,,,helpscout
+Helpin,api_token api_host,,,,,helpin
 Heroku,api_key,,,,,heroku
 Hetzner,api_token,,,,,hetzner
 Hex,api_key workspace_url,,,,,hex
@@ -709,6 +714,7 @@ Latitude,,,,,,latitude
 Lattice,region api_key,,,,,lattice
 LaunchDarkly,access_token,,,,,launch-darkly
 Lawmatics,,,,,,lawmatics
+LeadLander,,,,,,leadlander
 Leadfeeder,api_token,,,start_date,,leadfeeder
 Leantime,,,,,,leantime
 Learnworlds,,,,,,learnworlds
@@ -1296,7 +1302,7 @@ TwelveLabs,api_key,,,,,twelve-labs
 Twenty,api_key base_url,,,,,twenty
 Twilio,account_sid auth_method,,,,,twilio
 Twitch,,,,,,twitch
-Twitter,bearer_token username,,,,,twitter
+Twitter,bearer_token username,,,search_query,,twitter
 TwitterAds,,twitter_ads_integration_id,account_id,,,twitter-ads
 TwoC2p,,,,,,two-c2p
 TyntecSMS,api_key,,,request_ids,,tyntec-sms

@@ -26,6 +26,8 @@ from posthog.scopes import scopes_not_covered
 
 from products.feature_flags.backend.facade.api import existing_flag_ids
 from products.feature_flags.backend.facade.release_candidates import list_release_import_flags
+from products.product_analytics.backend.facade.api import existing_insight_ids, insight_summaries
+from products.surveys.backend.facade.api import existing_survey_ids
 from products.workflows.backend.facade.api import (
     get_recent_batch_jobs,
     get_workflow_summaries,
@@ -108,9 +110,47 @@ class ReleaseViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             ),
         )
 
-    def _can_read_workflows(self) -> bool:
+    def _survey_visibility(self, survey_ids: list[UUID]) -> contracts.SurveyVisibility:
+        existing = frozenset(existing_survey_ids(survey_ids, team_id=self.team_id)) if survey_ids else frozenset()
+        if not existing or not self._holds_scope("survey:read"):
+            return contracts.SurveyVisibility(existing=existing, visible=frozenset(), linkable=frozenset())
+        visible = frozenset(
+            existing_survey_ids(survey_ids, team_id=self.team_id, access_control=self.user_access_control)
+        )
+        return contracts.SurveyVisibility(existing=existing, visible=visible, linkable=visible)
+
+    def _insight_visibility(self, insight_ids: list[int]) -> contracts.InsightVisibility:
+        if not insight_ids:
+            return contracts.InsightVisibility(existing=frozenset(), visible=frozenset(), linkable=frozenset())
+        project_id = self.team.project_id
+        existing = frozenset(existing_insight_ids(insight_ids, project_id=project_id, include_deleted=True))
+        if not self._holds_scope("insight:read"):
+            return contracts.InsightVisibility(existing=existing, visible=frozenset(), linkable=frozenset())
+        access_control = self.user_access_control
+        summaries = insight_summaries(insight_ids, project_id=project_id, access_control=access_control)
+        return contracts.InsightVisibility(
+            existing=existing,
+            visible=frozenset(summary.id for summary in summaries),
+            linkable=frozenset(summary.id for summary in summaries if not summary.deleted),
+            summaries=tuple(
+                contracts.LinkedInsightDTO(
+                    id=summary.id,
+                    short_id=summary.short_id,
+                    name=summary.name,
+                    created_at=summary.created_at,
+                    last_modified_at=summary.last_modified_at,
+                    deleted=summary.deleted,
+                )
+                for summary in summaries
+            ),
+        )
+
+    def _holds_scope(self, scope: str) -> bool:
         held = get_authenticator_scopes(getattr(self.request, "successful_authenticator", None))
-        return held is None or "*" in held or not scopes_not_covered(held, ["hog_flow:read"])
+        return held is None or "*" in held or not scopes_not_covered(held, [scope])
+
+    def _can_read_workflows(self) -> bool:
+        return self._holds_scope("hog_flow:read")
 
     def _broadcast_summaries(
         self, shown: dict[str, UUID], names: dict[str, WorkflowSummary]
@@ -131,7 +171,12 @@ class ReleaseViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
     @property
     def _lookups(self) -> api.LinkLookups:
-        return api.LinkLookups(flags=self._flag_visibility, broadcasts=self._broadcast_visibility)
+        return api.LinkLookups(
+            flags=self._flag_visibility,
+            broadcasts=self._broadcast_visibility,
+            surveys=self._survey_visibility,
+            insights=self._insight_visibility,
+        )
 
     @extend_schema(responses={200: ReleaseSerializer(many=True)})
     def list(self, request: Request, **kwargs) -> Response:
@@ -159,6 +204,10 @@ class ReleaseViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             raise ValidationError(
                 {"broadcast_ids": f"These broadcasts do not exist in this project: {error.broadcast_ids}"}
             )
+        except api.UnknownSurveysError as error:
+            raise ValidationError({"survey_ids": f"These surveys do not exist in this project: {error.survey_ids}"})
+        except api.UnknownInsightsError as error:
+            raise ValidationError({"insight_ids": f"These insights do not exist in this project: {error.insight_ids}"})
         return Response(ReleaseSerializer(dto).data, status=status.HTTP_201_CREATED)
 
     @validated_request(
@@ -167,7 +216,7 @@ class ReleaseViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         include_serializer_context=True,
     )
     def partial_update(self, request: TypedRequest[dict[str, Any]], pk: UUID, **kwargs) -> Response:
-        """Change the name, description, owner or linked flags of a release."""
+        """Change the name, description, owner or linked flags, broadcasts, surveys and insights of a release."""
         try:
             dto = api.update(self.team_id, pk, request.validated_data, self._lookups)
         except api.ReleaseNotFoundError:
@@ -178,6 +227,10 @@ class ReleaseViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             raise ValidationError(
                 {"broadcast_ids": f"These broadcasts do not exist in this project: {error.broadcast_ids}"}
             )
+        except api.UnknownSurveysError as error:
+            raise ValidationError({"survey_ids": f"These surveys do not exist in this project: {error.survey_ids}"})
+        except api.UnknownInsightsError as error:
+            raise ValidationError({"insight_ids": f"These insights do not exist in this project: {error.insight_ids}"})
         return Response(ReleaseSerializer(dto).data)
 
     @validated_request(

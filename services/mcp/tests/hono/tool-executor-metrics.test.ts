@@ -127,37 +127,83 @@ describe('ToolExecutor metrics', () => {
         { tool: 'execute-sql', useSingleExec: false, type: 'validation' },
         { tool: 'execute-sql', useSingleExec: false, type: 'memory_limit' },
         { tool: 'execute-sql', useSingleExec: true, type: 'memory_limit' },
+        { tool: 'execute-sql', useSingleExec: false, type: 'internal', filtered: true },
+        { tool: 'execute-sql', useSingleExec: true, type: 'internal', filtered: true },
+        { tool: 'posthog-connection-call', useSingleExec: false, type: 'internal', filtered: true },
+        { tool: 'posthog-connection-call', useSingleExec: true, type: 'internal', filtered: true },
+        { tool: 'posthog-connection-call', useSingleExec: false, type: 'internal', filtered: true, nesting: 'payload' },
+        {
+            tool: 'posthog-connection-call',
+            useSingleExec: false,
+            type: 'internal',
+            filtered: true,
+            nesting: 'arguments',
+        },
         { tool: 'read-data-schema', useSingleExec: false, type: 'permission' },
         { tool: 'read-data-schema', useSingleExec: true, type: 'api_5xx' },
     ])(
         'classifies backend result errors without capturing caller content: %j',
-        async ({ tool, useSingleExec, type }) => {
+        async ({ tool, useSingleExec, type, filtered, nesting }) => {
             const captureException = vi.spyOn(getPostHogClient(), 'captureException').mockImplementation(() => {})
+            const capture = vi.spyOn(getPostHogClient(), 'capture').mockImplementation(() => {})
+            if (filtered && tool === 'execute-sql') {
+                const analytics = await vi.importActual<typeof import('@/hono/analytics')>('@/hono/analytics')
+                vi.mocked(trackExecuteSqlGeneration).mockImplementationOnce(analytics.trackExecuteSqlGeneration)
+            }
             const tools = catalog
                 .getPreBuiltEntries()
                 .map((entry) => toolFromPreBuilt(catalog.getToolByName(entry.name)!, entry))
             const state = makeToolExecutorState(tools, { useSingleExec, suppressAnalytics: false })
             state.context.api = new ApiClient({ apiToken: 'phx_test', baseUrl: 'https://us.posthog.com' })
             state.context.stateManager.getProjectId = vi.fn().mockResolvedValue(2)
-            const content = 'Tool failed: private caller query. You may retry with adjusted inputs.'
+            const content = filtered
+                ? 'Tool failed: invalid input syntax for type integer: "private-filter@example.com"'
+                : 'Tool failed: private caller query. You may retry with adjusted inputs.'
             vi.stubGlobal(
                 'fetch',
-                vi.fn().mockResolvedValue(
-                    new Response(
-                        JSON.stringify({
-                            success: false,
-                            content,
-                            error_type: type,
-                            error_code: type === 'validation' ? 'unknown_identifier' : undefined,
-                        })
+                vi.fn(async (url) => {
+                    if (String(url).endsWith('/target/')) {
+                        return new Response(
+                            JSON.stringify({
+                                project_id: 3,
+                                project_name: 'Connected project',
+                                organization_id: 'example-org',
+                                organization_name: 'Example organization',
+                                region: 'US',
+                                base_url: 'https://us.posthog.com',
+                            })
+                        )
+                    }
+                    const data = {
+                        success: false,
+                        content,
+                        error_type: type,
+                        error_code: type === 'validation' ? 'unknown_identifier' : undefined,
+                    }
+                    return new Response(
+                        JSON.stringify(tool === 'posthog-connection-call' ? { status: 200, data } : data)
                     )
-                )
+                })
             )
-            const args = { query: tool === 'execute-sql' ? 'SELECT 1' : { kind: 'events' } }
+            const args = {
+                query: filtered || tool === 'execute-sql' ? 'SELECT 1' : { kind: 'events' },
+                ...(filtered
+                    ? {
+                          connectionId: 'example-connection',
+                          filters: {
+                              properties: [{ key: 'email', type: 'event', value: ['private-filter@example.com'] }],
+                          },
+                      }
+                    : {}),
+            }
+            const callArgs =
+                tool === 'posthog-connection-call'
+                    ? { connection_id: '99', tool: 'execute-sql', arguments: nesting ? { [nesting]: args } : args }
+                    : args
             const result = await executor.handleToolCall(
                 useSingleExec
-                    ? { name: 'exec', arguments: { command: `call ${tool} ${JSON.stringify(args)}` } }
-                    : { name: tool, arguments: args },
+                    ? { name: 'exec', arguments: { command: `call ${tool} ${JSON.stringify(callArgs)}` } }
+                    : { name: tool, arguments: callArgs },
                 state
             )
 
@@ -167,6 +213,10 @@ describe('ToolExecutor metrics', () => {
             })
             expect(mockToolErrorsInc).toHaveBeenCalledWith({ tool, error_type: type })
             expect(captureException).toHaveBeenCalledTimes(['validation', 'permission'].includes(type) ? 0 : 1)
+            if (filtered) {
+                expect(captureException.mock.calls[0]?.[2]).toMatchObject({ suppress_analytics: true })
+            }
+            expect(capture).not.toHaveBeenCalled()
             const properties = trackToolCallExtras(tool)
             expect(properties).toMatchObject({ $mcp_error_type: type, $mcp_error_message: `Tool failed: ${type}` })
             if (type === 'validation') {
