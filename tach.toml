@@ -124,6 +124,7 @@ depends_on = [
     "ee",
     "products.access_control",
     "products.aeo",
+    "products.ai_gateway",
     "products.analytics_platform",
     "products.approvals",
     "products.authorization",
