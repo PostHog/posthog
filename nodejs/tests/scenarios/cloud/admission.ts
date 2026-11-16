@@ -2,7 +2,11 @@ import { durationMs } from '../duration'
 import { Aws } from './aws'
 import { CAP_USD, CloudProfile, TTL_HOURS } from './profile'
 
-export type Origin = { head(): string; onMaster(commit: string): Promise<boolean> }
+export type Origin = {
+    head(): string
+    onMaster(commit: string): Promise<boolean>
+    cardAt(commit: string, id: string): string
+}
 
 export type Controller = {
     aws: Aws
