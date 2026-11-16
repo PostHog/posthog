@@ -13,13 +13,14 @@ import {
 import type { PostHog } from 'posthog-js/dist/module'
 
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { asToolbarProject, ToolbarProject } from 'lib/toolbar/toolbarProject'
+import { registerToolbarRuntime } from 'lib/toolbar/toolbarRuntime'
 
 import { toolbarLogger } from '~/toolbar/shared/toolbarLogger'
 import { captureToolbarException, toolbarPosthogJS } from '~/toolbar/shared/toolbarPosthogJS'
 import { TOOLBAR_USER_INTENTS, ToolbarProps, ToolbarUserIntent } from '~/types'
 
 import type { ExperimentIdType } from '../../types'
-import { asToolbarProject, ToolbarProject } from './toolbarProject'
 import {
     asNonEmptyString,
     cleanToolbarAuthHash,
@@ -494,6 +495,13 @@ export const toolbarConfigLogic = kea<toolbarConfigLogicType>([
     })),
 
     afterMount(({ props, values, actions, cache }) => {
+        cache.unregisterRuntime = registerToolbarRuntime({
+            uiHost: () => values.uiHost,
+            posthog: () => values.posthog,
+            isAuthenticated: () => values.isAuthenticated,
+            authenticate: () => actions.authenticate(),
+            project: () => values.project,
+        })
         if (!values.ownsPageSession) {
             return
         }
@@ -540,6 +548,7 @@ export const toolbarConfigLogic = kea<toolbarConfigLogicType>([
     }),
 
     beforeUnmount(({ values, cache }) => {
+        cache.unregisterRuntime?.()
         if (cache.hashRetryTimeout !== undefined) {
             clearTimeout(cache.hashRetryTimeout)
         }

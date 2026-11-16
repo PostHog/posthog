@@ -41,7 +41,7 @@ from django.db.models.fields.json import KeyTransform
 from django.db.models.functions import Cast, Concat
 
 from posthog.dataclasses import frozen
-from posthog.scopes import APIScopeObject
+from posthog.scopes.catalog import APIScopeObject
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.dashboards.backend.facade import api as dashboards_api
