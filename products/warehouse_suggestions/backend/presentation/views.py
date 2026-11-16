@@ -93,7 +93,7 @@ def _surface(request: ValidatedRequest) -> WarehouseSuggestionSurface | None:
 
 
 def _bulk(request: ValidatedRequest) -> bool:
-    return bool(request.validated_query_data.get("bulk"))
+    return request.validated_query_data.get("bulk") is True
 
 
 def _surface_from(data: dict[str, Any]) -> WarehouseSuggestionSurface | None:
