@@ -27,7 +27,11 @@ from products.signals.backend.spend_billing import system_source_exempt
 from products.signals.backend.system_one_decision import SAFETY_CATEGORIES, ModelMode, model_mode, run_model_decision
 from products.signals.backend.system_one_prompts import SystemOnePrompt, bundled_prompt, current_prompt
 from products.signals.backend.temporal import metrics
-from products.signals.backend.temporal.llm import SAFETY_MODEL, EmptyLLMResponseError, call_llm
+from products.signals.backend.temporal.llm import SAFETY_FALLBACK_MODEL, SAFETY_MODEL, EmptyLLMResponseError, call_llm
+from products.signals.backend.temporal.refusal_review import (
+    SAFETY_FILTER_EMPTY_RESPONSE_REASON,
+    preserve_signal_for_review,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -38,6 +42,9 @@ class SafetyFilterJudgeResponse(BaseModel):
     )
     threat_type: str = Field(default="", description="Classification of the exact threat")
     explanation: str = Field(default="", description="Explanation of the decision (required if the choice is False)")
+    held_for_review: bool = Field(
+        default=False, description="True if the signal was held for review due to repeated empty LLM responses"
+    )
 
     @model_validator(mode="after")
     def explanation_required_when_unsafe(self) -> "SafetyFilterJudgeResponse":
@@ -160,6 +167,24 @@ def _safe_verdict_cache_key(team_id: int, mode: ModelMode, signal_prompt: str, p
     return f"signals:safety:safe:v1:{team_id}:{hashlib.sha256(payload.encode()).hexdigest()}"
 
 
+async def mark_signal_safe_in_cache(
+    team_id: int,
+    description: str,
+    source_product: str | None = None,
+    source_type: str | None = None,
+) -> None:
+    """Pre-populate the safe verdict cache so a confirmed benign signal bypasses the safety filter."""
+    signal_prompt = _build_safety_user_prompt(description, source_product, source_type)
+    system_one_prompt = current_prompt(SIGNAL_SAFETY_SYSTEM_ONE_PROMPT)
+    mode = await model_mode(team_id)
+    cache_key = _safe_verdict_cache_key(team_id, mode, signal_prompt, system_one_prompt)
+    try:
+        await get_async_client().setex(cache_key, SAFETY_CACHE_TTL_SECONDS, b"1")
+    except (RedisError, ImproperlyConfigured) as error:
+        metrics.increment_safety_cache_write_error()
+        logger.warning("Safety verdict cache write failed during re-ingestion", error_type=type(error).__name__)
+
+
 @dataclass(frozen=False)
 class SafetyFilterInput:
     description: str
@@ -182,6 +207,7 @@ class SafetyFilterOutput:
     safe: bool
     threat_type: str
     explanation: Optional[str]
+    held_for_review: bool = False
 
 
 async def safety_filter(
@@ -218,6 +244,18 @@ async def safety_filter(
             metrics.increment_safety_cache_lookup("miss")
 
     async def sonnet_verdict(trace_id: str | None) -> SafetyFilterJudgeResponse:
+        call_properties = {
+            key: value
+            for key, value in {
+                "signals_decision_id": trace_id,
+                "source_id": source_id,
+                "source_product": source_product,
+                "$ai_prompt_name": system_one_prompt.name,
+                "$ai_prompt_version": str(system_one_prompt.version) if system_one_prompt.version else None,
+                "system_one_prompt_source": system_one_prompt.source,
+            }.items()
+            if value is not None
+        }
         try:
             return await call_llm(
                 team_id=team_id,
@@ -230,25 +268,56 @@ async def safety_filter(
                 model=SAFETY_MODEL,
                 cache_system_prompt=True,
                 trace_id=trace_id,
-                properties={
-                    key: value
-                    for key, value in {
-                        "signals_decision_id": trace_id,
-                        "source_id": source_id,
-                        "source_product": source_product,
-                        "$ai_prompt_name": system_one_prompt.name,
-                        "$ai_prompt_version": str(system_one_prompt.version) if system_one_prompt.version else None,
-                        "system_one_prompt_source": system_one_prompt.source,
-                    }.items()
-                    if value is not None
-                },
+                properties=call_properties,
             )
         except EmptyLLMResponseError:
-            return SafetyFilterJudgeResponse(
-                safe=False,
-                threat_type="provider_safety_filter",
-                explanation="LLM returned empty response, potentially due to triggering a safety filter.",
+            logger.info(
+                "Safety model returned empty response, attempting retry on fallback model",
+                primary_model=SAFETY_MODEL,
+                fallback_model=SAFETY_FALLBACK_MODEL,
+                signal_id=signal_id,
+                team_id=team_id,
             )
+            try:
+                retry_verdict = await call_llm(
+                    team_id=team_id,
+                    signal_id=signal_id,
+                    system_prompt=system_one_prompt.policy,
+                    user_prompt=signal_prompt,
+                    validate=validate,
+                    stage="safety_filter",
+                    ai_product="signals_safety",
+                    model=SAFETY_FALLBACK_MODEL,
+                    cache_system_prompt=True,
+                    trace_id=trace_id,
+                    properties={
+                        **call_properties,
+                        "safety_retry_model": SAFETY_FALLBACK_MODEL,
+                    },
+                )
+                logger.info(
+                    "Safety filter fallback model retry succeeded",
+                    safe=retry_verdict.safe,
+                    threat_type=retry_verdict.threat_type,
+                    fallback_model=SAFETY_FALLBACK_MODEL,
+                    signal_id=signal_id,
+                    team_id=team_id,
+                )
+                return retry_verdict
+            except EmptyLLMResponseError:
+                logger.warning(
+                    "Safety filter fallback model also returned empty response; holding signal for review",
+                    primary_model=SAFETY_MODEL,
+                    fallback_model=SAFETY_FALLBACK_MODEL,
+                    signal_id=signal_id,
+                    team_id=team_id,
+                )
+                return SafetyFilterJudgeResponse(
+                    safe=False,
+                    threat_type=SAFETY_FILTER_EMPTY_RESPONSE_REASON,
+                    explanation="Safety model and fallback model both returned empty responses; held for review.",
+                    held_for_review=True,
+                )
 
     deciding_provider = None
 
@@ -314,6 +383,7 @@ async def _capture_signal_blocked_event(input: SafetyFilterInput, result: Safety
                     "safe": False,
                     "threat_type": result.threat_type,
                     "explanation": result.explanation,
+                    "held_for_review": result.held_for_review,
                 },
             },
             groups=team_groups,
@@ -328,6 +398,7 @@ async def _capture_signal_blocked_event(input: SafetyFilterInput, result: Safety
                 **_telemetry_props_from_extra(input.extra),
                 "threat_type": result.threat_type,
                 "explanation": result.explanation,
+                "held_for_review": result.held_for_review,
                 "source_product": input.source_product,
                 "source_type": input.source_type,
                 "source_id": input.source_id,
@@ -364,12 +435,20 @@ async def safety_filter_activity(input: SafetyFilterInput) -> SafetyFilterOutput
         raise
 
     if not result.safe:
-        if input.signal_id and input.team_id is not None:
-            await database_sync_to_async(complete_signal_pipeline)(
-                team_id=input.team_id,
-                signal_id=input.signal_id,
-                billing_exempt=system_source_exempt(input.source_product),
+        if result.held_for_review:
+            await preserve_signal_for_review(
+                input,
+                reason=result.threat_type or SAFETY_FILTER_EMPTY_RESPONSE_REASON,
+                attempts=2,
+                status="needs_review",
             )
+        else:
+            if input.signal_id and input.team_id is not None:
+                await database_sync_to_async(complete_signal_pipeline)(
+                    team_id=input.team_id,
+                    signal_id=input.signal_id,
+                    billing_exempt=system_source_exempt(input.source_product),
+                )
         metrics.increment_safety_blocked(input.source_product or "unknown")
         await _capture_signal_blocked_event(input, result)
 
@@ -377,4 +456,5 @@ async def safety_filter_activity(input: SafetyFilterInput) -> SafetyFilterOutput
         safe=result.safe,
         threat_type=result.threat_type,
         explanation=result.explanation if not result.safe else None,
+        held_for_review=result.held_for_review,
     )
