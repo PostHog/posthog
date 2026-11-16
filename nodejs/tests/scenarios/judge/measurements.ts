@@ -239,6 +239,8 @@ const ENVELOPE_MS = 10 * 60_000
 const DRAINED_FOR_MS = 60_000
 const QUEUE_GAP_MS = 15_000
 
+export const SCRAPE_GAP_MS = 15_000
+
 function readThroughout(queue: readonly QueueSample[], phase: Phase): boolean {
     const edges = [
         phase.from,
@@ -372,8 +374,9 @@ function stepClaimRate(samples: readonly MetricSample[], queue: string, step: Ph
     )) {
         const window = inside(ofReplica, step)
         const span = spanOf(window)
+        const edges = [step.from, ...window.map(({ at }) => at), step.to]
+        incomplete ||= span <= 0 || edges.some((at, i) => i > 0 && at - edges[i - 1] > SCRAPE_GAP_MS)
         if (span <= 0) {
-            incomplete = true
             continue
         }
         value += increaseOf(window, ({ processed }) => processed[queue] ?? 0, window[0].at) / seconds(span)

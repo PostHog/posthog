@@ -423,7 +423,7 @@ The first step where a bar fails is the bar's breaking point, and the run fails.
 A ramped card is admitted on its first step, at the profile's own rates.
 When the profile sets `host.cpuCeiling`, each step is also checked against it before its bars are read.
 A step whose run host was busy at or over the ceiling is not judged, and neither is any later step, because a saturated run host starves the roles it runs.
-A step with no host CPU sample to cover it is not judged either.
+A step with fewer than two host CPU samples inside it is not judged either, and each step reads only the samples inside it.
 A breaking point from an earlier step still stands.
 
 ```yaml
@@ -733,7 +733,7 @@ export type InvariantResult = {
   - `role_cpu_seconds`, per role, seconds, lower is better: the sum of `process_cpu_seconds_total` increases, per process lifetime, so a killed role's restart does not reset it.
   - `role_rss_max_bytes`, per role, bytes, lower is better: the maximum of `process_resident_memory_bytes`.
   - `delivery_latency_ms`, `p50`, `p95` and `max`, milliseconds, lower is better: from the unit's offer to the edge's first 2xx record for each delivery.
-  - `step_claims_per_second`, per queue and ramp step, jobs per second: the claim rate from `cdp_cyclotron_jobs_processed` in each step, keyed `<queue>_<scale>x`, such as `hogflow_10x`. Read it against the step's offered rate to see whether the workers kept up.
+  - `step_claims_per_second`, per queue and ramp step, jobs per second: the claim rate from `cdp_cyclotron_jobs_processed` in each step, keyed `<queue>_<scale>x`, such as `hogflow_10x`, from the samples inside the step, and incomplete when a replica has a scrape gap in it. Read it against the step's offered rate to see whether the workers kept up.
 
 ### Cyclotron probe
 

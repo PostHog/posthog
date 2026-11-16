@@ -253,11 +253,11 @@ describe('judgeBars', () => {
             [broke(0, 10, 60, 85), HELD[1]],
         ],
         [
-            'no host CPU sample covers a step while the profile sets a CPU ceiling',
+            'fewer than two host CPU samples fall in a step while the profile sets a CPU ceiling',
             { hostCpuCeiling: 0.9 },
             [
-                unjudged(0, 'no host CPU sample covers the 1x step'),
-                unjudged(1, 'no host CPU sample covers the 1x step'),
+                unjudged(0, 'fewer than two host CPU samples in the 1x step'),
+                unjudged(1, 'fewer than two host CPU samples in the 1x step'),
             ],
         ],
         [

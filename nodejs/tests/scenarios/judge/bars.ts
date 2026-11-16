@@ -3,7 +3,13 @@ import { z } from 'zod'
 import type { CdpRole, Named, Step } from '../cards'
 import type { Definition } from '../cards/definitions'
 import type { JournalEntry } from './judge'
-import { type DriveWindow, type HostSample, type MetricSample, stepHostBusyShareOf } from './measurements'
+import {
+    type DriveWindow,
+    type HostSample,
+    type MetricSample,
+    SCRAPE_GAP_MS,
+    stepHostBusyShareOf,
+} from './measurements'
 
 export type CpuPoint = { at: number; percent: number }
 
@@ -38,7 +44,6 @@ type BarDefinition = Definition & {
 
 const P99 = 0.99
 const MINUTE_MS = 60_000
-const SCRAPE_GAP_MS = 15_000
 
 const WriterCpuParams = z.object({ percent: z.number().positive().max(100) }).strict()
 const Queue = z.enum(['hogflow', 'email'])
@@ -188,7 +193,7 @@ function hostOverCeiling({ host, hostCpuCeiling }: BarEvidence, window: Window, 
     }
     const share = stepHostBusyShareOf(host, window)
     if (share === undefined) {
-        return `no host CPU sample covers the ${scale}x step`
+        return `fewer than two host CPU samples in the ${scale}x step`
     }
     return share >= hostCpuCeiling
         ? `the run host was ${percent(share)} busy in the ${scale}x step, at or over the ${percent(hostCpuCeiling)} ceiling`
