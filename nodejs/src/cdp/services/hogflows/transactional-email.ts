@@ -202,11 +202,13 @@ export const AcceptedSendSchema = z
             .optional(),
         headers: z
             .object({
-                // Printable ASCII without spaces or angle brackets inside, so one URL fits in one SES header value.
+                // One https URL with a host, in printable ASCII without spaces or angle brackets, within SES's header limit.
                 'List-Unsubscribe': z
                     .string()
                     .max(870)
-                    .regex(/^<https:\/\/[!-;=?-~]+>$/, { message: 'List-Unsubscribe needs one <https://...> URL' }),
+                    .regex(/^<https:\/\/[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*(?::\d+)?(?:[/?#][!-;=?-~]*)?>$/, {
+                        message: 'List-Unsubscribe needs one <https://...> URL',
+                    }),
                 'List-Unsubscribe-Post': z.literal('List-Unsubscribe=One-Click').optional(),
             })
             .strict()
