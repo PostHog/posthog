@@ -82,9 +82,9 @@ class TestEvalSuggestionReviewTool(BaseTest):
                 kind=EvalSuggestionKind.NEW_HOG,
                 dedupe_key=key,
                 headline=headline,
-                outcome="Outcome",
-                reason="Reason",
-                evidence=[{"trace_id": "trace-1", "reason": "Example reason"}],
+                outcome=f"Checks the {key} rule.",
+                reason=f"Measured the {key} rule.",
+                evidence=[{"trace_id": "trace/1?step=2#end", "reason": "Example reason"}],
                 review_verdict=verdict,
             )
             for key, headline, verdict in (
@@ -100,6 +100,8 @@ class TestEvalSuggestionReviewTool(BaseTest):
         assert response.status_code == 200
         content = response.content.decode()
         assert "Card waiting for a label" in content
+        assert "Checks the check:b rule." in content and "Measured the check:b rule." in content
+        assert "/ai-observability/traces/trace%2F1%3Fstep%3D2%23end" in content
         assert ("Already labeled card" in content) is shows_labeled
 
     @parameterized.expand([("known_card", True, 302), ("unknown_card", False, 404)])
@@ -128,3 +130,4 @@ class TestEvalSuggestionReviewTool(BaseTest):
         content = response.content.decode()
         assert re.search(r'<option value="bad"\s+selected>', content)
         assert "Examples are summaries" in content
+        assert "Checks the check:a rule." in content and "Measured the check:a rule." in content

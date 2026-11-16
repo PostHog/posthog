@@ -1,6 +1,6 @@
 from datetime import timedelta
 from typing import cast
-from urllib.parse import urlencode
+from urllib.parse import quote, urlencode
 
 from django import forms
 from django.conf import settings
@@ -28,11 +28,12 @@ from posthog.models.user import User
 
 from products.ai_observability.backend.facade.admin import (
     EvalSuggestionReviewVerdict,
+    LabelTarget,
     ReviewCard,
     UsageReportRefused,
-    current_label,
     dataset_retention_enabled,
     label_card,
+    label_target,
     load_review_cards,
     queue_usage_report,
     set_dataset_retention_enabled,
@@ -211,7 +212,7 @@ def _examples(card: ReviewCard) -> Cell:
     count = len(card.examples)
     return Cell(
         text=f"{count} trace{'s' if count != 1 else ''}",
-        href=f"{settings.SITE_URL}/project/{card.team_id}/ai-observability/traces/{first.trace_id}",
+        href=f"{settings.SITE_URL}/project/{card.team_id}/ai-observability/traces/{quote(first.trace_id, safe='')}",
         detail=_short(first.reason),
     )
 
@@ -235,6 +236,7 @@ def _review_row(card: ReviewCard) -> Row:
         cells=(
             Cell(text=str(card.team_id), mono=True, detail=f"{completed}, {card.trigger}"),
             Cell(text=card.headline, detail=f"{card.dedupe_key} · {card.status}"),
+            Cell(text=f"{card.outcome}\n{card.reason}"),
             _measured(card),
             _runs(card),
             _examples(card),
@@ -243,15 +245,17 @@ def _review_row(card: ReviewCard) -> Row:
     )
 
 
-def _label_initial(request: HttpRequest) -> dict[str, object]:
-    """The card's current label, so submitting the form unchanged keeps it."""
+def _label_form(request: HttpRequest) -> tuple[dict[str, object], LabelTarget | None]:
+    """The form's initial values and the card the link points at. The card's current label fills the form, so
+    submitting it unchanged keeps the label."""
     initial: dict[str, object] = {"team": request.GET.get("team", ""), "suggestion": request.GET.get("suggestion", "")}
     form = LabelSuggestionForm({**initial, "verdict": EvalSuggestionReviewVerdict.GOOD})
-    if form.is_valid():
-        label = current_label(form.cleaned_data["team"], form.cleaned_data["suggestion"])
-        if label is not None and label.verdict is not None:
-            initial.update(verdict=label.verdict, note=label.note)
-    return initial
+    if not form.is_valid():
+        return initial, None
+    target = label_target(form.cleaned_data["team"], form.cleaned_data["suggestion"])
+    if target is not None and target.verdict is not None:
+        initial.update(verdict=target.verdict, note=target.note)
+    return initial, target
 
 
 @console.register_tool
@@ -290,7 +294,15 @@ class EvalSuggestionReviewTool(ConsoleTool):
                     )
                 ),
                 Table(
-                    columns=("Team", "Card", "Failure rate", "Runs a week", "Examples", "Label"),
+                    columns=(
+                        "Team",
+                        "Card",
+                        "What it checks, and why",
+                        "Failure rate",
+                        "Runs a week",
+                        "Examples",
+                        "Label",
+                    ),
                     rows=tuple(_review_row(card) for card in cards),
                     empty_text="No cards match these filters.",
                     scrolls=True,
@@ -299,13 +311,15 @@ class EvalSuggestionReviewTool(ConsoleTool):
         )
 
     def operations(self, request: HttpRequest) -> list[ToolOperation]:
+        initial, target = _label_form(request)
+        card = f"{target.headline}: {target.outcome} {target.reason} " if target is not None else ""
         return [
             ToolOperation(
                 key="label",
                 label="Label a suggestion",
                 handler=label_suggestion,
                 form_class=LabelSuggestionForm,
-                form_initial=_label_initial(request),
-                description="Saves a staff label on one card. The customer sees nothing.",
+                form_initial=initial,
+                description=f"{card}Saves a staff label on one card. The customer sees nothing.",
             )
         ]
