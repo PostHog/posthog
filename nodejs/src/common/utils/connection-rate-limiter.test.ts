@@ -37,7 +37,6 @@ describe('ConnectionRateLimiter', () => {
     })
 
     it('lets every connection through when Redis does not answer', async () => {
-        // The error a real pool throws when it cannot hand out a client before the deadline.
         const unreachable = {
             usePipeline: () => Promise.reject(new Error('Redis pool redis: acquisition passed its deadline')),
         } as unknown as RedisV2

@@ -363,7 +363,6 @@ async function staticLookupAsync(hostname: string): Promise<LookupAddress[]> {
 
 let connectionRateLimiter: ConnectionRateLimiter | null = null
 
-/** Turns on the new connection limit when it is configured. Its budget lives in this Redis, shared by every pod. */
 export function limitNewConnectionsWith(redis: RedisV2 | null, redisDeadlineMs?: number): void {
     const perSecond = requestConfig.EXTERNAL_REQUEST_NEW_CONNECTIONS_PER_IP_PER_SECOND
     connectionRateLimiter =
@@ -382,11 +381,9 @@ const connectionRateLimitedCounter = new Counter({
     labelNames: ['enforced'],
 })
 
-// One line per address and minute names the addresses over the limit without flooding the logs.
 const connectionRateLimitLogged = new LRUCache<string, true>({ max: 1_000, ttl: 60_000 })
 
-// The IPv4 address that the NAT gateway translates for this answer. An IPv4-mapped IPv6 address opens an IPv4
-// connection, so it counts as its IPv4 address. A native IPv6 address does not go through the gateway and returns null.
+// Native IPv6 skips the NAT gateway and returns null. IPv4-mapped IPv6 opens an IPv4 connection, so it counts as IPv4.
 function natAddress({ address, family }: LookupAddress): string | null {
     if (family === 4) {
         return address
@@ -398,9 +395,8 @@ function natAddress({ address, family }: LookupAddress): string | null {
     return parsed.isIPv4MappedAddress() ? parsed.toIPv4Address().toString() : null
 }
 
-// A new connection resolves its hostname once and a kept-alive request resolves nothing, so this sees each new
-// connection once. The socket may try every address it gets, so each IPv4 address takes a token. When the limit is
-// enforced, an address with no token left is removed. In count-only mode every address stays.
+// Only a new connection resolves its hostname, so kept-alive requests never take a token. The socket may dial every
+// address it gets, so each IPv4 address takes one.
 async function admitNewConnection(hostname: string, addresses: LookupAddress[]): Promise<LookupAddress[]> {
     if (!connectionRateLimiter) {
         return addresses

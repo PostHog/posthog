@@ -14,11 +14,8 @@ const unavailableCounter = new Counter({
     help: 'New connections let through without a limit check because Redis did not answer in time',
 })
 
-/**
- * Limits how fast the fleet opens new connections to each destination IP. Behind a NAT gateway each one holds one of
- * about 55,000 ports per destination for a while after it closes. The budget lives in Redis because a per-pod budget
- * grows with the pod count and the NAT's ports do not.
- */
+// Each new connection holds one of ~55,000 NAT ports per destination IP for a while after it closes. The budget lives
+// in Redis because a per-pod budget grows with the pod count and the NAT's ports do not.
 export class ConnectionRateLimiter {
     constructor(
         private readonly redis: RedisV2,

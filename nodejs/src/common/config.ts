@@ -242,12 +242,10 @@ export type CommonConfig = BaseServerConfig & {
     // Takes the buildIntegerMatcherWithPercentage syntax: '2' for team 2 only, '2,*:0.1' for team 2 plus a tenth of
     // everyone else's requests, '*' for all.
     EXTERNAL_REQUEST_PROXY_TEAMS: string
-    // The rate of new third-party connections each pod may open to one destination IP address. 0 turns the limit off.
-    // See ConnectionRateLimiter.
+    // New third-party connections per second, per team and destination IP, across the fleet. 0 turns the limit off.
     EXTERNAL_REQUEST_NEW_CONNECTIONS_PER_IP_PER_SECOND: number
     EXTERNAL_REQUEST_NEW_CONNECTIONS_PER_IP_BURST: number
-    // When false, a connection over the limit opens anyway and only the metric counts it, so the limit can be sized from
-    // real traffic before it rejects anything.
+    // When false, a connection over the limit opens anyway and only the metric counts it, to size the limit first.
     EXTERNAL_REQUEST_NEW_CONNECTIONS_PER_IP_ENFORCED: boolean
 
     // PostHog analytics
