@@ -42,13 +42,13 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.clickhouse
     get_primary_keys_for_schemas,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.clickhouse.source import (
+    _CLOUDFLARE_TUNNEL_DOWN,
     _EGRESS_DENIED_PRIVATE_HOST,
     _REDIRECTED,
     _TEMPORARILY_UNAVAILABLE,
     GENERIC_CONNECTION_ERROR,
     ClickHouseSource,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.predicates import (
     ColumnTypeCategory,
@@ -475,12 +475,28 @@ class TestClickHouseSourceRetryableErrors:
         retryable = source.get_retryable_errors()
         assert not any(pattern in error_msg for pattern in retryable)
 
-    def test_bare_gateway_status_is_classified_as_retryable(self, source):
-        # A bare HTTP 500 (no X-ClickHouse-Exception-Code header) means a proxy/load balancer in
-        # front of ClickHouse failed, not ClickHouse itself — the same transient shape as the
-        # already-retryable 502/503/504. Without this, a transient gateway blip would be reported
-        # as tracked exception noise on every occurrence instead of silently retried.
-        error_msg = "HTTP driver received HTTP status 500, server response: An unexpected error occurred: EOF (for url https://host:8443)"
+    @pytest.mark.parametrize(
+        ("_name", "error_msg"),
+        [
+            (
+                # A bare HTTP 500 (no X-ClickHouse-Exception-Code header) means a proxy/load
+                # balancer in front of ClickHouse failed, not ClickHouse itself — the same
+                # transient shape as the already-retryable 502/503/504.
+                "bare_500",
+                "HTTP driver received HTTP status 500, server response: An unexpected error occurred: EOF (for url https://host:8443)",
+            ),
+            (
+                # Cloudflare's own "Argo Tunnel error" diagnostic (HTTP 530, error code 1033):
+                # the Cloudflare Tunnel in front of the host lost its connection to the origin.
+                # cloudflared reconnects on its own, so this gets the same transient treatment.
+                "cloudflare_tunnel_down",
+                "HTTP driver received HTTP status 530, server response: error code: 1033 (for url https://host:8443)",
+            ),
+        ],
+    )
+    def test_bare_gateway_status_is_classified_as_retryable(self, source, _name, error_msg):
+        # Without the matching entry, a transient gateway blip would be reported as tracked
+        # exception noise on every occurrence instead of silently retried.
         retryable = source.get_retryable_errors()
         assert any(pattern in error_msg for pattern in retryable)
 
@@ -493,29 +509,6 @@ class TestClickHouseSourceRetryableErrors:
         error_msg = "Invalid flatbuffers message."
         retryable = source.get_retryable_errors()
         assert any(pattern in error_msg for pattern in retryable)
-
-
-class TestClickHouseSourceNonRetryableErrors:
-    @pytest.fixture
-    def source(self):
-        return ClickHouseSource()
-
-    def test_cloudflare_tunnel_down_is_non_retryable(self, source):
-        # A ClickHouse host proxied through a Cloudflare Tunnel whose tunnel has dropped answers
-        # with a Cloudflare error page, not a ClickHouse one — clickhouse-connect surfaces it as a
-        # bare HTTP 530 carrying Cloudflare's own "error code: 1033". Without this entry, the sync
-        # retries to Temporal's full budget and reports every attempt as tracked exception noise
-        # instead of failing fast with guidance the customer can act on.
-        error_msg = (
-            "HTTP driver received HTTP status 530, server response: error code: 1033 (for url https://example.com:443)"
-        )
-        assert error_message_matches(error_msg, source.get_non_retryable_errors())
-
-    def test_cloudflare_tunnel_down_is_not_classified_as_retryable(self, source):
-        error_msg = (
-            "HTTP driver received HTTP status 530, server response: error code: 1033 (for url https://example.com:443)"
-        )
-        assert not error_message_matches(error_msg, source.get_retryable_errors())
 
 
 class TestGetClientTransientRetry:
@@ -659,6 +652,12 @@ class TestTranslateError:
         # ClickHouse is briefly down, not that the connection details are wrong.
         msg = f"HTTP driver received HTTP status {code} (for url https://host:8443)"
         assert ClickHouseSource._translate_error(msg) == _TEMPORARILY_UNAVAILABLE
+
+    def test_cloudflare_tunnel_error_names_the_tunnel(self):
+        # Cloudflare's own "error code: 1033" (Argo Tunnel error), not a ClickHouse one — the
+        # generic gateway copy above would send the customer to check the wrong thing.
+        msg = "HTTP driver received HTTP status 530, server response: error code: 1033 (for url https://host:8443)"
+        assert ClickHouseSource._translate_error(msg) == _CLOUDFLARE_TUNNEL_DOWN
 
     @pytest.mark.parametrize(
         "msg",

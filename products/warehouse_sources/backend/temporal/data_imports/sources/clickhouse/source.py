@@ -99,7 +99,9 @@ _INVALID_CREDENTIALS = (
 # in the body, when a host is proxied through a Cloudflare Tunnel (cloudflared) and the tunnel has
 # no live connection to the origin. Error 1033 is Cloudflare's own code for that case, not a
 # ClickHouse one (ClickHouse's own codes top out around 1002, reserved for wrapped external
-# exceptions). Cloudflare is answering on the origin's behalf because it can't reach it at all.
+# exceptions). cloudflared drops and re-establishes its edge connections routinely (a deploy, a
+# network blip, an edge rebalance), so this is read the same as the bare 5xx gateway responses
+# below rather than assumed permanent — see get_retryable_errors.
 _CLOUDFLARE_TUNNEL_DOWN = (
     "We reached a Cloudflare-proxied address for your ClickHouse host, but Cloudflare couldn't reach the origin "
     "— its Tunnel (cloudflared) has no active connection. Check that the Cloudflare Tunnel on your ClickHouse "
@@ -500,10 +502,6 @@ class ClickHouseSource(SimpleSource[ClickHouseSourceConfig], SSHTunnelMixin, Val
             # identical failure. We match the stable Arrow-conversion phrase, not the
             # volatile column name or type in the message.
             "is not supported for conversion into Arrow data format": "One of the columns in this table has a type ClickHouse can't export (for example an `AggregateFunction` state column on an aggregating materialized view). Deselect that column in this schema's column settings, or sync a view that finalizes it, then resync.",
-            # See _CLOUDFLARE_TUNNEL_DOWN above — Cloudflare's own "Argo Tunnel error" diagnostic,
-            # not a ClickHouse one. The tunnel stays down until the customer restarts it, so
-            # retrying just replays the identical failure.
-            "error code: 1033": _CLOUDFLARE_TUNNEL_DOWN,
             # clickhouse-connect surfaces our own egress proxy's SSRF refusal as "HTTP driver
             # received HTTP status 407, server response: Egress proxying is denied to host
             # '<ip>:<port>': ... denied by rule '<rule>'." The proxy re-resolves the configured
@@ -536,6 +534,11 @@ class ClickHouseSource(SimpleSource[ClickHouseSourceConfig], SSHTunnelMixin, Val
             "received HTTP status 502",
             "received HTTP status 503",
             "received HTTP status 504",
+            # Cloudflare's bare HTTP 530 "Argo Tunnel error" (see _CLOUDFLARE_TUNNEL_DOWN) — the
+            # Cloudflare Tunnel in front of the host dropped its connection to the origin.
+            # cloudflared reconnects on its own, often within seconds, so this gets the same
+            # treatment as the bare 5xx gateway responses above rather than disabling the sync.
+            "error code: 1033",
             # urllib3 raises this when the source drops the connection mid-transfer while
             # `get_rows` is iterating `query_arrow_stream` — the byte count varies, but the
             # "Connection broken: IncompleteRead" wording is stable. Unlike the connect-time
