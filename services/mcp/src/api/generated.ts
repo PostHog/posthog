@@ -114538,7 +114538,7 @@ export namespace Schemas {
     } as const;
 
     /**
-     * Unsubscribe headers for the email your code rendered. Takes only `List-Unsubscribe` and `List-Unsubscribe-Post`, in any case, and sends them under those names. Without them, a code send carries no unsubscribe headers. Doesn't apply to a send with `template_id`, which refuses this field.
+     * Unsubscribe headers for the email your code rendered. Takes only `List-Unsubscribe` and `List-Unsubscribe-Post`. Without them, a code send carries no unsubscribe headers. Doesn't apply to a send with `template_id`, which refuses this field.
      */
     export type SendEmailHeaders = {
       /**
@@ -114602,7 +114602,7 @@ export namespace Schemas {
          * @nullable
          */
       attachments?: EmailAttachment[] | null;
-      /** Unsubscribe headers for the email your code rendered. Takes only `List-Unsubscribe` and `List-Unsubscribe-Post`, in any case, and sends them under those names. Without them, a code send carries no unsubscribe headers. Doesn't apply to a send with `template_id`, which refuses this field. */
+      /** Unsubscribe headers for the email your code rendered. Takes only `List-Unsubscribe` and `List-Unsubscribe-Post`. Without them, a code send carries no unsubscribe headers. Doesn't apply to a send with `template_id`, which refuses this field. */
       headers?: SendEmailHeaders;
       /**
          * Deprecated: use `tracking.engagement`. Whether the engagement events (sent, delivered, opened, clicked, bounced) of the email your code rendered are captured as analytics events of the recipient. Defaults to true. A send with `tracking` can't also carry this field. A project whose admin turned engagement capture off captures nothing, whatever the send says.

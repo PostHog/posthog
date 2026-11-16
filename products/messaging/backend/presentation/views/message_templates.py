@@ -626,7 +626,7 @@ class SendEmailSerializer(TransactionalEmailMessageSerializer):
     headers = UnsubscribeHeadersField(
         required=False,
         help_text="Unsubscribe headers for the email your code rendered. Takes only `List-Unsubscribe` and "
-        "`List-Unsubscribe-Post`, in any case, and sends them under those names. Without them, a code send carries "
+        "`List-Unsubscribe-Post`. Without them, a code send carries "
         "no unsubscribe headers. Doesn't apply to a send with `template_id`, which refuses this field.",
     )
     capture_engagement = OmittableBooleanField(
