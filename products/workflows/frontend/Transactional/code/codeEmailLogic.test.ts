@@ -1,6 +1,5 @@
 import { MOCK_DEFAULT_PROJECT, MOCK_DEFAULT_TEAM } from 'lib/api.mock'
 
-import { kea, path } from 'kea'
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
@@ -18,6 +17,7 @@ import type {
     PatchedCodeEmailUpdateApi,
 } from 'products/messaging/frontend/generated/api.schemas'
 
+import { scene as sendScene } from '../log/TransactionalEmailLogEntryScene'
 import { codeEmailLogic } from './codeEmailLogic'
 import { scene as codeEmailScene } from './CodeEmailScene'
 
@@ -108,10 +108,9 @@ describe('codeEmailLogic', () => {
         let loads = 0
         useMocks({ get: { [EMAIL_URL]: () => [200, stored({ id: `load-${++loads}` })] } })
         const errors = jest.spyOn(console, 'error')
-        const sendPage = kea([path(['test', 'sendPage'])])
         sceneLogic({
             scenes: {
-                [Scene.TransactionalEmailLogEntry]: () => ({ scene: { component: () => null, logic: sendPage } }),
+                [Scene.TransactionalEmailLogEntry]: () => ({ scene: sendScene }),
                 [Scene.TransactionalCodeEmail]: () => ({ scene: codeEmailScene }),
             },
         }).mount()
