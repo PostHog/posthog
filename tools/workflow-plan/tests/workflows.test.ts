@@ -1236,6 +1236,13 @@ describe('CI workflow run plans', () => {
         expect(plan.jobs.rust_tests?.result).toBe('success')
     })
 
+    it('a PR branch named scheduled does not share the hourly Rust concurrency group', () => {
+        const group = workflow('ci-rust.yml').concurrency?.group
+        const functions = planFunctions({ dependenciesSucceeded: true, dependenciesFailed: false, cancelled: false })
+        const groupFor = (github: Scenario['github']): unknown => evaluateValue(group, { github }, functions)
+        expect(groupFor(pullRequest({ headRef: 'scheduled' }))).not.toBe(groupFor(schedule()))
+    })
+
     it.each([
         ['PR', pullRequest(), 'false', 'success', false],
         ['fork', pullRequest({ fork: true }), 'false', 'success', false],

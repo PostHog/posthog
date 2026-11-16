@@ -16,7 +16,9 @@ concurrency:
     # behind master pushes. Sharing the ref group would let a slow hourly run hold
     # the group while pushes pile up pending, and GitHub keeps only the newest
     # pending run per group.
-    group: ${{ github.workflow }}-${{ github.event_name == 'schedule' && 'scheduled' || github.head_ref || github.ref }}
+    # A PR is keyed by its number, not its branch name, so that a PR branch named
+    # `scheduled` cannot join the hourly group and cancel the hourly run.
+    group: ${{ github.workflow }}-${{ github.event_name == 'schedule' && 'scheduled' || github.event.pull_request.number || github.ref }}
     cancel-in-progress: ${{ github.event_name == 'pull_request' }}
 
 env:
