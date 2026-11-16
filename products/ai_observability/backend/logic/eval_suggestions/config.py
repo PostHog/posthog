@@ -16,6 +16,8 @@ FEATURE_FLAG = "llm-analytics-eval-suggestions"
 # Runs for these organizations work when staff start them, but nothing reaches their users: the API, the evals page
 # and the weekly plan read only FEATURE_FLAG. Staff use it to check the cards on real traffic before a rollout.
 SHADOW_FEATURE_FLAG = "llm-analytics-eval-suggestions-shadow"
+# Tags the paid model calls in the gateway's analytics.
+AI_PRODUCT = "aio_eval_suggestions"
 
 
 @frozen
