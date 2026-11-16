@@ -90,6 +90,7 @@ class TestCustomizeSourceDestination(BaseTest):
                     {"key": "url", "type": "string"},
                     {"key": "body", "type": "json"},
                     {"key": "headers", "type": "dictionary"},
+                    {"key": "method", "type": "choice"},
                     {"key": "secret_headers", "type": "dictionary", "secret": True},
                     {"key": "signing_secret", "type": "string", "secret": True},
                 ],
@@ -276,6 +277,7 @@ class TestCustomizeSourceDestination(BaseTest):
             ("signs_its_requests", None, None, {"signing_secret": {"value": "whsec_test"}}),
             ("templated_url", {"url": "https://example.com/hooks/{event.properties.alert_id}"}, None, None),
             ("templated_header", {"headers": {"X-Alert-ID": "{event.properties.alert_id}"}}, None, None),
+            ("put_method", {"method": "PUT"}, None, None),
             (
                 "different_secret_headers_per_event",
                 None,
@@ -308,6 +310,18 @@ class TestCustomizeSourceDestination(BaseTest):
             self._reset(hog_function_ids)
 
         assert self._senders() == ["hog_functions:webhook"]
+
+    def test_reset_sends_a_secret_header_over_an_added_one_of_the_same_name(self) -> None:
+        hog_function_ids = self._hog_functions(DestinationType.WEBHOOK)
+        for hog_function in HogFunction.objects.filter(id__in=hog_function_ids):
+            hog_function.inputs = {**(hog_function.inputs or {}), "headers": {"value": {"authorization": "old"}}}
+            hog_function.encrypted_inputs = {"secret_headers": {"value": {"Authorization": "new"}}}
+            hog_function.save(update_fields=["inputs", "encrypted_inputs"])
+
+        self._reset(hog_function_ids)
+
+        (row,) = list_alert_destinations(team_id=self.team.id, configuration_id=self.configuration.id)
+        assert row.data["webhook_headers"] == {"Authorization": "new"}
 
     def test_a_pagerduty_destination_does_not_move_while_its_alert_fires(self) -> None:
         row_id = self._row(DestinationType.PAGERDUTY)
