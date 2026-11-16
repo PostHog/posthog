@@ -88,6 +88,8 @@ class LogsSigningSecretViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     scope_object = "INTERNAL"
     pagination_class = None
     serializer_class = LogsSigningSecretSerializer
+    # The GET returns the raw secret, so a stale session must log in again to read it.
+    time_sensitive_allow_safe_methods = False
     permission_classes = [
         _SessionOnlyPermission,
         TimeSensitiveActionPermission,

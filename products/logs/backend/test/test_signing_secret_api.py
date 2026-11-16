@@ -127,12 +127,13 @@ class TestLogsSigningSecretAPI(APIBaseTest):
         LogsSigningSecret.objects.for_team(self.team.id).create(team=self.team, secret="old_secret_value")
 
         with patch.object(ActivityLog.objects, "create", side_effect=RuntimeError("audit write failed")):
-            with self.assertRaises(RuntimeError):
-                self.client.post(self._url("rotate/"))
+            response = self.client.post(self._url("rotate/"))
 
+        assert response.status_code == status.HTTP_500_INTERNAL_SERVER_ERROR
         assert LogsSigningSecret.objects.for_team(self.team.id).get().secret == "old_secret_value"
 
-    def test_rotate_requires_fresh_session(self):
+    @parameterized.expand([("get", ""), ("post", "rotate/")])
+    def test_stale_session_must_log_in_again(self, method, suffix):
         self._make_admin()
         session = self.client.session
         # login() stamps both keys and the freshness window takes their max, so age both.
@@ -141,7 +142,7 @@ class TestLogsSigningSecretAPI(APIBaseTest):
         session[django_settings.SESSION_LAST_REAUTH_AT_KEY] = stale
         session.save()
 
-        response = self.client.post(self._url("rotate/"))
+        response = getattr(self.client, method)(self._url(suffix))
 
         assert response.status_code == status.HTTP_403_FORBIDDEN
         assert response.json()["code"] == "sensitive_action_required_reauth"
