@@ -848,18 +848,14 @@ def _stratified_variant_property(
     """
     if len(pinned) < 2:
         return None
-    candidates: set[tuple[str, str, int | None]] | None = None
+    candidates: set[_ExactFilter] | None = None
     for condition, _ in pinned:
-        keys = {filter_key for prop in _properties(condition) if (filter_key := _exact_filter_key(prop)) is not None}
+        keys = {exact for prop in _properties(condition) if (exact := _exact_filter(prop)) is not None}
         candidates = keys if candidates is None else candidates & keys
-    for key, filter_type, group_type_index in sorted(candidates or (), key=str):
+    for candidate in sorted(candidates or (), key=str):
         strata: dict[tuple[str, ...], dict[frozenset[str], str]] = {}
         for condition, variant in pinned:
-            on_key = [
-                prop
-                for prop in _properties(condition)
-                if _exact_filter_key(prop) == (key, filter_type, group_type_index)
-            ]
+            on_key = [prop for prop in _properties(condition) if _exact_filter(prop) == candidate]
             if len(on_key) != 1:
                 break
             value = on_key[0].get("value")
@@ -883,12 +879,12 @@ def _stratified_variant_property(
                 and len(set(mappings[0].values())) == len(mappings[0]) >= 2
                 and _disjoint(mappings[0])
             ):
-                if filter_type == "person":
-                    return VariantProperty(key=key, group_type_index=None)
+                if candidate.filter_type == "person":
+                    return VariantProperty(key=candidate.key, group_type_index=None)
                 return VariantProperty(
-                    key=key,
-                    group_type_index=group_type_index
-                    if group_type_index is not None
+                    key=candidate.key,
+                    group_type_index=candidate.group_type_index
+                    if candidate.group_type_index is not None
                     else condition_aggregation(pinned[0][0], flag_aggregation),
                 )
     return None
@@ -899,17 +895,29 @@ def _properties(condition: Mapping[str, Any]) -> list[Mapping[str, Any]]:
     return [prop for prop in properties if isinstance(prop, Mapping)] if isinstance(properties, list) else []
 
 
-def _exact_filter_key(prop: Mapping[str, Any]) -> tuple[str, str, int | None] | None:
+@frozen
+class _ExactFilter:
+    key: str
+    filter_type: str
+    group_type_index: int | None
+
+
+def _exact_filter(prop: Mapping[str, Any]) -> _ExactFilter | None:
     key = prop.get("key")
     filter_type = prop.get("type")
     if (
         not isinstance(key, str)
+        or not isinstance(filter_type, str)
         or filter_type not in ("person", "group")
         or prop.get("operator") not in ("exact", None)
     ):
         return None
     group_type_index = prop.get("group_type_index")
-    return key, filter_type, group_type_index if isinstance(group_type_index, int) else None
+    return _ExactFilter(
+        key=key,
+        filter_type=filter_type,
+        group_type_index=group_type_index if isinstance(group_type_index, int) else None,
+    )
 
 
 def _disjoint(mapping: Mapping[frozenset[str], str]) -> bool:

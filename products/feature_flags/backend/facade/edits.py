@@ -105,24 +105,31 @@ def switchable_shares(served: Split, current: Split) -> dict[str, float] | None:
     current_ranges = _slots(current)
     if served_ranges is None or current_ranges is None:
         return None
-    boundaries = sorted(
-        {point for slots in (served_ranges, current_ranges) for _, start, end in slots for point in (start, end)}
-    )
+    boundaries = sorted({point for slot in (*served_ranges, *current_ranges) for point in (slot.start, slot.end)})
     shares: dict[str, float] = {}
-    for key, start, end in served_ranges:
-        if key is None or end <= start:
+    for slot in served_ranges:
+        if slot.key is None or slot.end <= slot.start:
             continue
         given_away = sum(
             upper - lower
             for lower, upper in zip(boundaries, boundaries[1:])
-            if start <= lower and upper <= end and _owner(current_ranges, (lower + upper) / 2) != key
+            if slot.start <= lower and upper <= slot.end and _owner(current_ranges, (lower + upper) / 2) != slot.key
         )
-        shares[key] = given_away / (end - start)
+        shares[slot.key] = given_away / (slot.end - slot.start)
     return shares
 
 
-def _slots(split: Split) -> list[tuple[str | None, float, float]] | None:
-    # The cumulative ranges of `select_variant` in rust/feature-flags/src/flags/v1_bucketing.rs, on the 0-1 scale.
+@frozen
+class _Slot:
+    """A variant's range of the hash on the 0-1 scale, from `start` up to but not including `end`."""
+
+    key: str | None
+    start: float
+    end: float
+
+
+def _slots(split: Split) -> list[_Slot] | None:
+    # The cumulative ranges of `select_variant` in rust/feature-flags/src/flags/v1_bucketing.rs.
     slots = []
     cumulative = 0.0
     for variant in split:
@@ -130,13 +137,13 @@ def _slots(split: Split) -> list[tuple[str | None, float, float]] | None:
             return None
         start = cumulative
         cumulative += variant.rollout_percentage / 100
-        slots.append((variant.key, start, cumulative))
+        slots.append(_Slot(key=variant.key, start=start, end=cumulative))
     return slots
 
 
-def _owner(slots: list[tuple[str | None, float, float]], point: float) -> str | None:
+def _owner(slots: list[_Slot], point: float) -> str | None:
     # A hash past the last slot gets no variant, which differs from every variant key.
-    return next((key for key, start, end in slots if start <= point < end), None)
+    return next((slot.key for slot in slots if slot.start <= point < slot.end), None)
 
 
 def _flag_variant(variant: object) -> FlagVariant:
