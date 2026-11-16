@@ -125,6 +125,19 @@ const loadInvoiceSummary = async (status: 'open' | 'uncollectible'): Promise<Ope
     return null
 }
 
+/** Billing writes an invoice off as uncollectible and cancels the subscription when the last card payment fails. */
+const buildUnpaidInvoiceAlert = (invoices: OpenInvoices, portalUrl: string | undefined): BillingAlertConfig => {
+    const several = invoices.count > 1
+    const link = !several && invoices.link ? invoices.link : portalUrl
+    return {
+        kind: 'unpaid_invoice',
+        status: 'warning',
+        title: several ? `You have ${invoices.count} unpaid invoices` : 'You have an unpaid invoice',
+        message: 'Your payment failed and your subscription was cancelled.',
+        action: link ? { to: link, children: several ? 'Pay invoices' : 'Pay invoice', targetBlank: true } : undefined,
+    }
+}
+
 export type SwitchPlanPayload = {
     from_product_key: string
     from_plan_key: string
@@ -1121,15 +1134,13 @@ export const billingLogic = kea<billingLogicType>([
         openInvoices: [
             null as OpenInvoices | null,
             {
-                loadInvoices: async (): Promise<OpenInvoices | null> => await loadInvoiceSummary('open'),
+                loadInvoices: (): Promise<OpenInvoices | null> => loadInvoiceSummary('open'),
             },
         ],
-        // Invoices Billing wrote off when the last card payment failed and it cancelled the subscription.
         uncollectibleInvoices: [
             null as OpenInvoices | null,
             {
-                loadUncollectibleInvoices: async (): Promise<OpenInvoices | null> =>
-                    await loadInvoiceSummary('uncollectible'),
+                loadUncollectibleInvoices: (): Promise<OpenInvoices | null> => loadInvoiceSummary('uncollectible'),
             },
         ],
         creditOverview: [
@@ -1954,32 +1965,23 @@ export const billingLogic = kea<billingLogicType>([
 
             actions.resetUsageLimitApproachingKey()
 
-            // Reading the lazy value starts a single load, and its success runs this listener again.
-            // The gate keeps the Stripe-backed request to orgs that lost their subscription.
+            // Reading the lazy value starts its only load, whose success runs this listener again.
+            // Billing answers without calling Stripe for orgs that never had a Stripe customer.
             const unpaidInvoices =
                 values.canAccessBilling && !values.billing.has_active_subscription && !values.isExternallyBilled
                     ? values.uncollectibleInvoices
                     : null
             if (unpaidInvoices?.count) {
-                const several = unpaidInvoices.count > 1
-                const link = !several && unpaidInvoices.link ? unpaidInvoices.link : values.billing.stripe_portal_url
-                const alert: BillingAlertConfig = {
-                    kind: 'unpaid_invoice',
-                    status: 'warning',
-                    title: several ? `You have ${unpaidInvoices.count} unpaid invoices` : 'You have an unpaid invoice',
-                    message: 'Your payment failed and your subscription was cancelled.',
-                    // Closing hides it for this session only (no dismissKey), so it returns on the next visit.
-                    onClose: () => actions.setBillingAlert(null),
-                }
-                if (link) {
-                    alert.action = {
-                        to: link,
-                        children: several ? 'Pay invoices' : 'Pay invoice',
-                        targetBlank: true,
+                const alert = buildUnpaidInvoiceAlert(unpaidInvoices, values.billing.stripe_portal_url)
+                actions.setBillingAlert({
+                    ...alert,
+                    action: alert.action && {
+                        ...alert.action,
                         onClick: () => actions.reportBillingAlertActionClicked(alert),
-                    }
-                }
-                actions.setBillingAlert(alert)
+                    },
+                    // No dismissKey, so closing it lasts until the next page load.
+                    onClose: () => actions.setBillingAlert(null),
+                })
                 return
             }
 
