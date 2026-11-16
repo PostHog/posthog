@@ -550,6 +550,7 @@ class Draft {
         const existing = open.find((item) => item.id.startsWith(prefix)) ?? open[0]
         if (existing) {
             existing.text = text || existing.text
+            existing.timestamp = this.timestamp
             existing.complete = true
             this.openAssistants.delete(existing)
             return

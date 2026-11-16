@@ -82,30 +82,29 @@ function rows(state: SessionThreadState): string[] {
 }
 
 describe('session thread reducer', () => {
-    test('keeps message times through streaming, echoes and history replay', () => {
-        const sent = '2026-11-15T14:30:00Z'
-        const started = '2026-11-15T14:31:00Z'
+    test.each([
+        ['2026-11-16T00:01:00-05:00', '2026-11-16T00:01:00-05:00'],
+        [undefined, undefined],
+        ['invalid', undefined],
+    ])('keeps completed reply times consistent with replay: %s', (completed, expectedTimestamp) => {
+        const sent = '2026-11-15T23:58:00-05:00'
+        const started = '2026-11-15T23:59:00-05:00'
+        const final = { ...message('Hi there'), timestamp: completed }
         const state = play([
             { type: 'local_user', id: 'local', text: 'Hello', timestamp: sent },
-            { ...userChunk('Hello'), timestamp: '2026-11-15T14:30:02Z' },
+            { ...userChunk('Hello'), timestamp: '2026-11-15T23:58:02-05:00' },
             { ...chunk('Hi'), timestamp: started },
-            { ...message('Hi there'), timestamp: '2026-11-15T14:32:00Z' },
+            final,
         ])
         expect(state.items).toEqual([
             expect.objectContaining({ kind: 'user', timestamp: sent }),
-            expect.objectContaining({ kind: 'assistant', timestamp: started, text: 'Hi there' }),
+            expect.objectContaining({ kind: 'assistant', text: 'Hi there', complete: true }),
         ])
-        const replay = play(
-            [
-                { ...userChunk('Hello'), timestamp: sent },
-                { ...message('Hi there'), timestamp: started },
-            ],
-            REPLAY
-        )
-        expect(replay.items).toEqual([
-            expect.objectContaining({ kind: 'user', timestamp: sent }),
-            expect.objectContaining({ kind: 'assistant', timestamp: started }),
-        ])
+        const replay = play([{ ...userChunk('Hello'), timestamp: sent }, final], REPLAY)
+        const replyTimes = (items: SessionThreadItem[]): (string | undefined)[] =>
+            items.flatMap((item) => (item.kind === 'assistant' ? [item.timestamp] : []))
+        expect(replyTimes(state.items)).toEqual([expectedTimestamp])
+        expect(replyTimes(state.items)).toEqual(replyTimes(replay.items))
     })
 
     test('preserves the trace and source run of a completed turn across replay', () => {
