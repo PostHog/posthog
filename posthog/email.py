@@ -509,9 +509,9 @@ def _send_via_http_batch(
 
 class _SmtpPolicy(email.policy.EmailPolicy):
     # Folding a List-Unsubscribe URL longer than 78 columns RFC 2047-encodes it, because it has no spaces,
-    # and mail clients then cannot read it. Every other header folds as before.
+    # and mail clients then cannot read it. Every other header, and a non-ASCII URL, folds as before.
     def fold_binary(self, name: str, value: str) -> bytes:
-        if name.lower() == "list-unsubscribe":
+        if name.lower() == "list-unsubscribe" and str(value).isascii():
             return f"{name}: {value}{self.linesep}".encode("ascii")
         return super().fold_binary(name, value)
 

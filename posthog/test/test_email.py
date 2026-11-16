@@ -1,8 +1,10 @@
+import email
 import hashlib
 import smtplib
 import datetime
 import contextlib
 import dataclasses
+import email.policy
 from decimal import Decimal
 from typing import Any
 from uuid import UUID
@@ -185,6 +187,22 @@ class TestEmail(BaseTest):
         self.assertEqual(len(mail.outbox), 1)
         after = REGISTRY.get_sample_value("posthog_email_send_total", labels) or 0.0
         self.assertEqual(after - before, 1.0)
+
+    @parameterized.expand([("ascii_host", "https://app.example.com"), ("unicode_host", "https://münchen.example.com")])
+    def test_smtp_message_keeps_the_list_unsubscribe_url(self, _name: str, site: str) -> None:
+        url = f"<{site}/api/unsubscribe?token={'a' * 200}>"
+        with override_instance_config("EMAIL_HOST", "localhost"):
+            message = EmailMessage(
+                campaign_key="list_unsubscribe_campaign",
+                subject="Subject",
+                template_name="async_migration_error",
+                headers={"List-Unsubscribe": url},
+            )
+            message.add_recipient("list-unsubscribe@posthog.com")
+            message.send(send_async=False)
+
+        raw = mail.outbox[0].message(policy=email.policy.SMTP).as_bytes()
+        assert email.message_from_bytes(raw, policy=email.policy.default)["List-Unsubscribe"] == url
 
     @parameterized.expand(
         [
