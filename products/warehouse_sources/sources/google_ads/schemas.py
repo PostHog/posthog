@@ -111,6 +111,7 @@ RESOURCE_SCHEMAS: dict[str, dict[str, Any]] = {
             "ad_group_ad.ad.type",
             "ad_group_ad.ad.url_custom_parameters",
             "ad_group_ad.policy_summary.approval_status",
+            "ad_group_ad.policy_summary.policy_topic_entries",
             "ad_group_ad.status",
         ],
     },
