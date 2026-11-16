@@ -1,4 +1,4 @@
-import { AnyPropertyFilter, PropertyFilterType, PropertyOperator } from '~/types'
+import { AnyPersonScopeFilter, AnyPropertyFilter, PropertyFilterType, PropertyOperator } from '~/types'
 
 import type { CohortApi } from 'products/cohorts/frontend/generated/api.schemas'
 
@@ -24,6 +24,22 @@ export function defaultListCohortName(broadcastName: string, date: string): stri
 /** Whether a condition sends to a cohort's members, as opposed to excluding them. */
 export function isCohortInclusion(filter: AnyPropertyFilter): boolean {
     return filter.type === PropertyFilterType.Cohort && filter.operator !== PropertyOperator.NotIn
+}
+
+/**
+ * A saved audience in the shape an actors query accepts. Saving adds `negation` and compiled bytecode to each
+ * condition, and the query schema refuses both. The backend excludes a cohort when either `negation` or `not_in`
+ * says so, so a negated cohort keeps excluding its members as `not_in`.
+ */
+export function toActorsQueryProperties(audienceProperties: AnyPropertyFilter[]): AnyPersonScopeFilter[] {
+    return audienceProperties.map((filter) => {
+        const { negation, bytecode, bytecode_error, conditionHash, ...queryFilter } = filter as AnyPropertyFilter &
+            Record<'negation' | 'bytecode' | 'bytecode_error' | 'conditionHash', unknown>
+        if (queryFilter.type === PropertyFilterType.Cohort && negation === true) {
+            queryFilter.operator = PropertyOperator.NotIn
+        }
+        return queryFilter as AnyPersonScopeFilter
+    })
 }
 
 /** The cohorts an audience filters on, once each. */
