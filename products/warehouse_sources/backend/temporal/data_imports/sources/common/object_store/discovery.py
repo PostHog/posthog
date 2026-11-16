@@ -381,7 +381,14 @@ def explain_no_tables(objects: Iterable[StoredObject], options: DiscoveryOptions
             f"{NO_IMPORTABLE_FILES_ERROR} because the folder in your files URL is empty or doesn't exist. "
             "Check the bucket and folder path in the URL."
         )
+    no_glob_match = (
+        f"{NO_IMPORTABLE_FILES_ERROR} because no file matches the wildcards in your files URL. "
+        "Fix the pattern, or remove it to import the whole folder."
+    )
     if options.file_format == "delta":
+        # With Delta tables present, only the glob can have left them all out.
+        if pattern and _delta_roots(files):
+            return no_glob_match
         return (
             f"{NO_IMPORTABLE_FILES_ERROR} because no folder here holds a Delta table's {DELTA_LOG_DIRECTORY} folder. "
             "Choose the format your files use under File format."
@@ -391,10 +398,7 @@ def explain_no_tables(objects: Iterable[StoredObject], options: DiscoveryOptions
         glob = compile_clickhouse_glob(pattern)
         visible = [stored for stored in visible if glob.matches(stored.path)]
         if not visible:
-            return (
-                f"{NO_IMPORTABLE_FILES_ERROR} because no file matches the wildcards in your files URL. "
-                "Fix the pattern, or remove it to import the whole folder."
-            )
+            return no_glob_match
     if visible and options.file_format == "infer" and all(infer_file_format(s.path) is None for s in visible):
         *others, last = EXTENSION_FORMATS
         extensions = f"{', '.join(others)} or {last}"

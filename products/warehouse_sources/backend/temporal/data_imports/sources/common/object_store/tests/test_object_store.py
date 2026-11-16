@@ -454,6 +454,13 @@ class TestExplainNoTables:
             ("empty_listing", [], "infer", None, "is empty or doesn't exist"),
             ("only_folder_markers", ["exports/", "exports/2024/"], "infer", None, "is empty or doesn't exist"),
             ("delta_without_a_log", ["exports/a.parquet"], "delta", None, "_delta_log"),
+            (
+                "delta_table_outside_the_glob",
+                ["sales/_delta_log/0.json", "sales/p.parquet"],
+                "delta",
+                "*.parquet",
+                "matches the wildcards",
+            ),
             ("glob_matches_nothing", ["orders/a.csv"], "infer", "orders/*.parquet", "matches the wildcards"),
             ("unknown_extensions", ["notes.md", "data/rows.txt"], "infer", None, "ends in .csv, .tsv"),
             ("glob_matches_unknown_extensions", ["orders/a.txt", "x.csv"], "infer", "orders/*", "ends in .csv, .tsv"),
