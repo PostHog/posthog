@@ -35,7 +35,11 @@ export function ReportCardImpactMetric({ metrics }: { metrics?: ReportMetricApi[
                 <div className="flex flex-col gap-0.5">
                     <span>{metric.title}</span>
                     <span className="font-mono text-xs tabular-nums">
-                        {formatReportMetricValue(metric, metric.value)}
+                        {formatReportMetricValue(
+                            metric,
+                            metric.value,
+                            metric.value_format === 'duration' ? 'exact' : undefined
+                        )}
                     </span>
                     {metric.value_at ? (
                         <span className="text-xs">
