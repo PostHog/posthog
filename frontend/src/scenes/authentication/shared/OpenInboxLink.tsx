@@ -33,7 +33,7 @@ export function OpenInboxLink({ provider, email, step }: OpenInboxLinkProps): JS
         <Link
             to={url}
             target="_blank"
-            className="font-semibold"
+            className="font-semibold whitespace-nowrap no-underline hover:underline hover:underline-offset-2 text-warning"
             onClick={() =>
                 // pinned: analytics event and property names
                 posthog.capture('open inbox clicked', {

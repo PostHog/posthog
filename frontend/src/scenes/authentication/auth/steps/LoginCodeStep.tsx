@@ -32,8 +32,8 @@ export function LoginCodeStep(): JSX.Element {
                 title="Check your inbox"
                 sub={
                     <>
-                        For your security, we've emailed a 6-digit verification code to{' '}
-                        <strong>{codeVerificationEmail}</strong>.{' '}
+                        For your security, we've emailed a <span className="whitespace-nowrap">6-digit</span>{' '}
+                        verification code to <strong>{codeVerificationEmail}</strong>.{' '}
                         <OpenInboxLink
                             provider={codeVerificationInboxProvider}
                             email={codeVerificationEmail}
@@ -99,7 +99,7 @@ export function LoginCodeStep(): JSX.Element {
                         onClick={() => exitCodeVerification()}
                         className="font-semibold no-underline cursor-pointer hover:underline hover:underline-offset-2 text-secondary"
                     >
-                        Back to login
+                        ← Back to login
                     </Link>
                 </div>
             </Form>

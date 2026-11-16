@@ -1,6 +1,8 @@
 import { useActions, useValues } from 'kea'
 import { useEffect, useState } from 'react'
 
+import { IconCheckCircle } from '@posthog/icons'
+
 import { supportLogic } from 'lib/components/Support/supportLogic'
 import { useInterval } from 'lib/hooks/useInterval'
 import { Link } from 'lib/lemon-ui/Link'
@@ -8,8 +10,7 @@ import { preflightLogic } from 'lib/logic/preflightLogic'
 
 import { loginLogic } from '../loginLogic'
 
-const LINK_CLASS_NAME =
-    'font-semibold no-underline cursor-pointer hover:underline hover:underline-offset-2 text-secondary'
+const LINK_CLASS_NAME = 'font-semibold no-underline cursor-pointer hover:underline hover:underline-offset-2'
 
 function formatCountdown(totalSeconds: number): string {
     const minutes = Math.floor(totalSeconds / 60)
@@ -35,9 +36,16 @@ export function LoginCodeResend(): JSX.Element {
     return (
         <div className="flex flex-col items-center gap-1 text-sm text-secondary text-center">
             {secondsLeft > 0 ? (
-                <p className="m-0">
-                    {resendResponse?.success ? 'Code sent. ' : ''}You can send a new code in{' '}
-                    <span className="tabular-nums">{formatCountdown(secondsLeft)}</span>
+                <p className="m-0 flex flex-wrap items-center justify-center gap-x-1">
+                    {resendResponse?.success && (
+                        <span className="flex items-center gap-1 text-success">
+                            <IconCheckCircle />
+                            Code sent.
+                        </span>
+                    )}
+                    <span>
+                        You can send a new code in <span className="tabular-nums">{formatCountdown(secondsLeft)}</span>
+                    </span>
                 </p>
             ) : (
                 <p className="m-0">
@@ -45,7 +53,7 @@ export function LoginCodeResend(): JSX.Element {
                     <Link
                         onClick={() => resendCodeBasedVerification(null)}
                         disabledReason={resendResponseLoading ? 'Sending...' : undefined}
-                        className={LINK_CLASS_NAME}
+                        className={`${LINK_CLASS_NAME} text-warning`}
                         data-attr="login-code-resend"
                     >
                         Resend code
@@ -69,7 +77,7 @@ export function LoginCodeResend(): JSX.Element {
                                       }`,
                             })
                         }}
-                        className={LINK_CLASS_NAME}
+                        className={`${LINK_CLASS_NAME} text-secondary`}
                     >
                         Contact support
                     </Link>
