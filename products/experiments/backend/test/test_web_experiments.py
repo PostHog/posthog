@@ -70,10 +70,12 @@ class TestWebExperiment(APIBaseTest):
             ANY,
             "feature flag created",
             {
+                "feature_flag_id": linked_flag.id,
                 "groups_count": 1,
                 "has_variants": True,
                 "variants_count": 2,
                 "has_rollout_percentage": True,
+                "condition_rollout_percentages": [100],
                 "has_filters": False,
                 "filter_count": 0,
                 "created_at": linked_flag.created_at,

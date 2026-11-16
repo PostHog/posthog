@@ -7761,6 +7761,7 @@ export enum DetectorType {
     OCSVM = 'ocsvm',
     PCA = 'pca',
     LLM = 'llm',
+    FORECAST = 'forecast',
 }
 
 /** Preprocessing transforms applied to the time series before detection */
@@ -7920,6 +7921,34 @@ export interface LLMDetectorConfig {
     instructions?: string
 }
 
+/**
+ * One side of a forecast detector. The side fires when every condition it sets is true.
+ */
+export interface ForecastSideRule {
+    /**
+     * The value is beyond this forecast quantile. Above: 0.55 to 0.95 in steps of 0.05, or 0.99.
+     * Below: 0.01, or 0.05 to 0.45 in steps of 0.05.
+     */
+    quantile?: number
+    /** The value is at least this fraction away from the expected value. 1 = 100% */
+    min_relative_change?: number
+    /** The value is at least this far from the expected value, in the series' units */
+    min_absolute_change?: number
+}
+
+/**
+ * Forecasts the next point from the points before it, then compares the actual value with the
+ * forecast. Carries no preprocessing block: the forecast reads the series as it is. With neither
+ * side set, it fires outside the 0.05 to 0.95 forecast range on either side.
+ */
+export interface ForecastDetectorConfig {
+    type: 'forecast'
+    /** Rule for a value higher than expected. Omit to ignore that side. */
+    above?: ForecastSideRule
+    /** Rule for a value lower than expected. Omit to ignore that side. */
+    below?: ForecastSideRule
+}
+
 export enum EnsembleOperator {
     AND = 'and',
     OR = 'or',
@@ -7943,8 +7972,9 @@ export type SingleDetectorConfig =
     | OCSVMDetectorConfig
     | PCADetectorConfig
     | LLMDetectorConfig
+    | ForecastDetectorConfig
 
-export type EnsembleSubDetectorConfig = Exclude<SingleDetectorConfig, LLMDetectorConfig>
+export type EnsembleSubDetectorConfig = Exclude<SingleDetectorConfig, LLMDetectorConfig | ForecastDetectorConfig>
 
 export interface EnsembleDetectorConfig {
     type: 'ensemble'
@@ -9127,6 +9157,8 @@ export interface MarketingAnalyticsRecommendationsSource {
     searchTermKeywordTable?: string
     /** Google Ads search term table for Performance Max campaigns. */
     performanceMaxSearchTermTable?: string
+    /** Google Ads ad table, used to read the ad copy of each ad group. */
+    adTable?: string
     /** Google Ads daily campaign conversions split by conversion action. */
     campaignConversionActionTable?: string
     /** Google Ads daily search term conversions split by conversion action. */

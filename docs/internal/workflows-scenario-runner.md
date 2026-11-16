@@ -46,6 +46,25 @@ Do not run cards on a box whose dev stack holds work you want to keep.
 
 Each role also appends to one log across runs, `posthog-scenarios/<role>.log`.
 
+### Run the failover card in the cloud
+
+`cyclotron-failover-under-load` runs only on a run host: a per-run cloud stack with its own Aurora cluster, a pooler, and one host that runs the card.
+A controller on a person's machine starts the run and ends it:
+
+```bash
+pnpm --dir nodejs exec tsx tests/scenarios/cloud/main.ts run <cloud profile>
+pnpm --dir nodejs exec tsx tests/scenarios/cloud/main.ts cleanup <cloud profile> <run id>
+```
+
+- **Who runs it:** a person with write access to the dev AWS account, on a machine with the `aws` CLI and the `nodejs` package installed. Not a worktree box.
+- **Before the first run:** the dev baseline infrastructure is applied, and the cloud profile names a measured runner profile kept outside this repository.
+- **What a run does:** the controller admits the run against its cost cap and leases it for a fixed time. It creates the run stack, prepares the database, starts the card on the run host and waits for it. Then it tears the stack down and publishes the scorecard.
+- **If the controller dies:** schedules registered before the first billable resource delete the stack. `cleanup` tears down a run by hand.
+- **Order of the first runs:** EU `current` first, as calibration: a run whose load is not admitted reports the baseline rates to tune the profile. Then US `current`, then both `historical-stress` profiles.
+- **Each run:** one profile, one lease, one cap.
+- **Evidence:** the host uploads its evidence with a checksum manifest to the run's prefix in the evidence bucket.
+- **Locally:** the card is `invalid` at the valve, because only a run host carries the run manifest.
+
 ## Glossary
 
 | Term              | Meaning                                                                                                                                                                                                                                             |
@@ -172,15 +191,17 @@ The first slice is local only, on real time.
 Each card is drawn from a failure class on the delivery path.
 `smoke` ships with the runner; each other card lands with the valves and traffic kinds it uses, and only cards in `cards/` can run.
 
-| Card                     | Traffic                                               | Valves                                                                                                   | Invariants                                                                             | Failure class                                |
-| ------------------------ | ----------------------------------------------------- | -------------------------------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------- | -------------------------------------------- |
-| `smoke`                  | `event_email`, `event_webhook`, `transactional_email` | none                                                                                                     | `at_least_once`, `duplicate_sends` (gate 0), `refused_at_intake` (gate 0)              | Baseline: proves the judging loop            |
-| `email-worker-killed`    | `event_email`, `transactional_email`                  | `role.kill` on the email worker, `when` 1 job runs on `email`                                            | `at_least_once`, `duplicate_sends` (gate 3), `refused_at_intake`                       | A worker dying mid-batch                     |
-| `hogflow-worker-frozen`  | `event_email`, `event_webhook`                        | `role.freeze` on the hogflow worker for 60 seconds, `when` 1 job runs on `hogflow`                       | `at_least_once`, `duplicate_sends` (gate 4), `refused_at_intake`                       | A frozen pod losing sends                    |
-| `pg-connections-dropped` | `event_email`, `event_webhook`                        | `pg.drop_connections` share 1 for 5 seconds, `when` 1 job runs on `hogflow`                              | `at_least_once`, `duplicate_sends` (gate 4), `refused_at_intake`                       | A dropped Postgres connection stranding jobs |
-| `destination-errors`     | `event_webhook`                                       | `dest.status` 503 share 0.5, then 429 share 0.5, then 400 count 5, each for 10 seconds, 21 seconds apart | `at_least_once`, `duplicate_sends` (gate 0), `refused_at_intake`                       | Destination 429 and 503 retry storms         |
-| `ses-throttled`          | `event_email`, `transactional_email`                  | `ses.throttle` 1 per second for 60 seconds                                                               | `at_least_once`, `duplicate_sends` (gate 0), `refused_at_intake`                       | SES throttling                               |
-| `ses-bounce-suppresses`  | `bounce_followup`                                     | `ses.reject` with type `bounce` on every send, for 2 minutes                                             | `at_least_once`, `duplicate_sends` (gate 0), `refused_at_intake`, `bounced_suppressed` | Dropped SES feedback, so no suppression      |
+| Card                            | Traffic                                               | Valves                                                                                                                                          | Invariants                                                                                  | Failure class                                |
+| ------------------------------- | ----------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------- | -------------------------------------------- |
+| `smoke`                         | `event_email`, `event_webhook`, `transactional_email` | none                                                                                                                                            | `at_least_once`, `duplicate_sends` (gate 0), `refused_at_intake` (gate 0)                   | Baseline: proves the judging loop            |
+| `email-worker-killed`           | `event_email`, `transactional_email`                  | `role.kill` on the email worker, `when` 1 job runs on `email`                                                                                   | `at_least_once`, `duplicate_sends` (gate 3), `refused_at_intake`                            | A worker dying mid-batch                     |
+| `hogflow-worker-frozen`         | `event_email`, `event_webhook`                        | `role.freeze` on the hogflow worker for 60 seconds, `when` 1 job runs on `hogflow`                                                              | `at_least_once`, `duplicate_sends` (gate 4), `refused_at_intake`                            | A frozen pod losing sends                    |
+| `pg-connections-dropped`        | `event_email`, `event_webhook`                        | `pg.drop_connections` share 1 for 5 seconds, `when` 1 job runs on `hogflow`                                                                     | `at_least_once`, `duplicate_sends` (gate 4), `refused_at_intake`                            | A dropped Postgres connection stranding jobs |
+| `destination-errors`            | `event_webhook`                                       | `dest.status` 503 share 0.5, then 429 share 0.5, then 400 count 5, each for 10 seconds, 21 seconds apart                                        | `at_least_once`, `duplicate_sends` (gate 0), `refused_at_intake`                            | Destination 429 and 503 retry storms         |
+| `ses-throttled`                 | `event_email`, `transactional_email`                  | `ses.throttle` 1 per second for 60 seconds                                                                                                      | `at_least_once`, `duplicate_sends` (gate 0), `refused_at_intake`                            | SES throttling                               |
+| `ses-bounce-suppresses`         | `bounce_followup`                                     | `ses.reject` with type `bounce` on every send, for 2 minutes                                                                                    | `at_least_once`, `duplicate_sends` (gate 0), `refused_at_intake`, `bounced_suppressed`      | Dropped SES feedback, so no suppression      |
+| `cyclotron-failover-under-load` | `event_email`, `event_webhook`, `transactional_email` | `pg.failover` on `cyclotron` at 15 minutes for 30 minutes, in a 75-minute drive                                                                 | `at_least_once`, `duplicate_sends` (gate 0), `refused_at_intake`, `resident_backlog_intact` | A Cyclotron writer failover under load       |
+| `cyclotron-scale`               | `event_email`, `event_webhook`, `transactional_email` | none; the rates ramp through 1x, 2x and 5x, then hold 10x for 30 minutes, with the bars `writer_cpu_under` 70% and `pickup_p99_under` 5 seconds | `at_least_once`, `duplicate_sends` (gate 0), `refused_at_intake`, `resident_backlog_intact` | Cyclotron falling behind at 10x load         |
 
 ## Call paths
 
@@ -347,7 +368,10 @@ sequenceDiagram
     else an invariant broke
         J-->>R: first violation, unit ids
         Note over R: failed
-    else only a valve was never observed
+    else a bar failed at a ramp step
+        J-->>R: breaking point: step, offered rate, value
+        Note over R: failed
+    else only a valve was never observed, or a bar could not be read
         V-->>R: requested, not observed
         Note over R: invalid
     end
@@ -385,6 +409,15 @@ The other interfaces are internal seams; each module keeps the responsibilities 
 The schema is `Card` in `cards/schema.ts`.
 A card names its profile, its seed, the number of teams to seed, its traffic kinds and their duration, its valve entries, `convergeWithin`, its invariants and measurements, and its gates.
 `drive.minOffered` is the share of target units that must count as offered for the run to judge, 0.9 by default.
+`drive.ramp` splits the drive into steps, each with a `scale` that multiplies every traffic kind's profile rate and a `for`; the steps add up to `drive.for`.
+A card without a ramp drives at 1x throughout.
+`bars` lists pass bars that every ramp step must stay under:
+
+- `writer_cpu_under` with `percent`: the highest CloudWatch `CPUUtilization` minute of the run cluster's writer. Only whole minutes inside a step count, and every one of them needs a reading. After the run converges, the read waits up to 5 minutes for CloudWatch to publish the drive's last whole minute, a read in flight included, and stops at once when the run is interrupted. It reads only on a run host.
+- `pickup_p99_under` with `seconds` and `queues`: the p99 of `cdp_cyclotron_job_lateness_seconds` on each named queue, from the worker scrapes. A p99 beyond the histogram's largest bucket breaks a bar at or under that bucket and leaves a higher bar unread, and a named queue with no pickup in a step reads as the step's length, and the last step also counts pickups after the drive ends. Each named queue's worker must answer its scrapes: one that is never scraped, or whose scrapes stop for more than 15 seconds, leaves the step unread. A scrape interval that straddles a step boundary counts in both steps, so late pickups at a step's end break that step rather than hide in the next step's larger volume.
+
+The first step where a bar fails is the bar's breaking point, and the run fails. A bar that cannot be read in a step makes the run `invalid`.
+A ramped card is admitted on its first step, at the profile's own rates.
 
 ```yaml
 id: email-worker-killed
@@ -429,7 +462,8 @@ A valve entry names a valve, its target (a role, `postgres`, `ses` or `hooks.exa
 `load` returns the card, the profile and their hashes, or throws one `CardError` that lists every problem at once.
 It rejects:
 
-- unknown valve, traffic kind, invariant and measurement names, and parameters or doses that fail their definition's schema;
+- unknown valve, traffic kind, invariant, measurement and bar names, and parameters or doses that fail their definition's schema;
+- ramp steps that do not add up to `drive.for`;
 - a `role.kill`, `role.freeze` or `pg.drop_connections` card whose `convergeWithin` does not exceed the janitor's stall timeout, its sweep interval, its first-retry spread and its backoff for repeated stalls, plus the role restart backoff, read from the profile settings or the repository defaults;
 - a `pg.drop_connections` entry scheduled by `at`: the main pools close idle connections quickly, so it waits for running jobs with `when`;
 - `bounced_suppressed` on a card with no `ses.reject` entry of type `bounce`, because only a hard bounce blocks transactional email;
@@ -461,15 +495,17 @@ export interface Runner {
 }
 ```
 
+- **Run id.** A fresh UUID per run, or the `runId` of the run manifest at `SCENARIO_RUN_MANIFEST` on a run host, which then runs one card.
 - **One process per invocation.** The Environment is an in-memory object that supervises the role processes, so `up`, every `run` and `down` happen in the one `main.ts run` process. Runs on one stack are sequential.
 - **Order.** `run` calls `reset`, `seed`, `Judge.open`, then `drive` and `Valves.start` together, `Valves.releaseAll`, `converge`, `check` and `measure`, writes the evidence, and publishes the scorecard.
 - **A failed reset stops the environment.** Later cards of the same invocation are skipped; run the command again.
 - **Seeding is bounded.** `seed` runs on its own Postgres pool with a 5-second statement timeout and must finish within 60 seconds. When the bound passes or the run is interrupted, the runner destroys the pool's connections and requires a restart, as a write already sent may still land in the next card.
 - **Status rules.**
-  - `invalid` when a dependency the card did not break went away (Postgres, Kafka, Redis, the SES rate limiter's Valkey, PersonHog, the edge), a valve was never observed, a valve was applied and never released, fewer than `minOffered` of the target units counted as offered, a traffic kind could not offer a unit it requires, the run was interrupted, or the evidence could not be written. The run could not judge, so each of these outranks a failed invariant, except a valve that was never observed.
+  - `invalid` when a dependency the card did not break went away (Postgres, Kafka, Redis, the SES rate limiter's Valkey, PersonHog, the edge), the Cyclotron writer was interrupted without a valve, a valve was never observed, a valve was applied and never released or did not fail back, fewer than `minOffered` of the target units counted as offered, a traffic kind could not offer a unit it requires, the run was interrupted, or the evidence could not be written. The run could not judge, so each of these outranks a failed invariant, except a valve that was never observed.
   - `failed` when the stack did not converge, any invariant failed, or a Node role exited without a valve causing it, even if every delivery later arrives.
     An unexplained exit, a failed invariant or a stack that did not converge outranks a valve that was never observed: the run fails, and the reason also lists every unobserved valve.
-    An exit while `pg.drop_connections` is applied still counts as unexplained; its reason names the drop.
+    An exit while a database valve (`postgres` or `cyclotron`) was applied still fails the run, and its reason names that valve.
+  - **Cyclotron interrupted without a valve.** The writer probe failing 5 times in a row, or once with a SQLSTATE of class `08` or `57P01`, in a write that ended before the first valve's intent or began after the drive and every release ended. When no valve applied, every write counts. A failure inside a valve's phases belongs to the valve and is measured, not judged. An isolated timeout is not an interruption.
   - `passed` otherwise.
 - **Exit code.** The status's code, or 3 when the scorecard variables are set and the scorecard was not read back. A run interrupted after the capture keeps the status's code. Evidence files that could not be written make the run `invalid`, exit 2.
 
@@ -519,7 +555,7 @@ export type RoleHandle = { name: Role; url: string; metricsUrl: string }
 - **Killed roles come back.** After any exit the Environment restarts the role after 2 seconds, as Kubernetes would, and records the exit, marked as caused by a valve or not.
 - **Actuation.** Each action is observed within 10 seconds or not at all.
   - `kill` sends `SIGKILL` to the role's process group and is observed when the old process is gone.
-  - `freeze` sends `SIGSTOP` and is observed when `/proc/<pid>/stat` shows state `T`. Overlapping freezes of one role resume it only when the last of them releases.
+  - `freeze` sends `SIGSTOP` and is observed when `/proc/<pid>/stat` shows state `T`.
   - `pg.terminate` runs `pg_terminate_backend` on the `share` of role backends, rounded up, on every Postgres server the role settings name with a `postgres://` or `postgresql://` URL, such as a read replica. Loopback names and the default port count as one server. It is observed when at least one backend was terminated.
   - `edge.fault` holds a fault rule on the edge with `ProviderEdge.hold` and lifts it on release. It is observed when the edge first answered a request with it inside the 10-second window, and stops waiting when the hold ends.
 - **Consumer lag.** `groupLag(group)` reads a consumer group's total lag with `rpk group describe`.
@@ -575,7 +611,7 @@ export type TruthRecord = {
   - webhooks: the path `/u/<unit id>/<action id>` on `hooks.example.com`, with the action id written into each seeded webhook step.
 - **Feedback.** On a `bounce` the edge answers the send, then posts a signed SNS notification (signature version 1) to `feedbackUrl`: a `Permanent` bounce with the recipient in `bouncedRecipients`, carrying the original send's message id, destination, configuration set, tags and headers.
   - It posts for every send that names a configuration set, as SES publishes events only for those. For a send that names none it posts nothing and records an `ses.feedback` with status 0.
-  - It refuses a bounce fault unless it has both a feedback URL and a `caDir` to sign with: `POST /_faults` answers 400 on `params.type`, and `hold` throws the same problem.
+  - It refuses a bounce fault unless it has both a feedback URL and a `caDir` to sign with: `POST /_faults` answers 400 on `params.type`.
 - **In-process holds.** `ProviderEdge.hold(rule)` adds a fault without HTTP, for the Environment's `edge.fault` action, and returns `observed` and `release`.
   - The fault list records `firstAppliedAt`, when the fault first answered a request.
   - `observed` polls until that time falls inside a 10-second window from its call (`answeredInWindow`), the window passes, or the hold's signal aborts, and then answers whether it did.
@@ -589,13 +625,15 @@ export type ValveContext = {
   environment: Pick<Environment, 'actuate'>
   probe: Pick<CyclotronProbe, 'runningJobs'>
   teams: number[]
+  commits: () => readonly WriterSample[] // the writer probe's samples so far
 }
 
 export type ValveDefinition = Definition & {
   // Definition holds the name and the params schema
   target: z.ZodType<string>
   strandsRunningJobs: boolean // re-check `when` after apply
-  apply(context: ValveContext, target: string, dose: unknown): Promise<Actuation>
+  journalsIntent?: true // the actuation records its own intent, right before its request
+  apply(context: ValveContext, target: string, dose: unknown, holdMs: number): Promise<Actuation>
 }
 
 export interface Valves {
@@ -610,6 +648,7 @@ export interface Valves {
 | `role.kill`           | a role              | none                                                 | `actuate`, `kill`         |
 | `role.freeze`         | a role              | none                                                 | `actuate`, `freeze`       |
 | `pg.drop_connections` | `postgres`          | `share`                                              | `actuate`, `pg.terminate` |
+| `pg.failover`         | `cyclotron`         | none                                                 | `actuate`, `rds.failover` |
 | `dest.status`         | `hooks.example.com` | `code` from 400 to 599, with a `count` or a `share`  | `actuate`, `edge.fault`   |
 | `ses.throttle`        | `ses`               | `rate` per second                                    | `actuate`, `edge.fault`   |
 | `ses.reject`          | `ses`               | `type` `rejected` or `bounce`; `share`, 1 by default | `actuate`, `edge.fault`   |
@@ -618,6 +657,11 @@ export interface Valves {
 - **Holds.** Every valve's `for` starts once `apply` returns, on one timer. The hold's signal aborts when that timer passes or the drive ends; observation waits on the same signal, and the valve releases once it aborts. So a `10s` hold lasts about 10 seconds however long observation took.
 - **Observation.** Each entry must be observed within its valve's window, or the timeline records an error and the run is `invalid`, unless an unexplained exit, a failed invariant or a stack that did not converge already fails it. A broken harness never reads as a passing engine. An edge fault counts as observed only when the edge answered a request with it inside its 10-second window, so a hold shorter than the window ends observation sooner.
 - **Release.** An applied entry that is never released makes the run `invalid`. An entry that was never applied has nothing to release.
+- **`pg.failover`** runs only on a run host: the runner reads `SCENARIO_RUN_MANIFEST` once and hands it to the valve, which throws without it, so the run is `invalid`. It acts only on the manifest's run cluster, `scn-<run id>`, through the `aws` port.
+  - **Preconditions.** The caller is in the manifest's account, the lease outlasts the hold plus twice the 5-minute observation deadline, one to settle and one to fail back, the cluster is `available`, carries `scenario-run=<run id>` and has exactly two members, the run's writer, still writing, and its reader, and the reader's last five one-minute `ServerlessDatabaseCapacity` maxima are consecutive, read `Complete`, each 1 ACU, and the newest ended at most 3 minutes ago. The lease is checked last, right before the request, because the reads before it can take up to 5 minutes. A failed precondition throws before any request, so the timeline records no intent. So does a precondition read AWS has not answered when the valves release or 5 minutes pass.
+  - **Apply.** It records `intentAt` right before one `failover-db-cluster` request to the reader, sent once with no retry, and sends none once the valves released. Observation runs from the intent, so a promotion counts while the answer to the request is still pending. A client error code is a refusal. A server fault, a response lost in transit, or no answer by the valves' release or 5 minutes may have started the promotion, so it is observed, never resent.
+  - **Observation.** Three instants, each in the entry's `observations`: the control plane shows the reader as writer (`cluster_writer`), the pooler's SQL session reaches the reader out of recovery (`sql_writer`), and the writer probe commits its first row on the reader (`first_probe_commit`). A commit that still lands on the old writer does not count. Each stage polls on its own, so a stalled cluster read never delays the other two. Each instant is stamped when the answer arrives, and one that arrives more than 5 minutes after the intent does not count. The card measures each as `seconds_to_<name>` from the intent.
+  - **Release.** It first waits up to 5 minutes for the cluster to be `available`, so a promotion still in flight lands before it decides. When the promotion was not refused and the control plane never showed the reader as writer, it also waits for the writer to move, since the control plane can show the old writer for a while after it accepted the request; a writer that never moves is recorded as `releaseError`, because the request may still land. It never waits for the answer to the failover request. Then a fail-back to the original writer under the same load, unless it already writes, with its own `releaseIntentAt` and `releaseObservations`. The fail-back phase starts at `releaseIntentAt`, and its observation runs from there while the answer to its request is still pending. A cluster that never settles, or a fail-back that is refused or not observed, is recorded as `releaseError` and makes the run `invalid`. The run host gives a stopped card the full 10 minutes of settle and fail-back, plus 5 minutes for its scorecard and evidence, before systemd kills it.
 - **Adding a valve** is one `ValveDefinition`. Cards name valves, never backends.
 
 ### Generator
@@ -757,20 +801,21 @@ The versions are tree hashes at `HEAD`, so nobody bumps them by hand; `head_dirt
 
 **Verdict**
 
-| Property            | Type            | Meaning                                                                                                     |
-| ------------------- | --------------- | ----------------------------------------------------------------------------------------------------------- |
-| `status`            | string          | `passed`, `failed` or `invalid`                                                                             |
-| `status_reason`     | string          | Why, in one line                                                                                            |
-| `started_at`        | string          | ISO 8601 time the run started                                                                               |
-| `ended_at`          | string          | ISO 8601 time the run ended, also the event's timestamp                                                     |
-| `duration_s`        | number          | Seconds from start to end                                                                                   |
-| `units_target`      | number or null  | Units the profile asked for                                                                                 |
-| `units_offered`     | number or null  | Role intake calls whatever and whenever they answered, and events Kafka acknowledged before the drive ended |
-| `converged`         | boolean or null | Whether the stack converged within `convergeWithin`                                                         |
-| `unfinished_jobs`   | number or null  | Jobs still unfinished when convergence ended                                                                |
-| `valve_timeline`    | array           | One entry per valve: valve, target, and requested, applied, observed and released times, or an error        |
-| `evidence_dir`      | string          | The evidence directory on the box that ran the card                                                         |
-| `invariants_failed` | string[]        | Names of the judged invariants that failed                                                                  |
+| Property            | Type            | Meaning                                                                                                                                                                                                                                    |
+| ------------------- | --------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `status`            | string          | `passed`, `failed` or `invalid`                                                                                                                                                                                                            |
+| `status_reason`     | string          | Why, in one line                                                                                                                                                                                                                           |
+| `started_at`        | string          | ISO 8601 time the run started                                                                                                                                                                                                              |
+| `ended_at`          | string          | ISO 8601 time the run ended, also the event's timestamp                                                                                                                                                                                    |
+| `duration_s`        | number          | Seconds from start to end                                                                                                                                                                                                                  |
+| `units_target`      | number or null  | Units the profile asked for                                                                                                                                                                                                                |
+| `units_offered`     | number or null  | Role intake calls whatever and whenever they answered, and events Kafka acknowledged before the drive ended                                                                                                                                |
+| `converged`         | boolean or null | Whether the stack converged within `convergeWithin`                                                                                                                                                                                        |
+| `unfinished_jobs`   | number or null  | Jobs still unfinished when convergence ended                                                                                                                                                                                               |
+| `valve_timeline`    | array           | One entry per valve: valve, target, and requested, applied, observed and released times, or an error                                                                                                                                       |
+| `bars`              | array           | One entry per bar: its name, unit and whether it passed, with the breaking point (the step's scale and start, units offered per second with events counted once Kafka acknowledged them, the queue and the value) or why it was not judged |
+| `evidence_dir`      | string          | The evidence directory on the box that ran the card                                                                                                                                                                                        |
+| `invariants_failed` | string[]        | Names of the judged invariants that failed                                                                                                                                                                                                 |
 
 **Invariants**, one group per judged invariant, with `<name>` the invariant's name.
 A run that stops before judging has no groups, so a missing group means not judged, never passed:

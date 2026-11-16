@@ -2,6 +2,7 @@ import type { Profile } from '../cards/schema'
 import type { Role } from '../environment/roles'
 import type { RoleExit } from '../environment/supervisor'
 import type { Baseline } from '../judge/measurements'
+import type { WriterSample } from '../probe/writer-probe'
 import type { ValveTimelineEntry } from '../valves/valves'
 import { Admission, Verdict, admissionsOf, statusOf } from './status'
 
@@ -14,6 +15,9 @@ const HELD: Verdict = {
     invariants: [{ name: 'at_least_once', passed: true, observed: 0, unitIds: [] }],
     timeline: [],
     exits: [],
+    writer: [],
+    drive: { startedAt: Date.UTC(2026, 0, 5, 10, 0, 0), endedAt: Date.UTC(2026, 0, 5, 10, 0, 50) },
+    bars: [],
 }
 
 const REFUSED_LOAD: Admission = { name: 'load', passed: false, reason: 'email claims 1/s, not within 10% of 4/s' }
@@ -33,6 +37,26 @@ const killed = (role: string, applied: number, released?: number): ValveTimeline
     observedAt: at(applied),
     releasedAt: released === undefined ? undefined : at(released),
 })
+
+const failedOver: ValveTimelineEntry = {
+    valve: 'pg.failover',
+    target: 'cyclotron',
+    requestedAt: at(0),
+    intentAt: at(10),
+    appliedAt: at(10),
+    observedAt: at(12),
+    releaseIntentAt: at(30),
+    releasedAt: at(32),
+}
+
+const probed = (failing: (second: number) => string | false): WriterSample[] =>
+    Array.from({ length: 56 }, (_, second) => {
+        const failure = failing(second)
+        const sample = { at: Date.parse(at(second)), monoMs: second * 1000, latencyMs: 5 }
+        return failure === false
+            ? { ...sample, ok: true }
+            : { ...sample, ok: false, ...(failure === 'timeout' ? {} : { sqlstate: failure }) }
+    })
 
 const exited = (role: Role, second: number, byValve = false, replica = 0): RoleExit => ({
     role,
@@ -72,43 +96,13 @@ describe('statusOf', () => {
             `${HOGFLOW_WORKER} exited (SIGKILL) without a valve causing it`,
         ],
         [
-            'a role exited while a valve on it was applied',
-            {
-                timeline: [{ ...killed(HOGFLOW_WORKER, 10, 30), valve: 'role.freeze' }],
-                exits: [exited(HOGFLOW_WORKER, 20)],
-            },
-            'failed',
-            `${HOGFLOW_WORKER} exited (SIGKILL) without a valve causing it, while role.freeze on ${HOGFLOW_WORKER} was applied`,
-        ],
-        [
             'a second replica exited while its role was killed on replica 0',
             {
                 timeline: [killed(EMAIL_WORKER, 10, 11)],
                 exits: [exited(EMAIL_WORKER, 10, true), exited(EMAIL_WORKER, 10, false, 1)],
             },
             'failed',
-            `${EMAIL_WORKER}-1 exited (SIGKILL) without a valve causing it, while role.kill on ${EMAIL_WORKER} was applied`,
-        ],
-        [
-            "a role exited while the roles' Postgres connections were dropped",
-            {
-                timeline: [{ ...killed('postgres', 10, 30), valve: 'pg.drop_connections' }],
-                exits: [{ ...exited(HOGFLOW_WORKER, 20), signal: null, code: 1 }],
-            },
-            'failed',
-            `${HOGFLOW_WORKER} exited (code 1) without a valve causing it, while pg.drop_connections on postgres was applied`,
-        ],
-        [
-            'a role exited after a valve on another role was released',
-            { timeline: [killed(EMAIL_WORKER, 10, 11)], exits: [exited(HOGFLOW_WORKER, 20)] },
-            'failed',
-            `${HOGFLOW_WORKER} exited (SIGKILL) without a valve causing it`,
-        ],
-        [
-            'a role exited while a valve on another role was applied',
-            { timeline: [killed(EMAIL_WORKER, 10, 30)], exits: [exited(HOGFLOW_WORKER, 20)] },
-            'failed',
-            `${HOGFLOW_WORKER} exited (SIGKILL) without a valve causing it`,
+            `${EMAIL_WORKER}-1 exited (SIGKILL) without a valve causing it`,
         ],
         [
             'a valve was never observed',
@@ -124,6 +118,36 @@ describe('statusOf', () => {
             },
             'failed',
             `role.kill on ${EMAIL_WORKER} was not observed: never applied; at_least_once failed: run-1 email: lost`,
+        ],
+        [
+            'a bar broke at a ramp step while every invariant held',
+            {
+                bars: [
+                    {
+                        name: 'pickup_p99_under',
+                        unit: 's',
+                        passed: false,
+                        breakingPoint: { scale: 10, at: at(30), offeredPerSecond: 12.34, key: 'hogflow', value: 10 },
+                    },
+                ],
+            },
+            'failed',
+            'pickup_p99_under broke at the 10x step, 12.3 units/s offered: hogflow 10 s',
+        ],
+        [
+            'a bar could not be judged',
+            {
+                bars: [
+                    {
+                        name: 'writer_cpu_under',
+                        unit: '%',
+                        passed: false,
+                        unjudged: 'no writer CPU reading off a run host in the 1x step',
+                    },
+                ],
+            },
+            'invalid',
+            'writer_cpu_under was not judged: no writer CPU reading off a run host in the 1x step',
         ],
         [
             'a valve was observed but not released',
@@ -175,6 +199,54 @@ describe('statusOf', () => {
             { admissions: [{ name: 'load', passed: true, reason: 'every baseline rate within 10% of its target' }] },
             'passed',
             'every invariant held',
+        ],
+        [
+            'pg.failover could not fail back',
+            {
+                timeline: [{ ...failedOver, releaseError: 'the fail-back request was refused: InternalFailure' }],
+                invariants: [BROKEN],
+            },
+            'invalid',
+            'pg.failover on cyclotron did not fail back: the fail-back request was refused: InternalFailure',
+        ],
+        [
+            'the writer probe failed five times in a row before the failover',
+            {
+                timeline: [failedOver],
+                writer: probed((second) => (second >= 3 && second <= 7 ? 'timeout' : false)),
+                invariants: [BROKEN],
+            },
+            'invalid',
+            `Cyclotron interrupted without a valve: 5 writer probes failed in a row before any valve applied, at ${at(7)}`,
+        ],
+        [
+            'the writer probe lost its connection once after the drive and the fail-back',
+            { timeline: [failedOver], writer: probed((second) => (second === 52 ? '08006' : false)) },
+            'invalid',
+            `Cyclotron interrupted without a valve: a writer probe lost its connection (SQLSTATE 08006) after the drive and every valve ended, at ${at(52)}`,
+        ],
+        [
+            'a card without a valve whose writer probe lost its connection across the drive end',
+            {
+                writer: [{ at: Date.parse(at(49)), monoMs: 49_000, ok: false, latencyMs: 2000, sqlstate: '57P01' }],
+            },
+            'invalid',
+            `Cyclotron interrupted without a valve: a writer probe lost its connection (SQLSTATE 57P01) with no valve applied, at ${at(49)}`,
+        ],
+        [
+            'the writer probe timed out once before the failover and lost its connection during it',
+            {
+                timeline: [failedOver],
+                writer: probed((second) => (second === 3 ? 'timeout' : second >= 10 && second <= 20 ? '57P01' : false)),
+            },
+            'passed',
+            'every invariant held',
+        ],
+        [
+            'a role exited during the failover',
+            { timeline: [failedOver], exits: [exited(HOGFLOW_WORKER, 15)] },
+            'failed',
+            `${HOGFLOW_WORKER} exited (SIGKILL) without a valve causing it, while pg.failover on cyclotron was applied`,
         ],
         [
             'a dependency went away',

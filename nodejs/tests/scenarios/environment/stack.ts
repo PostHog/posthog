@@ -85,6 +85,9 @@ export async function withPostgres<T>(
         query_timeout: statementTimeoutMs,
         statement_timeout: statementTimeoutMs,
     })
+    // The server can end the connection between queries, as a failover or a terminated backend does. Without
+    // a listener the client throws that from an event handler and takes the process down.
+    client.on('error', () => undefined)
     try {
         await client.connect()
         return await run(client)

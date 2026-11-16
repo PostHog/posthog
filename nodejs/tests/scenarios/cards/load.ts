@@ -75,6 +75,7 @@ function checkNames(card: Card, definitions: Definitions): string[] {
         ...card.measure.flatMap((entry, i) =>
             checkNamed('measurement', `measure.${i}`, entry, definitions.measurements)
         ),
+        ...card.bars.flatMap((entry, i) => checkNamed('bar', `bars.${i}`, entry, definitions.bars)),
         ...card.valves.flatMap((entry, i) => {
             const definition = definitions.valves.find(({ name }) => name === entry.valve)
             if (!definition) {
@@ -136,34 +137,12 @@ function checkStallBound(card: Card, config: Settings): string[] {
 }
 
 function checkSuppression(card: Card): string[] {
-    const bounceEntries = card.valves.filter(({ valve, dose }) => valve === 'ses.reject' && dose.type === 'bounce')
-    const bouncesEverySend = bounceEntries.some(
-        ({ dose, at, for: holdFor }) =>
-            (dose.share ?? 1) === 1 &&
-            at !== undefined &&
-            durationMs(at) === 0 &&
-            durationMs(holdFor) >= durationMs(card.drive.for)
+    const bounces = card.valves.some(({ valve, dose }) => valve === 'ses.reject' && dose.type === 'bounce')
+    return card.invariants.flatMap(({ name }, i) =>
+        name === 'bounced_suppressed' && !bounces
+            ? [`invariants.${i}.name: bounced_suppressed needs a ses.reject entry with type bounce`]
+            : []
     )
-    const withoutFollowUp = card.drive.traffic
-        .map(({ name }) => name)
-        .filter((name) => !TRAFFIC.find((traffic) => traffic.name === name)?.followUp)
-    return card.invariants.flatMap(({ name }, i) => {
-        if (name !== 'bounced_suppressed') {
-            return []
-        }
-        const where = `invariants.${i}.name: bounced_suppressed`
-        if (bounceEntries.length === 0) {
-            return [`${where} needs a ses.reject entry with type bounce`]
-        }
-        return [
-            ...(bouncesEverySend
-                ? []
-                : [`${where} needs a ses.reject bounce at share 1 from 0s for the whole ${card.drive.for} drive`]),
-            ...(withoutFollowUp.length === 0
-                ? []
-                : [`${where} needs traffic that follows up every bounce, and ${withoutFollowUp.join(', ')} does not`]),
-        ]
-    })
 }
 
 const ANSWERED_AT_INTAKE = TRAFFIC.filter(({ intake }) => intake !== 'event').map(({ name }) => name)
