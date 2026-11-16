@@ -117,12 +117,12 @@ The rule also checks no composition, which matters later on this page.
 Two billing features limit what a project can have on.
 `products/cohorts/backend/realtime_limits.py` reads them from the organization's `available_product_features`.
 
-| Feature                    | Limit                                                | Without the feature |
-| -------------------------- | ---------------------------------------------------- | ------------------- |
-| `realtime_cohorts`         | Cohorts per project with realtime on                 | 10                  |
-| `realtime_cohorts_history` | Days back the criteria of a realtime cohort can look | 30                  |
+| Feature                    | Limit                                                | Without the feature                        |
+| -------------------------- | ---------------------------------------------------- | ------------------------------------------ |
+| `realtime_cohorts`         | Cohorts per project with realtime on                 | `REALTIME_COHORT_DEFAULT_MAX_COHORTS`      |
+| `realtime_cohorts_history` | Days back the criteria of a realtime cohort can look | `REALTIME_COHORT_DEFAULT_MAX_HISTORY_DAYS` |
 
-A feature with a null limit sets no limit.
+A feature with a null limit sets no limit, and so does an unset setting.
 The history limit is never above `REALTIME_COHORT_MAX_HISTORY_DAYS`, also when the plan sets none.
 A cohort holds a slot while the pipeline loads it: it is `realtime`, on, not static and not deleted.
 

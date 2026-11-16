@@ -132,21 +132,29 @@ class TestCohortEnablement(BaseTest):
 
     @parameterized.expand(
         [
-            ("free_plan_at_its_limit", None, 10, 0, ("cohorts", 10, 10)),
-            ("free_plan_below_its_limit", None, 9, 0, 1),
+            ("default_at_its_limit", 3, None, 3, 0, ("cohorts", 3, 3)),
+            ("default_below_its_limit", 3, None, 2, 0, 1),
+            ("no_default_means_no_limit", None, None, 3, 0, 1),
             (
                 "an_included_cohort_needs_a_slot_too",
-                [{"key": "realtime_cohorts", "limit": 12}],
-                10,
+                3,
+                [{"key": "realtime_cohorts", "limit": 5}],
+                3,
                 2,
-                ("cohorts", 12, 10),
+                ("cohorts", 5, 3),
             ),
-            ("room_for_it_and_what_it_includes", [{"key": "realtime_cohorts", "limit": 13}], 10, 2, 3),
-            ("no_limit", [{"key": "realtime_cohorts", "limit": None}], 10, 2, 3),
+            ("room_for_it_and_what_it_includes", 3, [{"key": "realtime_cohorts", "limit": 6}], 3, 2, 3),
+            ("plan_without_a_limit", 3, [{"key": "realtime_cohorts", "limit": None}], 3, 2, 3),
         ]
     )
     def test_a_turn_on_needs_a_slot_for_each_cohort_it_turns_on(
-        self, _name: str, features: list[dict] | None, already_on: int, included_off: int, expected: tuple | int
+        self,
+        _name: str,
+        default: int | None,
+        features: list[dict] | None,
+        already_on: int,
+        included_off: int,
+        expected: tuple | int,
     ) -> None:
         self._plan(features)
         for _ in range(already_on):
@@ -157,7 +165,8 @@ class TestCohortEnablement(BaseTest):
         cohort = self._cohort(PAGEVIEW_LEAF, *included)
 
         try:
-            outcome: tuple | int = len(self._turn_on(cohort))
+            with self.settings(REALTIME_COHORT_DEFAULT_MAX_COHORTS=default):
+                outcome: tuple | int = len(self._turn_on(cohort))
         except RealtimeLimitReached as error:
             outcome = (error.limit, error.allowed, error.used)
 
@@ -168,8 +177,9 @@ class TestCohortEnablement(BaseTest):
     @parameterized.expand(
         [("deleted", {"deleted": True}), ("static", {"is_static": True}), ("daily", {"cohort_type": None})]
     )
+    @override_settings(REALTIME_COHORT_DEFAULT_MAX_COHORTS=3)
     def test_a_cohort_the_pipeline_does_not_load_holds_no_slot(self, _name: str, kwargs: dict) -> None:
-        for _ in range(9):
+        for _ in range(2):
             self._cohort(PAGEVIEW_LEAF, realtime_enabled_at=STAMPED_AT)
         self._cohort(PAGEVIEW_LEAF, realtime_enabled_at=STAMPED_AT, **kwargs)
 
@@ -177,34 +187,43 @@ class TestCohortEnablement(BaseTest):
 
     @parameterized.expand(
         [
-            ("free_plan", None, 31, ("history_days", 30)),
-            ("free_plan_at_its_limit", None, 30, None),
-            ("paid_plan", [{"key": "realtime_cohorts_history", "limit": 365}], 365, None),
-            ("past_the_paid_plan", [{"key": "realtime_cohorts_history", "limit": 365}], 366, ("history_days", 365)),
-            ("no_limit_up_to_the_pipeline_cap", [{"key": "realtime_cohorts_history", "limit": None}], 400, None),
+            ("default", 14, None, 15, ("history_days", 14)),
+            ("default_at_its_limit", 14, None, 14, None),
+            ("no_default_up_to_the_pipeline_cap", None, None, 400, None),
+            ("no_default_past_the_pipeline_cap", None, None, 401, ("history_days", 400)),
+            ("plan_over_the_default", 14, [{"key": "realtime_cohorts_history", "limit": 60}], 60, None),
+            ("past_the_plan", 14, [{"key": "realtime_cohorts_history", "limit": 60}], 61, ("history_days", 60)),
             (
-                "plan_above_the_pipeline_cap",
-                [{"key": "realtime_cohorts_history", "limit": 500}],
+                "plan_without_a_limit_past_the_pipeline_cap",
+                14,
+                [{"key": "realtime_cohorts_history", "limit": None}],
                 401,
                 ("history_days", 400),
             ),
             (
-                "no_limit_past_the_pipeline_cap",
-                [{"key": "realtime_cohorts_history", "limit": None}],
+                "plan_above_the_pipeline_cap",
+                14,
+                [{"key": "realtime_cohorts_history", "limit": 500}],
                 401,
                 ("history_days", 400),
             ),
         ]
     )
     def test_a_turn_on_is_refused_when_the_criteria_look_back_further_than_the_plan_allows(
-        self, _name: str, features: list[dict] | None, days: int, refusal: tuple[str, int] | None
+        self,
+        _name: str,
+        default: int | None,
+        features: list[dict] | None,
+        days: int,
+        refusal: tuple[str, int] | None,
     ) -> None:
         self._plan(features)
         nested = self._cohort({**PAGEVIEW_LEAF, "time_value": days})
         cohort = self._cohort(PERSON_LEAF, {"type": "cohort", "key": "id", "value": nested.id})
 
         try:
-            self._turn_on(cohort)
+            with self.settings(REALTIME_COHORT_DEFAULT_MAX_HISTORY_DAYS=default):
+                self._turn_on(cohort)
             outcome = None
         except RealtimeLimitReached as error:
             outcome = (error.limit, error.allowed)

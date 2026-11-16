@@ -9024,6 +9024,7 @@ _REALTIME_PERSON_LEAF = {
 }
 
 
+@override_settings(REALTIME_COHORT_DEFAULT_MAX_COHORTS=3, REALTIME_COHORT_DEFAULT_MAX_HISTORY_DAYS=14)
 class TestCohortRealtimeSwitch(APIBaseTest):
     def setUp(self) -> None:
         super().setUp()
@@ -9172,8 +9173,8 @@ class TestCohortRealtimeSwitch(APIBaseTest):
         [
             ("realtime_criteria", "performed_event", 0, True),
             ("daily_criteria", "performed_event_first_time", 0, False),
-            # The Free plan's slots are taken, so the cohort is saved with realtime off.
-            ("no_slot_left", "performed_event", 10, False),
+            # Every slot of the default limit is taken, so the cohort is saved with realtime off.
+            ("no_slot_left", "performed_event", 3, False),
         ]
     )
     @patch("posthog.api.cohort.report_user_action")
@@ -9205,7 +9206,7 @@ class TestCohortRealtimeSwitch(APIBaseTest):
         assert response.json()["realtime_enabled"] is turned_on
         assert Cohort.objects.get(id=response.json()["id"]).realtime_enabled is turned_on
         assert self._limit_events(report_user_action) == (
-            [{"limit": "cohorts", "allowed": 10, "used": 10, "source": "create"}] if already_on else []
+            [{"limit": "cohorts", "allowed": 3, "used": 3, "source": "create"}] if already_on else []
         )
 
     @parameterized.expand(
@@ -9252,11 +9253,11 @@ class TestCohortRealtimeSwitch(APIBaseTest):
             ("included_cohort_not_editable", "realtime_refused", None),
             # A load-test team runs the pipeline, but its users must not turn realtime on.
             ("team_processing", "realtime_unavailable", None),
-            # The cohort and the one it includes need a slot each, and the Free plan has one left.
+            # The cohort and the one it includes need a slot each, and the default limit leaves one.
             (
                 "one_slot_left_for_two_cohorts",
                 "realtime_limit_reached",
-                {"limit": "cohorts", "allowed": 10, "used": 9, "source": "switch"},
+                {"limit": "cohorts", "allowed": 3, "used": 2, "source": "switch"},
             ),
         ]
     )
@@ -9271,7 +9272,7 @@ class TestCohortRealtimeSwitch(APIBaseTest):
         elif name == "included_cohort_not_editable":
             self._restrict(included, "viewer")
         else:
-            for _ in range(9):
+            for _ in range(2):
                 self._cohort(_REALTIME_PAGEVIEW_LEAF, enabled=True)
         enabled = Cohort.objects.filter(team=self.team, realtime_enabled_at__isnull=False)
         enabled_before = set(enabled.values_list("id", flat=True))
@@ -9284,12 +9285,12 @@ class TestCohortRealtimeSwitch(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("window_past_the_plan", {"limit": "history_days", "allowed": 30, "used": None, "source": "edit"}),
+            ("window_past_the_plan", {"limit": "history_days", "allowed": 14, "used": None, "source": "edit"}),
             # The editor resends unchanged criteria with every save, and a date is not judged again as it ages.
             ("rename_of_a_cohort_whose_start_date_aged_past_the_plan", None),
             (
                 "includes_a_cohort_that_is_off_with_no_slot_left",
-                {"limit": "cohorts", "allowed": 10, "used": 10, "source": "edit"},
+                {"limit": "cohorts", "allowed": 3, "used": 3, "source": "edit"},
             ),
             ("window_past_the_plan_of_a_cohort_that_is_off", None),
             # Migration 0023 turned on the cohorts of teams whose users don't see realtime cohorts.
@@ -9311,11 +9312,11 @@ class TestCohortRealtimeSwitch(APIBaseTest):
         if name.endswith("outside_the_realtime_gate"):
             RealtimeCohortTeamAccess.objects.filter(team=self.team).update(level=RealtimeCohortLevel.PROCESSING)
         if name.startswith("window_past_the_plan"):
-            edited = criteria({**leaf, "time_value": 31})
+            edited = criteria({**leaf, "time_value": 15})
         elif name.startswith("rename"):
             edited = criteria(aged)
         else:
-            for _ in range(9):
+            for _ in range(2):
                 self._cohort(_REALTIME_PAGEVIEW_LEAF, enabled=True)
             off = self._cohort(_REALTIME_PAGEVIEW_LEAF)
             edited = criteria(leaf, {"type": "cohort", "key": "id", "value": off.id})
@@ -9355,6 +9356,6 @@ class TestCohortRealtimeSwitch(APIBaseTest):
         not_served = self.client.get(f"/api/projects/{self.team.id}/").json()["realtime_cohorts"]
 
         assert (served, not_served) == (
-            {"access": "serving", "cohorts_used": 1, "max_cohorts": 10, "max_history_days": 30},
+            {"access": "serving", "cohorts_used": 1, "max_cohorts": 3, "max_history_days": 14},
             {"access": "off", "cohorts_used": None, "max_cohorts": None, "max_history_days": None},
         )

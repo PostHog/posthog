@@ -53,7 +53,7 @@ def filters(*leaves: dict) -> dict:
     return {"properties": {"type": "AND", "values": list(leaves)}}
 
 
-@override_settings(REALTIME_COHORT_TEAM_ALLOWLIST="all")
+@override_settings(REALTIME_COHORT_TEAM_ALLOWLIST="all", REALTIME_COHORT_DEFAULT_MAX_HISTORY_DAYS=14)
 class TestRealtimeReadiness(BaseTest):
     def _cohort(self, **kwargs) -> Cohort:
         defaults = {
@@ -419,18 +419,18 @@ class TestRealtimeReadiness(BaseTest):
                     "realtime_enabled_at": None,
                     "filters": filters({**BEHAVIORAL_LEAF, "time_value": 2, "time_interval": "year"}),
                 },
-                (CohortRealtimeState.DAILY, CohortRealtimeUnavailableReason.HISTORY_OVER_LIMIT, 30),
+                (CohortRealtimeState.DAILY, CohortRealtimeUnavailableReason.HISTORY_OVER_LIMIT, 14),
             ),
             (
                 "realtime_off_past_the_plan",
-                {"realtime_enabled_at": None, "filters": filters({**BEHAVIORAL_LEAF, "time_value": 31})},
-                (CohortRealtimeState.OFF, CohortRealtimeUnavailableReason.HISTORY_OVER_LIMIT, 30),
+                {"realtime_enabled_at": None, "filters": filters({**BEHAVIORAL_LEAF, "time_value": 15})},
+                (CohortRealtimeState.OFF, CohortRealtimeUnavailableReason.HISTORY_OVER_LIMIT, 14),
             ),
             (
-                "realtime_off_within_a_paid_plan",
-                {"realtime_enabled_at": None, "filters": filters({**BEHAVIORAL_LEAF, "time_value": 31})},
+                "realtime_off_within_its_plan",
+                {"realtime_enabled_at": None, "filters": filters({**BEHAVIORAL_LEAF, "time_value": 15})},
                 (CohortRealtimeState.OFF, None, None),
-                365,
+                60,
             ),
             # Neither kind of criteria decides anything: the realtime evaluator has no leaf to key
             # membership on, and the flag API does not gate on a cohort reference either.
