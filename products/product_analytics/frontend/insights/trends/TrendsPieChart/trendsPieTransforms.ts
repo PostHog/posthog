@@ -6,6 +6,7 @@ import type { InsightQueryNode } from '~/queries/schema/schema-general'
 
 import type { IndexedTrendResult } from 'products/product_analytics/frontend/insights/trends/types'
 
+import { compareLegendTag } from '../shared/compareDimming'
 import { humanizeSeriesLabel } from '../shared/humanizeSeriesLabel'
 import type { TrendsSeriesMeta } from '../shared/trendsSeriesMeta'
 
@@ -37,6 +38,7 @@ export function buildTrendsPieSeries<R extends IndexedTrendResult>(
             // back to the source IndexedTrendResult without stashing it on meta.
             key: String(r.id),
             label,
+            legendTag: compareLegendTag(r),
             // Pie consumes `data[0]` as the magnitude (`aggregated_value` is the only numeric
             // value Trends carries for pie). Wrapped in an array because `Series.data` is a list.
             data: [r.aggregated_value ?? 0],

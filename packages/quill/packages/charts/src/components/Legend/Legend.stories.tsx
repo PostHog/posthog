@@ -37,6 +37,19 @@ export const Horizontal: Story = {
     ),
 }
 
+export const WithTag: Story = {
+    render: () => (
+        <div className="w-[480px]">
+            <Legend
+                items={[
+                    { key: 'current', label: 'Pageviews', color: '#3b82f6' },
+                    { key: 'previous', label: 'Pageviews', color: '#93c5fd', tag: 'Previous' },
+                ]}
+            />
+        </div>
+    ),
+}
+
 export const Vertical: Story = {
     render: () => (
         <div className="w-[200px]">

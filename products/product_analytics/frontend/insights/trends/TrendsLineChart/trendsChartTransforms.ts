@@ -9,6 +9,7 @@ import type {
     TrendLineConfig,
 } from '@posthog/quill-charts'
 
+import { compareLegendTag } from '../shared/compareDimming'
 import { schemaGoalLinesToConfigs } from '../shared/goalLinesAdapter'
 import { humanizeSeriesLabel } from '../shared/humanizeSeriesLabel'
 import { computeMagnitudeAxisIds } from '../shared/magnitudeAxisIds'
@@ -70,6 +71,7 @@ export function buildMainTrendsSeries<R extends TrendsResultLike, M = unknown>(
     return {
         key: String(r.id),
         label: opts.getLabel ? opts.getLabel(r) : humanizeSeriesLabel(r.label),
+        legendTag: compareLegendTag(r),
         data: r.data,
         color: opts.getColor(r, index),
         yAxisId,

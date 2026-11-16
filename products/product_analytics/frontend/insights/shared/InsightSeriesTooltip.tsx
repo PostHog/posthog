@@ -181,8 +181,6 @@ export function SeriesLabel({
     const breakdownTitle = hasBreakdown
         ? getDatumTitle({ ...datum, compare_label: undefined }, breakdownFilter, formatCompareLabel)
         : null
-    // Not `datum.label`: a previous-period label carries the period, which this row shows on its own
-    const seriesName = (datum.series ? getResultSeriesName(datum.series) : null) ?? datum.series_name ?? datum.label
 
     const seriesPrefix =
         seriesIdentification !== 'none' ? (
@@ -191,7 +189,9 @@ export function SeriesLabel({
                 {/* The name is the same on every row, so it gives up space first — the breakdown
                     value is what tells the rows apart, and a long event name would otherwise
                     truncate it away. The letter and the separator stay put. */}
-                <span className="opacity-50 truncate min-w-0 shrink">{seriesName}</span>
+                <span className="opacity-50 truncate min-w-0 shrink">
+                    {(datum.series ? getResultSeriesName(datum.series) : null) ?? datum.series_name ?? datum.label}
+                </span>
                 <span className="opacity-50 shrink-0">&nbsp;·&nbsp;</span>
             </>
         ) : null
@@ -206,7 +206,7 @@ export function SeriesLabel({
         <span className="inline-flex items-center w-full overflow-hidden">
             <span className="inline-flex items-center min-w-0 flex-1 overflow-hidden">
                 {seriesPrefix}
-                <span className="truncate min-w-0 shrink-0 max-w-full">{breakdownTitle ?? seriesName}</span>
+                <span className="truncate min-w-0 shrink-0 max-w-full">{breakdownTitle ?? datum.label}</span>
             </span>
             {periodLabel && <span className="shrink-0 opacity-60 pl-2">{periodLabel}</span>}
         </span>
