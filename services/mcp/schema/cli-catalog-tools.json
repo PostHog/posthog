@@ -1793,6 +1793,11 @@
             "fallbacks": [],
             "query": [
                 {
+                    "param": "active_since_days",
+                    "key": "active_since_days",
+                    "csv": false
+                },
+                {
                     "param": "exclude_user_uuids",
                     "key": "exclude_user_uuids",
                     "csv": false
@@ -1808,6 +1813,31 @@
                     "csv": false
                 },
                 {
+                    "param": "mode",
+                    "key": "mode",
+                    "csv": false
+                },
+                {
+                    "param": "object_id",
+                    "key": "object_id",
+                    "csv": false
+                },
+                {
+                    "param": "object_relation",
+                    "key": "object_relation",
+                    "csv": false
+                },
+                {
+                    "param": "object_type",
+                    "key": "object_type",
+                    "csv": false
+                },
+                {
+                    "param": "offset",
+                    "key": "offset",
+                    "csv": false
+                },
+                {
                     "param": "product",
                     "key": "product",
                     "csv": false
@@ -1820,6 +1850,11 @@
                 {
                     "param": "search_mode",
                     "key": "search_mode",
+                    "csv": false
+                },
+                {
+                    "param": "user_uuids",
+                    "key": "user_uuids",
                     "csv": false
                 }
             ],
@@ -2728,6 +2763,87 @@
                 {
                     "param": "version",
                     "key": "version",
+                    "csv": false
+                }
+            ],
+            "body": null,
+            "injectBody": {},
+            "softDelete": null,
+            "transformBody": false
+        },
+        "response": {
+            "list": true,
+            "filter": null,
+            "stripNulls": false,
+            "enrich": {
+                "kind": "list",
+                "baseUrl": "/web/ai-visibility"
+            },
+            "agentNote": null,
+            "informational": null,
+            "textInclude": []
+        },
+        "input": {
+            "aliases": {},
+            "casts": {},
+            "validators": []
+        }
+    },
+    "aeo-prompts-citations-list": {
+        "name": "aeo-prompts-citations-list",
+        "kind": "http",
+        "requires": [],
+        "hooks": null,
+        "uiApp": null,
+        "request": {
+            "method": "GET",
+            "path": "/api/projects/{project_id}/aeo_prompts/citations/",
+            "pathParams": [],
+            "fallbacks": [],
+            "query": [
+                {
+                    "param": "branded",
+                    "key": "branded",
+                    "csv": false
+                },
+                {
+                    "param": "days",
+                    "key": "days",
+                    "csv": false
+                },
+                {
+                    "param": "domain",
+                    "key": "domain",
+                    "csv": false
+                },
+                {
+                    "param": "engine",
+                    "key": "engine",
+                    "csv": false
+                },
+                {
+                    "param": "include_answer_text",
+                    "key": "include_answer_text",
+                    "csv": false
+                },
+                {
+                    "param": "limit",
+                    "key": "limit",
+                    "csv": false
+                },
+                {
+                    "param": "offset",
+                    "key": "offset",
+                    "csv": false
+                },
+                {
+                    "param": "search",
+                    "key": "search",
+                    "csv": false
+                },
+                {
+                    "param": "url",
+                    "key": "url",
                     "csv": false
                 }
             ],
@@ -4454,8 +4570,23 @@
                     "csv": false
                 },
                 {
+                    "param": "offset",
+                    "key": "offset",
+                    "csv": false
+                },
+                {
                     "param": "only_flagged",
                     "key": "only_flagged",
+                    "csv": false
+                },
+                {
+                    "param": "order",
+                    "key": "order",
+                    "csv": false
+                },
+                {
+                    "param": "search",
+                    "key": "search",
                     "csv": false
                 }
             ],
@@ -6386,6 +6517,9 @@
                     "iteration_count",
                     "best_holdout_score",
                     "error",
+                    "task_id",
+                    "task_run_id",
+                    "task_url",
                     "started_at",
                     "completed_at",
                     "created_at"
@@ -7859,7 +7993,9 @@
                     "next_refresh_at",
                     "created_at",
                     "updated_at",
-                    "library_ids"
+                    "library_ids",
+                    "cited_run_count",
+                    "last_cited_at"
                 ],
                 "selectable": false
             },
@@ -15218,6 +15354,11 @@
                 {
                     "param": "offset",
                     "key": "offset",
+                    "csv": false
+                },
+                {
+                    "param": "search",
+                    "key": "search",
                     "csv": false
                 }
             ],
@@ -24701,6 +24842,11 @@
                 {
                     "param": "search",
                     "key": "search",
+                    "csv": false
+                },
+                {
+                    "param": "tags",
+                    "key": "tags",
                     "csv": false
                 },
                 {
@@ -56758,6 +56904,11 @@
                 {
                     "param": "offset",
                     "key": "offset",
+                    "csv": false
+                },
+                {
+                    "param": "reason",
+                    "key": "reason",
                     "csv": false
                 },
                 {

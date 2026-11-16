@@ -152,11 +152,14 @@ def actor_owns_claim(claim: ReportClaim, actor: ArtefactAttribution) -> bool:
 
 
 def actor_can_release_claim(claim: ReportClaim, actor: ArtefactAttribution) -> bool:
-    return actor_owns_claim(claim, actor) or (
-        actor.kind == "user"
-        and actor.user_id is not None
-        and claim.actor_kind == "agent"
-        and claim.actor_user_id == actor.user_id
+    if actor_owns_claim(claim, actor):
+        return True
+    if actor.user_id is None or claim.actor_user_id != actor.user_id:
+        return False
+    # A person can release their agent's claim, and their agent can release the person's own claim.
+    # One agent cannot release a claim that another agent of the same person holds.
+    return (actor.kind == "user" and claim.actor_kind == "agent") or (
+        actor.kind == "agent" and claim.actor_kind == "user"
     )
 
 
@@ -174,7 +177,7 @@ def is_claim_of_task_creator(claim: ReportClaim, task_id: str) -> bool:
 
 
 def actor_works_under_claim(claim: ReportClaim, actor: ArtefactAttribution) -> bool:
-    """Whether the actor can resume the claim and add work to it. Only the owner can release it.
+    """Whether the actor can resume the claim and add work to it. `actor_can_release_claim` decides who can release it.
 
     Requests reach this with a caller-supplied task id. A task inherits its creator's direct claim, and an
     agent claim only when task creation already associated the task with it, which is a server-side fact.

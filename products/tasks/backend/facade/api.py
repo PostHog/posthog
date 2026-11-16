@@ -51,7 +51,10 @@ from django.utils.dateparse import parse_datetime
 from django.utils.http import content_disposition_header
 
 import posthoganalytics
-from rest_framework.exceptions import ValidationError
+from rest_framework.exceptions import (
+    PermissionDenied as ApiPermissionDenied,
+    ValidationError,
+)
 
 from posthog.api.tagged_item import replace_tags_on_object
 from posthog.clickhouse.query_tagging import tag_queries
@@ -59,14 +62,15 @@ from posthog.dataclasses import frozen
 from posthog.event_usage import groups
 from posthog.ingress.contracts import WebhookDelivery
 from posthog.integrations import IntegrationManager, IntegrationNotFound, IntegrationRecord
-from posthog.models import Team, User
+from posthog.models import OrganizationMembership, Team, User
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 from posthog.models.activity_logging.model_activity import get_was_impersonated
 from posthog.models.comment.comment import CANVAS_COMMENT_SCOPES
 from posthog.models.integration.codex import CodexAccessGrant, CodexAuthError, CodexReauthRequired, CodexUserIntegration
 from posthog.models.oauth import OAuthAccessToken, OAuthRefreshToken
-from posthog.scopes import scopes_not_covered
+from posthog.scopes.checks import scopes_not_covered
 from posthog.temporal.oauth import CONTEXT_LAYER_INTERNAL_SCOPE, resolve_scopes
+from posthog.user_permissions import UserPermissions
 from posthog.utils import absolute_uri
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
@@ -3002,6 +3006,18 @@ def _accessible_custom_images(team_id: int, user_id: int):
     )
 
 
+def _get_writable_custom_image(image_id: str | UUID, team_id: int, user_id: int) -> SandboxCustomImage | None:
+    image = _accessible_custom_images(team_id, user_id).filter(id=image_id).first()
+    if image is None or image.created_by_id == user_id:
+        return image
+    level = UserPermissions(
+        user=User.objects.get(id=user_id), team=Team.objects.get(id=team_id)
+    ).current_team.effective_membership_level
+    if level is None or level < OrganizationMembership.Level.ADMIN:
+        raise ApiPermissionDenied("Only the image's creator or a project admin can change a shared custom image.")
+    return image
+
+
 def _reload_image_dto(image_pk: UUID) -> contracts.SandboxCustomImageDTO:
     return _custom_image_to_dto(SandboxCustomImage.objects.select_related("created_by").get(pk=image_pk))
 
@@ -3065,7 +3081,7 @@ def ensure_sandbox_custom_image_builder_task(
     image_id: str | UUID, team_id: int, user_id: int
 ) -> contracts.SandboxCustomImageDTO | None:
     """Revive (or reuse) the image's builder session; new sessions are seeded with the stored spec."""
-    image = _accessible_custom_images(team_id, user_id).filter(id=image_id).first()
+    image = _get_writable_custom_image(image_id, team_id, user_id)
     if image is None:
         return None
     ensure_image_builder_task(image, user_id)
@@ -3078,7 +3094,8 @@ def build_sandbox_custom_image(
     """Persist the image spec and kick off the scan → build → publish workflow.
 
     The spec comes from ``spec_yaml`` when provided, otherwise it is read from the
-    builder task's live sandbox. Raises ``ValueError`` on an invalid or empty spec.
+    live sandbox of the caller's own builder task, falling back to the stored spec.
+    Raises ``ValueError`` on an invalid or empty spec.
     """
     from products.tasks.backend.logic.services.image_spec import (  # noqa: PLC0415
         SandboxImageSpecError,
@@ -3091,16 +3108,20 @@ def build_sandbox_custom_image(
     )
     from products.tasks.backend.temporal.client import execute_build_sandbox_image_workflow  # noqa: PLC0415
 
-    image = _accessible_custom_images(team_id, user_id).filter(id=image_id).first()
+    image = _get_writable_custom_image(image_id, team_id, user_id)
     if image is None:
         return None
     if image.status in (SandboxCustomImage.Status.SCANNING, SandboxCustomImage.Status.BUILDING):
         raise ValueError("A build is already in progress for this image")
 
     try:
-        spec = parse_image_spec_yaml(spec_yaml) if spec_yaml is not None else read_spec_from_builder_sandbox(image)
+        spec = (
+            parse_image_spec_yaml(spec_yaml)
+            if spec_yaml is not None
+            else read_spec_from_builder_sandbox(image, user_id)
+        )
     except SandboxImageSpecError as e:
-        # Builder sandbox gone → the stored spec is the only correct rebuild source.
+        # No builder sandbox of the caller's to read → the stored spec is the only correct rebuild source.
         if spec_yaml is None and image.spec:
             spec = parse_image_spec_json(image.spec)
         else:
@@ -3136,11 +3157,12 @@ def update_sandbox_custom_image(
     name: str | None = None,
     description: str | None = None,
 ) -> contracts.SandboxCustomImageDTO | None:
-    """Rename (and optionally re-describe) a visible custom image.
+    """Rename (and optionally re-describe) a custom image the caller can change.
 
     Only mutable metadata (`name`, `description`) is editable here — the build spec,
     status, and published image reference are managed by the build/scan flow. Returns
-    ``None`` when the image is not visible to the caller.
+    ``None`` when the image is not visible to the caller, and raises ``PermissionDenied``
+    when the caller can see it but cannot change it.
     """
     updates: dict[str, str] = {}
     if name is not None:
@@ -3150,6 +3172,8 @@ def update_sandbox_custom_image(
     if not updates:
         return get_sandbox_custom_image(image_id, team_id, user_id)
 
+    if _get_writable_custom_image(image_id, team_id, user_id) is None:
+        return None
     updated = (
         _accessible_custom_images(team_id, user_id)
         .filter(id=image_id)
@@ -3164,8 +3188,8 @@ def update_sandbox_custom_image(
 
 
 def delete_sandbox_custom_image(image_id: str | UUID, team_id: int, user_id: int) -> bool:
-    """Delete a visible custom image. Environments referencing it fall back to the default base (SET_NULL)."""
-    image = _accessible_custom_images(team_id, user_id).filter(id=image_id).first()
+    """Delete a custom image the caller can change. Environments referencing it fall back to the default base (SET_NULL)."""
+    image = _get_writable_custom_image(image_id, team_id, user_id)
     if image is None:
         return False
     image.delete()
@@ -3370,6 +3394,9 @@ _PROTECTED_RUN_STATE_KEYS = frozenset(
         "interaction_origin",
         "slack_actor_user_id",
         "slack_actor_slack_user_id",
+        # The Slack app edits and deletes this message without checking which thread it is in, so a
+        # forged ts would let a caller rewrite or remove any bot message in the channel.
+        "slack_progress_message_ts",
         # Names the autoresearch training run this TaskRun finalizes when it ends (training.ingestion).
         "autoresearch_training_run_id",
         # Set only when the agent's `finish` call saves its report. A forged marker would stop the

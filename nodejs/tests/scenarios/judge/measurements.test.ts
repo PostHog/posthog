@@ -14,6 +14,7 @@ import {
     MissedScrape,
     QueueSample,
     baselineOf,
+    janitorResetsOf,
     measure,
     phasesOf,
     sampleOf,
@@ -34,6 +35,8 @@ const sample = (atS: number, startedAtS: number, cpuSeconds: number, rssBytes = 
     processed: {},
     pgClientErrors: 0,
     consumerLoopErrors: 0,
+    janitorStalled: 0,
+    lateness: {},
 })
 
 const offered = (unitId: string, offeredAtMs: number): JournalEntry => ({
@@ -82,6 +85,16 @@ const VALVE: ValveTimelineEntry = {
     appliedAt: isoAt(700),
     observedAt: isoAt(700),
     releasedAt: isoAt(1100),
+}
+
+const FAILOVER: ValveTimelineEntry = {
+    ...VALVE,
+    valve: 'pg.failover',
+    target: 'cyclotron',
+    observations: [
+        { name: 'cluster_writer', at: isoAt(720) },
+        { name: 'first_probe_commit', at: isoAt(740) },
+    ],
 }
 
 const everySecondOf = (fromS: number, toS: number, step = 1): number[] =>
@@ -219,6 +232,8 @@ describe('measurements', () => {
                 processed: {},
                 pgClientErrors: 0,
                 consumerLoopErrors: 0,
+                janitorStalled: 0,
+                lateness: {},
             })
             expect(samples.at(-1)!.rssBytes).toBeGreaterThan(0)
             expect(host).toEqual<HostSample[]>([
@@ -306,9 +321,15 @@ describe('measurements', () => {
         }
     })
 
-    it.each<[string, string[], Pick<MetricSample, 'processed' | 'pgClientErrors' | 'consumerLoopErrors'>]>([
+    it.each<
         [
-            'a worker with Cyclotron claims on two queues and errors in two pools',
+            string,
+            string[],
+            Pick<MetricSample, 'processed' | 'pgClientErrors' | 'consumerLoopErrors' | 'janitorStalled' | 'lateness'>,
+        ]
+    >([
+        [
+            'a worker with Cyclotron claims on two queues, errors in two pools and pickups of both waits',
             [
                 'cdp_cyclotron_jobs_processed{queue="email",source="postgres-v2"} 7',
                 'cdp_cyclotron_jobs_processed{queue="hogflow",source="postgres-v2"} 3',
@@ -316,10 +337,26 @@ describe('measurements', () => {
                 'cdp_cyclotron_v2_pg_client_errors_total{pool="worker"} 2',
                 'cdp_cyclotron_v2_pg_client_errors_total{pool="janitor"} 1',
                 'cdp_cyclotron_v2_consumer_loop_errors_total{queue="email"} 4',
+                'cdp_cyclotron_v2_janitor_stalled 5',
+                'cdp_cyclotron_job_lateness_seconds_bucket{le="5",queue="email",wait="scheduled"} 6',
+                'cdp_cyclotron_job_lateness_seconds_bucket{le="+Inf",queue="email",wait="scheduled"} 7',
+                'cdp_cyclotron_job_lateness_seconds_bucket{le="5",queue="email",wait="deferred"} 1',
+                'cdp_cyclotron_job_lateness_seconds_bucket{le="+Inf",queue="email",wait="deferred"} 2',
+                'cdp_cyclotron_job_lateness_seconds_count{queue="email",wait="scheduled"} 7',
             ],
-            { processed: { email: 7, hogflow: 3 }, pgClientErrors: 3, consumerLoopErrors: 4 },
+            {
+                processed: { email: 7, hogflow: 3 },
+                pgClientErrors: 3,
+                consumerLoopErrors: 4,
+                janitorStalled: 5,
+                lateness: { email: { '5': 7, '+Inf': 9 } },
+            },
         ],
-        ['a role whose labelled counters never moved', [], { processed: {}, pgClientErrors: 0, consumerLoopErrors: 0 }],
+        [
+            'a role whose labelled counters never moved',
+            [],
+            { processed: {}, pgClientErrors: 0, consumerLoopErrors: 0, janitorStalled: 0, lateness: {} },
+        ],
     ])('samples the Cyclotron counters of %s', (_story, lines, counters) => {
         const text = [METRICS, '# HELP cdp_cyclotron_jobs_processed The number of jobs', ...lines].join('\n')
 
@@ -370,6 +407,27 @@ describe('measurements', () => {
             (second) => (second === 699 ? { failedAfterMs: 1500 } : second === 700 ? 'skipped' : false),
             [VALVE],
             [{ value: 1 }],
+        ],
+        [
+            'times each recovery stage the failover observed from its intent',
+            'seconds_to_cluster_writer',
+            () => false,
+            [FAILOVER],
+            [{ value: 20 }],
+        ],
+        [
+            'times the first probe commit on the promoted writer, not the first commit after a failure',
+            'seconds_to_first_probe_commit',
+            between(710, 714),
+            [FAILOVER],
+            [{ value: 40 }],
+        ],
+        [
+            'censors a recovery stage the failover never observed',
+            'seconds_to_sql_writer',
+            () => false,
+            [FAILOVER],
+            [{ value: null, censored: true }],
         ],
         [
             'reads no failure in the valve phase as no wait for a commit',
@@ -542,6 +600,31 @@ describe('measurements', () => {
         ])
     })
 
+    const janitor = (atS: number, startedAtS: number, janitorStalled: number, replica = 0): MetricSample => ({
+        ...sample(atS, startedAtS, 1, 100, replica),
+        role: 'cdp-cyclotron-v2-janitor',
+        janitorStalled,
+    })
+
+    it.each<[string, MetricSample[], number]>([
+        [
+            'sums the jobs each janitor replica reset across a restart, and ignores other roles',
+            [
+                janitor(0, -60, 4),
+                janitor(5, -60, 6),
+                janitor(10, 7, 1),
+                janitor(15, 7, 3),
+                janitor(0, -60, 0, 1),
+                janitor(15, -60, 2, 1),
+                { ...sample(15, -60, 1), janitorStalled: 9 },
+            ],
+            7,
+        ],
+        ['counts none without a janitor sample', [sample(0, -60, 1), sample(5, -60, 1)], 0],
+    ])('%s', (_story, samples, resets) => {
+        expect(janitorResetsOf({ samples, sampledFrom: FROM })).toBe(resets)
+    })
+
     it.each<[string, ValveTimelineEntry[], ReturnType<typeof phasesOf>]>([
         [
             'spans the valve phase from the earliest applied valve to the last release, whatever the timeline order',
@@ -563,6 +646,15 @@ describe('measurements', () => {
                 { ...VALVE, intentAt: isoAt(900) },
             ],
             { baseline: { from: atS(0), to: atS(700) }, valve: { from: atS(700), to: atS(1500) } },
+        ],
+        [
+            'starts the fail-back phase at the release intent, not when the fail-back was observed',
+            [{ ...FAILOVER, releaseIntentAt: isoAt(1000), releasedAt: isoAt(1040) }],
+            {
+                baseline: { from: atS(0), to: atS(700) },
+                valve: { from: atS(700), to: atS(1000) },
+                failback: { from: atS(1000), to: atS(1500) },
+            },
         ],
         [
             'reads the whole drive as baseline when no valve applied',

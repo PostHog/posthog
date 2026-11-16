@@ -87,10 +87,11 @@ export async function withTokenRefresh(
     const refreshToken = logic?.values.refreshToken
     const clientId = logic?.values.clientId
     const uiHost = logic?.values.uiHost
+    const project = logic?.values.project
 
     // `response?.status` (not `response.status`) so a non-Response value from a customer-page
     // `fetch` wrapper can't throw here — callers that don't route through `safeFetch` stay safe too.
-    if (response?.status !== 401 || !accessToken || !clientId || !uiHost) {
+    if (response?.status !== 401 || !accessToken || !clientId || !uiHost || !project) {
         return response
     }
 
@@ -119,7 +120,7 @@ export async function withTokenRefresh(
             toolbarConfigLogic.actions.tokenExpired()
             return response
         }
-        toolbarConfigLogic.actions.setOAuthTokens(access, refresh, clientId)
+        toolbarConfigLogic.actions.setOAuthTokens(access, refresh, clientId, project)
         try {
             return await retryRequest(access)
         } catch {

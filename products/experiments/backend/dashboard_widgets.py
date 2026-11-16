@@ -12,6 +12,7 @@ from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.dataclasses import frozen
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models.team import Team
+from posthog.models.user import User
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.experiments.backend.facade.contracts import ExperimentResultsWidgetMetric, ExperimentResultsWidgetMetrics
@@ -105,7 +106,7 @@ def _collect_metric_dicts(experiment: Experiment) -> _MetricDicts:
 
 
 def _compute_metric(
-    team: Team, experiment: Experiment, metric_dict: dict[str, Any], index: int
+    team: Team, experiment: Experiment, metric_dict: dict[str, Any], index: int, user: User | None
 ) -> ExperimentResultsWidgetMetric:
     uuid = metric_dict.get("uuid")
     name = metric_dict.get("name") or f"Metric {index + 1}"
@@ -118,11 +119,10 @@ def _compute_metric(
 
     try:
         metric = metric_builder.model_validate(metric_dict)
-        runner = ExperimentQueryRunner(
-            query=ExperimentQuery(experiment_id=experiment.id, metric=metric),
-            team=team,
-        )
-        response = runner.run(execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE)
+        # The runner checks the viewer's access to the metric's data sources before it serves a cached result.
+        # Without the user that check does not run and the team-shared cache answers for everyone.
+        runner = ExperimentQueryRunner(query=ExperimentQuery(experiment_id=experiment.id, metric=metric), team=team)
+        response = runner.run(execution_mode=ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE, user=user)
         result_dict = response.model_dump(mode="json")
         # Strip per-variant session payloads and debug SQL — the widget only renders the scorecard.
         for key in ("clickhouse_sql", "hogql", "insight", "query_status"):
@@ -141,16 +141,17 @@ def _compute_metric(
 
 
 def compute_metrics(
-    team: Team, experiment: Experiment, *, max_metrics_per_section: int
+    team: Team, experiment: Experiment, access: UserAccessControl | None, *, max_metrics_per_section: int
 ) -> ExperimentResultsWidgetMetrics:
     metric_dicts = _collect_metric_dicts(experiment)
+    user = access.user if access is not None else None
     with tags_context(product=Product.EXPERIMENTS, feature=Feature.QUERY, team_id=team.pk):
         primary = tuple(
-            _compute_metric(team, experiment, metric_dict, index)
+            _compute_metric(team, experiment, metric_dict, index, user)
             for index, metric_dict in enumerate(metric_dicts.primary[:max_metrics_per_section])
         )
         secondary = tuple(
-            _compute_metric(team, experiment, metric_dict, index)
+            _compute_metric(team, experiment, metric_dict, index, user)
             for index, metric_dict in enumerate(metric_dicts.secondary[:max_metrics_per_section])
         )
     return ExperimentResultsWidgetMetrics(

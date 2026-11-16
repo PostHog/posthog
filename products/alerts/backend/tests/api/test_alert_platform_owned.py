@@ -1241,13 +1241,24 @@ class TestPlatformOwnedInsightAlertWrites(APIBaseTest):
         else:
             assert due_after == due_before
 
-    @parameterized.expand([("a_team_on_the_platform", True), ("a_team_off_the_platform", False)])
-    def test_a_new_alert_is_handed_over_only_in_a_team_on_the_platform(self, _name: str, begun: bool) -> None:
+    @parameterized.expand(
+        [
+            ("a_team_on_the_platform", "platform", "platform"),
+            ("a_team_off_the_platform", "source", "source"),
+            ("a_team_with_no_other_alert", None, "platform"),
+        ]
+    )
+    def test_a_new_alert_follows_its_team_and_starts_on_the_platform_in_a_team_without_alerts(
+        self, _name: str, team_owner: str | None, expected_owner: str
+    ) -> None:
         team_cutover_at = self.now - timedelta(days=4)
-        AlertConfiguration.objects.filter(id=self.alert.id).update(
-            owner="platform" if begun else "source", owner_changed_at=team_cutover_at
-        )
         insight = create_insight_alert(self.team).insight
+        if team_owner is None:
+            AlertConfiguration.objects.filter(team_id=self.team.id).delete()
+        else:
+            AlertConfiguration.objects.filter(team_id=self.team.id).update(
+                owner=team_owner, owner_changed_at=team_cutover_at
+            )
 
         response = self.client.post(
             f"{self.url}",
@@ -1265,8 +1276,8 @@ class TestPlatformOwnedInsightAlertWrites(APIBaseTest):
 
         assert response.status_code == status.HTTP_201_CREATED, response.json()
         created = AlertConfiguration.objects.get(id=response.json()["id"])
-        assert created.owner == ("platform" if begun else "source")
-        if begun:
+        assert created.owner == expected_owner
+        if team_owner == "platform":
             # The insight stack shadows the new alert only for what is left of the team's week.
             assert created.owner_changed_at == team_cutover_at
 

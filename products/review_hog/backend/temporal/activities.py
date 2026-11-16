@@ -1588,6 +1588,14 @@ def _changed_since_head(
     return ChangedSinceReview.between(earlier.pr_files, current_files)
 
 
+def _changed_code_only(input: SandboxStageInput) -> bool:
+    """Whether a follow-up finding below must-fix posts only on changed code, not only a P3.
+
+    Requested reviews and the first review still look at code the push did not change.
+    """
+    return input.trigger_source == TRIGGER_AUTOMATIC and input.run_index > FLASH_WHOLE_PR_TURNS
+
+
 def _prepare_single_agent_prompt(input: SandboxStageInput, chunk_id: int, for_lens: bool, guidelines: str) -> str:
     """The prompt of the main session, of one lens session on lens part `chunk_id`, or of the devex lens session."""
     snapshot = load_pr_snapshot(
@@ -1609,12 +1617,22 @@ def _prepare_single_agent_prompt(input: SandboxStageInput, chunk_id: int, for_le
         if not 1 <= chunk_id <= len(chunks):
             raise ApplicationError(f"Lens part {chunk_id} is not in the plan of {len(chunks)}", non_retryable=True)
         scope_files = chunks[chunk_id - 1]
+    changed_code_only = _changed_code_only(input)
+    # The dedup stage drops a follow-up finding on code that did not change since the last review, so the
+    # sessions see which lines changed and spend no output on findings that would drop.
+    changed_since_review = (
+        _changed_since_last_review(input.team_id, input.report_id, input.head_sha, snapshot.pr_files)
+        if change is None and input.run_index > 1
+        else None
+    )
     return SingleAgentPrompt(
         repository=input.repository,
         pr_metadata=snapshot.pr_metadata,
         merge_base_sha=snapshot.merge_base_sha,
         pr_files=delta_files(snapshot.pr_files, change) if change is not None else snapshot.pr_files,
         delta_since=input.delta_since_head_sha if change is not None else None,
+        changed_since_review=changed_since_review,
+        changed_code_only=changed_code_only,
         prior_findings=load_prior_findings(
             team_id=input.team_id, report_id=input.report_id, before_run_index=input.run_index
         ),
@@ -2006,8 +2024,7 @@ async def dedup_activity(input: SandboxStageInput) -> DedupResult:
                 fall_back_on_any_error=_is_final_attempt(),
                 changed_since=changed_since,
                 budget_left=budget_left,
-                # Requested reviews and the first review still look at code the push did not change.
-                changed_code_only=input.trigger_source == TRIGGER_AUTOMATIC and input.run_index > FLASH_WHOLE_PR_TURNS,
+                changed_code_only=_changed_code_only(input),
                 first_review=input.run_index == 1,
             )
             survivors = flash_selection.kept
