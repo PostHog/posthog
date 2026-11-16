@@ -42,6 +42,9 @@ const seriesOf = (name: string, values: number[]) => ({
     points: values.map((value, index) => ({ at: 1_700_000_000_000 + index * 5000, value })),
 })
 
+const paddedPastTheLimit = (runId: string): Buffer =>
+    Buffer.from(JSON.stringify({ scorecard: scorecardFixture(runId) }) + ' '.repeat(33 * 1024 * 1024))
+
 const withoutStatus = (runId: string): Record<string, unknown> => {
     const { status: _status, ...scorecard } = scorecardFixture(runId)
     return scorecard
@@ -221,13 +224,13 @@ describe('run store', () => {
         ],
         [
             'a gzipped body that unpacks past the size limit',
-            () => ({
-                body: gzipSync(Buffer.alloc(33 * 1024 * 1024, ' ')),
+            (runId) => ({
+                body: gzipSync(paddedPastTheLimit(runId)),
                 headers: { ...AUTHORIZED, 'Content-Encoding': 'gzip' },
             }),
             413,
         ],
-        ['a body past the size limit', () => ({ body: Buffer.alloc(33 * 1024 * 1024, ' '), headers: AUTHORIZED }), 413],
+        ['a body past the size limit', (runId) => ({ body: paddedPastTheLimit(runId), headers: AUTHORIZED }), 413],
     ])('refuses a report with %s and stores nothing', async (_, reportOf, status) => {
         const runId = randomUUID()
         const { body, headers } = reportOf(runId)
@@ -320,6 +323,31 @@ describe('run store', () => {
             new Set([single, shared])
         )
         expect((await read(`${RUNS_PATH}/${none}`)).body).toMatchObject({ adapters: [], owners: [] })
+    })
+
+    it('refuses a streamed body past the size limit that names no length, and stores nothing', async () => {
+        const runId = randomUUID()
+        const { hostname, port } = new URL(store.url)
+        const status = await new Promise<number>((resolve, reject) => {
+            let answered = false
+            const request = httpRequest({
+                hostname,
+                port,
+                method: 'POST',
+                path: INGEST_PATH,
+                headers: { ...AUTHORIZED, 'Content-Type': 'application/json', 'Transfer-Encoding': 'chunked' },
+            })
+            request.on('response', (response) => {
+                answered = true
+                response.resume()
+                resolve(response.statusCode ?? 0)
+            })
+            request.on('error', (error) => (answered ? undefined : reject(error)))
+            request.end(paddedPastTheLimit(runId))
+        })
+
+        expect(status).toBe(413)
+        expect(await read(`${RUNS_PATH}/${runId}`)).toMatchObject({ status: 404 })
     })
 
     it('finishes a report already in flight when it closes, even when told to close twice', async () => {
