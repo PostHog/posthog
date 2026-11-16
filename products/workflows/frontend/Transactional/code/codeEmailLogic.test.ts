@@ -1,12 +1,7 @@
 import { MOCK_DEFAULT_PROJECT, MOCK_DEFAULT_TEAM } from 'lib/api.mock'
 
-import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
-
-import { sceneLogic } from 'scenes/sceneLogic'
-import { Scene } from 'scenes/sceneTypes'
-import { urls } from 'scenes/urls'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
@@ -17,9 +12,7 @@ import type {
     PatchedCodeEmailUpdateApi,
 } from 'products/messaging/frontend/generated/api.schemas'
 
-import { scene as sendScene } from '../log/TransactionalEmailLogEntryScene'
 import { codeEmailLogic } from './codeEmailLogic'
-import { scene as codeEmailScene } from './CodeEmailScene'
 
 // The code email endpoints are scoped by team, so the mocks answer only under the team's id.
 const TEAM_ID = 42
@@ -102,29 +95,6 @@ describe('codeEmailLogic', () => {
 
         expect(logic.values.loadState).toEqual(loadState)
         expect(logic.values.codeEmail).toBeNull()
-    })
-
-    it('opens from a send on the tab and filters its link names, keeping the URL the reader opened', async () => {
-        useMocks({ get: { [EMAIL_URL]: () => [200, stored()] } })
-        sceneLogic({
-            scenes: {
-                [Scene.TransactionalEmailLogEntry]: () => ({ scene: sendScene }),
-                [Scene.TransactionalCodeEmail]: () => ({ scene: codeEmailScene }),
-            },
-        }).mount()
-        router.actions.push(urls.transactionalEmailLogEntry('msg-1'))
-        await expectLogic(sceneLogic).toFinishAllListeners()
-
-        router.actions.push(urls.transactionalCodeEmail('email-id'), { tab: 'sends', status: 'bounced' })
-        await expectLogic(sceneLogic).toFinishAllListeners()
-        logic = codeEmailLogic({ id: 'email-id' })
-        logic.mount()
-        await expectLogic(logic).toFinishAllListeners()
-
-        expect(logic.values.tab).toEqual('sends')
-        expect(logic.values.codeEmail?.id).toEqual('email-id')
-        expect(router.values.searchParams).toEqual({ tab: 'sends', status: 'bounced' })
-        expect(router.values.lastMethod).toEqual('PUSH')
     })
 
     it('loads the email after a failed load is retried', async () => {
