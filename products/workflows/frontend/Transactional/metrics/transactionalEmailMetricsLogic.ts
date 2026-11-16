@@ -132,7 +132,7 @@ export interface transactionalEmailMetricsLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         templateStatsLinks: (
             templateStats: TransactionalEmailStatsRowApi[] | null,
-            featureFlags: any
+            featureFlags: FeatureFlagsSet
         ) => Record<string, string | null>
         canLoadResults: (resultsQuery: ResultsQuery) => boolean
     }
