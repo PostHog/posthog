@@ -1736,7 +1736,7 @@ export interface HogQLQueryModifiersApi {
     optimizeProjections?: boolean | null
     /** HogQL parser backend; absent → `rust_py_with_cpp_shadow` (rust-py is primary, cpp runs as a sampled shadow). `*_shadow` modes return the primary result and sample-compare against the other parser, reporting divergences without failing the request. The `rust_py_*` modes drive the same hand-rolled Rust parser as `rust_*` but build `posthog.hogql.ast` dataclass instances directly via PyO3, skipping the JSON round-trip. */
     parserMode?: ParserModeApi | null
-    /** Push an `id IN (SELECT person_id FROM <left table> WHERE …)` predicate into the joined persons subquery, so the latest-version lookup only reads persons that the outer query's left-table filters can reach. Applies only to a persons join from the query's own FROM table. */
+    /** Push an `id IN (SELECT person_id FROM <left table> WHERE …)` predicate into the joined persons subquery, so the latest-version lookup only reads persons that the outer query's left-table filters can reach. Applies only to a persons join from the query's own FROM table. Unset, it applies to a persons join from `posthog.flag_evaluations` or from the union of events and flag_evaluations, and to no other join. */
     personIdPushdown?: boolean | null
     personsArgMaxVersion?: PersonsArgMaxVersionApi | null
     personsJoinMode?: PersonsJoinModeApi | null
@@ -2087,6 +2087,29 @@ export interface AccountPersonsQueryRequestApi {
     /** Read cached results or calculate synchronously. */
     refresh?: AccountPersonsQueryRequestApiRefresh
     variables_override?: AccountPersonsQueryRequestApiVariablesOverride
+}
+
+export interface AccountPersonMembershipsRequestApi {
+    /**
+     * Loaded person IDs to enrich, up to 500.
+     * @minItems 1
+     * @maxItems 500
+     */
+    person_ids: string[]
+}
+
+export interface PersonAccountApi {
+    /** Accessible account ID. */
+    id: string
+    /** Account display name. */
+    name: string
+}
+
+export interface AccountPersonMembershipsApi {
+    /** Current person ID from the requested account. */
+    person_id: string
+    /** Accessible accounts this person belongs to. */
+    accounts: PersonAccountApi[]
 }
 
 /**

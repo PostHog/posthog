@@ -691,6 +691,10 @@ class StaffSchemaSummary:
     supports_scheduled_sync: bool
     partitioning: StaffSchemaPartitioning
     available_columns: tuple[str, ...] | None
+    should_sync: bool
+    deleted: bool
+    # When PostHog stopped syncing the schema itself. None while it syncs, or when the user turned it off.
+    auto_disabled_at: datetime | None
 
 
 @frozen
@@ -761,6 +765,86 @@ class RepartitionRequest:
 class StaffActionResult:
     ok: bool
     message: str
+
+
+@frozen
+class AutoDisabledSchemaFilter:
+    """Schemas PostHog stopped syncing in the last `days` days, narrowed by the optional fields."""
+
+    days: int
+    source_type: str | None = None
+    # A case-insensitive substring of the schema's latest error.
+    error: str | None = None
+    team_id: int | None = None
+
+
+@frozen
+class AutoDisabledSchemaRow:
+    id: UUID
+    name: str
+    team_id: int
+    source_id: UUID
+    source_type: str
+    auto_disabled_at: datetime
+    latest_error: str | None
+
+
+@frozen
+class AutoDisabledErrorGroup:
+    """Auto-disabled schemas of one source type whose errors start the same way."""
+
+    source_type: str
+    # The start of the error that the group shares. It is also a substring that finds every schema of the group.
+    # Empty when the schemas have no error recorded.
+    error: str
+    count: int
+    newest_at: datetime
+    oldest_at: datetime
+
+
+@frozen
+class AutoDisabledSchemasSummary:
+    total: int
+    team_count: int
+    source_count: int
+    groups: tuple[AutoDisabledErrorGroup, ...]
+    # How many of the newest schemas the groups cover. Less than `total` when there were too many to group.
+    grouped_count: int
+
+
+@frozen
+class AutoDisabledSchemasPage:
+    rows: tuple[AutoDisabledSchemaRow, ...]
+    number: int
+    num_pages: int
+    count: int
+
+
+@frozen
+class AutoDisabledSchemaSelection:
+    """The newest matching schemas, up to the cap of one run, and how many match in total."""
+
+    rows: tuple[AutoDisabledSchemaRow, ...]
+    total: int
+
+
+@frozen
+class SchemaReenableTarget:
+    """A schema to turn syncing on for, with the stop time staff saw. A schema with a different stop time is skipped."""
+
+    schema_id: UUID
+    team_id: int
+    auto_disabled_at: datetime | None
+
+
+@frozen
+class SchemaReenableResult:
+    reenabled: tuple[UUID, ...]
+    # Turned on, deleted, or stopped again since staff saw them.
+    skipped: tuple[UUID, ...]
+    failed: tuple[UUID, ...]
+    # Not started because the run reached its time budget. They are unchanged.
+    not_attempted: tuple[UUID, ...] = ()
 
 
 @dataclass(frozen=True)

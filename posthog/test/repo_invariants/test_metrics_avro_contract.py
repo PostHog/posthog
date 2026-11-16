@@ -11,6 +11,9 @@ AVRO_SCHEMA_RS = REPO_ROOT / "rust/capture-logs/src/metrics_avro_schema.rs"
 KAFKA_TABLE_HCL = REPO_ROOT / "posthog/clickhouse/hcl/roles/apm/shared/metrics4.hcl"
 KAFKA_TABLE = "kafka_metrics_avro4"
 
+# Metrics ingestion reads these fields, and ClickHouse skips them because its Avro input skips undeclared fields.
+INGESTION_ONLY_FIELDS = {"start_timestamp"}
+
 # The ClickHouse column types that read each Avro type correctly.
 AVRO_TO_CLICKHOUSE: dict[str, set[str]] = {
     "string": {"String"},
@@ -66,7 +69,16 @@ def _strip_nullable(column_type: str) -> str:
 
 
 def contract_errors(fields: dict[str, str], columns: dict[str, str]) -> list[str]:
-    errors = [f"Avro field {name!r} has no column in {KAFKA_TABLE}" for name in sorted(fields.keys() - columns.keys())]
+    unmatched = fields.keys() - columns.keys() - INGESTION_ONLY_FIELDS
+    errors = [f"Avro field {name!r} has no column in {KAFKA_TABLE}" for name in sorted(unmatched)]
+    errors += [
+        f"Ingestion-only field {name!r} is not in the Avro schema"
+        for name in sorted(INGESTION_ONLY_FIELDS - fields.keys())
+    ]
+    errors += [
+        f"Ingestion-only field {name!r} has a column in {KAFKA_TABLE}"
+        for name in sorted(INGESTION_ONLY_FIELDS & columns.keys())
+    ]
     errors += [f"{KAFKA_TABLE} column {name!r} has no Avro field" for name in sorted(columns.keys() - fields.keys())]
     for name in sorted(fields.keys() & columns.keys()):
         allowed = AVRO_TO_CLICKHOUSE.get(fields[name], set())

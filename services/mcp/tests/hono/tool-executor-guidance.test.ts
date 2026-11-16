@@ -18,7 +18,12 @@ vi.mock('@/lib/posthog', async () => {
 })
 
 import { GuidanceEngine } from '@/hono/guidance/engine'
-import { MCP_GUIDANCE_REPLAY_VISION_FLAG, MCP_GUIDANCE_SQL_SCHEMA_FLAG, type GuidanceRule } from '@/hono/guidance/rules'
+import {
+    MCP_GUIDANCE_REPLAY_VISION_FLAG,
+    MCP_GUIDANCE_SELF_DRIVING_ACTIVATION_FLAG,
+    MCP_GUIDANCE_SQL_SCHEMA_FLAG,
+    type GuidanceRule,
+} from '@/hono/guidance/rules'
 import { InstructionsBuilder } from '@/hono/instructions'
 import { ToolCatalog } from '@/hono/tool-catalog'
 import { ToolExecutor } from '@/hono/tool-executor'
@@ -200,4 +205,97 @@ describe('ToolExecutor guidance notices', () => {
 
         expect(result.content[0]?.text).toContain('The result is empty.')
     })
+
+    it.each([
+        ['query-error-tracking-issue', 'direct', false, false],
+        ['query-error-tracking-issue', 'exec', false, false],
+        ['query-error-tracking-issue', 'exec', true, false],
+        ['query-error-tracking-issue', 'direct', false, true],
+        ['query-error-tracking-issue', 'exec', true, true],
+        ['query-error-tracking-issues-list', 'direct', false, false],
+        ['query-error-tracking-issues-list', 'exec', false, false],
+        ['query-error-tracking-issues-list', 'exec', true, false],
+        ['query-error-tracking-issues-list', 'direct', false, true],
+        ['query-error-tracking-issues-list', 'exec', true, true],
+    ] as const)(
+        'preserves %s results in %s with activation guidance (json=%s, readiness failure=%s)',
+        async (toolName, mode, json, fails) => {
+            const issueId = '019a0000-0000-7000-8000-000000000001'
+            const isList = toolName === 'query-error-tracking-issues-list'
+            const args = isList ? {} : { issueId }
+            const result = isList ? [{ id: issueId }] : { id: issueId }
+            const issue = {
+                ...makeTool(toolName, () => result),
+                schema: isList ? z.object({}) : z.object({ issueId: z.uuid() }),
+            }
+            const tools = [
+                issue,
+                ...[
+                    'self-driving-status-get',
+                    'inbox-reports-list',
+                    'inbox-reports-retrieve',
+                    'inbox-report-artefacts-list',
+                ].map((name) => makeTool(name, () => ({}))),
+            ]
+            vi.spyOn(catalog, 'getToolByName').mockImplementation((name) => {
+                const tool = tools.find((candidate) => candidate.name === name)
+                return tool
+                    ? { build: () => tool, meta: undefined, rawInputSchema: undefined, definition: undefined }
+                    : undefined
+            })
+            const executor = new ToolExecutor(
+                catalog,
+                new InstructionsBuilder(''),
+                undefined,
+                new GuidanceEngine(makeGuidanceRedis())
+            )
+            const state = makeToolExecutorState(tools, {
+                useSingleExec: mode === 'exec',
+                suppressAnalytics: false,
+                aiConsentGiven: true,
+                toolFeatureFlags: { [MCP_GUIDANCE_SELF_DRIVING_ACTIVATION_FLAG]: true },
+            })
+            const readiness = vi.fn().mockResolvedValue({ completed_at: null, draft: null })
+            if (fails) {
+                vi.spyOn(console, 'warn').mockImplementation(() => {})
+                readiness.mockRejectedValue(new Error('readiness unavailable'))
+            }
+            state.context.api.request = readiness
+            state.context.api.getProjectBaseUrl = vi.fn().mockReturnValue('https://example.com/project/2')
+            state.context.stateManager.getProjectId = vi.fn().mockResolvedValue('2')
+            const capture = vi.spyOn(getPostHogClient(), 'captureToolCall').mockImplementation(() => {})
+            const params = {
+                name: mode === 'exec' ? 'exec' : issue.name,
+                arguments:
+                    mode === 'exec'
+                        ? { command: `call ${json ? '--json ' : ''}${issue.name} ${JSON.stringify(args)}` }
+                        : args,
+            }
+            const first = (await executor.handleToolCall(params, state)) as SqlResult
+            const second = (await executor.handleToolCall(params, state)) as SqlResult
+            await new Promise((resolve) => setImmediate(resolve))
+
+            if (fails) {
+                expect(first.isError).not.toBe(true)
+                expect(first.content).toEqual(second.content)
+                expect(
+                    first.content.some((item) => item.text?.includes('[Connect GitHub and activate Self-driving]'))
+                ).toBe(false)
+                expect(capture.mock.calls[0]?.[0].properties?.mcp_guidance_rule).toBeUndefined()
+                return
+            }
+            expect(first.content[json ? 1 : 0]?.text).toContain('[Connect GitHub and activate Self-driving]')
+            expect(first.content).toHaveLength(second.content.length + 1)
+            expect(first.content[json ? 0 : 1]).toEqual(second.content[0])
+            if (json) {
+                expect(JSON.parse(first.content[0]?.text ?? '')).toEqual(result)
+            }
+            expect(readiness).toHaveBeenCalledTimes(1)
+            expect(capture.mock.calls[0]?.[0].properties).toMatchObject({
+                mcp_guidance_rule: 'error-tracking-sd-activation',
+                mcp_guidance_outcome: 'shown',
+            })
+            expect(capture.mock.calls[1]?.[0].properties?.mcp_guidance_rule).toBeUndefined()
+        }
+    )
 })

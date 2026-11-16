@@ -14,6 +14,7 @@ import { subscriptions } from 'kea-subscriptions'
 
 import type { SelectorMatchCounter } from '~/toolbar/shared/actions/SelectorCountContext'
 import { heatmapVariantFilterGateFromFlags } from '~/toolbar/shared/elements/heatmapVariantFilterGate'
+import type { FlagComparison } from '~/toolbar/shared/flags/flagComparisonLogic'
 import { toolbarPosthogJS } from '~/toolbar/shared/toolbarPosthogJS'
 import { urls } from '~/toolbar/shared/urls'
 
@@ -56,6 +57,7 @@ export interface extensionPageToolbarConnectionLogicValues {
     tabUrl: string | null | undefined // extensionPanelLogic
     uiHost: string // extensionPanelLogic
     connectionStatus: PageToolbarConnectionStatus
+    flagComparison: FlagComparison | null
     heatmap: PageToolbarHeatmapState | null
     inspect: PageToolbarInspectState | null
     mode: PageToolbarMode
@@ -98,6 +100,9 @@ export interface extensionPageToolbarConnectionLogicActions {
     }
     openHeatmapInPostHog: (shortId: string) => {
         shortId: string
+    }
+    receiveFlagComparison: (comparison: FlagComparison | null) => {
+        comparison: FlagComparison | null
     }
     receivePatch: (patch: Partial<PageToolbarState>) => {
         patch: Partial<PageToolbarState>
@@ -166,6 +171,7 @@ export const extensionPageToolbarConnectionLogic = kea<extensionPageToolbarConne
         receiveState: (state: PageToolbarState | null) => ({ state }),
         receivePatch: (patch: Partial<PageToolbarState>) => ({ patch }),
         receiveScreenshotPreview: (dataUrl: string) => ({ dataUrl }),
+        receiveFlagComparison: (comparison: FlagComparison | null) => ({ comparison }),
         sendCommand: (message: PageToolbarCommand) => ({ message }),
         setMode: (mode: PageToolbarMode) => ({ mode }),
         setWildcardHref: (href: string) => ({ href }),
@@ -190,6 +196,14 @@ export const extensionPageToolbarConnectionLogic = kea<extensionPageToolbarConne
         screenshotPreview: [
             null as string | null,
             { receiveScreenshotPreview: (_, { dataUrl }) => dataUrl, receiveState: () => null, setTab: () => null },
+        ],
+        flagComparison: [
+            null as FlagComparison | null,
+            {
+                receiveFlagComparison: (_, { comparison }) => comparison,
+                receiveState: () => null,
+                setTab: () => null,
+            },
         ],
         // The page echoes the URL back a moment later. Until then the input shows what the user typed, so a fast typist
         // doesn't lose characters to an older echo.
@@ -299,6 +313,8 @@ export const extensionPageToolbarConnectionLogic = kea<extensionPageToolbarConne
                         actions.receivePatch(message.patch)
                     } else if (message.type === 'screenshot-preview') {
                         actions.receiveScreenshotPreview(message.dataUrl)
+                    } else if (message.type === 'flag-comparison') {
+                        actions.receiveFlagComparison(message.comparison)
                     } else if (message.type === 'tokens') {
                         actions.updateTokens(message.tokens)
                     } else if (message.type === 'token-expired') {

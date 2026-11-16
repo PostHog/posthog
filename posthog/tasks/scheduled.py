@@ -25,7 +25,7 @@ from posthog.tasks.hypercache_verification import (
     verify_and_fix_flags_cache_task,
     verify_and_fix_team_metadata_cache_task,
 )
-from posthog.tasks.integrations import refresh_integrations
+from posthog.tasks.integrations import expire_unverified_email_senders, refresh_integrations
 from posthog.tasks.js_snippet_versioning import sync_js_snippet_manifest
 from posthog.tasks.remote_config import (
     cleanup_stale_remote_config_expiry_tracking_task,
@@ -37,6 +37,7 @@ from posthog.tasks.tasks import (
     calculate_cohort,
     calculate_decide_usage,
     capture_task_run_state_metrics,
+    capture_task_status_shadow_metrics,
     check_async_migration_health,
     clean_stale_partials,
     clear_clickhouse_deleted_person,
@@ -80,7 +81,7 @@ from posthog.tasks.wizard_blocklist import revoke_blocklisted_gateway_credential
 from posthog.utils import get_crontab, get_instance_region
 
 from products.account_audits.backend.facade.tasks import reconcile_account_audits
-from products.aeo.backend.facade.tasks import run_aeo_citation_checks_task
+from products.aeo.backend.facade.tasks import run_aeo_citation_checks_task, score_aeo_sentiment_backlog_task
 from products.ai_observability.backend.facade.tasks import expire_datasets, expire_offline_evaluation_payloads
 from products.ai_training.backend.facade.api import privacy_enabled
 from products.ai_training.backend.facade.tasks import process_ai_training_privacy_requests
@@ -90,11 +91,12 @@ from products.approvals.backend.tasks import (
     validate_pending_change_requests,
 )
 from products.canvas.backend.facade.tasks import cleanup_canvas_builds, sweep_canvas_builds
-from products.conversations.backend.tasks.email import flush_pending_email_replies
+from products.conversations.backend.tasks.email import cleanup_mailgun_domains, flush_pending_email_replies
 from products.conversations.backend.tasks.maintenance import purge_deleted_tickets, wake_snoozed_tickets
 from products.conversations.backend.tasks.slack import sweep_delivery_parts, sweep_inbound_events
 from products.conversations.backend.tasks.teams import poll_teams_shared_channels
 from products.customer_analytics.backend.facade.tasks import schedule_task_digests
+from products.data_catalog.backend.facade.tasks import backfill_metric_embeddings_task
 from products.data_modeling.backend.facade.tasks import (
     cleanup_deleted_saved_query_nodes,
     cleanup_expired_test_saved_queries,
@@ -135,6 +137,7 @@ from products.signals.backend.facade.tasks import (
     sweep_implementation_dispatches,
     sweep_monitoring_research_requests,
     sweep_monitoring_tracker_issues,
+    sweep_stuck_research_reports,
     sync_pending_signals_refund_credits,
 )
 from products.skills.backend.tasks import sync_community_skills
@@ -157,6 +160,7 @@ from products.tasks.backend.facade.tasks import (
 )
 from products.ui_customization.backend.facade.tasks import delete_orphaned_fragments
 from products.visual_review.backend.facade.tasks import (
+    reconcile_visual_review_baseline_ledgers,
     send_visual_review_debt_digests,
     sweep_visual_review_artifacts,
     sweep_visual_review_runs,
@@ -171,9 +175,11 @@ from products.wizard.backend.facade.tasks import reconcile_wizard_runs
 from products.workflows.backend.facade.tasks import (
     poll_ses_account_enforcement,
     poll_ses_reputation_findings,
+    recheck_pending_email_senders,
     recompute_workflows_email_sending_tiers,
     reconcile_ses_tenant_states,
     sweep_workflow_email_deliverability,
+    sync_sandbox_sender_tenant_state,
 )
 
 TWENTY_FOUR_HOURS = 24 * 60 * 60
@@ -387,6 +393,15 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         sweep_monitoring_research_requests.s(),
         name="emit signals monitoring research requests",
         expires_seconds=60,
+    )
+
+    # Return reports whose research run timed out or was terminated to CANDIDATE - every 15 minutes
+    add_periodic_task_with_expiry(
+        sender,
+        crontab(minute="*/15"),
+        sweep_stuck_research_reports.s(),
+        name="recover signals reports stuck in research",
+        expires_seconds=15 * 60,
     )
 
     # Recompute the activity bands the background scout lane samples from - daily at 5:50 AM
@@ -807,6 +822,13 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         name="refresh integrations",
     )
 
+    add_periodic_task_with_expiry(
+        sender,
+        crontab(minute="37"),
+        expire_unverified_email_senders.s(),
+        name="expire unverified email senders",
+    )
+
     sender.add_periodic_task(
         crontab(hour="0", minute="13"),
         sync_all_remote_configs.s(),
@@ -845,6 +867,13 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         crontab(minute="*/2"),
         sweep_canvas_builds.s(),
         name="recover stuck canvas builds",
+    )
+
+    add_periodic_task_with_expiry(
+        sender,
+        crontab(minute="*/10"),
+        backfill_metric_embeddings_task.s(),
+        name="backfill catalog metric embeddings",
     )
 
     sender.add_periodic_task(
@@ -907,6 +936,14 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         crontab(minute="*"),
         flush_pending_email_replies.s(),
         name="flush pending conversation email replies",
+    )
+
+    # Mailgun caps the account's domain count. Free the slots that unused support domains hold.
+    add_periodic_task_with_expiry(
+        sender,
+        crontab(hour="4", minute="45"),
+        cleanup_mailgun_domains.s(),
+        name="cleanup unused conversation mailgun domains",
     )
 
     # Re-drive due Slack ingress receipts. Celery on_commit is only a wake-up hint.
@@ -993,6 +1030,20 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         expires_seconds=60 * 60,
     )
 
+    add_periodic_task_with_expiry(
+        sender,
+        crontab(minute="*/5"),
+        reconcile_visual_review_baseline_ledgers.s(),
+        name="advance visual review baseline ledgers",
+    )
+
+    add_periodic_task_with_expiry(
+        sender,
+        crontab(minute="17"),
+        reconcile_visual_review_baseline_ledgers.s(reconcile_approvals=True),
+        name="reconcile visual review baseline approvals",
+    )
+
     sender.add_periodic_task(
         TEST_CENSUS_CRONTAB,
         emit_test_ownership_census.s(),
@@ -1031,6 +1082,13 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         name="tasks run state metrics",
     )
 
+    add_periodic_task_with_expiry(
+        sender,
+        crontab(minute="*/10"),
+        capture_task_status_shadow_metrics.s(),
+        name="tasks status shadow metrics",
+    )
+
     # Backstop for a gateway callback whose Celery kick was lost: the run's usage workflow only
     # starts from that kick, so nothing would drain the intake table otherwise.
     add_periodic_task_with_expiry(
@@ -1057,6 +1115,19 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         crontab(hour="6", minute="30"),
         reconcile_ses_tenant_states.s(),
         name="ses tenant reputation reconciliation",
+    )
+
+    sender.add_periodic_task(
+        crontab(hour="7", minute="0"),
+        recheck_pending_email_senders.s(),
+        name="workflows pending email sender recheck",
+    )
+
+    add_periodic_task_with_expiry(
+        sender,
+        crontab(minute="*"),
+        sync_sandbox_sender_tenant_state.s(),
+        name="workflows sandbox sender tenant state",
     )
 
     # LLM gateway policy cache sync - hourly at :05 to stagger from team_metadata at :13
@@ -1367,4 +1438,12 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         # Under the dispatch interval, so a backed-up queue drops the stale dispatch
         # instead of the next one finding it still queued.
         expires_seconds=50 * 60,
+    )
+    # A pass still scoring absorbs the next dispatch, so passes never overlap.
+    add_periodic_task_with_expiry(
+        sender,
+        crontab(minute="*/10"),
+        score_aeo_sentiment_backlog_task.s(),
+        name="AEO sentiment backlog",
+        expires_seconds=9 * 60,
     )

@@ -1711,14 +1711,17 @@ class TestPropertyTypes(BaseTest):
             ("to_int_or_zero", "toIntOrZero(properties.$screen_width)", "toInt64OrZero"),
             ("to_float_or_default", "toFloatOrDefault(properties.$screen_width, 0)", "toFloat64OrDefault"),
             ("to_int_or_default", "toIntOrDefault(properties.$screen_width, 0)", "toInt64OrDefault"),
+            ("to_float_or_zero_null_default", "toFloatOrZero(properties.$screen_width ?? '0')", "toFloat64OrZero"),
+            ("json_document_coalesce", "JSONLength(coalesce(properties.$screen_width, '[]'))", "JSONLength"),
         ]
     )
     def test_numeric_property_not_double_cast_inside_string_parser(self, _name: str, expr: str, ch_fn: str):
-        # toFloat64OrZero/toInt64OrZero/toFloat64OrDefault require a String first argument.
+        # toFloat64OrZero/toInt64OrZero/toFloat64OrDefault and the JSON functions require a String first argument.
         # A Numeric property must keep its raw string value here instead of being cast to
         # Float, otherwise ClickHouse raises ILLEGAL_TYPE_OF_ARGUMENT on a Float64 argument.
+        # A null default around the property returns it unchanged, so the same holds through it.
         printed = self._print_select(f"select {expr} from events")
-        assert f"{ch_fn}(accurateCastOrNull" not in printed
+        assert "accurateCastOrNull" not in printed
         assert f"{ch_fn}(" in printed
 
     def test_numeric_property_still_cast_outside_string_parser(self):

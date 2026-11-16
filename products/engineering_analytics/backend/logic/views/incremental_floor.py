@@ -1,17 +1,6 @@
-"""The rows one incremental materialization reads: the rows created at or after the run's window
-start. The window start reaches the view as the ``{incremental_window_start}`` placeholder, which
-data modeling binds to the key's watermark minus the lookback on an incremental run and to NULL on
-a full build. A full build seeds only the rows created in the last ``SEED_LOOKBACK``, because it
-runs as one ClickHouse query and a busy repository's whole job history does not fit in one. Each
-incremental run adds newer rows, and a read that starts before the seed uses the raw tables instead
-(``MaterializedCI.covers``).
-
-The floors compare the raw ISO-8601 ``created_at`` strings with the window start formatted the
-same way, which is the one comparison that lets a warehouse scan skip files; the filter data
-modeling injects on the parsed ``created_at`` cannot. Another row can change what a stored row
-says: an earlier attempt shows that a job row is a re-listed copy, and the hand-off a Depot
-workflow took decides whether a GitHub run is a shell. A scan for such rows reaches
-``JOB_FLOOR_SLACK_ON_RUN_STARTED`` before the window.
+"""Scan floors for the stored CI views. Data modeling binds ``{incremental_window_start}`` to the
+watermark minus the lookback on an incremental run, and to NULL on a full build. The floors compare
+raw ISO-8601 strings, because a predicate on a parsed timestamp cannot let a warehouse scan skip files.
 """
 
 from products.engineering_analytics.backend.logic._shared import DEFAULT_WINDOW
@@ -21,18 +10,20 @@ from products.engineering_analytics.backend.logic.queries._workflow_filters impo
 )
 
 WINDOW_START = "{incremental_window_start}"
-# The slack keeps a default window's scan floor inside the seed, so the first build can serve a
-# default read.
+# A full build runs as one ClickHouse query, which cannot read a busy repository's whole job
+# history, so it seeds only this much. The slack keeps the scan floor of a default-window read
+# inside the seed.
 SEED_LOOKBACK = DEFAULT_WINDOW + WIDEST_SCAN_FLOOR_SLACK
 
 
 def stored_rows(column: str = "created_at") -> str:
-    """The rows the run stores."""
+    """A predicate on the raw string ``column`` that keeps the rows the run stores."""
     return f"{column} >= {_floor(days_before=0)}"
 
 
 def stored_rows_and_earlier(column: str = "created_at") -> str:
-    """The rows the run stores and the rows up to the slack before them."""
+    """As ``stored_rows``, reaching ``JOB_FLOOR_SLACK_ON_RUN_STARTED`` earlier. An earlier row can
+    decide what a stored row says: a first listing marks a job copy, and a hand-off marks a shell."""
     return f"{column} >= {_floor(days_before=JOB_FLOOR_SLACK_ON_RUN_STARTED.days)}"
 
 

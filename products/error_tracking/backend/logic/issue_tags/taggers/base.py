@@ -39,7 +39,7 @@ class Tagger(Protocol):
     def answer(self, context: TagContext, definitions: Sequence[IssueTagDefinition]) -> dict[str, TagAnswer]:
         """Answer the given tags for the context's issue, keyed by tag key. Leave out a tag the tagger did not answer.
 
-        All tags come in one call because the Jev tagger adds every tag question to the one decision request
-        that severity inference sends, which holds at most `MAX_QUESTIONS_PER_REQUEST` questions.
+        All tags come in one call so that a tagger can answer them together. The Jev tagger asks every tag question
+        in one decision request, which holds at most `MAX_QUESTIONS_PER_REQUEST` questions.
         """
         ...

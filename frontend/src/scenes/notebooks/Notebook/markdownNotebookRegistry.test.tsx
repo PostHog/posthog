@@ -15,8 +15,6 @@ import {
 import { parseMarkdownNotebook } from 'lib/components/MarkdownNotebook/markdown'
 import { NotebookComponentShell } from 'lib/components/MarkdownNotebook/NotebookComponentShell'
 import type { NotebookComponentBlockNode } from 'lib/components/MarkdownNotebook/types'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 
 import notebookWidgetCatalog from 'products/notebooks/notebook-widget-catalog.json'
 
@@ -27,9 +25,8 @@ import {
     RealNotebookNodeEdit,
     RealNotebookNodeIdentityAndViewEdit,
     getEditableNodeAttributeKeys,
-    getHiddenInsertCommandKeysForFeatureFlags,
+    NOTEBOOK_HIDDEN_INSERT_COMMAND_KEYS,
     getMarkdownNodeAttributeLabel,
-    getMarkdownRegistryForFeatureFlags,
     getNodeAttributes,
     getQueryTitle,
     getSerializableAttributeInputValue,
@@ -48,24 +45,18 @@ jest.mock('./MarkdownNotebookEntityPicker', () => ({
 // Mirrors how MarkdownNotebook composes its menu, so the assertions cover the list a user sees
 // rather than the registry alone: built-in commands are not registry entries, so a node hidden
 // from the registry can still reach the menu through a built-in that inserts the same tag.
-function getInsertCommandsByLabel(
-    featureFlags: FeatureFlagsSet,
-    label: string
-): { key: string; category: string; badge?: string }[] {
+function getInsertCommandsByLabel(label: string): { key: string; category: string; badge?: string }[] {
     const noop = (): void => {}
     const commands = omitInsertCommands(
         buildInsertCommands(
-            mergeMarkdownNotebookRegistries(
-                getMarkdownNotebookDefaultRegistry(),
-                getMarkdownRegistryForFeatureFlags(featureFlags)
-            ),
+            mergeMarkdownNotebookRegistries(getMarkdownNotebookDefaultRegistry(), NOTEBOOK_MARKDOWN_REGISTRY),
             noop,
             noop,
             noop,
             noop,
             noop
         ),
-        getHiddenInsertCommandKeysForFeatureFlags(featureFlags)
+        NOTEBOOK_HIDDEN_INSERT_COMMAND_KEYS
     )
 
     return commands
@@ -86,27 +77,22 @@ describe('markdownNotebookRegistry', () => {
         expect(updated.props.showFilters).toBe(true)
     })
 
-    describe('getMarkdownRegistryForFeatureFlags', () => {
-        it('offers a single SQL and Python cell, gated by the revamped notebooks flag', () => {
+    describe('notebook registry', () => {
+        it('offers SQL and Python cells without rollout flags', () => {
             // The unified insert surface: SQLV2 ("SQL") and PythonV2 ("Python") are the only
-            // insertable code cells with the flag on. The legacy query node renders but must never
+            // insertable code cells. The legacy query node renders but must never
             // be insertable, and the removed legacy code cells are not registered at all: the
             // content migration rewrites them to SQLV2/PythonV2 before the registry sees them.
-            const flagOn = getMarkdownRegistryForFeatureFlags({ [FEATURE_FLAGS.REVAMPED_PY_NOTEBOOKS]: true })
-            expect(flagOn.components.SQLV2.insertCommand).toBeTruthy()
-            expect(flagOn.components.PythonV2.insertCommand).toBeTruthy()
-            expect(flagOn.components.Query.insertCommand).toBeUndefined()
+            expect(NOTEBOOK_MARKDOWN_REGISTRY.components.SQLV2.insertCommand).toBeTruthy()
+            expect(NOTEBOOK_MARKDOWN_REGISTRY.components.PythonV2.insertCommand).toBeTruthy()
+            expect(NOTEBOOK_MARKDOWN_REGISTRY.components.Query.insertCommand).toBeUndefined()
             for (const legacyTag of ['Python', 'DuckSQL', 'HogQLSQL']) {
-                expect(flagOn.components).not.toHaveProperty(legacyTag)
+                expect(NOTEBOOK_MARKDOWN_REGISTRY.components).not.toHaveProperty(legacyTag)
             }
-
-            const flagOff = getMarkdownRegistryForFeatureFlags({})
-            expect(flagOff.components.SQLV2.insertCommand).toBeUndefined()
-            expect(flagOff.components.PythonV2.insertCommand).toBeUndefined()
         })
 
         it('offers widget insertion without feature flags and registers only the Widget component', () => {
-            expect(getInsertCommandsByLabel({}, 'Widget')).toEqual([
+            expect(getInsertCommandsByLabel('Widget')).toEqual([
                 { key: 'component-Widget', category: 'Common', badge: 'BETA' },
             ])
             for (const legacyTag of ['GeneratedWidget', 'GenUI']) {
@@ -125,12 +111,7 @@ describe('markdownNotebookRegistry', () => {
             const insertedNodes: NotebookComponentBlockNode[] = []
             const noop = (): void => {}
             const commands = buildInsertCommands(
-                mergeMarkdownNotebookRegistries(
-                    getMarkdownNotebookDefaultRegistry(),
-                    getMarkdownRegistryForFeatureFlags({
-                        [FEATURE_FLAGS.REVAMPED_PY_NOTEBOOKS]: true,
-                    })
-                ),
+                mergeMarkdownNotebookRegistries(getMarkdownNotebookDefaultRegistry(), NOTEBOOK_MARKDOWN_REGISTRY),
                 (_nodeId, node) => insertedNodes.push(node),
                 noop,
                 noop,
@@ -226,29 +207,14 @@ describe('markdownNotebookRegistry', () => {
     })
 
     describe('insert menu SQL commands', () => {
-        // Exactly one SQL entry either way, and it stays in the menu's top group across the
-        // flag flip so SQL doesn't move on people when the revamped cell takes over.
-        it.each([
-            [
-                'the revamped SQL cell replaces the legacy one when the flag is on',
-                true,
-                [{ key: 'component-SQLV2', category: 'Common' }],
-            ],
-            [
-                'the legacy SQL cell is the only one when the flag is off',
-                false,
-                [{ key: 'query-sql', category: 'Common' }],
-            ],
-        ])('%s', (_label, isFlagOn, expectedCommands) => {
-            expect(getInsertCommandsByLabel({ [FEATURE_FLAGS.REVAMPED_PY_NOTEBOOKS]: isFlagOn }, 'SQL')).toEqual(
-                expectedCommands
-            )
+        it('offers the SQLV2 cell as the only SQL command', () => {
+            expect(getInsertCommandsByLabel('SQL')).toEqual([{ key: 'component-SQLV2', category: 'Common' }])
         })
 
         // Both the group and the badge come from the node's insertCommand override, so this also
         // covers the badge surviving buildInsertCommands.
         it('puts Python beside SQL in the top group, badged as new', () => {
-            expect(getInsertCommandsByLabel({ [FEATURE_FLAGS.REVAMPED_PY_NOTEBOOKS]: true }, 'Python')).toEqual([
+            expect(getInsertCommandsByLabel('Python')).toEqual([
                 { key: 'component-PythonV2', category: 'Common', badge: 'New' },
             ])
         })

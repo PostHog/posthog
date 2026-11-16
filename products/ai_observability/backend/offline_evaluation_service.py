@@ -3,9 +3,11 @@ from __future__ import annotations
 from dataclasses import (
     asdict,
     fields as dataclass_fields,
+    replace,
 )
 from datetime import datetime, timedelta
-from typing import TYPE_CHECKING, Literal, NoReturn
+from itertools import batched
+from typing import TYPE_CHECKING, Literal, NoReturn, cast
 from uuid import UUID
 
 from django.db import IntegrityError, transaction
@@ -16,6 +18,7 @@ from posthog.dataclasses import frozen
 from posthog.exceptions import QuotaLimitExceeded
 from posthog.models.team import Team
 
+from products.ai_observability.backend.composite_formula import CompositeFormula, CompositeFormulaError, FormulaValue
 from products.ai_observability.backend.dataset_queries import dataset_item_versions_at_revision
 from products.ai_observability.backend.dataset_retention import DatasetUsage
 from products.ai_observability.backend.models.datasets import Dataset, DatasetItemVersion, DatasetRevision
@@ -33,6 +36,7 @@ from products.ai_observability.backend.offline_evaluation_fingerprint import sub
 from products.ai_observability.backend.offline_evaluation_types import (
     ExperimentSubmission,
     ItemSubmission,
+    ResultStatus,
     ResultSubmission,
     UploadSubmission,
 )
@@ -82,6 +86,8 @@ class ResultReceipt:
     scorer_version_id: UUID
     accepted_at: datetime
     created: bool
+    status: ResultStatus
+    error_code: str | None
 
 
 @frozen
@@ -104,6 +110,10 @@ class OfflineEvaluationValidationError(Exception):
 
 
 class OfflineEvaluationNotFound(Exception):
+    pass
+
+
+class OfflineEvaluationPermissionDenied(Exception):
     pass
 
 
@@ -285,6 +295,109 @@ class OfflineExperimentService(_OfflineEvaluationService):
 
 
 class OfflineEvaluationIngestionService(_OfflineEvaluationService):
+    def __init__(
+        self,
+        *,
+        team_id: int,
+        user_access_control: UserAccessControl | None,
+        can_read_results: bool = False,
+    ) -> None:
+        super().__init__(team_id=team_id, user_access_control=user_access_control)
+        self._can_read_results = can_read_results
+
+    def _check_stored_input_access(self, submission: UploadSubmission) -> None:
+        if self._can_read_results:
+            return
+        calculations = [result for result in submission.results if result.calculate]
+        if not calculations:
+            return
+        supplied_inputs = {
+            ResultIdentity(item_id=result.item_id, scorer_version_id=result.scorer_version_id)
+            for result in submission.results
+            if not result.calculate
+        }
+        # Include retries and inaccessible definitions: their stored receipts also disclose calculation outcomes.
+        compositions = dict(
+            # nosemgrep: idor-lookup-without-user -- Team-scoped formula metadata only denies uploads; it exposes no results.
+            ScoreDefinitionVersion.objects.filter(
+                definition__team_id=self.team_id, id__in={result.scorer_version_id for result in calculations}
+            ).values_list("id", "composition")
+        )
+        for result in calculations:
+            composition = compositions.get(result.scorer_version_id)
+            if composition and any(
+                ResultIdentity(item_id=result.item_id, scorer_version_id=UUID(source["scorer_version_id"]))
+                not in supplied_inputs
+                for source in composition["inputs"]
+            ):
+                raise OfflineEvaluationPermissionDenied(
+                    "Calculating composite scores from stored inputs requires result-read access. "
+                    "Supply all input scores in this upload or use credentials with result-read access."
+                )
+
+    def _computed_result(
+        self,
+        submission: ResultSubmission,
+        *,
+        version: ScoreDefinitionVersion,
+        formula: CompositeFormula,
+        results: dict[ResultIdentity, OfflineEvaluationResult],
+        fingerprint: str,
+        accepted_at: datetime,
+        index: int,
+    ) -> OfflineEvaluationResult:
+        inputs: dict[str, FormulaValue] = {}
+        source_rows: list[OfflineEvaluationResult] = []
+        assert version.composition is not None
+        for source in version.composition["inputs"]:
+            row = results.get(
+                ResultIdentity(item_id=submission.item_id, scorer_version_id=UUID(source["scorer_version_id"]))
+            )
+            if row is None:
+                raise OfflineEvaluationValidationError(
+                    f"results.{index}.calculate",
+                    f"Missing input '{source['alias']}' for this item. Upload its pinned scorer version before or with this request.",
+                )
+            source_rows.append(row)
+            if row.status == "ok":
+                source_value = (
+                    row.numeric_value
+                    if row.numeric_value is not None
+                    else row.boolean_value
+                    if row.boolean_value is not None
+                    else row.categorical_values
+                )
+                assert source_value is not None
+                inputs[source["alias"]] = source_value
+        failure_statuses: tuple[ResultStatus, ...] = ("error", "skipped", "not_applicable")
+        status: ResultStatus = next(
+            (status for status in failure_statuses if any(row.status == status for row in source_rows)),
+            "ok",
+        )
+        computed = replace(
+            submission,
+            status=status,
+            calculate=False,
+            error_code="composite_input_error" if status == "error" else None,
+        )
+        try:
+            if status == "ok":
+                value = formula.evaluate(inputs)
+                computed = replace(computed, value=[value] if isinstance(value, str) else value)
+            row = self._new_result(
+                computed, version=version, fingerprint=fingerprint, accepted_at=accepted_at, index=index
+            )
+        except (CompositeFormulaError, OfflineEvaluationValidationError):
+            row = self._new_result(
+                replace(computed, value=None, status="error", error_code="composite_formula_error"),
+                version=version,
+                fingerprint=fingerprint,
+                accepted_at=accepted_at,
+                index=index,
+            )
+        row.input_result_ids = [source.id for source in source_rows]
+        return row
+
     def _existing_results(
         self, *, experiment_id: UUID, submissions: list[ResultSubmission]
     ) -> dict[ResultIdentity, OfflineEvaluationResult]:
@@ -293,15 +406,20 @@ class OfflineEvaluationIngestionService(_OfflineEvaluationService):
         items_by_version: dict[UUID, list[UUID]] = {}
         for result in submissions:
             items_by_version.setdefault(result.scorer_version_id, []).append(result.item_id)
-        requested_pairs = Q()
-        for version_id, item_ids in items_by_version.items():
-            requested_pairs |= Q(scorer_version_id=version_id, item_id__in=item_ids)
-        return {
-            ResultIdentity(item_id=result.item_id, scorer_version_id=result.scorer_version_id): result
-            for result in OfflineEvaluationResult.objects.for_team(self.team_id).filter(
-                requested_pairs, item__experiment_id=experiment_id
+        results = {}
+        for version_batch in batched(items_by_version.items(), 1000, strict=False):
+            requested_pairs = Q()
+            for version_id, item_ids in version_batch:
+                requested_pairs |= Q(scorer_version_id=version_id, item_id__in=item_ids)
+            results.update(
+                {
+                    ResultIdentity(item_id=result.item_id, scorer_version_id=result.scorer_version_id): result
+                    for result in OfflineEvaluationResult.objects.for_team(self.team_id).filter(
+                        requested_pairs, item__experiment_id=experiment_id
+                    )
+                }
             )
-        }
+        return results
 
     def _dataset_versions(
         self, experiment: OfflineExperiment, submissions: list[ItemSubmission]
@@ -392,9 +510,12 @@ class OfflineEvaluationIngestionService(_OfflineEvaluationService):
         boolean_value = submission.value if isinstance(submission.value, bool) else None
         categorical_values = submission.value if isinstance(submission.value, list) else None
         if submission.status == "ok":
+            config = version.config
+            if version.definition.calculation == ScoreDefinition.Calculation.COMPOSITE:
+                config = {key: value for key, value in config.items() if key != "step"}
             errors = validate_score_value(
                 version.definition.kind,
-                version.config,
+                config,
                 numeric_value=numeric_value,
                 boolean_value=boolean_value,
                 categorical_values=categorical_values,
@@ -420,6 +541,7 @@ class OfflineEvaluationIngestionService(_OfflineEvaluationService):
         )
 
     def upload(self, experiment_id: UUID, submission: UploadSubmission) -> UploadReceipt:
+        self._check_stored_input_access(submission)
         item_hashes = {item.id: submission_fingerprint(item) for item in submission.items}
         result_hashes = [submission_fingerprint(result) for result in submission.results]
         try:
@@ -454,16 +576,20 @@ class OfflineEvaluationIngestionService(_OfflineEvaluationService):
                     items[item.id].submission_fingerprint, item_hashes[item.id], field=f"items.{index}.id"
                 )
         new_results: list[tuple[int, ResultSubmission]] = []
+        results_to_validate: list[tuple[int, ResultSubmission]] = []
         for index, result in enumerate(submission.results):
             existing = results.get(ResultIdentity(item_id=result.item_id, scorer_version_id=result.scorer_version_id))
             if existing is not None:
                 _check_fingerprint(existing.submission_fingerprint, result_hashes[index], field=f"results.{index}")
             else:
                 new_results.append((index, result))
+            # Composite retries disclose stored outcomes, so they require current scorer and input access.
+            if existing is None or result.calculate:
+                results_to_validate.append((index, result))
         new_item_submissions = [item for item in submission.items if item.id not in items]
         if (new_item_submissions or new_results) and experiment.status != OfflineExperiment.Status.UPLOADING:
             raise OfflineEvaluationConflict("experiment_closed", "This experiment is closed to new items and results.")
-        if new_results:
+        if any(not result.calculate for _, result in new_results):
             api_token = Team.objects.values_list("api_token", flat=True).get(id=self.team_id)
             if is_team_limited(api_token, QuotaResource.LLM_EVENTS, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY):
                 raise QuotaLimitExceeded(
@@ -479,9 +605,63 @@ class OfflineEvaluationIngestionService(_OfflineEvaluationService):
         versions = {
             version.id: version
             for version in self._scorer_versions()
-            .filter(id__in={result.scorer_version_id for _, result in new_results})
+            .filter(id__in={result.scorer_version_id for _, result in results_to_validate})
             .select_related("definition")
         }
+        input_ids = {
+            UUID(source["scorer_version_id"])
+            for version in versions.values()
+            if version.composition
+            for source in version.composition["inputs"]
+        }
+        input_versions = {
+            version.id: version
+            for version in self._scorer_versions().filter(id__in=input_ids).select_related("definition")
+        }
+        formulas: dict[UUID, CompositeFormula] = {}
+        compositions = {
+            version.id: version.composition for version in versions.values() if version.composition is not None
+        }
+        declared_item_ids = {item.id for item in submission.items}
+        for index, result in results_to_validate:
+            if result.item_id not in items and result.item_id not in declared_item_ids:
+                errors[f"results.{index}.item_id"] = "Declare the item or select an existing item in this experiment."
+            version = versions.get(result.scorer_version_id)
+            if version is None:
+                errors[f"results.{index}.scorer_version_id"] = "Select an existing scorer version in this project."
+            elif result.calculate != (version.definition.calculation == ScoreDefinition.Calculation.COMPOSITE):
+                errors[f"results.{index}.calculate"] = (
+                    "Set calculate: true for composite scorers. For reported scorers, supply a result and omit calculate or set it to false."
+                )
+            elif result.calculate and version.id not in compositions:
+                errors[f"results.{index}.calculate"] = "This composite scorer version has no formula."
+            elif version.composition and any(
+                UUID(source["scorer_version_id"]) not in input_versions for source in version.composition["inputs"]
+            ):
+                errors[f"results.{index}.calculate"] = "All input scorer versions must be accessible in this project."
+        valid_results = [
+            (index, result)
+            for index, result in new_results
+            if f"results.{index}.calculate" not in errors and f"results.{index}.scorer_version_id" not in errors
+        ]
+        dependencies = [
+            ResultSubmission(item_id=result.item_id, scorer_version_id=UUID(source["scorer_version_id"]), status="ok")
+            for _, result in valid_results
+            if result.calculate
+            for source in compositions[result.scorer_version_id]["inputs"]
+        ]
+        results.update(self._existing_results(experiment_id=experiment.id, submissions=dependencies))
+        for _, result in valid_results:
+            if result.calculate and result.scorer_version_id not in formulas:
+                version = versions[result.scorer_version_id]
+                formulas[version.id] = CompositeFormula.parse(
+                    compositions[version.id]["expression"],
+                    {
+                        source["alias"]: input_versions[UUID(source["scorer_version_id"])].definition.kind
+                        for source in compositions[version.id]["inputs"]
+                    },
+                    version.definition.kind,
+                )
         accepted_at = timezone.now()
         new_items: list[OfflineExperimentItem] = []
         if dataset_versions is not None:
@@ -501,20 +681,28 @@ class OfflineEvaluationIngestionService(_OfflineEvaluationService):
                     )
                 except OfflineEvaluationValidationError as error:
                     errors.update(error.errors)
-        declared_item_ids = {item.id for item in submission.items}
         items.update({item.id: item for item in new_items})
         new_result_rows: list[OfflineEvaluationResult] = []
-        for index, result in new_results:
-            if result.item_id not in items and result.item_id not in declared_item_ids:
-                errors[f"results.{index}.item_id"] = "Declare the item or select an existing item in this experiment."
+        for index, result in sorted(valid_results, key=lambda pair: pair[1].calculate):
             version = versions.get(result.scorer_version_id)
             if version is None:
                 errors[f"results.{index}.scorer_version_id"] = "Select an existing scorer version in this project."
                 continue
             try:
-                row = self._new_result(
-                    result, version=version, fingerprint=result_hashes[index], accepted_at=accepted_at, index=index
-                )
+                if result.calculate:
+                    row = self._computed_result(
+                        result,
+                        version=version,
+                        formula=formulas[version.id],
+                        results=results,
+                        fingerprint=result_hashes[index],
+                        accepted_at=accepted_at,
+                        index=index,
+                    )
+                else:
+                    row = self._new_result(
+                        result, version=version, fingerprint=result_hashes[index], accepted_at=accepted_at, index=index
+                    )
             except OfflineEvaluationValidationError as error:
                 errors.update(error.errors)
                 continue
@@ -548,14 +736,15 @@ class OfflineEvaluationIngestionService(_OfflineEvaluationService):
                 if result.payload is not None
             ]
         )
-        if new_result_rows:
+        reported_count = sum(row.input_result_ids is None for row in new_result_rows)
+        if reported_count:
             organization_id = Team.objects.values_list("organization_id", flat=True).get(id=experiment.team_id)
             OfflineEvaluationUsageLedger.objects.for_team(experiment.team_id).create(
                 team_id=experiment.team_id,
                 organization_id=organization_id,
                 experiment_id=experiment.id,
                 accepted_at=accepted_at,
-                quantity=len(new_result_rows),
+                quantity=reported_count,
             )
         return UploadReceipt(
             items=[
@@ -569,6 +758,8 @@ class OfflineEvaluationIngestionService(_OfflineEvaluationService):
                     scorer_version_id=row.scorer_version_id,
                     accepted_at=row.accepted_at,
                     created=row.id in new_result_ids,
+                    status=cast(ResultStatus, row.status),
+                    error_code=row.error_code,
                 )
                 for row in (
                     results[ResultIdentity(item_id=result.item_id, scorer_version_id=result.scorer_version_id)]
