@@ -155,6 +155,8 @@ export function EditAlertModal(props: AlertModalProps): JSX.Element {
     // loaded alert wins over the one passed in. The editor's own flag decides for a new alert.
     const llmDetectorEnabled =
         loadedAlert?.llm_detector_available ?? initialAlert?.llm_detector_available ?? editorCanUseLlmDetector
+    // Saving checks the forecast rollout for the alert's creator, so the editor's flag only decides what the picker shows.
+    const forecastDetectorEnabled = useFeatureFlag('ALERTS_FORECAST_DETECTOR')
 
     const formLogicProps = {
         alert,
@@ -403,6 +405,7 @@ export function EditAlertModal(props: AlertModalProps): JSX.Element {
             supportsAnomalyDetection={!isNonTimeSeriesDisplay && supportsAnomalyDetection(alertForm.config)}
             showAnomalyGuidance={creatingNewAlert && anomalyAlertGuidanceEnabled}
             llmDetectorEnabled={llmDetectorEnabled}
+            forecastDetectorEnabled={forecastDetectorEnabled}
             twoColumnLayout
             simulationResult={simulationResult}
             simulationResultLoading={simulationResultLoading}

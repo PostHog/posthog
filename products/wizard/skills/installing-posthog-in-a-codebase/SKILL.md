@@ -94,5 +94,5 @@ Tell the user which environment variables to add in their hosting provider befor
 
 ## 7. Check if the app sends email
 
-If the manifest has an email sending package, such as `resend`, `@sendgrid/mail`, `postmark`, `mailgun.js`, `@aws-sdk/client-ses`, `@aws-sdk/client-sesv2`, `nodemailer`, `sendgrid`, or `boto3` code that calls SES, read `references/transactional-emails.md` after setup.
+If the app's server code sends email, such as password resets, sign-in codes or receipts, read `references/transactional-emails.md` after setup. A manifest with an email sending package, such as `resend`, `@sendgrid/mail`, `postmark`, `mailgun.js`, `@aws-sdk/client-ses`, `@aws-sdk/client-sesv2`, `nodemailer`, `sendgrid`, or `boto3` code that calls SES, is one sign.
 If the app does not send email, skip this step.

@@ -163,6 +163,11 @@ ActivitySummaryProductKey = activity_summary_render.Product
 ACTIVITY_SUMMARY_VERSIONS_DEFAULT_LIMIT = activity_summary_read.DEFAULT_VERSIONS_LIMIT
 ACTIVITY_SUMMARY_SEARCH_DEFAULT_LIMIT = activity_summary_search.DEFAULT_LIMIT
 ACTIVITY_SUMMARY_SEARCH_MAX_LIMIT = activity_summary_search.MAX_LIMIT
+ACTIVITY_SUMMARY_SEARCH_MAX_OFFSET = activity_summary_search.MAX_OFFSET
+ActivitySummaryObjectFilter = activity_summary_search.ObjectFilter
+ActivitySummaryObjectRelation = activity_summary_search.ObjectRelation
+ActivitySummaryObjectSource = activity_summary_search.SummaryObjectRelation
+ACTIVITY_SUMMARY_SEARCH_MAX_ACTIVE_SINCE_DAYS = activity_summary_search.MAX_ACTIVE_SINCE_DAYS
 
 
 @frozen
@@ -287,20 +292,30 @@ def search_activity_summaries(
     team: Team,
     query: str | None,
     search_mode: SearchMode,
+    object_filter: ActivitySummaryObjectFilter | None,
     product: str | None,
+    mode: str | None,
+    active_since_days: int | None,
+    user_uuids: list[str],
     exclude_user_uuids: list[str],
     include_profile: bool,
     limit: int,
+    offset: int,
 ) -> ActivitySummarySearchResult | None:
-    """The project members whose activity summary matches `query`, or None when search is off for the team."""
+    """The project members whose activity summary matches `query` and every filter, or None when search is off for the team."""
     return search_summaries(
         team,
         query=query,
         search_mode=search_mode,
+        object_filter=object_filter,
         product=product,
+        mode=mode,
+        active_since_days=active_since_days,
+        user_uuids=user_uuids,
         exclude_user_uuids=exclude_user_uuids,
         include_profile=include_profile,
         limit=limit,
+        offset=offset,
     )
 
 

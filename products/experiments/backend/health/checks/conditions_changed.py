@@ -391,8 +391,7 @@ def _measured(grade: PinnedShareGrade | None, removed: list[RemovedOverride]) ->
         since = format_change_time(measurement.since, measurement.team_timezone)
         return [
             f"Since {since}, {subject} matched about {percent(grade.share)} of the users who would get "
-            f'"{measurement.most_pinned_variant}" with the override in place ({measurement.pinned_people:,} of '
-            f"about {round(measurement.variant_people):,})."
+            f'"{measurement.most_pinned_variant}" with the override in place ({measurement.counts()}).'
         ]
     if grade is None:
         return [

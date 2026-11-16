@@ -231,6 +231,9 @@ class ConditionSetTraffic:
     # SDK, from the start of the flag-state check's grace period after `since`. Such a call comes from a bootstrap or
     # from the customer's own code, so it can serve a variant that the flag's release conditions don't.
     people_assigned_outside: int
+    # Whether the counts leave out the calls that the project's filter for internal and test users excludes, because
+    # the experiment applies that filter.
+    filters_test_accounts: bool = False
 
 
 @frozen

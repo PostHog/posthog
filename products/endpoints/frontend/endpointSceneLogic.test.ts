@@ -126,6 +126,16 @@ describe('endpointSceneLogic', () => {
         })
     })
 
+    it('returns to the query tab when the URL drops the tab param', async () => {
+        router.actions.push(urls.endpoint('test-endpoint'), { tab: EndpointTab.PLAYGROUND })
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.activeTab).toEqual(EndpointTab.PLAYGROUND)
+
+        router.actions.push(urls.endpoint('test-endpoint'))
+        await expectLogic(logic).toFinishAllListeners()
+        expect(logic.values.activeTab).toEqual(EndpointTab.QUERY)
+    })
+
     describe('extractBreakdownPropertyNames', () => {
         // Must match the backend's iter_breakdowns, which stringifies every entry (str(name)),
         // so numeric legacy breakdowns (e.g. cohort IDs) land in the OpenAPI required set as strings

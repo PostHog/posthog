@@ -31,6 +31,7 @@ from products.warehouse_sources.sources.sdk.testing import (
     ScriptedResponse,
     SourceDriver,
     always,
+    error_message_matches,
     scripted_network,
 )
 
@@ -286,6 +287,28 @@ class TestUsedUpQuota:
 
         assert isinstance(result.raised, requests.HTTPError)
         assert "403 Client Error" in str(result.raised)
+
+
+class TestNotFoundRejection:
+    @pytest.mark.parametrize(
+        "endpoint, expected_copy",
+        [
+            ("master_report", "doesn't include the Master API"),
+            ("daily_report", "app not found"),
+            ("installs", "app not found"),
+        ],
+    )
+    def test_404_maps_to_the_message_for_its_api(self, endpoint: str, expected_copy: str) -> None:
+        result = _driver().run(endpoint, always(ScriptedResponse(status=404, body=b"")))
+
+        assert result.raised is not None
+        error = f"{type(result.raised).__name__}: {result.raised}"
+        messages = [
+            message
+            for pattern, message in AppsFlyerSource().get_non_retryable_errors().items()
+            if message and error_message_matches(error, [pattern])
+        ]
+        assert messages and expected_copy in messages[0]
 
 
 class TestRawAndMasterWindows:
