@@ -99,6 +99,48 @@ USERVOICE_ENDPOINTS: dict[str, UservoiceEndpointConfig] = {
         supports_incremental=True,
         incremental_fields=_updated_at_incremental_fields(),
     ),
+    "supporters": UservoiceEndpointConfig(
+        name="supporters",
+        path="/supporters",
+        response_key="supporters",
+        supports_incremental=True,
+        incremental_fields=_updated_at_incremental_fields(),
+    ),
+    "features": UservoiceEndpointConfig(
+        name="features",
+        path="/features",
+        response_key="features",
+        supports_incremental=True,
+        incremental_fields=_updated_at_incremental_fields(),
+    ),
+    "status_updates": UservoiceEndpointConfig(
+        name="status_updates",
+        path="/status_updates",
+        response_key="status_updates",
+        supports_incremental=True,
+        incremental_fields=_updated_at_incremental_fields(),
+    ),
+    "feedback_records": UservoiceEndpointConfig(
+        name="feedback_records",
+        path="/feedback_records",
+        response_key="feedback_records",
+        supports_incremental=True,
+        incremental_fields=_updated_at_incremental_fields(),
+    ),
+    "external_users": UservoiceEndpointConfig(
+        name="external_users",
+        path="/external_users",
+        response_key="external_users",
+        supports_incremental=True,
+        incremental_fields=_updated_at_incremental_fields(),
+    ),
+    "external_accounts": UservoiceEndpointConfig(
+        name="external_accounts",
+        path="/external_accounts",
+        response_key="external_accounts",
+        supports_incremental=True,
+        incremental_fields=_updated_at_incremental_fields(),
+    ),
     # Small, config-like reference tables — cheap to pull in full every run, so no incremental filter.
     "suggestion_statuses": UservoiceEndpointConfig(
         name="suggestion_statuses",
@@ -111,6 +153,20 @@ USERVOICE_ENDPOINTS: dict[str, UservoiceEndpointConfig] = {
         path="/labels",
         response_key="labels",
         supports_incremental=False,
+    ),
+    "categories": UservoiceEndpointConfig(
+        name="categories",
+        path="/categories",
+        response_key="categories",
+        supports_incremental=False,
+    ),
+    # Team objects carry no created_at/updated_at, so there is nothing to partition or filter on.
+    "teams": UservoiceEndpointConfig(
+        name="teams",
+        path="/teams",
+        response_key="teams",
+        supports_incremental=False,
+        partition_key=None,
     ),
 }
 

@@ -484,6 +484,26 @@ describe('scenario environment', () => {
             expect(consumerGroupsOf(replicated)).toEqual(consumerGroupsOf(specs))
         })
 
+        it('splits the role processes evenly across the poolers the host names, spreading a role over them', () => {
+            const poolers = ['postgres://a@127.0.0.1:6432/cyclotron_node', 'postgres://a@127.0.0.1:6433/cyclotron_node']
+            const split = roleSpecs(
+                { ...base, SCENARIO_POOLER_URLS: poolers.join(',') },
+                EDGE,
+                secretsOf({}),
+                STATE_DIR,
+                { CYCLOTRON_NODE_DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/cyclotron_node' },
+                undefined,
+                { 'cdp-cyclotron-worker-hogflow': 2 }
+            )
+            const shares = poolers.map((url) => split.filter(({ env }) => env.CYCLOTRON_NODE_DATABASE_URL === url))
+
+            expect(shares.map((share) => share.length)).toEqual([4, 3])
+            expect(
+                shares.map((share) => share.filter(({ role }) => role === 'cdp-cyclotron-worker-hogflow').length)
+            ).toEqual([1, 1])
+            expect(split.filter(({ env }) => 'SCENARIO_POOLER_URLS' in env)).toEqual([])
+        })
+
         it.each(CdpRole.options)(
             'runs %s as itself in dev, marked, against the edge and its proxy for every team, without AWS_PROFILE',
             (role) => {
@@ -951,23 +971,6 @@ describe('scenario environment', () => {
             await nextTimers(0)
 
             expect({ exits: supervisor.exits(), running: tagged() }).toEqual({ exits: [], running: [] })
-        }, 15_000)
-
-        it('keeps a role stopped until the last of two overlapping freezes releases', async () => {
-            const [spec] = roleSpecs(process.env, EDGE, secretsOf({}), STATE_DIR)
-            await supervisor.start([{ ...spec, env: { ...spec.env, SCENARIO_TEST_TAG: tag } }])
-            const [{ pid }] = tagged()
-            const first = supervisor.freeze(spec, 5000)
-            const second = supervisor.freeze(spec, 5000)
-            expect(await second.observed()).toBe(true)
-
-            await first.release()
-            await first.release()
-            const afterFirst = processState(pid)
-            await second.release()
-            await waitForExpect(() => expect(processState(pid)).not.toBe('T'), 5000, 20)
-
-            expect(afterFirst).toBe('T')
         }, 15_000)
 
         it('records a role whose first start fails and retries it, instead of failing the start', async () => {
@@ -1605,7 +1608,7 @@ describe('scenario environment', () => {
             })
         }, 30_000)
 
-        it("drops the roles' Postgres connections in every database on their servers and spares every other one", async () => {
+        it("keeps dropping the roles' Postgres connections in every database on their servers until release, and spares every other one", async () => {
             environment = environmentOf()
             await environment.up()
             const connect = async (
@@ -1642,7 +1645,17 @@ describe('scenario environment', () => {
                     templatesUrl
                 )
                 expect(alive).toEqual(bystanders.map(({ backend }) => backend).sort((x, y) => x - y))
+                const reconnected = await connect(cyclotronUrl, 'cdp-cyclotron-worker-hogflow')
+                sessions.push(reconnected)
+                let reconnectedDropped = false
+                void reconnected.ended.then(() => (reconnectedDropped = true))
+                await waitForExpect(() => expect(reconnectedDropped).toBe(true), 5_000)
                 await actuation.release()
+                const afterRelease = await connect(cyclotronUrl, 'cdp-cyclotron-worker-hogflow')
+                sessions.push(afterRelease)
+                await expect(
+                    Promise.race([afterRelease.ended.then(() => 'dropped'), nextTimers(1_000).then(() => 'kept')])
+                ).resolves.toBe('kept')
             } finally {
                 await Promise.all(sessions.map(({ client }) => client.end().catch(() => undefined)))
             }

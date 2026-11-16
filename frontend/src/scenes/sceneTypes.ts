@@ -107,6 +107,7 @@ export enum Scene {
     BusinessKnowledgePlayground = 'BusinessKnowledgePlayground',
     BusinessKnowledgeSettings = 'BusinessKnowledgeSettings',
     BusinessKnowledgeSource = 'BusinessKnowledgeSource',
+    BusinessKnowledgeUsage = 'BusinessKnowledgeUsage',
     LegacyPlugin = 'LegacyPlugin',
     LegalDocuments = 'LegalDocuments',
     LegalDocumentNew = 'LegalDocumentNew',
@@ -234,6 +235,7 @@ export enum Scene {
     WorkflowsEmailDomain = 'WorkflowsEmailDomain',
     Wizard = 'Wizard',
     EarlyAccessFeature = 'EarlyAccessFeature',
+    ReleaseAll = 'ReleaseAll',
     ReleaseCalendar = 'ReleaseCalendar',
     Releases = 'Releases',
     Release = 'Release',
@@ -466,6 +468,7 @@ export const sceneToAccessControlResourceType: Partial<
     [Scene.BusinessKnowledgePlayground]: AccessControlResourceType.BusinessKnowledge,
     [Scene.BusinessKnowledgeSettings]: AccessControlResourceType.BusinessKnowledge,
     [Scene.BusinessKnowledgeSource]: AccessControlResourceType.BusinessKnowledge,
+    [Scene.BusinessKnowledgeUsage]: AccessControlResourceType.BusinessKnowledge,
 
     // Endpoints
     [Scene.EndpointsScene]: AccessControlResourceType.Endpoint,
