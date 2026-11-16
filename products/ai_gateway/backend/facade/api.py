@@ -8,11 +8,13 @@ dataclasses. Never return ORM instances or import DRF.
 
 from __future__ import annotations
 
+from decimal import Decimal
+
 from posthog.models.user import User
 
 from .. import logic
 from . import contracts
-from .enums import DevTokenClient
+from .enums import DevTokenClient, TeamAccessAction
 
 
 def eligibility_refusal(user: User) -> contracts.DevTokenRefused | None:
@@ -45,3 +47,23 @@ def authorize_cli(user: User, code_challenge: str) -> str:
 
 def exchange_cli_code(code: str, code_verifier: str) -> contracts.MintedDevToken:
     return logic.exchange_cli_code(code, code_verifier)
+
+
+def change_team_access(team_id: int, action: TeamAccessAction) -> contracts.TeamAccessChange:
+    return logic.change_team_access(team_id, action)
+
+
+def add_team_credit(
+    team_id: int, amount_usd: Decimal, reason: str, form_nonce: str, actor: User, was_impersonated: bool
+) -> contracts.TeamCreditAdded:
+    """Raises `contracts.TeamCreditRefused` when the amount is out of bounds or the gateway fails."""
+    return logic.add_team_credit(team_id, amount_usd, reason, form_nonce, actor, was_impersonated)
+
+
+def recent_team_credits(team_id: int, limit: int) -> list[contracts.TeamCreditTopUp]:
+    return logic.recent_team_credits(team_id, limit)
+
+
+def team_wallet(team_id: int) -> contracts.TeamWallet:
+    """Reads the balance and recent ledger from the gateway. Raises `contracts.TeamWalletUnavailable`."""
+    return logic.team_wallet(team_id)

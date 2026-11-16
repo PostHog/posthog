@@ -11,8 +11,9 @@ import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { urls } from 'scenes/urls'
 
 import { projectTreeDataLogic } from '~/layout/panel-layout/ProjectTree/projectTreeDataLogic'
-import { todayAnalyticsLogic } from '~/layout/today/todayAnalyticsLogic'
 import { FileSystemEntry } from '~/queries/schema/schema-general'
+
+import { todayAnalyticsLogic } from 'products/today/frontend/analytics/todayAnalyticsLogic'
 
 import { ANALYTICS_FEED_PAGE_SIZE, fileSystemTypeParams } from './analyticsFeed'
 import { analyticsPinnedLogic, pinKey } from './analyticsPinnedLogic'

@@ -16,6 +16,7 @@ import { reportMetricsFixture } from '../../__mocks__/reportMetricMocks'
 import { inboxTaskKickoffLogic } from '../../inboxTaskKickoffLogic'
 import { inboxReportDetailLogic } from '../../logics/inboxReportDetailLogic'
 import { SignalReport, SignalReportStatus } from '../../types'
+import { ReportChecksSection } from './ReportChecksSection'
 import { ReportExpectedImpact } from './ReportExpectedImpact'
 
 jest.mock('./ReportCheckMetricChart', () => ({ ReportCheckMetricChart: () => <div>Chart</div> }))
@@ -203,10 +204,19 @@ describe('ReportExpectedImpact', () => {
         expect(screen.getByText('Ask AI to update checks').closest('button')).toHaveAttribute('aria-disabled', 'true')
     })
 
-    it('disables metric suggestions until the replacement tool is available', () => {
-        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.SIGNALS_REPORT_MONITORING]: false })
+    it.each([false, undefined])('hides Expected impact and sidebar suggestions when Monitoring is %s', (enabled) => {
+        featureFlagLogic.actions.setFeatureFlags(
+            [],
+            enabled === undefined ? {} : { [FEATURE_FLAGS.SIGNALS_REPORT_MONITORING]: enabled }
+        )
         renderMeasurements([check])
-        expect(screen.getByText('Suggest different metrics').closest('button')).toHaveAttribute('aria-disabled', 'true')
+        render(<ReportChecksSection report={report} />)
+        expect(screen.queryByText('Suggest different metrics')).not.toBeInTheDocument()
+        expect(screen.queryByText('Suggest a better metric')).not.toBeInTheDocument()
+        expect(screen.getByText('Cancel this check')).toBeInTheDocument()
+        expect(screen.queryByText('Looks good')).not.toBeInTheDocument()
+        expect(screen.queryByText('Chart')).not.toBeInTheDocument()
+        expect(document.querySelector('[data-attr="report-expected-impact"]')).not.toBeInTheDocument()
     })
 
     it('caps visible measurements after skipping malformed check configs', () => {

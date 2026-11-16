@@ -9,10 +9,10 @@ from langchain_core.runnables import RunnableConfig
 from parameterized import parameterized_class
 
 from posthog.constants import AvailableFeature
-from posthog.models import PropertyDefinition
 
 from products.access_control.backend.models.property_access_control import PropertyAccessControl
 from products.access_control.backend.property_access_control import PropertyAccessLevel
+from products.event_definitions.backend.models import PropertyDefinition
 from products.tasks.backend.max_tools import (
     CreateTaskTool,
     GetTaskRunLogsTool,

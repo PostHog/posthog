@@ -1,3 +1,5 @@
+import { defaultConfig } from '~/common/config/config'
+
 import { RedisConnectionConfig, RedisPoolComponent } from './redis'
 
 const giveUpBeforeErrorLimit = (attempt: number): number | null => (attempt < 5 ? 25 : null)
@@ -30,5 +32,28 @@ describe('RedisPoolComponent', () => {
 
         const started = await component.start()
         await started.stop()
+    })
+
+    it('connects a non-fatal pool without an offline queue', async () => {
+        const component = new RedisPoolComponent({
+            connection: {
+                url: defaultConfig.REDIS_URL,
+                options: { enableOfflineQueue: false },
+                name: 'no-offline-queue-test',
+                exitOnRepeatedErrors: false,
+            },
+            poolMinSize: 0,
+            poolMaxSize: 1,
+            acquireTimeoutMillis: 5_000,
+        })
+
+        const { value: pool, stop } = await component.start()
+        try {
+            const client = await pool.acquire()
+            expect(await client.ping()).toBe('PONG')
+            await pool.release(client)
+        } finally {
+            await stop()
+        }
     })
 })

@@ -14,6 +14,7 @@ import { createTeam, createTestTeamFixture, getTeam } from '~/tests/helpers/sql'
 import { Hub, Team } from '~/types'
 
 import { getDefaultTracesIngestionConsumerConfig } from '../config'
+import { INTERNAL_LOGS_HEADER, signInternalLogs } from '../internal-logs'
 import { LogRecord, encodeLogRecords } from '../log-record-avro'
 import { DEFAULT_LOGS_RETENTION_DAYS, LogsIngestionConsumer, logMessageDlqCounter } from '../logs-ingestion-consumer'
 import { LOGS_DLQ_OUTPUT, LOGS_OUTPUT, LogsDlqOutput, LogsOutput } from '../outputs/outputs'
@@ -183,6 +184,38 @@ describe('LogsIngestionFrameworkConsumer', () => {
     afterEach(async () => {
         await consumer.stop()
         await closeHub(hub)
+    })
+
+    it('runs transformations on a batch whose internal logs header fails to verify, flagged as internal', async () => {
+        await consumer.stop()
+        const logsTransformer = {
+            startBatch: jest.fn(),
+            teamHasTransformations: jest.fn().mockResolvedValue(true),
+            transformRecords: jest.fn().mockResolvedValue({ recordsDropped: 0, recordsDroppedByFunctionId: new Map() }),
+            flush: jest.fn().mockResolvedValue(undefined),
+        }
+        consumer = withoutKafka(
+            new LogsIngestionFrameworkConsumer(
+                {
+                    ...hub,
+                    LOGS_TRANSFORMATIONS_ENABLED_TEAMS: '*',
+                    LOGS_INTERNAL_INGESTION_ENABLED_TEAMS: '*',
+                    LOGS_INTERNAL_INGESTION_SIGNING_KEYS: 'current-key',
+                },
+                { ...consumerDeps(), logsTransformer }
+            )
+        )
+        await consumer.start()
+
+        await processAndWait(
+            await createKafkaMessages(1, {
+                token: team.api_token,
+                [INTERNAL_LOGS_HEADER]: signInternalLogs('rotated-away-key', 'hog_function', team.id),
+            })
+        )
+
+        expect(logsTransformer.transformRecords).toHaveBeenCalledWith(team.id, expect.any(Array), undefined, true)
+        expect(producedTo(KAFKA_LOGS_CLICKHOUSE)).toHaveLength(1)
     })
 
     it('produces a valid message to the logs topic with the batch headers', async () => {

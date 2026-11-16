@@ -15,9 +15,11 @@ from __future__ import annotations
 from django.utils import timezone
 
 from rest_framework.authentication import BaseAuthentication
+from rest_framework.exceptions import PermissionDenied
 from rest_framework.request import Request
 
 from posthog.auth import account_refused
+from posthog.ip_restrictions import enforce_ip_restrictions
 from posthog.models.activity_logging.utils import ActivityCredentialMixin
 from posthog.models.oauth import OAuthAccessToken, find_oauth_access_token
 from posthog.models.user import User
@@ -83,6 +85,12 @@ class StripeBearerAuthentication(ActivityCredentialMixin, BaseAuthentication):
         ):
             # Stripe's provisioning spec defines the error codes, so the refusal uses its `forbidden`.
             raise SpecError("forbidden", ACCOUNT_BLOCKED_MESSAGE, status=403)
+
+        self.access_token = access_token
+        try:
+            enforce_ip_restrictions(request, user, self)
+        except PermissionDenied as error:
+            raise SpecError("forbidden", str(error.detail), status=403) from error
 
         self.record_activity_actor(
             user, str(access_token.application_id), impersonated_by_id=access_token.impersonated_by_id

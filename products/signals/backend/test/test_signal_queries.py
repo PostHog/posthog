@@ -162,8 +162,10 @@ class TestFetchSourceProductsForReports(_SignalEmbeddingsTestBase):
             self.assertNumQueries(FuzzyInt(1, 3)),
             patch("products.signals.backend.signal_metadata.execute_hogql_query", wraps=execute_hogql_query) as query,
         ):
-            result = fetch_source_products_for_reports(
-                self.team, ["rA", "rB"], **({"ch_user": ch_user} if ch_user else {})
+            result = (
+                fetch_source_products_for_reports(self.team, ["rA", "rB"], ch_user=ch_user)
+                if ch_user
+                else fetch_source_products_for_reports(self.team, ["rA", "rB"])
             )
 
         assert query.call_args.kwargs["ch_user"] == (ch_user or ClickHouseUser.DEFAULT)

@@ -67,6 +67,7 @@ from posthog.temporal.alerts.alert_firing_signal import (
     prepare_alert_firing_signal,
 )
 from posthog.temporal.alerts.investigation import (
+    InvestigationDecision,
     carried_verdict_suppresses,
     claim_investigation_slot,
     decide_investigation,
@@ -769,7 +770,8 @@ async def evaluate_alert(inputs: EvaluateAlertActivityInputs) -> EvaluateAlertRe
                     new_state=AlertState(alert_check.state),
                 )
 
-            investigation = decide_investigation(alert, alert_check)
+            # A finished investigation delivers its check's notification, so a check that sends none skips it.
+            investigation = decide_investigation(alert, alert_check) if should_notify else InvestigationDecision()
             if investigation.should_investigate and claim_investigation_slot(alert, alert_check):
                 should_start_investigation = True
                 should_gate_notification = should_notify and bool(alert.investigation_gates_notifications)

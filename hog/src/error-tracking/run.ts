@@ -210,7 +210,8 @@ export async function inject(
     selection: Selection,
     options: ErrorTrackingOptions,
     session: Session = new Session(ctx),
-    preset?: Release
+    preset?: Release,
+    warnMissingRelease = true
 ): Promise<InjectReport> {
     const skipped: Skip[] = []
     const warnings: string[] = []
@@ -258,6 +259,14 @@ export async function inject(
         ).map((outcome) => [outcome.pair, outcome])
     )
     const outcomes = pairs.map((pair) => byPair.get(pair)!)
+    if (
+        warnMissingRelease &&
+        options.releaseMode === 'symbol-set' &&
+        reported === null &&
+        pairs.some((pair) => pair.map.releaseId === null)
+    ) {
+        warnings.push(MISSING_RELEASE_WARNING)
+    }
     if (!options.dryRun) {
         savePairs(pairs, (pair) => serializeMapContent(pair.map))
     }
@@ -278,6 +287,8 @@ export async function inject(
 
 const DRY_RUN_RELEASE_WARNING =
     'PostHog assigns the release ID, so a dry run leaves it out. JavaScript content hashes from a dry run can differ from a real run.'
+const MISSING_RELEASE_WARNING =
+    'No release could be resolved. Sourcemaps will upload without a release. Pass both --release-name and --release-version, or run from a git repository or supported CI environment.'
 
 export interface UploadReport {
     dryRun: boolean
@@ -407,6 +418,13 @@ export async function upload(
                 }
             }
         }
+        if (
+            options.releaseMode === 'symbol-set' &&
+            (!options.dryRun || reported === null) &&
+            uploadable.some((pair) => pair.map.releaseId === null)
+        ) {
+            warnings.push(MISSING_RELEASE_WARNING)
+        }
         const prepared = preparePairs(read.pairs, options.releaseMode)
         skipped.push(...prepared.skipped)
         for (const chunkId of prepared.duplicates) {
@@ -525,6 +543,15 @@ export async function upload(
         for (const { artifact, upload: item } of native) {
             planned.push({ artifact, upload: { ...item, releaseId }, policy })
         }
+    }
+
+    if (
+        options.releaseMode === 'symbol-set' &&
+        !warnings.includes(MISSING_RELEASE_WARNING) &&
+        (!options.dryRun || reported === null) &&
+        planned.some(({ artifact, upload }) => artifact.kind === 'hermes' && !upload.releaseId)
+    ) {
+        warnings.push(MISSING_RELEASE_WARNING)
     }
 
     // posthog-cli's Hermes upload fails when it finds nothing to upload, so a build step that lost
@@ -657,7 +684,7 @@ export async function processArtifacts(
         }
     }
     const injected = selection.artifacts.some(isBundle)
-        ? await inject(ctx, selection, options, session, preset)
+        ? await inject(ctx, selection, options, session, preset, false)
         : undefined
     const report = await upload(ctx, selection, options, session, injected)
     return { ...report, injected: injected?.injected ?? [] }
@@ -666,6 +693,7 @@ export async function processArtifacts(
 export interface CloneReport {
     dryRun: boolean
     release: ReleaseReport | null
+    warnings: string[]
     from: string
     to: string
     chunkId: string | null
@@ -708,6 +736,9 @@ export async function cloneMaps(
             }
         }
     }
+    if (options.releaseMode === 'symbol-set' && releaseId === null && reported === null) {
+        warnings.push(MISSING_RELEASE_WARNING)
+    }
     const fromChanged = from.map.releaseId !== releaseId
     from.map.releaseId = releaseId
     cloneMetadata(from.map, to.map)
@@ -720,6 +751,7 @@ export async function cloneMaps(
     return {
         dryRun: options.dryRun,
         release: reported,
+        warnings,
         from: fromPath,
         to: toPath,
         chunkId: to.map.chunkId,

@@ -21,7 +21,8 @@
                                         {% if cell.tone %}
                                             {% include "admin_console/_badge.html" with label=cell.text tone=cell.tone %}
                                         {% elif cell.href %}
-                                            <a href="{{ cell.href }}">{{ cell.text }}</a>
+                                            <a class="text-foreground underline decoration-border underline-offset-2 hover:decoration-current"
+                                               href="{{ cell.href }}">{{ cell.text }}</a>
                                         {% else %}
                                             {{ cell.text }}
                                         {% endif %}

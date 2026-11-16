@@ -29,6 +29,11 @@ jobs:
               with:
                   fetch-depth: 0 # Fetching all for comparison since last push (not just last commit)
                   filter: blob:none
+                  sparse-checkout: |
+                      common/hogql_parser
+                      .github/scripts/post-reminder-section.mjs
+                      frontend/bin/ci-report
+                  sparse-checkout-cone-mode: false
 
             - name: Check if common/hogql_parser/ or the workflow has changed
               id: changed-files

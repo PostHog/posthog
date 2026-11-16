@@ -41,7 +41,6 @@ describe('transactionalEmailsLogic', () => {
                         template('d', 'Newsletter', ['auth'], 1, false),
                     ],
                 },
-                '/api/projects/:team_id/tags': ['auth', 'billing'],
             },
         })
         initKeaTests()

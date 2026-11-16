@@ -1,3 +1,4 @@
+import { HogError } from '@/core/errors'
 import type { PostHogApi } from '@/posthog/api'
 
 import { createEndpoint, createInsightVariable, updateEndpoint } from './api'
@@ -112,6 +113,15 @@ export interface PushOutcome {
     error?: string
 }
 
+// Creating a variable the project doesn't have yet needs its own scope, so it's asked for only then.
+export function pushScopes(items: PushItem[], variables: InsightVariable[]): string[] {
+    const known = new Set(variables.map((variable) => variable.code_name))
+    const creates = items.some(
+        (item) => item.action !== 'skip' && (item.file.variables ?? []).some(({ name }) => !known.has(name))
+    )
+    return creates ? ['endpoint:write', 'insight_variable:write'] : ['endpoint:write']
+}
+
 // Creates the variables a file adds that the project doesn't have yet, then the endpoint. A
 // failure stops only its own endpoint.
 export async function applyPush(
@@ -151,6 +161,10 @@ export async function applyPush(
                 uiUrl: saved.ui_url,
             })
         } catch (error) {
+            // Agents need the scopes and the command as data, and every later write would fail the same way.
+            if (error instanceof HogError && error.code === 'step_up_required') {
+                throw error
+            }
             outcomes.push({
                 name: item.name,
                 path: item.path,

@@ -103,7 +103,9 @@ export function GeneralSection(): JSX.Element {
                         className="my-8"
                         description="Choose where customers can reach you. Each channel can be configured independently."
                     >
-                        <ChannelsSection />
+                        <LemonCard hoverEffect={false} className="max-w-[800px] px-4 py-3">
+                            <ChannelsSection />
+                        </LemonCard>
                     </SceneSection>
                     <SceneSection
                         title="Allowed domains"

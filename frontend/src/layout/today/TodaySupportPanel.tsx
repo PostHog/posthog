@@ -24,9 +24,19 @@ import { TodaySupportResponseTimes } from './TodaySupportResponseTimes'
 import { TodaySupportStatusAlert } from './TodaySupportStatusAlert'
 
 // Set through the `support-message-override` feature flag, for times like an offsite or the holidays.
-const SUPPORT_MESSAGE_OVERRIDE_TITLE = "We're catching up on our support queue"
+const SUPPORT_MESSAGE_OVERRIDE_TITLE = "We're making improvements:"
 const SUPPORT_MESSAGE_OVERRIDE_BODY =
-    'Our support engineers recently attended an offsite to make long-term enhancements to our support process. As a result, our response times are slightly delayed for some inquiries. Thanks for your patience as we work to get caught up!'
+    "Many of our support engineers are attending an offsite (from 16th to 20th November) so we can make long-term enhancements. We're working different hours, so non-urgent inquiries may experience a slight delay. We'll be catching up from the 23rd and back to full speed shortly after!"
+
+//Support post-offsite catch-up messaging
+//const SUPPORT_MESSAGE_OVERRIDE_TITLE = "We're catching up on our support queue"
+//const SUPPORT_MESSAGE_OVERRIDE_BODY =
+//    'Our support engineers recently attended an offsite to make long-term enhancements to our support process. As a result, our response times are slightly delayed for some inquiries. Thanks for your patience as we work to get caught up!'
+
+//Support Christmas messaging
+//const SUPPORT_MESSAGE_OVERRIDE_TITLE = '🎄 🎅 Support during the holidays 🎁 ⛄'
+//const SUPPORT_MESSAGE_OVERRIDE_BODY =
+//    "We're offering reduced support while we celebrate the holidays. Responses may be slower than normal over the holiday period (22nd December to the 5th January). Thanks for your patience!"
 
 const FEEDBACK_LINKS = [
     { label: "See what we're building", href: 'https://posthog.com/wip', Icon: IconHelmet },

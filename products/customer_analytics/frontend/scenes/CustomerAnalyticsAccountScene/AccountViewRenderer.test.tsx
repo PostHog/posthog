@@ -3,6 +3,7 @@ import '@testing-library/jest-dom'
 import { act, cleanup, render, screen } from '@testing-library/react'
 import { resetContext } from 'kea'
 
+import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import type { AccountViewApi } from '../../generated/api.schemas'
@@ -61,6 +62,25 @@ describe('AccountViewRenderer', () => {
         cleanup()
         featureFlagLogic.unmount()
     })
+
+    it.each([undefined, false, true])(
+        'renders a saved Automations widget only when its flag is enabled (%s)',
+        (enabled) => {
+            featureFlagLogic.actions.setFeatureFlags(
+                [],
+                enabled === undefined ? {} : { [FEATURE_FLAGS.CUSTOMER_ANALYTICS_AUTOMATIONS_WIDGET]: enabled }
+            )
+            const view = {
+                ...createView(''),
+                content: createAccountViewContent([{ nodeId: 'automations', kind: 'automations', span: 12 }]),
+            }
+            render(
+                <AccountViewRenderer view={view} projectId={1} accountId="account-1" externalId="external-account-1" />
+            )
+
+            expect(screen.queryByTestId('account-view-tile-automations') !== null).toBe(enabled === true)
+        }
+    )
 
     it('remounts a tile only after a failed save reloads persisted config at the same version', () => {
         const { rerender } = render(

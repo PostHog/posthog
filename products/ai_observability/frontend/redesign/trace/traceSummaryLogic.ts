@@ -1,6 +1,5 @@
 import { MakeLogicType, actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
-import posthog from 'posthog-js'
 
 import { ApiConfig, ApiError } from 'lib/api'
 import { userHasAccess } from 'lib/utils/accessControlUtils'
@@ -11,6 +10,7 @@ import { AccessControlLevel, AccessControlResourceType } from '~/types'
 import { aiObservabilityTracesSummaryCreate, aiObservabilityTracesSummaryRetrieve } from '../../generated/api'
 import type { TraceSummaryApi, TraceSummaryFailureReasonEnumApi } from '../../generated/api.schemas'
 import { encodeTraceIdSegment } from './traceIdSegment'
+import { traceViewTracking } from './traceViewTracking'
 import type { SummaryModeState, SummaryRequestError } from './types'
 
 export interface TraceSummaryLogicProps {
@@ -267,9 +267,7 @@ export const traceSummaryLogic = kea<traceSummaryLogicType>([
         const trackShown = (): void => {
             const { state } = values
             if (values.isOpen && state.status === 'ready' && state.summary.generatedAt !== values.shownGeneratedAt) {
-                posthog.capture('llma trace view summary shown', {
-                    source: values.sawPending ? 'just_generated' : 'stored',
-                })
+                traceViewTracking.summaryShown(values.sawPending ? 'just_generated' : 'stored')
                 actions.summaryShownTracked(state.summary.generatedAt)
             }
         }
@@ -287,17 +285,17 @@ export const traceSummaryLogic = kea<traceSummaryLogicType>([
             },
             loadSummarySuccess: (_, __, ___, previousState) => {
                 if (values.isOpen && !selectors.firstLoadDone(previousState)) {
-                    posthog.capture('llma trace view summary viewed', {
-                        has_summary: values.entry !== null,
-                        status: values.state.status,
-                        can_generate: values.canGenerate,
-                        opened_from: values.openedFrom,
-                    })
+                    traceViewTracking.summaryViewed(
+                        values.entry !== null,
+                        values.state.status,
+                        values.canGenerate,
+                        values.openedFrom
+                    )
                 }
                 answered()
             },
             requestSummary: ({ regenerate }) => {
-                posthog.capture('llma trace view summary requested', { regenerate })
+                traceViewTracking.summaryRequested(regenerate)
             },
             requestSummarySuccess: answered,
         }

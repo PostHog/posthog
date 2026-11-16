@@ -4,11 +4,17 @@ import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
 import React, { useState } from 'react'
 
+import { Separator } from '@posthog/quill'
+
 import { BehavioralPropertyFilterRow } from 'lib/components/PropertyFilters/components/BehavioralPropertyFilterRow'
-import { FILTER_ROW_FRAME_CLASSES } from 'lib/components/PropertyFilters/components/filterRowFrame'
+import {
+    FILTER_ROW_FRAME_CLASSES,
+    QUILL_FILTER_ROW_FRAME_CLASSES,
+} from 'lib/components/PropertyFilters/components/filterRowFrame'
 import { PropertyFilterRowOperator } from 'lib/components/PropertyFilters/components/PropertyFilterRowOperator'
 import { TaxonomicPropertyFilter } from 'lib/components/PropertyFilters/components/TaxonomicPropertyFilter'
 import { isBehavioralPropertyFilter, isPropertyGroupFilterLike } from 'lib/components/PropertyFilters/utils'
+import { useQuillSurface } from 'lib/components/QuillSurface/quillSurfaceContext'
 import {
     AllowedProperties,
     ExcludedOperators,
@@ -147,6 +153,7 @@ export function PropertyFilters({
     const { filters, filtersWithNew, filterIds, filterIdsWithNew } = useValues(propertyFilterLogic(logicProps))
     const { remove, setFilter, setFilters, update } = useActions(propertyFilterLogic(logicProps))
     const [allowOpenOnInsert, setAllowOpenOnInsert] = useState<boolean>(false)
+    const quillSurface = useQuillSurface()
 
     const showNewFilterRow = allowNew && editable
     const displayedFilters = showNewFilterRow ? filtersWithNew : filters
@@ -177,7 +184,8 @@ export function PropertyFilters({
                 {addFilterDivider &&
                     showNewFilterRow &&
                     index === displayedFilters.length - 1 &&
-                    filters.length > 0 && <LemonDivider className="my-1 w-full" />}
+                    filters.length > 0 &&
+                    (quillSurface ? <Separator className="my-1" /> : <LemonDivider className="my-1 w-full" />)}
                 <FilterRow
                     onOpen={onFilterOpen}
                     header={filterHeader}
@@ -209,7 +217,8 @@ export function PropertyFilters({
                                 <div
                                     className={clsx(
                                         'TaxonomicPropertyFilter__row-items',
-                                        framedRows && FILTER_ROW_FRAME_CLASSES
+                                        framedRows &&
+                                            (quillSurface ? QUILL_FILTER_ROW_FRAME_CLASSES : FILTER_ROW_FRAME_CLASSES)
                                     )}
                                 >
                                     <BehavioralPropertyFilterRow

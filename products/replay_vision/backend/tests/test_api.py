@@ -128,6 +128,15 @@ class _VisionAPITestCase(APIBaseTest):
         defaults.update(overrides)
         return ReplayScanner.objects.create(**defaults)
 
+    def _restrict_scanner(self, scanner: ReplayScanner, access_level: str) -> None:
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        AccessControl.objects.create(
+            team=self.team, resource="replay_scanner", resource_id=str(scanner.id), access_level=access_level
+        )
+
     def _captured(self, capture: Any, event: str) -> list[dict[str, Any]]:
         return [call.kwargs["properties"] for call in capture.call_args_list if call.kwargs.get("event") == event]
 
@@ -3712,12 +3721,9 @@ class TestRetryActions(_VisionAPITestCase):
         start_workflow = MagicMock()
         mock_async_to_sync.return_value = start_workflow
         observation = self._create_failed("sess-rbac")
+        self._restrict_scanner(self.scanner, "viewer")
 
-        with patch(
-            "products.access_control.backend.facade.user_access_control.UserAccessControl.check_access_level_for_object",
-            side_effect=lambda obj, required_level=None, **_: not isinstance(obj, ReplayScanner),
-        ):
-            resp = self.client.post(f"/api/environments/{self.team.id}/vision/observations/{observation.id}/retry/")
+        resp = self.client.post(f"/api/environments/{self.team.id}/vision/observations/{observation.id}/retry/")
         self.assertEqual(resp.status_code, 403, resp.json())
         self.assertTrue(ReplayObservation.objects.filter(id=observation.id).exists())
         start_workflow.assert_not_called()

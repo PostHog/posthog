@@ -3056,6 +3056,8 @@ class TestSQLV2NodeRunMetrics(APIBaseTest):
         mock_report.assert_called_once()
         event, properties = mock_report.call_args[0]
         self.assertEqual(event, "notebook node run completed")
+        self.assertIs(properties["$update_person_last_seen_at"], False)
+        self.assertEqual(mock_report.call_args.kwargs["user"], self.user)
         self.assertEqual(properties["outcome"], expected_outcome)
         self.assertEqual(properties["notebook_short_id"], "nbmet01")
         self.assertEqual(properties["node_type"], "hogql")
@@ -3103,6 +3105,7 @@ class TestSQLV2NodeRunMetrics(APIBaseTest):
         mock_report.assert_called_once()
         event, properties = mock_report.call_args[0]
         self.assertEqual(event, "notebook node run completed")
+        self.assertIs(properties["$update_person_last_seen_at"], False)
         self.assertEqual(properties["outcome"], expected_outcome)
 
     @patch("products.notebooks.backend.sql_v2_metrics.report_user_or_team_action")

@@ -197,7 +197,9 @@ fn clamps_far_past_timestamp_and_counts_override() {
     let (rows, overridden) = write_request_to_kafka_rows(req);
 
     assert_eq!(overridden, 1);
-    assert!(rows[0].attributes.contains_key("$originalTimestamp"));
+    assert!(rows[0]
+        .attributes
+        .contains_key("posthog.original_timestamp"));
     // Clamped forward to ~now.
     assert!((Utc::now() - rows[0].timestamp).num_seconds().abs() < 5);
 }
@@ -558,7 +560,7 @@ fn assigns_stable_series_fingerprints_at_ingest() {
     );
 }
 
-/// A clamped timestamp adds $originalTimestamp to the row's attributes but must
+/// A clamped timestamp adds posthog.original_timestamp to the row's attributes but must
 /// never split the series: identity is computed before the synthetic attribute.
 #[test]
 fn overridden_timestamps_do_not_split_series_identity() {
@@ -587,10 +589,12 @@ fn overridden_timestamps_do_not_split_series_identity() {
 
     assert_eq!(rows.len(), 2);
     assert_eq!(overridden, 1);
-    assert!(rows[1].attributes.contains_key("$originalTimestamp"));
+    assert!(rows[1]
+        .attributes
+        .contains_key("posthog.original_timestamp"));
     assert_eq!(
         rows[0].series_fingerprint, rows[1].series_fingerprint,
-        "the synthetic $originalTimestamp attribute must not change identity"
+        "the synthetic posthog.original_timestamp attribute must not change identity"
     );
 }
 

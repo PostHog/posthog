@@ -1,0 +1,21 @@
+.TodayPane {
+    // The pane sits on the shell's chrome, not the app background.
+    --quill-icon-stack-ring: var(--chrome);
+
+    display: flex;
+    flex: 1 1 auto;
+    flex-direction: column;
+    min-height: 0;
+    padding: 0 8px;
+}
+
+.TodayIconBadge .LemonBadge:not(.LemonBadge--hidden) {
+    width: var(--lemon-badge-size);
+    padding: 0;
+    font-size: 0.5625rem;
+    letter-spacing: -0.03em;
+}
+
+.SidebarSearchList:has([data-highlighted]) [role='option']:not([data-highlighted]):hover {
+    background: transparent;
+}

@@ -6,7 +6,7 @@ import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { Link } from 'lib/lemon-ui/Link'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 import { cn } from 'lib/utils/css-classes'
-import { inStorybook, inStorybookTestRunner } from 'lib/utils/dom'
+import { inStorybook } from 'lib/utils/dom'
 
 import { type BrandMarkName } from '../brandMarks'
 import { BrandMark } from '../components/BrandMark'
@@ -32,7 +32,7 @@ const { line, area } = sparkPaths(SPARK)
  * preview rules in the `building-product-empty-states` skill.
  */
 export function MCPToolCallPreview({ mode }: { mode: ProductEmptyStateMode }): JSX.Element {
-    const isStatic = inStorybook() || inStorybookTestRunner()
+    const isStatic = inStorybook()
 
     return (
         <div className="flex flex-col gap-3">

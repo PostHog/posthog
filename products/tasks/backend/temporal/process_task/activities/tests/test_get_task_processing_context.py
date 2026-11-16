@@ -485,6 +485,12 @@ class TestGetTaskProcessingContextActivity:
             (None, False, False),
             ("business_knowledge", True, False),
             ("business_knowledge", False, False),
+            ("posthog_ai", True, True),
+            ("posthog_ai", False, False),
+            ("posthog_ai.internal", True, True),
+            ("posthog_ai.internal", False, False),
+            ("space_setup", True, True),
+            ("space_setup", False, False),
             ("test.unregistered", True, True),
         ],
     )

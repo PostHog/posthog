@@ -13,6 +13,8 @@ import {
     IconScreen,
     IconShare,
     IconTrash,
+    IconRedo,
+    IconUndo,
 } from '@posthog/icons'
 import { Button } from '@posthog/quill'
 
@@ -23,6 +25,8 @@ import { SceneMenuBarFileItems } from 'lib/components/Scenes/SceneMenuBarFileIte
 import { SceneMenuBarPinItem } from 'lib/components/Scenes/SceneMenuBarPinItem'
 import { SceneTagsCombobox } from 'lib/components/Scenes/SceneTagsCombobox'
 import { SceneActivityIndicator } from 'lib/components/Scenes/SceneUpdateActivityInfo'
+import { RenderKeybind } from 'lib/components/Shortcuts/RenderKeybind'
+import { keyBinds } from 'lib/components/Shortcuts/shortcuts'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { getAccessControlDisabledReason, userHasAccess } from 'lib/utils/accessControlUtils'
@@ -43,11 +47,11 @@ import {
     SceneMenuBarMenu,
     SceneMenuBarPopover,
     SceneMenuBarSeparator,
+    SceneMenuBarShortcut,
     SceneMenuBarSubMenu,
 } from '~/layout/scenes/components/SceneMenuBar'
 import { sceneLayoutLogic } from '~/layout/scenes/sceneLayoutLogic'
 import { notebooksModel } from '~/models/notebooksModel'
-import { tagsModel } from '~/models/tagsModel'
 import { AccessControlLevel, AccessControlResourceType, DashboardMode, ExporterFormat, SidePanelTab } from '~/types'
 
 import { urlForSubscriptions } from 'products/subscriptions/frontend/components/Subscriptions/utils'
@@ -73,7 +77,6 @@ function DashboardSceneMenuBarInner(): JSX.Element | null {
     const {
         dashboard,
         dashboardMode,
-        layoutEditMode,
         canEditDashboard,
         isSavingTags,
         isPinned,
@@ -83,8 +86,17 @@ function DashboardSceneMenuBarInner(): JSX.Element | null {
         currentDashboardVariables,
         tiles,
         apiUrl,
+        undoLayoutDisabledReason,
+        redoLayoutDisabledReason,
     } = useValues(dashboardLogic)
-    const { setDashboardMode, updateDashboardTags, togglePinned, setTerraformModalOpen } = useActions(dashboardLogic)
+    const {
+        setDashboardMode,
+        updateDashboardTags,
+        togglePinned,
+        setTerraformModalOpen,
+        undoLayoutChange,
+        redoLayoutChange,
+    } = useActions(dashboardLogic)
     const { startExport } = useActions(exportsLogic)
     const { createNotebookFromDashboard } = useActions(notebooksModel)
     const { showInsightColorsModal } = useActions(dashboardInsightColorsModalLogic)
@@ -95,7 +107,6 @@ function DashboardSceneMenuBarInner(): JSX.Element | null {
     const { instanceId: metalyticsInstanceId } = useValues(metalyticsLogic)
 
     const { user } = useValues(userLogic)
-    const { tags } = useValues(tagsModel)
     const { canCopyToProject } = useValues(interProjectCopyLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const hasDashboardColors = !!featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_DASHBOARD_COLORS]
@@ -132,11 +143,7 @@ function DashboardSceneMenuBarInner(): JSX.Element | null {
           ? 'Template data is not ready yet. Try again in a moment.'
           : undefined
 
-    const openInsightsInNewTabsDisabled = layoutEditMode
-        ? 'Cannot open insights when editing dashboard'
-        : tiles.length === 0
-          ? 'Dashboard has no insights'
-          : undefined
+    const openInsightsInNewTabsDisabled = tiles.length === 0 ? 'Dashboard has no insights' : undefined
 
     const showCreateMenu = canEditDashboard // notebook + subscribe both gated on canEdit
     const showEditMenu = true // duplicate always
@@ -299,6 +306,35 @@ function DashboardSceneMenuBarInner(): JSX.Element | null {
             )}
             {showEditMenu && (
                 <SceneMenuBarMenu label="Edit" dataAttr={`${RESOURCE_TYPE}-menubar-edit`}>
+                    {canEditDashboard && (
+                        <>
+                            <SceneMenuBarItem
+                                onClick={() => undoLayoutChange()}
+                                disabled={!!undoLayoutDisabledReason}
+                                tooltip={undoLayoutDisabledReason ?? undefined}
+                                data-attr={`${RESOURCE_TYPE}-menubar-undo-layout`}
+                            >
+                                <IconUndo />
+                                Undo layout change
+                                <SceneMenuBarShortcut>
+                                    <RenderKeybind keybind={[keyBinds.undo]} minimal />
+                                </SceneMenuBarShortcut>
+                            </SceneMenuBarItem>
+                            <SceneMenuBarItem
+                                onClick={() => redoLayoutChange()}
+                                disabled={!!redoLayoutDisabledReason}
+                                tooltip={redoLayoutDisabledReason ?? undefined}
+                                data-attr={`${RESOURCE_TYPE}-menubar-redo-layout`}
+                            >
+                                <IconRedo />
+                                Redo layout change
+                                <SceneMenuBarShortcut>
+                                    <RenderKeybind keybind={[keyBinds.redo]} minimal />
+                                </SceneMenuBarShortcut>
+                            </SceneMenuBarItem>
+                            <SceneMenuBarSeparator />
+                        </>
+                    )}
                     <SceneMenuBarItem
                         opensFloatingUi
                         onClick={() => showDuplicateDashboardModal(dashboard.id, dashboard.name)}
@@ -367,7 +403,6 @@ function DashboardSceneMenuBarInner(): JSX.Element | null {
                         onSave={(t) => updateDashboardTags(t)}
                         canEdit={canEditDashboard}
                         tags={dashboard?.tags}
-                        tagsAvailable={tags.filter((t) => !dashboard?.tags?.includes(t))}
                         dataAttrKey={RESOURCE_TYPE}
                         loading={isSavingTags}
                     />

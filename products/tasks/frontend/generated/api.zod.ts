@@ -592,6 +592,18 @@ export const tasksCreateBodyPendingUserArtifactIdsItemMax = 128
 export const tasksCreateBodyStartRunDefault = false
 export const tasksCreateBodySignalReportDiscussionQuestionMax = 4000
 
+export const tasksCreateBodyProfileMax = 64
+
+export const tasksCreateBodyOptionsOneRepositoriesItemNameMax = 255
+
+export const tasksCreateBodyOptionsOneRepositoriesItemInitialBranchMax = 255
+
+export const tasksCreateBodyOptionsOneRepositoriesMax = 10
+
+export const tasksCreateBodySourceOneIdMax = 64
+
+export const tasksCreateBodyIdempotencyKeyMax = 64
+
 export const TasksCreateBody = /* @__PURE__ */ zod.object({
     title: zod
         .string()
@@ -636,13 +648,14 @@ export const TasksCreateBody = /* @__PURE__ */ zod.object({
             'metrics_import',
             'knowledge_writer',
             'context_layer',
+            'feature_flags',
         ])
         .describe(
-            '\* `onboarding` - Onboarding\n\* `account_audit` - Account audit\n\* `error_tracking` - Error Tracking\n\* `eval_clusters` - Eval Clusters\n\* `user_created` - User Created\n\* `slack` - Slack\n\* `support_queue` - Support Queue\n\* `session_summaries` - Session Summaries\n\* `posthog_ai` - PostHog AI\n\* `experiments` - Experiments\n\* `signal_report` - Signal Report\n\* `autoresearch` - Autoresearch\n\* `signals_scout` - Signals Scout\n\* `scout_suggestions` - Signals Scout Suggestions\n\* `support_reply` - Support Reply\n\* `hogdesk` - HogDesk\n\* `review_hog` - ReviewHog\n\* `image_builder` - Image Builder\n\* `loop` - Loop\n\* `mcp_analytics` - MCP Analytics\n\* `signals_chat` - Signals Chat\n\* `task_analysis` - Task Analysis\n\* `workflow` - Workflow\n\* `space_setup` - Space Setup\n\* `business_knowledge` - Business Knowledge\n\* `metrics_import` - Metrics Import\n\* `knowledge_writer` - Knowledge Writer\n\* `context_layer` - Context Layer'
+            '\* `onboarding` - Onboarding\n\* `account_audit` - Account audit\n\* `error_tracking` - Error Tracking\n\* `eval_clusters` - Eval Clusters\n\* `user_created` - User Created\n\* `slack` - Slack\n\* `support_queue` - Support Queue\n\* `session_summaries` - Session Summaries\n\* `posthog_ai` - PostHog AI\n\* `experiments` - Experiments\n\* `signal_report` - Signal Report\n\* `autoresearch` - Autoresearch\n\* `signals_scout` - Signals Scout\n\* `scout_suggestions` - Signals Scout Suggestions\n\* `support_reply` - Support Reply\n\* `hogdesk` - HogDesk\n\* `review_hog` - ReviewHog\n\* `image_builder` - Image Builder\n\* `loop` - Loop\n\* `mcp_analytics` - MCP Analytics\n\* `signals_chat` - Signals Chat\n\* `task_analysis` - Task Analysis\n\* `workflow` - Workflow\n\* `space_setup` - Space Setup\n\* `business_knowledge` - Business Knowledge\n\* `metrics_import` - Metrics Import\n\* `knowledge_writer` - Knowledge Writer\n\* `context_layer` - Context Layer\n\* `feature_flags` - Feature Flags'
         )
         .optional()
         .describe(
-            'PostHog product or surface that created this task (e.g. error_tracking, slack, user_created). Origins reserved for server-created agents cannot be set through this API.\n\n\* `onboarding` - Onboarding\n\* `account_audit` - Account audit\n\* `error_tracking` - Error Tracking\n\* `eval_clusters` - Eval Clusters\n\* `user_created` - User Created\n\* `slack` - Slack\n\* `support_queue` - Support Queue\n\* `session_summaries` - Session Summaries\n\* `posthog_ai` - PostHog AI\n\* `experiments` - Experiments\n\* `signal_report` - Signal Report\n\* `autoresearch` - Autoresearch\n\* `signals_scout` - Signals Scout\n\* `scout_suggestions` - Signals Scout Suggestions\n\* `support_reply` - Support Reply\n\* `hogdesk` - HogDesk\n\* `review_hog` - ReviewHog\n\* `image_builder` - Image Builder\n\* `loop` - Loop\n\* `mcp_analytics` - MCP Analytics\n\* `signals_chat` - Signals Chat\n\* `task_analysis` - Task Analysis\n\* `workflow` - Workflow\n\* `space_setup` - Space Setup\n\* `business_knowledge` - Business Knowledge\n\* `metrics_import` - Metrics Import\n\* `knowledge_writer` - Knowledge Writer\n\* `context_layer` - Context Layer'
+            'PostHog product or surface that created this task (e.g. error_tracking, slack, user_created). Origins reserved for server-created agents cannot be set through this API.\n\n\* `onboarding` - Onboarding\n\* `account_audit` - Account audit\n\* `error_tracking` - Error Tracking\n\* `eval_clusters` - Eval Clusters\n\* `user_created` - User Created\n\* `slack` - Slack\n\* `support_queue` - Support Queue\n\* `session_summaries` - Session Summaries\n\* `posthog_ai` - PostHog AI\n\* `experiments` - Experiments\n\* `signal_report` - Signal Report\n\* `autoresearch` - Autoresearch\n\* `signals_scout` - Signals Scout\n\* `scout_suggestions` - Signals Scout Suggestions\n\* `support_reply` - Support Reply\n\* `hogdesk` - HogDesk\n\* `review_hog` - ReviewHog\n\* `image_builder` - Image Builder\n\* `loop` - Loop\n\* `mcp_analytics` - MCP Analytics\n\* `signals_chat` - Signals Chat\n\* `task_analysis` - Task Analysis\n\* `workflow` - Workflow\n\* `space_setup` - Space Setup\n\* `business_knowledge` - Business Knowledge\n\* `metrics_import` - Metrics Import\n\* `knowledge_writer` - Knowledge Writer\n\* `context_layer` - Context Layer\n\* `feature_flags` - Feature Flags'
         ),
     repository: zod
         .string()
@@ -774,6 +787,102 @@ export const TasksCreateBody = /* @__PURE__ */ zod.object({
         .describe(
             "Agent protocol and harness used for this task's runs. Defaults to ACP when omitted.\n\n\* `acp` - ACP\n\* `pi` - Pi"
         ),
+    profile: zod
+        .string()
+        .max(tasksCreateBodyProfileMax)
+        .optional()
+        .describe(
+            'Key of a public task profile, which sets the limits for this kind of task. Omit it to create a task from `origin_product` as before.'
+        ),
+    options: zod
+        .object({
+            runtime: zod
+                .enum(['acp', 'pi'])
+                .describe('\* `acp` - ACP\n\* `pi` - Pi')
+                .optional()
+                .describe(
+                    'Agent protocol and harness for the task. It must be one the profile allows.\n\n\* `acp` - ACP\n\* `pi` - Pi'
+                ),
+            adapter: zod
+                .enum(['claude', 'codex'])
+                .describe('\* `claude` - claude\n\* `codex` - codex')
+                .optional()
+                .describe(
+                    'Agent harness for the first run. Derived from the model when omitted.\n\n\* `claude` - claude\n\* `codex` - codex'
+                ),
+            model: zod.string().optional().describe('LLM model for the first run.'),
+            reasoning_effort: zod
+                .enum(['low', 'medium', 'high', 'xhigh', 'max', 'ultracode'])
+                .describe(
+                    '\* `low` - low\n\* `medium` - medium\n\* `high` - high\n\* `xhigh` - xhigh\n\* `max` - max\n\* `ultracode` - ultracode'
+                )
+                .optional()
+                .describe(
+                    'Reasoning effort for the first run, for models that support it.\n\n\* `low` - low\n\* `medium` - medium\n\* `high` - high\n\* `xhigh` - xhigh\n\* `max` - max\n\* `ultracode` - ultracode'
+                ),
+            repositories: zod
+                .array(
+                    zod.object({
+                        name: zod
+                            .string()
+                            .max(tasksCreateBodyOptionsOneRepositoriesItemNameMax)
+                            .describe('GitHub repository in `organization\/repo` format.'),
+                        initial_branch: zod
+                            .string()
+                            .max(tasksCreateBodyOptionsOneRepositoriesItemInitialBranchMax)
+                            .nullish()
+                            .describe("Branch the first run starts from. Omit to use the repository's default branch."),
+                    })
+                )
+                .max(tasksCreateBodyOptionsOneRepositoriesMax)
+                .optional()
+                .describe(
+                    "GitHub repositories available to the task. The first one's initial branch starts the first run."
+                ),
+            output_schema: zod
+                .record(zod.string(), zod.unknown())
+                .optional()
+                .describe("JSON schema that the agent's final answer must match."),
+            permission_mode: zod
+                .enum(['default', 'acceptEdits', 'plan', 'bypassPermissions', 'auto', 'read-only', 'full-access'])
+                .describe(
+                    '\* `default` - default\n\* `acceptEdits` - acceptEdits\n\* `plan` - plan\n\* `bypassPermissions` - bypassPermissions\n\* `auto` - auto\n\* `read-only` - read-only\n\* `full-access` - full-access'
+                )
+                .optional()
+                .describe(
+                    "The agent's starting permission mode for the first run.\n\n\* `default` - default\n\* `acceptEdits` - acceptEdits\n\* `plan` - plan\n\* `bypassPermissions` - bypassPermissions\n\* `auto` - auto\n\* `read-only` - read-only\n\* `full-access` - full-access"
+                ),
+            auto_publish: zod
+                .boolean()
+                .optional()
+                .describe('When true, the agent pushes its work and opens a draft pull request when it finishes.'),
+        })
+        .optional()
+        .describe(
+            'Settings for this task, checked against the profile. Only the options the profile makes public are accepted. Requires `profile`. Do not repeat a setting that you also send at the top level. Settings for the first run also require `start_run`: `adapter`, `model`, `reasoning_effort`, `permission_mode`, `auto_publish` and the `initial_branch` of a repository.'
+        ),
+    source: zod
+        .object({
+            kind: zod
+                .enum(['signal_report', 'hog_flow'])
+                .describe('\* `signal_report` - Signal Report\n\* `hog_flow` - Hog Flow')
+                .describe(
+                    'The kind of row the task starts from. It must be the kind the profile takes.\n\n\* `signal_report` - Signal Report\n\* `hog_flow` - Hog Flow'
+                ),
+            id: zod
+                .string()
+                .max(tasksCreateBodySourceOneIdMax)
+                .describe('ID of that row. It must belong to the current project.'),
+        })
+        .optional()
+        .describe('The row this task starts from, for profiles that take one. Requires `profile`.'),
+    idempotency_key: zod
+        .string()
+        .max(tasksCreateBodyIdempotencyKeyMax)
+        .optional()
+        .describe(
+            'Makes the request safe to retry. Sending the same key with the same body returns the task that the first request created. The same key with a different body is refused. Requires `profile`.'
+        ),
 })
 
 /**
@@ -837,13 +946,14 @@ export const TasksUpdateBody = /* @__PURE__ */ zod.object({
             'metrics_import',
             'knowledge_writer',
             'context_layer',
+            'feature_flags',
         ])
         .describe(
-            '\* `onboarding` - Onboarding\n\* `account_audit` - Account audit\n\* `error_tracking` - Error Tracking\n\* `eval_clusters` - Eval Clusters\n\* `user_created` - User Created\n\* `slack` - Slack\n\* `support_queue` - Support Queue\n\* `session_summaries` - Session Summaries\n\* `posthog_ai` - PostHog AI\n\* `experiments` - Experiments\n\* `signal_report` - Signal Report\n\* `autoresearch` - Autoresearch\n\* `signals_scout` - Signals Scout\n\* `scout_suggestions` - Signals Scout Suggestions\n\* `support_reply` - Support Reply\n\* `hogdesk` - HogDesk\n\* `review_hog` - ReviewHog\n\* `image_builder` - Image Builder\n\* `loop` - Loop\n\* `mcp_analytics` - MCP Analytics\n\* `signals_chat` - Signals Chat\n\* `task_analysis` - Task Analysis\n\* `workflow` - Workflow\n\* `space_setup` - Space Setup\n\* `business_knowledge` - Business Knowledge\n\* `metrics_import` - Metrics Import\n\* `knowledge_writer` - Knowledge Writer\n\* `context_layer` - Context Layer'
+            '\* `onboarding` - Onboarding\n\* `account_audit` - Account audit\n\* `error_tracking` - Error Tracking\n\* `eval_clusters` - Eval Clusters\n\* `user_created` - User Created\n\* `slack` - Slack\n\* `support_queue` - Support Queue\n\* `session_summaries` - Session Summaries\n\* `posthog_ai` - PostHog AI\n\* `experiments` - Experiments\n\* `signal_report` - Signal Report\n\* `autoresearch` - Autoresearch\n\* `signals_scout` - Signals Scout\n\* `scout_suggestions` - Signals Scout Suggestions\n\* `support_reply` - Support Reply\n\* `hogdesk` - HogDesk\n\* `review_hog` - ReviewHog\n\* `image_builder` - Image Builder\n\* `loop` - Loop\n\* `mcp_analytics` - MCP Analytics\n\* `signals_chat` - Signals Chat\n\* `task_analysis` - Task Analysis\n\* `workflow` - Workflow\n\* `space_setup` - Space Setup\n\* `business_knowledge` - Business Knowledge\n\* `metrics_import` - Metrics Import\n\* `knowledge_writer` - Knowledge Writer\n\* `context_layer` - Context Layer\n\* `feature_flags` - Feature Flags'
         )
         .optional()
         .describe(
-            'PostHog product or surface that created this task (e.g. error_tracking, slack, user_created). Origins reserved for server-created agents cannot be set through this API.\n\n\* `onboarding` - Onboarding\n\* `account_audit` - Account audit\n\* `error_tracking` - Error Tracking\n\* `eval_clusters` - Eval Clusters\n\* `user_created` - User Created\n\* `slack` - Slack\n\* `support_queue` - Support Queue\n\* `session_summaries` - Session Summaries\n\* `posthog_ai` - PostHog AI\n\* `experiments` - Experiments\n\* `signal_report` - Signal Report\n\* `autoresearch` - Autoresearch\n\* `signals_scout` - Signals Scout\n\* `scout_suggestions` - Signals Scout Suggestions\n\* `support_reply` - Support Reply\n\* `hogdesk` - HogDesk\n\* `review_hog` - ReviewHog\n\* `image_builder` - Image Builder\n\* `loop` - Loop\n\* `mcp_analytics` - MCP Analytics\n\* `signals_chat` - Signals Chat\n\* `task_analysis` - Task Analysis\n\* `workflow` - Workflow\n\* `space_setup` - Space Setup\n\* `business_knowledge` - Business Knowledge\n\* `metrics_import` - Metrics Import\n\* `knowledge_writer` - Knowledge Writer\n\* `context_layer` - Context Layer'
+            'PostHog product or surface that created this task (e.g. error_tracking, slack, user_created). Origins reserved for server-created agents cannot be set through this API.\n\n\* `onboarding` - Onboarding\n\* `account_audit` - Account audit\n\* `error_tracking` - Error Tracking\n\* `eval_clusters` - Eval Clusters\n\* `user_created` - User Created\n\* `slack` - Slack\n\* `support_queue` - Support Queue\n\* `session_summaries` - Session Summaries\n\* `posthog_ai` - PostHog AI\n\* `experiments` - Experiments\n\* `signal_report` - Signal Report\n\* `autoresearch` - Autoresearch\n\* `signals_scout` - Signals Scout\n\* `scout_suggestions` - Signals Scout Suggestions\n\* `support_reply` - Support Reply\n\* `hogdesk` - HogDesk\n\* `review_hog` - ReviewHog\n\* `image_builder` - Image Builder\n\* `loop` - Loop\n\* `mcp_analytics` - MCP Analytics\n\* `signals_chat` - Signals Chat\n\* `task_analysis` - Task Analysis\n\* `workflow` - Workflow\n\* `space_setup` - Space Setup\n\* `business_knowledge` - Business Knowledge\n\* `metrics_import` - Metrics Import\n\* `knowledge_writer` - Knowledge Writer\n\* `context_layer` - Context Layer\n\* `feature_flags` - Feature Flags'
         ),
     repository: zod
         .string()
@@ -996,13 +1106,14 @@ export const TasksPartialUpdateBody = /* @__PURE__ */ zod.object({
             'metrics_import',
             'knowledge_writer',
             'context_layer',
+            'feature_flags',
         ])
         .describe(
-            '\* `onboarding` - Onboarding\n\* `account_audit` - Account audit\n\* `error_tracking` - Error Tracking\n\* `eval_clusters` - Eval Clusters\n\* `user_created` - User Created\n\* `slack` - Slack\n\* `support_queue` - Support Queue\n\* `session_summaries` - Session Summaries\n\* `posthog_ai` - PostHog AI\n\* `experiments` - Experiments\n\* `signal_report` - Signal Report\n\* `autoresearch` - Autoresearch\n\* `signals_scout` - Signals Scout\n\* `scout_suggestions` - Signals Scout Suggestions\n\* `support_reply` - Support Reply\n\* `hogdesk` - HogDesk\n\* `review_hog` - ReviewHog\n\* `image_builder` - Image Builder\n\* `loop` - Loop\n\* `mcp_analytics` - MCP Analytics\n\* `signals_chat` - Signals Chat\n\* `task_analysis` - Task Analysis\n\* `workflow` - Workflow\n\* `space_setup` - Space Setup\n\* `business_knowledge` - Business Knowledge\n\* `metrics_import` - Metrics Import\n\* `knowledge_writer` - Knowledge Writer\n\* `context_layer` - Context Layer'
+            '\* `onboarding` - Onboarding\n\* `account_audit` - Account audit\n\* `error_tracking` - Error Tracking\n\* `eval_clusters` - Eval Clusters\n\* `user_created` - User Created\n\* `slack` - Slack\n\* `support_queue` - Support Queue\n\* `session_summaries` - Session Summaries\n\* `posthog_ai` - PostHog AI\n\* `experiments` - Experiments\n\* `signal_report` - Signal Report\n\* `autoresearch` - Autoresearch\n\* `signals_scout` - Signals Scout\n\* `scout_suggestions` - Signals Scout Suggestions\n\* `support_reply` - Support Reply\n\* `hogdesk` - HogDesk\n\* `review_hog` - ReviewHog\n\* `image_builder` - Image Builder\n\* `loop` - Loop\n\* `mcp_analytics` - MCP Analytics\n\* `signals_chat` - Signals Chat\n\* `task_analysis` - Task Analysis\n\* `workflow` - Workflow\n\* `space_setup` - Space Setup\n\* `business_knowledge` - Business Knowledge\n\* `metrics_import` - Metrics Import\n\* `knowledge_writer` - Knowledge Writer\n\* `context_layer` - Context Layer\n\* `feature_flags` - Feature Flags'
         )
         .optional()
         .describe(
-            'PostHog product or surface that created this task (e.g. error_tracking, slack, user_created). Origins reserved for server-created agents cannot be set through this API.\n\n\* `onboarding` - Onboarding\n\* `account_audit` - Account audit\n\* `error_tracking` - Error Tracking\n\* `eval_clusters` - Eval Clusters\n\* `user_created` - User Created\n\* `slack` - Slack\n\* `support_queue` - Support Queue\n\* `session_summaries` - Session Summaries\n\* `posthog_ai` - PostHog AI\n\* `experiments` - Experiments\n\* `signal_report` - Signal Report\n\* `autoresearch` - Autoresearch\n\* `signals_scout` - Signals Scout\n\* `scout_suggestions` - Signals Scout Suggestions\n\* `support_reply` - Support Reply\n\* `hogdesk` - HogDesk\n\* `review_hog` - ReviewHog\n\* `image_builder` - Image Builder\n\* `loop` - Loop\n\* `mcp_analytics` - MCP Analytics\n\* `signals_chat` - Signals Chat\n\* `task_analysis` - Task Analysis\n\* `workflow` - Workflow\n\* `space_setup` - Space Setup\n\* `business_knowledge` - Business Knowledge\n\* `metrics_import` - Metrics Import\n\* `knowledge_writer` - Knowledge Writer\n\* `context_layer` - Context Layer'
+            'PostHog product or surface that created this task (e.g. error_tracking, slack, user_created). Origins reserved for server-created agents cannot be set through this API.\n\n\* `onboarding` - Onboarding\n\* `account_audit` - Account audit\n\* `error_tracking` - Error Tracking\n\* `eval_clusters` - Eval Clusters\n\* `user_created` - User Created\n\* `slack` - Slack\n\* `support_queue` - Support Queue\n\* `session_summaries` - Session Summaries\n\* `posthog_ai` - PostHog AI\n\* `experiments` - Experiments\n\* `signal_report` - Signal Report\n\* `autoresearch` - Autoresearch\n\* `signals_scout` - Signals Scout\n\* `scout_suggestions` - Signals Scout Suggestions\n\* `support_reply` - Support Reply\n\* `hogdesk` - HogDesk\n\* `review_hog` - ReviewHog\n\* `image_builder` - Image Builder\n\* `loop` - Loop\n\* `mcp_analytics` - MCP Analytics\n\* `signals_chat` - Signals Chat\n\* `task_analysis` - Task Analysis\n\* `workflow` - Workflow\n\* `space_setup` - Space Setup\n\* `business_knowledge` - Business Knowledge\n\* `metrics_import` - Metrics Import\n\* `knowledge_writer` - Knowledge Writer\n\* `context_layer` - Context Layer\n\* `feature_flags` - Feature Flags'
         ),
     repository: zod
         .string()

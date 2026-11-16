@@ -50,7 +50,7 @@ export function InboxQuickSetupAction(): JSX.Element {
                     disabledReason={restrictionReason || scoutDisabledReason}
                     data-attr="inbox-quick-activate"
                 >
-                    Activate Self-Driving
+                    Activate Self-driving
                 </LemonButton>
             ) : restrictionReason ? (
                 <IntegrationAccessRequest kind="github" name="GitHub" />

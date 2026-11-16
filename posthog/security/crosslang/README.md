@@ -1,7 +1,7 @@
 # Out-of-band interaction domains
 
 `oob_domains.json` lists the services that exist to capture out-of-band interactions, and the
-DNS rebinding services. PostHog's host guards log a lookup of any of these names.
+DNS rebinding services. PostHog's host guards refuse any of these names, and log the match.
 
 ## What belongs on the list
 

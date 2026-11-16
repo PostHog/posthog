@@ -52,6 +52,7 @@ from posthog.temporal.common.errors import NonReportableError
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import get_logger
 from posthog.temporal.data_modeling.activities.incremental_write import (
+    DuplicateUniqueKeyError,
     IncrementalWriteError,
     SchemaDriftError,
     UniqueKeyTracker,
@@ -61,12 +62,14 @@ from posthog.temporal.data_modeling.activities.incremental_write import (
     upsert_batch,
     upsert_stats_fields,
 )
-from posthog.temporal.data_modeling.activities.utils import bind_data_modeling_log_context
+from posthog.temporal.data_modeling.activities.utils import bind_data_modeling_log_context, strip_hostname_from_error
 
 from products.data_modeling.backend.facade.api import (
     IncrementalFilterError,
     WritePlan,
     clear_incremental_state,
+    duplicate_output_columns,
+    duplicate_output_columns_message,
     inject_incremental_filter,
     parse_model_query,
     record_incremental_history,
@@ -186,20 +189,7 @@ async def _describe_columns(
 
 
 def _reject_duplicate_output_columns(columns: list[_DescribedColumn]) -> None:
-    # Folded because Delta compares field names without case, so `userId` beside `userid` is as
-    # unwritable as a literal repeat. Left to the write, that pair costs a full scan first.
-    first_spelling: dict[str, str] = {}
-    duplicates: list[str] = []
-    seen_duplicates: set[str] = set()
-    for column in columns:
-        folded = column.name.lower()
-        if folded in first_spelling:
-            for spelling in (first_spelling[folded], column.name):
-                if spelling not in seen_duplicates:
-                    seen_duplicates.add(spelling)
-                    duplicates.append(spelling)
-        else:
-            first_spelling[folded] = column.name
+    duplicates = duplicate_output_columns(column.name for column in columns)
     if duplicates:
         raise DuplicateOutputColumnError(duplicates)
 
@@ -289,12 +279,7 @@ class DuplicateOutputColumnError(NonReportableError):
     same-named columns is meant, so the repeat is refused rather than resolved arbitrarily."""
 
     def __init__(self, duplicates: list[str]) -> None:
-        names = ", ".join(f'"{name}"' for name in duplicates)
-        super().__init__(
-            f"The query returns more than one column named {names}. "
-            "Names that differ only by case count as duplicates. "
-            "Give each output column a unique name, for example with an alias."
-        )
+        super().__init__(duplicate_output_columns_message(duplicates))
         self.duplicates = duplicates
 
 
@@ -1017,6 +1002,10 @@ def _reason_to_record(job: DataModelingJob, plan: WritePlan) -> str | None:
     recorded = job.full_refresh_reason
     if recorded is not None and recorded.startswith(FAILED_UPDATE_REASON_PREFIX):
         return recorded
+    # A failed rebuild clears the watermark, so its retry plans "first run". The reason the
+    # earlier attempt recorded is the real one.
+    if recorded is not None and plan.reason == "first run":
+        return recorded
 
     return plan.reason
 
@@ -1033,6 +1022,12 @@ async def _materialize_fully(
 ) -> tuple[int, list[str]]:
     """Rebuild the whole table from the query. The only path that creates a Delta table, and the
     fallback for every case the incremental path cannot serve."""
+    # The rebuild rewrites the table in place, so a failure after the delete leaves a partial table.
+    # The stored watermark and fingerprint still describe the last complete table, and the next
+    # plan would upsert onto the partial one. Clear them before the delete so that the next run
+    # rebuilds again. The end of a successful rebuild stores them again.
+    await database_sync_to_async_pool(clear_incremental_state)(objects.saved_query)
+
     # delete existing table first to avoid schema conflicts
     s3 = get_s3_client()
     try:
@@ -1193,8 +1188,13 @@ async def _materialize_incrementally(
             row_count = row_count + batch.num_rows
             objects.job.rows_materialized = row_count
             await database_sync_to_async_pool(objects.job.save)()
+    except DuplicateUniqueKeyError:
+        # The watermark stays, because a rebuild would fail on the same repeat. The rows already
+        # upserted from earlier batches are safe to keep: the next run re-reads them from the
+        # same watermark and upserts them again.
+        raise
     except (IncrementalWriteError, IncrementalFilterError) as err:
-        # Every one of these means the table and the query have diverged in a way an upsert can't
+        # Every other one of these means the table and the query have diverged in a way an upsert can't
         # reconcile. Dropping the watermark makes the retry rebuild instead of writing rows that
         # would be wrong, so the failure costs a full refresh rather than silent corruption.
         await _drop_watermark_and_say_why(objects.saved_query, objects.job, _failed_update_reason(err))
@@ -1411,6 +1411,7 @@ async def materialize_view_activity(inputs: MaterializeViewInputs) -> Materializ
     except ClickHouseError as error:
         if not published:
             await cdp_sink.discard()
+        await _log_failed_attempt(logger, error)
         if DELTA_KERNEL_ERROR_MARKER in str(error):
             raise ApplicationError(
                 str(error), type=type(error).__name__, next_retry_delay=DELTA_KERNEL_ERROR_RETRY_DELAY
@@ -1428,7 +1429,15 @@ async def materialize_view_activity(inputs: MaterializeViewInputs) -> Materializ
                 next_retry_delay=_adaptive_retry_delay(base_delay, activity.info().attempt, recent_errors),
             ) from error
         raise
-    except (Exception, asyncio.CancelledError):
+    except (Exception, asyncio.CancelledError) as error:
         if not published:
             await cdp_sink.discard()
+        if not isinstance(error, asyncio.CancelledError):
+            await _log_failed_attempt(logger, error)
         raise
+
+
+async def _log_failed_attempt(logger: FilteringBoundLogger, error: BaseException) -> None:
+    """The run's log otherwise records only the final failure, so a retried attempt leaves no trace there."""
+    reason = strip_hostname_from_error(str(error)) or type(error).__name__
+    await logger.aerror(f"Attempt {activity.info().attempt} failed: {reason}")

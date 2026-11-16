@@ -1,6 +1,11 @@
 import { z } from 'zod'
 
-import { INSIGHT_ALERT_FIRING_EVENT_ID, INSIGHT_ALERT_FIRING_SUB_TEMPLATE_ID } from 'lib/constants'
+import {
+    INSIGHT_ALERT_FIRING_EVENT_ID,
+    INSIGHT_ALERT_FIRING_SUB_TEMPLATE_ID,
+    INSIGHT_ALERT_INCIDENT_CLOSED_EVENT_ID,
+    INSIGHT_ALERT_INCIDENT_OPENED_EVENT_ID,
+} from 'lib/constants'
 import {
     HOG_FUNCTION_SUB_TEMPLATES,
     HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES,
@@ -8,15 +13,23 @@ import {
 
 import { CyclotronJobFiltersType, HogFunctionType, PropertyFilterType, PropertyOperator } from '~/types'
 
+import {
+    type AlertPagerDutyRegion,
+    type AlertPagerDutySeverity,
+    pagerDutyRoutingKeyError,
+} from 'products/alerts/frontend/components/AlertNotificationDestinationEditor'
+
 export const ALERT_NOTIFICATION_TYPE_SLACK = 'slack' as const
 export const ALERT_NOTIFICATION_TYPE_WEBHOOK = 'webhook' as const
 export const ALERT_NOTIFICATION_TYPE_DISCORD = 'discord' as const
 export const ALERT_NOTIFICATION_TYPE_MICROSOFT_TEAMS = 'microsoft_teams' as const
+export const ALERT_NOTIFICATION_TYPE_PAGERDUTY = 'pagerduty' as const
 export type AlertNotificationType =
     | typeof ALERT_NOTIFICATION_TYPE_SLACK
     | typeof ALERT_NOTIFICATION_TYPE_WEBHOOK
     | typeof ALERT_NOTIFICATION_TYPE_DISCORD
     | typeof ALERT_NOTIFICATION_TYPE_MICROSOFT_TEAMS
+    | typeof ALERT_NOTIFICATION_TYPE_PAGERDUTY
 
 const webhookUrlSchema = z.string().url()
 
@@ -24,8 +37,13 @@ export function getAlertNotificationAddDisabledReason(
     selectedType: AlertNotificationType,
     hasSlackIntegration: boolean,
     slackChannelValue: string | null,
-    webhookUrl: string
+    webhookUrl: string,
+    pagerDutyRoutingKey: string
 ): string | undefined {
+    if (selectedType === ALERT_NOTIFICATION_TYPE_PAGERDUTY) {
+        return pagerDutyRoutingKeyError(pagerDutyRoutingKey)
+    }
+
     if (selectedType === ALERT_NOTIFICATION_TYPE_SLACK) {
         if (!hasSlackIntegration) {
             return 'Connect Slack first'
@@ -67,6 +85,7 @@ const TEMPLATE_ID_BY_NOTIFICATION_TYPE: Record<AlertNotificationType, string> = 
     [ALERT_NOTIFICATION_TYPE_DISCORD]: 'template-discord',
     [ALERT_NOTIFICATION_TYPE_MICROSOFT_TEAMS]: 'template-microsoft-teams',
     [ALERT_NOTIFICATION_TYPE_WEBHOOK]: 'template-webhook',
+    [ALERT_NOTIFICATION_TYPE_PAGERDUTY]: 'template-pagerduty',
 }
 
 // Maps a destination HogFunction's template_id back to the notification type, so analytics and
@@ -76,7 +95,10 @@ export const notificationTypeFromTemplateId = (templateId?: string | null): Aler
     return match ? (match[0] as AlertNotificationType) : null
 }
 
-export const buildAlertFilterConfig = (alertId: string): CyclotronJobFiltersType => ({
+export const buildAlertFilterConfig = (
+    alertId: string,
+    eventId: string = INSIGHT_ALERT_FIRING_EVENT_ID
+): CyclotronJobFiltersType => ({
     properties: [
         {
             key: 'alert_id',
@@ -87,11 +109,25 @@ export const buildAlertFilterConfig = (alertId: string): CyclotronJobFiltersType
     ],
     events: [
         {
-            id: INSIGHT_ALERT_FIRING_EVENT_ID,
+            id: eventId,
             type: 'events',
         },
     ],
 })
+
+export const listensOnEvent = (hogFunction: Pick<HogFunctionType, 'filters'>, eventId: string): boolean =>
+    hogFunction.filters?.events?.some((event) => event.id === eventId) ?? false
+
+// The opened event alone stands for a PagerDuty destination, so a count sees it once.
+export const buildAlertDestinationCountFilterGroups = (alertId: string): CyclotronJobFiltersType[] => [
+    buildAlertFilterConfig(alertId),
+    buildAlertFilterConfig(alertId, INSIGHT_ALERT_INCIDENT_OPENED_EVENT_ID),
+]
+
+export const buildAlertDestinationFilterGroups = (alertId: string): CyclotronJobFiltersType[] =>
+    [INSIGHT_ALERT_FIRING_EVENT_ID, INSIGHT_ALERT_INCIDENT_OPENED_EVENT_ID, INSIGHT_ALERT_INCIDENT_CLOSED_EVENT_ID].map(
+        (eventId) => buildAlertFilterConfig(alertId, eventId)
+    )
 
 // A webhook URL's path and query are the channel credential for every webhook-style provider, and a
 // destination name reaches surfaces its configuration does not, such as the subject line of the email
@@ -129,11 +165,23 @@ export type PendingAlertNotification =
           type: typeof ALERT_NOTIFICATION_TYPE_MICROSOFT_TEAMS
           webhookUrl: string
       }
+    | {
+          type: typeof ALERT_NOTIFICATION_TYPE_PAGERDUTY
+          routingKey: string
+          severity: AlertPagerDutySeverity
+          region: AlertPagerDutyRegion
+      }
+
+// The alert API builds a PagerDuty destination, because the HogFunction API refuses the incident events.
+export type HogFunctionAlertNotification = Exclude<
+    PendingAlertNotification,
+    { type: typeof ALERT_NOTIFICATION_TYPE_PAGERDUTY }
+>
 
 export function buildHogFunctionPayload(
     alertId: string,
     alertName: string | undefined,
-    notification: PendingAlertNotification
+    notification: HogFunctionAlertNotification
 ): Partial<HogFunctionType> {
     const commonProps = HOG_FUNCTION_SUB_TEMPLATE_COMMON_PROPERTIES[INSIGHT_ALERT_FIRING_SUB_TEMPLATE_ID]
     return {
@@ -149,7 +197,7 @@ export function buildHogFunctionPayload(
 // destination is a single case here plus an entry in PendingAlertNotification and the dropdown options.
 function buildAlertDestination(
     alertName: string,
-    notification: PendingAlertNotification
+    notification: HogFunctionAlertNotification
 ): Pick<HogFunctionType, 'name' | 'template_id' | 'inputs'> {
     switch (notification.type) {
         case ALERT_NOTIFICATION_TYPE_SLACK:

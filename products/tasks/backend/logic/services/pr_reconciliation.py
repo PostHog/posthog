@@ -8,6 +8,7 @@ import structlog
 
 from posthog.dataclasses import frozen
 from posthog.egress.limiter.policies import Priority
+from posthog.integrations import IntegrationManager
 from posthog.models.github_integration_base import (
     GitHubIntegrationBase,
     GitHubIntegrationError,
@@ -114,8 +115,13 @@ class PullRequestReconciler:
 
     @staticmethod
     def _github(run: TaskRun) -> GitHubIntegrationBase | None:
-        integration = run.task.github_integration
-        if integration is not None and integration.team_id == run.team_id and integration.kind == "github":
+        integration_id = run.task.github_integration_id
+        integration = (
+            IntegrationManager.github.oauth.get_many(run.team_id, [integration_id]).get(integration_id)
+            if integration_id is not None
+            else None
+        )
+        if integration is not None:
             return GitHubIntegration(integration, source="task_pr_reconciliation", priority=Priority.BATCH)
         personal = run.task.github_user_integration
         if (
@@ -141,7 +147,7 @@ class PullRequestReconciler:
         runs = TaskRun.objects.using("default").filter(team_id=self.team_id, id=self.run_id)
         run = (
             runs.filter(_run_repository_filter(parsed.repository))
-            .select_related("task__github_integration", "task__github_user_integration", "team")
+            .select_related("task__github_user_integration", "team")
             .first()
         )
         if run is None or not self._eligible(run):

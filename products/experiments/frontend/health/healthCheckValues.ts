@@ -87,6 +87,18 @@ function multipleVariantReading(values: HealthCheckValues | undefined): HealthRe
     )
 }
 
+function unservedReading(values: HealthCheckValues | undefined, units: string): HealthReading | null {
+    const count = numberValue(values, 'unserved_exposed_count')
+    const percentage = numberValue(values, 'unserved_exposed_percentage')
+    if (count === null) {
+        return null
+    }
+    return reading(
+        `New ${units} in variants the flag doesn't serve`,
+        percentage === null ? formatCount(count) : `${formatCount(count)} · ${formatHealthPercentage(percentage)}`
+    )
+}
+
 function calculatedMetricsReading(values: HealthCheckValues | undefined): HealthReading | null {
     const metricCount = numberValue(values, 'metric_count')
     const completedCount = numberValue(values, 'completed_metric_count')
@@ -142,6 +154,7 @@ export function healthCheckReadings(values: HealthCheckValues | undefined, units
             'kept_by_test_account_filter_percentage',
             formatHealthPercentage
         ),
+        unservedReading(values, units),
         reading(
             'Require completed conversion or retention window',
             typeof onlyMatured === 'boolean' ? (onlyMatured ? 'On' : 'Off') : null
@@ -159,19 +172,25 @@ export function healthCheckReadings(values: HealthCheckValues | undefined, units
     ].filter((line): line is HealthReading => line !== null)
 }
 
+function comparative(rule: HealthCheckRule, more: string, less: string): string {
+    return rule.warns === 'above' ? more : less
+}
+
 function warnsWhen(rule: HealthCheckRule, units: string): string {
     const threshold = rule.threshold
     switch (rule.value) {
         case 'p_value':
             return `p is ${rule.warns} ${threshold}`
         case 'multiple_variant_percentage':
-            return `${rule.warns === 'above' ? 'More' : 'Less'} than ${formatHealthPercentage(threshold)} of exposed ${units} are in more than one variant`
+            return `${comparative(rule, 'More', 'Less')} than ${formatHealthPercentage(threshold)} of exposed ${units} are in more than one variant`
         case 'kept_by_test_account_filter_percentage':
-            return `The test account filters keep ${rule.warns === 'above' ? 'more' : 'less'} than ${formatHealthPercentage(threshold)} of the exposed ${units}`
+            return `The test account filters keep ${comparative(rule, 'more', 'less')} than ${formatHealthPercentage(threshold)} of the exposed ${units}`
+        case 'unserved_exposed_percentage':
+            return `${comparative(rule, 'More', 'Less')} than ${formatHealthPercentage(threshold)} of the ${units} first exposed after the flag's last save are in variants that it doesn't serve`
         case 'exposed_count':
             return rule.warns === 'below' && threshold === 1
                 ? `No ${units} are exposed`
-                : `${rule.warns === 'above' ? 'More' : 'Fewer'} than ${formatCount(threshold)} ${units} are exposed`
+                : `${comparative(rule, 'More', 'Fewer')} than ${formatCount(threshold)} ${units} are exposed`
         default:
             return `${rule.value} is ${rule.warns} ${threshold}`
     }
@@ -188,6 +207,8 @@ function minimumAmount(minimum: NonNullable<HealthCheckRule['minimum']>, units: 
             return `${amount} hours after launch`
         case 'exposed_without_test_account_filter_count':
             return `${amount} ${units} exposed without the test account filters`
+        case 'unserved_exposed_count':
+            return `${amount} ${units} in variants that the flag doesn't serve`
         default:
             return `${amount} (${minimum.value})`
     }

@@ -19,6 +19,7 @@ from temporalio.service import RPCError, RPCStatusCode
 from posthog.temporal.common.errors import NonReportableError
 from posthog.temporal.common.shutdown import WorkerShuttingDownError
 
+from products.warehouse_sources.backend.facade.testing import read_unsaved_source_inputs_as_stored
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.models.external_data_schema import CDC_SNAPSHOT_LANE_KEY, ExternalDataSchema
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
@@ -205,6 +206,11 @@ def _capture_harness(source, schemas, events=()) -> Iterator[SimpleNamespace]:
 
 
 class TestGetCDCAdapter:
+    @pytest.fixture(autouse=True)
+    def _read_inputs_as_stored(self):
+        with read_unsaved_source_inputs_as_stored():
+            yield
+
     def test_returns_postgres_adapter(self):
         from products.warehouse_sources.backend.temporal.data_imports.cdc.adapters import get_cdc_adapter
         from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.adapter import (

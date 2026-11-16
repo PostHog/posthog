@@ -6,6 +6,7 @@ from posthog.test.base import (
     ClickhouseTestMixin,
     QueryMatchingTest,
     _create_event,
+    _create_flag_evaluations,
     _create_person,
     create_person_id_override_by_distinct_id,
     flush_persons_and_events,
@@ -25,9 +26,9 @@ from posthog.hogql.printer import prepare_and_print_ast
 from posthog.hogql.property import property_to_expr
 from posthog.hogql.query import execute_hogql_query
 
-from posthog.models import PropertyDefinition
 from posthog.models.person.util import create_person
 
+from products.event_definitions.backend.models import PropertyDefinition
 from products.event_definitions.backend.models.property_definition import PropertyType
 
 from ee.clickhouse.materialized_columns.columns import MaterializedColumn, MaterializedColumnDetails
@@ -73,16 +74,21 @@ class TestNegatedPersonFiltersResults(ClickhouseTestMixin, APIBaseTest):
     def setUp(self):
         super().setUp()
         self.enterContext(materialized("person", "email"))
+        self.enterContext(
+            patch("products.feature_flags.backend.facade.flags.is_flag_evaluations_table_enabled", return_value=True)
+        )
         timestamp = datetime(2024, 1, 2, 12)
 
         def person(distinct_id: str, properties: dict):
             created = _create_person(team_id=self.team.pk, distinct_ids=[distinct_id], properties=properties)
             _create_event(event=distinct_id, distinct_id=distinct_id, team=self.team, timestamp=timestamp)
+            _create_flag_evaluations(self.team.pk, "flag", distinct_id=distinct_id, person_id=created.uuid)
             return created
 
         person("internal", {"email": "alice@internal.example"})
         person("external", {"email": "bob@example.com"})
         _create_event(event="personless", distinct_id="personless", team=self.team, timestamp=timestamp)
+        _create_flag_evaluations(self.team.pk, "flag", distinct_id="personless")
         deleted = person("deleted_internal", {"email": "dana@internal.example"})
         to_external = person("changed_to_external", {"email": "erin@internal.example"})
         to_internal = person("changed_to_internal", {"email": "frank@example.com"})
@@ -147,6 +153,13 @@ class TestNegatedPersonFiltersResults(ClickhouseTestMixin, APIBaseTest):
             ),
             param("two_filters", [INTERNAL, EXAMPLE], INTERNAL_OR_EXAMPLE_PERSONS),
             param(
+                "flag_evaluations",
+                [INTERNAL],
+                INTERNAL_PERSONS,
+                select="SELECT distinct_id FROM posthog.flag_evaluations",
+            ),
+            param("dotted_events", [INTERNAL], INTERNAL_PERSONS, select="SELECT event FROM posthog.events"),
+            param(
                 "select_alias_named_person_id",
                 [INTERNAL],
                 INTERNAL_PERSONS,
@@ -201,6 +214,7 @@ class TestNegatedPersonFiltersPrinting(QueryMatchingTest, APIBaseTest):
         mode: PersonsOnEventsMode = JOINED,
         materialization_mode: MaterializationMode | None = None,
         team_on_context: bool = True,
+        person_id_pushdown: bool | None = None,
     ) -> str:
         context = HogQLContext(
             team_id=self.team.pk,
@@ -212,6 +226,7 @@ class TestNegatedPersonFiltersPrinting(QueryMatchingTest, APIBaseTest):
                     personsOnEventsMode=mode,
                     materializationMode=materialization_mode,
                     negatedPersonFiltersNotIn=True,
+                    personIdPushdown=person_id_pushdown,
                 ),
             ),
         )
@@ -226,6 +241,26 @@ class TestNegatedPersonFiltersPrinting(QueryMatchingTest, APIBaseTest):
         assert not PERSONS_JOIN.search(sql)
         assert "where_optimization" in sql
         self.assertQueryMatchesSnapshot(sql)
+
+    @parameterized.expand(
+        [
+            param("flag_evaluations", "posthog.flag_evaluations", False, rewrites=True),
+            # The pushdown limits the persons join to the persons the selected flag calls reach. The exclusion would
+            # read every person in the team.
+            param("flag_evaluations_with_pushdown", "posthog.flag_evaluations", True, rewrites=False),
+            param("events_with_pushdown", "events", True, rewrites=True),
+        ]
+    )
+    def test_rewrite_on_event_row_tables(self, _name: str, table: str, person_id_pushdown: bool, rewrites: bool):
+        with patch("products.feature_flags.backend.facade.flags.is_flag_evaluations_table_enabled", return_value=True):
+            sql = self._print(
+                f"SELECT event FROM {table} WHERE {{where}}",
+                {"where": property_to_expr([INTERNAL], self.team)},
+                person_id_pushdown=person_id_pushdown,
+            )
+
+        assert bool(PERSONS_JOIN.search(sql)) != rewrites
+        assert ("where_optimization" in sql) == rewrites
 
     @parameterized.expand(
         [

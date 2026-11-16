@@ -30,7 +30,7 @@ export function reportDetailQuery(
 ): ReportQueryOptions<SignalReportApi, ReturnType<typeof reportKeys.detail>> {
     return queryOptions({
         queryKey: reportKeys.detail(scope, reportId),
-        queryFn: ({ signal }) => fetchReport(reportId, signal),
+        queryFn: ({ signal }) => fetchReport(scope, reportId, signal),
     })
 }
 
@@ -40,7 +40,7 @@ export function reportArtefactsQuery(
 ): ReportQueryOptions<PaginatedApi<ReportArtefactApi>, ReturnType<typeof reportKeys.artefacts>> {
     return queryOptions({
         queryKey: reportKeys.artefacts(scope, reportId),
-        queryFn: ({ signal }) => fetchReportArtefacts(reportId, signal),
+        queryFn: ({ signal }) => fetchReportArtefacts(scope, reportId, signal),
     })
 }
 
@@ -51,7 +51,7 @@ export function reportPageQuery(
     // Without the type arguments, `retryUnlessMissing`'s `unknown` error parameter widens the error type.
     return queryOptions<ReportPageApi, DefaultError, ReportPageApi, ReturnType<typeof reportKeys.page>>({
         queryKey: reportKeys.page(scope, reportId),
-        queryFn: ({ signal }) => fetchReportPage(reportId, signal),
+        queryFn: ({ signal }) => fetchReportPage(scope, reportId, signal),
         retry: retryUnlessMissing,
     })
 }
@@ -62,6 +62,6 @@ export function reportSignalsQuery(
 ): ReportQueryOptions<ReportSignalsApi, ReturnType<typeof reportKeys.signals>> {
     return queryOptions({
         queryKey: reportKeys.signals(scope, reportId),
-        queryFn: ({ signal }) => fetchReportSignals(reportId, signal),
+        queryFn: ({ signal }) => fetchReportSignals(scope, reportId, signal),
     })
 }

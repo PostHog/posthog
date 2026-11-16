@@ -133,7 +133,7 @@ def _activator_ids(team: Team) -> list[int]:
 
 
 def resolve_default_owner(team: Team, report_id: str) -> User | None:
-    """The first eligible person among the authoring scout's owners, the Self-Driving activator, and the enablers.
+    """The first eligible person among the authoring scout's owners, the Self-driving activator, and the enablers.
 
     The scout owners come first because those people asked for this kind of report. Every candidate
     must be an active member who can read the project's reports when the fallback runs, not only

@@ -2,7 +2,7 @@ import './EngineeringAnalyticsPreview.scss'
 
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { cn } from 'lib/utils/css-classes'
-import { inStorybook, inStorybookTestRunner } from 'lib/utils/dom'
+import { inStorybook } from 'lib/utils/dom'
 
 // Hand-authored weekly series of median time from open to merge, in hours, trending down.
 const LINE = 'M 0 9 L 14 12 L 28 10 L 42 16 L 56 18 L 70 23 L 84 26 L 100 30'
@@ -18,7 +18,7 @@ function areaPath(line: string): string {
  * switching the selection never moves the card.
  */
 export function EngineeringAnalyticsPreview(): JSX.Element {
-    const isStatic = inStorybook() || inStorybookTestRunner()
+    const isStatic = inStorybook()
 
     return (
         <div className={cn('EngAnalyticsPreview', isStatic && 'EngAnalyticsPreview--static')}>

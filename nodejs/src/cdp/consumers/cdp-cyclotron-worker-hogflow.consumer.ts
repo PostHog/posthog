@@ -50,24 +50,6 @@ export class CdpCyclotronWorkerHogFlow extends CdpCyclotronWorker {
         return [...canceledResults, ...executed]
     }
 
-    protected override async queueInvocationResults(results: CyclotronJobInvocationResult[]): Promise<void> {
-        await super.queueInvocationResults(results)
-        await this.deleteAttachmentsOfFinishedSends(results)
-    }
-
-    private async deleteAttachmentsOfFinishedSends(results: CyclotronJobInvocationResult[]): Promise<void> {
-        await Promise.all(
-            results
-                .filter(
-                    (result) =>
-                        result.finished &&
-                        (result.invocation.state as CyclotronJobInvocationHogFlow['state'] | null)?.send?.attachments
-                            ?.length
-                )
-                .map((result) => this.emailAttachmentsService.delete(result.invocation.id, result.invocation.teamId))
-        )
-    }
-
     /**
      * Terminate an invocation as canceled through the normal result pipeline, so the
      * terminal lifecycle row, app metric, and run log all land. A bare cyclotron
@@ -102,14 +84,16 @@ export class CdpCyclotronWorkerHogFlow extends CdpCyclotronWorker {
         return result
     }
 
+    protected async hogFlowsFor(invocations: CyclotronJobInvocation[]): Promise<Record<HogFlow['id'], HogFlow | null>> {
+        return await this.hogFlowManager.getHogFlowsCheckingPrimaryOnMiss(invocations.map((item) => item.functionId))
+    }
+
     @instrumented('cdpConsumer.handleEachBatch.loadHogFlows')
     protected async loadHogFlows(invocations: CyclotronJobInvocation[]): Promise<LoadHogFlowsResult> {
         const loadedInvocations: CyclotronJobInvocationHogFlow[] = []
         const failedInvocations: CyclotronJobInvocation[] = []
         const canceledResults: CyclotronJobInvocationResult[] = []
-        const hogFlows = await this.hogFlowManager.getHogFlowsCheckingPrimaryOnMiss(
-            invocations.filter((item) => !item.cancelRequestedAt).map((item) => item.functionId)
-        )
+        const hogFlows = await this.hogFlowsFor(invocations.filter((item) => !item.cancelRequestedAt))
 
         await Promise.all(
             invocations.map(async (item) => {

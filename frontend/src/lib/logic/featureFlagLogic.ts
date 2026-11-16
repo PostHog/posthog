@@ -48,6 +48,13 @@ export function getPersistedFeatureFlags(appContext: AppContext | undefined = ge
 }
 
 let cachedFlagsSerialized: string | null = null
+// Set when the server refuses PostHog AI 2.0 to a page that still shows it. It overrides the server-rendered
+// decision, and it also works in an OAuth session, which never reads that decision.
+let posthogAiAccessRevoked = false
+
+export function revokePostHogAIAccess(): void {
+    posthogAiAccessRevoked = true
+}
 let cachedFlagsProxy: FeatureFlagsSet | null = null
 
 function spyOnFeatureFlags(featureFlags: FeatureFlagsSet): FeatureFlagsSet {
@@ -58,7 +65,7 @@ function spyOnFeatureFlags(featureFlags: FeatureFlagsSet): FeatureFlagsSet {
             ? { ...persistedFlags, ...featureFlags }
             : persistedFlags
     // PostHog AI 2.0 follows the server's access gate, which also admits beta orgs, so a denied user never sees 2.0 UI.
-    const posthogAiAccess = appContext?.posthog_ai_access
+    const posthogAiAccess = posthogAiAccessRevoked ? false : appContext?.posthog_ai_access
     if (posthogAiAccess !== undefined) {
         availableFlags[FEATURE_FLAGS.PHAI_SANDBOX_MODE] = posthogAiAccess
     }
@@ -156,6 +163,9 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
         ],
     }),
     afterMount(({ actions }) => {
+        // The app shell keeps this logic mounted for the page lifetime, so a new mount is a new page that
+        // starts from the server decision again.
+        posthogAiAccessRevoked = false
         posthog.onFeatureFlags(actions.setFeatureFlags)
         if (posthog.config?.advanced_disable_flags) {
             // posthog-js never calls back when flags are off, and the app holds its first render

@@ -90,6 +90,7 @@ _POSTHOG_CODE_AGENT_MODELS: Final[frozenset[str]] = frozenset(
     {
         "claude-fable-5",
         "claude-fable-5-1",
+        "claude-fable-5-2",
         "claude-opus-4-5",
         "claude-opus-4-6",
         "claude-opus-4-7",
@@ -132,19 +133,6 @@ RESTRICTED_MODEL_PRODUCTS: Final[dict[str, frozenset[str]]] = {
 }
 
 PRODUCTS: Final[dict[str, ProductConfig]] = {
-    "llm_gateway": ProductConfig(
-        allowed_application_ids=None,
-        allowed_models=None,
-        allow_api_keys=True,
-    ),
-    # CI / end-to-end test runs (e.g. posthog/code agent e2e tests). Authenticates with a
-    # personal API key, allows all models, and keeps CI traffic attributed to its own
-    # ai_product rather than the catch-all llm_gateway bucket.
-    "ci": ProductConfig(
-        allowed_application_ids=None,
-        allowed_models=None,
-        allow_api_keys=True,
-    ),
     "posthog_code": ProductConfig(
         allowed_application_ids=frozenset({POSTHOG_CODE_US_APP_ID, POSTHOG_CODE_EU_APP_ID, POSTHOG_CODE_DEV_APP_ID}),
         allowed_models=_POSTHOG_CODE_AGENT_MODELS | {BASETEN_DEEPSEEK_PUBLIC_MODEL} | BEDROCK_MODELS,
@@ -165,6 +153,7 @@ PRODUCTS: Final[dict[str, ProductConfig]] = {
             {
                 "claude-fable-5",
                 "claude-fable-5-1",
+                "claude-fable-5-2",
                 "claude-opus-4-5",
                 "claude-opus-4-6",
                 "claude-opus-4-7",

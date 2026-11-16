@@ -1,9 +1,11 @@
 import { useActions, useValues } from 'kea'
+import { useEffect, useRef } from 'react'
 
 import { IconLightBulb } from '@posthog/icons'
-import { LemonBadge, LemonButton, LemonSkeleton, Popover, Tooltip } from '@posthog/lemon-ui'
+import { LemonBadge, LemonButton, LemonButtonProps, LemonSkeleton, Popover, Tooltip } from '@posthog/lemon-ui'
 
 import { urls } from 'scenes/urls'
+import { RecommendationsShownState } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/logic/marketingAnalyticsLogic'
 import { formatMarketingMoney } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/logic/utils'
 
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
@@ -21,6 +23,15 @@ import {
 } from './recommendations'
 import { recommendationsLogic } from './recommendationsLogic'
 import { RecommendationsModal } from './RecommendationsModal'
+
+const IDLE_MESSAGES: Record<RecommendationsShownState, string | null> = {
+    recommendations: null,
+    no_connected_source: 'Connect Google Ads to get recommendations on budgets, search terms and wasted spend.',
+    no_selected_source:
+        'Select a Google Ads or Google Search Console source with synced tables to see recommendations.',
+    error: null,
+    empty: 'No recommendations for this period.',
+}
 
 function ImpactSummary({ totals }: { totals: RecommendationTotal[] }): JSX.Element {
     return (
@@ -53,7 +64,14 @@ export function RecommendationsSection(): JSX.Element {
         introSeen,
         connectedSourceTypes,
     } = useValues(recommendationsLogic)
-    const { setSelectedRule, dismissIntro } = useActions(recommendationsLogic)
+    const {
+        openRecommendations,
+        selectRule,
+        closeRecommendations,
+        dismissIntro,
+        reportRecommendationsShown,
+        reportRecommendationsActionClicked,
+    } = useActions(recommendationsLogic)
     const { response, responseLoading, responseError, queryId } = useValues(dataNodeLogic(dataNodeProps))
     const { loadData } = useActions(dataNodeLogic(dataNodeProps))
 
@@ -68,7 +86,7 @@ export function RecommendationsSection(): JSX.Element {
             ? undefined
             : (groups.find((group) => group.rule === selectedRule) ?? sections[0]?.groups[0])
     const sourcesLoading = !dataWarehouseSources
-    const connectGoogleAds = {
+    const connectGoogleAds = (location: 'section_empty' | 'section_campaigns'): LemonButtonProps => ({
         children: 'Connect Google Ads',
         // pinned: entry_point on the source connect events, renaming it splits the attribution
         to: urls.dataWarehouseSourceNew(
@@ -80,21 +98,51 @@ export function RecommendationsSection(): JSX.Element {
         ),
         'data-attr': 'marketing-recommendations-connect-google-ads',
         sideIcon: null,
-    }
+        onClick: () => reportRecommendationsActionClicked('connect_google_ads', location),
+    })
 
     const showGroups = sources.length > 0 && !responseError && !!firstRule
-    const idleMessage =
-        connectedSourceTypes.length === 0
-            ? 'Connect Google Ads to get recommendations on budgets, search terms and wasted spend.'
+    const shownState: RecommendationsShownState | null = showGroups
+        ? 'recommendations'
+        : sourcesLoading || (responseLoading && sources.length > 0)
+          ? null
+          : connectedSourceTypes.length === 0
+            ? 'no_connected_source'
             : sources.length === 0
-              ? 'Select a Google Ads or Google Search Console source with synced tables to see recommendations.'
+              ? 'no_selected_source'
               : responseError
-                ? null
-                : 'No recommendations for this period.'
+                ? 'error'
+                : 'empty'
+    const idleMessage = shownState ? IDLE_MESSAGES[shownState] : null
     const idleReason =
-        connectedSourceTypes.length > 0 && sources.length > 0 && !responseError
+        shownState === 'empty'
             ? 'Campaign rules compare active campaigns in the same ad account, so an account with one campaign gets few. Search term rules need synced search term tables, and Google Search Console for the organic ones.'
             : (idleMessage ?? 'Recommendations could not load.')
+
+    const reportedState = useRef<RecommendationsShownState | null>(null)
+    useEffect(() => {
+        if (!shownState || shownState === reportedState.current) {
+            return
+        }
+        reportedState.current = shownState
+        // A failed or skipped load keeps the last response, so only the recommendations state reports its results.
+        const shownResults = shownState === 'recommendations' ? results : []
+        const directions = new Set(shownResults.filter((row) => row.impact != null).map((row) => row.impactDirection))
+        reportRecommendationsShown({
+            state: shownState,
+            recommendation_count: shownResults.length,
+            rule_count: shownState === 'recommendations' ? groups.length : 0,
+            rules: shownState === 'recommendations' ? groups.map((group) => group.rule) : [],
+            has_save_impact: directions.has('save'),
+            has_gain_impact: directions.has('gain'),
+            has_invest_impact: directions.has('invest'),
+            source_types: [...new Set(sources.map((source) => source.sourceType))],
+            data_gap_count: dataGaps.length,
+            intro_shown: shownState === 'recommendations' && !introSeen,
+        })
+        // One event per state the viewer sees, so reloads and new date ranges with the same state do not add views.
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [shownState])
 
     return (
         <div className="@container flex flex-col gap-3 pt-2" data-attr="marketing-recommendations">
@@ -117,7 +165,7 @@ export function RecommendationsSection(): JSX.Element {
                             <LemonButton
                                 type="primary"
                                 size="small"
-                                onClick={() => setSelectedRule(firstRule ?? null)}
+                                onClick={() => firstRule && openRecommendations(firstRule, 'intro', results.length)}
                                 data-attr="marketing-recommendations-intro-open"
                             >
                                 See recommendations
@@ -134,7 +182,7 @@ export function RecommendationsSection(): JSX.Element {
                                 size="small"
                                 icon={<IconLightBulb />}
                                 sideIcon={<LemonBadge.Number count={results.length} maxDigits={3} />}
-                                onClick={() => setSelectedRule(firstRule ?? null)}
+                                onClick={() => firstRule && openRecommendations(firstRule, 'button', results.length)}
                                 data-attr="marketing-recommendations-open"
                             >
                                 Recommendations
@@ -144,10 +192,11 @@ export function RecommendationsSection(): JSX.Element {
                                 <RecommendationDataGapButton
                                     gaps={dataGaps}
                                     dataAttr="marketing-recommendations-data-gaps"
+                                    location="section_data_gaps"
                                 />
                             )}
                         </>
-                    ) : sourcesLoading || (responseLoading && sources.length > 0) ? (
+                    ) : shownState === null ? (
                         <LemonSkeleton className="h-6 w-60" />
                     ) : (
                         <>
@@ -162,7 +211,7 @@ export function RecommendationsSection(): JSX.Element {
                             </LemonButton>
                             {idleMessage && <span className="text-secondary">{idleMessage}</span>}
                             {connectedSourceTypes.length === 0 && (
-                                <LemonButton type="secondary" size="small" {...connectGoogleAds} />
+                                <LemonButton type="secondary" size="small" {...connectGoogleAds('section_empty')} />
                             )}
                         </>
                     )}
@@ -172,7 +221,7 @@ export function RecommendationsSection(): JSX.Element {
                         </span>
                     )}
                     {showGroups && !hasAdsSource && !connectedSourceTypes.includes('GoogleAds') && (
-                        <LemonButton type="tertiary" size="small" {...connectGoogleAds} />
+                        <LemonButton type="tertiary" size="small" {...connectGoogleAds('section_campaigns')} />
                     )}
                 </div>
             </Popover>
@@ -186,12 +235,14 @@ export function RecommendationsSection(): JSX.Element {
             ) : null}
             <RecommendationsModal
                 isOpen={selectedRule !== null}
-                onClose={() => setSelectedRule(null)}
+                onClose={closeRecommendations}
                 total={results.length}
                 totals={sumImpact(results)}
                 sections={sections}
                 selectedGroup={selectedGroup}
-                onSelect={setSelectedRule}
+                onSelect={(group) =>
+                    group.rule !== selectedGroup?.rule && selectRule(group.rule, group.recommendations.length)
+                }
                 dataNodeProps={dataNodeProps}
                 dataGaps={dataGaps}
                 disclaimer={recommendationsResponse?.disclaimer}
