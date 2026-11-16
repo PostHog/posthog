@@ -18,17 +18,25 @@ export function ProjectEventsTableSetting(): JSX.Element | null {
         return null
     }
 
-    const movedByPostHog = eventsTable.reads_new_events_table && !eventsTable.can_choose
+    const learnMore = (
+        <Link to={EVENT_STORAGE_CHANGES_URL} target="_blank">
+            Read what changes
+        </Link>
+    )
+
+    if (eventsTable.reads_new_events_table && !eventsTable.can_choose) {
+        return (
+            <p className="max-w-160 text-sm text-secondary">
+                PostHog switched this project to the new events table. {learnMore}
+            </p>
+        )
+    }
 
     return (
         <div className="max-w-160">
             <p className="text-sm text-secondary mb-3">
-                {movedByPostHog
-                    ? 'PostHog switched this project to the new events table.'
-                    : 'PostHog is going to start switching every project to the new events table on November 30. If you want to switch early, you can.'}{' '}
-                <Link to={EVENT_STORAGE_CHANGES_URL} target="_blank">
-                    Read what changes
-                </Link>
+                PostHog is going to start switching every project to the new events table on November 30. If you want to
+                switch early, you can. {learnMore}
             </p>
             <LemonSwitch
                 bordered
@@ -38,11 +46,7 @@ export function ProjectEventsTableSetting(): JSX.Element | null {
                 loading={eventsTableLoading}
                 disabledReason={
                     restrictionReason ??
-                    (eventsTable.can_choose
-                        ? null
-                        : movedByPostHog
-                          ? "PostHog switched this project, so it can't switch back."
-                          : "This project can't switch its events table yet.")
+                    (eventsTable.can_choose ? null : "This project can't switch its events table yet.")
                 }
                 data-attr="project-events-table-switch"
             />
