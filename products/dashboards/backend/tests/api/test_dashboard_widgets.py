@@ -18,7 +18,7 @@ from posthog.constants import AvailableFeature
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team import Team
-from posthog.scopes import APIScopeObject
+from posthog.scopes.catalog import APIScopeObject
 
 from products.access_control.backend.facade.testing import create_access_control
 from products.access_control.backend.facade.user_access_control import AccessControlLevel, UserAccessControl

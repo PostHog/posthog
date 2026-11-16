@@ -84,7 +84,7 @@ filters:
         - 'products/event_definitions/backend/logic/__init__.py'
         - 'products/event_definitions/backend/logic/placeholder.py'
         - 'posthog/temporal/oauth.py'
-        - posthog/scopes.py
+        - 'posthog/scopes/**'
         - 'products/security/backend/facade/**'
         - 'products/security/backend/logic/**'
         - 'products/security/backend/metrics.py'
@@ -277,7 +277,7 @@ filters:
         - products/data_modeling/backend/logic/saved_query_reads.py
         - products/endpoints/backend/facade/models.py
         - products/endpoints/backend/models.py
-        - posthog/scopes.py
+        - 'posthog/scopes/**'
         - 'products/event_definitions/backend/models/**'
         - products/event_definitions/backend/property_type.py
         - 'products/data_modeling/backend/models/**'

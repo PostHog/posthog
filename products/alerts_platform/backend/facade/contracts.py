@@ -1131,6 +1131,23 @@ class EnabledNativeConfiguration:
 
 
 @frozen
+class HeldAlertSearchMatch:
+    """One alert the platform holds the settings of, as a source's search shows it: an alert with no
+    source row, or a copy the platform owns."""
+
+    public_id: UUID
+    team_id: int
+    name: str
+    enabled: bool
+    # What the source's own read gates check, such as the insight an insight alert watches.
+    source_config: dict[str, Any]
+    check_interval_minutes: int
+    snooze_until: datetime | None
+    # The full-text rank of the name, or None when the search had no query.
+    rank: float | None
+
+
+@frozen
 class PlatformAlertConfigurationView:
     """One configuration and its instances, as a reader outside this product sees them.
 
@@ -1269,8 +1286,9 @@ class SourceAdmission(Protocol):
     """Decides whether a team may add an alert of the kind, or turn one on. The platform calls it on a
     create, where `current` is None, and on an edit that turns the alert on, and on no other edit.
 
-    `check_interval_minutes` is the alert's stored cadence on an edit, and the kind's fixed cadence on
-    a native create. It is None on a create through the source, which sets the cadence itself.
+    `check_interval_minutes` is the cadence the alert will run on: the stored one or the one an edit
+    chooses, and on a native create the one it chose or the kind's default. It is None on a create
+    through the source, which sets the cadence itself.
 
     It runs in the write's transaction, after the platform takes a lock for the team and kind, so two
     concurrent writes cannot both pass a count. It raises `PlatformAlertCreateRefused` to refuse a

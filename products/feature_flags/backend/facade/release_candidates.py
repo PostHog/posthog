@@ -6,7 +6,7 @@ from typing import Any
 from django.db.models import Q, QuerySet
 from django.db.models.signals import post_save
 
-from posthog.scopes import APIScopeObject
+from posthog.scopes.catalog import APIScopeObject
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.feature_flags.backend.models.feature_flag import FeatureFlag

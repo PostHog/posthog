@@ -2038,6 +2038,7 @@ class IntegrationKind(StrEnum):
     AWS_REDSHIFT = "aws-redshift"
     S3_COMPATIBLE = "s3-compatible"
     SNOWFLAKE = "snowflake"
+    MOTHERDUCK = "motherduck"
     YOUTUBE_ANALYTICS = "youtube-analytics"
     TWITTER_ADS = "twitter-ads"
 

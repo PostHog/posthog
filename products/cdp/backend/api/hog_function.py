@@ -44,7 +44,7 @@ from posthog.helpers.trigram_search import (
 from posthog.models import Team, User
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 from posthog.plugins.plugin_server_api import create_hog_invocation_test, rerun_hog_invocations
-from posthog.scopes import APIScopeObject
+from posthog.scopes.catalog import APIScopeObject
 
 from products.batch_exports.backend.facade import api as batch_exports_api
 from products.batch_exports.backend.facade.contracts import InvalidBatchExportFilters
@@ -961,8 +961,9 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
 
     def create(self, validated_data: dict, *args, **kwargs) -> HogFunction:
         # An in-process caller has no request to take the acting user from, so it passes
-        # `created_by` to `save()` instead.
-        validated_data["created_by"] = validated_data.get("created_by") or self.context["request"].user
+        # `created_by` to `save()` instead, or None for a function no person asked for.
+        request = self.context.get("request")
+        validated_data["created_by"] = validated_data.get("created_by") or (request.user if request else None)
 
         template_id = validated_data.get("template_id")
         if template_id:
