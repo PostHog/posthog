@@ -379,7 +379,7 @@ export const releaseAllLogic = kea<releaseAllLogicType>([
         displayRows: [
             (s) => [s.firstLoad, s.keptRows, s.visibleRows],
             (firstLoad: boolean, keptRows: ReleaseAllRow[], visibleRows: ReleaseAllRow[]): ReleaseAllRow[] =>
-                firstLoad && !visibleRows.length ? keptRows : visibleRows,
+                firstLoad ? keptRows : visibleRows,
         ],
         renderedRows: [
             (s) => [s.displayRows, s.renderLimit],
