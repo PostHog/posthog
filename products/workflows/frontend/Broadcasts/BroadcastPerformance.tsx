@@ -82,7 +82,7 @@ export function BroadcastPerformance({
         ...(stats.awaitingResult > 0
             ? [
                   {
-                      label: 'No result reported',
+                      label: 'With no result',
                       value: share(stats.awaitingResult, stats.sent),
                       detail: stats.awaitingResult,
                       tooltip:
