@@ -123,7 +123,13 @@ function LogsListRow({
     return (
         <div ref={rowRef} style={style} data-index={index} data-row-key={log.uuid}>
             {mobileLayout ? (
-                <MobileLogRow log={log} tzLabelFormat={tzLabelFormat} onClick={() => handleLogRowClick(log, index)} />
+                <MobileLogRow
+                    log={log}
+                    tzLabelFormat={tzLabelFormat}
+                    pinned={!!pinnedLogs[log.uuid]}
+                    onTogglePin={togglePinLog}
+                    onClick={() => handleLogRowClick(log, index)}
+                />
             ) : (
                 <LogRow
                     log={log}
