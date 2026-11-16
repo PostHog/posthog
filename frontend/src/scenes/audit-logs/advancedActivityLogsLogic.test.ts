@@ -33,4 +33,12 @@ describe('activity log dates', () => {
     ])('toFilterDates: %s', (_name, dateFrom, dateTo, expected) => {
         expect(toFilterDates(dateFrom, dateTo, PROJECT_TIMEZONE)).toEqual(expected)
     })
+
+    test('a jump across the repeated hour when clocks go back keeps its window', () => {
+        const { start_date, end_date } = toFilterDates('2026-11-01T05:30:00Z', '2026-11-01T06:30:00Z', PROJECT_TIMEZONE)
+        expect([start_date, end_date].map((value) => filterDateToISOString(value!, PROJECT_TIMEZONE))).toEqual([
+            '2026-11-01T05:30:00.000Z',
+            '2026-11-01T06:30:00.000Z',
+        ])
+    })
 })

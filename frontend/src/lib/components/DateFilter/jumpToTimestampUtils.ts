@@ -69,9 +69,9 @@ export function parseTimestampInput(input: string, timezone?: string): Dayjs | n
         return null
     }
 
-    // dayjs reads a timestamp without an offset in the browser timezone, so keep its wall time in the given one.
+    // dayjs reads a timestamp without an offset in the browser timezone, so read its wall time in the given one.
     if (timezone && !isUnixTimestamp && !UTC_OFFSET.test(trimmed)) {
-        parsed = parsed.tz(timezone, true)
+        parsed = dayjs.tz(parsed.format('YYYY-MM-DDTHH:mm:ss.SSS'), timezone)
     }
 
     // Reject dates before year 2000 (no useful data that old)

@@ -146,8 +146,14 @@ export function toFilterDates(
     dateTo: string | null,
     timezone: string
 ): { start_date?: string; end_date?: string; hadUtcOffset: boolean } {
-    const toProjectTime = (value: string): string =>
-        UTC_OFFSET.test(value) ? dayjs(value).tz(timezone).format('YYYY-MM-DDTHH:mm:ss') : value
+    const toProjectTime = (value: string): string => {
+        if (!UTC_OFFSET.test(value)) {
+            return value
+        }
+        const projectTime = dayjs(value).tz(timezone).format('YYYY-MM-DDTHH:mm:ss')
+        // A time in the repeated hour when clocks go back maps to two instants, so keep the offset there.
+        return dayjs.tz(projectTime, timezone).isSame(dayjs(value)) ? projectTime : value
+    }
     return {
         start_date: dateFrom ? toProjectTime(dateFrom) : undefined,
         end_date: dateTo ? toProjectTime(dateTo) : undefined,
