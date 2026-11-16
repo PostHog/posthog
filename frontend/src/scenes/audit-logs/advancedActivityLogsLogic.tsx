@@ -6,6 +6,7 @@ import api, { CountedPaginatedResponse } from 'lib/api'
 import { ensureActivityDescribersLoaded } from 'lib/components/ActivityLog/activityLogLogic'
 import { ActivityLogItem } from 'lib/components/ActivityLog/humanizeActivity'
 import { ADVANCED_ACTIVITY_PAGE_SIZE, OrganizationMembershipLevel } from 'lib/constants'
+import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { PaginationManual } from 'lib/lemon-ui/PaginationControl'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -129,6 +130,14 @@ export function isValidIpFilterValue(raw: string): boolean {
         return v.split('.').every((p) => Number(p) <= 255)
     }
     return v.includes(':')
+}
+
+const OFFSET_FREE_DATETIME = /^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}(:\d{2}(\.\d+)?)?$/
+
+// The time picker shows and emits browser-local times without an offset.
+export function filterDateToISOString(value: string, browserTimezone: string = dayjs.tz.guess()): string | undefined {
+    const date = OFFSET_FREE_DATETIME.test(value) ? dayjs.tz(value, browserTimezone) : dateStringToDayJs(value)
+    return date?.isValid() ? date.toISOString() : undefined
 }
 
 function parseBooleanSearchParam(raw: unknown): boolean | undefined {
@@ -426,17 +435,13 @@ export const advancedActivityLogsLogic = kea<advancedActivityLogsLogicType>([
 
                     const params = new URLSearchParams()
 
-                    if (values.filters.start_date) {
-                        const startDate = dateStringToDayJs(values.filters.start_date)
-                        if (startDate) {
-                            params.append('start_date', startDate.toISOString())
-                        }
+                    const startDate = values.filters.start_date && filterDateToISOString(values.filters.start_date)
+                    if (startDate) {
+                        params.append('start_date', startDate)
                     }
-                    if (values.filters.end_date) {
-                        const endDate = dateStringToDayJs(values.filters.end_date)
-                        if (endDate) {
-                            params.append('end_date', endDate.toISOString())
-                        }
+                    const endDate = values.filters.end_date && filterDateToISOString(values.filters.end_date)
+                    if (endDate) {
+                        params.append('end_date', endDate)
                     }
 
                     values.filters.users?.forEach((user) => params.append('users', user))
@@ -762,11 +767,9 @@ export const advancedActivityLogsLogic = kea<advancedActivityLogsLogicType>([
             }
             try {
                 const startDate = values.filters.start_date
-                    ? dateStringToDayJs(values.filters.start_date)?.toISOString()
+                    ? filterDateToISOString(values.filters.start_date)
                     : undefined
-                const endDate = values.filters.end_date
-                    ? dateStringToDayJs(values.filters.end_date)?.toISOString()
-                    : undefined
+                const endDate = values.filters.end_date ? filterDateToISOString(values.filters.end_date) : undefined
 
                 const filtersToExport = {
                     start_date: startDate,

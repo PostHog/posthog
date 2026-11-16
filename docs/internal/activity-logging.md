@@ -330,7 +330,8 @@ Organization IP restriction configuration logs initial creation and changes to t
 
 - `GET /api/projects/:id/activity_log/` - the list the side panel reads.
 - `GET /api/projects/:id/advanced_activity_logs/` - filters, field discovery, and export.
-  `start_date` and `end_date` take ISO 8601 timestamps, so a range can be shorter than a day. A value without a UTC offset is read as UTC.
+  `start_date` and `end_date` take ISO 8601 timestamps, so a range can be shorter than a day. Include a UTC offset such as `Z`. The REST API reads a value without one as UTC, but the MCP tool rejects it.
+  The Activity page sends the time picker's offset-free times in the browser timezone.
 - Access control: resource `activity_log`, default level `viewer`.
 - Entitlement: both list endpoints are gated by `AvailableFeature.AUDIT_LOGS` on Cloud and apply the entitlement's lookback window (`get_activity_log_lookback_restriction` in `posthog/models/activity_logging/retention.py`). Writes always happen.
 - `activity_visibility_restrictions` hides selected rows from non-staff users (login events of impersonated sessions).
