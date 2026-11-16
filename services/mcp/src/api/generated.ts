@@ -12085,6 +12085,10 @@ export namespace Schemas {
       useQueryV3?: boolean | null;
       /** version of the node, used for schema migrations */
       version?: number | null;
+      /**
+         * @minimum 0
+         * @maximum 200
+         */
       volumeResolution: number;
       withAggregations?: boolean | null;
       withFirstEvent?: boolean | null;

@@ -1,15 +1,10 @@
-from annotated_types import Interval
 from rest_framework.exceptions import ValidationError
 
 from posthog.schema import ErrorTrackingQuery
 
 from posthog.hogql_queries.validation.validation import QueryValidationContext
 
-VOLUME_RESOLUTION_MAX = next(
-    bound.le
-    for bound in ErrorTrackingQuery.model_fields["volumeResolution"].metadata
-    if isinstance(bound, Interval) and isinstance(bound.le, int)
-)
+from products.error_tracking.backend.facade.query_utils import VOLUME_RESOLUTION_MAX
 
 
 class ValidateVolumeResolution:

@@ -841,8 +841,18 @@ class TestErrorTrackingQueryAPI(ClickhouseTestMixin, APIBaseTest):
             "timestamp": "2026-03-31T09:00:00Z",
         }
 
+    @parameterized.expand(
+        [
+            (3, [0, 1, 1, 2], "2026-04-22T12:00:00+00:00"),
+            (101, [16, 42, 58, 84], "2026-04-22T11:59:59.968000+00:00"),
+            (199, [33, 82, 116, 165], "2026-04-22T11:59:59.944000+00:00"),
+            (200, [33, 83, 116, 166], "2026-04-22T12:00:00+00:00"),
+        ]
+    )
     @time_machine.travel("2026-04-24T12:00:00Z", tick=False)
-    def test_issue_detail_trend_splits_an_odd_volume_resolution_at_the_midpoint(self) -> None:
+    def test_issue_detail_trend_splits_volume_resolution_at_the_midpoint(
+        self, resolution: int, occupied_buckets: list[int], current_from: str
+    ) -> None:
         self.create_issue()
         for timestamp in [
             "2026-04-21T12:00:00Z",
@@ -859,17 +869,17 @@ class TestErrorTrackingQueryAPI(ClickhouseTestMixin, APIBaseTest):
                 "issueId": self.issue_id,
                 "dateRange": {"date_from": "2026-04-21T00:00:00Z", "date_to": "2026-04-24T00:00:00Z"},
                 "includeSparkline": True,
-                "volumeResolution": 3,
+                "volumeResolution": resolution,
             },
             format="json",
         )
 
         assert response.status_code == 200
         data = response.json()
-        assert data["sparkline"] == [1, 2, 1]
+        assert data["sparkline"] == [occupied_buckets.count(index) for index in range(resolution)]
         assert data["trend"]["previous_occurrences"] == 2
         assert data["trend"]["current_occurrences"] == 2
-        assert data["trend"]["current_from"] == "2026-04-22T12:00:00+00:00"
+        assert data["trend"]["current_from"] == current_from
 
     @parameterized.expand(
         [

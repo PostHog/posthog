@@ -14,8 +14,7 @@ from posthog.api.documentation import PropertyItemSerializer, extend_schema_fiel
 from posthog.utils import relative_date_parse
 
 from products.error_tracking.backend.facade import contracts
-from products.error_tracking.backend.facade.query_utils import TREND_CHANGE_FRACTION
-from products.error_tracking.backend.hogql_queries.error_tracking_query_validation_rules import VOLUME_RESOLUTION_MAX
+from products.error_tracking.backend.facade.query_utils import TREND_CHANGE_FRACTION, VOLUME_RESOLUTION_MAX
 from products.error_tracking.backend.presentation.views.issues import AssigneeType, ErrorTrackingIssueSeverityField
 
 STRING_OR_STRING_LIST_SCHEMA = {
