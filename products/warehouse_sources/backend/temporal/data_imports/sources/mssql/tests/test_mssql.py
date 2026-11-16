@@ -929,6 +929,22 @@ class TestMSSQLSourceValidateCredentials:
         assert error == _CONNECTION_DROPPED_ERROR
         capture.assert_not_called()
 
+    def test_could_not_set_connection_properties_names_likely_causes_without_capturing(self, source, mocker):
+        capture = mocker.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.mssql.source.capture_exception"
+        )
+        mocker.patch.object(source, "is_database_host_valid", return_value=(True, None))
+        # pymssql raises this as an `InterfaceError`, not an `OperationalError`, when the login
+        # succeeded but the driver's post-connect `SET` batch then failed outright.
+        connection_properties_error = pymssql.InterfaceError("Could not set connection properties")
+        mocker.patch.object(source, "get_schemas", side_effect=connection_properties_error)
+
+        valid, error = source.validate_credentials(_make_config(), team_id=1)
+
+        assert valid is False
+        assert error == _CONNECTION_DROPPED_ERROR
+        capture.assert_not_called()
+
     @pytest.mark.parametrize(
         ("driver_error", "expected_guidance"),
         [

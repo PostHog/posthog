@@ -106,6 +106,11 @@ MSSQLErrors = {
     # matches (and leaves unmapped there since the cause varies). Map it here too so a credential
     # check that hits it names the likely causes instead of falling through to `capture_exception`.
     "Adaptive Server connection failed": _CONNECTION_DROPPED_ERROR,
+    # pymssql raises this as an `InterfaceError`, not an `OperationalError`, when the login itself
+    # succeeded but the driver's post-connect `SET` batch then fails outright (`db_sqlexec` returns
+    # FAIL in `_mssql.pyx`) — the same mid-handshake drop class as "Adaptive Server connection
+    # failed" above, just surfacing one step later. See `get_non_retryable_errors` below.
+    "Could not set connection properties": _CONNECTION_DROPPED_ERROR,
     "Lock request time out period exceeded": _LOCK_TIMEOUT_VALIDATION_ERROR,
 }
 
@@ -204,6 +209,10 @@ class MSSQLSource(
             # phrase, not the volatile server name / client IP the rest of the message echoes.
             "is not allowed to access the server": _FIREWALL_BLOCKED_ERROR,
             "Adaptive Server connection failed": None,
+            # pymssql raises this as an `InterfaceError` (see `MSSQLErrors` above), not through the
+            # `OperationalError` the rest of this dict matches on error-message text; the generic
+            # substring match here doesn't care which exception type carried it.
+            "Could not set connection properties": None,
             # pymssql DB-Lib error 20009 — the server host can't be reached for the whole
             # connection attempt. On a managed instance this is a persistent connectivity issue
             # (security group doesn't allow PostHog's IPs, the instance is stopped, or the
@@ -430,7 +439,7 @@ class MSSQLSource(
     def validate_credentials(
         self, config: MSSQLSourceConfig, team_id: int, schema_name: Optional[str] = None, api_version: str | None = None
     ) -> tuple[bool, str | None]:
-        from pymssql import OperationalError
+        from pymssql import InterfaceError, OperationalError
 
         is_ssh_valid, ssh_valid_errors = self.ssh_tunnel_is_valid(config, team_id)
         if not is_ssh_valid:
@@ -450,7 +459,11 @@ class MSSQLSource(
             # The host policy refused the host, or its lookup never answered. Both carry their own
             # user-facing wording and neither is a PostHog defect, so they are not captured.
             return False, str(e)
-        except OperationalError as e:
+        except (OperationalError, InterfaceError) as e:
+            # pymssql's own `connect()` wraps a driver-level connect failure (e.g. "Could not set
+            # connection properties") as `InterfaceError` rather than `OperationalError`, so both
+            # need the same `MSSQLErrors` lookup rather than just one falling through to
+            # `capture_exception` below as unclassified noise.
             error_msg = " ".join(str(n) for n in e.args)
             for key, value in MSSQLErrors.items():
                 if key in error_msg:
