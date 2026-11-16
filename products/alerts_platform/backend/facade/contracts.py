@@ -1010,8 +1010,8 @@ class AlertDeliveryRequest:
     # and which of them one activity sends. The workflow sets `part`.
     parts: int = 1
     part: int = 0
-    # Set on a delivery that hands firings over after an edit moved them between destinations. It
-    # reads the rows that opened those firings instead of `evaluation_key`, and writes no history.
+    # Set on a request for the hand-over workflow, after an edit moved firings between incident
+    # managers. It reads the rows that opened those firings, and writes no history.
     handoff: tuple[HandoffSend, ...] = ()
 
     def to_stored(self) -> dict[str, Any]:

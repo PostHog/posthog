@@ -51,6 +51,9 @@ from products.alerts_platform.backend.models import (
 
 logger = structlog.get_logger(__name__)
 
+# Sends run one after another in a delivery activity, which has `DELIVERY_START_TO_CLOSE` for all of them.
+MAX_SENDS_PER_HANDOFF: Final = 10
+
 # The fields that say which incident a send reaches. Two destinations that agree on them hold the same
 # incident, whatever else differs, such as a PagerDuty severity or an incident.io secret.
 _ADDRESS_FIELDS: Final[dict[DestinationType, tuple[str, ...]]] = {
@@ -176,14 +179,14 @@ def _schedule(
     # Resolves for an incident manager whose row is gone or now sends elsewhere. Its old settings exist only
     # here, so they are sent from this process rather than put on a workflow's payload.
     inline: list[tuple[HandoffSend, AlertDestinationData]] = []
-    for address, endpoint in after.items():
-        if address not in before:
+    for where, endpoint in after.items():
+        if where not in before:
             queued.extend(_sends(endpoint, firing, gained=True))
-    for address, endpoint in before.items():
-        if address in after:
+    for where, endpoint in before.items():
+        if where in after:
             continue
         sends = _sends(endpoint, firing, gained=False)
-        if _still_sends_there(configuration, endpoint, address):
+        if _still_sends_there(configuration, endpoint, where):
             queued.extend(sends)
         else:
             inline.extend((send, endpoint.data) for send in sends)
@@ -212,7 +215,7 @@ def _send(
         send_handoff,
     )
     from products.alerts_platform.backend.temporal.web_start import (  # noqa: PLC0415 - keeps Temporal and the transports off the import path
-        deliver,
+        hand_over,
     )
 
     if inline:
@@ -224,8 +227,11 @@ def _send(
         except Exception as error:
             # The edit stands. A resolve that failed leaves the incident open, which error tracking shows.
             capture_exception(error, {"configuration_id": request.configuration_id})
-    if queued:
-        deliver(_with_sends(request, queued))
+    # In parts, so each fits one delivery attempt's deadline and the payload stays small however many
+    # groups and receivers an edit moves.
+    for start in range(0, len(queued), MAX_SENDS_PER_HANDOFF):
+        part = replace(request, evaluation_key=f"{request.evaluation_key}:{start // MAX_SENDS_PER_HANDOFF}")
+        hand_over(_with_sends(part, queued[start : start + MAX_SENDS_PER_HANDOFF]))
 
 
 def _with_sends(request: AlertDeliveryRequest, sends: list[HandoffSend]) -> AlertDeliveryRequest:
@@ -251,6 +257,19 @@ def _request(configuration: PlatformAlertConfiguration, sends: list[HandoffSend]
     )
 
 
+def current_addresses(team_id: int, configuration_id: str) -> frozenset[str]:
+    """Where the configuration's firings go now, by `address`, for a send to check it is still owed."""
+    team = Team.objects.filter(id=team_id).first()
+    configuration = (
+        PlatformAlertConfiguration.objects.for_team(team_id)
+        .filter(id=configuration_id, owner=PlatformAlertOwner.PLATFORM)
+        .first()
+    )
+    if team is None or configuration is None:
+        return frozenset()
+    return frozenset(_endpoints(configuration, routing=routing_is_enabled(team)))
+
+
 def _sends(endpoint: _Endpoint, firing: Mapping[str, datetime], *, gained: bool) -> list[HandoffSend]:
     return [
         HandoffSend(
@@ -272,25 +291,25 @@ def _endpoints(configuration: PlatformAlertConfiguration, *, routing: bool) -> d
         for destination in enabled_alert_destinations(team_id=configuration.team_id, configuration_id=configuration.id):
             if destination.data.get("type") in INCIDENT_DESTINATION_TYPES:
                 found.setdefault(
-                    _address(destination.data),
+                    address(destination.data),
                     _Endpoint(destination_id=str(destination.id), routed=False, data=destination.data),
                 )
     if routing:
         for receiver in routed_receivers(team_id=configuration.team_id, labels=configuration.labels or {}):
             if receiver.data.get("type") in INCIDENT_DESTINATION_TYPES:
                 found.setdefault(
-                    _address(receiver.data), _Endpoint(destination_id=str(receiver.id), routed=True, data=receiver.data)
+                    address(receiver.data), _Endpoint(destination_id=str(receiver.id), routed=True, data=receiver.data)
                 )
     return found
 
 
-def _address(data: AlertDestinationData) -> str:
+def address(data: AlertDestinationData) -> str:
     fields = _ADDRESS_FIELDS.get(cast(DestinationType, data.get("type")), ())
     kept = {key: value for key, value in data.items() if key in fields}
     return json.dumps({**kept, "type": data.get("type")}, sort_keys=True, default=str)
 
 
-def _still_sends_there(configuration: PlatformAlertConfiguration, endpoint: _Endpoint, address: str) -> bool:
+def _still_sends_there(configuration: PlatformAlertConfiguration, endpoint: _Endpoint, expected: str) -> bool:
     """Whether the destination's row will still hold this address when the delivery reads it by id."""
     rows = (
         AlertReceiver.objects.for_team(configuration.team_id).filter(id=endpoint.destination_id)
@@ -300,7 +319,7 @@ def _still_sends_there(configuration: PlatformAlertConfiguration, endpoint: _End
         )
     )
     config = rows.values_list("config", flat=True).first()
-    return config is not None and _address(cast(AlertDestinationData, config)) == address
+    return config is not None and address(cast(AlertDestinationData, config)) == expected
 
 
 def _firing_groups(team_id: int, configuration_ids: Collection[UUID] | None) -> dict[UUID, dict[str, datetime]]:

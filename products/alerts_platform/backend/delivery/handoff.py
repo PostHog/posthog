@@ -31,6 +31,7 @@ from products.alerts_platform.backend.facade.contracts import (
     MessageLink,
 )
 from products.alerts_platform.backend.facade.enums import PlatformAlertState
+from products.alerts_platform.backend.logic import delivery_holds, destination_handoff
 from products.alerts_platform.backend.logic.alert_destinations import INCIDENT_DESTINATION_TYPES
 from products.alerts_platform.backend.logic.platform_alert_events import opening_transitions
 from products.alerts_platform.backend.logic.platform_reads import rule_metadata
@@ -83,12 +84,15 @@ def send_handoff(request: AlertDeliveryRequest, targets: Sequence[HandoffTarget]
         .filter(configuration_id=request.configuration_id, state=PlatformAlertState.FIRING)
         .values_list("grouping_key", "firing_started_at")
     }
-    # A firing that ended before this ran already sent its resolve to the destinations of that
-    # moment, so a trigger now would open an incident nothing closes.
+    # Checked again now, because a later edit may have moved the firing back before this ran: a stale
+    # send would undo it. A firing that ended since already sent its resolve to the destinations of
+    # that moment, so a trigger now would open an incident nothing closes.
+    current = destination_handoff.current_addresses(request.team_id, request.configuration_id)
     targets = [
         target
         for target in targets
-        if not target.send.gained or (target.send.grouping_key, target.send.episode_started_at) in still_firing
+        if (destination_handoff.address(target.data) in current) == target.send.gained
+        and (not target.send.gained or (target.send.grouping_key, target.send.episode_started_at) in still_firing)
     ]
     announced = opening_transitions(
         request.team_id,
@@ -108,6 +112,11 @@ def send_handoff(request: AlertDeliveryRequest, targets: Sequence[HandoffTarget]
         transition = opening.get(target.send.grouping_key)
         transport_class = _TRANSPORTS.get(target.data.get("type"))
         if transition is None or transport_class is None or target.data.get("type") not in INCIDENT_DESTINATION_TYPES:
+            continue
+        if target.send.gained and delivery_holds.blocks_delivery(
+            request.team_id, request.configuration_id, transition.evaluation_key
+        ):
+            # The firing's own trigger is held or suppressed, so no destination pages for it yet.
             continue
         action = IncidentAction.TRIGGER if target.send.gained else IncidentAction.RESOLVE
         with tally.attempt():

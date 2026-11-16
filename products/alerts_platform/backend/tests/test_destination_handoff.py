@@ -14,6 +14,7 @@ from products.alerts_platform.backend.delivery import evaluation
 from products.alerts_platform.backend.facade import api as platform_api
 from products.alerts_platform.backend.facade.contracts import (
     ROUTING_FLAG,
+    AlertDeliveryRequest,
     AlertDestinationData,
     AlertEventKind,
     AlertRouteEdit,
@@ -28,7 +29,13 @@ from products.alerts_platform.backend.facade.enums import PlatformAlertOwner, Pl
 from products.alerts_platform.backend.logic import alert_routing, platform_writes
 from products.alerts_platform.backend.logic.platform_alert_events import insert_events
 from products.alerts_platform.backend.logic.platform_lifecycle import event_row
-from products.alerts_platform.backend.models import AlertReceiver, AlertRoute, PlatformAlert, PlatformAlertConfiguration
+from products.alerts_platform.backend.models import (
+    AlertReceiver,
+    AlertRoute,
+    PlatformAlert,
+    PlatformAlertConfiguration,
+    PlatformAlertDeliveryHold,
+)
 from products.alerts_platform.backend.temporal import web_start
 from products.alerts_platform.backend.tests.test_delivery_evaluation import PagingTransport, RecordingTransport
 from products.alerts_platform.backend.tests.test_native_alerts import _edit, _WatchedRows
@@ -95,7 +102,7 @@ class TestDestinationHandoff(ClickhouseTestMixin, APIBaseTest):
                 },
             ),
             # The workflow runs the same two sends, so the test runs them inline.
-            patch.object(web_start, "deliver", side_effect=web_start.deliver_inline),
+            patch.object(web_start, "hand_over", side_effect=web_start.hand_over_inline),
         ):
             patcher.start()
             self.addCleanup(patcher.stop)
@@ -209,5 +216,46 @@ class TestDestinationHandoff(ClickhouseTestMixin, APIBaseTest):
 
         with self.captureOnCommitCallbacks(execute=True):
             self._route_edit("pagerduty")
+
+        assert self._sends() == []
+
+    def test_a_handoff_a_later_edit_undid_does_not_undo_that_edit(self) -> None:
+        started: list[AlertDeliveryRequest] = []
+        with patch.object(web_start, "hand_over", side_effect=started.append):
+            with self.captureOnCommitCallbacks(execute=True):
+                self._route_edit("pagerduty")
+            old = AlertReceiver.objects.for_team(self.team.id).get(name="old")
+            route = AlertRoute.objects.for_team(self.team.id).get()
+            with self.captureOnCommitCallbacks(execute=True):
+                alert_routing.update_route(
+                    team_id=self.team.id, route_id=route.id, edit=AlertRouteEdit(receiver_id=old.id)
+                )
+
+        # The first edit's handoff runs last, after the firing is back where it started. Its resolve to
+        # the old destination and trigger to the new one would undo the second edit.
+        for request in reversed(started):
+            web_start.hand_over_inline(request)
+
+        assert self._sends() == sorted(
+            [
+                ("new", IncidentAction.RESOLVE, AlertEventKind.FIRING),
+                ("old", IncidentAction.TRIGGER, AlertEventKind.FIRING),
+            ],
+            key=str,
+        )
+
+    def test_a_destination_gained_while_the_opening_trigger_is_held_is_not_paged(self) -> None:
+        PlatformAlertDeliveryHold.objects.for_team(self.team.id).create(
+            team=self.team,
+            configuration_id=self.configuration_id,
+            evaluation_key="opening-check",
+            reason="investigation",
+            request={},
+            held_at=FIRING_STARTED,
+            release_after=FIRING_STARTED,
+        )
+
+        with self.captureOnCommitCallbacks(execute=True):
+            self._destination_add("pagerduty")
 
         assert self._sends() == []

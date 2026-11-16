@@ -13,7 +13,6 @@ from posthog.utils import absolute_uri
 
 from products.alerts_platform.backend.delivery.dispatch import SendTally, deliver
 from products.alerts_platform.backend.delivery.evaluation import _TRANSPORTS, announcement_to_deliver
-from products.alerts_platform.backend.delivery.handoff import deliver_handoff
 from products.alerts_platform.backend.delivery.thread_store import DatabaseThreadStore
 from products.alerts_platform.backend.facade.contracts import (
     AlertDeliveryRequest,
@@ -57,10 +56,6 @@ def deliver_routes(request: AlertDeliveryRequest) -> int:
     Raises like a delivery does, so the activity retries: `ThreadBusy` for a held thread, else
     `DeliveryError`. A receiver already sent to is skipped on the retry by its thread claim.
     """
-    if request.handoff:
-        # The alert's own destinations too: this activity runs after theirs, and one place sends the
-        # whole handoff, so the workflow's commands stay as they were.
-        return deliver_handoff(request)
     team = _routing_team(request)
     if team is None:
         return 0

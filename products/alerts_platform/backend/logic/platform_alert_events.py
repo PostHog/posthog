@@ -15,7 +15,7 @@ import json
 import hashlib
 from collections.abc import Collection, Mapping, Sequence
 from dataclasses import field, fields
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from enum import StrEnum
 from time import sleep
 from typing import Any, Final
@@ -402,7 +402,7 @@ WHERE team_id = %(team_id)s
   AND has(%(grouping_keys)s, grouping_key)
   AND state = %(firing)s
   AND previous_state != %(firing)s
-  AND episode_started_at IS NOT NULL
+  AND episode_started_at >= %(earliest)s
 ORDER BY grouping_key, occurred_at
 """
 
@@ -412,9 +412,38 @@ def opening_transitions(
 ) -> EvaluationAnnouncement | None:
     """The rows that opened these firings, by grouping key and firing start, as the announcement their
     trigger was sent from. A group whose opening row is absent is left out: its trigger was read from
-    that row, so no destination heard it either. None when no group has one."""
+    that row, so no destination heard it either. A group still missing is read again after each delay in
+    `_ANNOUNCEMENT_RETRY_DELAYS_SECONDS`, for a replica that has not received its row yet. None when no
+    group has one."""
     if not episodes:
         return None
+    found: dict[str, AnnouncedTransition] = {}
+    alert_name, consecutive_failures = "", 0
+    for delay in (0, *_ANNOUNCEMENT_RETRY_DELAYS_SECONDS):
+        missing = {key: started for key, started in episodes.items() if key not in found}
+        if not missing:
+            break
+        if delay:
+            sleep(delay)
+        name, failures = _read_openings(team_id, configuration_id, missing, found)
+        if name is not None:
+            alert_name, consecutive_failures = name, failures
+    if not found:
+        return None
+    return EvaluationAnnouncement(
+        configuration_id=configuration_id,
+        source=source,
+        alert_name=alert_name,
+        consecutive_failures=consecutive_failures,
+        transitions=tuple(found[key] for key in episodes if key in found),
+    )
+
+
+def _read_openings(
+    team_id: int, configuration_id: str, episodes: Mapping[str, datetime], found: dict[str, AnnouncedTransition]
+) -> tuple[str | None, int]:
+    """Adds the opening row of each of `episodes` that this read finds to `found`, and returns the
+    evaluation-level name and failure count from the last one, or None when it found none."""
     tag_queries(product=Product.PLATFORM_AND_SUPPORT, feature=Feature.ALERTING)
     rows = _execute(
         _OPENING_ROWS_SQL,
@@ -423,11 +452,16 @@ def opening_transitions(
             "configuration_id": configuration_id,
             "grouping_keys": list(episodes),
             "firing": PlatformAlertState.FIRING.value,
+            # Bounds the read to the firings asked about, with a second of slack for how the
+            # parameter is rendered, rather than every firing the groups ever had.
+            "earliest": (min(_utc(started) for started in episodes.values()) - timedelta(seconds=1)).replace(
+                tzinfo=None
+            ),
         },
         team_id=team_id,
     )
-    found: dict[str, AnnouncedTransition] = {}
-    alert_name, consecutive_failures = "", 0
+    alert_name: str | None = None
+    consecutive_failures = 0
     for (
         grouping_key,
         kind,
@@ -443,7 +477,11 @@ def opening_transitions(
         row_consecutive_failures,
         row_evaluation_key,
     ) in rows:
-        if grouping_key in found or _utc(episode_started_at) != _utc(episodes[grouping_key]):
+        if (
+            grouping_key in found
+            or episode_started_at is None
+            or _utc(episode_started_at) != _utc(episodes[grouping_key])
+        ):
             continue
         found[grouping_key] = AnnouncedTransition(
             grouping_key=grouping_key,
@@ -460,15 +498,7 @@ def opening_transitions(
             configuration_id=configuration_id,
         )
         alert_name, consecutive_failures = row_alert_name, row_consecutive_failures
-    if not found:
-        return None
-    return EvaluationAnnouncement(
-        configuration_id=configuration_id,
-        source=source,
-        alert_name=alert_name,
-        consecutive_failures=consecutive_failures,
-        transitions=tuple(found.values()),
-    )
+    return alert_name, consecutive_failures
 
 
 def _utc(moment: datetime) -> datetime:
