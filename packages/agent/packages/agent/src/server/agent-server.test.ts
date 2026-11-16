@@ -1150,6 +1150,49 @@ describe("AgentServer HTTP Mode", () => {
       expect(testServer.session?.sessionMeta.channelMode).toBeUndefined();
     }, 30000);
 
+    it.each(["knowledge_writer", "user_created"])(
+      "lets only a %s-origin task push its task branch when createPr is false",
+      async (originProduct) => {
+        await mkdir("/tmp/workspace", { recursive: true });
+        mswServer.use(
+          http.get(
+            "http://localhost:8000/api/projects/:projectId/tasks/:taskId/",
+            () =>
+              HttpResponse.json({
+                id: "test-task-id",
+                title: "Test task",
+                description: null,
+                origin_product: originProduct,
+                repository: null,
+                created_at: new Date().toISOString(),
+                updated_at: new Date().toISOString(),
+              }),
+          ),
+        );
+
+        const testServer = createServer({
+          createPr: false,
+        }) as unknown as TestableServer & { start(): Promise<void> };
+        await testServer.start();
+        const prompt = testServer.buildCloudSystemPrompt();
+
+        const isWriter = originProduct === "knowledge_writer";
+        expect(prompt.includes("push only to the branch your task names")).toBe(
+          isWriter,
+        );
+        expect(prompt.includes("Publishing is disabled for this run.")).toBe(
+          !isWriter,
+        );
+        expect(
+          prompt.includes("stop with local changes ready for review"),
+        ).toBe(!isWriter);
+        expect(prompt.includes("Always create the PR as a draft.")).toBe(
+          !isWriter,
+        );
+      },
+      30000,
+    );
+
     it("links native agent state before initializing the session", async () => {
       const originalClaudeConfigDir = process.env.CLAUDE_CONFIG_DIR;
       const originalCodexHome = process.env.CODEX_HOME;
@@ -8271,7 +8314,7 @@ describe("AgentServer HTTP Mode", () => {
     });
 
     it.each([undefined, null, "https://github.com/org/repo/pull/1"])(
-      "keeps createPr false runs review-first without a publishing ban when prUrl is %s",
+      "disables publishing when createPr is false and prUrl is %s",
       async (prUrl) => {
         process.env.POSTHOG_CODE_INTERACTION_ORIGIN = "slack";
         server = new AgentServer({
@@ -8294,8 +8337,8 @@ describe("AgentServer HTTP Mode", () => {
         expect(prompt).toContain("stop with local changes ready for review");
         expect(prompt).not.toContain("gh pr checkout");
         expect(prompt).not.toContain("Push to the existing PR branch");
-        expect(prompt).toContain("unless the user explicitly asks");
-        expect(prompt).not.toContain("Publishing is disabled for this run.");
+        expect(prompt).toContain("Publishing is disabled for this run.");
+        expect(prompt).toContain("even if the user invokes a skill");
         expect(prompt).not.toContain(
           "A skill explicitly invoked in the user's own message counts as that ask",
         );
@@ -8602,11 +8645,10 @@ describe("AgentServer HTTP Mode", () => {
       ).buildDetectedPrContext(prUrl);
       expect(context).toContain("stop with local changes ready for review");
       expect(context).not.toContain("gh pr checkout");
-      expect(context).toContain("unless the user explicitly asks");
-      expect(context).not.toContain("Publishing is disabled for this run.");
-      expect(context).not.toContain(
-        "A skill explicitly invoked in the user's own message counts as that ask",
+      expect(context).toContain(
+        "Publishing is disabled for this run. Do NOT create commits, push to the PR branch",
       );
+      expect(context).toContain("even if the user invokes a skill");
       delete process.env.POSTHOG_CODE_INTERACTION_ORIGIN;
     });
   });

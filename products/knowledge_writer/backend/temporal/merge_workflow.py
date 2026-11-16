@@ -5,7 +5,6 @@ from django.core.cache import cache
 from django.db import DatabaseError
 
 import httpx
-import requests
 import structlog
 from anthropic import APIError
 from django_redis.exceptions import ConnectionInterrupted
@@ -14,11 +13,9 @@ from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
 from temporalio.exceptions import ActivityError
 
-from posthog.egress.github.transport import GitHubEgressBudgetExhausted, GitHubRateLimitError
 from posthog.egress.limiter.policies import Priority
 from posthog.exceptions_capture import capture_exception
 from posthog.github.installations import installation_integrations
-from posthog.models.integration import GitHubIntegrationError
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.utils import close_db_connections
@@ -39,7 +36,7 @@ from ..facade.contracts import AdapterVerdict, MergeCheckReport
 from ..facade.enums import DocsRequestSource, MergeCheckFailure
 from ..facade.finished_check_hooks import FinishedDocsCheck, get_finished_docs_check_hooks
 from ..logic import intake
-from ..logic.pull_requests import docs_github, github_app_login
+from ..logic.pull_requests import GITHUB_READ_ERRORS, docs_github, github_app_login
 from ..settings import docs_source, writer_settings
 
 logger = structlog.get_logger(__name__)
@@ -53,12 +50,6 @@ MERGE_CHECK_RETRY_INTERVAL = timedelta(minutes=1)
 ADD_DOCS_CHECK_WAITER_SIGNAL = "add_docs_check_waiter"
 DOCS_CHECK_WAITERS_PER_TELL = 50
 REUSED_REPORT_TTL = timedelta(hours=6)
-GITHUB_READ_ERRORS = (
-    requests.RequestException,
-    GitHubIntegrationError,
-    GitHubRateLimitError,
-    GitHubEgressBudgetExhausted,
-)
 MERGE_CHECK_RETRYABLE_ERRORS = (
     *GITHUB_READ_ERRORS,
     httpx.HTTPError,

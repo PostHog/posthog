@@ -6,6 +6,7 @@ from typing import Literal
 from urllib.parse import quote
 from uuid import UUID
 
+import requests
 import structlog
 
 from posthog.egress.github.transport import GitHubEgressBudgetExhausted, GitHubRateLimitError
@@ -13,7 +14,7 @@ from posthog.egress.limiter.policies import Priority
 from posthog.exceptions_capture import capture_exception
 from posthog.integrations import IntegrationManager
 from posthog.models.instance_setting import get_instance_setting
-from posthog.models.integration import GitHubIntegration
+from posthog.models.integration import GitHubIntegration, GitHubIntegrationError
 from posthog.models.team import Team
 from posthog.ph_client import ph_scoped_capture
 
@@ -41,6 +42,13 @@ from .records import (
 from .routing import SOURCE_REPOSITORY
 
 logger = structlog.get_logger(__name__)
+
+GITHUB_READ_ERRORS = (
+    requests.RequestException,
+    GitHubIntegrationError,
+    GitHubRateLimitError,
+    GitHubEgressBudgetExhausted,
+)
 
 LINK_BACK_START = "<!-- knowledge-writer-sources -->"
 LINK_BACK_END = "<!-- /knowledge-writer-sources -->"
@@ -154,8 +162,8 @@ def open_writer_pull_requests(writer: WriterSettings) -> list[WriterPullRequest]
                 endpoint="/repos/{owner}/{repo}/pulls",
                 params={"state": "open", "per_page": PULL_REQUESTS_PER_PAGE, "page": page},
             )
-        except GitHubEgressBudgetExhausted:
-            logger.warning("knowledge_writer_open_pull_requests_deferred")
+        except GITHUB_READ_ERRORS as error:
+            logger.warning("knowledge_writer_open_pull_requests_deferred", error_type=type(error).__name__)
             return None
         if response.status_code != 200:
             logger.warning("knowledge_writer_open_pull_requests_failed", status_code=response.status_code)

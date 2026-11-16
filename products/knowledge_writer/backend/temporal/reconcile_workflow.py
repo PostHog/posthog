@@ -17,6 +17,7 @@ from posthog.temporal.common.client import async_connect
 from posthog.temporal.common.utils import close_db_connections
 
 from ...merge_check.sources import GitHubReader, LandedChange, landed_change, read_closed_pull_requests, read_github
+from ..logic import intake
 from ..logic.pull_requests import docs_github
 from ..settings import writer_settings
 from .client import start_merge_check_workflow
@@ -121,6 +122,7 @@ async def reconcile_merged_pull_requests_activity() -> None:
     for change in merges.changes:
         await start_merge_check_workflow(change, team_id=merges.team_id, client=client)
     await database_sync_to_async(save_reconciled_at, thread_sensitive=False)(merges.reconciled_at_by_repository)
+    await database_sync_to_async(intake.sweep_held_requests, thread_sensitive=False)()
     logger.info(
         "knowledge_writer_reconcile_finished",
         merged_changes=len(merges.changes),

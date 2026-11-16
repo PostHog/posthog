@@ -466,6 +466,59 @@ def test_a_section_stays_busy_until_its_publication_settles_then_starts_the_requ
 
 
 @pytest.mark.django_db
+@pytest.mark.parametrize("blocker", ["daily_cap", "worker_crash", "stale_busy_snapshot"])
+def test_a_blocked_drain_keeps_every_held_request_in_order_and_the_sweep_starts_them_later(
+    team, writer_env, django_capture_on_commit_callbacks, monkeypatch, blocker
+) -> None:
+    monkeypatch.setattr(KNOWLEDGE_WRITER_ENABLED, lambda team_id: True)
+    monkeypatch.setattr(START_PUBLISH, lambda task_run_id, *, team_id: None)
+    first, second = (
+        _verdict(456, suggested_page_urls=(SECTION_PAGE,)),
+        _verdict(789, suggested_page_urls=(SECTION_PAGE,)),
+    )
+    assert first.request is not None and second.request is not None
+    with (
+        patch(FLAG_CHECK, return_value=True),
+        patch(LIST_PULL_REQUESTS, side_effect=_open_on_github()),
+        patch(START_WORKFLOW),
+        patch(CAPTURE_ALERT),
+    ):
+        started = intake.submit(_verdict(suggested_page_urls=(SECTION_PAGE,)), team_id=team.id)
+        assert started.task_id is not None
+        _finish_run(started.task_id, django_capture_on_commit_callbacks)
+        intake.submit(first, team_id=team.id)
+        intake.submit(second, team_id=team.id)
+        run_id = TaskRun.objects.get(task_id=started.task_id).id
+        if blocker == "daily_cap":
+            monkeypatch.setattr(caps, "DAILY_RUN_CAP", 1)
+            settle_publication(run_id, team_id=team.id, has_failed=True)
+            monkeypatch.setattr(caps, "DAILY_RUN_CAP", 60)
+        if blocker == "worker_crash":
+            with patch.object(intake, "launch_held_request", side_effect=RuntimeError("worker died")):
+                with pytest.raises(RuntimeError):
+                    settle_publication(run_id, team_id=team.id, has_failed=True)
+        if blocker == "stale_busy_snapshot":
+            real_in_flight = caps.in_flight_writer_runs
+            snapshots = iter([caps.InFlightWriterRuns(unpublished_runs=0, busy_task_id_by_section={})])
+            with patch.object(
+                intake,
+                "in_flight_writer_runs",
+                side_effect=lambda writer: next(snapshots, None) or real_in_flight(writer),
+            ):
+                intake.sweep_held_requests()
+        held_after_block = [request.dedupe_id for request in intake.held_requests(started.task_id, team.id)]
+        if blocker == "stale_busy_snapshot":
+            settle_publication(run_id, team_id=team.id, has_failed=True)
+        intake.sweep_held_requests()
+
+    first_task = tasks_facade.get_task_by_origin_key(team.id, first.request.dedupe_id)
+    assert first_task is not None
+    assert held_after_block == [first.request.dedupe_id, second.request.dedupe_id]
+    assert intake.held_requests(started.task_id, team.id) == []
+    assert [request.dedupe_id for request in intake.held_requests(first_task.id, team.id)] == [second.request.dedupe_id]
+
+
+@pytest.mark.django_db
 def test_a_publish_retry_reclaims_the_claim_its_crashed_attempt_left_and_opens_the_pull_request(
     team, writer_env, django_capture_on_commit_callbacks, monkeypatch
 ) -> None:
@@ -663,7 +716,9 @@ def test_no_agent_starts_past_a_cap_and_the_cap_raises_an_alert(team, writer_env
 
 
 @pytest.mark.django_db
-@pytest.mark.parametrize("failing_lookup", ["open_pull_request_listing", "open_pull_requests_flag"])
+@pytest.mark.parametrize(
+    "failing_lookup", ["open_pull_request_listing", "open_pull_request_listing_raises", "open_pull_requests_flag"]
+)
 def test_a_launch_lookup_failure_retries_the_merge_check_on_the_same_report_and_joins_the_open_pull_request(
     team, writer_env, failing_lookup
 ) -> None:
@@ -674,6 +729,8 @@ def test_a_launch_lookup_failure_retries_the_merge_check_on_the_same_report_and_
     def failing_github(method: str, path: str, **kwargs: object) -> MagicMock:
         if failing_lookup == "open_pull_request_listing" and path.endswith("/pulls"):
             return MagicMock(status_code=502)
+        if failing_lookup == "open_pull_request_listing_raises" and path.endswith("/pulls"):
+            raise GitHubRateLimitError("rate limited")
         return healthy_github(method, path, **kwargs)
 
     def unreadable_flag(flag: str, *args: object, **kwargs: object) -> bool:

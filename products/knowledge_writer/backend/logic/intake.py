@@ -31,7 +31,6 @@ from .routing import route_request
 logger = structlog.get_logger(__name__)
 
 VERDICT_EVENT = "knowledge_writer verdict"
-RETRIED_HELD_STATUSES = frozenset({"capped"})
 
 _verdict_validator = TypeAdapter(AdapterVerdict)
 
@@ -91,7 +90,7 @@ def launch_request(request: DocsRequest, *, writer: WriterSettings) -> IntakeOut
     busy_task_id = in_flight.busy_task_id_by_section.get(routing.section) if routing.section else None
     if busy_task_id is not None:
         hold_request(busy_task_id, request, team_id)
-        return IntakeOutcome(status="section_busy")
+        return IntakeOutcome(status="section_busy", task_id=busy_task_id)
     open_pull_requests = open_writer_pull_requests(writer)
     if open_pull_requests is None:
         raise WriterLaunchDeferred("open writer pull requests could not be listed")
@@ -116,7 +115,7 @@ def launch_request(request: DocsRequest, *, writer: WriterSettings) -> IntakeOut
         return IntakeOutcome(status="duplicate")
     except WriterSectionBusy as busy:
         hold_request(busy.busy_task_id, request, team_id)
-        return IntakeOutcome(status="section_busy")
+        return IntakeOutcome(status="section_busy", task_id=busy.busy_task_id)
     except (WriterRerunTaken, tasks_facade.TaskDoneError):
         return IntakeOutcome(status="duplicate", task_id=existing_task.id if existing_task is not None else None)
     if joining is not None:
@@ -152,19 +151,52 @@ def start_held_requests(team_id: int) -> None:
 
 def start_requests_held_on(task_id: UUID, writer: WriterSettings) -> None:
     team_id = writer.team_id
-    held = tasks_facade.update_task_state_entry(
-        task_id, team_id, HELD_REQUESTS_STATE_KEY, lambda current: (None, current)
-    )
-    pending = [stored_request(entry) for entry in held] if isinstance(held, list) else []
-    for index, request in enumerate(pending):
+    while held := held_requests(task_id, team_id):
+        request = held[0]
         outcome = launch_held_request(task_id, request, writer)
-        if outcome is None or outcome.status in RETRIED_HELD_STATUSES:
-            hold_request(task_id, request, team_id)
-            continue
-        if outcome.status in ("started", "joined") and outcome.task_id is not None:
-            for later_request in pending[index + 1 :]:
-                hold_request(outcome.task_id, later_request, team_id)
+        if outcome is None or outcome.status == "capped":
             return
+        if outcome.status == "section_busy" and outcome.task_id == task_id:
+            return
+        remove_held_request(task_id, request.dedupe_id, team_id)
+        if outcome.status in ("started", "joined") and outcome.task_id is not None:
+            move_held_requests(task_id, outcome.task_id, team_id)
+            return
+
+
+def held_requests(task_id: UUID, team_id: int) -> list[DocsRequest]:
+    held = tasks_facade.read_task_state_entry(task_id, team_id, HELD_REQUESTS_STATE_KEY)
+    if not isinstance(held, list):
+        return []
+    parsed: list[DocsRequest] = []
+    for entry in held:
+        try:
+            parsed.append(stored_request(entry))
+        except ValidationError:
+            logger.warning("knowledge_writer_held_request_unreadable", task_id=str(task_id), team_id=team_id)
+    return parsed
+
+
+def remove_held_request(task_id: UUID, dedupe_id: str, team_id: int) -> None:
+    def remove(current: object) -> tuple[object, None]:
+        held = current if isinstance(current, list) else []
+        kept = [entry for entry in held if not (isinstance(entry, dict) and entry.get("dedupe_id") == dedupe_id)]
+        return kept or None, None
+
+    tasks_facade.update_task_state_entry(task_id, team_id, HELD_REQUESTS_STATE_KEY, remove)
+
+
+def move_held_requests(from_task_id: UUID, to_task_id: UUID, team_id: int) -> None:
+    for request in held_requests(from_task_id, team_id):
+        hold_request(to_task_id, request, team_id)
+        remove_held_request(from_task_id, request.dedupe_id, team_id)
+
+
+def sweep_held_requests() -> None:
+    writer = writer_settings()
+    if writer is None:
+        return
+    start_held_requests(writer.team_id)
 
 
 def launch_held_request(held_on_task_id: UUID, request: DocsRequest, writer: WriterSettings) -> IntakeOutcome | None:
