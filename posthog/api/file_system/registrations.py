@@ -17,7 +17,6 @@ from posthog.helpers.impersonation import is_impersonated
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 from posthog.models.user import User
 
-from products.alerts.backend.facade.api import delete_insight_alerts
 from products.cdp.backend.internal_events import INTERNAL_EVENT_READ_SCOPES
 from products.cdp.backend.models.hog_functions.utils import humanize_hog_function_type
 
@@ -114,6 +113,10 @@ def _insights_post_delete(insights: list[Any]) -> None:
     # The insight API's delete removes the insight's alerts too. Without this, an alert outlives its
     # insight: the insight scheduler skips it, and it stays enabled with no check ever again.
     # One call for the whole request, because each call starts a cleanup workflow after the commit.
+    # Imported here because these registrations load during django.setup(), and the alerts facade
+    # pulls the query and Temporal stacks onto every process's startup path.
+    from products.alerts.backend.facade.api import delete_insight_alerts  # noqa: PLC0415
+
     delete_insight_alerts([insight.id for insight in insights])
 
 
