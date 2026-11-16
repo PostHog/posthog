@@ -435,7 +435,7 @@ export function EmailDocumentEditor(): JSX.Element {
                             >
                                 <div
                                     className={clsx(
-                                        'EmailDocumentCanvas',
+                                        'EmailDocumentCanvas ph-no-capture',
                                         !touched && 'EmailDocumentCanvas--untouched'
                                     )}
                                     style={
