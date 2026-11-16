@@ -38,6 +38,8 @@ from posthog.models.tagged_item import TaggedItem
 from posthog.session_recordings.models.session_recording_playlist import SessionRecordingPlaylist
 
 from products.access_control.backend.models.access_control import AccessControl
+from products.alerts.backend.models.alert import AlertConfiguration
+from products.alerts.backend.test.insight_alerts import create_insight_alert
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction, HogFunctionType
 from products.cohorts.backend.models.cohort import Cohort
 from products.dashboards.backend.models.dashboard import Dashboard
@@ -2888,6 +2890,18 @@ class TestDestroyRepairsLeftoverHogFunctions(APIBaseTest):
                             any(change.get("field") == field for change in changes),
                             f"Expected {field} change for {case['scope']} restore",
                         )
+
+    def test_deleting_an_insight_removes_its_alerts(self):
+        alert = create_insight_alert(self.team)
+        fs_entry = self._ensure_file_system_entry(
+            file_type="insight", ref=alert.insight.short_id, fallback_name=alert.insight.short_id
+        )
+
+        delete_response = self.client.delete(f"/api/projects/{self.team.id}/file_system/{fs_entry.pk}/")
+
+        self.assertEqual(delete_response.status_code, status.HTTP_200_OK, delete_response.content)
+        self.assertTrue(Insight.objects_including_soft_deleted.get(pk=alert.insight_id).deleted)
+        self.assertFalse(AlertConfiguration.objects.filter(pk=alert.pk).exists())
 
     def _ensure_file_system_entry(self, *, file_type: str, ref: str, fallback_name: str) -> FileSystem:
         fs_entry = (

@@ -16,6 +16,7 @@ from posthog.helpers.impersonation import is_impersonated
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 from posthog.models.user import User
 
+from products.alerts.backend.facade.api import delete_insight_alerts
 from products.cdp.backend.internal_events import INTERNAL_EVENT_READ_SCOPES
 from products.cdp.backend.models.hog_functions.utils import humanize_hog_function_type
 
@@ -109,6 +110,9 @@ def _dashboard_post_restore(context: RestoreContext, dashboard: Any) -> None:
 
 
 def _insight_post_delete(context: DeletionContext, insight: Any) -> None:
+    # The insight API's delete removes the insight's alerts too. Without this, an alert outlives its
+    # insight: the insight scheduler skips it, and it stays enabled with no check ever again.
+    delete_insight_alerts([insight.id])
     _log_deletion_activity(
         context,
         scope="Insight",
