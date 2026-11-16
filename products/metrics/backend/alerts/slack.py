@@ -67,6 +67,9 @@ CHART_MAX_SERIES: Final = 200
 # A full CHART_MAX_SERIES result with long label sets fits in well under this. A bigger body is
 # dropped while it streams in, before any of it is decoded.
 CHART_MAX_BYTES: Final = 1024 * 1024
+# The request timeout applies per socket read, so a body that trickles in could outlast it. The whole
+# read, headers to last byte, gets this long.
+CHART_READ_SECONDS: Final = 2 * HISTORY_QUERY_SECONDS
 _results: OrderedDict[tuple[int, str, datetime], list[dict[str, Any]] | None] = OrderedDict()
 
 
@@ -116,15 +119,16 @@ def _query_range(team_id: int, query: str, end: datetime) -> list[dict[str, Any]
     return result
 
 
-def _bounded_json(response: Any) -> dict[str, Any] | None:
-    """The success body, or None for a failed response or one over CHART_MAX_BYTES, read no further."""
+def _bounded_json(response: Any, *, deadline: float) -> dict[str, Any] | None:
+    """The success body, or None for a failed response, one over CHART_MAX_BYTES, or one still arriving
+    at `deadline` (a `time.monotonic()` value), read no further."""
     try:
         if response.status_code != 200:
             return None
         body = bytearray()
         for chunk in response.iter_content(chunk_size=64 * 1024):
             body.extend(chunk)
-            if len(body) > CHART_MAX_BYTES:
+            if len(body) > CHART_MAX_BYTES or time.monotonic() > deadline:
                 return None
         payload = json.loads(body)
     finally:
@@ -162,6 +166,7 @@ def _read_range(team_id: int, query: str, end: datetime) -> list[dict[str, Any]]
         logger.info("metrics_alert_history_skipped_fleet_rate", team_id=team_id)
         return None
     try:
+        started = time.monotonic()
         response = snuffle_request(
             team_id,
             "POST",
@@ -178,7 +183,7 @@ def _read_range(team_id: int, query: str, end: datetime) -> list[dict[str, Any]]
             workload=Workload.METRICS,
             stream=True,
         )
-        payload = _bounded_json(response)
+        payload = _bounded_json(response, deadline=started + CHART_READ_SECONDS)
         if payload is None:
             logger.info("metrics_alert_history_skipped_response", team_id=team_id, status=response.status_code)
             return None

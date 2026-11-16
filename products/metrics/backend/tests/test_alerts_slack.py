@@ -1,3 +1,4 @@
+import time
 from datetime import UTC, datetime
 from typing import Any
 
@@ -157,5 +158,12 @@ def test_a_history_body_is_read_only_within_its_byte_cap(
 ) -> None:
     response = _StreamedResponse(body, status_code)
 
-    assert slack._bounded_json(response) == expected
+    assert slack._bounded_json(response, deadline=time.monotonic() + 60) == expected
+    assert response.closed
+
+
+def test_a_history_body_still_arriving_at_the_deadline_is_dropped() -> None:
+    response = _StreamedResponse(b'{"status":"success","data":{}}')
+
+    assert slack._bounded_json(response, deadline=time.monotonic() - 1) is None
     assert response.closed
