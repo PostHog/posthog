@@ -36,6 +36,8 @@ export interface SidebarNavigationItem {
     to: string
     active: boolean
     action?: JSX.Element
+    /** Keeps the action shown without a hover, for a marker the row must always show. */
+    actionVisible?: boolean
     dataAttr?: string
     onClick?: () => void
     wrap?: (row: JSX.Element) => JSX.Element

@@ -46,7 +46,8 @@ export function SidebarRow({
                 // for those before it calls onClick. Middle-clicks only fire auxclick.
                 onClickCapture={onClick}
                 onAuxClick={(event) => event.button === 1 && onClick?.()}
-                className={cn(action && 'pr-8')}
+                // The label keeps the full width until the hover action shows, so more of a long name fits.
+                className={cn(action && (actionVisible ? 'pr-8' : 'group-hover/row:pr-8 group-focus-within/row:pr-8'))}
             >
                 {icon && (
                     <span

@@ -1,3 +1,4 @@
+import { waitFor } from '@testing-library/react'
 import { expectLogic } from 'kea-test-utils'
 
 import { fileSystemEntryToAnalytics } from 'scenes/analytics/analyticsUtils'
@@ -5,6 +6,7 @@ import { fileSystemEntryToAnalytics } from 'scenes/analytics/analyticsUtils'
 import { projectTreeDataLogic } from '~/layout/panel-layout/ProjectTree/projectTreeDataLogic'
 import defaultSidebarFixture from '~/mocks/fixtures/api/today_analytics_sidebar.json'
 import { useMocks } from '~/mocks/jest'
+import { dashboardsModel } from '~/models/dashboardsModel'
 import { recentItemsModel } from '~/models/recentItemsModel'
 import { FileSystemEntry } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
@@ -84,5 +86,39 @@ describe('todayAnalyticsLogic', () => {
 
         recentItemsModel.actions.loadRecentsSuccess([])
         expect(logic.values.recentAnalytics).toEqual([])
+    })
+
+    it('lists dashboards pinned to the project, leaving out unpinned ones and ones the person pinned', async () => {
+        useMocks({
+            get: {
+                '/api/environments/:team_id/dashboards/': {
+                    results: [
+                        { id: 1, name: 'Revenue', pinned: true },
+                        { id: 2, name: 'Costs', pinned: false },
+                        { id: 3, name: 'Growth', pinned: true },
+                    ],
+                    next: null,
+                },
+                '/api/projects/:team_id/dashboards/': {
+                    results: [
+                        { id: 1, name: 'Revenue', pinned: true },
+                        { id: 2, name: 'Costs', pinned: false },
+                        { id: 3, name: 'Growth', pinned: true },
+                    ],
+                    next: null,
+                },
+                '/api/projects/:team_id/file_system_shortcut/': {
+                    results: [{ id: 'sc-dashboard', type: 'dashboard', path: 'Growth', ref: '3' }],
+                },
+            },
+        })
+        const logic = todayAnalyticsLogic()
+        logic.mount()
+
+        await waitFor(() => {
+            expect(dashboardsModel.values.pagingDashboardsCompleted).toBe(true)
+            expect(logic.values.pinnedShortcutIds.size).toBe(1)
+        })
+        expect(logic.values.projectPinnedDashboards.map((dashboard) => dashboard.name)).toEqual(['Revenue'])
     })
 })

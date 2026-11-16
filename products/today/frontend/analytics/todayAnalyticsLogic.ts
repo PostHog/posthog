@@ -1,4 +1,4 @@
-import { MakeLogicType, actions, connect, kea, listeners, path, reducers, selectors } from 'kea'
+import { MakeLogicType, actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { subscriptions } from 'kea-subscriptions'
 import posthog from 'posthog-js'
 
@@ -19,8 +19,10 @@ import { escapePath } from '~/layout/panel-layout/ProjectTree/utils'
 import { pinKey, sidebarPinsLogic } from '~/layout/today/sidebar/sidebarPinsLogic'
 import { newestByName } from '~/layout/today/todayNewestByName'
 import { TODAY_USER_PERSIST_OPTIONS } from '~/layout/today/todayUserPersistOptions'
+import { dashboardsModel } from '~/models/dashboardsModel'
 import { recentItemsModel } from '~/models/recentItemsModel'
 import { FileSystemEntry } from '~/queries/schema/schema-general'
+import { DashboardBasicType, DashboardType } from '~/types'
 
 // pinned: persisted section ids and the `section` property of `analytics section toggled`. The ids come from
 // the layout, whose default keeps them stable.
@@ -35,6 +37,7 @@ export interface todayAnalyticsLogicValues {
     recentsHasLoaded: boolean // recentItemsModel
     pinnedShortcutIds: Map<string, string> // sidebarPinsLogic
     currentProjectId: number | string // teamLogic
+    pinnedDashboards: (DashboardBasicType | DashboardType)[] // dashboardsModel
     collapsedSections: string[]
     creatingFolder: boolean
     freshRecentAnalytics: AnalyticsItem[]
@@ -42,6 +45,7 @@ export interface todayAnalyticsLogicValues {
     isSectionOpen: (section: string) => boolean
     newFolderDialogOpen: boolean
     newFolderParent: string | null
+    projectPinnedDashboards: (DashboardBasicType | DashboardType)[]
     recentAnalytics: AnalyticsItem[]
     savedRecentAnalytics: AnalyticsItem[]
     searchQuery: string
@@ -52,6 +56,9 @@ export interface todayAnalyticsLogicActions {
     createSavedItem: (savedItem: FileSystemEntry) => {
         savedItem: FileSystemEntry
     } // projectTreeDataLogic
+    loadDashboardsIfNeeded: () => {
+        value: true
+    } // dashboardsModel
     createFolder: (name: string) => {
         name: string
     }
@@ -84,6 +91,10 @@ export interface todayAnalyticsLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         isSectionOpen: (collapsedSections: string[], searchQuery: string) => (section: string) => boolean
         fromPostHog: (featureFlags: FeatureFlagsSet) => FromPostHogItem[]
+        projectPinnedDashboards: (
+            pinnedDashboards: (DashboardBasicType | DashboardType)[],
+            pinnedShortcutIds: Map<string, string>
+        ) => (DashboardBasicType | DashboardType)[]
         freshRecentAnalytics: (recents: FileSystemEntry[], pinnedShortcutIds: Map<string, string>) => AnalyticsItem[]
         recentAnalytics: (
             recentsHasLoaded: boolean,
@@ -115,8 +126,10 @@ export const todayAnalyticsLogic = kea<todayAnalyticsLogicType>([
             ['pinnedShortcutIds'],
             teamLogic,
             ['currentProjectId'],
+            dashboardsModel,
+            ['pinnedDashboards'],
         ],
-        actions: [projectTreeDataLogic, ['createSavedItem']],
+        actions: [projectTreeDataLogic, ['createSavedItem'], dashboardsModel, ['loadDashboardsIfNeeded']],
     })),
     actions({
         toggleSection: (section: string) => ({ section }),
@@ -173,6 +186,17 @@ export const todayAnalyticsLogic = kea<todayAnalyticsLogicType>([
         fromPostHog: [
             (s) => [s.featureFlags],
             (featureFlags: FeatureFlagsSet): FromPostHogItem[] => fromPostHogItems(featureFlags),
+        ],
+        // Dashboards pinned for the whole project. One the person also pinned shows once, as their own pin.
+        projectPinnedDashboards: [
+            (s) => [s.pinnedDashboards, s.pinnedShortcutIds],
+            (
+                pinnedDashboards: (DashboardBasicType | DashboardType)[],
+                pinnedShortcutIds: Map<string, string>
+            ): (DashboardBasicType | DashboardType)[] =>
+                pinnedDashboards.filter(
+                    (dashboard) => !pinnedShortcutIds.has(pinKey('dashboard', String(dashboard.id)))
+                ),
         ],
         // The app loads recently viewed items once and keeps them, so this section needs no request of its own.
         // Pinned items already show in the Pinned section, so Recents leaves them out before it applies the limit.
@@ -235,6 +259,10 @@ export const todayAnalyticsLogic = kea<todayAnalyticsLogicType>([
             }
         },
     })),
+    afterMount(({ actions }) => {
+        // The dashboards model is shared, so a pin changed anywhere in the app shows here too.
+        actions.loadDashboardsIfNeeded()
+    }),
     subscriptions(({ actions, values }) => ({
         // Saves what the section shows, so the next page load starts from it. Before the shared list loads, the
         // section shows a filtered copy of the saved list, and saving that copy would start the subscription again.

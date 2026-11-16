@@ -2,7 +2,8 @@ import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
 import { useMemo } from 'react'
 
-import { IconPlus } from '@posthog/icons'
+import { IconGlobe, IconPlus } from '@posthog/icons'
+import { Tooltip, TooltipContent, TooltipTrigger } from '@posthog/quill'
 
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { analyticsListFiltersFromUrl } from 'scenes/analytics/analyticsListLogic'
@@ -29,6 +30,27 @@ import { todayAnalyticsLogic } from './todayAnalyticsLogic'
 import { TodayAnalyticsMetric } from './TodayAnalyticsMetric'
 import { resolveSidebarTarget } from './todayAnalyticsSidebarTargets'
 
+/** Marks a dashboard pinned for everyone in the project, not by this person. */
+function ProjectPinnedMarker(): JSX.Element {
+    return (
+        <Tooltip>
+            <TooltipTrigger
+                delay={0}
+                render={
+                    <span
+                        className="flex size-5 items-center justify-center text-muted-foreground [&_svg]:size-3.5"
+                        aria-label="Pinned to project"
+                        data-attr="analytics-sidebar-project-pinned-marker"
+                    />
+                }
+            >
+                <IconGlobe />
+            </TooltipTrigger>
+            <TooltipContent>Pinned to project</TooltipContent>
+        </Tooltip>
+    )
+}
+
 function AnalyticsItemIcon({ type }: { type: AnalyticsType }): JSX.Element {
     return (
         // eslint-disable-next-line react/forbid-dom-props
@@ -43,7 +65,8 @@ function AnalyticsItemIcon({ type }: { type: AnalyticsType }): JSX.Element {
  * fills. The default layout is one more layout, so it draws the same way.
  */
 export function TodayAnalyticsSidebar(): JSX.Element {
-    const { fromPostHog, recentAnalytics, searchQuery, isSectionOpen } = useValues(todayAnalyticsLogic)
+    const { fromPostHog, recentAnalytics, projectPinnedDashboards, searchQuery, isSectionOpen } =
+        useValues(todayAnalyticsLogic)
     const { toggleSection, setSearchQuery } = useActions(todayAnalyticsLogic)
     const { pinnedAnalytics, hasAnalyticsItems } = useValues(analyticsPinnedLogic)
     const { showPinHint } = useActions(analyticsPinnedLogic)
@@ -65,44 +88,60 @@ export function TodayAnalyticsSidebar(): JSX.Element {
         path === removeProjectIdIfPresent(targetPath) && (targetPath !== urls.analyticsList() || openFolder === null)
 
     const lists: Record<AnalyticsListSourceApi, SidebarNavigationItem[]> = {
-        pinned: pinnedAnalytics.map((pinned) =>
-            pinned.kind === 'collection'
-                ? {
-                      value: `pinned:${pinned.key}`,
-                      label: pinned.name,
-                      icon: <AnalyticsSpaceGlyph name={pinned.name} />,
-                      to: urls.analyticsList({ folder: pinned.path }),
-                      active: openFolder === pinned.path,
-                      action: (
-                          <SidebarPinButton
-                              target={{ type: 'folder', ref: pinned.path, name: pinned.name }}
-                              dataAttr="analytics-sidebar-unpin-space"
-                          />
-                      ),
-                      dataAttr: 'analytics-sidebar-starred-space',
-                      wrap: (row) => <SidebarRowEnter pinKey={pinned.key}>{row}</SidebarRowEnter>,
-                  }
-                : {
-                      value: `pinned:${pinned.key}`,
-                      label: pinned.item.name,
-                      icon: <AnalyticsItemIcon type={pinned.item.type} />,
-                      to: pinned.item.href,
-                      active: path === removeProjectIdIfPresent(pinned.item.href),
-                      action: (
-                          <SidebarPinButton
-                              target={{
-                                  type: pinned.item.type,
-                                  ref: pinned.item.id,
-                                  name: pinned.item.name,
-                                  href: pinned.item.href,
-                              }}
-                              dataAttr="analytics-sidebar-unpin"
-                          />
-                      ),
-                      dataAttr: 'analytics-sidebar-pinned',
-                      wrap: (row) => <SidebarRowEnter pinKey={pinned.key}>{row}</SidebarRowEnter>,
-                  }
-        ),
+        pinned: [
+            ...pinnedAnalytics.map(
+                (pinned): SidebarNavigationItem =>
+                    pinned.kind === 'collection'
+                        ? {
+                              value: `pinned:${pinned.key}`,
+                              label: pinned.name,
+                              icon: <AnalyticsSpaceGlyph name={pinned.name} />,
+                              to: urls.analyticsList({ folder: pinned.path }),
+                              active: openFolder === pinned.path,
+                              action: (
+                                  <SidebarPinButton
+                                      target={{ type: 'folder', ref: pinned.path, name: pinned.name }}
+                                      dataAttr="analytics-sidebar-unpin-space"
+                                  />
+                              ),
+                              dataAttr: 'analytics-sidebar-starred-space',
+                              wrap: (row) => <SidebarRowEnter pinKey={pinned.key}>{row}</SidebarRowEnter>,
+                          }
+                        : {
+                              value: `pinned:${pinned.key}`,
+                              label: pinned.item.name,
+                              icon: <AnalyticsItemIcon type={pinned.item.type} />,
+                              to: pinned.item.href,
+                              active: path === removeProjectIdIfPresent(pinned.item.href),
+                              action: (
+                                  <SidebarPinButton
+                                      target={{
+                                          type: pinned.item.type,
+                                          ref: pinned.item.id,
+                                          name: pinned.item.name,
+                                          href: pinned.item.href,
+                                      }}
+                                      dataAttr="analytics-sidebar-unpin"
+                                  />
+                              ),
+                              dataAttr: 'analytics-sidebar-pinned',
+                              wrap: (row) => <SidebarRowEnter pinKey={pinned.key}>{row}</SidebarRowEnter>,
+                          }
+            ),
+            ...projectPinnedDashboards.map((dashboard): SidebarNavigationItem => {
+                const href = urls.dashboard(dashboard.id)
+                return {
+                    value: `project-pinned:dashboard:${dashboard.id}`,
+                    label: dashboard.name || 'Untitled',
+                    icon: <AnalyticsItemIcon type="dashboard" />,
+                    to: href,
+                    active: path === removeProjectIdIfPresent(href),
+                    action: <ProjectPinnedMarker />,
+                    actionVisible: true,
+                    dataAttr: 'analytics-sidebar-project-pinned',
+                }
+            }),
+        ],
         recents: recentAnalytics.map((item) => ({
             value: `recent:${item.type}:${item.id}`,
             label: item.name,
@@ -165,8 +204,12 @@ export function TodayAnalyticsSidebar(): JSX.Element {
             navigation={{
                 lists,
                 reorder: {
-                    pinned: (fromIndex, toIndex) =>
-                        movePinned(pinnedAnalytics[fromIndex].shortcutId, pinnedAnalytics[toIndex].shortcutId),
+                    // Project pins follow the person's own pins and keep the project's order, so only own pins move.
+                    pinned: (fromIndex, toIndex) => {
+                        if (fromIndex < pinnedAnalytics.length && toIndex < pinnedAnalytics.length) {
+                            movePinned(pinnedAnalytics[fromIndex].shortcutId, pinnedAnalytics[toIndex].shortcutId)
+                        }
+                    },
                 },
                 resolve: (item) => {
                     const target = resolveSidebarTarget(item.to, item.label, item.icon)
