@@ -23,6 +23,7 @@ def _event_filter(key: str, value: Any, *, filter_type: str = "event", operator:
 
 ENTERPRISE_PLAN = _event_filter("plan", ["enterprise"])
 CHECKOUT_PAGE = _event_filter("$pathname", ["/checkout"])
+DISABLED = {"message": "Rule timed out"}
 
 
 @patch.object(team_flags, "feature_enabled_or_false", new=lambda *args, **kwargs: True)
@@ -72,6 +73,7 @@ class TestIssueTagRuleAPI(APIBaseTest):
                 },
             ),
             ("compile_error", _event_filter("plan", "(", operator="regex")),
+            ("oversized_bytecode", _event_filter("plan", [f"plan-{i}" for i in range(5_000)])),
             ("not_a_filter_group", {"not": "valid"}),
         ]
     )
@@ -84,23 +86,39 @@ class TestIssueTagRuleAPI(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("label", {"label": "Big customer"}, "Big customer", 1),
-            ("same_filters", {"filters": ENTERPRISE_PLAN}, "Enterprise", 1),
-            ("new_filters", {"filters": CHECKOUT_PAGE}, "Enterprise", 2),
+            ("label", {"label": "Big customer"}, "Big customer", 1, DISABLED, []),
+            ("same_filters", {"filters": ENTERPRISE_PLAN}, "Enterprise", 1, None, []),
+            ("new_filters", {"filters": CHECKOUT_PAGE}, "Enterprise", 2, None, [2]),
         ]
     )
-    def test_only_a_filter_change_starts_a_new_version(
-        self, _name: str, payload: dict[str, Any], label: str, version: int
+    def test_only_a_filter_edit_restarts_the_rule(
+        self,
+        _name: str,
+        payload: dict[str, Any],
+        label: str,
+        version: int,
+        disabled_data: dict[str, Any] | None,
+        checkout_tag_versions: list[int],
     ) -> None:
         rule = self._create()
         tag = self._tag(rule, ErrorTrackingIssue.objects.create(team=self.team))
+        ErrorTrackingIssueTagRule.objects.for_team(self.team.id).filter(id=rule["id"]).update(disabled_data=DISABLED)
 
         response = self.client.patch(self._url(rule["id"]), data=payload, format="json")
 
         assert response.status_code == status.HTTP_204_NO_CONTENT, response.json()
         updated = self.client.get(self._url(rule["id"])).json()
-        assert (updated["key"], updated["label"], updated["version"]) == (rule["key"], label, version)
+        assert (updated["key"], updated["label"], updated["version"], updated["disabled_data"]) == (
+            rule["key"],
+            label,
+            version,
+            disabled_data,
+        )
         assert ErrorTrackingIssueTag.objects.for_team(self.team.id).filter(id=tag.id).exists()
+        checkout = ErrorTrackingIssue.objects.create(team=self.team)
+        run_issue_taggers(self.team.id, checkout.id, lambda team: {"$pathname": "/checkout"})
+        checkout_tags = ErrorTrackingIssueTag.objects.for_team(self.team.id).filter(issue=checkout)
+        assert list(checkout_tags.values_list("question_version", flat=True)) == checkout_tag_versions
 
     def test_delete_removes_the_rule_and_only_its_tags(self) -> None:
         deleted, kept = self._create(), self._create("Checkout", CHECKOUT_PAGE)

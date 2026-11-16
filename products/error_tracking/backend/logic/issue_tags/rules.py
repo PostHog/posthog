@@ -14,9 +14,7 @@ from products.error_tracking.backend.logic.rules import (
     ErrorTrackingInvalidBytecodeError,
     _parse_rule_id,
     _reorder_rules,
-    compile_filter_bytecode,
-    has_filter_values,
-    match_all_bytecode,
+    _rule_bytecode,
 )
 from products.error_tracking.backend.models import ErrorTrackingIssueTag, ErrorTrackingIssueTagRule
 
@@ -69,18 +67,25 @@ def update_issue_tag_rule(
     if rule is None:
         return None
     new_version = filters is not None and filters != rule.filters
+    # Write only these columns. A full save writes back the values read above, which undoes a filter edit or a
+    # tagger auto-disable that committed after that read.
+    changed = ["updated_at"]
     if filters is not None:
         rule.bytecode = _compile(team_id, filters)
         rule.filters = filters
         rule.disabled_data = None
+        changed += ["bytecode", "filters", "disabled_data"]
     if new_version:
         # The tagger stamps each answer with the version it read, so a concurrent edit must not lose an increment.
         rule.version = F("version") + 1
+        changed.append("version")
     if label is not None:
         rule.label = label
+        changed.append("label")
     if description is not None:
         rule.description = description
-    rule.save()
+        changed.append("description")
+    rule.save(update_fields=changed)
     if new_version:
         rule.refresh_from_db(fields=["version"])
     return rule
@@ -113,10 +118,8 @@ def _require_issue_tags(team_id: int) -> None:
 
 def _compile(team_id: int, filters: dict) -> list[Any]:
     _require_event_property_filters(filters)
-    if not has_filter_values(filters):
-        return match_all_bytecode()
     try:
-        bytecode = compile_filter_bytecode(team_id, filters)
+        bytecode = _rule_bytecode(team_id, filters)
     except (ErrorTrackingInvalidBytecodeError, BaseHogQLError, ValueError) as err:
         raise IssueTagRuleFiltersError(str(err)) from err
     # The tagger disables a rule above this limit, so reject it here instead.
