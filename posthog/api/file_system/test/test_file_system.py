@@ -1,3 +1,4 @@
+import re
 import json
 from collections.abc import Callable, Iterable, Mapping
 from datetime import UTC, timedelta
@@ -3168,11 +3169,6 @@ TREE_READ_PATHS: list[tuple[str, str, dict[str, str]]] = [
     ("frequent", "frequent/", {}),
 ]
 
-KNOWN_PER_ROW_TREE_SUBQUERIES = {
-    # Runs only for the objects that the NOT EXISTS anti-join kept, so once per object with no file row yet.
-    "unfiled_already_saved_annotation": 'AS "already_saved"',
-}
-
 
 def _scans_file_system(node: Mapping[str, Any]) -> bool:
     return node.get("Relation Name") == "posthog_filesystem" or any(
@@ -3180,13 +3176,19 @@ def _scans_file_system(node: Mapping[str, Any]) -> bool:
     )
 
 
-def _per_row_file_system_subplans(node: Mapping[str, Any]) -> Iterable[Mapping[str, Any]]:
-    # Postgres runs a SubPlan once per outer row unless it can hash it. An InitPlan runs once per statement.
-    is_per_row = node.get("Parent Relationship") == "SubPlan" and "hashed" not in node.get("Subplan Name", "")
-    if is_per_row and _scans_file_system(node):
+def _subplans(node: Mapping[str, Any]) -> Iterable[Mapping[str, Any]]:
+    if node.get("Parent Relationship") == "SubPlan":
         yield node
     for child in node.get("Plans", []):
-        yield from _per_row_file_system_subplans(child)
+        yield from _subplans(child)
+
+
+def _per_row_file_system_subplans(plan: Mapping[str, Any]) -> list[Mapping[str, Any]]:
+    # Postgres runs a SubPlan once per outer row unless it hashes it, and an InitPlan once per statement.
+    # EXPLAIN names a hashed SubPlan "SubPlan N" like any other and marks it only where its parent reads it,
+    # as "hashed SubPlan N" in a Filter or, with VERBOSE, an Output.
+    hashed = set(re.findall(r"hashed (SubPlan \d+)", json.dumps(plan)))
+    return [node for node in _subplans(plan) if node["Subplan Name"] not in hashed and _scans_file_system(node)]
 
 
 class TestFileSystemReadPlans(APIBaseTest):
@@ -3260,15 +3262,13 @@ class TestFileSystemReadPlans(APIBaseTest):
         tree_reads = [
             (sql, sql_params)
             for sql, sql_params in statements
-            if sql.lstrip().upper().startswith("SELECT")
-            and '"posthog_filesystem"' in sql
-            and not any(marker in sql for marker in KNOWN_PER_ROW_TREE_SUBQUERIES.values())
+            if sql.lstrip().upper().startswith("SELECT") and '"posthog_filesystem"' in sql
         ]
         self.assertNotEqual(tree_reads, [])
         offenders: list[str] = []
         with connection.cursor() as cursor:
             for sql, sql_params in tree_reads:
-                cursor.execute(f"EXPLAIN (FORMAT JSON) {sql}", sql_params)
+                cursor.execute(f"EXPLAIN (FORMAT JSON, VERBOSE) {sql}", sql_params)
                 row = cursor.fetchone()
                 assert row is not None
                 plan = row[0][0]["Plan"]
