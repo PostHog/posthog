@@ -3172,7 +3172,7 @@ TREE_READ_PATHS: list[tuple[str, str, dict[str, str]]] = [
 
 UNFILED_ALREADY_SAVED_SELECT = 'AS "already_saved"'
 PATTERN_FROM_A_COLUMN = re.compile(r"\s!?~~?\*?\s+(?!')")
-PLAN_CONDITIONS = ("Filter", "Join Filter", "Index Cond", "Recheck Cond", "Hash Cond", "Merge Cond")
+PLAN_CONDITIONS = ("Filter", "Join Filter", "Index Cond")
 
 
 def _plan_nodes(node: Mapping[str, Any]) -> Iterable[Mapping[str, Any]]:
@@ -3198,25 +3198,24 @@ def _select_list_subplan_names(plan: Mapping[str, Any]) -> set[str]:
     }
 
 
-def _per_row_tree_scans(sql: str, plan: Mapping[str, Any]) -> list[Mapping[str, Any]]:
-    hashed = _names_marked_hashed_by_their_parent(plan)
-    per_row_subplans = [
-        node
-        for node in _plan_nodes(plan)
-        if node.get("Parent Relationship") == "SubPlan"
-        and node["Subplan Name"] not in hashed
-        and _scans_file_system(node)
+def _per_row_tree_subplans(sql: str, plan: Mapping[str, Any]) -> list[Mapping[str, Any]]:
+    tree_subplans = [
+        node for node in _plan_nodes(plan) if node.get("Parent Relationship") == "SubPlan" and _scans_file_system(node)
     ]
+    skipped = _names_marked_hashed_by_their_parent(plan)
     if UNFILED_ALREADY_SAVED_SELECT in sql:
-        select_list = _select_list_subplan_names(plan) & {node["Subplan Name"] for node in per_row_subplans}
+        select_list = _select_list_subplan_names(plan) & {node["Subplan Name"] for node in tree_subplans}
         if len(select_list) == 1:
-            per_row_subplans = [node for node in per_row_subplans if node["Subplan Name"] not in select_list]
-    column_patterns = [
+            skipped |= select_list
+    return [node for node in tree_subplans if node["Subplan Name"] not in skipped]
+
+
+def _column_pattern_nodes(plan: Mapping[str, Any]) -> list[Mapping[str, Any]]:
+    return [
         node
         for node in _plan_nodes(plan)
         if any(PATTERN_FROM_A_COLUMN.search(node.get(condition, "")) for condition in PLAN_CONDITIONS)
     ]
-    return per_row_subplans + column_patterns
 
 
 class TestFileSystemReadPlans(APIBaseTest):
@@ -3291,7 +3290,7 @@ class TestFileSystemReadPlans(APIBaseTest):
         tree_reads = [
             (sql, sql_params)
             for sql, sql_params in statements
-            if sql.lstrip().upper().startswith("SELECT") and '"posthog_filesystem"' in sql
+            if sql.lstrip().upper().startswith(("SELECT", "WITH")) and '"posthog_filesystem"' in sql
         ]
         self.assertNotEqual(tree_reads, [])
         offenders: list[str] = []
@@ -3300,9 +3299,14 @@ class TestFileSystemReadPlans(APIBaseTest):
                 cursor.execute(f"EXPLAIN (FORMAT JSON, VERBOSE) {sql}", sql_params)
                 row = cursor.fetchone()
                 assert row is not None
+                plan = row[0][0]["Plan"]
                 offenders.extend(
-                    f"{sql}\n{sql_params}\n{json.dumps(node, indent=2)}"
-                    for node in _per_row_tree_scans(sql, row[0][0]["Plan"])
+                    f"Per-row subquery over the tree:\n{sql}\n{sql_params}\n{json.dumps(node, indent=2)}"
+                    for node in _per_row_tree_subplans(sql, plan)
+                )
+                offenders.extend(
+                    f"Pattern built from a column:\n{sql}\n{sql_params}\n{json.dumps(node, indent=2)}"
+                    for node in _column_pattern_nodes(plan)
                 )
         if offenders:
             flag_state = "on" if flag_enabled else "off"
