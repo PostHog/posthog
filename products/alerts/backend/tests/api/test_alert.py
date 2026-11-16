@@ -2141,12 +2141,14 @@ class TestAlertTestDelivery(TrendsInsightAPITest):
         assert response.status_code == status.HTTP_201_CREATED, response.content
         self.alert = response.json()
 
-    def _create_destination(self, *, enabled: bool = True, alert_id: str | None = None) -> HogFunction:
+    def _create_destination(
+        self, *, enabled: bool = True, alert_id: str | None = None, template_id: str | None = "template-webhook"
+    ) -> HogFunction:
         return HogFunction.objects.create(
             team=self.team,
             name="Alert destination",
             type="internal_destination",
-            template_id="template-webhook",
+            template_id=template_id,
             enabled=enabled,
             inputs_schema=[],
             inputs={},
@@ -2193,6 +2195,27 @@ class TestAlertTestDelivery(TrendsInsightAPITest):
         assert alert_after.state == alert_before.state
         assert alert_after.last_notified_at == alert_before.last_notified_at
         assert AlertCheck.objects.filter(alert_configuration_id=self.alert["id"]).count() == 0
+
+    @parameterized.expand([("clickup", "template-clickup"), ("custom", None)])
+    @mock.patch("products.cdp.backend.internal_events.get_producer")
+    def test_delivery_enqueues_event_for_other_destination_templates(
+        self, _name: str, template_id: str | None, mock_producer: mock.MagicMock
+    ) -> None:
+        self._create_destination(template_id=template_id)
+
+        response = self.client.post(f"/api/projects/{self.team.id}/alerts/{self.alert['id']}/test-delivery/")
+
+        assert response.status_code == status.HTTP_202_ACCEPTED, response.content
+        assert response.json() == {
+            "destination_count": 1,
+            "email_recipient_count": 0,
+            "failed_delivery_channels": [],
+        }
+        event = mock_producer.return_value.produce.call_args.kwargs["data"]
+        assert event["team_id"] == self.team.id
+        assert event["event"]["event"] == "$insight_alert_firing"
+        assert event["event"]["properties"]["alert_id"] == self.alert["id"]
+        assert event["event"]["properties"]["is_test"] is True
 
     @mock.patch("products.alerts.backend.presentation.views.alert.trigger_alert_hog_functions")
     @mock.patch("products.alerts.backend.facade.email.EmailMessage")

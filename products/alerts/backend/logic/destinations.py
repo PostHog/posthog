@@ -226,7 +226,7 @@ def _active_alert_destinations_qs(
     *, team_id: int, alert_id: str, allowed_event_ids: Collection[str]
 ) -> QuerySet[HogFunction]:
     return owned_alert_destinations_qs(
-        team_id=team_id, alert_ids=[alert_id], allowed_event_ids=allowed_event_ids
+        team_id=team_id, alert_ids=[alert_id], allowed_event_ids=allowed_event_ids, known_templates_only=False
     ).filter(enabled=True)
 
 
