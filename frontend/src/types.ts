@@ -1083,6 +1083,8 @@ export interface ToolbarParams {
     accessToken?: string /** OAuth access token (Bearer) */
     refreshToken?: string /** OAuth refresh token */
     clientId?: string /** OAuth client_id for token refresh */
+    teamId?: number /** Team the OAuth token is scoped to */
+    projectId?: number /** Project of that team */
     actionId?: number
     experimentId?: ExperimentIdType
     userIntent?: ToolbarUserIntent
@@ -5708,6 +5710,7 @@ export const INTEGRATION_KINDS = [
     'aws-redshift',
     's3-compatible',
     'snowflake',
+    'motherduck',
     'youtube-analytics',
     'twitter-ads',
 ] as const
@@ -7559,6 +7562,7 @@ export type HogFunctionConfigurationContextId =
     | 'billing-alerts'
     | 'replay-vision-alerts'
     | 'replay-vision-requests'
+    | 'signals-reports'
 
 export type HogFunctionSubTemplateIdType =
     | 'early-access-feature-enrollment'
@@ -7581,6 +7585,7 @@ export type HogFunctionSubTemplateIdType =
     | 'health-check-resolved'
     | 'batch-export-run-failed'
     | 'replay-vision-request-completed'
+    | 'signals-report-ready'
 
 export type HogFunctionConfigurationType = Omit<
     HogFunctionType,

@@ -57,6 +57,7 @@ from products.signals.backend.anomaly_scores.search import (
     AnomalyHistoryFilters as AnomalyHistoryFilters,
     AnomalyInsightHistory as AnomalyInsightHistory,
     AnomalyInterval as AnomalyInterval,
+    AnomalyOrder as AnomalyOrder,
     AnomalySearchFilters as AnomalySearchFilters,
     AnomalySearchResult as AnomalySearchResult,
 )

@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "/* service='personhog-replica', operation='delete_hash_key_overrides_by_teams' */\n            DELETE FROM posthog_featureflaghashkeyoverride\n            WHERE id IN (\n                SELECT id FROM posthog_featureflaghashkeyoverride\n                WHERE team_id = ANY($1)\n                LIMIT $2\n                FOR UPDATE SKIP LOCKED\n            )\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int4Array",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "717e357f9ad31597e1bc4fc0d6e8adfab750ebb43b2adb0ff125b2310ec41b9a"
+}
