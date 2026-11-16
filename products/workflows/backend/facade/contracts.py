@@ -314,6 +314,8 @@ class PeopleImportSummary:
     dropped_too_large: int
     # Rows no person matched, left out because the import doesn't create new people.
     skipped_new_people: int = 0
+    # How the people that rows matched by email spell that email in PostHog.
+    person_emails: tuple[str, ...] = ()
 
 
 @frozen
@@ -330,6 +332,8 @@ class ProviderContactsResult:
     # Contacts without a valid email address, or repeating an earlier one.
     dropped: int = 0
     notes: tuple[str, ...] = ()
+    # How the people the contacts matched spell their email in PostHog, which can differ from the provider's.
+    person_emails: tuple[str, ...] = ()
 
 
 @frozen

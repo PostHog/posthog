@@ -50,6 +50,7 @@ def import_provider_contacts(
         return ProviderContactsResult(status="failed", notes=(cohort.problem,))
 
     contacts = new_people = skipped_new_people = dropped = 0
+    person_emails: set[str] = set()
     try:
         # One import holds a bounded number of rows, so a long list fills the cohort in several imports.
         for start in range(0, len(rows), MAX_PEOPLE_IMPORT_ROWS):
@@ -67,6 +68,7 @@ def import_provider_contacts(
             new_people += summary.new_people
             skipped_new_people += summary.skipped_new_people
             dropped += summary.dropped_invalid_email + summary.dropped_duplicate_email + summary.dropped_too_large
+            person_emails.update(summary.person_emails)
     except PeopleImportInvalid as error:
         return ProviderContactsResult(
             status="failed", cohort_id=cohort.cohort_id, cohort_name=cohort.name, notes=(str(error),)
@@ -79,4 +81,5 @@ def import_provider_contacts(
         new_people=new_people,
         skipped_new_people=skipped_new_people,
         dropped=dropped,
+        person_emails=tuple(sorted(person_emails)),
     )

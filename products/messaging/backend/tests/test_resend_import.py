@@ -593,6 +593,23 @@ class TestResendContacts(ClickhouseTestMixin, BaseTest):
             patcher.start()
         self.people = PeopleImportRecorder(self)
 
+    def test_an_opt_out_reaches_the_spelling_the_matched_person_has(self) -> None:
+        _create_person(team=self.team, distinct_ids=["user-hal"], properties={"email": "Happy@Example.com"})
+        flush_persons_and_events()
+        # Stored by an earlier import under the provider's spelling.
+        MessageRecipientPreference.objects.create(
+            team_id=self.team.id, identifier="happy@example.com", preferences={"$all": "OPTED_OUT"}
+        )
+
+        run = runs.start_run(self.team.id, "resend", ["contacts"], API_KEY, self.user.id)
+        with self.captureOnCommitCallbacks(execute=True):
+            runs.run_step(self.team.id, run.id, "contacts", attempt=1)
+
+        preferences = dict(
+            MessageRecipientPreference.objects.filter(team_id=self.team.id).values_list("identifier", "preferences")
+        )
+        assert preferences["Happy@Example.com"] == {"$all": "OPTED_OUT"}
+
     @parameterized.expand([("properties_defined", True), ("no_properties_defined", False)])
     def test_contact_properties_fill_only_what_the_person_lacks(self, _name: str, defined: bool) -> None:
         if not defined:

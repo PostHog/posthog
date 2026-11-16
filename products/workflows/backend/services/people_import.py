@@ -131,7 +131,9 @@ def start_people_import(
         raise PeopleImportInvalid("No row has a valid email address.")
     _check_writable_columns(team, user, cleaned.columns)
 
-    distinct_ids = _resolve_distinct_ids(team, user, cleaned.rows)
+    resolved_people = _resolve_distinct_ids(team, user, cleaned.rows)
+    distinct_ids = resolved_people.distinct_ids
+    person_emails = tuple(sorted({spelling for spelled in resolved_people.spellings.values() for spelling in spelled}))
     people: list[StagedPerson] = []
     seen_distinct_ids: set[str] = set()
     dropped_duplicate_distinct_id = 0
@@ -164,6 +166,7 @@ def start_people_import(
             dropped_duplicate_email=cleaned.dropped_duplicate_email,
             dropped_too_large=cleaned.dropped_too_large,
             skipped_new_people=skipped_new_people,
+            person_emails=person_emails,
         )
     existing = existing_distinct_ids(team.id, [person["distinct_id"] for person in people])
     target_id = _start_filling(team, user, name, cohort_id)
@@ -214,6 +217,7 @@ def start_people_import(
         dropped_duplicate_email=cleaned.dropped_duplicate_email + dropped_duplicate_distinct_id,
         dropped_too_large=cleaned.dropped_too_large,
         skipped_new_people=skipped_new_people,
+        person_emails=person_emails,
     )
 
 
@@ -350,27 +354,47 @@ def _check_writable_columns(team: Team, user: User | None, columns: list[str]) -
         )
 
 
-def _resolve_distinct_ids(team: Team, user: User | None, rows: list[dict[str, str]]) -> list[str | None]:
+@frozen
+class _ResolvedPeople:
+    # The distinct ID each row writes to, or None for a row no person matches.
+    distinct_ids: list[str | None]
+    # How the people that rows matched by email spell that email, by lowercased email.
+    spellings: dict[str, tuple[str, ...]]
+
+
+def _resolve_distinct_ids(team: Team, user: User | None, rows: list[dict[str, str]]) -> _ResolvedPeople:
     """The distinct ID each row writes to: its own column first, then an existing person with the email."""
     emails = [row["email"].lower() for row in rows if not row.get("distinct_id")]
     by_email: dict[str, str] = {}
+    spellings: dict[str, tuple[str, ...]] = {}
     for start in range(0, len(emails), EMAIL_LOOKUP_CHUNK_SIZE):
-        by_email.update(_distinct_ids_by_email(team, user, emails[start : start + EMAIL_LOOKUP_CHUNK_SIZE]))
+        matched = _distinct_ids_by_email(team, user, emails[start : start + EMAIL_LOOKUP_CHUNK_SIZE])
+        by_email.update(matched.distinct_ids)
+        spellings.update(matched.spellings)
     resolved: list[str | None] = []
     for row in rows:
         distinct_id = row.pop("distinct_id", "")
         resolved.append(distinct_id or by_email.get(row["email"].lower()))
-    return resolved
+    return _ResolvedPeople(distinct_ids=resolved, spellings=spellings)
 
 
-def _distinct_ids_by_email(team: Team, user: User | None, emails: list[str]) -> dict[str, str]:
+@frozen
+class _MatchedEmails:
+    distinct_ids: dict[str, str]
+    spellings: dict[str, tuple[str, ...]]
+
+
+def _distinct_ids_by_email(team: Team, user: User | None, emails: list[str]) -> _MatchedEmails:
     if not emails:
-        return {}
+        return _MatchedEmails(distinct_ids={}, spellings={})
     # Querying persons directly lets HogQL filter people by email before it groups their versions.
     # The lowest person ID per email is the same person the email dedupe of a filtered audience picks.
     query = parse_select(
         """
-        SELECT lower(trim(toString(properties.email))) AS normalized_email, min(id) AS person_uuid
+        SELECT
+            lower(trim(toString(properties.email))) AS normalized_email,
+            min(id) AS person_uuid,
+            groupUniqArray(trim(toString(properties.email))) AS spellings
         FROM persons
         WHERE lower(trim(toString(properties.email))) IN {emails}
         GROUP BY normalized_email
@@ -382,7 +406,8 @@ def _distinct_ids_by_email(team: Team, user: User | None, emails: list[str]) -> 
     tag_queries(product=Product.WORKFLOWS, feature=Feature.QUERY)
     # With the user, property access rules that hide email from the team default still let this user match.
     response = execute_hogql_query(query=query, team=team, user=user, workload=Workload.OFFLINE)
-    uuid_by_email = {email: uuid.UUID(str(person_uuid)) for email, person_uuid in response.results}
+    uuid_by_email = {email: uuid.UUID(str(person_uuid)) for email, person_uuid, _ in response.results}
+    spellings = {email: tuple(sorted(spelled)) for email, _, spelled in response.results}
     id_by_uuid = {
         uuid.UUID(str(person_uuid)): person_id
         for person_id, person_uuid in get_person_ids_and_uuids_by_uuids(
@@ -396,7 +421,9 @@ def _distinct_ids_by_email(team: Team, user: User | None, emails: list[str]) -> 
         person_id = id_by_uuid.get(person_uuid)
         if person_id is not None and distinct_ids.get(person_id):
             matched[email] = distinct_ids[person_id][0]
-    return matched
+    return _MatchedEmails(
+        distinct_ids=matched, spellings={email: spellings[email] for email in matched if email in spellings}
+    )
 
 
 def _loose_header(header: object) -> str:

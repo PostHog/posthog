@@ -9,6 +9,7 @@ from collections.abc import Iterable, Mapping
 from datetime import datetime
 
 from django.db import transaction
+from django.db.models.functions import Lower
 from django.utils import timezone
 
 from posthog.dataclasses import frozen
@@ -187,29 +188,37 @@ def import_opt_outs(team_id: int, opt_outs: Mapping[str, Iterable[str]], created
     return inserted + len(merged)
 
 
-def carry_opt_outs(team_id: int, spellings: Mapping[str, Iterable[str]], created_by_id: int | None) -> int:
-    """Give each address the opt-outs stored under its other spellings, because a send matches the exact address.
+def carry_opt_outs(team_id: int, addresses: Iterable[str], created_by_id: int | None) -> int:
+    """Give every spelling of each address the opt-outs stored under any of its spellings, because a send matches the
+    exact address it names.
 
-    `spellings` maps the address a person gets to the other ways the provider spelled it.
+    `addresses` holds each spelling the import saw, from the provider or from the person it matched. A spelling an
+    opt-out was stored under counts too.
     """
-    others = {other for spelled in spellings.values() for other in spelled}
-    if not others:
+    spellings: dict[str, set[str]] = {}
+    for address in addresses:
+        spellings.setdefault(address.lower(), set()).add(address)
+    if not spellings:
         return 0
-    stored = dict(
-        MessageRecipientPreference.objects.filter(team_id=team_id, identifier__in=others, deleted=False).values_list(
-            "identifier", "preferences"
-        )
+    opted_out: dict[str, set[str]] = {}
+    stored = (
+        MessageRecipientPreference.objects.filter(team_id=team_id, deleted=False)
+        .annotate(lowered=Lower("identifier"))
+        .filter(lowered__in=list(spellings))
+        .values_list("lowered", "identifier", "preferences")
     )
-    opt_outs = {
-        address: {
+    for lowered, identifier, preferences in stored.iterator(chunk_size=2000):
+        spellings[lowered].add(identifier)
+        opted_out.setdefault(lowered, set()).update(
             category_id
-            for other in spelled
-            for category_id, status in (stored.get(other) or {}).items()
+            for category_id, status in (preferences or {}).items()
             if status == PreferenceStatus.OPTED_OUT.value
-        }
-        for address, spelled in spellings.items()
-    }
-    return import_opt_outs(team_id, opt_outs, created_by_id)
+        )
+    return import_opt_outs(
+        team_id,
+        {spelling: categories for lowered, categories in opted_out.items() for spelling in spellings[lowered]},
+        created_by_id,
+    )
 
 
 def import_categories(

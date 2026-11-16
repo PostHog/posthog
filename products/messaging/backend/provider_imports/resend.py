@@ -186,7 +186,7 @@ class ResendImportProvider(ImportProvider):
                 "person updated counts as one event."
             ),
             count_labels=CONTACT_COUNT_LABELS,
-            requires=("opt_outs", "topic_opt_outs"),
+            requires=("suppressions", "opt_outs", "topic_opt_outs"),
         ),
         new_people_step("Resend"),
         ImportStepSpec(

@@ -155,12 +155,16 @@ def save_contact_lists(
 
     Only `everyone` sends the events that create and update people, so a contact in several lists counts once.
     `other_spellings` holds each address the provider spelled more than one way, as from
-    `ContactCollector.other_spellings`, so an opt-out under one spelling covers them all.
+    `ContactCollector.other_spellings`.
     """
-    if other_spellings:
-        carry_opt_outs(context.team_id, other_spellings, context.created_by_id)
     create_people = NEW_PEOPLE_STEP in context.steps
     result = _import(context, everyone, create_people=create_people, send_events=True)
+    # A send matches an opt-out by exact address, and the person may spell it differently from the provider.
+    carry_opt_outs(
+        context.team_id,
+        [*(row["email"] for row in everyone.rows), *(other_spellings or {}), *result.person_emails],
+        context.created_by_id,
+    )
     notes = _notes(everyone, result)
     if result.people:
         notes.append(
