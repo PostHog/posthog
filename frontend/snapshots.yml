@@ -1396,6 +1396,10 @@ snapshots:
         hash: v1.k794b7964.cee476f6ba8cf719932415d7dbd4b5e3676b29f0f06d94d36a961f48886f341e.4oZRbFwpS_sD_8M6IuFr-SKDm4Vvmk4VhvUr_LVpMlA
     components-hogcharts-legend--vertical--light:
         hash: v1.k794b7964.2a05ac06ff596da5774c5e6ec7bb6029d634db4ecaf315628600c60819787c28.u8q-wm5x1b_jgTZO6XvOCYOZqyG18Gc5u3U8OkXo8EA
+    components-hogcharts-legend--with-tag--dark:
+        hash: v1.k794b7964.9bfcda965eebc0ea697d8c46172703816f6cc0252b846cb7c83dee6727b11c37.Ws8iKqIqYjz0HiSoKFM9R9guD41VagvsbjJyxSGW69k
+    components-hogcharts-legend--with-tag--light:
+        hash: v1.k794b7964.ce95a02b191bfd116af08c4524df60627a121a03948c9f2701bb90e132d3a04c.Iob9x2Y8p4au_H6nJVcYbbBuDatvjyrS8JxewE3AK3g
     components-hogcharts-linechart--combined-overlays--dark:
         hash: v1.k794b7964.0386a9e76a449e81d66bcc6b77c19b1458f60a30b0d74c8bf70dcbc960e180e5.mukcrcAB56AeKFDhrAUyL-xcIKQNNtwiCcE4OY9Ja1w
     components-hogcharts-linechart--combined-overlays--light:
