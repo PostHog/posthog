@@ -39,7 +39,6 @@ from posthog.session_recordings.models.session_recording_playlist import Session
 
 from products.access_control.backend.models.access_control import AccessControl
 from products.alerts.backend.models.alert import AlertConfiguration
-from products.alerts.backend.test.insight_alerts import create_insight_alert
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction, HogFunctionType
 from products.cohorts.backend.models.cohort import Cohort
 from products.dashboards.backend.models.dashboard import Dashboard
@@ -2893,7 +2892,15 @@ class TestDestroyRepairsLeftoverHogFunctions(APIBaseTest):
 
     @parameterized.expand([("one_insight", 1), ("folder_of_insights", 2)])
     def test_deleting_insights_removes_their_alerts_with_one_cleanup(self, _name: str, insight_count: int):
-        alerts = [create_insight_alert(self.team) for _ in range(insight_count)]
+        alerts = [
+            AlertConfiguration.objects.create(
+                team=self.team,
+                insight=Insight.objects.create(team=self.team, saved=True, name=f"Alerted {index}"),
+                name=f"Alert {index}",
+                calculation_interval="daily",
+            )
+            for index in range(insight_count)
+        ]
         entries = [
             self._ensure_file_system_entry(
                 file_type="insight", ref=alert.insight.short_id, fallback_name=alert.insight.short_id
