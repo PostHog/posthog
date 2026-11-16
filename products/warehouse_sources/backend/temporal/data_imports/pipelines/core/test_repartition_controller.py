@@ -794,6 +794,7 @@ class TestPartitionPolicy:
 
         assert self._decision(schema) == expected
         assert schema.max_partition_bytes == max(partition_bytes.values())
+        assert schema.partition_measurement is not None
         assert schema.partition_measurement["policy"] == policy
 
     @pytest.mark.parametrize(
@@ -812,6 +813,7 @@ class TestPartitionPolicy:
         self._detect(team, schema, partition_bytes, budget, flag_enabled=False)
 
         assert self._decision(schema) == auto_decision
+        assert schema.partition_measurement is not None
         assert schema.partition_measurement["policy"] == "auto"
 
     @pytest.mark.parametrize("policy", ["auto", "prefer_query_speed", "prefer_sync_speed", "manual", "unknown"])
@@ -837,6 +839,7 @@ class TestPartitionPolicy:
         rows = list(ExternalDataSchemaRepartition.objects.for_team(team.id).filter(schema=schema))
         assert [(row.status, row.error_type) for row in rows] == [("skipped", ctrl.MANUAL_POLICY_OVER_BUDGET)]
         assert rows[0].max_partition_bytes_before == 1000
+        assert schema.partition_measurement is not None
         assert schema.partition_measurement["healthy"] is False
 
     @pytest.mark.parametrize(

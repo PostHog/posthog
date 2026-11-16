@@ -7040,6 +7040,7 @@ class TestExternalDataSchemaPartitioning(APIBaseTest):
             assert "Partitioning controls" in response.json()["detail"]
         if sent != "auto" and expected_status == 200:
             log = ActivityLog.objects.get(scope="ExternalDataSchema", item_id=str(schema.id), activity="updated")
+            assert log.detail is not None
             assert [c["after"] for c in log.detail["changes"] if c["field"] == "partition_policy"] == [sent]
 
     @parameterized.expand([(True,), (False,)])
@@ -7158,6 +7159,7 @@ class TestExternalDataSchemaPartitioning(APIBaseTest):
         assert start.call_args.args[2].billable is True
         row = ExternalDataSchemaRepartition.objects.for_team(self.team.pk).get(schema=schema)
         assert (row.status, row.trigger_reason, row.requested_by_id) == ("flagged", "user", self.user.pk)
+        assert row.scheme_after is not None
         assert row.scheme_after["count"] == 8
         assert (second.status_code, second.json()["code"]) == (409, "busy")
 

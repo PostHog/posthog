@@ -671,7 +671,7 @@ def sync_job_timings(schema: ExternalDataSchema) -> list[SyncJobTiming]:
             rows_synced=rows_synced,
         )
         for job_id, created_at, finished_at, rows_synced in rows
-        if str(job_id) not in excluded
+        if finished_at is not None and str(job_id) not in excluded
     ]
 
 
