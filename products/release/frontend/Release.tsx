@@ -19,6 +19,7 @@ import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
+import { todayShellLogic } from '~/layout/today/todayShellLogic'
 
 import { ReleaseDetailsCard } from './ReleaseDetailsCard'
 import { ReleaseHistory } from './ReleaseHistory'
@@ -44,18 +45,28 @@ export const scene: SceneExport<ReleaseSceneProps> = {
     paramsToProps: ({ params: { id } }) => ({ id }),
 }
 
-function ReleaseSkeleton(): JSX.Element {
+function ReleaseSkeleton({ suggestions }: { suggestions: boolean }): JSX.Element {
+    const { phoneHeaderShown } = useValues(todayShellLogic)
     return (
-        <div data-quill className="@container">
-            <div className="grid gap-4 @3xl:grid-cols-3">
-                <div className="flex flex-col gap-4 @3xl:col-span-2">
-                    <Skeleton className="h-48 w-full" />
-                    <Skeleton className="h-36 w-full" />
-                    <Skeleton className="h-56 w-full" />
+        <div data-quill className="@container flex flex-col gap-4" data-attr="release-skeleton">
+            {phoneHeaderShown ? (
+                <Skeleton className="-mt-1 mb-2 ml-auto h-7 w-40" />
+            ) : (
+                <div className="flex flex-col gap-5 pt-1">
+                    <Skeleton className="h-6 w-48" />
+                    <Skeleton className="h-5 w-72" />
                 </div>
-                <div className="flex flex-col gap-4">
-                    <Skeleton className="h-28 w-full" />
-                    <Skeleton className="h-40 w-full" />
+            )}
+            <div className="grid items-start gap-4 @4xl:grid-cols-3">
+                <div className="flex min-w-0 flex-col gap-4 @4xl:col-span-2">
+                    <Skeleton className="h-100 w-full @4xl:h-76" />
+                    <Skeleton className="h-56 w-full @4xl:h-52" />
+                    <Skeleton className="h-60 w-full" />
+                </div>
+                <div className="flex min-w-0 flex-col gap-4">
+                    <Skeleton className="h-20 w-full" />
+                    <Skeleton className="h-60 w-full @4xl:h-44" />
+                    {suggestions && <Skeleton className="h-40 w-full" />}
                 </div>
             </div>
         </div>
@@ -80,7 +91,7 @@ function ReleaseContent({ id }: ReleaseSceneProps): JSX.Element {
                 {loadFailed ? (
                     <ReleaseLoadError title="This release could not load" />
                 ) : dataLoading ? (
-                    <ReleaseSkeleton />
+                    <ReleaseSkeleton suggestions={canEditReleases} />
                 ) : (
                     <div data-quill>
                         <Empty>
@@ -125,8 +136,8 @@ function ReleaseContent({ id }: ReleaseSceneProps): JSX.Element {
             />
             <div data-quill className={`@container flex flex-col gap-4 pb-8 ${STAGE_COLOR_VARS}`}>
                 <ReleasePartialLoadWarning />
-                <div className="grid items-start gap-4 @3xl:grid-cols-3">
-                    <div className="flex min-w-0 flex-col gap-4 @3xl:col-span-2">
+                <div className="grid items-start gap-4 @4xl:grid-cols-3">
+                    <div className="flex min-w-0 flex-col gap-4 @4xl:col-span-2">
                         <ReleaseStatusCard row={row} />
                         <ReleaseTrackCard row={row} />
                         <ReleaseHistory row={row} />
