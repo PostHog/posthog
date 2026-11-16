@@ -1,9 +1,6 @@
-import { existsSync, mkdirSync, readFileSync, readdirSync, realpathSync } from 'fs'
+import { existsSync, mkdirSync, readdirSync, realpathSync } from 'fs'
 import path from 'path'
 import { parseArgs } from 'util'
-import { z } from 'zod'
-
-import { parseJSON } from '~/common/utils/json-parse'
 
 import { seedBacklog } from './backlog/backlog'
 import { Backlog, CardError, LoadedCard, Profile, load, readProfile } from './cards'
@@ -12,6 +9,7 @@ import { StackConflictError, holdRunLock } from './environment/processes'
 import { roleSpecs, secretsOf } from './environment/roles'
 import { cyclotronUrlOf } from './environment/stack'
 import { Runner, createRunner } from './runner/runner'
+import { readSavedRun, savedRunPathOf } from './runner/saved-run'
 import { EXIT_CODE, exitCodeOf } from './runner/status'
 import { ADAPTERS } from './scorecard/scorecard'
 import { credentialsOf } from './scorecard/write'
@@ -78,8 +76,6 @@ export async function main(argv: string[], env: NodeJS.ProcessEnv = process.env)
     return runCards(createRunner(createEnvironment(), env), checked.loaded, interrupt.signal)
 }
 
-const SavedRun = z.object({ host: z.string().optional(), event: z.record(z.string(), z.unknown()) })
-
 function runDirsOf(runs: string[], env: NodeJS.ProcessEnv): string[] {
     const stateDir = defaultStateDir(env)
     if (runs.length > 0) {
@@ -89,22 +85,18 @@ function runDirsOf(runs: string[], env: NodeJS.ProcessEnv): string[] {
         return []
     }
     return readdirSync(stateDir)
-        .filter((name) => RunId.safeParse(name).success && existsSync(path.join(stateDir, name, 'scorecard.json')))
+        .filter((name) => RunId.safeParse(name).success && existsSync(savedRunPathOf(path.join(stateDir, name))))
         .sort()
         .map((name) => path.join(stateDir, name))
 }
 
 async function publishSaved(runDir: string, env: NodeJS.ProcessEnv): Promise<string | undefined> {
-    const saved = path.join(runDir, 'scorecard.json')
-    if (!existsSync(saved)) {
-        return `no scorecard at ${saved}`
+    const saved = readSavedRun(runDir)
+    if ('problem' in saved) {
+        return saved.problem
     }
-    const parsed = SavedRun.safeParse(parseJSON(readFileSync(saved, 'utf8')))
-    if (!parsed.success) {
-        return `${saved} holds no scorecard event: ${parsed.error.issues[0].message}`
-    }
-    const { event, host } = parsed.data
-    const scorecard = { ...event, adapters: event.adapters ?? [...ADAPTERS] }
+    const { event, host } = saved.run
+    const scorecard = { ...event, adapters: event.adapters ?? ADAPTERS }
     return (await reportToStore({ scorecard, host }, env)).problem
 }
 

@@ -24,17 +24,20 @@ type StoreTarget = { url: string; token: string }
 export const storeTokenPathOf = (env: NodeJS.ProcessEnv): string =>
     path.join(env.HOME || os.homedir(), '.config', 'posthog', 'scenario-runs', 'store-token')
 
-function targetOf(env: NodeJS.ProcessEnv): { target?: StoreTarget; problem?: string } {
+function targetOf(env: NodeJS.ProcessEnv): { target: StoreTarget } | { problem?: string } {
     const url = env[STORE_URL]
     if (!url) {
         return {}
     }
     const tokenPath = storeTokenPathOf(env)
-    const token = existsSync(tokenPath) ? readFileSync(tokenPath, 'utf8').trim() : ''
-    if (token === '') {
-        return { problem: `${STORE_URL} is set, but ${tokenPath} holds no run token` }
+    try {
+        const token = existsSync(tokenPath) ? readFileSync(tokenPath, 'utf8').trim() : ''
+        return token === ''
+            ? { problem: `${STORE_URL} is set, but ${tokenPath} holds no run token` }
+            : { target: { url: url.replace(/\/+$/, ''), token } }
+    } catch (error) {
+        return { problem: `the run token could not be read: ${(error as Error).message}` }
     }
-    return { target: { url: url.replace(/\/+$/, ''), token } }
 }
 
 async function post(report: StoreReport, { url, token }: StoreTarget): Promise<StoreOutcome> {
@@ -56,13 +59,8 @@ async function post(report: StoreReport, { url, token }: StoreTarget): Promise<S
 }
 
 export async function reportToStore(report: StoreReport, env: NodeJS.ProcessEnv): Promise<StoreOutcome> {
-    let found: ReturnType<typeof targetOf>
-    try {
-        found = targetOf(env)
-    } catch (error) {
-        return { stored: false, problem: `the run token could not be read: ${(error as Error).message}` }
-    }
-    if (found.target === undefined) {
+    const found = targetOf(env)
+    if (!('target' in found)) {
         return { stored: false, problem: found.problem }
     }
     return await post(report, found.target).catch((error: Error) => ({

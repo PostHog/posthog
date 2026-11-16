@@ -59,6 +59,7 @@ import { scorecardOf } from '../scorecard/scorecard'
 import { publish } from '../scorecard/write'
 import { reportToStore } from '../store/client'
 import { ValveTimelineEntry, createValves } from '../valves/valves'
+import { SAVED_RUN_FILE, SavedRun } from './saved-run'
 import { Admission, Status, admissionsOf, statusOf } from './status'
 
 export type RunVerdict = Omit<RunResult, 'recorded' | 'captured' | 'scorecardError' | 'stored' | 'storeError'>
@@ -534,11 +535,11 @@ export function createRunner(
                 writeJson(evidenceDir, 'truth.json', truth)
                 writeJson(evidenceDir, 'metrics.json', sampled)
                 writeJson(evidenceDir, 'probes.json', { drive: driven ?? null, ...probed })
-                writeJson(evidenceDir, 'scorecard.json', {
+                writeJson(evidenceDir, SAVED_RUN_FILE, {
                     ...verdict,
                     host,
                     event: scorecardOf(verdict, loaded, provenance),
-                })
+                } satisfies SavedRun)
             })
             const judged = withEvidenceError(verdict, evidenceError)
             const scorecard = scorecardOf(judged, loaded, provenance)

@@ -26,6 +26,7 @@ const NamedSeries = z.object({
     adapter: Name,
     name: Name,
     unit: Name,
+    labels: z.record(z.string(), z.string()).default({}),
     points: z.array(z.object({ at: z.number(), value: z.number().nullable() })),
 })
 

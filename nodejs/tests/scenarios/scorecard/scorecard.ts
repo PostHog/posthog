@@ -8,7 +8,7 @@ export const SCHEMA_VERSION = 1
 export const TARGET = 'local'
 export const ADAPTERS: readonly string[] = ['workflows']
 
-type Property = string | number | boolean | null | string[] | unknown[]
+type Property = string | number | boolean | null | readonly string[] | unknown[]
 
 export type ScorecardProperties = { run_id: string; ended_at: string } & Record<string, Property>
 
@@ -55,7 +55,7 @@ export function scorecardOf(
     return {
         schema_version: SCHEMA_VERSION,
         run_id: result.runId,
-        adapters: [...ADAPTERS],
+        adapters: ADAPTERS,
         owners: [],
         card_id: result.cardId,
         card_version: card.version,

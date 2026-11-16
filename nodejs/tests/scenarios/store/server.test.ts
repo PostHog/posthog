@@ -87,7 +87,11 @@ describe('run store', () => {
 
     it('reads back exactly what was posted', async () => {
         const runId = randomUUID()
-        const series = [seriesOf('offered', [3, 4]), { ...seriesOf('lag', [1]), points: [{ at: 1, value: null }] }]
+        const series = [
+            { ...seriesOf('offered', [3, 4]), labels: { process: 'worker-a' } },
+            { ...seriesOf('offered', [5]), labels: { process: 'worker-b' } },
+            { ...seriesOf('lag', [1]), points: [{ at: 1, value: null }] },
+        ]
         const topology = { nodes: ['a', 'b'], edges: [['a', 'b']] }
         const manifest = { adapters: [{ id: 'example', owner: 'example-team' }] }
 
@@ -113,7 +117,7 @@ describe('run store', () => {
                 receivedAt: expect.any(String),
                 updatedAt: expect.any(String),
                 scorecard: scorecardFixture(runId),
-                series,
+                series: series.map((named) => ({ labels: {}, ...named })),
                 topology,
                 manifest,
             },

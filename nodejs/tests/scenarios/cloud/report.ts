@@ -254,7 +254,7 @@ export async function report(
     const properties: ScorecardProperties = {
         schema_version: SCHEMA_VERSION,
         card_id: card.id,
-        adapters: [...ADAPTERS],
+        adapters: ADAPTERS,
         ...host?.event,
         ...environment,
         run_id: runId,

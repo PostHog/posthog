@@ -866,17 +866,17 @@ The store names no product: a run lists the adapters it drove, and each series n
 
 **What a run stores**, keyed by `run_id`:
 
-| Column                                                                           | Holds                                                                                                    |
-| -------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------- |
-| `scorecard`                                                                      | The scorecard properties as posted, schema version 1 or 2 as given, with the run id lowercased           |
-| `adapters`                                                                       | The scorecard's `adapters`: the ids of the adapters the run drove, empty when it names none              |
-| `owners`                                                                         | The scorecard's `owners`: the teams whose adapters ran, empty when it names none                         |
-| `card_id`, `status`, `target`, `head_sha`, `card_hash`, `started_at`, `ended_at` | Copied from the scorecard, so lists filter and sort without reading the JSON                             |
-| `evidence_dir`                                                                   | The scorecard's `evidence_dir`: a path on the box for a local run, an S3 prefix for a cloud run          |
-| `host`                                                                           | The box that reported the run, when the report names it                                                  |
-| `series`                                                                         | Named series for the viewer, each `{ adapter, name, unit, points: [{ at, value }] }`; never raw evidence |
-| `topology`                                                                       | The systems the run saw, when the report has them                                                        |
-| `manifest`                                                                       | The run's merged adapter manifest, when the report has it, so an old run still draws after it changes    |
+| Column                                                                           | Holds                                                                                                                                                                                                                               |
+| -------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `scorecard`                                                                      | The scorecard properties as posted, schema version 1 or 2 as given, with the run id lowercased                                                                                                                                      |
+| `adapters`                                                                       | The scorecard's `adapters`: the ids of the adapters the run drove, empty when it names none                                                                                                                                         |
+| `owners`                                                                         | The scorecard's `owners`: the teams whose adapters ran, empty when it names none                                                                                                                                                    |
+| `card_id`, `status`, `target`, `head_sha`, `card_hash`, `started_at`, `ended_at` | Copied from the scorecard, so lists filter and sort without reading the JSON                                                                                                                                                        |
+| `evidence_dir`                                                                   | The scorecard's `evidence_dir`: a path on the box for a local run, an S3 prefix for a cloud run                                                                                                                                     |
+| `host`                                                                           | The box that reported the run, when the report names it                                                                                                                                                                             |
+| `series`                                                                         | Named series for the viewer, each `{ adapter, name, unit, labels, points: [{ at, value }] }`; `labels` maps strings to strings, default `{}`, and keeps apart series that share a name, such as one per process; never raw evidence |
+| `topology`                                                                       | The systems the run saw, when the report has them                                                                                                                                                                                   |
+| `manifest`                                                                       | The run's merged adapter manifest, when the report has it, so an old run still draws after it changes                                                                                                                               |
 
 **Routes**
 
