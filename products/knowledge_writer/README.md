@@ -1,6 +1,32 @@
 # Knowledge writer
 
-An internal tool for now: it opens posthog.com docs pull requests for changes merged into PostHog repositories, and runs in one PostHog project per deployment.
+PostHog AI, the MCP server, agent evals, and every person or agent on posthog.com read the same docs, but those docs only change when someone remembers to change them.
+The knowledge writer takes an input, such as a merged PR, decides whether a docs page needs to change, and opens the docs PR itself.
+It is an internal tool for now: it writes posthog.com docs for changes merged into PostHog repositories, and runs in one PostHog project per deployment.
+
+## Who it serves
+
+The primary user is the product engineer who merged a user-facing PR.
+They own the feature but rarely the docs page, so the page stays wrong until someone notices.
+
+- Happy when: a docs PR shows up within 1 hour of the merge, the diff is small and right enough to approve in under 5 minutes, and PRs with no user impact never ping them.
+- Unhappy when: refactors and test-only PRs get docs PRs, or a draft edits the wrong page or describes behavior the code doesn't have. Hallucinations are the worst failure.
+- Measured by: docs PR approve rate, time to approve, and how often the judge says a merge needs docs when it doesn't.
+- Failure modes: docs PRs that never get resolved, and developers spammed with PRs.
+
+Secondary readers gain only when that engineer approves:
+
+- PostHog AI and the MCP server answer from the docs, so they should describe a feature correctly on the day it ships.
+- Agent evals score the harness, model, MCP, and codebase against the docs. An eval should fail because the agent was wrong, never because a page was a week behind.
+- People and agents on posthog.com should find a page that matches the product in front of them.
+
+## Any docs repository
+
+The writer is meant to work on any docs repository, whatever builds it.
+It will have no per-framework adapters: a repository will name its nav and redirect files, and one generic check will refuse any edit there that doesn't point at a page the branch changed.
+Neither the repository config nor that check is built yet, so for now publish refuses a branch that changes any file outside `KNOWLEDGE_WRITER_DOCS_PATHS`.
+
+## Settings
 
 - `KNOWLEDGE_WRITER_TEAM_ID`, `KNOWLEDGE_WRITER_USER_ID` and `KNOWLEDGE_WRITER_DOCS_REPOSITORY` configure the one writer. `writer_settings()` in `backend/settings.py` reads them, and nothing runs while any of them is unset. The merge check also reads `KNOWLEDGE_WRITER_DOCS_REPOSITORY` through `docs_source()`, with `KNOWLEDGE_WRITER_DOCS_SITEMAP_URL` and `KNOWLEDGE_WRITER_DOCS_URL_PREFIX` for the published pages.
 - `KNOWLEDGE_WRITER_DOCS_PATHS` lists the folders of the docs repository a writer branch may change, comma-separated, and defaults to `contents/docs/`. Set it when the docs live elsewhere, because publish refuses a branch that changes any other path.
@@ -17,12 +43,13 @@ Whether a docs page is safe to build is the docs repository's call.
 
 ## Review before merge
 
-A person reviews every writer pull request before it merges, and that review is the control the writer relies on.
-Never auto-merge a writer pull request.
+During the internal rollout, an engineer reviews every writer pull request before it merges, and that review is the control the writer relies on.
+Do not auto-merge a writer pull request yet.
+Auto-merge is the goal once approve rate shows the drafts can be trusted, so the publish checks are built to hold without a reviewer, and a hole in them is a bug today.
 
 Publish checks the branch once, when the run finishes: it must be the branch the server issued, and it may only change files under `KNOWLEDGE_WRITER_DOCS_PATHS` (default `contents/docs/`).
 A push that arrives after that check is not checked again, so it reaches the pull request and shows up in its diff for the reviewer.
-The checks are a second layer under the review, not a replacement for it.
+Until auto-merge, the checks are a second layer under the review, not a replacement for it.
 
 ## Rollout
 
