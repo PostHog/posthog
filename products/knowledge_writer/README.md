@@ -20,7 +20,7 @@ Whether a docs page is safe to build is the docs repository's call.
 A person reviews every writer pull request before it merges, and that review is the control the writer relies on.
 Never auto-merge a writer pull request.
 
-Publish checks the branch once, when the run finishes: it must be the branch the server issued, and it may only change files under the docs folders, plus companion edits: a change to an existing file that already links at least 10 docs pages, such as a nav or redirect file, where every changed block names a page the branch adds, removes or renames. Without them a branch could not add, move or remove a page. Any other file, and any new file outside the docs folders, is still refused.
+Publish checks the branch once, when the run finishes: it must be the branch the server issued, and it may only change files under the docs folders, plus edits to the companion files in `COMPANION_PATHS` (`vercel.json` and `src/navs/index.js`) when the branch adds, removes or renames a page. Every changed nav line must be data only: brackets, keys, and string, number or boolean values, with each `url` under the docs path. In `vercel.json` only `redirects` may change, and each changed redirect must stay on the site and name a changed page. Without these edits a branch could not add, move or remove a page. Any other file is refused.
 A push that arrives after that check is not checked again, so it reaches the pull request and shows up in its diff for the reviewer.
 The checks are a second layer under the review, not a replacement for it.
 

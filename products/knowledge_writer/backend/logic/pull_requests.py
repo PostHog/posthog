@@ -3,7 +3,7 @@ import time
 import uuid
 from dataclasses import dataclass
 from typing import Literal
-from urllib.parse import quote
+from urllib.parse import quote, urlparse
 from uuid import UUID
 
 import structlog
@@ -21,8 +21,8 @@ from products.tasks.backend.facade import api as tasks_facade
 
 from ..facade.contracts import DocsRequest
 from ..feature_flags import open_pull_requests_flag_state
-from ..settings import DEFAULT_DOCS_PATHS, WriterSettings, writer_settings
-from .docs_pages import docs_page_key, linked_page_paths
+from ..settings import DEFAULT_DOCS_PATHS, WriterSettings, docs_source_for, writer_settings
+from .docs_pages import are_only_page_redirects_changed, docs_page_key, is_nav_line
 from .launch import replace_entry_with
 from .records import (
     DOCS_CONTENT_ROOT_STATE_KEY,
@@ -277,7 +277,9 @@ def publish_claimed_pull_request(
     refusal = (
         "head_branch_not_issued"
         if head_branch is None
-        else publication_refusal(comparison, docs_folders_for(writer, task_id, team_id), github, writer.docs_repository)
+        else publication_refusal(
+            comparison, docs_folders_for(writer, task_id, team_id), github, writer.docs_repository, head_branch
+        )
     )
     if head_branch is None or refusal is not None:
         capture_draft(draft, outcome="refused", refusal=refusal)
@@ -417,8 +419,7 @@ def comparison_with_default_branch(github: GitHubIntegration, docs_repository: s
 
 
 PAGE_CHANGING_STATUSES = frozenset({"added", "removed", "renamed"})
-MIN_DOCS_INDEX_PAGE_LINKS = 10
-MAX_COMPANION_FILES = 3
+COMPANION_PATHS = frozenset({"vercel.json", "src/navs/index.js"})
 MAX_COMPANION_PATCH_CHARACTERS = 16_384
 
 
@@ -441,7 +442,11 @@ def docs_folders_for(writer: WriterSettings, task_id: UUID, team_id: int) -> tup
 
 
 def publication_refusal(
-    comparison: dict, docs_folders: tuple[str, ...], github: GitHubIntegration, docs_repository: str
+    comparison: dict,
+    docs_folders: tuple[str, ...],
+    github: GitHubIntegration,
+    docs_repository: str,
+    head_branch: str,
 ) -> str | None:
     changed_files = comparison.get("files")
     commits_ahead = comparison.get("ahead_by")
@@ -460,18 +465,29 @@ def publication_refusal(
     ]
     if not companion_files:
         return None
-    if len(companion_files) > MAX_COMPANION_FILES:
+    docs_url_path = urlparse(docs_source_for(docs_repository).docs_url_prefix).path
+    page_paths = frozenset(f"{docs_url_path}{page_key}" for page_key in changed_page_keys(changed_files, docs_folders))
+    if not page_paths or not all(is_listed_companion(changed_file) for changed_file in companion_files):
         return "changed_paths_outside_docs"
-    page_keys = changed_page_keys(changed_files, docs_folders)
-    if not all(is_companion_edit(changed_file, page_keys) for changed_file in companion_files):
+    redirect_files = [changed_file for changed_file in companion_files if changed_file["filename"].endswith(".json")]
+    nav_files = [changed_file for changed_file in companion_files if changed_file not in redirect_files]
+    if not all(
+        is_nav_line(line, docs_url_path) for changed_file in nav_files for line in changed_lines(changed_file["patch"])
+    ):
         return "changed_paths_outside_docs"
+    if not redirect_files:
+        return None
     base_sha = (comparison.get("merge_base_commit") or {}).get("sha")
     if not isinstance(base_sha, str):
         return "comparison_unreadable"
-    existing_page_keys = docs_page_keys_at(github, docs_repository, docs_folders, base_sha)
     if not all(
-        is_docs_index(read_file_at(github, docs_repository, changed_file["filename"], base_sha), existing_page_keys)
-        for changed_file in companion_files
+        are_only_page_redirects_changed(
+            read_file_at(github, docs_repository, changed_file["filename"], base_sha),
+            read_file_at(github, docs_repository, changed_file["filename"], head_branch),
+            page_paths,
+            docs_url_path,
+        )
+        for changed_file in redirect_files
     ):
         return "changed_paths_outside_docs"
     return None
@@ -492,65 +508,18 @@ def changed_page_keys(changed_files: list[dict], docs_paths: tuple[str, ...]) ->
     )
 
 
-def is_companion_edit(changed_file: dict, page_keys: frozenset[str]) -> bool:
+def is_listed_companion(changed_file: dict) -> bool:
     patch = changed_file.get("patch")
-    if changed_file.get("status") != "modified" or not isinstance(patch, str) or not page_keys:
-        return False
-    if len(patch) > MAX_COMPANION_PATCH_CHARACTERS:
-        return False
-    hunks = changed_lines_by_hunk(patch)
-    return bool(hunks) and all(not page_keys.isdisjoint(linked_page_paths("\n".join(hunk))) for hunk in hunks)
-
-
-def changed_lines_by_hunk(patch: str) -> list[list[str]]:
-    hunks: list[list[str]] = []
-    for line in patch.splitlines():
-        if line.startswith("@@"):
-            hunks.append([])
-            continue
-        if hunks and line[:1] in ("+", "-"):
-            hunks[-1].append(line[1:])
-    return [hunk for hunk in hunks if hunk]
-
-
-def is_docs_index(file_text: str | None, existing_page_keys: frozenset[str]) -> bool:
-    if file_text is None:
-        return False
-    return len(existing_page_keys & linked_page_paths(file_text)) >= MIN_DOCS_INDEX_PAGE_LINKS
-
-
-def docs_page_keys_at(
-    github: GitHubIntegration, docs_repository: str, docs_folders: tuple[str, ...], commit_sha: str
-) -> frozenset[str]:
-    return frozenset(
-        page_key
-        for docs_folder in docs_folders
-        for page_key in folder_page_keys(github, docs_repository, docs_folder, commit_sha)
+    return (
+        changed_file["filename"] in COMPANION_PATHS
+        and changed_file.get("status") == "modified"
+        and isinstance(patch, str)
+        and len(patch) <= MAX_COMPANION_PATCH_CHARACTERS
     )
 
 
-def folder_page_keys(
-    github: GitHubIntegration, docs_repository: str, docs_folder: str, commit_sha: str
-) -> frozenset[str]:
-    response = github.api_request(
-        "GET",
-        f"/repos/{docs_repository}/git/trees/{commit_sha}:{quote(docs_folder)}",
-        endpoint="/repos/{owner}/{repo}/git/trees/{tree_sha}",
-        params={"recursive": 1},
-    )
-    if response.status_code == 404:
-        return frozenset()
-    if response.status_code != 200:
-        raise WriterPullRequestFailed(f"knowledge writer could not read the docs tree: {response.status_code}")
-    tree = response.json()
-    if not isinstance(tree, dict) or tree.get("truncated"):
-        raise WriterPullRequestFailed("knowledge writer read a truncated docs tree")
-    return frozenset(
-        page_key
-        for entry in tree.get("tree") or []
-        if isinstance(entry, dict) and entry.get("type") == "blob" and isinstance(entry.get("path"), str)
-        if (page_key := docs_page_key(f"{docs_folder}/{entry['path']}", docs_folder)) is not None
-    )
+def changed_lines(patch: str) -> list[str]:
+    return [line[1:] for line in patch.splitlines() if line[:1] in ("+", "-")]
 
 
 def read_file_at(github: GitHubIntegration, docs_repository: str, path: str, commit_sha: str) -> str | None:
