@@ -756,6 +756,7 @@ describe('EmailService', () => {
 
                 expect(result.error).toBeUndefined()
                 expect(result.finished).toBe(false)
+                expect(result.parked).toBe(true)
                 expect(result.invocation.queueScheduledAt).toBeDefined()
                 const scheduledMs = result.invocation.queueScheduledAt!.toMillis()
                 expect(scheduledMs).toBeGreaterThanOrEqual(now + 500)
