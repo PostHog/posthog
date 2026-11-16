@@ -32,8 +32,6 @@ const rustResult = (overrides: Partial<ReturnType<typeof mockHogvmNode.executeSy
 
 // Distinct bytecode per value: "_H" header, version 1, push int, RETURN.
 const program = (value: number): unknown[] => ['_H', 1, 33, value, 38]
-// `let i := 0; while (i < 20000) { i := i + 1 } return i` takes more steps than the Rust VM's default
-// budget of 10_000, so it only returns 20000 when the executor passes its own step budget.
 const COUNT_TO_20000 = ['_H', 1, 33, 0, 33, 20000, 36, 0, 15, 40, 9, 33, 1, 36, 0, 6, 37, 0, 39, -16, 36, 0, 38, 35]
 const RETURN_EVENT_UUID = ['_H', 1, 32, 'uuid', 32, 'event', 1, 2, 38]
 const printing = (...messages: string[]): unknown[] => [
@@ -44,7 +42,6 @@ const printing = (...messages: string[]): unknown[] => [
     1,
     38,
 ]
-// `let i := 0; while (i < 30) { print(i); i := i + 1 } return 1`
 const PRINT_30_TIMES = [
     '_H',
     1,
@@ -124,9 +121,9 @@ describe('RustVmExecutor', () => {
     })
 
     it.each([
-        ['execute', 'the full step budget', COUNT_TO_20000, 20000],
+        ['execute', 'its own step budget instead of the default 10_000', COUNT_TO_20000, 20000],
         ['execute', 'the invocation globals', RETURN_EVENT_UUID, 'event-1'],
-        ['executeBatched', 'the full step budget', COUNT_TO_20000, 20000],
+        ['executeBatched', 'its own step budget instead of the default 10_000', COUNT_TO_20000, 20000],
         ['executeBatched', 'the invocation globals', RETURN_EVENT_UUID, 'event-1'],
     ] as const)(
         '%s runs the program on the rust vm against %s and returns a finished result',
@@ -259,9 +256,8 @@ describe('RustVmExecutor', () => {
 
     describe('executeBatched', () => {
         it.each(['executeRegisteredBatch', 'executeBatch'] as const)(
-            'fans the batch out over the native thread pool through %s',
+            'asks %s to run the batch on the native thread pool',
             async (binding) => {
-                // Parallelism changes threads, never results, so these options are its only observable.
                 const run = async (): Promise<void> => {
                     await executor.executeBatched(createExampleInvocation(), [])
                 }
