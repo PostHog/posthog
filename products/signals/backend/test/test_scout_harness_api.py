@@ -2863,17 +2863,24 @@ class TestScoutHarnessNotesAPI(APIBaseTest):
         self._make_scout_skill()
         report = SignalReport.objects.create(team=self.team, title="Checkout 500s", status=SignalReport.Status.READY)
 
-        response = self.client.post(
-            self._list_url(),
-            data={
-                "content": "focus on the new checkout flow",
-                "skill_name": "signals-scout-web-analytics",
-                "report_id": str(report.id),
-            },
-            format="json",
-        )
+        with (
+            patch(
+                "products.signals.backend.report_note_mentions.send_report_note_mention_notifications.delay"
+            ) as mention_delay,
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            response = self.client.post(
+                self._list_url(),
+                data={
+                    "content": "focus on the new checkout flow @member:5",
+                    "skill_name": "signals-scout-web-analytics",
+                    "report_id": str(report.id),
+                },
+                format="json",
+            )
 
         assert response.status_code == status.HTTP_201_CREATED, response.content
+        assert [call.kwargs["user_ids"] for call in mention_delay.call_args_list] == [[5]]
         note = response.json()
         assert str(report.id) in note["content"]
         assert "Checkout 500s" not in note["content"]
@@ -2885,7 +2892,7 @@ class TestScoutHarnessNotesAPI(APIBaseTest):
             report=report, type=SignalReportArtefact.ArtefactType.SCOUT_NOTE_LEFT
         )
         assert json.loads(artefact.content) == {
-            "note": "focus on the new checkout flow",
+            "note": "focus on the new checkout flow @member:5",
             "skill_name": "signals-scout-web-analytics",
             "scout_note_id": note["id"],
         }

@@ -13094,16 +13094,16 @@ Note: Parsed the live OpenAPI specification and checked all GET operations, incl
 
 ## Veracode — **thin**
 
-Today (4): `applications`, `findings`, `sandboxes`, `sca_findings`
+Today (8): `applications`, `categories`, `cwes`, `findings`, `sandboxes`, `sca_findings`, `scans`, `summary_report`
 
 Diffed against: <https://api.swaggerhub.com/apis/Veracode?limit=100>
 
-- [ ] `GET /appsec/v2/applications/{app_guid}/summary_report` — Veracode's headline per-application result: policy compliance status, security score and flaw counts by severity (high)
-- [ ] `GET /appsec/v1/cwes` — lookup table resolving the CWE id carried on every findings row we already sync (high)
-- [ ] `GET /appsec/v1/categories` — lookup table resolving the finding category id on findings we already sync (high)
+- [x] `GET /appsec/v2/applications/{app_guid}/summary_report` — Veracode's headline per-application result: policy compliance status, security score and flaw counts by severity (high)
+- [x] `GET /appsec/v1/cwes` — lookup table resolving the CWE id carried on every findings row we already sync (high)
+- [x] `GET /appsec/v1/categories` — lookup table resolving the finding category id on findings we already sync (high)
 - [ ] `GET /appsec/v1/policies` — lookup resolving the policy GUID/name attached to each application we sync (high)
 - [ ] `GET /v2/teams (Identity API)` — lookup resolving the team GUIDs on applications, enabling per-team risk rollups (high)
-- [ ] `POST /appsec/v1/analytics/report + GET /appsec/v1/analytics/report/{id} (report_type SCANS)` — org-wide scan history — there is no scan/build table at all today, only findings (high)
+- [x] `POST /appsec/v1/analytics/report + GET /appsec/v1/analytics/report/{id} (report_type SCANS)` — org-wide scan history — there is no scan/build table at all today, only findings (high) — built on the v2 `POST /analytics/scans/report` endpoint, because Veracode deprecated `report_type` on the v1 endpoint
 - [ ] `POST /appsec/v1/analytics/report (report_type FINDINGS)` — bulk org-wide findings export without per-application fan-out, the vendor's designated warehouse path (medium)
 - [ ] `GET /v2/business_units (Identity API)` — lookup resolving business unit on applications for org-level breakdowns (medium)
 - [ ] `GET /v2/users (Identity API)` — lookup resolving user ids on annotations, mitigations and application owners (medium)
@@ -13148,10 +13148,10 @@ Today (10): `bare_metals`, `billing_history`, `block_storage`, `instances`, `inv
 
 Diffed against: <https://raw.githubusercontent.com/vultr/api-postman-collection/master/postman/schemas/schema.json>
 
-- [ ] `GET /v2/billing/invoices/{invoice-id}/items` — invoice line items — the per-resource cost breakdown behind the invoices we already sync (high)
-- [ ] `GET /v2/plans and /v2/plans-metal` — lookup resolving the plan id on every instance and bare metal, giving vCPU/RAM/price per row (high)
-- [ ] `GET /v2/regions` — lookup resolving the region code carried on instances, blocks, snapshots and load balancers (high)
-- [ ] `GET /v2/instances/{instance-id}/bandwidth` — daily in/out bandwidth per instance, the main usage time series for cost attribution (high)
+- [x] `GET /v2/billing/invoices/{invoice-id}/items` — invoice line items — the per-resource cost breakdown behind the invoices we already sync (high)
+- [x] `GET /v2/plans and /v2/plans-metal` — lookup resolving the plan id on every instance and bare metal, giving vCPU/RAM/price per row (high)
+- [x] `GET /v2/regions` — lookup resolving the region code carried on instances, blocks, snapshots and load balancers (high)
+- [x] `GET /v2/instances/{instance-id}/bandwidth` — daily in/out bandwidth per instance, the main usage time series for cost attribution (high)
 - [ ] `GET /v2/bare-metals/{baremetal-id}/bandwidth` — same daily usage time series for bare metal servers (medium)
 - [ ] `GET /v2/account` — account balance, pending charges and last payment — the headline billing figures (medium)
 - [ ] `GET /v2/os` — lookup resolving os_id on instances, bare metals and snapshots (medium)
@@ -13630,12 +13630,12 @@ Today (12): `calls`, `contacts`, `deals`, `leads`, `notes`, `orders`, `pipelines
 
 Diffed against: <https://developer.zendesk.com/api-reference/sales-crm/resources/introduction/>
 
-- [ ] `associated_contacts (GET /v2/deals/{deal_id}/associated_contacts)` — the deal-to-contact junction table; without it you cannot attribute deals to the contacts involved (high)
-- [ ] `line_items (GET /v2/orders/{order_id}/line_items)` — per-order product lines with quantity, price and discount - the revenue detail behind orders we already sync (high)
-- [ ] `loss_reasons` — lookup table resolving the loss_reason_id already present on deals; required for any win/loss analysis (high)
-- [ ] `deal_sources` — lookup table resolving deals.source_id; unlocks pipeline-by-source attribution (high)
-- [ ] `lead_sources` — lookup table resolving leads.source_id; unlocks lead-source attribution (high)
-- [ ] `lead_conversions` — the lead-to-contact/deal transition record - the only way to build a conversion funnel across the objects we already sync (high)
+- [x] `associated_contacts (GET /v2/deals/{deal_id}/associated_contacts)` — the deal-to-contact junction table; without it you cannot attribute deals to the contacts involved (high)
+- [x] `line_items (GET /v2/orders/{order_id}/line_items)` — per-order product lines with quantity, price and discount - the revenue detail behind orders we already sync (high)
+- [x] `loss_reasons` — lookup table resolving the loss_reason_id already present on deals; required for any win/loss analysis (high)
+- [x] `deal_sources` — lookup table resolving deals.source_id; unlocks pipeline-by-source attribution (high)
+- [x] `lead_sources` — lookup table resolving leads.source_id; unlocks lead-source attribution (high)
+- [x] `lead_conversions` — the lead-to-contact/deal transition record - the only way to build a conversion funnel across the objects we already sync (high)
 - [ ] `custom_fields` — field-definition lookup that names and types the custom_fields blobs on contacts, deals and leads (medium)
 - [ ] `deal_unqualified_reasons` — lookup resolving the unqualified_reason_id on deals (medium)
 - [ ] `lead_unqualified_reasons` — lookup resolving the unqualified_reason_id on leads (medium)
