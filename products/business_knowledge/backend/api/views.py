@@ -21,9 +21,10 @@ from rest_framework.response import Response
 
 from posthog.api.pagination import BoundedLimitOffsetPagination
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.auth import ProjectSecretAPIKeyAuthentication
 from posthog.event_usage import groups
 from posthog.models.user import User
-from posthog.permissions import APIScopePermission, PostHogFeatureFlagPermission
+from posthog.permissions import APIScopePermission, PostHogFeatureFlagPermission, get_authenticator_client
 from posthog.rate_limit import BurstRateThrottle, SustainedRateThrottle
 from posthog.temporal.common.client import sync_connect
 
@@ -63,6 +64,7 @@ from .serializers import (
     UpdateUrlSourceSerializer,
 )
 from .settings import CanonicalTeamTokenPermission, canonical_user_access_control
+from .throttles import KNOWLEDGE_THROTTLES
 
 logger = structlog.get_logger(__name__)
 
@@ -618,9 +620,11 @@ class KnowledgeDocumentViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     scope_object = "business_knowledge"
     queryset = KnowledgeDocument.objects.unscoped()
     serializer_class = KnowledgeDocumentWindowSerializer
+    authentication_classes = [ProjectSecretAPIKeyAuthentication]
+    psak_allowed_actions = ["search", "window"]
     permission_classes = [IsAuthenticated, APIScopePermission, PostHogFeatureFlagPermission]
     posthog_feature_flag = "product-business-knowledge"
-    throttle_classes = [BurstRateThrottle, SustainedRateThrottle]
+    throttle_classes = KNOWLEDGE_THROTTLES
 
     def safely_get_queryset(self, queryset: QuerySet) -> QuerySet:
         return queryset.filter(team_id=self.team_id)
@@ -763,6 +767,7 @@ class KnowledgeDocumentViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                     "result_count": len(results),
                     "surface": "api",
                     "library_scoped": library_id is not None,
+                    "credential_type": get_authenticator_client(request.successful_authenticator)["credential_type"],
                 },
                 groups=groups(team=self.team),
             )
