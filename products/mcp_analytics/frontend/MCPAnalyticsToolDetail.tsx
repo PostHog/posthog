@@ -23,6 +23,7 @@ import {
     TableHead,
     TableHeader,
     TableRow,
+    cn,
 } from '@posthog/quill-primitives'
 
 import { useChartConfig, useChartTheme } from 'lib/charts/hooks'
@@ -42,6 +43,7 @@ import { SceneExport } from '~/scenes/sceneTypes'
 import { PersonDisplay } from 'products/persons/frontend/components/PersonDisplay'
 
 import { ToolDetailIntentsSection } from './clustering/ToolDetailIntentsSection'
+import { dimWhileLoading } from './components/loadingFeedback'
 import { McpDateFilter } from './components/McpDateFilter'
 import { McpSharedFilters } from './components/McpSharedFilters'
 import { ChartSkeleton } from './dashboard/ChartSkeleton'
@@ -186,7 +188,7 @@ function ResultTable({
                 ) : rows.length === 0 ? (
                     <TableEmpty className="py-6 text-secondary">{emptyMessage}</TableEmpty>
                 ) : (
-                    <TableBody>
+                    <TableBody aria-busy={loading} className={dimWhileLoading(loading)}>
                         {rows.map((row, i) => (
                             <TableRow
                                 key={i}
@@ -372,7 +374,7 @@ function IntentCoverageTag({
     coverage: IntentCoverage | null
     loading: boolean
 }): JSX.Element | null {
-    if (loading) {
+    if (loading && !coverage) {
         return <LemonSkeleton className="h-4 w-32" />
     }
     if (!coverage || !coverage.total) {
@@ -381,7 +383,7 @@ function IntentCoverageTag({
     const pct = Math.round((coverage.with_intent / coverage.total) * 100)
     return (
         <Tooltip title="Share of calls where $mcp_intent was captured. Inferred intents are server fallbacks; context_parameter intents come from the client.">
-            <span className="text-[11px] text-secondary">
+            <span aria-busy={loading} className={cn('text-[11px] text-secondary', dimWhileLoading(loading))}>
                 {formatNumber(coverage.with_intent)} of {formatNumber(coverage.total)} calls captured intent ({pct}%)
             </span>
         </Tooltip>
@@ -395,7 +397,7 @@ function DescriptionBlock({
     descriptions: { description: string; last_seen: string }[]
     loading: boolean
 }): JSX.Element | null {
-    if (loading) {
+    if (loading && !descriptions.length) {
         return <LemonSkeleton className="h-8 w-2/3 mt-2" />
     }
     if (!descriptions.length) {
@@ -403,7 +405,7 @@ function DescriptionBlock({
     }
     const [latest, ...older] = descriptions
     return (
-        <div className="flex flex-col gap-1 max-w-3xl">
+        <div aria-busy={loading} className={cn('flex flex-col gap-1 max-w-3xl', dimWhileLoading(loading))}>
             <span className="text-[11px] uppercase tracking-wider text-secondary">Description</span>
             <LemonMarkdown className="text-sm leading-snug line-clamp-3" lowKeyHeadings>
                 {latest.description}
@@ -498,13 +500,15 @@ function TrendChart({
                         No data for the selected date range.
                     </div>
                 ) : (
-                    <TimeSeriesLineChart
-                        series={series}
-                        labels={labels}
-                        config={config}
-                        theme={theme}
-                        dataAttr={dataAttr}
-                    />
+                    <div aria-busy={loading} className={cn('flex min-h-0 flex-1 flex-col', dimWhileLoading(loading))}>
+                        <TimeSeriesLineChart
+                            series={series}
+                            labels={labels}
+                            config={config}
+                            theme={theme}
+                            dataAttr={dataAttr}
+                        />
+                    </div>
                 )}
             </div>
         </div>
