@@ -1,8 +1,11 @@
 import { useEffect, useRef, useState } from 'react'
 
-import { buildDimensions, sameDimensions, type SizeRect } from '../canvas-size'
+import { buildDimensions, canvasSizeIsStale, sameDimensions, type SizeRect } from '../canvas-size'
 import type { ChartDimensions, ChartMargins } from '../types'
+import { canvasRasterScale, onScreenCanvases } from './clearCanvas'
 import { useLatest } from './useLatest'
+
+const ZOOM_SETTLE_MS = 150
 
 interface UseChartCanvasOptions {
     margins: ChartMargins
@@ -113,14 +116,55 @@ export function useChartCanvas(options: UseChartCanvasOptions): UseChartCanvasRe
         // does. `contextlost` is deliberately not handled — preventing its default tells the browser
         // we'll restore the context ourselves, and then it never restores.
         const onContextRestored = (): void => updateSize(true)
-        const restoreTargets = [canvasRef.current, overlayCanvasRef.current].filter(
+        const canvases = [canvasRef.current, overlayCanvasRef.current].filter(
             (canvas): canvas is HTMLCanvasElement => !!canvas
         )
-        restoreTargets.forEach((canvas) => canvas.addEventListener('contextrestored', onContextRestored))
+        canvases.forEach((canvas) => canvas.addEventListener('contextrestored', onContextRestored))
+
+        // Pinch-zoom, scrolling and a move to a screen with another pixel ratio change the raster
+        // scale without resizing anything the ResizeObserver watches. Repaint only when the backing
+        // size would change, so a zoom does not redraw the off-screen charts, whose scale stays at
+        // the pixel ratio.
+        const repaintIfRasterScaleChanged = (): void => {
+            const rect = rectRef.current
+            const canvas = canvasRef.current
+            if (rect && canvas && canvasSizeIsStale(canvas, rect, canvasRasterScale(rect, canvas))) {
+                updateSize(true)
+            }
+        }
+
+        // Chrome fires `visualViewport` resize for a pinch-zoom and for a move between screens. Wait
+        // for it to settle, because a repaint per gesture frame redraws every on-screen chart at a
+        // growing backing size.
+        const viewport = window.visualViewport
+        let zoomSettleTimer: ReturnType<typeof setTimeout> | undefined
+        const onViewportResize = (): void => {
+            clearTimeout(zoomSettleTimer)
+            zoomSettleTimer = setTimeout(repaintIfRasterScaleChanged, ZOOM_SETTLE_MS)
+        }
+        viewport?.addEventListener('resize', onViewportResize)
+
+        // Without IntersectionObserver every chart counts as on screen.
+        let visibility: IntersectionObserver | null = null
+        if (typeof IntersectionObserver === 'function') {
+            visibility = new IntersectionObserver((entries) => {
+                const onScreen = entries[entries.length - 1]?.isIntersecting ?? false
+                canvases.forEach((canvas) =>
+                    onScreen ? onScreenCanvases.add(canvas) : onScreenCanvases.delete(canvas)
+                )
+                repaintIfRasterScaleChanged()
+            })
+            visibility.observe(wrapper)
+        } else {
+            canvases.forEach((canvas) => onScreenCanvases.add(canvas))
+        }
 
         return () => {
             observer.disconnect()
-            restoreTargets.forEach((canvas) => canvas.removeEventListener('contextrestored', onContextRestored))
+            canvases.forEach((canvas) => canvas.removeEventListener('contextrestored', onContextRestored))
+            viewport?.removeEventListener('resize', onViewportResize)
+            clearTimeout(zoomSettleTimer)
+            visibility?.disconnect()
         }
         // Bind the observer once. `marginsRef` is a ref so `updateSize` always reads the
         // latest margins; depending on `marginsRef.current` here would disconnect and re-run

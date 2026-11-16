@@ -122,6 +122,56 @@ describe('useChartCanvas', () => {
         expect([overlay.width, overlay.height]).toEqual([0, 0])
     })
 
+    // A move to a screen with another pixel ratio fires the same `visualViewport` resize as a pinch-zoom.
+    it.each([
+        ['repaints an on-screen chart at the pinch-zoom scale', true, 2, 1, mockRect.width * 2, 1],
+        ['skips the repaint for an off-screen chart under pinch-zoom', false, 2, 1, mockRect.width, 0],
+        ['repaints an off-screen chart at the new pixel ratio after a screen move', false, 1, 2, mockRect.width * 2, 1],
+    ])('%s once the viewport settles', (_, onScreen, zoom, dpr, expectedWidth, repaints) => {
+        const originalDpr = window.devicePixelRatio
+        let onViewportResize = (): void => {}
+        let onVisibilityChange: IntersectionObserverCallback = () => {}
+        const viewport = {
+            scale: 1,
+            addEventListener: (_event: string, listener: () => void) => {
+                onViewportResize = listener
+            },
+            removeEventListener: () => {},
+        }
+        Object.defineProperty(window, 'visualViewport', { value: viewport, configurable: true })
+        const originalIntersectionObserver = globalThis.IntersectionObserver
+        globalThis.IntersectionObserver = jest.fn((callback: IntersectionObserverCallback) => {
+            onVisibilityChange = callback
+            return { observe: () => {}, disconnect: () => {} }
+        }) as unknown as typeof IntersectionObserver
+
+        try {
+            const drawStatic = jest.fn()
+            const canvas = renderCanvas(drawStatic)
+            const entry = { isIntersecting: onScreen } as IntersectionObserverEntry
+            act(() => onVisibilityChange([entry], {} as IntersectionObserver))
+            drawStatic.mockClear()
+            jest.useFakeTimers()
+
+            viewport.scale = zoom
+            Object.defineProperty(window, 'devicePixelRatio', { value: dpr, configurable: true })
+            act(() => {
+                onViewportResize()
+                jest.runAllTimers()
+            })
+            // The settled repaint commits a state update, and the draw loop paints in the next frame.
+            act(() => jest.runAllTimers())
+
+            expect(canvas.width).toBe(expectedWidth)
+            expect(drawStatic).toHaveBeenCalledTimes(repaints)
+        } finally {
+            jest.useRealTimers()
+            globalThis.IntersectionObserver = originalIntersectionObserver
+            Object.defineProperty(window, 'visualViewport', { value: undefined, configurable: true })
+            Object.defineProperty(window, 'devicePixelRatio', { value: originalDpr, configurable: true })
+        }
+    })
+
     it('repaints against a restored backing store after the 2D context is lost', () => {
         const drawStatic = jest.fn()
         const canvas = renderCanvas(drawStatic)

@@ -22,15 +22,25 @@ function backingSize(cssSize: number, dpr: number): number {
  *  Assigning `canvas.width` or `canvas.height` resets the bitmap to transparent black and
  *  reallocates it, even when the assigned value is identical to the current one. Callers sync on
  *  every paint, so a redundant assignment would reallocate the bitmap on every frame. */
-export function syncCanvasSize(canvas: HTMLCanvasElement, rect: SizeRect, dpr: number): boolean {
+function backingDimensions(rect: SizeRect, dpr: number): { width: number; height: number } {
     // Chromium and Firefox paint nothing into a canvas with a side over 32,767 backing pixels. A
     // very tall chart (a retention grid with hundreds of cohorts) lowers its ratio to stay under
     // that side, so it draws less sharply instead of blank. Draw code reads the ratio back off
     // the backing size, so it follows. ponytail: one canvas per chart; above 32,767 css px the
     // ratio drops below 1 and blurs, and only splitting the canvas into tiles avoids that.
-    dpr = Math.min(dpr, MAX_CANVAS_SIDE / Math.max(rect.width, rect.height))
-    const width = backingSize(rect.width, dpr)
-    const height = backingSize(rect.height, dpr)
+    const ratio = Math.min(dpr, MAX_CANVAS_SIDE / Math.max(rect.width, rect.height))
+    return { width: backingSize(rect.width, ratio), height: backingSize(rect.height, ratio) }
+}
+
+/** Whether `syncCanvasSize` would reallocate this canvas, so a caller can skip a repaint that
+ *  would draw the same bitmap again. */
+export function canvasSizeIsStale(canvas: HTMLCanvasElement, rect: SizeRect, dpr: number): boolean {
+    const { width, height } = backingDimensions(rect, dpr)
+    return canvas.width !== width || canvas.height !== height
+}
+
+export function syncCanvasSize(canvas: HTMLCanvasElement, rect: SizeRect, dpr: number): boolean {
+    const { width, height } = backingDimensions(rect, dpr)
     let resized = false
     if (canvas.width !== width) {
         canvas.width = width

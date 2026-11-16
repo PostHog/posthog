@@ -1,7 +1,33 @@
-import { syncCanvasSize } from '../canvas-size'
+import { type SizeRect, syncCanvasSize } from '../canvas-size'
 import type { ChartDimensions } from '../types'
 
-/** Size the backing store to `dimensions`, reset the transform to device-pixel scale, and clear
+// Upper bound on the backing store a zoomed chart may allocate (about 8 MB of RGBA per canvas).
+// A larger budget showed no visible gain on dashboard-sized charts at 3x pinch-zoom.
+const MAX_ZOOMED_CANVAS_PIXELS = 2_000_000
+
+/** Canvases whose chart is in the viewport. `useChartCanvas` keeps this set current. Only these
+ *  canvases get the extra zoom resolution, so the memory a pinch-zoom costs grows with the charts
+ *  in view and not with the charts on the page. */
+export const onScreenCanvases = new WeakSet<HTMLCanvasElement>()
+
+/** Backing pixels per CSS pixel. Pinch-zoom magnifies the page without changing `devicePixelRatio`;
+ *  it shows up only as `visualViewport.scale`. The browser re-rasterises text, SVG and DOM at the
+ *  zoomed scale but magnifies a canvas bitmap, so a chart rasterised at `devicePixelRatio` alone
+ *  turns blocky next to sharp text. Zoom raises the ratio for an on-screen canvas up to a pixel
+ *  budget, and the ratio never falls below `devicePixelRatio`, so an unzoomed chart sizes exactly
+ *  as before. */
+export function canvasRasterScale(rect: SizeRect, canvas: HTMLCanvasElement): number {
+    const dpr = window.devicePixelRatio || 1
+    if (!onScreenCanvases.has(canvas)) {
+        return dpr
+    }
+    const zoom = Math.max(1, window.visualViewport?.scale ?? 1)
+    const area = rect.width * rect.height
+    const budget = area > 0 ? Math.sqrt(MAX_ZOOMED_CANVAS_PIXELS / area) : dpr
+    return Math.max(dpr, Math.min(dpr * zoom, budget))
+}
+
+/** Size the backing store to `dimensions`, reset the transform to the raster scale, and clear
  *  the whole canvas, leaving the ctx in a saved state the caller restores after drawing. Shared by
  *  the static and hover draw loops.
  *
@@ -13,7 +39,7 @@ import type { ChartDimensions } from '../types'
  *  Each axis gets its own ratio: `syncCanvasSize` rounds each side, and on a capped tall canvas
  *  one shared ratio drifts the far rows by tens of pixels. */
 export function clearAndPrepare(ctx: CanvasRenderingContext2D, dimensions: ChartDimensions): void {
-    const fallback = window.devicePixelRatio || 1
+    const fallback = canvasRasterScale(dimensions, ctx.canvas)
     syncCanvasSize(ctx.canvas, dimensions, fallback)
     const scaleX = dimensions.width > 0 ? ctx.canvas.width / dimensions.width : fallback
     const scaleY = dimensions.height > 0 ? ctx.canvas.height / dimensions.height : fallback
