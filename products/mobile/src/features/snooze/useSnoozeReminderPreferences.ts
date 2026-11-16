@@ -17,18 +17,18 @@ export function useSnoozeReminderPreferences(): void {
     const demo = useDemoMode((state) => state.enabled)
     const client = useQueryClient()
     const enabled = signedIn && !demo && Boolean(host && userId)
-    const { data } = useQuery({
+    const { data, dataUpdatedAt } = useQuery({
         queryKey: ['mobile-notification-preferences', host, userId],
         queryFn: ({ signal }) => getNotificationPreferences(signal),
         enabled,
         staleTime: 30_000,
     })
     useEffect(() => {
-        if (enabled && data && !snoozeRemindersEnabled(data)) {
+        if (enabled && dataUpdatedAt > 0 && data && !snoozeRemindersEnabled(data)) {
             const generation = sessionGeneration()
             void cancelScheduledSnoozeReminders(() => generation === sessionGeneration()).catch(captureError)
         }
-    }, [enabled, data])
+    }, [enabled, data, dataUpdatedAt])
     useEffect(() => {
         if (!enabled) {
             return
