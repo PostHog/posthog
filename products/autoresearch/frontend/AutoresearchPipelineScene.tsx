@@ -24,7 +24,7 @@ import { QuillPipelineActions } from './pipeline/QuillPipelineActions'
 import { QuillScoreNowButton } from './pipeline/QuillScoreNowButton'
 import { ScoreNowButton } from './pipeline/ScoreNowButton'
 import { SetupTab } from './pipeline/SetupTab'
-import { pipelineQuestion, pipelineSubtitle } from './pipelineQuestion'
+import { pipelineSubtitle, pipelineTitle } from './pipelineQuestion'
 import { notLiveExplanation } from './trainingScheduleLogic'
 
 export const scene: SceneExport = {
@@ -46,7 +46,7 @@ export function AutoresearchPipelineScene(): JSX.Element {
         { key: 'setup', label: 'Setup', content: <SetupTab /> },
     ]
 
-    const heading = pipeline ? pipelineQuestion(pipeline) : pipelineLoading ? '' : 'Model'
+    const heading = pipeline ? pipelineTitle(pipeline) : pipelineLoading ? '' : 'Model'
     const notLive = pipeline ? notLiveExplanation(pipeline) : null
 
     if (!isEnabled) {

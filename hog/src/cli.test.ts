@@ -2,6 +2,7 @@ import { describe, expect, test } from 'bun:test'
 import { z } from 'zod'
 
 import { LEGACY_COMMANDS } from '@/commands/legacy'
+import { EXIT_FAILURE, EXIT_SUCCESS, EXIT_USAGE } from '@/core/errors'
 import { VERSION } from '@/version'
 
 import { runHog } from './testing'
@@ -19,7 +20,7 @@ describe('hog', () => {
         ['command help lists examples and scopes', ['query', 'run', '--help'], 'Needs the scopes: query:read'],
     ])('%s', async (_name, argv, stdout) => {
         const result = await runHog(argv)
-        expect(result.exitCode).toBe(0)
+        expect(result.exitCode).toBe(EXIT_SUCCESS)
         expect(result.stdout).toContain(stdout)
     })
 
@@ -27,7 +28,7 @@ describe('hog', () => {
         '%s fails and points to %s',
         async (name, use) => {
             const result = await runHog([name, 'sub', "it's", '--flag'])
-            expect(result.exitCode).toBe(1)
+            expect(result.exitCode).toBe(EXIT_FAILURE)
             expect(result.error()).toMatchObject({ code: 'not_ported' })
             expect(result.error().message).toContain(`${use} sub 'it'\\''s' --flag`)
         }
@@ -48,40 +49,57 @@ describe('hog', () => {
         ],
     ])('%s points to posthog-cli', async (_name, argv, invocation) => {
         const result = await runHog(argv)
-        expect(result.exitCode).toBe(1)
+        expect(result.exitCode).toBe(EXIT_FAILURE)
         expect(result.error().message).toEndWith(`Run this instead:\n  ${invocation}`)
     })
 
     test.each([
-        ['an unknown command', ['nope'], 'unknown_command'],
-        ['a missing argument', ['query', 'run'], 'usage_error'],
-        ['an invalid --output', ['query', 'run', 'select 1', '-o', 'yaml'], 'usage_error'],
-    ])('%s is a usage error, reported as JSON to agents', async (_name, argv, code) => {
+        ['an unknown command', ['nope'], 'unknown_command', 'hog feedback "<what happened>"'],
+        [
+            'a missing argument',
+            ['query', 'check'],
+            'usage_error',
+            'hog feedback --area "hog query check" "<what happened>"',
+        ],
+        [
+            'a query run without a query or --wait',
+            ['query', 'run'],
+            'query_required',
+            'hog feedback --area "hog query run" "<what happened>"',
+        ],
+        [
+            'an invalid --output',
+            ['et', 'upload', 'secret-path', '-o', 'yaml'],
+            'usage_error',
+            'hog feedback --area "hog error-tracking upload" "<what happened>"',
+        ],
+    ])('%s is a usage error, reported as JSON to agents', async (_name, argv, code, feedback) => {
         const result = await runHog(argv, { env: { CLAUDECODE: '1' } })
-        expect(result.exitCode).toBe(2)
-        expect(result.error()).toMatchObject({ code })
+        expect(result.exitCode).toBe(EXIT_USAGE)
+        expect(result.error()).toMatchObject({ code, feedback })
     })
 
     test.each([
-        ['login', 'Did you mean `hog auth login`?'],
-        ['sourcemap', '`sourcemap` is `hog error-tracking inject|upload|process` in hog.'],
-        ['exp', '`exp` is `hog query|endpoints|schema` in hog.'],
-    ])('a command that moved, like %s, points to its new name', async (name, message) => {
-        const result = await runHog([name, 'upload'])
-        expect(result.exitCode).toBe(2)
+        ['login', ['login', 'upload'], 'Did you mean `hog auth login`?'],
+        ['sourcemap', ['sourcemap', 'upload'], '`sourcemap` is `hog error-tracking inject|upload|process` in hog.'],
+        ['exp', ['exp', 'upload'], '`exp` is `hog query|endpoints|schema` in hog.'],
+        ['api skill', ['api', 'skill', 'install', 'posthog-flags'], '`skill` is `hog skills list|add` in hog.'],
+    ])('a command that moved, like %s, points to its new name', async (_name, argv, message) => {
+        const result = await runHog(argv)
+        expect(result.exitCode).toBe(EXIT_USAGE)
         expect(result.error().message).toContain(message)
     })
 
     test('a person sees errors as text', async () => {
         const result = await runHog(['qury'], { stdoutIsTTY: true, env: { NO_COLOR: '1' } })
         expect(result.stderr).toBe(
-            "Error: Unknown command 'qury'\n(Did you mean query?)\nRun `hog --help` to see the available commands.\n"
+            'Error: Unknown command \'qury\'\n(Did you mean query?)\nRun `hog --help` to see the available commands.\nSend feedback about this to the PostHog team: hog feedback "<what happened>"\n'
         )
     })
 
     test('commands lists every command for agents', async () => {
         const result = await runHog(['commands'], { env: { CLAUDECODE: '1' } })
-        expect(result.exitCode).toBe(0)
+        expect(result.exitCode).toBe(EXIT_SUCCESS)
         const manifest = result.json(
             z.looseObject({
                 globalOptions: z.array(z.unknown()),
@@ -92,9 +110,12 @@ describe('hog', () => {
         expect(manifest.globalOptions).toContainEqual(expect.objectContaining({ flags: '-o, --output <format>' }))
         expect(manifest.commands.find((command: { name: string }) => command.name === 'query run')).toMatchObject({
             name: 'query run',
-            arguments: [{ name: 'query', required: true, stdin: true }],
+            arguments: [{ name: 'query', required: false, stdin: true }],
             scopes: ['query:read'],
         })
+        expect(
+            manifest.commands.filter((command) => command.refusesCI === true).map((command) => command.name)
+        ).toEqual(['setup', 'auth migrate', 'ci setup'])
         expect(manifest.commands.map((command: { name: string }) => command.name)).toEqual([
             'setup',
             'auth login',
@@ -113,9 +134,14 @@ describe('hog', () => {
             'api schema',
             'api call',
             'api access',
-            'api skill',
+            'api refresh',
             'api agents-md',
-            'learn',
+            'skills',
+            'skills list',
+            'skills search',
+            'skills read',
+            'skills add',
+            'mcp add',
             'error-tracking inject',
             'error-tracking clone',
             'error-tracking upload',
@@ -135,6 +161,7 @@ describe('hog', () => {
             'config check',
             'config schema',
             'commands',
+            'feedback',
             ...Object.keys(LEGACY_COMMANDS),
         ])
     })

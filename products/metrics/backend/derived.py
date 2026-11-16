@@ -16,6 +16,7 @@ from django.db import connections
 from django.utils import timezone
 
 import structlog
+import posthoganalytics
 
 from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings
@@ -26,7 +27,6 @@ from posthog.clickhouse.client.connection import Workload
 from posthog.dataclasses import frozen
 from posthog.hogql_queries.utils.parallel import run_in_parallel_threads
 from posthog.models import Team
-from posthog.permissions import posthog_feature_flag_enabled
 from posthog.scopes import APIScopeObject
 
 from products.metrics.backend.facade.contracts import (
@@ -204,16 +204,28 @@ def get_derived_metric(name: str) -> DerivedMetric:
 
 
 def derived_metrics_enabled(team: Team) -> bool:
+    # The flag is an experiment with `control` and `test` variants, so only `test` (or a plain boolean
+    # rollout) turns derived series on. The flag splits by organization, so the distinct ID does not
+    # change the variant.
+    organization_id = str(team.organization_id)
+    project_id = str(team.id)
     try:
-        return posthog_feature_flag_enabled(
+        variant = posthoganalytics.get_feature_flag(
             METRICS_DERIVED_SERIES_FEATURE_FLAG,
             str(team.uuid),
-            organization_id=team.organization_id,
-            team_id=team.id,
+            groups={"organization": organization_id, "project": project_id},
+            group_properties={"organization": {"id": organization_id}, "project": {"id": project_id}},
+            send_feature_flag_events=False,
         )
     except Exception:
         logger.warning("metrics_derived_series_flag_check_failed", team_id=team.id)
         return False
+    return variant is True or variant == "test"
+
+
+def team_has_derived_sources(team: Team, *, can_read: Callable[[APIScopeObject], bool]) -> bool:
+    """True when the team sent spans or logs in the last day from a source the caller can read."""
+    return any(can_read(SOURCE_RESOURCES[source]) for source in _sources_with_data(team))
 
 
 def _window_expr(date_from: dt.datetime, date_to: dt.datetime) -> ast.Expr:

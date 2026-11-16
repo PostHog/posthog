@@ -915,7 +915,7 @@ NESTED_HIERARCHY = [
                     "id": "gen-1",
                     "event": "$ai_generation",
                     "properties": {
-                        "$ai_model": "gpt-4.1-mini",
+                        "$ai_model": "gpt-6-luna",
                         "$ai_input": [{"role": "user", "content": "Where is my parcel?\nIt was due Monday."}],
                         "$ai_output_choices": [{"role": "assistant", "content": "It ships tomorrow."}],
                     },

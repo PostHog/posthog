@@ -8,6 +8,8 @@ export interface FilterDefinition {
     backendField: 'type' | 'user' | 'path' | 'name'
     /** Whether a value that matches no suggestion is still a valid filter. */
     freeTextValues: boolean
+    /** A value the input's hint shows. `is:` has none, because the hint cycles through every type instead. */
+    example?: string
 }
 
 export const FILTER_DEFINITIONS: FilterDefinition[] = [
@@ -24,6 +26,7 @@ export const FILTER_DEFINITIONS: FilterDefinition[] = [
         description: 'Who created it',
         backendField: 'user',
         freeTextValues: true,
+        example: 'me',
     },
     {
         key: 'in',
@@ -31,6 +34,7 @@ export const FILTER_DEFINITIONS: FilterDefinition[] = [
         description: 'Folder it lives in',
         backendField: 'path',
         freeTextValues: true,
+        example: '"Team Growth"',
     },
     {
         key: 'name',
@@ -38,6 +42,7 @@ export const FILTER_DEFINITIONS: FilterDefinition[] = [
         description: 'Name only, not description',
         backendField: 'name',
         freeTextValues: true,
+        example: 'revenue',
     },
 ]
 
@@ -48,6 +53,8 @@ export interface ValueOption {
     label: string
     /** Extra words a person can type to reach this option, matched by prefix. */
     aliases?: string[]
+    /** How a person types this value, such as `feature-flag` for `feature_flag`. */
+    typedValue?: string
     /** Icon type for the row, such as a file system type. */
     iconType?: string
 }

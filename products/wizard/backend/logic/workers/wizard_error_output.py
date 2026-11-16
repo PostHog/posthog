@@ -11,9 +11,12 @@ _REDACTED = "[REDACTED]"
 # The Wizard copies raw exception text into this message, and the worker does not know the tokens the
 # sandbox holds (the gateway token is minted inside it), so credentials are redacted by shape.
 _CREDENTIAL_PATTERNS: tuple[tuple[re.Pattern[str], str], ...] = (
-    (re.compile(r"\bph[a-z]_[A-Za-z0-9_-]{8,}"), _REDACTED),
-    (re.compile(r"\b(?:gh[oprsu]_[A-Za-z0-9]{16,}|github_pat_[A-Za-z0-9_]{16,})"), _REDACTED),
-    (re.compile(r"\bsk-[A-Za-z0-9_-]{16,}"), _REDACTED),
+    # The token patterns carry no \b anchors: a credential flush against a word character must
+    # still redact, because \b does not match there. Over-matching a longer identifier is
+    # harmless for a log-bound message; under-matching leaks the token.
+    (re.compile(r"ph[a-z]_[A-Za-z0-9_-]{8,}"), _REDACTED),
+    (re.compile(r"(?:gh[oprsu]_[A-Za-z0-9]{16,}|github_pat_[A-Za-z0-9_]{16,})"), _REDACTED),
+    (re.compile(r"sk-[A-Za-z0-9_-]{16,}"), _REDACTED),
     (re.compile(r"(?<=://)[^/\s@]+@"), f"{_REDACTED}@"),
     (re.compile(r"(?i)\b(bearer|basic)\s+[A-Za-z0-9._~+/=-]{8,}"), rf"\1 {_REDACTED}"),
     (

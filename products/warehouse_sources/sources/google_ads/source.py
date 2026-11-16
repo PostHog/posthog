@@ -416,7 +416,7 @@ class GoogleAdsSource(
 
         oauth = OauthIntegration(integration)
         if integration.errors != ERROR_TOKEN_REFRESH_FAILED and oauth.access_token_expired():
-            oauth.refresh_access_token()
+            integration = oauth.refresh_access_token()
         if integration.errors == ERROR_TOKEN_REFRESH_FAILED:
             raise IntegrationAccountListingError(
                 "Could not refresh the Google Ads credentials. Please reconnect your Google Ads integration."
@@ -454,6 +454,8 @@ class GoogleAdsSource(
                 # Dashed as the Google Ads UI shows it; clean_customer_id normalizes to bare at the API boundary.
                 value=format_customer_id(account["id"]),
                 display_name=account["name"],
+                # Matched by the picker filter only, so an ID pasted without dashes still finds the account.
+                secondary_text=clean_customer_id(account["id"]),
                 is_primary=google_ads_hierarchy_level(account) == 0,
                 badges=("Manager",) if account.get("manager") else (),
                 # `parent_id` is the accessible account the walk started from, not the direct manager, so

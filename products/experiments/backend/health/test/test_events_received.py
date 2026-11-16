@@ -25,7 +25,10 @@ from products.experiments.backend.models.experiment import Experiment, Experimen
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 NO_QUERIES = ExperimentHealthReaderAccess(
-    can_read_flag_history=False, can_query_events=False, denied_event_properties=frozenset()
+    can_read_flag_history=False,
+    can_query_events=False,
+    denied_event_properties=frozenset(),
+    restricted_properties=frozenset(),
 )
 Code = ExperimentHealthFindingCode
 Key = ExperimentHealthCheckKey

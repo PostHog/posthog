@@ -48,11 +48,8 @@ T_LEGACY_JOB_B = "posthog/api/test/test_legacy_b/TestLegacyB::test_two"
 
 
 class TestFlakyTestsAPI(ClickhouseTestMixin, APIBaseTest):
-    # The aggregation, qualification (HAVING), and ranking all live in the HogQL query, so the
-    # regressions worth catching only surface against real seeded trace_spans rows.
-
-    # ClickhouseTestMixin flips this off (per-test teams); back on so one class-level team can
-    # key the class-level span seed.
+    # ClickhouseTestMixin turns this off. It is on here so one class-level team can key the
+    # class-level span seed.
     CLASS_DATA_LEVEL_SETUP = True
 
     @classmethod
@@ -71,32 +68,27 @@ class TestFlakyTestsAPI(ClickhouseTestMixin, APIBaseTest):
         old = now - timedelta(days=10)
 
         rows = [
-            # Failed on attempt 1, green on the re-run: one commit, both outcomes.
+            # Failed on attempt 1 and passed on the re-run of the same commit.
             cls._span(1, T_RERUN_RECOVERY, "failed", ts=earlier, run="100", branch="master"),
             cls._span(2, T_RERUN_RECOVERY, "passed", ts=recent, run="100", attempt="2", branch="master"),
-            # Older data re-reported the shards an attempt never re-executed, so the same failure
-            # arrives under two attempts. One run, one failure.
+            # The same failure arrives under two attempts of one run.
             cls._span(3, T_STALE_REREPORT, "failed", ts=earlier, run="200", branch="master"),
             cls._span(4, T_STALE_REREPORT, "failed", ts=earlier, run="200", attempt="2", branch="master"),
-            # A pass in a different run is a different commit and proves nothing.
+            # The pass is in a different run, so it is a different commit.
             cls._span(8, T_CROSS_RUN_PASS, "failed", ts=earlier, run="300", branch="master"),
             cls._span(9, T_CROSS_RUN_PASS, "passed", ts=recent, run="301", attempt="2", branch="master"),
-            # One commit disagreeing with itself proves nondeterminism whichever way round it lands,
-            # so a pass on an earlier attempt than the failure still counts.
+            # The pass comes on an earlier attempt than the failure.
             cls._span(24, T_PASS_THEN_FAIL, "passed", ts=earlier, run="1400", attempt="2", branch="master"),
             cls._span(25, T_PASS_THEN_FAIL, "failed", ts=recent, run="1400", attempt="3", branch="master"),
-            # One run fans a test across matrix legs, and two of them fail. One run, one failure.
+            # Two matrix legs of one run fail the test.
             cls._span(5, T_MATRIX_LEGS, "failed", ts=earlier, run="250", branch="master"),
             cls._span(6, T_MATRIX_LEGS, "failed", ts=recent, run="250", branch="master"),
-            # A third leg passed. First-attempt passes sit outside the scan fence, so a passing leg
-            # can never be mistaken for the test recovering.
+            # A passing leg in the same run is not a recovery.
             cls._span(7, T_MATRIX_LEGS, "passed", ts=recent, run="250", attempt="", branch="master"),
-            # An attempt re-reports a failing leg and a passing leg together. The failure wins.
+            # Attempt 2 reports a failing leg and a passing leg together.
             cls._span(26, T_MATRIX_LEGS, "failed", ts=recent, run="250", attempt="2", branch="master"),
             cls._span(27, T_MATRIX_LEGS, "passed", ts=recent, run="250", attempt="2", branch="master"),
-            # In-job pytest retry: the same same-commit proof from tests hand-marked
-            # @pytest.mark.flaky(reruns=N). The emitter stamped test.selector here, so it wins over
-            # the nodeid reconstruction.
+            # An in-job pytest retry. The span carries test.selector, which wins over the nodeid reconstruction.
             cls._span(
                 10,
                 T_IN_JOB_RETRY,
@@ -108,27 +100,20 @@ class TestFlakyTestsAPI(ClickhouseTestMixin, APIBaseTest):
                 selector=T_IN_JOB_SELECTOR,
                 runner_name="runner-example",
             ),
-            # Failures across 3 distinct PRs, no recovery: qualifies on blast radius alone.
+            # Failures on 3 distinct PRs with no recovery.
             cls._span(11, T_THREE_PRS, "failed", ts=earlier, run="500", pr="501", branch="f1"),
             cls._span(12, T_THREE_PRS, "failed", ts=earlier, run="501", pr="502", branch="f2"),
             cls._span(13, T_THREE_PRS, "error", ts=recent, run="502", pr="503", branch="f3"),
-            # Only 2 distinct PRs: below the default bar, reachable via min_failed_prs=2.
             cls._span(14, T_TWO_PRS, "failed", ts=recent, run="600", pr="601", branch="x1"),
             cls._span(15, T_TWO_PRS, "failed", ts=recent, run="601", pr="602", branch="x2"),
-            # A master failure is actionable with no PR and no recovery.
             cls._span(16, T_MASTER, "failed", ts=recent, run="700", branch="master"),
-            # xfail on master: quarantined, and never counted as a master failure.
             cls._span(17, T_QUARANTINED, "xfailed", ts=recent, run="800", branch="master"),
-            # Signal outside the default window.
             cls._span(18, T_OLD, "rerun_passed", ts=old, run="900", pr="901", branch="old1"),
-            # Two master failures whose spans carry no ci.run_id: the trace_id fallback keeps them
-            # two distinct runs instead of merging every unstamped execution into one phantom run.
             cls._span(28, T_NO_RUN_ID, "failed", ts=recent, run="", branch="master"),
             cls._span(29, T_NO_RUN_ID, "failed", ts=recent, run="", branch="master"),
-            # Identical evidence: nodeid is the deterministic final tiebreaker.
             cls._span(19, T_TIE_B, "rerun_passed", ts=recent, run="1000", pr="1001", branch="tie"),
             cls._span(20, T_TIE_A, "rerun_passed", ts=recent, run="1001", pr="1002", branch="tie"),
-            # Would qualify on signal alone, but a non-CI service must never reach the queue.
+            # This span would qualify, but its service is not a CI service.
             cls._span(
                 21,
                 T_FOREIGN,
@@ -139,7 +124,7 @@ class TestFlakyTestsAPI(ClickhouseTestMixin, APIBaseTest):
                 service="other-service",
                 runner_name="runner-example",
             ),
-            # Would qualify on signal alone, but belongs to another connected repository.
+            # This span would qualify, but it belongs to another repository.
             cls._span(
                 22,
                 T_OTHER_REPO,
@@ -150,10 +135,9 @@ class TestFlakyTestsAPI(ClickhouseTestMixin, APIBaseTest):
                 repo="PostHog/posthog.com",
                 runner_name="runner-example",
             ),
-            # A job-root span carries no test.outcome and must never become a row.
+            # A job-root span carries no test.outcome.
             cls._span(23, "Backend CI / core (1)", None, ts=recent, run="1300", branch="master"),
-            # CI setup broke: one run attempt errored tests in three jobs. The errors describe the attempt, not
-            # the tests, so none of them reaches the queue as a master failure.
+            # One run attempt errored tests in three jobs, which is a CI setup break.
             *[
                 cls._span(
                     40 + shard,
@@ -166,7 +150,7 @@ class TestFlakyTestsAPI(ClickhouseTestMixin, APIBaseTest):
                 )
                 for shard in (1, 2, 3)
             ],
-            # The same shape in a run GitHub reports as healthy.
+            # The same shape in a run that GitHub reports as healthy.
             *[
                 cls._span(
                     70 + shard,
@@ -179,8 +163,8 @@ class TestFlakyTestsAPI(ClickhouseTestMixin, APIBaseTest):
                 )
                 for shard in (1, 2, 3)
             ],
-            # One job attempt failed two tests, and its re-run attempt passed both. Two tests is below the
-            # default job threshold, so both are flakes here; the threshold test lowers it to two.
+            # One job attempt failed two tests and its re-run passed both. Two tests is below the
+            # default SETUP_BREAK_MIN_JOB_FAILURES.
             *[
                 span
                 for index in (1, 2)
@@ -206,13 +190,11 @@ class TestFlakyTestsAPI(ClickhouseTestMixin, APIBaseTest):
                     ),
                 )
             ],
-            # Two keyless jobs (pre-job_key history) in one run attempt, each failing a different
-            # test. Coalesced under the synthetic 'legacy' job_key, their combined nodeid count can
-            # cross the job-attempt threshold even though neither real job did.
+            # Two jobs without a job key in one run attempt, each failing a different test. Both
+            # fall under the synthetic 'legacy' job_key.
             cls._span(70, T_LEGACY_JOB_A, "failed", ts=earlier, run="1900", branch="master"),
             cls._span(71, T_LEGACY_JOB_B, "failed", ts=earlier, run="1900", branch="master"),
-            # Main Jest spans share the same evidence model. Recovery only counts within the
-            # stable FOSS/EE + shard job that failed.
+            # A Jest recovery counts only within the job that failed.
             cls._span(
                 30,
                 T_JEST_RECOVERY,
@@ -330,9 +312,8 @@ class TestFlakyTestsAPI(ClickhouseTestMixin, APIBaseTest):
         head_sha: str = "",
         native_workflow_run_id: str = "",
     ) -> str:
-        # Physical attributes carry a type suffix ('test.outcome__str'); the `attributes` ALIAS
-        # column strips it. Resource attributes are stored as-is; attempt="" drops the
-        # ci.run_attempt key, the shape of spans emitted before attempts were stamped.
+        # Physical attributes carry a type suffix ('test.outcome__str'), which the `attributes` ALIAS
+        # column strips. Resource attributes are stored as given.
         attr_pairs = ([f"'test.outcome__str', '{outcome}'"] if outcome else []) + (
             [f"'test.selector__str', '{selector}'"] if selector else []
         )
@@ -364,8 +345,8 @@ class TestFlakyTestsAPI(ClickhouseTestMixin, APIBaseTest):
 
     def setUp(self) -> None:
         super().setUp()
-        # Run 1700 failed across three jobs on GitHub and run 1800 failed one; run 1900 passed, so only
-        # the first two may drop a trial.
+        # GitHub reports three failed jobs for run 1700, one for run 1800, and none for run 1900,
+        # so only the first two runs may drop a trial.
         connect_github_jobs(
             self,
             prefix="flaky",
@@ -385,9 +366,8 @@ class TestFlakyTestsAPI(ClickhouseTestMixin, APIBaseTest):
     def test_default_window_qualifies_only_actionable_tests(self) -> None:
         data = self._get()
 
-        # The 2-PR test is below the bar; the out-of-window, foreign-service, other-repo, CI setup break,
-        # and outcome-less job-root spans must never qualify. Run 1800 carries run 1700's shape without
-        # GitHub's failed jobs, so its tests keep their failures.
+        # Run 1900 has the shape of run 1700 but GitHub reports no failed job for it, so its tests
+        # keep their failures.
         assert {row["nodeid"] for row in data["items"]} == {
             T_RERUN_RECOVERY,
             T_STALE_REREPORT,
@@ -418,12 +398,9 @@ class TestFlakyTestsAPI(ClickhouseTestMixin, APIBaseTest):
 
         assert f"{T_JOB_RERUN}_1" not in rows
         assert f"{T_JOB_RERUN}_2" not in rows
-        # A single failing test in a job is still a failure, and its re-run pass is still proof.
         assert rows[T_RERUN_RECOVERY]["classification"] == "confirmed_flake"
 
     def test_legacy_jobs_do_not_merge_toward_the_job_attempt_threshold(self) -> None:
-        # Two real jobs, both keyless, combine to the same 'legacy' bucket. Unlike a real job
-        # attempt (asserted above), their combined nodeid count must never trigger exclusion.
         with patch("products.engineering_analytics.backend.logic.queries._test_spans.SETUP_BREAK_MIN_JOB_FAILURES", 2):
             rows = self._rows()
 
@@ -434,11 +411,8 @@ class TestFlakyTestsAPI(ClickhouseTestMixin, APIBaseTest):
         [
             ("recovered_on_rerun_attempt", T_RERUN_RECOVERY, "confirmed_flake"),
             ("recovered_via_in_job_retry", T_IN_JOB_RETRY, "confirmed_flake"),
-            # The pass came before the failure; one commit, both outcomes, still a flake.
             ("passed_then_failed_in_one_run", T_PASS_THEN_FAIL, "confirmed_flake"),
-            # The pass is in another run, so it is another commit and proves nothing.
             ("pass_in_a_different_run", T_CROSS_RUN_PASS, "suspected_regression"),
-            # A passing leg alongside a failing one is not proof of anything, in any attempt.
             ("pass_in_another_matrix_leg", T_MATRIX_LEGS, "suspected_regression"),
             ("no_recovery_recorded", T_THREE_PRS, "suspected_regression"),
             ("failing_while_xfailed", T_QUARANTINED, "quarantined"),
@@ -504,15 +478,11 @@ class TestFlakyTestsAPI(ClickhouseTestMixin, APIBaseTest):
     def test_evidence_is_counted_once_per_run(self) -> None:
         rows = self._rows()
 
-        # Two failing matrix legs of one run: one run, one failure. Span-grain counting would say 2.
         legs = rows[T_MATRIX_LEGS]
         assert legs["failed_run_count"] == 1
         assert legs["master_failed_run_count"] == 1
-        # Neither the passing leg nor the attempt-2 leg mix reads as a recovery.
         assert legs["same_commit_recovery_run_count"] == 0
 
-        # Two attempts of one run, both reporting the same failure: one run, one failure, and the
-        # re-report is not mistaken for a second occurrence.
         stale = rows[T_STALE_REREPORT]
         assert stale["failed_run_count"] == 1
         assert stale["same_commit_recovery_run_count"] == 0
@@ -521,7 +491,7 @@ class TestFlakyTestsAPI(ClickhouseTestMixin, APIBaseTest):
         recovered_on_rerun = rows[T_RERUN_RECOVERY]
         assert recovered_on_rerun["same_commit_recovery_run_count"] == 1
         assert recovered_on_rerun["failed_run_count"] == 1
-        # The attempt-2 pass is not a signal, so recency still points at the failure.
+        # The pass on attempt 2 is not a signal, so last_signal_at is the time of the failure.
         assert recovered_on_rerun["last_signal_at"] < rows[T_MASTER]["last_signal_at"]
 
         recovered = rows[T_IN_JOB_RETRY]
@@ -530,13 +500,12 @@ class TestFlakyTestsAPI(ClickhouseTestMixin, APIBaseTest):
 
         three_prs = rows[T_THREE_PRS]
         assert (three_prs["failed_run_count"], three_prs["failed_pr_count"]) == (3, 3)
-        # Falls back to the nodeid reconstruction: no emitted test.selector.
+        # These spans carry no test.selector, so the selector is reconstructed from the nodeid.
         assert three_prs["selector"] == "posthog/api/test/test_three.py::TestThree::test_fails_on_three_prs"
 
         master = rows[T_MASTER]
         assert (master["master_failed_run_count"], master["failed_pr_count"]) == (1, 0)
 
-        # An xfail is not a failure, so it drives neither count.
         quarantined = rows[T_QUARANTINED]
         assert quarantined["quarantined_failed_run_count"] == 1
         assert (quarantined["failed_run_count"], quarantined["master_failed_run_count"]) == (0, 0)
@@ -553,14 +522,11 @@ class TestFlakyTestsAPI(ClickhouseTestMixin, APIBaseTest):
     def test_ranking_leads_with_trunk_breakage_and_breaks_ties_on_nodeid(self) -> None:
         nodeids = [item["nodeid"] for item in self._get()["items"]]
 
-        # Master failures outrank PR-only evidence however many PRs it hit.
         assert nodeids.index(T_MASTER) < nodeids.index(T_THREE_PRS)
         assert nodeids.index(T_TIE_A) < nodeids.index(T_TIE_B)
 
     def test_spans_without_run_id_stay_distinct_runs(self) -> None:
         no_run = self._rows()[T_NO_RUN_ID]
-        # Without the trace_id fallback these two unstamped failures would merge into one
-        # phantom run and halve the blast radius.
         assert (no_run["failed_run_count"], no_run["master_failed_run_count"]) == (2, 2)
         assert no_run["classification"] == "suspected_regression"
 
@@ -572,9 +538,6 @@ class TestFlakyTestsAPI(ClickhouseTestMixin, APIBaseTest):
         assert T_OLD in self._rows(date_from="-30d")
 
     def test_source_without_repository_fails_closed(self) -> None:
-        # A source with no repository identity can't be scoped, so the queue must be empty rather
-        # than leak every connected repository's spans (the qualifying rows are still seeded, so a
-        # fail-open regression would return them).
         ExternalDataSource.objects.filter(team_id=self.team.id).update(job_inputs={})
         data = self._get()
         assert data["items"] == []
@@ -601,7 +564,6 @@ class TestFlakyTestsAPI(ClickhouseTestMixin, APIBaseTest):
             # A PR or branch scope still counts the test's failures on every other PR.
             ("pr_number", {"pr_number": "502"}, T_THREE_PRS, 3),
             ("branch", {"branch": "f2"}, T_THREE_PRS, 3),
-            # A test that failed on too few PRs needs the lower bar to show up for its PR.
             ("pr_number_below_the_bar", {"pr_number": "601", "min_failed_prs": "1"}, T_TWO_PRS, 2),
         ]
     )
@@ -630,8 +592,6 @@ class TestFlakyTestsAPI(ClickhouseTestMixin, APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
 
 
-# A wrong split yields a selector CI's quarantine matching would silently never hit. This is the
-# fallback reconstruction for spans emitted before the CI reporter stamped test.selector.
 @pytest.mark.parametrize(
     "nodeid,expected",
     [

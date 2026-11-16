@@ -10,7 +10,6 @@ import {
     AccountsTableAccountField,
     AccountsTableAccountFieldFilter,
     AccountsTableAccountFieldOperator,
-    AccountsTableAccountIdFilter,
     AccountsTableAssignedFilter,
     AccountsTableAssignedToFilter,
     AccountsTableColumn,
@@ -117,7 +116,6 @@ export interface AccountsTableDatasetInput {
     tagsFilter: string[]
     assignmentStatus: AssignmentStatus
     assignedToFilter: RoleFilterValue
-    accountIdFilter: string | null
     tileFilter: TileFilter | null
     accountFilters: AccountFilter[]
     accountFilterGroups: AccountFilter[][]
@@ -298,10 +296,6 @@ function queryFilters(
     input: AccountsTableDatasetInput,
     propertyGroups: AccountsTablePropertyFilter[][]
 ): AccountsTableFilter[] {
-    if (input.accountIdFilter) {
-        return [{ kind: 'account_id', accountId: input.accountIdFilter } satisfies AccountsTableAccountIdFilter]
-    }
-
     const filters: AccountsTableFilter[] = []
     const search = input.searchQuery.trim()
     if (search) {
@@ -346,13 +340,12 @@ function queryFilters(
 }
 
 export function accountsTableDatasetKey(input: AccountsTableDatasetInput): string {
-    const includeHiddenAccounts = input.accountIdFilter !== null
-    const propertyGroups = includeHiddenAccounts ? [] : queryPropertyFilterGroups(input)
+    const propertyGroups = queryPropertyFilterGroups(input)
     return JSON.stringify({
         filters: queryFilters(input, propertyGroups),
         filterGroups: propertyGroups.length > 1 ? propertyGroups : undefined,
-        includeChurned: includeHiddenAccounts,
-        includeIgnored: includeHiddenAccounts,
+        includeChurned: false,
+        includeIgnored: false,
     })
 }
 
@@ -411,7 +404,7 @@ export function buildAccountsTableQueryPlan(input: BuildAccountsTableQueryPlanIn
         }
     }
 
-    const propertyGroups = input.accountIdFilter ? [] : queryPropertyFilterGroups(input)
+    const propertyGroups = queryPropertyFilterGroups(input)
     const filters = queryFilters(input, propertyGroups)
 
     return {
@@ -422,8 +415,8 @@ export function buildAccountsTableQueryPlan(input: BuildAccountsTableQueryPlanIn
             ignoreMissingDefinitions: true,
             filters,
             filterGroups: propertyGroups.length > 1 ? propertyGroups : undefined,
-            includeChurned: input.accountIdFilter !== null,
-            includeIgnored: input.accountIdFilter !== null,
+            includeChurned: false,
+            includeIgnored: false,
             sort,
             tags: { ...CUSTOMER_ANALYTICS_DEFAULT_QUERY_TAGS, name: 'customer_analytics_accounts_list' },
         },

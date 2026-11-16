@@ -44,10 +44,8 @@ function VerificationTag({ verified }: { verified: boolean }): JSX.Element {
 
 export function IntegrationEmailDomainView({
     integration,
-    canAddSender,
 }: {
     integration: EmailIntegrationDomainGroupedType
-    canAddSender: boolean
 }): JSX.Element {
     const { openSetupModal, deleteIntegration } = useActions(integrationsLogic)
     const { openAddSender } = useActions(addEmailSenderLogic)
@@ -97,21 +95,19 @@ export function IntegrationEmailDomainView({
                             {verificationRequired && <VerificationTag verified={verified} />}
                         </div>
                     </div>
-                    {canAddSender && (
-                        <LemonButton
-                            type="secondary"
-                            size="small"
-                            icon={<IconPlus />}
-                            onClick={(event) => {
-                                event.stopPropagation()
-                                openAddSender(domain, 'domain_row')
-                            }}
-                            disabledReason={addSenderRestrictedReason}
-                            data-attr="email-domain-add-sender"
-                        >
-                            Add sender
-                        </LemonButton>
-                    )}
+                    <LemonButton
+                        type="secondary"
+                        size="small"
+                        icon={<IconPlus />}
+                        onClick={(event) => {
+                            event.stopPropagation()
+                            openAddSender(domain, 'domain_row')
+                        }}
+                        disabledReason={addSenderRestrictedReason}
+                        data-attr="email-domain-add-sender"
+                    >
+                        Add sender
+                    </LemonButton>
                     <div className="text-secondary">
                         {isExpanded ? <IconCollapse className="text-lg" /> : <IconExpand className="text-lg" />}
                     </div>

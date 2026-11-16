@@ -103,7 +103,35 @@ class PinnedTCPConnector(TCPConnector):
     async def _resolve_host(self, host: str, port: int, traces: Sequence[Trace] | None = None) -> list[ResolveResult]:
         if self._using_proxy.get() or not self._host_to_resolved_ips:
             return await super()._resolve_host(host, port, traces)
-        return await self._pinned_resolver.resolve(host, port, socket.AddressFamily(self.family))
+
+        addresses = await self._pinned_resolver.resolve(host, port, socket.AddressFamily(self.family))
+        if not addresses:
+            return addresses
+
+        key = (host, port)
+        if key in self._cached_hosts:
+            cached = self._cached_hosts.next_addrs(key)
+            sort_key = _make_sort_key_using_cached(cached)
+            addresses.sort(key=sort_key)
+
+        # Cache and return resolved IP list, in order
+        self._cached_hosts.add(key, addresses)
+        return self._cached_hosts.next_addrs(key)
+
+
+def _make_sort_key_using_cached(cached: list[ResolveResult]) -> Callable[[ResolveResult], int]:
+    """Make a sort key for resolved addresses based on existing cached addresses."""
+    positions = {addr["host"]: index for index, addr in enumerate(cached)}
+
+    def _sort_key(element: ResolveResult) -> int:
+        try:
+            return positions[element["host"]]
+        except KeyError:
+            # Sends new ones to the end with same key
+            # Python's stable sort preserves relative order
+            return len(cached)
+
+    return _sort_key
 
 
 def pinned_session(host_to_resolved_ips: Mapping[str, ResolvedIPs], **kwargs: Any) -> ClientSession:
