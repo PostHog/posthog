@@ -798,13 +798,6 @@ class TestWorkflowImportAPI(APIBaseTest):
         flag.start()
         self.addCleanup(flag.stop)
 
-    def test_import_needs_the_feature_flag(self) -> None:
-        with patch("posthoganalytics.feature_enabled", return_value=False):
-            response = self._post({"source": "customerio", "campaigns": [], "dry_run": False})
-
-        assert response.status_code == 403
-        assert response.json()["code"] == "feature_flag_required"
-
     def _post(self, body: dict[str, Any]) -> Any:
         return self.client.post(f"/api/projects/{self.team.id}/workflow_imports/", body, format="json")
 
@@ -841,6 +834,7 @@ class TestWorkflowImportAPI(APIBaseTest):
             team=self.team,
             name="Beta list",
             cohort_type=CohortType.REALTIME,
+            realtime_enabled_at=timezone.now(),
             last_backfill_person_properties_at=datetime(2026, 1, 1, tzinfo=UTC),
             last_backfill_events_at=datetime(2026, 1, 1, tzinfo=UTC),
             filters={

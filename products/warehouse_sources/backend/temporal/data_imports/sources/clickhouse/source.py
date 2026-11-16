@@ -95,6 +95,19 @@ _INVALID_CREDENTIALS = (
     "The database rejected the username or password. Check the user and password for this source and try again."
 )
 
+# PostHog's egress proxy is the SSRF backstop for this source (see `_get_client`'s docstring):
+# it independently re-resolves the configured host on every connection and refuses one that
+# answers with a private/internal address, even if the host passed this source's own DNS check
+# at setup time (a short-TTL record can answer public for one lookup and private for the next).
+# clickhouse-connect surfaces the refusal as a 407 naming the proxy's deny rule. Whichever rule
+# fired, the configured host resolves somewhere PostHog won't connect to, and retrying re-resolves
+# and gets denied again, so this is the customer's host/DNS to fix, not a transient failure.
+_EGRESS_DENIED_PRIVATE_HOST = (
+    "We can't connect to this ClickHouse host because it resolves to a private or internal address, which "
+    "PostHog's egress proxy won't connect to. Use a host that's reachable from the public internet, or enable "
+    "the SSH tunnel option if this database can't be exposed publicly."
+)
+
 # sshtunnel reports every failure to reach the gateway with this fixed wording, which names no fix.
 _SSH_GATEWAY_SESSION_ERROR = "Could not establish session to SSH gateway"
 _SSH_GATEWAY_UNREACHABLE_ERROR = (
@@ -155,6 +168,9 @@ ClickHouseErrors: dict[str, str] = {
     "received http status 502": _TEMPORARILY_UNAVAILABLE,
     "received http status 503": _TEMPORARILY_UNAVAILABLE,
     "received http status 504": _TEMPORARILY_UNAVAILABLE,
+    # PostHog's egress proxy denied the host as resolving to a private/internal address (see
+    # `_EGRESS_DENIED_PRIVATE_HOST`'s definition for why this is deterministic).
+    "egress proxying is denied": _EGRESS_DENIED_PRIVATE_HOST,
 }
 
 
@@ -471,6 +487,14 @@ class ClickHouseSource(SimpleSource[ClickHouseSourceConfig], SSHTunnelMixin, Val
             # identical failure. We match the stable Arrow-conversion phrase, not the
             # volatile column name or type in the message.
             "is not supported for conversion into Arrow data format": "One of the columns in this table has a type ClickHouse can't export (for example an `AggregateFunction` state column on an aggregating materialized view). Deselect that column in this schema's column settings, or sync a view that finalizes it, then resync.",
+            # clickhouse-connect surfaces our own egress proxy's SSRF refusal as "HTTP driver
+            # received HTTP status 407, server response: Egress proxying is denied to host
+            # '<ip>:<port>': ... denied by rule '<rule>'." The proxy re-resolves the configured
+            # host on every connection independently of this source's own setup-time DNS check, so
+            # a host that resolves to a private/internal address is denied every time, whichever
+            # deny rule names it. Matched on the rule-agnostic, host-agnostic prefix rather than a
+            # specific rule name or the volatile host/IP.
+            "Egress proxying is denied": _EGRESS_DENIED_PRIVATE_HOST,
         }
 
     def get_retryable_errors(self) -> set[str]:
@@ -510,6 +534,11 @@ class ClickHouseSource(SimpleSource[ClickHouseSourceConfig], SSHTunnelMixin, Val
             # pyarrow's message reader instead of urllib3. The byte counts vary; the
             # "bytes for message body, got" wording is stable.
             "bytes for message body, got",
+            # pyarrow raises this `OSError` from the same IPC framing layer when the connection
+            # drops before it can even verify the first message's flatbuffer header — an earlier
+            # point in the same read than the body-length mismatch above, but the same mid-transfer
+            # connection drop. The wording is stable and carries no volatile details.
+            "Invalid flatbuffers message.",
             # requests/urllib3 raises this when the server accepts the connection but never
             # answers within our timeout — typically ClickHouse Cloud still cold-resuming an
             # idle service past our `METADATA_QUERY_TIMEOUT_SECONDS` allowance. Not in

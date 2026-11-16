@@ -16,7 +16,11 @@ import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { AnyPropertyFilter, PropertyFilterType, PropertyOperator } from '~/types'
 
-import type { BlastRadiusApi, HogFlowApi } from 'products/workflows/frontend/generated/api.schemas'
+import type {
+    BlastRadiusApi,
+    HogFlowApi,
+    HogFlowEmailSendingRateLimitApi,
+} from 'products/workflows/frontend/generated/api.schemas'
 
 import { draftMessage } from '../MessageAudience/messageDrafts'
 import { urlForNewBroadcastWithAudience } from './broadcastAudiencePrefill'
@@ -28,6 +32,7 @@ import {
     broadcastWizardLogic,
     getBroadcastTemplatingErrors,
     rateLimitNeededForAudience,
+    remainingSendDuration,
 } from './broadcastWizardLogic'
 
 const LOCAL_AUDIENCE: AnyPropertyFilter[] = [
@@ -1372,5 +1377,14 @@ describe('broadcastWizardLogic', () => {
             .toMatchValues({ currentStep: 'content' })
         expect(router.values.searchParams).toEqual({ other: 'kept' })
         draftLogic.unmount()
+    })
+
+    it.each([
+        { remaining: 6000, limit: { count: 100, period: 'minute' }, expected: '1h' },
+        { remaining: 500, limit: { count: 1000, period: 'hour' }, expected: '30m' },
+        { remaining: 0, limit: { count: 100, period: 'minute' }, expected: '' },
+        { remaining: 500, limit: null, expected: '' },
+    ])('estimates the time to send %o', ({ remaining, limit, expected }) => {
+        expect(remainingSendDuration(remaining, limit as HogFlowEmailSendingRateLimitApi | null)).toBe(expected)
     })
 })

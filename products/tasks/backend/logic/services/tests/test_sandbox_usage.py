@@ -21,6 +21,7 @@ from products.tasks.backend.logic.services.sandbox_usage import (
     close_sandbox_session,
     get_billable_sandbox_compute_usage_by_team,
     get_task_sandbox_usage_by_team,
+    iter_sandbox_sessions,
     measure_task_run_cpu_attribution,
     open_sandbox_session,
     record_task_run_user_activity,
@@ -457,6 +458,16 @@ class TestSandboxUsageAggregation(SandboxUsageBase):
             cpu_core_second_usd=cpu_core_second_usd,
             memory_gib_second_usd=memory_gib_second_usd,
         )
+
+    def test_session_scan_yields_every_row_exactly_once_across_chunks(self):
+        sessions = [self._session() for _ in range(5)]
+        expected = sorted(str(session.id) for session in sessions)
+
+        scanned = [
+            str(session.id) for session in iter_sandbox_sessions(SandboxSession.objects.unscoped(), chunk_size=2)
+        ]
+
+        assert sorted(scanned) == expected
 
     def test_billable_compute_requires_trusted_first_party_client_user_created_snapshot(self):
         for provenance in TaskClientProvenance:
