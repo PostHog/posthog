@@ -178,7 +178,7 @@ class TestDashboardRunInsights(APIBaseTest):
             insight = tile["insight"]
             self.assertEqual(
                 set(insight.keys()),
-                {"id", "short_id", "name", "derived_name", "result", "warnings", "user_access_level"},
+                {"id", "short_id", "name", "derived_name", "result", "warnings", "error", "user_access_level"},
             )
 
     def test_json_format_returns_raw_query_results(self) -> None:
@@ -250,6 +250,18 @@ class TestDashboardRunInsights(APIBaseTest):
         body = self._run(dashboard_id, output_format=output_format)
 
         self.assertEqual(body["results"][0]["insight"]["warnings"], [warning])
+
+    @parameterized.expand([("json",), ("optimized",)])
+    @patch("posthog.caching.calculate_results.calculate_for_query_based_insight")
+    def test_a_tile_that_fails_to_run_says_why(self, output_format: str, mock_calculate: MagicMock) -> None:
+        mock_calculate.side_effect = ValueError("The `metrics` feature flag is not enabled")
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dash"})
+        self.dashboard_api.create_insight({"name": "A", "query": _trends_query_dict(), "dashboards": [dashboard_id]})
+
+        insight = self._run(dashboard_id, output_format=output_format)["results"][0]["insight"]
+
+        self.assertIsNone(insight["result"])
+        self.assertEqual(insight["error"], "The `metrics` feature flag is not enabled")
 
     def test_tile_ids_runs_only_the_selected_tiles(self) -> None:
         dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dash"})

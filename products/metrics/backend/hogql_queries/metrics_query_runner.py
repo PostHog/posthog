@@ -33,7 +33,7 @@ from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 from posthog.permissions import posthog_feature_flag_enabled
 from posthog.shared_link_user import SharedLinkUser
 
-from products.access_control.backend.facade.user_access_control import UserAccessControl, UserAccessControlError
+from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.metrics.backend.dashboard_import.promql_text import drop_match_all_matchers
 from products.metrics.backend.date_range import metrics_query_date_range
 from products.metrics.backend.facade.api import derived_metric_resources, run_metric_query
@@ -53,6 +53,7 @@ from products.metrics.backend.facade.enums import (
     MetricRangeFunction,
     MetricType,
 )
+from products.metrics.backend.feature_gate_error import MetricsFeatureGateError
 from products.metrics.backend.promql import run_promql_range
 from products.metrics.backend.query_concurrency import query_concurrency_slots
 from products.metrics.backend.query_interval import resolve_query_interval
@@ -97,7 +98,7 @@ class MetricsQueryRunner(AnalyticsQueryRunner[MetricsQueryResponse]):
             organization_id=self.team.organization_id,
             team_id=self.team.pk,
         ):
-            raise UserAccessControlError("metrics", "viewer")
+            raise MetricsFeatureGateError(METRICS_FEATURE_FLAG)
         # PromQL runs through Snuffle, which has its own private-alpha flag.
         if self._sends_promql() and not posthog_feature_flag_enabled(
             SNUFFLE_API_FEATURE_FLAG,
@@ -105,7 +106,7 @@ class MetricsQueryRunner(AnalyticsQueryRunner[MetricsQueryResponse]):
             organization_id=self.team.organization_id,
             team_id=self.team.pk,
         ):
-            raise UserAccessControlError("metrics", "viewer")
+            raise MetricsFeatureGateError(SNUFFLE_API_FEATURE_FLAG)
         return True
 
     def query_status_labels(self) -> list[str] | None:
@@ -130,7 +131,7 @@ class MetricsQueryRunner(AnalyticsQueryRunner[MetricsQueryResponse]):
             organization_id=self.team.organization_id,
             team_id=self.team.pk,
         ):
-            raise UserAccessControlError("metrics", "viewer")
+            raise MetricsFeatureGateError(METRICS_FEATURE_FLAG)
         # A team can have metrics without Snuffle, so a PromQL insight checks the Snuffle flag on every run.
         if self._sends_promql() and not posthog_feature_flag_enabled(
             SNUFFLE_API_FEATURE_FLAG,
@@ -138,7 +139,7 @@ class MetricsQueryRunner(AnalyticsQueryRunner[MetricsQueryResponse]):
             organization_id=self.team.organization_id,
             team_id=self.team.pk,
         ):
-            raise UserAccessControlError("metrics", "viewer")
+            raise MetricsFeatureGateError(SNUFFLE_API_FEATURE_FLAG)
 
     def to_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
         raise NotImplementedError(
