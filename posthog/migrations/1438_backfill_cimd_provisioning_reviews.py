@@ -61,7 +61,12 @@ def backfill_accepted_reviews(apps, schema_editor):
                     status="needs_human",
                     reason=_REFUSED_HOST_REASON,
                     run_log=[
-                        {"at": now.isoformat(), "step": "backfill", "level": "warning", "message": _REFUSED_HOST_REASON}
+                        {
+                            "at": now.isoformat(),
+                            "step": "backfill",
+                            "level": "warning",
+                            "message": _REFUSED_HOST_REASON,
+                        }
                     ],
                 )
             )
@@ -74,18 +79,23 @@ def backfill_accepted_reviews(apps, schema_editor):
                 decided_stage="staff",
                 reason=_REASON,
                 decided_at=now,
-                run_log=[{"at": now.isoformat(), "step": "backfill", "level": "info", "message": _REASON}],
+                run_log=[
+                    {
+                        "at": now.isoformat(),
+                        "step": "backfill",
+                        "level": "info",
+                        "message": _REASON,
+                    }
+                ],
             )
         )
     CIMDProvisioningReview.objects.bulk_create(reviews, ignore_conflicts=True)
 
 
 class Migration(migrations.Migration):
-    dependencies = [
-        ("posthog", "1436_cimd_provisioning_review"),
-    ]
+    dependencies = [("posthog", "1437_cimd_provisioning_review")]
 
     operations = [
-        # Reverse is a no-op: rolling back 1436 drops the table and these rows with it.
+        # Reverse is a no-op: rolling back 1437 drops the table and these rows with it.
         migrations.RunPython(backfill_accepted_reviews, migrations.RunPython.noop),
     ]
