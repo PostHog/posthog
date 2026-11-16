@@ -57,7 +57,6 @@ import {
     shouldBlockHogFlowDueToQuota,
 } from './services/hogflows/hogflow-quota-limiting'
 import { matchesWaitUntilCondition } from './services/hogflows/hogflow-utils'
-import { IdempotencyKeys } from './services/hogflows/idempotency-keys'
 import { WorkflowStepResumeSchema } from './services/hogflows/step-resume.service'
 import {
     ATTACHMENT_UPLOAD_TOKEN_CLAIMS,
@@ -282,7 +281,6 @@ const liquidTagsInStep = (emailStep: EmailStep): number =>
 type WorkerRenderContext = { person: CyclotronPerson | undefined; groups: GroupsMap }
 
 const TRANSACTIONAL_SEND_REFUSAL_STATUS: Record<TransactionalSendRefusal, number> = {
-    idempotency_key_in_flight: 409,
     idempotency_key_reused: 422,
     idempotency_unavailable: 503,
     not_sendable: 400,
@@ -341,7 +339,6 @@ export class CdpApi {
     private stepResumeJwt: ScopedServiceJwt
     private transactionalEmailJwt: ScopedServiceJwt
     private manageTransactionalEmailJwt: ScopedServiceJwt
-    private transactionalEmailIdempotencyKeys: IdempotencyKeys
     private attachmentUploads: AttachmentUploads
     private emailSuppressionService: EmailSuppressionService
     private emailValidationService: EmailValidationService
@@ -384,16 +381,7 @@ export class CdpApi {
         })
         this.hogQueue = jobQueues.hogQueue
         this.hogflowQueue = jobQueues.hogflowQueue
-        this.cdpSourceWebhooksConsumer = new CdpSourceWebhooksConsumer(
-            config,
-            deps,
-            jobQueues,
-            new IdempotencyKeys(
-                deps.idempotencyValkey ?? null,
-                'workflow-webhook',
-                config.CDP_IDEMPOTENCY_VALKEY_ENABLED
-            )
-        )
+        this.cdpSourceWebhooksConsumer = new CdpSourceWebhooksConsumer(config, deps, jobQueues)
         this.emailTrackingCodeSigner = new EmailTrackingCodeSigner(
             config.ENCRYPTION_SALT_KEYS,
             config.CDP_EMAIL_TRACKING_URL
@@ -445,11 +433,6 @@ export class CdpApi {
         this.manageTransactionalEmailJwt = new ScopedServiceJwt(
             PosthogJwtAudience.WORKFLOWS_MANAGE_TRANSACTIONAL_EMAIL,
             config.WORKFLOWS_TRANSACTIONAL_EMAIL_JWT_SECRET || ''
-        )
-        this.transactionalEmailIdempotencyKeys = new IdempotencyKeys(
-            deps.idempotencyValkey ?? null,
-            'transactional-email',
-            config.CDP_IDEMPOTENCY_VALKEY_ENABLED
         )
         this.attachmentUploads = new AttachmentUploads(services.attachmentStore, deps.idempotencyValkey ?? null, {
             teams: config.CDP_EMAIL_ATTACHMENTS_TEAMS,
@@ -1695,7 +1678,6 @@ export class CdpApi {
     private transactionalSendsForRequest(): TransactionalSends {
         return new TransactionalSends({
             siteUrl: this.config.SITE_URL ?? 'http://localhost:8000',
-            idempotencyKeys: this.transactionalEmailIdempotencyKeys,
             runIntake: new RunIntake({
                 hogflowQueue: this.hogflowQueue,
                 invocationResultsRowsService: this.invocationResultsService.invocationResultsRowsService,
@@ -1751,8 +1733,6 @@ export class CdpApi {
                     return res.status(409).json({ error: 'canceled' })
                 case 'not_found':
                     return res.status(404).json({ error: 'not_found' })
-                case 'idempotency_unavailable':
-                    return res.status(503).json({ error: 'idempotency_unavailable' })
             }
         })
     }
@@ -1787,7 +1767,6 @@ export class CdpApi {
             }
             const sends = new ScheduledTransactionalSends({
                 jobs: this.batchResolverProducer,
-                idempotencyKeys: this.transactionalEmailIdempotencyKeys,
                 hogFlows: this.hogFlowManager,
                 invocationResults: this.invocationResultsService,
                 emailStatus: this.emailStatusService,

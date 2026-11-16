@@ -1,4 +1,3 @@
-import { randomUUID } from 'crypto'
 import { DateTime } from 'luxon'
 
 import { HogFlow } from '~/cdp/schema/hogflow'
@@ -9,11 +8,10 @@ import { PromiseScheduler } from '~/common/utils/promise-scheduler'
 import { UUID, UUIDT } from '~/common/utils/utils'
 
 import { HealthCheckResult, HealthCheckResultOk, PluginsServerConfig } from '../../types'
-import { Claim, Committed, Recalled, Run, RunIntake, keyedRunId } from '../intake/run-intake'
+import { Claim, Recalled, Run, RunIntake, keyedRunId } from '../intake/run-intake'
 import { createHogFlowInvocation } from '../services/hogflows/hogflow-executor.service'
 import { HOG_FLOW_QUOTA_LIMITED_MESSAGE } from '../services/hogflows/hogflow-quota-limiting'
 import { actionIdForLogging } from '../services/hogflows/hogflow-utils'
-import { IdempotencyKeys } from '../services/hogflows/idempotency-keys'
 import { IdempotentJobQueue, JobQueue } from '../services/job-queue/job-queue.interface'
 import { HogWatcherFunctionState, HogWatcherState, sameWatcherState } from '../services/monitoring/hog-watcher.service'
 import {
@@ -129,8 +127,7 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase<PluginsServerConf
     constructor(
         config: PluginsServerConfig,
         deps: CdpConsumerBaseDeps,
-        jobQueues: { hogQueue: JobQueue; hogflowQueue: IdempotentJobQueue },
-        private idempotencyKeys: IdempotencyKeys = new IdempotencyKeys(null, 'workflow-webhook')
+        jobQueues: { hogQueue: JobQueue; hogflowQueue: IdempotentJobQueue }
     ) {
         super(config, deps)
         this.promiseScheduler = new PromiseScheduler()
@@ -266,8 +263,6 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase<PluginsServerConf
         hogFunction: HogFunctionType
     ): Promise<HogFlowTriggerOutcome> {
         const idempotencyKey = this.getIdempotencyKey(request, hogFlow)
-        // A key belongs to one workflow, so the same key on two workflows starts a run on each.
-        const scopedIdempotencyKey = idempotencyKey ? `${hogFlow.id}/${idempotencyKey}` : null
 
         logger.info('Executing hog flow trigger', {
             id: hogFlow.id,
@@ -277,7 +272,6 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase<PluginsServerConf
         const invocationId = idempotencyKey
             ? keyedRunId(hogFlow.team_id, hogFlow.id, idempotencyKey)
             : new UUIDT().toString()
-        const leaseToken = randomUUID()
         const triggerActionId = hogFlow.actions.find((action) => action.type === 'trigger')?.id ?? 'trigger_node'
 
         const addLog = (level: LogEntryLevel, message: string) => {
@@ -369,7 +363,7 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase<PluginsServerConf
 
                 hogFlowInvocation.id = invocationId // Keep the IDs consistent
                 // Every repeat of a key on the workflow is the same request, so the fingerprint is the workflow.
-                const run: Run = scopedIdempotencyKey
+                const run: Run = idempotencyKey
                     ? { invocation: hogFlowInvocation, claim: { fingerprint: hogFlow.id } }
                     : { invocation: hogFlowInvocation }
                 const answerDuplicate = (): HogFlowTriggerOutcome => {
@@ -379,56 +373,15 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase<PluginsServerConf
                     return { result: functionResult, queuedInvocationId: null }
                 }
 
-                if (scopedIdempotencyKey) {
+                if (idempotencyKey) {
                     const recalled = await this.recallQuietly({ runId: invocationId, fingerprint: hogFlow.id }, hogFlow)
                     if (recalled.status !== 'absent') {
-                        // Restores a record Valkey lost, because an older pod reads only Valkey and would queue a
-                        // second run.
-                        await this.idempotencyKeys.markQueued(
-                            hogFlow.team_id,
-                            scopedIdempotencyKey,
-                            hogFlow.id,
-                            recalled.runId,
-                            leaseToken
-                        )
                         return answerDuplicate()
-                    }
-                    const reservation = await this.idempotencyKeys.reserve(
-                        hogFlow.team_id,
-                        scopedIdempotencyKey,
-                        hogFlow.id,
-                        leaseToken
-                    )
-                    if (reservation.status === 'replayed') {
-                        return answerDuplicate()
-                    }
-                    if (reservation.status === 'in_flight') {
-                        // The first request can still fail to queue, so this one must not report a duplicate.
-                        functionResult.finished = false
-                        functionResult.execResult = { httpResponse: { status: 409, body: { status: 'in_flight' } } }
-                        return { result: functionResult, queuedInvocationId: null }
-                    }
-                    if (reservation.status === 'unavailable') {
-                        // A webhook run matters more than its deduplication, so the run queues on its claim alone.
-                        logger.warn('Idempotency store unavailable, queueing the hog flow run anyway', {
-                            team_id: hogFlow.team_id,
-                            hog_flow_id: hogFlow.id,
-                        })
                     }
                 }
 
-                const releaseReservation = async (): Promise<void> => {
-                    if (scopedIdempotencyKey) {
-                        await this.idempotencyKeys.release(hogFlow.team_id, scopedIdempotencyKey, leaseToken)
-                    }
-                }
-
-                const quotaLimited = await this.isHogFlowQuotaLimited(hogFlow).catch(async (error) => {
-                    await releaseReservation()
-                    throw error
-                })
+                const quotaLimited = await this.isHogFlowQuotaLimited(hogFlow)
                 if (quotaLimited) {
-                    await releaseReservation()
                     addLog('warn', `Started no run: ${HOG_FLOW_QUOTA_LIMITED_MESSAGE}`)
                     functionResult.finished = false
                     if (hogFlow.trigger?.type !== 'tracking_pixel') {
@@ -439,23 +392,7 @@ export class CdpSourceWebhooksConsumer extends CdpConsumerBase<PluginsServerConf
                     return { result: functionResult, queuedInvocationId: null }
                 }
 
-                let committed: Committed
-                try {
-                    committed = (await this.runIntake.launch([run], { wait: 'committed' }))[0]
-                } catch (error) {
-                    await releaseReservation()
-                    throw error
-                }
-                if (scopedIdempotencyKey) {
-                    // Also on a replay: an older pod reads only Valkey and would queue the run again.
-                    await this.idempotencyKeys.markQueued(
-                        hogFlow.team_id,
-                        scopedIdempotencyKey,
-                        hogFlow.id,
-                        invocationId,
-                        leaseToken
-                    )
-                }
+                const committed = (await this.runIntake.launch([run], { wait: 'committed' }))[0]
                 if (committed.outcome !== 'created') {
                     return answerDuplicate()
                 }

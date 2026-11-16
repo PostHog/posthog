@@ -745,13 +745,6 @@ describe('a transactional email sent from code on the sandbox sender', () => {
             attachment_bytes: 0,
         })
         expect(queued).toHaveLength(1)
-        expect(queued[0].state?.idempotencyKey).toEqual(
-            expect.objectContaining({
-                senderKind: 'email_sandbox',
-                fingerprint: expect.any(String),
-                currentFingerprint: expect.any(String),
-            })
-        )
 
         await deliver()
         expect(deliveryStatuses(sent.body.invocation_id)).toEqual([{ status: 'sent', reason: '' }])
