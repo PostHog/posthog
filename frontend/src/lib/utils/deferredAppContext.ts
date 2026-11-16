@@ -2,7 +2,7 @@ import type { AppContext } from '~/types'
 
 import { markBootPhase } from './bootTiming'
 
-// pinned: query param read by `deferred_app_context_variant` in posthog/utils.py
+// pinned: query param read by `defers_user_app_context` in posthog/utils.py
 const DEFERRED_APP_CONTEXT_PARAM = 'deferred_app_context'
 
 interface DeferredAppContext {
@@ -24,7 +24,6 @@ const USER_APP_CONTEXT_KEYS = new Set([
     'current_project',
     'effective_resource_access_control',
     'resource_access_control',
-    'frontend_apps',
     'default_event_name',
     'has_pageview',
     'has_screen',

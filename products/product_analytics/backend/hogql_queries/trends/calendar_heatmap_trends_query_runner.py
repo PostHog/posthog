@@ -68,6 +68,7 @@ class CalendarHeatmapTrendsQueryRunner(TrendsQueryRunner):
                 {
                     "label": self.series_event(self.query.series[0]) if self.query.series else "Heatmap",
                     "order": 0,
+                    "custom_name": self.series_custom_name(self.query.series[0]) if self.query.series else None,
                     "data": [],  # Empty array for non-time-series data
                     "aggregated_value": results.allAggregations,
                     "calendar_heatmap_data": results,  # Store the original heatmap data

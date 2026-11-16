@@ -40,7 +40,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.mix
     is_team_allowlisted_for_internal_hosts,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import (
+    SourceSchema,
+    rank_incremental_fields,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.base import (
     reconcile_source_schema_metadata,
 )
@@ -419,6 +422,14 @@ class ClickHouseSource(SimpleSource[ClickHouseSourceConfig], SSHTunnelMixin, Val
             # something we can change our side, so retrying just re-loads an
             # already disk-pressured server.
             "Code: 243": "Your ClickHouse server ran out of disk space while we were reading a table (it couldn't reserve space for a temporary file). Try scaling up your ClickHouse service or freeing disk space, or sync a smaller table or use an incremental sync, then resume.",
+            # CANNOT_WRITE_TO_FILE_DESCRIPTOR (code 75) raised as an ErrnoException: the source
+            # server's write() to a temporary file (spilling a sort or buffering query output)
+            # failed with ENOSPC. Same capacity problem as Code: 243 above, just caught at the OS
+            # write syscall instead of ClickHouse's own space-reservation check. We match the
+            # stable errno/strerror text rather than "Code: 75" alone, since
+            # CANNOT_WRITE_TO_FILE_DESCRIPTOR also covers unrelated write failures that should stay
+            # retryable.
+            "No space left on device": "Your ClickHouse server ran out of disk space while we were reading a table (it couldn't write a temporary file). Try scaling up your ClickHouse service or freeing disk space, or sync a smaller table or use an incremental sync, then resume.",
             # TOO_MANY_ROWS_OR_BYTES (code 396) — the source server's own `max_result_bytes`/
             # `max_result_rows` limit rejected our extraction query because the table
             # (or incremental window) is larger than that limit allows. Like Code: 241
@@ -499,6 +510,11 @@ class ClickHouseSource(SimpleSource[ClickHouseSourceConfig], SSHTunnelMixin, Val
             # pyarrow's message reader instead of urllib3. The byte counts vary; the
             # "bytes for message body, got" wording is stable.
             "bytes for message body, got",
+            # pyarrow raises this `OSError` from the same IPC framing layer when the connection
+            # drops before it can even verify the first message's flatbuffer header — an earlier
+            # point in the same read than the body-length mismatch above, but the same mid-transfer
+            # connection drop. The wording is stable and carries no volatile details.
+            "Invalid flatbuffers message.",
             # requests/urllib3 raises this when the server accepts the connection but never
             # answers within our timeout — typically ClickHouse Cloud still cold-resuming an
             # idle service past our `METADATA_QUERY_TIMEOUT_SECONDS` allowance. Not in
@@ -612,17 +628,19 @@ class ClickHouseSource(SimpleSource[ClickHouseSourceConfig], SSHTunnelMixin, Val
             # is_in_sorting_key ORDER BY position).
             sort_key = detected_pks.get(table_name)
             leading_sort_key = sort_key[0] if sort_key else None
-            incremental_fields: list[IncrementalField] = [
-                {
-                    "label": field_name,
-                    "type": field_type,
-                    "field": field_name,
-                    "field_type": field_type,
-                    "nullable": nullable,
-                    "is_indexed": field_name == leading_sort_key,
-                }
-                for field_name, field_type, nullable in incremental_field_tuples
-            ]
+            incremental_fields: list[IncrementalField] = rank_incremental_fields(
+                [
+                    {
+                        "label": field_name,
+                        "type": field_type,
+                        "field": field_name,
+                        "field_type": field_type,
+                        "nullable": nullable,
+                        "is_indexed": field_name == leading_sort_key,
+                    }
+                    for field_name, field_type, nullable in incremental_field_tuples
+                ]
+            )
 
             schemas.append(
                 SourceSchema(

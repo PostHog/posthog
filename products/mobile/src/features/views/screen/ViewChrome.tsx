@@ -1,6 +1,9 @@
-import type { ReactElement } from 'react'
+import { Stack } from 'expo-router'
+import type { ReactElement, ReactNode } from 'react'
+import { Platform } from 'react-native'
 
 import { MoreIcon } from '@/ui/icons/MoreIcon'
+import { nativeIcons } from '@/ui/icons/nativeIcons'
 import { PillControl } from '@/ui/PillControl'
 import { Pressable44 } from '@/ui/Pressable44'
 import { ScreenChrome } from '@/ui/ScreenChrome'
@@ -9,12 +12,14 @@ import { createStyles, useColors } from '@/ui/theme'
 import type { ScrollTitle } from '@/ui/useScrollTitle'
 
 interface ViewChromeProps {
+    accessory?: ReactNode
+    nativeAccessory?: ReactNode
     onBack: () => void
     onMore?: () => void
     title?: ScrollTitle
 }
 
-export function ViewChrome({ onBack, onMore, title }: ViewChromeProps): ReactElement {
+export function ViewChrome({ onBack, onMore, title, accessory, nativeAccessory }: ViewChromeProps): ReactElement {
     const colors = useColors()
     const styles = useStyles()
     return (
@@ -22,8 +27,23 @@ export function ViewChrome({ onBack, onMore, title }: ViewChromeProps): ReactEle
             onBack={onBack}
             backTestID="view-back"
             title={title}
+            nativeActions={
+                Platform.OS === 'ios' ? (
+                    <>
+                        {nativeAccessory}
+                        <Stack.Toolbar.Button
+                            iconRenderingMode="template"
+                            icon={nativeIcons.more}
+                            accessibilityLabel="More"
+                            disabled={!onMore}
+                            onPress={onMore}
+                        />
+                    </>
+                ) : null
+            }
             right={
                 <PillControl height={screenLayout.rowHeight}>
+                    {accessory}
                     <Pressable44
                         onPress={() => onMore?.()}
                         disabled={!onMore}

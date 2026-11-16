@@ -1,4 +1,5 @@
 import json
+import hashlib
 from datetime import UTC, datetime
 from enum import StrEnum
 from typing import TYPE_CHECKING
@@ -98,15 +99,12 @@ def _signed_up_after_cutoff(user: User) -> bool:
     return cutoff is not None and user.date_joined >= cutoff
 
 
-def _resolve_flag(
-    flag_key: str, user: User, organization: "Organization", person_properties: dict[str, str] | None = None
-) -> bool | None:
+def _resolve_flag(flag_key: str, user: User, organization: "Organization") -> bool | None:
     organization_id = str(organization.id)
     enabled = get_feature_flag_or_none(
         flag_key,
         str(user.distinct_id),
         groups={"organization": organization_id},
-        person_properties=person_properties,
         group_properties={"organization": {"id": organization_id}},
         only_evaluate_locally=False,
         send_feature_flag_events=False,
@@ -211,11 +209,18 @@ class PostHogAIAccessDecision(StrEnum):
 
 _POSTHOG_AI_DECISION_VALUES = frozenset(decision.value for decision in PostHogAIAccessDecision)
 
-# Everyone who has PostHog AI 2.0 before the gate keeps it, whatever the beta rules say.
-POSTHOG_AI_GRANDFATHERED_FLAGS = ("phai-sandbox-mode", "tasks")
-POSTHOG_AI_BETA_FLAG = "phai-2-beta"
+# The one flag that decides PostHog AI 2.0. Its `grandfathered` variant keeps 2.0 for everyone who had it before
+# the gate, whatever the beta rules say. Its `beta` variant is the rollout, and the rules in its payload apply.
+POSTHOG_AI_ACCESS_FLAG = "phai-2-beta"
+POSTHOG_AI_GRANDFATHERED_VARIANT = "grandfathered"
 _POSTHOG_AI_FUNDING_CACHE_SECONDS = 300
-_POSTHOG_AI_DECISION_CACHE_KEY = "posthog_ai_access_decision:{organization_id}:{user_id}"
+_POSTHOG_AI_DECISION_CACHE_KEY = "posthog_ai_access_decision:{organization_id}:{user_id}:{flags_fingerprint}"
+# Most page loads come more than a minute after the user's previous one, so a short cache misses on nearly every
+# load, and each miss waits on a remote flag lookup. An edit to a deciding flag changes the cache key, so only other
+# inputs, such as billing or the trust score, can make the UI lag an access change, by up to this long.
+_POSTHOG_AI_PAGE_RENDER_CACHE_SECONDS = 24 * 60 * 60
+# Before the flag definitions load, a flag edit cannot change the cache key, so the cache stays short.
+_POSTHOG_AI_UNLOADED_DEFINITIONS_CACHE_SECONDS = 60
 
 
 @frozen
@@ -249,11 +254,11 @@ def _posthog_ai_person_properties(user: User) -> dict[str, str]:
     return {"email": user.email} if user.email else {}
 
 
-def _resolve_beta(user: User, organization: "Organization") -> FeatureFlagResult | None:
+def _resolve_access_flag(user: User, organization: "Organization") -> FeatureFlagResult | None:
     organization_id = str(organization.id)
     try:
         return posthoganalytics.get_feature_flag_result(
-            POSTHOG_AI_BETA_FLAG,
+            POSTHOG_AI_ACCESS_FLAG,
             str(user.distinct_id),
             groups={"organization": organization_id},
             person_properties=_posthog_ai_person_properties(user),
@@ -261,7 +266,7 @@ def _resolve_beta(user: User, organization: "Organization") -> FeatureFlagResult
             send_feature_flag_events=False,
         )
     except Exception:
-        logger.warning("posthog_ai_beta_flag_failed", exc_info=True)
+        logger.warning("posthog_ai_access_flag_failed", exc_info=True)
         return None
 
 
@@ -270,25 +275,24 @@ def get_posthog_ai_access_decision(user: User, organization: "Organization") -> 
     if not user or not user.is_authenticated or not user.distinct_id:
         return PostHogAIAccessDecision.UNRESOLVED
 
-    person_properties = _posthog_ai_person_properties(user)
-    # A failed lookup reads as None. Caching it as a denial would hide a flag outage.
-    flag_unresolved = False
-    for flag in POSTHOG_AI_GRANDFATHERED_FLAGS:
-        enabled = _resolve_flag(flag, user, organization, person_properties)
-        if enabled:
-            return PostHogAIAccessDecision.GRANDFATHERED
-        flag_unresolved = flag_unresolved or enabled is None
-    if flag_unresolved:
-        return PostHogAIAccessDecision.UNRESOLVED
+    decision = _decide_posthog_ai_access(user, organization)
+    # A fresh decision replaces the page-render copy, so a denied caller's next page shows classic PostHog AI.
+    _remember_page_render_decision(user, organization, decision)
+    return decision
 
-    beta = _resolve_beta(user, organization)
-    if beta is None:
+
+def _decide_posthog_ai_access(user: User, organization: "Organization") -> PostHogAIAccessDecision:
+    access = _resolve_access_flag(user, organization)
+    # A failed lookup reads as None. Caching it as a denial would hide a flag outage.
+    if access is None:
         return PostHogAIAccessDecision.UNRESOLVED
-    if not beta.enabled:
+    if not access.enabled:
         return PostHogAIAccessDecision.BETA_OFF
-    rules = _posthog_ai_beta_rules(beta.payload)
+    if access.variant == POSTHOG_AI_GRANDFATHERED_VARIANT:
+        return PostHogAIAccessDecision.GRANDFATHERED
+    rules = _posthog_ai_beta_rules(access.payload)
     if rules is None:
-        logger.warning("posthog_ai_beta_rules_invalid", flag_key=POSTHOG_AI_BETA_FLAG)
+        logger.warning("posthog_ai_beta_rules_invalid", flag_key=POSTHOG_AI_ACCESS_FLAG)
         return PostHogAIAccessDecision.UNRESOLVED
 
     try:
@@ -306,12 +310,40 @@ def get_posthog_ai_access_decision(user: User, organization: "Organization") -> 
     return PostHogAIAccessDecision.ALLOWED
 
 
-def get_cached_posthog_ai_access_decision(
-    user: User, organization: "Organization", *, cache_seconds: int = 60
-) -> PostHogAIAccessDecision:
+def _deciding_flags_fingerprint() -> str | None:
+    all_definitions = posthoganalytics.feature_flag_definitions()
+    if all_definitions is None:
+        return None
+    definitions = [definition for definition in all_definitions if definition.get("key") == POSTHOG_AI_ACCESS_FLAG]
+    serialized = json.dumps(definitions, sort_keys=True, default=str)
+    return hashlib.sha256(serialized.encode()).hexdigest()[:16]
+
+
+def _page_render_cache_key_and_timeout(user: User, organization: "Organization") -> tuple[str, int]:
+    flags_fingerprint = _deciding_flags_fingerprint()
+    timeout = _POSTHOG_AI_PAGE_RENDER_CACHE_SECONDS
+    if flags_fingerprint is None:
+        timeout = _POSTHOG_AI_UNLOADED_DEFINITIONS_CACHE_SECONDS
+    cache_key = _POSTHOG_AI_DECISION_CACHE_KEY.format(
+        organization_id=organization.id, user_id=user.pk, flags_fingerprint=flags_fingerprint
+    )
+    return cache_key, timeout
+
+
+def _remember_page_render_decision(user: User, organization: "Organization", decision: PostHogAIAccessDecision) -> None:
+    if decision == PostHogAIAccessDecision.UNRESOLVED or not user.pk:
+        return
+    cache_key, timeout = _page_render_cache_key_and_timeout(user, organization)
+    try:
+        cache.set(cache_key, decision.value, timeout=timeout)
+    except Exception:
+        logger.warning("posthog_ai_access_decision_cache_write_failed", exc_info=True)
+
+
+def get_cached_posthog_ai_access_decision(user: User, organization: "Organization") -> PostHogAIAccessDecision:
     """For page renders, so a load does not wait on remote flag lookups. Enforcement points call the uncached
-    decision. An unresolved decision is never cached."""
-    cache_key = _POSTHOG_AI_DECISION_CACHE_KEY.format(organization_id=organization.id, user_id=user.pk)
+    decision, which also refreshes this copy. An unresolved decision is never cached."""
+    cache_key, _timeout = _page_render_cache_key_and_timeout(user, organization)
     try:
         cached = cache.get(cache_key)
     except Exception:
@@ -319,13 +351,7 @@ def get_cached_posthog_ai_access_decision(
         cached = None
     if isinstance(cached, str) and cached in _POSTHOG_AI_DECISION_VALUES:
         return PostHogAIAccessDecision(cached)
-    decision = get_posthog_ai_access_decision(user, organization)
-    if decision != PostHogAIAccessDecision.UNRESOLVED:
-        try:
-            cache.set(cache_key, decision.value, timeout=cache_seconds)
-        except Exception:
-            logger.warning("posthog_ai_access_decision_cache_write_failed", exc_info=True)
-    return decision
+    return get_posthog_ai_access_decision(user, organization)
 
 
 def has_loops_access(user: User, team: "Team | None" = None) -> bool:

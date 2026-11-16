@@ -3,7 +3,7 @@ searched and access-filtered page of them. Each workflow is a contract with its 
 
 import re
 from collections.abc import Mapping
-from typing import TYPE_CHECKING, Final, Optional, cast
+from typing import TYPE_CHECKING, Any, Final, Optional, cast
 from uuid import UUID
 
 from django.core.exceptions import ValidationError
@@ -12,7 +12,7 @@ from django.db.models import Count, F, OuterRef, Prefetch, Q, QuerySet, Subquery
 from django.db.models.expressions import RawSQL
 from django.db.models.functions import Coalesce
 
-from django_filters import BooleanFilter, FilterSet
+from django_filters import BooleanFilter, CharFilter, FilterSet
 
 from posthog.api.tagged_item import current_tag_names
 from posthog.models import TaggedItem
@@ -29,6 +29,8 @@ from products.workflows.backend.facade.contracts import (
     WorkflowListQuery,
     WorkflowNotFound,
     WorkflowRef,
+    WorkflowReplayTarget,
+    WorkflowSummary,
 )
 from products.workflows.backend.facade.enums import HogFlowScheduleStatus, WorkflowProposalStatus
 from products.workflows.backend.models.hog_flow.hog_flow import MESSAGING_ACTION_TYPES, HogFlow
@@ -120,6 +122,7 @@ def to_edit_state(flow: HogFlow) -> WorkflowEditState:
         team_id=flow.team_id,
         name=flow.name,
         status=flow.status,
+        disabled_from_active=flow.disabled_from_active,
         version=flow.version,
         origin_product=flow.origin_product,
         created_by=flow.created_by,
@@ -206,6 +209,7 @@ WORKFLOW_FIELD_FILTER_PARAMS: Final[tuple[str, ...]] = (
     "origin_product",
     "source_record",
     "optimization_enabled",
+    "name",
 )
 
 
@@ -228,6 +232,23 @@ def list_workflows(
     return flows.map(lambda flow: _to_workflow(flow, user_access_control, template_cache, with_schedules=False))
 
 
+def list_workflow_summaries(
+    *,
+    team_id: int,
+    query: WorkflowListQuery,
+    user_access_control: "UserAccessControl | None",
+    limit: int,
+    name_contains: str = "",
+) -> list[WorkflowSummary]:
+    queryset = _list_queryset(team_id, query, user_access_control, include_all_if_admin=False)
+    if name_contains:
+        queryset = queryset.filter(name__icontains=name_contains)
+    return [
+        WorkflowSummary(id=str(row["id"]), name=row["name"] or "", status=row["status"])
+        for row in queryset.values("id", "name", "status")[:limit]
+    ]
+
+
 def _list_queryset(
     team_id: int,
     query: WorkflowListQuery,
@@ -236,6 +257,7 @@ def _list_queryset(
 ) -> QuerySet:
     queryset: QuerySet = (
         HogFlow.objects.filter(team_id=team_id)
+        .exclude(origin_product__in=HIDDEN_ORIGIN_PRODUCTS)
         .select_related("created_by")
         # _to_workflow reads prefetched_tags, so a page costs one tag query rather than one per row.
         .prefetch_related(
@@ -417,6 +439,7 @@ OWNED_WORKFLOW_TYPES: Final[dict[str, str]] = {
     "broadcast": HogFlow.OriginProduct.BROADCASTS,
     "transactional_email": HogFlow.OriginProduct.TRANSACTIONAL_EMAILS,
 }
+HIDDEN_ORIGIN_PRODUCTS: Final[tuple[str, ...]] = (HogFlow.OriginProduct.TRANSACTIONAL_EMAIL_KEYS,)
 
 
 def workflow_type_q(requested: set[str]) -> Q:
@@ -428,7 +451,7 @@ def workflow_type_q(requested: set[str]) -> Q:
     messaging = Q()
     for action_type in MESSAGING_ACTION_TYPES:
         messaging |= Q(actions__contains=[{"type": action_type}])
-    unowned = ~Q(origin_product__in=list(OWNED_WORKFLOW_TYPES.values()))
+    unowned = ~Q(origin_product__in=[*OWNED_WORKFLOW_TYPES.values(), *HIDDEN_ORIGIN_PRODUCTS])
     if behavioural == {"messaging", "automation"}:
         return owned | unowned
     return owned | (unowned & (messaging if behavioural == {"messaging"} else ~messaging))
@@ -478,7 +501,7 @@ def annotate_broadcast_shape(queryset: QuerySet) -> QuerySet:
     )
 
 
-BROADCAST_STATUSES = ("draft", "scheduled", "sending", "sent", "failed", "archived")
+BROADCAST_STATUSES = ("draft", "scheduled", "sending", "sent", "partially_sent", "failed", "archived")
 
 
 class _WorkflowFilterSet(FilterSet):
@@ -486,6 +509,11 @@ class _WorkflowFilterSet(FilterSet):
     optimization_enabled = BooleanFilter(
         method="filter_optimization_enabled",
         label="Only workflows someone turned suggestions on for.",
+    )
+    name = CharFilter(
+        field_name="name",
+        lookup_expr="icontains",
+        label="Only workflows whose name contains this text, ignoring case.",
     )
 
     class Meta:
@@ -539,3 +567,31 @@ def _action_content_matches(regex_pattern: str) -> RawSQL:
     params = [regex_pattern] * (len(clauses) * len(_ACTION_SEARCH_TEXT_SQL))
     # nosemgrep: python.django.security.audit.raw-query.avoid-raw-sql (the search term is bound via params; only constant SQL and the table name from _meta are interpolated)
     return RawSQL(" OR ".join(clauses), params, output_field=models.BooleanField())
+
+
+def get_workflow_replay_targets(team_ids: list[int], workflow_ids: list[str]) -> list[WorkflowReplayTarget]:
+    """Workflows across teams, for staff tooling that replays failed runs."""
+    # nosemgrep: idor-lookup-without-team -- staff-only incident tooling that spans teams by design
+    flows = HogFlow.objects.filter(id__in=workflow_ids, team_id__in=team_ids).only(
+        "id", "team_id", "name", "status", "actions"
+    )
+    targets = []
+    for flow in flows:
+        actions = [action for action in flow.actions or [] if isinstance(action, dict)]
+        configs: list[dict[str, Any]] = [
+            config if isinstance(config := action.get("config"), dict) else {} for action in actions
+        ]
+        targets.append(
+            WorkflowReplayTarget(
+                id=str(flow.id),
+                team_id=flow.team_id,
+                name=flow.name or "",
+                status=flow.status,
+                template_ids=tuple(sorted({c["template_id"] for c in configs if c.get("template_id")})),
+                sends_sensitive_email=any(
+                    action.get("type") == "function_email" and config.get("sensitive") is True
+                    for action, config in zip(actions, configs)
+                ),
+            )
+        )
+    return targets

@@ -21,6 +21,8 @@ posthog/hogql/** @PostHog/hogql
 posthog/hogql/database/schema/**
 # ...and the generated schema snapshot, which changes when those definitions are regenerated
 posthog/hogql/database/test/__snapshots__/test_database.ambr
+# ...and documentation, which does not change HogQL behavior
+posthog/hogql/**/*.md
 
 # Being open source brings us unwanted problems because Github Actions are untrusted and inherently unsafe
 # so we have to be extra careful with changes here. Let's have the security team own these checks.
@@ -33,6 +35,9 @@ posthog/hogql/database/test/__snapshots__/test_database.ambr
 # We must be careful to only execute code from this repo's default branch, and never execute code from the PR's branch.
 .github/workflows/auto-assign-reviewers.yml @PostHog/team-security
 .github/scripts/assign-reviewers.js @PostHog/team-security
+# The auto-labeler runs on the same event with a write token, so the same rule applies.
+.github/workflows/auto-assign-labels.yml @PostHog/team-security
+.github/scripts/label-pr-from-title.js @PostHog/team-security
 # The vendored CODEOWNERS matcher the auto-assigner (and the ownership skill) depend on.
 .github/scripts/codeowners.js @PostHog/team-security
 # The distributed-ownership resolver the auto-assigner executes on that same
@@ -90,8 +95,14 @@ products/isolation_baseline.txt @PostHog/team-devex
 # with the teams that own their directories.
 /AGENTS.md @PostHog/team-devex
 /CLAUDE.md @PostHog/team-devex
+/.agents/agent-automation.md @PostHog/team-devex
+/.agents/architecture.md @PostHog/team-devex
+/.agents/ci.md @PostHog/team-devex
+/.agents/code-style.md @PostHog/team-devex
+/.agents/feature-usage-tracking.md @PostHog/team-devex
 .github/pull_request_template.md @PostHog/team-devex
 .agents/skills/writing-pr-descriptions/ @PostHog/team-devex
+docs/internal/ci-things-already-tried.md @PostHog/team-devex
 
 # A changed commit in the lockfile means a workflow now runs different third-party code.
 .github/workflows/actions.lock @PostHog/team-devex

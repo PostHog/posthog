@@ -830,6 +830,23 @@ GROUP BY date
         assert PREAGGREGATED_TABLE_NAME not in query
 
 
+class TestIsIntegerTimezone(unittest.TestCase):
+    @parameterized.expand(
+        [
+            ("new_york_ambiguous", "America/New_York", datetime(2026, 11, 1, 1, 30, tzinfo=UTC), True),
+            ("new_york_nonexistent", "America/New_York", datetime(2026, 3, 8, 2, 30, tzinfo=UTC), True),
+            ("london_ambiguous", "Europe/London", datetime(2026, 10, 25, 1, 30, tzinfo=UTC), True),
+            ("london_nonexistent", "Europe/London", datetime(2026, 3, 29, 1, 30, tzinfo=UTC), True),
+            ("sydney_ambiguous", "Australia/Sydney", datetime(2026, 4, 5, 2, 30, tzinfo=UTC), True),
+            ("sydney_nonexistent", "Australia/Sydney", datetime(2026, 10, 4, 2, 30, tzinfo=UTC), True),
+            ("adelaide_ambiguous", "Australia/Adelaide", datetime(2026, 4, 5, 2, 30, tzinfo=UTC), False),
+        ]
+    )
+    def test_integer_timezones_in_dst_transition_hour(self, _name, timezone, instant, expected):
+        with time_machine.travel(instant, tick=False):
+            assert is_integer_timezone(timezone) is expected
+
+
 @snapshot_clickhouse_queries
 @override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=False)
 class TestPreaggregatedTableTransformationIntegration(APIBaseTest, ClickhouseTestMixin):

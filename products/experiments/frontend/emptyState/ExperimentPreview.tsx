@@ -2,7 +2,7 @@ import './ExperimentPreview.scss'
 
 import { LemonTag } from 'lib/lemon-ui/LemonTag'
 import { cn } from 'lib/utils/css-classes'
-import { inStorybook, inStorybookTestRunner } from 'lib/utils/dom'
+import { inStorybook } from 'lib/utils/dom'
 
 /**
  * Example-data preview for the experiments empty state: a running experiment's results
@@ -12,7 +12,7 @@ import { inStorybook, inStorybookTestRunner } from 'lib/utils/dom'
  * per the preview rules in the `building-product-empty-states` skill.
  */
 export function ExperimentPreview(): JSX.Element {
-    const isStatic = inStorybook() || inStorybookTestRunner()
+    const isStatic = inStorybook()
 
     return (
         <div className={cn('ExpPreview', isStatic && 'ExpPreview--static')}>

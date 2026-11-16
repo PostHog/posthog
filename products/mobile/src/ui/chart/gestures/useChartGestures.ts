@@ -1,5 +1,10 @@
 import { useMemo } from 'react'
-import { type ComposedGesture, Gesture, type PanGesture, type TouchData } from 'react-native-gesture-handler'
+import {
+    type LegacyComposedGesture as ComposedGesture,
+    Gesture,
+    type LegacyPanGesture as PanGesture,
+    type TouchData,
+} from 'react-native-gesture-handler'
 import { type SharedValue, useSharedValue } from 'react-native-reanimated'
 import { scheduleOnRN } from 'react-native-worklets'
 

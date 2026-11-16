@@ -2,7 +2,7 @@ import datetime
 import functools
 import dataclasses
 from abc import ABC, abstractmethod
-from collections.abc import Callable, Iterable, Mapping
+from collections.abc import Callable, Iterable, Iterator, Mapping
 from typing import TYPE_CHECKING, Any, Generic, Optional, TypeVar, Union, cast
 
 import structlog
@@ -20,6 +20,7 @@ if TYPE_CHECKING:
 
 from products.warehouse_sources.backend.facade.source_config import (
     SourceConfig,
+    SourceFieldConfig,
     SourceFieldCredentialAccountSelectConfig,
     SourceFieldFileUploadConfig,
     SourceFieldInputConfig,
@@ -36,6 +37,14 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.con
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.credential_kind import (
     default_credential_kind,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.legacy_oauth import LegacyOAuthGrant
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.oauth_pointers import (
+    OAuthPointer,
+    PointerPath,
+    declared_oauth_pointer_paths,
+    find_in_use_oauth_slot,
+    pointer_at,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.source_helpers import (
@@ -48,7 +57,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.typ
     SourceResponse,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import get_config_for_source
-from products.warehouse_sources.backend.types import ExternalDataSourceType, IncrementalField
+from products.warehouse_sources.backend.types import IncrementalField, SourceKey
 
 logger = structlog.get_logger(__name__)
 
@@ -105,6 +114,35 @@ FieldType = Union[
 ]
 
 SourceCredentialsValidationResult = tuple[bool, str | None]
+
+# Field names that say where stored credentials connect, and as which account, for any source that
+# declares them. The input of the default `credential_identity_fields`.
+GENERIC_IDENTITY_FIELDS: frozenset[str] = frozenset(
+    {
+        "host",
+        "port",
+        "instance_url",
+        "connection_string",
+        "ssh_tunnel",
+        "user",
+        "username",
+        "account",
+        "account_id",
+        "account_sid",
+    }
+)
+
+
+def _declared_field_names(fields: Iterable[SourceFieldConfig]) -> Iterator[str]:
+    """The names of the form fields at any depth: in switch groups and in the options of a select."""
+    for field in fields:
+        yield field.name
+        if isinstance(field, SourceFieldSwitchGroupConfig):
+            yield from _declared_field_names(field.fields)
+        elif isinstance(field, SourceFieldSelectConfig):
+            for option in field.options:
+                yield from _declared_field_names(option.fields or [])
+
 
 # Label used by sources whose vendor has no meaningful API versioning. Version strings are
 # opaque vendor labels (Stripe date versions, semver, names) — never parsed or ordered.
@@ -208,6 +246,11 @@ class _BaseSource(ABC, Generic[ConfigType]):
     # instead of naming the source type.
     supports_xmin: bool = False
 
+    # `False` for sources whose incremental sync can replace rows by origin (a file) instead of merging
+    # them on a key. A history table orders each key's versions, so the API offers it only where this
+    # stays `True`.
+    supports_incremental_history: bool = True
+
     # Direct-only connectors opt out so API clients cannot create a source that is accepted by
     # discovery but can never run a scheduled import.
     supports_scheduled_sync: bool = True
@@ -278,7 +321,7 @@ class _BaseSource(ABC, Generic[ConfigType]):
 
     @property
     @abstractmethod
-    def source_type(self) -> ExternalDataSourceType:
+    def source_type(self) -> SourceKey:
         raise NotImplementedError()
 
     @property
@@ -404,6 +447,19 @@ class _BaseSource(ABC, Generic[ConfigType]):
         """
         raise NotImplementedError()
 
+    def describe_pinned_schema(
+        self, config: ConfigType, team_id: int, name: str, schema_metadata: Mapping[str, Any]
+    ) -> SourceSchema | None:
+        """Describe a pinned schema from the definition stored on it, without discovery.
+
+        Discovery can't report a pinned schema (see `SCHEMA_PINNED_METADATA_KEY`), so callers ask
+        this first. A source that can rebuild the schema from `schema_metadata` checks that the
+        credentials can read the schema's own data, raises the errors a sync raises when they
+        can't, and returns the schema. `None` means the caller uses `validate_credentials` and
+        `get_schemas`, as for any other schema.
+        """
+        return None
+
     def _placeholder_config(self) -> ConfigType:
         """Build a credential-free config instance for static, no-network schema listing.
 
@@ -471,7 +527,7 @@ class _BaseSource(ABC, Generic[ConfigType]):
     def _vendor_label(self) -> str:
         # The label is for a message only, so a source config that cannot build must not hide the result.
         try:
-            return self.get_source_config.label or str(self.source_type.value)
+            return self.get_source_config.label or str(self.source_type)
         except Exception:
             return "the vendor"
 
@@ -522,6 +578,26 @@ class _BaseSource(ABC, Generic[ConfigType]):
         return []
 
     @property
+    def credential_identity_fields(self) -> frozenset[str]:
+        """Connection fields that say where the stored credentials connect, and as which account.
+
+        When other sources or products share the credentials row, a change to one of these fields makes a
+        new row, so the other users keep their connection. The default is ``connection_host_fields`` plus
+        each name in ``GENERIC_IDENTITY_FIELDS`` that the source declares as a form field (at any depth) or
+        stores as a config attribute."""
+        declared = set(_declared_field_names(self.get_source_config.fields))
+        declared |= {config_field.name for config_field in dataclasses.fields(self._config_class)}
+        return frozenset(self.connection_host_fields) | (GENERIC_IDENTITY_FIELDS & declared)
+
+    @property
+    def integration_id_fields_point_at_integrations(self) -> bool:
+        """True when each ``*_integration_id`` field of the inputs holds the id of a core ``Integration`` row.
+
+        The reconcile command checks that each such id points at a row. Override it to False when the source
+        keeps its OAuth rows in another model."""
+        return True
+
+    @property
     def credential_kind(self) -> str | None:
         """The ``Integration`` kind that holds this source's typed-in credentials, or None when the source has none.
 
@@ -544,6 +620,39 @@ class _BaseSource(ABC, Generic[ConfigType]):
 
         return derive_credential_auth_type(self.get_source_config)
 
+    def has_legacy_oauth_tokens(self, job_inputs: Mapping[str, Any]) -> bool:
+        """Check for legacy OAuth tokens without network calls."""
+        return False
+
+    def legacy_oauth_keys(self) -> tuple[str, ...]:
+        return ()
+
+    def adopt_legacy_oauth(self, job_inputs: Mapping[str, Any]) -> LegacyOAuthGrant | None:
+        """Prepare a grant for storage. This method can make network calls and raise LegacyOAuthGrantUnusable.
+
+        None means the inputs hold no legacy OAuth tokens to move into a row.
+        """
+        return None
+
+    def in_use_oauth_slot(self, job_inputs: Mapping[str, Any]) -> PointerPath | None:
+        """Where ``job_inputs`` keep the OAuth pointer (`*_integration_id`) that the sync uses, or None.
+
+        The default walks the form: an OAuth field under a select option or a switch group is in use only when
+        that option is selected or the group is on. Override it for a pointer that no form field declares
+        (Slack's legacy ``slack_integration_id``), together with ``oauth_pointer_paths``. Raises
+        `OAuthPointerShapeError` when the inputs cannot tell which field is in use."""
+        return find_in_use_oauth_slot(self.get_source_config.fields, job_inputs)
+
+    def in_use_oauth_pointer(self, job_inputs: Mapping[str, Any]) -> OAuthPointer | None:
+        """The OAuth pointer that the sync of these inputs uses, or None. Do not override: override
+        ``in_use_oauth_slot``."""
+        return pointer_at(job_inputs, self.in_use_oauth_slot(job_inputs))
+
+    @property
+    def oauth_pointer_paths(self) -> frozenset[PointerPath]:
+        """Every place in ``job_inputs`` that can hold an OAuth pointer, also under options that are not selected."""
+        return declared_oauth_pointer_paths(self.get_source_config.fields)
+
     def is_unreachable_validation_error(self, error: str) -> bool:
         """Whether a ``validate_credentials`` message means only that the host could not be reached
         over the network. The update serializer may then save the change with a warning for a team
@@ -560,11 +669,6 @@ class _BaseSource(ABC, Generic[ConfigType]):
         (Custom's ``auth_oauth2_integration_id``, GitHub's legacy ``repository``). Given both the
         incoming and existing inputs so a source can gate on context. Default: none."""
         return []
-
-    # Feature flag a team must have before the API lets it discover tables for or create a source of
-    # this type. `SourceConfig.featureFlag` only hides the source in the UI, so a source that must
-    # not be reachable through the API without the flag sets this as well.
-    requires_team_feature_flag: str | None = None
 
     # Top-level ``job_inputs`` keys that hold server-written runtime state, such as a pointer to an
     # uploaded file. They are neither credentials nor settings a person picks, so they stay in

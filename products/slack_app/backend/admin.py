@@ -1,6 +1,9 @@
 from django.contrib import admin
+from django.db.models import QuerySet
+from django.http import HttpRequest
 
-from .models import SlackChannel, SlackSettings, SlackThreadTaskMapping, SlackUserProfileCache
+from .models import SlackChannel, SlackSettings, SlackThreadJoin, SlackThreadTaskMapping, SlackUserProfileCache
+from .services.slack_settings import onboarding_status_label, reset_onboarding
 
 
 @admin.register(SlackSettings)
@@ -17,9 +20,11 @@ class SlackSettingsAdmin(admin.ModelAdmin):
         "permission_modes",
         "default_integration",
         "channel_welcome_mode",
+        "onboarding_status",
         "updated_at",
     )
     list_filter = ("slack_workspace_id", "created_at")
+    actions = ("reset_onboarding",)
     search_fields = (
         "slack_workspace_id",
         "slack_user_id",
@@ -30,6 +35,15 @@ class SlackSettingsAdmin(admin.ModelAdmin):
     autocomplete_fields = ("default_integration",)
     readonly_fields = ("id", "created_at", "updated_at")
     ordering = ("-updated_at",)
+
+    @admin.display(description="Onboarding")
+    def onboarding_status(self, obj: SlackSettings) -> str:
+        return onboarding_status_label(obj.onboarding)
+
+    @admin.action(description="Reset onboarding (a new thread on the next trigger)")
+    def reset_onboarding(self, request: HttpRequest, queryset: QuerySet[SlackSettings]) -> None:
+        count = reset_onboarding(list(queryset.values_list("id", flat=True)))
+        self.message_user(request, f"Reset the onboarding of {count} {'person' if count == 1 else 'people'}.")
 
 
 @admin.register(SlackThreadTaskMapping)
@@ -72,6 +86,26 @@ class SlackThreadTaskMappingAdmin(admin.ModelAdmin):
         ("Task", {"fields": ("task", "task_run")}),
         ("Dates", {"fields": ("created_at", "updated_at")}),
     )
+
+
+@admin.register(SlackThreadJoin)
+class SlackThreadJoinAdmin(admin.ModelAdmin):
+    list_display = ("id", "team", "thread_mapping", "slack_user_id", "created_at")
+    list_filter = (("created_at", admin.DateFieldListFilter),)
+    search_fields = (
+        "slack_user_id",
+        "thread_mapping__slack_workspace_id",
+        "thread_mapping__channel",
+        "thread_mapping__thread_ts",
+        "team__name",
+    )
+    readonly_fields = ("id", "created_at")
+    autocomplete_fields = ("team", "thread_mapping")
+    ordering = ("-created_at",)
+
+    def get_queryset(self, request: HttpRequest) -> QuerySet[SlackThreadJoin]:
+        # Admin has no team context; SlackThreadJoin's default manager is fail-closed.
+        return SlackThreadJoin.objects.unscoped().select_related("team", "thread_mapping")
 
 
 @admin.register(SlackChannel)

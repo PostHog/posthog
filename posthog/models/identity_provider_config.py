@@ -2,7 +2,7 @@ import uuid
 from typing import TYPE_CHECKING, Optional, cast
 
 from django.contrib.postgres.fields import ArrayField
-from django.db import models
+from django.db import connection, models
 
 import structlog
 
@@ -71,6 +71,14 @@ def oidc_configured_q() -> models.Q:
     ) & models.Q(oidc_credentials__has_key="client_secret")
 
 
+def lock_id_jag_issuer(issuer: str) -> None:
+    """Holds a transaction-scoped lock for `issuer`, so two writes that trust it can't both pass an in-use check."""
+    with connection.cursor() as cursor:
+        cursor.execute(
+            "SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))", [f"id-jag-issuer:{(issuer or '').rstrip('/')}"]
+        )
+
+
 class IdentityProviderConfigQuerySet(models.QuerySet["IdentityProviderConfig"]):
     def for_scope(self, config_scope: str) -> "IdentityProviderConfigQuerySet":
         return self.filter(models.Q(config_scope=config_scope) | models.Q(config_scope__isnull=True))
@@ -94,6 +102,19 @@ class IdentityProviderConfigQuerySet(models.QuerySet["IdentityProviderConfig"]):
     def saml_for_email(self, email: str) -> "IdentityProviderConfigQuerySet":
         return self.for_scope(ConfigScope.SAML).filter(saml_configured_q()).with_verified_domain_for_email(email)
 
+    def with_id_jag_issuer(self, issuer: str) -> "IdentityProviderConfigQuerySet":
+        """Configs that trust `issuer`, ignoring trailing slashes on either side.
+
+        The ID-JAG verifier and the EMA setup's in-use check both match issuers here, so they agree
+        on which configs share an issuer.
+        """
+        normalized_id_jag_issuer_url = models.Func(
+            "id_jag_issuer_url", models.Value("/"), function="RTRIM", output_field=models.CharField()
+        )
+        return self.annotate(normalized_id_jag_issuer_url=normalized_id_jag_issuer_url).filter(
+            normalized_id_jag_issuer_url=(issuer or "").rstrip("/")
+        )
+
     def oidc_for_email(self, email: str) -> "IdentityProviderConfigQuerySet":
         return self.filter(config_scope=ConfigScope.OIDC).with_verified_domain_for_email(email)
 
@@ -102,23 +123,21 @@ class IdentityProviderConfigManager(models.Manager["IdentityProviderConfig"]):
     def get_queryset(self) -> IdentityProviderConfigQuerySet:
         return IdentityProviderConfigQuerySet(self.model, using=self._db)
 
+    def with_id_jag_issuer(self, issuer: str) -> IdentityProviderConfigQuerySet:
+        return self.get_queryset().with_id_jag_issuer(issuer)
+
+    def for_scope(self, config_scope: str) -> IdentityProviderConfigQuerySet:
+        return self.get_queryset().for_scope(config_scope)
+
     def saml_for_email(self, email: str) -> IdentityProviderConfigQuerySet:
         return self.get_queryset().saml_for_email(email)
 
     def get_id_jag_for_request(self, email: str, issuer: str) -> IDJagIdentityProviderResolution:
-        normalized_issuer = (issuer or "").rstrip("/")
         issuer_configs = (
             self.get_queryset()
             .for_scope(ConfigScope.ID_JAG)
-            .annotate(
-                normalized_id_jag_issuer_url=models.Func(
-                    "id_jag_issuer_url",
-                    models.Value("/"),
-                    function="RTRIM",
-                    output_field=models.CharField(),
-                )
-            )
-            .filter(normalized_id_jag_issuer_url=normalized_issuer)
+            .with_id_jag_issuer(issuer)
+            .select_related("id_jag_registered_by_application")
         )
 
         matching: list[tuple[IdentityProviderConfig, OrganizationDomain]] = []
@@ -245,6 +264,19 @@ class IdentityProviderConfig(ModelActivityMixin, UUIDModel):
         blank=True,
         null=True,
         help_text="Allowed ID-JAG client IDs. Empty list allows any client_id.",
+    )
+    # Set when an OAuth client registered the issuer through `ema_issuer:manage`, so a repeat
+    # registration from that client replaces its own configuration instead of adding another.
+    # Deleting the client deletes the configuration, because the trust was granted to that client.
+    id_jag_registered_by_application = models.ForeignKey(
+        "posthog.OAuthApplication",
+        on_delete=models.CASCADE,
+        null=True,
+        blank=True,
+        related_name="+",
+        db_constraint=False,
+        db_index=False,
+        help_text="OAuth application that registered this ID-JAG issuer through enterprise-managed auth setup.",
     )
 
     class Meta:

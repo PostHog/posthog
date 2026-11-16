@@ -4,7 +4,7 @@ An issue resolves when every linked Linear ticket is closed and at least one of 
 canceled ticket alone never resolves an issue, because it means nobody fixed anything. A linked ticket
 that Linear does not return has no known state, so it keeps the issue open. A resolved
 issue becomes active again when a linked ticket moves from a closed state back to an open one.
-Only projects that turn on `linear_status_sync_enabled` in their error tracking settings take part.
+Every project with a linked ticket takes part, unless the kill switch flag is off for that project.
 
 A delivery only says that one ticket changed state. The task reads the current state of every
 linked ticket from Linear before it decides, so a late or reordered delivery cannot apply a state
@@ -38,11 +38,8 @@ from posthog.redis import get_client
 
 from products.error_tracking.backend.facade import contracts
 from products.error_tracking.backend.logic.issue_mutations import transition_issue_status_by_automation
-from products.error_tracking.backend.models import (
-    ErrorTrackingExternalReference,
-    ErrorTrackingIssue,
-    ErrorTrackingSettings,
-)
+from products.error_tracking.backend.logic.team_flags import team_flag_explicitly_off
+from products.error_tracking.backend.models import ErrorTrackingExternalReference, ErrorTrackingIssue
 
 # Linear groups every workflow state into one of these categories. A team can rename its states
 # and add more of them, but it cannot add a category, so the category is what the sync reads.
@@ -51,6 +48,13 @@ _CLOSED_STATE_TYPES = frozenset({_DONE_STATE_TYPE, "canceled"})
 _OPEN_STATE_TYPES = frozenset({"triage", "backlog", "unstarted", "started"})
 
 _TRIGGER_JOB_TYPE = "linear_status_sync"
+
+# pinned: feature flag key, a renamed key is a new flag with its own rollout state
+_ROLLOUT_FLAG = "error-tracking-linear-status-sync"
+
+# pinned: change rows store this as their actor. The sync has no automation row, and the column is a
+# plain id, so nothing resolves it.
+_AUTOMATION_ID = UUID("0ae328e3-a2de-4999-b50f-dac5e1c1552e")
 
 _WORKSPACE_LOOKUP_TIMEOUT_MS = 800
 
@@ -110,11 +114,11 @@ def delivery_ownership(payload: Mapping[str, Any]) -> DeliveryOwnership:
 
 
 def sync_status(job: contracts.LinearStatusSyncJob) -> None:
-    workspace_rows = _opted_in_workspace_rows(job)
+    workspace_rows = IntegrationManager.linear.oauth.list_by_external_id(job.organization_id)
     if not workspace_rows:
         return
     workspace_integration_ids = [row.id for row in workspace_rows]
-    issues = (
+    issues = list(
         ErrorTrackingIssue.objects.filter(
             team_id__in={row.team_id for row in workspace_rows},
             external_issue__integration_id__in=workspace_integration_ids,
@@ -124,6 +128,11 @@ def sync_status(job: contracts.LinearStatusSyncJob) -> None:
         .order_by("id")
         .select_related("team__organization")
     )
+    # Once per project, because one ticket can link many issues of a project, and a lookup that misses
+    # the local flag definitions waits on a remote request.
+    switched_off_team_ids = {
+        team_id for team_id in {issue.team_id for issue in issues} if team_flag_explicitly_off(_ROLLOUT_FLAG, team_id)
+    }
 
     # Each project reads Linear with its own token, so one revoked token must not keep every other
     # project's issue from syncing. One failure is raised after the loop so the task retries, and a
@@ -131,6 +140,8 @@ def sync_status(job: contracts.LinearStatusSyncJob) -> None:
     linear_reads = _LinearReads(job)
     failures: list[Exception] = []
     for issue in issues:
+        if issue.team_id in switched_off_team_ids:
+            continue
         try:
             with _issue_lock(issue.id):
                 _refresh_moved_identifiers(issue, job, workspace_integration_ids)
@@ -178,19 +189,6 @@ def _failure_to_retry(failures: list[Exception]) -> Exception:
         return max(rate_limited, key=lambda failure: failure.retry_after_seconds)
     busy = [failure for failure in failures if isinstance(failure, LockError)]
     return busy[0] if busy else failures[0]
-
-
-def _opted_in_workspace_rows(job: contracts.LinearStatusSyncJob) -> list[IntegrationRecord]:
-    """The integration rows that connect the job's Linear workspace to a project that turned the sync on."""
-    rows = IntegrationManager.linear.oauth.list_by_external_id(job.organization_id)
-    if not rows:
-        return []
-    opted_in_team_ids = set(
-        ErrorTrackingSettings.objects.filter(
-            linear_status_sync_enabled=True, team_id__in={row.team_id for row in rows}
-        ).values_list("team_id", flat=True)
-    )
-    return [row for row in rows if row.team_id in opted_in_team_ids]
 
 
 def _refresh_moved_identifiers(
@@ -314,7 +312,7 @@ def _transition(
     trigger: Trigger,
 ) -> None:
     changed = transition_issue_status_by_automation(
-        issue.team_id, issue.id, expected=expected, status=status, trigger=trigger
+        issue.team_id, issue.id, expected=expected, status=status, trigger=trigger, automation_id=_AUTOMATION_ID
     )
     if not changed:
         return

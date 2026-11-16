@@ -7,7 +7,8 @@ from parameterized import parameterized
 
 from posthog.hogql.compiler.bytecode import create_bytecode
 
-from products.actions.backend.models.action import Action
+from products.actions.backend.facade.contracts import Action
+from products.actions.backend.facade.testing import create_action
 from products.cdp.backend.filters import (
     RUNTIME_CONTRACT,
     build_behavioral_event_expr,
@@ -34,7 +35,7 @@ class TestHogFunctionFilters(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest
 
     def setUp(self):
         super().setUp()
-        self.action = Action.objects.create(
+        self.action = create_action(
             team=self.team,
             name="test action",
             steps_json=[{"event": "$pageview", "url": "docs", "url_matching": "contains"}],

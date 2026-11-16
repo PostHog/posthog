@@ -583,6 +583,15 @@ class MySQLSource(
             # locked-account (4151) and host-blocked (1129) entries above. Match the locale-independent
             # error code (the message text is translated on non-English servers).
             "(3032,": "Your MySQL/MariaDB server is in offline mode (error 3032), which a database admin turned on to block non-admin connections, usually ahead of maintenance. Ask your database admin to turn it back off ('SET GLOBAL offline_mode = OFF'), then retry the sync.",
+            # Error 6400 isn't standard MySQL/MariaDB numbering — it's a vendor extension some
+            # MySQL-wire-protocol servers (e.g. SingleStore) use for their own health monitor putting
+            # the server into offline mode automatically, most often because it's low on disk space.
+            # Unlike the admin-triggered (3032,) case above, no person flips this switch, but the
+            # effect on the sync is identical: every retry reconnects to the same offline server and
+            # fails the same way until the triggering resource problem is resolved. Match the
+            # locale-independent code — the reason text and the timestamp that follow it are volatile
+            # and vendor-specific.
+            "(6400,": "Your database server put itself into offline mode (error 6400) because its own health monitor flagged a resource problem, most often low disk space. Free up disk space (or resolve whatever resource issue the server reported) on your database server — it should come back online on its own once the condition clears — then retry the sync.",
         }
 
     def get_retryable_errors(self) -> set[str]:

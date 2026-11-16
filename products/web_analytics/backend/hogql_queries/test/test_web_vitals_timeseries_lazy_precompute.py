@@ -249,6 +249,7 @@ class TestWebVitalsTimeseriesLazyPrecompute(ClickhouseTestMixin, APIBaseTest):
             assert pre_series["days"] == live_series["days"]
             assert pre_series["data"] == live_series["data"], live_series["order"]
             assert pre_series["order"] == live_series["order"]
+            assert pre_series["custom_name"] == live_series["custom_name"] is not None
 
     @time_machine.travel("2024-01-15T12:00:00Z", tick=False)
     def test_dispatch_routes_only_when_flag_enabled(self) -> None:

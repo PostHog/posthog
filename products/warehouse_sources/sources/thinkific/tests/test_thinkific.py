@@ -1,0 +1,278 @@
+from datetime import UTC, date, datetime
+from typing import Any, Optional
+
+from parameterized import parameterized
+from requests import HTTPError
+
+from products.warehouse_sources.sources.sdk import RESTClientRetryableError
+from products.warehouse_sources.sources.sdk.testing import (
+    DriveResult,
+    Script,
+    ScriptedResponse,
+    SourceDriver,
+    always,
+    scripted_network,
+)
+from products.warehouse_sources.sources.thinkific._config import ThinkificSourceConfig
+from products.warehouse_sources.sources.thinkific.settings import THINKIFIC_ENDPOINTS
+from products.warehouse_sources.sources.thinkific.source import ThinkificSource
+from products.warehouse_sources.sources.thinkific.thinkific import (
+    ThinkificResumeConfig,
+    _format_incremental_date,
+    is_valid_subdomain,
+    validate_credentials,
+)
+
+
+def _response(items: Optional[list[dict[str, Any]]], total_pages: int = 1) -> ScriptedResponse:
+    return ScriptedResponse(json={"meta": {"pagination": {"total_pages": total_pages}}, "items": items or []})
+
+
+def _error_response(status: int) -> ScriptedResponse:
+    return ScriptedResponse(status=status, json={"error": "Authentication Error"})
+
+
+def _run(
+    endpoint: str,
+    script: Script,
+    resume_state: Optional[ThinkificResumeConfig] = None,
+    **inputs: Any,
+) -> DriveResult:
+    driver = SourceDriver(ThinkificSource(), ThinkificSourceConfig(api_key="key", subdomain="sub"))
+    return driver.run(endpoint, script, resume_state=resume_state, **inputs)
+
+
+class TestFormatIncrementalDate:
+    @parameterized.expand(
+        [
+            ("aware_datetime", datetime(2026, 3, 4, 23, 58, tzinfo=UTC), "2026-03-04"),
+            ("naive_datetime", datetime(2026, 3, 4, 1, 0), "2026-03-04"),
+            ("date", date(2026, 3, 4), "2026-03-04"),
+            ("iso_string", "2026-03-04T10:00:00Z", "2026-03-04"),
+        ]
+    )
+    def test_format(self, _name: str, value: Any, expected: str) -> None:
+        assert _format_incremental_date(value) == expected
+
+
+class TestIsValidSubdomain:
+    @parameterized.expand(
+        [
+            ("simple", "mycompany", True),
+            ("hyphenated", "my-company", True),
+            ("alnum", "abc123", True),
+            ("with_space", "my company", False),
+            ("with_dot", "my.company", False),
+            ("with_protocol", "https://x", False),
+            ("empty", "", False),
+        ]
+    )
+    def test_subdomain(self, _name: str, value: str, expected: bool) -> None:
+        assert is_valid_subdomain(value) is expected
+
+
+class TestPagination:
+    def test_fresh_run_paginates_and_saves_after_each_non_terminal_page(self) -> None:
+        result = _run(
+            "courses",
+            [
+                _response([{"id": 1}], total_pages=3),
+                _response([{"id": 2}], total_pages=3),
+                _response([{"id": 3}], total_pages=3),
+            ],
+        )
+
+        # Each page's rows are yielded as a list[dict]; flattened they preserve order.
+        assert result.rows == [{"id": 1}, {"id": 2}, {"id": 3}]
+
+        # First request starts at page=1 with the configured limit; later requests advance by page.
+        assert result.params("page") == ["1", "2", "3"]
+        assert result.requests[0].param("limit") == "100"
+
+        # State saved after each non-terminal page (points at the next page); the last page saves nothing.
+        assert result.saved_states == [ThinkificResumeConfig(next_page=2), ThinkificResumeConfig(next_page=3)]
+
+    def test_resume_starts_from_saved_page(self) -> None:
+        result = _run(
+            "courses",
+            [_response([{"id": 99}], total_pages=5)],
+            resume_state=ThinkificResumeConfig(next_page=5),
+        )
+
+        assert result.rows == [{"id": 99}]
+        assert result.requests[0].param("page") == "5"
+
+    def test_does_not_resume_when_there_is_no_saved_state(self) -> None:
+        result = _run("courses", [_response([{"id": 1}], total_pages=1)])
+
+        assert result.requests[0].param("page") == "1"
+
+
+class TestFanout:
+    def test_child_pages_walk_per_parent_and_carry_parent_id(self) -> None:
+        result = _run(
+            "coupons",
+            [
+                _response([{"id": 7}, {"id": 8}], total_pages=1),  # parent: promotions
+                _response([{"id": 1, "code": "A"}], total_pages=2),  # coupons for promotion 7, page 1
+                _response([{"id": 2, "code": "B"}], total_pages=2),  # coupons for promotion 7, page 2
+                _response([{"id": 3, "code": "C"}], total_pages=1),  # coupons for promotion 8
+            ],
+        )
+
+        assert result.raised is None
+        assert result.rows == [
+            {"id": 1, "code": "A", "promotion_id": 7},
+            {"id": 2, "code": "B", "promotion_id": 7},
+            {"id": 3, "code": "C", "promotion_id": 8},
+        ]
+        assert result.paths == [
+            "/api/public/v1/promotions",
+            "/api/public/v1/coupons",
+            "/api/public/v1/coupons",
+            "/api/public/v1/coupons",
+        ]
+        assert result.params("promotion_id") == [None, "7", "7", "8"]
+        assert result.params("page") == ["1", "1", "2", "1"]
+
+    def test_chapters_take_course_id_from_parent(self) -> None:
+        result = _run(
+            "chapters",
+            [
+                _response([{"id": 11}], total_pages=1),
+                _response([{"id": 5, "name": "Intro"}], total_pages=1),
+            ],
+        )
+
+        assert result.raised is None
+        assert result.rows == [{"id": 5, "name": "Intro", "course_id": 11}]
+        assert result.paths == ["/api/public/v1/courses", "/api/public/v1/courses/11/chapters"]
+
+    @parameterized.expand(
+        [
+            ("missing", {"id": 12}),
+            ("null", {"id": 12, "chapter_ids": None}),
+            ("empty", {"id": 12, "chapter_ids": []}),
+        ]
+    )
+    def test_contents_fan_out_over_each_course_chapter(self, _name: str, course_without_chapters: dict) -> None:
+        result = _run(
+            "contents",
+            [
+                _response([{"id": 11, "chapter_ids": [101, 102]}, course_without_chapters], total_pages=1),
+                _response([{"id": 1, "chapter_id": 101}], total_pages=1),
+                _response([{"id": 2, "chapter_id": 102}], total_pages=1),
+            ],
+        )
+
+        assert result.raised is None
+        assert result.rows == [
+            {"id": 1, "chapter_id": 101, "course_id": 11},
+            {"id": 2, "chapter_id": 102, "course_id": 11},
+        ]
+        # A course with no chapters makes no contents request.
+        assert result.paths == [
+            "/api/public/v1/courses",
+            "/api/public/v1/chapters/101/contents",
+            "/api/public/v1/chapters/102/contents",
+        ]
+
+    def test_resume_skips_completed_parents(self) -> None:
+        result = _run(
+            "course_reviews",
+            [
+                _response([{"id": 11}, {"id": 22}], total_pages=1),
+                _response([{"id": 2, "course_id": 22, "rating": 4}], total_pages=1),
+            ],
+            resume_state=ThinkificResumeConfig(completed=["/course_reviews?course_id=11"]),
+        )
+
+        assert result.raised is None
+        assert result.rows == [{"id": 2, "course_id": 22, "rating": 4}]
+        assert result.params("course_id") == [None, "22"]
+
+    def test_fanout_session_keeps_bodies_out_of_sample_capture(self) -> None:
+        result = _run("course_reviews", [_response([])])
+
+        assert result.session_options[0]["capture"] is False
+        assert result.session_options[0]["allow_redirects"] is False
+
+
+class TestIncrementalFilter:
+    @parameterized.expand(
+        [
+            # Filter added only when all three hold: endpoint supports it, flag on, cursor present.
+            ("flag_off", False, datetime(2026, 3, 4, tzinfo=UTC), False),
+            ("cursor_missing", True, None, False),
+            ("all_conditions", True, datetime(2026, 3, 4, tzinfo=UTC), True),
+        ]
+    )
+    def test_filter_only_when_all_conditions_hold(
+        self, _name: str, should_use: bool, value: Any, expected_present: bool
+    ) -> None:
+        result = _run(
+            "enrollments",
+            [_response([{"id": 1}], total_pages=1)],
+            should_use_incremental_field=should_use,
+            db_incremental_field_last_value=value,
+        )
+        assert ("query[updated_on_or_after]" in result.requests[0].query) is expected_present
+
+
+class TestErrorHandling:
+    @parameterized.expand([("unauthorized", 401), ("forbidden", 403)])
+    def test_auth_error_raises_matchable_http_error(self, _name: str, status: int) -> None:
+        # A 401/403 must surface as an HTTPError whose message carries the status and host, so
+        # get_non_retryable_errors can substring-match it and stop the sync loud.
+        result = _run("courses", [_error_response(status)])
+
+        assert isinstance(result.raised, HTTPError)
+        message = str(result.raised)
+        assert f"{status}" in message
+        assert "api.thinkific.com" in message
+
+    @parameterized.expand([("rate_limited", 429), ("server_error", 500), ("gateway", 503)])
+    def test_retryable_status_is_retried_then_reraised(self, _name: str, status: int) -> None:
+        # 429/5xx are retried up to the client cap and then reraised as a retryable error.
+        result = _run("courses", always(_error_response(status)))
+
+        assert isinstance(result.raised, RESTClientRetryableError)
+
+
+class TestSourceResponse:
+    @parameterized.expand([("enrollments",), ("users",), ("coupons",), ("course_reviews",)])
+    def test_partitioned_endpoint_partitions_by_created_at(self, endpoint: str) -> None:
+        resp = _run(endpoint, [_response([])]).response
+
+        assert resp is not None
+        assert resp.partition_mode == "datetime"
+        assert resp.partition_keys == ["created_at"]
+        assert resp.partition_format == "month"
+
+    @parameterized.expand(list(THINKIFIC_ENDPOINTS.keys()))
+    def test_every_endpoint_builds_a_response(self, endpoint: str) -> None:
+        resp = _run(endpoint, [_response([])]).response
+
+        assert resp is not None
+        assert resp.primary_keys == THINKIFIC_ENDPOINTS[endpoint].primary_keys
+        assert callable(resp.items)
+
+
+class TestValidateCredentials:
+    @parameterized.expand(
+        [
+            ("forbidden", 403, False, 403),
+        ]
+    )
+    def test_status_mapping(self, _name: str, status: int, expected_valid: bool, expected_code: int) -> None:
+        with scripted_network([ScriptedResponse(status=status, json={})]):
+            is_valid, code = validate_credentials("key", "sub")
+        assert is_valid is expected_valid
+        assert code == expected_code
+
+    def test_probe_disables_redirects_to_protect_api_key(self) -> None:
+        # The X-Auth-API-Key header rides on the probe; the session must be built with redirects
+        # pinned off so a redirect can't replay the key to the redirect target during validation.
+        with scripted_network([ScriptedResponse(json={})]) as network:
+            validate_credentials("key", "sub")
+        assert network.session_options[0]["allow_redirects"] is False

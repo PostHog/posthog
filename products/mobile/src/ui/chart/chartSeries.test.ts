@@ -1,3 +1,5 @@
+import { getCalendars } from 'expo-localization'
+
 import { rangeContent, type TooltipContent, tooltipContent, tooltipPoint } from './chartSeries'
 import type { ChartSeries } from './types'
 
@@ -32,6 +34,10 @@ const platforms: ChartSeries[] = ['iOS', 'Android', 'Web', 'Desktop', 'Watch'].m
 }))
 
 describe('chartSeries', () => {
+    afterEach(() => {
+        jest.mocked(getCalendars).mockReturnValue([{ ...getCalendars()[0], uses24hourClock: false }])
+    })
+
     test.each<[string, ChartSeries[], string[], number, Partial<TooltipContent>]>([
         [
             'one series shows its previous period and the change',
@@ -45,7 +51,7 @@ describe('chartSeries', () => {
             [current, previous],
             [],
             1,
-            { header: 'Wed, Oct 14, 2026', note: 'In progress. Data until 14:32.' },
+            { header: 'Wed, Oct 14, 2026', note: 'In progress. Data until 2:32 PM.' },
         ],
         ['many series show the four highest and count the rest', platforms, [], 0, { more: 1, compare: null }],
         ['hidden series leave the tooltip', platforms, ['Watch', 'Desktop'], 0, { more: 0 }],
@@ -65,6 +71,25 @@ describe('chartSeries', () => {
             [...content.rows.map((row) => row.value)].sort((a, b) => b - a)
         )
         expect(content.rows.some((row) => hidden.includes(row.key))).toBe(false)
+    })
+
+    test.each([
+        [false, '4:07 PM'],
+        [true, '16:07'],
+    ])('data freshness follows the 24-hour preference %s', (uses24hourClock, clock) => {
+        jest.mocked(getCalendars).mockReturnValue([{ ...getCalendars()[0], uses24hourClock }])
+        const point = tooltipPoint([current], [], 1, 'day')
+        if (!point) {
+            throw new Error('expected a point')
+        }
+        expect(
+            tooltipContent(point, {
+                formatValue: format,
+                compact: false,
+                maxRows: 4,
+                dataUntil: new Date(2026, 9, 14, 16, 7).getTime(),
+            }).note
+        ).toBe(`In progress. Data until ${clock}.`)
     })
 
     test('rangeContent puts the earlier marker first and skips the previous period', () => {

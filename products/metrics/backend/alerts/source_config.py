@@ -18,6 +18,7 @@ from products.metrics.backend.alerts.wording import alert_url
 
 # A metrics alert checks the latest value of each series, so it runs as often as the platform allows.
 CHECK_INTERVAL_MINUTES: Final = 1
+MAX_ALERTS_PER_TEAM: Final = 20
 MAX_QUERY_LENGTH: Final = 10_000
 
 # Words rather than symbols, because generated API clients build enum keys from the values.
@@ -70,7 +71,7 @@ METRICS_ALERT_CONFIG: Final = SourceConfigSpec(
     model=MetricsPlatformAlertConfig,
     validate=_validate_edit,
     # No `remove_destinations`, so the alert's destinations are `AlertDestination` rows from the start.
-    native=NativeAlertLifecycle(check_interval_minutes=CHECK_INTERVAL_MINUTES),
+    native=NativeAlertLifecycle(check_interval_minutes=CHECK_INTERVAL_MINUTES, max_per_team=MAX_ALERTS_PER_TEAM),
     incident_event_ids=EVENT_IDS_BY_INCIDENT_ACTION,
     alert_url=alert_url,
     rollout_flag="platform-alerts-source-metrics",

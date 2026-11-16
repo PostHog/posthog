@@ -25,11 +25,11 @@ import {
 import type { RefreshingImageSink } from './image-sink'
 import { ImageFetchPoolMetrics, ImageFetchRequestMetrics } from './metrics'
 import { OriginRequestScheduler } from './origin-request-scheduler'
-import { canonicalizeUrl } from './politeness-key'
 import { ImageFetchProcessingMetrics } from './processing-metrics'
 import type { ResponseUrlBinder } from './response-url-binding'
 import { ImageFetchTopHogMetrics } from './tophog-metrics'
 import { urlHistoryExpiresAtMs, urlHistoryStorageExpiresAtMs } from './url-history-expiry'
+import { canonicalizeUrl, urlAssetOf } from './v4-native'
 
 export type ShedReason =
     | 'breaker_open'
@@ -558,6 +558,7 @@ export class FetchRunner implements FetchPass {
                 : undefined
         const fetched = await ImageFetchProcessingMetrics.measure('candidate_fetch', () =>
             this.fetcher.fetch(candidate.currentUrl, {
+                asset: urlAssetOf(candidate.originalRef),
                 sourcePartitions: candidate.sourcePartitions,
                 maxBytes: this.options.maxBytes,
                 timeoutMs: this.options.requestTimeoutMs,
@@ -803,7 +804,7 @@ export class FetchRunner implements FetchPass {
                 kind: 'url',
                 key: candidate.originalRef,
                 nextFetchAtMs: nowMs,
-                storageExpiresAtMs: urlHistoryStorageExpiresAtMs(candidate.originalRef, nowMs),
+                storageExpiresAtMs: urlHistoryStorageExpiresAtMs(candidate.originalRef, nowMs, nowMs),
                 outcome: 'not_stored',
                 cache: withoutValidators(previousUrl?.cache),
             },
@@ -919,7 +920,7 @@ export class FetchRunner implements FetchPass {
                 kind: 'url',
                 key: candidate.originalRef,
                 nextFetchAtMs,
-                storageExpiresAtMs: urlHistoryStorageExpiresAtMs(candidate.originalRef, nextFetchAtMs),
+                storageExpiresAtMs: urlHistoryStorageExpiresAtMs(candidate.originalRef, nextFetchAtMs, nowMs),
                 outcome: String(outcome),
                 cache,
                 ...(storedAtMs === undefined ? {} : { storedAtMs }),

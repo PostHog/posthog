@@ -384,6 +384,33 @@ function productOfFile(file) {
     return rest === undefined ? null : product
 }
 
+const UNDECLARED_PRODUCT_INPUT = /^products\/([^/]+)\/(backend|skills)\/(.+)$/
+
+function productsWithUndeclaredInputChanges(changedFiles, allProductSet) {
+    const products = new Set()
+    for (const file of changedFiles) {
+        const match = UNDECLARED_PRODUCT_INPUT.exec(file)
+        if (!match) {
+            continue
+        }
+        const [, directory, root, rest] = match
+        if (rest.includes('__pycache__/') || (root === 'backend' && rest.endsWith('.md'))) {
+            continue
+        }
+        const product = moduleToProduct(directory)
+        if (allProductSet.has(product)) {
+            products.add(product)
+        }
+    }
+    return [...products].sort()
+}
+
+function listChangedFiles(base, head) {
+    return execFileSync('git', ['diff', '--name-only', '--no-renames', base, head], TURBO_EXEC_OPTS)
+        .split('\n')
+        .filter(Boolean)
+}
+
 // Collapse tach's file map ({ file: [files that import it] }) into
 // product -> [products it imports]. Keys and values are product directory
 // names (underscores); callers normalize to/from Turbo's dashed names. Every
@@ -1580,6 +1607,7 @@ module.exports = {
     libImportName,
     productsImportingModule,
     coreFilesImportingModule,
+    productsWithUndeclaredInputChanges,
 }
 
 // --- Main ---
@@ -1765,6 +1793,32 @@ if (legacyChanged) {
     }
 }
 
+let undeclaredInputProductsAdded = []
+if (process.env.TURBO_SCM_BASE) {
+    let changedFiles
+    try {
+        changedFiles = listChangedFiles(process.env.TURBO_SCM_BASE, process.env.TURBO_SCM_HEAD || 'HEAD')
+    } catch (e) {
+        console.error(`changed-file listing failed: ${e.message}`)
+        process.exit(1)
+    }
+    const undeclaredInputProducts = productsWithUndeclaredInputChanges(changedFiles, allProductSet)
+    const unselected = undeclaredInputProducts.filter((p) => !products.includes(p))
+    if (unselected.length > 0) {
+        console.error(
+            `Products whose non-Python test inputs changed, which Turbo's affected query cannot see: ${JSON.stringify(unselected)}`
+        )
+        products = [...new Set([...products, ...unselected])].sort()
+        undeclaredInputProductsAdded = unselected
+    }
+    if (mustRunProducts !== null) {
+        mustRunProducts = [...new Set([...mustRunProducts, ...undeclaredInputProducts])].sort()
+    }
+    if (diffProducts !== null) {
+        diffProducts = [...new Set([...diffProducts, ...undeclaredInputProducts])].sort()
+    }
+}
+
 // Kill switch: products named in the SKIP_PRODUCT_TESTS repo variable (comma-
 // separated) are dropped from the matrix without a code change — use it to stop
 // running, and blocking on, a product whose tests are temporarily too flaky.
@@ -1892,6 +1946,7 @@ const result = {
         product_matrix_narrowed: productMatrixNarrowed,
         product_count: products.length,
         product_count_full: productCountBeforeNarrowing,
+        undeclared_input_products: undeclaredInputProductsAdded,
         ...runContext(),
     },
 }

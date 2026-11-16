@@ -159,6 +159,8 @@ interface SocialLoginButtonsProps {
      * through `SSOEnforcedLoginButton` instead.
      */
     restrictToProviders?: SSOProvider[] | null
+    /** Rendered at the end of the row, after the providers and the passkey. */
+    extraButton?: ReactNode
 }
 
 export function SocialLoginButtons({
@@ -172,11 +174,12 @@ export function SocialLoginButtons({
     showPasskey = false,
     restrictToProviders,
     onProviderClick,
+    extraButton,
     ...props
 }: SocialLoginButtonsProps): JSX.Element | null {
     const { preflight, socialAuthAvailable } = useValues(preflightLogic)
 
-    if (!preflight || (!socialAuthAvailable && !showPasskey)) {
+    if (!preflight || (!socialAuthAvailable && !showPasskey && !extraButton)) {
         return null
     }
 
@@ -187,7 +190,7 @@ export function SocialLoginButtons({
               .sort((a, b) => order.indexOf(a) - order.indexOf(b))
         : []
 
-    if (!socialProviders.length && !showPasskey) {
+    if (!socialProviders.length && !showPasskey && !extraButton) {
         return null
     }
 
@@ -215,6 +218,7 @@ export function SocialLoginButtons({
                             </Suspense>
                         </PasskeyChunkLoadBoundary>
                     )}
+                    {extraButton}
                 </div>
                 {caption && captionLocation === 'bottom' && <p className="text-secondary">{caption}</p>}
             </div>

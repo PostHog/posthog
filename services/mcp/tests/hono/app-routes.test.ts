@@ -1,8 +1,16 @@
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from 'vitest'
 import type { Mock } from 'vitest'
+import { z } from 'zod'
 
 import { createApp } from '@/hono/app'
 import type { RedisLike } from '@/hono/cache/RedisCache'
+import {
+    type ConfirmedActionRuntime,
+    getConfirmedActionRuntime,
+    setConfirmedActionRuntime,
+} from '@/tools/confirmed-action-registry'
+import { executeConfirmedAction, prepareConfirmedAction } from '@/tools/confirmed-action-runtime'
+import type { Context } from '@/tools/types'
 
 import { makeRedisRateLimitStubs } from './helpers/redis-rate-limit-stubs'
 
@@ -100,13 +108,19 @@ describe('Hono App Routes', () => {
         })
     })
 
-    describe('GET /.well-known/openai-apps-challenge', () => {
-        it('should return the challenge token', async () => {
+    describe('domain verification challenges', () => {
+        it.each([
+            ['/.well-known/openai-apps-challenge', 'pRLV9JYbPOF5Dy039v3Rn3-qrMuKqZ2_4SsX9GoL9aU'],
+            [
+                '/.well-known/muse-challenge/5e793573d164f4dde673230b30b881493267f7e5036340c31bdef7d50ee73afc',
+                'muse-challenge=5e793573d164f4dde673230b30b881493267f7e5036340c31bdef7d50ee73afc',
+            ],
+        ])('GET %s returns the challenge token', async (path, expected) => {
             const { app } = createApp(mockRedis)
-            const res = await app.request('/.well-known/openai-apps-challenge')
+            const res = await app.request(path)
             expect(res.status).toBe(200)
             const body = await res.text()
-            expect(body).toBe('pRLV9JYbPOF5Dy039v3Rn3-qrMuKqZ2_4SsX9GoL9aU')
+            expect(body).toBe(expected)
         })
     })
 
@@ -459,34 +473,47 @@ describe('Hono App Routes', () => {
             // Restore the signing key after the "missing key" test below
             // unsets it, so following tests don't bleed into each other.
             process.env.MCP_SIGNED_STATE_KEY = TEST_SIGNING_KEY
+            setConfirmedActionRuntime(undefined)
         })
 
-        it('installs the runtime so generated -prepare/-execute handlers can resolve it', async () => {
-            // createApp wires setConfirmedActionRuntime at boot. Without
-            // that wiring, getConfirmedActionRuntime() throws — so the
-            // mere fact that we can resolve a non-undefined runtime after
-            // createApp ran proves the boot path is in place.
+        async function confirmsAcross(
+            prepareWith: ConfirmedActionRuntime,
+            executeWith: ConfirmedActionRuntime
+        ): Promise<boolean> {
+            const context = { getDistinctId: async () => 'did-1' } as unknown as Context
+            const inputSchema = z.object({ orgId: z.string() })
+            const prepared = await prepareConfirmedAction(context, {
+                args: { orgId: 'acme' },
+                purpose: 'enforce-2fa',
+                inputSchema,
+                actionLabel: 'enforce 2FA',
+                messageTemplate: 'Enforce 2FA?',
+                ...prepareWith,
+            })
+            const outcome = await executeConfirmedAction(context, {
+                incomingArgs: { confirmation_hash: prepared.confirmation_hash, confirmation: 'confirm' },
+                purpose: 'enforce-2fa',
+                inputSchema,
+                ...executeWith,
+            })
+            return outcome.ok
+        }
+
+        it('installs a runtime that confirms an action it prepared', async () => {
             createApp(mockRedis)
-            const { getConfirmedActionRuntime } = await import('@/tools/confirmed-action-registry')
             const runtime = getConfirmedActionRuntime()
-            expect(runtime.codec).toBeInstanceOf(Object)
-            expect(runtime.ledger).toBeInstanceOf(Object)
+
+            expect(await confirmsAcross(runtime, runtime)).toBe(true)
         })
 
-        it('overwrites the singleton on each createApp call (latest wins)', async () => {
-            // app.ts deliberately re-installs the runtime on every
-            // createApp. Lock that behavior down so a future "guard
-            // against re-install" change doesn't silently make the second
-            // app instance share the first app's Redis-bound ledger.
-            const { getConfirmedActionRuntime } = await import('@/tools/confirmed-action-registry')
-            const redis1 = createMockRedis()
-            createApp(redis1)
+        it('binds each createApp call to its own Redis (latest wins)', async () => {
+            createApp(createMockRedis())
             const first = getConfirmedActionRuntime()
-            const redis2 = createMockRedis()
-            createApp(redis2)
+            createApp(createMockRedis())
             const second = getConfirmedActionRuntime()
-            expect(second).not.toBe(first)
-            expect(second.ledger).not.toBe(first.ledger)
+
+            expect(await confirmsAcross(second, second)).toBe(true)
+            expect(await confirmsAcross(first, second)).toBe(false)
         })
 
         it('boots without a signing key — confirmed_action paradigm is disabled but the app still serves', async () => {
@@ -503,7 +530,6 @@ describe('Hono App Routes', () => {
                 expect(res.status).toBe(200)
                 expect(errorSpy).toHaveBeenCalledWith(expect.stringContaining('confirmed-action paradigm disabled'))
 
-                const { getConfirmedActionRuntime } = await import('@/tools/confirmed-action-registry')
                 expect(() => getConfirmedActionRuntime()).toThrow(/MCP_SIGNED_STATE_KEY/)
             } finally {
                 errorSpy.mockRestore()

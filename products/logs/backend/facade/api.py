@@ -16,9 +16,15 @@ from products.logs.backend.natural_language_query import (
 from products.logs.backend.platform_alert_backfill import logs_state_of_platform
 from products.logs.backend.platform_alert_event_history import (
     MAX_MERGED_EVENT_ROWS,
+    PLATFORM_CONTROL_KINDS,
     PlatformCheckRow,
     PlatformCheckRows,
+    PlatformControlBoundary,
+    PlatformControlRow,
+    PlatformControlTimeline,
     platform_check_rows,
+    platform_control_rows,
+    platform_control_timelines,
 )
 from products.logs.backend.platform_source_config import ALLOWED_WINDOW_MINUTES, has_any_filter
 from products.logs.backend.tasks.tasks import follow_logs_alert_task
@@ -27,10 +33,14 @@ __all__ = [
     "ALLOWED_WINDOW_MINUTES",
     "AlertLimitReached",
     "MAX_MERGED_EVENT_ROWS",
+    "PLATFORM_CONTROL_KINDS",
     "NaturalLanguageQueryFailed",
     "NaturalLanguageQueryUnavailable",
     "PlatformCheckRow",
     "PlatformCheckRows",
+    "PlatformControlBoundary",
+    "PlatformControlRow",
+    "PlatformControlTimeline",
     "claim_alert_slot",
     "close_incident_before_delete",
     "close_incident_on_commit",
@@ -41,6 +51,8 @@ __all__ = [
     "logs_state_of_platform",
     "next_allowed_check_at",
     "platform_check_rows",
+    "platform_control_rows",
+    "platform_control_timelines",
     "translate_natural_language_query",
 ]
 

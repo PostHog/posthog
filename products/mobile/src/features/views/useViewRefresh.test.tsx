@@ -3,7 +3,7 @@ import { act, renderHook } from '@testing-library/react-native'
 
 import type { Freshness } from '@/model/views'
 
-import { REFRESH_MIN_MS } from './freshness'
+import { READ_FLOOR_MS, REFRESH_MIN_MS } from './freshness'
 import type { ReadResult, RefreshMode } from './refreshQueue'
 import { viewsQueue } from './refreshQueue'
 import { type RefreshContainer, type RefreshItem, useViewRefresh, type ViewRefreshOptions } from './useViewRefresh'
@@ -103,6 +103,103 @@ describe('useViewRefresh on a dashboard', () => {
         await flush()
         viewsQueue.reset()
     })
+
+    test('reconnect retries tile work interrupted while awaiting its dashboard container', async () => {
+        const current = {
+            ...options('7d', tiles('7d', 2, false)),
+            container: { ...dashboard('7d'), read: read('7d-dashboard', true) },
+        }
+        const { rerender, unmount } = renderHook(
+            ({ enabled }: { enabled: boolean }) => useViewRefresh({ ...current, enabled }),
+            { initialProps: { enabled: true } }
+        )
+        try {
+            await flush()
+            expect(reads).toEqual(['7d-dashboard'])
+            rerender({ enabled: false })
+            await flush()
+            rerender({ enabled: true })
+            await flush()
+            await settle('7d-dashboard')
+            expect(reads).toEqual(['7d-dashboard', '7d-tile-0', '7d-tile-1'])
+        } finally {
+            unmount()
+        }
+    })
+
+    test.each(
+        (['insight', 'web_analytics'] as const).flatMap((screen) =>
+            (['uncached', 'cached', 'still pending'] as const).map((state) => ({ screen, state }))
+        )
+    )(
+        '$screen retries a $state interrupted read on reconnect while successful reads keep their floor',
+        async ({ screen, state }) => {
+            jest.useFakeTimers()
+            let finish: ((value: ReadResult) => void) | undefined
+            let snapshot: Freshness | undefined = state === 'cached' ? oldValue() : undefined
+            const itemRead = jest.fn(
+                () =>
+                    new Promise<ReadResult>((resolve) => {
+                        finish = resolve
+                    })
+            )
+            const item: RefreshItem = {
+                key: 'interrupted',
+                family: screen === 'insight' ? 'insights' : 'query',
+                windowMode: 'blocking',
+                snapshot: () => snapshot,
+                read: itemRead,
+            }
+            const current: ViewRefreshOptions = {
+                screen,
+                dataScope: 'demo',
+                screenKey: screen,
+                items: [item],
+                enabled: true,
+            }
+            const { rerender, unmount } = renderHook((props: ViewRefreshOptions) => useViewRefresh(props), {
+                initialProps: current,
+            })
+            try {
+                await flush()
+                expect(itemRead).toHaveBeenCalledTimes(1)
+                rerender({ ...current, enabled: false })
+                const fail = async (): Promise<void> => {
+                    await act(async () => {
+                        if (snapshot) snapshot = { ...snapshot, readAt: Date.now(), refreshFailed: true }
+                        finish?.({ status: 'failed', computed: false })
+                    })
+                }
+                if (state !== 'still pending') await fail()
+                rerender(current)
+                await flush()
+                if (state === 'still pending') {
+                    expect(itemRead).toHaveBeenCalledTimes(1)
+                    await fail()
+                }
+                expect(itemRead).toHaveBeenCalledTimes(2)
+                await act(async () => {
+                    snapshot = {
+                        lastRefreshAt: new Date().toISOString(),
+                        readAt: Date.now(),
+                        cacheTargetAge: null,
+                        nextAllowedRefreshAt: null,
+                        refreshFailed: false,
+                    }
+                    finish?.(OK)
+                })
+                rerender({ ...current, enabled: false })
+                rerender(current)
+                await flush()
+                expect(itemRead).toHaveBeenCalledTimes(2)
+                await act(async () => jest.advanceTimersByTime(READ_FLOOR_MS))
+                expect(itemRead).toHaveBeenCalledTimes(2)
+            } finally {
+                unmount()
+                jest.useRealTimers()
+            }
+        }
+    )
 
     test('computes only the first rows before the list reports what it shows', async () => {
         const { unmount } = renderHook(() => useViewRefresh(options('7d', tiles('7d', 10, false))))
@@ -420,6 +517,36 @@ describe('useViewRefresh on a dashboard', () => {
         expect(reads).toEqual(['7d-dashboard', '7d-tile-0', '7d-tile-1', '30d-dashboard', '30d-tile-0', '30d-tile-1'])
         await settle('30d-tile-0')
         await settle('30d-tile-1')
+        unmount()
+    })
+
+    test('switching selections drops only replaced queued reads and allows switching back', async () => {
+        const [first, second, oldTab, retained] = tiles('web', 4, true) as [
+            RefreshItem,
+            RefreshItem,
+            RefreshItem,
+            RefreshItem,
+        ]
+        const [newTab] = tiles('new', 1, false) as [RefreshItem]
+        const initial = {
+            ...options('web', [first, second, oldTab, retained]),
+            screen: 'web_analytics' as const,
+            screenKey: 'web',
+            container: null,
+        }
+        const { rerender, unmount } = renderHook((props: ViewRefreshOptions) => useViewRefresh(props), {
+            initialProps: initial,
+        })
+        expect(reads).toEqual([first.key, second.key])
+
+        rerender({ ...initial, items: [first, second, newTab, retained] })
+        await settle(first.key)
+        await settle(second.key)
+
+        expect(reads).toEqual([first.key, second.key, retained.key, newTab.key])
+        rerender(initial)
+        await flush()
+        expect(reads).toEqual([first.key, second.key, retained.key, newTab.key, oldTab.key])
         unmount()
     })
 

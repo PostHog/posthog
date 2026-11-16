@@ -4,6 +4,7 @@ from products.experiments.backend.metric_calculation.keys import (
     daily_inline_metric_calculations,
     daily_saved_metric_calculations,
     metric_calculation_keys,
+    saved_metric_link_for_calculation_key,
 )
 from products.experiments.backend.metric_calculation.results import (
     previous_completed_metric_result,
@@ -33,5 +34,6 @@ __all__ = [
     "record_daily_metric_failure",
     "record_daily_metric_result",
     "apply_saved_metric_overrides",
+    "saved_metric_link_for_calculation_key",
     "sync_timeseries_recalculation",
 ]

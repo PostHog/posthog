@@ -1,4 +1,5 @@
 from datetime import UTC, datetime
+from typing import Any
 
 import time_machine
 
@@ -580,13 +581,14 @@ class TestReportMetric(SimpleTestCase):
 
     def test_count_comparison_uses_the_same_whole_number_semantics(self) -> None:
         content = _affected_users_metric().model_dump(mode="json")
-        content["comparison"] = {"label": " Previous period ", "value": 16}
+        comparison: dict[str, Any] = {"label": " Previous period ", "value": 16}
+        content["comparison"] = comparison
 
         metric = ReportMetric.model_validate(content)
         assert metric.comparison is not None
         assert metric.comparison.label == "Previous period"
 
-        content["comparison"]["value"] = 16.5
+        comparison["value"] = 16.5
         with self.assertRaisesRegex(ValidationError, "count comparison"):
             ReportMetric.model_validate(content)
 

@@ -17,8 +17,7 @@ const SUMMARY: ErrorTrackingStoredIssueSummaryApi = {
     likely_cause: 'The cart request can finish after the first render when the session token is refreshed.',
     who_is_affected: 'About 40 signed-in users a day, mostly on Safari, in the last 7 days.',
     suggested_next_step: 'Check that the checkout page waits for the cart request before it reads the total.',
-    category: 'own_code',
-    model: 'gpt-4.1-mini',
+    model: 'gpt-6-luna',
     generated_at: '2026-10-20T09:00:00Z',
     checked_at: '2026-10-20T09:00:00Z',
 }
@@ -32,6 +31,10 @@ function render(props: Partial<IssueSummarySectionProps>, width: 'narrow' | 'wid
                 view="ready"
                 summary={SUMMARY}
                 feedback={null}
+                open
+                canManageAiSettings
+                loading={false}
+                onToggle={noop}
                 onRetry={noop}
                 onFeedback={noop}
                 {...props}
@@ -48,12 +51,34 @@ export const ReadyWithoutLikelyCause: Story = {
     render: () => render({ summary: { ...SUMMARY, likely_cause: '' }, feedback: 'good' }),
 }
 
-export const Generating: Story = {
-    render: () => render({ view: 'generating', summary: null }),
-    // The skeleton is the state under test, so the runner must not wait for it to go away.
-    parameters: { testOptions: { waitForLoadersToDisappear: false } },
+export const Failed: Story = { render: () => render({ view: 'failed', summary: null }) }
+
+export const Closed: Story = { render: () => render({ open: false }) }
+
+// Each reason a summary is missing is one line. Snapshots of these add nothing the Failed row does not cover.
+const NO_SNAPSHOT = { testOptions: { snapshotBrowsers: [] } }
+
+export const Writing: Story = {
+    render: () => render({ view: 'writing', summary: null }),
+    parameters: NO_SNAPSHOT,
 }
 
-export const TimedOut: Story = { render: () => render({ view: 'timed_out', summary: null }) }
+export const NotGenerated: Story = {
+    render: () => render({ view: 'not_generated', summary: null }),
+    parameters: NO_SNAPSHOT,
+}
 
-export const Failed: Story = { render: () => render({ view: 'failed', summary: null }) }
+export const AiNotApproved: Story = {
+    render: () => render({ view: 'ai_not_approved', summary: null }),
+    parameters: NO_SNAPSHOT,
+}
+
+export const AiNotApprovedForMember: Story = {
+    render: () => render({ view: 'ai_not_approved', summary: null, canManageAiSettings: false }),
+    parameters: NO_SNAPSHOT,
+}
+
+export const Restricted: Story = {
+    render: () => render({ view: 'restricted', summary: null }),
+    parameters: NO_SNAPSHOT,
+}

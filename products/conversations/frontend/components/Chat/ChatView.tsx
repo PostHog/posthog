@@ -16,6 +16,7 @@ import type {
     TicketStatus,
 } from '../../types'
 import type { SimplifiedRepliesProps } from '../ComposerHeader/ComposerHeader'
+import type { SupportEditorProps } from '../Editor'
 import { MessageInput } from './MessageInput'
 import { MessageList, type TimelineExtra } from './MessageList'
 
@@ -98,6 +99,8 @@ export interface ChatViewProps {
     macroPicker?: React.ReactNode
     enableMacros?: boolean
     onInsertMacro?: (macro: TicketMacroApi) => void
+    /** Stores a file of any type for the reply. Leave unset to hide the attach button. */
+    onAttachFile?: SupportEditorProps['onAttachFile']
     aiSources?: AITriageSource[]
     aiDraftApplying?: boolean
     onApplyAiDraft?: (message: ChatMessage) => void
@@ -153,6 +156,7 @@ export function ChatView({
     composerInsertContent,
     macroPicker,
     enableMacros,
+    onAttachFile,
     onInsertMacro,
     aiSources,
     aiDraftApplying,
@@ -222,6 +226,7 @@ export function ChatView({
                     composerInsertContent={composerInsertContent}
                     macroPicker={macroPicker}
                     enableMacros={enableMacros}
+                    onAttachFile={onAttachFile}
                     onInsertMacro={onInsertMacro}
                 />
             </div>

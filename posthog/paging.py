@@ -25,37 +25,30 @@ class PageRequest:
 
 
 @frozen
-class CursorBound:
-    """Where a cursor page starts.
-
-    Only the items whose first ordering field sorts before `value` (when `before`) or after it
-    (otherwise) are on the page. `value` is the field's value as text, as an API cursor carries it.
-    """
-
-    value: str
-    before: bool
-
-
-@frozen
 class CursorPageRequest:
     """One page of a list that pages by cursor.
 
     `ordering` names the fields to sort by, most significant first. A leading `-` sorts that field
-    in descending order. The page skips `offset` items past `bound` and holds at most `limit` items.
+    in descending order. `after` holds the values of the leading ordering fields of the item just
+    before the page, as text the way an API cursor carries them, with None for a NULL. The page
+    holds at most `limit` of the items that sort strictly after that item, past the first `offset`
+    of them. An empty `after` starts at the first item.
     """
 
     ordering: tuple[str, ...]
-    bound: CursorBound | None
+    after: tuple[str | None, ...]
     offset: int
     limit: int
 
     def __post_init__(self) -> None:
         if not self.ordering:
             raise ValueError("A cursor page needs at least one ordering field.")
+        if len(self.after) > len(self.ordering):
+            raise ValueError(f"A cursor holds one value per ordering field, got {len(self.after)} values.")
         if self.limit < 1:
             raise ValueError(f"A page holds at least one item, got limit={self.limit}.")
         if self.offset < 0:
-            raise ValueError(f"A page cannot start before the bound, got offset={self.offset}.")
+            raise ValueError(f"A page cannot start before the cursor, got offset={self.offset}.")
 
 
 @frozen

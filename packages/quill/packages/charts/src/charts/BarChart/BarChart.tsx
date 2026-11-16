@@ -4,9 +4,8 @@ import { ChartLegend } from '../../components/Legend/ChartLegend'
 import { useChartLegend } from '../../components/Legend/useChartLegend'
 import { bandCenter, type BarChartPrivate, groupedBarCenter } from '../../core/bar-layout'
 import { Chart } from '../../core/Chart'
-import { applyChartDefaults } from '../../core/chart-config'
+import { applyChartDefaults, PERCENT_TICK_FORMATTER } from '../../core/chart-config'
 import { ChartErrorBoundary } from '../../core/ChartErrorBoundary'
-import { useLatest } from '../../core/hooks/useLatest'
 import {
     buildSegmentResolveValue,
     buildStackedBottomValue,
@@ -14,6 +13,7 @@ import {
     computeDivergingStackData,
     computePercentStackData,
     computeStackData,
+    hasNegativeStackValue,
     computeTopStackedKeyByAxis,
     createBarScales,
     type StackedBand,
@@ -67,7 +67,7 @@ export interface BarChartProps<Meta = unknown> {
 
 export function BarChart<Meta = unknown>({ onError, ...rest }: BarChartProps<Meta>): React.ReactElement {
     return (
-        <ChartErrorBoundary onError={onError}>
+        <ChartErrorBoundary onError={onError} resetKey={rest.series}>
             <BarChartInner {...rest} />
         </ChartErrorBoundary>
     )
@@ -88,7 +88,7 @@ function BarChartInner<Meta = unknown>({
     children,
 }: Omit<BarChartProps<Meta>, 'onError'>): React.ReactElement {
     const theme = useResolvedChartTheme(themeProp)
-    const config = useMemo(() => applyChartDefaults(rawConfig), [rawConfig])
+    const config = applyChartDefaults(rawConfig)
     const {
         yScaleType = 'linear',
         showGrid = false,
@@ -100,7 +100,6 @@ function BarChartInner<Meta = unknown>({
         yAxes: configYAxes,
     } = config ?? {}
     const { x: xAxisLine, y: yAxisLine } = resolveAxisLines(showAxisLines)
-    const axisLines = useMemo(() => ({ x: xAxisLine, y: yAxisLine }), [xAxisLine, yAxisLine])
     const {
         track: trackConfig = false,
         shadow: barShadow,
@@ -125,14 +124,13 @@ function BarChartInner<Meta = unknown>({
 
     const resolvedMinBandSize = minBandSize ?? (isHorizontal ? HORIZONTAL_MIN_BAND_SIZE_DEFAULT : 0)
     const wrapperMinHeight = useMemo(
-        () =>
-            computeWrapperMinHeight({
-                isHorizontal,
-                fitToHeight,
-                resolvedMinBandSize,
-                labels,
-            }),
+        () => computeWrapperMinHeight({ isHorizontal, fitToHeight, resolvedMinBandSize, labels }),
         [isHorizontal, fitToHeight, resolvedMinBandSize, labels]
+    )
+
+    const isDiverging = useMemo(
+        () => barLayout === 'stacked' && (divergingStack || hasNegativeStackValue(visibleSeries)),
+        [barLayout, divergingStack, visibleSeries]
     )
 
     const stackedData = useMemo((): Map<string, StackedBand> | undefined => {
@@ -140,12 +138,12 @@ function BarChartInner<Meta = unknown>({
             return computePercentStackData(visibleSeries, labels)
         }
         if (barLayout === 'stacked') {
-            return divergingStack
+            return isDiverging
                 ? computeDivergingStackData(visibleSeries, labels)
                 : computeStackData(visibleSeries, labels)
         }
         return undefined
-    }, [barLayout, visibleSeries, labels, divergingStack])
+    }, [barLayout, visibleSeries, labels, isDiverging])
 
     // Cap rounding is per-axis: buildStackData stacks each yAxisId independently, so each
     // axis has its own topmost visible series. Iteration order matches d3.stack's key order,
@@ -155,16 +153,11 @@ function BarChartInner<Meta = unknown>({
         [barLayout, visibleSeries]
     )
 
-    const chartConfig = useMemo<BarChartConfig>(() => {
-        const base = { ...config, isPercent: barLayout === 'percent' }
-        if (barLayout !== 'percent' || config?.yTickFormatter) {
-            return base
-        }
-        return {
-            ...base,
-            yTickFormatter: (v: number) => `${Math.round(v * 100)}%`,
-        }
-    }, [config, barLayout])
+    const chartConfig: BarChartConfig = {
+        ...config,
+        isPercent: barLayout === 'percent',
+        yTickFormatter: config?.yTickFormatter ?? (barLayout === 'percent' ? PERCENT_TICK_FORMATTER : undefined),
+    }
 
     const createScales: CreateScalesFn = useCallback(
         (coloredSeries: ResolvedSeries[], scaleLabels: string[], dimensions: ChartDimensions): ChartScales => {
@@ -180,7 +173,7 @@ function BarChartInner<Meta = unknown>({
                     if (!band) {
                         return [s]
                     }
-                    if (divergingStack) {
+                    if (isDiverging) {
                         return [
                             { ...s, data: band.top },
                             {
@@ -274,7 +267,7 @@ function BarChartInner<Meta = unknown>({
             axisOrientation,
             stackedData,
             isHorizontal,
-            divergingStack,
+            isDiverging,
             maxBandRange,
             bandPadding,
             fitToHeight,
@@ -292,7 +285,7 @@ function BarChartInner<Meta = unknown>({
                 barLayout,
                 isHorizontal,
                 showGrid,
-                axisLines,
+                axisLines: { x: xAxisLine, y: yAxisLine },
                 xTickFormatter,
                 stackedData,
                 topStackedKeyByAxis,
@@ -306,7 +299,8 @@ function BarChartInner<Meta = unknown>({
             }),
         [
             showGrid,
-            axisLines,
+            xAxisLine,
+            yAxisLine,
             stackedData,
             barLayout,
             isHorizontal,
@@ -375,65 +369,56 @@ function BarChartInner<Meta = unknown>({
 
     // Show each series's own segment value (resolveValue) but anchor the tooltip/value labels
     // at the stacked top (resolvePositionValue) so a stacked bar doesn't read as a running total.
-    const resolveValue = useMemo(() => buildSegmentResolveValue(stackedData), [stackedData])
-    const resolvePositionValue = useMemo(() => buildStackedPositionValue(stackedData), [stackedData])
-    const resolveBottomValue = useMemo(() => buildStackedBottomValue(stackedData), [stackedData])
-
-    const seriesRef = useLatest(visibleSeries)
-    const labelsRef = useLatest(labels)
+    const resolveValue = buildSegmentResolveValue(stackedData)
+    const resolvePositionValue = buildStackedPositionValue(stackedData)
+    const resolveBottomValue = buildStackedBottomValue(stackedData)
 
     // Bars sharing a band slot — rewrite the click payload to the series actually under the
     // cursor so drop-off fillers and per-breakdown segments route correctly.
-    const wrapClickData = useCallback(
-        (clickData: PointClickData<Meta>, scales: ChartScales): PointClickData<Meta> => {
-            const d3Scales = (scales._private as BarChartPrivate | undefined)?.__barChart
-            if (!d3Scales) {
-                return clickData
-            }
-            return (
-                resolveClickedBarSeries({
-                    clickData,
-                    scales: d3Scales,
-                    barLayout,
-                    isHorizontal,
-                    stackedData,
-                    topStackedKeyByAxis,
-                    series: seriesRef.current,
-                    labels: labelsRef.current,
-                }) ?? clickData
-            )
-        },
-        [barLayout, isHorizontal, stackedData, topStackedKeyByAxis, seriesRef, labelsRef]
-    )
+    const wrapClickData = (clickData: PointClickData<Meta>, scales: ChartScales): PointClickData<Meta> => {
+        const d3Scales = (scales._private as BarChartPrivate | undefined)?.__barChart
+        if (!d3Scales) {
+            return clickData
+        }
+        return (
+            resolveClickedBarSeries({
+                clickData,
+                scales: d3Scales,
+                barLayout,
+                isHorizontal,
+                stackedData,
+                topStackedKeyByAxis,
+                series: visibleSeries,
+                labels,
+            }) ?? clickData
+        )
+    }
 
     // A capped track's blank volume gap (funnel compare) is inert: veto the hover there so the tooltip,
     // pointer cursor, highlight, and click are all suppressed. Only wired when a series declares a
     // `trackData` ceiling — with or without a drawn track (stacked funnel bars cap their interactive
     // extent without one).
-    const seriesHasTrackCeiling = useMemo(() => visibleSeries.some((s) => Array.isArray(s.trackData)), [visibleSeries])
+    const seriesHasTrackCeiling = visibleSeries.some((s) => Array.isArray(s.trackData))
 
-    const resolveHoverIndex = useCallback(
-        (index: number, cursor: { x: number; y: number }, scales: ChartScales): number => {
-            const d3Scales = (scales._private as BarChartPrivate | undefined)?.__barChart
-            if (!d3Scales) {
-                return index
-            }
-            return cursorInInertTrackGap({
-                series: seriesRef.current,
-                label: labelsRef.current[index],
-                dataIndex: index,
-                scales: d3Scales,
-                layout: barLayout,
-                isHorizontal,
-                stackedData,
-                topStackedKeyByAxis,
-                cursor,
-            })
-                ? -1
-                : index
-        },
-        [barLayout, isHorizontal, stackedData, topStackedKeyByAxis, seriesRef, labelsRef]
-    )
+    const resolveHoverIndex = (index: number, cursor: { x: number; y: number }, scales: ChartScales): number => {
+        const d3Scales = (scales._private as BarChartPrivate | undefined)?.__barChart
+        if (!d3Scales) {
+            return index
+        }
+        return cursorInInertTrackGap({
+            series: visibleSeries,
+            label: labels[index],
+            dataIndex: index,
+            scales: d3Scales,
+            layout: barLayout,
+            isHorizontal,
+            stackedData,
+            topStackedKeyByAxis,
+            cursor,
+        })
+            ? -1
+            : index
+    }
 
     const chart = (
         <Chart

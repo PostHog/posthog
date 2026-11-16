@@ -1,4 +1,4 @@
-"""Register duckling backfill exports in DuckLake through Trino, for warehouses without duckgres."""
+"""Register duckling backfill exports in DuckLake through Trino instead of duckgres."""
 
 from __future__ import annotations
 
@@ -14,5 +14,7 @@ def backfills_through_trino(organization_id: str) -> bool:
     return backfill_trino.backfills_through_trino(organization_id)
 
 
-def connect_backfill_catalog(organization_id: str) -> AbstractContextManager[DuckLakeBackfillCatalog]:
-    return backfill_trino.TrinoBackfillCatalog.connect(organization_id)
+def connect_backfill_catalog(
+    organization_id: str, *, canary: bool = False, team_id: int | None = None
+) -> AbstractContextManager[DuckLakeBackfillCatalog]:
+    return backfill_trino.TrinoBackfillCatalog.connect(organization_id, canary=canary, team_id=team_id)

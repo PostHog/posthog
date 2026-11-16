@@ -20,6 +20,7 @@ DEFAULT_TASK_DIGEST = contracts.TaskDigestPreferences()
 ACCOUNT_DETAIL_TABS_KEY = "account_detail_tabs"
 ACCOUNT_DETAIL_SYSTEM_TAB_IDS = {
     "system:notes",
+    "system:automations",
     "system:tasks",
     "system:users",
     "system:relationships",

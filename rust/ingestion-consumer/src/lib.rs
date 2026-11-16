@@ -2,6 +2,7 @@ pub mod aperture;
 pub mod batcher;
 pub mod charge_limit;
 mod commit_pacer;
+mod committer;
 pub mod config;
 pub mod consumer;
 pub mod debug_recorder;

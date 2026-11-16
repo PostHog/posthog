@@ -1,0 +1,113 @@
+from typing import cast
+
+from products.warehouse_sources.sources.sdk import (
+    CanonicalDescriptions,
+    DataWarehouseSourceCategory,
+    ExternalDataSourceType,
+    FieldType,
+    ReleaseStatus,
+    SimpleSource,
+    SourceConfig,
+    SourceFieldInputConfig,
+    SourceFieldInputConfigType,
+    SourceInputs,
+    SourceRegistry,
+    SourceResponse,
+    SourceSchema,
+    build_endpoint_schemas,
+    detect,
+)
+from products.warehouse_sources.sources.trustradius._config import TrustradiusSourceConfig
+from products.warehouse_sources.sources.trustradius.canonical_descriptions import CANONICAL_DESCRIPTIONS
+from products.warehouse_sources.sources.trustradius.settings import (
+    API_DOCS_URL,
+    API_VERSION,
+    ENDPOINTS,
+    INCREMENTAL_FIELDS,
+    INCREMENTAL_LOOKBACK_SECONDS,
+    NON_RETRYABLE_ERRORS,
+)
+from products.warehouse_sources.sources.trustradius.trustradius import trustradius_source, validate_credentials
+
+
+@SourceRegistry.register
+class TrustradiusSource(SimpleSource[TrustradiusSourceConfig]):
+    codebase_detection = detect(env=("^TRUSTRADIUS_",))
+
+    lists_tables_without_credentials = True
+    supported_versions = (API_VERSION,)
+    default_version = API_VERSION
+    api_docs_url = API_DOCS_URL
+
+    @property
+    def source_type(self) -> ExternalDataSourceType:
+        return ExternalDataSourceType.TRUSTRADIUS
+
+    def get_non_retryable_errors(self) -> dict[str, str | None]:
+        return dict(NON_RETRYABLE_ERRORS)
+
+    def get_canonical_descriptions(self) -> CanonicalDescriptions:
+        return CANONICAL_DESCRIPTIONS
+
+    def get_schemas(
+        self,
+        config: TrustradiusSourceConfig,
+        team_id: int,
+        with_counts: bool = False,
+        names: list[str] | None = None,
+        force_refresh: bool = False,
+        api_version: str | None = None,
+    ) -> list[SourceSchema]:
+        # Incremental runs read the last stored day again, so append would duplicate its rows.
+        return build_endpoint_schemas(
+            ENDPOINTS,
+            INCREMENTAL_FIELDS,
+            names,
+            merge_only=INCREMENTAL_FIELDS.keys(),
+            default_incremental_lookback_seconds=INCREMENTAL_LOOKBACK_SECONDS,
+        )
+
+    def validate_credentials(
+        self,
+        config: TrustradiusSourceConfig,
+        team_id: int,
+        schema_name: str | None = None,
+        api_version: str | None = None,
+    ) -> tuple[bool, str | None]:
+        return validate_credentials(config.api_key)
+
+    def source_for_pipeline(self, config: TrustradiusSourceConfig, inputs: SourceInputs) -> SourceResponse:
+        return trustradius_source(
+            config.api_key,
+            inputs.schema_name,
+            inputs.team_id,
+            inputs.job_id,
+            should_use_incremental_field=inputs.should_use_incremental_field,
+            last_value=inputs.db_incremental_field_last_value,
+            logger=inputs.logger,
+        )
+
+    @property
+    def get_source_config(self) -> SourceConfig:
+        return SourceConfig(
+            name=ExternalDataSourceType.TRUSTRADIUS,
+            category=DataWarehouseSourceCategory.MARKETING___EMAIL,
+            label="TrustRadius",
+            caption="Get your API key from your TrustRadius Client Success Manager. "
+            "Your license must include access to the selected tables.",
+            iconPath="/static/services/trustradius.png",
+            releaseStatus=ReleaseStatus.BETA,
+            fields=cast(
+                list[FieldType],
+                [
+                    SourceFieldInputConfig(
+                        name="api_key",
+                        label="API key",
+                        type=SourceFieldInputConfigType.PASSWORD,
+                        required=True,
+                        placeholder="",
+                        secret=True,
+                    ),
+                ],
+            ),
+        )

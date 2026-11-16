@@ -1,6 +1,15 @@
 import { pluralize } from 'lib/utils/strings'
 
+import { settleStrategy } from '../constants'
 import { evaluationTarget } from '../evaluationVolume'
+import {
+    DEFAULT_SESSION_MAX_AGE_SECONDS,
+    DEFAULT_SESSION_QUIET_PERIOD_SECONDS,
+    DEFAULT_SESSION_WINDOW_SECONDS,
+    DEFAULT_TRACE_MAX_AGE_SECONDS,
+    DEFAULT_TRACE_QUIET_PERIOD_SECONDS,
+    DEFAULT_TRACE_WINDOW_SECONDS,
+} from '../llmEvaluationLogic'
 import type { EvaluationConfig, EvaluationTarget } from '../types'
 
 const UNIT_NOUNS: Record<EvaluationTarget, string> = {
@@ -26,12 +35,13 @@ export function triggerText(evaluation: EvaluationConfig): string {
     }${filterCount ? ` (${pluralize(filterCount, 'filter')})` : ''}`
 }
 
-/** How often a report arrives, such as "weekly" or "every 100 results", or "never" when reports are off. */
+/** How often a report arrives, such as "weekly" or "every 100 results, at most once a day", or "never" when reports are off. */
 export function reportText(report: {
     enabled: boolean
     frequency: string
     scheduleCadence: string
     triggerThreshold: number
+    cooldownMinutes: number
 }): string {
     if (!report.enabled) {
         return 'never'
@@ -39,7 +49,17 @@ export function reportText(report: {
     if (report.frequency === 'scheduled') {
         return report.scheduleCadence
     }
-    return `every ${report.triggerThreshold} results`
+    return `every ${report.triggerThreshold} results, at most ${cooldownText(report.cooldownMinutes)}`
+}
+
+function cooldownText(minutes: number): string {
+    if (minutes === 24 * 60) {
+        return 'once a day'
+    }
+    if (minutes === 60) {
+        return 'once an hour'
+    }
+    return minutes % 60 === 0 ? `once every ${minutes / 60} hours` : `once every ${minutes} minutes`
 }
 
 /** Who does the checking, such as "an LLM judge (gpt-4o-mini)". */
@@ -60,10 +80,43 @@ export function reportsUnavailableReason(evaluation: EvaluationConfig, isReporta
     if (isReportable) {
         return null
     }
-    const instructions = evaluation.evaluation_type === 'hog' ? 'code' : 'prompt'
     return evaluation.output_type === 'numeric'
-        ? `Reports need a pass rate. Below the ${instructions}, set the score a run needs to pass.`
+        ? 'Reports need a pass rate. In the Returns step, set the score a run needs to pass.'
         : evaluation.output_type === 'categorical'
-          ? `Reports need a pass rate. Below the ${instructions}, pick which categories count as a pass.`
+          ? 'Reports need a pass rate. In the Returns step, pick which categories count as a pass.'
           : 'Reports are not available for this kind of evaluation.'
+}
+
+const DURATION_UNITS: [string, number][] = [
+    ['day', 86400],
+    ['hour', 3600],
+    ['minute', 60],
+    ['second', 1],
+]
+
+/** A duration in its largest whole unit, such as "30 minutes". The duration picker only stores whole units. */
+export function durationInWords(seconds: number): string {
+    const [unit, size] = DURATION_UNITS.find(([, unitSize]) => seconds % unitSize === 0) ?? ['second', 1]
+    return pluralize(seconds / size, unit)
+}
+
+/** When a trace or session run starts, in one sentence, so the timing settings can stay folded away. */
+export function settleSummary(evaluation: EvaluationConfig): string | null {
+    if (evaluation.target !== 'trace' && evaluation.target !== 'session') {
+        return null
+    }
+    const isSession = evaluation.target === 'session'
+    const config = evaluation.target_config
+    const duration = durationInWords
+    if (settleStrategy(config.strategy, evaluation.target) === 'fixed_window') {
+        const wait =
+            config.window_seconds ?? (isSession ? DEFAULT_SESSION_WINDOW_SECONDS : DEFAULT_TRACE_WINDOW_SECONDS)
+        return `It runs ${duration(wait)} after the first matching generation.`
+    }
+    const quiet =
+        config.quiet_period_seconds ??
+        (isSession ? DEFAULT_SESSION_QUIET_PERIOD_SECONDS : DEFAULT_TRACE_QUIET_PERIOD_SECONDS)
+    const maxAge =
+        config.max_age_seconds ?? (isSession ? DEFAULT_SESSION_MAX_AGE_SECONDS : DEFAULT_TRACE_MAX_AGE_SECONDS)
+    return `It runs once the ${evaluation.target} has been quiet for ${duration(quiet)}, or ${duration(maxAge)} after it starts.`
 }

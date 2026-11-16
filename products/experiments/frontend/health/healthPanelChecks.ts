@@ -1,11 +1,10 @@
-import { pluralize } from 'lib/utils/strings'
-
-import type { ExperimentExposureQueryResponse } from '~/queries/schema/schema-general'
+import type { ExperimentExposureHealthCheck, ExperimentExposureQueryResponse } from '~/queries/schema/schema-general'
 
 import type { ExperimentHealthApi, ExperimentHealthCheckResultApi } from '../generated/api.schemas'
 import { type HealthPanelFinding, healthIssues } from './healthPanelFindings'
 
-export type HealthPanelCheck = ExperimentHealthCheckResultApi
+/** An exposure check from an answer cached before the server added a field has no description, values or rule. */
+export type HealthPanelCheck = ExperimentHealthCheckResultApi | ExperimentExposureHealthCheck
 
 /** A check in the list of checks. A check that reported a finding shows as that finding instead. */
 export type ListedHealthCheck = HealthPanelCheck & { status: Exclude<HealthPanelCheck['status'], 'finding'> }
@@ -18,11 +17,7 @@ export type HealthChipState =
           kind: 'issues'
           count: number
           hasCritical: boolean
-          checks: HealthPanelCheck[]
-          findings: HealthPanelFinding[]
       }
-    | { kind: 'pending' }
-    | { kind: 'checks'; label: string; checks: HealthPanelCheck[]; findings: HealthPanelFinding[] }
 
 // The flag history check only lets the checks of changes since launch look. When it can't read the history, they say
 // they couldn't check and its note says why, so its own row would tell the reader nothing.
@@ -74,35 +69,14 @@ export function countHealthChecks(checks: HealthPanelCheck[], status: HealthPane
     return checks.filter((check) => check.status === status).length
 }
 
-export function healthChipState(
-    findings: HealthPanelFinding[] | null,
-    checks: HealthPanelCheck[] | null,
-    exposureChecks: ExposureChecksState
-): HealthChipState {
-    if (findings === null || checks === null) {
-        return { kind: 'hidden' }
-    }
+export function healthChipState(findings: HealthPanelFinding[] | null): HealthChipState {
     const issues = healthIssues(findings)
-    if (issues.length > 0) {
-        return {
-            kind: 'issues',
-            count: issues.length,
-            hasCritical: issues.some((finding) => finding.severity === 'critical'),
-            checks,
-            findings,
-        }
-    }
-    // A verdict before the exposure checks answer could turn into an issue a moment later.
-    if (exposureChecks === 'pending') {
-        return { kind: 'pending' }
-    }
-    // Without an issue, every finding is an info finding.
-    const passedCount = countHealthChecks(checks, 'passed')
-    const label = [
-        passedCount > 0 ? `No problems found (${pluralize(passedCount, 'check')})` : null,
-        findings.length > 0 ? pluralize(findings.length, 'note') : null,
-    ]
-        .filter(Boolean)
-        .join(' · ')
-    return { kind: 'checks', label: label || 'No checks apply yet', checks, findings }
+    // A note needs no action, so the header marks only an experiment with an issue to fix.
+    return issues.length > 0
+        ? {
+              kind: 'issues',
+              count: issues.length,
+              hasCritical: issues.some((finding) => finding.severity === 'critical'),
+          }
+        : { kind: 'hidden' }
 }

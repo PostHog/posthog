@@ -29,8 +29,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.mssql import MSSQLSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.mssql.mssql import (
+    _DEADLOCK_VICTIM_ERROR,
     _SSH_HANDSHAKE_EOF_ERROR,
     _TABLE_NOT_FOUND_ERROR,
+    _TRANSIENT_CONNECTION_ERROR,
     MSSQL_METADATA_TIMEOUT_ERROR,
     MSSQL_ROW_READ_TIMEOUT_ERROR,
     MSSQL_SCHEMA_DISCOVERY_DEADLINE_SECONDS,
@@ -81,6 +83,15 @@ _TEMPDB_ALLOCATION_FAILED_EXHAUSTED_MESSAGE = (
     "autogrowth settings. This sync is still enabled and will run again on its next schedule."
 )
 
+# SQL Server error 1222 — the same transient, customer-side lock contention `get_retryable_errors`
+# in mssql.py treats as retryable during a sync. `validate_credentials` doesn't go through that
+# classification, so without a mapping here it falls through to `capture_exception` as noise.
+_LOCK_TIMEOUT_VALIDATION_ERROR = (
+    "SQL Server is waiting on a lock held by another session on your database, and the wait timed "
+    "out (SQL Server error 1222). This is usually temporary — wait for the other session to finish, "
+    "then try again."
+)
+
 MSSQLErrors = {
     # SQL Server error 18456 is an authentication failure (wrong username/password, or the login is
     # disabled), not a problem with the database field. Surface the same wording the sibling SQL
@@ -95,6 +106,7 @@ MSSQLErrors = {
     # matches (and leaves unmapped there since the cause varies). Map it here too so a credential
     # check that hits it names the likely causes instead of falling through to `capture_exception`.
     "Adaptive Server connection failed": _CONNECTION_DROPPED_ERROR,
+    "Lock request time out period exceeded": _LOCK_TIMEOUT_VALIDATION_ERROR,
 }
 
 _MSSQL_IMPLEMENTATION = MSSQLImplementation()
@@ -154,6 +166,12 @@ class MSSQLSource(
             # died between opening and the query running — just surfaced through a different
             # internal code path. A fresh connection from the next Temporal retry resolves it.
             "Not connected to any MS SQL server",
+            # DB-Lib error 20047, the same DBPROCESS-death class raised directly (see
+            # `_is_transient_connection_error` in mssql.py): the TDS connection died mid-stream
+            # during the row read itself, past the point `retry_on_transient_connection_error`
+            # covers (that helper only wraps schema discovery). A fresh connection from the next
+            # Temporal retry resolves it.
+            _TRANSIENT_CONNECTION_ERROR,
             # SQL Server error 1222. A metadata statement waited longer than the `SET LOCK_TIMEOUT`
             # that `MSSQLImplementation.connect` sets, because another session held a lock on the
             # catalog or on the table. The lock belongs to the customer's own workload and goes
@@ -164,6 +182,13 @@ class MSSQLSource(
             # checkpoint where the read has one, can succeed.
             MSSQL_ROW_READ_TIMEOUT_ERROR,
             _TEMPDB_ALLOCATION_FAILED_ERROR,
+            # SQL Server error 1205. `retry_on_deadlock` already reruns the dispatching query
+            # in-process, but a deadlock chosen mid-stream — while `cursor.fetchmany` is pulling
+            # later batches of an already-executing read — can't be retried the same way: the
+            # cursor's result set is gone, and re-running the query would re-yield rows already
+            # handed to the pipeline. That case surfaces here instead, and a fresh attempt from
+            # the next Temporal retry (or checkpoint, where the read supports one) recovers it.
+            _DEADLOCK_VICTIM_ERROR,
         }
 
     def get_retry_exhausted_errors(self) -> dict[str, str]:

@@ -5,7 +5,9 @@ import { LemonButton, LemonModal } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 
+import { waitingSuggestionsText } from '../suggestionCopy'
 import { warehouseSuggestionsLogic } from '../warehouseSuggestionsLogic'
+import { useFocusFollowsRemovedRow } from './useFocusFollowsRemovedRow'
 
 export interface SuggestionsReviewModalProps {
     title: string
@@ -14,14 +16,15 @@ export interface SuggestionsReviewModalProps {
 }
 
 export function SuggestionsReviewModal({ title, summary, children }: SuggestionsReviewModalProps): JSX.Element {
-    const { reviewOpen, status, stripState, listedSuggestions } = useValues(warehouseSuggestionsLogic)
-    const { closeReview } = useActions(warehouseSuggestionsLogic)
+    const { reviewOpen, status, stripState, listedSuggestions, showingMore } = useValues(warehouseSuggestionsLogic)
+    const { closeReview, showMore } = useActions(warehouseSuggestionsLogic)
     const bodyRef = useRef<HTMLDivElement>(null)
     const returnFocusRef = useRef<HTMLSpanElement>(null)
-    useFocusFollowsRemovedRow(
-        bodyRef,
-        listedSuggestions.map((suggestion) => suggestion.id)
+    const rowIds = listedSuggestions.map((suggestion) => suggestion.id)
+    useFocusFollowsRemovedRow(bodyRef, rowIds, () =>
+        bodyRef.current?.querySelector<HTMLElement>('[data-suggestions-done]')?.focus()
     )
+    useFocusFirstRowOfANewBatch(bodyRef, rowIds)
 
     const focusSurfaceIfOpenerLeft = (): void => {
         if (document.activeElement === null || document.activeElement === document.body) {
@@ -63,9 +66,23 @@ export function SuggestionsReviewModal({ title, summary, children }: Suggestions
                         <div
                             tabIndex={-1}
                             data-suggestions-done
-                            className="px-3 py-6 text-center text-sm text-secondary"
+                            className="flex flex-col items-center gap-2 px-3 py-6 text-center text-sm text-secondary"
                         >
-                            All caught up. New suggestions appear as usage changes.
+                            {status?.can_show_more ? (
+                                <>
+                                    <span>{`All caught up for today. ${waitingSuggestionsText(status.waiting)}`}</span>
+                                    <LemonButton
+                                        type="secondary"
+                                        loading={showingMore}
+                                        onClick={() => showMore('dialog')}
+                                        data-attr="warehouse-suggestions-show-more"
+                                    >
+                                        Show more
+                                    </LemonButton>
+                                </>
+                            ) : (
+                                <span>All caught up. New suggestions appear as usage changes.</span>
+                            )}
                         </div>
                     )}
                 </div>
@@ -74,23 +91,18 @@ export function SuggestionsReviewModal({ title, summary, children }: Suggestions
     )
 }
 
-function useFocusFollowsRemovedRow(bodyRef: React.RefObject<HTMLDivElement>, rowIds: string[]): void {
-    const previousRowIds = useRef(rowIds)
+function useFocusFirstRowOfANewBatch(bodyRef: React.RefObject<HTMLDivElement>, rowIds: string[]): void {
+    const previousCount = useRef(rowIds.length)
 
     useEffect(() => {
-        const previous = previousRowIds.current
-        previousRowIds.current = rowIds
-        const removedIndex = previous.findIndex((id) => !rowIds.includes(id))
+        const hadNoRows = previousCount.current === 0
+        previousCount.current = rowIds.length
         const focusWasLost = !document.activeElement || document.activeElement === document.body
-        if (removedIndex < 0 || !focusWasLost || !bodyRef.current) {
+        if (!hadNoRows || rowIds.length === 0 || !focusWasLost || !bodyRef.current) {
             return
         }
-        const nextId = rowIds[removedIndex] ?? rowIds[removedIndex - 1]
-        const target = nextId
-            ? bodyRef.current.querySelector<HTMLElement>(
-                  `[data-suggestion-row="${nextId}"] [data-suggestion-actions] button`
-              )
-            : bodyRef.current.querySelector<HTMLElement>('[data-suggestions-done]')
-        target?.focus()
+        bodyRef.current
+            .querySelector<HTMLElement>(`[data-suggestion-row="${rowIds[0]}"] [data-suggestion-actions] button`)
+            ?.focus()
     }, [rowIds, bodyRef])
 }

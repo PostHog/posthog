@@ -54,18 +54,4 @@ describe('EvaluationCategoryEditor', () => {
             passing_rule: { categories: ['helpful'] },
         })
     })
-
-    it('turning grading off drops the passing rule, so runs only get a category', () => {
-        const onChange = jest.fn()
-        const config: EvaluationOutputConfig = {
-            selection_mode: 'multiple',
-            options: [{ key: 'helpful', label: 'Helpful' }],
-            passing_rule: { categories: [] },
-        }
-        render(<EvaluationCategoryEditor config={config} onChange={onChange} showKeys={false} />)
-
-        fireEvent.click(screen.getByLabelText('Grade runs as pass or fail'))
-
-        expect(onChange).toHaveBeenCalledWith({ passing_rule: null })
-    })
 })

@@ -16,6 +16,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import action
 from posthog.auth import PersonalAPIKeyAuthentication, SessionAuthentication
+from posthog.exceptions import InsufficientScope
 from posthog.llm.wizard_blocklist import WIZARD_BLOCKED_DETAIL
 from posthog.models import Organization, User
 from posthog.models.project_secret_api_key import ProjectSecretAPIKey, RevokedTeamSecretToken
@@ -48,9 +49,10 @@ def _enforce_caller_holds_scopes(request: Request, scopes: Iterable[str]) -> Non
     issue one with scopes it lacks."""
     missing = scopes_caller_lacks(request, scopes)
     if missing:
-        raise PermissionDenied(
-            "Your API key or OAuth token can only issue a project secret API key with scopes it has. "
-            f"Use a key or token that has these scopes: {', '.join(missing)}."
+        raise InsufficientScope(
+            missing,
+            detail="Your API key or OAuth token can only issue a project secret API key with scopes it has. "
+            f"Use a key or token that has these scopes: {', '.join(missing)}.",
         )
 
 

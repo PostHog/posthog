@@ -1,4 +1,5 @@
 import { ApiError, NotSignedInError } from '@/api/client'
+import { requestWithDeadline, transport } from '@/api/transport'
 import { fetchMe, fetchOrganization, type MeApi, type OrganizationApi } from '@/api/users'
 
 export interface AuthUser {
@@ -97,24 +98,28 @@ export function loadAccount(): Promise<Account> {
 
 /** Checks a candidate sign-in without changing the active API client's host or credentials. */
 export function loadAccountWithCredentials(host: string, accessToken: string): Promise<Account> {
-    const read = async <T>(path: string): Promise<T> => {
-        const response = await fetch(`${host}${path}`, {
-            headers: { Accept: 'application/json', Authorization: `Bearer ${accessToken}` },
+    const read = <T>(path: string): Promise<T> =>
+        requestWithDeadline(async (signal) => {
+            const response = await transport(() =>
+                fetch(`${host}${path}`, {
+                    signal,
+                    headers: { Accept: 'application/json', Authorization: `Bearer ${accessToken}` },
+                })
+            )
+            if (!response.ok) {
+                if (response.status === 401) {
+                    throw new NotSignedInError()
+                }
+                let body: unknown
+                try {
+                    body = await transport(() => response.json())
+                } catch {
+                    body = undefined
+                }
+                throw new ApiError(response.status, body, response.headers)
+            }
+            return (await transport(() => response.json())) as T
         })
-        if (!response.ok) {
-            if (response.status === 401) {
-                throw new NotSignedInError()
-            }
-            let body: unknown
-            try {
-                body = await response.json()
-            } catch {
-                body = undefined
-            }
-            throw new ApiError(response.status, body, response.headers)
-        }
-        return (await response.json()) as T
-    }
     return loadAccountFrom(
         () => read<MeApi>('/api/users/@me/'),
         (organizationId) => read<OrganizationApi>(`/api/organizations/${encodeURIComponent(organizationId)}/`)

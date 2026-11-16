@@ -104,6 +104,7 @@ export interface CohortTaxonomicFieldProps extends Omit<CohortFieldBaseProps, 'f
     placeholder?: string
     taxonomicGroupTypes?: TaxonomicFilterGroupType[]
     hideUnsupportedRecentOperators?: boolean
+    includeHiddenEvents?: boolean
     fieldOptionGroupTypes: never
 }
 

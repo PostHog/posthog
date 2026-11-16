@@ -27,7 +27,6 @@ from posthog.hogql.database.database import Database
 from posthog.hogql.errors import ParsingError
 from posthog.hogql.functions.prompt_jev import PromptJevFinder
 from posthog.hogql.modifiers import create_default_modifiers_for_team
-from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import prepare_ast_for_printing, print_prepared_ast
 from posthog.hogql.query import HogQLQueryExecutor
 from posthog.hogql.resolver import ResolverFactory
@@ -43,6 +42,7 @@ from posthog.settings.base_variables import TEST
 from posthog.sync import database_sync_to_async_pool
 from posthog.temporal.common.clickhouse import (
     ClickHouseError,
+    ClickHouseQueryPlanningError,
     ClickHouseQueryTimeoutError,
     ClickHouseTooManySimultaneousQueriesError,
     get_client as get_clickhouse_client,
@@ -52,6 +52,7 @@ from posthog.temporal.common.errors import NonReportableError
 from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.logger import get_logger
 from posthog.temporal.data_modeling.activities.incremental_write import (
+    DuplicateUniqueKeyError,
     IncrementalWriteError,
     SchemaDriftError,
     UniqueKeyTracker,
@@ -61,13 +62,17 @@ from posthog.temporal.data_modeling.activities.incremental_write import (
     upsert_batch,
     upsert_stats_fields,
 )
-from posthog.temporal.data_modeling.activities.utils import bind_data_modeling_log_context
+from posthog.temporal.data_modeling.activities.utils import bind_data_modeling_log_context, strip_hostname_from_error
 
 from products.data_modeling.backend.facade.api import (
     IncrementalFilterError,
     WritePlan,
     clear_incremental_state,
+    duplicate_output_columns,
+    duplicate_output_columns_message,
+    get_incremental_state,
     inject_incremental_filter,
+    parse_model_query,
     record_incremental_history,
     resolve_write_plan,
     set_incremental_state,
@@ -163,15 +168,20 @@ async def _describe_columns(
 ) -> list[_DescribedColumn]:
     """A select list is ordered and may repeat a name, so the probe returns a list, not a mapping.
     `_reject_duplicate_output_columns` is what turns a repeat into a readable error."""
-    async with _clickhouse_query_semaphore, get_clickhouse_client() as client:
-        async with client.apost_query(
-            query=f"DESCRIBE TABLE ({printed}) FORMAT TabSeparatedRaw",
-            query_parameters=query_parameters,
-            query_id=str(uuid.uuid4()),
-            settings=query_settings,
-            external_tables=external_tables,
-        ) as ch_response:
-            table_describe_response = await ch_response.content.read()
+    try:
+        async with _clickhouse_query_semaphore, get_clickhouse_client() as client:
+            async with client.apost_query(
+                query=f"DESCRIBE TABLE ({printed}) FORMAT TabSeparatedRaw",
+                query_parameters=query_parameters,
+                query_id=str(uuid.uuid4()),
+                settings=query_settings,
+                external_tables=external_tables,
+            ) as ch_response:
+                table_describe_response = await ch_response.content.read()
+    except ClickHouseError as error:
+        if error.code != 8 or query_settings is None:
+            raise
+        raise ClickHouseQueryPlanningError(str(error), query=error.query, query_id=error.query_id) from error
     columns: list[_DescribedColumn] = []
     for line in table_describe_response.decode("utf-8").splitlines():
         column_name, ch_type = line.strip().split("\t")
@@ -180,20 +190,7 @@ async def _describe_columns(
 
 
 def _reject_duplicate_output_columns(columns: list[_DescribedColumn]) -> None:
-    # Folded because Delta compares field names without case, so `userId` beside `userid` is as
-    # unwritable as a literal repeat. Left to the write, that pair costs a full scan first.
-    first_spelling: dict[str, str] = {}
-    duplicates: list[str] = []
-    seen_duplicates: set[str] = set()
-    for column in columns:
-        folded = column.name.lower()
-        if folded in first_spelling:
-            for spelling in (first_spelling[folded], column.name):
-                if spelling not in seen_duplicates:
-                    seen_duplicates.add(spelling)
-                    duplicates.append(spelling)
-        else:
-            first_spelling[folded] = column.name
+    duplicates = duplicate_output_columns(column.name for column in columns)
     if duplicates:
         raise DuplicateOutputColumnError(duplicates)
 
@@ -283,12 +280,7 @@ class DuplicateOutputColumnError(NonReportableError):
     same-named columns is meant, so the repeat is refused rather than resolved arbitrarily."""
 
     def __init__(self, duplicates: list[str]) -> None:
-        names = ", ".join(f'"{name}"' for name in duplicates)
-        super().__init__(
-            f"The query returns more than one column named {names}. "
-            "Names that differ only by case count as duplicates. "
-            "Give each output column a unique name, for example with an alias."
-        )
+        super().__init__(duplicate_output_columns_message(duplicates))
         self.duplicates = duplicates
 
 
@@ -405,8 +397,8 @@ class MaterializeViewResult:
     should_trigger_cdp_producer: bool = False
 
 
-def _build_model_table_uri(team_id: int, saved_query_id_hex: str, normalized_name: str) -> str:
-    return f"{settings.BUCKET_URL}/team_{team_id}_model_{saved_query_id_hex}/modeling/{normalized_name}"
+def _build_model_table_uri(team_id: int, saved_query_id_hex: str, storage_name: str) -> str:
+    return f"{settings.BUCKET_URL}/team_{team_id}_model_{saved_query_id_hex}/modeling/{storage_name}"
 
 
 def get_aws_storage_options() -> dict[str, str]:
@@ -646,7 +638,7 @@ async def hogql_table(
     if window is not None:
         query_node = inject_incremental_filter(query, incremental_key=window.incremental_key, since=window.since)
     else:
-        query_node = parse_select(query)
+        query_node = parse_model_query(query)
     if query_node is None:
         raise ParsingError(f"Failed to parse query node from query, parse_select() returned None: query={query}")
 
@@ -733,7 +725,7 @@ async def hogql_table(
         described_columns = await _describe_columns(
             printed, context.values, DESCRIBE_QUERY_SETTINGS, list(context.external_tables.values())
         )
-    except ClickHouseError as error:
+    except ClickHouseQueryPlanningError as error:
         # ClickHouse cannot plan some shapes once GLOBAL is gone, such as an IN subquery inside an
         # aggregate function. The untouched query is the one that runs, so it always describes.
         await logger.awarning(
@@ -893,7 +885,7 @@ def _get_matview_input_objects(
         raise InvalidNodeTypeException(f"Node {node.name} has no saved_query")
     # we explicitly get the saved query to avoid sync_to_async issues later for things like folder_path
     saved_query = (
-        DataWarehouseSavedQuery.objects.prefetch_related("team")
+        DataWarehouseSavedQuery.objects.select_related("team", "table")
         .exclude(deleted=True)
         .get(id=node.saved_query.id, team_id=inputs.team_id)
     )
@@ -1011,6 +1003,10 @@ def _reason_to_record(job: DataModelingJob, plan: WritePlan) -> str | None:
     recorded = job.full_refresh_reason
     if recorded is not None and recorded.startswith(FAILED_UPDATE_REASON_PREFIX):
         return recorded
+    # A failed rebuild clears the watermark, so its retry plans "first run". The reason the
+    # earlier attempt recorded is the real one.
+    if recorded is not None and plan.reason == "first run":
+        return recorded
 
     return plan.reason
 
@@ -1027,6 +1023,12 @@ async def _materialize_fully(
 ) -> tuple[int, list[str]]:
     """Rebuild the whole table from the query. The only path that creates a Delta table, and the
     fallback for every case the incremental path cannot serve."""
+    # The rebuild rewrites the table in place, so a failure after the delete leaves a partial table.
+    # The stored watermark and fingerprint still describe the last complete table, and the next
+    # plan would upsert onto the partial one. Clear them before the delete so that the next run
+    # rebuilds again. The end of a successful rebuild stores them again.
+    await database_sync_to_async_pool(clear_incremental_state)(objects.saved_query)
+
     # delete existing table first to avoid schema conflicts
     s3 = get_s3_client()
     try:
@@ -1055,43 +1057,47 @@ async def _materialize_fully(
     # brief to_thread released between batches, never pins a worker thread for the whole
     # read — which is what starved the shared executor that heartbeats/db/logging use.
     batch_index = 0
-    async for batch, ch_types in hogql_table(hogql_query, objects.team, logger):
-        batch = _transform_unsupported_decimals(batch)
-        batch = _transform_date_and_datetimes(batch, ch_types)
-        batch = _transform_unsigned_integers(batch)
-        batch = _force_nullable(batch)
+    try:
+        async for batch, ch_types in hogql_table(hogql_query, objects.team, logger):
+            batch = _transform_unsupported_decimals(batch)
+            batch = _transform_date_and_datetimes(batch, ch_types)
+            batch = _transform_unsigned_integers(batch)
+            batch = _force_nullable(batch)
+            if tracker is not None:
+                await asyncio.to_thread(tracker.check, batch)
+            await _stage_person_property_batch(person_property_sink, batch_index, batch, fatal=False)
+            batch_index += 1
+            if delta_table is None:
+                pa_schema = batch.schema
+                await asyncio.to_thread(
+                    deltalake.write_deltalake,
+                    table_or_uri=table_uri,
+                    data=batch,
+                    mode="overwrite",
+                    schema_mode="overwrite",
+                    storage_options=storage_options,
+                )
+                delta_table = deltalake.DeltaTable(table_uri, storage_options=storage_options)
+            else:
+                await asyncio.to_thread(
+                    deltalake.write_deltalake,
+                    table_or_uri=delta_table,
+                    data=batch,
+                    mode="append",
+                    schema_mode="merge",
+                    storage_options=storage_options,
+                )
+            # Staged only once the batch is committed: a run that announces rows it then fails to write
+            # cannot take the announcement back.
+            await cdp_sink.stage(batch)
+            if plan.config is not None and plan.config.incremental_key in batch.schema.names:
+                watermark = max_of(batch, plan.config.incremental_key, watermark)
+            row_count = row_count + batch.num_rows
+            objects.job.rows_materialized = row_count
+            await database_sync_to_async_pool(objects.job.save)()
+    finally:
         if tracker is not None:
-            await asyncio.to_thread(tracker.check, batch)
-        await _stage_person_property_batch(person_property_sink, batch_index, batch, fatal=False)
-        batch_index += 1
-        if delta_table is None:
-            pa_schema = batch.schema
-            await asyncio.to_thread(
-                deltalake.write_deltalake,
-                table_or_uri=table_uri,
-                data=batch,
-                mode="overwrite",
-                schema_mode="overwrite",
-                storage_options=storage_options,
-            )
-            delta_table = deltalake.DeltaTable(table_uri, storage_options=storage_options)
-        else:
-            await asyncio.to_thread(
-                deltalake.write_deltalake,
-                table_or_uri=delta_table,
-                data=batch,
-                mode="append",
-                schema_mode="merge",
-                storage_options=storage_options,
-            )
-        # Staged only once the batch is committed: a run that announces rows it then fails to write
-        # cannot take the announcement back.
-        await cdp_sink.stage(batch)
-        if plan.config is not None and plan.config.incremental_key in batch.schema.names:
-            watermark = max_of(batch, plan.config.incremental_key, watermark)
-        row_count = row_count + batch.num_rows
-        objects.job.rows_materialized = row_count
-        await database_sync_to_async_pool(objects.job.save)()
+            tracker.close()
 
     await logger.ainfo(f"Finished writing to delta table. row_count={row_count}")
     file_uris: list[str] = []
@@ -1111,7 +1117,11 @@ async def _materialize_fully(
     # on the full-refresh path.
     if plan.config is not None and plan.fingerprint is not None and watermark is not None:
         await database_sync_to_async_pool(set_incremental_state)(
-            objects.saved_query, watermark=watermark, fingerprint=plan.fingerprint, mode="full_refresh"
+            objects.saved_query,
+            watermark=watermark,
+            fingerprint=plan.fingerprint,
+            mode="full_refresh",
+            table_uri=table_uri,
         )
     return row_count, file_uris
 
@@ -1183,18 +1193,29 @@ async def _materialize_incrementally(
             row_count = row_count + batch.num_rows
             objects.job.rows_materialized = row_count
             await database_sync_to_async_pool(objects.job.save)()
+    except DuplicateUniqueKeyError:
+        # The watermark stays, because a rebuild would fail on the same repeat. The rows already
+        # upserted from earlier batches are safe to keep: the next run re-reads them from the
+        # same watermark and upserts them again.
+        raise
     except (IncrementalWriteError, IncrementalFilterError) as err:
-        # Every one of these means the table and the query have diverged in a way an upsert can't
+        # Every other one of these means the table and the query have diverged in a way an upsert can't
         # reconcile. Dropping the watermark makes the retry rebuild instead of writing rows that
         # would be wrong, so the failure costs a full refresh rather than silent corruption.
         await _drop_watermark_and_say_why(objects.saved_query, objects.job, _failed_update_reason(err))
         if isinstance(err, SchemaDriftError):
             await logger.awarning(f"Rebuilding after schema drift: {err}")
         raise
+    finally:
+        tracker.close()
 
     if watermark is not None:
         await database_sync_to_async_pool(set_incremental_state)(
-            objects.saved_query, watermark=watermark, fingerprint=plan.fingerprint, mode="incremental"
+            objects.saved_query,
+            watermark=watermark,
+            fingerprint=plan.fingerprint,
+            mode="incremental",
+            table_uri=table_uri,
         )
 
     # Reopened because deltalite commits through its own handle, leaving this one pinned to the
@@ -1264,6 +1285,15 @@ async def clear_cdp_staging_activity(inputs: ClearCDPStagingInputs) -> None:
     await producer.clear()
 
 
+def _watermark_table_uri(objects: MatviewInputObjects) -> str:
+    """The table location that the saved watermark describes."""
+    recorded = get_incremental_state(objects.saved_query).table_uri
+    if recorded is not None:
+        return recorded
+    # Progress saved without a location belongs to the path that followed the model's name.
+    return _build_model_table_uri(objects.team.pk, objects.saved_query.id.hex, objects.saved_query.normalized_name)
+
+
 @activity.defn
 async def materialize_view_activity(inputs: MaterializeViewInputs) -> MaterializeViewResult:
     """Materialize a view by executing its query and writing to delta lake."""
@@ -1277,11 +1307,14 @@ async def materialize_view_activity(inputs: MaterializeViewInputs) -> Materializ
     tag_queries(materialized_saved_query_id=str(objects.saved_query.id))
     await logger.ainfo(f"Starting materialization for node {objects.node.name}")
 
-    table_uri = _build_model_table_uri(objects.team.pk, objects.saved_query.id.hex, objects.saved_query.normalized_name)
+    table_uri = _build_model_table_uri(objects.team.pk, objects.saved_query.id.hex, objects.saved_query.storage_name)
     await logger.adebug(f"Delta table URI = {table_uri}")
 
     storage_options = get_aws_storage_options()
     plan = await database_sync_to_async_pool(resolve_write_plan)(inputs.team_id, objects.saved_query.id)
+    if plan.incremental and _watermark_table_uri(objects) != table_uri:
+        # The watermark describes rows in another table. An update from it would skip rows here.
+        plan = dataclasses.replace(plan, incremental=False, reason="table location changed")
     if plan.incremental and not await asyncio.to_thread(table_exists, table_uri, storage_options):
         # deltalite can only open a table, never create one, so a missing table has to rebuild.
         plan = dataclasses.replace(plan, incremental=False, reason="table missing")
@@ -1399,6 +1432,7 @@ async def materialize_view_activity(inputs: MaterializeViewInputs) -> Materializ
     except ClickHouseError as error:
         if not published:
             await cdp_sink.discard()
+        await _log_failed_attempt(logger, error)
         if DELTA_KERNEL_ERROR_MARKER in str(error):
             raise ApplicationError(
                 str(error), type=type(error).__name__, next_retry_delay=DELTA_KERNEL_ERROR_RETRY_DELAY
@@ -1416,7 +1450,15 @@ async def materialize_view_activity(inputs: MaterializeViewInputs) -> Materializ
                 next_retry_delay=_adaptive_retry_delay(base_delay, activity.info().attempt, recent_errors),
             ) from error
         raise
-    except (Exception, asyncio.CancelledError):
+    except (Exception, asyncio.CancelledError) as error:
         if not published:
             await cdp_sink.discard()
+        if not isinstance(error, asyncio.CancelledError):
+            await _log_failed_attempt(logger, error)
         raise
+
+
+async def _log_failed_attempt(logger: FilteringBoundLogger, error: BaseException) -> None:
+    """The run's log otherwise records only the final failure, so a retried attempt leaves no trace there."""
+    reason = strip_hostname_from_error(str(error)) or type(error).__name__
+    await logger.aerror(f"Attempt {activity.info().attempt} failed: {reason}")

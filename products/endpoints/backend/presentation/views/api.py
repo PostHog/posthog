@@ -90,6 +90,7 @@ from products.endpoints.backend.presentation.throttles import (
     EndpointProjectSecretApiKeyTeamBurstThrottle,
     EndpointProjectSecretApiKeyTeamSustainedThrottle,
     EndpointSustainedThrottle,
+    charge_inline_rate,
 )
 
 
@@ -210,7 +211,12 @@ class EndpointViewSet(
     filterset_fields = ["is_active", "created_by"]
 
     def safely_get_queryset(self, queryset):
-        return queryset.filter(deleted=False)
+        queryset = queryset.filter(deleted=False)
+        if self.action == "list":
+            # Offset pages need a fixed order, or rows can repeat or go missing between pages. The
+            # partial index on (team, name) for undeleted endpoints serves this order.
+            queryset = queryset.order_by("name", "id")
+        return queryset
 
     def get_serializer_class(self):
         return serializers.Serializer  # We use Pydantic models instead; this fallback satisfies drf-spectacular
@@ -731,7 +737,14 @@ class EndpointViewSet(
                 service.log_rejected_run(endpoint, self._rejection_reason(response))
                 return response
 
-        return service.execute(endpoint, data, version_obj, limit=limit, offset=offset)
+        return service.execute(
+            endpoint,
+            data,
+            version_obj,
+            limit=limit,
+            offset=offset,
+            before_inline_fallback=lambda: charge_inline_rate(request, self),
+        )
 
     @extend_schema(
         description=(

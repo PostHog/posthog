@@ -1,6 +1,6 @@
-from rest_framework.pagination import LimitOffsetPagination
+from posthog.api.pagination import BoundedLimitOffsetPagination
 
 
-class WizardRegistryPagination(LimitOffsetPagination):
+class WizardRegistryPagination(BoundedLimitOffsetPagination):
     default_limit = 100
     max_limit = 100

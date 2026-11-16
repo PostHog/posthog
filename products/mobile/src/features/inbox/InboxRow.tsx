@@ -56,6 +56,7 @@ function prLabel(prNumber: number | undefined, state: PullRequestView['state'] |
 
 interface InboxRowProps {
     item: InboxItem
+    titleLines?: number
     now: Date
     onOpen: (reportId: string) => void
     onLongPress: (item: InboxItem, anchor: RowAnchor) => void
@@ -64,6 +65,7 @@ interface InboxRowProps {
 
 export const InboxRow = memo(function InboxRow({
     item,
+    titleLines = 1,
     now,
     onOpen,
     onLongPress,
@@ -121,7 +123,7 @@ export const InboxRow = memo(function InboxRow({
                                 muted && styles.mutedTitle,
                                 done && styles.doneTitle,
                             ]}
-                            numberOfLines={1}
+                            numberOfLines={titleLines}
                         >
                             {item.title}
                         </Text>

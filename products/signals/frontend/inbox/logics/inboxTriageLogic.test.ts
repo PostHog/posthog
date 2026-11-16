@@ -3,6 +3,8 @@ import { waitFor } from '@testing-library/react'
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { urls } from 'scenes/urls'
 
 import { useMocks } from '~/mocks/jest'
@@ -14,6 +16,7 @@ import { openResolveReportDialog } from '../components/shell/ResolveReportDialog
 import { INBOX_SCOPE_ENTIRE_PROJECT, INBOX_SCOPE_FOR_YOU, SignalReport, SignalReportStatus } from '../types'
 import { inboxFiltersLogic } from './inboxFiltersLogic'
 import { inboxTriageLogic } from './inboxTriageLogic'
+import { reportGithubAccessLogic } from './reportGithubAccessLogic'
 
 jest.mock('../components/shell/DismissReportDialog', () => ({ openDismissReportDialog: jest.fn() }))
 jest.mock('../components/shell/ResolveReportDialog', () => ({ openResolveReportDialog: jest.fn() }))
@@ -77,6 +80,8 @@ describe('inboxTriageLogic', () => {
             },
         })
         initKeaTests()
+        featureFlagLogic.mount()
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.PHAI_SANDBOX_MODE]: true })
     })
 
     afterEach(() => {
@@ -91,6 +96,45 @@ describe('inboxTriageLogic', () => {
         logic.mount()
         await expectLogic(logic).toFinishAllListeners()
     }
+
+    it('does not start PostHog implementation through the triage shortcut without AI access', async () => {
+        const report = { ...makeReport('no-ai-access'), actionability: 'immediately_actionable' as const }
+        useMocks({ get: { [REPORTS_URL]: { count: 1, next: null, previous: null, results: [report] } } })
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.PHAI_SANDBOX_MODE]: false })
+        await mountAt({ report: report.id, at: 0 })
+        expect(logic.values.currentReport?.id).toBe(report.id)
+        expect(logic.values.canCreatePr).toBe(true)
+        await expectLogic(logic, () => logic.actions.createPrForCurrent()).toNotHaveDispatchedActions([
+            'implementReport',
+        ])
+    })
+
+    it('passes the selected repository when implementing from triage', async () => {
+        const report = { ...makeReport('selected-repo'), status: SignalReportStatus.PENDING_INPUT, repo_slug: null }
+        useMocks({
+            get: {
+                [REPORTS_URL]: { count: 1, next: null, previous: null, results: [report] },
+                '/api/projects/:team/integrations/': {
+                    results: [{ id: 1, kind: 'github', installation_status: 'connected' }],
+                    next: null,
+                },
+            },
+        })
+        await mountAt({ report: report.id, at: 0 })
+        const access = reportGithubAccessLogic({ report, surface: 'triage_mode' })
+        const unmount = access.mount()
+        try {
+            await waitFor(() => expect(access.values.loading).toBe(false))
+            access.actions.requireRepositorySelection()
+            access.actions.setSelectedRepository('example/app')
+            expect(access.values.selectedRepository).toBe('example/app')
+            await expectLogic(logic, () => logic.actions.createPrForCurrent()).toDispatchActions([
+                logic.actionCreators.implementReport(report, undefined, 'triage_mode', false, 'example/app'),
+            ])
+        } finally {
+            unmount()
+        }
+    })
 
     it('warns that triage closes an open PR on a failed report', async () => {
         const report = {

@@ -191,6 +191,7 @@ They're masked when the query is printed to ClickHouse SQL, so a restricted read
 - **Explicit reads** (`properties.email`) are replaced with `NULL`, and the resolver refuses to back them with a materialized column — `ClickHousePropertyResolver` in `posthog/hogql/transforms/clickhouse_property_resolution.py`.
 - **Whole-blob reads** (`SELECT properties` or `SELECT *`) have the restricted keys stripped from the returned JSON via `JSONDropKeysPool(...)` — `ClickHousePrinter._maybe_apply_json_drop_keys()` in `posthog/hogql/printer/clickhouse.py`.
 - **Unrestricted key reads** (`properties.$browser`, `JSONExtractString(properties, '$browser')`) read the stored String blob without `JSONDropKeysPool`, because dropping keys cannot change their value. A read keeps the mask when its key overlaps a restricted key by dot segment (`customer` against a restricted `customer.ssn`), or when the key is an integer position — `key_read_overlaps_restriction()` in `posthog/hogql/restricted_properties.py`.
+- **Narrowed exports.** A subquery whose `properties` column is only read by key exports a map of those keys instead of the blob — `posthog/hogql/transforms/exported_properties.py`. On the legacy table each map value extracts its key from the masked blob. On native event JSON the resolver declines a key that overlaps a restriction, so the subquery exports the masked document — `stored_key_json_text()` in `posthog/hogql/transforms/clickhouse_property_resolution.py`.
 
 Group restrictions retain their group type index, so a same-named property on another group type stays readable. The masking also applies to the Postgres-backed `system.groups.group_properties` field.
 
@@ -221,23 +222,27 @@ Because each class restricts its own key, a table dispatched as the wrong class,
 
 The exemptions are name collisions: `accounts.properties` and `pg_embeddings.properties` do not contain event, person, or group properties.
 `ai_events.properties` uses the same event-property rules as `events.properties`.
+The hidden `events_with_flag_calls` table, which the flag-call union reads in place of `events`, uses them too.
 Covering a table means moving it out of the exemptions and into the expected mapping, so neither list can keep a stale entry.
 
 ### Typed columns that mirror a property
 
 Masking rewrites `properties.<key>` reads and strips keys from a JSON blob. It does not reach a physical column that holds a copy of the same value.
 Several catalog tables expose such columns because reading them scans far less data than digging the value out of the blob: `events` exposes `$session_id`, `$window_id`, and `$group_0`..`$group_4`; `flag_evaluations` exposes `flag_key`, `response`, `session_id`, `request_id`, and `$group_0`..`$group_4`.
+The web analytics dimensional tables `web_stats_dimensional_preaggregated` and `web_bounces_dimensional_preaggregated` copy event properties into dimension columns, such as `pathname` from `$pathname` and `country_code` from `$geoip_country_code`, and copy session properties that the sessions table builds from event properties, such as `utm_source` from `utm_source` and `entry_pathname` from `$current_url`.
 
 `events`' mirror columns are not masked: restricting the property they mirror masks the blob read and leaves the column readable.
-`flag_evaluations` and `ai_events` mirror columns are masked through `mirrored_property_for_column()` in `posthog/hogql/restricted_properties.py`, consulted by `ClickHousePropertyResolver` in `posthog/hogql/transforms/clickhouse_property_resolution.py`.
+`flag_evaluations`, `ai_events`, and web analytics dimensional mirror columns are masked through `mirrored_properties_for_column()` in `posthog/hogql/restricted_properties.py`, consulted by `ClickHousePropertyResolver` in `posthog/hogql/transforms/clickhouse_property_resolution.py`.
 The mapping is keyed by the stored column name, not the HogQL field name, so an expression field that reads a mirror column masks too: `flag_evaluations.response` reads the stored `response` column through `nullIf`, and the hidden `flag_evaluation_response` reads it bare, and both mask. The hidden `goe_N.key` on `flag_evaluations` reads the stored `$group_N` column through an expression field, and it masks too.
 For AI columns, `AI_PROPERTY_TO_COLUMN` in `posthog/hogql/database/schema/ai_events.py` is shared with the query rewriter.
 One rule for `$ai_input` masks both `events.properties.$ai_input` and `ai_events.input`, including nested reads such as `input[1].content`.
 The hidden length fields `input_state_length` and `output_state_length` follow the rule of their state property, so a masked state also hides whether it exists.
 The same rule applies when a filter or an aggregate reads the column.
+A mirror of a dotted property masks when the property or any parent segment is restricted, so restricting `metadata` masks `mat_metadata_backend`, the mirror of `metadata.backend`.
 Nested keys in an allowed AI payload are not separate event properties: a restriction on the event property `content` does not restrict `input.content`.
+A dimensional session-level column follows the rule of the event property the sessions table reads, so restricting `utm_source` masks `utm_source` there. `entry_pathname` and `end_pathname` also follow `$pathname`, which the SDK derives from the same URL. The `sessions` table itself does not mask these columns, because HogQL does not enforce session property restrictions on any table.
 That resolver rewrites a restricted mirror column to the same `Constant(value=None, type=StringType(nullable=True))` the source property lowers to, before the AST reaches the printer — so the mirror column and its source property are one AST node by the time comparisons and nullability are decided, not two independently masked spellings that could drift apart.
-Covering `events`' remaining mirror columns, or a future catalog table's, means adding it to `_FLAG_EVALUATIONS_MIRRORED_COLUMNS`'s sibling mapping (or a new one `mirrored_property_for_column` dispatches to) rather than a print-time patch.
+Covering `events`' remaining mirror columns, or a future catalog table's, means adding it to `_FLAG_EVALUATIONS_MIRRORED_COLUMNS`'s sibling mapping (or a new one `mirrored_properties_for_column` dispatches to) rather than a print-time patch.
 
 ### No user: default rules apply
 

@@ -66,6 +66,15 @@ export const VisualReviewReposPartialUpdateBody = () => zod.object({
         .describe(
             'Post the visual review debt digest to the Slack channels of the teams that own the snapshots. Off by default. The digest goes out every Monday morning.'
         ),
+    auto_quarantine_mode: zod
+        .union([
+            zod.enum(['off', 'preview', 'on']).describe('\* `off` - off\n\* `preview` - preview\n\* `on` - on'),
+            zod.null(),
+        ])
+        .optional()
+        .describe(
+            'Quarantine a snapshot that full runs on the default branch or in the merge queue prove flaky, and lift a quarantine once the last 500 default-branch runs render the snapshot unchanged. `off` (the default) does nothing. `preview` logs each finding and changes nothing. `on` quarantines the snapshot for 14 days and notifies the owning team, and lifts clean quarantines.\n\n\* `off` - off\n\* `preview` - preview\n\* `on` - on'
+        ),
 })
 
 /**
@@ -518,6 +527,8 @@ export const VisualReviewRunsSnapshotsListParams = () => zod.object({
 
 export const visualReviewRunsSnapshotsListQueryExcludeUnchangedDefault = false
 export const visualReviewRunsSnapshotsListQueryIncludeQuarantinedDefault = false
+export const visualReviewRunsSnapshotsListQueryLimitMax = 10000
+
 export const visualReviewRunsSnapshotsListQueryQuarantinedOnlyDefault = false
 
 export const VisualReviewRunsSnapshotsListQueryParams = () => zod.object({
@@ -533,7 +544,11 @@ export const VisualReviewRunsSnapshotsListQueryParams = () => zod.object({
         .describe(
             "Whether to include snapshots whose identifier is currently quarantined. Defaults to false: quarantined snapshots are excluded from results and reported in quarantined_count instead, since they are noise when reviewing real changes. This filter uses the quarantines active now. Each snapshot's `is_quarantined` flag holds the state when the run was gated, so for an older run pass true and read the flag."
         ),
-    limit: zod.number().optional().describe('Number of results to return per page.'),
+    limit: zod
+        .number()
+        .max(visualReviewRunsSnapshotsListQueryLimitMax)
+        .optional()
+        .describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
     quarantined_only: zod
         .boolean()

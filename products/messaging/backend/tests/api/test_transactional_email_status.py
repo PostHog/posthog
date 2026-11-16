@@ -1,8 +1,11 @@
 from datetime import UTC, datetime, timedelta
+from uuid import NAMESPACE_URL, uuid5
 
 import time_machine
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 from unittest.mock import patch
+
+from django.test import override_settings
 
 from parameterized import parameterized
 from rest_framework import status
@@ -10,6 +13,7 @@ from rest_framework.test import APIClient
 
 from posthog.clickhouse.client.execute import sync_execute
 from posthog.models import ProjectSecretAPIKey, Team
+from posthog.models.instance_setting import override_instance_config
 from posthog.models.personal_api_key import hash_key_value
 from posthog.models.utils import generate_random_token_secret
 from posthog.uuidt import UUIDT
@@ -122,6 +126,8 @@ class TestTransactionalEmailStatus(ClickhouseTestMixin, APIBaseTest):
             "team_id": self.team.id,
             "outcome": "found",
             "status": expected_status,
+            "auth_method": "project_secret_api_key",
+            "authorized_by": "hog_flow",
         }
         assert response.json() == {
             "id": self.message_id,
@@ -130,6 +136,35 @@ class TestTransactionalEmailStatus(ClickhouseTestMixin, APIBaseTest):
             "status_at": self._at(status_offset).isoformat().replace("+00:00", "Z"),
             "reason": reason,
         }
+
+    def test_reports_a_keyed_send_whose_id_holds_no_time(self, _flag):
+        # A keyed send's id is a name-based UUID, so only its stored rows say when it was queued.
+        self.message_id = str(uuid5(NAMESPACE_URL, "a-key"))
+        self._status_rows([("queued", 0, ""), ("sent", 2, "")])
+
+        response = self.client.get(self._url(self.message_id))
+
+        assert response.status_code == status.HTTP_200_OK
+        assert response.json() == {
+            "id": self.message_id,
+            "status": "sent",
+            "created_at": self.queued_at.isoformat().replace("+00:00", "Z"),
+            "status_at": self._at(2).isoformat().replace("+00:00", "Z"),
+            "reason": None,
+        }
+
+    @parameterized.expand([("timed_id", False), ("keyed_id", True)])
+    @override_settings(CLICKHOUSE_EVENTS_OFFLINE_HOST="events-cluster.invalid")
+    def test_reads_a_status_when_the_project_reads_the_native_events_table(self, _flag, _name, keyed):
+        if keyed:
+            self.message_id = str(uuid5(NAMESPACE_URL, "a-key"))
+        self._status_rows([("queued", 0, ""), ("sent", 2, "")])
+
+        with override_instance_config("CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA_TEAMS", str(self.team.pk)):
+            response = self.client.get(self._url(self.message_id))
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["status"] == "sent"
 
     @parameterized.expand(
         [
@@ -155,16 +190,26 @@ class TestTransactionalEmailStatus(ClickhouseTestMixin, APIBaseTest):
 
     @parameterized.expand(
         [
-            ("read_scope", ["hog_flow:read"], status.HTTP_200_OK),
-            ("no_workflow_scope", ["feature_flag:read"], status.HTTP_403_FORBIDDEN),
+            ("read_scope", ["hog_flow:read"], status.HTTP_200_OK, "hog_flow"),
+            ("status_scope", ["transactional_email:read"], status.HTTP_200_OK, "transactional_email"),
+            ("send_scope", ["transactional_email:write"], status.HTTP_200_OK, "transactional_email"),
+            ("no_workflow_scope", ["feature_flag:read"], status.HTTP_403_FORBIDDEN, None),
+            ("preference_scope", ["messaging_preference:write"], status.HTTP_403_FORBIDDEN, None),
         ]
     )
-    def test_project_secret_api_key_needs_the_read_scope(self, _flag, _name, scopes, expected_status):
+    def test_project_secret_api_key_needs_the_read_scope(
+        self, _flag, _name, scopes, expected_status, expected_authorized_by
+    ):
         self._status_rows([("queued", 0, "")])
 
-        response = self._psak_client(scopes).get(self._url(self.message_id))
+        with patch(
+            "products.messaging.backend.presentation.views.transactional_email_status.posthoganalytics.capture"
+        ) as capture:
+            response = self._psak_client(scopes).get(self._url(self.message_id))
 
         assert response.status_code == expected_status
+        if expected_authorized_by:
+            assert capture.call_args.kwargs["properties"]["authorized_by"] == expected_authorized_by
 
     def test_a_session_cannot_read_a_status(self, _flag):
         self._status_rows([("queued", 0, "")])
@@ -175,10 +220,17 @@ class TestTransactionalEmailStatus(ClickhouseTestMixin, APIBaseTest):
 
         assert response.status_code == status.HTTP_401_UNAUTHORIZED
 
-    def test_is_hidden_while_the_flag_is_off(self, flag):
-        flag.return_value = False
+    @parameterized.expand(
+        [
+            ("both_send_flags_off", set(), status.HTTP_404_NOT_FOUND),
+            ("only_the_template_send_flag", {"workflows-transactional-email-api"}, status.HTTP_200_OK),
+            ("only_the_code_send_flag", {"workflows-email-from-code"}, status.HTTP_200_OK),
+        ]
+    )
+    def test_reads_a_status_under_either_send_flag(self, flag, _name, enabled_flags, expected_status):
+        flag.side_effect = lambda key, *args, **kwargs: key in enabled_flags
         self._status_rows([("queued", 0, "")])
 
         response = self.client.get(self._url(self.message_id))
 
-        assert response.status_code == status.HTTP_404_NOT_FOUND
+        assert response.status_code == expected_status

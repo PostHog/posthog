@@ -6,6 +6,8 @@ from `facade/temporal.py`, which pulls in the workflow module.
 """
 
 from products.alerts_platform.backend.temporal.metrics import (
+    ChartRenderOutcome,
+    increment_chart_renders,
     increment_checks,
     increment_checks_deferred,
     increment_checks_skipped,
@@ -17,11 +19,14 @@ from products.alerts_platform.backend.temporal.metrics import (
     increment_notifications_muted,
     increment_state_transition,
     record_batch_duration,
+    record_check_completion_lag,
     record_scheduler_lag,
     safe_record,
 )
 
 __all__ = [
+    "ChartRenderOutcome",
+    "increment_chart_renders",
     "increment_checks",
     "increment_checks_deferred",
     "increment_checks_skipped",
@@ -33,6 +38,7 @@ __all__ = [
     "increment_notifications_muted",
     "increment_state_transition",
     "record_batch_duration",
+    "record_check_completion_lag",
     "record_scheduler_lag",
     "safe_record",
 ]

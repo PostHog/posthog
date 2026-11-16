@@ -8,7 +8,7 @@ from drf_spectacular.utils import OpenApiParameter
 from prometheus_client import Counter
 from rest_framework import serializers, viewsets
 from rest_framework.decorators import action
-from rest_framework.exceptions import APIException, PermissionDenied
+from rest_framework.exceptions import APIException
 from rest_framework.request import Request
 from rest_framework.response import Response
 
@@ -16,6 +16,7 @@ from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.monitoring import monitor
 from posthog.api.pagination import page_link
 from posthog.api.statement_timeout import statement_timeout
+from posthog.exceptions import InsufficientScope
 from posthog.permissions import get_authenticator_scopes
 
 from products.ai_observability.backend.api.metrics import llma_track_latency
@@ -112,7 +113,7 @@ class OfflineEvaluationReadViewSet(OfflineEvaluationViewSet):
             {"*", "llm_analytics:read", "llm_analytics:write"}.intersection(scopes)
         )
         if query is not None and (query.scorer_definition_id or query.scorer_version_ids) and not can_read_scores:
-            raise PermissionDenied("Scorer filters require llm_analytics:read.")
+            raise InsufficientScope(["llm_analytics:read"], detail="Scorer filters require llm_analytics:read.")
         return OfflineEvaluationReadService(
             team_id=self.team_id, user_access_control=self.user_access_control, can_read_scores=can_read_scores
         )

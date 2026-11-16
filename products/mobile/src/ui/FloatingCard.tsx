@@ -1,18 +1,19 @@
-import type { ReactElement, ReactNode } from 'react'
-import { type StyleProp, View, type ViewStyle } from 'react-native'
+import type { ComponentProps, ReactElement, ReactNode } from 'react'
+import { View } from 'react-native'
 import Animated, { useAnimatedStyle } from 'react-native-reanimated'
 
 import { OverlayPortal } from './OverlayPortal'
 import { Scrim } from './Scrim'
 import { createStyles, useTheme } from './theme'
 import { motion, radii } from './tokens'
+import { useOverlayBack } from './useOverlayBack'
 import { usePresence } from './usePresence'
 
 interface FloatingCardProps {
     visible: boolean
     onClose: () => void
     children: ReactNode
-    style?: StyleProp<ViewStyle>
+    style?: ComponentProps<typeof Animated.View>['style']
     transformOrigin?: string
     accessory?: ReactNode
     accessibilityLabel?: string
@@ -32,6 +33,7 @@ export function FloatingCard({
     const { colors, shadows } = useTheme()
     const styles = useStyles()
     const { mounted, progress } = usePresence(visible, motion.menu, 'emphasized')
+    useOverlayBack(visible, onClose)
     const cardStyle = useAnimatedStyle(() => ({
         opacity: progress.value,
         transform: [{ scale: 0.92 + 0.08 * progress.value }, { translateY: -6 * (1 - progress.value) }],

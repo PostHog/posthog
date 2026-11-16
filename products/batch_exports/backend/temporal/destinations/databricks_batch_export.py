@@ -69,6 +69,7 @@ EXTERNAL_LOGGER = get_logger("EXTERNAL")
 
 
 NON_RETRYABLE_ERROR_TYPES: list[str] = [
+    "UnsupportedColumnTypeError",
     # Our own exception when we can't connect to Databricks, usually due to invalid parameters.
     "DatabricksConnectionError",
     # Raised when we don't have sufficient permissions to perform an operation.

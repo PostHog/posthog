@@ -237,7 +237,7 @@ export function ScannerGoalFlow(): JSX.Element {
                                         />
                                         {budgetValid && goalBudgetInput != null ? (
                                             <span className="text-xs text-muted">
-                                                ≈ {creditsToUsd(goalBudgetInput)} a month
+                                                ≈ <span translate="no">{creditsToUsd(goalBudgetInput)}</span> a month
                                             </span>
                                         ) : null}
                                     </div>

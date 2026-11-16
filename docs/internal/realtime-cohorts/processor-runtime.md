@@ -268,7 +268,7 @@ At boot the processor:
 
 1. validates its configuration, refuses unsafe combinations, and works out the partitions it owns,
 2. binds the health server, so `/_health` answers from here on and `/_ready` reads not ready,
-3. loads the catalog once,
+3. reads team access and loads the catalog once,
 4. checks the partition counts of the co-partitioned topics against broker metadata,
 5. waits until the [ownership fence](#ownership-and-the-single-pod-deployment) admits its split,
 6. decides where the store comes from: with durable restore enabled, the live store on disk or a checkpoint, otherwise an empty store.
@@ -381,8 +381,11 @@ Two variations show the edges.
   On the event path it is not.
   Only the merge, cascade and seed paths hold.
 - The events consumer does not wait for the catalog.
-  If the first catalog load fails, events are consumed, skipped for lack of definitions, and committed.
+  If the first catalog load fails, which includes a failed read of team access, events are consumed, skipped for lack of definitions, and committed.
   The pod reads not ready meanwhile.
+- A processor image that does not read team access builds its catalog from its env list alone.
+  A rollback to such an image drops every team that only a team access row grants, and stage 2 GC then deletes the state of those teams without emitting `left`.
+  Before such a rollback, add those teams to the processor's `REALTIME_COHORT_TEAM_ALLOWLIST`.
 - A held offset stays held for the rest of the partition's tenure, which means until the next restart.
   The symptom is growing lag on that topic and partition.
 - A created store withholds every reconcile whose run boundary predates its slices, because each slice begins when its partition is assigned.

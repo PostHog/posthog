@@ -7,8 +7,6 @@ import api from 'lib/api'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
-import { DeleteDashboardForm, deleteDashboardLogic } from 'scenes/dashboard/deleteDashboardLogic'
-import { DuplicateDashboardForm, duplicateDashboardLogic } from 'scenes/dashboard/duplicateDashboardLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -17,6 +15,9 @@ import { useMocks } from '~/mocks/jest'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { initKeaTests } from '~/test/init'
 import { InsightModel, SavedInsightsTabs } from '~/types'
+
+import { DeleteDashboardForm, deleteDashboardLogic } from 'products/dashboards/frontend/deleteDashboardLogic'
+import { DuplicateDashboardForm, duplicateDashboardLogic } from 'products/dashboards/frontend/duplicateDashboardLogic'
 
 import {
     INSIGHTS_PER_PAGE,

@@ -1,4 +1,12 @@
-import { type AstRange, innermostSelectRangeFromAst, tablesAndColumnsFromAst } from './hogqlAst'
+import { createWorker } from 'lib/utils/createWorker'
+
+import {
+    type AstRange,
+    type SelectComparison,
+    compareParsedSelects,
+    innermostSelectRangeFromAst,
+    tablesAndColumnsFromAst,
+} from './hogqlAst'
 import { parseSelect } from './hogqlParserSingleton'
 import type { HogqlParserQuestion, HogqlParserRequest, HogqlParserResponse } from './hogqlParserWorker'
 
@@ -7,7 +15,6 @@ import type { HogqlParserQuestion, HogqlParserRequest, HogqlParserResponse } fro
 // isn't served, init times out, or a request fails. The fallback is slow but correct, and it runs
 // the same walkers as the worker, so behavior does not change with it.
 
-const WORKER_URL = '/static/hogqlParserWorker.js'
 const READY_TIMEOUT_MS = 5000
 const REQUEST_TIMEOUT_MS = 60000
 
@@ -48,7 +55,7 @@ function getWorker(): Promise<Worker> {
             reject(new Error('Worker is not available'))
             return
         }
-        const created = new Worker(WORKER_URL, { type: 'module' })
+        const created = createWorker('hogqlParserWorker.js', { type: 'module' })
         worker = created
 
         const timer = setTimeout(() => reject(new Error('Parser worker init timed out')), READY_TIMEOUT_MS)
@@ -135,4 +142,18 @@ export async function analyzeTablesAndColumns(query: string): Promise<Record<str
     }
     const ast = await parseOnMainThread(query)
     return ast ? tablesAndColumnsFromAst(ast) : {}
+}
+
+const SELECT_COMPARISONS: ReadonlySet<unknown> = new Set<SelectComparison>(['same', 'different', 'unparsable'])
+
+export async function compareSelectQueries(query: string, other: string): Promise<SelectComparison> {
+    if (!workerUnavailable) {
+        try {
+            const result = await ask({ op: 'compareSelects', query, other })
+            if (SELECT_COMPARISONS.has(result)) {
+                return result
+            }
+        } catch {}
+    }
+    return compareParsedSelects(await parseSelect(query, true), await parseSelect(other, true))
 }

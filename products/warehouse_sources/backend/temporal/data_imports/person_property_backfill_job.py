@@ -34,9 +34,13 @@ from products.warehouse_sources.backend.temporal.data_imports.external_product_h
     PersonPropertyBackfillActivityInputs,
     PersonPropertyFailedRunInputs,
 )
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.person_property_run_log import (
+    PersonPropertyRunLog,
+)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.person_property_sync import (
     failed_run_error,
     is_worker_interruption,
+    progress_recorder,
     record_completed_runs,
     record_failed_runs,
     record_started_runs,
@@ -45,7 +49,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.per
 
 logger = structlog.get_logger(__name__)
 
-INTERRUPTED_RUN_NEXT_STEP = "Click Backfill to try again."
+INTERRUPTED_RUN_NEXT_STEP = "Click Backfill to continue from where it stopped."
 RECORD_FAILED_RUN_PATCH = "person-property-backfill-record-failed-run-2026-10"
 RETRY_INTERRUPTED_RUN_PATCH = "person-property-backfill-retry-interrupted-run-2026-10"
 
@@ -87,7 +91,14 @@ async def backfill_warehouse_person_properties_activity(inputs: PersonPropertyBa
     )
     try:
         async with Heartbeater():
-            result = await run_person_property_backfill(team_id=inputs.team_id, binding=binding, trigger=inputs.trigger)
+            result = await run_person_property_backfill(
+                team_id=inputs.team_id,
+                binding=binding,
+                trigger=inputs.trigger,
+                on_progress=progress_recorder(
+                    team_id=inputs.team_id, binding=binding, job_id=None, trigger=inputs.trigger
+                ),
+            )
     except Exception as e:
         log.exception("Person-property backfill failed")
         capture_exception(e)
@@ -95,6 +106,7 @@ async def backfill_warehouse_person_properties_activity(inputs: PersonPropertyBa
         # running row. Record here only when the workflow will not.
         if not inputs.workflow_records_failure:
             PERSON_PROPERTY_BACKFILL_TOTAL.labels(team_id=str(inputs.team_id), outcome="failed").inc()
+            PersonPropertyRunLog(inputs.team_id, binding).failed(str(e))
             await record_failed_runs(
                 team_id=inputs.team_id,
                 binding=binding,
@@ -141,6 +153,7 @@ async def backfill_warehouse_person_properties_activity(inputs: PersonPropertyBa
 
 @activity.defn
 async def record_failed_person_property_backfill_runs_activity(inputs: PersonPropertyFailedRunInputs) -> None:
+    PersonPropertyRunLog(inputs.team_id, inputs.binding).failed(inputs.error)
     await record_failed_runs(
         team_id=inputs.team_id,
         binding=inputs.binding,

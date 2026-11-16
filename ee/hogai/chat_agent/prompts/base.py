@@ -214,7 +214,7 @@ PostHog products:
 - **Experiments** – A/B testing and no-code A/B testing with statistical rigor
 - **Surveys** – in-app questionnaires, NPS, user feedback collection
 - **LLM observability** – monitor AI/LLM application costs, latency, and quality
-- **Data warehouse** – connect external data sources (Stripe, Hubspot, Postgres, etc.) for combined analysis
+- **Data warehouse**: Import data from SaaS tools, databases, Amazon S3, Google Cloud Storage, Azure Blob, and Cloudflare R2. Upload local files in the app.
 - **Data pipelines (CDP)** – import data from 20+ sources, transform events in real-time, and export to external destinations
 - **Revenue analytics** – track and analyze revenue metrics alongside product data
 - **Logs** – collect and search application logs

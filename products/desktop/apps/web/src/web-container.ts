@@ -1,10 +1,7 @@
 import "reflect-metadata";
 import { TypedContainer } from "@inversifyjs/strongly-typed";
 import { DEFAULT_GATEWAY_MODEL } from "@posthog/agent/gateway-models";
-import {
-  getGatewayUsageUrl,
-  getLlmGatewayUrl,
-} from "@posthog/agent/posthog-api";
+import { getLlmGatewayUrl } from "@posthog/agent/posthog-api";
 import { archiveModule } from "@posthog/core/archive/archive.module";
 import {
   ARCHIVE_CLIENT,
@@ -83,7 +80,9 @@ import {
 import { inboxCoreModule } from "@posthog/core/inbox/inbox.module";
 import { selectModelFromOptions } from "@posthog/core/inbox/reportTaskCreation";
 import { githubConnectModule } from "@posthog/core/integrations/githubConnect.module";
+import { GitProviderService } from "@posthog/core/integrations/gitProviderService";
 import {
+  GIT_PROVIDER_SERVICE,
   GITHUB_CONNECT_CLIENT as INTEGRATIONS_GITHUB_CONNECT_CLIENT,
   type GithubConnectClient as IntegrationsGithubConnectClient,
   REPOSITORIES_CLIENT,
@@ -386,6 +385,7 @@ interface WebBindings {
   [ONBOARDING_GITHUB_CONNECT_CLIENT]: OnboardingGithubConnectContract;
   [REPOSITORIES_CLIENT]: RepositoriesClient;
   [REPOSITORIES_SERVICE]: RepositoriesService;
+  [GIT_PROVIDER_SERVICE]: GitProviderService;
   [HOST_CAPABILITIES]: HostCapabilities;
   [TASK_SERVICE]: TaskServiceType;
   [WORKSPACE_SETUP_SAGA]: WorkspaceSetupSaga;
@@ -622,6 +622,7 @@ container
   .toConstantValue(new OnboardingGithubConnectClient());
 container.bind(REPOSITORIES_CLIENT).toConstantValue(new UiRepositoriesClient());
 container.bind(REPOSITORIES_SERVICE).to(RepositoriesService).inSingletonScope();
+container.bind(GIT_PROVIDER_SERVICE).to(GitProviderService).inSingletonScope();
 
 // ── Task list + creation (TASK_SERVICE at the task views) ──
 // TaskService/WorkspaceSetupSaga are portable core (taskDetailModule). The
@@ -797,7 +798,6 @@ container.bind(LLM_GATEWAY_HOST).toDynamicValue((ctx) => {
     messagesUrl: (apiHost: string) =>
       `${getLlmGatewayUrl(apiHost)}/v1/messages`,
     usageUrl: desktopUsageUrl,
-    legacyUsageUrl: (apiHost: string) => getGatewayUsageUrl(apiHost),
     defaultModel: DEFAULT_GATEWAY_MODEL,
   };
 });

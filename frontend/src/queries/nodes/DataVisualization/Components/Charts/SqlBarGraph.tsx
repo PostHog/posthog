@@ -118,7 +118,11 @@ export const SqlBarGraph = (props: SqlChartProps): JSX.Element => {
                     >
                         {props.children}
                         {props.showAnnotations && props.insightNumericId && (
-                            <AnnotationsLayer insightNumericId={props.insightNumericId} dates={model.labels} />
+                            <AnnotationsLayer
+                                insightNumericId={props.insightNumericId}
+                                dates={model.labels}
+                                annotationsScope={props.chartSettings.annotationsScope}
+                            />
                         )}
                     </TimeSeriesBarChart>
                 ))}

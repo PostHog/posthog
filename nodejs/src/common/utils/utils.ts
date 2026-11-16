@@ -604,6 +604,7 @@ export const KNOWN_LIB_VALUES = new Set([
     'RudderLabs JavaScript SDK',
     'mobile',
     'posthog-php',
+    'posthog-laravel',
     'zapier',
     'Webflow',
     'posthog-flutter',

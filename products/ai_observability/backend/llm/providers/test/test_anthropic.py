@@ -12,6 +12,7 @@ from products.ai_observability.backend.llm.errors import (
     ModelPermissionError,
     OutputTokenLimitError,
     ProviderConfigurationError,
+    RetryableRateLimitError,
 )
 from products.ai_observability.backend.llm.providers.anthropic import (
     AnthropicAdapter,
@@ -350,6 +351,31 @@ class TestAnthropicErrorMapping:
                     analytics=AnalyticsContext(capture=False),
                 )
 
+    def test_rate_limit_429_is_retryable_after_the_providers_delay(self):
+        request = httpx.Request("POST", "https://api.anthropic.com/v1/messages")
+        with patch("products.ai_observability.backend.llm.providers.anthropic.anthropic.Anthropic") as mock_cls:
+            mock_client = MagicMock()
+            mock_cls.return_value = mock_client
+            mock_client.messages.create.side_effect = anthropic.RateLimitError(
+                "Rate limited",
+                response=httpx.Response(status_code=429, request=request, headers={"retry-after": "20"}),
+                body={"type": "error", "error": {"type": "rate_limit_error", "message": "Rate limited"}},
+            )
+
+            with pytest.raises(RetryableRateLimitError) as error:
+                AnthropicAdapter().complete(
+                    CompletionRequest(
+                        model="claude-haiku-4-5",
+                        messages=[{"role": "user", "content": "hi"}],
+                        provider="anthropic",
+                        system="s",
+                    ),
+                    api_key="sk-ant-test",
+                    analytics=AnalyticsContext(capture=False),
+                )
+
+        assert error.value.retry_after == 20
+
 
 class TestAnthropicStreamErrorSurfacing:
     def test_model_404_yields_actionable_message_instead_of_discarding_the_reason(self):
@@ -519,6 +545,27 @@ class TestAnthropicFoundry:
         assert state == expected_state
         assert error_field_for_validation_message(message) == expected_field
         assert foundry.call_args.kwargs["base_url"] == "https://my-resource.services.ai.azure.com/anthropic/"
+
+    @parameterized.expand(
+        [
+            ("out_of_credits", "Your credit balance is too low to access the Anthropic API.", "out of credits"),
+            ("other_request_error", "messages: field required", "Validation failed"),
+        ]
+    )
+    @patch("products.ai_observability.backend.llm.providers.anthropic.anthropic.Anthropic")
+    def test_validate_key_names_an_empty_credit_balance(self, _name, provider_message, expected_message, client):
+        body = {"type": "error", "error": {"type": "invalid_request_error", "message": provider_message}}
+        request = httpx.Request("POST", "https://api.anthropic.com/v1/messages")
+        response = httpx.Response(status_code=400, request=request, json=body)
+        # The SDK's message carries the provider's text, which is what the credit check reads.
+        client.return_value.messages.create.side_effect = anthropic.BadRequestError(
+            f"Error code: 400 - {body}", response=response, body=body
+        )
+
+        state, message = AnthropicAdapter.validate_key("sk-ant-test")
+
+        assert state == "error"
+        assert message is not None and expected_message in message
 
     @patch("products.ai_observability.backend.llm.providers.anthropic.anthropic.AnthropicFoundry")
     def test_validate_key_never_sends_the_key_to_a_non_azure_endpoint(self, foundry):

@@ -14,6 +14,7 @@ from products.cohorts.backend.models.backfill import (
     CohortBackfillChunk,
     CohortBackfillChunkStatus,
     CohortBackfillKind,
+    CohortBackfillRefusal,
     CohortBackfillRun,
     CohortBackfillRunCohort,
     CohortBackfillRunStatus,
@@ -30,6 +31,7 @@ from products.cohorts.backend.models.team_access import (
 from products.cohorts.backend.realtime_state import (
     CohortHistoryBuildPhase,
     CohortRealtimeState,
+    CohortRealtimeUnavailableReason,
     resolve_realtime_readiness,
 )
 
@@ -105,6 +107,25 @@ class TestRealtimeReadiness(BaseTest):
         # The whole point of deriving from a run row: a refused, lost, or never-triggered backfill
         # must not read as work in progress, or the progress bar never ends.
         assert self._state(self._cohort()) == CohortRealtimeState.NEEDS_ATTENTION
+
+    @parameterized.expand(
+        [
+            ("current_definition", {}, CohortRealtimeUnavailableReason.TOO_LARGE_TO_BUILD),
+            ("criteria_edited_since", {"behavioral_filters_shape_hash": "edited0000000000"}, None),
+        ]
+    )
+    def test_a_stored_scan_refusal_says_why_nothing_is_building(
+        self, _name: str, edit: dict[str, str], reason: CohortRealtimeUnavailableReason | None
+    ) -> None:
+        cohort = self._cohort()
+        CohortBackfillRefusal.objects.for_team(self.team.id).create(
+            team_id=self.team.id, cohort=cohort, shape_hash=cohort.behavioral_filters_shape_hash or "", message=""
+        )
+        Cohort.objects.filter(id=cohort.id).update(**edit)
+        cohort.refresh_from_db()
+
+        readiness = resolve_realtime_readiness([cohort])[cohort.id]
+        assert (readiness.state, readiness.reason) == (CohortRealtimeState.NEEDS_ATTENTION, reason)
 
     @parameterized.expand(
         [
@@ -379,15 +400,29 @@ class TestRealtimeReadiness(BaseTest):
 
     @parameterized.expand(
         [
-            ("static", {"is_static": True, "cohort_type": CohortType.STATIC}, CohortRealtimeState.STATIC),
-            ("not_realtime", {"cohort_type": CohortType.BEHAVIORAL}, CohortRealtimeState.DAILY),
+            ("static", {"is_static": True, "cohort_type": CohortType.STATIC}, (CohortRealtimeState.STATIC, None, None)),
+            ("not_realtime", {"cohort_type": CohortType.BEHAVIORAL}, (CohortRealtimeState.DAILY, None, None)),
+            (
+                "history_over_limit",
+                {
+                    "cohort_type": None,
+                    "filters": filters({**BEHAVIORAL_LEAF, "time_value": 2, "time_interval": "year"}),
+                },
+                (CohortRealtimeState.DAILY, CohortRealtimeUnavailableReason.HISTORY_OVER_LIMIT, 400),
+            ),
             # Neither kind of criteria decides anything: the realtime evaluator has no leaf to key
             # membership on, and the flag API does not gate on a cohort reference either.
             ("cohort_reference_only", {"filters": filters(COHORT_LEAF)}, None),
         ]
     )
-    def test_cohorts_outside_the_realtime_path(self, _name: str, kwargs: dict, expected: str | None) -> None:
-        assert self._state(self._cohort(**kwargs)) == expected
+    def test_cohorts_outside_the_realtime_path(
+        self, _name: str, kwargs: dict, expected: tuple[str, str | None, int | None] | None
+    ) -> None:
+        cohort = self._cohort(**kwargs)
+        readiness = resolve_realtime_readiness([cohort]).get(cohort.id)
+        assert (
+            (readiness.state, readiness.reason, readiness.history_limit_days) if readiness is not None else None
+        ) == expected
 
     def test_a_person_property_cohort_is_targetable_and_names_no_readiness_moment(self) -> None:
         # Flags read person properties off the person as they evaluate, so this cohort is
