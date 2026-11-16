@@ -1,17 +1,15 @@
 import { useValues } from 'kea'
-import posthog from 'posthog-js'
 import { useEffect, useState } from 'react'
 
 import { IconExternal } from '@posthog/icons'
 import { LemonButton, LemonModal, LemonSkeleton } from '@posthog/lemon-ui'
-
-import { urls } from 'scenes/urls'
 
 import { IntegrationType } from '~/types'
 
 import { BindEmailDomainLogics } from './BindEmailDomainLogics'
 import { AgentHandoffModal } from './components/AgentHandoffModal'
 import { emailDomainLogic } from './emailDomainLogic'
+import { EmailDomainSetupEntry, captureEmailDomainSetupStarted, emailDomainSetupPath } from './emailDomainSetupLinks'
 import { DomainStep } from './steps/DomainStep'
 import { ReadyStep } from './steps/ReadyStep'
 import { SettingsStep } from './steps/SettingsStep'
@@ -20,7 +18,7 @@ import { VerifyingStep } from './steps/VerifyingStep'
 
 export interface EmailDomainSetupModalProps {
     integration?: IntegrationType | null
-    entry: 'channels' | 'broadcast' | 'configure'
+    entry: EmailDomainSetupEntry
     onComplete: (integrationId?: number) => void
     onClose: (savedIntegrationId?: number) => void
 }
@@ -57,7 +55,7 @@ function ModalSettings({
                 <LemonButton
                     type="tertiary"
                     className="self-center"
-                    to={urls.workflowsEmailDomain(integrationId)}
+                    to={emailDomainSetupPath(integrationId)}
                     targetBlank={openInNewTab}
                     onClick={onLeave}
                     sideIcon={<IconExternal />}
@@ -78,10 +76,7 @@ export function EmailDomainSetupModal({
 }: EmailDomainSetupModalProps): JSX.Element {
     const [integrationId, setIntegrationId] = useState<number | null>(integration?.id ?? null)
 
-    useEffect(() => {
-        // pinned: analytics event name
-        posthog.capture('email domain setup started', { entry })
-    }, [entry])
+    useEffect(() => captureEmailDomainSetupStarted(entry), [entry])
 
     return (
         <LemonModal

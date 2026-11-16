@@ -9,6 +9,7 @@ import { urls } from 'scenes/urls'
 import { AgentHandoffModal } from './components/AgentHandoffModal'
 import { StepIndicator } from './components/StepIndicator'
 import { emailDomainLogic } from './emailDomainLogic'
+import { emailDomainSetupPath } from './emailDomainSetupLinks'
 import { DomainStep } from './steps/DomainStep'
 import { ReadyStep } from './steps/ReadyStep'
 import { SettingsStep } from './steps/SettingsStep'
@@ -22,7 +23,7 @@ function CurrentStep(): JSX.Element {
             return (
                 <DomainStep
                     logicKey="page"
-                    onCreated={(integration) => router.actions.replace(urls.workflowsEmailDomain(integration.id))}
+                    onCreated={(integration) => router.actions.replace(emailDomainSetupPath(integration.id))}
                 />
             )
         case 'loading':

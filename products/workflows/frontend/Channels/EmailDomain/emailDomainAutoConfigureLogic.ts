@@ -14,8 +14,8 @@ import type {
 } from 'products/integrations/frontend/generated/api.schemas'
 
 import { EmailDomainLogicProps } from './emailDomainLogicProps'
-import { emailDomainPageUrl } from './emailDomainPageUrl'
 import { emailDomainSenderLogic } from './emailDomainSenderLogic'
+import { emailDomainSetupPageUrl } from './emailDomainSetupLinks'
 import { emailDomainStatusLogic } from './emailDomainStatusLogic'
 
 // pinned: URL search param, the Domain Connect redirect_uri carries it back to this page
@@ -195,7 +195,7 @@ export const emailDomainAutoConfigureLogic = kea<emailDomainAutoConfigureLogicTy
         pageUrl: [
             (s) => [s.currentTeamId, s.integrationId],
             (currentTeamId: number | null, integrationId: number | null): string | null =>
-                currentTeamId && integrationId ? emailDomainPageUrl(currentTeamId, integrationId) : null,
+                currentTeamId && integrationId ? emailDomainSetupPageUrl(currentTeamId, integrationId) : null,
         ],
     }),
     listeners(({ actions, values, cache }) => ({
