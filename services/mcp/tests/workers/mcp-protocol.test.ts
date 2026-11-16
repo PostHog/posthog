@@ -111,6 +111,16 @@ describe('MCP HTTP entry point (Cloudflare Workers)', () => {
 
             expect(await response.text()).not.toContain('Invalid token')
         })
+
+        it('asks a project secret API key for its project instead of rejecting the key', async () => {
+            const response = await SELF.fetch('https://mcp.posthog.com/mcp', {
+                method: 'POST',
+                headers: { Authorization: 'Bearer phs_test_key' },
+            })
+
+            expect(response.status).toBe(400)
+            expect(await response.text()).toContain('project_id')
+        })
     })
 
     describe('Authorization server redirects', () => {

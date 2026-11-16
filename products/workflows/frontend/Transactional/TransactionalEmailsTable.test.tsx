@@ -1,7 +1,13 @@
+/* oxlint-disable react-hooks/rules-of-hooks -- useMocks is a test helper, not a React hook */
 import '@testing-library/jest-dom'
 
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { Provider } from 'kea'
+import { router } from 'kea-router'
+
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { urls } from 'scenes/urls'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
@@ -9,6 +15,7 @@ import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import type { CodeEmailApi } from 'products/messaging/frontend/generated/api.schemas'
 
+import { transactionalEmailsLogic } from './transactionalEmailsLogic'
 import { TransactionalEmailsTable } from './TransactionalEmailsTable'
 
 const codeEmail = (key: string, userAccessLevel: AccessControlLevel): CodeEmailApi => ({
@@ -110,5 +117,148 @@ describe('TransactionalEmailsTable', () => {
 
         expect(await screen.findByText('Receipt')).toBeInTheDocument()
         expect(screen.queryByText(/couldn't load/)).not.toBeInTheDocument()
+    })
+
+    it.each([
+        ['leads with sending from code when code sends are on', true, 'Send your first email from code'],
+        ['keeps the template intro when code sends are off', false, 'Create your first transactional email'],
+    ])('%s in an empty tab', async (_case, codeSendsOn, heading) => {
+        useMocks({
+            get: {
+                '/api/projects/:team_id/messaging_templates/': { results: [] },
+                '/api/projects/:team_id/transactional_code_emails/': [],
+                '/api/projects/:team_id/integrations/': { results: [] },
+            },
+        })
+        initKeaTests()
+        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.WORKFLOWS_EMAIL_FROM_CODE], {
+            [FEATURE_FLAGS.WORKFLOWS_EMAIL_FROM_CODE]: codeSendsOn,
+        })
+        render(
+            <Provider>
+                <TransactionalEmailsTable />
+            </Provider>
+        )
+
+        expect(await screen.findByText(heading)).toBeInTheDocument()
+    })
+
+    const renderWithCodeSends = (
+        get: Record<string, unknown>,
+        { wizardOffered = false, selfHosted = false }: { wizardOffered?: boolean; selfHosted?: boolean } = {}
+    ): ReturnType<typeof render> => {
+        useMocks({
+            get: {
+                '/api/projects/:team_id/messaging_templates/': { results: [] },
+                '/api/projects/:team_id/transactional_code_emails/': [],
+                '/api/projects/:team_id/integrations/': { results: [] },
+                '/api/projects/:team_id/tags': [],
+                ...(selfHosted ? { '/_preflight': { cloud: false, is_debug: false } } : {}),
+                ...get,
+            } as Record<string, any>,
+        })
+        initKeaTests()
+        featureFlagLogic.actions.setFeatureFlags(
+            [FEATURE_FLAGS.WORKFLOWS_EMAIL_FROM_CODE, FEATURE_FLAGS.WORKFLOWS_TRANSACTIONAL_EMAIL_WIZARD],
+            {
+                [FEATURE_FLAGS.WORKFLOWS_EMAIL_FROM_CODE]: true,
+                [FEATURE_FLAGS.WORKFLOWS_TRANSACTIONAL_EMAIL_WIZARD]: wizardOffered,
+            }
+        )
+        return render(
+            <Provider>
+                <TransactionalEmailsTable />
+            </Provider>
+        )
+    }
+
+    it('keeps the first send from code on screen in the empty tab', async () => {
+        jest.useFakeTimers()
+        let stored: CodeEmailApi[] = []
+        renderWithCodeSends({ '/api/projects/:team_id/transactional_code_emails/': () => [200, stored] })
+        expect(await screen.findByText(/Waiting for your first send/)).toBeInTheDocument()
+
+        stored = [codeEmail('welcome', AccessControlLevel.Editor)]
+        await act(() => jest.advanceTimersByTimeAsync(10_000))
+
+        expect(screen.getByText('PostHog got the first email from your code.')).toBeInTheDocument()
+        jest.useRealTimers()
+    })
+
+    it('says a failed check right away instead of waiting quietly', async () => {
+        jest.useFakeTimers()
+        let listCalls = 0
+        renderWithCodeSends({
+            '/api/projects/:team_id/transactional_code_emails/': () =>
+                ++listCalls === 1 ? [200, []] : [500, { detail: 'A server error occurred.' }],
+        })
+
+        expect(await screen.findByText(/Couldn't check for emails from your code. Trying again./)).toBeInTheDocument()
+        jest.useRealTimers()
+    })
+
+    it('says the sending domain failed to load, and loads it on retry', async () => {
+        let integrationsFail = true
+        const { container } = renderWithCodeSends({
+            '/api/projects/:team_id/integrations/': () =>
+                integrationsFail ? [500, { detail: 'A server error occurred.' }] : [200, { results: [] }],
+        })
+        expect(await screen.findByText("Couldn't load your sending domain.")).toBeInTheDocument()
+
+        integrationsFail = false
+        fireEvent.click(container.querySelector('[data-attr=send-from-code-reload-domain]')!)
+
+        expect(await screen.findByText(/Set up the domain you send from/)).toBeInTheDocument()
+
+        fireEvent.click(container.querySelector('[data-attr=send-from-code-set-up-domain]')!)
+        expect(router.values.location.pathname).toMatch(new RegExp(`${urls.workflowsEmailDomain('new')}$`))
+        expect(router.values.searchParams).toEqual({ from: 'transactional' })
+    })
+
+    it.each([
+        ['leads with the Wizard command once it is offered', true, false, true],
+        ['shows only the snippet until the Wizard command is offered', false, false, false],
+        ['shows only the snippet on a self-hosted instance the Wizard cannot reach', true, true, false],
+    ])('%s', async (_case, wizardOffered, selfHosted, wizardShown) => {
+        const { container } = renderWithCodeSends({}, { wizardOffered, selfHosted })
+        await waitFor(() => {
+            expect(screen.getByText('Node.js')).toBeInTheDocument()
+            expect(
+                container
+                    .querySelector('[data-attr=wizard-command-block]')
+                    ?.textContent?.includes('transactional-email') ?? false
+            ).toBe(wizardShown)
+        })
+        expect(screen.queryByText('Or add the send yourself') !== null).toBe(wizardShown)
+    })
+
+    it('offers sending from code only once the templates loaded', async () => {
+        let releaseTemplates: () => void = () => {}
+        renderWithCodeSends({
+            '/api/projects/:team_id/messaging_templates/': () =>
+                new Promise((resolve) => {
+                    releaseTemplates = () =>
+                        resolve([
+                            200,
+                            {
+                                results: [
+                                    {
+                                        id: 'template-1',
+                                        name: 'Receipt',
+                                        transactional_hog_flow_id: 'flow-1',
+                                        has_draft: false,
+                                        tags: [],
+                                    },
+                                ],
+                            },
+                        ])
+                }),
+        })
+        await waitFor(() => expect(transactionalEmailsLogic.values.codeEmails).toEqual([]))
+        expect(screen.queryByText(/Your code can send any email/)).not.toBeInTheDocument()
+
+        releaseTemplates()
+
+        expect(await screen.findByText(/Your code can send any email/)).toBeInTheDocument()
     })
 })
