@@ -7,9 +7,11 @@ from django.utils import timezone
 
 from posthog.models.integration import Integration
 from posthog.models.integration_repository_cache import IntegrationRepositoryCacheEntry
+from posthog.models.project_secret_api_key import ProjectSecretAPIKey
 from posthog.models.scoping import team_scope
 from posthog.models.team import Team
 from posthog.models.team.extensions import get_or_create_team_extension
+from posthog.models.utils import hash_key_value
 
 from products.business_knowledge.backend.github_repos import MAX_GITHUB_REPOS
 from products.business_knowledge.backend.logic import has_sources
@@ -146,6 +148,34 @@ class TestBusinessKnowledgeGithubRepos(APIBaseTest):
         readme_urls = [hit["url"] for hit in response.json()["results"] if hit["kind"] == "readme"]
         assert readme_urls == ["https://github.com/acme/billing/tree/abc123#readme"]
         assert self.warm.called is False
+
+    def test_project_secret_key_searches_and_reads_selected_repositories(self, _capture, _flag) -> None:
+        self._connect()
+        assert self._select([BILLING]).status_code == 200
+        self._cache(self.team, self.integration, BILLING, tree_paths="src/billing.py")
+        token = f"phs_{'a' * 40}"
+        ProjectSecretAPIKey.objects.create(
+            team=self.team,
+            label="agent",
+            mask_value="phs_...aaaa",
+            secure_value=hash_key_value(token),
+            scopes=["business_knowledge:read"],
+        )
+        self.client.logout()
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
+
+        search = self.client.get(f"{self.base}/search/", {"query": "billing"})
+        assert search.status_code == 200, search.json()
+        assert [hit["path"] for hit in search.json()["results"]] == ["src/billing.py"]
+
+        with patch(
+            "products.business_knowledge.backend.github_repos.GitHubIntegration.get_file_contents",
+            return_value={"content": "def prorate(): ...", "sha": "abc123"},
+        ):
+            loaded = self.client.get(f"{self.base}/file/", {"repo": BILLING, "path": "src/billing.py"})
+        assert loaded.status_code == 200, loaded.json()
+
+        assert self.client.post(f"{self.base}/selection/", {"repos": []}, format="json").status_code == 403
 
     def test_repository_removed_from_installation_is_not_searchable(self, _capture, _flag) -> None:
         self._connect()

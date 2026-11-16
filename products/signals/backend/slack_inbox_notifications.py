@@ -20,6 +20,7 @@ from collections.abc import Collection, Iterable
 
 from django.conf import settings
 
+from celery.exceptions import SoftTimeLimitExceeded
 from markdown_to_mrkdwn import SlackMarkdownConverter
 from rest_framework import serializers
 from slack_sdk.errors import SlackApiError
@@ -338,15 +339,19 @@ def _team_notification_target(team_id: int, *, priority: str | None) -> tuple[In
         priority, config.default_slack_notification_min_priority
     ):
         return None
+    integration = _team_notification_integration(team_id, config)
+    return (integration, channel) if integration is not None else None
+
+
+def _team_notification_integration(team_id: int, config: SignalTeamConfig) -> IntegrationRecord | None:
     # Standard `slack` kind (not `slack-posthog-code`), matching the per-user path.
     slack_rows = IntegrationManager.slack.any
     bound_id = config.default_slack_notification_integration_id
     if bound_id is not None and (integration := slack_rows.get_many(team_id, [bound_id]).get(bound_id)):
-        return integration, channel
+        return integration
     # A channel saved before the binding existed, or bound to a removed workspace, keeps the old
     # routing through the oldest workspace.
-    legacy = slack_rows.find(team_id)
-    return (legacy, channel) if legacy is not None else None
+    return slack_rows.find(team_id)
 
 
 def _channel_display_name(value: str) -> str:
@@ -993,3 +998,127 @@ def dispatch_reviewer_added_notifications(
         extra={"report_id": report_id, "team_id": team_id, "messages_sent": sent, "routes": len(routes)},
     )
     return sent
+
+
+def _note_mention_destination(
+    user: User, own_config: _OwnTarget | None, team_integration: IntegrationRecord | None
+) -> _Destination | None:
+    """Where one mentioned person hears about a note mention.
+
+    Their own Slack target answers first, with no min-priority filter, because a mention is a direct
+    ping and not a report digest. Without one, a direct message through the team's inbox workspace
+    reaches them when their PostHog email matches a workspace member. The team channel is never
+    used, so one mention does not ping the whole team.
+    """
+    if own_config is not None and own_config.channel:
+        return _Destination(integration=own_config.integration, channel=own_config.channel, is_team_channel=False)
+    if team_integration is None:
+        return None
+    member_id = lookup_slack_user_id_by_email(SlackIntegration(team_integration, source="signals_inbox"), user.email)
+    if member_id is None:
+        return None
+    return _Destination(integration=team_integration, channel=member_id, is_team_channel=False)
+
+
+def _note_mention_blocks(
+    report: SignalReport, *, author_name: str, recipient_label: str, text: str
+) -> tuple[list[dict], str]:
+    url = build_report_url(report.team_id, report.id, ReportLinkSource.SLACK)
+    title = _escape_mrkdwn(_display_title(report.title))
+    headline = f"*{_escape_mrkdwn(author_name)}* mentioned {recipient_label} on <{url}|{title}>"
+    quoted = "\n".join(f">{line}" for line in _escape_mrkdwn(text).splitlines() or [""])
+    body = truncate_slack_text(f"{headline}\n{quoted}", 2900)
+    # Slack shows the fallback in notification previews, so it is escaped like the body.
+    fallback = _escape_mrkdwn(
+        f"{author_name} mentioned {recipient_label} on a report: {report.title or 'Untitled report'}"
+    )
+    # `verbatim` keeps `@here` and `@channel` in the note as text, so a mention never pings a whole channel.
+    return [{"type": "section", "text": {"type": "mrkdwn", "text": body, "verbatim": True}}], fallback
+
+
+@frozen
+class NoteMentionSlackResult:
+    sent: int
+    # People to try again later: the workspace's member lookup budget ran out, Slack rate-limited the
+    # posts, or the task ran out of time.
+    deferred_user_ids: tuple[int, ...]
+    # Slack's own wait after a rate limit. None means the caller picks the delay.
+    retry_after_seconds: int | None = None
+
+
+def _slack_rate_limit_wait(error: SlackApiError) -> int | None:
+    """Slack's `Retry-After` in seconds when the error is a rate limit, else None."""
+    response = getattr(error, "response", None)
+    if response is None:
+        return None
+    rate_limited = getattr(response, "status_code", None) == 429 or response.get("error") == "ratelimited"
+    if not rate_limited:
+        return None
+    headers = getattr(response, "headers", None) or {}
+    raw = str(headers.get("Retry-After") or headers.get("retry-after") or "")
+    return max(1, int(raw)) if raw.isdigit() else 1
+
+
+def deliver_report_note_mention_to_slack(
+    report: SignalReport, users: Collection[User], *, author_name: str, text: str
+) -> NoteMentionSlackResult:
+    """Tell each mentioned person about a note mention in Slack, where Slack is set up for them.
+
+    The caller has already checked each person's Inbox and project access. Best effort per person.
+    """
+    if not users:
+        return NoteMentionSlackResult(sent=0, deferred_user_ids=())
+    config = (
+        SignalTeamConfig.objects.filter(team_id=report.team_id)
+        .only("default_slack_notification_channel", "default_slack_notification_integration_id")
+        .first()
+    )
+    inbox_slack_set_up = config is not None and (
+        config.default_slack_notification_integration_id is not None
+        or bool((config.default_slack_notification_channel or "").strip())
+    )
+    team_integration = _team_notification_integration(report.team_id, config) if config and inbox_slack_set_up else None
+    own_configs = _own_target_configs_by_user(report.team_id, {user.id for user in users})
+
+    sent = 0
+    deferred: list[int] = []
+    retry_after: int | None = None
+    ordered = list(users)
+    for index, user in enumerate(ordered):
+        log_context = {"report_id": str(report.id), "team_id": report.team_id}
+        try:
+            destination = _note_mention_destination(user, own_configs.get(user.id), team_integration)
+            if destination is None:
+                continue
+            slack = SlackIntegration(destination.integration, source="signals_inbox")
+            channel_id = _channel_id_from_target(destination.channel)
+            is_direct_message = is_slack_member_target(destination.channel)
+            # The same fail-closed check as report DMs: a member can have become a guest or left since.
+            if is_direct_message and slack.get_user_by_id(channel_id) is None:
+                logger.warning("Skipping a report note mention DM to an ineligible member", extra=log_context)
+                continue
+            recipient_label = "you" if is_direct_message else _escape_mrkdwn(_posthog_user_display_name(user))
+            blocks, fallback = _note_mention_blocks(
+                report, author_name=author_name, recipient_label=recipient_label, text=text
+            )
+            slack.client.chat_postMessage(channel=channel_id, blocks=blocks, text=fallback)
+            sent += 1
+        except serializers.ValidationError:
+            # The member lookup budget is shared by the workspace and refills each minute.
+            deferred.append(user.id)
+        except SoftTimeLimitExceeded:
+            # Out of time, so whoever is left goes to the next attempt instead of being dropped.
+            deferred.extend(remaining.id for remaining in ordered[index:])
+            break
+        except SlackApiError as error:
+            wait = _slack_rate_limit_wait(error)
+            if wait is None:
+                logger.warning("Failed to send a report note mention to Slack", extra=log_context, exc_info=True)
+                continue
+            # Every later post would hit the same limit, so the rest wait for Slack's Retry-After too.
+            deferred.extend(remaining.id for remaining in ordered[index:])
+            retry_after = wait
+            break
+        except Exception:
+            logger.warning("Failed to send a report note mention to Slack", extra=log_context, exc_info=True)
+    return NoteMentionSlackResult(sent=sent, deferred_user_ids=tuple(deferred), retry_after_seconds=retry_after)

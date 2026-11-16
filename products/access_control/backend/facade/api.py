@@ -689,6 +689,11 @@ def role_belongs_to_organization(*, role_id: str | UUID, organization_id: UUID) 
     return Role.objects.filter(id=role_id, organization_id=organization_id).exists()
 
 
+def organization_role_names(*, organization_id: UUID, role_ids: Collection[UUID]) -> dict[UUID, str]:
+    """Names of the given roles, keyed by id. A role of another organization is left out."""
+    return dict(Role.objects.filter(organization_id=organization_id, id__in=role_ids).values_list("id", "name"))
+
+
 def valid_role_member_user_ids(*, role_id: str | UUID) -> list[int]:
     """Ids of the users the role grants access to.
 

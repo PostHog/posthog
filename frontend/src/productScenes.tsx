@@ -58,6 +58,8 @@ export const productScenes: Record<string, () => Promise<any>> = {
     BusinessKnowledge: () => import('../../products/business_knowledge/frontend/scenes/sources/BusinessKnowledgeScene'),
     BusinessKnowledgePlayground: () =>
         import('products/business_knowledge/frontend/scenes/playground/BusinessKnowledgePlaygroundScene'),
+    BusinessKnowledgeUsage: () =>
+        import('../../products/business_knowledge/frontend/scenes/usage/BusinessKnowledgeUsageScene'),
     BusinessKnowledgeSettings: () =>
         import('../../products/business_knowledge/frontend/scenes/settings/BusinessKnowledgeSettingsScene'),
     BusinessKnowledgeSource: () =>
@@ -170,6 +172,7 @@ export const productScenes: Record<string, () => Promise<any>> = {
     Pulse: () => import('../../products/pulse/frontend/PulseScene'),
     ReleaseCalendar: () => import('../../products/release/frontend/ReleaseCalendar'),
     Releases: () => import('../../products/release/frontend/ReleaseList'),
+    ReleaseAll: () => import('../../products/release/frontend/ReleaseAll'),
     Release: () => import('../../products/release/frontend/Release'),
     ReplayVision: () => import('../../products/replay_vision/frontend/replay_scanners/ReplayScannersScene'),
     ReplayVisionScanner: () => import('../../products/replay_vision/frontend/replay_scanners/ReplayScanner'),

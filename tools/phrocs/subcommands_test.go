@@ -102,6 +102,34 @@ func TestRunWait_shortTimeoutBeforeBindIsNotReachable(t *testing.T) {
 	}
 }
 
+func TestRunWait_slowReplyAfterGraceIsTimeoutNotUnreachable(t *testing.T) {
+	previousGrace := socketGracePeriod
+	socketGracePeriod = 0
+	t.Cleanup(func() { socketGracePeriod = previousGrace })
+
+	calls := 0
+	stubQuery(t, func(map[string]any, time.Duration) (map[string]any, error) {
+		calls++
+		if calls == 1 {
+			return map[string]any{"ok": true, "processes": map[string]any{
+				"web": map[string]any{"status": "pending", "ready": false},
+			}}, nil
+		}
+		return nil, os.ErrDeadlineExceeded
+	})
+
+	code, output := captureStdout(t, func() int {
+		return runWait(1, true)
+	})
+
+	if code != 2 {
+		t.Fatalf("exit code: got %d, want 2 (timeout), output %q", code, output)
+	}
+	if !strings.Contains(output, `"not_ready":["web (pending)"]`) {
+		t.Fatalf("output should list the last known not-ready procs: %q", output)
+	}
+}
+
 func TestPhrocsStopped_sandboxSuppressesDockerHint(t *testing.T) {
 	// In a sandbox, docker infra is managed externally, so telling the user
 	// to run `hogli docker:services:down` points at infra phrocs doesn't own.
