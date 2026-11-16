@@ -17,7 +17,7 @@ products/warehouse_sources/sources/<vendor>/
 ```
 
 The loader finds `products/warehouse_sources/sources/<vendor>/source.py` on its own. There is no import list to edit.
-A new vendor still needs its `ExternalDataSourceType` enum member.
+A new vendor adds no `ExternalDataSourceType` member and no migration. Its `SOURCE_KEY` identifies it.
 `products/warehouse_sources/sources/source.template` has the steps. Read the `implementing-warehouse-sources` skill before you build or extend a source.
 
 ## Imports
