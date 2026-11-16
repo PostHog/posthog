@@ -576,8 +576,8 @@ def test_resolve_context_uses_pre_sync_watermark_from_snapshot(team, _no_close_o
     assert ctx.source_type == "Stripe"
     assert ctx.schema_name == "Customer"
     assert ctx.last_synced_at == pre_sync
-    # The ungated table-size step must be recorded for a completed job (feature-gated steps
-    # are off in the test environment); a None here would send new runs down the legacy path.
+    # The always-on steps must be recorded for a completed job (feature-gated steps are
+    # off in the test environment); a None here would send new runs down the legacy path.
     assert ctx.steps is not None
     assert ctx.steps[-1:] == [TABLE_SIZE_STEP]
 
@@ -636,7 +636,7 @@ def test_table_size_runs_only_as_the_fallback(
         pytest.param(RuntimeError("flags unavailable"), False, id="flag_lookup_fails"),
     ],
 )
-def test_ducklake_copy_runs_only_when_its_flag_is_on(team, flag_result, expect_copy, _no_close_old_connections):
+def test_ducklake_copy_follows_its_flag_even_at_zero_rows(team, flag_result, expect_copy, _no_close_old_connections):
     from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
     from products.warehouse_sources.backend.temporal.data_imports.post_import_job import (
         DUCKLAKE_COPY_STEP,
@@ -644,7 +644,6 @@ def test_ducklake_copy_runs_only_when_its_flag_is_on(team, flag_result, expect_c
         resolve_post_import_context_activity,
     )
 
-    # Zero rows: the sync path is the only retry for a failed DuckLake copy, so the row count must not gate it.
     source, schema, job = _create_job(
         team,
         status=ExternalDataJob.Status.COMPLETED,

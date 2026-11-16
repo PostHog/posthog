@@ -164,8 +164,7 @@ def _statistics_gate(gate: PostImportGateContext) -> bool:
 
 
 def _ducklake_copy_gate(gate: PostImportGateContext) -> bool:
-    # The child workflow checks the same flag. Checking here as well means a team without the flag does not
-    # start the child at all.
+    # Checked before the child starts, so a team without the flag pays for no child workflow.
     return gate.team is not None and data_imports_ducklake_copy_enabled(
         team_id=gate.team_id, team_uuid=gate.team.uuid, organization_id=gate.team.organization_id
     )
