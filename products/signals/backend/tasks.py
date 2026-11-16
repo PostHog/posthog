@@ -398,6 +398,16 @@ def sweep_monitoring_research_requests() -> None:
     emit_due_monitoring_research(deadline=time.monotonic() + 40, limit=100)
 
 
+@shared_task(ignore_result=True, soft_time_limit=120, time_limit=150)
+@skip_team_scope_audit
+def sweep_stuck_research_reports() -> None:
+    from products.signals.backend.research_recovery import (
+        recover_stuck_research_reports,  # noqa: PLC0415 — keeps the temporal deps off the import path
+    )
+
+    recover_stuck_research_reports()
+
+
 @shared_task(
     name="products.signals.backend.tasks.link_report_tracker_issues",
     ignore_result=True,
@@ -434,6 +444,7 @@ def link_report_tracker_issues(self, team_id: int, task_id: str, pr_url: str) ->
                         SignalReportTrackerIssue.Status.PENDING,
                     ),
                     pr_linked_at__isnull=True,
+                    closed_at__isnull=True,
                 )
                 .exists()
             )

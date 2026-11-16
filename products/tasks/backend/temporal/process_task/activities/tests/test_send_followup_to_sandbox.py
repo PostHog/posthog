@@ -143,6 +143,7 @@ class TestSendFollowupToSandbox(BaseTest):
         task_run.task.created_by_id = 42
         task_run.task.created_by = MagicMock(id=42)
         task_run.task.stored_profile = None
+        task_run.task.repository_integration_id = None
         mock_task_run_objects.select_related.return_value.get.return_value = task_run
         mock_send_user_message.return_value = MagicMock(
             success=True,

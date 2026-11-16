@@ -1,8 +1,9 @@
 """Experiment reads for the Slack app, which unfurls links to experiments."""
 
 from products.experiments.backend.facade.contracts import ExperimentUnfurl, ExperimentUnfurlVariant
-from products.experiments.backend.models.experiment import Experiment
+from products.experiments.backend.models.experiment import Experiment, experiment_variants
 from products.feature_flags.backend.facade.config import ConfigFormatError
+from products.feature_flags.backend.facade.rules import ExperimentRuleError
 
 
 def get_experiment_unfurl(*, team_id: int, experiment_id: int) -> ExperimentUnfurl | None:
@@ -15,8 +16,8 @@ def get_experiment_unfurl(*, team_id: int, experiment_id: int) -> ExperimentUnfu
     if experiment is None:
         return None
     try:
-        variants = experiment.feature_flag.variants
-    except ConfigFormatError:
+        variants = experiment_variants(experiment)
+    except (ConfigFormatError, ExperimentRuleError):
         variants = []
     return ExperimentUnfurl(
         id=experiment.id,

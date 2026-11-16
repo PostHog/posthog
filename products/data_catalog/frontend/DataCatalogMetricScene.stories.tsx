@@ -31,7 +31,6 @@ function metric(overrides: Partial<DataCatalogMetricApi> = {}): DataCatalogMetri
         last_run_at: '2026-09-03T10:00:00Z',
         created_source: 'ai_generated',
         ai_model: 'example-model',
-        confidence: 0.82,
         reasoning: 'Counts distinct accounts that sent any event in the last week.',
         created_at: '2026-09-01T00:00:00Z',
         updated_at: '2026-09-01T00:00:00Z',

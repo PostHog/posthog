@@ -587,9 +587,17 @@ def roll_up_plan_parents_when_report_closes(
         return
     if getattr(instance, "_plan_rollup", False):
         return
+    prior_status = getattr(instance, "_prior_status", None)
     if not _status_changed_on_this_save(
-        instance, created=created, update_fields=update_fields, prior_status=getattr(instance, "_prior_status", None)
+        instance, created=created, update_fields=update_fields, prior_status=prior_status
     ):
+        return
+    # Reopened, by a person or by a newly attached pull request. Rolling up its own closed steps
+    # would resolve it straight back, and a reopened step leaves its plans with an open step.
+    if instance.status == SignalReport.Status.READY and prior_status in {
+        SignalReport.Status.MONITORING,
+        SignalReport.Status.CLOSED,
+    }:
         return
     team_id = instance.team_id
     report_id = str(instance.id)

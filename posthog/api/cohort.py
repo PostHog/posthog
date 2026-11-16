@@ -43,6 +43,7 @@ from posthog.hogql.errors import TableAccessDeniedError
 from posthog.hogql.printer import prepare_ast_for_printing
 from posthog.hogql.property import PERSON_METADATA_FIELDS, property_to_expr
 
+from posthog.api.fields import LengthFirstListField
 from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.services.flags_service import (
@@ -678,15 +679,6 @@ API_COHORT_PERSON_BYTES_READ_FROM_POSTGRES_COUNTER = Counter(
 logger = structlog.get_logger(__name__)
 
 
-class LengthFirstListField(serializers.ListField):
-    # DRF checks max_length only after it validates every item, so an oversized list of bad items
-    # builds one error per item before it fails. Check the length first to reject it in constant time.
-    def to_internal_value(self, data: Any) -> list[Any]:
-        if self.max_length is not None and isinstance(data, list) and len(data) > self.max_length:
-            self.fail("max_length", max_length=self.max_length)
-        return super().to_internal_value(data)
-
-
 class AddPersonsToStaticCohortRequestSerializer(serializers.Serializer):
     person_ids = LengthFirstListField(
         child=serializers.UUIDField(
@@ -1285,9 +1277,10 @@ class CohortRealtimeReadinessSerializer(serializers.Serializer):
     reason = serializers.ChoiceField(
         choices=CohortRealtimeUnavailableReason.choices,
         allow_null=True,
-        help_text="A realtime limit that a `daily` cohort's criteria break. `history_over_limit`: they look back "
-        "further than `history_limit_days`. Other criteria can keep the cohort off realtime too. Null for every "
-        "other state, and for a `daily` cohort that breaks no limit.",
+        help_text="Why feature flags can't target the cohort. `history_over_limit`, on a `daily` cohort: its criteria "
+        "look back further than `history_limit_days`. `too_large_to_build`, on a `needs_attention` cohort: the events "
+        "in its criteria happen too often for PostHog to prepare it automatically. Null in every other case, "
+        "including a `daily` cohort that other criteria keep off realtime.",
     )
     history_limit_days = serializers.IntegerField(
         allow_null=True,

@@ -3,6 +3,7 @@ import { NextFunction, Request, Response } from 'ultimate-express'
 import { JWT, PosthogJwtAudience, hasJwtKeys, makeOptionalJwt, parseJwtKeys } from '~/cdp/utils/jwt-utils'
 import { logger } from '~/common/utils/logger'
 
+import { RecordingApiMetrics } from './metrics'
 import { DEV_RECORDING_API_BLOCKS_JWT_SECRET, DEV_RECORDING_API_JWT_SECRET, RecordingApiRole } from './types'
 
 /**
@@ -17,6 +18,8 @@ export type RecordingApiOp = 'read' | 'delete' | 'write'
 
 // jsonwebtoken tolerates up to this many seconds of clock skew between minter and verifier.
 const CLOCK_TOLERANCE_SECONDS = 30
+
+const MIN_BLOCKS_SECRET_BYTES = 32
 
 export interface RecordingApiAuthOptions {
     // Comma-separated keys (newest first) for zero-downtime rotation. Empty disables JWT auth (dev only).
@@ -61,10 +64,12 @@ function verifyBearer(
         })
         return payload && typeof payload === 'object' ? (payload as Record<string, unknown>) : undefined
     } catch (err) {
-        logger.warn('Recording API JWT verification failed', {
-            audience,
-            reason: err instanceof Error ? err.name : 'unknown',
-        })
+        const reason = err instanceof Error ? err.name : 'unknown'
+        RecordingApiMetrics.incrementJwtVerificationFailure(audience, reason)
+        // Anyone on the internet can send a bad browser token, so only a failed service token is worth a log line.
+        if (audience !== PosthogJwtAudience.REPLAY_BLOCKS) {
+            logger.warn('Recording API JWT verification failed', { audience, reason })
+        }
         return undefined
     }
 }
@@ -119,6 +124,10 @@ export function assertRecordingApiRoleAuthConfigured(opts: {
     }
     if (opts.role !== 'internal' && opts.deployed) {
         refuseDevKey(opts.blocksJwtSecret, DEV_RECORDING_API_BLOCKS_JWT_SECRET, 'RECORDING_API_BLOCKS_JWT_SECRET')
+        // jsonwebtoken accepts an HMAC key of any length, and a short one can be guessed offline from one token.
+        if (parseJwtKeys(opts.blocksJwtSecret || '').some((key) => Buffer.byteLength(key) < MIN_BLOCKS_SECRET_BYTES)) {
+            throw new Error(`RECORDING_API_BLOCKS_JWT_SECRET keys must be at least ${MIN_BLOCKS_SECRET_BYTES} bytes`)
+        }
     }
     if (opts.role !== 'public') {
         assertRecordingApiAuthConfigured(opts)

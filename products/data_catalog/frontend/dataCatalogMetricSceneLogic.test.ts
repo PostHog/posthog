@@ -284,6 +284,31 @@ describe('dataCatalogMetricSceneLogic', () => {
         expect(router.values.searchParams.tab).toBe('data-quality')
     })
 
+    it.each([
+        ['on', [true], false, 'usage'],
+        ['off', [false], false, 'definition'],
+        ['on after the page loads', [false, true], false, 'usage'],
+        ['on in the Quill layout', [true], true, 'definition'],
+    ])(
+        'opens the usage tab from a link only when its flag is on (flag %s)',
+        async (_, flagStates: boolean[], quillLayout: boolean, expectedTab) => {
+            const setUsageFlag = (flagOn: boolean): void => {
+                featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.DATA_CATALOG_USAGE], {
+                    [FEATURE_FLAGS.DATA_CATALOG_USAGE]: flagOn,
+                    [FEATURE_FLAGS.TODAY_RAIL_NAV]: quillLayout,
+                    [FEATURE_FLAGS.DATA_CATALOG_RESTRUCTURE]: quillLayout,
+                })
+            }
+            const [flagAtLoad, ...laterFlags] = flagStates
+            setUsageFlag(flagAtLoad)
+            router.actions.push(urls.dataCatalogMetric('weekly_active_users'), { tab: 'usage' })
+            await expectLogic(logic).toFinishAllListeners()
+            laterFlags.forEach(setUsageFlag)
+            await expectLogic(logic).toFinishAllListeners()
+            expect(logic.values.activeTab).toBe(expectedTab)
+        }
+    )
+
     it.each(['HogQLQuery', 'TrendsQuery', 'FunnelsQuery', 'EventsNode', 'MarkdownDefinition', null])(
         'allows check authoring only for a HogQL definition (%s)',
         (definition_kind) => {

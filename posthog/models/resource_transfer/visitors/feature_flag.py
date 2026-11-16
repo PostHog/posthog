@@ -18,7 +18,6 @@ from posthog.models.resource_transfer.visitors.feature_flag_filters import (
 )
 
 from products.cohorts.backend.models.cohort import Cohort
-from products.experiments.backend.models.experiment import ExperimentHoldout
 
 
 class FeatureFlagVisitor(
@@ -57,14 +56,13 @@ class FeatureFlagVisitor(
 
         holdout_id = get_holdout_id_from_flag_filters(filters)
         if holdout_id is not None:
+            holdout_model = registered_model("ExperimentHoldout")
             edges.append(
                 ResourceTransferEdge(
                     name=f"holdout:{holdout_id}",
-                    target_model=ExperimentHoldout,
+                    target_model=holdout_model,
                     target_primary_key=holdout_id,
-                    rewrite_relation=make_json_id_rewriter(
-                        ExperimentHoldout, holdout_id, rewrite_holdout_in_flag_payload
-                    ),
+                    rewrite_relation=make_json_id_rewriter(holdout_model, holdout_id, rewrite_holdout_in_flag_payload),
                 )
             )
 

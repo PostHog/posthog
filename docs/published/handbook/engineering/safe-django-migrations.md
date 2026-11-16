@@ -22,6 +22,7 @@ This guide explains how to safely perform dangerous Django migration operations 
 - [Adding Constraints](#adding-constraints)
 - [Running Data Migrations](#running-data-migrations)
 - [Using SeparateDatabaseAndState](#using-separatedatabaseandstate)
+- [Changing Choices and Help Text](#changing-choices-and-help-text)
 - [General Best Practices](#general-best-practices)
 
 ## Altering Hot Tables
@@ -249,10 +250,14 @@ Removing a product (`products/<name>/`) is the phased table drop above — once 
 Safe order:
 
 1. Strip all usage and the model classes, and drop the tables via the [phased approach](#dropping-tables) (state-only `DeleteModel`, wait a deploy cycle, then `SafeDropTable`). Keep the app in `INSTALLED_APPS` so its migrations still run.
-2. Only after the drop migration has deployed everywhere, remove the app from `INSTALLED_APPS` and delete the `products/<name>/` folder.
+   Once the models are out of Django's state, the next migration squash writes an empty initial migration for the app, and no new squash file depends on it.
+   Note: other apps' migrations depend on this app's migration files, not on its models, so the model classes do not need to stay for them.
+2. Remove the app from `INSTALLED_APPS` and delete the `products/<name>/` folder only after the drop migration has deployed everywhere and no migration file outside the app names one of its migrations as a dependency.
+   Django resolves a dependency by app label and migration name, and loads migrations only from installed apps.
+   Each squash writes `schema_addons` files that depend on every app that still had models at that squash. Those references go away only when that squash's files are deleted.
 3. Optionally `DELETE FROM django_migrations WHERE app = '<app_label>'` to clear the orphan rows.
 
-Leaving the table in place — code gone, table dropped in a follow-up — is a legitimate shortcut for a small retired product: it dodges the rolling-deploy window where in-flight requests hit a dropped table. Just make the leftover table a tracked follow-up, not an accident.
+Leaving the table in place — code and model classes gone, table dropped in a follow-up — is a legitimate shortcut for a small retired product: it dodges the rolling-deploy window where in-flight requests hit a dropped table. Just make the leftover table a tracked follow-up, not an accident.
 
 ## Dropping Columns
 
@@ -864,6 +869,17 @@ class Migration(migrations.Migration):
 - Prevents Django state drift when performing staged operations
 - Without this, `makemigrations` may generate incorrect migrations trying to sync the state
 - Allows you to separate "what Django thinks exists" from "what actually exists in the database"
+
+## Changing Choices and Help Text
+
+`choices`, `help_text`, `verbose_name`, `validators`, `error_messages`, `editable`, `blank` and `limit_choices_to` never reach the database.
+PostHog's `makemigrations` leaves them out when it compares fields (`posthog/management/migration_autodetector.py`), so adding an enum member or editing help text writes no migration.
+
+Do not write that `AlterField` by hand, and do not wrap it in `SeparateDatabaseAndState`.
+The migration analyzer points out both (`NonDbAlterFieldPolicy`), because the operation runs no SQL but still takes a `max_migration.txt` slot. It does not block, so migrations generated before this change still pass CI.
+
+A real column change on the same field, such as `max_length` or `null`, still writes a migration, and that migration carries the current choices.
+`default` is still compared, because Django reads it from migration state when a column becomes `NOT NULL`.
 
 ## General Best Practices
 

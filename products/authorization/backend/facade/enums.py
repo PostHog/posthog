@@ -55,6 +55,7 @@ class ResourceType(StrEnum):
     # Keep in sync with ACCESS_CONTROL_RESOURCES in products/access_control/backend/facade/user_access_control.py.
     # Also cover every `access_scope` a HogQL PostgresTable declares. These are not in that tuple:
     ACCOUNT = "account"
+    ACCOUNT_NOTE = "account_note"
     ALERT = "alert"
     ANNOTATION = "annotation"
     AUTORESEARCH = "autoresearch"
@@ -181,7 +182,6 @@ class ResourceType(StrEnum):
     TRANSACTIONAL_EMAIL = "transactional_email"
     UPLOADED_MEDIA = "uploaded_media"
     USER = "user"
-    USER_INTERVIEW = "user_interview"
     VISION_ACTION = "vision_action"
     VISUAL_REVIEW = "visual_review"
     WEBHOOK = "webhook"

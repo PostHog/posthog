@@ -1,9 +1,12 @@
+import re
 import json
 import uuid
 from collections import Counter
 from collections.abc import Callable
+from contextlib import ExitStack
 from datetime import UTC, datetime, timedelta
 
+import time_machine
 from posthog.test.base import (
     BaseTest,
     ClickhouseTestMixin,
@@ -39,8 +42,12 @@ from posthog.schema import (
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
+from posthog.hogql.database.lazy_join_registry import RESOLVERS
+from posthog.hogql.database.lazy_join_tags import DATA_WAREHOUSE
+from posthog.hogql.database.models import LazyJoin
 from posthog.hogql.database.schema.flag_evaluations import join_persons_to_flag_evaluations
 from posthog.hogql.database.schema.util.where_clause_extractor import SESSION_BUFFER_DAYS
+from posthog.hogql.database.warehouse_join_resolvers import data_warehouse_resolver_params, resolve_data_warehouse_join
 from posthog.hogql.errors import QueryError, ResolutionError
 from posthog.hogql.parser import parse_select
 from posthog.hogql.printer.utils import prepare_and_print_ast
@@ -59,6 +66,7 @@ from posthog.models.group.util import create_group
 from posthog.models.instance_setting import override_instance_config
 from posthog.models.property import TableColumn
 from posthog.models.utils import uuid7
+from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
 from posthog.test.persons import create_group_type_mapping, create_person
 
 from products.access_control.backend.models.property_access_control import PropertyAccessControl
@@ -171,6 +179,39 @@ FILTER_CASES = [
 ]
 
 
+LAZY_JOINS_TO_EVENTS = [
+    ("replay", "session_replay_events", "events"),
+    ("warehouse", "persons", "calls"),
+]
+EXPERIMENTS_JOIN = "persons.exposures"
+# The experiments resolver copies a bound on its timestamp key into its subquery only from an AND of comparisons.
+CREATED_AT_BOUNDS = "created_at >= toDateTime('2000-01-01') AND created_at <= toDateTime('2100-01-01')"
+
+
+def _lazy_join_cases(shapes: list[tuple[str, str]]) -> list[tuple]:
+    return _with_union(
+        [
+            (f"{shape}_{join}", template.format(j=field, source=source), f"{source}.{field}")
+            for shape, template in shapes
+            for join, source, field in LAZY_JOINS_TO_EVENTS
+        ]
+    )
+
+
+def _with_union(cases: list[tuple]) -> list[tuple]:
+    return [
+        (f"{name}_{'union' if union else 'no_union'}", *rest, union) for name, *rest in cases for union in (False, True)
+    ]
+
+
+def _join_refusal(join_name: str, reason: str | None = None) -> str:
+    """A pattern for the refusal of `join_name`. Without `reason`, the reason is a comparison with flag calls that the
+    join can't take."""
+    if reason is None:
+        reason = re.escape(f"it compares {join_name}.event with $feature_flag_called")
+    return re.escape(f"the join {join_name} in this query can't read them there because ") + reason
+
+
 class TestFlagEvaluationsTable(ClickhouseTestMixin, BaseTest):
     def setUp(self):
         super().setUp()
@@ -269,14 +310,41 @@ class TestFlagEvaluationsTable(ClickhouseTestMixin, BaseTest):
         filters: HogQLFilters | None = None,
         modifiers: HogQLQueryModifiers | None = None,
         mode: FlagEvaluationsMode = FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY,
+        union: bool | None = None,
+        database: Callable[[], Database] | None = None,
     ) -> HogQLQueryResponse:
         # The force-events switch does not move FLAG_EVALUATIONS_ONLY. The events-side baseline therefore runs on mode 1.
         OrganizationFeatureFlagsConfig.objects.update_or_create(
             organization=self.organization,
             defaults={"flag_evaluations_mode": mode if rewrite else FlagEvaluationsMode.READ_FLAG_EVALUATIONS},
         )
-        with override_instance_config("FLAG_EVALUATIONS_READS_FORCE_EVENTS", not rewrite):
-            return execute_hogql_query(query, team=self.team, filters=filters, modifiers=modifiers, pretty=False)
+        # The native JSON events table moves flag-call reads to flag_evaluations whatever the mode, so the baseline also
+        # turns the rewrite off.
+        baseline = (
+            {}
+            if rewrite
+            else {"context": HogQLContext(team_id=self.team.pk, rewrite_flag_calls_to_flag_evaluations=False)}
+        )
+        with ExitStack() as stack:
+            stack.enter_context(override_instance_config("FLAG_EVALUATIONS_READS_FORCE_EVENTS", not rewrite))
+            if union is not None:
+                enabled = {"hogql-flag-calls-union"} if union else set()
+                stack.enter_context(
+                    patch(
+                        "posthog.hogql.database.database.feature_enabled_or_false",
+                        side_effect=lambda key, *args, **kwargs: key in enabled,
+                    )
+                )
+            # Database.create_for reads the mode and the union flag, so the database is built after both are set.
+            if database is not None:
+                baseline = {
+                    "context": HogQLContext(
+                        team_id=self.team.pk, team=self.team, database=database(), enable_select_queries=True
+                    )
+                }
+            return execute_hogql_query(
+                query, team=self.team, filters=filters, modifiers=modifiers, pretty=False, **baseline
+            )
 
     def _override(self, person_id: uuid.UUID, version: int, is_deleted: bool = False) -> None:
         sync_execute(
@@ -645,7 +713,7 @@ class TestFlagEvaluationsTable(ClickhouseTestMixin, BaseTest):
             "group_0.properties.industry", where=f"{where} AND timestamp >= now() - INTERVAL 1 DAY", source=source
         )
 
-        assert ("in(key," in response.clickhouse) == key_bound
+        assert ("globalIn(key," in response.clickhouse) == key_bound
         assert response.results == [("software",)]
 
     def test_group_join_of_a_swapped_events_scan_reads_only_the_groups_of_the_matched_rows(self):
@@ -662,7 +730,7 @@ class TestFlagEvaluationsTable(ClickhouseTestMixin, BaseTest):
 
         assert response.clickhouse is not None
         assert "FROM flag_evaluations" in response.clickhouse
-        assert "in(key," in response.clickhouse
+        assert "globalIn(key," in response.clickhouse
         assert response.results == [("software",)]
 
     @parameterized.expand(
@@ -718,7 +786,7 @@ class TestFlagEvaluationsTable(ClickhouseTestMixin, BaseTest):
             )
 
         assert response.clickhouse is not None
-        assert ("in(key," in response.clickhouse) == key_bound
+        assert ("globalIn(key," in response.clickhouse) == key_bound
         assert response.results == [("software",)]
 
     def test_session_join_reads_only_sessions_near_the_query_date_range(self):
@@ -893,6 +961,7 @@ class TestFlagEvaluationsTable(ClickhouseTestMixin, BaseTest):
             ),
         ]
     )
+    @override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=False)
     def test_scan_that_only_resolution_shows_reads_flag_calls_swaps_once_events_gets_no_flag_calls(
         self, _name: str, query: str | ast.SelectQuery | ast.SelectSetQuery, expected: list[tuple]
     ):
@@ -1010,6 +1079,7 @@ class TestFlagEvaluationsTable(ClickhouseTestMixin, BaseTest):
             ),
         ]
     )
+    @override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=False)
     def test_query_flag_evaluations_cannot_answer_reads_events_until_events_gets_no_flag_calls(
         self,
         _name: str,
@@ -1116,6 +1186,7 @@ class TestFlagEvaluationsTable(ClickhouseTestMixin, BaseTest):
             ),
         ]
     )
+    @override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=False)
     def test_query_reads_flag_evaluations_without_coverage_once_events_gets_no_flag_calls(self, _name: str, query: str):
         self._create_events_only_flag_call()
 
@@ -1125,13 +1196,13 @@ class TestFlagEvaluationsTable(ClickhouseTestMixin, BaseTest):
         assert [row[0] for row in on_events] == ["events-distinct-id"]
         assert [row[0] for row in on_flag_evaluations] == ["probe-distinct-id"]
 
-    def _create_events_only_flag_call(self) -> None:
+    def _create_events_only_flag_call(self, **properties: str) -> None:
         _create_event(
             team=self.team,
             event="$feature_flag_called",
             distinct_id="events-distinct-id",
             timestamp=self.occurred_at,
-            properties={"$feature_flag": "probe-flag", "$window_id": "probe-window"},
+            properties={"$feature_flag": "probe-flag", "$window_id": "probe-window", **properties},
         )
         create_person(team=self.team, distinct_ids=["events-distinct-id"])
         flush_persons_and_events()
@@ -1336,8 +1407,8 @@ class TestFlagEvaluationsTable(ClickhouseTestMixin, BaseTest):
 
         assert [row[0] for row in results] == ["probe-distinct-id"]
         # Each extra resolve of a view body would otherwise rerun the swap on every view below it.
-        assert sorted(call.kwargs["view_name"] for call in swap.call_args_list) == [
-            f"calls_{level}" for level in range(4)
+        assert sorted(call.kwargs["scope"].subject for call in swap.call_args_list) == [
+            f"the view calls_{level}" for level in range(4)
         ]
 
     @parameterized.expand(
@@ -1380,8 +1451,6 @@ class TestFlagEvaluationsTable(ClickhouseTestMixin, BaseTest):
             ("mode_2", FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY),
         ]
     )
-    # Mode 1 keeps a project on the native-JSON events table reading events, so no swap would load a definition.
-    @override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=False)
     def test_flag_call_views_load_each_property_definition_once_per_query(self, _name: str, mode: FlagEvaluationsMode):
         for name in ("calls_a", "calls_b"):
             self._create_view(
@@ -1512,6 +1581,7 @@ class TestFlagEvaluationsTable(ClickhouseTestMixin, BaseTest):
             ("mode_2", FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY, False),
         ]
     )
+    @override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=False)
     def test_flag_key_typed_as_boolean_selects_the_same_calls_with_and_without_the_rewrite(
         self, _name: str, mode: FlagEvaluationsMode, with_events_only_call: bool
     ):
@@ -1555,12 +1625,14 @@ class TestFlagEvaluationsTable(ClickhouseTestMixin, BaseTest):
     @parameterized.expand(
         [
             # The legacy events table returns the escaped text, as flag_evaluations does, so neither read matches.
-            ("legacy_events", False, 0),
-            ("native_json_events", True, 1),
+            ("legacy_events", False, 0, 0),
+            # The native JSON events table decodes the escapes. In production it holds no flag calls, so the rewrite
+            # reads flag_evaluations, whose escaped text the filter does not match.
+            ("native_json_events", True, 1, 0),
         ]
     )
-    def test_filter_on_an_escaped_property_selects_the_same_calls_with_and_without_the_rewrite(
-        self, _name: str, use_new_events_schema: bool, expected_count: int
+    def test_filter_on_an_escaped_property_with_and_without_the_rewrite(
+        self, _name: str, use_new_events_schema: bool, events_count: int, rewritten_count: int
     ):
         row_uuid = uuid.uuid4()
         properties: dict[str, str | int | None] = {"$feature_flag": "probe-flag", "message": 'say "hi"'}
@@ -1580,10 +1652,10 @@ class TestFlagEvaluationsTable(ClickhouseTestMixin, BaseTest):
             from_events = self._query_events(query, rewrite=False)
             rewritten = self._query_events(query, mode=FlagEvaluationsMode.READ_FLAG_EVALUATIONS)
 
-        assert from_events.results == [(expected_count,)]
-        assert rewritten.results == from_events.results
+        assert from_events.results == [(events_count,)]
+        assert rewritten.results == [(rewritten_count,)]
         assert rewritten.clickhouse is not None
-        assert ("FROM flag_evaluations" in rewritten.clickhouse) is not use_new_events_schema
+        assert "FROM flag_evaluations" in rewritten.clickhouse
 
     @parameterized.expand(
         [
@@ -1633,3 +1705,480 @@ class TestFlagEvaluationsTable(ClickhouseTestMixin, BaseTest):
 
     def test_flag_call_query_on_events_prints_a_read_of_flag_evaluations(self):
         self.assertQueryMatchesSnapshot(self._query_events(FLAG_CALLS_ON_EVENTS).clickhouse)
+
+    def _create_lazy_join_sources(self) -> None:
+        # Each join can reach both calls. Only the events-only call is in events, and only the setUp row is in
+        # flag_evaluations, so a result tells which table the join read.
+        self._create_events_only_flag_call(**{"$session_id": SESSION_ID})
+        produce_replay_summary(
+            team_id=self.team.pk,
+            session_id=SESSION_ID,
+            distinct_id="probe-distinct-id",
+            first_timestamp=self.occurred_at,
+        )
+        for distinct_id in ("probe-distinct-id", "events-distinct-id"):
+            create_person(team=self.team, distinct_ids=[f"login-{distinct_id}"], properties={"login": distinct_id})
+        self._join_persons_to_events("calls")
+        self._join_persons_to_events(
+            "exposures", configuration={"experiments_optimized": True, "experiments_timestamp_key": "created_at"}
+        )
+        flush_persons_and_events()
+
+    def _join_persons_to_events(
+        self,
+        field_name: str,
+        source_table_key: str = "properties.login",
+        joining_table_key: str = "distinct_id",
+        configuration: dict | None = None,
+    ) -> None:
+        DataWarehouseJoin.objects.create(
+            team=self.team,
+            source_table_name="persons",
+            source_table_key=source_table_key,
+            joining_table_name="events",
+            joining_table_key=joining_table_key,
+            field_name=field_name,
+            configuration=configuration or {},
+        )
+
+    def _database_with_join_type(self, join_type: str) -> Database:
+        # Saved warehouse joins can't set a join type, so the join is added to the catalog as the join validator adds it.
+        database = Database.create_for(team=self.team)
+        database.get_table("persons").fields["calls"] = LazyJoin(
+            from_field=["properties", "login"],
+            to_field=["distinct_id"],
+            join_table=database.get_table("events"),
+            resolver=DATA_WAREHOUSE,
+            resolver_params=data_warehouse_resolver_params(
+                source_table_key="properties.login",
+                joining_table_key="distinct_id",
+                joining_table_name="events",
+                override_join_type=join_type,
+            ),
+        )
+        return database
+
+    @parameterized.expand(_with_union([("experiments",)]))
+    def test_lazy_join_reads_flag_calls_from_flag_evaluations_once_events_gets_no_flag_calls(
+        self, _name: str, union: bool
+    ):
+        self._create_lazy_join_sources()
+        query = (
+            "SELECT exposures.distinct_id, exposures.properties.$feature_flag_response FROM persons "
+            f"WHERE {CREATED_AT_BOUNDS}"
+        )
+
+        on_events = self._query_events(query, rewrite=False, union=union)
+        on_flag_evaluations = self._query_events(query, union=union)
+
+        joined = [
+            (response.clickhouse or "").split("ASOF LEFT JOIN")[-1] for response in (on_events, on_flag_evaluations)
+        ]
+        assert all("lessOrEquals(timestamp" in subquery for subquery in joined)
+        assert "FROM flag_evaluations" in joined[1]
+        assert [row for row in on_events.results if row[0]] == [("events-distinct-id", None)]
+        assert [row for row in on_flag_evaluations.results if row[0]] == [("probe-distinct-id", "variant-x")]
+
+    @parameterized.expand(
+        [
+            *_lazy_join_cases(
+                [
+                    (
+                        "flag_calls_and_other_events",
+                        "SELECT {j}.distinct_id FROM {source} WHERE {j}.event IN ('$pageview', '$feature_flag_called')",
+                    ),
+                    (
+                        "or_with_another_event",
+                        "SELECT {j}.distinct_id FROM {source} "
+                        "WHERE {j}.event = '$feature_flag_called' OR {j}.event = '$pageview'",
+                    ),
+                    ("select_column", "SELECT countIf({j}.event = '$feature_flag_called') FROM {source}"),
+                    (
+                        "select_column_in_function_form",
+                        "SELECT countIf(equals({j}.event, '$feature_flag_called')) FROM {source}",
+                    ),
+                    (
+                        "on_clause_of_an_explicit_join",
+                        "SELECT {j}.distinct_id FROM {source} JOIN (SELECT 'probe-distinct-id' AS id) AS d "
+                        "ON {j}.distinct_id = d.id AND {j}.event = '$feature_flag_called'",
+                    ),
+                    (
+                        "or_with_a_branch_that_does_not_pin",
+                        "SELECT {j}.distinct_id FROM {source} "
+                        "WHERE {j}.event = '$feature_flag_called' OR {j}.distinct_id = 'probe-distinct-id'",
+                    ),
+                    (
+                        "pin_in_having",
+                        "SELECT {j}.distinct_id FROM {source} GROUP BY {j}.distinct_id, {j}.event "
+                        "HAVING {j}.event = '$feature_flag_called'",
+                    ),
+                    (
+                        "not_of_not_equal",
+                        "SELECT {j}.distinct_id FROM {source} WHERE NOT ({j}.event != '$feature_flag_called')",
+                    ),
+                    (
+                        "not_of_not_equal_in_function_form",
+                        "SELECT {j}.distinct_id FROM {source} WHERE not(notEquals({j}.event, '$feature_flag_called'))",
+                    ),
+                    (
+                        "not_of_not_of_equal",
+                        "SELECT {j}.distinct_id FROM {source} WHERE NOT (NOT ({j}.event = '$feature_flag_called'))",
+                    ),
+                    (
+                        "not_of_and_of_not_equals",
+                        "SELECT {j}.distinct_id FROM {source} "
+                        "WHERE NOT ({j}.event != '$feature_flag_called' AND {j}.event != '$pageview')",
+                    ),
+                    (
+                        "not_of_a_function_over_not_equal",
+                        "SELECT {j}.distinct_id FROM {source} "
+                        "WHERE NOT if({j}.distinct_id = '', 0, {j}.event != '$feature_flag_called')",
+                    ),
+                ]
+            ),
+            *[
+                (
+                    name,
+                    "SELECT calls.distinct_id FROM persons WHERE calls.event = '$feature_flag_called'",
+                    "persons.calls",
+                    union,
+                    re.escape(f"its join type, {join_type}, can't apply a filter on persons.calls.event"),
+                    join_type,
+                )
+                for name, join_type, union in _with_union(
+                    [("asof_left_join", "ASOF LEFT JOIN"), ("left_any_join", "LEFT ANY JOIN")]
+                )
+            ],
+            *[
+                (name, query, EXPERIMENTS_JOIN, union, "it reads something that table doesn't have")
+                for name, query, union in _with_union(
+                    [
+                        (
+                            "experiments_join_reading_event_time_group_properties",
+                            f"SELECT exposures.goe_0.properties FROM persons WHERE {CREATED_AT_BOUNDS}",
+                        )
+                    ]
+                )
+            ],
+        ]
+    )
+    def test_lazy_join_raises_when_flag_evaluations_cannot_answer(
+        self,
+        _name: str,
+        query: str,
+        join_name: str,
+        union: bool,
+        reason: str | None = None,
+        join_type: str | None = None,
+    ):
+        self._create_lazy_join_sources()
+        database = (lambda: self._database_with_join_type(join_type)) if join_type is not None else None
+
+        with self.assertRaisesRegex(QueryError, _join_refusal(join_name, reason)):
+            self._query_events(query, union=union, database=database)
+
+    @parameterized.expand(
+        _with_union(
+            [
+                (
+                    "pin_in_on_clause",
+                    "SELECT p.calls.distinct_id FROM persons a "
+                    "JOIN persons p ON a.id = p.id AND p.calls.event = '$feature_flag_called'",
+                ),
+                (
+                    "pin_in_where",
+                    "SELECT p.calls.distinct_id FROM persons a "
+                    "JOIN persons p ON a.id = p.id AND p.calls.distinct_id != '' "
+                    "WHERE p.calls.event = '$feature_flag_called'",
+                ),
+                (
+                    "another_lazy_join_in_on_clause",
+                    "SELECT p.calls.distinct_id FROM persons a "
+                    "JOIN persons p ON a.id = p.id AND p.pdi.distinct_id != '' "
+                    "WHERE p.calls.event = '$feature_flag_called'",
+                ),
+            ]
+        )
+    )
+    def test_lazy_join_raises_when_a_join_condition_reads_it(self, _name: str, query: str, union: bool):
+        self._create_lazy_join_sources()
+
+        with self.assertRaisesRegex(
+            QueryError,
+            _join_refusal(
+                "p.calls", re.escape("a join condition reads a lazy join of the table that p.calls comes from")
+            ),
+        ):
+            self._query_events(query, union=union)
+
+    @parameterized.expand(
+        [
+            ("limit", lambda subquery: setattr(subquery, "limit", ast.Constant(value=10))),
+            ("group_by", lambda subquery: setattr(subquery, "group_by", [ast.Field(chain=["distinct_id"])])),
+            ("distinct", lambda subquery: setattr(subquery, "distinct", True)),
+            ("aggregate", lambda subquery: subquery.select.append(ast.Call(name="count", args=[]))),
+            (
+                "window_function",
+                lambda subquery: subquery.select.append(
+                    ast.WindowFunction(
+                        name="row_number",
+                        over_expr=ast.WindowExpr(order_by=[ast.OrderExpr(expr=ast.Field(chain=["timestamp"]))]),
+                    )
+                ),
+            ),
+            ("qualify", lambda subquery: setattr(subquery, "qualify", ast.Constant(value=True))),
+        ]
+    )
+    def test_lazy_join_raises_when_its_subquery_does_not_pass_rows_through(
+        self, _name: str, change_subquery: Callable[[ast.SelectQuery], None]
+    ):
+        self._create_lazy_join_sources()
+
+        def changed_join(join_to_add, context, node):
+            join = resolve_data_warehouse_join(join_to_add, context, node)
+            assert isinstance(join.table, ast.SelectQuery)
+            change_subquery(join.table)
+            return join
+
+        with (
+            patch.dict(RESOLVERS, {DATA_WAREHOUSE: changed_join}),
+            self.assertRaisesRegex(QueryError, _join_refusal("persons.calls", "the subquery of persons.calls groups")),
+        ):
+            self._query_events("SELECT calls.distinct_id FROM persons WHERE calls.event = '$feature_flag_called'")
+
+    @parameterized.expand(
+        _with_union(
+            [
+                *[
+                    (f"{shape}_{join}", template.format(j=field, source=source), mode)
+                    for join, source, field in LAZY_JOINS_TO_EVENTS
+                    for shape, template, mode in (
+                        (
+                            "pin_on_mode_1",
+                            "SELECT {j}.distinct_id FROM {source} WHERE {j}.event = '$feature_flag_called'",
+                            FlagEvaluationsMode.READ_FLAG_EVALUATIONS,
+                        ),
+                        (
+                            "pin_on_mode_0",
+                            "SELECT {j}.distinct_id FROM {source} WHERE {j}.event = '$feature_flag_called'",
+                            FlagEvaluationsMode.EVENTS,
+                        ),
+                        # The query contains '$feature_flag_called', so `swaps_flag_calls` accepts it. No condition
+                        # compares the join's `event` with it, so the hook leaves the join reading events.
+                        (
+                            "flag_calls_named_but_not_compared_with_event",
+                            "SELECT {j}.event FROM {source} WHERE {j}.properties.label = '$feature_flag_called'",
+                            FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY,
+                        ),
+                        (
+                            "not_equal",
+                            "SELECT {j}.distinct_id FROM {source} WHERE {j}.event != '$feature_flag_called'",
+                            FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY,
+                        ),
+                        (
+                            "not_in",
+                            "SELECT {j}.distinct_id FROM {source} WHERE {j}.event NOT IN ('$feature_flag_called')",
+                            FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY,
+                        ),
+                        (
+                            "not_of_equal",
+                            "SELECT {j}.distinct_id FROM {source} WHERE NOT ({j}.event = '$feature_flag_called')",
+                            FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY,
+                        ),
+                        (
+                            "not_of_in",
+                            "SELECT {j}.distinct_id FROM {source} WHERE NOT ({j}.event IN ('$feature_flag_called'))",
+                            FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY,
+                        ),
+                        (
+                            "not_of_or_of_equals",
+                            "SELECT {j}.distinct_id FROM {source} "
+                            "WHERE NOT ({j}.event = '$feature_flag_called' OR {j}.event = '$pageview')",
+                            FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY,
+                        ),
+                    )
+                ],
+                (
+                    "experiments_on_mode_1",
+                    f"SELECT exposures.distinct_id FROM persons WHERE {CREATED_AT_BOUNDS}",
+                    FlagEvaluationsMode.READ_FLAG_EVALUATIONS,
+                ),
+                (
+                    "join_that_does_not_read_events",
+                    "SELECT console_logs.level FROM session_replay_events "
+                    "WHERE console_logs.message = '$feature_flag_called'",
+                    FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY,
+                ),
+                (
+                    "join_condition_reads_it_on_mode_1",
+                    "SELECT p.calls.distinct_id FROM persons a "
+                    "JOIN persons p ON a.id = p.id AND p.calls.event = '$feature_flag_called'",
+                    FlagEvaluationsMode.READ_FLAG_EVALUATIONS,
+                ),
+                (
+                    "join_condition_reads_it_without_flag_calls",
+                    "SELECT p.calls.distinct_id FROM persons a "
+                    "JOIN persons p ON a.id = p.id AND p.calls.distinct_id != ''",
+                    FlagEvaluationsMode.FLAG_EVALUATIONS_ONLY,
+                ),
+            ]
+        )
+    )
+    # The native JSON events table holds no flag calls, so it reads them as mode 2 does on every mode.
+    @override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=False)
+    def test_lazy_join_sql_matches_events_baseline(
+        self, _name: str, query: str, mode: FlagEvaluationsMode, union: bool
+    ):
+        self._create_lazy_join_sources()
+
+        # The replay join bounds its scan by a time it computes in Python, so both prints need the same clock.
+        with time_machine.travel(datetime.now(UTC), tick=False):
+            swapped = self._query_events(query, mode=mode, union=union).clickhouse
+            baseline = self._query_events(query, rewrite=False, union=union).clickhouse
+
+        assert swapped == baseline
+
+    @parameterized.expand(
+        _lazy_join_cases(
+            [
+                ("top_level_pin", "SELECT {j}.distinct_id FROM {source} WHERE {j}.event = '$feature_flag_called'"),
+                (
+                    "in_of_only_flag_calls",
+                    "SELECT {j}.distinct_id FROM {source} WHERE {j}.event IN ('$feature_flag_called')",
+                ),
+                (
+                    "or_whose_every_branch_pins",
+                    "SELECT {j}.distinct_id FROM {source} "
+                    "WHERE ({j}.event = '$feature_flag_called' AND {j}.distinct_id = 'probe-distinct-id') "
+                    "OR ({j}.event = '$feature_flag_called' AND {j}.distinct_id = 'events-distinct-id')",
+                ),
+                (
+                    "pin_through_a_select_alias",
+                    "SELECT {j}.distinct_id, {j}.event AS e FROM {source} WHERE e = '$feature_flag_called'",
+                ),
+                (
+                    "pin_next_to_another_filter",
+                    "SELECT {j}.distinct_id FROM {source} "
+                    "WHERE {j}.distinct_id != '' AND {j}.event = '$feature_flag_called'",
+                ),
+            ]
+        )
+    )
+    def test_lazy_join_pushes_an_outer_pin_into_the_join(self, _name: str, query: str, _join_name: str, union: bool):
+        self._create_lazy_join_sources()
+
+        on_events = self._query_events(query, rewrite=False, union=union).results
+        on_flag_evaluations = self._query_events(query, union=union).results
+
+        assert [row[0] for row in on_events] == ["events-distinct-id"]
+        assert [row[0] for row in on_flag_evaluations] == ["probe-distinct-id"]
+
+    @parameterized.expand(
+        _with_union(
+            [
+                (
+                    "explicit_events_join",
+                    "SELECT e.distinct_id, events.event FROM session_replay_events "
+                    "JOIN events AS e ON e.$session_id = session_replay_events.session_id "
+                    "WHERE e.event = '$feature_flag_called'",
+                    # The replay join still reads every event of the session, including the replay helper's event.
+                    ["$feature_flag_called", "foobarino"],
+                ),
+                (
+                    "another_lazy_join_to_events",
+                    "SELECT calls.distinct_id, other_calls.event FROM persons WHERE calls.event = '$feature_flag_called'",
+                    ["foobarino"],
+                ),
+                (
+                    "same_lazy_join_on_another_alias",
+                    "SELECT a.calls.distinct_id, p.calls.event FROM persons a JOIN persons p ON a.id = p.id "
+                    "WHERE a.calls.event = '$feature_flag_called'",
+                    ["foobarino"],
+                ),
+            ]
+        )
+    )
+    def test_lazy_join_pushes_no_pin_from_a_filter_on_another_tables_event(
+        self, _name: str, query: str, events: list[str], union: bool
+    ):
+        self._create_lazy_join_sources()
+        self._join_persons_to_events("other_calls")
+
+        results = self._query_events(query, union=union).results
+
+        assert sorted({row[1] for row in results}) == events
+
+    @parameterized.expand(
+        [
+            (f"{value_name}_{join}", field, source, response)
+            for value_name, response in (
+                ("escaped_characters", 'say "hi" \\ bye'),
+                ("number_as_string", "100"),
+                ("empty_string", ""),
+                ("null_as_string", "null"),
+            )
+            for join, source, field in LAZY_JOINS_TO_EVENTS
+        ]
+    )
+    @override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=False)
+    def test_lazy_join_pushes_a_pin_that_selects_what_events_selects(
+        self, _name: str, field: str, source: str, response: str
+    ):
+        self._create_lazy_join_sources()
+        row_uuid = uuid.uuid4()
+        properties: dict[str, str | int | None] = {
+            "$feature_flag": "parity-flag",
+            "$feature_flag_response": response,
+            "$session_id": SESSION_ID,
+        }
+        self._insert_row(row_uuid, properties)
+        _create_event(
+            team=self.team,
+            event="$feature_flag_called",
+            distinct_id="probe-distinct-id",
+            timestamp=self.occurred_at,
+            properties=properties,
+            event_uuid=str(row_uuid),
+        )
+        flush_persons_and_events()
+        query = (
+            f"SELECT {field}.distinct_id, {field}.properties.$feature_flag_response FROM {source} "
+            f"WHERE {field}.event = '$feature_flag_called' AND {field}.properties.$feature_flag = 'parity-flag'"
+        )
+
+        from_events = self._query_events(query, rewrite=False).results
+        swapped = self._query_events(query)
+
+        assert [row[0] for row in from_events] == ["probe-distinct-id"]
+        assert swapped.clickhouse is not None
+        assert "FROM flag_evaluations" in swapped.clickhouse
+        assert swapped.results == from_events
+
+    @parameterized.expand(
+        [
+            ("properties_on_events", PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_ON_EVENTS, True),
+            ("properties_joined", PersonsOnEventsMode.PERSON_ID_OVERRIDE_PROPERTIES_JOINED, True),
+            ("no_override", PersonsOnEventsMode.PERSON_ID_NO_OVERRIDE_PROPERTIES_ON_EVENTS, False),
+            ("disabled", PersonsOnEventsMode.DISABLED, False),
+        ]
+    )
+    def test_lazy_join_pushes_a_pin_through_a_person_id_key_or_raises(
+        self, _name: str, persons_on_events_mode: PersonsOnEventsMode, moves: bool
+    ):
+        self._create_lazy_join_sources()
+        create_person(team=self.team, uuid=str(self.person_id), distinct_ids=["probe-distinct-id"])
+        self._join_persons_to_events("calls_by_person", source_table_key="id", joining_table_key="person_id")
+        flush_persons_and_events()
+        query = "SELECT calls_by_person.distinct_id FROM persons WHERE calls_by_person.event = '$feature_flag_called'"
+
+        modifiers = HogQLQueryModifiers(personsOnEventsMode=persons_on_events_mode)
+
+        # Without overrides, events.person_id is a stored column and flag_evaluations.person_id reads the overrides.
+        if not moves:
+            with self.assertRaisesRegex(
+                QueryError,
+                _join_refusal("persons.calls_by_person", re.escape("a name in it would read a different column there")),
+            ):
+                self._query_events(query, modifiers=modifiers)
+            return
+        assert self._query_events(query, modifiers=modifiers).results == [("probe-distinct-id",)]

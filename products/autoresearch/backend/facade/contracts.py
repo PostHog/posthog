@@ -452,6 +452,8 @@ class PipelineValidation:
     inference_population_size: int | None
     warnings: list[ValidationWarning]
     error: str | None
+    # One of VALIDATION_ERROR_CODE_CHOICES when `error` is set.
+    error_code: str | None
 
 
 @dataclass(frozen=True)

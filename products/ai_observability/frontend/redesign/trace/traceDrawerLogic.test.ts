@@ -3,7 +3,6 @@ import { getRouterContext } from 'kea-router/lib/router'
 import posthog from 'posthog-js'
 
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { addProductIntent } from 'lib/utils/product-intents'
 import { urls } from 'scenes/urls'
@@ -22,7 +21,6 @@ jest.mock('lib/utils/product-intents', () => ({
     addProductIntent: jest.fn(),
 }))
 
-const FLAG = FEATURE_FLAGS.AI_OBSERVABILITY_TRACE_REDESIGN
 const LIST_PATH = urls.aiObservabilityTraces()
 
 const A: TraceListRow = { traceId: 'a', timestamp: null, stepId: 'x' }
@@ -74,15 +72,10 @@ describe('traceDrawerLogic', () => {
         host.mount()
     }
 
-    function setUp({
-        url = LIST_PATH,
-        flag = true,
-        listId,
-    }: { url?: string; flag?: boolean; listId?: TraceDrawerListId } = {}): void {
+    function setUp({ url = LIST_PATH, listId }: { url?: string; listId?: TraceDrawerListId } = {}): void {
         initKeaTests()
         localStorage.clear()
         featureFlagLogic.mount()
-        featureFlagLogic.actions.setFeatureFlags([FLAG], { [FLAG]: flag })
         goTo(url)
 
         browserHistory = [url]
@@ -358,35 +351,6 @@ describe('traceDrawerLogic', () => {
         expect(host.values).toMatchObject({ requestedStepId: null, requestedTraceId: 'b' })
     })
 
-    it('sends a link to the trace page, without tracking, when the flag is off', () => {
-        setUp({ flag: false })
-        logic.unmount()
-        goTo(`${LIST_PATH}?date_from=-7d&trace=a%2Fb&ts=2026-01-01&step=gen-1`)
-
-        mountDrawer()
-
-        expect(logic.values.isEnabled).toBe(false)
-        expect(router.values.location.pathname).toContain(urls.aiObservabilityTrace('a/b'))
-        expect(router.values.searchParams).toEqual({
-            date_from: '-7d',
-            timestamp: '2026-01-01',
-            event: 'gen-1',
-            back_to: 'traces',
-            back_url: `${LIST_PATH}?date_from=-7d`,
-        })
-        expect(capturedEvents()).toEqual([])
-        expect(addProductIntent).not.toHaveBeenCalled()
-    })
-
-    it('sends a trace-level link to the trace page with no event, because that page is the legacy scene', () => {
-        const path = urls.aiObservabilityEvaluation('e1')
-
-        setUp({ url: `${path}?trace=a`, flag: false, listId: 'evaluation-runs' })
-
-        expect(router.values.location.pathname).toContain(urls.aiObservabilityTrace('a'))
-        expect(router.values.searchParams).toEqual({ tab: 'evals', back_to: 'evaluation', back_url: path })
-    })
-
     it('keeps its params on unmount, so a list that remounts while it loads reopens the trace', () => {
         setUp({ url: `${LIST_PATH}?trace_search=1.50&trace=a&ts=2026&step=x` })
         logic.actions.setRows([A, B])
@@ -471,11 +435,8 @@ describe('traceDrawerLogic', () => {
         expect(capturedEvents()).toEqual([])
     })
 
-    it.each([
-        ['enabled', true],
-        ['disabled', false],
-    ])('ignores a trace param on another product URL when %s', (_name, flag) => {
-        setUp({ flag })
+    it('ignores a trace param on another product URL', () => {
+        setUp()
         const search = '?trace=0AF7651916CD43DD&ts=2026-01-01T00:00:00Z'
         const replaceState = jest.spyOn(routerHistory(), 'replaceState')
 

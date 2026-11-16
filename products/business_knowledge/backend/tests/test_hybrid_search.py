@@ -32,6 +32,7 @@ from products.business_knowledge.backend.models import (
     SafetyVerdict,
     SourceStatus,
 )
+from products.business_knowledge.backend.models.constants import SearchMatch
 
 
 class TestRRFFusion(SimpleTestCase):
@@ -156,7 +157,10 @@ class TestHybridSearch(BaseTest):
         refund_id = self._get_chunk_ids(src_refund)[0]
         warranty_id = self._get_chunk_ids(src_warranty)[0]
         # Semantic returns the warranty chunk, which FTS for "refund" wouldn't match
-        mock_semantic.return_value = [_SemanticCandidate(chunk_id=warranty_id, distance=0.3)]
+        mock_semantic.return_value = [
+            _SemanticCandidate(chunk_id=refund_id, distance=0.2),
+            _SemanticCandidate(chunk_id=warranty_id, distance=0.3),
+        ]
 
         results = search_knowledge(
             self.team.id,
@@ -168,6 +172,9 @@ class TestHybridSearch(BaseTest):
         # FTS hit (refund chunk) and semantic-only hit (warranty chunk) both surface
         assert refund_id in result_ids
         assert warranty_id in result_ids
+        signals = {r.chunk_id: (r.matched_by, r.similarity) for r in results}
+        assert signals[refund_id] == (SearchMatch.BOTH, 0.8)
+        assert signals[warranty_id] == (SearchMatch.SEMANTIC, 0.7)
 
     @patch("products.business_knowledge.backend.logic._semantic_chunk_candidates")
     def test_off_topic_returns_empty(self, mock_semantic: MagicMock) -> None:

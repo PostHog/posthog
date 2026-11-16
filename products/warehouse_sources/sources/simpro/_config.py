@@ -6,4 +6,6 @@ from products.warehouse_sources.sources.sdk import config
 
 @config.config
 class SimproSourceConfig(config.Config):
-    pass
+    build: str
+    api_key: str
+    company_id: str | None = None
