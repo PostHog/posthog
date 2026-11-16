@@ -165,7 +165,7 @@ export const getIOSSteps = (ctx: OnboardingComponentsContext): StepDefinition[] 
             <>
                 <Markdown>
                     {dedent`
-                        By default, PostHog automatically marks your app's code as "in-app" in stack traces to help you focus on your code rather than system frameworks.
+                        By default, PostHog marks frames from your app's executable as "in-app" in stack traces, so you can focus on your code rather than system and third-party frameworks. Code linked statically into your app, such as most Swift packages, is part of the executable.
                         
                         You can customize this behavior with \`errorTrackingConfig\`:
                     `}
@@ -183,7 +183,7 @@ export const getIOSSteps = (ctx: OnboardingComponentsContext): StepDefinition[] 
                                   host: "<ph_client_api_host>"
                               )
                               
-                              // Mark additional packages as in-app
+                              // Mark your own dynamic frameworks as in-app
                               config.errorTrackingConfig.inAppIncludes = [
                                   "MySharedFramework",
                                   "MyUtilityLib"
@@ -195,8 +195,9 @@ export const getIOSSteps = (ctx: OnboardingComponentsContext): StepDefinition[] 
                                   "SDWebImage"
                               ]
                               
-                              // Control default behavior for unknown packages
-                              config.errorTrackingConfig.inAppByDefault = true // default
+                              // Whether frames from other frameworks are in-app.
+                              // Default is false from SDK version 4.0, true before.
+                              config.errorTrackingConfig.inAppByDefault = false
                               
                               PostHogSDK.shared.setup(config)
                             `,
@@ -211,11 +212,12 @@ export const getIOSSteps = (ctx: OnboardingComponentsContext): StepDefinition[] 
                         | --- | --- |
                         | \`inAppIncludes\` | List of package/bundle identifiers to mark as in-app (takes precedence over excludes) |
                         | \`inAppExcludes\` | List of package/bundle identifiers to exclude from in-app |
-                        | \`inAppByDefault\` | Whether frames are considered in-app by default when origin cannot be determined |
+                        | \`inAppByDefault\` | Whether frames from a framework no other rule matches are in-app. Default is \`false\` from SDK version 4.0, \`true\` before |
                         
                         **Default behavior:**
-                        - Your app's bundle identifier and executable name are automatically included
-                        - System frameworks (Foundation, UIKit, etc.) are automatically excluded
+                        - Your app's executable and any framework whose name starts with your app's executable name or bundle identifier are in-app
+                        - System frameworks (Foundation, UIKit, etc.) are not in-app
+                        - From SDK version 4.0, other frameworks are not in-app. If your app ships its own code in another dynamic framework, add its name to \`inAppIncludes\`
                     `}
                 </Markdown>
             </>

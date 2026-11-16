@@ -107,16 +107,18 @@ export const getIOSSteps = (ctx: OnboardingComponentsContext): StepDefinition[] 
                                             // Before SDK version 4.0, also set config.sessionReplayConfig.screenshotMode = true,
                                             // otherwise replays are recorded as wireframes and SwiftUI screens aren't recorded.
 
-                                            // Experimental. Moves screenshot capture to a background queue, which can
-                                            // reduce main-thread hangs and dropped frames on complex screens or high
-                                            // refresh rate (120Hz ProMotion) displays. May trigger Xcode's Main Thread
-                                            // Checker and briefly freeze the app on the first capture.
-                                            // Default is false. Requires SDK version 3.58.1 or higher.
-                                            config.sessionReplayConfig.screenshotModeBackgroundCapture = false
+                                            // How each screenshot is captured. Default is .standard.
+                                            // .background renders on a background queue, which can reduce main-thread
+                                            // hangs and dropped frames on complex screens. It may trigger Xcode's Main
+                                            // Thread Checker and briefly freeze the app on the first capture.
+                                            // .gpu (experimental) renders a copy of the screen with Metal.
+                                            // Requires SDK version 4.0 or higher. Before 4.0, use
+                                            // screenshotModeBackgroundCapture = true for background capture.
+                                            config.sessionReplayConfig.captureMethod = .standard
 
-                                            // Experimental. Screenshot resolution as a fraction of the screen's native
-                                            // resolution, from 0.1 to 1.0. With no value, captures one pixel per point,
-                                            // which is a third of native resolution on a 3x device. Higher values give
+                                            // Screenshot resolution as a fraction of the screen's native resolution,
+                                            // from 0.1 to 1.0. With no value, captures one pixel per point, which is
+                                            // a third of native resolution on a 3x device. Higher values give
                                             // sharper replays at the cost of capture time and upload size.
                                             // Default is nil. Requires SDK version 3.93.0 or higher.
                                             config.sessionReplayConfig.screenshotScale = nil
