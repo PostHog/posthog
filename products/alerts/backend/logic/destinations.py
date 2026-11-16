@@ -222,8 +222,9 @@ def configured_destination_template_ids(
     return frozenset(cast(Collection[str], template_ids))
 
 
-# An `alert_id` condition that binds a function to one alert: a string id with `exact` or no operator.
-_ALERT_ID_CONDITION = '@.key == "alert_id" && @.value.type() == "string"'
+# A string `alert_id` condition on event properties. A person or group condition reads other
+# properties, so it neither binds nor excludes the alert. A missing type is a legacy event filter.
+_ALERT_ID_CONDITION = '@.key == "alert_id" && (!(exists(@.type)) || @.type == "event") && @.value.type() == "string"'
 _EXACT_OPERATOR = '(!(exists(@.operator)) || @.operator == "exact")'
 _BOUND_TO_THIS_ALERT_PATH = f"$.properties[*] ? ({_ALERT_ID_CONDITION} && {_EXACT_OPERATOR} && @.value == $alert_id)"
 # The consumer ANDs every property filter, so a second alert_id condition that this alert fails

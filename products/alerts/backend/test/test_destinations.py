@@ -816,7 +816,13 @@ class TestListActiveAlertDestinations(AlertDestinationTestCase):
             properties=[
                 {"key": "alert_id", "value": "alert-1", "operator": "exact"},
                 {"key": "alert_id", "value": "alert-2", "operator": "is_not"},
+                {"key": "alert_id", "value": "alert-1", "operator": "is_not", "type": "person"},
             ],
+        )
+        self._make_hog_function(
+            template_id=template_id,
+            alert_id="alert-1",
+            properties=[{"key": "alert_id", "value": "alert-1", "operator": "exact", "type": "person"}],
         )
 
         destinations = list_active_alert_destinations(
