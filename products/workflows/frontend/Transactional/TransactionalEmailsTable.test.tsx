@@ -291,7 +291,11 @@ describe('TransactionalEmailsTable', () => {
     ])(
         'answers a link from the domain-ready card: %s',
         async (_case, templates, codeEmails, landmark, modalOpens, guideSurface) => {
-            const capture = jest.spyOn(posthog, 'capture')
+            const sent: { event: string; properties?: Record<string, any> | null }[] = []
+            const capture = jest.spyOn(posthog, 'capture').mockImplementation((event, properties) => {
+                sent.push({ event, properties })
+                return undefined
+            })
             renderWithCodeSends({
                 '/api/projects/:team_id/messaging_templates/': { results: templates },
                 '/api/projects/:team_id/transactional_code_emails/': codeEmails,
@@ -303,9 +307,10 @@ describe('TransactionalEmailsTable', () => {
             await waitFor(() => expect(router.values.searchParams).toEqual({}))
             expect(screen.queryByText('Send an email from your code') !== null).toBe(modalOpens)
             expect(
-                capture.mock.calls.find(
-                    ([event, props]) => event === 'send from code guide opened' && props?.entry === 'domain_ready'
-                )?.[1]?.surface ?? false
+                sent.find(
+                    ({ event, properties }) =>
+                        event === 'send from code guide opened' && properties?.entry === 'domain_ready'
+                )?.properties?.surface ?? false
             ).toBe(guideSurface)
             capture.mockRestore()
         }
