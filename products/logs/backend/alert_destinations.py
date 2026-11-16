@@ -6,8 +6,11 @@ from collections.abc import Collection
 from dataclasses import replace
 from typing import Literal
 
+from products.alerts.backend.facade.destinations import build_alert_destination_config, destination_handles_event_kind
 from products.alerts_platform.backend.facade.contracts import (
     AlertDestinationAction,
+    AlertDestinationConfig,
+    AlertDestinationData,
     AlertEventKind,
     DestinationType,
     EventKindSpec,
@@ -200,3 +203,23 @@ LOGS_ALERT_SLACK_CONTEXT_ELEMENTS = (
     _SEVERITY_SERVICE_CONTEXT,
     "Project: <{project.url}|{project.name}>",
 )
+
+
+def logs_destination_event_kinds(destination_type: DestinationType) -> list[EventKind]:
+    """The kinds a destination's HogFunctions hear, one HogFunction each."""
+    return [kind for kind in EVENT_KINDS if destination_handles_event_kind(destination_type, EVENT_KIND_CONFIG[kind])]
+
+
+def build_logs_destination_configs(
+    *, alert_id: str, alert_name: str, data: AlertDestinationData
+) -> list[AlertDestinationConfig]:
+    return [
+        build_alert_destination_config(
+            spec=EVENT_KIND_CONFIG[kind],
+            alert_id=alert_id,
+            alert_name=alert_name,
+            data=data,
+            slack_context_elements=LOGS_ALERT_SLACK_CONTEXT_ELEMENTS,
+        )
+        for kind in logs_destination_event_kinds(DestinationType(data["type"]))
+    ]

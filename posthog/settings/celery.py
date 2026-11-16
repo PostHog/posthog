@@ -25,6 +25,7 @@ CELERY_DEFAULT_QUEUE = "celery"
 CELERY_IMPORTS: list[str] = [
     "ee.tasks.quota_limiting",
     "posthog.api.oauth.cimd",
+    "posthog.api.oauth.provisioning_review",
     "posthog.caching.warming",
     "posthog.email",
     "posthog.models.product_intent.product_intent",
