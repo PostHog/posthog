@@ -75,7 +75,6 @@ def _properties(suggestion: WarehouseSuggestion, now: datetime, *, is_system: bo
         "rules_version": suggestion.rules_version,
         "reproposed_count": suggestion.reproposed_count,
         "reason": suggestion.dismissal_reason,
-        "note": suggestion.dismissal_note,
         "has_note": bool(suggestion.dismissal_note),
         **_estimated_savings(suggestion.kind, suggestion.payload),
         "waiting_seconds_saved_per_month": suggestion.payload.get("waiting_seconds_saved_per_month"),

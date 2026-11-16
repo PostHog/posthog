@@ -177,13 +177,13 @@ class TestWarehouseSuggestionAPI(APIBaseTest):
             )
         assert dismissed.status_code == status.HTTP_200_OK, dismissed.json()
         [(event, properties)] = [call.args for call in report.call_args_list]
-        assert (event, properties["reason"], properties["note"], properties["has_note"], properties["bulk"]) == (
+        assert (event, properties["reason"], properties["has_note"], properties["bulk"]) == (
             "warehouse suggestion dismissed",
             WarehouseSuggestionDismissalReason.ALREADY_HANDLED,
-            "We sunset this view",
             True,
             True,
         )
+        assert "We sunset this view" not in json.dumps(properties, default=str)
         low.refresh_from_db()
         assert low.status == WarehouseSuggestionStatus.DISMISSED
         assert low.reviewed_by_id == self.user.id
