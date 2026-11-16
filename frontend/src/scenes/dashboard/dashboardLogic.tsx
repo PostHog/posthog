@@ -1751,6 +1751,13 @@ export interface dashboardLogicActions {
         displayOptions: Partial<Pick<DashboardTile, 'show_description' | 'transparent_background'>>
         tileId: number
     }
+    updateTileGroupDescription: (
+        groupKey: string,
+        description: string
+    ) => {
+        description: string
+        groupKey: string
+    }
     updateTileGroupSectionLayout: (layouts: ResponsiveLayouts) => {
         layouts: Partial<Record<string, Layout>>
     }
@@ -2336,6 +2343,7 @@ export const dashboardLogic = kea<dashboardLogicType>([
         refreshOpenTileGroupsWaiting: true,
         changeTileGroupDisplay: (groupDisplay: TileGroupDisplay) => ({ groupDisplay }),
         renameTileGroup: (groupKey: string, title: string) => ({ groupKey, title }),
+        updateTileGroupDescription: (groupKey: string, description: string) => ({ groupKey, description }),
         setRenamingTileGroupKey: (groupKey: string | null) => ({ groupKey }),
         /** Null follows the open tab. */
         setAddTargetTileGroupKey: (groupKey: string | null) => ({ groupKey }),
@@ -6454,6 +6462,10 @@ export const dashboardLogic = kea<dashboardLogicType>([
             } finally {
                 releaseMount()
             }
+        },
+        updateTileGroupDescription: ({ groupKey, description }) => {
+            const groups = values.dashboard?.customization?.groups ?? {}
+            actions.setTileGroups({ ...groups, [groupKey]: { ...groups[groupKey], description: description.trim() } })
         },
         renameTileGroup: ({ groupKey, title }) => {
             // The API replaces every group on write, so send the others back unchanged.

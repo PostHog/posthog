@@ -669,6 +669,7 @@ describe('dashboardLogic', () => {
 
             logic.actions.renameTileGroup('target', 'First')
             logic.actions.renameTileGroup('target', 'Second')
+            logic.actions.updateTileGroupDescription('target', '  Compare plans  ')
             logic.actions.updateDashboardTags(['unrelated'])
             await expectLogic(dashboardsModel).toDispatchActions(['updateDashboardFailure'])
             releaseGroupSave()
@@ -677,7 +678,7 @@ describe('dashboardLogic', () => {
 
             expect(groupPatches).toEqual([
                 { target: { collapsed: false, title: 'First' } },
-                { target: { collapsed: false, title: 'Second' } },
+                { target: { collapsed: false, title: 'Second', description: 'Compare plans' } },
             ])
         })
 

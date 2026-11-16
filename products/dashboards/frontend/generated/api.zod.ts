@@ -17,6 +17,8 @@ export const dashboardTemplatesCreateBodyTagsItemMax = 255
 
 export const dashboardTemplatesCreateBodyCustomizationOneGroupsTitleMax = 200
 
+export const dashboardTemplatesCreateBodyCustomizationOneGroupsDescriptionMax = 4000
+
 export const dashboardTemplatesCreateBodyCustomizationOneGroupTitlesMaxOne = 200
 
 export const dashboardTemplatesCreateBodyImageUrlMax = 8201
@@ -67,6 +69,11 @@ export const DashboardTemplatesCreateBody = /* @__PURE__ */ zod.object({
                                 .describe(
                                     'Heading for the group. When it is blank or omitted, the heading shows the number of tiles.'
                                 ),
+                            description: zod
+                                .string()
+                                .max(dashboardTemplatesCreateBodyCustomizationOneGroupsDescriptionMax)
+                                .optional()
+                                .describe("Description shown above the group's tiles in sections and tabs."),
                             collapsed: zod
                                 .boolean()
                                 .optional()
@@ -135,6 +142,8 @@ export const dashboardTemplatesUpdateBodyTagsItemMax = 255
 
 export const dashboardTemplatesUpdateBodyCustomizationOneGroupsTitleMax = 200
 
+export const dashboardTemplatesUpdateBodyCustomizationOneGroupsDescriptionMax = 4000
+
 export const dashboardTemplatesUpdateBodyCustomizationOneGroupTitlesMaxOne = 200
 
 export const dashboardTemplatesUpdateBodyImageUrlMax = 8201
@@ -185,6 +194,11 @@ export const DashboardTemplatesUpdateBody = /* @__PURE__ */ zod.object({
                                 .describe(
                                     'Heading for the group. When it is blank or omitted, the heading shows the number of tiles.'
                                 ),
+                            description: zod
+                                .string()
+                                .max(dashboardTemplatesUpdateBodyCustomizationOneGroupsDescriptionMax)
+                                .optional()
+                                .describe("Description shown above the group's tiles in sections and tabs."),
                             collapsed: zod
                                 .boolean()
                                 .optional()
@@ -253,6 +267,8 @@ export const dashboardTemplatesPartialUpdateBodyTagsItemMax = 255
 
 export const dashboardTemplatesPartialUpdateBodyCustomizationOneGroupsTitleMax = 200
 
+export const dashboardTemplatesPartialUpdateBodyCustomizationOneGroupsDescriptionMax = 4000
+
 export const dashboardTemplatesPartialUpdateBodyCustomizationOneGroupTitlesMaxOne = 200
 
 export const dashboardTemplatesPartialUpdateBodyImageUrlMax = 8201
@@ -303,6 +319,11 @@ export const DashboardTemplatesPartialUpdateBody = /* @__PURE__ */ zod.object({
                                 .describe(
                                     'Heading for the group. When it is blank or omitted, the heading shows the number of tiles.'
                                 ),
+                            description: zod
+                                .string()
+                                .max(dashboardTemplatesPartialUpdateBodyCustomizationOneGroupsDescriptionMax)
+                                .optional()
+                                .describe("Description shown above the group's tiles in sections and tabs."),
                             collapsed: zod
                                 .boolean()
                                 .optional()
@@ -379,6 +400,8 @@ export const dashboardsCreateBodyNameMax = 400
 
 export const dashboardsCreateBodyBreakdownColorsItemColorTokenRegExp = new RegExp('^preset-[1-9][0-9]\*$')
 export const dashboardsCreateBodyGroupsTitleMax = 200
+
+export const dashboardsCreateBodyGroupsDescriptionMax = 4000
 
 export const dashboardsCreateBodyGroupTitlesMaxOne = 200
 
@@ -471,6 +494,11 @@ export const DashboardsCreateBody = /* @__PURE__ */ zod
                         .describe(
                             'Heading for the group. When it is blank or omitted, the heading shows the number of tiles.'
                         ),
+                    description: zod
+                        .string()
+                        .max(dashboardsCreateBodyGroupsDescriptionMax)
+                        .optional()
+                        .describe("Description shown above the group's tiles in sections and tabs."),
                     collapsed: zod
                         .boolean()
                         .optional()
@@ -519,6 +547,8 @@ export const dashboardsUpdateBodyNameMax = 400
 
 export const dashboardsUpdateBodyBreakdownColorsItemColorTokenRegExp = new RegExp('^preset-[1-9][0-9]\*$')
 export const dashboardsUpdateBodyGroupsTitleMax = 200
+
+export const dashboardsUpdateBodyGroupsDescriptionMax = 4000
 
 export const dashboardsUpdateBodyGroupTitlesMaxOne = 200
 
@@ -611,6 +641,11 @@ export const DashboardsUpdateBody = /* @__PURE__ */ zod
                         .describe(
                             'Heading for the group. When it is blank or omitted, the heading shows the number of tiles.'
                         ),
+                    description: zod
+                        .string()
+                        .max(dashboardsUpdateBodyGroupsDescriptionMax)
+                        .optional()
+                        .describe("Description shown above the group's tiles in sections and tabs."),
                     collapsed: zod
                         .boolean()
                         .optional()
@@ -1098,6 +1133,8 @@ export const dashboardsCreateFromTemplateJsonCreateBodyBreakdownColorsItemColorT
 )
 export const dashboardsCreateFromTemplateJsonCreateBodyGroupsTitleMax = 200
 
+export const dashboardsCreateFromTemplateJsonCreateBodyGroupsDescriptionMax = 4000
+
 export const dashboardsCreateFromTemplateJsonCreateBodyGroupTitlesMaxOne = 200
 
 export const dashboardsCreateFromTemplateJsonCreateBodyDeleteInsightsDefault = false
@@ -1189,6 +1226,11 @@ export const DashboardsCreateFromTemplateJsonCreateBody = /* @__PURE__ */ zod
                         .describe(
                             'Heading for the group. When it is blank or omitted, the heading shows the number of tiles.'
                         ),
+                    description: zod
+                        .string()
+                        .max(dashboardsCreateFromTemplateJsonCreateBodyGroupsDescriptionMax)
+                        .optional()
+                        .describe("Description shown above the group's tiles in sections and tabs."),
                     collapsed: zod
                         .boolean()
                         .optional()
@@ -1244,6 +1286,8 @@ export const dashboardsCreateUnlistedDashboardCreateBodyBreakdownColorsItemColor
     '^preset-[1-9][0-9]\*$'
 )
 export const dashboardsCreateUnlistedDashboardCreateBodyGroupsTitleMax = 200
+
+export const dashboardsCreateUnlistedDashboardCreateBodyGroupsDescriptionMax = 4000
 
 export const dashboardsCreateUnlistedDashboardCreateBodyGroupTitlesMaxOne = 200
 
@@ -1336,6 +1380,11 @@ export const DashboardsCreateUnlistedDashboardCreateBody = /* @__PURE__ */ zod
                         .describe(
                             'Heading for the group. When it is blank or omitted, the heading shows the number of tiles.'
                         ),
+                    description: zod
+                        .string()
+                        .max(dashboardsCreateUnlistedDashboardCreateBodyGroupsDescriptionMax)
+                        .optional()
+                        .describe("Description shown above the group's tiles in sections and tabs."),
                     collapsed: zod
                         .boolean()
                         .optional()

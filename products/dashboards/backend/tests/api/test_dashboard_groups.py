@@ -49,7 +49,7 @@ class TestStoredGroups(SimpleTestCase):
         ),
         (
             "settings_equal_to_defaults_are_dropped",
-            {"groups": {"plans": {"title": "Plans", "collapsed": False, "color": None}}},
+            {"groups": {"plans": {"title": "Plans", "description": "", "collapsed": False, "color": None}}},
             {"plans": {"title": "Plans"}},
         ),
     ]

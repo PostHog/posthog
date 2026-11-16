@@ -10,6 +10,7 @@ import type { TileGroupDisplay } from '~/types'
 
 import type { DashboardTileGroupApi } from '../../generated/api.schemas'
 import { DashboardTileGroupContextMenu } from './DashboardTileGroupContextMenu'
+import { DashboardTileGroupDescription } from './DashboardTileGroupDescription'
 import { DashboardTileGroupMenu } from './DashboardTileGroupMenu'
 import { type DashboardTileGroupMenuActions, hasTileGroupMenuActions } from './DashboardTileGroupMenuOverlay'
 import { DashboardTileGroupMoveButtons, type TileGroupMoveActions } from './DashboardTileGroupMoveButtons'
@@ -24,6 +25,7 @@ interface DashboardTileGroupProps {
     addTileOptions?: DashboardTileGroupMenuActions['addTileOptions']
     emptyAddAction?: React.ReactNode
     onRename?: (title: string) => void
+    onDescriptionChange?: (description: string) => void
     renaming?: boolean
     onRenamingChange?: (renaming: boolean) => void
     moveActions?: TileGroupMoveActions
@@ -43,6 +45,7 @@ export function DashboardTileGroup({
     addTileOptions,
     emptyAddAction,
     onRename,
+    onDescriptionChange,
     renaming = false,
     onRenamingChange,
     moveActions,
@@ -117,6 +120,9 @@ export function DashboardTileGroup({
                 )}
                 {hasTileGroupMenuActions(menuActions) && <DashboardTileGroupMenu {...menuActions} />}
             </div>
+            {!collapsed && (
+                <DashboardTileGroupDescription description={group.description} onChange={onDescriptionChange} />
+            )}
             {!collapsed && tileCount === 0 && (
                 <div
                     className="flex flex-col items-center gap-3 rounded-lg border border-dashed px-4 py-6 text-center text-secondary"

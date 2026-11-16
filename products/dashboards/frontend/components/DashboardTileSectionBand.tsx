@@ -17,6 +17,7 @@ interface DashboardTileSectionBandProps {
     collapsedTileGroupKeys: string[]
     onToggleTileGroup: (groupKey: string) => void
     onRenameTileGroup?: (groupKey: string, title: string) => void
+    onDescriptionChange?: (groupKey: string, description: string) => void
     renamingTileGroupKey?: string | null
     onRenamingTileGroupKeyChange?: (groupKey: string | null) => void
     getTileGroupMoveActions?: (groupKey: string) => TileGroupMoveActions | undefined
@@ -37,6 +38,7 @@ export function DashboardTileSectionBand({
     collapsedTileGroupKeys,
     onToggleTileGroup,
     onRenameTileGroup,
+    onDescriptionChange,
     renamingTileGroupKey,
     onRenamingTileGroupKeyChange,
     getTileGroupMoveActions,
@@ -63,6 +65,11 @@ export function DashboardTileSectionBand({
                     collapsed={collapsedTileGroupKeys.includes(section.groupKey)}
                     onToggle={() => onToggleTileGroup(section.groupKey)}
                     onRename={onRenameTileGroup ? (title) => onRenameTileGroup(section.groupKey, title) : undefined}
+                    onDescriptionChange={
+                        onDescriptionChange
+                            ? (description) => onDescriptionChange(section.groupKey, description)
+                            : undefined
+                    }
                     renaming={renamingTileGroupKey === section.groupKey}
                     onRenamingChange={(renaming) => onRenamingTileGroupKeyChange?.(renaming ? section.groupKey : null)}
                     moveActions={getTileGroupMoveActions?.(section.groupKey)}

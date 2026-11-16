@@ -7,6 +7,7 @@ import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import type { TileGroupDisplay } from '~/types'
 
 import { type DashboardSection, getTileGroupLabel } from '../../dashboardTileSections'
+import { DashboardTileGroupDescription } from './DashboardTileGroupDescription'
 import { DashboardTileGroupEmptyTab } from './DashboardTileGroupEmptyTab'
 import { type DashboardTileGroupMenuActions, hasTileGroupMenuActions } from './DashboardTileGroupMenuOverlay'
 import { DashboardTileGroupMoveButtons, type TileGroupMoveActions } from './DashboardTileGroupMoveButtons'
@@ -20,6 +21,7 @@ interface DashboardTileGroupTabsProps {
     activeSectionKey: string
     onSelect: (sectionKey: string) => void
     onRenameGroup?: (groupKey: string, title: string) => void
+    onDescriptionChange?: (groupKey: string, description: string) => void
     renamingGroupKey?: string | null
     onRenamingGroupKeyChange?: (groupKey: string | null) => void
     getMoveActions?: (groupKey: string) => TileGroupMoveActions | undefined
@@ -39,6 +41,7 @@ export function DashboardTileGroupTabs({
     activeSectionKey,
     onSelect,
     onRenameGroup,
+    onDescriptionChange,
     renamingGroupKey = null,
     onRenamingGroupKeyChange,
     getMoveActions,
@@ -160,6 +163,17 @@ export function DashboardTileGroupTabs({
                 )}
             </div>
             <TabsContent value={activeSectionKey}>
+                {activeSection?.kind === 'group' && (
+                    <DashboardTileGroupDescription
+                        key={activeSection.groupKey}
+                        description={activeSection.group.description}
+                        onChange={
+                            onDescriptionChange
+                                ? (description) => onDescriptionChange(activeSection.groupKey, description)
+                                : undefined
+                        }
+                    />
+                )}
                 {activeSection?.kind === 'group' && activeSection.tiles.length === 0 ? (
                     <DashboardTileGroupEmptyTab
                         addAction={getEmptyGroupAddAction?.(activeSection.groupKey)}

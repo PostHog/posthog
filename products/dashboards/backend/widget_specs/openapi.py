@@ -12,6 +12,7 @@ from posthog.schema import BreakdownFilter, CompareFilter, IntervalType
 
 from products.dashboards.backend.constants import (
     DASHBOARD_GRID_COLUMN_COUNT,
+    MAX_GROUP_DESCRIPTION_LENGTH,
     MAX_GROUP_KEY_LENGTH,
     MAX_GROUP_TITLE_LENGTH,
 )
@@ -56,6 +57,12 @@ class DashboardTileGroupSerializer(serializers.Serializer):
         required=False,
         allow_blank=True,
         help_text="Heading for the group. When it is blank or omitted, the heading shows the number of tiles.",
+    )
+    description = serializers.CharField(
+        max_length=MAX_GROUP_DESCRIPTION_LENGTH,
+        required=False,
+        allow_blank=True,
+        help_text="Description shown above the group's tiles in sections and tabs.",
     )
     collapsed = serializers.BooleanField(
         required=False,

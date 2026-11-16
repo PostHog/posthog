@@ -92,7 +92,7 @@ _NO_DEFAULT = object()
 
 
 def _is_stored_group_setting(field: str, setting: Any) -> bool:
-    if field == "title":
+    if field in ("title", "description"):
         return bool(setting)
     return setting != DASHBOARD_TILE_GROUP_DEFAULTS.get(field, _NO_DEFAULT)
 

@@ -179,6 +179,7 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
         copyGroupToDashboard,
         changeTileGroupDisplay,
         renameTileGroup,
+        updateTileGroupDescription,
         setRenamingTileGroupKey,
         setAddTargetTileGroupKey,
         openAddInsightModal,
@@ -325,6 +326,7 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
     const onCopyGroupToDashboard = canEditTileGroups ? copyGroupToDashboard : undefined
     const onChangeGroupDisplay = canEditTileGroups ? changeTileGroupDisplay : undefined
     const onRenameTileGroup = canEditTileGroups ? renameTileGroup : undefined
+    const onDescriptionChange = canEditTileGroups ? updateTileGroupDescription : undefined
     const getAddTileOptions = canEditTileGroups
         ? (groupKey: string) =>
               getDashboardAddTileOptions({
@@ -982,6 +984,7 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
                 collapsedTileGroupKeys={collapsedTileGroupKeys}
                 onToggleTileGroup={toggleTileGroup}
                 onRenameTileGroup={onRenameTileGroup}
+                onDescriptionChange={onDescriptionChange}
                 renamingTileGroupKey={renamingTileGroupKey}
                 onRenamingTileGroupKeyChange={setRenamingTileGroupKey}
                 getTileGroupMoveActions={getTileGroupMoveActions}
@@ -1007,6 +1010,7 @@ export function DashboardItems({ showCreateAnomalyAlertButton }: DashboardItemsP
                         activeSectionKey={tileGroupSections[activeTabIndex].key}
                         onSelect={selectTileGroupTab}
                         onRenameGroup={onRenameTileGroup}
+                        onDescriptionChange={onDescriptionChange}
                         renamingGroupKey={renamingTileGroupKey}
                         onRenamingGroupKeyChange={setRenamingTileGroupKey}
                         getMoveActions={getTileGroupMoveActions}

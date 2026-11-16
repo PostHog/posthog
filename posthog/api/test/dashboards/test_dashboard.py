@@ -729,16 +729,29 @@ class TestDashboard(APIBaseTest, QueryMatchingTest):
             },
         )
 
-        _, updated = self.dashboard_api.update_dashboard(dashboard_id, {"groups": {"plans": {"title": "Plans"}}})
+        _, updated = self.dashboard_api.update_dashboard(
+            dashboard_id,
+            {"groups": {"plans": {"title": "Plans", "description": "Compare paid plans.\nExclude trial accounts."}}},
+        )
         plans_only = {
             "tile_spacing": "relaxed",
             "group_titles": {"plans": "Plans"},
-            "groups": {"plans": {"title": "Plans", "collapsed": False, "color": None}},
+            "groups": {
+                "plans": {
+                    "title": "Plans",
+                    "description": "Compare paid plans.\nExclude trial accounts.",
+                    "collapsed": False,
+                    "color": None,
+                }
+            },
         }
         self.assertEqual(updated["customization"], plans_only)
         self.assertEqual(
             Dashboard.objects.get(id=dashboard_id).customization,
-            {"tile_spacing": "relaxed", "groups": {"plans": {"title": "Plans"}}},
+            {
+                "tile_spacing": "relaxed",
+                "groups": {"plans": {"title": "Plans", "description": "Compare paid plans.\nExclude trial accounts."}},
+            },
         )
 
         _, copied = self.dashboard_api.create_dashboard({"name": "copy", "use_dashboard": dashboard_id})

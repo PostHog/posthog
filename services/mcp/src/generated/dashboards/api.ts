@@ -115,6 +115,8 @@ export const dashboardsCreateBodyNameMax = 400
 export const dashboardsCreateBodyBreakdownColorsItemColorTokenRegExp = new RegExp('^preset-[1-9][0-9]\*$')
 export const dashboardsCreateBodyGroupsTitleMax = 200
 
+export const dashboardsCreateBodyGroupsDescriptionMax = 4000
+
 export const dashboardsCreateBodyDeleteInsightsDefault = false
 
 export const DashboardsCreateBody = () => zod
@@ -202,6 +204,11 @@ export const DashboardsCreateBody = () => zod
                         .describe(
                             'Heading for the group. When it is blank or omitted, the heading shows the number of tiles.'
                         ),
+                    description: zod
+                        .string()
+                        .max(dashboardsCreateBodyGroupsDescriptionMax)
+                        .optional()
+                        .describe("Description shown above the group's tiles in sections and tabs."),
                     collapsed: zod
                         .boolean()
                         .optional()
@@ -297,6 +304,8 @@ export const dashboardsPartialUpdateBodyFiltersOneBreakdownFilterOneBreakdownsOn
 export const dashboardsPartialUpdateBodyFiltersOneCompareFilterOneCompareDefault = false
 export const dashboardsPartialUpdateBodyBreakdownColorsItemColorTokenRegExp = new RegExp('^preset-[1-9][0-9]\*$')
 export const dashboardsPartialUpdateBodyGroupsTitleMax = 200
+
+export const dashboardsPartialUpdateBodyGroupsDescriptionMax = 4000
 
 export const dashboardsPartialUpdateBodyTilesItemLayoutsOneSmOneXMin = 0
 export const dashboardsPartialUpdateBodyTilesItemLayoutsOneSmOneXMax = 11
@@ -541,6 +550,11 @@ export const DashboardsPartialUpdateBody = () => zod
                         .describe(
                             'Heading for the group. When it is blank or omitted, the heading shows the number of tiles.'
                         ),
+                    description: zod
+                        .string()
+                        .max(dashboardsPartialUpdateBodyGroupsDescriptionMax)
+                        .optional()
+                        .describe("Description shown above the group's tiles in sections and tabs."),
                     collapsed: zod
                         .boolean()
                         .optional()
