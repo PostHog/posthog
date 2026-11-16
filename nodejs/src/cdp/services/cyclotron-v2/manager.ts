@@ -300,6 +300,7 @@ export class CyclotronV2Manager {
     private readonly depthCheckIntervalMs: number
     private readonly backgroundDepthCheck: boolean
     private readonly idempotencyKeyLookupTimeoutMs: number
+    private readonly claimStatementTimeoutMs: number | undefined
     private depthCheckPromise: Promise<boolean> | null = null
     private depthCheckExpiresAt = 0
     private lastDepthFull: boolean | null = null
@@ -321,7 +322,6 @@ export class CyclotronV2Manager {
             connectionString: config.pool.dbUrl,
             max: config.pool.maxConnections ?? 10,
             idleTimeoutMillis: config.pool.idleTimeoutMs ?? 30000,
-            statement_timeout: config.pool.statementTimeoutMs,
             connectionTimeoutMillis: config.pool.connectionTimeoutMs,
         })
         this.depthLimit = config.depthLimit ?? 1_000_000
@@ -329,6 +329,7 @@ export class CyclotronV2Manager {
         this.backgroundDepthCheck = config.backgroundDepthCheck ?? false
         this.depthRefreshSql = `SET LOCAL statement_timeout = ${Math.max(1, Math.floor(this.depthCheckIntervalMs))}; ${cappedQueueDepthSql(this.depthLimit)}`
         this.idempotencyKeyLookupTimeoutMs = config.idempotencyKeyLookupTimeoutMs ?? IDEMPOTENCY_KEY_LOOKUP_TIMEOUT_MS
+        this.claimStatementTimeoutMs = config.claimStatementTimeoutMs
         // Its own pool, because a connect timeout is the only way to close a handshake that never answers, and on the
         // main pool it would also cut how long inserts wait for a free client. The timeout outlasts the lookup, so a
         // slow connect still finishes and leaves a warm connection, and `min` keeps one through quiet spells.
@@ -549,6 +550,11 @@ export class CyclotronV2Manager {
             await client.query('BEGIN')
             if (lockTimeoutMs !== undefined) {
                 await client.query(`SET LOCAL lock_timeout = ${Math.max(1, Math.floor(lockTimeoutMs))}`)
+            }
+            if (this.claimStatementTimeoutMs !== undefined) {
+                await client.query(
+                    `SET LOCAL statement_timeout = ${Math.max(1, Math.floor(this.claimStatementTimeoutMs))}`
+                )
             }
 
             // Reclaims an expired key only once its job is gone, because the job id is a primary key.
