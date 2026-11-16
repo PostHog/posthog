@@ -667,7 +667,6 @@ describe('measurements', () => {
                 [
                     { name: 'baseline_claims_per_second', params: {} },
                     { name: 'baseline_new_jobs_per_second', params: {} },
-                    { name: 'step_claims_per_second', params: {} },
                 ],
                 recorded
             ),
@@ -683,12 +682,40 @@ describe('measurements', () => {
                 { name: 'baseline_claims_per_second', key: 'email', unit: 'jobs/s', value: 0.375 },
                 { name: 'baseline_claims_per_second', key: 'hogflow', unit: 'jobs/s', value: 0.125 },
                 { name: 'baseline_new_jobs_per_second', unit: 'jobs/s', value: 0.5 },
-                { name: 'step_claims_per_second', key: 'email_1x', unit: 'jobs/s', value: 0.375 },
-                { name: 'step_claims_per_second', key: 'hogflow_1x', unit: 'jobs/s', value: 0.125 },
-                { name: 'step_claims_per_second', key: 'email_10x', unit: 'jobs/s', value: 44.25 },
-                { name: 'step_claims_per_second', key: 'hogflow_10x', unit: 'jobs/s', value: 44.625 },
             ],
         })
+    })
+
+    it('rates claims per step from the samples inside each step, and marks a step a replica missed', () => {
+        const every5s = (
+            fromS: number,
+            toS: number,
+            replica: number,
+            processed: (atS: number) => Record<string, number>
+        ) =>
+            Array.from({ length: (toS - fromS) / 5 + 1 }, (_, i) => fromS + i * 5).map((at) => ({
+                ...sample(at, -60, 1, 100, replica),
+                processed: processed(at),
+            }))
+        const hogflowAt = (at: number): number => Math.min(at, 60) + 10 * Math.max(at - 60, 0)
+        const recorded = evidence({
+            samples: [
+                ...every5s(0, 115, 0, (at) => ({ hogflow: hogflowAt(at) })),
+                ...every5s(0, 50, 1, (at) => ({ email: 2 * at })),
+            ],
+            drive: { startedAt: atS(0), endedAt: atS(120) },
+            steps: [
+                { scale: 1, fromMs: 0, toMs: 60_000 },
+                { scale: 10, fromMs: 60_000, toMs: 120_000 },
+            ],
+        })
+
+        expect(measure([{ name: 'step_claims_per_second', params: {} }], recorded)).toEqual([
+            { name: 'step_claims_per_second', key: 'hogflow_1x', unit: 'jobs/s', value: 1 },
+            { name: 'step_claims_per_second', key: 'email_1x', unit: 'jobs/s', value: 2 },
+            { name: 'step_claims_per_second', key: 'hogflow_10x', unit: 'jobs/s', value: 10 },
+            { name: 'step_claims_per_second', key: 'email_10x', unit: 'jobs/s', value: 0, incomplete: true },
+        ])
     })
 
     it('rates no claims when the role metrics stop early in the baseline', () => {

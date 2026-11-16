@@ -3,7 +3,7 @@ import { z } from 'zod'
 import type { CdpRole, Named, Step } from '../cards'
 import type { Definition } from '../cards/definitions'
 import type { JournalEntry } from './judge'
-import { DriveWindow, HostSample, MetricSample, hostBusyShareOf } from './measurements'
+import { type DriveWindow, type HostSample, type MetricSample, stepHostBusyShareOf } from './measurements'
 
 export type CpuPoint = { at: number; percent: number }
 
@@ -186,12 +186,12 @@ function hostOverCeiling({ host, hostCpuCeiling }: BarEvidence, window: Window, 
     if (hostCpuCeiling === undefined) {
         return undefined
     }
-    const share = hostBusyShareOf(host, window)
+    const share = stepHostBusyShareOf(host, window)
     if (share === undefined) {
         return `no host CPU sample covers the ${scale}x step`
     }
     return share >= hostCpuCeiling
-        ? `the run host was ${percent(share)} busy in the ${scale}x step, over the ${percent(hostCpuCeiling)} ceiling`
+        ? `the run host was ${percent(share)} busy in the ${scale}x step, at or over the ${percent(hostCpuCeiling)} ceiling`
         : undefined
 }
 

@@ -77,7 +77,7 @@ const cpu = (percentByMinute: Record<number, number>): CpuPoint[] =>
 const hostBusy = (inFirstStep: number, inSecondStep: number): HostSample[] =>
     Array.from({ length: 25 }, (_, i) => i * 5).map((atS) => ({
         at: T + atS * 1000,
-        busyTicks: Math.min(atS, 55) * 100 * inFirstStep + Math.max(atS - 55, 0) * 100 * inSecondStep,
+        busyTicks: Math.min(atS, 60) * 100 * inFirstStep + Math.max(atS - 60, 0) * 100 * inSecondStep,
         totalTicks: atS * 100,
     }))
 
@@ -230,22 +230,22 @@ describe('judgeBars', () => {
             'the run host reached its CPU ceiling in the 10x step, so the writer CPU there is not judged',
             { host: hostBusy(0.4, 0.95), hostCpuCeiling: 0.95, writerCpu: cpu({ 0: 40, 1: 85 }) },
             [
-                unjudged(0, 'the run host was 95% busy in the 10x step, over the 95% ceiling'),
-                unjudged(1, 'the run host was 95% busy in the 10x step, over the 95% ceiling'),
+                unjudged(0, 'the run host was 95% busy in the 10x step, at or over the 95% ceiling'),
+                unjudged(1, 'the run host was 95% busy in the 10x step, at or over the 95% ceiling'),
             ],
         ],
         [
             'the run host was over its CPU ceiling from the 1x step on, so no later step is read',
             { host: hostBusy(0.95, 0.4), hostCpuCeiling: 0.9, writerCpu: cpu({ 0: 40, 1: 85 }) },
             [
-                unjudged(0, 'the run host was 95% busy in the 1x step, over the 90% ceiling'),
-                unjudged(1, 'the run host was 95% busy in the 1x step, over the 90% ceiling'),
+                unjudged(0, 'the run host was 95% busy in the 1x step, at or over the 90% ceiling'),
+                unjudged(1, 'the run host was 95% busy in the 1x step, at or over the 90% ceiling'),
             ],
         ],
         [
             'a bar broke in the 1x step before the run host went over its CPU ceiling in the 10x step',
             { host: hostBusy(0.4, 0.95), hostCpuCeiling: 0.9, writerCpu: cpu({ 0: 90, 1: 95 }) },
-            [broke(0, 1, 0, 90), unjudged(1, 'the run host was 95% busy in the 10x step, over the 90% ceiling')],
+            [broke(0, 1, 0, 90), unjudged(1, 'the run host was 95% busy in the 10x step, at or over the 90% ceiling')],
         ],
         [
             'a busy run host is not judged without a CPU ceiling in the profile',

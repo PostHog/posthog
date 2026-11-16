@@ -287,6 +287,9 @@ const spanning = <T extends { at: number }>(series: readonly T[], phase: Phase):
     return [...(reference ? [reference] : []), ...series.filter(({ at }) => within(phase, at))]
 }
 
+const inside = <T extends { at: number }>(series: readonly T[], phase: Phase): T[] =>
+    series.filter(({ at }) => within(phase, at))
+
 const bracketing = <T extends { at: number }>(series: readonly T[], phase: Phase): T[] => {
     const closing = series.find(({ at }) => at >= phase.to)
     return [...spanning(series, phase), ...(closing ? [closing] : [])]
@@ -351,12 +354,31 @@ function scrapedSeconds(samples: readonly MetricSample[], phase: Phase): number 
     return spans.length === 0 ? 0 : Math.min(...spans)
 }
 
-export function hostBusyShareOf(host: readonly HostSample[], phase: Phase): number | undefined {
-    const span = spanning(byTime(host), phase)
+function busyShareOf(span: readonly HostSample[]): number | undefined {
     const [first, last] = [span.at(0), span.at(-1)]
     return first !== undefined && last !== undefined && last.totalTicks > first.totalTicks
         ? (last.busyTicks - first.busyTicks) / (last.totalTicks - first.totalTicks)
         : undefined
+}
+
+export const stepHostBusyShareOf = (host: readonly HostSample[], step: Phase): number | undefined =>
+    busyShareOf(inside(byTime(host), step))
+
+function stepClaimRate(samples: readonly MetricSample[], queue: string, step: Phase): Measured {
+    let value = 0
+    let incomplete = false
+    for (const ofReplica of replicasOf(samples).filter((series) =>
+        series.some(({ processed }) => queue in processed)
+    )) {
+        const window = inside(ofReplica, step)
+        const span = spanOf(window)
+        if (span <= 0) {
+            incomplete = true
+            continue
+        }
+        value += increaseOf(window, ({ processed }) => processed[queue] ?? 0, window[0].at) / seconds(span)
+    }
+    return { value, ...(incomplete ? { incomplete: true as const } : {}) }
 }
 
 export type Baseline = {
@@ -377,7 +399,7 @@ export function baselineOf({ samples, queue, host, drive, timeline }: MeasureEvi
     const queues = scraped < MIN_BASELINE_SECONDS ? [] : queuesOf(samples)
     const claimsPerSecond = Object.fromEntries(queues.map((name) => [name, claimRate(samples, name, baseline)]))
     const inserted = spanning(counted(queue), baseline)
-    const hostBusyShare = hostBusyShareOf(host, baseline)
+    const hostBusyShare = busyShareOf(spanning(byTime(host), baseline))
     return {
         seconds: length,
         scrapedSeconds: scraped,
@@ -479,7 +501,7 @@ export const RECOVERY_MEASUREMENTS: MeasurementDefinition[] = [
                     ? []
                     : queuesOf(samples).map((queue) => ({
                           key: `${queue}_${scale}x`,
-                          value: claimRate(samples, queue, step),
+                          ...stepClaimRate(samples, queue, step),
                       }))
             }),
     },
