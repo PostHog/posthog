@@ -1374,37 +1374,64 @@ def _cleaned_select_list(
 _CLEANED_TIMESTAMP = "toDateTime(toDateTime64(%(marker)s, 6, 'UTC')) + 1"
 
 
+# The columns that tell one event from another that shares its uuid. The copy leaves them unchanged.
+_ROW_IDENTITY = "uuid, event, distinct_id, timestamp"
+
+
 def _staged_rows(staging: _ShardStaging, months: list[str]) -> str:
     """A filter for the cleaned rows that the staged files of ``months`` hold.
 
     A cleaned row has a ``_timestamp`` one second past the marker and an ``inserted_at`` no later than the
     marker. An original that shares its uuid either arrived before the marker, so its Kafka time in
-    ``_timestamp`` is earlier, or arrived after it, so its ``inserted_at`` is later. Neither matches all
-    three columns, as long as Kafka and ClickHouse clocks agree to within a second. ``ifNull`` lets a legacy
-    row with no ``inserted_at`` match, because ``IN`` never matches a NULL. The constant ``_timestamp``
-    comparison drops most rows before the set lookup. The caller passes ``marker``.
+    ``_timestamp`` is earlier, or arrived after it, so its ``inserted_at`` is later. A producer clock that
+    runs ahead can still give an original the cleaned rows' ``_timestamp``. The event, distinct_id and
+    timestamp then tell it apart from the staged row. ``ifNull`` lets a legacy row with no ``inserted_at``
+    match, because ``IN`` never matches a NULL. The constant ``_timestamp`` comparison drops most rows
+    before the set lookup. The caller passes ``marker``.
     """
     if not months:
         return "0"
-    columns = "uuid, _timestamp, ifNull(inserted_at, toDateTime64(0, 6, 'UTC'))"
+    columns = f"{_ROW_IDENTITY}, _timestamp, ifNull(inserted_at, toDateTime64(0, 6, 'UTC'))"
     return (
         f"_timestamp = {_CLEANED_TIMESTAMP} AND ({columns}) IN (SELECT {columns} FROM s3({staging.data_args(months)}))"
     )
 
 
 def _restored_rows(staging: _ShardStaging, month: str) -> str:
-    """A filter for the cleaned rows of ``month`` that holds only uuids in memory.
+    """A filter for the cleaned rows of ``month`` that holds one 8-byte hash per staged row in memory.
 
     The constant comparisons exclude an original as ``_staged_rows`` does: an original that shares a uuid
-    has an earlier ``_timestamp`` or a later ``inserted_at``. A legacy row with no ``inserted_at`` passes
-    the bound. Only the read-only verify uses it, so a mismatch fails the check and removes no row. The
-    caller passes ``marker``.
+    has an earlier ``_timestamp`` or a later ``inserted_at``. The hash of the row identity excludes an
+    original that a fast producer clock gave the cleaned rows' ``_timestamp``. A legacy row with no
+    ``inserted_at`` passes the bound. Only the read-only verify uses it, so a hash collision fails the check
+    and removes no row. The caller passes ``marker``.
     """
     return (
         f"_timestamp = {_CLEANED_TIMESTAMP} "
         "AND (inserted_at IS NULL OR inserted_at <= toDateTime64(%(marker)s, 6, 'UTC')) "
-        f"AND uuid IN (SELECT uuid FROM s3({staging.data_args([month])}))"
+        f"AND cityHash64({_ROW_IDENTITY}) IN (SELECT cityHash64({_ROW_IDENTITY}) FROM s3({staging.data_args([month])}))"
     )
+
+
+def _count_rows_staged_by_previous_version(
+    client: Client, staging: _ShardStaging, months: list[str], marker_str: str
+) -> int:
+    """The staged rows that a previous version of this job wrote.
+
+    That version stamped ``inserted_at`` with the marker, which hides the rows from every deletion
+    requested before the removal ran. On a table that was not a ReplacingMergeTree it also left
+    ``_timestamp`` unchanged, so ``_staged_rows`` cannot find the rows again. The copy only takes rows
+    ingested before the marker, so no current staged row has an ``inserted_at`` at or after it.
+    """
+    if not months:
+        return 0
+    [[count]] = client.execute(
+        f"SELECT count() FROM s3({staging.data_args(months)}) "
+        f"WHERE _timestamp != {_CLEANED_TIMESTAMP} OR inserted_at >= toDateTime64(%(marker)s, 6, 'UTC')",
+        {"marker": marker_str},
+        settings=_LONG_QUERY_SETTINGS,
+    )
+    return count
 
 
 def _refuse_unmatchable_staged_rows(
@@ -1552,9 +1579,14 @@ def _copy_property_removal_target(
 
     _sync_replica(client, target, log)
     predicate = _shard_predicate(client, deletion_request, target.deletion_target, marker_str, hogql_compiled, log)
-    inserted_at_sql = f"SELECT maxOrNull(inserted_at) FROM {db}.{target.table} WHERE {predicate.sql}"
+    inserted_at_sql = (
+        f"SELECT maxOrNull(inserted_at), toUnixTimestamp(max(_timestamp)) FROM {db}.{target.table} "
+        f"WHERE {predicate.sql}"
+    )
     log("max-inserted-at", inserted_at_sql)
-    [[inserted_at_max]] = client.execute(inserted_at_sql, predicate.params, settings=_LONG_QUERY_SETTINGS)
+    [[inserted_at_max, timestamp_max]] = client.execute(
+        inserted_at_sql, predicate.params, settings=_LONG_QUERY_SETTINGS
+    )
     copied_inserted_at_max = _datetime64_str(inserted_at_max) if inserted_at_max is not None else None
     predicate = _with_copied_inserted_at_bound(predicate, copied_inserted_at_max)
     cleaned = _cleaned_select_list(client, deletion_request, target, predicate.mat_cols, marker_str)
@@ -1599,6 +1631,9 @@ def _copy_property_removal_target(
         "months": months,
         "columns": cleaned.columns,
         "inserted_at_max": copied_inserted_at_max,
+        # Another property removal that rewrites an original after this copy moves its _timestamp past
+        # this value. The delete then rebuilds the copy rather than restore a stale one.
+        "timestamp_max": timestamp_max,
     }
     staging.finish_step(client, _COPIED, payload)
     return payload
@@ -1670,23 +1705,41 @@ def delete_property_removal_shard(
         _sync_replica(client, target, log)
         predicate = _shard_predicate(client, deletion_request, target.deletion_target, marker_str, hogql_compiled, log)
         predicate = _with_copied_inserted_at_bound(predicate, copied["inserted_at_max"])
+        # A copy that a previous version of this job wrote has no timestamp_max. The format check below
+        # rebuilds that copy.
+        timestamp_max = copied.get("timestamp_max")
+        rewritten_sql = "0" if timestamp_max is None else "countIf(_timestamp > toDateTime(%(copied_timestamp_max)s))"
         count_sql = (
-            f"SELECT toString(toYYYYMM(timestamp)) AS month, uniqExact(uuid) "
+            f"SELECT toString(toYYYYMM(timestamp)) AS month, uniqExact(uuid), {rewritten_sql} "
             f"FROM {db}.{target.table} WHERE {predicate.sql} GROUP BY month"
         )
         log("count-originals", count_sql)
-        source = dict(client.execute(count_sql, predicate.params, settings=_LONG_QUERY_SETTINGS))
+        counts = client.execute(
+            count_sql,
+            {**predicate.params, "copied_timestamp_max": timestamp_max},
+            settings=_LONG_QUERY_SETTINGS,
+        )
+        source = {month: count for month, count, _ in counts}
+        rewritten = sum(changed for _, _, changed in counts)
         originals = sum(source.values())
+        previous_version = _count_rows_staged_by_previous_version(client, staging, sorted(copied["months"]), marker_str)
+        if _DELETE_STARTED not in steps and (source != staged or rewritten or previous_version):
+            # Nothing is deleted yet, so copying again is safe. Discarding the copy's progress file
+            # lets a re-execution of this delete step rebuild it from the current source.
+            staging.discard_step(client, _COPIED)
+            raise dagster.Failure(
+                description=f"[{target.mapping_key}] the originals differ from the staged copy "
+                f"(source={source}, staged={staged}, {rewritten} originals rewritten since the copy, "
+                f"{previous_version} rows staged by a previous version of this job). Nothing was deleted. "
+                "Re-execute this step to rebuild the copy and retry."
+            )
+        if rewritten:
+            raise dagster.Failure(
+                description=f"[{target.mapping_key}] {rewritten} originals changed after the copy, and an earlier "
+                "attempt already started deleting. Restoring the staged copy would undo that change. The staged "
+                "copy is kept. Investigate before re-running."
+            )
         if source != staged:
-            if _DELETE_STARTED not in steps:
-                # Nothing is deleted yet, so copying again is safe. Discarding the copy's progress file
-                # lets a re-execution of this delete step rebuild it from the current source.
-                staging.discard_step(client, _COPIED)
-                raise dagster.Failure(
-                    description=f"[{target.mapping_key}] original counts differ from the staged copy "
-                    f"(source={source}, staged={staged}). Nothing was deleted. Re-execute this step to rebuild "
-                    "the copy and retry."
-                )
             # An earlier attempt started the delete and may have removed some originals, so the staged
             # files are the only copy of those and must stay. The survivors only have to be a subset of
             # the staged rows. The join hashes the survivors, the smaller side, and streams the files.

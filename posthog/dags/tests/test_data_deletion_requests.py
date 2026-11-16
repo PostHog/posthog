@@ -2083,14 +2083,16 @@ def test_full_job_property_removal_leaves_events_ingested_after_marker_untouched
 
 def _property_removal_request(start_time: datetime, **overrides) -> DataDeletionRequest:
     return DataDeletionRequest.objects.create(
-        team_id=PROP_TEAM_ID,
-        request_type=RequestType.PROPERTY_REMOVAL,
-        events=["$pageview"],
-        properties=["secret"],
-        start_time=start_time,
-        end_time=datetime.now(UTC) + timedelta(minutes=1),
-        status=RequestStatus.APPROVED,
-        **overrides,
+        **{
+            "team_id": PROP_TEAM_ID,
+            "request_type": RequestType.PROPERTY_REMOVAL,
+            "events": ["$pageview"],
+            "properties": ["secret"],
+            "start_time": start_time,
+            "end_time": datetime.now(UTC) + timedelta(minutes=1),
+            "status": RequestStatus.APPROVED,
+            **overrides,
+        }
     )
 
 
@@ -2247,6 +2249,126 @@ def test_reingest_refuses_staged_rows_without_the_cleaned_timestamp(cluster: Cli
     assert not rerun.success
     assert cluster.any_host(partial(_count_events_by_name, PROP_TEAM_ID, "$pageview")).result() == 0
     assert _non_empty_staged_files(cluster, _request_context(request)) != []
+
+
+def _staged_by_previous_version(timestamp_kept: bool):
+    # The previous version stamped inserted_at with the marker. On a table that was not a ReplacingMergeTree
+    # it also kept the Kafka _timestamp.
+    def cleaned_select_list(*args, **kwargs):
+        cleaned = _cleaned_select_list(*args, **kwargs)
+        expressions = [
+            "toDateTime64(%(marker)s, 6, 'UTC') AS `inserted_at`" if expression == "`inserted_at`" else expression
+            for expression in cleaned.expressions
+        ]
+        if timestamp_kept:
+            expressions = [
+                "`_timestamp`" if expression.endswith("AS `_timestamp`") else expression for expression in expressions
+            ]
+        return replace(cleaned, expressions=expressions)
+
+    return patch("posthog.dags.data_deletion_requests._cleaned_select_list", cleaned_select_list)
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize("timestamp_kept", [True, False], ids=["plain_merge_tree", "replacing_merge_tree"])
+def test_delete_rebuilds_a_copy_staged_by_the_previous_version(cluster: ClickhouseCluster, timestamp_kept: bool):
+    now = datetime.now(UTC)
+    props = json.dumps({"secret": "value", "keep": "yes"})
+    events = [(PROP_TEAM_ID, "$pageview", uuid4(), now - timedelta(hours=i + 1), props) for i in range(3)]
+    cluster.any_host(partial(_insert_events_with_properties, events)).result()
+    request = _property_removal_request(start_time=now - timedelta(days=7))
+    run_config = {"ops": {"load_property_removal_request": {"config": {"request_id": str(request.pk)}}}}
+
+    def run():
+        result = data_deletion_request_property_removal.execute_in_process(
+            run_config=run_config, resources={"cluster": cluster}, raise_on_error=False
+        )
+        DataDeletionRequest.objects.filter(pk=request.pk, status=RequestStatus.FAILED).update(
+            status=RequestStatus.APPROVED
+        )
+        return result.success
+
+    # The delete refuses a copy in the previous version's format and discards it before deleting anything.
+    with _staged_by_previous_version(timestamp_kept):
+        assert not run()
+    # The next run copies the intact originals again.
+    assert run()
+
+    request.refresh_from_db()
+    assert request.status == RequestStatus.COMPLETED
+    assert request.property_removal_marker is not None
+    counts = cluster.any_host(
+        partial(_row_counts_against_marker, PROP_TEAM_ID, request.property_removal_marker)
+    ).result()
+    assert counts == (len(events), len(events), len(events))
+    assert not any(
+        "secret" in row for row in cluster.any_host(partial(_get_properties, PROP_TEAM_ID, "$pageview")).result()
+    )
+
+
+@pytest.mark.django_db
+def test_delete_rebuilds_a_copy_that_another_property_removal_rewrote(cluster: ClickhouseCluster):
+    now = datetime.now(UTC)
+    props = json.dumps({"secret": "value", "other": "value", "keep": "yes"})
+    events = [(PROP_TEAM_ID, "$pageview", uuid4(), now - timedelta(hours=i + 1), props) for i in range(3)]
+    cluster.any_host(partial(_insert_events_with_properties, events)).result()
+    first = _property_removal_request(start_time=now - timedelta(days=7))
+    first_config = {"ops": {"load_property_removal_request": {"config": {"request_id": str(first.pk)}}}}
+
+    def run(config):
+        return data_deletion_request_property_removal.execute_in_process(
+            run_config=config, resources={"cluster": cluster}, raise_on_error=False
+        ).success
+
+    # The first removal stages its copy and dies before it deletes anything.
+    with _fail_before_recording("delete_started"):
+        assert not run(first_config)
+    # A second removal then rewrites the same rows.
+    second = _property_removal_request(start_time=now - timedelta(days=7), properties=["other"])
+    assert run({"ops": {"load_property_removal_request": {"config": {"request_id": str(second.pk)}}}})
+
+    for _ in range(2):
+        DataDeletionRequest.objects.filter(pk=first.pk, status=RequestStatus.FAILED).update(
+            status=RequestStatus.APPROVED
+        )
+        if run(first_config):
+            break
+
+    first.refresh_from_db()
+    assert first.status == RequestStatus.COMPLETED
+    all_props = cluster.any_host(partial(_get_properties, PROP_TEAM_ID, "$pageview")).result()
+    assert len(all_props) == len(events)
+    assert all("secret" not in row and "other" not in row and "keep" in row for row in all_props)
+
+
+@pytest.mark.django_db
+def test_reingest_keeps_an_unselected_event_that_shares_a_staged_rows_uuid_and_timestamps(cluster: ClickhouseCluster):
+    marker = timezone.now() - timedelta(minutes=5)
+    now = datetime.now(UTC)
+    props = json.dumps({"secret": "value", "keep": "yes"})
+    shared_uuid = uuid4()
+    # One ingestion batch gave both events the same inserted_at. The producer clock ran ahead, so their
+    # Kafka _timestamp is the second that cleaned rows get.
+    ingested = marker - timedelta(milliseconds=100)
+    kafka_time = marker.replace(microsecond=0) + timedelta(seconds=1)
+    for event in ("$pageview", "$other"):
+        cluster.any_host(
+            partial(
+                _insert_events_with_properties_and_inserted_at,
+                [(PROP_TEAM_ID, event, shared_uuid, "user-1", now - timedelta(hours=1), props, ingested)],
+                _timestamp=kafka_time,
+            )
+        ).result()
+
+    request = _property_removal_request(start_time=now - timedelta(days=7), property_removal_marker=marker)
+    result = data_deletion_request_property_removal.execute_in_process(
+        run_config={"ops": {"load_property_removal_request": {"config": {"request_id": str(request.pk)}}}},
+        resources={"cluster": cluster},
+        raise_on_error=False,
+    )
+
+    assert result.success
+    assert cluster.any_host(partial(_count_events_by_name, PROP_TEAM_ID, "$other")).result() == 1
 
 
 @pytest.mark.django_db
