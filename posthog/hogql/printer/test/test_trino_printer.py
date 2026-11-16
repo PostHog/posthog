@@ -1,8 +1,11 @@
 import sqlite3
+from collections.abc import Iterator
 from contextlib import closing
 
 import pytest
 from unittest import mock
+
+from django.conf import settings
 
 import duckdb
 from syrupy.assertion import SnapshotAssertion
@@ -45,7 +48,15 @@ from posthog.hogql.transforms.trino.transpiler import TrinoTranspilerInput, tran
 from posthog.hogql.transforms.trino.validate import _SPECIAL_CALLS
 from posthog.hogql.trino_parameters import convert_pyformat_placeholders
 
+from posthog.models.event.new_events_schema import events_route_scope
 from posthog.schema_enums import PersonsOnEventsMode
+
+
+@pytest.fixture(autouse=True)
+def _events_table_without_instance_settings() -> Iterator[None]:
+    # These tests have no database, and without a set route the events table choice reads an instance setting.
+    with events_route_scope(HogQLQueryModifiers(useNewEventsSchema=settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA)):
+        yield
 
 
 def _trino_modifiers() -> HogQLQueryModifiers:
