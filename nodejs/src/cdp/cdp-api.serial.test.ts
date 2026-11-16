@@ -2653,14 +2653,6 @@ describe('CDP API', () => {
                 })
             })
 
-            it('inserts a sensitive send without producing it, so its secret stays off Kafka', async () => {
-                const res = await sendAccepted(hogFlow.id, { ...body, send: { ...codeSend, sensitive: true } })
-
-                expect(res.status).toEqual(202)
-                expect(mockQueueInvocations).toHaveBeenCalledTimes(1)
-                expect(intakeMessages()).toEqual([])
-            })
-
             it('claims a run without a key on its own id, so the consumer replays the produced copy', async () => {
                 const res = await send(hogFlow.id, { Authorization: `Bearer ${mintToken(team.id, hogFlow.id)}` })
 
@@ -2768,12 +2760,12 @@ describe('CDP API', () => {
                 expect(producedTo('cdp_intake_transactional_email')).toHaveLength(2)
             })
 
-            it('inserts a sensitive send synchronously, so its secret never reaches Kafka', async () => {
+            it('produces a sensitive send to the intake topic like any other send', async () => {
                 const res = await sendAccepted(hogFlow.id, { ...body, send: { ...codeSend, sensitive: true } })
 
                 expect(res.status).toEqual(202)
-                expect(mockQueueInvocations).toHaveBeenCalledTimes(1)
-                expect(producedTo('cdp_intake_')).toEqual([])
+                expect(mockQueueInvocations).not.toHaveBeenCalled()
+                expect(producedTo('cdp_intake_transactional_email')).toHaveLength(1)
             })
 
             it('produces a keyed send when its claim lookup does not answer in time', async () => {

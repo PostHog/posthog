@@ -25,10 +25,6 @@ export type Recalled =
 // `claimedFingerprint` is set when a keyed run found an existing claim: the fingerprint of the request that made it.
 export type Committed = { runId: string; outcome: CyclotronV2IdempotentClaim['outcome']; claimedFingerprint?: string }
 
-// A sensitive send's state holds its login code or reset link, which the CDP keeps off every Kafka topic.
-export const carriesSecret = (invocation: CyclotronJobInvocationHogFlow): boolean =>
-    invocation.state?.sensitive === true || invocation.state?.send?.sensitive === true
-
 export type Produced = 'accepted' | 'unavailable' | 'too_large' | 'invalid'
 
 // In async mode a slow claim lookup must not hold up the answer: the consumer deduplicates anyway.
@@ -127,11 +123,7 @@ export class RunIntake {
     // Shadow measures the Kafka path beside the insert: the answer is already decided, so a failed produce changes nothing.
     private async produceShadowCopies(created: Run[]): Promise<void> {
         const intake = this.deps.intake
-        const shadow = intake
-            ? created.filter(
-                  (run) => !carriesSecret(run.invocation) && intake.modeOf(run.invocation.teamId) === 'shadow'
-              )
-            : []
+        const shadow = intake ? created.filter((run) => intake.modeOf(run.invocation.teamId) === 'shadow') : []
         await Promise.all(
             shadow.map((run) =>
                 intake!.producer.produce(

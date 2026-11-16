@@ -14,7 +14,6 @@ import {
     Recalled,
     Run,
     RunIntake,
-    carriesSecret,
     keyedRunId,
 } from '../../intake/run-intake'
 import { HogFlow } from '../../schema/hogflow'
@@ -328,9 +327,8 @@ export class TransactionalSends {
         const run: Run = claim
             ? { kind: 'transactional-email', invocation, claim: { fingerprint: claim.fingerprint } }
             : { kind: 'transactional-email', invocation }
-        // Async mode answers on the broker's ack and leaves the claim, the insert and the rows to the intake consumer. A
-        // sensitive send stays synchronous, so its login code or reset link never reaches Kafka.
-        const isAsync = this.deps.runIntake.modeOf(team.id) === 'async' && !carriesSecret(invocation)
+        // Async mode answers on the broker's ack and leaves the claim, the insert and the rows to the intake consumer.
+        const isAsync = this.deps.runIntake.modeOf(team.id) === 'async'
         // Async mode takes no Valkey lease: the consumer's Postgres claim deduplicates the run.
         const leasesKey = idempotencyKey && !isAsync
         const leaseToken = randomUUID()
