@@ -24,10 +24,6 @@ The browser records response wait, body read, JSON parsing, and available resour
 Resource phases require one matching response UUID; missing, ambiguous, or truncated evidence remains explicit.
 Cross-origin resource details also require `Timing-Allow-Origin`.
 The pre-request phase includes connection setup and browser waiting; it does not measure server queueing.
-Server queueing is the time a request waits between Envoy and Django, for example for a free worker.
-Envoy writes the time it received the request in the `X-Request-Start` header.
-Query analytics include the wait as `request_queue_ms`, and the `posthog_request_queue_time_seconds` histogram records it for every request by `access_method`.
-Requests that do not pass through Envoy have no value.
 Automatic capture covers `performQuery` submission POSTs and the status poll that returns a completed async result; earlier polls and rejected-response body processing remain outside this capture.
 
 #### Logging
