@@ -132,6 +132,15 @@ class TestCodeBasedVerificationAPI(APIBaseTest):
         self.assertEqual(response.json()["code"], "login_code_send_limit_reached")
         self.assertEqual(mock_send_code.call_count, CODE_MAX_SENDS)
 
+    @patch("posthog.api.authentication.is_email_available", return_value=True)
+    @patch("posthog.api.email_verification.send_email_verification_code")
+    def test_legacy_null_verification_state_logins_are_not_capped(self, _mock_send_code, _):
+        self.assertIsNone(self.user.is_email_verified)
+        for _ in range(CODE_MAX_SENDS + 1):
+            self.client.logout()
+            response = self.client.post("/api/login", {"email": self.CONFIG_EMAIL, "password": self.CONFIG_PASSWORD})
+            self.assertEqual(response.status_code, status.HTTP_200_OK)
+
     @pytest.mark.disable_mock_code_based_verifier
     def test_wrong_code_is_rejected_but_correct_code_still_works(self):
         with enable_code_sending() as mock_send:

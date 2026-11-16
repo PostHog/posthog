@@ -323,10 +323,13 @@ def is_email_verified_for_login(user: User) -> bool:
     if is_email_verification_disabled(user):
         return True
 
-    try:
-        code_based_verifier.reserve_login_email(user)
-    except CodeBasedVerificationSendLimitReached as e:
-        raise LoginCodeSendLimitReached(e.retry_after_seconds)
+    # Only an unverified account stops at this email. A legacy null-state account logs in normally, so
+    # counting its email would block ordinary logins.
+    if user.is_email_verified is False:
+        try:
+            code_based_verifier.reserve_login_email(user)
+        except CodeBasedVerificationSendLimitReached as e:
+            raise LoginCodeSendLimitReached(e.retry_after_seconds)
     email_verification_code_verifier.send_code(user)
     if user.is_email_verified is False:
         return False

@@ -19,6 +19,7 @@ from rest_framework.exceptions import PermissionDenied
 from two_factor.utils import default_device
 
 from posthog.cloud_utils import is_cloud, is_dev_mode
+from posthog.dataclasses import frozen
 from posthog.email import EmailRecipientUndeliverableError, is_email_available, is_http_email_service_available
 from posthog.models.organization import Organization
 from posthog.models.user import User
@@ -274,6 +275,12 @@ CODE_SENDS_WINDOW_SECONDS = 3600
 CODE_SENDS_REDIS_KEY_PREFIX = "code_based_verification_sends"
 
 
+@frozen
+class _LoginEmailBudget:
+    sends: int
+    retry_after_seconds: int
+
+
 class CodeBasedVerificationSendLimitReached(Exception):
     def __init__(self, retry_after_seconds: int):
         super().__init__(f"Login code send limit reached, retry after {retry_after_seconds} seconds")
@@ -431,18 +438,18 @@ class CodeBasedVerifier:
         return f"{CODE_SENDS_REDIS_KEY_PREFIX}:{user.pk}:{password_digest}"
 
     def reserve_login_email(self, user: User) -> None:
-        """Count one login email against the account's budget. Call it before every email that a login sends.
+        """Count one login email against the account's budget. Call it before each email that a login waits on.
 
         Raises CodeBasedVerificationSendLimitReached when the account is over CODE_MAX_SENDS in the window.
         """
-        sends, retry_after_seconds = self._reserve_send(user)
-        if sends > CODE_MAX_SENDS:
+        budget = self._reserve_send(user)
+        if budget.sends > CODE_MAX_SENDS:
             LOGIN_CODE_VERIFICATION_COUNTER.labels(result="send_limited").inc()
             mfa_logger.info("Login email not sent: send limit reached", user_id=user.pk)
             self._capture_send_limit_reached_event(user)
-            raise CodeBasedVerificationSendLimitReached(retry_after_seconds)
+            raise CodeBasedVerificationSendLimitReached(budget.retry_after_seconds)
 
-    def _reserve_send(self, user: User) -> tuple[int, int]:
+    def _reserve_send(self, user: User) -> _LoginEmailBudget:
         """Count this email against the account's send budget.
 
         Returns the running total and the seconds until the window ends. Fails open when Redis is unavailable
@@ -457,10 +464,12 @@ class CodeBasedVerifier:
             pipeline.incr(key)
             pipeline.ttl(key)
             _, count, ttl = pipeline.execute()
-            return int(count), int(ttl) if int(ttl) > 0 else CODE_SENDS_WINDOW_SECONDS
+            return _LoginEmailBudget(
+                sends=int(count), retry_after_seconds=int(ttl) if int(ttl) > 0 else CODE_SENDS_WINDOW_SECONDS
+            )
         except Exception:
             mfa_logger.exception("Failed to reserve code-based verification send; allowing", user_id=user.pk)
-            return 0, 0
+            return _LoginEmailBudget(sends=0, retry_after_seconds=0)
 
     def _capture_send_limit_reached_event(self, user: User) -> None:
         try:
