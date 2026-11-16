@@ -3,6 +3,7 @@ import { waitFor } from '@testing-library/react'
 import { BindLogic } from 'kea'
 import { router } from 'kea-router'
 
+import { FEATURE_FLAGS } from 'lib/constants'
 import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { encodeURLFilters, encodeURLVariables } from 'scenes/dashboard/dashboardUtils'
@@ -251,6 +252,13 @@ export default meta
 type Story = StoryObj<DashboardFilterBarStoryProps>
 
 export const FilterBar: Story = {}
+
+export const QuillFilterBar: Story = {
+    parameters: {
+        featureFlags: [FEATURE_FLAGS.TODAY_RAIL_NAV],
+        testOptions: { snapshotBrowsers: [] },
+    },
+}
 
 export const UnsavedChangesPopover: Story = {
     args: {
