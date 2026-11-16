@@ -10527,6 +10527,55 @@
             "validators": []
         }
     },
+    "cohorts-replace-static-members": {
+        "name": "cohorts-replace-static-members",
+        "kind": "http",
+        "requires": [],
+        "hooks": null,
+        "uiApp": "cohort",
+        "request": {
+            "method": "PATCH",
+            "path": "/api/projects/{project_id}/cohorts/{id}/",
+            "pathParams": ["id"],
+            "fallbacks": [],
+            "query": null,
+            "body": [
+                {
+                    "param": "query",
+                    "key": "query"
+                }
+            ],
+            "injectBody": {
+                "population_mode": "replace"
+            },
+            "softDelete": null,
+            "transformBody": false
+        },
+        "response": {
+            "list": false,
+            "filter": null,
+            "stripNulls": false,
+            "enrich": {
+                "kind": "item",
+                "baseUrl": "/cohorts",
+                "joiner": "/",
+                "prefix": "",
+                "field": "id",
+                "suffix": "",
+                "source": "result"
+            },
+            "agentNote": null,
+            "informational": null,
+            "textInclude": []
+        },
+        "input": {
+            "aliases": {},
+            "casts": {
+                "id": "castStringToInt"
+            },
+            "validators": []
+        }
+    },
     "cohorts-retrieve": {
         "name": "cohorts-retrieve",
         "kind": "http",
