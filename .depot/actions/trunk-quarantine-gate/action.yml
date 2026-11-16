@@ -44,8 +44,8 @@ runs:
               org-slug: posthog-inc
               test-collection-id: ${{ inputs.test-collection-id }}
               variant: ${{ inputs.variant }}
-              # Pinned rather than 'latest', which costs an extra github.com request to follow the release redirect.
-              cli-version: '0.15.4'
+              # Pinned rather than 'latest' so the CLI deciding quarantine only changes through a reviewed bump.
+              cli-version: '0.17.0'
               use-cache: false
               quarantine: true
               previous-step-outcome: ${{ inputs.previous-step-outcome }}
@@ -71,7 +71,7 @@ runs:
               org-slug: posthog-inc
               test-collection-id: ${{ inputs.test-collection-id }}
               variant: ${{ inputs.variant }}
-              cli-version: '0.15.4'
+              cli-version: '0.17.0'
               use-cache: false
               quarantine: true
               previous-step-outcome: ${{ inputs.previous-step-outcome }}

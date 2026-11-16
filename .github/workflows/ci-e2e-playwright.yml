@@ -1099,7 +1099,7 @@ jobs:
 
             # Best-effort Trunk upload (continue-on-error); the "Fail on Playwright failure" step
             # below is the verdict, so a Trunk outage can't red a passing job. Internal PRs only
-            # (needs the secret); cli-version pinned, not 'latest' (skips the release redirect).
+            # (needs the secret); cli-version pinned, not 'latest', so it only changes in a reviewed bump.
             # TRUNK_UPLOAD_ENABLED is the master kill-switch: when it is not 'true' this gate
             # skips, so nothing uploads and no known flakes are quarantined. TRUNK_QUARANTINE_ENABLED
             # splits the two — it defaults off, so set it to 'true' to let the verdict step below mask
@@ -1116,7 +1116,7 @@ jobs:
                   junit-paths: playwright/junit-results.xml
                   org-slug: posthog-inc
                   test-collection-id: kF88Gx2u # e2e-playwright
-                  cli-version: '0.15.4'
+                  cli-version: '0.17.0'
                   use-cache: false
                   quarantine: true
                   previous-step-outcome: ${{ steps.playwright-tests.outcome }}
