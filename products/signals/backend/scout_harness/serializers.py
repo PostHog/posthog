@@ -4700,6 +4700,18 @@ class ScoutLimitsSerializer(serializers.Serializer):
     max_enabled_scouts = serializers.IntegerField(
         help_text="Most scouts the project can have switched on at once. Enabling another past this is rejected.",
     )
+    queue_workflow_triggers = serializers.BooleanField(
+        help_text=(
+            'Whether a workflow "Run scout" step that fires while its scout is busy is queued for a later run. '
+            "When false, a busy scout answers 409 and the step skips, whatever the step's when_busy input says."
+        ),
+    )
+    max_pending_workflow_triggers = serializers.IntegerField(
+        help_text="Most workflow triggers one scout keeps queued. The oldest is dropped when another arrives.",
+    )
+    pending_workflow_trigger_ttl_hours = serializers.IntegerField(
+        help_text="Hours a queued workflow trigger waits for a run before it is dropped instead.",
+    )
 
 
 class ScoutMetadataSerializer(serializers.Serializer):

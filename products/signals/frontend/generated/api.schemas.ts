@@ -9761,6 +9761,12 @@ export interface ScoutLimitsApi {
     runs_remaining_today: number | null
     /** Most scouts the project can have switched on at once. Enabling another past this is rejected. */
     max_enabled_scouts: number
+    /** Whether a workflow "Run scout" step that fires while its scout is busy is queued for a later run. When false, a busy scout answers 409 and the step skips, whatever the step's when_busy input says. */
+    queue_workflow_triggers: boolean
+    /** Most workflow triggers one scout keeps queued. The oldest is dropped when another arrives. */
+    max_pending_workflow_triggers: number
+    /** Hours a queued workflow trigger waits for a run before it is dropped instead. */
+    pending_workflow_trigger_ttl_hours: number
 }
 
 /**

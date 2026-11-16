@@ -5281,6 +5281,9 @@ class TestScoutHarnessMetadataAPI(APIBaseTest):
             "runs_today",
             "runs_remaining_today",
             "max_enabled_scouts",
+            "queue_workflow_triggers",
+            "max_pending_workflow_triggers",
+            "pending_workflow_trigger_ttl_hours",
         }
 
     @parameterized.expand(

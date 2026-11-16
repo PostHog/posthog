@@ -101,7 +101,7 @@ from products.signals.backend.scout_harness.skill_loader import (
     load_skill_for_run,
     resolve_scout_acting_user_id,
 )
-from products.signals.backend.scout_harness.team_limits import BackgroundBackoff
+from products.signals.backend.scout_harness.team_limits import BackgroundBackoff, WorkflowTriggerQueueLimits
 from products.signals.backend.scout_harness.tools.runs import _build_task_url, _to_detail, _to_summary
 from products.signals.backend.scout_harness.trial_launch import (
     ScoutTrialLaunchError,
@@ -4057,7 +4057,12 @@ async def test_activity_puts_back_claimed_workflow_triggers_when_no_run_starts(a
     def queue_fires() -> tuple[str, ...]:
         for note in ("Issue #1", "Issue #2"):
             enqueue_workflow_trigger(
-                team=ateam, skill_name="signals-scout-errors", note=note, workflow_id="flow-1", reason="run_in_flight"
+                team=ateam,
+                skill_name="signals-scout-errors",
+                note=note,
+                workflow_id="flow-1",
+                reason="run_in_flight",
+                limits=WorkflowTriggerQueueLimits(),
             )
         return tuple(
             str(trigger_id)

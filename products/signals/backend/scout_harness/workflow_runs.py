@@ -14,7 +14,9 @@ otherwise behaves as a scheduled run unless its skill says what to do on a workf
 Every run's prompt also names its trigger and, here, the workflow that fired.
 
 A fire that arrives while the scout is busy (inside the workflow cooldown, or while any run of the
-scout is live) is queued rather than dropped, unless the step asked to skip it. The coordinator
+scout is live) is queued rather than dropped, unless the step asked to skip it or the team turned
+the queue off (`queue_workflow_triggers` in `team_limits.py`, which also holds the per-team cap and
+TTL). The coordinator
 drains a lane's queue on its tick (`drain_pending_workflow_triggers`, and
 `pending_trigger_lanes_for_scheduled_runs` for a lane whose scheduled run is due), and the run that
 takes the fires renders each of them. See `workflow_trigger_queue.py` for the storage.
@@ -38,12 +40,20 @@ from products.signals.backend.scout_harness.run_gates import (
     check_spend_gates,
     check_workflow_cooldown,
 )
-from products.signals.backend.scout_harness.team_limits import withheld_skills_for_team
+from products.signals.backend.scout_harness.team_limits import (
+    enrolled_team_ids_among,
+    withheld_skills_for_team,
+    workflow_trigger_queue_limits_by_team,
+    workflow_trigger_queue_limits_for_team,
+)
 from products.signals.backend.scout_harness.workflow_trigger_queue import (
     PendingTriggerLane,
+    drainable_lane_keys,
     drop_pending_triggers,
     enqueue_workflow_trigger,
+    expire_pending_triggers,
     pending_trigger_lanes,
+    pending_trigger_team_ids,
 )
 from products.skills.backend.models.skills import LLMSkill
 
@@ -79,10 +89,12 @@ class DrainSummary:
     dispatched: int = 0
     deferred: int = 0
     dropped: int = 0
+    expired: int = 0
 
 
 # Bounds one tick's drain, so the coordinator activity stays inside its timeout. The oldest lanes
-# drain first, and the rest wait for the next tick.
+# drain first, and the rest wait for the next tick. Lanes that cannot run (a paused scout, an
+# unenrolled project) are left out before the cap, so they never take a slot.
 MAX_DRAIN_DISPATCHES_PER_TICK = 200
 
 
@@ -112,6 +124,7 @@ def start_workflow_scout_run(
 
     `queue_when_busy` decides what a busy scout does with the fire. On, a fire inside the cooldown
     or during a live run is queued for the coordinator's next tick. Off, it is rejected as before.
+    A team with `queue_workflow_triggers` off rejects it either way.
     Every other rejection stays a rejection either way, so a queued fire never gets around a pause,
     a fleet gate, or a spend gate.
 
@@ -141,11 +154,18 @@ def start_workflow_scout_run(
         if rejection is not None:
             raise WorkflowScoutRunRejected(rejection)
 
+    queue_limits = workflow_trigger_queue_limits_for_team(team_id)
+
     def _busy(rejection: ScoutRunRejection) -> WorkflowScoutRunQueued:
-        if not queue_when_busy:
+        if not (queue_when_busy and queue_limits.queue_enabled):
             raise WorkflowScoutRunRejected(rejection)
         queued = enqueue_workflow_trigger(
-            team=team, skill_name=skill_name, note=run_note, workflow_id=trigger_workflow_id, reason=rejection.reason
+            team=team,
+            skill_name=skill_name,
+            note=run_note,
+            workflow_id=trigger_workflow_id,
+            reason=rejection.reason,
+            limits=queue_limits,
         )
         return WorkflowScoutRunQueued(skill_name=skill_name, pending_count=queued.pending_count)
 
@@ -160,7 +180,12 @@ def start_workflow_scout_run(
     pending_ids = _pending_ids(team_id, skill_name)
     if pending_ids:
         enqueue_workflow_trigger(
-            team=team, skill_name=skill_name, note=run_note, workflow_id=trigger_workflow_id, reason="joined_pending"
+            team=team,
+            skill_name=skill_name,
+            note=run_note,
+            workflow_id=trigger_workflow_id,
+            reason="joined_pending",
+            limits=queue_limits,
         )
         pending_ids = _pending_ids(team_id, skill_name)
 
@@ -275,18 +300,29 @@ def drain_pending_workflow_triggers(excluded_lanes: set[tuple[int, str]]) -> Dra
     `excluded_lanes` are the lanes the coordinator dispatches on schedule this tick. Their fires
     ride on that run, or wait for the next tick when it could not take them.
 
-    Each lane passes the same checks a live fire does: the scout must still exist and accept
-    workflow triggers, the fleet and spend gates must allow a run, the cooldown must have passed,
-    and no run may be live. A lane that fails a check keeps its fires, except a scout that no longer
-    exists, whose fires can never run and are dropped.
+    Fires older than their team's TTL are deleted first. Lanes whose scout is paused, or whose
+    project is not enrolled, are left out before the per-tick cap, so they cannot starve lanes
+    that can run, and their fires expire within one TTL.
+
+    Each remaining lane passes the same checks a live fire does: the scout must still exist and
+    accept workflow triggers, the fleet and spend gates must allow a run, the cooldown must have
+    passed, and no run may be live. A lane that fails a check keeps its fires, except a scout that
+    no longer exists, whose fires can never run and are dropped.
     """
     from products.signals.backend.temporal.agentic.scout_scheduler import (  # noqa: PLC0415 — see start_workflow_scout_run
         start_workflow_signals_scout_run,
     )
 
-    lanes = [lane for lane in pending_trigger_lanes() if (lane.team_id, lane.skill_name) not in excluded_lanes][
+    team_ids = pending_trigger_team_ids()
+    if not team_ids:
+        return DrainSummary()
+    limits = workflow_trigger_queue_limits_by_team(team_ids)
+    expired = expire_pending_triggers({team_id: team_limits.ttl_hours for team_id, team_limits in limits.items()})
+    unenrolled = team_ids - enrolled_team_ids_among(team_ids)
+    lane_keys = [lane for lane in drainable_lane_keys(excluded_team_ids=unenrolled) if lane not in excluded_lanes][
         :MAX_DRAIN_DISPATCHES_PER_TICK
     ]
+    lanes = pending_trigger_lanes(set(lane_keys))
     dispatched = deferred = dropped = 0
     client = None
     for lane in lanes:
@@ -328,7 +364,7 @@ def drain_pending_workflow_triggers(excluded_lanes: set[tuple[int, str]]) -> Dra
                 skill_name=lane.skill_name,
                 reason=reason,
             )
-    return DrainSummary(lanes=len(lanes), dispatched=dispatched, deferred=deferred, dropped=dropped)
+    return DrainSummary(lanes=len(lanes), dispatched=dispatched, deferred=deferred, dropped=dropped, expired=expired)
 
 
 class _LaneGone(Exception):

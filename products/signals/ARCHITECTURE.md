@@ -378,12 +378,21 @@ per-`(team, skill)` cooldown, a backstop that does not have to trust the workflo
 
 A workflow fire that the cooldown or the in-flight gate turns away is queued as a
 `SignalScoutPendingTrigger` row (`backend/scout_harness/workflow_trigger_queue.py`), unless the step
-asked to skip it. A lane keeps at most `MAX_PENDING_WORKFLOW_TRIGGERS` fires, drops an exact duplicate
-note, and drops its oldest fire when full. Every other rejection (pause, enrolment, budget, quota,
-missing scout) still rejects, so a queued fire never gets around a gate. On each tick the coordinator
-hands a lane's pending trigger ids to its due scheduled run when no run is live and the spend gates
-allow it, and otherwise `drain_pending_workflow_triggers_activity` starts one workflow-triggered run
-per lane that passes the same gates a live fire does. Only ids travel through Temporal: the run claims
+asked to skip it or the team turned the queue off. Three keys in the `signals-scout` flag payload's
+`team_configs` / `default_team_config` shape the queue, resolved in `team_limits.py` like the run caps
+and reported by the metadata endpoint: `max_pending_workflow_triggers` (default
+`MAX_PENDING_WORKFLOW_TRIGGERS`, clamped to `MAX_PENDING_WORKFLOW_TRIGGERS_CEILING`),
+`pending_workflow_trigger_ttl_hours` (default `PENDING_WORKFLOW_TRIGGER_TTL_HOURS`, clamped to
+`PENDING_WORKFLOW_TRIGGER_TTL_HOURS_CEILING`), and `queue_workflow_triggers` (default on; off makes a
+busy fire answer 409 for every step on the team). A lane keeps at most its cap, drops an exact
+duplicate note, and drops its oldest fire when full. Every other rejection (pause, enrolment, budget,
+quota, missing scout) still rejects, so a queued fire never gets around a gate. On each tick the
+coordinator hands a lane's pending trigger ids to its due scheduled run when no run is live and the
+spend gates allow it, and otherwise `drain_pending_workflow_triggers_activity` first deletes fires
+older than their team's TTL, then starts one workflow-triggered run per lane that passes the same
+gates a live fire does. Lanes are picked in the database, oldest fire first, and a lane whose scout is
+paused or whose project is not enrolled is left out before the per-tick cap, so blocked lanes cannot
+starve runnable ones; their fires expire within one TTL. A claim also skips an expired fire. Only ids travel through Temporal: the run claims
 (locks and deletes) the rows when it starts, so a failed dispatch or a run that skips before it starts
 leaves the fires queued. The claimed notes render as one coalesced section, one line per fire.
 

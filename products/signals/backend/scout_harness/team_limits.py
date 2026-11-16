@@ -36,6 +36,10 @@ from products.signals.backend.scout_harness.limits import (
     COORDINATOR_INTERVAL_MINUTES,
     MAX_DISPATCH_SMEAR_SECONDS,
     MAX_ENABLED_SCOUTS_PER_TEAM,
+    MAX_PENDING_WORKFLOW_TRIGGERS,
+    MAX_PENDING_WORKFLOW_TRIGGERS_CEILING,
+    PENDING_WORKFLOW_TRIGGER_TTL_HOURS,
+    PENDING_WORKFLOW_TRIGGER_TTL_HOURS_CEILING,
 )
 
 logger = structlog.get_logger(__name__)
@@ -100,6 +104,15 @@ TEAM_CONFIG_MAX_ENABLED_SCOUTS = "max_enabled_scouts"
 # just works for every enrolled team with a usable GitHub install; set `false` per-team via
 # `team_configs` or fleet-wide via `default_team_config` as the kill switch, no deploy either way.
 TEAM_CONFIG_GITHUB_READ_ACCESS = "github_read_access"
+
+# Keys inside `team_configs` / `default_team_config` for the workflow "Run scout" queue, resolved by
+# `resolve_workflow_trigger_queue_limits`. `max_pending_workflow_triggers` and
+# `pending_workflow_trigger_ttl_hours` override the `limits.py` defaults, clamped to their ceilings.
+# `queue_workflow_triggers: false` is the team's kill switch: a busy scout answers 409 again, as a
+# step with `when_busy: skip` does, whatever each step asks for.
+TEAM_CONFIG_MAX_PENDING_WORKFLOW_TRIGGERS = "max_pending_workflow_triggers"
+TEAM_CONFIG_PENDING_WORKFLOW_TRIGGER_TTL_HOURS = "pending_workflow_trigger_ttl_hours"
+TEAM_CONFIG_QUEUE_WORKFLOW_TRIGGERS = "queue_workflow_triggers"
 
 # Per-scout holdback denylist. A list of canonical scout skill names a team must NOT get: the
 # scout is never seeded into that team's skill namespace, never config-enabled, and never
@@ -768,6 +781,82 @@ def github_read_access_for_team(canonical_team_id: int) -> bool:
     return _resolve_github_read_access(canonical_team_id, team_configs, _default_team_config(payload))
 
 
+@frozen
+class WorkflowTriggerQueueLimits:
+    """How a team's workflow "Run scout" queue behaves, resolved like the run caps."""
+
+    queue_enabled: bool = True
+    max_pending: int = MAX_PENDING_WORKFLOW_TRIGGERS
+    ttl_hours: int = PENDING_WORKFLOW_TRIGGER_TTL_HOURS
+
+
+def _clamped_positive_int(layers: Sequence[dict], key: str, default: int, ceiling: int) -> int:
+    for source in layers:
+        override = source.get(key)
+        if isinstance(override, int) and not isinstance(override, bool) and override > 0:
+            return min(override, ceiling)
+    return default
+
+
+def resolve_workflow_trigger_queue_limits(
+    team_id: int, team_configs: dict[int, dict], default_team_config: dict
+) -> WorkflowTriggerQueueLimits:
+    """A team's queue limits, most-specific layer first: `team_configs[team_id]` →
+    `default_team_config` → the `limits.py` defaults.
+
+    A malformed value at one layer falls through to the next, like `max_runs_per_day`. A value above
+    its ceiling is clamped rather than ignored, so a generous override still takes effect.
+    """
+    layers = [team_configs.get(team_id) or {}, default_team_config]
+    queue_enabled = True
+    for source in layers:
+        override = source.get(TEAM_CONFIG_QUEUE_WORKFLOW_TRIGGERS)
+        if isinstance(override, bool):
+            queue_enabled = override
+            break
+    return WorkflowTriggerQueueLimits(
+        queue_enabled=queue_enabled,
+        max_pending=_clamped_positive_int(
+            layers,
+            TEAM_CONFIG_MAX_PENDING_WORKFLOW_TRIGGERS,
+            MAX_PENDING_WORKFLOW_TRIGGERS,
+            MAX_PENDING_WORKFLOW_TRIGGERS_CEILING,
+        ),
+        ttl_hours=_clamped_positive_int(
+            layers,
+            TEAM_CONFIG_PENDING_WORKFLOW_TRIGGER_TTL_HOURS,
+            PENDING_WORKFLOW_TRIGGER_TTL_HOURS,
+            PENDING_WORKFLOW_TRIGGER_TTL_HOURS_CEILING,
+        ),
+    )
+
+
+def workflow_trigger_queue_limits_by_team(team_ids: set[int]) -> dict[int, WorkflowTriggerQueueLimits]:
+    """One flag-payload read → the queue limits of each (canonical) team in `team_ids`. A missing
+    or unreadable payload yields the defaults for every team."""
+    if not team_ids:
+        return {}
+    payload = _read_flag_payload()
+    team_configs = _canonicalize_team_config_keys(_team_configs(payload))
+    default_team_config = _default_team_config(payload)
+    return {
+        team_id: resolve_workflow_trigger_queue_limits(team_id, team_configs, default_team_config)
+        for team_id in team_ids
+    }
+
+
+def workflow_trigger_queue_limits_for_team(canonical_team_id: int) -> WorkflowTriggerQueueLimits:
+    return workflow_trigger_queue_limits_by_team({canonical_team_id})[canonical_team_id]
+
+
+def enrolled_team_ids_among(team_ids: set[int]) -> set[int]:
+    """The teams in `team_ids` that run scouts, from one flag-payload read."""
+    if not team_ids:
+        return set()
+    enrollment = _parse_enrollment(_read_flag_payload())
+    return {team_id for team_id in team_ids if _resolve_enrolled(team_id, enrollment)}
+
+
 def _resolve_withheld_skills(team_id: int, team_configs: dict[int, dict], default_team_config: dict) -> set[str]:
     """Skill names held back from a team, resolved most-specific layer first.
 
@@ -981,6 +1070,7 @@ class ScoutTeamLimits:
     runs_today: int
     runs_remaining_today: int | None
     max_enabled_scouts: int
+    workflow_triggers: WorkflowTriggerQueueLimits = field(default_factory=WorkflowTriggerQueueLimits)
 
 
 @dataclass(frozen=True)
@@ -1002,6 +1092,9 @@ class ScoutTeamMetadata:
                 "runs_today": self.limits.runs_today,
                 "runs_remaining_today": self.limits.runs_remaining_today,
                 "max_enabled_scouts": self.limits.max_enabled_scouts,
+                "queue_workflow_triggers": self.limits.workflow_triggers.queue_enabled,
+                "max_pending_workflow_triggers": self.limits.workflow_triggers.max_pending,
+                "pending_workflow_trigger_ttl_hours": self.limits.workflow_triggers.ttl_hours,
             },
         }
 
@@ -1038,6 +1131,9 @@ def resolve_team_metadata(canonical_team_id: int) -> ScoutTeamMetadata:
             runs_remaining_today=runs_remaining_today,
             max_enabled_scouts=_resolve_enabled_scout_limit(
                 canonical_team_id, [team_configs.get(canonical_team_id) or {}, default_team_config]
+            ),
+            workflow_triggers=resolve_workflow_trigger_queue_limits(
+                canonical_team_id, team_configs, default_team_config
             ),
         ),
     )

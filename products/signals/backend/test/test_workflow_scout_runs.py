@@ -28,6 +28,7 @@ from products.signals.backend.scout_harness.limits import (
     WORKFLOW_RUN_COOLDOWN_S,
 )
 from products.signals.backend.scout_harness.run_gates import ScoutRunRejectionKind
+from products.signals.backend.scout_harness.team_limits import WorkflowTriggerQueueLimits
 from products.signals.backend.scout_harness.workflow_runs import (
     DrainSummary,
     WorkflowScoutRunQueued,
@@ -49,6 +50,7 @@ SKILL = "signals-scout-error-tracking"
 _DISPATCH = "products.signals.backend.temporal.agentic.scout_scheduler.start_workflow_signals_scout_run"
 _CONNECT = "products.signals.backend.scout_harness.workflow_runs.sync_connect"
 _FLAG = "products.signals.backend.scout_harness.run_gates._read_flag_payload"
+_TEAM_LIMITS_FLAG = "products.signals.backend.scout_harness.team_limits._read_flag_payload"
 _DAILY_LIMIT = "products.signals.backend.scout_harness.run_gates.daily_report_limit_gate"
 _COLLISION = WorkflowAlreadyStartedError("wf", "RunSignalsScout")
 
@@ -66,9 +68,10 @@ class _ScoutLaneTestCase(APIBaseTest):
         )
 
     def _enrol(self, payload: dict) -> None:
-        flag = patch(_FLAG, return_value=payload)
-        flag.start()
-        self.addCleanup(flag.stop)
+        for path in (_FLAG, _TEAM_LIMITS_FLAG):
+            flag = patch(path, return_value=payload)
+            flag.start()
+            self.addCleanup(flag.stop)
 
     def _seed_run(
         self,
@@ -93,9 +96,21 @@ class _ScoutLaneTestCase(APIBaseTest):
         SignalScoutRun.objects.filter(pk=run.pk).update(created_at=timezone.now() - age)
         return run
 
-    def _queue(self, note: str, workflow_id: str | None = "flow-1") -> None:
+    def _queue(
+        self,
+        note: str,
+        workflow_id: str | None = "flow-1",
+        *,
+        team: Team | None = None,
+        limits: WorkflowTriggerQueueLimits | None = None,
+    ) -> None:
         enqueue_workflow_trigger(
-            team=self.team, skill_name=SKILL, note=note, workflow_id=workflow_id, reason="run_in_flight"
+            team=team or self.team,
+            skill_name=SKILL,
+            note=note,
+            workflow_id=workflow_id,
+            reason="run_in_flight",
+            limits=limits or WorkflowTriggerQueueLimits(),
         )
 
     def _pending(self) -> list[tuple[str, str | None]]:
@@ -192,13 +207,25 @@ class TestWorkflowScoutRunDispatch(_ScoutLaneTestCase):
         assert outcome == WorkflowScoutRunQueued(skill_name=SKILL, pending_count=1)
         assert self._pending() == [("Issue #42", "flow-1")]
 
-    @parameterized.expand(_BUSY_CASES)
-    def test_a_busy_scout_skips_the_fire_when_the_step_asks_to(
-        self, busy: str, reason: str, kind: ScoutRunRejectionKind
+    @parameterized.expand(
+        [(*case, source) for case in _BUSY_CASES for source in ("step_when_busy_skip", "team_queue_off")]
+    )
+    def test_a_busy_scout_skips_the_fire_when_the_step_or_team_asks_to(
+        self, busy: str, reason: str, kind: ScoutRunRejectionKind, source: str
     ) -> None:
+        if source == "team_queue_off":
+            self._enrol(
+                {"guaranteed_team_ids": [self.team.id], "default_team_config": {"queue_workflow_triggers": False}}
+            )
         dispatch_error = self._make_busy(busy)
 
-        self._assert_rejected(reason, kind, run_note="Issue #42", queue_when_busy=False, dispatch_error=dispatch_error)
+        self._assert_rejected(
+            reason,
+            kind,
+            run_note="Issue #42",
+            queue_when_busy=source != "step_when_busy_skip",
+            dispatch_error=dispatch_error,
+        )
         assert self._pending() == []
 
     def test_the_queue_drops_duplicate_notes_and_then_the_oldest_fires(self) -> None:
@@ -322,7 +349,7 @@ class TestPendingWorkflowTriggerDrain(_ScoutLaneTestCase):
         assert self.last_dispatch.call_args.kwargs["pending_trigger_ids"] == self._pending_ids()
         assert len(self._pending()) == 2
 
-    @parameterized.expand(["cooldown", "in_flight", "paused", "daily_report_limit", "collision", "dispatch_error"])
+    @parameterized.expand(["cooldown", "in_flight", "daily_report_limit", "collision", "dispatch_error"])
     def test_a_lane_that_cannot_run_keeps_its_fires_for_a_later_tick(self, blocker: str) -> None:
         self._queue("Issue #1")
         dispatch_error: BaseException | None = None
@@ -330,10 +357,6 @@ class TestPendingWorkflowTriggerDrain(_ScoutLaneTestCase):
             self._seed_run(triggered_by=TRIGGERED_BY_WORKFLOW, age=timedelta(minutes=5))
         elif blocker == "in_flight":
             self._seed_run(triggered_by=None, status=TaskRun.Status.IN_PROGRESS)
-        elif blocker == "paused":
-            self.config.status = SignalScoutConfig.Status.PAUSED_BY_USER
-            self.config.enabled = False
-            self.config.save()
         elif blocker == "daily_report_limit":
             limit = patch(_DAILY_LIMIT, return_value=MagicMock(limited=True))
             limit.start()
@@ -356,6 +379,53 @@ class TestPendingWorkflowTriggerDrain(_ScoutLaneTestCase):
         assert summary == DrainSummary()
         self.last_dispatch.assert_not_called()
 
+    def test_an_expired_fire_is_dropped_instead_of_run(self) -> None:
+        self._enrol(
+            {"guaranteed_team_ids": [self.team.id], "default_team_config": {"pending_workflow_trigger_ttl_hours": 2}}
+        )
+        with time_machine.travel(timezone.now() - timedelta(hours=3), tick=False):
+            self._queue("Issue #1")
+
+        summary = self._drain()
+
+        assert summary == DrainSummary(expired=1)
+        self.last_dispatch.assert_not_called()
+        assert self._pending() == []
+
+    def test_an_expired_fire_does_not_swallow_a_new_one_with_the_same_note(self) -> None:
+        limits = WorkflowTriggerQueueLimits(ttl_hours=2)
+        with time_machine.travel(timezone.now() - timedelta(hours=3), tick=False):
+            self._queue("Issue #1", workflow_id="flow-1", limits=limits)
+
+        self._queue("Issue #1", workflow_id="flow-2", limits=limits)
+
+        assert self._pending() == [("Issue #1", "flow-2")]
+
+    @parameterized.expand(["paused", "unenrolled"])
+    def test_a_blocked_lane_does_not_take_a_drain_slot(self, blocker: str) -> None:
+        other_team = Team.objects.create(organization=self.organization, name="other")
+        LLMSkill.objects.create(team=other_team, name=SKILL, is_latest=True, deleted=False)
+        SignalScoutConfig.objects.create(
+            team=other_team, skill_name=SKILL, status=SignalScoutConfig.Status.ACTIVE, enabled=True
+        )
+        with time_machine.travel(timezone.now() - timedelta(hours=1), tick=False):
+            self._queue("Blocked fire")
+        self._queue("Runnable fire", team=other_team)
+        if blocker == "paused":
+            self._enrol({"guaranteed_team_ids": [self.team.id, other_team.id]})
+            self.config.status = SignalScoutConfig.Status.PAUSED_BY_USER
+            self.config.enabled = False
+            self.config.save()
+        else:
+            self._enrol({"guaranteed_team_ids": [other_team.id]})
+
+        with patch("products.signals.backend.scout_harness.workflow_runs.MAX_DRAIN_DISPATCHES_PER_TICK", 1):
+            summary = self._drain()
+
+        assert summary == DrainSummary(lanes=1, dispatched=1)
+        assert self.last_dispatch.call_args.kwargs["team_id"] == other_team.id
+        assert self._pending() == [("Blocked fire", "flow-1")]
+
     def test_drops_the_fires_of_a_scout_that_no_longer_exists(self) -> None:
         self._queue("Issue #1")
         LLMSkill.objects.filter(team=self.team, name=SKILL).update(deleted=True)
@@ -375,18 +445,22 @@ class TestPendingWorkflowTriggerDrain(_ScoutLaneTestCase):
         assert pending_trigger_lanes_for_scheduled_runs({lane}) == {}
 
     def test_a_claim_renders_every_fire_once_in_arrival_order(self) -> None:
+        # Inside the 24h default TTL while the later fires queue, past it when the claim runs.
+        with time_machine.travel(datetime(2026, 10, 25, 10, 30, tzinfo=UTC), tick=False):
+            self._queue("Expired issue")
         with time_machine.travel(datetime(2026, 10, 26, 10, 0, tzinfo=UTC), tick=False):
             self._queue("Issue #1")
         with time_machine.travel(datetime(2026, 10, 26, 10, 5, tzinfo=UTC), tick=False):
             self._queue("", workflow_id="flow-2")
         trigger_ids = self._pending_ids()
 
-        claimed = claim_pending_triggers(
-            team_id=self.team.id, skill_name=SKILL, trigger_ids=trigger_ids, triggered_by=TRIGGERED_BY_SCHEDULE
-        )
-        again = claim_pending_triggers(
-            team_id=self.team.id, skill_name=SKILL, trigger_ids=trigger_ids, triggered_by=TRIGGERED_BY_WORKFLOW
-        )
+        with time_machine.travel(datetime(2026, 10, 26, 11, 0, tzinfo=UTC), tick=False):
+            claimed = claim_pending_triggers(
+                team_id=self.team.id, skill_name=SKILL, trigger_ids=trigger_ids, triggered_by=TRIGGERED_BY_SCHEDULE
+            )
+            again = claim_pending_triggers(
+                team_id=self.team.id, skill_name=SKILL, trigger_ids=trigger_ids, triggered_by=TRIGGERED_BY_WORKFLOW
+            )
 
         assert claimed.count == 2
         assert claimed.run_note == (
@@ -395,4 +469,4 @@ class TestPendingWorkflowTriggerDrain(_ScoutLaneTestCase):
         # Two workflows fired, so no single one can be named as the trigger.
         assert claimed.trigger_workflow_id is None
         assert again.count == 0
-        assert self._pending() == []
+        assert self._pending() == [("Expired issue", "flow-1")]
