@@ -1787,18 +1787,24 @@ class TestFileSystemAPIAdvancedPermissions(APIBaseTest):
         `_add_object_types` withholds that object's tags. The tag filter has to withhold it too, or the
         tag can be read back from which filter values return the row."""
         hidden = Dashboard.objects.create(team=self.team, name="Hidden", created_by=self.other_user)
+        # Carries the same tag and stays visible, so an over-eager access filter fails this test too.
+        visible = Dashboard.objects.create(team=self.team, name="Visible", created_by=self.other_user)
         tag = Tag.objects.create(name="secret", team=self.team)
-        TaggedItem.objects.create(
-            tag=tag, team=self.team, content_type=ContentType.objects.get_for_model(Dashboard), object_id=hidden.id
-        )
-        FileSystem.objects.create(
-            team=self.team,
-            path="Docs/Hidden",
-            depth=2,
-            type="dashboard",
-            ref=str(hidden.id),
-            created_by=self.user,
-        )
+        for dashboard in (hidden, visible):
+            TaggedItem.objects.create(
+                tag=tag,
+                team=self.team,
+                content_type=ContentType.objects.get_for_model(Dashboard),
+                object_id=dashboard.id,
+            )
+            FileSystem.objects.create(
+                team=self.team,
+                path=f"Docs/{dashboard.name}",
+                depth=2,
+                type="dashboard",
+                ref=str(dashboard.id),
+                created_by=self.user,
+            )
         self._create_access_control(resource="dashboard", resource_id=str(hidden.id), access_level="none")
         base = f"/api/projects/{self.team.id}/file_system/"
 
@@ -1812,6 +1818,7 @@ class TestFileSystemAPIAdvancedPermissions(APIBaseTest):
         self.assertEqual(filtered.status_code, status.HTTP_200_OK, filtered.content)
         refs = {item["ref"] for item in filtered.json()["results"]}
         self.assertNotIn(str(hidden.id), refs, "a withheld tag must not be inferable from the filter")
+        self.assertIn(str(visible.id), refs, "the filter must still return tagged objects the user can see")
 
     @patch("posthoganalytics.feature_enabled", return_value=True)
     def test_list_excludes_items_with_none_access(self, mock_flag):
