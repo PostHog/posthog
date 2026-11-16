@@ -81,6 +81,8 @@ const IntakeMessageSchema = z.looseObject({
     teamId: z.number().int().positive().max(PG_INT_MAX),
     // Present when the caller sent an idempotency key. The key and its scope stay with the route.
     fingerprint: pgText.min(1).optional(),
+    // What a keyed retry replays once the consumer has claimed the run, such as its attachment totals.
+    reply: z.record(z.string(), z.unknown()).optional(),
     // Set on a shadow copy, whose run the route already inserted.
     shadow: z.literal(true).optional(),
     job: IntakeJobSchema,
@@ -91,6 +93,7 @@ export type IntakeMessage = z.infer<typeof IntakeMessageSchema>
 export type IntakeRun = {
     kind: RunKind
     fingerprint?: string
+    reply?: Record<string, unknown>
     shadow?: boolean
     job: CyclotronV2JobInit & { id: string }
 }
@@ -111,12 +114,13 @@ export type DecodeResult =
     | { status: 'decoded'; message: IntakeMessage }
     | { status: 'dead_letter'; reason: IntakeDeadLetterReason }
 
-export function encodeIntakeMessage({ kind, fingerprint, shadow, job }: IntakeRun): EncodeResult {
+export function encodeIntakeMessage({ kind, fingerprint, reply, shadow, job }: IntakeRun): EncodeResult {
     const message: IntakeMessage = {
         v: INTAKE_MESSAGE_VERSION,
         kind,
         teamId: job.teamId,
         ...(fingerprint !== undefined && { fingerprint }),
+        ...(reply !== undefined && { reply }),
         ...(shadow && { shadow: true as const }),
         job: {
             id: job.id,

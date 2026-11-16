@@ -179,6 +179,7 @@ async function claimRuns(runs: IntakeRun[], services: IntakeBatchServices, optio
         runs.map((run) => ({
             job: intakeJobInit(run.message),
             fingerprint: claimFingerprint(run.message.job.id, run.message.fingerprint),
+            reply: run.message.reply,
         })),
         services.cyclotron,
         options
@@ -229,16 +230,17 @@ function claimWithRetry(
 function queueSend({ message }: IntakeRun, emailStatus: IntakeBatchServices['emailStatus']): void {
     const priorityClass = message.job.priority === EMAIL_QUEUE_PRIORITY.bulk ? 'bulk' : 'fast'
     cdpEmailQueuedTotal.labels(priorityClass).inc()
-    const recipient = (message.job.state?.state as Partial<HogFlowInvocationContext> | null)?.event?.properties?.to
+    const state = message.job.state?.state as Partial<HogFlowInvocationContext> | null
+    const recipient = state?.event?.properties?.to
     emailStatus.queue({
         teamId: message.teamId,
         messageId: message.job.id,
-        status: 'queued',
+        status: state?.scheduledAt ? 'scheduled' : 'queued',
         recipient: typeof recipient === 'string' ? recipient : undefined,
         functionId: message.job.functionId ?? undefined,
-        messageCreatedAt: messageCreatedAtOf(
-            (message.job.state?.state as Partial<HogFlowInvocationContext> | null)?.event
-        ),
+        scheduledAt: state?.scheduledAt ? new Date(state.scheduledAt) : undefined,
+        statusAt: state?.statusAt ? new Date(state.statusAt) : undefined,
+        messageCreatedAt: messageCreatedAtOf(state?.event),
     })
 }
 

@@ -286,6 +286,8 @@ const TRANSACTIONAL_SEND_REFUSAL_STATUS: Record<TransactionalSendRefusal, number
     idempotency_key_in_flight: 409,
     idempotency_key_reused: 422,
     idempotency_unavailable: 503,
+    intake_unavailable: 503,
+    invalid_request: 400,
     not_sendable: 400,
     sending_suspended: 422,
     sending_paused: 422,
