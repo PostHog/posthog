@@ -136673,6 +136673,10 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    /**
+     * Case-insensitive match on the feature name.
+     */
+    search?: string;
     };
 
     export type ElementsListParams = {
