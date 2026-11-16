@@ -1,4 +1,4 @@
-import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { expectLogic } from 'kea-test-utils'
 import { createElement } from 'react'
 
@@ -208,24 +208,32 @@ describe('broadcastSendingLogic', () => {
         expect(logic.values.resumingEmailSending).toBe(false)
     })
 
-    it('posts one resume for a double-clicked confirm and opens no dialog while it runs', async () => {
-        let release = (): void => {}
-        server.resumeHeld = new Promise((resolve) => (release = resolve))
+    it('posts one resume for a double-clicked confirm', async () => {
         const logic = await mountPaused()
 
         logic.actions.resumeEmailSending()
         const confirm = await screen.findByText('Resume sending')
         fireEvent.click(confirm)
         fireEvent.click(confirm)
-        await waitFor(() => expect(screen.queryByText('Resume email sending?')).toBeNull())
-        expect(logic.values.resumingEmailSending).toBe(true)
+        await waitFor(() => expect(logic.values.emailSendingPause.paused).toBe(false))
+
+        expect(server.resumes).toBe(1)
+    })
+
+    it('opens no second dialog while a resume runs', async () => {
+        let release = (): void => {}
+        server.resumeHeld = new Promise((resolve) => (release = resolve))
+        const logic = await mountPaused()
         logic.actions.resumeEmailSending()
-        await act(async () => {})
-        const dialogWhileRunning = !!screen.queryByText('Resume email sending?')
+        fireEvent.click(await screen.findByText('Resume sending'))
+        await waitFor(() => expect(screen.queryByText('Resume email sending?')).toBeNull())
+
+        logic.actions.resumeEmailSending()
         release()
         await waitFor(() => expect(logic.values.resumingEmailSending).toBe(false))
+        logic.actions.resumeEmailSending()
 
-        expect({ resumes: server.resumes, dialogWhileRunning }).toEqual({ resumes: 1, dialogWhileRunning: false })
+        expect(await screen.findAllByText('Resume email sending?')).toHaveLength(1)
     })
 
     describe('while a send runs', () => {
@@ -238,7 +246,9 @@ describe('broadcastSendingLogic', () => {
             await jest.advanceTimersByTimeAsync(0)
             return logic
         }
-        const shown = (logic: ReturnType<typeof broadcastSendingLogic.build>): object => ({
+        const shown = (
+            logic: ReturnType<typeof broadcastSendingLogic.build>
+        ): { stillToSend: number | null; paused: boolean } => ({
             stillToSend: logic.values.stillToSend,
             paused: logic.values.emailSendingPause.paused,
         })
@@ -262,13 +272,16 @@ describe('broadcastSendingLogic', () => {
 
         it('stops re-reading once nothing is left to send', async () => {
             server.queued = 0
+            server.pause = AUTO_PAUSED
             const logic = await mountWithTimers()
             server.queued = 4
+            server.pause = NOT_PAUSED
 
             await jest.advanceTimersByTimeAsync(90_000)
 
-            expect({ stillToSend: logic.values.stillToSend, reads: server.inFlightReads }).toEqual({
+            expect({ ...shown(logic), reads: server.inFlightReads }).toEqual({
                 stillToSend: 0,
+                paused: true,
                 reads: ['flow-1'],
             })
         })
