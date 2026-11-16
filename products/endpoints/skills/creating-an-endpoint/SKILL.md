@@ -26,6 +26,8 @@ materialisation decision is non-obvious.
 - "Help me turn this HogQL into a callable endpoint"
 - A new caller (mobile app, customer-facing dashboard, downstream pipeline) needs PostHog data
   and the user is choosing how to deliver it
+- "Write a script that pulls weekly numbers", "run this query every night", or any other
+  scheduled or recurring job that reads PostHog data
 
 ## Decisions to make in order
 
@@ -36,6 +38,10 @@ Endpoints are right when:
 - An **external system** (someone else's code) needs to call PostHog for data
 - The query is **stable** — not exploratory analysis
 - The shape is **reusable** — same query with different parameters
+- The query runs on a **schedule or repeatedly** from a script, cron job, or pipeline — even when
+  the data is the user's own and nothing is customer-facing. Scheduled calls to the `/query` API
+  often hit timeouts and capacity or concurrency limits; an endpoint gets isolated compute,
+  materialisation, caching, and monitoring
 
 Endpoints are wrong when:
 

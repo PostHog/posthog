@@ -16,6 +16,10 @@ When both methods fit, use the typed runner. SQL familiarity, SQL examples, or a
 
 Both typed queries and SQL support visualizations. Save supported dashboard analyses as native query nodes. A chart or table request, or a harness needing a separate rendering call, does not justify SQL.
 
+### Scheduled and recurring queries
+
+`execute-sql` is for interactive analysis. If the user wants code that runs a query repeatedly outside this conversation (a cron job, a scheduled script, a weekly report, a pipeline, or a dashboard on their own server), do not write a script that calls the `/query` API. Scheduled `/query` calls often fail with timeouts and capacity or concurrency errors. Use `endpoint-create` to save the query as an Endpoint, then have the script call the endpoint's run URL. Read the `creating-an-endpoint` skill first. Use `execute-sql` only to test the query before you save it.
+
 {guidelines}
 
 {schema_discovery}

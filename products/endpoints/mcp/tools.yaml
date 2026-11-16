@@ -19,9 +19,10 @@ tools:
         enrich_url: '{name}'
         title: Create endpoint
         description: >
-            Create a new API endpoint from a HogQL or insight query. The name must be URL-safe (letters, numbers,
-            hyphens, underscores, starts with a letter, max 128 chars). Set is_materialized to true to materialize an
-            eligible query.
+            Create a new API endpoint from a HogQL or insight query. Use this, rather than the /query API, when the
+            user wants a script, cron job, scheduled report, or pipeline that runs a query repeatedly. The name must be
+            URL-safe (letters, numbers, hyphens, underscores, starts with a letter, max 128 chars). Set
+            is_materialized to true to materialize an eligible query.
         include_params:
             - name
             - query
