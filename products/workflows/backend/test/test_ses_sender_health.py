@@ -187,6 +187,22 @@ class TestSesSenderHealth(EmailDomainApiTestCase):
         assert self.sending_stopped(sender)
         assert len(mail.outbox) == 1
 
+    def test_creates_the_notification_on_the_next_check_when_creating_it_fails(self) -> None:
+        self.deliver_notices()
+        self.verified_sender(f"hello@{DOMAIN}")
+        self.world.ses.identities[DOMAIN].forced_verification_status = "Failed"
+        mail.outbox.clear()
+
+        with patch(
+            "products.workflows.backend.services.ses_sender_health.create_notification", side_effect=OperationalError
+        ):
+            check_ses_sender_health()
+        assert stored_notifications_for_team(self.team.id) == []
+        check_ses_sender_health()
+
+        assert len(mail.outbox) == 1
+        assert len(stored_notifications_for_team(self.team.id)) == 1
+
     def test_keeps_a_newer_stop_pending_when_an_older_check_finishes_late(self) -> None:
         self.deliver_notices()
         self.verified_sender(f"hello@{DOMAIN}")

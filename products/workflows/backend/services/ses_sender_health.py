@@ -47,12 +47,8 @@ def record_ses_sending_status(failed_domains: Iterable[str]) -> None:
         if rolled_out(sender.team_id) is not True:
             continue
         stopped_at = _mark_stop_awaiting_notice(sender)
-        if (
-            stopped_at
-            and _queue_sending_stopped_email(sender.team_id, sender.config["domain"], stopped_at)
-            and _patch_domain(sender, _NOTICE_SENT, pending_since=stopped_at).changed_ids
-        ):
-            _create_sending_stopped_notification(sender.team_id, sender.config["domain"])
+        if stopped_at and _queue_sending_stopped_email(sender.team_id, sender.config["domain"], stopped_at):
+            _settle_notice_with_notification(sender, stopped_at)
     for sender in _one_sender_per_project_domain(where={SES_SENDING_STATUS_KEY: SES_SENDING_FAILED}):
         if sender.config["domain"] not in failed or rolled_out(sender.team_id) is False:
             _patch_domain(sender, _UNMARK)
@@ -120,23 +116,30 @@ def _queue_sending_stopped_email(team_id: int, domain: str, stopped_at: str) -> 
     return True
 
 
-def _create_sending_stopped_notification(team_id: int, domain: str) -> None:
+def _settle_notice_with_notification(sender: IntegrationRecord, stopped_at: str) -> None:
+    team_id, domain = sender.team_id, sender.config["domain"]
     try:
-        create_notification(
-            NotificationData(
-                team_id=team_id,
-                notification_type=NotificationType.EMAIL_REPUTATION,
-                priority=Priority.NORMAL,
-                title=Truncator(f"Emails from {domain} are failing").chars(255),
-                body=(
-                    f"The DNS records of {domain} can no longer be verified, so every email sent from it fails. "
-                    "Fix the records with your DNS provider, then verify the domain again in Channels."
-                ),
-                target_type=TargetType.TEAM,
-                target_id=str(team_id),
-                source_url=f"/project/{team_id}/workflows/channels",
-            )
-        )
+        with transaction.atomic():
+            if _patch_domain(sender, _NOTICE_SENT, pending_since=stopped_at).changed_ids:
+                _create_sending_stopped_notification(team_id, domain)
     except Exception as error:
         logger.exception("ses_sending_stopped_notification_failed", team_id=team_id, domain=domain)
         capture_exception(error, {"team_id": team_id, "domain": domain})
+
+
+def _create_sending_stopped_notification(team_id: int, domain: str) -> None:
+    create_notification(
+        NotificationData(
+            team_id=team_id,
+            notification_type=NotificationType.EMAIL_REPUTATION,
+            priority=Priority.NORMAL,
+            title=Truncator(f"Emails from {domain} are failing").chars(255),
+            body=(
+                f"The DNS records of {domain} can no longer be verified, so every email sent from it fails. "
+                "Fix the records with your DNS provider, then verify the domain again in Channels."
+            ),
+            target_type=TargetType.TEAM,
+            target_id=str(team_id),
+            source_url=f"/project/{team_id}/workflows/channels",
+        )
+    )
