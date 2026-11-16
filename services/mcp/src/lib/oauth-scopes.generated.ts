@@ -5,9 +5,10 @@
 // The MCP server publishes this list as `scopes_supported` in its
 // protected-resource metadata (RFC 9728). The web app's consent screen
 // expands a wildcard grant to the read scopes in this list when the server
-// sends no computed list. The OAuth authorization server publishes the same
-// list at `/.well-known/oauth-authorization-server`. If the lists differ, a
-// spec-compliant client (e.g. Claude Code) fails sign-in with `invalid_scope`.
+// sends no computed list. The OAuth authorization server publishes this
+// list, plus `ema_issuer:manage`, at `/.well-known/oauth-authorization-server`.
+// A scope here that the authorization server does not list makes a
+// spec-compliant client (e.g. Claude Code) fail sign-in with `invalid_scope`.
 
 export const OAUTH_SCOPES_SUPPORTED = [
     'openid',

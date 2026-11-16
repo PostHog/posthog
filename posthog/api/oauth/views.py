@@ -857,10 +857,14 @@ class OAuthValidator(OAuth2Validator):
         `*` is still accepted verbatim under an empty ceiling here (legacy PostHog
         Desktop CLI) but never on the provisioning paths — see the flag.
 
-        `ema_issuer:manage` is the one exception to clamping, and the only case that returns
-        `False`. A client not allowed to request it gets `invalid_scope` rather than a
-        consent screen for some other set of scopes, and an allowed one gets a grant that
+        An EMA setup request (`ema_issuer:manage` alone or with identity scopes, see
+        `requests_ema_issuer`) is the one exception to clamping, and the only case that
+        returns `False`. A client not allowed to request it gets `invalid_scope` rather than
+        a consent screen for some other set of scopes, and an allowed one gets a grant that
         carries nothing else, so its token can do nothing but the EMA setup call.
+        `ema_issuer:manage` mixed with resource scopes is clamped away like any scope outside
+        the ceiling, because a client that copies the advertised `scopes_supported` into its
+        request sends it that way.
 
         Otherwise this never returns `False`. `/authorize` does not reject on scope grounds:
         scopes are retired and renamed routinely, and a client pinning a hardcoded

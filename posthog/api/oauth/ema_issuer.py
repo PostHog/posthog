@@ -32,10 +32,18 @@ the issuer, and
 its configuration, so ID-JAGs from the previous issuer stop working.
 
 The configuration is read-only in PostHog. Admins see it in the authentication settings and
-turn it off by deleting it. The scope stays out of `scopes_supported` and the scope pickers:
-only applications that PostHog staff marked with `can_manage_ema_issuer` can request it, and
-those know about it without discovery. Removing that mark stops new setups and makes the ID-JAG
-exchange reject every issuer the application registered, without deleting the configurations.
+turn it off by deleting it. Only applications that PostHog staff marked with
+`can_manage_ema_issuer` can request the scope. Removing that mark stops new setups and makes the
+ID-JAG exchange reject every issuer the application registered, without deleting the
+configurations.
+
+The authorization server metadata lists the scope in `scopes_supported`, because MCP clients that
+offer automated EMA setup look for it there before they show the option. It stays out of the
+protected resource metadata, the OpenID discovery document and the scope pickers: MCP clients
+request every scope the protected resource metadata lists, and generic OAuth clients often copy
+the whole `scopes_supported` list into `/authorize`. A request is an EMA setup only when the
+scope comes alone or with identity scopes (`requests_ema_issuer`). A request that mixes it with
+resource scopes is an ordinary authorization: the scope is dropped and the sign-in goes ahead.
 """
 
 import html
@@ -64,6 +72,7 @@ from posthog.models.oauth import OAuthAccessToken, OAuthApplication, OAuthApplic
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.organization_domain import OrganizationDomain
 from posthog.models.user import User
+from posthog.scopes import ALWAYS_ALLOWED_SCOPES
 from posthog.utils import absolute_uri
 
 logger = structlog.get_logger(__name__)
@@ -81,8 +90,8 @@ _ISSUER_MAX_LENGTH = 512
 def requests_ema_issuer(scopes: Iterable[str] | str | None) -> bool:
     if not scopes:
         return False
-    tokens = scopes.split() if isinstance(scopes, str) else scopes
-    return EMA_ISSUER_MANAGE_SCOPE in tokens
+    tokens = set(scopes.split() if isinstance(scopes, str) else scopes)
+    return EMA_ISSUER_MANAGE_SCOPE in tokens and tokens - {EMA_ISSUER_MANAGE_SCOPE} <= ALWAYS_ALLOWED_SCOPES
 
 
 def client_may_manage_ema_issuer(application: OAuthApplication | None) -> bool:

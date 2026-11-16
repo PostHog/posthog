@@ -8,6 +8,7 @@ from oauth2_provider.models import AbstractApplication
 
 from posthog.api import id_jag
 from posthog.api.oauth.claims import OIDC_CLAIMS
+from posthog.api.oauth.ema_issuer import EMA_ISSUER_MANAGE_SCOPE
 from posthog.dataclasses import frozen
 from posthog.models.oauth import TokenEndpointAuthMethod
 from posthog.scopes import get_oauth_scopes_supported, get_scope_descriptions
@@ -70,9 +71,14 @@ def openid_provider_metadata(base_url: str) -> Document:
 
 
 def authorization_server_metadata(base_url: str, region_info: Document | None = None) -> Document:
-    """OAuth 2.0 Authorization Server Metadata (RFC 8414)."""
+    """OAuth 2.0 Authorization Server Metadata (RFC 8414).
+
+    Its `scopes_supported` adds `ema_issuer:manage` to the shared list. The `ema_issuer` module
+    explains why no other discovery document lists it.
+    """
     return {
         **_shared_metadata(base_url),
+        "scopes_supported": [*get_oauth_scopes_supported(), EMA_ISSUER_MANAGE_SCOPE],
         "authorization_grant_profiles_supported": [id_jag.ID_JAG_GRANT_PROFILE],
         # Client ID Metadata Document (draft-ietf-oauth-client-id-metadata-document-00)
         "client_id_metadata_document_supported": True,

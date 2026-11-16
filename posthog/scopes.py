@@ -794,7 +794,9 @@ def get_oauth_scopes_supported() -> list[str]:
     Used by the authorization server's `/.well-known/oauth-authorization-server`
     endpoint and by the MCP server's `/.well-known/oauth-protected-resource`
     (the latter generated at build time via `posthog/scopes_projection.py` so
-    the protected resource cannot drift out of subset of the AS).
+    the protected resource cannot drift out of subset of the AS). The
+    authorization server document also lists `ema_issuer:manage`, which this
+    list leaves out (see `posthog/api/oauth/ema_issuer.py`).
 
     Resource scopes are built from `UNPRIVILEGED_SCOPES`, so the list excludes
     all three non-advertised classes: `INTERNAL_API_SCOPE_OBJECTS`

@@ -30,6 +30,7 @@ from rest_framework import status
 from posthog.api.oauth import OAuthAuthorizationSerializer
 from posthog.api.oauth.cimd import CIMD_SUPPORTED_AUTH_METHODS, refresh_cimd_metadata_task
 from posthog.api.oauth.client_assertion import CLIENT_ASSERTION_TYPE_JWT_BEARER
+from posthog.api.oauth.ema_issuer import EMA_ISSUER_MANAGE_SCOPE
 from posthog.api.oauth.metadata import authorization_server_metadata, openid_provider_metadata
 from posthog.api.oauth.views import OAuthTokenView, OAuthValidator, _token_error_code
 from posthog.constants import AvailableFeature
@@ -6133,8 +6134,16 @@ class TestOpenIDProviderMetadata(SimpleTestCase):
 
         shared = set(oidc) & set(authorization_server)
         self.assertIn("scopes_supported", shared)
-        for field in shared:
+        for field in shared - {"scopes_supported"}:
             self.assertEqual(oidc[field], authorization_server[field], f"{field} differs between the two documents")
+        self.assertEqual(
+            [
+                scope
+                for scope in cast(list[str], authorization_server["scopes_supported"])
+                if scope != EMA_ISSUER_MANAGE_SCOPE
+            ],
+            oidc["scopes_supported"],
+        )
 
 
 class TestOpenIDProviderMetadataEndpoint(APIBaseTest):
