@@ -13,7 +13,11 @@ from products.warehouse_sources.sources.sdk import (
     SourceFieldSSHTunnelConfig,
     SourceRegistry,
 )
-from products.warehouse_sources.sources.sdk.internals import PostgresSource, PostgresSourceConfig
+from products.warehouse_sources.sources.sdk.internals import (
+    _DATABASE_NOT_FOUND_VALIDATION_ERROR,
+    PostgresSource,
+    PostgresSourceConfig,
+)
 
 # planetscale.com is the dashboard, never a database endpoint — Postgres hosts live on
 # psdb.cloud. Pasting the dashboard address otherwise fails as an opaque connection timeout.
@@ -38,12 +42,24 @@ _PORT_CAPTION = (
     "mode, and logical replication can't run over it."
 )
 
+# The database name in the PlanetScale dashboard names the cluster, not a Postgres database.
+# Every cluster starts with a single `postgres` database.
+_DATABASE_CAPTION = (
+    "Use `postgres`, the default database, unless you created a different one. The database name "
+    "in your PlanetScale dashboard is not a Postgres database name."
+)
+
 _USER_CAPTION = "PlanetScale usernames carry the branch id, so they look like `postgres.xxxxxxxxxx`."
 
 _HOST_IS_DASHBOARD_ERROR = (
     "That address is the PlanetScale dashboard, not a database host. Open your database in "
     "PlanetScale, click Connect, create a role, and use the host it shows, for example "
     f"{_DIRECT_HOST_EXAMPLE}."
+)
+
+_DATABASE_NOT_FOUND_ERROR = (
+    "That database doesn't exist on this PlanetScale branch. Enter postgres as the database name "
+    "unless you created a different one, then try again."
 )
 
 _PSBOUNCER_CDC_ERROR = (
@@ -105,6 +121,8 @@ class PlanetScalePostgresSource(PostgresSource):
             return field.model_copy(update={"placeholder": _DIRECT_HOST_EXAMPLE, "caption": _HOST_CAPTION})
         if field.name == "port":
             return field.model_copy(update={"placeholder": "5432", "caption": _PORT_CAPTION})
+        if field.name == "database":
+            return field.model_copy(update={"placeholder": "postgres", "caption": _DATABASE_CAPTION})
         if field.name == "user":
             return field.model_copy(update={"placeholder": "postgres.xxxxxxxxxx", "caption": _USER_CAPTION})
         return field
@@ -142,9 +160,12 @@ class PlanetScalePostgresSource(PostgresSource):
         if _PLANETSCALE_WEB_HOST_RE.search(_bare_host(config.host or "")):
             return False, _HOST_IS_DASHBOARD_ERROR
 
-        return super().validate_credentials(
+        success, error = super().validate_credentials(
             config, team_id, schema_name=schema_name, api_version=api_version, require_ssl=require_ssl
         )
+        if not success and error == _DATABASE_NOT_FOUND_VALIDATION_ERROR:
+            return False, _DATABASE_NOT_FOUND_ERROR
+        return success, error
 
     def check_cdc_prerequisites(
         self,

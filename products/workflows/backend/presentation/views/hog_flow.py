@@ -89,7 +89,7 @@ from posthog.plugins.plugin_server_api import (
 from posthog.scopes import scopes_not_covered
 from posthog.synthetic_user import SyntheticUser
 from posthog.user_permissions import UserPermissions
-from posthog.utils import relative_date_parse_with_delta_mapping
+from posthog.utils import absolute_uri, relative_date_parse_with_delta_mapping
 
 from products.access_control.backend.facade.contracts import ObjectAccessRef
 from products.access_control.backend.facade.user_access_control import UserAccessControl, visible_teams_for_user
@@ -172,6 +172,7 @@ from products.workflows.backend.facade.batch_jobs import (
     get_audience_snapshot_page,
     get_batch_job,
     list_batch_jobs,
+    rate_limit_change_unpaces_batch,
     request_audience_snapshot,
     set_batch_job_status,
 )
@@ -279,6 +280,7 @@ from products.workflows.backend.facade.sandbox_email import (
     check_sandbox_sender_available,
     has_verified_own_sender,
     own_only_settings,
+    own_sender_verification,
     provision_sandbox_sender,
     require_sandbox_runtime,
     sandbox_adoption_enabled,
@@ -1010,7 +1012,7 @@ def _describe_unknown_template(action: dict, template_id: str) -> str:
     return "Template not found"
 
 
-def _describe_action_errors(errors: list[Any], actions: list[dict]) -> str:
+def _describe_action_errors(errors: list[Any], actions: list[dict], blocked: str = "enable this workflow") -> str:
     # The many=True error list mirrors the actions list, with {} entries for valid actions. Raising it
     # as-is gets flattened by the exception handler to that first empty dict, so the client sees "{}".
     # Name each offending step instead so the error points at what to fix.
@@ -1018,15 +1020,16 @@ def _describe_action_errors(errors: list[Any], actions: list[dict]) -> str:
     for action_data, error in zip(actions, errors):
         if not error:
             continue
-        message = _first_error_string(error) or "has an invalid configuration"
+        message = _first_error_string(error) or "Its configuration is invalid"
         name = action_data.get("name") if isinstance(action_data, dict) else None
         failures.append((name or "unnamed", message))
-    if failures and all(getattr(message, "code", None) == COHORT_NOT_READY_CODE for _, message in failures):
+    if not failures:
+        return f"Can't {blocked}. Fix the invalid steps and try again."
+    steps = " ".join(f"Step '{name}': {message}{'' if message.endswith('.') else '.'}" for name, message in failures)
+    if all(getattr(message, "code", None) == COHORT_NOT_READY_CODE for _, message in failures):
         # Nothing in the workflow needs a fix, so the message says to wait rather than to fix a step.
-        waits = " ".join(f"Step '{name}': {message}" for name, message in failures)
-        return f"Can't enable this workflow yet. {waits}"
-    parts = [f"step '{name}': {message}" for name, message in failures]
-    return f"Can't enable this workflow. Fix {'; '.join(parts) or 'the invalid steps'} and try again."
+        return f"Can't {blocked} yet. {steps}"
+    return f"Can't {blocked}. {steps}"
 
 
 _EVENT_TRIGGER_NEEDS_A_TARGET = "Pick at least one event or property filter, or the trigger will never fire."
@@ -1367,6 +1370,32 @@ class ApplyUtmDefaultsResponseSerializer(serializers.Serializer):
     )
 
 
+class HogFlowEmailSendingRateLimitSerializer(serializers.Serializer):
+    count = serializers.IntegerField(
+        min_value=1,
+        max_value=1_000_000,
+        help_text="Maximum number of emails this workflow sends per period.",
+    )
+    period = serializers.ChoiceField(
+        choices=["minute", "hour"],
+        help_text="Window the count applies to. Sends over the limit are delayed until capacity frees up, not dropped.",
+    )
+
+    def validate(self, data):
+        # A PATCH propagates partial=True into nested serializers, which would let a lone
+        # {"period": ...} skip the required count and store a shape the worker can't enforce.
+        # The value is atomic: replace it whole or clear it with null.
+        missing = [field for field in ("count", "period") if field not in data]
+        if missing:
+            raise serializers.ValidationError(f"Both count and period are required, missing: {', '.join(missing)}.")
+        return data
+
+    def to_representation(self, value):
+        # Pass stored JSON through untouched so a legacy or hand-written row that doesn't match
+        # the declared fields can still render (and be fixed) instead of crashing the read.
+        return value
+
+
 class BlastRadiusRequestSerializer(serializers.Serializer):
     filters = serializers.DictField(help_text="Property filters to apply")
     group_type_index = serializers.IntegerField(
@@ -1382,6 +1411,12 @@ class BlastRadiusRequestSerializer(serializers.Serializer):
         default=True,
         help_text="Whether the workflow contains an email step. The tiered audience limit only applies to "
         "email sends; SMS, push, and webhook batches keep the flat limit. Defaults to true.",
+    )
+    email_sending_rate_limit = HogFlowEmailSendingRateLimitSerializer(
+        required=False,
+        allow_null=True,
+        help_text="The workflow's email sending rate limit. A slow enough rate raises the email audience limit. "
+        "The response's rate_limited field says which rates qualify.",
     )
 
 
@@ -1403,6 +1438,16 @@ class RealtimeCohortStatusSerializer(serializers.Serializer):
 class RealtimeCohortRefSerializer(serializers.Serializer):
     id = serializers.IntegerField(help_text="ID of the realtime cohort.")
     name = serializers.CharField(help_text="Name of the realtime cohort.")
+
+
+class RateLimitedAudienceSerializer(serializers.Serializer):
+    max_emails_per_hour = serializers.IntegerField(
+        help_text="The fastest email sending rate limit that raises the audience limit. A faster rate keeps the normal limit."
+    )
+    max_days = serializers.IntegerField(help_text="The most days a rate-limited send may take to reach everyone.")
+    limit = serializers.IntegerField(
+        help_text="The audience limit with a rate limit of max_emails_per_hour. A slower rate allows fewer people."
+    )
 
 
 class BlastRadiusSerializer(serializers.Serializer):
@@ -1434,6 +1479,14 @@ class BlastRadiusSerializer(serializers.Serializer):
         help_text=(
             "Set when a realtime cohort shares the audience with other conditions. Saving that audience fails: "
             "a realtime cohort has to be the only condition."
+        ),
+    )
+    rate_limited = RateLimitedAudienceSerializer(
+        required=False,
+        allow_null=True,
+        help_text=(
+            "Set when an email sending rate limit can raise 'limit'. A send at a slow enough rate leaves part of the "
+            "project's daily email allowance to its other workflows, so it may reach more people over several days."
         ),
     )
 
@@ -2755,32 +2808,6 @@ class HogFlowConversionSerializer(serializers.Serializer):
         return value
 
 
-class HogFlowEmailSendingRateLimitSerializer(serializers.Serializer):
-    count = serializers.IntegerField(
-        min_value=1,
-        max_value=1_000_000,
-        help_text="Maximum number of emails this workflow sends per period.",
-    )
-    period = serializers.ChoiceField(
-        choices=["minute", "hour"],
-        help_text="Window the count applies to. Sends over the limit are delayed until capacity frees up, not dropped.",
-    )
-
-    def validate(self, data):
-        # A PATCH propagates partial=True into nested serializers, which would let a lone
-        # {"period": ...} skip the required count and store a shape the worker can't enforce.
-        # The value is atomic: replace it whole or clear it with null.
-        missing = [field for field in ("count", "period") if field not in data]
-        if missing:
-            raise serializers.ValidationError(f"Both count and period are required, missing: {', '.join(missing)}.")
-        return data
-
-    def to_representation(self, value):
-        # Pass stored JSON through untouched so a legacy or hand-written row that doesn't match
-        # the declared fields can still render (and be fixed) instead of crashing the read.
-        return value
-
-
 class HogFlowScheduleSerializer(serializers.Serializer):
     id = serializers.UUIDField(read_only=True)
     rrule = serializers.CharField(
@@ -3186,6 +3213,12 @@ class EmailSendingAllowanceSerializer(serializers.Serializer):
     enforced = serializers.BooleanField(
         read_only=True,
         help_text="True when these allowances are applied to sends. False while they are only being measured.",
+    )
+    rate_limited_max_batch_audience = serializers.IntegerField(
+        read_only=True,
+        allow_null=True,
+        help_text="The largest audience a single email batch may reach when its sending rate limit is slow enough. "
+        "Null when no rate limit raises max_batch_audience.",
     )
 
 
@@ -3691,6 +3724,9 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
     def _stages_draft(self) -> bool:
         # stage_draft rides the raw request body rather than being a serializer field, mirroring
         # base_updated_at (see perform_update, which does the actual draft routing off it).
+        # Only perform_update honors the flag; every other action writes the live row whatever the body says.
+        if getattr(self.context.get("view"), "action", None) not in ("update", "partial_update"):
+            return False
         request = self.context.get("request")
         return bool(request is not None and getattr(request, "data", None) and request.data.get("stage_draft"))
 
@@ -3967,6 +4003,24 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
             {"actions": submitted_actions, "conversion": data.get("conversion")},
             {"actions": stored.actions, "conversion": stored.conversion} if stored else None,
         )
+        if (
+            instance is not None
+            and "email_sending_rate_limit" in data
+            and rate_limit_change_unpaces_batch(
+                team_id=instance.team_id,
+                hog_flow_id=instance.id,
+                current=instance.email_sending_rate_limit,
+                new=data["email_sending_rate_limit"],
+            )
+        ):
+            raise serializers.ValidationError(
+                {
+                    "email_sending_rate_limit": (
+                        "A broadcast sent at this rate limit is still sending. You can change the rate limit "
+                        "once its sends finish."
+                    )
+                }
+            )
 
         get_team = self.context.get("get_team")
         # The bulk apply writes the defaults it read once, so a newer team default must not mark them as custom edits.
@@ -4014,6 +4068,15 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
             # instance's in place). Route them through validated_data so the write re-strips them into
             # encrypted_inputs rather than persisting recovered secrets to the live actions blob.
             data["actions"] = actions
+
+        if status == HogFlowState.ACTIVE and not is_draft and get_team is not None:
+            live_flow = instance or self.context.get("instance")
+            activating = live_flow is None or live_flow.status != HogFlowState.ACTIVE
+            # Internal rewrites (UTM apply, refresh command) must not fail on a sender that broke after going live,
+            # and an MCP edit that stages a draft gets this check when it's published.
+            user_save = getattr(self.context.get("view"), "action", None) in WORKFLOW_SAVE_ACTIONS
+            if activating or ("actions" in data and user_save and not self.context.get("stages_draft")):
+                _refuse_unusable_email_senders(actions, team_id=get_team().id)
 
         # The trigger is derived from the actions. We can trust the action level validation and pull it out
         trigger_actions = [action for action in actions if action.get("type") == "trigger"]
@@ -4378,6 +4441,52 @@ def _patched_sender_ids(email_patch: Any) -> list[Any]:
     sender = email_patch.get("from") if isinstance(email_patch, dict) else None
     rotation = (sender.get("integrationIds") if isinstance(sender, dict) else None) or []
     return [_patched_sender_id(email_patch), *(rotation if isinstance(rotation, list) else [rotation])]
+
+
+def _email_step_sender_ids(action: dict) -> list[str | None]:
+    config = action.get("config") or {}
+    if action.get("type") != "function_email" and config.get("template_id") != "template-email":
+        return []
+    email_input = (config.get("inputs") or {}).get("email")
+    value = email_input.get("value") if isinstance(email_input, dict) else None
+    sender = value.get("from") if isinstance(value, dict) else None
+    if not isinstance(sender, dict):
+        return []
+    # The send path picks from the rotation alone when one is set.
+    rotation = sender.get("integrationIds")
+    configured = rotation if isinstance(rotation, list) and rotation else [sender.get("integrationId")]
+    # JSON can carry an id as 42.0, which the send path reads as sender 42.
+    configured = [int(value) if isinstance(value, float) and value.is_integer() else value for value in configured]
+    # The send path loads a sender only from a JSON number, so an id stored as text, such as "42", names none.
+    return [
+        str(sender_id) if isinstance(sender_id, int) else None
+        for sender_id in configured
+        if sender_id not in (None, "")
+    ]
+
+
+def _refuse_unusable_email_senders(actions: list[dict], *, team_id: int) -> None:
+    named = [(step_action, _email_step_sender_ids(step_action)) for step_action in actions]
+    if not any(sender_ids for _, sender_ids in named):
+        return
+    verification = own_sender_verification(team_id)
+    problems: list[str] = []
+    for step_action, sender_ids in named:
+        for sender_id in sender_ids:
+            if sender_id is not None and verification.get(sender_id):
+                continue
+            step = step_action.get("name") or "Email"
+            if sender_id in verification:
+                url = absolute_uri(f"/project/{team_id}/workflows/channels/email/{sender_id}")
+                problems.append(
+                    f'The "{step}" step sends from a sender whose domain isn\'t verified yet, so its emails '
+                    f"would fail. Verify the domain at {url}, or choose a verified sender."
+                )
+            else:
+                problems.append(f"The \"{step}\" step's email sender can't be found. Choose another sender.")
+            break
+    if problems:
+        raise serializers.ValidationError({"actions": " ".join(problems)})
 
 
 def _all_verified(sender_ids: list[Any], verified: frozenset[int]) -> bool:
@@ -6100,7 +6209,7 @@ class HogFlowViewSet(
             )
 
     def _validate_locked_content(
-        self, state: WorkflowEditState, data: dict, enforce_graph_structure: bool = False
+        self, state: WorkflowEditState, data: dict, enforce_graph_structure: bool = False, stages_draft: bool = False
     ) -> dict:
         # Runs inside the write's row lock, against the locked row the service passes in.
         serializer = self.get_serializer(state, data=data, partial=True)
@@ -6108,9 +6217,16 @@ class HogFlowViewSet(
             # The surgical endpoints are the paths where structural corruption would be newly introduced,
             # so they enforce graph validation as a hard error (unlike the lenient full-save path).
             serializer.context["enforce_graph_structure"] = True
+        serializer.context["stages_draft"] = stages_draft
         serializer.is_valid(raise_exception=True)
         self._set_up_defaulted_sandbox_sender(serializer)
         return serializer.validated_data
+
+    def _stages_surgical_edit(self, state: WorkflowEditState) -> bool:
+        # Mirrors the routing in edit_workflow_content, which stages these edits with stage_if_protected.
+        return self._is_mcp_request(self.request) and (
+            state.status == HogFlowState.ACTIVE or state.disabled_from_active is True
+        )
 
     def _set_up_defaulted_sandbox_sender(self, serializer: serializers.BaseSerializer) -> None:
         if serializer.context.get(SETS_UP_SANDBOX_SENDER):
@@ -6132,7 +6248,10 @@ class HogFlowViewSet(
         def edit(state: WorkflowEditState, base_actions: list[dict], base_edges: list[dict]) -> dict:
             new_actions, new_edges = apply_graph_operations(base_actions, base_edges, operations)
             return self._validate_locked_content(
-                state, {"actions": new_actions, "edges": new_edges}, enforce_graph_structure=True
+                state,
+                {"actions": new_actions, "edges": new_edges},
+                enforce_graph_structure=True,
+                stages_draft=self._stages_surgical_edit(state),
             )
 
         try:
@@ -6207,9 +6326,7 @@ class HogFlowViewSet(
         # the apply conflicts.
         rendered: Optional[_RenderedActionEmailDesign] = None
         if operations:
-            predicts_draft = self._is_mcp_request(request) and (
-                unlocked.status == HogFlowState.ACTIVE or unlocked.disabled_from_active
-            )
+            predicts_draft = self._stages_surgical_edit(unlocked)
             if predicts_draft and unlocked.draft:
                 render_base = list(unlocked.draft.get("actions") or [])
             else:
@@ -6227,7 +6344,12 @@ class HogFlowViewSet(
             )
             if sender == "sandbox":
                 provision_sandbox_sender(self.team, cast(User, request.user))
-            return self._validate_locked_content(state, {"actions": new_actions}, enforce_graph_structure=True)
+            return self._validate_locked_content(
+                state,
+                {"actions": new_actions},
+                enforce_graph_structure=True,
+                stages_draft=self._stages_surgical_edit(state),
+            )
 
         # Same staleness and draft contract as /graph, but no action-redirect refresh or timing
         # reschedule: an email edit can't delete steps or change timing config.
@@ -6396,7 +6518,18 @@ class HogFlowViewSet(
             )
 
         def validate(state: WorkflowEditState, content: dict) -> dict:
-            return self._validate_locked_content(state, content)
+            try:
+                return self._validate_locked_content(state, content)
+            except exceptions.ValidationError as error:
+                action_errors: Any = error.detail.get("actions") if isinstance(error.detail, dict) else None
+                actions = content.get("actions")
+                # ListField reports child errors keyed by index rather than as a list.
+                if isinstance(action_errors, dict) and isinstance(actions, list):
+                    errors_by_index = [action_errors.get(index) for index in range(len(actions))]
+                    raise exceptions.ValidationError(
+                        {"actions": _describe_action_errors(errors_by_index, actions, "publish these changes")}
+                    )
+                raise
 
         try:
             result = publish_draft(
@@ -7248,7 +7381,12 @@ class HogFlowViewSet(
             # data, so it requires the same access the audience editor requires.
             if not self.user_access_control.check_access_level_for_resource("account", "viewer"):
                 raise exceptions.PermissionDenied("You do not have access to customer analytics accounts.")
-            size = get_account_audience_size(team_id=self.team_id, filters=filters, sends_email=params["sends_email"])
+            size = get_account_audience_size(
+                team_id=self.team_id,
+                filters=filters,
+                sends_email=params["sends_email"],
+                email_rate_limit=params.get("email_sending_rate_limit"),
+            )
             return Response(
                 BlastRadiusSerializer(
                     {
@@ -7257,6 +7395,7 @@ class HogFlowViewSet(
                         "limit": size.limit,
                         "dedupe_key": None,
                         "confirm_token": mint_audience_confirm_token(self.team_id, filters, None, None),
+                        "rate_limited": size.rate_limited,
                     }
                 ).data
             )
@@ -7269,6 +7408,7 @@ class HogFlowViewSet(
             group_type_index=group_type_index,
             dedupe_key=dedupe_key,
             sends_email=params["sends_email"],
+            email_rate_limit=params.get("email_sending_rate_limit"),
         )
         # The cohort API denies a scoped token without cohort:read, so this response withholds the
         # cohort's name and build state from it too.
@@ -7303,6 +7443,7 @@ class HogFlowViewSet(
                         if size.realtime_cohort_with_other_conditions
                         else None
                     ),
+                    "rate_limited": size.rate_limited,
                 }
             ).data
         )

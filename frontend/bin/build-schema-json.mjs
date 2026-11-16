@@ -20,8 +20,13 @@ const schema = tsj.createGenerator(config).createSchema(config.type)
 
 // The generator writes a one-member enum as `const`, which Python gets as a `Literal` root model.
 // Tag a TS enum `@schemaEnum` to keep its `enum` list, so Python gets a `StrEnum` at any size.
-for (const definition of Object.values(schema.definitions ?? {})) {
+// An empty enum is not valid JSON Schema, so it is left out. bin/split-schema-enums.py writes its Python placeholder.
+for (const [name, definition] of Object.entries(schema.definitions ?? {})) {
     if (definition.schemaEnum !== undefined) {
+        if (Array.isArray(definition.enum) && definition.enum.length === 0) {
+            delete schema.definitions[name]
+            continue
+        }
         if ('const' in definition) {
             definition.enum = [definition.const]
             delete definition.const

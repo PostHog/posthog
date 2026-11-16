@@ -156,6 +156,16 @@ class PromptCheck:
 
 
 @frozen
+class PromptCitation(PromptCheck):
+    """An answered web-search check that cited a page or site, or ran a search, with the prompt as it ran."""
+
+    prompt_id: str
+    prompt_text: str
+    prompt_topic: str
+    mentioned: bool
+
+
+@frozen
 class PromptEngineStats:
     engine: str
     checks: int
@@ -312,6 +322,8 @@ class PromptSetOverview:
     target_domains: tuple[str, ...]
     brand_names: tuple[str, ...]
     branded: BrandedSegment
+    engine: str | None
+    topic: str | None
     current: PromptSetCounts
     previous: PromptSetCounts
     # Answered checks in the current window on each side of the split, whatever `branded` selects.
@@ -596,6 +608,8 @@ class PromptSetRankings:
     window_from: dt.date
     window_to: dt.date
     branded: BrandedSegment
+    engine: str | None
+    topic: str | None
     answers: int
     competitors_confirmed: bool
     brands: tuple[RankedBrand, ...]

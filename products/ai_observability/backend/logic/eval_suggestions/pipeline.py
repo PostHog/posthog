@@ -43,7 +43,7 @@ from . import (
 )
 from .adapters import AdaptedCheck, compile_check
 from .applicability import applicable, content_profile
-from .config import SuggestionSettings, is_enabled_for_organization
+from .config import SuggestionSettings, runs_for_organization
 from .coverage import Coverage, dismissed_dedupe_keys, existing_evals
 from .measure import (
     Measurement,
@@ -64,6 +64,8 @@ logger = structlog.get_logger(__name__)
 WINDOW = timedelta(days=7)
 # Traces younger than this may still be receiving events, so the window stops short of now.
 SETTLE = timedelta(minutes=30)
+# Below this share of sampled traces with a model answer, the team has not captured enough to suggest anything.
+MIN_CONTENT_SHARE = 0.25
 # A drafted body under the per-trace limit can still be slow on every trace, so measuring it has a total budget.
 DRAFT_MEASURE_BUDGET_SECONDS = 120
 DRAFT_ABORT_ERRORS = ("Execution timed out", "Memory limit exceeded")
@@ -223,6 +225,35 @@ def _drafted_proposals(
     return [replace(proposal, dedupe_key=templated.dedupe_key)] if proposal else []
 
 
+def _publish_fixes_only(
+    run: EvalSuggestionRun,
+    stages: "_Stages",
+    window: ProfileWindow,
+    profile: TeamProfile,
+    fixes: list[Proposal],
+    model: str | None,
+) -> int:
+    """Hand only the fix cards on, which need no trace content, and skip measuring and screening."""
+    runs.save_handoff(
+        run,
+        Handoff(
+            window=window,
+            profile=profile,
+            sample=[],
+            proposals=fixes,
+            gaps=[],
+            screened_judges=[],
+            judge_target="trace",
+            judge_model=model,
+            sources={},
+            candidate_options={},
+        ),
+        stages.record,
+        "measure",
+    )
+    return len(fixes)
+
+
 def measure_stage(
     team_id: int,
     run_id: str,
@@ -241,7 +272,7 @@ def measure_stage(
         return 0
     team = run.team
     # The weekly plan can be days old, so an organization taken off the rollout since then gets nothing new.
-    if not is_enabled_for_organization(str(team.organization_id)):
+    if not runs_for_organization(str(team.organization_id)):
         runs.fail_run(team_id, run_id, "The organization is no longer in the eval suggestions rollout")
         return 0
     stages = _Stages()
@@ -261,24 +292,7 @@ def measure_stage(
     profile = fetch_profile(team, window)
     if profile.generations == 0:
         stages.set("profile", "skipped", detail="no generations in the last 7 days")
-        runs.save_handoff(
-            run,
-            Handoff(
-                window=window,
-                profile=profile,
-                sample=[],
-                proposals=fixes,
-                gaps=[],
-                screened_judges=[],
-                judge_target="trace",
-                judge_model=model,
-                sources={},
-                candidate_options={},
-            ),
-            stages.record,
-            "measure",
-        )
-        return len(fixes)
+        return _publish_fixes_only(run, stages, window, profile, fixes, model)
 
     refs = discover_sample(team, window, profile)
     sample = hydrate_sample(team, window, list(profile.segments), refs)
@@ -296,8 +310,14 @@ def measure_stage(
         held_out=len(sample.held_out),
         multi_turn_share=round(content.multi_turn_share, 3),
         text_share=round(content.text_share, 3),
+        output_share=round(content.output_share, 3),
         spanning_days_share=round(content.spanning_days_share, 3),
     )
+    # Without the model's inputs and outputs, every suggestion would be a generic error count. The instrumentation
+    # checklist already asks the team to capture them, so the run stops before any check or paid call.
+    if content.output_share < MIN_CONTENT_SHARE:
+        stages.set("applicability", "skipped", detail="too few traces carry the model's output")
+        return _publish_fixes_only(run, stages, window, profile, fixes, model)
 
     applicability = applicable(profile, content)
     stages.set(

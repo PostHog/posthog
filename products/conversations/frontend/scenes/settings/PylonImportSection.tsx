@@ -3,9 +3,8 @@ import { useActions, useValues } from 'kea'
 import { LemonBanner, LemonButton, LemonCard, LemonInput, LemonSelect } from '@posthog/lemon-ui'
 
 import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
-import { FEATURE_FLAGS, OrganizationMembershipLevel } from 'lib/constants'
+import { OrganizationMembershipLevel } from 'lib/constants'
 import { LemonField } from 'lib/lemon-ui/LemonField'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
 
@@ -19,11 +18,7 @@ function startDisabledReason(isImportRunning: boolean, apiToken: string): string
     return apiToken.trim() ? undefined : 'Enter an API token'
 }
 
-export function PylonImportSection(): JSX.Element | null {
-    const { featureFlags } = useValues(featureFlagLogic)
-    if (!featureFlags[FEATURE_FLAGS.PRODUCT_SUPPORT_PYLON_IMPORT]) {
-        return null
-    }
+export function PylonImportSection(): JSX.Element {
     return (
         <SceneSection
             title="Pylon import"

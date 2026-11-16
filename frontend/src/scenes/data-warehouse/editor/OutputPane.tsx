@@ -98,7 +98,6 @@ import {
 } from '../../../queries/nodes/DataTable/clipboardUtils'
 import { EditorQueryScanBanner } from './components/EditorQueryScanBanner'
 import { FixErrorButton } from './components/FixErrorButton'
-import { fixSQLErrorsLogic } from './fixSQLErrorsLogic'
 import { QueryIndexUsageBar } from './output-pane-tabs/QueryIndexUsageBar'
 import { OutputTab, outputPaneLogic } from './outputPaneLogic'
 import { sqlEditorLogic } from './sqlEditorLogic'
@@ -639,9 +638,9 @@ export function OutputPane({ tabId, showToolbar = true, biMode = false, onShareT
         metadata,
         metadataLoading,
         indexReportStale,
+        fixErrorsLoading: fixWithAILoading,
     } = useValues(sqlEditorLogic)
     const { setSourceQuery, applyIndexQuickfix, fixIndexUsageWithAI } = useActions(sqlEditorLogic)
-    const { responseLoading: fixWithAILoading } = useValues(fixSQLErrorsLogic)
     const { isDarkModeOn } = useValues(themeLogic)
     const {
         response: dataNodeResponse,

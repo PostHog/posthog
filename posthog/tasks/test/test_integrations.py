@@ -1,18 +1,27 @@
 import time
+from datetime import timedelta
 from typing import Optional
 
 import pytest
 from posthog.test.base import APIBaseTest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
+
+from django.db import OperationalError, connection
+from django.utils import timezone
 
 from parameterized import parameterized
 
 from posthog.egress.github.transport import GitHubEgressBudgetExhausted
 from posthog.egress.limiter.policies import Priority
+from posthog.integrations import CrossTeamFilter
+from posthog.integrations.accessors import IntegrationReader
 from posthog.models.integration import GitHubIntegration, Integration
+from posthog.models.integration.email import lock_sender_domain
+from posthog.models.team.team import Team
 from posthog.redis import get_client as get_redis_client
 from posthog.tasks.integrations import (
     delete_ses_identity_if_unused,
+    expire_unverified_email_senders,
     refresh_github_branch_cache,
     refresh_integration,
     refresh_integrations,
@@ -195,6 +204,150 @@ class TestIntegrationsTasks(APIBaseTest):
             delete_ses_identity_if_unused("example.com")
 
         assert mock_delete.called is expect_delete
+
+    @patch("posthog.tasks.integrations.delete_ses_identity")
+    def test_expire_unverified_email_senders_removes_old_unverified_senders_and_their_identities(
+        self, mock_delete_identity: MagicMock
+    ) -> None:
+        for email, verified, age_days, contested in [
+            ("a@stale.com", False, 15, False),
+            ("d@contested.com", False, 20, True),
+            ("b@fresh.com", False, 13, False),
+            ("c@verified.com", True, 30, False),
+        ]:
+            sender = Integration.objects.create(
+                team=self.team,
+                kind="email",
+                integration_id=email,
+                config={
+                    "email": email,
+                    "domain": email.split("@")[1],
+                    "provider": "ses",
+                    "verified": verified,
+                    "organization_proof_required": contested,
+                },
+            )
+            Integration.objects.filter(id=sender.id).update(created_at=timezone.now() - timedelta(days=age_days))
+
+        with self.captureOnCommitCallbacks(execute=True):
+            expire_unverified_email_senders()
+
+        remaining = Integration.objects.filter(kind="email").values_list("integration_id", flat=True)
+        assert set(remaining) == {"b@fresh.com", "c@verified.com", "d@contested.com"}
+        assert [call.args[0] for call in mock_delete_identity.call_args_list] == ["stale.com"]
+
+    @parameterized.expand(
+        [("identity_budget_only", 200, {"d@flood.com"}), ("delete_budget_reached", 2, {"c@other.com", "d@flood.com"})]
+    )
+    @patch("posthog.tasks.integrations.EXPIRED_EMAIL_SENDERS_PER_RUN", 1)
+    @patch("posthog.tasks.integrations.delete_ses_identity")
+    @patch("posthog.tasks.integrations.remove_ses_tenant_associations")
+    def test_expire_unverified_email_senders_spends_its_budget_only_on_freed_identities(
+        self,
+        _name: str,
+        deletes_per_run: int,
+        remaining: set[str],
+        _mock_remove_links: MagicMock,
+        _mock_delete_identity: MagicMock,
+    ) -> None:
+        for email, age_days in [("a@flood.com", 15), ("b@flood.com", 15), ("c@other.com", 15), ("d@flood.com", 1)]:
+            sender = Integration.objects.create(
+                team=self.team,
+                kind="email",
+                integration_id=email,
+                config={"email": email, "domain": email.split("@")[1], "provider": "ses", "verified": False},
+            )
+            Integration.objects.filter(id=sender.id).update(created_at=timezone.now() - timedelta(days=age_days))
+
+        with patch("posthog.tasks.integrations.DELETED_EMAIL_SENDERS_PER_RUN", deletes_per_run):
+            expire_unverified_email_senders()
+
+        assert set(Integration.objects.filter(kind="email").values_list("integration_id", flat=True)) == remaining
+
+    @patch("posthog.tasks.integrations.EXPIRED_EMAIL_SENDERS_PER_RUN", 2)
+    @patch("posthog.tasks.integrations.delete_ses_identity")
+    def test_expire_unverified_email_senders_drains_a_backlog_over_several_runs(
+        self, _mock_delete_identity: MagicMock
+    ) -> None:
+        for index in range(3):
+            email = f"a@stale{index}.com"
+            sender = Integration.objects.create(
+                team=self.team,
+                kind="email",
+                integration_id=email,
+                config={"email": email, "domain": f"stale{index}.com", "provider": "ses", "verified": False},
+            )
+            Integration.objects.filter(id=sender.id).update(created_at=timezone.now() - timedelta(days=15))
+
+        expire_unverified_email_senders()
+        assert Integration.objects.filter(kind="email").count() == 1
+        expire_unverified_email_senders()
+        assert Integration.objects.filter(kind="email").count() == 0
+
+    @parameterized.expand([("verified", {"verified": True}), ("contested", {"organization_proof_required": True})])
+    @patch("posthog.tasks.integrations.delete_ses_identity")
+    def test_expire_unverified_email_senders_keeps_a_sender_that_changes_during_the_sweep(
+        self, _name: str, change: dict, mock_delete_identity: MagicMock
+    ) -> None:
+        config = {"email": "a@late.com", "domain": "late.com", "provider": "ses", "verified": False}
+        sender = Integration.objects.create(team=self.team, kind="email", integration_id="a@late.com", config=config)
+        Integration.objects.filter(id=sender.id).update(created_at=timezone.now() - timedelta(days=15))
+        list_across_teams = IntegrationReader.list_across_teams
+
+        def list_then_verify(reader: IntegrationReader, cross_team_filter: CrossTeamFilter) -> list:
+            senders = list_across_teams(reader, cross_team_filter)
+            Integration.objects.filter(id=sender.id).update(config={**config, **change})
+            return senders
+
+        with (
+            patch.object(IntegrationReader, "list_across_teams", list_then_verify),
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            expire_unverified_email_senders()
+
+        assert Integration.objects.filter(id=sender.id).exists()
+        mock_delete_identity.assert_not_called()
+
+    @parameterized.expand(
+        [
+            ("another_project_still_sends", "other", False, True),
+            ("the_same_project_still_sends", "same", False, False),
+            ("nobody_sends", None, True, False),
+        ]
+    )
+    def test_delete_ses_identity_if_unused_keeps_only_the_links_of_projects_that_still_send(
+        self, _name: str, remaining_sender: Optional[str], identity_deleted: bool, link_removed: bool
+    ) -> None:
+        if remaining_sender:
+            team = self.team if remaining_sender == "same" else Team.objects.create(organization=self.organization)
+            Integration.objects.create(team=team, kind="email", config={"domain": "example.com"})
+        with (
+            patch("posthog.tasks.integrations.delete_ses_identity") as mock_delete,
+            patch("posthog.tasks.integrations.remove_ses_tenant_associations") as mock_remove_links,
+        ):
+            delete_ses_identity_if_unused("example.com", self.team.id)
+
+        assert mock_delete.called is identity_deleted
+        assert [call.kwargs["team_ids"] for call in mock_remove_links.call_args_list] == (
+            [[self.team.id]] if link_removed else []
+        )
+
+    @patch("posthog.tasks.integrations.delete_ses_identity")
+    def test_identity_cleanup_waits_for_a_sender_create_in_progress_on_the_domain(
+        self, mock_delete_identity: MagicMock
+    ) -> None:
+        other = connection.get_new_connection(connection.get_connection_params())
+        try:
+            with other.cursor() as cursor:
+                lock_sender_domain(cursor, "example.com")
+            with connection.cursor() as cursor:
+                cursor.execute("SET LOCAL lock_timeout = '200ms'")
+            with pytest.raises(OperationalError, match="lock timeout"):
+                delete_ses_identity_if_unused("example.com")
+            mock_delete_identity.assert_not_called()
+        finally:
+            other.rollback()
+            other.close()
 
     def test_branch_refresh_leaves_a_newer_refresh_lock_alone(self) -> None:
         integration = self.create_integration("github", config={"installation_id": "INSTALL"})
