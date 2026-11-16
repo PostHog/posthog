@@ -222,6 +222,29 @@ def configured_destination_template_ids(
     return frozenset(cast(Collection[str], template_ids))
 
 
+# An `alert_id` condition that binds a function to one alert: a string id with `exact` or no operator.
+_ALERT_ID_CONDITION = '@.key == "alert_id" && @.value.type() == "string"'
+_EXACT_OPERATOR = '(!(exists(@.operator)) || @.operator == "exact")'
+_BOUND_TO_THIS_ALERT_PATH = f"$.properties[*] ? ({_ALERT_ID_CONDITION} && {_EXACT_OPERATOR} && @.value == $alert_id)"
+# The consumer ANDs every property filter, so a second alert_id condition that this alert fails
+# (exact on another id, or `is_not` this one) means the function never runs for it. Conditions
+# this alert passes, such as `is_not` another id, are kept.
+_EXCLUDES_THIS_ALERT_PATH = (
+    f"$.properties[*] ? ({_ALERT_ID_CONDITION} && (({_EXACT_OPERATOR} && @.value != $alert_id)"
+    ' || (@.operator == "is_not" && @.value == $alert_id)))'
+)
+
+
+def _alert_id_path_exists(path: str, alert_id: str) -> Func:
+    return Func(
+        F("filters"),
+        Value(path),
+        Value({"alert_id": alert_id}, output_field=JSONField()),
+        function="jsonb_path_exists",
+        output_field=BooleanField(),
+    )
+
+
 def _active_alert_destinations_qs(
     *, team_id: int, alert_id: str, allowed_event_ids: Collection[str]
 ) -> QuerySet[HogFunction]:
@@ -230,33 +253,12 @@ def _active_alert_destinations_qs(
             team_id=team_id, alert_ids=[alert_id], allowed_event_ids=allowed_event_ids, known_templates_only=False
         )
         .annotate(
-            # The consumer ANDs every property filter, so a second alert_id condition that this
-            # alert fails (exact on another id, or `is_not` this one) means the function never
-            # runs for it. Conditions this alert passes, such as `is_not` another id, are kept.
-            contradicts_alert_binding=Func(
-                F("filters"),
-                Value(
-                    '$.properties[*] ? (@.key == "alert_id" && @.value.type() == "string"'
-                    ' && (((!(exists(@.operator)) || @.operator == "exact") && @.value != $alert_id)'
-                    ' || (@.operator == "is_not" && @.value == $alert_id)))'
-                ),
-                Value({"alert_id": alert_id}, output_field=JSONField()),
-                function="jsonb_path_exists",
-                output_field=BooleanField(),
-            )
+            bound_to_this_alert=_alert_id_path_exists(_BOUND_TO_THIS_ALERT_PATH, alert_id),
+            excludes_this_alert=_alert_id_path_exists(_EXCLUDES_THIS_ALERT_PATH, alert_id),
         )
         .filter(
-            Func(
-                F("filters"),
-                Value(
-                    '$.properties[*] ? (@.key == "alert_id" && @.value.type() == "string" && @.value == $alert_id'
-                    ' && (!(exists(@.operator)) || @.operator == "exact"))'
-                ),
-                Value({"alert_id": alert_id}, output_field=JSONField()),
-                function="jsonb_path_exists",
-                output_field=BooleanField(),
-            ),
-            contradicts_alert_binding=False,
+            bound_to_this_alert=True,
+            excludes_this_alert=False,
             type="internal_destination",
             filters__source="internal-events",
             enabled=True,
