@@ -1178,15 +1178,17 @@ def test_active_session_cap_refuses_a_cold_start_before_create(mocker, warm: boo
 
 
 @pytest.mark.parametrize(
-    "failing_step,destroy_fails",
+    "failing_step,destroy_fails,agent_version_persisted",
     [
-        ("get_connect_credentials", False),
-        ("get_connect_credentials", True),
-        ("run_post_create_housekeeping", False),
-        ("persist_sandbox_connection", False),
+        ("get_connect_credentials", False, False),
+        ("get_connect_credentials", True, False),
+        ("run_post_create_housekeeping", False, False),
+        ("persist_sandbox_connection", False, True),
     ],
 )
-def test_a_failure_after_create_destroys_the_fresh_sandbox(mocker, failing_step: str, destroy_fails: bool):
+def test_a_failure_after_create_destroys_the_fresh_sandbox(
+    mocker, failing_step: str, destroy_fails: bool, agent_version_persisted: bool
+):
     context = TaskProcessingContext(
         task_id="task-id",
         run_id="run-id",
@@ -1237,7 +1239,12 @@ def test_a_failure_after_create_destroys_the_fresh_sandbox(mocker, failing_step:
         )
 
     sandbox.destroy.assert_called_once_with()
-    task_run.update_state_atomic.assert_not_called()
+    expected_state_writes = (
+        [mocker.call("run-id", updates={"agent_version": "1.2.3", "agent_version_expected": "1.2.3"}, remove_keys=[])]
+        if agent_version_persisted
+        else []
+    )
+    assert task_run.update_state_atomic.call_args_list == expected_state_writes
     task_run.clear_sandbox_connection_state_atomic.assert_called_once_with("run-id", "sandbox-id")
 
 
