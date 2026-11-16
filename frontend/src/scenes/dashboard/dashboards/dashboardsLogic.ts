@@ -358,8 +358,7 @@ export const dashboardsLogic = kea<dashboardsLogicType>([
                             ...filters,
                         }),
                     setSearch: (state, { search }) => ({ ...state, search }),
-                    setCurrentTab: (state, { tab }) =>
-                        tab === DashboardsTab.Yours ? { ...state, createdBy: DEFAULT_FILTERS.createdBy } : state,
+                    setCurrentTab: (state) => ({ ...DEFAULT_FILTERS, search: state.search }),
                 },
             ],
             tagSearch: [
@@ -571,8 +570,8 @@ export const dashboardsLogic = kea<dashboardsLogicType>([
         setCurrentTab: () => {
             const tab = values.currentTab === DashboardsTab.All ? undefined : values.currentTab
             const searchParams: Record<string, any> = { ...router.values.searchParams, tab }
-            if (values.currentTab === DashboardsTab.Yours) {
-                delete searchParams['created_by']
+            for (const filter of ['created_by', 'pinned', 'shared', 'tags', 'folder']) {
+                delete searchParams[filter]
             }
             if (objectsEqual(searchParams, router.values.searchParams)) {
                 return
