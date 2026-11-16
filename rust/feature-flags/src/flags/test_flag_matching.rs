@@ -8552,6 +8552,53 @@ mod tests {
         )
     }
 
+    /// The properties fetch gets the whole persons DB deadline, not what a slower override lookup
+    /// leaves of it. A lookup that outlasts the deadline fails only the continuity flag.
+    #[tokio::test]
+    async fn test_slow_override_lookup_does_not_consume_property_fetch_deadline() {
+        let context = TestContext::new(None).await;
+        let team = context.insert_new_team(None).await.unwrap();
+        let distinct_id = "slow_lookup_user";
+        let property_flag = insert_person_and_db_property_flag(
+            &context,
+            team.id,
+            distinct_id,
+            Some(DbPropertyKind::Person),
+        )
+        .await
+        .unwrap();
+        let deadline = Duration::from_millis(1000);
+        let mut matcher = matcher_with_real_caches(
+            &context,
+            team.id,
+            distinct_id,
+            context.create_postgres_router(),
+        )
+        .with_persons_db_deadline(Some(tokio::time::Instant::now() + deadline));
+        let flags = flag_list_with_metadata(vec![property_flag]);
+        let precomputed = PrecomputedDependencyGraph::build(&flags, None);
+
+        let slow_lookup = async {
+            tokio::time::sleep(deadline + Duration::from_millis(100)).await;
+            HashKeyOverrideLookupResult::Failed
+        };
+        let response = matcher
+            .evaluate_flags_with_overrides(
+                crate::flags::flag_matching::FlagEvaluationOverrides::default(),
+                slow_lookup,
+                Uuid::new_v4(),
+                precomputed.evaluation_stages,
+                precomputed.flags_with_missing_deps,
+            )
+            .await
+            .unwrap();
+
+        assert_eq!(
+            flag_outcome(&response, "property_flag"),
+            Some((true, false, "condition_match".to_string()))
+        );
+    }
+
     /// When a request needs both the hash key override lookup and the properties fetch, the
     /// continuity flag hashes on the override and the property flag matches on DB properties.
     /// The canonical log fields come from both paths, so a lookup moved onto another task, which
@@ -8971,10 +9018,7 @@ mod tests {
         let response = matcher
             .evaluate_flags_with_overrides(
                 overrides,
-                std::future::ready(HashKeyOverrideLookupResult {
-                    overrides: None,
-                    failed: true,
-                }),
+                std::future::ready(HashKeyOverrideLookupResult::Failed),
                 Uuid::new_v4(),
                 precomputed.evaluation_stages,
                 precomputed.flags_with_missing_deps,
@@ -9092,10 +9136,7 @@ mod tests {
         let response = matcher
             .evaluate_flags_with_overrides(
                 overrides,
-                std::future::ready(HashKeyOverrideLookupResult {
-                    overrides: None,
-                    failed: true,
-                }),
+                std::future::ready(HashKeyOverrideLookupResult::Failed),
                 Uuid::new_v4(),
                 precomputed.evaluation_stages,
                 precomputed.flags_with_missing_deps,

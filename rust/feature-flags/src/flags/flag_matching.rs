@@ -50,6 +50,7 @@ use chrono_tz::Tz;
 use common_metrics::{histogram, inc, timing_guard, timing_guard_high_precision};
 use common_types::collections::HashMapExt;
 use common_types::{PersonId, TeamId};
+use futures::future::Either;
 use rayon::prelude::*;
 use serde_json::Value;
 use std::collections::{HashMap, HashSet};
@@ -72,10 +73,21 @@ pub struct FlagEvaluationOverrides {
 
 /// What the hash key override lookup found.
 #[derive(Debug, Default)]
-pub struct HashKeyOverrideLookupResult {
-    pub overrides: Option<HashMap<String, String>>,
-    /// True when a persons DB call in the lookup failed.
-    pub failed: bool,
+pub enum HashKeyOverrideLookupResult {
+    #[default]
+    NotNeeded,
+    Found(HashMap<String, String>),
+    Failed,
+}
+
+impl HashKeyOverrideLookupResult {
+    fn into_parts(self) -> (Option<HashMap<String, String>>, bool) {
+        match self {
+            Self::Found(overrides) => (Some(overrides), false),
+            Self::NotNeeded => (None, false),
+            Self::Failed => (None, true),
+        }
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -592,58 +604,49 @@ struct HashKeyOverrideLookup {
 }
 
 impl HashKeyOverrideLookup {
-    /// If experience continuity is enabled, we need to process the hash key override.
     /// See [`HashKeyOverrideLookup::process_hash_key_override`] for more details.
-    async fn run(
-        self,
-        flags_have_experience_continuity_enabled: bool,
-        hash_key_override: Option<String>,
-    ) -> HashKeyOverrideLookupResult {
+    async fn run(self, hash_key_override: Option<String>) -> HashKeyOverrideLookupResult {
         let hash_key_timer = common_metrics::timing_guard(FLAG_HASH_KEY_PROCESSING_TIME, &[]);
-        let (hash_key_overrides, flag_hash_key_override_error) =
-            if flags_have_experience_continuity_enabled {
-                common_metrics::inc(FLAG_EXPERIENCE_CONTINUITY_REQUESTS_COUNTER, &[], 1);
-                with_canonical_log(|log| log.outcome_marks.mark_needs_persons());
-                match hash_key_override {
-                    Some(hash_key) => {
-                        let target_distinct_ids = vec![self.distinct_id.clone(), hash_key.clone()];
-                        self.process_hash_key_override(hash_key, target_distinct_ids)
-                            .await
-                    }
-                    // If no hash key override is provided, we need to look up existing overrides.
-                    // Most of the time this is fine because our client side sdks usually include $anon_distinct_id in their requests,
-                    // but if a customer is using hash key overrides across a client sdk and a server sdk then the experience
-                    // will be inconsistent because server sdks won't include $anon_distinct_id in their requests.
-                    // In addition, this behavior is consistent with /decide.
-                    None => {
-                        match before_persons_db_deadline(
-                            self.persons_db_deadline,
-                            db_operations::GET_HASH_KEY_OVERRIDES,
-                            get_feature_flag_hash_key_overrides(
-                                self.router.get_persons_reader().clone(),
-                                pool_names::PERSONS_READER,
-                                self.router.get_persons_writer().clone(),
-                                self.team_id,
-                                vec![self.distinct_id.clone()],
-                            ),
-                        )
+        let (hash_key_overrides, flag_hash_key_override_error) = {
+            common_metrics::inc(FLAG_EXPERIENCE_CONTINUITY_REQUESTS_COUNTER, &[], 1);
+            with_canonical_log(|log| log.outcome_marks.mark_needs_persons());
+            match hash_key_override {
+                Some(hash_key) => {
+                    let target_distinct_ids = vec![self.distinct_id.clone(), hash_key.clone()];
+                    self.process_hash_key_override(hash_key, target_distinct_ids)
                         .await
-                        {
-                            Ok(overrides) => (Some(overrides), false),
-                            Err(e) => {
-                                error!(
+                }
+                // If no hash key override is provided, we need to look up existing overrides.
+                // Most of the time this is fine because our client side sdks usually include $anon_distinct_id in their requests,
+                // but if a customer is using hash key overrides across a client sdk and a server sdk then the experience
+                // will be inconsistent because server sdks won't include $anon_distinct_id in their requests.
+                // In addition, this behavior is consistent with /decide.
+                None => {
+                    match before_persons_db_deadline(
+                        self.persons_db_deadline,
+                        db_operations::GET_HASH_KEY_OVERRIDES,
+                        get_feature_flag_hash_key_overrides(
+                            self.router.get_persons_reader().clone(),
+                            pool_names::PERSONS_READER,
+                            self.router.get_persons_writer().clone(),
+                            self.team_id,
+                            vec![self.distinct_id.clone()],
+                        ),
+                    )
+                    .await
+                    {
+                        Ok(overrides) => (Some(overrides), false),
+                        Err(e) => {
+                            error!(
                                     "Failed to get feature flag hash key overrides for team {} distinct_id {}: {:?}",
                                     self.team_id, self.distinct_id, e
                                 );
-                                (None, true)
-                            }
+                            (None, true)
                         }
                     }
                 }
-            } else {
-                // if experience continuity is not enabled, we don't need to worry about hash key overrides
-                (None, false)
-            };
+            }
+        };
 
         // If there was an error in processing hash key overrides, increment the error counter
         if flag_hash_key_override_error {
@@ -678,9 +681,12 @@ impl HashKeyOverrideLookup {
             with_canonical_log(|log| log.hash_key_override_status = Some(status));
         }
 
-        HashKeyOverrideLookupResult {
-            overrides: hash_key_overrides,
-            failed: flag_hash_key_override_error,
+        match hash_key_overrides {
+            Some(overrides) if !flag_hash_key_override_error => {
+                HashKeyOverrideLookupResult::Found(overrides)
+            }
+            _ if flag_hash_key_override_error => HashKeyOverrideLookupResult::Failed,
+            _ => HashKeyOverrideLookupResult::NotNeeded,
         }
     }
 
@@ -1039,16 +1045,23 @@ impl FeatureFlagMatcher {
 
         // Boxed so that this future, and the futures that hold it, grow by a pointer rather than
         // by the lookup's state. See `before_persons_db_deadline` for why their size matters.
-        let hash_key_lookup = Box::pin(
-            HashKeyOverrideLookup {
-                router: self.router.clone(),
-                team_id: self.team_id,
-                distinct_id: self.distinct_id.clone(),
-                skip_writes: self.skip_writes,
-                persons_db_deadline: self.persons_db_deadline,
-            }
-            .run(do_hash_key_lookup, hash_key_override.clone()),
-        );
+        let hash_key_lookup = if do_hash_key_lookup {
+            Either::Left(Box::pin(
+                HashKeyOverrideLookup {
+                    router: self.router.clone(),
+                    team_id: self.team_id,
+                    distinct_id: self.distinct_id.clone(),
+                    skip_writes: self.skip_writes,
+                    persons_db_deadline: self.persons_db_deadline,
+                }
+                .run(hash_key_override.clone()),
+            ))
+        } else {
+            common_metrics::timing_guard(FLAG_HASH_KEY_PROCESSING_TIME, &[])
+                .label("outcome", "success")
+                .fin();
+            Either::Right(std::future::ready(HashKeyOverrideLookupResult::NotNeeded))
+        };
 
         let overrides = FlagEvaluationOverrides {
             person_property_overrides,
@@ -1271,8 +1284,9 @@ impl FeatureFlagMatcher {
             .filter(|flag| flag.filters.is_supported())
             .collect();
 
-        // `biased` polls the lookup first, so when both hit the persons DB deadline together, the
-        // canonical log records the lookup's operation, as it did when the lookup ran first.
+        // `biased` polls the lookup first, so a lookup that is already past the persons DB deadline
+        // when both are polled is the one the canonical log records. It does not order timers: a
+        // property fetch that wakes just after the deadline can still record its operation first.
         let mut db_prep_flags_map = HashMap::new();
         let (hash_key_lookup, db_prep_errors) = tokio::join!(
             biased;
@@ -1291,10 +1305,11 @@ impl FeatureFlagMatcher {
                 group_type_mapping_errors | db_prep_errors
             },
         );
-        errors_while_computing_flags |= hash_key_lookup.failed | db_prep_errors;
+        let (hash_key_overrides, hash_key_lookup_failed) = hash_key_lookup.into_parts();
+        errors_while_computing_flags |= hash_key_lookup_failed | db_prep_errors;
 
         // Handle hash key override errors by creating error responses for flags that need experience continuity
-        if hash_key_lookup.failed && hash_key_lookup.overrides.is_none() {
+        if hash_key_lookup_failed {
             let hash_key_error = FlagError::HashKeyOverrideError;
             for flag in flags.iter().filter(|flag| {
                 !self.filtered_out_flag_ids.contains(&flag.id)
@@ -1325,7 +1340,7 @@ impl FeatureFlagMatcher {
                     &mut evaluated_flags_map,
                     &overrides.person_property_overrides,
                     &overrides.group_property_overrides,
-                    &hash_key_lookup.overrides,
+                    &hash_key_overrides,
                     &overrides.request_hash_key_override,
                     &flags_with_missing_deps,
                 )
