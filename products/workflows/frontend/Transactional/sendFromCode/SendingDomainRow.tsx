@@ -52,7 +52,7 @@ export function SendingDomainRow(): JSX.Element | null {
                     <LemonButton
                         type="primary"
                         size="small"
-                        to={emailDomainSetupPath(sendingDomain.integrationId)}
+                        to={emailDomainSetupPath(sendingDomain.integrationId, 'transactional')}
                         data-attr="send-from-code-check-dns-records"
                     >
                         Check DNS records
@@ -67,7 +67,7 @@ export function SendingDomainRow(): JSX.Element | null {
                     <LemonButton
                         type="primary"
                         size="small"
-                        onClick={() => startEmailDomainSetup('transactional')}
+                        onClick={() => startEmailDomainSetup('transactional', 'transactional')}
                         data-attr="send-from-code-set-up-domain"
                     >
                         Set up a domain
