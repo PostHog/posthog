@@ -1701,16 +1701,7 @@ class SocialAuthExceptionMiddleware:
 
         # The OAuth `state` saved in the session when the flow started is gone or does not match the callback.
         # The library text gives the person no next step, so the login page shows its own copy for this code.
-        # The log records whether the browser sent a session cookie, to tell a lost cookie from a lost state.
         if isinstance(exception, (AuthStateMissing, AuthStateForbidden)):
-            session = getattr(request, "session", None)
-            logger.warning(
-                "social_auth_state_invalid",
-                backend=getattr(exception.backend, "name", None),
-                reason=type(exception).__name__,
-                has_session_cookie=settings.SESSION_COOKIE_NAME in request.COOKIES,
-                session_is_empty=session.is_empty() if session is not None else None,
-            )
             return redirect(sso_failure_redirect_url(request, "oauth_state_invalid"))
 
         # Handle any other social auth exception by passing the error detail to the frontend
