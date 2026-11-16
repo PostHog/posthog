@@ -890,19 +890,19 @@ class MSSQLImplementation(SQLSourceImplementation[MSSQLSourceConfig, pymssql.Con
             params["names"] = tuple({_unqualified_table(table) for table in tables})
         query = base_query + f" AND {schema_clause} AND t.name IN %(names)s ORDER BY s.name, t.name, ic.key_ordinal"
 
+        pks: dict[str, list[str]] = collections.defaultdict(list)
         try:
             with conn.cursor(as_dict=False) as cursor:
                 cursor.execute(query, params)
                 rows = cursor.fetchall()
+            for schema_name, table_name, column_name in rows or []:
+                display = f"{schema_name}.{table_name}" if selected_schema is None else table_name
+                if display in result:
+                    pks[display].append(column_name)
         except Exception as e:
             structlog.get_logger().warning("Failed to detect primary keys for MSSQL schemas", exc_info=e)
             return result
 
-        pks: dict[str, list[str]] = collections.defaultdict(list)
-        for schema_name, table_name, column_name in rows or []:
-            display = f"{schema_name}.{table_name}" if selected_schema is None else table_name
-            if display in result:
-                pks[display].append(column_name)
         for display, pk_cols in pks.items():
             result[display] = pk_cols
         return result
