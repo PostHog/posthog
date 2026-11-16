@@ -439,6 +439,45 @@ describe('PersonsManagerService', () => {
 
             expect(later?.properties).toEqual({ email: 'new@example.com' })
         })
+
+        it('sends one leader read for concurrent lookups of the same person', async () => {
+            const person = newUser({ plan: 'free' }, { plan: 'paid' })
+            const manager = consistentManager(person)
+            const freshLookup = (): ReturnType<PersonsManagerService['getCyclotronPerson']> =>
+                manager.getCyclotronPerson(TEAM_1, 'new_user', 'distinct_id', { forceFresh: true })
+
+            const lookups = await Promise.all([freshLookup(), freshLookup()])
+
+            expect(lookups.map((lookup) => lookup?.properties)).toEqual([{ plan: 'paid' }, { plan: 'paid' }])
+            expect(person.strongReads).toBe(1)
+        })
+
+        it.each([
+            {
+                name: 'uses the replica properties for a while after a leader read fails, then asks the leader again',
+                firstAnswer: new ConnectError('deadline exceeded', Code.DeadlineExceeded),
+                nextLookup: { plan: 'free' },
+            },
+            {
+                name: 'keeps asking the leader after it had no such person',
+                firstAnswer: new ConnectError('person not found', Code.NotFound),
+                nextLookup: { plan: 'paid' },
+            },
+        ])('$name', async ({ firstAnswer, nextLookup }) => {
+            const person = newUser({ plan: 'free' }, firstAnswer)
+            const manager = consistentManager(person)
+            const freshProperties = async (): Promise<Record<string, any> | undefined> =>
+                (await manager.getCyclotronPerson(TEAM_1, 'new_user', 'distinct_id', { forceFresh: true }))?.properties
+            const firstReadAt = Date.now()
+            const now = jest.spyOn(Date, 'now').mockReturnValue(firstReadAt)
+
+            await freshProperties()
+            person.leader = { plan: 'paid' }
+            expect(await freshProperties()).toEqual(nextLookup)
+
+            now.mockReturnValue(firstReadAt + 60_000)
+            expect(await freshProperties()).toEqual({ plan: 'paid' })
+        })
     })
 
     describe('getCyclotronPerson with person_id', () => {

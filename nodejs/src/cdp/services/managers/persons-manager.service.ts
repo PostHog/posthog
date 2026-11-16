@@ -4,15 +4,19 @@ import { ConsistentPersonReader, PersonReadRepository } from '~/common/persons/r
 import { LazyLoader } from '~/common/utils/lazy-loader'
 import { logger } from '~/common/utils/logger'
 import { TeamManager, isValidTeamId } from '~/common/utils/team-manager'
+import { InternalPerson } from '~/types'
 
 import { CyclotronPerson } from '../../types'
 import { getPersonDisplayName } from '../../utils'
 
 const CALLER_TAG = 'cdp/hogflow-person-enrichment'
 
+// One failed leader read pauses the reads for every person, so a leader that stops answering costs one timeout.
+const LEADER_READ_COOLDOWN_MS = 10_000
+
 const consistentReadsCounter = new Counter({
     name: 'cdp_person_consistent_reads_total',
-    help: 'Person lookups that asked the personhog leader for properties, by why they asked and what it answered',
+    help: 'Person lookups that needed properties from the personhog leader, by reason and outcome',
     labelNames: ['reason', 'outcome'],
 })
 
@@ -71,6 +75,8 @@ function consistentReadReason(
 export class PersonsManagerService {
     private lazyLoaderByPersonId: LazyLoader<PersonManagerPerson>
     private lazyLoaderByDistinctId: LazyLoader<PersonManagerPersonWithDistinctId>
+    private leaderReadsInFlight = new Map<string, Promise<InternalPerson | null>>()
+    private leaderReadsPausedUntil = 0
 
     constructor(
         private teamManager: TeamManager,
@@ -148,13 +154,13 @@ export class PersonsManagerService {
         if (!reason) {
             return
         }
+        if (Date.now() < this.leaderReadsPausedUntil) {
+            consistentReadsCounter.inc({ reason, outcome: 'skipped' })
+            return
+        }
 
         try {
-            const consistent = await this.consistentPersonReader.fetchPersonById(
-                person.team_id,
-                person.int_id,
-                CALLER_TAG
-            )
+            const consistent = await this.readFromLeader(this.consistentPersonReader, person)
             consistentReadsCounter.inc({ reason, outcome: consistent ? 'found' : 'not_found' })
             if (consistent) {
                 // `person` is the cached entry, so a later lookup does not go back to older properties.
@@ -167,6 +173,7 @@ export class PersonsManagerService {
             }
         } catch (error) {
             // A failed consistent read must not fail the lookup.
+            this.leaderReadsPausedUntil = Date.now() + LEADER_READ_COOLDOWN_MS
             consistentReadsCounter.inc({ reason, outcome: 'error' })
             logger.warn('[PersonManager]', 'Consistent person read failed, using the replica properties', {
                 teamId: person.team_id,
@@ -174,6 +181,21 @@ export class PersonsManagerService {
                 error: String(error),
             })
         }
+    }
+
+    private readFromLeader(
+        reader: ConsistentPersonReader,
+        person: PersonManagerPerson
+    ): Promise<InternalPerson | null> {
+        const key = `${person.team_id}:${person.int_id}`
+        let read = this.leaderReadsInFlight.get(key)
+        if (!read) {
+            read = reader
+                .fetchPersonById(person.team_id, person.int_id, CALLER_TAG)
+                .finally(() => this.leaderReadsInFlight.delete(key))
+            this.leaderReadsInFlight.set(key, read)
+        }
+        return read
     }
 
     private async fetchPersonsByDistinctIds(
