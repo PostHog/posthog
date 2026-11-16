@@ -239,7 +239,7 @@ def _reviewed_proposals(
         stages.set("drafting", "skipped", detail="budget used up")
         return []
     spent = triage_call.cost_usd
-    triage = call_review.parse_triage(triage_call.tool_input, call_types)
+    triage = call_review.parse_triage(triage_call.answer, call_types)
     if triage is None:
         stages.set("drafting", "failed", detail="unreadable triage answer", cost_usd=round(spent, 4))
         return []
@@ -261,7 +261,7 @@ def _reviewed_proposals(
     if review_call is None:
         stages.set("drafting", "skipped", detail="budget used up", cost_usd=round(spent, 4))
         return []
-    cards = call_review.parse_cards(review_call.tool_input, rendering)
+    cards = call_review.parse_cards(review_call.answer, rendering)
     spent += review_call.cost_usd
     calibrated = _calibrate(team, run, cards, rendering, judge_model, budget, deadline)
     stages.set(

@@ -16,7 +16,7 @@ from typing import Any, Literal
 
 import structlog
 from anthropic import Anthropic, APIConnectionError, APIError, APIStatusError, InternalServerError, RateLimitError
-from anthropic.types import ToolParam, ToolUseBlock
+from anthropic.types import OutputConfigParam
 from pydantic import BaseModel, Field, ValidationError
 
 from posthog.dataclasses import frozen
@@ -30,9 +30,9 @@ from .prices import MODEL_PRICES
 logger = structlog.get_logger(__name__)
 
 TRIAGE_MODEL = "claude-haiku-4-5"
-# The Go gateway catalog serves this Opus id. services/llm-gateway/PARITY.md lists claude-opus-5-5 as served only by
-# the Python gateway, which has no privacy mode.
-REVIEW_MODEL = "claude-opus-4-8"
+REVIEW_MODEL = "claude-opus-5-5"
+# Opus 5.5 always thinks, and its default effort is medium.
+REVIEW_EFFORT: Literal["high"] = "high"
 MAX_PICKED_CALL_TYPES = 5
 REVIEW_CALLS = 70
 CALLS_PER_TRACE = 2
@@ -49,10 +49,10 @@ MAX_CALL_OUTPUT_CHARS = 3000
 MAX_TITLE_CHARS = 80
 MAX_ATTRIBUTE_CHARS = 256
 TRIAGE_MAX_OUTPUT_TOKENS = 1024
-# Room for a verdict on every call each card covers, besides the cards themselves.
-REVIEW_MAX_OUTPUT_TOKENS = 12000
+# Room for the review's thinking and a verdict on every call each card covers, besides the cards themselves.
+REVIEW_MAX_OUTPUT_TOKENS = 32000
 TRIAGE_TIMEOUT_SECONDS = 60.0
-REVIEW_TIMEOUT_SECONDS = 300.0
+REVIEW_TIMEOUT_SECONDS = 600.0
 # Attempts per call. Retries run here rather than in the SDK, so every attempt that may have billed is counted.
 ATTEMPTS = 2
 RETRY_BACKOFF_SECONDS = 2.0
@@ -130,88 +130,85 @@ class _Card(BaseModel):
     judge_prompt: str = Field(min_length=1)
 
 
-_TRIAGE_TOOL: ToolParam = {
-    "name": "pick_call_types",
-    "description": "Record which call types to review, or exclude the product.",
-    "input_schema": {
-        "type": "object",
-        "properties": {
-            "exclude": {"type": "boolean"},
-            "picked": {
-                "type": "array",
-                "maxItems": MAX_PICKED_CALL_TYPES,
-                "items": {
-                    "type": "object",
-                    "properties": {"id": {"type": "string"}, "why": {"type": "string"}},
-                    "required": ["id", "why"],
-                },
+# Structured outputs need `additionalProperties: false` on every object and take no array length limits, so
+# parse_triage and parse_cards cap the counts the prompts ask for.
+_TRIAGE_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "properties": {
+        "exclude": {"type": "boolean"},
+        "picked": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {"id": {"type": "string"}, "why": {"type": "string"}},
+                "required": ["id", "why"],
+                "additionalProperties": False,
             },
         },
-        "required": ["exclude", "picked"],
     },
+    "required": ["exclude", "picked"],
+    "additionalProperties": False,
 }
 
-_REVIEW_TOOL: ToolParam = {
-    "name": "propose_cards",
-    "description": "Record what the product does, the failure themes found, and the cards proposed.",
-    "input_schema": {
-        "type": "object",
-        "properties": {
-            "product": {"type": "string", "description": "What the product does and the rules each prompt sets."},
-            "themes": {
-                "type": "array",
-                "items": {
-                    "type": "object",
-                    "properties": {
-                        "theme": {"type": "string"},
-                        "call_types": {"type": "array", "items": {"type": "string"}},
-                        "failures": {"type": "integer"},
-                    },
-                    "required": ["theme", "call_types", "failures"],
+_REVIEW_SCHEMA: dict[str, Any] = {
+    "type": "object",
+    "properties": {
+        "product": {"type": "string", "description": "What the product does and the rules each prompt sets."},
+        "themes": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "theme": {"type": "string"},
+                    "call_types": {"type": "array", "items": {"type": "string"}},
+                    "failures": {"type": "integer"},
                 },
-            },
-            "cards": {
-                "type": "array",
-                "maxItems": MAX_CARDS,
-                "items": {
-                    "type": "object",
-                    "properties": {
-                        "title": {"type": "string"},
-                        "checks": {"type": "string"},
-                        "why": {"type": "string"},
-                        "call_types": {"type": "array", "items": {"type": "string"}},
-                        "labels": {
-                            "type": "array",
-                            "items": {
-                                "type": "object",
-                                "properties": {
-                                    "call": {"type": "integer"},
-                                    "verdict": {"type": "string", "enum": list(_VERDICTS)},
-                                },
-                                "required": ["call", "verdict"],
-                            },
-                        },
-                        "examples": {
-                            "type": "array",
-                            "minItems": EXAMPLES_PER_CARD,
-                            "maxItems": EXAMPLES_PER_CARD,
-                            "items": {
-                                "type": "object",
-                                "properties": {
-                                    "trace_id": {"type": "string"},
-                                    "what_went_wrong": {"type": "string"},
-                                },
-                                "required": ["trace_id", "what_went_wrong"],
-                            },
-                        },
-                        "judge_prompt": {"type": "string"},
-                    },
-                    "required": ["title", "checks", "why", "call_types", "labels", "examples", "judge_prompt"],
-                },
+                "required": ["theme", "call_types", "failures"],
+                "additionalProperties": False,
             },
         },
-        "required": ["product", "themes", "cards"],
+        "cards": {
+            "type": "array",
+            "items": {
+                "type": "object",
+                "properties": {
+                    "title": {"type": "string"},
+                    "checks": {"type": "string"},
+                    "why": {"type": "string"},
+                    "call_types": {"type": "array", "items": {"type": "string"}},
+                    "labels": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "call": {"type": "integer"},
+                                "verdict": {"type": "string", "enum": list(_VERDICTS)},
+                            },
+                            "required": ["call", "verdict"],
+                            "additionalProperties": False,
+                        },
+                    },
+                    "examples": {
+                        "type": "array",
+                        "items": {
+                            "type": "object",
+                            "properties": {
+                                "trace_id": {"type": "string"},
+                                "what_went_wrong": {"type": "string"},
+                            },
+                            "required": ["trace_id", "what_went_wrong"],
+                            "additionalProperties": False,
+                        },
+                    },
+                    "judge_prompt": {"type": "string"},
+                },
+                "required": ["title", "checks", "why", "call_types", "labels", "examples", "judge_prompt"],
+                "additionalProperties": False,
+            },
+        },
     },
+    "required": ["product", "themes", "cards"],
+    "additionalProperties": False,
 }
 
 
@@ -275,15 +272,17 @@ class ModelRequest:
     model: str
     system: str
     prompt: str
-    tool: ToolParam
+    # The JSON schema the reply must follow.
+    schema: dict[str, Any]
     max_tokens: int
     timeout: float
+    effort: Literal["high"] | None = None
 
 
 @frozen
 class ModelCall:
-    # The tool input the model sent, or None when the reply held none. The call bills either way.
-    tool_input: dict[str, Any] | None
+    # The JSON object the model replied with, or None when the reply held none. The call bills either way.
+    answer: dict[str, Any] | None
     cost_usd: float
 
 
@@ -511,17 +510,17 @@ def _triage_prompt(call_types: Sequence[CallTypeRow]) -> str:
     )
 
 
-def parse_triage(tool_input: dict[str, Any] | None, call_types: Sequence[CallTypeRow]) -> Triage | None:
+def parse_triage(answer: dict[str, Any] | None, call_types: Sequence[CallTypeRow]) -> Triage | None:
     """The picked call types, or None when the answer is malformed. Unknown ids are dropped."""
-    if tool_input is None:
+    if answer is None:
         return None
     try:
-        answer = _TriageAnswer.model_validate(tool_input)
+        triage = _TriageAnswer.model_validate(answer)
     except ValidationError:
         return None
     by_id = {f"T{index}": call_type for index, call_type in enumerate(call_types, start=1)}
-    picked = list(dict.fromkeys(by_id[pick.id] for pick in answer.picked if pick.id in by_id))
-    return Triage(excluded=answer.exclude, picked=[] if answer.exclude else picked[:MAX_PICKED_CALL_TYPES])
+    picked = list(dict.fromkeys(by_id[pick.id] for pick in triage.picked if pick.id in by_id))
+    return Triage(excluded=triage.exclude, picked=[] if triage.exclude else picked[:MAX_PICKED_CALL_TYPES])
 
 
 def parse_verdict(value: Any) -> Verdict | None:
@@ -529,12 +528,12 @@ def parse_verdict(value: Any) -> Verdict | None:
     return _VERDICTS.get(value.strip().lower().replace("/", "")) if isinstance(value, str) else None
 
 
-def parse_cards(tool_input: dict[str, Any] | None, rendering: Rendering) -> list[ReviewCard]:
+def parse_cards(answer: dict[str, Any] | None, rendering: Rendering) -> list[ReviewCard]:
     """The valid cards, at most MAX_CARDS. A card is dropped when it is malformed, names no call type the model was
     shown, cites no trace that holds a rendered call of its call types, or labels fewer than MIN_CARD_FAILURES of its
     rendered calls as failing. A label on a call the card's call types did not render is dropped, and the first label
     of a call wins."""
-    raw_cards = (tool_input or {}).get("cards")
+    raw_cards = (answer or {}).get("cards")
     if not isinstance(raw_cards, list):
         return []
     cards = []
@@ -579,7 +578,7 @@ def parse_cards(tool_input: dict[str, Any] | None, rendering: Rendering) -> list
 def _max_call_cost_usd(request: ModelRequest) -> float:
     """The most one attempt can bill: a token covers at least one byte of the request, and output stops at max_tokens."""
     price = MODEL_PRICES[request.model]
-    request_bytes = len(json.dumps([request.system, request.prompt, request.tool]).encode())
+    request_bytes = len(json.dumps([request.system, request.prompt, request.schema]).encode())
     return request_bytes * price.input_per_token + request.max_tokens * price.output_per_token
 
 
@@ -598,7 +597,7 @@ def triage_request(call_types: Sequence[CallTypeRow]) -> ModelRequest:
         model=TRIAGE_MODEL,
         system=_TRIAGE_SYSTEM,
         prompt=_triage_prompt(call_types),
-        tool=_TRIAGE_TOOL,
+        schema=_TRIAGE_SCHEMA,
         max_tokens=TRIAGE_MAX_OUTPUT_TOKENS,
         timeout=TRIAGE_TIMEOUT_SECONDS,
     )
@@ -609,9 +608,10 @@ def review_request(rendering: Rendering) -> ModelRequest:
         model=REVIEW_MODEL,
         system=_REVIEW_SYSTEM,
         prompt=rendering.text,
-        tool=_REVIEW_TOOL,
+        schema=_REVIEW_SCHEMA,
         max_tokens=REVIEW_MAX_OUTPUT_TOKENS,
         timeout=REVIEW_TIMEOUT_SECONDS,
+        effort=REVIEW_EFFORT,
     )
 
 
@@ -636,8 +636,11 @@ def _retryable(error: APIError) -> bool:
 
 
 def call(client: Anthropic, request: ModelRequest) -> ModelCall:
-    """One forced tool call. An attempt that fails may have billed, so it counts at the most it can cost, except a
-    429, which the provider refuses before any work."""
+    """One reply in the request's JSON schema. An attempt that fails may have billed, so it counts at the most it can
+    cost, except a 429, which the provider refuses before any work."""
+    output_config: OutputConfigParam = {"format": {"type": "json_schema", "schema": request.schema}}
+    if request.effort is not None:
+        output_config["effort"] = request.effort
     unsettled = 0.0
     for attempt in range(ATTEMPTS):
         try:
@@ -646,8 +649,7 @@ def call(client: Anthropic, request: ModelRequest) -> ModelCall:
                 max_tokens=request.max_tokens,
                 system=request.system,
                 messages=[{"role": "user", "content": request.prompt}],
-                tools=[request.tool],
-                tool_choice={"type": "tool", "name": request.tool["name"]},
+                output_config=output_config,
                 timeout=request.timeout,
             )
             break
@@ -666,15 +668,12 @@ def call(client: Anthropic, request: ModelRequest) -> ModelCall:
         output_tokens=usage.output_tokens,
         stop_reason=response.stop_reason,
     )
-    tool_input = next(
-        (
-            block.input
-            for block in response.content
-            if isinstance(block, ToolUseBlock) and block.name == request.tool["name"]
-        ),
-        None,
-    )
+    # A refusal or a reply cut at max_tokens can leave text that is not the schema's JSON.
+    try:
+        answer = json.loads("".join(block.text for block in response.content if block.type == "text"))
+    except ValueError:
+        answer = None
     return ModelCall(
-        tool_input=dict(tool_input) if tool_input is not None else None,
+        answer=answer if isinstance(answer, dict) else None,
         cost_usd=usage.input_tokens * price.input_per_token + usage.output_tokens * price.output_per_token + unsettled,
     )
