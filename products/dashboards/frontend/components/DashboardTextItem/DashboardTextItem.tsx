@@ -20,7 +20,7 @@ import { DashboardPlacement, DashboardTile, DashboardType } from '~/types'
 import { DashboardImageTile } from '../ImageTile/DashboardImageTile'
 import { getImageOnlyTextCardImage } from '../ImageTile/imageTileUtils'
 import { QuillDashboardTileMenuItems } from '../QuillDashboardTileMenuItems'
-import { TextCardDisplayOptions } from './TextCardDisplayOptions'
+import { TransparentBackgroundOption } from '../TransparentBackgroundOption'
 
 type BaseTextCardProps = React.ComponentProps<typeof TextCard>
 
@@ -74,10 +74,11 @@ function DashboardTextItemInternal(
     const image = tile.text ? getImageOnlyTextCardImage(tile.text.body) : null
     const tileType = image ? 'image' : 'text'
     const displayOptions = onUpdateDisplayOptions ? (
-        <TextCardDisplayOptions
+        <TransparentBackgroundOption
             tile={tile}
             onUpdateDisplayOptions={onUpdateDisplayOptions}
             saving={displayOptionsSaving}
+            dataAttr="text-card-menu-transparent-background"
         />
     ) : null
     const quillMenuItems = todayRailNav ? (
