@@ -4,6 +4,13 @@ In CI, `common/storybook/.storybook/test-runner.ts` loads each story in Playwrig
 Visual review compares each snapshot with its baseline and asks a person to approve any change.
 A story that renders two different pictures for the same code blocks unrelated PRs, so most of this file is about making the picture the same on every run.
 
+## Shard scheduling
+
+CI balances story files across shards using measured durations in `storybook-timings.json`.
+For new files, the sequencer estimates duration from the built index’s runnable story count and the median measured duration per story.
+Without an index or comparable measured stories, it uses the median file duration instead.
+The estimate changes scheduling only; every selected file still runs.
+
 ## `testOptions`
 
 Set them in `parameters.testOptions` on the meta or on a story. A story's keys merge with the meta's.
