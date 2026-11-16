@@ -344,13 +344,14 @@ def search_metrics(
             "id", "name", "status"
         )
     }
-    # Inside one tier an approved metric ranks first, because approval says more than the text rank.
+    # Approval only breaks ties. The agent decides whether to use a proposed metric, so the closest text
+    # match ranks first and every relevant metric gets the best chance at the first page.
     lexical_ranked = sorted(
         (metric_id for metric_id in rows if metric_id in lexical),
         key=lambda metric_id: (
             -lexical[metric_id].tier,
-            rows[metric_id][1] != MetricStatus.APPROVED,
             -lexical[metric_id].rank,
+            rows[metric_id][1] != MetricStatus.APPROVED,
             rows[metric_id][0],
         ),
     )

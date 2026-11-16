@@ -14,6 +14,7 @@ from posthog.api.embedding_worker import EmbeddingResponse
 from posthog.models import Organization, Team
 from posthog.models.scoping import team_scope
 
+from products.data_catalog.backend.facade.enums import MetricStatus
 from products.data_catalog.backend.logic.metric_embeddings import (
     EMBEDDING_BACKFILL_FEATURE_FLAG,
     METRIC_EMBEDDING_MODEL,
@@ -139,6 +140,26 @@ class TestMetricSearchFixtureCatalog(BaseTest):
             result = search_metrics(candidates, ["recurring revenue"], embed_query=lambda _text: [1.0, 0.0])
 
         assert [hit.metric.name for hit in result.hits][-1] == "nps_score", [hit.match_reason for hit in result.hits]
+
+    def test_closer_word_match_ranks_above_an_approved_metric_in_the_same_tier(self) -> None:
+        with team_scope(self.team.id):
+            for name, description, metric_status in [
+                ("weekly_seat_count", "Seats counted at the end of each week.", MetricStatus.APPROVED),
+                ("seat_expansion_rate", "Share of accounts that add seats.", MetricStatus.PROPOSED),
+            ]:
+                Metric.objects.for_team(self.team.id).create(
+                    team_id=self.team.id, name=name, description=description, status=metric_status
+                )
+            candidates = Metric.objects.for_team(self.team.id).filter(
+                deleted=False, name__in=["weekly_seat_count", "seat_expansion_rate"]
+            )
+
+            result = search_metrics(candidates, ["seat expansion forecast"])
+
+        assert [(hit.metric.name, hit.match_reason) for hit in result.hits] == [
+            ("seat_expansion_rate", "some words in the name"),
+            ("weekly_seat_count", "some words in the name"),
+        ]
 
 
 class TestSplitSearch(SimpleTestCase):
