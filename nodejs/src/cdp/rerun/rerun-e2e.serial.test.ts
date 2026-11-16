@@ -31,10 +31,13 @@ import { CdpCyclotronWorkerHogFlow } from '../consumers/cdp-cyclotron-worker-hog
 import { CdpCyclotronWorker } from '../consumers/cdp-cyclotron-worker.consumer'
 import { CdpEventsConsumer } from '../consumers/cdp-events.consumer'
 import { CdpRerunWorkerConsumer } from '../consumers/cdp-rerun-worker.consumer'
+import { createHogFlowInvocation } from '../services/hogflows/hogflow-executor.service'
+import { HOGFLOW_QUEUE_PRIORITY } from '../services/hogflows/hogflow-queue-priority'
 import { CyclotronJobQueueKafka } from '../services/job-queue/job-queue-kafka'
 import { CyclotronJobQueuePostgresV2 } from '../services/job-queue/job-queue-postgres-v2'
 import { compileHog } from '../templates/compiler'
 import { HogFunctionInvocationGlobals, HogFunctionType } from '../types'
+import { convertToHogFunctionFilterGlobal } from '../utils/hog-function-filtering'
 import { RerunJobManager } from './rerun-job.manager'
 import { RERUN_QUEUE_NAME } from './rerun-job.types'
 
@@ -615,5 +618,69 @@ describe('CDP hog invocation rerun e2e', () => {
         // ── 5. The resume ran nothing already done: the fetch is still at ONE call ──
         // Restart-from-trigger (the pre-#70792 bug) would make this 2.
         expect(mockFetch.mock.calls.filter(([url]) => String(url) === FLOW_WEBHOOK_URL).length).toBe(1)
+    })
+
+    it('reruns a broadcast child at the broadcast priority when the low-priority switch is on', async () => {
+        const flow = new FixtureHogFlowBuilder()
+            .withTeamId(team.id)
+            .withStatus('active')
+            .withWorkflow({
+                actions: {
+                    trigger: { type: 'trigger', config: { type: 'batch', filters: {} } },
+                    exit: { type: 'exit', config: {} },
+                },
+                edges: [{ from: 'trigger', to: 'exit', type: 'continue' }],
+            })
+            .build()
+        await insertHogFlow(hub.postgres, flow)
+
+        hogflowWorker = new CdpCyclotronWorkerHogFlow(hub, cdpDeps, postgresV2Queue)
+        await hogflowWorker.start()
+
+        // Enqueued the way the batch resolver enqueues a broadcast child with the switch on.
+        const child = createHogFlowInvocation(globals, flow, convertToHogFunctionFilterGlobal(globals))
+        child.parentRunId = 'broadcast-run-1'
+        child.queuePriority = HOGFLOW_QUEUE_PRIORITY.background
+        await postgresV2Queue.queueInvocations([child])
+
+        await waitForExpect(async () => {
+            const rows = await clickhouse.query<PersistedRow>(
+                `SELECT invocation_id, status, is_retry, function_kind
+                 FROM hog_invocation_results
+                 WHERE team_id = ${team.id} AND function_id = '${flow.id}' AND status = 'succeeded'`
+            )
+            expect(rows.map((row) => row.invocation_id)).toContain(child.id)
+        }, 30_000)
+        // Stopped so the rerun's job row stays queued and its priority is what the rerun wrote.
+        await hogflowWorker.stop()
+
+        const rerunJobId = await rerunManager.enqueue(team.id, 'hog_flow', flow.id, {
+            filter: {
+                window_start: new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString(),
+                window_end: new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString(),
+                status: ['succeeded'],
+                invocation_ids: [child.id],
+            },
+        })
+        rerunWorker = new CdpRerunWorkerConsumer(
+            {
+                ...hub,
+                CDP_CYCLOTRON_JOB_QUEUE_CONSUMER_MODE: 'postgres',
+                CDP_HOGFLOW_BROADCAST_LOW_PRIORITY: true,
+            },
+            cdpDeps,
+            { hog_function: kafkaQueue, hog_flow: postgresV2Queue }
+        )
+        await rerunWorker.start()
+
+        await waitForExpect(async () => {
+            const res = await nodeAssertPool.query('SELECT status FROM cyclotron_jobs WHERE id = $1', [rerunJobId])
+            expect(res.rows[0]?.status).toBe('completed')
+        }, 30_000)
+
+        const rerunChild = await nodeAssertPool.query('SELECT status, priority FROM cyclotron_jobs WHERE id = $1', [
+            child.id,
+        ])
+        expect(rerunChild.rows[0]).toEqual({ status: 'available', priority: HOGFLOW_QUEUE_PRIORITY.background })
     })
 })
