@@ -36,10 +36,20 @@ jobs:
                   sparse-checkout-cone-mode: false
 
             - name: Set up Go
+              id: go
               uses: actions/setup-go@4a3601121dd01d1626a1e23e37211e3254c1c06c
               with:
                   go-version-file: products/tasks/services/egress-proxy/go.mod
                   cache: false
+
+            - name: Restore Go cache
+              id: go-cache
+              uses: actions/cache/restore@9255dc7a253b0ccc959486e2bca901246202afeb # v5.0.1
+              with:
+                  path: |
+                      ~/go/pkg/mod
+                      ~/.cache/go-build
+                  key: agent-egress-go-v1-${{ runner.os }}-${{ runner.arch }}-${{ steps.go.outputs.go-version }}-${{ hashFiles('products/tasks/services/egress-proxy/go.sum') }}
 
             - name: Check formatting
               run: |
@@ -54,3 +64,12 @@ jobs:
 
             - name: Test
               run: go test -race -count=1 ./...
+
+            - name: Save Go cache
+              if: github.ref == 'refs/heads/master' && steps.go-cache.outputs.cache-hit != 'true'
+              uses: actions/cache/save@9255dc7a253b0ccc959486e2bca901246202afeb # v5.0.1
+              with:
+                  path: |
+                      ~/go/pkg/mod
+                      ~/.cache/go-build
+                  key: ${{ steps.go-cache.outputs.cache-primary-key }}
