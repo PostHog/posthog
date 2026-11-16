@@ -42,9 +42,7 @@ _ENRICHMENT_STATUS_BATCH_SIZE = 50
 # Caps how many slow lookups can overlap. Admission pacing controls the request rate.
 _ENRICH_MAX_CONCURRENT_LOOKUPS = 24
 _ENRICH_MAX_ATTEMPTS = 3
-# Bulk requests aim at this fraction of the lane's share. The limiter admits a BATCH call only while
-# the window's weighted count is below that share, and it decides in a worker thread some time after
-# the pacing admits the request. A run paced at the full share has no headroom for that delay.
+# Headroom below the lane's share, because the limiter decides in a worker thread after the pacing admits a request.
 _ENRICH_BUDGET_FRACTION = 0.8
 
 

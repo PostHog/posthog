@@ -407,8 +407,6 @@ async def test_enrich_companies_batch_spaces_admissions_by_the_paced_interval_de
     ],
 )
 async def test_enrich_companies_batch_paces_the_www_fallback_request(first_response: Any) -> None:
-    # A bare-domain miss, error or shed sends a second request for www. Pacing only the lookup let
-    # that request reach the limiter off the schedule, so a run that fell back often went over the lane.
     events: list[object] = []
     responses = iter([first_response, _found({"name": "a.com"})])
 
@@ -443,17 +441,11 @@ async def test_enrich_companies_batch_paces_the_www_fallback_request(first_respo
 
 
 def test_bulk_pacing_leaves_room_for_limiter_calls_that_drift_from_the_schedule() -> None:
-    # The limiter decides in a worker thread after the pacing lock admits a request, so the decisions
-    # drift from the paced schedule. This replays a run that Harmonic answers quickly enough for the
-    # pacing alone to set its rate, against the real Harmonic policy and admission rule on a fake
-    # clock. Paced at the full BATCH share, a drift of up to 0.2 s gets several percent of the calls
-    # denied.
     rng = random.Random(0)
     start = 1_000.0
     clock = start
     backend = LimitsBackend()
-    # The fake is complete before it is installed, so a storage timer thread that reads the clock
-    # while the patch goes in never sees a bare mock.
+    # A complete fake, so the storage timer thread never reads a bare mock while the patch goes in.
     with patch("limits.storage.memory.time", new=SimpleNamespace(time=lambda: clock)):
         backend._redis = SlidingWindowCounterRateLimiter(MemoryStorage())
         limiter = OutboundRateLimiter(backend)
