@@ -29,9 +29,8 @@ from ..models import Notebook, ResourceNotebook
 from . import contracts
 
 if TYPE_CHECKING:
-    from posthog.hogql.cohort_membership_rewrite import SavedQueryRewrite
-
     from posthog.models import User
+    from posthog.models.cohortmembership.query_rewrite import SavedQueryRewrite
 
     from products.access_control.backend.facade.user_access_control import UserAccessControl
 

@@ -2,7 +2,7 @@ from collections.abc import Callable
 
 from django.core.management.base import BaseCommand
 
-from posthog.hogql.cohort_membership_rewrite import LEGACY_TABLE, SavedQueryRewrite
+from posthog.models.cohortmembership.query_rewrite import LEGACY_TABLE, SavedQueryRewrite
 
 from products.data_modeling.backend.facade import api as data_modeling_api
 from products.endpoints.backend.facade import api as endpoints_api

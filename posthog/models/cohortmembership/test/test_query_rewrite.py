@@ -4,7 +4,7 @@ from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
-from posthog.hogql.cohort_membership_rewrite import mentions_legacy_table, rewrite_hogql
+from posthog.models.cohortmembership.query_rewrite import mentions_legacy_table, rewrite_hogql
 
 MEMBERSHIP_FILTER = (
     "SELECT count() FROM events e WHERE e.person_id IN (SELECT person_id FROM cohort_membership WHERE cohort_id = 7)"

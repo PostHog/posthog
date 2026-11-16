@@ -3,7 +3,12 @@ from typing import Any
 
 from django.utils import timezone
 
-from posthog.hogql.cohort_membership_rewrite import SavedQueryRewrite, SqlRewrite, rewrite_hogql, rewrite_saved_rows
+from posthog.models.cohortmembership.query_rewrite import (
+    SavedQueryRewrite,
+    SqlRewrite,
+    rewrite_hogql,
+    rewrite_saved_rows,
+)
 
 from products.data_modeling.backend.models import DataWarehouseSavedQuery
 

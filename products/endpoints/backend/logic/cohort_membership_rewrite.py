@@ -1,4 +1,4 @@
-from posthog.hogql.cohort_membership_rewrite import SavedQueryRewrite, rewrite_query_nodes, rewrite_saved_rows
+from posthog.models.cohortmembership.query_rewrite import SavedQueryRewrite, rewrite_query_nodes, rewrite_saved_rows
 
 from products.endpoints.backend.models import EndpointVersion
 

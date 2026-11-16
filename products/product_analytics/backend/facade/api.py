@@ -42,8 +42,7 @@ from products.product_analytics.backend.models.insight_explanation import Insigh
 from products.product_analytics.backend.models.insight_variable import InsightVariable
 
 if TYPE_CHECKING:
-    from posthog.hogql.cohort_membership_rewrite import SavedQueryRewrite
-
+    from posthog.models.cohortmembership.query_rewrite import SavedQueryRewrite
     from posthog.models.user import User
 
 
@@ -536,7 +535,7 @@ def get_insight_series(
 
 
 def rewrite_cohort_membership_queries(team_id: int, apply: bool) -> list["SavedQueryRewrite"]:
-    from posthog.hogql.cohort_membership_rewrite import (  # noqa: PLC0415 — keeps the HogQL parser off this facade's import path
+    from posthog.models.cohortmembership.query_rewrite import (  # noqa: PLC0415 — keeps the HogQL parser off this facade's import path
         rewrite_query_nodes,
         rewrite_saved_rows,
     )

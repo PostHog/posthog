@@ -31,8 +31,6 @@ rules:
     - match: '/management/migration_analysis/*_acknowledged_migrations.txt'
       sensitive: true
     - match:
-          - '/hogql/cohort_membership_rewrite.py'
-          - '/hogql/test/test_cohort_membership_rewrite.py'
           - '/management/commands/rewrite_cohort_membership_queries.py'
           - '/management/commands/test/test_rewrite_cohort_membership_queries.py'
       owners: team-feature-flags

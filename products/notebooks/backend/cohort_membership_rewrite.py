@@ -3,7 +3,7 @@ from typing import Any
 
 from django.db.models import F
 
-from posthog.hogql.cohort_membership_rewrite import (
+from posthog.models.cohortmembership.query_rewrite import (
     SavedQueryRewrite,
     SqlRewrite,
     rewrite_query_nodes,
