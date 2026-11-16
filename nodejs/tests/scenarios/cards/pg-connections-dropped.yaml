@@ -6,7 +6,7 @@ seed: 4
 setup:
     teams: 1
 drive:
-    for: 30s
+    for: 90s
     traffic:
         - name: event_email
         - name: event_webhook
@@ -15,12 +15,8 @@ valves:
       target: postgres
       dose:
           share: 1
-      when:
-          name: running_on_queue
-          params:
-              queue: hogflow
-              atLeast: 1
-      for: 5s
+      at: 10s
+      for: 60s
 convergeWithin: 2m
 invariants:
     - name: at_least_once
