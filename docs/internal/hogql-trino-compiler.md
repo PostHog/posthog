@@ -354,6 +354,7 @@ expressions and numeric conditions in `if`/`multiIf` use native Trino conditiona
 Aliases inside expressions are omitted from SQL; projection aliases are retained.
 String inputs to `toInt` use `TRY_CAST`, returning NULL for strings that do not
 represent an integer. Numeric `WHERE`, `PREWHERE`, `HAVING`, `QUALIFY`, and `ON` conditions, and numeric aggregate-filter conditions, are cast to BOOLEAN.
+A nested query that projects one name twice, such as `SELECT a.id, b.id` in a subquery, gives each later column an internal alias, because ClickHouse reads an outer `id` as the first column and Trino reports it as ambiguous. A name the query gives explicitly keeps its meaning in `WHERE`, `GROUP BY` and `ORDER BY` when a later column has the same name.
 A number added to or subtracted from a date or datetime prints as `date_add`, in days for a date and seconds for a datetime, with the number on either side of a sum and in the `plus` and `minus` forms, because Trino has no such operator.
 `sum`, `avg`, `sumIf`, and `avgIf` over text or property values cast the value to a number first, because Trino has no such aggregate over `varchar`.
 An aggregate inside a lambda body, as in `arrayMap(i -> ids[i], range(1, 3))` where `ids` is `groupArray(...)`, is computed once outside the lambda and read from a one-element row, because Trino rejects aggregates in lambdas.

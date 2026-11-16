@@ -902,6 +902,25 @@ def test_regex_character_classes_keep_clickhouse_meaning(pattern: str, expected:
             'row_number() OVER (PARTITION BY "users"."user_id" ORDER BY "users"."created_at" DESC)',
             "DISTINCT",
         ),
+        # An explicit alias wins over a later column of the same name, as in ClickHouse.
+        (
+            "SELECT a.id AS user_id, b.user_id FROM users AS a JOIN users AS b ON a.id + b.id = 3 "
+            "WHERE user_id > 1 ORDER BY user_id",
+            'WHERE ("a"."id" > 1) ORDER BY 1 ASC',
+            "ORDER BY 2",
+        ),
+        (
+            "SELECT a.id AS user_id, b.user_id, count() FROM users AS a JOIN users AS b ON a.id + b.id = 3 "
+            "GROUP BY user_id, b.user_id",
+            "GROUP BY 1, 2",
+            "GROUP BY 2, 2",
+        ),
+        # A subquery that projects one name twice is ambiguous to Trino. ClickHouse keeps the first column as `id`.
+        (
+            "SELECT id FROM (SELECT a.id, b.id FROM users AS a JOIN users AS b ON a.user_id = b.user_id)",
+            '"b"."id" AS "__hogql_duplicate_id_1"',
+            '"b"."id" FROM',
+        ),
         # Trino rejects an aggregate inside a lambda, so the aggregate is computed outside and passed in.
         (
             "SELECT groupArray(id) AS ids, arrayMap(i -> ids[i], range(1, 3)) AS r FROM users",
