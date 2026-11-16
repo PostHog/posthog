@@ -306,7 +306,7 @@ jobs:
                           --unshallow \
                           --filter=tree:0 \
                           origin \
-                          "+${GITHUB_REF}:refs/remotes/origin/${GITHUB_REF_NAME}" || fetch_status=$?
+                          "+${GITHUB_SHA}:refs/remotes/origin/${GITHUB_REF_NAME}" || fetch_status=$?
                       if [ "$fetch_status" -ne 0 ]; then
                           echo "::warning title=Treeless fetch failed::Retrying without --filter=tree:0 (status $fetch_status)."
                           git config --unset remote.origin.promisor || true
@@ -318,7 +318,7 @@ jobs:
                               --no-recurse-submodules \
                               --unshallow \
                               origin \
-                              "+${GITHUB_REF}:refs/remotes/origin/${GITHUB_REF_NAME}" || fetch_status=$?
+                              "+${GITHUB_SHA}:refs/remotes/origin/${GITHUB_REF_NAME}" || fetch_status=$?
                       fi
                       if [ "$fetch_status" -ne 0 ]; then
                           echo "::warning title=Ordered release tag skipped::Source history could not be fetched (status $fetch_status)."

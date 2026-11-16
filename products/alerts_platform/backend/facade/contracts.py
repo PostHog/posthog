@@ -127,8 +127,10 @@ DEFAULT_MAX_INSTANCES: Final = 100
 MAX_INSTANCES_CEILING: Final = 100
 # The largest value a Postgres `integer` column holds, which bounds every stored count and duration.
 MAX_STORED_INTEGER: Final = 2_147_483_647
-# The most recent checks an N-of-M decision can look back over.
+# The most recent checks an N-of-M decision can look back over, unless the kind sets its own.
 MAX_EVALUATION_PERIODS: Final = 10
+# The largest window any kind allows. The API publishes it, and each kind enforces its own.
+MAX_SOURCE_EVALUATION_PERIODS: Final = 60
 
 
 @frozen
@@ -1286,8 +1288,9 @@ class SourceAdmission(Protocol):
     """Decides whether a team may add an alert of the kind, or turn one on. The platform calls it on a
     create, where `current` is None, and on an edit that turns the alert on, and on no other edit.
 
-    `check_interval_minutes` is the alert's stored cadence on an edit, and the kind's fixed cadence on
-    a native create. It is None on a create through the source, which sets the cadence itself.
+    `check_interval_minutes` is the cadence the alert will run on: the stored one or the one an edit
+    chooses, and on a native create the one it chose or the kind's default. It is None on a create
+    through the source, which sets the cadence itself.
 
     It runs in the write's transaction, after the platform takes a lock for the team and kind, so two
     concurrent writes cannot both pass a count. It raises `PlatformAlertCreateRefused` to refuse a
@@ -1408,6 +1411,8 @@ class SourceConfigSpec:
     # A new kind names its own flag, so it opens on its own schedule while the others stay generally
     # available.
     rollout_flag: str | None = None
+    # The most recent checks an alert of the kind may look back over, up to `MAX_SOURCE_EVALUATION_PERIODS`.
+    max_evaluation_periods: int = MAX_EVALUATION_PERIODS
     # A PostHog feature flag that opens every API action on this kind in place of `platform-alerts`.
     # The source product can then release its alerts on its own flag, while `platform-alerts` keeps
     # the other kinds and the platform's own pages closed.

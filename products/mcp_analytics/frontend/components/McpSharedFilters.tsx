@@ -53,6 +53,7 @@ interface McpSharedFiltersProps {
     dataAttrPrefix: string
     className?: string
     children?: ReactNode
+    trailingControls?: ReactNode
     onRefresh: () => void
     refreshing: boolean
 }
@@ -62,6 +63,7 @@ export function McpSharedFilters({
     dataAttrPrefix,
     className,
     children,
+    trailingControls,
     onRefresh,
     refreshing,
 }: McpSharedFiltersProps): JSX.Element {
@@ -108,6 +110,7 @@ export function McpSharedFilters({
                                     <IconRefresh />
                                     Refresh
                                 </Button>
+                                {trailingControls}
                             </div>
                         </div>
                         {activeFilters.length > 0 && (

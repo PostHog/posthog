@@ -260,6 +260,11 @@
     "task_queues": "MAX_AI_TASK_QUEUE"
   },
   {
+    "temporal_workflow_type": "cimd-provisioning-review",
+    "product": "temporal/cimd_provisioning_review",
+    "task_queues": "GENERAL_PURPOSE_TASK_QUEUE"
+  },
+  {
     "temporal_workflow_type": "cleanup-alert-checks",
     "product": "temporal/alerts",
     "task_queues": "ANALYTICS_PLATFORM_TASK_QUEUE"

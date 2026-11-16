@@ -584,13 +584,15 @@ def update_configuration(
     cadence: PlatformAlertUpsert | None = None,
     rescheduled: bool = False,
     source_checked: bool = False,
+    check_interval_minutes: int | None = None,
 ) -> PlatformAlertConfigurationView | None:
     """Applies an edit to a configuration the platform owns, or None when the caller cannot read it.
     With `snooze_changed`, `snooze_until` becomes the whole alert's mute, and None clears it.
 
     For an alert with no source row, `cadence` and `rescheduled` write its schedule as
     `update_owned_copy` writes a copy's. Its kind's `native_edit_guard` refuses what only the
-    source's API may change, unless `source_checked` says the source's API made the edit.
+    source's API may change, unless `source_checked` says the source's API made the edit. Such an
+    alert can instead take `check_interval_minutes`, one of the cadences its kind offers a create.
 
     Raises `PlatformAlertNotEditable` for a configuration its source owns, and
     `InvalidPlatformAlertEdit` for an edit its source kind rejects.
@@ -605,6 +607,7 @@ def update_configuration(
         cadence=cadence,
         rescheduled=rescheduled,
         source_checked=source_checked,
+        check_interval_minutes=check_interval_minutes,
     )
 
 
@@ -819,6 +822,18 @@ def list_source_destinations(
     """An alert's destinations as its source's page shows them, HogFunction groups and rows merged."""
     return alert_destinations.list_source_destinations(
         team_id=team_id, public_id=public_id, hog_function_groups=hog_function_groups
+    )
+
+
+def source_destinations_without_hog_functions(*, team_id: int, public_id: UUID) -> tuple[StoredAlertDestination, ...]:
+    """The alert's non-subscriber rows that copy no live HogFunction, which its source cannot send to."""
+    return alert_destinations.source_destinations_without_hog_functions(team_id=team_id, public_id=public_id)
+
+
+def link_source_destination(*, team_id: int, destination_id: UUID, hog_function_ids: Collection[UUID]) -> None:
+    """Records that the row copies these HogFunctions, so delivery skips it while any of them exists."""
+    alert_destinations.link_source_destination(
+        team_id=team_id, destination_id=destination_id, hog_function_ids=hog_function_ids
     )
 
 
