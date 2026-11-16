@@ -3912,6 +3912,12 @@ describe('CDP API', () => {
                     'List-Unsubscribe needs one <https://...> URL',
                 ],
                 [
+                    'unsubscribe headers beside a cc',
+                    () => ({ ...codeSend, headers: unsubscribe, cc: ['copy@example.com'] }),
+                    () => ({ ...codeSend, headers: unsubscribe }),
+                    'headers cannot go with cc or bcc',
+                ],
+                [
                     'one-click without an unsubscribe link',
                     () => ({ ...codeSend, headers: { 'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click' } }),
                     () => ({ ...codeSend, headers: unsubscribe }),

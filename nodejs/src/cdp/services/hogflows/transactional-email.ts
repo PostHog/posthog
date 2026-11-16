@@ -217,6 +217,11 @@ export const AcceptedSendSchema = z
     })
     .strict()
     .readonly()
+    // An unsubscribe link names one recipient, so a copy would carry the To recipient's link.
+    .refine((send) => !send.headers || (!send.cc?.length && !send.bcc?.length), {
+        message: 'headers cannot go with cc or bcc',
+        path: ['headers'],
+    })
 
 export type AcceptedSend = z.infer<typeof AcceptedSendSchema>
 

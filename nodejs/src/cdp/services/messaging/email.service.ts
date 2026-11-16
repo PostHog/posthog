@@ -865,8 +865,6 @@ export class EmailService {
                         : params.to),
                 cc: suppression.cc,
                 bcc: suppression.bcc,
-                // The caller's unsubscribe link names the suppressed recipient, so the promoted one gets generated headers.
-                headers: suppression.promotedTo ? undefined : params.headers,
             }
 
             // Like suppression, the tracking decision lives at this choke point so every send path

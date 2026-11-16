@@ -2903,15 +2903,12 @@ describe('EmailService', () => {
                     from: { integrationId: 1 },
                     cc: '"Bounced" <cc-bounced@example.com>, cc-1@example.com, cc-2@example.com',
                     bcc: 'bcc-bounced@example.com',
-                    headers: { 'List-Unsubscribe': '<https://example.com/unsubscribe?u=test>' },
                 })
 
                 const result = await service.executeSendEmail(invocation)
 
                 const [sent] = ses.sent
                 expect(sent).toMatchObject({ to: ['cc-1@example.com'], cc: ['cc-2@example.com'], bcc: undefined })
-                // The caller's unsubscribe link names the suppressed recipient, not the promoted one.
-                expect(sent.headers['List-Unsubscribe']).not.toEqual('<https://example.com/unsubscribe?u=test>')
                 expect(result.metrics.map((m) => m.metric_name)).toContain('email_sent')
                 expect(result.logs.map((l) => l.message).join(' ')).toContain(
                     'test@example.com, cc-bounced@example.com, bcc-bounced@example.com'
