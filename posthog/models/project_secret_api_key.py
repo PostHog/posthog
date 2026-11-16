@@ -106,6 +106,13 @@ def delete_project_secret_api_keys_for_token(team_id: int, token: str) -> None:
 # The scopes the #63111 backfill granted; rotation must neither widen nor narrow access.
 MIRRORED_LEGACY_TOKEN_SCOPES = ["feature_flag:read", "support_ticket:read"]
 
+# What mirror rows carry: account:write keeps the legacy token's customer analytics account
+# access working through the mirror. It also opens the bulk account export to the token,
+# accepted now that serializers no longer serve the token to project members (#127837).
+# Kept out of MIRRORED_LEGACY_TOKEN_SCOPES, which rotation requires callers to HOLD —
+# requiring account:write there would block rotation for callers without it.
+MIRRORED_LEGACY_TOKEN_MINTED_SCOPES = [*MIRRORED_LEGACY_TOKEN_SCOPES, "account:write"]
+
 MIRRORED_LEGACY_TOKEN_LABEL = "Migrated legacy secret API key"
 
 
@@ -119,5 +126,5 @@ def create_project_secret_api_key_for_token(team_id: int, token: str) -> None:
         label=f"{MIRRORED_LEGACY_TOKEN_LABEL} {secure_value[-8:]}",
         mask_value=mask_key_value(token),
         secure_value=secure_value,
-        scopes=MIRRORED_LEGACY_TOKEN_SCOPES,
+        scopes=MIRRORED_LEGACY_TOKEN_MINTED_SCOPES,
     )
