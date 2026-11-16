@@ -12,6 +12,36 @@
             ],
             "description": "Only list prompts that are on (true) or off (false). Omit to list both."
         },
+        "branded": {
+            "anyOf": [
+                {
+                    "type": "boolean"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Only list prompts whose current text names the brand (true) or does not (false). Omit to list both. A prompt is branded when its text names the brand: the registrable name of a target domain as a word, case ignored, so 'example' and 'example.com' both name example.com. Branded prompts almost always get answers that mention the brand."
+        },
+        "days": {
+            "default": 30,
+            "description": "The window needs_improvement reads, in days ending now. Default 30, at most 90. Ignored unless needs_improvement is true.",
+            "maximum": 90,
+            "minimum": 1,
+            "type": "number"
+        },
+        "engine": {
+            "anyOf": [
+                {
+                    "maxLength": 64,
+                    "type": "string"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "With needs_improvement, only read the answers of this engine, for example 'claude-web-search'. Ignored unless needs_improvement is true."
+        },
         "include_archived": {
             "default": false,
             "description": "Also list archived prompts. Archived prompts are left out by default.",
@@ -19,7 +49,13 @@
         },
         "limit": {
             "description": "Number of results to return per page.",
+            "maximum": 1000,
             "type": "number"
+        },
+        "needs_improvement": {
+            "default": false,
+            "description": "Only list prompts that the engines answered in the last 'days' days without citing a target domain. Prompts with no answered check in that window are left out.",
+            "type": "boolean"
         },
         "offset": {
             "description": "The initial index from which to return the results.",

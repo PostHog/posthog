@@ -58,6 +58,10 @@ tools:
             run/job metadata behind these logs. Jobs carry ci_engine; null means unknown historical provenance.
         hooks: engineeringAnalytics/redactFailureLogsHooks
         feature_flag: engineering-analytics
+    engineering-analytics-depot-ci-usage:
+        operation: engineering_analytics_depot_ci_usage
+        enabled: false
+        disabled_reason: Billing totals for the weekly CI digest. Agents read cost per workflow or pull request.
     engineering-analytics-dora:
         operation: engineering_analytics_dora
         enabled: false
@@ -90,6 +94,10 @@ tools:
             the PR-scoped lead-time figures to that team's authors: deploy counts stay repo-wide. deploy_data_available
             is false when the deployments endpoints aren't synced on the GitHub source; the fix is enabling them, not
             re-querying.
+    engineering-analytics-enable:
+        operation: engineering_analytics_enable
+        enabled: false
+        disabled_reason: The in-app setup state enables the product; an agent should not opt a project into background work.
     engineering-analytics-flaky-tests:
         operation: engineering_analytics_flaky_tests
         enabled: true

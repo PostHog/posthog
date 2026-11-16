@@ -1,9 +1,12 @@
 import { FunnelsQuery, InsightVizNode, NodeKind } from '~/queries/schema/schema-general'
 import { FunnelVizType, InsightModel } from '~/types'
 
-import { isSurveyableFunnelInsight } from './opportunityDetection'
+import { contextItemPath } from 'products/posthog_ai/frontend/utils/contextItemLink'
+import { wrapWithPosthogContext } from 'products/posthog_ai/frontend/utils/posthogContextBlock'
 
-describe('isSurveyableFunnelInsight', () => {
+import { isSurveyableFunnelInsight, surveyOpportunityContextItems } from './opportunityDetection'
+
+describe('opportunityDetection', () => {
     const pageviews = { kind: NodeKind.EventsNode as const, event: '$pageview', name: '$pageview' }
     const signups = { kind: NodeKind.ActionsNode as const, id: 7, name: 'Signed up' }
     const steps = [
@@ -52,5 +55,34 @@ describe('isSurveyableFunnelInsight', () => {
         ],
     ])('checks %s', (_case, insight, expected) => {
         expect(isSurveyableFunnelInsight(insight)).toBe(expected)
+    })
+
+    describe('surveyOpportunityContextItems', () => {
+        const funnelContext = { insightName: 'Signups', conversionRate: 0.2, steps: [] }
+
+        const shortId = 'abc123' as InsightModel['short_id']
+
+        test.each<[Partial<Pick<InsightModel, 'id' | 'short_id'>>, string | null]>([
+            [{ id: 17, short_id: shortId }, '/insights/abc123'],
+            [{ id: 17 }, null],
+            [{}, null],
+        ])('links %o by short ID and keeps the context key', (insight, expected) => {
+            const items = surveyOpportunityContextItems(insight, funnelContext)
+
+            expect(contextItemPath(items![0])).toBe(expected)
+            expect(items![0].key).toBe(insight.id)
+            expect(items![1]).toEqual({
+                type: 'survey_opportunity_funnel_context',
+                value: JSON.stringify({ conversionRate: 0.2, steps: [] }),
+                label: 'Funnel conversion context',
+            })
+            if (insight.id) {
+                expect(wrapWithPosthogContext('Review this funnel', items!)).toContain(`insight ${insight.id}`)
+            }
+        })
+
+        it('attaches no context without a surveyable funnel', () => {
+            expect(surveyOpportunityContextItems({ id: 17, short_id: shortId }, null)).toBeNull()
+        })
     })
 })

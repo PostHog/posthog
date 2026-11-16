@@ -8,6 +8,10 @@ the branch introduces can fail the gate. Existing duplication is grandfathered
 in. App code and test code are held to different bars: a clone between two test files may
 run longer before it fails, because repeated setup is idiomatic in tests.
 
+jscpd pairs files only within one format, so a clone the branch introduces
+carries the format of a file the branch changed, and a change set that touches
+one format can scan that format alone.
+
 With --report-dir, also writes one findings file per language for the CI
 report comment (.github/scripts/post-duplication-section.mjs).
 """
@@ -21,11 +25,15 @@ import tempfile
 import subprocess
 import collections
 from dataclasses import dataclass
-from pathlib import Path
+from pathlib import Path, PurePosixPath
 
 JSCPD_VERSION = "5.1.1"
 
-FORMATS = "python,typescript,tsx"
+FORMAT_EXTENSIONS: dict[str, tuple[str, ...]] = {
+    "python": (".py", ".pyx", ".pxd", ".pxi"),
+    "typescript": (".ts", ".mts", ".cts"),
+    "tsx": (".tsx",),
+}
 
 # Migrations and generated code duplicate by design; .depot/ is a vendored
 # mirror of .github/actions/.
@@ -71,6 +79,26 @@ def is_test_file(path: str) -> bool:
     return bool(TEST_PATH.search(path))
 
 
+def formats_touched(changed_files: set[str]) -> list[str]:
+    """Return the jscpd formats a clone in this change set can have.
+
+    Two or more touched formats keep the full scan: a two-format run measured
+    no cheaper than the three-format one. So does any changed file with no
+    extension, which jscpd reads by shebang (`bin/sandbox` is Python) and which
+    the extension lists above therefore cannot place.
+    """
+    if any(not PurePosixPath(path).suffix for path in changed_files):
+        return list(FORMAT_EXTENSIONS)
+    touched = [
+        format_name
+        for format_name, extensions in FORMAT_EXTENSIONS.items()
+        if any(path.endswith(extensions) for path in changed_files)
+    ]
+    if len(touched) <= 1:
+        return touched
+    return list(FORMAT_EXTENSIONS)
+
+
 def clone_language(clone: dict) -> str:
     return "python" if clone.get("format") == "python" else "typescript"
 
@@ -110,7 +138,17 @@ def build_findings(failures: list[tuple[dict, bool]]) -> dict[str, list[dict]]:
     return findings
 
 
-def run_jscpd(scan_root: Path, out_dir: Path) -> list[dict]:
+def write_findings(report_dir: str | None, findings: dict[str, list[dict]]) -> None:
+    """Write the per-language findings files the CI report poster reads."""
+    if not report_dir:
+        return
+    (Path(report_dir) / "duplication-scan-status.json").write_text(json.dumps({"status": "ok"}) + "\n")
+    report_names = {"python": "duplication-findings-python.json", "typescript": "duplication-findings-ts.json"}
+    for language, language_findings in findings.items():
+        (Path(report_dir) / report_names[language]).write_text(json.dumps(language_findings, indent=2) + "\n")
+
+
+def run_jscpd(scan_root: Path, out_dir: Path, formats: list[str]) -> list[dict]:
     """Scan one tree with jscpd and return its clone list."""
     try:
         proc = subprocess.run(
@@ -119,7 +157,7 @@ def run_jscpd(scan_root: Path, out_dir: Path) -> list[dict]:
                 "--yes",
                 f"jscpd@{JSCPD_VERSION}",
                 "--format",
-                FORMATS,
+                ",".join(formats),
                 "--min-lines",
                 str(SCAN_MIN_LINES),
                 "--min-tokens",
@@ -212,7 +250,7 @@ def changed_files_between(baseline: str, current: str, repo: Path) -> set[str]:
     )
 
 
-def scan_revision(repo: Path, revision: str, scan_dir: Path) -> list[dict]:
+def scan_revision(repo: Path, revision: str, scan_dir: Path, formats: list[str]) -> list[dict]:
     worktree = scan_dir / "worktree"
     scan_dir.mkdir()
     try:
@@ -226,7 +264,7 @@ def scan_revision(repo: Path, revision: str, scan_dir: Path) -> list[dict]:
             print(add.stderr[-2000:])
             print(f"duplication lint could not check out {revision}")
             raise SystemExit(2)
-        return run_jscpd(worktree, scan_dir / "report")
+        return run_jscpd(worktree, scan_dir / "report", formats)
     finally:
         subprocess.run(["git", "worktree", "remove", "--force", str(worktree)], capture_output=True, cwd=repo)
 
@@ -262,6 +300,15 @@ def main() -> int:
     print(f"Comparing clones against {baseline}")
     changed_files = changed_files_between(baseline, "HEAD", repo)
 
+    # Read before the scans: they skip the formats this change set cannot clone in.
+    changed_files = changed_files_between(baseline, "HEAD", repo)
+    formats = formats_touched(changed_files)
+    if not formats:
+        print("No changed file in a scanned format, so no clone can be new.")
+        write_findings(args.report_dir, {language: [] for language in LANGUAGES})
+        return 0
+    print(f"Scanning {', '.join(formats)}")
+
     # jscpd's own --baseline-from-ref mismatches clones whose files moved on
     # the base since the branch forked, and some stable pairs it re-flags
     # with no visible cause. Scan both trees with identical flags and diff
@@ -277,11 +324,11 @@ def main() -> int:
         # longer exist; drop them before adding a fresh one.
         subprocess.run(["git", "worktree", "prune"], capture_output=True, cwd=repo)
         try:
-            current_clones = scan_revision(repo, "HEAD", tmp_path / "current")
+            current_clones = scan_revision(repo, "HEAD", tmp_path / "current", formats)
             # A baseline can only grandfather candidates; it cannot add a finding.
             mark_new_clones(current_clones, [], changed_files)
             if find_gate_failures(current_clones):
-                baseline_clones = scan_revision(repo, baseline, tmp_path / "baseline")
+                baseline_clones = scan_revision(repo, baseline, tmp_path / "baseline", formats)
                 mark_new_clones(current_clones, baseline_clones, changed_files)
                 print(
                     f"{len(current_clones)} clones in this tree, "
@@ -300,13 +347,7 @@ def main() -> int:
         (Path(args.report_dir) / "duplication-scan-status.json").write_text(json.dumps({"status": "ok"}) + "\n")
 
     failures = find_gate_failures(current_clones)
-    findings = build_findings(failures)
-
-    if args.report_dir:
-        report_names = {"python": "duplication-findings-python.json", "typescript": "duplication-findings-ts.json"}
-        for language, language_findings in findings.items():
-            (Path(args.report_dir) / report_names[language]).write_text(json.dumps(language_findings, indent=2) + "\n")
-
+    write_findings(args.report_dir, build_findings(failures))
     if not failures:
         print("No new code duplication above the bars.")
         return 0

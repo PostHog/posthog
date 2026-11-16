@@ -132,8 +132,9 @@ function HighlightFeedGroupList({
                     ))}
                 </ul>
             )}
-            {/* The list's own total decides, since dismissed or re-ranked sessions can make it differ from the card's count. */}
-            {members && members.total > members.shown.length && (
+            {/* The list's own total decides, since dismissed or re-ranked sessions can make it differ from the card's count.
+                A short group still links out, so a reader can see every session on one page. */}
+            {members && members.shown.length > 0 && (
                 <Link
                     to={
                         combineUrl(urls.replayVision(logicProps.scannerId), {
@@ -152,7 +153,9 @@ function HighlightFeedGroupList({
                         })
                     }
                 >
-                    See all {members.total} similar sessions
+                    {members.total > members.shown.length
+                        ? `See all ${members.total} similar sessions`
+                        : 'View all on one page'}
                 </Link>
             )}
         </div>

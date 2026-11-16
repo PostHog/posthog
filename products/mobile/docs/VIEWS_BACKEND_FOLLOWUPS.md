@@ -220,7 +220,7 @@ A reinstall also loses the phone's Recent list.
 - Scope: `log_view` is in `scope_object_write_actions` (`file_system.py:282-293`), so the POST needs `file_system:write`.
   That scope also allows create, move, link and delete in the file tree.
   Decide whether the POST should accept a narrower scope. `dangerously_get_required_scopes` can choose scopes per request (`posthog/permissions.py:704-709`).
-- Effect: `GET dashboards/?ordering=-last_viewed_at` joins this user's `FileSystemViewLog` rows (`products/dashboards/backend/api/dashboard.py:2948-2958`).
+- Effect: `GET dashboards/?ordering=-last_viewed_at` joins this user's `FileSystemViewLog` rows (`products/dashboards/backend/presentation/views/dashboard.py:2948-2958`).
   The `file_system/` recents read the same log. Both then include phone opens.
 - Tests: extend the parameterized `test_log_view_endpoint_creates_entry` (`posthog/api/test/test_file_system.py:538`) with a bearer-token case.
   Add a case that a bearer-token GET of a dashboard still logs nothing.
@@ -320,7 +320,7 @@ The badge helps them find what the agent made.
   - `created_via`: a `CharField` that holds an `EventSource` value (`posthog/event_usage.py:330-355`), for example `posthog_ai`, `mcp` or `wizard`;
   - `created_via_client`: a `CharField` that holds the sanitized MCP client name from `get_mcp_properties` (`posthog/event_usage.py:568`).
 - Set both on create, from `get_event_source(request)` (`posthog/event_usage.py:487`):
-  - in `DashboardSerializer.create` (`products/dashboards/backend/api/dashboard.py:1778`), next to the "dashboard created" event (`:1890-1900`);
+  - in `DashboardSerializer.create` (`products/dashboards/backend/presentation/views/dashboard.py:1778`), next to the "dashboard created" event (`:1890-1900`);
   - in the create-from-template path (`:4012-4020`).
 - Expose both fields read-only on `DashboardBasicSerializer` (`dashboard.py:1209`), each with a `help_text`.
   Run `hogli build:openapi`.
@@ -519,7 +519,7 @@ Agree the change with the desktop team before anyone edits a row.
 **Order:**
 
 - Change the ceiling before the app release that requests the scopes.
-  Some paths answer `invalid_scope` instead of dropping the scope, and that blocks sign-in ([AUTH.md](AUTH.md), "Server-side ceiling").
+  Some paths answer `invalid_scope` instead of dropping the scope, and that blocks sign-in.
 - A token refresh never widens a grant (`posthog/api/oauth/views.py:808-851`).
   Existing users get the new scopes after one new sign-in.
 - Items 3 (the alternative) and 4 add `file_system:read` or `file_system:write`.

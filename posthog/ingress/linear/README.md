@@ -38,6 +38,7 @@ It stays off the credentials service, because every deployment that holds a call
 
 The App's webhook settings subscribe to the `Issue` resource type.
 Linear creates the webhook for a workspace when the workspace authorizes the App, so a workspace that authorized it before the webhook settings existed gets deliveries only after it connects again.
+The integration API reports such a connection as `needs_webhook_reconnect`, and the settings page asks for the reconnect.
 
 One Linear App serves both regions.
 Its webhook URL names the primary region, `https://eu.posthog.com/webhooks/linear`, so every delivery arrives there first.

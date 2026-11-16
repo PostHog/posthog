@@ -1824,7 +1824,7 @@ async fn flip(pools: &IdentityPools, tables: &IdentityTables, op: &OpRow) -> Res
     lock_ids.push(target);
     lock_ids.sort_unstable();
     let lock_persons_sql = format!(
-        "SELECT id FROM {person_table} WHERE team_id = $1 AND id = ANY($2) ORDER BY id FOR UPDATE",
+        "SELECT id FROM {person_table} WHERE team_id = $1 AND id = ANY($2) ORDER BY id FOR NO KEY UPDATE",
         person_table = tables.person,
     );
     sqlx::query(&query_tag!("merge_flip_lock_persons", lock_persons_sql))

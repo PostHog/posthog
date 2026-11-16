@@ -4,17 +4,20 @@ import { ReactNode, useEffect, useState } from 'react'
 import api from 'lib/api'
 import { urls } from 'scenes/urls'
 
-import { HogFunctionType, IntegrationType } from '~/types'
+import { IntegrationType } from '~/types'
 
 import {
     AlertNotificationDestinationEditor,
     AlertNotificationDestinationView,
     AlertNotificationUrlInput,
     PendingAlertNotificationDestinationView,
+    pagerDutyPendingDetail,
 } from 'products/alerts/frontend/components/AlertNotificationDestinationEditor'
+import type { AlertDestinationListItemApi } from 'products/alerts/frontend/generated/api.schemas'
 import {
     ALERT_NOTIFICATION_TYPE_DISCORD,
     ALERT_NOTIFICATION_TYPE_MICROSOFT_TEAMS,
+    ALERT_NOTIFICATION_TYPE_PAGERDUTY,
     ALERT_NOTIFICATION_TYPE_SLACK,
     ALERT_NOTIFICATION_TYPE_WEBHOOK,
     AlertNotificationType,
@@ -45,50 +48,46 @@ function SlackDestinationChannel({ workspaceId, channelId }: { workspaceId: numb
     return <>{channelName ? `#${channelName}` : 'channel'}</>
 }
 
-interface SlackDestinationInputs {
-    slack_workspace?: { value: number }
-    channel?: { value: string }
+const DESTINATION_TYPE_LABELS: Record<AlertDestinationListItemApi['type'], string> = {
+    slack: 'Slack',
+    discord: 'Discord',
+    teams: 'Microsoft Teams',
+    webhook: 'Webhook',
+    pagerduty: 'PagerDuty',
+    email: 'Email',
+    in_app: 'In-app',
 }
 
-function getHogFunctionDestination(
-    hogFunction: HogFunctionType,
+function getDestinationDetail(
+    destination: AlertDestinationListItemApi,
     slackIntegrations: IntegrationType[] | undefined
-): { type: string; detail: ReactNode } {
-    const inputs = hogFunction.inputs as SlackDestinationInputs | null | undefined
-    const channelId = inputs?.channel?.value
-    if (channelId) {
+): ReactNode {
+    if (destination.type === 'slack' && destination.slack_channel_id) {
         // Destinations from before `slack_workspace` existed can only be safely attributed to a
         // workspace when exactly one is connected — with 2+, there's no way to know which one it
         // was created against, so guessing would risk showing the wrong workspace/channel.
         const workspaceId =
-            inputs?.slack_workspace?.value ?? (slackIntegrations?.length === 1 ? slackIntegrations[0].id : undefined)
+            destination.slack_workspace_id ?? (slackIntegrations?.length === 1 ? slackIntegrations[0].id : undefined)
         if (workspaceId === undefined) {
-            return { type: 'Slack', detail: null }
+            return null
         }
         const workspaceName = slackIntegrations?.find((integration) => integration.id === workspaceId)?.display_name
-        return {
-            type: 'Slack',
-            detail: (
-                <>
-                    {workspaceName ?? 'Unknown workspace'} ·{' '}
-                    <SlackDestinationChannel workspaceId={workspaceId} channelId={channelId} />
-                </>
-            ),
-        }
+        return (
+            <>
+                {workspaceName ?? 'Unknown workspace'} ·{' '}
+                {destination.slack_channel_name ? (
+                    `#${destination.slack_channel_name}`
+                ) : (
+                    <SlackDestinationChannel workspaceId={workspaceId} channelId={destination.slack_channel_id} />
+                )}
+            </>
+        )
     }
-    if (hogFunction.template_id === 'template-discord') {
-        const webhookUrl = hogFunction.inputs?.webhookUrl?.value
-        return { type: 'Discord', detail: typeof webhookUrl === 'string' ? webhookUrl : null }
+    if (destination.type === 'pagerduty') {
+        // The API returns only the routing key's last four characters.
+        return [destination.pagerduty_routing_key, destination.pagerduty_severity].filter(Boolean).join(' · ')
     }
-    if (hogFunction.template_id === 'template-microsoft-teams') {
-        const webhookUrl = hogFunction.inputs?.webhookUrl?.value
-        return { type: 'Microsoft Teams', detail: typeof webhookUrl === 'string' ? webhookUrl : null }
-    }
-    const urlValue = hogFunction.inputs?.url?.value
-    if (urlValue && typeof urlValue === 'string') {
-        return { type: 'Webhook', detail: urlValue }
-    }
-    return { type: hogFunction.name, detail: null }
+    return destination.webhook_url ?? null
 }
 
 function getPendingNotificationDestination(
@@ -111,6 +110,8 @@ function getPendingNotificationDestination(
             return { title: 'Microsoft Teams', detail: notification.webhookUrl }
         case ALERT_NOTIFICATION_TYPE_WEBHOOK:
             return { title: 'Webhook', detail: notification.webhookUrl }
+        case ALERT_NOTIFICATION_TYPE_PAGERDUTY:
+            return { title: 'PagerDuty', detail: pagerDutyPendingDetail(notification) }
         default: {
             const exhaustiveCheck: never = notification
             return exhaustiveCheck
@@ -127,6 +128,7 @@ function getUrlInput(type: AlertNotificationType): AlertNotificationUrlInput | u
         case ALERT_NOTIFICATION_TYPE_WEBHOOK:
             return { placeholder: 'https://example.com/webhook' }
         case ALERT_NOTIFICATION_TYPE_SLACK:
+        case ALERT_NOTIFICATION_TYPE_PAGERDUTY:
             return undefined
         default: {
             const exhaustiveCheck: never = type
@@ -137,32 +139,45 @@ function getUrlInput(type: AlertNotificationType): AlertNotificationUrlInput | u
 
 interface InlineAlertNotificationsProps {
     alertId?: string
+    /** Whether the alerts platform owns the alert, or will own it once it is created. Only it opens incidents. */
+    pagerDutyAvailable: boolean
 }
 
-export function InlineAlertNotifications({ alertId }: InlineAlertNotificationsProps): JSX.Element {
+export function InlineAlertNotifications({ alertId, pagerDutyAvailable }: InlineAlertNotificationsProps): JSX.Element {
     const logic = alertNotificationLogic({ alertId })
     const {
-        existingHogFunctions,
-        existingHogFunctionsLoading,
+        destinations,
+        destinationsLoading,
         pendingNotifications,
         integrationsLoading,
         integrationsFailed,
         slackIntegrations,
         selectedSlackIntegration,
-        selectedType,
+        selectedType: storedSelectedType,
         slackChannelValue,
         webhookUrl,
+        pagerDutyRoutingKey,
+        pagerDutySeverity,
+        pagerDutyRegion,
     } = useValues(logic)
     const {
         addPendingNotification,
         removePendingNotification,
-        deleteExistingHogFunction,
+        deleteDestination,
         setSelectedType,
         setSelectedSlackIntegrationId,
         setSlackChannelValue,
         setWebhookUrl,
+        setPagerDutyRoutingKey,
+        setPagerDutySeverity,
+        setPagerDutyRegion,
         loadIntegrations,
     } = useActions(logic)
+
+    const selectedType =
+        !pagerDutyAvailable && storedSelectedType === ALERT_NOTIFICATION_TYPE_PAGERDUTY
+            ? ALERT_NOTIFICATION_TYPE_SLACK
+            : storedSelectedType
 
     const buildPendingNotification = (): PendingAlertNotification | null => {
         if (selectedType === ALERT_NOTIFICATION_TYPE_SLACK) {
@@ -175,6 +190,14 @@ export function InlineAlertNotifications({ alertId }: InlineAlertNotificationsPr
                 slackWorkspaceId: selectedSlackIntegration.id,
                 slackChannelId: channelId,
                 slackChannelName: channelLabel?.replace('#', '') ?? channelId,
+            }
+        }
+        if (selectedType === ALERT_NOTIFICATION_TYPE_PAGERDUTY) {
+            return {
+                type: ALERT_NOTIFICATION_TYPE_PAGERDUTY,
+                routingKey: pagerDutyRoutingKey.trim(),
+                severity: pagerDutySeverity,
+                region: pagerDutyRegion,
             }
         }
         if (!webhookUrl) {
@@ -199,25 +222,37 @@ export function InlineAlertNotifications({ alertId }: InlineAlertNotificationsPr
             setSlackChannelValue(null)
             return
         }
+        if (notification.type === ALERT_NOTIFICATION_TYPE_PAGERDUTY) {
+            setPagerDutyRoutingKey('')
+            return
+        }
         setWebhookUrl('')
     }
 
-    const existingDestinations: AlertNotificationDestinationView[] = existingHogFunctions.map((hogFunction) => {
-        const destination = getHogFunctionDestination(hogFunction, slackIntegrations)
+    const existingDestinations: AlertNotificationDestinationView[] = destinations.map((destination) => {
+        const hogFunctionId = destination.hog_function_ids[0]
         return {
-            key: hogFunction.id,
-            title: destination.type,
-            detail: destination.detail,
+            key: destination.hog_function_ids.length ? destination.hog_function_ids.join(',') : String(destination.id),
+            title: DESTINATION_TYPE_LABELS[destination.type] ?? destination.type,
+            detail: getDestinationDetail(destination, slackIntegrations),
             tags: [
-                { label: hogFunction.enabled ? 'Active' : 'Paused', type: hogFunction.enabled ? 'success' : 'default' },
+                destination.type === ALERT_NOTIFICATION_TYPE_PAGERDUTY && !pagerDutyAvailable
+                    ? { label: 'Not paging', type: 'warning' }
+                    : {
+                          label: destination.enabled ? 'Active' : 'Paused',
+                          type: destination.enabled ? 'success' : 'default',
+                      },
             ],
-            viewAction: {
-                kind: 'icon',
-                url: urls.hogFunction(hogFunction.id),
-                tooltip: 'Open destination',
-                targetBlank: true,
-            },
-            onDelete: () => deleteExistingHogFunction(hogFunction),
+            viewAction:
+                hogFunctionId && destination.type !== ALERT_NOTIFICATION_TYPE_PAGERDUTY
+                    ? {
+                          kind: 'icon',
+                          url: urls.hogFunction(hogFunctionId),
+                          tooltip: 'Open destination',
+                          targetBlank: true,
+                      }
+                    : undefined,
+            onDelete: () => deleteDestination(destination),
         }
     })
 
@@ -236,12 +271,14 @@ export function InlineAlertNotifications({ alertId }: InlineAlertNotificationsPr
             <AlertNotificationDestinationEditor
                 destinations={{
                     showExisting: Boolean(alertId),
-                    existingLoading: existingHogFunctionsLoading,
+                    existingLoading: destinationsLoading,
                     existing: existingDestinations,
                     pending: pendingDestinations,
                 }}
                 notificationType={{
-                    options: ALERT_NOTIFICATION_TYPE_OPTIONS,
+                    options: ALERT_NOTIFICATION_TYPE_OPTIONS.filter(
+                        (option) => pagerDutyAvailable || option.value !== ALERT_NOTIFICATION_TYPE_PAGERDUTY
+                    ),
                     value: selectedType,
                     onChange: setSelectedType,
                 }}
@@ -257,13 +294,26 @@ export function InlineAlertNotifications({ alertId }: InlineAlertNotificationsPr
                     onChannelValueChange: setSlackChannelValue,
                 }}
                 url={urlInput ? { input: urlInput, value: webhookUrl, onChange: setWebhookUrl } : undefined}
+                pagerduty={
+                    selectedType === ALERT_NOTIFICATION_TYPE_PAGERDUTY
+                        ? {
+                              routingKey: pagerDutyRoutingKey,
+                              onRoutingKeyChange: setPagerDutyRoutingKey,
+                              severity: pagerDutySeverity,
+                              onSeverityChange: setPagerDutySeverity,
+                              region: pagerDutyRegion,
+                              onRegionChange: setPagerDutyRegion,
+                          }
+                        : undefined
+                }
                 add={{
                     onClick: handleAdd,
                     disabledReason: getAlertNotificationAddDisabledReason(
                         selectedType,
                         Boolean(selectedSlackIntegration),
                         slackChannelValue,
-                        webhookUrl
+                        webhookUrl,
+                        pagerDutyRoutingKey
                     ),
                 }}
             />

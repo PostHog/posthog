@@ -1,4 +1,3 @@
-import { isUniversalGroupFilterLike } from 'lib/components/UniversalFilters/utils'
 import { HogQLQueryString, escapeHogQLString, hogql } from 'lib/utils/hogql'
 
 import { setLatestVersionsOnQuery } from '~/queries/schema/query-versions'
@@ -11,7 +10,6 @@ import {
     ErrorTrackingIssueEventsQuery,
     ErrorTrackingPendingFingerprintIssueStateUpdate,
     ErrorTrackingQuery,
-    ErrorTrackingQueryIssueSeverity,
     ErrorTrackingReleasesOrderBy,
     ErrorTrackingReleasesQuery,
     EventsQuery,
@@ -23,11 +21,8 @@ import {
     AnyPropertyFilter,
     BaseMathType,
     ChartDisplayType,
-    ErrorTrackingIssueFilter,
-    FilterLogicalOperator,
     PropertyFilterType,
     PropertyGroupFilter,
-    PropertyOperator,
     UniversalFiltersGroup,
 } from '~/types'
 
@@ -39,48 +34,11 @@ import {
     SEARCHABLE_EXCEPTION_PROPERTIES,
 } from './utils'
 
-function withIssueSeverityFilter(
-    filterGroup: UniversalFiltersGroup,
-    severity: ErrorTrackingQueryIssueSeverity | null | undefined
-): UniversalFiltersGroup {
-    if (!severity) {
-        return filterGroup
-    }
-
-    const severityFilter: ErrorTrackingIssueFilter = {
-        key: 'severity',
-        type: PropertyFilterType.ErrorTrackingIssue,
-        operator: PropertyOperator.Exact,
-        value: [severity],
-    }
-    const firstValue = filterGroup.values[0]
-    const firstGroup: UniversalFiltersGroup = isUniversalGroupFilterLike(firstValue)
-        ? firstValue
-        : {
-              type: FilterLogicalOperator.And,
-              values: firstValue ? [firstValue] : [],
-          }
-    const nextValues =
-        firstGroup.type === FilterLogicalOperator.Or && firstGroup.values.length > 0
-            ? [firstGroup, severityFilter]
-            : [...firstGroup.values, severityFilter]
-
-    return {
-        ...filterGroup,
-        values: [
-            {
-                type: FilterLogicalOperator.And,
-                values: nextValues,
-            },
-            ...filterGroup.values.slice(1),
-        ],
-    }
-}
-
 export const errorTrackingQuery = ({
     orderBy,
     status,
     severity,
+    issueTag,
     dateRange,
     assignee,
     filterTestAccounts,
@@ -98,6 +56,8 @@ export const errorTrackingQuery = ({
     ErrorTrackingQuery,
     | 'orderBy'
     | 'status'
+    | 'severity'
+    | 'issueTag'
     | 'dateRange'
     | 'assignee'
     | 'filterTestAccounts'
@@ -109,7 +69,6 @@ export const errorTrackingQuery = ({
     | 'groupTypeIndex'
 > & {
     filterGroup: UniversalFiltersGroup
-    severity?: ErrorTrackingQueryIssueSeverity | null
     columns: string[]
     volumeResolution?: number
     pendingFingerprintIssueStateUpdates?: ErrorTrackingPendingFingerprintIssueStateUpdate[]
@@ -120,10 +79,12 @@ export const errorTrackingQuery = ({
             kind: NodeKind.ErrorTrackingQuery,
             orderBy,
             status,
+            ...(severity ? { severity } : {}),
+            ...(issueTag ? { issueTag } : {}),
             dateRange,
             assignee,
             volumeResolution,
-            filterGroup: withIssueSeverityFilter(filterGroup, severity) as PropertyGroupFilter,
+            filterGroup: filterGroup as PropertyGroupFilter,
             filterTestAccounts: filterTestAccounts,
             searchQuery: searchQuery,
             limit: limit,

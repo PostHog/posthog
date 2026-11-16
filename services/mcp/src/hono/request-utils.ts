@@ -1,8 +1,14 @@
 import { getUiCapability, RESOURCE_MIME_TYPE } from '@modelcontextprotocol/ext-apps/server'
 import { z } from 'zod'
 
-import { classifyAuthFailure, mapErrorToAuthResponse, validateBearerToken } from '@/lib/auth-errors'
+import {
+    classifyAuthFailure,
+    isStepUpChallengeError,
+    mapErrorToAuthResponse,
+    validateBearerToken,
+} from '@/lib/auth-errors'
 import { getPostHogClient } from '@/lib/posthog'
+import { validateProjectSecretKeyProject } from '@/lib/project-secret-key'
 import {
     type ClientInfo,
     parseRequestProperties,
@@ -126,6 +132,11 @@ export async function authenticateAndParse(
 
     const bodyText = await preserveBody(c)
     const props = parseRequestProperties(c.req.raw, parseClientInfo(bodyText), transport)
+    const missingProject = validateProjectSecretKeyProject(props.apiToken, props.projectId)
+    if (missingProject) {
+        authFailuresTotal.inc({ reason: 'invalid_token' })
+        return { error: missingProject }
+    }
 
     props.mcpSessionId = sanitizeHeaderValue(c.req.header('mcp-session-id') || undefined)
     props.mcpConversationId = sanitizeHeaderValue(c.req.header('mcp-conversation-id') || undefined)
@@ -141,7 +152,9 @@ export async function authenticateAndParse(
 }
 
 export function handleCatchError(error: unknown, props: RequestProperties): Response {
-    console.error('[handleCatchError]', error)
+    if (!isStepUpChallengeError(error)) {
+        console.error('[handleCatchError]', error)
+    }
     const authResponse = mapErrorToAuthResponse(error)
     if (authResponse) {
         const reason = authResponse.status === 403 ? 'insufficient_scope' : 'invalid_token'

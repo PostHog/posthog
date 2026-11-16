@@ -1,13 +1,14 @@
 # Warehouse sources — implementation status & communication methods
 
-This file is the authoritative inventory of every source registered in [`products/warehouse_sources/backend/temporal/data_imports/sources/__init__.py`](__init__.py),
+This file is the authoritative inventory of every source the loader in [`products/warehouse_sources/backend/temporal/data_imports/sources/__init__.py`](__init__.py) registers (vendor directories here and in the `products/warehouse_sources/sources/` tree),
 the wire protocol it uses to talk to its upstream, and whether its outbound traffic is currently routed
 through the [tracked HTTP transport](common/http/) (so it shows up in our HTTP logs, metrics, and
 sample-capture pipeline).
 
-Keep this file in sync as sources are added, implemented, or migrated. The [implementing-warehouse-sources
-skill](/.agents/skills/implementing-warehouse-sources/SKILL.md) instructs agents to update it as part of any
-new source / vendor-SDK / migration PR.
+A new vendor does not add itself here: a vendor PR touches only its own directory, so this list is not
+complete. The source registry, and the wizard and `/api/public_source_configs/` endpoints built from it, are
+the list of sources. Update an existing entry when a source's protocol or tracked-transport state changes,
+as the [implementing-warehouse-sources skill](/.agents/skills/implementing-warehouse-sources/SKILL.md) says.
 
 This file tracks _whether_ a source is implemented. For endpoints a source is missing relative to its
 vendor's API, see [COVERAGE_GAPS.md](COVERAGE_GAPS.md), refreshed by the

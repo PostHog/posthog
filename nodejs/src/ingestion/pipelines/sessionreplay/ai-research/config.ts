@@ -27,12 +27,6 @@ export type AiResearchV4Config = {
     AI_RESEARCH_V4_IMAGE_FETCH_GROUP_ID: string
     /** How long all key lookups of one batch may take. A job whose key is not read by then goes to a delay tier. */
     AI_RESEARCH_V4_IMAGE_FETCH_KEY_BUDGET_MS: number
-    /**
-     * The share of the per registrable domain limits below that the v4 lane uses. The v3 lane's pods hold their own
-     * budget, so a host sees both lanes.
-     */
-    AI_RESEARCH_V4_IMAGE_FETCH_HOST_BUDGET_SHARE: number
-
     /** US-only, PEM, multiple keys allowed (comma-separated). */
     AI_RESEARCH_V4_IMAGE_FETCH_WEB_BOT_AUTH_PRIVATE_KEYS: string
     /** While true, the fetch lane parses input but sends no request and writes no crawl history. */
@@ -145,20 +139,6 @@ export type AiResearchV4Config = {
     KAFKA_AI_RESEARCH_V4_IMAGE_FETCH_PRODUCER_MESSAGE_MAX_BYTES: string
     /** A short local delivery timeout, so a slow topic fails a batch fast instead of holding its offsets. */
     KAFKA_AI_RESEARCH_V4_IMAGE_FETCH_PRODUCER_MESSAGE_TIMEOUT_MS: string
-
-    /** The v4 index sink: the bucket its Parquet files go to, under `index/`. */
-    AI_RESEARCH_V4_RRWEB_BUCKET: string
-    /** The v4 index sink's consumer group. Its own setting, so a v4 sink pod never joins the v3 sink group. */
-    AI_RESEARCH_V4_PARQUET_SINK_GROUP_ID: string
-    /**
-     * The v4 sink writes its files this long after its last flush, or when the buffer reaches either size below,
-     * whichever comes first. The byte size counts Kafka message bytes, so it also bounds the buffer's memory.
-     */
-    AI_RESEARCH_V4_PARQUET_FLUSH_INTERVAL_MS: number
-    AI_RESEARCH_V4_PARQUET_MAX_ROWS: number
-    AI_RESEARCH_V4_PARQUET_MAX_BYTES: number
-    /** Rows per row group in a v4 index file, so a large file has few row groups. */
-    AI_RESEARCH_V4_PARQUET_ROW_GROUP_ROWS: number
 }
 
 export function getDefaultAiResearchV4Config(): AiResearchV4Config {
@@ -169,7 +149,6 @@ export function getDefaultAiResearchV4Config(): AiResearchV4Config {
         AI_RESEARCH_V4_KMS_REQUESTS_PER_SECOND: 150,
         AI_RESEARCH_V4_IMAGE_FETCH_GROUP_ID: 'ai-research-v4-image-fetch',
         AI_RESEARCH_V4_IMAGE_FETCH_KEY_BUDGET_MS: 60_000,
-        AI_RESEARCH_V4_IMAGE_FETCH_HOST_BUDGET_SHARE: 0.25,
 
         AI_RESEARCH_V4_IMAGE_FETCH_WEB_BOT_AUTH_PRIVATE_KEYS: '',
         AI_RESEARCH_V4_IMAGE_FETCH_DRY_RUN: true,
@@ -185,7 +164,7 @@ export function getDefaultAiResearchV4Config(): AiResearchV4Config {
         AI_RESEARCH_V4_IMAGE_FETCH_CRAWL_HISTORY_TTL_SECONDS: 30 * 24 * 60 * 60,
         AI_RESEARCH_V4_IMAGE_FETCH_REGISTRABLE_DOMAIN_REQUESTS_PER_SECOND: 0,
         AI_RESEARCH_V4_IMAGE_FETCH_REGISTRABLE_DOMAIN_BURST: 6,
-        AI_RESEARCH_V4_IMAGE_FETCH_MAX_CONCURRENT_PER_REGISTRABLE_DOMAIN: 6,
+        AI_RESEARCH_V4_IMAGE_FETCH_MAX_CONCURRENT_PER_REGISTRABLE_DOMAIN: 7,
         AI_RESEARCH_V4_IMAGE_FETCH_MAX_IN_FLIGHT_REQUESTS: 300,
         AI_RESEARCH_V4_IMAGE_FETCH_MAX_PENDING_PUBLISHES: 100,
         AI_RESEARCH_V4_IMAGE_FETCH_REQUEST_BUDGET_MS: 40_000,
@@ -212,13 +191,6 @@ export function getDefaultAiResearchV4Config(): AiResearchV4Config {
         KAFKA_AI_RESEARCH_V4_IMAGE_FETCH_PRODUCER_QUEUE_BUFFERING_MAX_KBYTES: '32768',
         KAFKA_AI_RESEARCH_V4_IMAGE_FETCH_PRODUCER_MESSAGE_MAX_BYTES: `${40 * 1024 * 1024 + 64 * 1024}`,
         KAFKA_AI_RESEARCH_V4_IMAGE_FETCH_PRODUCER_MESSAGE_TIMEOUT_MS: '20000',
-
-        AI_RESEARCH_V4_RRWEB_BUCKET: '',
-        AI_RESEARCH_V4_PARQUET_SINK_GROUP_ID: 'ai-research-v4-parquet-sink',
-        AI_RESEARCH_V4_PARQUET_FLUSH_INTERVAL_MS: 10 * 60 * 1000,
-        AI_RESEARCH_V4_PARQUET_MAX_ROWS: 1_000_000,
-        AI_RESEARCH_V4_PARQUET_MAX_BYTES: 128 * 1024 * 1024,
-        AI_RESEARCH_V4_PARQUET_ROW_GROUP_ROWS: 131_072,
     }
 }
 

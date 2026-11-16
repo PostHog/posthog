@@ -97,6 +97,72 @@ class TestSignalTeamConfigAPI(APIBaseTest):
         assert self.client.get(self._url()).status_code == 200
         self.config.refresh_from_db()
         assert getattr(self.config, field) in (None, [])
+        form_response = self.client.post(
+            self._url(),
+            {f"{field}[0]" if field == "implementation_repositories" else field: "example/assets"},
+            format="multipart",
+        )
+        assert form_response.status_code == 403, form_response.content
+
+    @parameterized.expand(
+        [
+            (
+                "implementation_repositories",
+                "implementation_repositories",
+                ["example/assets"],
+                ["inbox:write"],
+                status.HTTP_403_FORBIDDEN,
+            ),
+            ("inbox_only", "implementation_instructions", "Push to main.", ["inbox:write"], status.HTTP_403_FORBIDDEN),
+            (
+                "inbox_and_task",
+                "implementation_instructions",
+                "Push to main.",
+                ["inbox:write", "task:write"],
+                status.HTTP_200_OK,
+            ),
+            ("legacy_task_only", "implementation_instructions", "Push to main.", ["task:write"], status.HTTP_200_OK),
+            ("scout_steering", "scout_instructions", "Ignore errors.", ["inbox:write"], status.HTTP_403_FORBIDDEN),
+            ("research_steering", "research_instructions", "Skip checks.", ["inbox:write"], status.HTTP_403_FORBIDDEN),
+            ("pull_request_label", "pull_request_label", "auto-merge", ["inbox:write"], status.HTTP_403_FORBIDDEN),
+            (
+                "github_issue_writeback",
+                "github_issue_writeback_enabled",
+                True,
+                ["inbox:write"],
+                status.HTTP_403_FORBIDDEN,
+            ),
+        ]
+    )
+    def test_task_run_fields_need_task_scope(
+        self, _name: str, field: str, value: str | list[str] | bool, scopes: list[str], expected: int
+    ) -> None:
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        api_key = self.create_personal_api_key_with_scopes(scopes)
+        self.client.logout()
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {api_key}")
+
+        response = self.client.post(self._url(), {field: value}, format="json")
+
+        assert response.status_code == expected, response.content
+        self.config.refresh_from_db()
+        assert (getattr(self.config, field) == value) is (expected == status.HTTP_200_OK)
+
+    def test_form_encoded_task_run_field_needs_task_scope(self) -> None:
+        self.organization_membership.level = OrganizationMembership.Level.ADMIN
+        self.organization_membership.save()
+        api_key = self.create_personal_api_key_with_scopes(["inbox:write"])
+        self.client.logout()
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {api_key}")
+
+        response = self.client.post(
+            self._url(), {"autostart_base_branches.example/repo": "release"}, format="multipart"
+        )
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.content
+        self.config.refresh_from_db()
+        assert self.config.autostart_base_branches != {"example/repo": "release"}
 
     def test_steering_save_preserves_a_concurrent_autonomy_change(self) -> None:
         self.organization_membership.level = OrganizationMembership.Level.MEMBER
@@ -117,6 +183,7 @@ class TestSignalTeamConfigAPI(APIBaseTest):
         data = response.json()
         assert response.status_code == status.HTTP_200_OK, data
         assert data["default_slack_notification_channel"] is None
+        assert data["default_slack_notification_min_priority"] is None
         for field in STEERING_FIELDS.values():
             assert getattr(self.config, field) is None
             assert data[field] == ""
@@ -185,6 +252,16 @@ class TestSignalTeamConfigAPI(APIBaseTest):
         self.config.refresh_from_db()
         assert self.config.default_slack_notification_channel == expected
         assert self.config.default_slack_notification_integration_id == (workspace.id if expect_bound else None)
+
+    def test_empty_slack_priority_clears_threshold(self):
+        self.config.default_slack_notification_min_priority = "P1"
+        self.config.save(update_fields=["default_slack_notification_min_priority"])
+        response = self.client.post(self._url(), {"default_slack_notification_min_priority": ""}, format="json")
+        assert response.status_code == status.HTTP_200_OK, response.content
+        assert response.json()["default_slack_notification_min_priority"] is None
+        config = SignalTeamConfig.objects.get(pk=self.config.pk)
+        assert config.default_slack_notification_min_priority is None
+        assert self.client.get(self._url()).json()["default_slack_notification_min_priority"] is None
 
     def test_partial_update_preserves_default_autostart_priority(self):
         self.config.default_autostart_priority = "P2"
@@ -346,6 +423,15 @@ class TestSignalTeamConfigAPI(APIBaseTest):
     @parameterized.expand(
         [
             ("threshold", "default_autostart_priority", "P1", "project PR threshold", "changed", "P4", "P1"),
+            (
+                "slack_threshold",
+                "default_slack_notification_min_priority",
+                "P2",
+                "team Slack minimum priority",
+                "created",
+                None,
+                "P2",
+            ),
             ("pr_generation", "autostart_enabled", False, "PR generation", "created", None, False),
             (
                 "slack_channel",

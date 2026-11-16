@@ -56,11 +56,13 @@ import { SuppressSimilarIssuesDialog } from '../../components/SuppressSimilarIss
 import { useErrorTagRenderer } from '../../hooks/use-error-tag-renderer'
 import { getIssueReplayDateRange, getIssueReplayFilterGroup, issueVisionScannerHandoff } from '../../utils'
 import { ErrorTrackingIssueSceneLogicProps, errorTrackingIssueSceneLogic } from './errorTrackingIssueSceneLogic'
+import { ErrorTrackingIssueSceneMenuBar } from './ErrorTrackingIssueSceneMenuBar'
 import { IssueEmailMenu } from './IssueEmailMenu'
 import { IssueEmailMenuItems } from './IssueEmailMenuItems'
 import { IssueEventsPanel } from './IssueEventsPanel'
 import { issueRecordingFilterLogic } from './issueRecordingFilterLogic'
 import { IssueSummary } from './IssueSummary'
+import { IssueTags } from './IssueTags'
 import { LinkedReports } from './LinkedReports'
 import { ErrorTrackingIssueScenePanel } from './ScenePanel'
 import { IssueAssigneeSelect } from './ScenePanel/IssueAssigneeSelect'
@@ -84,6 +86,7 @@ export function ErrorTrackingIssueScene(): JSX.Element {
     const { isWindowLessThan } = useWindowSize()
     const isMobile = isWindowLessThan('md')
     const hasIssueSplitting = useFeatureFlag('ERROR_TRACKING_ISSUE_SPLITTING')
+    const hasSceneMenuBar = useFeatureFlag('SCENE_MENU_BAR')
     const inlineEmailMenuRef = useRef<HTMLDivElement>(null)
     // The overflow menu portals out of the scene container, so a container query cannot hide its email items.
     const [emailInOverflow, setEmailInOverflow] = useState(true)
@@ -154,6 +157,7 @@ export function ErrorTrackingIssueScene(): JSX.Element {
                     <BindLogic logic={miniBreakdownsLogic} props={{ issueId }}>
                         {issue && (
                             <div className="flex flex-col h-[calc(var(--scene-layout-rect-height))]">
+                                <ErrorTrackingIssueSceneMenuBar issue={issue} />
                                 <SceneTitleSection
                                     noPadding
                                     canEdit
@@ -163,13 +167,17 @@ export function ErrorTrackingIssueScene(): JSX.Element {
                                     resourceType={{ type: 'error_tracking' }}
                                     className={clsx(
                                         'pl-4 pr-2 h-[50px] @2xl/main-content:relative top-[0px] [&>.scene-title-section]:py-2',
+                                        {
+                                            '@max-5xl/main-content:h-auto @max-5xl/main-content:flex-wrap @max-5xl/main-content:gap-y-2 @max-5xl/main-content:py-2 @max-5xl/main-content:[&>div]:basis-full':
+                                                hasSceneMenuBar,
+                                        },
                                         isMobile
                                             ? '[&>.scene-title-section]:flex-row [&>.scene-title-section]:items-center [&>.scene-title-section>*:last-child]:order-last'
                                             : undefined
                                     )}
                                     actions={
                                         isMobile ? undefined : (
-                                            <div className="flex items-center gap-1">
+                                            <div className="flex flex-wrap items-center justify-end gap-1">
                                                 <ButtonGroup>
                                                     <IssueStatusSelect
                                                         status={issue.status}
@@ -333,6 +341,7 @@ const RightHandColumn = ({
     const { issue, issueId, issueLoading, selectedEvent, initialEvent, initialEventLoading, summary } =
         useValues(errorTrackingIssueSceneLogic)
     const { setOnlyWithRecording } = useActions(issueRecordingFilterLogic({ issueId }))
+    const hasIssueTags = useFeatureFlag('ERROR_TRACKING_ISSUE_TAGS')
     const tagRenderer = useErrorTagRenderer()
     const detailEvent = selectedEvent ?? initialEvent
     const showOnlyWithRecording = useCallback(() => setOnlyWithRecording(true), [setOnlyWithRecording])
@@ -356,6 +365,7 @@ const RightHandColumn = ({
                 </div>
             )}
             <PostHogSDKIssueBanner event={detailEvent} />
+            {hasIssueTags && <IssueTags tags={issue?.tags ?? []} />}
             <IssueSummary />
             <LinkedReports />
             <div className="flex-1 min-h-0 flex flex-col">

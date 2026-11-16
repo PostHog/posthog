@@ -19,6 +19,7 @@ from bin.lint_duplication import (
     clone_key,
     clone_language,
     find_gate_failures,
+    formats_touched,
     is_test_file,
     main,
     mark_new_clones,
@@ -227,6 +228,64 @@ class TestChangedFilesBetween(unittest.TestCase):
             self.assertEqual(changed_files_between(baseline, "HEAD", repo), {"tracked.py"})
 
 
+class TestFormatsTouched(unittest.TestCase):
+    @parameterized.expand(
+        [
+            ("python_only", {"posthog/api/team.py"}, ["python"]),
+            ("tsx_only", {"frontend/src/scenes/insights/Insights.tsx"}, ["tsx"]),
+            ("typescript_covers_its_own_extensions", {"frontend/src/a.ts", "frontend/src/b.mts"}, ["typescript"]),
+            ("cython_is_python", {"posthog/accel.pyx", "posthog/accel.pxd"}, ["python"]),
+            (
+                # jscpd reads an extensionless file by its shebang, so the
+                # extension lists cannot say which format it belongs to.
+                "extensionless_forces_the_full_scan",
+                {"bin/sandbox", "frontend/src/a.tsx"},
+                ["python", "typescript", "tsx"],
+            ),
+            (
+                "both_halves_scans_everything",
+                {"posthog/api/team.py", "frontend/src/scenes/insights/Insights.tsx"},
+                ["python", "typescript", "tsx"],
+            ),
+            ("docs_only_touches_no_format", {"docs/README.md", ".github/workflows/ci-frontend.yml"}, []),
+        ]
+    )
+    def test_formats(self, _name: str, changed_files: set[str], expected: list[str]) -> None:
+        self.assertEqual(formats_touched(changed_files), expected)
+
+    def test_a_change_set_with_no_scanned_format_skips_the_scans(self) -> None:
+        with tempfile.TemporaryDirectory() as temp_dir:
+            repo = Path(temp_dir)
+            subprocess.run(["git", "init", "--quiet"], check=True, cwd=repo)
+            subprocess.run(["git", "config", "user.email", "test@example.com"], check=True, cwd=repo)
+            subprocess.run(["git", "config", "user.name", "Test User"], check=True, cwd=repo)
+            (repo / "README.md").write_text("before\n")
+            subprocess.run(["git", "add", "README.md"], check=True, cwd=repo)
+            subprocess.run(["git", "commit", "--quiet", "-m", "base"], check=True, cwd=repo)
+            baseline = subprocess.check_output(["git", "rev-parse", "HEAD"], text=True, cwd=repo).strip()
+            (repo / "README.md").write_text("after\n")
+            subprocess.run(["git", "commit", "--quiet", "-am", "edit docs"], check=True, cwd=repo)
+            scans: list[Path] = []
+            report_dir = repo / "report"
+            report_dir.mkdir()
+
+            def record_scan(scan_root: Path, _out_dir: Path, _formats: list[str]) -> list[dict]:
+                scans.append(scan_root)
+                return []
+
+            with patch("bin.lint_duplication.run_jscpd", side_effect=record_scan):
+                with patch.object(
+                    sys,
+                    "argv",
+                    ["lint_duplication.py", "--base", baseline, "--path", str(repo), "--report-dir", str(report_dir)],
+                ):
+                    self.assertEqual(main(), 0)
+
+            self.assertEqual(scans, [])
+            self.assertEqual(json.loads((report_dir / "duplication-scan-status.json").read_text()), {"status": "ok"})
+            self.assertEqual(json.loads((report_dir / "duplication-findings-python.json").read_text()), [])
+
+
 class TestCommittedScanTree(unittest.TestCase):
     @parameterized.expand(
         [
@@ -266,8 +325,10 @@ class TestCommittedScanTree(unittest.TestCase):
             (repo / "tracked.py").write_text("worktree\n")
             (repo / "untracked.py").write_text("untracked\n")
             scans: list[dict[str, str]] = []
+            scanned_formats: list[list[str]] = []
 
-            def record_scan(scan_root: Path, _out_dir: Path) -> list[dict]:
+            def record_scan(scan_root: Path, _out_dir: Path, formats: list[str]) -> list[dict]:
+                scanned_formats.append(formats)
                 scans.append({path.name: path.read_text() for path in scan_root.glob("*.py")})
                 if len(scans) == 1:
                     return current_clones
@@ -284,6 +345,8 @@ class TestCommittedScanTree(unittest.TestCase):
                     self.assertEqual(main(), expected_exit)
 
             self.assertEqual(scans, [{"tracked.py": "committed\n"}, {"tracked.py": "before\n"}][:expected_scans])
+            # Every scan is asked for the one format this change set can clone in.
+            self.assertEqual(scanned_formats, [["python"]] * expected_scans)
             self.assertEqual(
                 json.loads((repo / "duplication-scan-status.json").read_text()),
                 {"status": "failed" if expected_exit == 2 else "ok"},
@@ -312,6 +375,10 @@ class TestCommittedScanTree(unittest.TestCase):
             subprocess.run(["git", "add", "tracked.py"], check=True, cwd=repo)
             subprocess.run(["git", "commit", "--quiet", "-m", "initial"], check=True, cwd=repo)
             baseline = subprocess.check_output(["git", "rev-parse", "HEAD"], text=True, cwd=repo).strip()
+            # The change set has to touch a scanned format, or the scan is skipped
+            # before any worktree is created and the hook never runs.
+            (repo / "tracked.py").write_text("changed\n")
+            subprocess.run(["git", "commit", "--quiet", "-am", "change"], check=True, cwd=repo)
 
             hook = repo / ".git" / "hooks" / "post-checkout"
             hook.write_text("#!/bin/sh\nexit 1\n")

@@ -4,11 +4,12 @@ They are not stored in the database but appear alongside regular playlists in th
 """
 
 from abc import ABC, abstractmethod
-from dataclasses import dataclass
+from collections.abc import Iterable
 from datetime import UTC, datetime, timedelta
 from typing import Protocol
 
 from django.core.cache import cache
+from django.db.models import Model, QuerySet
 
 from posthog.schema import RecordingOrder, RecordingsQuery
 
@@ -16,20 +17,27 @@ from posthog.hogql import ast
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
+from posthog.dataclasses import frozen
 from posthog.models import Comment, Team, User
 from posthog.models.sharing_configuration import SharingConfiguration
 from posthog.session_recordings.models.session_recording_event import SessionRecordingViewed
-from posthog.session_recordings.session_recording_api import list_recordings_from_query
+from posthog.session_recordings.queries.session_recording_list_from_query import SessionRecordingListFromQuery
 
 from products.exports.backend.models.exported_asset import ExportedAsset
+
+
+@frozen
+class SyntheticPlaylistCounts:
+    count: int
+    watched_count: int
 
 
 class GetSessionIdsCallable(Protocol):
     def __call__(self, team: Team, user: User, limit: int | None = None, offset: int | None = None) -> list[str]: ...
 
 
-class CountSessionIdsCallable(Protocol):
-    def __call__(self, team: Team, user: User) -> int: ...
+class CountRecordingsCallable(Protocol):
+    def __call__(self, team: Team, user: User) -> SyntheticPlaylistCounts: ...
 
 
 class SyntheticPlaylistSource(ABC):
@@ -54,6 +62,10 @@ class SyntheticPlaylistSource(ABC):
         start, end = SyntheticPlaylistSource._slice_indices(limit, offset)
         return items[start:end]
 
+    @staticmethod
+    def _count_viewed(team: Team, user: User, session_ids: Iterable[str | None]) -> int:
+        return SessionRecordingViewed.objects.filter(team=team, user=user, session_id__in=session_ids).count()
+
     @abstractmethod
     def get_session_ids(self, team: Team, user: User, limit: int | None = None, offset: int | None = None) -> list[str]:
         pass
@@ -61,6 +73,14 @@ class SyntheticPlaylistSource(ABC):
     @abstractmethod
     def count_session_ids(self, team: Team, user: User) -> int:
         pass
+
+    def count_viewed_session_ids(self, team: Team, user: User) -> int:
+        return self._count_viewed(team, user, self.get_session_ids(team, user))
+
+    def count_recordings(self, team: Team, user: User) -> SyntheticPlaylistCounts:
+        count = self.count_session_ids(team, user)
+        watched_count = self.count_viewed_session_ids(team, user) if count else 0
+        return SyntheticPlaylistCounts(count=count, watched_count=watched_count)
 
     def to_synthetic_playlist(self) -> "SyntheticPlaylistDefinition | None":
         """
@@ -69,7 +89,22 @@ class SyntheticPlaylistSource(ABC):
         return None
 
 
-@dataclass
+class QuerySetPlaylistSource(SyntheticPlaylistSource):
+    @abstractmethod
+    def _session_ids(self, team: Team) -> QuerySet[Model, str | None]:
+        pass
+
+    def get_session_ids(self, team: Team, user: User, limit: int | None = None, offset: int | None = None) -> list[str]:
+        return list(self._paginate_queryset(self._session_ids(team), limit, offset))
+
+    def count_session_ids(self, team: Team, user: User) -> int:
+        return self._session_ids(team).count()
+
+    def count_viewed_session_ids(self, team: Team, user: User) -> int:
+        return self._count_viewed(team, user, self._session_ids(team))
+
+
+@frozen
 class WatchedPlaylistSource(SyntheticPlaylistSource):
     def get_session_ids(self, team: Team, user: User, limit: int | None = None, offset: int | None = None) -> list[str]:
         qs = SessionRecordingViewed.objects.filter(team=team, user=user).order_by("-created_at")
@@ -77,6 +112,10 @@ class WatchedPlaylistSource(SyntheticPlaylistSource):
 
     def count_session_ids(self, team: Team, user: User) -> int:
         return SessionRecordingViewed.objects.filter(team=team, user=user).count()
+
+    def count_recordings(self, team: Team, user: User) -> SyntheticPlaylistCounts:
+        count = self.count_session_ids(team, user)
+        return SyntheticPlaylistCounts(count=count, watched_count=count)
 
     def to_synthetic_playlist(self) -> "SyntheticPlaylistDefinition":
         return SyntheticPlaylistDefinition(
@@ -86,29 +125,19 @@ class WatchedPlaylistSource(SyntheticPlaylistSource):
             description="Recordings you have watched",
             type="collection",
             get_session_ids=self.get_session_ids,
-            count_session_ids=self.count_session_ids,
+            count_recordings=self.count_recordings,
             metadata={"icon": "IconEye", "is_user_specific": True},
         )
 
 
-@dataclass
-class CommentedPlaylistSource(SyntheticPlaylistSource):
-    def get_session_ids(self, team: Team, user: User, limit: int | None = None, offset: int | None = None) -> list[str]:
-        qs = (
+@frozen
+class CommentedPlaylistSource(QuerySetPlaylistSource):
+    def _session_ids(self, team: Team) -> QuerySet[Comment, str | None]:
+        return (
             Comment.objects.filter(team=team, scope="Replay", deleted=False)
             .exclude(item_id__isnull=True)
             .values_list("item_id", flat=True)
             .distinct()
-        )
-        return list(self._paginate_queryset(qs, limit, offset))
-
-    def count_session_ids(self, team: Team, user: User) -> int:
-        return (
-            Comment.objects.filter(team=team, scope="Replay", deleted=False)
-            .exclude(item_id__isnull=True)
-            .values("item_id")
-            .distinct()
-            .count()
         )
 
     def to_synthetic_playlist(self) -> "SyntheticPlaylistDefinition":
@@ -119,29 +148,19 @@ class CommentedPlaylistSource(SyntheticPlaylistSource):
             description="Recordings that have team comments",
             type="collection",
             get_session_ids=self.get_session_ids,
-            count_session_ids=self.count_session_ids,
+            count_recordings=self.count_recordings,
             metadata={"icon": "IconComment", "is_user_specific": False},
         )
 
 
-@dataclass
-class SharedPlaylistSource(SyntheticPlaylistSource):
-    def get_session_ids(self, team: Team, user: User, limit: int | None = None, offset: int | None = None) -> list[str]:
-        qs = (
+@frozen
+class SharedPlaylistSource(QuerySetPlaylistSource):
+    def _session_ids(self, team: Team) -> QuerySet[SharingConfiguration, str]:
+        return (
             SharingConfiguration.objects.filter(team=team, enabled=True)
             .exclude(recording__isnull=True)
             .values_list("recording__session_id", flat=True)
             .distinct()
-        )
-        return list(self._paginate_queryset(qs, limit, offset))
-
-    def count_session_ids(self, team: Team, user: User) -> int:
-        return (
-            SharingConfiguration.objects.filter(team=team, enabled=True)
-            .exclude(recording__isnull=True)
-            .values("recording__session_id")
-            .distinct()
-            .count()
         )
 
     def to_synthetic_playlist(self) -> "SyntheticPlaylistDefinition":
@@ -152,19 +171,25 @@ class SharedPlaylistSource(SyntheticPlaylistSource):
             description="Recordings that have been shared externally",
             type="collection",
             get_session_ids=self.get_session_ids,
-            count_session_ids=self.count_session_ids,
+            count_recordings=self.count_recordings,
             metadata={"icon": "IconShare", "is_user_specific": False},
         )
 
 
-@dataclass
+@frozen
 class ExportedPlaylistSource(SyntheticPlaylistSource):
-    def get_session_ids(self, team: Team, user: User, limit: int | None = None, offset: int | None = None) -> list[str]:
-        qs = (
+    @staticmethod
+    def _session_exports(team: Team) -> QuerySet[ExportedAsset]:
+        return (
             ExportedAsset.objects.filter(team=team)
             .filter(export_context__has_key="session_recording_id")
             .exclude(export_context__session_recording_id__isnull=True)
             .exclude(export_context__session_recording_id="")
+        )
+
+    def get_session_ids(self, team: Team, user: User, limit: int | None = None, offset: int | None = None) -> list[str]:
+        qs = (
+            self._session_exports(team)
             .order_by("-created_at")
             .values_list("export_context__session_recording_id", flat=True)
         )
@@ -172,15 +197,7 @@ class ExportedPlaylistSource(SyntheticPlaylistSource):
         return self._paginate_list(session_ids, limit, offset)
 
     def count_session_ids(self, team: Team, user: User) -> int:
-        return (
-            ExportedAsset.objects.filter(team=team)
-            .filter(export_context__has_key="session_recording_id")
-            .exclude(export_context__session_recording_id__isnull=True)
-            .exclude(export_context__session_recording_id="")
-            .values("export_context__session_recording_id")
-            .distinct()
-            .count()
-        )
+        return self._session_exports(team).values("export_context__session_recording_id").distinct().count()
 
     def to_synthetic_playlist(self) -> "SyntheticPlaylistDefinition":
         return SyntheticPlaylistDefinition(
@@ -190,12 +207,12 @@ class ExportedPlaylistSource(SyntheticPlaylistSource):
             description="Recordings that have been exported as clips or screenshots",
             type="collection",
             get_session_ids=self.get_session_ids,
-            count_session_ids=self.count_session_ids,
+            count_recordings=self.count_recordings,
             metadata={"icon": "IconDownload", "is_user_specific": False},
         )
 
 
-@dataclass
+@frozen
 class ExpiringPlaylistSource(SyntheticPlaylistSource):
     """
     Surfaces recordings whose retention window ends within the next 10 days.
@@ -221,13 +238,13 @@ class ExpiringPlaylistSource(SyntheticPlaylistSource):
             return cached_data
 
         query = RecordingsQuery(limit=ExpiringPlaylistSource.SCAN_LIMIT, order=RecordingOrder.RECORDING_TTL)
-        listing_result = list_recordings_from_query(query, user, team)
+        recordings = SessionRecordingListFromQuery(query=query, team=team, user=user).run().results
 
         now = datetime.now(UTC)
         window_end = now + timedelta(days=ExpiringPlaylistSource.EXPIRY_WINDOW_DAYS)
 
         session_ids = [
-            r.session_id for r in listing_result.recordings if r.expiry_time and now <= r.expiry_time <= window_end
+            r["session_id"] for r in recordings if r["expiry_time"] and now <= r["expiry_time"] <= window_end
         ]
         cache.set(cache_key, session_ids, ExpiringPlaylistSource.CACHE_TTL)
         return session_ids
@@ -247,12 +264,12 @@ class ExpiringPlaylistSource(SyntheticPlaylistSource):
             description="Recordings that will expire in the next 10 days",
             type="collection",
             get_session_ids=self.get_session_ids,
-            count_session_ids=self.count_session_ids,
+            count_recordings=self.count_recordings,
             metadata={"icon": "IconClock", "is_user_specific": False},
         )
 
 
-@dataclass
+@frozen
 class FrustrationSignalsPlaylistSource(SyntheticPlaylistSource):
     """
     Surfaces sessions with frustration signals: rage clicks and exceptions.
@@ -332,12 +349,12 @@ class FrustrationSignalsPlaylistSource(SyntheticPlaylistSource):
             description="Sessions with rage clicks or errors in the last 7 days",
             type="collection",
             get_session_ids=self.get_session_ids,
-            count_session_ids=self.count_session_ids,
+            count_recordings=self.count_recordings,
             metadata={"icon": "IconWarning", "is_user_specific": False},
         )
 
 
-@dataclass
+@frozen
 class SyntheticPlaylistDefinition:
     """Definition of a synthetic playlist that will be computed on-demand"""
 
@@ -347,7 +364,7 @@ class SyntheticPlaylistDefinition:
     description: str
     type: str  # Should be "collection"
     get_session_ids: GetSessionIdsCallable
-    count_session_ids: CountSessionIdsCallable
+    count_recordings: CountRecordingsCallable
     # Synthetic playlists don't have filters,
     # but we can store metadata about how they're generated
     metadata: dict

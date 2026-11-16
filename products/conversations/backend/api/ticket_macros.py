@@ -1,7 +1,7 @@
 import re
 from typing import Any
 
-from django.db.models import F
+from django.db.models import F, Q
 from django.utils import timezone
 
 from drf_spectacular.utils import extend_schema, extend_schema_view
@@ -43,13 +43,20 @@ class TicketMacroSerializer(serializers.ModelSerializer):
         allow_null=True,
         allow_blank=True,
         help_text="Slash command for this macro, without the leading slash. Lowercase letters, numbers, and "
-        "hyphens. Unique within the project. Null when the macro has no shortcut.",
+        "hyphens. A shared shortcut is unique among the project's shared macros, and a personal one among "
+        "the creator's personal macros. Null when the macro has no shortcut.",
     )
     body = serializers.CharField(
         max_length=MAX_BODY_LENGTH,
         help_text="Reply text in markdown. May contain {{customer.first_name}}, {{customer.name}}, "
         "{{customer.email}}, {{agent.first_name}}, {{agent.name}}, and {{ticket.number}}. "
         "Variables are filled in when an agent inserts the macro.",
+    )
+    visibility = serializers.ChoiceField(
+        choices=TicketMacro.Visibility.choices,
+        required=False,
+        help_text="Who can see and use the macro. 'shared' is everyone in the project, the default. "
+        "'personal' is only the person who created it.",
     )
     usage_count = serializers.IntegerField(
         read_only=True,
@@ -68,6 +75,7 @@ class TicketMacroSerializer(serializers.ModelSerializer):
             "name",
             "shortcut",
             "body",
+            "visibility",
             "usage_count",
             "last_used_at",
             "created_at",
@@ -118,13 +126,26 @@ class TicketMacroSerializer(serializers.ModelSerializer):
         return data
 
     def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        user_id = self.context["request"].user.id
+        owner_id = self.instance.created_by_id if self.instance is not None else user_id
+        visibility = attrs.get("visibility", getattr(self.instance, "visibility", TicketMacro.Visibility.SHARED))
+        if visibility == TicketMacro.Visibility.PERSONAL and (user_id is None or owner_id != user_id):
+            # A personal macro belongs to its creator, so anyone else would make it vanish from the whole team.
+            raise serializers.ValidationError(
+                {"visibility": "Only the person who created this macro can make it personal."}
+            )
+
         shortcut = attrs["shortcut"] if "shortcut" in attrs else getattr(self.instance, "shortcut", None)
         if shortcut:
-            team_id = self.context["team_id"]
-            existing = TicketMacro.objects.for_team(team_id).filter(shortcut=shortcut)
+            # Each scope only clashes with itself, so the check never reads another person's personal
+            # macros and cannot reveal their shortcuts. A personal macro here always belongs to the caller.
+            same_scope = Q(visibility=visibility)
+            if visibility == TicketMacro.Visibility.PERSONAL:
+                same_scope &= Q(created_by_id=user_id)
+            clashes = TicketMacro.objects.for_team(self.context["team_id"]).filter(same_scope, shortcut=shortcut)
             if self.instance is not None:
-                existing = existing.exclude(pk=self.instance.pk)
-            if existing.exists():
+                clashes = clashes.exclude(pk=self.instance.pk)
+            if clashes.exists():
                 raise serializers.ValidationError({"shortcut": "Another macro already uses this shortcut."})
         return attrs
 
@@ -173,8 +194,12 @@ class TicketMacroViewSet(
         return self.action in ("create", "partial_update", "destroy")
 
     def safely_get_queryset(self, queryset: Any) -> Any:
+        visible = Q(visibility=TicketMacro.Visibility.SHARED)
+        # Guarded: created_by_id=None would match the personal macros of deleted users.
+        if self.request.user.id is not None:
+            visible |= Q(created_by_id=self.request.user.id)
         return (
-            queryset.filter(team_id=self.team_id)
+            queryset.filter(visible, team_id=self.team_id)
             .select_related("created_by")
             .order_by("-usage_count", "-created_at", "-id")
         )
@@ -183,7 +208,12 @@ class TicketMacroViewSet(
         report_user_action(
             self.request.user,
             event,
-            {"id": str(instance.id), "name": instance.name, "has_shortcut": bool(instance.shortcut)},
+            {
+                "id": str(instance.id),
+                "name": instance.name,
+                "has_shortcut": bool(instance.shortcut),
+                "visibility": instance.visibility,
+            },
             team=self.team,
             request=self.request,
         )

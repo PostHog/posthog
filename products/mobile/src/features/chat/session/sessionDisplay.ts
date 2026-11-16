@@ -27,6 +27,20 @@ export function groupSessionItems(items: SessionThreadItem[]): SessionDisplayIte
     return result
 }
 
+export function currentTurnActivityIds(items: readonly SessionThreadItem[]): ReadonlySet<string> {
+    const ids = new Set<string>()
+    for (let index = items.length - 1; index >= 0; index -= 1) {
+        const item = items[index]
+        if (item?.kind === 'user' || item?.kind === 'turn_end') {
+            break
+        }
+        if (item?.kind === 'thought' || item?.kind === 'tool') {
+            ids.add(item.id)
+        }
+    }
+    return ids
+}
+
 function isToolRunning(invocation: SessionToolInvocation | undefined): boolean {
     return invocation?.status === 'pending' || invocation?.status === 'in_progress'
 }
@@ -104,12 +118,13 @@ function summarizeTools(calls: (SessionToolInvocation | undefined)[]): string {
 export function summarizeActivity(
     group: SessionActivityGroup,
     invocations: ReadonlyMap<string, SessionToolInvocation>,
-    waitingToolCallId?: string
+    waitingToolCallId?: string,
+    active = true
 ): string {
     const calls = group.items.flatMap((item) =>
         item.kind === 'tool' && item.toolCallId !== waitingToolCallId ? [invocations.get(item.toolCallId)] : []
     )
-    if (isActivityRunning(group, invocations, waitingToolCallId)) {
+    if (active && isActivityRunning(group, invocations, waitingToolCallId)) {
         const current = calls.filter(isToolRunning).at(-1)
         return current ? (current.title ?? current.toolName) : 'Thinking…'
     }

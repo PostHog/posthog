@@ -41,9 +41,9 @@ export const manifest: ProductManifest = {
             intents: [ProductKey.DATA_WAREHOUSE],
             category: ProductItemCategory.TOOLS,
             iconType: 'data_pipeline',
-            iconColor: ['var(--color-product-data-warehouse-light)'],
+            iconColor: ['var(--color-product-data-warehouse-light)', 'var(--color-product-data-warehouse-dark)'],
             href: urls.etlOverview(),
-            searchKeywords: ['syncs', 'sync health'],
+            searchKeywords: ['etl', 'syncs', 'sync health'],
             // The nav entry and the scene body are gated separately. This hides the entry; the
             // scene itself still has to refuse a direct visit.
             flag: FEATURE_FLAGS.WAREHOUSE_MULTI_DESTINATION,

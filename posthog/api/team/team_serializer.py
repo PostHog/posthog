@@ -3,15 +3,18 @@
 from typing import Any, Literal, cast
 
 from django.conf import settings
+from django.db import models
 from django.utils import timezone
 
 from drf_spectacular.utils import extend_schema_field
 from opentelemetry import trace
 from rest_framework import exceptions, serializers
+from rest_framework.request import Request
 
 from posthog import cloud_utils
 from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
 from posthog.api.utils import validate_authorized_url_wildcards
+from posthog.auth import WorkloadAccessTokenAuthentication
 from posthog.constants import AvailableFeature
 from posthog.geoip import get_geoip_properties
 from posthog.helpers.impersonation import is_impersonated
@@ -46,6 +49,7 @@ from products.access_control.backend.presentation.access_control import UserAcce
 from products.dashboards.backend.models import Dashboard
 from products.feature_flags.backend.facade.enums import FlagEvaluationsMode
 from products.feature_flags.backend.facade.flags import get_flag_evaluations_read_mode
+from products.feature_flags.backend.realtime_targeting import is_realtime_cohort_flag_targeting_enabled
 from products.feature_flags.backend.session_recording_links import locked_replay_gate_write
 
 from . import (
@@ -59,6 +63,49 @@ from . import (
 )
 
 tracer = trace.get_tracer(__name__)
+
+
+# Credentials a project response carries that outlive a workload token: the project secret token and its backup,
+# the heatmaps screenshot secret, and the 7-day live events token. A workload token acts as the organization owner,
+# so without this a workload could read one and keep access after its token expires. The public project token
+# (`api_token`) stays.
+TEAM_SECRET_FIELDS_HIDDEN_FROM_WORKLOAD_TOKENS = (
+    "secret_api_token",
+    "secret_api_token_backup",
+    "heatmaps_screenshot_secret",
+    "live_events_token",
+)
+
+
+def hide_team_secrets_from_workload_tokens(representation: dict[str, Any], request: Request | None) -> dict[str, Any]:
+    # The page-load path passes a plain Django request, which has no authenticator.
+    if isinstance(getattr(request, "successful_authenticator", None), WorkloadAccessTokenAuthentication):
+        for field in TEAM_SECRET_FIELDS_HIDDEN_FROM_WORKLOAD_TOKENS:
+            representation.pop(field, None)
+    return representation
+
+
+class RealtimeCohortsAccess(models.TextChoices):
+    OFF = "off", "Off"
+    SERVING = "serving", "Serving"
+
+
+class TeamRealtimeCohortsSerializer(serializers.Serializer):
+    access = serializers.ChoiceField(
+        choices=RealtimeCohortsAccess.choices,
+        help_text="`serving` when the request's user sees realtime cohorts in this project: whether feature flags "
+        "can target each cohort, and the control to turn realtime on and off for it. `off` otherwise.",
+    )
+
+
+def realtime_cohorts_for_request(request: Request | None, team: Team) -> dict[str, str]:
+    serving = is_realtime_cohort_flag_targeting_enabled(request, team=team, only_evaluate_locally=True)
+    return {"access": RealtimeCohortsAccess.SERVING if serving else RealtimeCohortsAccess.OFF}
+
+
+REALTIME_COHORTS_FIELD_SCHEMA = TeamRealtimeCohortsSerializer(
+    help_text="Realtime cohorts as the request's user sees them in this project."
+)
 
 
 class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin, UserAccessControlSerializerMixin):
@@ -77,6 +124,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             "whole organization. 0 reads the events table. 1 and 2 read the flag_evaluations table."
         )
     )
+    realtime_cohorts = serializers.SerializerMethodField()
     available_setup_task_ids = serializers.SerializerMethodField()
     api_host = serializers.SerializerMethodField(
         help_text=(
@@ -142,6 +190,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             "product_intents",
             "managed_viewsets",
             "flag_evaluations_mode",
+            "realtime_cohorts",
             "available_setup_task_ids",
             "api_host",
         )
@@ -167,6 +216,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             "product_intents",
             "managed_viewsets",
             "flag_evaluations_mode",
+            "realtime_cohorts",
             "available_setup_task_ids",
             "api_host",
         )
@@ -183,8 +233,9 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
         if not instance.organization.is_feature_available(AvailableFeature.DATA_COLOR_THEMES):
             with tracer.start_as_current_span("team_serializer.default_data_theme_fallback"):
                 representation["default_data_theme"] = live_events._default_data_color_theme_id()
+        settings_validation.hide_secret_api_tokens(representation)
 
-        return representation
+        return hide_team_secrets_from_workload_tokens(representation, self.context.get("request"))
 
     @tracer.start_as_current_span("team_serializer.effective_membership_level")
     def get_effective_membership_level(self, team: Team) -> OrganizationMembership.Level | None:
@@ -241,6 +292,10 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
     @extend_schema_field(serializers.ChoiceField(choices=FlagEvaluationsMode.choices))
     def get_flag_evaluations_mode(self, obj: Team) -> int:
         return get_flag_evaluations_read_mode(obj.organization_id)
+
+    @extend_schema_field(REALTIME_COHORTS_FIELD_SCHEMA)
+    def get_realtime_cohorts(self, obj: Team) -> dict[str, str]:
+        return realtime_cohorts_for_request(self.context.get("request"), obj)
 
     @extend_schema_field(
         # nosemgrep: choices-need-a-class -- an existing list, moved here unchanged from posthog/api/team.py
@@ -513,6 +568,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
         )
 
         request.user.current_team = team
+        request.user.current_organization_id = team.organization_id
         request.user.team = request.user.current_team  # Update cached property
         request.user.save()
 

@@ -4,6 +4,7 @@ import re
 import math
 import time
 from collections.abc import Sequence
+from datetime import UTC, datetime
 from typing import Any
 
 import requests
@@ -22,6 +23,13 @@ _ISSUE_IDENTIFIER = re.compile(r"([A-Za-z0-9]+)-([0-9]+)")
 # Linear counts requests over a one-hour window, so its reset time is never further away than that.
 _RATE_LIMIT_WINDOW_SECONDS = 3600
 _RATE_LIMIT_DEFAULT_WAIT_SECONDS = 60
+
+# Linear creates a workspace's webhook when the workspace authorizes the app, so an authorization from
+# before the app had webhooks never gets one. Reading webhooks needs the `admin` scope, which this app
+# does not request, so the authorization date is the only signal. Deliveries were arriving by this
+# time, so an authorization after it has a webhook. An earlier one may have one too, and reconnecting
+# it costs the person one click.
+_WEBHOOKS_AVAILABLE_SINCE = datetime(2026, 10, 30, 16, 0, tzinfo=UTC)
 
 
 class LinearIntegrationError(Exception):
@@ -53,6 +61,14 @@ class LinearIntegration:
             raise Exception("LinearIntegration init called with Integration with wrong 'kind'")
 
         self.integration = model.integration_model(integration)
+
+    def authorized_before_webhooks(self) -> bool:
+        # A connection without `authorized_at` last authorized before the field existed, so `created_at`
+        # is the only date it has. One that reconnected after `_WEBHOOKS_AVAILABLE_SINCE` but before this
+        # field existed still shows the banner, and its next reconnect writes `authorized_at`.
+        authorized_at = self.integration.config.get("authorized_at")
+        last_authorized = datetime.fromtimestamp(authorized_at, UTC) if authorized_at else self.integration.created_at
+        return last_authorized < _WEBHOOKS_AVAILABLE_SINCE
 
     def url_key(self) -> str:
         return common.dot_get(self.integration.config, "data.viewer.organization.urlKey")

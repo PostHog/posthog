@@ -6,10 +6,10 @@ from typing import Literal, get_args
 # Not every model needs a scope - it should more be for top-level things
 # Typically each object should have `read` and `write` scopes, but some objects may have more specific scopes
 
-# A new scope object also needs UI data in frontend/src/lib/scopes.tsx:
-# - a row in `API_SCOPES`, or an entry with a reason in `API_SCOPES_OMITTED_FROM_MODAL`.
-# - a group in `API_SCOPE_GROUPS`.
-# frontend/src/lib/scopes.test.ts fails until both exist.
+# A new scope object also needs a `ScopeDoc` in the owning product's `backend/scopes.py`, or in
+# `posthog/scope_docs.py` for a core scope, unless it is in `SCOPE_OBJECTS_OMITTED_FROM_PICKERS`
+# below. The scope pickers take everything they show about the object from there.
+# posthog/test/repo_invariants/test_scope_docs.py fails until it exists.
 #
 # The frontend `APIScopeObject` type needs no edit. `hogli build:openapi` generates it from
 # `GRANTABLE_API_SCOPE_OBJECTS` below, through the `resource` choice fields of the access
@@ -23,6 +23,9 @@ APIScopeObject = Literal[
     "action",
     "access_control",
     "account",
+    # Notes on Customer Analytics accounts, split off `account` so a note can be written without the rest of
+    # the account surface (rename, delete, properties, relationships).
+    "account_note",
     "activity_log",
     "alert",
     "annotation",
@@ -82,6 +85,7 @@ APIScopeObject = Literal[
     "integration",
     "interactive_run",
     "internal_run",
+    "knowledge_writer",
     "legal_document",
     "link",  # Endpoints are gone; kept advertised until desktop OAuth clients stop requesting it.
     "live_debugger",  # Endpoints are gone; kept advertised until desktop OAuth clients stop requesting it.
@@ -97,7 +101,8 @@ APIScopeObject = Literal[
     "marketing_analytics",
     "mcp_builtin_agent",
     "mcp_analytics",
-    "mcp_registry",
+    "mcp_registry",  # Endpoints are gone; kept advertised until OAuth clients stop requesting it.
+    "messaging_preference",
     "metrics",
     "notebook",
     "offline_evaluation_ingestion",
@@ -137,11 +142,11 @@ APIScopeObject = Literal[
     "today",
     "toolbar",
     "tracing",
+    "transactional_email",
     "field_note",
     "uploaded_media",
     "usage_metric",
     "user",
-    "user_interview",  # Endpoints are gone; kept advertised until desktop OAuth clients stop requesting it.
     "vision_action",  # Endpoints are gone; kept advertised until desktop OAuth clients stop requesting it.
     "vision_alert",
     "visual_review",
@@ -152,6 +157,8 @@ APIScopeObject = Literal[
     "webhook",
     "wizard_session",
     "wizard_run",
+    "workload_trust_policy",
+    "workload_trust_policy_request",
 ]
 
 
@@ -170,12 +177,13 @@ APIScopeObjectOrNotSupported = Literal[
     "INTERNAL",
 ]
 
+# Every scope object, internal ones included. Most code wants one of the narrower sets below.
 API_SCOPE_OBJECTS: tuple[APIScopeObject, ...] = get_args(APIScopeObject)
 API_SCOPE_ACTIONS: tuple[APIScopeActions, ...] = get_args(APIScopeActions)
 
-# Scope objects minted programmatically only — never via the OAuth consent flow,
-# the personal-API-key UI, the CLI authorize page, or RBAC. Filtered out of
-# `get_scope_descriptions()` and rejected by every user-facing scope validator.
+# Internal: markers that PostHog's own code puts on tokens it mints for agents, sandboxes and
+# scheduled runs. No person or OAuth client can grant or request one, because each unlocks
+# something only PostHog itself should do. Every user-facing scope list leaves them out.
 INTERNAL_API_SCOPE_OBJECTS: frozenset[APIScopeObject] = frozenset(
     {
         "clickhouse_test_cluster_perf",
@@ -223,11 +231,9 @@ INTERNAL_API_SCOPE_OBJECTS: frozenset[APIScopeObject] = frozenset(
     }
 )
 
-# Scope objects available via personal API keys but never advertised through
-# OAuth metadata. Used where a user can manually paste the scope into a PAT but
-# we don't want OAuth-based clients (the consent screen, MCP, third-party apps)
-# to discover it — alpha / not-yet-public products, or staff-only debug endpoints
-# automation reaches with a PAT (e.g. `query_performance`, also gated by `is_staff`).
+# Hidden: staff-only or unreleased surfaces. A person can still type one into a personal API key,
+# but no scope picker shows it and no OAuth discovery document lists it, so customers never come
+# across it. The MCP server treats a tool that needs one as staff-only and hides it from everyone else.
 OAUTH_HIDDEN_SCOPE_OBJECTS: frozenset[APIScopeObject] = frozenset(
     {
         "wizard_session",
@@ -237,14 +243,47 @@ OAUTH_HIDDEN_SCOPE_OBJECTS: frozenset[APIScopeObject] = frozenset(
         # `is_staff`. Distinct from the public `batch_import` object on purpose: that one is
         # OAuth-advertised, and a customer-grantable scope must never name a staff surface.
         "batch_import_support",
+        # Its only route accepts project secret API keys alone, so only that key picker offers it.
+        "messaging_preference",
     }
 )
 
-# Every scope object a person can grant: a personal API key, an OAuth grant or an access
-# control rule can name any of these. The access control API types its resource fields with
-# this list, so the generated frontend enum carries it and the frontend keeps no copy.
+# Every object except the internal ones: what a personal API key, an OAuth grant or an access
+# control rule can name. The access control API types its resource fields with it, so the
+# generated frontend enum comes from here.
 GRANTABLE_API_SCOPE_OBJECTS: tuple[APIScopeObject, ...] = tuple(
     obj for obj in API_SCOPE_OBJECTS if obj not in INTERNAL_API_SCOPE_OBJECTS
+)
+
+# Grantable objects that no scope picker offers, each with the reason: umbrella resources, and
+# retired scopes kept so that old clients that still request them keep working.
+SCOPE_OBJECTS_OMITTED_FROM_PICKERS: dict[APIScopeObject, str] = {
+    # Umbrella access-control resource that `warehouse_view`/`warehouse_table` inherit from.
+    # The granular scopes are offered instead.
+    "warehouse_objects": "Umbrella resource: grant warehouse_view/warehouse_table instead.",
+    # Pending removal. No endpoint enforces these, so they do nothing when granted.
+    # Remove them from `APIScopeObject` whenever you like: `/authorize` drops a requested scope that no
+    # longer exists, and saving a personal API key drops one the key still holds.
+    "batch_import": "Pending removal: no endpoint enforces it (its viewset is INTERNAL).",
+    "mcp_registry": "Retired: no endpoint enforces it; kept for OAuth clients that still request it.",
+    "external_data_schema": "Pending removal: covered by external_data_source; no viewset uses it.",
+    "vision_action": "Retired: no endpoint enforces it; kept for desktop OAuth clients that still request it.",
+    "link": "Retired: no endpoint enforces it; kept for desktop OAuth clients that still request it.",
+    "live_debugger": "Retired: no endpoint enforces it; kept for desktop OAuth clients that still request it.",
+    "loop": "Retired: no endpoint enforces it; kept for desktop OAuth clients that still request it.",
+    "knowledge_writer": "Retired: its only endpoint was removed, so no endpoint enforces it.",
+    # Access control resources that no token check reads, so granting them to a token does nothing.
+    "toolbar": "Access control resource only: no endpoint checks it as a token scope.",
+    "revenue_analytics": "Access control resource only: no endpoint checks it as a token scope.",
+}
+
+# What people see and choose in the scope pickers, the scope reference and `/oauth/scopes/`:
+# every grantable object except the hidden and omitted ones. Each needs a `ScopeDoc`
+# (see `posthog/scope_docs.py`).
+EXPOSED_SCOPE_OBJECTS: tuple[APIScopeObject, ...] = tuple(
+    obj
+    for obj in GRANTABLE_API_SCOPE_OBJECTS
+    if obj not in OAUTH_HIDDEN_SCOPE_OBJECTS and obj not in SCOPE_OBJECTS_OMITTED_FROM_PICKERS
 )
 
 # llm_gateway:read is staff-only, so ProjectSecretAPIKeySerializer adds it per request.
@@ -276,51 +315,66 @@ PROJECT_SECRET_API_KEY_ALLOWED_API_SCOPE_ACTION: list[tuple[APIScopeObject, APIS
     # Both are needed together; every other replay_scanner and session_recording route stays PSAK-denied.
     ("replay_scanner", "write"),
     ("session_recording", "read"),
-    # Lets a service send transactional email (`messaging_templates/:id/send/`, `messaging/send/email/`) and read a
-    # send's status (`messaging/emails/:id/`). Every other hog_flow route stays PSAK-denied, because no other hog_flow
-    # viewset lists PSAK actions.
+    # Lets a service send transactional email (`messaging_templates/:id/send/`, `messaging/send/email/`), read a
+    # send's status (`messaging/emails/:id/`) and set a recipient's topic preferences (`messaging/preferences/`).
+    # Every other hog_flow route stays PSAK-denied, because no other hog_flow viewset lists PSAK actions.
     ("hog_flow", "read"),
     ("hog_flow", "write"),
+    ("messaging_preference", "write"),
+    ("transactional_email", "read"),
+    ("transactional_email", "write"),
+    # SDK prompt fetches by name and by list, so a service does not need a credential tied
+    # to one person's account. Publishing, labels and archiving stay closed to these keys.
+    ("llm_prompt", "read"),
+    ("logs", "read"),
+    # Lets a customer's own agent search and read business knowledge without a credential tied
+    # to one person's account. Every write, and the sources, settings and playground routes, stay closed.
+    ("business_knowledge", "read"),
 ]
 
-# Server-side scope assignment string-set constants (see RFC: server-side scope
-# assignment for OAuthApplications).
-#
-# Naming convention in this module: `*_SCOPE_OBJECTS` (frozenset[APIScopeObject])
-# and `*_SCOPE_ACTIONS` hold scope-OBJECT sets; bare `*_SCOPES` (frozenset[str])
-# hold scope-STRING (`obj:action`) sets. The object sets above
-# (INTERNAL_API_SCOPE_OBJECTS, OAUTH_HIDDEN_SCOPE_OBJECTS) remain canonical for
-# object-level checks; the string sets below are the surface used by
-# `OAuthApplication.scopes` and `UNPRIVILEGED_SCOPES` set arithmetic.
+# Naming convention: `*_SCOPE_OBJECTS` hold scope objects, and `*_SCOPES` hold `obj:action`
+# strings. The string sets below are what `OAuthApplication.scopes` and the OAuth ceilings use.
 
-# Every public `obj:action` scope string. Matches `get_scope_descriptions()`
-# keys; excludes INTERNAL scopes (programmatic-only, never user-facing).
+# Every grantable `obj:action` string, that is every scope except the internal ones.
 ALL_SCOPES: frozenset[str] = frozenset(
     f"{obj}:{action}" for obj in GRANTABLE_API_SCOPE_OBJECTS for action in API_SCOPE_ACTIONS
 )
 
-# Privileged scopes only land on `OAuthApplication.scopes` via an admin-driven
-# path (Django admin, the Stripe HMAC seed list, first-party data migrations).
-# Filtered out of partner-facing self-serve registration (CIMD, DCR per
-# RFC 7591), so a partner cannot programmatically grant themselves
-# `llm_gateway:read`.
+# Privileged: public scopes that an OAuth app must never grant itself, because they run paid LLM
+# calls through the gateway (`llm_gateway`). Unlike hidden scopes, the key picker shows them,
+# outside the presets. An OAuth app gets one only when staff put it on the app's ceiling (Django
+# admin, the Stripe seed list or a data migration). Self-registration (DCR, CIMD) drops them.
 PRIVILEGED_SCOPES: frozenset[str] = frozenset({"llm_gateway:read", "llm_gateway:write"})
 
-# String form of `OAUTH_HIDDEN_SCOPE_OBJECTS`. PAT-grantable but never
-# advertised via OAuth metadata; excluded from `UNPRIVILEGED_SCOPES` so an
-# alpha scope never reaches the broad default. Intersected with `ALL_SCOPES`
-# so a future hidden object whose action set narrows doesn't carry a phantom
-# string into the set.
+# `OAUTH_HIDDEN_SCOPE_OBJECTS` as `obj:action` strings.
 OAUTH_SCOPES_HIDDEN: frozenset[str] = (
     frozenset(f"{obj}:{action}" for obj in OAUTH_HIDDEN_SCOPE_OBJECTS for action in API_SCOPE_ACTIONS) & ALL_SCOPES
 )
 
-# Everything safe to grant a generic OAuth client. The broad default for an
-# `OAuthApplication` with empty `scopes`: empty resolves to this set at
-# `/authorize` time. OIDC scopes (openid/profile/email) are NOT in this set —
-# they live in `OIDC_SCOPES` below and are accepted at `/authorize`
-# independently of `application.scopes`.
+# Resource: the scopes any OAuth client may hold. This is the ceiling of an app with no `scopes`,
+# and the most a self-registered app can declare. Identity scopes are separate
+# (`ALWAYS_ALLOWED_SCOPES`).
 UNPRIVILEGED_SCOPES: frozenset[str] = ALL_SCOPES - PRIVILEGED_SCOPES - OAUTH_SCOPES_HIDDEN
+
+# What a risky scope lets a token do, shown wherever a person grants scopes to a token so they add it with care.
+RISKY_SCOPE_WARNINGS: dict[str, str] = {
+    "access_control:write": "Changes who can access resources in this project.",
+    "approvals:write": "Approves or rejects change requests that gate other changes.",
+    "autoresearch:write": "Starts agent runs that get their own longer-lived token.",
+    "billing:read": "Reads the whole organization's billing details, not just this project's.",
+    "billing:write": "Changes the organization's subscription and payment details.",
+    "hog_flow:write": "Runs workflow code that can use the stored credentials of the project's integrations.",
+    "hog_function:write": "Runs code, including on your website, that can use the stored credentials of the project's integrations.",
+    "integration:write": "Connects and changes third-party integrations and their stored credentials.",
+    "llm_provider_key:write": "Stores and changes LLM provider API keys.",
+    "organization:write": "Changes organization settings, including roles and OAuth apps.",
+    "organization_integration:write": "Connects and changes organization-wide integrations and their stored credentials.",
+    "organization_member:write": "Invites and removes organization members and changes their roles, so it can give people access beyond this token's scopes.",
+    "sharing_configuration:read": "Reads the access tokens of public sharing links, which keep working after this token expires.",
+    "sharing_configuration:write": "Creates public sharing links that anyone with the link can open.",
+    "user:read": "Reads the account details of the user the token acts as, including every organization and project they belong to.",
+    "user:write": "Changes the account of the user the token acts as.",
+}
 
 
 def get_scope_descriptions() -> dict[str, str]:
@@ -367,18 +421,71 @@ def downgrade_scopes_to_read_only(scope_str: str) -> str:
     return " ".join(deduped)
 
 
-# OIDC scopes published in OAuth server metadata alongside the resource scopes.
-# These match what django-oauth-toolkit's OIDC layer accepts at the /authorize
-# endpoint. Duplicating the list as plain tuple (rather than importing from
-# oauth_toolkit) keeps `posthog.scopes` importable without Django setup, which
-# the MCP projection relies on (see `posthog/scopes_projection.py`).
+## OAuth scope surfaces
+#
+# Each class of scope reaches a different set of OAuth surfaces. A scope string belongs to
+# exactly one class:
+#
+# | Class                     | Defined by                         | OAuth grant                        | AS metadata | Other discovery |
+# | ------------------------- | ---------------------------------- | ---------------------------------- | ----------- | --------------- |
+# | Internal                  | `INTERNAL_API_SCOPE_OBJECTS`       | Never. Minted server-side only     | No          | No              |
+# | Hidden                    | `OAUTH_SCOPES_HIDDEN`              | Only on an admin-set app ceiling   | No          | No              |
+# | Privileged                | `PRIVILEGED_SCOPES`                | Only on an admin-set app ceiling   | No          | No              |
+# | Authorization server only | `AUTHORIZATION_SERVER_ONLY_SCOPES` | Only to staff-marked apps, alone   | Yes         | No              |
+# | Identity                  | `ALWAYS_ALLOWED_SCOPES`            | Always, whatever the app ceiling   | Yes         | Yes             |
+# | Resource                  | `UNPRIVILEGED_SCOPES`              | Within the app's ceiling           | Yes         | Yes             |
+#
+# "AS metadata" is the RFC 8414 document at `/.well-known/oauth-authorization-server`, which
+# lists `AUTHORIZATION_SERVER_SCOPES_SUPPORTED`. "Other discovery" is every other place a client
+# reads scopes from, which all list `OAUTH_SCOPES_SUPPORTED`: the protected resource metadata
+# (Django and the MCP server), the OpenID discovery document and the auth.md manifest.
+#
+# Hidden and privileged scopes behave the same for OAuth but differ for personal API keys and the
+# MCP server, as their definitions say. Personal API keys and the scope pickers are separate
+# surfaces: `get_scope_descriptions()` and `EXPOSED_SCOPE_OBJECTS` above decide what they offer.
+
+# The OpenID Connect identity scopes. A plain tuple rather than an import from
+# django-oauth-toolkit, so this module loads without Django, which
+# `posthog/scopes_projection.py` needs.
 OIDC_SCOPES: tuple[str, ...] = ("openid", "profile", "email")
 
 
-# OIDC + introspection are accepted independently of an app's scope ceiling:
-# they are identity / token-management scopes, not resource permissions. Mirrors
-# `OAuthValidator._ALWAYS_ALLOWED_SCOPES` in `posthog/api/oauth/views.py`.
+# Identity: the OIDC scopes plus `introspection`. They describe the user or the token rather than
+# a resource, so any token may carry them whatever its app's ceiling.
 ALWAYS_ALLOWED_SCOPES: frozenset[str] = frozenset(OIDC_SCOPES) | {"introspection"}
+
+EMA_ISSUER_MANAGE_SCOPE = "ema_issuer:manage"
+
+
+def _build_oauth_scopes_supported() -> tuple[str, ...]:
+    # `OIDC_SCOPES` keeps its declared order at the head of the list. The other identity scopes
+    # and the resource scopes follow in a fixed order, so the generated MCP artifact stays
+    # byte-stable.
+    other_identity = sorted(ALWAYS_ALLOWED_SCOPES - set(OIDC_SCOPES))
+    resource = [
+        f"{obj}:{action}"
+        for obj in API_SCOPE_OBJECTS
+        for action in API_SCOPE_ACTIONS
+        if f"{obj}:{action}" in UNPRIVILEGED_SCOPES
+    ]
+    return (*OIDC_SCOPES, *other_identity, *resource)
+
+
+# Identity plus resource scopes: what any OAuth client may request, and the list every discovery
+# document publishes. The identity scopes are listed although every token carries them, because a
+# client warns the user when a scope it requested is missing here. An internal scope must never get
+# in, or any client could ask a person to consent to it. For example, the scratchpad that
+# `signal_scout_internal:write` writes is read into every later agent prompt.
+OAUTH_SCOPES_SUPPORTED: tuple[str, ...] = _build_oauth_scopes_supported()
+
+# Authorization server only: scopes for setup flows that only staff-marked apps can get
+# (`ema_issuer:manage`). Clients look for them in the authorization server metadata before they
+# offer the feature. They stay out of the protected resource metadata and `WWW-Authenticate`,
+# because MCP clients request every scope listed there. `authorization_server_metadata()` has more.
+AUTHORIZATION_SERVER_ONLY_SCOPES: tuple[str, ...] = (EMA_ISSUER_MANAGE_SCOPE,)
+
+# The list the authorization server metadata publishes.
+AUTHORIZATION_SERVER_SCOPES_SUPPORTED: tuple[str, ...] = (*OAUTH_SCOPES_SUPPORTED, *AUTHORIZATION_SERVER_ONLY_SCOPES)
 
 
 def filter_to_unprivileged_scopes(scopes: Iterable[object]) -> list[str]:
@@ -488,7 +595,15 @@ def scopes_not_covered(held_scopes: Iterable[str], required_scopes: Iterable[str
 # APIScopePermission applies this and records each use, so the entry can go when no caller needs it.
 # Project secret API key issuance does not apply it: a key must not get a scope on the strength of a
 # legacy one. `hogli build:projections` copies this map to the MCP server, which applies it in `hasScope`.
-LEGACY_SCOPE_FALLBACKS: dict[str, str] = {"inbox": "task"}
+LEGACY_SCOPE_FALLBACKS: dict[str, str] = {
+    # Notes moved from `account:*` to `account_note:*`, so keys and tokens issued before the split keep working.
+    "account_note": "account",
+    "inbox": "task",
+    # Permanent: `hog_flow:write` stays a supported way to set recipient preferences. Keep it on low use.
+    "messaging_preference": "hog_flow",
+    # Permanent: `hog_flow` stays a supported way to send transactional email and read a send's status.
+    "transactional_email": "hog_flow",
+}
 
 
 def scopes_covered_by_legacy_fallback(held_scopes: Iterable[str], missing_scopes: Iterable[str]) -> dict[str, str]:
@@ -655,6 +770,25 @@ def is_truncated_scope_request(requested: Sequence[str]) -> bool:
     return any(scope.startswith(tail) for scope in known)
 
 
+def resolve_requested_scopes(
+    requested: Sequence[str],
+    app_scopes: Iterable[str],
+    *,
+    allow_wildcard_under_empty_ceiling: bool = False,
+) -> list[str]:
+    """The scopes an OAuth request gets: no scope, or a list cut off mid-token, resolves to the
+    whole ceiling, and anything else is clamped to it.
+
+    `/oauth/authorize` and `/oauth/device-authorization` both resolve scopes here, so a client
+    gets the same scopes from either.
+    """
+    if not requested or is_truncated_scope_request(requested):
+        return sorted(effective_ceiling(app_scopes) | ALWAYS_ALLOWED_SCOPES)
+    return clamp_scopes_to_ceiling(
+        set(requested), app_scopes, allow_wildcard_under_empty_ceiling=allow_wildcard_under_empty_ceiling
+    )
+
+
 def narrow_scopes_to_ceiling(original: Iterable[str], app_scopes: Iterable[str]) -> list[str] | None:
     """Cap previously-granted scopes at an app's current ceiling (refresh-time).
 
@@ -685,47 +819,8 @@ def narrow_scopes_to_ceiling(original: Iterable[str], app_scopes: Iterable[str])
     if "*" in original_set:
         return original_list
 
-    narrowed = (original_set & ceiling) | (original_set & ALWAYS_ALLOWED_SCOPES)
+    # A `:write` in the ceiling covers its `:read`, as at issue time in `clamp_scopes_to_ceiling`.
+    narrowed = (original_set & _with_read_halves(ceiling)) | (original_set & ALWAYS_ALLOWED_SCOPES)
     if not narrowed and original_set:
         return None
     return sorted(narrowed)
-
-
-def get_oauth_scopes_supported() -> list[str]:
-    """Full `scopes_supported` list published in OAuth metadata.
-
-    Used by the authorization server's `/.well-known/oauth-authorization-server`
-    endpoint and by the MCP server's `/.well-known/oauth-protected-resource`
-    (the latter generated at build time via `posthog/scopes_projection.py` so
-    the protected resource cannot drift out of subset of the AS).
-
-    Resource scopes are built from `UNPRIVILEGED_SCOPES`, so the list excludes
-    all three non-advertised classes: `INTERNAL_API_SCOPE_OBJECTS`
-    (server-mint-only, e.g. `signal_scout_internal` — never user-grantable),
-    `OAUTH_SCOPES_HIDDEN` (alpha / PAT-only), and `PRIVILEGED_SCOPES`
-    (`llm_gateway:*`, admin-granted only). Discovery metadata shouldn't advertise
-    scopes an OAuth client can't obtain self-serve. PAT validation uses
-    `get_scope_descriptions()` directly and is unaffected.
-
-    Every `ALWAYS_ALLOWED_SCOPES` member is advertised too, because those ride on
-    every token we issue whether the client asks for them or not. A client that
-    requests one and cannot find it here reads that as consent granted only in
-    part, and warns the user at the moment of install.
-
-    The Signals scout harness sandbox token carries `signal_scout_internal:write`,
-    but it is minted by directly inserting an `OAuthAccessToken` row (see
-    `posthog/temporal/oauth.py:create_oauth_access_token_for_user`) and never passes
-    through `/authorize`, so the scope needs neither advertising here nor a place in
-    `OAUTH2_PROVIDER["SCOPES"]`. Advertising it would let any OAuth client request it
-    via user consent — a durable prompt-injection vector (scratchpad rows are read
-    verbatim into every subsequent run's prompt).
-    """
-    visible = UNPRIVILEGED_SCOPES
-    ordered = [
-        f"{obj}:{action}" for obj in API_SCOPE_OBJECTS for action in API_SCOPE_ACTIONS if f"{obj}:{action}" in visible
-    ]
-    # `OIDC_SCOPES` keeps its declared order at the head of the list, so only the
-    # remaining always-allowed scopes are appended (sorted to keep the generated
-    # MCP artifact byte-stable).
-    other_always_allowed = sorted(ALWAYS_ALLOWED_SCOPES - set(OIDC_SCOPES))
-    return list(OIDC_SCOPES) + other_always_allowed + ordered

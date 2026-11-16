@@ -288,6 +288,40 @@ class LowercaseSlugField(models.SlugField):
         return prep_value.lower() if prep_value else prep_value
 
 
+LabelPath = list[str]
+
+
+class LabelTreeField(models.Field):
+    """A Django model field for a PostgreSQL label tree.
+
+    We represent label trees in Python as a list of strings, each item
+    in the list being one of the labels of the underlying ltree.
+    """
+
+    description = "A PostgreSQL label tree field provided by the ltree extension"
+
+    def db_type(self, connection):
+        return "ltree"
+
+    def from_db_value(self, value, expression, connection) -> None | LabelPath:
+        if value is None:
+            return value
+
+        return value.split(".")
+
+    def to_python(self, value) -> None | LabelPath:
+        if value is None:
+            return value
+
+        if isinstance(value, list):
+            return value
+
+        return value.split(".")
+
+    def get_prep_value(self, value: LabelPath) -> str:
+        return ".".join(value)
+
+
 def generate_random_short_suffix():
     """Return a 4 letter suffix made up random ASCII letters, useful for disambiguation of duplicates."""
     return "".join(secrets.choice(string.ascii_letters) for _ in range(4))
@@ -451,6 +485,14 @@ class RootTeamMixin(models.Model):
         abstract = True
 
     def save(self, *args: Any, **kwargs: Any) -> None:
+        # A partial update that leaves the team out cannot change it, so it skips the team read.
+        # In a loop over rows that did not load the team, that read costs one query per row.
+        if kwargs.get("update_fields") is not None:
+            # Django accepts any iterable here, so read it once and pass the same values on.
+            kwargs["update_fields"] = update_fields = list(kwargs["update_fields"])
+            if not {"team", "team_id"} & set(update_fields):
+                super().save(*args, **kwargs)
+                return
         if hasattr(self, "team") and self.team and hasattr(self.team, "parent_team") and self.team.parent_team:  # type: ignore
             self.team = self.team.parent_team  # type: ignore
         super().save(*args, **kwargs)

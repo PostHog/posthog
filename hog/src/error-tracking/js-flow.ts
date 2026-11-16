@@ -152,8 +152,9 @@ export function preparePairs(pairs: SourcePair[], mode: ReleaseMode): PreparedPa
         if (isEmptyMapContent(pair.map)) {
             skipped.push({
                 path: pair.sourcePath,
+                // Keep in step with WRAPPER_JS_SIZE_THRESHOLD_BYTES in cli/src/sourcemaps/plain/upload.rs.
                 reason:
-                    Buffer.byteLength(pair.source) < 2048
+                    Buffer.byteLength(pair.source) < 4096
                         ? 'the sourcemap is empty'
                         : 'the sourcemap is empty although the file is large. Check your bundler sourcemap setting.',
             })
@@ -215,12 +216,6 @@ export function resolveJsRelease(
     if (git) {
         name ??= git.repo_name
         version ??= git.commit_id
-    } else if (!complete && (fields.name !== undefined || fields.version !== undefined || fields.build !== undefined)) {
-        throw new HogError(
-            'release_incomplete',
-            'The release needs both a name and a version, and there is no git repository to fill in the missing one.',
-            'Pass both --release-name and --release-version, or run from a git repository.'
-        )
     }
     return name !== undefined && version !== undefined ? { name, version, git } : undefined
 }

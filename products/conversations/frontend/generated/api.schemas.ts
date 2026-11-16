@@ -40,6 +40,112 @@ export interface AIReplyPlaybookApi {
     readonly max_chars: number
 }
 
+export type IntercomImportJobRegionEnumApi =
+    (typeof IntercomImportJobRegionEnumApi)[keyof typeof IntercomImportJobRegionEnumApi]
+
+export const IntercomImportJobRegionEnumApi = {
+    Us: 'us',
+    Eu: 'eu',
+    Au: 'au',
+} as const
+
+export interface IntercomImportStartApi {
+    /** Region where the Intercom workspace is hosted: us, eu, or au.
+     *
+     * * `us` - United States
+     * * `eu` - Europe
+     * * `au` - Australia */
+    region?: IntercomImportJobRegionEnumApi
+    /**
+     * Intercom access token with permission to read conversations and contacts.
+     * @maxLength 500
+     */
+    access_token: string
+    /**
+     * Optional support email channel to attach imported tickets to, so agents can reply by email. Omit or null to import tickets without an email channel.
+     * @nullable
+     */
+    default_email_channel_id?: string | null
+}
+
+/**
+ * * `pending` - Pending
+ * * `running` - Running
+ * * `completed` - Completed
+ * * `failed` - Failed
+ */
+export type ZendeskImportJobStatusEnumApi =
+    (typeof ZendeskImportJobStatusEnumApi)[keyof typeof ZendeskImportJobStatusEnumApi]
+
+export const ZendeskImportJobStatusEnumApi = {
+    Pending: 'pending',
+    Running: 'running',
+    Completed: 'completed',
+    Failed: 'failed',
+} as const
+
+export interface IntercomImportJobApi {
+    /** Unique identifier for the import job. */
+    readonly id: string
+    /** Current job state: pending, running, completed, or failed.
+     *
+     * * `pending` - Pending
+     * * `running` - Running
+     * * `completed` - Completed
+     * * `failed` - Failed */
+    readonly status: ZendeskImportJobStatusEnumApi
+    /** Intercom region used for this import job. */
+    readonly region: IntercomImportJobRegionEnumApi | null
+    /** Whether a stored Intercom access token exists for this job (the token is never returned). */
+    readonly has_credentials: boolean
+    /** Total number of conversations discovered for import. */
+    readonly total_conversations: number
+    /** Number of conversations processed so far. */
+    readonly processed_conversations: number
+    /** Number of conversations imported as tickets. */
+    readonly imported_conversations: number
+    /** Number of conversations skipped because they were already imported. */
+    readonly skipped_conversations: number
+    /** Number of conversations that failed to import. */
+    readonly failed_conversations: number
+    /**
+     * When the import started running.
+     * @nullable
+     */
+    readonly started_at: string | null
+    /**
+     * When the import reached a terminal state.
+     * @nullable
+     */
+    readonly finished_at: string | null
+    /**
+     * Generic, user-safe error message when the job failed.
+     * @nullable
+     */
+    readonly latest_error: string | null
+    /** When the import job was created. */
+    readonly created_at: string
+    /** When the import job was last updated. */
+    readonly updated_at: string
+}
+
+export interface IntercomImportErrorApi {
+    /** Human-readable error message. */
+    detail: string
+}
+
+/**
+ * * `shared` - Everyone in the project
+ * * `personal` - Only the creator
+ */
+export type TicketMacroVisibilityEnumApi =
+    (typeof TicketMacroVisibilityEnumApi)[keyof typeof TicketMacroVisibilityEnumApi]
+
+export const TicketMacroVisibilityEnumApi = {
+    Shared: 'shared',
+    Personal: 'personal',
+} as const
+
 /**
  * * `engineering` - Engineering
  * * `data` - Data
@@ -106,7 +212,7 @@ export interface TicketMacroApi {
      */
     name: string
     /**
-     * Slash command for this macro, without the leading slash. Lowercase letters, numbers, and hyphens. Unique within the project. Null when the macro has no shortcut.
+     * Slash command for this macro, without the leading slash. Lowercase letters, numbers, and hyphens. A shared shortcut is unique among the project's shared macros, and a personal one among the creator's personal macros. Null when the macro has no shortcut.
      * @maxLength 50
      * @nullable
      */
@@ -116,6 +222,11 @@ export interface TicketMacroApi {
      * @maxLength 10000
      */
     body: string
+    /** Who can see and use the macro. 'shared' is everyone in the project, the default. 'personal' is only the person who created it.
+     *
+     * * `shared` - Everyone in the project
+     * * `personal` - Only the creator */
+    visibility?: TicketMacroVisibilityEnumApi
     /** How many times agents have inserted this macro. */
     readonly usage_count: number
     /**
@@ -152,7 +263,7 @@ export interface PatchedTicketMacroApi {
      */
     name?: string
     /**
-     * Slash command for this macro, without the leading slash. Lowercase letters, numbers, and hyphens. Unique within the project. Null when the macro has no shortcut.
+     * Slash command for this macro, without the leading slash. Lowercase letters, numbers, and hyphens. A shared shortcut is unique among the project's shared macros, and a personal one among the creator's personal macros. Null when the macro has no shortcut.
      * @maxLength 50
      * @nullable
      */
@@ -162,6 +273,11 @@ export interface PatchedTicketMacroApi {
      * @maxLength 10000
      */
     body?: string
+    /** Who can see and use the macro. 'shared' is everyone in the project, the default. 'personal' is only the person who created it.
+     *
+     * * `shared` - Everyone in the project
+     * * `personal` - Only the creator */
+    visibility?: TicketMacroVisibilityEnumApi
     /** How many times agents have inserted this macro. */
     readonly usage_count?: number
     /**
@@ -178,6 +294,76 @@ export interface PatchedTicketMacroApi {
     readonly updated_at?: string | null
     /** The user who created this macro. Null when that user was deleted. */
     readonly created_by?: UserBasicApi | null
+}
+
+export interface PylonImportStartApi {
+    /**
+     * Pylon API token whose role can read issues, messages, and contacts. The region (US or EU) is detected from the token.
+     * @maxLength 500
+     */
+    api_token: string
+    /**
+     * Optional support email channel to attach imported tickets to, so agents can reply by email. Omit or null to import tickets without an email channel.
+     * @nullable
+     */
+    default_email_channel_id?: string | null
+}
+
+export type PylonImportJobRegionEnumApi = (typeof PylonImportJobRegionEnumApi)[keyof typeof PylonImportJobRegionEnumApi]
+
+export const PylonImportJobRegionEnumApi = {
+    Us: 'us',
+    Eu: 'eu',
+} as const
+
+export interface PylonImportJobApi {
+    /** Unique identifier for the import job. */
+    readonly id: string
+    /** Current job state: pending, running, completed, or failed.
+     *
+     * * `pending` - Pending
+     * * `running` - Running
+     * * `completed` - Completed
+     * * `failed` - Failed */
+    readonly status: ZendeskImportJobStatusEnumApi
+    /** Pylon region the API token belongs to: us or eu. */
+    readonly region: PylonImportJobRegionEnumApi | null
+    /** Whether a stored Pylon API token exists for this job (the token is never returned). */
+    readonly has_credentials: boolean
+    /** Total number of issues discovered for import. */
+    readonly total_issues: number
+    /** Number of issues processed so far. */
+    readonly processed_issues: number
+    /** Number of issues imported as tickets. */
+    readonly imported_issues: number
+    /** Number of issues skipped because they were already imported. */
+    readonly skipped_issues: number
+    /** Number of issues that failed to import. */
+    readonly failed_issues: number
+    /**
+     * When the import started running.
+     * @nullable
+     */
+    readonly started_at: string | null
+    /**
+     * When the import reached a terminal state.
+     * @nullable
+     */
+    readonly finished_at: string | null
+    /**
+     * Generic, user-safe error message when the job failed.
+     * @nullable
+     */
+    readonly latest_error: string | null
+    /** When the import job was created. */
+    readonly created_at: string
+    /** When the import job was last updated. */
+    readonly updated_at: string
+}
+
+export interface PylonImportErrorApi {
+    /** Human-readable error message. */
+    detail: string
 }
 
 export interface SigningSecretApi {
@@ -395,6 +581,16 @@ export interface TicketApi {
     /** @nullable */
     readonly zendesk_ticket_id: number | null
     /**
+     * Intercom conversation id when the ticket was imported from Intercom. Null otherwise.
+     * @nullable
+     */
+    readonly intercom_conversation_id: string | null
+    /**
+     * Pylon issue id when the ticket was imported from Pylon. Null otherwise.
+     * @nullable
+     */
+    readonly pylon_issue_id: string | null
+    /**
      * Customer's PostHog organization group key, resolved at ticket creation. Null when unknown.
      * @nullable
      */
@@ -498,7 +694,7 @@ export interface TicketUpdateRequestApi {
      * @nullable
      */
     snoozed_until?: string | null
-    /** Tag names to set on the ticket. */
+    /** Tag names to set on the ticket. The list replaces the ticket's current tags. A request can add up to 100 new tags. */
     tags?: string[]
 }
 
@@ -542,7 +738,7 @@ export interface PatchedTicketUpdateRequestApi {
      * @nullable
      */
     snoozed_until?: string | null
-    /** Tag names to set on the ticket. */
+    /** Tag names to set on the ticket. The list replaces the ticket's current tags. A request can add up to 100 new tags. */
     tags?: string[]
 }
 
@@ -610,6 +806,17 @@ export interface TicketErrorApi {
     detail: string
     /** Machine-readable error code. */
     error_type?: string
+}
+
+export interface TicketAttachmentApi {
+    /** ID of the stored file. */
+    id: string
+    /** Public download URL of the stored file. */
+    url: string
+    /** Sanitized file name. */
+    name: string
+    /** Stored content type. Inline-safe images come back as their decoded image type. */
+    content_type: string
 }
 
 /**
@@ -1078,22 +1285,6 @@ export interface ZendeskImportStartApi {
     default_email_channel_id?: string | null
 }
 
-/**
- * * `pending` - Pending
- * * `running` - Running
- * * `completed` - Completed
- * * `failed` - Failed
- */
-export type ZendeskImportJobStatusEnumApi =
-    (typeof ZendeskImportJobStatusEnumApi)[keyof typeof ZendeskImportJobStatusEnumApi]
-
-export const ZendeskImportJobStatusEnumApi = {
-    Pending: 'pending',
-    Running: 'running',
-    Completed: 'completed',
-    Failed: 'failed',
-} as const
-
 export interface ZendeskImportJobApi {
     /** Unique identifier for the import job. */
     readonly id: string
@@ -1193,6 +1384,7 @@ export type ConversationsTicketsListParams = {
     emails?: string
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number
     /**
@@ -1274,9 +1466,15 @@ export const ConversationsTicketsListSla = {
     OnTrack: 'on-track',
 } as const
 
+export type ConversationsTicketsAttachmentsCreateBody = {
+    /** File to attach. Must be under 20 MiB. */
+    file: Blob
+}
+
 export type ConversationsTicketsMessagesListParams = {
     /**
      * Number of results to return per page.
+     * @maximum 200
      */
     limit?: number
     /**

@@ -20,6 +20,8 @@ import review_pr  # noqa: E402
 from familiarity import AuthorFamiliarity  # noqa: E402
 from github import PRData  # noqa: E402
 from policy import (  # noqa: E402
+    Attestation,
+    BotAuthor,
     EffectivePolicy,
     PolicyError,
     ScopeBudget,
@@ -152,6 +154,7 @@ OLD_DENY_PATTERN_DEFS = {
         "paths": [
             "^agents\\.md$",
             "^claude\\.md$",
+            "^\\.agents/(agent-automation|architecture|ci|code-style|feature-usage-tracking)\\.md$",
             "^\\.github/pull_request_template\\.md$",
             "^\\.agents/skills/writing-pr-descriptions/",
             "^\\.claude/settings\\.json$",
@@ -306,9 +309,40 @@ def _set_deny_exceptions(d: dict, *, raw: object) -> None:
     d["deny_exceptions"] = raw
 
 
+_ATTESTATION = {
+    "name": "migration_risk",
+    "check": "Migration risk",
+    "app_id": 2492437,
+    "lifts": ["migrations"],
+    "paths": [r"(?:^|/)migrations/[^/]+\.py$"],
+}
+
+
+def _set_attestations(d: dict, *, raw: object) -> None:
+    d["attestations"] = raw
+
+
 @pytest.mark.parametrize(
     "mutate",
     [
+        *[
+            pytest.param(partial(_set_attestations, raw=raw), id=f"attestations-{name}")
+            for name, raw in [
+                ("not-list", {"name": "x"}),
+                ("entry-not-mapping", ["migration_risk"]),
+                ("missing-paths", [{k: v for k, v in _ATTESTATION.items() if k != "paths"}]),
+                ("unknown-key", [{**_ATTESTATION, "marker": "v1"}]),
+                ("duplicate-name", [_ATTESTATION, _ATTESTATION]),
+                ("github-actions-app", [{**_ATTESTATION, "app_id": 15368}]),
+                ("app-id-string", [{**_ATTESTATION, "app_id": "2492437"}]),
+                ("unknown-category", [{**_ATTESTATION, "lifts": ["migrationz"]}]),
+                ("lifts-self-governance", [{**_ATTESTATION, "lifts": ["migrations", "stamphog_policy"]}]),
+                ("empty-lifts", [{**_ATTESTATION, "lifts": []}]),
+                ("invalid-regex", [{**_ATTESTATION, "paths": ["migrations/("]}]),
+                ("sibling-with-directory", [{**_ATTESTATION, "sibling_files": ["migrations/max_migration.txt"]}]),
+                ("publisher-file-escapes-repo", [{**_ATTESTATION, "publisher_files": ["../ci.yml"]}]),
+            ]
+        ],
         _unknown_top_level_key,
         _empty_pattern_list,
         _invalid_regex,
@@ -456,6 +490,31 @@ def test_load_effective_policy(
     loaded = load_effective_policy(lockfile_names=_LOCKFILE_NAMES, ownership_formats=_OWNERSHIP_FORMATS)
     assert set(loaded.deny) == set(_valid_policy_dict()["deny"])
     assert loaded.size_gate.max_lines == (overlay or {}).get("size_gate", {}).get("max_lines", 1200)
+
+
+def test_attestations_load_with_defaults_and_are_absent_by_default(tmp_path: Path) -> None:
+    data = _valid_policy_dict()
+    data["attestations"] = [{**_ATTESTATION, "sibling_files": ["max_migration.txt"]}]
+    policy_file = tmp_path / "policy.yml"
+    policy_file.write_text(yaml.safe_dump(data))
+
+    loaded = load_policy(policy_file, lockfile_names=_LOCKFILE_NAMES, ownership_formats=_OWNERSHIP_FORMATS)
+
+    assert loaded.attestations == (
+        Attestation(
+            name="migration_risk",
+            check="Migration risk",
+            app_id=2492437,
+            lifts=("migrations",),
+            paths=(r"(?:^|/)migrations/[^/]+\.py$",),
+            sibling_files=("max_migration.txt",),
+            publisher_files=(),
+        ),
+    )
+    shipped = load_policy(
+        bundled_defaults_dir() / "policy.yml", lockfile_names=_LOCKFILE_NAMES, ownership_formats=_OWNERSHIP_FORMATS
+    )
+    assert shipped.attestations == ()
 
 
 def test_server_owned_digest_section_is_allowed_and_ignored(tmp_path: Path) -> None:
@@ -959,3 +1018,32 @@ def test_explicit_repo_root_wins_over_a_nearer_stamphog_dir(tmp_path: Path, monk
     finally:
         monkeypatch.delenv("STAMPHOG_REPO_ROOT")
         policy.repo_root.cache_clear()
+
+
+_BOT_AUTHOR = {"name": "renovate", "login": "renovate[bot]", "id": 29139614}
+
+
+@pytest.mark.parametrize(
+    "entries, error",
+    [
+        pytest.param([_BOT_AUTHOR], None, id="valid"),
+        pytest.param([{**_BOT_AUTHOR, "login": "renovate"}], r"login: must end with \[bot\]", id="not-an-app-login"),
+        pytest.param([{"name": "renovate", "login": "renovate[bot]"}], "keys must be", id="missing-id"),
+        pytest.param([{**_BOT_AUTHOR, "id": 0}], r"\.id", id="zero-id"),
+        pytest.param(
+            [_BOT_AUTHOR, {**_BOT_AUTHOR, "name": "again"}], "duplicate 'renovate\\[bot\\]'", id="duplicate-login"
+        ),
+    ],
+)
+def test_bot_authors_name_one_app_account_each(tmp_path: Path, entries: list[dict], error: str | None) -> None:
+    data = _valid_policy_dict()
+    data["bot_authors"] = entries
+    policy_file = tmp_path / "policy.yml"
+    policy_file.write_text(yaml.safe_dump(data))
+
+    if error is not None:
+        with pytest.raises(PolicyError, match=error):
+            load_policy(policy_file, lockfile_names=_LOCKFILE_NAMES, ownership_formats=_OWNERSHIP_FORMATS)
+        return
+    loaded = load_policy(policy_file, lockfile_names=_LOCKFILE_NAMES, ownership_formats=_OWNERSHIP_FORMATS)
+    assert loaded.bot_authors == (BotAuthor(name="renovate", login="renovate[bot]", id=29139614),)

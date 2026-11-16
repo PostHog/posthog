@@ -19,6 +19,7 @@ OPENROUTER_CATALOGUE = {
     "openai/gpt-5-mini": frozenset({"text", "image", "file"}),
     "google/gemini-2.5-flash": frozenset({"text", "image", "file", "audio", "video"}),
     "example/image-only": frozenset({"text", "image"}),
+    "openai/gpt-audio-mini": frozenset({"text", "audio"}),
 }
 
 
@@ -45,8 +46,8 @@ class TestJudgeAttachmentsMarkers:
     @pytest.mark.parametrize(
         ("media", "marker"),
         [
-            pytest.param(MediaBlock(modality="audio", base64_data="aGk="), "[audio]", id="not_an_image"),
-            pytest.param(_pointer("a", mime="image%2Fsvg%2Bxml"), "[image]", id="unsupported_format"),
+            pytest.param(MediaBlock(modality="audio", base64_data="aGk="), "[audio, not attached]", id="no_file_type"),
+            pytest.param(_pointer("a", mime="image%2Fsvg%2Bxml"), "[image, not attached]", id="unsupported_format"),
             pytest.param(
                 MediaBlock(modality="image", mime_type="image/png", url="https://example.com/a.png"),
                 "[image: https://example.com/a.png]",
@@ -54,12 +55,12 @@ class TestJudgeAttachmentsMarkers:
             ),
             pytest.param(
                 parse_media_block({"file_data": {"mime_type": "image/png", "file_uri": "gs://bucket/a.png"}}),
-                "[image]",
+                "[image, not attached]",
                 id="gemini_cloud_storage_uri",
             ),
         ],
     )
-    def test_images_it_cannot_attach_keep_an_unnumbered_marker(self, media: MediaBlock, marker: str):
+    def test_media_it_cannot_attach_gets_an_unnumbered_marker(self, media: MediaBlock, marker: str):
         assert JudgeAttachments(team_id=7).marker(media) == marker
 
 
@@ -157,6 +158,30 @@ class TestJudgeAttachmentsContent:
             ),
             pytest.param(
                 "gemini",
+                "gemini-2.5-flash",
+                "audio%2Fogg%3B%20codecs%3Dopus",
+                "Audio 1:",
+                AttachmentPart(mime_type="audio/ogg", data=b"hi"),
+                id="ogg_audio_with_a_codec_on_gemini",
+            ),
+            pytest.param(
+                "openrouter",
+                "google/gemini-2.5-flash",
+                "audio%2Fflac",
+                "Audio 1:",
+                AttachmentPart(mime_type="audio/flac", data=b"hi"),
+                id="flac_audio_on_an_openrouter_gemini_model",
+            ),
+            pytest.param(
+                "openrouter",
+                "openai/gpt-audio-mini",
+                "audio%2Fflac",
+                "Not attached, this judge can't read their file type: Audio 1.",
+                None,
+                id="flac_audio_on_an_openrouter_model_outside_gemini",
+            ),
+            pytest.param(
+                "gemini",
                 "gemini-3-flash",
                 "video%2Fmp4",
                 "Video 1:",
@@ -186,6 +211,14 @@ class TestJudgeAttachmentsContent:
                 "Audio 1:",
                 AttachmentPart(mime_type="audio/mpeg", data=b"hi"),
                 id="audio_on_an_openai_audio_model",
+            ),
+            pytest.param(
+                "openai",
+                "gpt-audio-mini",
+                "audio%2Fogg",
+                "Not attached, this judge can't read their file type: Audio 1.",
+                None,
+                id="ogg_audio_on_an_openai_audio_model",
             ),
             pytest.param(
                 "openai",
@@ -428,8 +461,19 @@ class TestJudgeAttachmentsContent:
 
         assert content[1] == {"type": "text", "text": "Image 1:"}
 
-    def test_skips_images_whose_marker_was_sampled_out_of_the_prompt(self):
+    @pytest.mark.parametrize(
+        ("prompt", "expected"),
+        [
+            pytest.param("user: hello", "user: hello", id="marker_sampled_out"),
+            pytest.param(
+                "user: [image, not attached] what is this?",
+                f"{_NOT_ATTACHED_NOTE}\n\nuser: [image, not attached] what is this?",
+                id="only_unattached_media",
+            ),
+        ],
+    )
+    def test_a_prompt_without_attachments_stays_text(self, prompt: str, expected: str):
         images = JudgeAttachments(team_id=7)
         images.marker(_pointer("a"))
 
-        assert images.content("user: hello", "openai", "gpt-5.5") == "user: hello"
+        assert images.content(prompt, "openai", "gpt-5.5") == expected

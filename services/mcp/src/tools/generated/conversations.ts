@@ -38,7 +38,7 @@ const conversationsMacrosList = (): ToolBase<
         const filtered = {
             ...result,
             results: (result.results ?? []).map((item: any) =>
-                pickResponseFields(item, ['id', 'name', 'shortcut', 'body', 'usage_count'])
+                pickResponseFields(item, ['id', 'name', 'shortcut', 'body', 'visibility', 'usage_count'])
             ),
         } as typeof result
         return withInformationalResponse(
@@ -75,6 +75,7 @@ const conversationsMacrosRetrieve = (): ToolBase<
             'name',
             'shortcut',
             'body',
+            'visibility',
             'usage_count',
             'last_used_at',
         ]) as typeof result

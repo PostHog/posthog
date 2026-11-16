@@ -61,17 +61,19 @@ describe('support macros', () => {
     })
 
     test.each([
-        ['refund', ['refund', 'refund-partial', 'Refund policy']],
-        ['ref', ['refund-partial', 'refund', 'Refund policy']],
+        ['refund', ['My refund', 'Full refund', 'Partial refund', 'Refund policy']],
+        ['ref', ['Partial refund', 'Full refund', 'My refund', 'Refund policy']],
         ['policy', ['Refund policy']],
     ])('ranks matches for %s', (query, expected) => {
-        // Input is most used first, so an exact shortcut must outrank a more used prefix match.
+        // Input is most used first, so an exact shortcut must outrank a more used prefix match,
+        // and your personal macro must outrank a teammate's shared one on the same shortcut.
         const macros = [
-            { id: '1', name: 'Partial refund', shortcut: 'refund-partial' },
-            { id: '2', name: 'Refund policy', shortcut: null },
-            { id: '3', name: 'Full refund', shortcut: 'refund' },
+            { id: '1', name: 'Partial refund', shortcut: 'refund-partial', visibility: 'shared' },
+            { id: '2', name: 'Refund policy', shortcut: null, visibility: 'shared' },
+            { id: '3', name: 'Full refund', shortcut: 'refund', visibility: 'shared' },
+            { id: '4', name: 'My refund', shortcut: 'refund', visibility: 'personal' },
         ] as unknown as TicketMacroApi[]
-        expect(matchMacros(macros, query).map((macro) => macro.shortcut ?? macro.name)).toEqual(expected)
+        expect(matchMacros(macros, query).map((macro) => macro.name)).toEqual(expected)
     })
 
     it('does not treat an email address as a first name', () => {

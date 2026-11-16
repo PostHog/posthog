@@ -1,9 +1,12 @@
 import type { Meta, StoryObj } from '@storybook/react'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+
 import { DataModelingEdge, DataModelingNode } from '~/types'
 
 import { DataCatalogMetricApi } from './generated/api.schemas'
 import { MetricLineagePanel, MetricLineagePanelProps } from './MetricLineagePanel'
+import { QuillMetricLineagePanel } from './QuillMetricLineagePanel'
 
 function metric(overrides: Partial<DataCatalogMetricApi> = {}): DataCatalogMetricApi {
     return {
@@ -113,4 +116,49 @@ const ISOLATED_METRIC_NODE = node({
 
 export const LineageIssue: Story = {
     render: () => atWidths({ ...BASE, lineage: { nodes: [ISOLATED_METRIC_NODE], edges: [] } }),
+}
+
+const QUILL_PARAMETERS = {
+    featureFlags: [FEATURE_FLAGS.TODAY_RAIL_NAV, FEATURE_FLAGS.DATA_CATALOG_RESTRUCTURE],
+    testOptions: { snapshotBrowsers: [] },
+}
+
+function quillAtWidths(props: MetricLineagePanelProps): JSX.Element {
+    return (
+        <div className="flex flex-col gap-4 p-4" data-quill>
+            <div className="w-[960px]">
+                <QuillMetricLineagePanel {...props} />
+            </div>
+            <div className="w-130">
+                <QuillMetricLineagePanel {...props} />
+            </div>
+        </div>
+    )
+}
+
+export const QuillGraph: Story = { parameters: QUILL_PARAMETERS, render: () => quillAtWidths(BASE) }
+
+export const QuillNoDefinition: Story = {
+    parameters: QUILL_PARAMETERS,
+    render: () => quillAtWidths({ ...BASE, metric: MARKDOWN_METRIC, lineage: null }),
+}
+
+const VIEW_BACKED_METRIC = metric({
+    definition: { kind: 'HogQLQuery', query: 'select count() from active_accounts_view' },
+    referenced_table_names: ['events', 'accounts'],
+})
+
+export const QuillMissingLineage: Story = {
+    parameters: QUILL_PARAMETERS,
+    render: () => quillAtWidths({ ...BASE, metric: VIEW_BACKED_METRIC, lineage: null, lineageProblem: 'missing' }),
+}
+
+export const QuillLoadFailed: Story = {
+    parameters: QUILL_PARAMETERS,
+    render: () => quillAtWidths({ ...BASE, lineage: null, lineageProblem: 'failed' }),
+}
+
+export const QuillLineageIssue: Story = {
+    parameters: QUILL_PARAMETERS,
+    render: () => quillAtWidths({ ...BASE, lineage: { nodes: [ISOLATED_METRIC_NODE], edges: [] } }),
 }

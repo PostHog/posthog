@@ -107,16 +107,17 @@ export function macroPreview(body: string): string {
 function matchRank(macro: TicketMacroApi, needle: string): number | null {
     const shortcut = macro.shortcut ?? ''
     if (shortcut === needle) {
-        return 0
+        // A teammate can share a shortcut you already use personally. Yours wins for you.
+        return macro.visibility === 'personal' ? 0 : 1
     }
     if (shortcut.startsWith(needle)) {
-        return 1
-    }
-    if (macro.name.toLowerCase().includes(needle)) {
         return 2
     }
-    if (shortcut.includes(needle)) {
+    if (macro.name.toLowerCase().includes(needle)) {
         return 3
+    }
+    if (shortcut.includes(needle)) {
+        return 4
     }
     return null
 }

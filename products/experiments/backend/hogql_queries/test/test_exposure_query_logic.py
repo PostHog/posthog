@@ -17,6 +17,8 @@ from products.experiments.backend.hogql_queries.experiment_query_builder import 
 from products.experiments.backend.hogql_queries.exposure_query_logic import (
     DEFAULT_EXPOSURE_EVENT,
     EXPERIMENT_EXPOSURE_EVENT,
+    exposure_criteria_on_the_event,
+    exposure_filters_off_the_event_narrow_who,
     get_exposure_event_and_property,
     get_multiple_variant_handling_from_experiment,
     get_test_accounts_filter,
@@ -32,6 +34,7 @@ def _event_config(event):
 _WAREHOUSE_NATIVE_EXPOSURE = ExperimentWarehouseNativeExposureConfig(
     connection_id="00000000-0000-0000-0000-000000000000",
     query="SELECT user_id AS entity_id, variant, exposed_at AS timestamp FROM exposures",
+    unit={"unit_type": "customer", "id_namespace": "billing_customer_id"},
 )
 
 
@@ -145,6 +148,59 @@ class TestNormalizeToExposureCriteria:
         )
 
         assert from_dict == ExperimentExposureCriteria(exposure_config=_WAREHOUSE_NATIVE_EXPOSURE)
+
+
+class TestExposureCriteriaOnTheEvent:
+    @parameterized.expand(
+        [
+            # (name, filter, kept, can be left out)
+            ("event_property", {"key": "plan", "value": "pro", "operator": "exact", "type": "event"}, True, True),
+            (
+                "event_semver",
+                {"key": "$app_version", "value": "2.1.0", "operator": "semver_gte", "type": "event"},
+                True,
+                True,
+            ),
+            ("person_property", {"key": "plan", "value": "pro", "operator": "exact", "type": "person"}, False, True),
+            ("cohort", {"key": "id", "value": 1, "type": "cohort"}, False, True),
+            ("session", {"key": "$entry_pathname", "value": "/", "operator": "exact", "type": "session"}, False, True),
+            (
+                "event_date",
+                {"key": "signup", "value": "2026-01-01", "operator": "is_date_after", "type": "event"},
+                False,
+                False,
+            ),
+            (
+                "event_virtual_property",
+                {"key": "$virt_is_bot", "value": "false", "operator": "exact", "type": "event"},
+                False,
+                False,
+            ),
+            (
+                "event_cleaned_path",
+                {"key": "$pathname", "value": "/a", "operator": "is_cleaned_path_exact", "type": "event"},
+                False,
+                False,
+            ),
+            ("element", {"key": "text", "value": "Buy", "operator": "exact", "type": "element"}, False, False),
+            ("hogql", {"key": "timestamp >= toDateTime('2026-01-01', 'UTC')", "type": "hogql"}, False, False),
+            (
+                "event_metadata",
+                {"key": "distinct_id", "value": "a", "operator": "exact", "type": "event_metadata"},
+                False,
+                False,
+            ),
+        ]
+    )
+    def test_keeps_only_the_filters_on_the_exposure_event(self, _name, prop, kept, can_be_left_out):
+        exposure_criteria = {
+            "exposure_config": {"kind": "ExperimentEventExposureConfig", "event": "checkout", "properties": [prop]}
+        }
+        criteria = exposure_criteria_on_the_event(exposure_criteria)
+
+        assert criteria is not None and isinstance(criteria.exposure_config, ExperimentEventExposureConfig)
+        assert len(criteria.exposure_config.properties or []) == int(kept)
+        assert exposure_filters_off_the_event_narrow_who(exposure_criteria) is (kept or can_be_left_out)
 
 
 class TestGetExposureConfigParamsForBuilder:

@@ -11,11 +11,13 @@ from uuid import UUID, uuid4
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 from unittest.mock import ANY, MagicMock, patch
 
+from django.conf import UserSettingsHolder, settings
 from django.core.management import call_command
-from django.db import connection
+from django.db import DatabaseError, connection
 from django.test import override_settings
 from django.utils import timezone
 
+import requests
 from parameterized import parameterized
 from rest_framework import status
 
@@ -32,7 +34,7 @@ from posthog.test.fixtures import create_app_metric2
 
 from products.access_control.backend.facade.user_access_control import AccessControlLevel, UserAccessControl
 from products.access_control.backend.models.access_control import AccessControl
-from products.actions.backend.models.action import Action
+from products.actions.backend.facade.testing import create_action
 from products.cdp.backend.api.test.test_hog_function_templates import MOCK_NODE_TEMPLATES
 from products.cdp.backend.filters import RUNTIME_CONTRACT
 from products.cdp.backend.flag_gated_templates import gated_template_enabled
@@ -62,15 +64,20 @@ from products.replay_vision.backend.models.replay_scanner import ReplayScanner
 from products.replay_vision.backend.tests.helpers import create_experiment
 from products.skills.backend.models.skills import LLMSkill
 from products.tasks.backend.facade.contracts import WorkflowLastRunDTO
+from products.workflows.backend.facade.blast_radius import INCOMPLETE_AUDIENCE_CONDITION
+from products.workflows.backend.facade.enums import HogFlowOriginProduct
+from products.workflows.backend.facade.transactional_emails import create_code_email_workflow
 from products.workflows.backend.facade.writes import update_workflow
 from products.workflows.backend.models.hog_flow.hog_flow import SUPPORTED_ACTION_TYPES, HogFlow
 from products.workflows.backend.models.hog_flow_batch_job.hog_flow_batch_job import HogFlowBatchJob
 from products.workflows.backend.models.hog_flow_schedule import HogFlowSchedule
+from products.workflows.backend.models.team_workflows_config import TeamWorkflowsConfig
 from products.workflows.backend.presentation.views.hog_flow import (
     HogFlowActionSerializer,
     _should_validate_strictly,
     mint_audience_confirm_token,
 )
+from products.workflows.backend.services.workflow_test_runs import workflow_test_run_context
 from products.workflows.backend.tests.api.test_workflow_data_suggestions import _push_function_template
 
 _AUDIENCE_CONDITION = {"key": "email", "type": "person", "value": "x", "operator": "icontains"}
@@ -178,6 +185,14 @@ def _email_step(step_id: str, name: str, **email_value: Any) -> dict[str, Any]:
         "type": "function_email",
         "config": {"template_id": "template-email", "inputs": {"email": {"value": email_value}}},
     }
+
+
+def _fail_run_then_time_out(flow_id: str):
+    def side_effect():
+        HogFlowBatchJob.objects.filter(hog_flow_id=flow_id).update(status="failed")
+        raise requests.ReadTimeout("read timed out")
+
+    return side_effect
 
 
 class TestHogFlowAPI(APIBaseTest):
@@ -352,6 +367,81 @@ class TestHogFlowAPI(APIBaseTest):
         )
         assert response.status_code == 400, response.json()
 
+    @override_settings(
+        WORKFLOWS_EMAIL_TIER_MODE="enforce",
+        WORKFLOWS_EMAIL_TIER_DAILY_CAPS=[100, 1000, 3000],
+        WORKFLOWS_EMAIL_TIER_BATCH_AUDIENCE_CAPS=[100, 1000, 3000],
+        WORKFLOWS_RATE_LIMITED_BATCH_MAX_DAILY_SHARE=0.5,
+        WORKFLOWS_RATE_LIMITED_BATCH_MAX_DAYS=7,
+        HOGFLOW_BATCH_TRIGGER_ELEVATED_TEAM_IDS=set(),
+    )
+    @patch("products.workflows.backend.services.batch_jobs.get_hog_flow_in_flight_count")
+    @patch(
+        "products.workflows.backend.models.hog_flow_batch_job.hog_flow_batch_job.create_batch_hog_flow_job_invocation"
+    )
+    def test_email_sending_rate_limit_is_locked_while_a_raised_batch_may_be_sending(
+        self, _mock_dispatch, mock_in_flight_count
+    ):
+        mock_in_flight_count.return_value = MagicMock(status_code=200, json=lambda: {"count": 3})
+        TeamWorkflowsConfig.objects.update_or_create(team=self.team, defaults={"email_sending_tier": 2})
+        flow_id = self._create_simple_flow()
+        flow = HogFlow.objects.get(id=flow_id)
+        actions_without_email = flow.actions
+        flow.actions = [*flow.actions, {**flow.actions[-1], "id": "email", "type": "function_email"}]
+        flow.email_sending_rate_limit = {"count": 60, "period": "hour"}
+        flow.save()
+
+        def update_after_concurrent_launch(**kwargs):
+            HogFlowBatchJob.objects.create(team=self.team, hog_flow=flow)
+            return update_workflow(**kwargs)
+
+        with patch(
+            "products.workflows.backend.presentation.views.hog_flow.update_workflow",
+            side_effect=update_after_concurrent_launch,
+        ):
+            response = self.client.patch(
+                f"/api/projects/{self.team.id}/hog_flows/{flow_id}", {"email_sending_rate_limit": None}, format="json"
+            )
+        assert response.status_code == 409, response.json()
+        batch_job = HogFlowBatchJob.objects.get(hog_flow_id=flow_id)
+
+        for value in (None, {"count": 500, "period": "hour"}, {"count": 30, "period": "hour"}):
+            response = self.client.patch(
+                f"/api/projects/{self.team.id}/hog_flows/{flow_id}", {"email_sending_rate_limit": value}, format="json"
+            )
+            assert response.status_code == 400, response.json()
+            assert response.json()["attr"] == "email_sending_rate_limit"
+
+        # Removing the email step first must not unlock the rate in a second edit.
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}", {"actions": actions_without_email}, format="json"
+        )
+        assert response.status_code == 200, response.json()
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}", {"email_sending_rate_limit": None}, format="json"
+        )
+        assert response.status_code == 400, response.json()
+
+        # A tier demotion makes the stored rate stop qualifying, but the dispatched cap still needs it.
+        TeamWorkflowsConfig.objects.filter(team=self.team).update(email_sending_tier=1)
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}", {"email_sending_rate_limit": None}, format="json"
+        )
+        assert response.status_code == 400, response.json()
+
+        # Sends parked behind a long delay keep the lock past any fixed window.
+        HogFlowBatchJob.objects.filter(id=batch_job.id).update(created_at=batch_job.created_at - timedelta(days=30))
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}", {"email_sending_rate_limit": None}, format="json"
+        )
+        assert response.status_code == 400, response.json()
+
+        mock_in_flight_count.return_value = MagicMock(status_code=200, json=lambda: {"count": 0})
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}", {"email_sending_rate_limit": None}, format="json"
+        )
+        assert response.status_code == 200, response.json()
+
     @parameterized.expand(
         [
             ("name_match", "search=welcome", {"Welcome email"}),
@@ -381,6 +471,9 @@ class TestHogFlowAPI(APIBaseTest):
             ("tier_decision_respects_status_filter", "search=march&status=draft", {"Billing"}),
             ("tier_decision_respects_type_filter", "search=march&type=messaging", {"Billing"}),
             ("no_match", "search=nonexistent", set()),
+            ("name_filter_matches_inside_words", "name=ELCOME", {"Welcome email"}),
+            ("name_filter_skips_description_and_tags", "name=quarterly", set()),
+            ("name_filter_never_reads_step_content", "name=for march", set()),
         ]
     )
     def test_list_search_matches_name_description_and_step_content(self, _name, query, expected_names):
@@ -766,12 +859,24 @@ class TestHogFlowAPI(APIBaseTest):
     @parameterized.expand(
         [
             ("draft", {"Draft"}),
-            ("scheduled", {"Scheduled", "Recurring between runs", "Workflow waiting for an API send"}),
+            (
+                "scheduled",
+                {
+                    "Scheduled",
+                    "Recurring between runs",
+                    "Recurring after some sends errored",
+                    "Workflow waiting for an API send",
+                },
+            ),
             ("sending", {"Sending"}),
             ("sent", {"Sent", "Sent after a failed run"}),
+            ("partially_sent", {"Some sends errored"}),
             ("failed", {"Run failed", "Launch never finished"}),
             ("archived", {"Archived"}),
-            ("sent,failed", {"Sent", "Sent after a failed run", "Run failed", "Launch never finished"}),
+            (
+                "sent,failed",
+                {"Sent", "Sent after a failed run", "Run failed", "Launch never finished"},
+            ),
         ]
     )
     @patch(
@@ -811,6 +916,8 @@ class TestHogFlowAPI(APIBaseTest):
         create("Sending", runs=("active",))
         create("Sent", runs=("completed",))
         create("Sent after a failed run", runs=("failed", "completed"))
+        create("Some sends errored", runs=("completed", "partially_failed"))
+        create("Recurring after some sends errored", runs=("partially_failed",), schedule="active")
         create("Run failed", runs=("failed",), schedule="active")
         create("Launch never finished")
         create("Workflow waiting for an API send", origin_product=None)
@@ -868,6 +975,12 @@ class TestHogFlowAPI(APIBaseTest):
         hog_flow, _ = self._create_hog_flow_with_action(
             {"template_id": "template-webhook", "inputs": {"url": {"value": "https://example.com"}}}
         )
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/hog_flows", {**hog_flow, "origin_product": "transactional_email_keys"}
+        )
+        assert response.status_code == 400, response.json()
+        assert response.json()["attr"] == "origin_product"
+
         response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", {**hog_flow, "origin_product": "loops"})
         assert response.status_code == 201, response.json()
         flow_id = response.json()["id"]
@@ -998,14 +1111,7 @@ class TestHogFlowAPI(APIBaseTest):
         for fragment in fragments:
             assert fragment in detail, (fragment, detail)
 
-    @parameterized.expand(
-        [
-            ("off_domain", "sales@evil.com", 'is not on the verified domain "posthog.com"'),
-            ("overlong_address", f"{'a' * 243}@posthog.com", "254 characters or fewer"),
-            ("overlong_non_address", "a" * 255, "254 characters or fewer"),
-        ]
-    )
-    def test_invalid_literal_sender_override_is_rejected_at_save(self, _name: str, address: str, expected: str) -> None:
+    def test_invalid_literal_sender_override_is_rejected_at_save(self) -> None:
         # The domain rule lived only in the send path, so a bad literal address saved fine and
         # every send then fell back to the integration's sender with a run-log warning the
         # author never saw. The save is where the author can still act on it.
@@ -1016,14 +1122,14 @@ class TestHogFlowAPI(APIBaseTest):
             config={"email": "sender@posthog.com", "name": "Sender", "domain": "posthog.com", "verified": True},
         )
         inputs = _valid_email_inputs()
-        inputs["email"]["value"]["from"] = {"integrationId": integration.id, "email": address}
+        inputs["email"]["value"]["from"] = {"integrationId": integration.id, "email": "sales@evil.com"}
         hog_flow, action = self._create_hog_flow_with_action({"inputs": inputs})
         action["type"] = "function_email"
 
         response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow, HTTP_X_POSTHOG_CLIENT="mcp")
 
         assert response.status_code == 400, response.json()
-        assert expected in response.json()["detail"]
+        assert 'is not on the verified domain "posthog.com"' in response.json()["detail"]
 
     def test_stored_off_domain_sender_override_survives_a_resave(self):
         # Workflows written before June 2026 carry a placeholder address the author never typed.
@@ -1049,6 +1155,138 @@ class TestHogFlowAPI(APIBaseTest):
         )
 
         assert response.status_code == 200, response.json()
+
+    def _email_sender(self, *, verified: bool) -> Integration:
+        return Integration.objects.create(
+            team=self.team,
+            kind="email",
+            config={"email": "sender@posthog.com", "name": "Sender", "domain": "posthog.com", "verified": verified},
+        )
+
+    def _email_flow(self, sender_from: dict, step_type: str = "function_email") -> dict:
+        sync_template_to_db(_email_function_template())
+        inputs = _valid_email_inputs()
+        inputs["email"]["value"]["from"] = sender_from
+        hog_flow, action = self._create_hog_flow_with_action({"template_id": "template-email", "inputs": inputs})
+        action["type"] = step_type
+        action["name"] = "Welcome email"
+        return hog_flow
+
+    @parameterized.expand(
+        [
+            ("unverified_sender", "unverified", "function_email", "isn't verified yet"),
+            ("deleted_sender", "deleted", "function_email", "can't be found"),
+            ("unverified_sender_in_rotation", "rotation", "function_email", "isn't verified yet"),
+            ("malformed_sender_id", "malformed", "function_email", "can't be found"),
+            ("verified_sender_id_stored_as_text", "text_id", "function_email", "can't be found"),
+            ("generic_step_running_the_email_template", "unverified", "function", "isn't verified yet"),
+        ]
+    )
+    def test_going_live_refuses_an_email_sender_that_cannot_send(self, _name, case, step_type, fragment):
+        verified = self._email_sender(verified=True)
+        unverified = self._email_sender(verified=False)
+        senders: dict[str, dict[str, Any]] = {
+            "unverified": {"integrationId": unverified.id},
+            "deleted": {"integrationId": unverified.id + 1000},
+            "rotation": {"integrationId": verified.id, "integrationIds": [unverified.id]},
+            "malformed": {"integrationId": {"id": unverified.id}},
+            "text_id": {"integrationId": str(verified.id)},
+        }
+        hog_flow = self._email_flow(senders[case], step_type)
+
+        created_live = self.client.post(f"/api/projects/{self.team.id}/hog_flows", {**hog_flow, "status": "active"})
+        draft = self.client.post(f"/api/projects/{self.team.id}/hog_flows", {**hog_flow, "status": "draft"})
+        assert draft.status_code == 201, draft.json()
+        enabled = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_flows/{draft.json()['id']}", {"status": "active"}
+        )
+
+        for response in (created_live, enabled):
+            assert response.status_code == 400, response.json()
+            assert '"Welcome email" step' in response.json()["detail"]
+            assert fragment in response.json()["detail"]
+        assert HogFlow.objects.get(pk=draft.json()["id"]).status == HogFlow.State.DRAFT
+
+    @parameterized.expand(
+        [
+            ("rotation_replaces_an_unverified_single_sender", "rotation"),
+            ("verified_sender_id_as_integral_float", "integral_float"),
+        ]
+    )
+    def test_going_live_accepts_a_sender_that_can_send(self, _name, case):
+        verified = self._email_sender(verified=True)
+        unverified = self._email_sender(verified=False)
+        senders: dict[str, dict[str, Any]] = {
+            "rotation": {"integrationId": unverified.id, "integrationIds": [verified.id]},
+            "integral_float": {"integrationId": float(verified.id)},
+        }
+        hog_flow = self._email_flow(senders[case])
+
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", {**hog_flow, "status": "active"})
+
+        assert response.status_code == 201, response.json()
+
+    def test_publishing_a_live_workflow_refuses_a_sender_that_cannot_send(self):
+        sender = self._email_sender(verified=False)
+        hog_flow = self._email_flow({"integrationId": sender.id})
+        live = HogFlow.objects.create(
+            team=self.team, name="Live flow", actions=hog_flow["actions"], status=HogFlow.State.ACTIVE
+        )
+        hog_flow["actions"][1]["config"]["inputs"]["email"]["value"]["subject"] = "New subject"
+        staged = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_flows/{live.id}", {"actions": hog_flow["actions"], "stage_draft": True}
+        )
+        assert staged.status_code == 200, staged.json()
+        mcp_staged = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_flows/{live.id}/graph",
+            {"operations": [{"op": "update_action", "id": live.actions[1]["id"], "patch": {"name": "Welcome"}}]},
+            HTTP_X_POSTHOG_CLIENT="mcp",
+        )
+        assert mcp_staged.status_code == 200, mcp_staged.json()
+        graph_edit = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_flows/{live.id}/graph",
+            {
+                "operations": [
+                    {
+                        "op": "update_action",
+                        "id": live.actions[1]["id"],
+                        "patch": {
+                            "config": {
+                                "inputs": {
+                                    "email": {
+                                        "value": {"from": {"integrationId": sender.id}, "subject": "Graph subject"}
+                                    }
+                                }
+                            }
+                        },
+                    }
+                ],
+                "stage_draft": True,
+            },
+        )
+        assert graph_edit.status_code == 400, graph_edit.json()
+        assert "isn't verified yet" in graph_edit.json()["detail"]
+
+        with patch(
+            "products.workflows.backend.presentation.views.hog_flow.get_hog_flow_in_flight_count",
+            side_effect=Exception("down"),
+        ):
+            token = self.client.post(f"/api/projects/{self.team.id}/hog_flows/{live.id}/publish", {}).json()[
+                "confirm_token"
+            ]
+        for extra in ({}, {"stage_draft": True}):
+            published = self.client.post(
+                f"/api/projects/{self.team.id}/hog_flows/{live.id}/publish",
+                {"confirm": True, "confirm_token": token, **extra},
+            )
+
+            assert published.status_code == 400, (extra, published.json())
+            assert "isn't verified yet" in published.json()["detail"]
+        live.refresh_from_db()
+        assert live.actions[1]["config"]["inputs"]["email"]["value"]["subject"] == "Hello"
+        assert live.draft is not None
+        paused = self.client.patch(f"/api/projects/{self.team.id}/hog_flows/{live.id}", {"status": "draft"})
+        assert paused.status_code == 200, paused.json()
 
     def test_fixed_template_id_is_inferred_from_step_type(self):
         # template_id on fixed-template steps is a constant of the step type; omitting the
@@ -1364,6 +1602,68 @@ class TestHogFlowAPI(APIBaseTest):
             ),
             "type": "validation_error",
         }
+
+    def _make_time_window_flow(self, day, status: Optional[str] = "active") -> dict:
+        flow = self._make_delay_flow({}, status=status)
+        flow["actions"][1] = {
+            "id": "w1",
+            "name": "w1",
+            "type": "wait_until_time_window",
+            "config": {"timezone": "UTC", "day": day, "time": ["09:00", "17:00"]},
+        }
+        return flow
+
+    @parameterized.expand(
+        [
+            ("empty_list", []),
+            ("unknown_keyword", "all"),
+            ("unknown_weekday", ["monday", "funday"]),
+            ("unhashable_entry", [{}]),
+        ]
+    )
+    def test_hog_flow_time_window_rejects_days_that_never_match(self, _name, day):
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", self._make_time_window_flow(day))
+        assert response.status_code == 400, response.json()
+        assert response.json() == {
+            "attr": "actions__1__config",
+            "code": "invalid_input",
+            "detail": "day must be 'any', 'weekday', 'weekend', or a list of at least one weekday name.",
+            "type": "validation_error",
+        }
+
+        draft = self.client.post(
+            f"/api/projects/{self.team.id}/hog_flows", self._make_time_window_flow(day, status=None)
+        )
+        assert draft.status_code == 201, draft.json()
+
+    @parameterized.expand(
+        [
+            ("unchanged_days_on_an_active_flow", "active", [], {}, 200),
+            ("changed_days_on_an_active_flow", "active", "all", {}, 400),
+            ("re_enabling_a_disabled_flow", "draft", [], {"status": "active"}, 400),
+        ]
+    )
+    def test_hog_flow_time_window_grandfathers_stored_days_only_on_an_active_flow(
+        self, _name, status, submitted_day, extra_payload, expected_status
+    ):
+        create_response = self.client.post(
+            f"/api/projects/{self.team.id}/hog_flows", self._make_time_window_flow(["monday"], status=status)
+        )
+        assert create_response.status_code == 201, create_response.json()
+        flow_id = create_response.json()["id"]
+
+        flow = HogFlow.objects.get(id=flow_id)
+        actions = flow.actions
+        actions[1]["config"]["day"] = []
+        flow.actions = actions
+        flow.save()
+
+        submitted = [actions[0], {**actions[1], "config": {**actions[1]["config"], "day": submitted_day}}]
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}",
+            {"name": "Renamed", "actions": submitted, **extra_payload},
+        )
+        assert response.status_code == expected_status, response.json()
 
     @parameterized.expand(
         [
@@ -2112,7 +2412,11 @@ class TestHogFlowAPI(APIBaseTest):
         assert conditions[0]["filters"]["bytecode"] == ["_H", 1, 32, "custom_event", 32, "event", 1, 1, 11]
 
     def _create_behavioral_cohort(
-        self, cohort_type: Optional[CohortType], backfilled: bool, team: Optional[Team] = None
+        self,
+        cohort_type: Optional[CohortType],
+        backfilled: bool,
+        team: Optional[Team] = None,
+        realtime_on: bool = True,
     ) -> Cohort:
         cohort_kwargs: dict[str, Any] = {
             "team": team or self.team,
@@ -2135,6 +2439,8 @@ class TestHogFlowAPI(APIBaseTest):
         }
         if cohort_type is not None:
             cohort_kwargs["cohort_type"] = cohort_type
+        if cohort_type == CohortType.REALTIME and realtime_on:
+            cohort_kwargs["realtime_enabled_at"] = BACKFILLED_AT
         if backfilled:
             cohort_kwargs["last_backfill_person_properties_at"] = BACKFILLED_AT
             cohort_kwargs["last_backfill_events_at"] = BACKFILLED_AT
@@ -2223,7 +2529,7 @@ class TestHogFlowAPI(APIBaseTest):
     def test_hog_flow_conditional_branch_validates_cohorts_nested_in_action_filters(self, _mock_flag):
         eligible = self._create_behavioral_cohort(CohortType.REALTIME, backfilled=True)
         static_cohort = Cohort.objects.create(team=self.team, name="static-cohort", is_static=True)
-        action = Action.objects.create(team=self.team, name="Converted", steps_json=[{"event": "converted"}])
+        action = create_action(team=self.team, name="Converted", steps_json=[{"event": "converted"}])
         filters = {
             "properties": [{"key": "id", "type": "cohort", "value": eligible.id}],
             "actions": [
@@ -2406,12 +2712,15 @@ class TestHogFlowAPI(APIBaseTest):
             ("non_realtime_trigger", "trigger", "non_realtime"),
             ("non_realtime_condition", "condition", "non_realtime"),
             ("off_pipeline_trigger", "trigger", "off_pipeline"),
+            ("realtime_off_trigger", "trigger", "realtime_off"),
         ]
     )
     @patch("products.workflows.backend.presentation.views.hog_flow.feature_enabled_or_false", return_value=True)
     def test_draft_rejects_cohort_that_can_never_finish(self, _name, reference, cohort_kind, _mock_flag):
         cohort_type = None if cohort_kind == "non_realtime" else CohortType.REALTIME
-        cohort = self._create_behavioral_cohort(cohort_type, backfilled=False)
+        cohort = self._create_behavioral_cohort(
+            cohort_type, backfilled=False, realtime_on=cohort_kind != "realtime_off"
+        )
 
         with override_settings(REALTIME_COHORT_TEAM_ALLOWLIST="none" if cohort_kind == "off_pipeline" else "all"):
             response = self.client.post(
@@ -2421,7 +2730,8 @@ class TestHogFlowAPI(APIBaseTest):
             )
 
         assert response.status_code == 400, response.json()
-        assert "isn't ready for realtime evaluation" in response.json()["detail"]
+        expected = "Turn it on from the cohort's page" if cohort_kind == "realtime_off" else "isn't ready for realtime"
+        assert expected in response.json()["detail"]
 
     def test_hog_flow_grandfathers_stored_cohort_trigger_after_flag_dial_down(self):
         cohort = self._create_behavioral_cohort(CohortType.REALTIME, backfilled=True)
@@ -2512,7 +2822,7 @@ class TestHogFlowAPI(APIBaseTest):
     def test_hog_flow_rejects_ineligible_cohorts_inside_referenced_actions(self, _mock_flag):
         eligible = self._create_behavioral_cohort(CohortType.REALTIME, backfilled=True)
         static_cohort = Cohort.objects.create(team=self.team, name="static-in-action", is_static=True)
-        action = Action.objects.create(
+        action = create_action(
             team=self.team,
             name="action with cohort step",
             steps_json=[
@@ -2535,7 +2845,7 @@ class TestHogFlowAPI(APIBaseTest):
     @patch("products.workflows.backend.presentation.views.hog_flow.feature_enabled_or_false", return_value=True)
     def test_hog_flow_compiles_eligible_cohort_referenced_only_through_an_action(self, _mock_flag):
         eligible = self._create_behavioral_cohort(CohortType.REALTIME, backfilled=True)
-        action = Action.objects.create(
+        action = create_action(
             team=self.team,
             name="action with eligible cohort step",
             steps_json=[{"event": "$pageview", "properties": [{"key": "id", "type": "cohort", "value": eligible.id}]}],
@@ -2585,6 +2895,7 @@ class TestHogFlowAPI(APIBaseTest):
             team=other_team,
             name="other-org-cohort",
             cohort_type=CohortType.REALTIME,
+            realtime_enabled_at=timezone.now(),
             last_backfill_person_properties_at=BACKFILLED_AT,
             last_backfill_events_at=BACKFILLED_AT,
             filters=self._create_behavioral_cohort(CohortType.REALTIME, backfilled=True).filters,
@@ -2987,7 +3298,7 @@ class TestHogFlowAPI(APIBaseTest):
         # An "events to wait for" entry can target a PostHog Action instead of an event: filters.actions
         # is set and filters.events is empty. That is a real wait and must be kept (and its bytecode
         # compiled), while a truly-empty entry alongside it is still dropped.
-        action = Action.objects.create(team=self.team, name="Played with calculator", steps_json=[{"event": "calc"}])
+        action = create_action(team=self.team, name="Played with calculator", steps_json=[{"event": "calc"}])
 
         trigger_action = {
             "id": "trigger_node",
@@ -3083,7 +3394,7 @@ class TestHogFlowAPI(APIBaseTest):
     def test_hog_flow_conversion_drops_empty_keeps_action_event(self):
         # Same always-true guard as wait_until: a conversion "events" entry targeting nothing is
         # dropped (it would convert on every event), while an action-based entry is kept and compiled.
-        action = Action.objects.create(team=self.team, name="Converted via action", steps_json=[{"event": "converted"}])
+        action = create_action(team=self.team, name="Converted via action", steps_json=[{"event": "converted"}])
         trigger_action = {
             "id": "trigger_node",
             "name": "trigger_1",
@@ -3551,6 +3862,200 @@ class TestHogFlowAPI(APIBaseTest):
 
     @parameterized.expand(
         [
+            (
+                "saved_workflow_real_requests",
+                True,
+                False,
+                {"request_origins": ["https://slack.com"]},
+                ["https://slack.com"],
+            ),
+            (
+                "new_workflow_real_requests",
+                False,
+                False,
+                {"request_origins": ["https://slack.com"]},
+                ["https://slack.com"],
+            ),
+            ("mocked_requests", True, True, {"request_origins": []}, None),
+            ("reply_is_not_json", True, False, None, None),
+            ("reply_origins_not_a_list", True, False, {"request_origins": "https://slack.com"}, None),
+            (
+                "reply_origins_hold_full_urls",
+                True,
+                False,
+                {
+                    "request_origins": [
+                        "https://user:fake-pass@hooks.example.com:443/services/fake-token?api_key=fake-key",
+                        "HTTP://[::1]:8080/path",
+                        "https://hooks.example.com",
+                        "not a url",
+                    ]
+                },
+                ["https://hooks.example.com", "http://[::1]:8080"],
+            ),
+            (
+                "reply_origins_hold_stored_secrets",
+                True,
+                False,
+                {
+                    "request_origins": [
+                        "https://STORED-SECRET.one.example.com",
+                        "https://xoxb-fake-workspace-token.two.example.com",
+                        "https://123456789.three.example.com",
+                    ]
+                },
+                [
+                    "https://***REDACTED***.one.example.com",
+                    "https://***REDACTED***.two.example.com",
+                    "https://***REDACTED***.three.example.com",
+                ],
+            ),
+        ]
+    )
+    def test_test_invocation_with_real_requests_is_logged_without_input_values(
+        self,
+        _name: str,
+        saved: bool,
+        mock_async_functions: bool,
+        reply: Optional[dict[str, Any]],
+        expected_origins: Optional[list[str]],
+    ):
+        workspace = Integration.objects.create(
+            team=self.team,
+            kind="slack",
+            config={},
+            sensitive_config={"access_token": "xoxb-fake-workspace-token"},
+            created_by=self.user,
+        )
+        hog_flow, _ = self._create_hog_flow_with_action(
+            {
+                "template_id": "template-slack",
+                "inputs": {
+                    "slack_workspace": {"value": workspace.id},
+                    "channel": {"value": "C0123456789"},
+                    "text": {"value": "sent-by-the-test"},
+                },
+            }
+        )
+        flow_id = "new"
+        data: dict[str, Any] = {
+            "globals": {"event": {"event": "$pageview", "distinct_id": "d"}},
+            "mock_async_functions": mock_async_functions,
+            "current_action_id": "action_1",
+        }
+        if saved:
+            created = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
+            assert created.status_code == 201, created.json()
+            flow_id = created.json()["id"]
+            HogFlow.objects.filter(id=flow_id).update(
+                encrypted_inputs={"action_1": {"api_token": {"value": "stored-secret"}, "pin": {"value": 123456789}}}
+            )
+        else:
+            data["configuration"] = hog_flow
+
+        with patch(
+            "products.workflows.backend.presentation.views.hog_flow.create_hog_flow_invocation_test"
+        ) as mock_invoke:
+            mock_invoke.return_value = MagicMock(status_code=500 if reply is None else 200)
+            if reply is None:
+                mock_invoke.return_value.json.side_effect = ValueError("not JSON")
+            else:
+                mock_invoke.return_value.json.return_value = {"error": "Worker failed", **reply}
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/hog_flows/{flow_id}/invocations/", data, format="json"
+            )
+        assert mock_invoke.call_count == 1
+        if reply is not None:
+            assert "request_origins" not in response.json()
+
+        rows = list(ActivityLog.objects.filter(team_id=self.team.id, scope="HogFlow", activity="tested"))
+        if mock_async_functions:
+            assert rows == []
+            return
+        assert len(rows) == 1
+        assert rows[0].user == self.user
+        assert rows[0].item_id == (flow_id if saved else None)
+        detail = rows[0].detail
+        assert detail is not None
+        assert detail["name"] == "Test Flow"
+        assert detail["context"] == {
+            "action_id": "action_1",
+            "action_type": "function",
+            "template_id": "template-slack",
+            "input_keys": ["api_token", "channel", "pin", "slack_workspace", "text"]
+            if saved
+            else ["channel", "slack_workspace", "text"],
+            "integration_ids": [workspace.id],
+            "request_origins": expected_origins,
+        }
+        assert "sent-by-the-test" not in json.dumps(detail)
+        assert "stored-secret" not in json.dumps(detail)
+
+    @parameterized.expand(
+        [
+            (
+                "email_single_sender",
+                "template-email",
+                {"inputs": {"email": {"value": {"from": {"integrationId": 7, "email": "a@example.com"}}}}},
+                [7],
+            ),
+            (
+                "email_sender_list_wins",
+                "template-email",
+                {"inputs": {"email": {"value": {"from": {"integrationId": 7, "integrationIds": [8, 9]}}}}},
+                [8, 9],
+            ),
+            (
+                "mapping_overrides_step_input",
+                "template-slack",
+                {
+                    "inputs": {"slack_workspace": {"value": 1}},
+                    "mappings": [
+                        {
+                            "inputs_schema": [{"key": "extra", "type": "integration"}],
+                            "inputs": {"slack_workspace": {"value": 2}, "extra": {"value": 3}},
+                        }
+                    ],
+                },
+                [2, 3],
+            ),
+        ]
+    )
+    def test_test_run_context_records_the_integrations_the_worker_loads(
+        self, _name: str, template_id: str, config: dict[str, Any], expected_ids: list[int]
+    ):
+        sync_template_to_db(_email_function_template())
+        actions = [{"id": "action_1", "type": "function", "config": {"template_id": template_id, **config}}]
+        assert workflow_test_run_context(actions, "action_1").integration_ids == expected_ids
+
+    def test_test_invocation_with_real_requests_does_not_run_when_its_activity_log_write_fails(self):
+        hog_flow, _ = self._create_hog_flow_with_action(
+            {"template_id": "template-webhook", "inputs": {"url": {"value": "https://example.com"}}}
+        )
+        production_settings = UserSettingsHolder(settings)
+        production_settings.TEST = False
+        with (
+            patch(
+                "products.workflows.backend.presentation.views.hog_flow.create_hog_flow_invocation_test"
+            ) as mock_invoke,
+            patch.object(ActivityLog.objects, "create", side_effect=DatabaseError("insert rejected")),
+            patch("posthog.models.activity_logging.activity_log.settings", production_settings),
+        ):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/hog_flows/new/invocations/",
+                {
+                    "configuration": hog_flow,
+                    "globals": {"event": {"event": "$pageview", "distinct_id": "d"}},
+                    "mock_async_functions": False,
+                    "current_action_id": "action_1",
+                },
+                format="json",
+            )
+        assert response.status_code == status.HTTP_500_INTERNAL_SERVER_ERROR
+        mock_invoke.assert_not_called()
+
+    @parameterized.expand(
+        [
             ("cohort_condition_without_person_read", ["hog_flow:write", "group:read"], True, True, 403),
             ("cohort_condition_with_person_read", ["hog_flow:write", "group:read", "person:read"], True, True, 200),
             ("rolled_out_without_person_read", ["hog_flow:write", "group:read"], False, True, 403),
@@ -3733,6 +4238,106 @@ class TestHogFlowAPI(APIBaseTest):
             "code": "invalid_input",
             "detail": "Properties must be an array.",
             "type": "validation_error",
+        }
+
+    @parameterized.expand(
+        [
+            (
+                "missing_value_on_create",
+                {"key": "email", "type": "person", "operator": "exact"},
+                False,
+                INCOMPLETE_AUDIENCE_CONDITION,
+            ),
+            (
+                "emptied_multi_select_on_create",
+                {"key": "email", "type": "person", "value": [], "operator": "exact"},
+                False,
+                INCOMPLETE_AUDIENCE_CONDITION,
+            ),
+            (
+                "missing_value_on_activate",
+                {"key": "email", "type": "person", "operator": "exact"},
+                True,
+                INCOMPLETE_AUDIENCE_CONDITION,
+            ),
+            (
+                "emptied_multi_select_on_activate",
+                {"key": "email", "type": "person", "value": [], "operator": "exact"},
+                True,
+                INCOMPLETE_AUDIENCE_CONDITION,
+            ),
+            (
+                "malformed_cohort_id_on_create",
+                {"key": "id", "type": "cohort", "value": "invalid"},
+                False,
+                INCOMPLETE_AUDIENCE_CONDITION,
+            ),
+            (
+                "flag_on_create",
+                {"key": "my-flag", "type": "flag", "value": "true", "operator": "exact"},
+                False,
+                "Feature flags can't be used as a batch audience condition",
+            ),
+            (
+                "flag_on_activate",
+                {"key": "my-flag", "type": "flag", "value": "true", "operator": "exact"},
+                True,
+                "Feature flags can't be used as a batch audience condition",
+            ),
+        ]
+    )
+    def test_hog_flow_batch_trigger_rejects_unusable_audience_condition(
+        self, _name, condition, save_as_draft_first, message
+    ):
+        hog_flow = self._batch_audience_flow([condition])
+
+        if save_as_draft_first:
+            draft = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow, format="json")
+            assert draft.status_code == 201, draft.json()
+            response = self.client.patch(
+                f"/api/projects/{self.team.id}/hog_flows/{draft.json()['id']}", {"status": "active"}, format="json"
+            )
+        else:
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/hog_flows", {**hog_flow, "status": "active"}, format="json"
+            )
+
+        assert response.status_code == 400, response.json()
+        assert message in response.json()["detail"]
+
+    def test_hog_flow_keeps_saving_an_active_flow_with_an_unchanged_unfinished_audience(self):
+        stored = self._batch_audience_flow([{"key": "email", "type": "person", "operator": "exact"}])
+        flow = HogFlow.objects.create(
+            team=self.team,
+            name=stored["name"],
+            status=HogFlow.State.ACTIVE,
+            actions=stored["actions"],
+            trigger=stored["actions"][0]["config"],
+            created_by=self.user,
+        )
+        url = f"/api/projects/{self.team.id}/hog_flows/{flow.id}"
+        stored_actions = self.client.get(url).json()["actions"]
+
+        resave = self.client.patch(url, {"name": "renamed", "actions": stored_actions}, format="json")
+        assert resave.status_code == 200, resave.json()
+
+        edited_actions = deepcopy(stored_actions)
+        edited_actions[0]["config"]["filters"]["properties"] = [{"key": "plan", "type": "person", "operator": "exact"}]
+        edited = self.client.patch(url, {"actions": edited_actions}, format="json")
+        assert edited.status_code == 400, edited.json()
+        assert INCOMPLETE_AUDIENCE_CONDITION in edited.json()["detail"]
+
+    def _batch_audience_flow(self, properties: list[dict[str, Any]]) -> dict[str, Any]:
+        return {
+            "name": "Test Batch Flow",
+            "actions": [
+                {
+                    "id": "trigger_node",
+                    "name": "trigger_1",
+                    "type": "trigger",
+                    "config": {"type": "batch", "filters": {"properties": properties}},
+                }
+            ],
         }
 
     @parameterized.expand(
@@ -4623,6 +5228,7 @@ class TestHogFlowAPI(APIBaseTest):
                 team=self.team,
                 name="refers to power-users",
                 cohort_type=CohortType.REALTIME,
+                realtime_enabled_at=timezone.now(),
                 filters={
                     "properties": {"type": "AND", "values": [{"key": "id", "type": "cohort", "value": referenced.pk}]}
                 },
@@ -4875,6 +5481,32 @@ class TestHogFlowAPI(APIBaseTest):
         assert response.status_code == 200, response.json()
         assert response.json()["limit"] == 5000
 
+    @override_settings(
+        WORKFLOWS_EMAIL_TIER_MODE="enforce",
+        WORKFLOWS_EMAIL_TIER_DAILY_CAPS=[100, 1000, 3000],
+        WORKFLOWS_EMAIL_TIER_BATCH_AUDIENCE_CAPS=[100, 1000, 3000],
+        WORKFLOWS_RATE_LIMITED_BATCH_MAX_DAILY_SHARE=0.5,
+        WORKFLOWS_RATE_LIMITED_BATCH_MAX_DAYS=7,
+        HOGFLOW_BATCH_TRIGGER_ELEVATED_TEAM_IDS=set(),
+    )
+    def test_hog_flow_user_blast_radius_raises_the_limit_for_a_qualifying_rate_limit(self):
+        TeamWorkflowsConfig.objects.update_or_create(team=self.team, defaults={"email_sending_tier": 2})
+        with patch(
+            "products.workflows.backend.services.blast_radius.get_person_audience_count_v2"
+        ) as mock_get_person_audience_count:
+            from products.feature_flags.backend.user_blast_radius import BlastRadiusResult  # noqa: PLC0415
+
+            mock_get_person_audience_count.return_value = BlastRadiusResult(affected=0, total=0)
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/hog_flows/user_blast_radius",
+                {"filters": {"properties": []}, "email_sending_rate_limit": {"count": 60, "period": "hour"}},
+                format="json",
+            )
+
+        assert response.status_code == 200, response.json()
+        assert response.json()["limit"] == 60 * 24 * 7
+        assert response.json()["rate_limited"] == {"max_emails_per_hour": 62, "max_days": 7, "limit": 62 * 24 * 7}
+
     def test_hog_flow_user_blast_radius_returns_elevated_limit_for_listed_team(self):
         with (
             override_settings(
@@ -4978,62 +5610,202 @@ class TestHogFlowAPI(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("flag_only", [{"key": "my-other-flag", "type": "flag", "value": "true", "operator": "exact"}]),
+            (
+                "flag_only",
+                [{"key": "my-other-flag", "type": "flag", "value": "true", "operator": "exact"}],
+                "Feature flags can't be used as a batch audience condition",
+            ),
             (
                 "flag_mixed_with_person",
                 [
                     {"key": "email", "type": "person", "value": "a@b.com", "operator": "exact"},
                     {"key": "my-other-flag", "type": "flag", "value": "true", "operator": "exact"},
                 ],
+                "Feature flags can't be used as a batch audience condition",
+            ),
+            (
+                "unfinished_person_filter",
+                [{"key": "email", "type": "person", "operator": "exact"}],
+                "An audience filter is incomplete. Finish it or remove it.",
+            ),
+            (
+                "unfinished_person_filter_in_group",
+                {
+                    "type": "AND",
+                    "values": [
+                        {
+                            "type": "OR",
+                            "values": [
+                                {"key": "email", "type": "person", "value": "a@b.com", "operator": "exact"},
+                                {"key": "plan", "type": "person", "operator": "exact"},
+                            ],
+                        }
+                    ],
+                },
+                "An audience filter is incomplete. Finish it or remove it.",
+            ),
+            (
+                "unfinished_person_filter_in_lowercase_group",
+                {"type": "and", "values": [{"key": "email", "type": "person", "operator": "exact"}]},
+                "An audience filter is incomplete. Finish it or remove it.",
+            ),
+            (
+                "unfinished_person_filter_as_json_string",
+                json.dumps([{"key": "email", "type": "person", "operator": "exact"}]),
+                "An audience filter is incomplete. Finish it or remove it.",
+            ),
+            (
+                "person_filter_without_key_in_group",
+                {"type": "AND", "values": [{"type": "AND", "values": [{"type": "person", "operator": "exact"}]}]},
+                "An audience filter is incomplete. Finish it or remove it.",
+            ),
+            (
+                "emptied_multi_select",
+                [{"key": "email", "type": "person", "value": [], "operator": "exact"}],
+                "An audience filter is incomplete. Finish it or remove it.",
+            ),
+            (
+                "emptied_negated_multi_select_in_group",
+                {"type": "AND", "values": [{"key": "plan", "type": "person", "value": [], "operator": "is_not"}]},
+                "An audience filter is incomplete. Finish it or remove it.",
+            ),
+            (
+                "group_without_a_list_of_values",
+                [{"type": "AND", "values": {"key": "email", "type": "person", "value": "a@b.com"}}],
+                "An audience filter is incomplete. Finish it or remove it.",
             ),
         ]
     )
-    def test_hog_flow_user_blast_radius_rejects_flag_condition(self, _name, properties):
-        # Feature flags can't be sized as a static batch audience — reject with a clean 400 before
-        # the condition reaches the blast-radius query (where it would otherwise 500).
-        with patch(
-            "products.workflows.backend.services.blast_radius.get_person_audience_count_v2"
-        ) as mock_get_person_audience_count:
-            response = self.client.post(
-                f"/api/projects/{self.team.id}/hog_flows/user_blast_radius",
-                {"filters": {"properties": properties}},
-            )
+    def test_hog_flow_user_blast_radius_rejects_unusable_condition(self, _name, properties, message):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/hog_flows/user_blast_radius",
+            {"filters": {"properties": properties}},
+            format="json",
+        )
 
         assert response.status_code == 400, response.json()
-        assert "Feature flags can't be used as a batch audience condition" in response.json().get("detail", "")
-        mock_get_person_audience_count.assert_not_called()
+        assert message in response.json().get("detail", "")
 
+    @parameterized.expand(
+        [
+            ("is_set_with_empty_value", {"key": "email", "type": "person", "value": [], "operator": "is_set"}),
+            ("is_not_set_with_empty_value", {"key": "email", "type": "person", "value": [], "operator": "is_not_set"}),
+            ("hogql_expression", {"key": "properties.email = 'a@b.com'", "type": "hogql"}),
+            (
+                "hogql_expression_with_empty_value",
+                {"key": "properties.email = 'a@b.com'", "type": "hogql", "value": []},
+            ),
+        ]
+    )
+    def test_hog_flow_user_blast_radius_counts_a_finished_condition_without_a_value(self, _name, condition):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/hog_flows/user_blast_radius",
+            {"filters": {"properties": [condition]}},
+            format="json",
+        )
+
+        assert response.status_code == 200, response.json()
+        assert "affected" in response.json()
+
+    @parameterized.expand(
+        [
+            (
+                "flag",
+                [{"key": "my-other-flag", "type": "flag", "value": "true"}],
+                "Feature flags can't be used as a batch audience condition",
+            ),
+            (
+                "unfinished_person_filter",
+                [{"key": "email", "type": "person", "operator": "exact"}],
+                "An audience filter is incomplete. Finish it or remove it.",
+            ),
+        ]
+    )
     @override_settings(INTERNAL_API_SECRET="test-secret-123")
-    def test_internal_user_blast_radius_rejects_flag_condition(self):
+    def test_internal_user_blast_radius_rejects_unusable_condition(self, _name, properties, message):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/internal/hog_flows/user_blast_radius",
+            {"filters": {"properties": properties}},
+            format="json",
+            headers={"x-internal-api-secret": "test-secret-123"},
+        )
+
+        assert response.status_code == 400, response.json()
+        assert message in response.json().get("error", "")
+
+    @parameterized.expand(
+        [
+            ("starts_resolving", {"dedupe_key": "email", "max_audience_size": 500}, 200, "resolving"),
+            ("bad_dedupe_key", {"dedupe_key": "phone", "max_audience_size": 500}, 400, None),
+            ("missing_cap", {"dedupe_key": None}, 400, None),
+        ]
+    )
+    @override_settings(INTERNAL_API_SECRET="test-secret-123")
+    def test_internal_batch_job_audience_snapshot_validates_and_starts_the_resolution(
+        self, _name, body, expected_status, expected_snapshot_status
+    ):
+        hog_flow = HogFlow.objects.create(
+            team=self.team, name="Batch", trigger={"type": "batch", "filters": {"properties": []}}, actions=[]
+        )
         with patch(
-            "products.workflows.backend.services.blast_radius.get_person_audience_count_v2"
-        ) as mock_get_person_audience_count:
+            "products.workflows.backend.models.hog_flow_batch_job.hog_flow_batch_job.create_batch_hog_flow_job_invocation"
+        ):
+            job = HogFlowBatchJob.objects.create(team=self.team, hog_flow=hog_flow)
+
+        with (
+            patch("products.workflows.backend.tasks.batch_jobs.resolve_batch_job_audience_snapshot.delay") as mock_task,
+            self.captureOnCommitCallbacks(execute=True),
+        ):
             response = self.client.post(
-                f"/api/projects/{self.team.id}/internal/hog_flows/user_blast_radius",
-                {"filters": {"properties": [{"key": "my-other-flag", "type": "flag", "value": "true"}]}},
+                f"/api/projects/{self.team.id}/internal/hog_flows/batch_jobs/{job.id}/audience_snapshot",
+                body,
                 format="json",
                 headers={"x-internal-api-secret": "test-secret-123"},
             )
 
-        assert response.status_code == 400, response.json()
-        assert "Feature flags can't be used as a batch audience condition" in response.json().get("error", "")
-        mock_get_person_audience_count.assert_not_called()
+        assert response.status_code == expected_status, response.json()
+        if expected_snapshot_status:
+            assert response.json() == {"status": expected_snapshot_status, "audience_size": None, "error": None}
+            mock_task.assert_called_once_with(self.team.pk, str(job.id), "email", 500)
+        else:
+            mock_task.assert_not_called()
 
     @override_settings(INTERNAL_API_SECRET="test-secret-123")
-    def test_internal_user_blast_radius_persons_rejects_flag_condition(self):
-        with patch(
-            "products.workflows.backend.services.blast_radius.get_batch_audience_person_ids"
-        ) as mock_get_batch_audience_person_ids:
-            response = self.client.post(
-                f"/api/projects/{self.team.id}/internal/hog_flows/user_blast_radius_persons",
-                {"filters": {"properties": [{"key": "my-other-flag", "type": "flag", "value": "true"}]}},
-                format="json",
-                headers={"x-internal-api-secret": "test-secret-123"},
-            )
+    def test_internal_batch_job_audience_page_rejects_a_cursor_that_is_not_a_uuid(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/internal/hog_flows/batch_jobs/{uuid4()}/audience_page",
+            {"cursor": "person-1"},
+            format="json",
+            headers={"x-internal-api-secret": "test-secret-123"},
+        )
 
         assert response.status_code == 400, response.json()
-        assert "Feature flags can't be used as a batch audience condition" in response.json().get("error", "")
-        mock_get_batch_audience_person_ids.assert_not_called()
+
+    @parameterized.expand(
+        [
+            (
+                "flag",
+                [{"key": "my-other-flag", "type": "flag", "value": "true"}],
+                "Feature flags can't be used as a batch audience condition",
+            ),
+            (
+                "unfinished_person_filter",
+                [{"key": "email", "type": "person", "operator": "exact"}],
+                "An audience filter is incomplete. Finish it or remove it.",
+            ),
+        ]
+    )
+    @override_settings(INTERNAL_API_SECRET="test-secret-123")
+    def test_internal_user_blast_radius_persons_rejects_unusable_condition(self, _name, properties, message):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/internal/hog_flows/user_blast_radius_persons",
+            {"filters": {"properties": properties}},
+            format="json",
+            headers={"x-internal-api-secret": "test-secret-123"},
+        )
+
+        assert response.status_code == 400, response.json()
+        assert message in response.json().get("error", "")
 
     @override_settings(INTERNAL_API_SECRET="test-secret-123", WORKFLOWS_BATCH_AUDIENCE_QUERY_TIMEOUT_SECONDS=123)
     def test_internal_user_blast_radius_persons_uses_workflows_query(self):
@@ -5121,38 +5893,48 @@ class TestHogFlowAPI(APIBaseTest):
         assert response.status_code == 400, response.json()
         assert "Unsupported dedupe_key" in response.json().get("error", "")
 
+    @parameterized.expand([("completed", True), ("failed", False)])
     @override_settings(INTERNAL_API_SECRET="test-secret-123")
+    @patch("products.workflows.backend.tasks.batch_jobs.settle_batch_run_outcome.apply_async")
     @patch(
         "products.workflows.backend.models.hog_flow_batch_job.hog_flow_batch_job.create_batch_hog_flow_job_invocation"
     )
-    def test_internal_update_batch_job_status_marks_completed(self, _mock_dispatch):
+    def test_internal_update_batch_job_status_writes_terminal_status(
+        self, new_status, checks_sends, _mock_dispatch, mock_settle
+    ):
         hog_flow = HogFlow.objects.create(team=self.team, name="Test", trigger={}, actions=[], edges=[])
         batch_job = HogFlowBatchJob.objects.create(team=self.team, hog_flow=hog_flow, status="active")
 
         response = self.client.put(
             f"/api/projects/{self.team.id}/internal/hog_flows/batch_jobs/{batch_job.id}/status",
-            {"status": "completed"},
+            {"status": new_status},
             content_type="application/json",
             headers={"x-internal-api-secret": "test-secret-123"},
         )
 
         assert response.status_code == 200, response.json()
-        assert response.json()["status"] == "completed"
+        assert response.json()["status"] == new_status
         assert response.json()["no_op"] is False
         batch_job.refresh_from_db()
-        assert batch_job.status == "completed"
+        assert batch_job.status == new_status
+        assert mock_settle.called is checks_sends
+        if checks_sends:
+            assert mock_settle.call_args.kwargs["args"] == (self.team.id, str(batch_job.id))
 
+    @parameterized.expand([("completed", "failed"), ("partially_failed", "completed")])
     @override_settings(INTERNAL_API_SECRET="test-secret-123")
     @patch(
         "products.workflows.backend.models.hog_flow_batch_job.hog_flow_batch_job.create_batch_hog_flow_job_invocation"
     )
-    def test_internal_update_batch_job_status_is_idempotent_when_already_terminal(self, _mock_dispatch):
+    def test_internal_update_batch_job_status_is_idempotent_when_already_terminal(
+        self, current_status, requested_status, _mock_dispatch
+    ):
         hog_flow = HogFlow.objects.create(team=self.team, name="Test", trigger={}, actions=[], edges=[])
-        batch_job = HogFlowBatchJob.objects.create(team=self.team, hog_flow=hog_flow, status="completed")
+        batch_job = HogFlowBatchJob.objects.create(team=self.team, hog_flow=hog_flow, status=current_status)
 
         response = self.client.put(
             f"/api/projects/{self.team.id}/internal/hog_flows/batch_jobs/{batch_job.id}/status",
-            {"status": "failed"},
+            {"status": requested_status},
             content_type="application/json",
             headers={"x-internal-api-secret": "test-secret-123"},
         )
@@ -5160,9 +5942,9 @@ class TestHogFlowAPI(APIBaseTest):
         # Already terminal → no-op, original status preserved
         assert response.status_code == 200, response.json()
         assert response.json()["no_op"] is True
-        assert response.json()["status"] == "completed"
+        assert response.json()["status"] == current_status
         batch_job.refresh_from_db()
-        assert batch_job.status == "completed"
+        assert batch_job.status == current_status
 
     @override_settings(INTERNAL_API_SECRET="test-secret-123")
     @patch(
@@ -5543,7 +6325,13 @@ class TestHogFlowAPI(APIBaseTest):
         assert update.status_code == 200, update.json()
         assert HogFlow.objects.get(pk=flow_id).exit_condition == expected
 
-    def test_draft_content_save_that_races_an_activation_is_rejected(self):
+    @parameterized.expand(
+        [
+            ("activation", {"status": HogFlow.State.ACTIVE}),
+            ("disable_from_active", {"disabled_from_active": True}),
+        ]
+    )
+    def test_draft_content_save_that_races_a_protection_change_is_rejected(self, _name, concurrent_change):
         event_trigger = {
             "id": "trigger_node",
             "name": "trigger_1",
@@ -5560,14 +6348,14 @@ class TestHogFlowAPI(APIBaseTest):
         assert response.status_code == 201, response.json()
         flow_id = response.json()["id"]
 
-        def update_after_concurrent_activation(**kwargs):
-            HogFlow.objects.filter(pk=flow_id).update(status=HogFlow.State.ACTIVE)
+        def update_after_concurrent_change(**kwargs):
+            HogFlow.objects.filter(pk=flow_id).update(**concurrent_change)
             return update_workflow(**kwargs)
 
         # A Slack trigger with no channel passes draft validation but must never run live.
         with patch(
             "products.workflows.backend.presentation.views.hog_flow.update_workflow",
-            side_effect=update_after_concurrent_activation,
+            side_effect=update_after_concurrent_change,
         ):
             update = self.client.patch(
                 f"/api/projects/{self.team.id}/hog_flows/{flow_id}",
@@ -5576,9 +6364,7 @@ class TestHogFlowAPI(APIBaseTest):
 
         assert update.status_code == 409, update.json()
         assert update.json()["code"] == "stale_update"
-        flow = HogFlow.objects.get(pk=flow_id)
-        assert flow.status == HogFlow.State.ACTIVE
-        assert flow.actions[0]["config"]["type"] == "event"
+        assert HogFlow.objects.get(pk=flow_id).actions[0]["config"]["type"] == "event"
 
     @override_settings(HOGFLOW_BATCH_TRIGGER_LIMIT=5000, HOGFLOW_BATCH_TRIGGER_ELEVATED_TEAM_IDS=set())
     @patch(
@@ -5602,6 +6388,39 @@ class TestHogFlowAPI(APIBaseTest):
         mock_create_invocation.assert_called_once()
         # The per-team audience cap must ride on the invocation so the consumer enforces the team's limit.
         assert mock_create_invocation.call_args.kwargs["max_audience_size"] == 5000
+        entry = ActivityLog.objects.get(scope="HogFlow", item_id=flow_id, activity="batch_run_started")
+        assert entry.user == self.user
+        assert entry.detail is not None
+        assert entry.detail["context"] == {
+            "batch_job_id": response.json()["id"],
+            "filters": response.json()["filters"],
+        }
+
+    @parameterized.expand(
+        [
+            ("no_response", lambda _flow_id: requests.ReadTimeout("read timed out"), True),
+            ("no_response_after_the_worker_failed_the_run", lambda flow_id: _fail_run_then_time_out(flow_id), True),
+            ("rejected", lambda _flow_id: requests.HTTPError("400", response=MagicMock(status_code=400)), False),
+            ("never_connected", lambda _flow_id: requests.ConnectTimeout("connect timed out"), False),
+        ]
+    )
+    @patch(
+        "products.workflows.backend.models.hog_flow_batch_job.hog_flow_batch_job.create_batch_hog_flow_job_invocation"
+    )
+    def test_post_hog_flow_batch_jobs_logs_the_start_only_when_a_failed_dispatch_may_still_send(
+        self, _name, dispatch_error, start_logged, mock_create_invocation
+    ):
+        flow_id = self._create_active_hog_flow()
+        mock_create_invocation.return_value.raise_for_status.side_effect = dispatch_error(flow_id)
+
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flows/{flow_id}/batch_jobs", {"variables": []})
+
+        assert response.status_code == 500
+        batch_job = HogFlowBatchJob.objects.get(hog_flow_id=flow_id)
+        entries = ActivityLog.objects.filter(scope="HogFlow", item_id=flow_id, activity="batch_run_started")
+        assert [entry.detail["context"]["batch_job_id"] for entry in entries if entry.detail] == (
+            [str(batch_job.id)] if start_logged else []
+        )
 
     @parameterized.expand([("on_realtime_pipeline", "all", 200), ("off_realtime_pipeline", "none", 400)])
     @patch(
@@ -6812,12 +7631,15 @@ class TestHogFlowVersionedMetrics(ClickhouseTestMixin, APIBaseTest):
         self._seed("hog_flow", str(self.flow.id), succeeded=7)
         base = f"/api/projects/{self.team.id}/hog_flows/{self.flow.id}"
 
-        version_one = self.client.get(f"{base}/metrics/version?version=1")
+        version_one = self.client.get(f"{base}/metrics/version?version=1&breakdown_by=name&name=succeeded,skipped")
         version_two = self.client.get(f"{base}/metrics/version?version=2")
         whole = self.client.get(f"{base}/metrics")
 
         assert version_one.status_code == 200, version_one.json()
-        assert self._succeeded(version_one) == 3
+        assert {series["name"]: sum(series["values"]) for series in version_one.json()["series"]} == {
+            "succeeded": 3,
+            "skipped": 0,
+        }
         assert self._succeeded(version_two) == 5
         # The unversioned read keys batch runs on the run, so it is its own series rather than a sum.
         assert self._succeeded(whole) == 7
@@ -7298,6 +8120,35 @@ class TestHogFlowSecretInputs(APIBaseTest):
         assert patch_res.status_code == 200, patch_res.json()
         flow = HogFlow.objects.get(id=flow_id)
         assert flow.encrypted_inputs["action_1"]["api_key"]["value"] == "SUPER-SECRET"
+
+    def test_reenable_disabled_flow_does_not_publish_staged_secret(self):
+        flow_id = self._create(api_key="LIVE-SECRET")
+        url = f"/api/projects/{self.team.id}/hog_flows/{flow_id}"
+        for target_status in ("active", "draft"):
+            response = self.client.patch(url, {"status": target_status}, HTTP_X_POSTHOG_CLIENT="mcp")
+            assert response.status_code == 200, response.json()
+
+        stage = self.client.patch(
+            f"{url}/graph",
+            {
+                "operations": [
+                    {
+                        "op": "update_action",
+                        "id": "action_1",
+                        "patch": {"config": {"inputs": {"api_key": {"value": "DRAFT-SECRET"}}}},
+                    }
+                ]
+            },
+            HTTP_X_POSTHOG_CLIENT="mcp",
+        )
+        assert stage.status_code == 200, stage.json()
+
+        enable = self.client.patch(url, {"status": "active"}, HTTP_X_POSTHOG_CLIENT="mcp")
+        assert enable.status_code == 200, enable.json()
+
+        flow = HogFlow.objects.get(id=flow_id)
+        assert flow.encrypted_inputs["action_1"]["api_key"]["value"] == "LIVE-SECRET"
+        assert flow.draft_encrypted_inputs["action_1"]["api_key"]["value"] == "DRAFT-SECRET"
 
     def test_publish_promotes_draft_secret_to_live_without_wiping(self):
         flow_id = self._create()
@@ -8403,6 +9254,43 @@ class TestReplayVisionActionValidation(APIBaseTest):
         assert "session recordings" in response.json()["detail"], response.json()
         rerun.assert_not_called()
 
+    @parameterized.expand(
+        [
+            (f"{origin}_{'flag_on' if flag_on else 'flag_off'}", origin, flag_on)
+            for origin in ("code_key", "template")
+            for flag_on in (False, True)
+        ]
+    )
+    def test_a_rerun_replays_code_sends_only_while_the_code_send_flag_is_on(self, _name, origin, flag_on) -> None:
+        if origin == "code_key":
+            flow_id = create_code_email_workflow(team_id=self.team.id, key="welcome")
+        else:
+            flow_id = HogFlow.objects.create(
+                team=self.team,
+                name="Welcome template",
+                status="active",
+                trigger={"type": "event", "filters": {}},
+                actions=[_TRIGGER],
+                origin_product=HogFlowOriginProduct.TRANSACTIONAL_EMAILS,
+            ).id
+
+        with (
+            patch(
+                "products.workflows.backend.presentation.views.hog_flow.feature_enabled_or_false",
+                side_effect=lambda key, *args, **kwargs: flag_on and key == "workflows-email-from-code",
+            ),
+            patch("products.workflows.backend.presentation.views.hog_flow.rerun_hog_invocations") as rerun,
+        ):
+            rerun.return_value = MagicMock(status_code=200, json=lambda: {"queued_count": 1, "skipped_count": 0})
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/hog_flows/{flow_id}/rerun/",
+                {"filter": {"window_start": "2026-10-13T00:00:00Z", "window_end": "2026-10-14T00:00:00Z"}},
+                format="json",
+            )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert rerun.call_args.kwargs["payload"]["replay_code_sends"] is flag_on
+
     def test_a_variables_only_edit_is_checked_against_the_staged_draft_too(self) -> None:
         self._enable_access_control()
         AccessControl.objects.create(team=self.team, resource="session_recording", access_level="none")
@@ -8839,7 +9727,7 @@ class TestRunScoutActionValidation(APIBaseTest):
             assert live_inputs["note"]["value"] == "PR #{event.properties.pr_number}"
         else:
             assert publish.status_code == status.HTTP_400_BAD_REQUEST, publish.json()
-            assert publish.json()["attr"] == "actions__1__inputs__note"
+            assert "requires editor access to skills" in publish.json()["detail"], publish.json()
             assert "note" not in live_inputs
 
 

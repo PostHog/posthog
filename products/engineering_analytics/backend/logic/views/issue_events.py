@@ -1,16 +1,8 @@
-"""Curated PR draft/ready transitions query builder.
-
-The transition vocabulary and the "transitions only" rule live here once; consumers
-import the event constants rather than restating the raw strings. GitHub caps the
-issue-events history walk, so the table covers a bounded window growing forward from
-the first sync: a PR with no transition rows is ambiguous (opened ready, or its flips
-just aren't in the window). The window builders disambiguate: the min/max timestamps
-over ALL landed event types bound the observed range, because the desc walk lands a
-contiguous range; a merged PR with no transitions whose whole open-to-merge life sits
-inside that range verifiably never left ready.
+"""GitHub caps the issue-events history walk, so the table covers a bounded range that grows forward
+from the first sync. A PR with no transition rows either opened ready or changed state outside that
+range, and the window builders give the range that tells the two cases apart.
 """
 
-# GitHub's issue-event vocabulary for the draft/ready transitions.
 READY_FOR_REVIEW_EVENT = "ready_for_review"
 CONVERT_TO_DRAFT_EVENT = "convert_to_draft"
 # Carries ``requested_team`` when a team, not a person, was asked to review.
@@ -18,9 +10,9 @@ REVIEW_REQUESTED_EVENT = "review_requested"
 
 
 def build_query(table_name: str, *, created_floor: bool = False) -> str:
-    # With ``created_floor`` the raw-string floor sits in its own innermost SELECT, so the scan can prune
-    # on it. The parsing SELECT below aliases the parsed timestamp as created_at, and a WHERE there would
-    # compare the parsed DateTime with the string. Callers register {event_created_floor}.
+    # The raw-string floor needs its own innermost SELECT. The SELECT below aliases the parsed timestamp
+    # as created_at, so a WHERE there would compare a DateTime with the string. Callers register
+    # {event_created_floor}.
     table_source = (
         f"(SELECT * FROM {table_name} WHERE created_at >= {{event_created_floor}})" if created_floor else table_name
     )
@@ -42,8 +34,7 @@ def build_query(table_name: str, *, created_floor: bool = False) -> str:
 
 
 def build_team_review_requests_query(table_name: str, *, created_floor: bool) -> str:
-    """One row per team review request: the pull request, the requested team's slug, and when. With
-    ``created_floor``, callers register {event_created_floor}, as for ``build_query``."""
+    """One row per team review request. With ``created_floor``, callers register {event_created_floor}."""
     table_source = (
         f"(SELECT * FROM {table_name} WHERE created_at >= {{event_created_floor}})" if created_floor else table_name
     )
@@ -62,6 +53,7 @@ def build_team_review_requests_query(table_name: str, *, created_floor: bool) ->
 
 
 def build_window_start_query(table_name: str) -> str:
+    # Every event type bounds the observed range, because the sync lands one contiguous range.
     return f"SELECT min(parseDateTimeBestEffort(created_at)) AS window_start FROM {table_name}"
 
 

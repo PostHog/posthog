@@ -28,6 +28,8 @@
 // Tests seed and assert through `CohortStore` directly — the sanctioned direct-store test surface.
 #![allow(clippy::disallowed_methods)]
 
+mod support;
+
 use std::collections::{BTreeMap, BTreeSet, HashMap};
 use std::num::NonZeroU16;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -87,16 +89,14 @@ use tempfile::TempDir;
 use tokio::sync::mpsc;
 use uuid::Uuid;
 
+use support::bootstrap_servers;
+
 const TEAM: i32 = 7;
 const HASH: [u8; 16] = *b"0123456789abcdef";
 const NUM_PARTITIONS: i32 = 4;
 const PERSONS: u128 = 3;
 const EVENTS_PER_PERSON: usize = 3;
 const BASE_TS: &str = "2026-05-26 12:34:56.789000";
-
-fn bootstrap_servers() -> String {
-    std::env::var("KAFKA_HOSTS").unwrap_or_else(|_| "localhost:9092".to_string())
-}
 
 /// A team with a single `performed_event` behavioral leaf on `$pageview` — every `$pageview` enters.
 fn behavioral_catalog() -> CatalogHandle {
@@ -393,7 +393,12 @@ async fn drain_shadow_changes(topic: &str, expected: usize) -> Vec<CohortMembers
     let mut changes = Vec::new();
     let start = Instant::now();
     while changes.len() < expected && start.elapsed() < Duration::from_secs(30) {
-        match tokio::time::timeout(Duration::from_secs(2), consumer.recv()).await {
+        match tokio::time::timeout(
+            Duration::from_secs(2),
+            support::recv(&mut consumer.stream()),
+        )
+        .await
+        {
             Ok(Ok(message)) => {
                 if let Some(payload) = message.payload() {
                     changes.push(

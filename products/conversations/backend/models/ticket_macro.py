@@ -6,7 +6,11 @@ from posthog.models.utils import CreatedMetaFields, UpdatedMetaFields, UUIDModel
 
 
 class TicketMacro(ModelActivityMixin, TeamScopedRootMixin, UUIDModel, CreatedMetaFields, UpdatedMetaFields):
-    """A shared reply an agent can insert into the ticket composer."""
+    """A saved reply an agent can insert into the ticket composer."""
+
+    class Visibility(models.TextChoices):
+        SHARED = "shared", "Everyone in the project"
+        PERSONAL = "personal", "Only the creator"
 
     activity_logging_on_delete = True
 
@@ -31,6 +35,12 @@ class TicketMacro(ModelActivityMixin, TeamScopedRootMixin, UUIDModel, CreatedMet
     name = models.CharField(max_length=200)
     shortcut = models.CharField(max_length=50, null=True, blank=True)
     body = models.TextField()
+    visibility = models.CharField(
+        max_length=16,
+        choices=Visibility.choices,
+        default=Visibility.SHARED,
+        db_default=Visibility.SHARED,
+    )
     usage_count = models.PositiveIntegerField(default=0, db_default=0)
     last_used_at = models.DateTimeField(null=True, blank=True)
 
@@ -39,10 +49,16 @@ class TicketMacro(ModelActivityMixin, TeamScopedRootMixin, UUIDModel, CreatedMet
         db_table = "posthog_conversations_ticket_macro"
         constraints = [
             # Null shortcuts are not unique: several macros can have no slash command.
+            # A personal shortcut only has to be unique for its creator, so it cannot block teammates.
             models.UniqueConstraint(
                 fields=["team", "shortcut"],
-                condition=models.Q(shortcut__isnull=False),
-                name="conv_macro_team_shortcut_uniq",
+                condition=models.Q(shortcut__isnull=False, visibility="shared"),
+                name="conv_macro_shared_shortcut_uniq",
+            ),
+            models.UniqueConstraint(
+                fields=["team", "created_by", "shortcut"],
+                condition=models.Q(shortcut__isnull=False, visibility="personal"),
+                name="conv_macro_personal_shortcut_uniq",
             ),
         ]
         indexes = [

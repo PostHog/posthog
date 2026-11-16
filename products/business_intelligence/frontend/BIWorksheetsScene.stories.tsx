@@ -2,7 +2,6 @@ import { MOCK_DEFAULT_BASIC_USER, MOCK_SECOND_BASIC_USER } from 'lib/api.mock'
 
 import { Meta, StoryObj } from '@storybook/react'
 
-import { FEATURE_FLAGS } from 'lib/constants'
 import { App } from 'scenes/App'
 
 import { mswDecorator } from '~/mocks/browser'
@@ -14,7 +13,6 @@ const meta: Meta = {
     parameters: {
         layout: 'fullscreen',
         pageUrl: '/bi',
-        featureFlags: [FEATURE_FLAGS.SQL_EDITOR_BI_MODE],
         testOptions: { waitForSelector: '[data-attr="bi-worksheet-link"]' },
         msw: {
             mocks: {

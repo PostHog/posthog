@@ -47,6 +47,10 @@ Pick the **lowest tier** that does the job.
 The Tier 1 surfaces are built on `api/primitives` (Tier 2), which consumes the headless
 `api/logics`/`api/types` (Tier 3). Going down a tier trades convenience for control and a smaller chunk.
 
+`api/launch` is the light part of Tier 3: `chatContextLogic`, `chatSendItems`, `wrapWithPosthogContext` and `taskRunDefaultsLogic`.
+It imports no stream or interaction logic.
+A surface that only starts runs, such as the home page, imports it eagerly and loads `api/logics` with a dynamic `import()` where the run starts.
+
 `ReadonlyRunSurface` is **lazy by default** — code-split behind a `RunLogSkeleton` Suspense fallback —
 because the embeds that use it (the inbox detail views) show it as a secondary panel. The `RunSurface`
 compound (`api/runSurface`) is **eager**: import it only where the surface is the _primary_ content of an
@@ -286,11 +290,12 @@ import { AttachedContextBar } from 'products/posthog_ai/frontend/api/primitives'
 ```
 
 The @-button opens a `TaxonomicPopover` over events/actions/insights/dashboards/notebooks/error-tracking
-issues; a selection becomes a flat `{ type, key, label }` ref in `contextPickerLogic` (`api/logics`) — no
-entity loading, the agent fetches details. The chips render **everything** in `contextItems`, whatever
-provider contributed it. Closing a chip the picker owns removes the pick; closing any other provider's chip
+issues; a selection becomes a flat `{ type, key, label }` ref through `contextPickerLogic` (`api/logics`) — no
+entity loading, the agent fetches details. In a new chat the chips render your picks and **everything** in
+`contextItems`, whatever provider contributed it. A started chat freezes its chips: pass `taskId` to `AttachedContextChips` or
+`QuillAttachedContextChips` to show what `chatContextLogic` holds for that chat. Closing a chip the picker owns removes the pick; closing any other provider's chip
 dismisses that key (`attachedContextLogic.dismissContext`), which sticks even while the provider keeps
-re-registering the item — re-picking it through the popover restores it.
+re-registering the item — re-picking it through the popover adds it back as a pick.
 
 ### React to the agent invoking a tool
 

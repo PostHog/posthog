@@ -30,7 +30,7 @@ The linters own the mechanical rules (below); this skill is the **judgment calls
 
 Run `bin/hogli lint:workflows` and `actionlint` before pushing — they gate CI, and they (not this list) are the source of truth for what's enforced.
 Today that's: `timeout-minutes` on every job, the canonical PR concurrency block, a repo-wide budget for unscoped PR event dispatches, `dorny/paths-filter` negation safety, justification for full-depth checkouts, cache-write gating, semgrep service coverage, MCP path-filter coverage of the trees the MCP build compiles, Storybook path-filter coverage of every `staticDirs` source, required-check gate hygiene, secrets a reusable workflow reads being declared and passed by its callers, runner labels that name an OS version rather than a floating `-latest` alias, `#`-free values for the action inputs an inner shell re-parses, and generic GHA correctness (bad `secrets.*` / `needs:` refs, deprecated `::set-output`, unknown runner labels).
-Renovate bumps third-party action digests, except in workflows listed in `actions.lock`.
+Renovate does not bump actions. Action bumps are manual.
 
 ## Check what a condition does before you push it
 
@@ -498,11 +498,13 @@ Crons are offset so the runs do not all fire at once, and the offsets live here 
 | `ci-python.yml`                     | 43     |
 | `ci-mcp.yml`                        | 53     |
 | `ci-backend-update-test-timing.yml` | 17     |
+| `ci-storybook.yml`                  | 27     |
 
 Adding a seventh: pick an unused minute, add the row, and keep the gap at ten minutes.
 
 `ci-backend-update-test-timing.yml` sits in the table too.
 It is one small job that merges the artifacts of the hourly runs, not a suite, so it does not need the ten-minute gap.
+`ci-storybook.yml` fires once a day, at 02:27 UTC, for its webkit and firefox shards, so it does not need the gap either.
 
 **Give the cron its own concurrency group.**
 `cancel-in-progress` is false outside pull requests, but GitHub still keeps at most one _pending_ run per group, so a newer run replaces an older pending one.

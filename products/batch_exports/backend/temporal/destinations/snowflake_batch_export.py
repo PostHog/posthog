@@ -83,6 +83,7 @@ class NamedBytesIO(io.BytesIO):
 CONNECTION_SEMAPHORE = asyncio.Semaphore(value=1)
 
 NON_RETRYABLE_ERROR_TYPES = (
+    "UnsupportedColumnTypeError",
     # Raised when we cannot connect to Snowflake.
     "DatabaseError",
     # Raised by Snowflake when a query cannot be compiled.
@@ -657,6 +658,18 @@ def _quote_snowflake_identifier(identifier: str) -> str:
     return '"' + identifier.replace('"', '""') + '"'
 
 
+def _build_copy_select_expression(field: Field) -> str:
+    """Return the expression that a COPY INTO uses to load `field` from a staged Parquet file."""
+    column = f"$1:{_quote_snowflake_identifier(field.name)}"
+    name = field.name.lower()
+    if field.data_type != JsonType() or name == "elements":
+        return column
+    # PARSE_JSON fails the whole COPY on one malformed value, and every retry fails the same way.
+    # Snowflake support confirmed that COPY transformations support TRY_PARSE_JSON, although the
+    # list of supported functions in the Snowflake docs leaves it out.
+    return f"TRY_PARSE_JSON({column}, 'd')"
+
+
 class SnowflakeClient:
     """Snowflake connection client used in batch exports."""
 
@@ -1191,12 +1204,7 @@ class SnowflakeClient:
             SnowflakeInsufficientPrivilegesError: If the configured Snowflake role lacks required privileges to
                 perform this operation.
         """
-        select_fields = ", ".join(
-            f"PARSE_JSON($1:{_quote_snowflake_identifier(field.name)}, 'd')"
-            if field.data_type == JsonType() and field.name.lower() != "elements"
-            else f"$1:{_quote_snowflake_identifier(field.name)}"
-            for field in table
-        )
+        select_fields = ", ".join(_build_copy_select_expression(field) for field in table)
         query = f"""
         COPY INTO "{table.name}" ({", ".join(_quote_snowflake_identifier(field.name) for field in table)})
 
@@ -1492,7 +1500,7 @@ async def insert_into_snowflake_activity_from_stage(
         inputs.table_name,
     )
 
-    async with Heartbeater():
+    async with Heartbeater(), contextlib.AsyncExitStack() as cleanup:
         if inputs.integration_id is None:
             raise SnowflakeIntegrationRequiredError(inputs.batch_export_id)
 
@@ -1511,6 +1519,7 @@ async def insert_into_snowflake_activity_from_stage(
             max_record_batch_size_bytes=1024 * 1024 * 10,  # 10MB
             stage_folder=inputs.stage_folder,
         )
+        cleanup.push_async_callback(producer.stop)
 
         record_batch_schema = await wait_for_schema_or_producer(queue, producer_task)
         if record_batch_schema is None:

@@ -1,5 +1,4 @@
 import asyncio
-import ipaddress
 from contextlib import nullcontext
 from datetime import datetime, timedelta
 from typing import Literal, Optional
@@ -38,6 +37,7 @@ from posthog.settings import (
 )
 from posthog.tasks import exporter
 from posthog.temporal.session_replay.rasterize_recording.types import RASTERIZE_WORKFLOW_TIMEOUT
+from posthog.test.anti_ssrf import mock_anti_ssrf_dns_lookup
 from posthog.test.insight_queries import browser_filtered_pageview_query
 
 from products.access_control.backend.models.access_control import AccessControl
@@ -112,7 +112,7 @@ class TestExports(APIBaseTest):
     def test_screenshot_heatmap_export_requires_same_origin_url(
         self, _name: str, site_url: str, heatmap_url: str, expected_status: int, mock_exporter_task
     ) -> None:
-        with self.settings(SITE_URL=site_url):
+        with self.settings(SITE_URL=site_url), mock_anti_ssrf_dns_lookup():
             response = self.client.post(
                 f"/api/projects/{self.team.id}/exports/",
                 {
@@ -2028,27 +2028,61 @@ class TestExportHeatmapSSRFValidation(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("external_url", "https://example.com/page"),
+            ("external_url", "https://example.com/page", None),
             (
                 "screenshot_api_url",
                 "https://us.posthog.com/api/environments/1/heatmap_screenshots/42/content/?width=1400",
+                "screenshot",
             ),
         ]
     )
-    def test_accepts_valid_heatmap_url(self, _name: str, url: str) -> None:
+    def test_accepts_valid_heatmap_url(self, _name: str, url: str, heatmap_type: str | None) -> None:
+        self.team.app_urls = ["https://example.com"]
+        self.team.save()
+        export_context: dict[str, str] = {"heatmap_url": url}
+        if heatmap_type:
+            export_context["heatmap_type"] = heatmap_type
         with (
-            patch("posthog.security.url_validation.resolve_host_ips") as mock_resolve,
+            self.settings(SITE_URL="https://us.posthog.com"),
+            mock_anti_ssrf_dns_lookup(),
             patch("products.exports.backend.api.exports.ExportedAssetSerializer._start_export_workflow"),
         ):
-            mock_resolve.return_value = {ipaddress.ip_address("93.184.216.34")}
             response = self.client.post(
                 f"/api/projects/{self.team.id}/exports",
                 {
                     "export_format": "image/png",
-                    "export_context": {"heatmap_url": url},
+                    "export_context": export_context,
                 },
+                format="json",
             )
             self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+    @parameterized.expand(
+        [
+            ("other_domain", ["https://example.com"]),
+            ("no_authorized_urls", []),
+        ]
+    )
+    def test_rejects_heatmap_url_outside_authorized_urls(self, _name: str, app_urls: list[str]) -> None:
+        self.team.app_urls = app_urls
+        self.team.save()
+        with (
+            mock_anti_ssrf_dns_lookup(),
+            patch(
+                "products.exports.backend.api.exports.ExportedAssetSerializer._start_export_workflow"
+            ) as mock_start_export,
+        ):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/exports",
+                {
+                    "export_format": "image/png",
+                    "export_context": {"heatmap_url": "https://example.org/page", "heatmap_type": "click"},
+                },
+            )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "authorized URLs" in str(response.json())
+        mock_start_export.assert_not_called()
 
     @parameterized.expand(
         [
@@ -2059,10 +2093,9 @@ class TestExportHeatmapSSRFValidation(APIBaseTest):
     def test_accepts_screenshot_url_with_default_site_port(self, _name: str, site_url: str, heatmap_url: str) -> None:
         with (
             self.settings(SITE_URL=site_url),
-            patch("posthog.security.url_validation.resolve_host_ips") as mock_resolve,
+            mock_anti_ssrf_dns_lookup(),
             patch("products.exports.backend.api.exports.ExportedAssetSerializer._start_export_workflow"),
         ):
-            mock_resolve.return_value = {ipaddress.ip_address("93.184.216.34")}
             response = self.client.post(
                 f"/api/projects/{self.team.id}/exports",
                 {

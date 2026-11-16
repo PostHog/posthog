@@ -1,6 +1,7 @@
 import { renderHook } from '@testing-library/react-native'
 
 import { ApiError, NotSignedInError } from '@/api/client'
+import { TransportError } from '@/api/transport'
 import { setAnalyticsClient } from '@/lib/analytics'
 
 import { apiErrorKind, useSheetFunnel } from './reportAnalytics'
@@ -17,7 +18,8 @@ describe('reportAnalytics', () => {
         ['no session', new NotSignedInError(), 'auth'],
         ['a 404', new ApiError(404, {}), 'not_found'],
         ['a 502', new ApiError(502, {}), 'server'],
-        ['a network failure', new TypeError('Network request failed'), 'network'],
+        ['a programming error', new TypeError('Network state is undefined'), 'unknown'],
+        ['a network failure', new TransportError(), 'network'],
     ])('apiErrorKind: %s', (_name, error, expected) => {
         expect(apiErrorKind(error)).toBe(expected)
     })

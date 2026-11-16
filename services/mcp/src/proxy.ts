@@ -6,7 +6,8 @@ import {
     signedClientIpHeaders,
 } from '@/lib/client-ip-signature'
 import { env } from '@/lib/env'
-import { findPostHogPermissionError } from '@/lib/errors'
+import { findPostHogPermissionError, PostHogApiError } from '@/lib/errors'
+import { isProjectSecretKey, projectSecretKeyProbePath } from '@/lib/project-secret-key'
 import type { CloudRegion } from '@/tools/types'
 
 const MCP_HONO_US_URL = 'https://mcp.us.posthog.com'
@@ -17,7 +18,8 @@ const KV_TTL_SECONDS = 7 * 24 * 60 * 60 // 7 days
 async function resolveRegion(
     token: string,
     userHash: string,
-    kv: KVNamespace | undefined
+    kv: KVNamespace | undefined,
+    projectId: string | undefined
 ): Promise<CloudRegion | undefined> {
     if (kv) {
         try {
@@ -38,8 +40,8 @@ async function resolveRegion(
     const euBase = env.POSTHOG_API_BASE_URL || 'https://eu.posthog.com'
 
     const [usResult, euResult] = await Promise.all([
-        new ApiClient({ apiToken: token, baseUrl: usBase }).users().me(),
-        new ApiClient({ apiToken: token, baseUrl: euBase }).users().me(),
+        probeRegion(token, usBase, projectId),
+        probeRegion(token, euBase, projectId),
     ])
 
     // Only the home region answers 403 (token known, `user:read` missing). The other region answers
@@ -67,6 +69,26 @@ async function resolveRegion(
     return region
 }
 
+type ProbeResult = { success: true } | { success: false; error: Error }
+
+async function probeRegion(token: string, baseUrl: string, projectId: string | undefined): Promise<ProbeResult> {
+    const api = new ApiClient({ apiToken: token, baseUrl })
+    if (!isProjectSecretKey(token) || !projectId) {
+        return api.users().me()
+    }
+    try {
+        await api.request({ method: 'GET', path: projectSecretKeyProbePath(projectId) })
+        return { success: true }
+    } catch (error) {
+        // Only the home region knows the key. Every refusal there is a 403, also one for a blocked
+        // IP address, and the other region answers 401.
+        if (error instanceof PostHogApiError && error.status === 403) {
+            return { success: true }
+        }
+        return { success: false, error: error instanceof Error ? error : new Error(String(error)) }
+    }
+}
+
 function getHonoTargetUrl(region: CloudRegion): string {
     if (env.MCP_HONO_URL) {
         return env.MCP_HONO_URL
@@ -77,10 +99,11 @@ function getHonoTargetUrl(region: CloudRegion): string {
 export async function resolveProxyRegion(
     token: string,
     userHash: string,
-    kv: KVNamespace | undefined
+    kv: KVNamespace | undefined,
+    projectId?: string
 ): Promise<CloudRegion> {
     try {
-        const region = await resolveRegion(token, userHash, kv)
+        const region = await resolveRegion(token, userHash, kv, projectId)
         if (region) {
             return region
         }

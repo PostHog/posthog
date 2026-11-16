@@ -1,5 +1,6 @@
 import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
 
+import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
@@ -21,6 +22,7 @@ import {
 import type { EvaluationBackfillApi, EvaluationBackfillEstimateApi } from '../generated/api.schemas'
 import { evaluationBackfillsLogic } from './evaluationBackfillsLogic'
 import { llmEvaluationLogic } from './llmEvaluationLogic'
+import { requestBackfillStart } from './pendingBackfillStarts'
 import type { EvaluationConfig } from './types'
 
 jest.mock('../generated/api', () => ({
@@ -80,6 +82,7 @@ function backfill(overrides: Partial<EvaluationBackfillApi> = {}): EvaluationBac
         window_end: '2024-01-02T00:00:00Z',
         conditions: [{ properties: [], rollout_percentage: 100 }],
         rerun_existing: false,
+        max_units: null,
         total_count: 10,
         dispatched_count: 8,
         completed_count: null,
@@ -459,6 +462,35 @@ describe('evaluationBackfillsLogic', () => {
 
         await expectLogic(logic).toDispatchActions(['loadBackfillsSuccess'])
         expect(logic.cache.disposables.registry.has('backfillPoll')).toBe(false)
+    })
+
+    it('starts the default range once counted when a create asked for it, and only once', async () => {
+        requestBackfillStart(EVALUATION_ID)
+        mountLogic()
+        await expectLogic(logic).toDispatchActions(['requestEstimateSuccess', 'createBackfill', 'createBackfillDone'])
+        expect(createMock).toHaveBeenCalledTimes(1)
+
+        logic.actions.requestEstimateSuccess(estimate())
+        await expectLogic(logic).toFinishAllListeners()
+        expect(createMock).toHaveBeenCalledTimes(1)
+    })
+
+    it('starts nothing from a link that only claims a start was requested', async () => {
+        router.actions.push(router.values.location.pathname, { backfill_start: 'requested' })
+        mountLogic()
+        await expectLogic(logic).toDispatchActions(['requestEstimateSuccess'])
+        await expectLogic(logic).toFinishAllListeners()
+        expect(createMock).not.toHaveBeenCalled()
+    })
+
+    it('still starts a requested backfill after leaving the tab before the count landed', async () => {
+        requestBackfillStart(EVALUATION_ID)
+        mountLogic()
+        logic.unmount()
+
+        mountLogic()
+        await expectLogic(logic).toDispatchActions(['createBackfill', 'createBackfillDone'])
+        expect(createMock).toHaveBeenCalledTimes(1)
     })
 
     it('keeps polling a finished run until its coverage lands', async () => {
