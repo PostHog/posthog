@@ -229,8 +229,9 @@ describe('broadcastSendingLogic', () => {
         release()
         await waitFor(() => expect(logic.values.resumingEmailSending).toBe(false))
         logic.actions.resumeEmailSending()
+        fireEvent.click(await screen.findByText('Cancel'))
 
-        expect(await screen.findAllByText('Resume email sending?')).toHaveLength(1)
+        await waitFor(() => expect(screen.queryByText('Resume email sending?')).toBeNull())
     })
 
     describe('while a send runs', () => {
