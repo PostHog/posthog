@@ -6,7 +6,11 @@ from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.schema.events import EventsPersonSubTable, EventsTable
 from posthog.hogql.database.schema.groups import GroupsTable
-from posthog.hogql.restricted_properties import key_read_overlaps_restriction, restricted_property_keys_for_table_type
+from posthog.hogql.restricted_properties import (
+    key_read_overlaps_restriction,
+    restricted_feature_flag_names,
+    restricted_property_keys_for_table_type,
+)
 
 from posthog.models.property import Property
 from posthog.models.user import User
@@ -42,9 +46,24 @@ def can_access_clustering_filters(team_id: int, user: User, filters: list[dict[s
         # Cohort and HogQL predicates can reference properties indirectly.
         if table_type is None:
             return False
-        if key_read_overlaps_restriction(
-            prop.key,
-            restricted_property_keys_for_table_type(table_type, context, group_type_index=prop.group_type_index),
+        restricted_keys = restricted_property_keys_for_table_type(
+            table_type, context, group_type_index=prop.group_type_index
+        )
+        if key_read_overlaps_restriction(prop.key, restricted_keys):
+            return False
+        if (
+            prop.type == "event"
+            and key_read_overlaps_restriction(prop.key, {"$active_feature_flags", "$feature_flags"})
+            and (
+                restricted_feature_flag_names(restricted_keys)
+                or key_read_overlaps_restriction("$feature_flags", restricted_keys)
+            )
+        ):
+            return False
+        if (
+            prop.type == "event"
+            and prop.key.startswith("$feature/")
+            and key_read_overlaps_restriction("$feature_flags", restricted_keys)
         ):
             return False
     return True

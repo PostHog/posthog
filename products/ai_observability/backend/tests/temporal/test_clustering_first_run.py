@@ -1,7 +1,7 @@
 import asyncio
 import logging
 from dataclasses import asdict
-from datetime import timedelta
+from datetime import datetime, timedelta
 from typing import Any
 
 import pytest
@@ -102,7 +102,7 @@ async def test_first_run_waits_for_enough_data_then_prepares_before_clustering(
     @activity.defn(name="sample_items_in_window_activity")
     async def sample(value: BatchSummarizationInputs) -> list[dict[str, str]]:
         assert value.max_items == 10 and value.job_id == "job"
-        return [{"trace_id": str(i)} for i in range(eligible_count())]
+        return [{"trace_id": str(i)} for i in range(10)]
 
     @activity.defn(name="clustering_count_activity")
     async def count(value: ClusteringCountRequest) -> int:
@@ -160,6 +160,54 @@ async def test_first_run_waits_for_enough_data_then_prepares_before_clustering(
     assert len(preparations) == 1
 
 
+async def test_first_run_continues_as_new_then_hands_off_after_24_hours():
+    updates: list[ClusteringRunUpdate] = []
+    handoff_times: list[datetime] = []
+    async with await WorkflowEnvironment.start_time_skipping() as env:
+        started = await env.get_current_time()
+
+        @activity.defn(name="clustering_run_context_activity")
+        async def context(_: ClusteringRunRef) -> ClusteringRunContext:
+            return ClusteringRunContext(
+                active=True,
+                job_id="job",
+                job_name="Traces",
+                analysis_level="trace",
+                event_filters=[],
+                minimum=10,
+                lookback_days=7,
+                created_at=started,
+            )
+
+        @activity.defn(name="update_clustering_run_activity")
+        async def update(value: ClusteringRunUpdate) -> None:
+            updates.append(value)
+            if value.status == "scheduled":
+                handoff_times.append(activity.info().scheduled_time)
+
+        @activity.defn(name="clustering_count_activity")
+        async def count(_: ClusteringCountRequest) -> int:
+            return 9
+
+        async with Worker(
+            env.client,
+            task_queue="clustering-handoff",
+            workflows=[ClusteringFirstRunWorkflow],
+            activities=[context, update, count],
+            workflow_runner=UnsandboxedWorkflowRunner(),
+        ):
+            await env.client.execute_workflow(
+                ClusteringFirstRunWorkflow.run,
+                ClusteringRunRef(team_id=1, run_id="handoff"),
+                id="handoff",
+                task_queue="clustering-handoff",
+                execution_timeout=timedelta(hours=26),
+            )
+        assert len([update for update in updates if update.status == "waiting"]) == 48
+        assert updates[-1].status == "scheduled"
+        assert timedelta(hours=24) <= handoff_times[0] - started < timedelta(hours=25)
+
+
 async def test_temporal_cancellation_persists_a_terminal_status():
     updates: list[str] = []
     waiting = asyncio.Event()
@@ -182,16 +230,16 @@ async def test_temporal_cancellation_persists_a_terminal_status():
         if value.status == "waiting":
             waiting.set()
 
-    @activity.defn(name="sample_items_in_window_activity")
-    async def sample(_: BatchSummarizationInputs) -> list:
-        return []
+    @activity.defn(name="clustering_count_activity")
+    async def count(_: ClusteringCountRequest) -> int:
+        return 0
 
     async with await WorkflowEnvironment.start_time_skipping() as env:
         async with Worker(
             env.client,
             task_queue="canceled-clustering-test",
             workflows=[ClusteringFirstRunWorkflow],
-            activities=[context, update, sample],
+            activities=[context, update, count],
             workflow_runner=UnsandboxedWorkflowRunner(),
         ):
             handle = await env.client.start_workflow(
@@ -228,8 +276,8 @@ async def test_disabled_jobs_stop_and_query_failures_are_reported(enabled: bool)
     async def update(value: ClusteringRunUpdate) -> None:
         updates.append(value)
 
-    @activity.defn(name="sample_items_in_window_activity")
-    async def sample(_: BatchSummarizationInputs) -> list:
+    @activity.defn(name="clustering_count_activity")
+    async def count(_: ClusteringCountRequest) -> int:
         raise ApplicationError("query failed", non_retryable=True)
 
     async with await WorkflowEnvironment.start_time_skipping() as env:
@@ -237,7 +285,7 @@ async def test_disabled_jobs_stop_and_query_failures_are_reported(enabled: bool)
             env.client,
             task_queue="failed-clustering-test",
             workflows=[ClusteringFirstRunWorkflow],
-            activities=[context, update, sample],
+            activities=[context, update, count],
             workflow_runner=UnsandboxedWorkflowRunner(),
         ):
             result = env.client.execute_workflow(

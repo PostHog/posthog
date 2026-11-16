@@ -1,7 +1,6 @@
 from typing import Any, cast
 
 from django.db import IntegrityError, transaction
-from django.utils import timezone
 
 from rest_framework import serializers, status, viewsets
 from rest_framework.permissions import IsAuthenticated
@@ -19,8 +18,8 @@ from products.cohorts.backend.models.cohort import Cohort
 
 from ..facade.api import validate_clustering_filters
 from ..logic.clustering.constants import MAX_JOBS_PER_TEAM
+from ..models.clustering_config import ClusteringConfig
 from ..models.clustering_job import ClusteringJob
-from ..models.clustering_run import ACTIVE_CLUSTERING_RUN_STATUSES, ClusteringRun, ClusteringRunStatus
 from .metrics import llma_track_latency
 
 _COHORT_FILTER_TYPES = ("cohort", "static-cohort", "precalculated-cohort")
@@ -126,6 +125,8 @@ class ClusteringJobViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
     def create(self, request: Request, *args, **kwargs) -> Response:
         try:
             with transaction.atomic():
+                ClusteringConfig.objects.get_or_create(team_id=self.team_id)
+                ClusteringConfig.objects.select_for_update().get(team_id=self.team_id)
                 existing_count = ClusteringJob.objects.filter(team_id=self.team_id).select_for_update().count()
                 if existing_count >= MAX_JOBS_PER_TEAM:
                     return Response(
@@ -140,23 +141,22 @@ class ClusteringJobViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
             )
 
     def perform_create(self, serializer):
-        from ..facade.api import request_first_clustering_runs
+        from ..facade.api import cancel_clustering_job_runs, request_first_clustering_runs
 
         instance = serializer.save(team_id=self.team_id)
 
         # Disable the migration-created default job for the same level.
         # Creating a custom job signals the default catch-all is too noisy.
-        disabled_count = (
-            ClusteringJob.objects.filter(
-                team_id=self.team_id,
-                analysis_level=instance.analysis_level,
-                name__startswith="Default - ",
-                enabled=True,
-            )
-            .exclude(id=instance.id)
-            .update(enabled=False)
-        )
-        request_first_clustering_runs(self.team_id, cast(User, self.request.user))
+        defaults = ClusteringJob.objects.filter(
+            team_id=self.team_id,
+            analysis_level=instance.analysis_level,
+            name__startswith="Default - ",
+            enabled=True,
+        ).exclude(id=instance.id)
+        for job_id in defaults.values_list("id", flat=True):
+            cancel_clustering_job_runs(self.team_id, job_id)
+        disabled_count = defaults.update(enabled=False)
+        request_first_clustering_runs(self.team_id, cast(User, self.request.user), job_id=instance.id)
 
         report_user_action(
             self.request.user,
@@ -183,20 +183,22 @@ class ClusteringJobViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
             )
 
     def perform_update(self, serializer):
-        from ..facade.api import request_first_clustering_runs
+        from ..facade.api import cancel_clustering_job_runs, request_first_clustering_runs
 
         with transaction.atomic():
+            ClusteringConfig.objects.get_or_create(team_id=self.team_id)
+            ClusteringConfig.objects.select_for_update().get(team_id=self.team_id)
             scope_changed = any(
                 field in serializer.validated_data
                 and serializer.validated_data[field] != getattr(serializer.instance, field)
                 for field in ("event_filters", "analysis_level")
             )
+            was_enabled = serializer.instance.enabled
             instance = serializer.save()
-            if scope_changed:
-                ClusteringRun.objects.for_team(self.team_id).filter(
-                    job=instance, status__in=ACTIVE_CLUSTERING_RUN_STATUSES
-                ).update(status=ClusteringRunStatus.CANCELED, finished_at=timezone.now(), updated_at=timezone.now())
-            request_first_clustering_runs(self.team_id, cast(User, self.request.user))
+            if scope_changed or not instance.enabled:
+                cancel_clustering_job_runs(self.team_id, instance.id)
+            if scope_changed or (instance.enabled and not was_enabled):
+                request_first_clustering_runs(self.team_id, cast(User, self.request.user), job_id=instance.id)
         report_user_action(
             self.request.user,
             "llma clustering job updated",
@@ -217,3 +219,12 @@ class ClusteringJobViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, vi
             request=request,
         )
         return super().destroy(request, *args, **kwargs)
+
+    def perform_destroy(self, instance):
+        from ..facade.api import cancel_clustering_job_runs
+
+        with transaction.atomic():
+            ClusteringConfig.objects.get_or_create(team_id=self.team_id)
+            ClusteringConfig.objects.select_for_update().get(team_id=self.team_id)
+            cancel_clustering_job_runs(self.team_id, instance.id)
+            instance.delete()

@@ -39,6 +39,77 @@ const llmaClusteringConfigGet = (): ToolBase<
     },
 })
 
+const LlmaClusteringConfigSetEnabledSchema = () => {
+    const LlmAnalyticsClusteringConfigSetEnabledCreateBody =
+        orvalSchemas.LlmAnalyticsClusteringConfigSetEnabledCreateBody()
+    return LlmAnalyticsClusteringConfigSetEnabledCreateBody
+}
+
+const llmaClusteringConfigSetEnabled = (): ToolBase<
+    ReturnType<typeof LlmaClusteringConfigSetEnabledSchema>,
+    Schemas.ClusteringConfig
+> => ({
+    name: 'llma-clustering-config-set-enabled',
+    schema: LlmaClusteringConfigSetEnabledSchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof LlmaClusteringConfigSetEnabledSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.enabled !== undefined) {
+            body['enabled'] = params.enabled
+        }
+        const result = await context.api.request<Schemas.ClusteringConfig>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/llm_analytics/clustering_config/set_enabled/`,
+            body,
+        })
+        return result
+    },
+})
+
+const LlmaClusteringProgressGetSchema = () => z.object({})
+
+const llmaClusteringProgressGet = (): ToolBase<
+    ReturnType<typeof LlmaClusteringProgressGetSchema>,
+    Schemas.ClusteringJobProgress[]
+> => ({
+    name: 'llma-clustering-progress-get',
+    schema: LlmaClusteringProgressGetSchema(),
+    handler: async (context: Context, _params: z.infer<ReturnType<typeof LlmaClusteringProgressGetSchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.ClusteringJobProgress[]>({
+            method: 'GET',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/llm_analytics/clustering_config/progress/`,
+        })
+        return result
+    },
+})
+
+const LlmaClusteringJobRetrySchema = () => {
+    const LlmAnalyticsClusteringConfigRetryCreateBody = orvalSchemas.LlmAnalyticsClusteringConfigRetryCreateBody()
+    return LlmAnalyticsClusteringConfigRetryCreateBody
+}
+
+const llmaClusteringJobRetry = (): ToolBase<
+    ReturnType<typeof LlmaClusteringJobRetrySchema>,
+    Schemas.ClusteringJobProgress[]
+> => ({
+    name: 'llma-clustering-job-retry',
+    schema: LlmaClusteringJobRetrySchema(),
+    handler: async (context: Context, params: z.infer<ReturnType<typeof LlmaClusteringJobRetrySchema>>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const body: Record<string, unknown> = {}
+        if (params.job_id !== undefined) {
+            body['job_id'] = params.job_id
+        }
+        const result = await context.api.request<Schemas.ClusteringJobProgress[]>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/llm_analytics/clustering_config/retry/`,
+            body,
+        })
+        return result
+    },
+})
+
 const LlmaClusteringConfigSetEventFiltersSchema = () => {
     const LlmAnalyticsClusteringConfigSetEventFiltersCreateBody =
         orvalSchemas.LlmAnalyticsClusteringConfigSetEventFiltersCreateBody()
@@ -3570,6 +3641,9 @@ const AssistantTraceQuery = z.object({
 
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'llma-clustering-config-get': llmaClusteringConfigGet,
+    'llma-clustering-config-set-enabled': llmaClusteringConfigSetEnabled,
+    'llma-clustering-progress-get': llmaClusteringProgressGet,
+    'llma-clustering-job-retry': llmaClusteringJobRetry,
     'llma-clustering-config-set-event-filters': llmaClusteringConfigSetEventFilters,
     'llma-clustering-job-create': llmaClusteringJobCreate,
     'llma-clustering-job-delete': llmaClusteringJobDelete,

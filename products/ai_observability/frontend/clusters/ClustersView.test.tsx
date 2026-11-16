@@ -1,6 +1,7 @@
 import '@testing-library/jest-dom'
 
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
 import api from 'lib/api'
@@ -12,6 +13,7 @@ import { initKeaTests } from '~/test/init'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { clustersEmptyState } from '../emptyState/clustersEmptyState'
+import { traceDrawerLogic } from '../redesign/trace/traceDrawerLogic'
 import { clusteringConfigLogic } from './clusteringConfigLogic'
 import { ClustersView } from './ClustersView'
 
@@ -52,6 +54,10 @@ describe('ClustersView', () => {
             ).toBeVisible()
             const disabledToggle = screen.getByLabelText('Clustering disabled')
             expect(disabledToggle).not.toBeChecked()
+            expect(
+                screen.getByText('No clustering runs yet. Enable clustering to start finding patterns in your data.')
+            ).toBeVisible()
+            expect(screen.queryByText(/after the first automatic run/)).not.toBeInTheDocument()
             fireEvent.click(disabledToggle)
             await waitFor(() => expect(config.enabled).toBe(true))
             expect(await screen.findByLabelText('Clustering enabled')).toBeChecked()
@@ -135,6 +141,54 @@ describe('cluster setup and jobs', () => {
             expect(await screen.findByText('Create')).toBeVisible()
         }
     )
+
+    it('navigates only through the cluster a member was opened from', async () => {
+        const clusters = [0, 1].map((clusterId) => ({
+            cluster_id: clusterId,
+            title: `Cluster ${clusterId}`,
+            description: '',
+            size: 2,
+            centroid: [],
+            centroid_x: clusterId,
+            centroid_y: 0,
+            traces: Object.fromEntries(
+                [0, 1].map((rank) => {
+                    const id = `trace-${clusterId}-${rank}`
+                    return [
+                        id,
+                        { trace_id: id, rank, distance_to_centroid: 0, x: 0, y: 0, timestamp: '2026-01-07T12:00:00Z' },
+                    ]
+                })
+            ),
+        }))
+        const runId = '1_trace_20260107_120000'
+        query.mockImplementation(async (sql) => ({
+            results: String(sql).includes('as total_items')
+                ? [
+                      [
+                          runId,
+                          '2026-01-01',
+                          '2026-01-07',
+                          4,
+                          JSON.stringify(clusters),
+                          '2026-01-07T12:00:00Z',
+                          '{}',
+                          'trace',
+                      ],
+                  ]
+                : String(sql).includes('as run_id')
+                  ? [[runId, '2026-01-07', '2026-01-07T12:00:00Z']]
+                  : [],
+        }))
+        router.actions.push(`/ai-observability/clusters/${runId}`)
+        render(<ClustersView />)
+        fireEvent.click((await screen.findAllByRole('button', { name: 'Show more' }))[0])
+        fireEvent.click((await screen.findAllByText('Trace trace-0-'))[0])
+        expect(traceDrawerLogic({ listId: 'clusters' }).values.rows.map((row) => row.traceId)).toEqual([
+            'trace-0-0',
+            'trace-0-1',
+        ])
+    })
 
     it('shows setup only while disabled and a separate waiting page after enabling', async () => {
         render(

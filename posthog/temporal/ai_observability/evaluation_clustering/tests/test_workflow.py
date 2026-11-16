@@ -20,6 +20,7 @@ from posthog.temporal.ai_observability.evaluation_clustering.activities import (
     _compute_sync,
 )
 from posthog.temporal.ai_observability.evaluation_clustering.constants import (
+    CLUSTERING_MAX_SAMPLES,
     SAMPLER_MAX_SAMPLES_PER_JOB,
     SAMPLER_WINDOW_MINUTES,
     SAMPLER_WINDOW_OFFSET_MINUTES,
@@ -43,6 +44,12 @@ from posthog.temporal.ai_observability.evaluation_clustering.workflow import (
 from posthog.temporal.ai_observability.shared_activities import FetchAllClusteringJobsInput, JobConfig
 from posthog.temporal.ai_observability.team_discovery import TeamDiscoveryInput
 from posthog.temporal.ai_observability.trace_clustering.models import ClusteringMetrics, ClusteringResult, ClusterLabel
+
+from products.ai_observability.backend.facade.clustering_contracts import (
+    ClusteringExecutionClaim,
+    ClusteringExecutionRequest,
+    ClusteringRunUpdate,
+)
 
 
 class TestEvaluationJobsForTeam:
@@ -114,12 +121,21 @@ async def _run_sampler_with_mock_activity(
         )
 
     task_queue = str(uuid.uuid4())
+
+    @activity.defn(name="acquire_clustering_execution_activity")
+    async def acquire(request: ClusteringExecutionRequest) -> ClusteringExecutionClaim:
+        return ClusteringExecutionClaim(run_id="scheduled-test", owned=True)
+
+    @activity.defn(name="finish_clustering_execution_activity")
+    async def finish(update: ClusteringRunUpdate) -> None:
+        pass
+
     async with await WorkflowEnvironment.start_time_skipping() as env:
         async with Worker(
             env.client,
             task_queue=task_queue,
             workflows=[AIObservabilityEvaluationSamplerWorkflow],
-            activities=[mock_activity],
+            activities=[mock_activity, acquire, finish],
             workflow_runner=UnsandboxedWorkflowRunner(),
         ):
             await env.client.execute_workflow(
@@ -267,7 +283,8 @@ class TestSamplerCoordinatorWindow:
 
 class TestClusteringWorkflowWiring:
     @pytest.mark.asyncio
-    async def test_forwards_workflow_run_identity_to_labeling(self) -> None:
+    @pytest.mark.parametrize("max_samples", [100, None])
+    async def test_forwards_workflow_run_identity_to_labeling(self, max_samples: int | None) -> None:
         trace_uuid = uuid.UUID("11111111-1111-4111-8111-111111111111")
         compute_result = EvaluationClusteringComputeResult(
             clustering_run_id="1_evaluation_20250108_000000_job-1",
@@ -321,10 +338,13 @@ class TestClusteringWorkflowWiring:
             patch("posthog.temporal.ai_observability.evaluation_clustering.workflow.record_noise_points"),
             patch("posthog.temporal.ai_observability.evaluation_clustering.workflow.record_clusters_generated"),
         ):
-            await AIObservabilityEvaluationClusteringWorkflow().run(
-                SamplerWorkflowInputs(team_id=1, job_id="job-1", job_name="Job 1")
+            await AIObservabilityEvaluationClusteringWorkflow()._run(
+                SamplerWorkflowInputs(team_id=1, job_id="job-1", job_name="Job 1", max_samples=max_samples)
             )
 
+        compute_inputs = activity_inputs[0]
+        assert isinstance(compute_inputs, EvaluationClusteringComputeInputs)
+        assert compute_inputs.max_samples == (max_samples if max_samples is not None else CLUSTERING_MAX_SAMPLES)
         label_inputs = activity_inputs[2]
         assert isinstance(label_inputs, GenerateEvaluationLabelsInputs)
         assert label_inputs.trace_id == str(trace_uuid)

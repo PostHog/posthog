@@ -13,25 +13,48 @@ from ...models.clustering_config import ClusteringConfig
 from ...models.clustering_job import ClusteringJob
 from ...models.clustering_run import ACTIVE_CLUSTERING_RUN_STATUSES, ClusteringRun, ClusteringRunStatus
 from .constants import MIN_CLUSTERING_ITEMS, clustering_lookback_days
+from .eligibility import eligible_clustering_team_ids
 from .permissions import can_access_clustering_filters, validate_clustering_filters
 
 FIRST_RUNS_PER_HOUR = 10
 
 
-def request_first_runs(team_id: int, user: User, retry_job_id: UUID | None = None) -> None:
+def request_first_runs(
+    team_id: int, user: User, retry_job_id: UUID | None = None, *, job_id: UUID | None = None
+) -> None:
     with transaction.atomic():
         config = ClusteringConfig.objects.select_for_update().filter(team_id=team_id, enabled=True).first()
         if config is None:
             if retry_job_id:
                 raise ValidationError("Enable clustering before retrying a job.")
             return
+        if team_id not in eligible_clustering_team_ids([team_id]):
+            return
         jobs = ClusteringJob.objects.filter(team_id=team_id, enabled=True).order_by("created_at")
+        if job_id:
+            jobs = jobs.filter(id=job_id)
         if retry_job_id:
             jobs = jobs.filter(id=retry_job_id)
             if not jobs.exists():
                 raise NotFound("Clustering job not found.")
         for job in jobs:
-            latest = ClusteringRun.objects.for_team(team_id).filter(job=job).order_by("-created_at").first()
+            if (
+                ClusteringRun.objects.for_team(team_id)
+                .filter(job=job, status__in=ACTIVE_CLUSTERING_RUN_STATUSES)
+                .exists()
+            ):
+                continue
+            latest = (
+                ClusteringRun.objects.for_team(team_id)
+                .filter(job=job, is_first_run=True)
+                .order_by("-created_at")
+                .first()
+            )
+            if latest and (
+                latest.event_filters != job.event_filters
+                or (latest.analysis_level and latest.analysis_level != job.analysis_level)
+            ):
+                latest = None
             if latest and latest.status == ClusteringRunStatus.COMPLETED:
                 continue
             if latest and latest.status in ACTIVE_CLUSTERING_RUN_STATUSES:
@@ -39,14 +62,22 @@ def request_first_runs(team_id: int, user: User, retry_job_id: UUID | None = Non
             if latest and latest.status == ClusteringRunStatus.FAILED and retry_job_id is None:
                 continue
             validate_clustering_filters(team_id, user, job.event_filters)
-            recent = ClusteringRun.objects.for_team(team_id).filter(created_at__gt=timezone.now() - timedelta(hours=1))
+            recent = ClusteringRun.objects.for_team(team_id).filter(
+                is_first_run=True, created_at__gt=timezone.now() - timedelta(hours=1)
+            )
             if recent.count() >= FIRST_RUNS_PER_HOUR:
                 oldest = recent.earliest("created_at")
                 wait = (oldest.created_at + timedelta(hours=1) - timezone.now()).total_seconds()
                 raise Throttled(
                     wait=max(1, wait), detail="This project has started 10 clustering runs in the last hour."
                 )
-            run = ClusteringRun(team_id=team_id, job=job, requested_by=user, event_filters=job.event_filters)
+            run = ClusteringRun(
+                team_id=team_id,
+                job=job,
+                requested_by=user,
+                event_filters=job.event_filters,
+                analysis_level=job.analysis_level,
+            )
             run.workflow_id = f"ai-observability-clustering-first-run-{run.id}"
             run.save()
 
@@ -57,17 +88,23 @@ def get_run_context(ref: ClusteringRunRef) -> ClusteringRunContext | None:
     )
     if run is None:
         return None
-    if run.job is None or run.requested_by is None or not run.requested_by.is_active:
+    if run.job is None or (run.is_first_run and (run.requested_by is None or not run.requested_by.is_active)):
         update_run(ClusteringRunUpdate(ref=ref, status=ClusteringRunStatus.CANCELED))
         return None
     active = (
         run.status in ACTIVE_CLUSTERING_RUN_STATUSES
         and run.job.enabled
-        and run.requested_by.organization_memberships.filter(organization__team__id=ref.team_id).exists()
-        and can_access_clustering_filters(ref.team_id, run.requested_by, run.event_filters)
-        and ClusteringConfig.objects.filter(
-            team_id=ref.team_id, enabled=True, team__organization__is_ai_data_processing_approved=True
-        ).exists()
+        and run.job.event_filters == run.event_filters
+        and (not run.analysis_level or run.job.analysis_level == run.analysis_level)
+        and (
+            not run.is_first_run
+            or (
+                run.requested_by is not None
+                and run.requested_by.organization_memberships.filter(organization__team__id=ref.team_id).exists()
+                and can_access_clustering_filters(ref.team_id, run.requested_by, run.event_filters)
+            )
+        )
+        and ref.team_id in eligible_clustering_team_ids([ref.team_id])
     )
     if not active and run.status in ACTIVE_CLUSTERING_RUN_STATUSES:
         update_run(ClusteringRunUpdate(ref=ref, status=ClusteringRunStatus.CANCELED))
@@ -80,6 +117,7 @@ def get_run_context(ref: ClusteringRunRef) -> ClusteringRunContext | None:
         user_id=run.requested_by_id,
         minimum=MIN_CLUSTERING_ITEMS,
         lookback_days=clustering_lookback_days(run.job.analysis_level),
+        created_at=run.created_at,
     )
 
 

@@ -1,5 +1,4 @@
 import { useActions, useValues } from 'kea'
-import { useMemo } from 'react'
 
 import { IconQuestion, IconScatter } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonSegmentedButton, LemonSelect, Spinner, Tooltip } from '@posthog/lemon-ui'
@@ -12,7 +11,6 @@ import { dayjs } from 'lib/dayjs'
 import { groupsModel } from '~/models/groupsModel'
 
 import { TraceDrawerHost } from '../redesign/trace/TraceDrawerHost'
-import { TraceDrawerRowsSync } from '../redesign/trace/TraceDrawerRowsHost'
 import { clusteringConfigLogic } from './clusteringConfigLogic'
 import { ClusteringEnabledSwitch } from './ClusteringEnabledSwitch'
 import { ClusteringJobsButton } from './ClusteringJobsButton'
@@ -21,7 +19,6 @@ import { ClusteringProgress } from './ClusteringProgress'
 import { ClusterScatterPlot } from './ClusterScatterPlot'
 import { clustersLogic } from './clustersLogic'
 import { ClustersTable } from './ClustersTable'
-import { toClusterTraceDrawerRow } from './clusterTraceDrawerRow'
 import { EvaluationFilterBar } from './EvaluationFilterBar'
 import { getJobIdFromRunId } from './types'
 
@@ -34,7 +31,6 @@ export function ClustersView(): JSX.Element {
         currentRunLoading,
         filteredSortedClusters,
         effectiveRunId,
-        traceSummaries,
         isScatterPlotExpanded,
         propertyFilters,
         shouldFilterTestAccounts,
@@ -51,22 +47,6 @@ export function ClustersView(): JSX.Element {
     const { jobs } = useValues(clusteringJobsLogic)
     const { config, configLoading } = useValues(clusteringConfigLogic)
     const isLoading = clusteringRunsLoading || currentRunLoading
-    const drawerRows = useMemo(
-        () =>
-            filteredSortedClusters
-                .flatMap((cluster) =>
-                    Object.entries(cluster.traces)
-                        .sort(([, a], [, b]) => a.rank - b.rank)
-                        .map(([traceId, traceInfo]) =>
-                            toClusterTraceDrawerRow(
-                                { traceId, traceInfo, summary: traceSummaries[traceId] },
-                                clusteringLevel
-                            )
-                        )
-                )
-                .filter((row) => row !== null),
-        [filteredSortedClusters, traceSummaries, clusteringLevel]
-    )
 
     return (
         <div className="space-y-4 @container">
@@ -196,10 +176,11 @@ export function ClustersView(): JSX.Element {
                         ? 'Loading clusters…'
                         : currentRun
                           ? 'No clusters match the current filters.'
-                          : 'No clustering runs yet. Results will appear here after the first automatic run.'}
+                          : config.enabled
+                            ? 'No clustering runs yet. Results will appear here after the first automatic run.'
+                            : 'No clustering runs yet. Enable clustering to start finding patterns in your data.'}
                 </div>
             )}
-            <TraceDrawerRowsSync listId="clusters" rows={drawerRows} />
             <TraceDrawerHost listId="clusters" />
         </div>
     )

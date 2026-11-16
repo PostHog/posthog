@@ -1,20 +1,21 @@
 from datetime import timedelta
 
 from posthog.test.base import APIBaseTest
-from unittest.mock import AsyncMock, patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from django.utils import timezone
 
 from parameterized import parameterized
 from rest_framework import status
+from temporalio.client import WorkflowExecutionStatus
 
 from posthog.constants import AvailableFeature
 from posthog.models import Team
 
 from products.access_control.backend.models.property_access_control import PropertyAccessControl
 from products.access_control.backend.models.role import Role, RoleMembership
-from products.ai_observability.backend.facade.api import clustering_run_context
-from products.ai_observability.backend.facade.clustering_contracts import ClusteringRunRef
+from products.ai_observability.backend.facade.api import acquire_clustering_execution, clustering_run_context
+from products.ai_observability.backend.facade.clustering_contracts import ClusteringExecutionRequest, ClusteringRunRef
 from products.ai_observability.backend.models.clustering_config import ClusteringConfig
 from products.ai_observability.backend.models.clustering_job import ClusteringJob
 from products.ai_observability.backend.models.clustering_run import ClusteringRun
@@ -27,6 +28,9 @@ class TestClusteringConfigViewSet(APIBaseTest):
         super().setUp()
         self.organization.is_ai_data_processing_approved = True
         self.organization.save(update_fields=["is_ai_data_processing_approved"])
+        self.cancel_tasks = self.enterContext(
+            patch("products.ai_observability.backend.tasks.clustering.cancel_clustering_runs.delay")
+        )
 
     def test_enabling_queues_one_run_per_job_without_waiting_for_temporal(self):
         url = f"/api/environments/{self.team.id}/llm_analytics/clustering_config/set_enabled/"
@@ -38,7 +42,13 @@ class TestClusteringConfigViewSet(APIBaseTest):
             with self.captureOnCommitCallbacks(execute=True):
                 self.client.post(url, {"enabled": False}, format="json")
                 self.client.post(url, {"enabled": True}, format="json")
-            self.assertEqual(set(ClusteringRun.objects.for_team(self.team.id).values_list("id", flat=True)), first_ids)
+            self.assertEqual(
+                set(
+                    ClusteringRun.objects.for_team(self.team.id).filter(status="canceled").values_list("id", flat=True)
+                ),
+                first_ids,
+            )
+            self.assertEqual(ClusteringRun.objects.for_team(self.team.id).filter(status="queued").count(), 3)
             dispatch.assert_not_called()
 
     def test_dispatcher_recovers_queued_runs_and_uses_the_same_workflow_after_a_lost_response(self):
@@ -82,6 +92,96 @@ class TestClusteringConfigViewSet(APIBaseTest):
         self.assertEqual(
             self.client.post(url, {"name": "Next job", "analysis_level": "trace"}, format="json").status_code, 201
         )
+
+    def test_job_mutations_do_not_admit_other_jobs_or_spend_budget_on_a_rename(self):
+        ClusteringConfig.objects.create(team=self.team, enabled=True)
+        unrelated = ClusteringJob.objects.create(team=self.team, name="Untouched", analysis_level="evaluation")
+        url = f"/api/projects/{self.team.id}/llm_analytics/clustering_jobs/"
+        created = self.client.post(url, {"name": "New traces", "analysis_level": "trace"}, format="json")
+        self.assertEqual(created.status_code, 201)
+        self.assertFalse(ClusteringRun.objects.for_team(self.team.id).filter(job=unrelated).exists())
+        run = ClusteringRun.objects.for_team(self.team.id).get()
+        run.status = "failed"
+        run.save()
+        response = self.client.patch(f"{url}{run.job_id}/", {"name": "Renamed"}, format="json")
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(ClusteringRun.objects.for_team(self.team.id).count(), 1)
+
+    def test_scheduled_and_first_runs_share_the_job_claim(self):
+        ClusteringConfig.objects.create(team=self.team, enabled=True)
+        job = ClusteringJob.objects.create(team=self.team, name="Traces", analysis_level="trace")
+        request = ClusteringExecutionRequest(
+            team_id=self.team.id, job_id=str(job.id), analysis_level="trace", event_filters=[], workflow_id="scheduled"
+        )
+        claim = acquire_clustering_execution(request)
+        assert claim is not None
+        self.assertEqual(acquire_clustering_execution(request), claim)
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/llm_analytics/clustering_config/retry/",
+            {"job_id": str(job.id)},
+            format="json",
+        )
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(ClusteringRun.objects.for_team(self.team.id).count(), 1)
+        self.assertIsNone(response.data[0]["status"])
+        ClusteringRun.objects.for_team(self.team.id).update(status="completed")
+        self.client.post(
+            f"/api/projects/{self.team.id}/llm_analytics/clustering_config/retry/",
+            {"job_id": str(job.id)},
+            format="json",
+        )
+        self.assertIsNone(acquire_clustering_execution(request))
+
+    @parameterized.expand([("waiting",), ("preparing",), ("clustering",)])
+    def test_terminated_workflows_release_the_job_for_retry(self, run_status):
+        ClusteringConfig.objects.create(team=self.team, enabled=True)
+        job = ClusteringJob.objects.create(team=self.team, name="Traces", analysis_level="trace")
+        run = ClusteringRun.objects.for_team(self.team.id).create(
+            team=self.team, job=job, requested_by=self.user, status=run_status, workflow_id="terminated"
+        )
+        handle = AsyncMock()
+        handle.describe.return_value.status = WorkflowExecutionStatus.TERMINATED
+        client = MagicMock()
+        client.get_workflow_handle.return_value = handle
+        with patch(
+            "products.ai_observability.backend.temporal.clustering_client.async_connect",
+            new=AsyncMock(return_value=client),
+        ):
+            start_clustering_run(self.team.id, str(run.id))
+        run.refresh_from_db()
+        self.assertEqual(run.status, "failed")
+        self.assertEqual(run.failure_reason, "workflow_stopped")
+        self.client.post(
+            f"/api/projects/{self.team.id}/llm_analytics/clustering_config/retry/",
+            {"job_id": str(job.id)},
+            format="json",
+        )
+        self.assertEqual(ClusteringRun.objects.for_team(self.team.id).filter(status="queued").count(), 1)
+
+    def test_skip_list_prevents_first_and_scheduled_runs(self):
+        ClusteringConfig.objects.create(team=self.team, enabled=True)
+        job = ClusteringJob.objects.create(team=self.team, name="Traces", analysis_level="trace")
+        with patch(
+            "products.ai_observability.backend.logic.clustering.eligibility.posthoganalytics.get_feature_flag_payload",
+            return_value={"skip_team_ids": [self.team.id]},
+        ):
+            self.client.post(
+                f"/api/projects/{self.team.id}/llm_analytics/clustering_config/retry/",
+                {"job_id": str(job.id)},
+                format="json",
+            )
+            self.assertIsNone(
+                acquire_clustering_execution(
+                    ClusteringExecutionRequest(
+                        team_id=self.team.id,
+                        job_id=str(job.id),
+                        analysis_level="trace",
+                        event_filters=[],
+                        workflow_id="skipped",
+                    )
+                )
+            )
+        self.assertFalse(ClusteringRun.objects.for_team(self.team.id).exists())
 
     def test_enabling_preserves_legacy_filters_in_default_jobs_and_run_snapshots(self):
         filters = [{"key": "$ai_model", "value": "example-model", "operator": "exact", "type": "event"}]
@@ -149,6 +249,10 @@ class TestClusteringConfigViewSet(APIBaseTest):
             for subject in ("member", "role")
             for property_type, restricted_type, restricted_key, key, group_index in (
                 ("event", PropertyDefinition.Type.EVENT, "private_property", "private_property", None),
+                ("event", PropertyDefinition.Type.EVENT, "$feature/private-flag", "$active_feature_flags", None),
+                ("event", PropertyDefinition.Type.EVENT, "$feature/private-flag", "$feature_flags", None),
+                ("event", PropertyDefinition.Type.EVENT, "$feature_flags", "$active_feature_flags", None),
+                ("event", PropertyDefinition.Type.EVENT, "$feature_flags", "$feature/private-flag", None),
                 ("event", PropertyDefinition.Type.EVENT, "private_property", "private_property.nested", None),
                 ("event", PropertyDefinition.Type.EVENT, "private_property.nested", "private_property", None),
                 ("event", PropertyDefinition.Type.EVENT, "private_property.nested", "private_property%2Enested", None),

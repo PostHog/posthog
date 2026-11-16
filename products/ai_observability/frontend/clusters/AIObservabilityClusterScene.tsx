@@ -3,15 +3,12 @@ import { useMemo } from 'react'
 
 import { IconChevronLeft, IconChevronRight, IconQuestion } from '@posthog/icons'
 import { LemonButton, LemonCard, LemonSkeleton, Spinner, Tooltip } from '@posthog/lemon-ui'
-import { Button } from '@posthog/quill'
 
 import { NotFound } from 'lib/components/NotFound'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TestAccountFilterSwitch } from 'lib/components/TestAccountFiltersSwitch'
 import { TZLabel } from 'lib/components/TZLabel'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
-import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -60,7 +57,6 @@ export function AIObservabilityClusterScene(): JSX.Element {
     } = useValues(clusterDetailLogic)
     const { setPage, setPropertyFilters, setShouldFilterTestAccounts } = useActions(clusterDetailLogic)
     const { groupsTaxonomicTypes } = useValues(groupsModel)
-    const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
     const drawerRows = useMemo(
         () =>
             paginatedTracesWithSummaries
@@ -90,21 +86,7 @@ export function AIObservabilityClusterScene(): JSX.Element {
             <SceneTitleSection
                 name={cluster.title}
                 resourceType={{ type: 'llm_analytics' }}
-                actions={
-                    todayRailNav ? (
-                        <Button
-                            variant="outline"
-                            render={<LinkPrimitive to={backUrl} />}
-                            data-attr="clusters-back-button"
-                        >
-                            Back to clusters
-                        </Button>
-                    ) : (
-                        <LemonButton type="secondary" size="small" to={backUrl} data-attr="clusters-back-button">
-                            Back to clusters
-                        </LemonButton>
-                    )
-                }
+                forceBackTo={{ key: 'clusters', name: 'Clusters', path: backUrl }}
             />
             <div className="@container space-y-4">
                 {windowStart && windowEnd && (

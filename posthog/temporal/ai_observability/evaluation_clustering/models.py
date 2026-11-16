@@ -22,6 +22,7 @@ class SamplerActivityInputs:
     window_end: str  # ISO
     max_samples: int
     event_filters: list[dict[str, Any]] = field(default_factory=list)
+    execution_id: str = ""
 
 
 @dataclass
@@ -47,6 +48,7 @@ class SamplerWorkflowInputs:
     # Mostly useful for tests and for manual replays.
     window_start: str | None = None
     window_end: str | None = None
+    execution_id: str = ""
 
     @property
     def properties_to_log(self) -> dict[str, Any]:

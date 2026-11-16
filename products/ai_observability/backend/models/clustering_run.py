@@ -12,6 +12,7 @@ class ClusteringRunStatus(models.TextChoices):
     COMPLETED = "completed", "Completed"
     FAILED = "failed", "Failed"
     CANCELED = "canceled", "Stopped"
+    SCHEDULED = "scheduled", "Waiting for scheduled runs"
 
 
 ACTIVE_CLUSTERING_RUN_STATUSES = (
@@ -29,6 +30,8 @@ class ClusteringRun(TeamScopedRootMixin, UUIDModel):
     )
     requested_by = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True, db_constraint=False)
     event_filters = models.JSONField(default=list)
+    analysis_level = models.CharField(max_length=20, default="", db_default="")
+    is_first_run = models.BooleanField(default=True, db_default=True)
     last_dispatch_at = models.DateTimeField(null=True)
     result_run_id = models.CharField(max_length=255, default="", blank=True)
     workflow_id = models.CharField(max_length=200, unique=True)
@@ -45,7 +48,7 @@ class ClusteringRun(TeamScopedRootMixin, UUIDModel):
         indexes = [
             models.Index(
                 fields=["last_dispatch_at", "created_at"],
-                condition=models.Q(status=ClusteringRunStatus.QUEUED),
+                condition=models.Q(status__in=ACTIVE_CLUSTERING_RUN_STATUSES),
                 name="aio_clustering_queued_dispatch",
             )
         ]

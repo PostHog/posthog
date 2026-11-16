@@ -202,7 +202,13 @@ class TestGetTeamIdsForAIObservability:
 
         projects = await database_sync_to_async(create_projects)()
         mock_ff.return_value = {"guaranteed_team_ids": [projects.off, projects.no_consent], "sample_percentage": 0}
-        assert await get_team_ids_for_ai_observability(TeamDiscoveryInput()) == [projects.on]
+        with patch(
+            "posthog.tasks.ai_observability_usage_report.get_teams_with_ai_events",
+            return_value=[projects.on, projects.off],
+        ):
+            assert await get_team_ids_for_ai_observability(TeamDiscoveryInput()) == [projects.on]
+        with patch("posthog.tasks.ai_observability_usage_report.get_teams_with_ai_events", return_value=[]):
+            assert await get_team_ids_for_ai_observability(TeamDiscoveryInput()) == []
 
         mock_ff.return_value = {"skip_team_ids": [projects.on]}
         assert await get_team_ids_for_ai_observability(TeamDiscoveryInput()) == []
@@ -242,6 +248,7 @@ class TestGetTeamIdsForAIObservability:
         with (
             patch("asyncio.sleep", new_callable=AsyncMock) as sleep,
             patch("posthog.temporal.ai_observability.coordinator_metrics.get_metric_meter"),
+            patch("posthog.tasks.ai_observability_usage_report.get_teams_with_ai_events", return_value=[1]),
         ):
             assert await get_team_ids_for_ai_observability(TeamDiscoveryInput()) == expected
         assert query.call_args_list == [call([1])] * attempts

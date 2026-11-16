@@ -9,6 +9,7 @@ from datetime import UTC, datetime
 import pytest
 from unittest.mock import patch
 
+from temporalio.exceptions import ApplicationError
 from temporalio.testing import ActivityEnvironment
 
 from posthog.temporal.ai_observability.trace_summarization.models import SummarizeAndSaveInput, TextReprExpiredError
@@ -25,8 +26,11 @@ def mock_team(db):
     from posthog.models.organization import Organization
     from posthog.models.team import Team
 
-    organization = Organization.objects.create(name="Test Org")
+    from products.ai_observability.backend.models.clustering_config import ClusteringConfig
+
+    organization = Organization.objects.create(name="Test Org", is_ai_data_processing_approved=True)
     team = Team.objects.create(organization=organization, name="Test Team")
+    ClusteringConfig.objects.create(team=team, enabled=True)
     return team
 
 
@@ -69,6 +73,35 @@ def _make_input(mock_team, generation_id=None):
     _noop_heartbeater,
 )
 class TestSummarizeAndSaveActivity:
+    @pytest.mark.django_db(transaction=True)
+    @pytest.mark.asyncio
+    async def test_canceled_execution_does_not_request_a_summary(self, mock_team):
+        from asgiref.sync import sync_to_async
+
+        from products.ai_observability.backend.models.clustering_job import ClusteringJob
+        from products.ai_observability.backend.models.clustering_run import ClusteringRun
+
+        @sync_to_async
+        def canceled_run():
+            job = ClusteringJob.objects.create(team=mock_team, name="Canceled", analysis_level="trace")
+            return ClusteringRun.objects.for_team(mock_team.id).create(
+                team=mock_team, job=job, is_first_run=False, status="canceled", workflow_id="canceled-summary"
+            )
+
+        run = await canceled_run()
+        input_data = dataclasses.replace(_make_input(mock_team), execution_id=str(run.id), job_id=str(run.job_id))
+        with (
+            patch("posthog.temporal.ai_observability.trace_summarization.summarize_and_save.get_async_client"),
+            patch(
+                "posthog.temporal.ai_observability.trace_summarization.summarize_and_save.load_text_repr",
+                return_value="Example trace",
+            ),
+            patch("posthog.temporal.ai_observability.trace_summarization.summarize_and_save.summarize") as summarize,
+        ):
+            with pytest.raises(ApplicationError, match="no longer active"):
+                await _run_activity(input_data)
+            summarize.assert_not_called()
+
     @pytest.mark.django_db(transaction=True)
     @pytest.mark.asyncio
     async def test_redis_key_missing_raises_text_repr_expired(self, mock_team):

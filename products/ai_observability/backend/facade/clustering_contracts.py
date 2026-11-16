@@ -20,6 +20,23 @@ class ClusteringRunContext:
     minimum: int
     lookback_days: int
     user_id: int | None = None
+    created_at: datetime | None = None
+
+
+@frozen
+class ClusteringExecutionRequest:
+    team_id: int
+    job_id: str
+    analysis_level: str
+    event_filters: list[dict[str, Any]]
+    workflow_id: str
+    run_id: str = ""
+
+
+@frozen
+class ClusteringExecutionClaim:
+    run_id: str
+    owned: bool
 
 
 @frozen

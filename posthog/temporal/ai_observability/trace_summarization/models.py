@@ -52,6 +52,7 @@ class BatchSummarizationInputs:
     event_filters: list[dict[str, Any]] = field(default_factory=list)
     job_id: str = ""  # empty = no job (legacy/manual run without a job)
     job_name: str = ""
+    execution_id: str = ""
 
     @property
     def properties_to_log(self) -> dict[str, Any]:
@@ -158,6 +159,7 @@ class SummarizeAndSaveInput:
     text_repr_length: int = 0
     job_id: str = ""  # empty = no job (legacy/manual run without a job)
     job_name: str = ""
+    execution_id: str = ""
 
     @property
     def properties_to_log(self) -> dict[str, Any]:

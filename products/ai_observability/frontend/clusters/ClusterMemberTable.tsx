@@ -13,22 +13,20 @@ export function ClusterMemberTable({ cluster }: { cluster: Cluster }): JSX.Eleme
         useValues(clustersLogic)
     const rows = Object.entries(cluster.traces)
         .sort(([, a], [, b]) => a.rank - b.rank)
-        .slice(0, 20)
         .map(([traceId, traceInfo]) => ({ traceId, traceInfo, summary: traceSummaries[traceId] }))
 
     return (
         <div className="p-2">
             <ClusterItemsTable
-                rows={rows}
+                rows={rows.slice(0, 20)}
+                navigationRows={rows}
                 clusteringLevel={clusteringLevel}
                 itemMetrics={itemMetrics}
                 loading={traceSummariesLoading && !Object.keys(traceSummaries).length}
                 listId="clusters"
             />
             <div className="flex items-center justify-between mt-2 text-xs text-muted">
-                <span>
-                    {rows.length < cluster.size ? `Showing ${rows.length} of ${cluster.size}` : `${cluster.size} items`}
-                </span>
+                <span>{rows.length > 20 ? `Showing 20 of ${cluster.size}` : `${cluster.size} items`}</span>
                 <LemonButton
                     size="xsmall"
                     to={urls.aiObservabilityCluster(effectiveRunId || '', cluster.cluster_id)}

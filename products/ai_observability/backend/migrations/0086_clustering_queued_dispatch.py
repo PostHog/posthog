@@ -16,7 +16,7 @@ class Migration(migrations.Migration):
         SafeAddIndexConcurrently(
             model_name="clusteringrun",
             index=models.Index(
-                condition=models.Q(("status", "queued")),
+                condition=models.Q(status__in=("queued", "waiting", "preparing", "clustering")),
                 fields=["last_dispatch_at", "created_at"],
                 name="aio_clustering_queued_dispatch",
             ),

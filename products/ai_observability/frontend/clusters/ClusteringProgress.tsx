@@ -3,6 +3,7 @@ import { useActions, useValues } from 'kea'
 import { LemonBanner, LemonButton, LemonCollapse, LemonTag, Link, Spinner } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
+import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
 
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
@@ -10,10 +11,11 @@ import type { ClusteringJobProgressApi } from '../generated/api.schemas'
 import { clusteringConfigLogic } from './clusteringConfigLogic'
 import { clusteringProgressLogic } from './clusteringProgressLogic'
 
-function JobProgress({ job }: { job: ClusteringJobProgressApi }): JSX.Element {
+function JobProgress({ job, compact }: { job: ClusteringJobProgressApi; compact: boolean }): JSX.Element {
     const { retryJob } = useActions(clusteringProgressLogic)
     const { progressLoading } = useValues(clusteringProgressLogic)
-    const failed = job.status === 'failed' || job.failure_reason === 'could_not_start'
+    const failed = job.status === 'failed'
+    const running = job.status === 'preparing' || job.status === 'clustering'
     const itemLabel = `${job.analysis_level}s`
     const statusLabel = !job.status
         ? 'Not started'
@@ -27,22 +29,34 @@ function JobProgress({ job }: { job: ClusteringJobProgressApi }): JSX.Element {
                 completed: job.cluster_count ? 'Finished' : 'No groups found',
                 canceled: 'Stopped',
                 failed: 'Could not finish',
+                scheduled: 'Scheduled runs will continue',
             }[job.status]
     const needsTracing =
         job.status === 'waiting' && job.eligible_count === 0 && job.analysis_level !== 'evaluation' && !job.has_filters
 
     return (
-        <div className="space-y-2 p-4">
+        <div className="space-y-2 p-3">
             <div className="flex items-center justify-between gap-2 flex-wrap">
                 <strong>{job.name}</strong>
-                <LemonTag type={failed ? 'danger' : 'default'}>{statusLabel}</LemonTag>
+                <div className="flex items-center gap-2">
+                    {running && <Spinner />}
+                    <LemonTag
+                        type={
+                            failed ? 'danger' : job.status === 'completed' ? 'success' : running ? 'primary' : 'default'
+                        }
+                    >
+                        {statusLabel}
+                    </LemonTag>
+                </div>
             </div>
-            <div className="text-sm text-muted">
-                Needs {job.minimum} {itemLabel}
-                {job.analysis_level === 'generation' ? ' from different traces' : ''} in the last {job.lookback_days}{' '}
-                days{job.has_filters ? ' that match this job’s filters' : ''}.
-                {job.analysis_level === 'evaluation' && ' Numeric and categorical results aren’t included.'}
-            </div>
+            {!compact && (
+                <div className="text-sm text-muted">
+                    Needs {job.minimum} {itemLabel}
+                    {job.analysis_level === 'generation' ? ' from different traces' : ''} in the last{' '}
+                    {job.lookback_days} days{job.has_filters ? ' that match this job’s filters' : ''}.
+                    {job.analysis_level === 'evaluation' && ' Numeric and categorical results aren’t included.'}
+                </div>
+            )}
             <div className="text-sm">
                 {!job.status || failed ? (
                     <div className="flex justify-between items-center gap-4">
@@ -75,6 +89,10 @@ function JobProgress({ job }: { job: ClusteringJobProgressApi }): JSX.Element {
                             </strong>{' '}
                             found.
                         </div>
+                        <LemonProgress
+                            percent={(100 * (job.eligible_count ?? 0)) / job.minimum}
+                            aria-label={`${job.eligible_count ?? 0} of ${job.minimum} ${itemLabel} found`}
+                        />
                         {needsTracing && (
                             <div>
                                 <Link to="https://posthog.com/docs/llm-analytics/installation" target="_blank">
@@ -95,11 +113,15 @@ function JobProgress({ job }: { job: ClusteringJobProgressApi }): JSX.Element {
                         'There wasn’t enough similarity to form groups. We’ll try again on the next daily run as more data arrives.'
                     )
                 ) : job.status === 'preparing' ? (
-                    'We’re preparing your data for clustering. You can leave this page; the job will keep running.'
+                    `${job.prepared_count} items prepared. You can leave this page while the job runs.`
                 ) : job.status === 'clustering' ? (
                     'We’re grouping similar items and naming the clusters. Results will appear here.'
                 ) : job.status === 'canceled' ? (
-                    'This run stopped because clustering or this job was disabled.'
+                    'This run stopped because its settings or access changed.'
+                ) : job.status === 'scheduled' ? (
+                    'The first-run check ended after 24 hours. Scheduled runs will keep checking for enough data.'
+                ) : job.failure_reason === 'could_not_start' ? (
+                    'We couldn’t start this job yet. It is queued and will retry automatically.'
                 ) : (
                     'The job is queued. We’ll check for enough data as soon as a worker is available.'
                 )}
@@ -148,12 +170,12 @@ export function ClusteringProgress({ compact = false }: { compact?: boolean }): 
     const rows = (
         <div className="divide-y">
             {visible.map((job) => (
-                <JobProgress key={job.job_id} job={job} />
+                <JobProgress key={job.job_id} job={job} compact={compact} />
             ))}
             {visible.some((job) => job.status === 'waiting') && (
                 <p className="m-0 p-4 text-sm text-muted">
-                    We check for new data every 30 minutes. Each job starts automatically once it reaches the required
-                    count shown above.
+                    We check every 30 minutes for up to 24 hours. Each job starts once enough data is available, then
+                    scheduled runs take over.
                 </p>
             )}
         </div>

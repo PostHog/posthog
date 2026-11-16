@@ -26,7 +26,7 @@ describe('loadTraceSummaries', () => {
     it('loads verdicts for every evaluation beyond the default query page', async () => {
         const ids = Array.from({ length: 360 }, (_, i) => `evaluation-${i}`)
         const query = jest.spyOn(api, 'queryHogQL').mockImplementation(async (sql) => {
-            const limit = Number(String(sql).match(/LIMIT\s+(\d+)/i)?.[1] ?? 100)
+            const limit = Number(String(sql).match(/LIMIT\s+(\d+)\s*$/i)?.[1] ?? 100)
             return {
                 results: ids
                     .slice(0, limit)

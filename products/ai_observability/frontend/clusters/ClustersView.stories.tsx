@@ -47,12 +47,14 @@ const meta: Meta<typeof ClustersView> = {
     parameters: {
         layout: 'padded',
         mockDate: '2026-08-01T12:00:00Z',
+        pageUrl: `/ai-observability/clusters/${runId}`,
         testOptions: { snapshotBrowsers: [], waitForSelector: '[data-attr="clusters-card-title-link"]' },
     },
     decorators: [
         mswDecorator({
             get: {
                 '/api/environments/:team_id/llm_analytics/clustering_config/': config,
+                '/api/environments/:team_id/llm_analytics/clustering_config/progress/': [],
                 '/api/environments/:team_id/llm_analytics/clustering_jobs/': { results: [] },
             },
             post: {
@@ -78,7 +80,7 @@ const meta: Meta<typeof ClustersView> = {
                     if (sql.includes('as run_id')) {
                         return { results: [[runId, '2026-08-01T12:00:00Z', '2026-08-01T12:00:00Z']] }
                     }
-                    if (sql.includes('as item_id')) {
+                    if (sql.includes('as item_id') && !sql.includes('$ai_summary')) {
                         return {
                             results: clusters.flatMap((cluster) =>
                                 Object.keys(cluster.traces).map((id, index) => [

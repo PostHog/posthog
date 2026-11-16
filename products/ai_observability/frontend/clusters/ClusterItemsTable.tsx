@@ -17,14 +17,20 @@ export function ClusterItemsTable({
     itemMetrics,
     loading,
     listId,
+    navigationRows = rows,
 }: {
     rows: TraceWithSummary[]
     clusteringLevel: ClusteringLevel
     itemMetrics: Record<string, ItemMetrics>
     loading: boolean
     listId: 'clusters' | 'cluster-traces'
+    navigationRows?: TraceWithSummary[]
 }): JSX.Element {
-    const { rowProps } = useTraceDrawerRows(listId, 'a[data-attr="clusters-view-trace-link"]')
+    const { rowProps } = useTraceDrawerRows(
+        listId,
+        'a[data-attr="clusters-view-trace-link"]',
+        navigationRows.map((row) => toClusterTraceDrawerRow(row, clusteringLevel)).filter((row) => row !== null)
+    )
     const itemLabel =
         clusteringLevel === 'evaluation' ? 'Evaluation' : clusteringLevel === 'generation' ? 'Generation' : 'Trace'
 

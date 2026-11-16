@@ -17,10 +17,14 @@ export interface TraceDrawerRows {
     rowProps: (row: TraceListRow | null) => TraceDrawerRowProps
 }
 
-export function useTraceDrawerRows(listId: TraceDrawerListId, linkSelector: string): TraceDrawerRows {
+export function useTraceDrawerRows(
+    listId: TraceDrawerListId,
+    linkSelector: string,
+    navigationRows?: TraceListRow[]
+): TraceDrawerRows {
     const logic = traceDrawerLogic({ listId })
     const { openTraceId, openRef } = useValues(logic)
-    const { openRow } = useActions(logic)
+    const { openRow, setRows } = useActions(logic)
     const { rowClick } = TRACE_DRAWER_LISTS[listId]
 
     const rowProps = useCallback(
@@ -41,12 +45,15 @@ export function useTraceDrawerRows(listId: TraceDrawerListId, linkSelector: stri
                         event.stopPropagation()
                         // A row cannot take focus, and the panel gives focus back to what held it on opening.
                         event.currentTarget.querySelector<HTMLElement>(linkSelector)?.focus({ preventScroll: true })
+                        if (navigationRows) {
+                            setRows(navigationRows)
+                        }
                         openRow(row)
                     }
                 },
             }
         },
-        [linkSelector, openRow, openTraceId, openRef?.stepId, rowClick]
+        [linkSelector, openRow, openTraceId, openRef?.stepId, rowClick, navigationRows, setRows]
     )
 
     return { openTraceId, rowProps }

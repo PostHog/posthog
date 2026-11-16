@@ -4,7 +4,7 @@ Hourly Temporal workflow that generates summaries and embeddings of LLM traces f
 
 ## How It Works
 
-1. Coordinator workflow runs hourly, discovering teams dynamically (guaranteed teams + sampled teams with AI events)
+1. Coordinator workflow runs hourly, discovering opted-in projects with AI data processing consent and AI events in its window
 2. Per-team workflow queries recent traces (default: last 60 min, max 15 items)
 3. For each item (trace or generation), a two-step activity pipeline runs:
    - **fetch_and_format**: fetch data from ClickHouse → format text repr → store in Redis (gzip-compressed)
@@ -57,8 +57,7 @@ Both activities are unified — they handle trace-level and generation-level sum
 
 ### Coordinator: `llma-trace-summarization-coordinator`
 
-Discovers teams dynamically via `get_team_ids_for_ai_observability` (guaranteed teams + a random sample of teams with AI events, configured in `team_discovery.py`), less the teams without AI data processing consent.
-Guaranteed teams come first, and the sampled teams keep a random order.
+Discovers opted-in projects with AI data processing consent and AI events in the processing window via `get_team_ids_for_ai_observability`, excluding the operational skip list.
 
 The coordinator keeps up to `max_concurrent_teams` per-team workflows running at once.
 It starts the next team when any running team finishes, so one slow team holds one slot and does not delay the others.
@@ -145,21 +144,21 @@ The coordinator runs hourly via Temporal schedule (configured in `schedule.py`).
 
 Clustering is opt-in. Enabling it queues an `ai-observability-clustering-first-run` workflow for each enabled job, without waiting for a scheduled cycle. The workflow checks for at least 10 eligible items in the job's window: 7 days for traces and generations, or 3 days for evaluations. Generation sampling takes the last generation from each trace. Evaluation sampling excludes numeric and categorical results. Saved job filters apply to these checks.
 
-Jobs below the minimum wait and check again every 30 minutes, even when the page is closed. Jobs with enough data prepare up to 100 items through the existing summarization or evaluation sampling workflow, wait for embeddings, then start clustering. Ten items allow the algorithm to run; they do not guarantee groups. HDBSCAN can classify all items as outliers.
+Jobs below the minimum check every 30 minutes for up to 24 hours, even when the page is closed, then hand off to scheduled runs. Trace readiness first checks a capped list of candidate IDs, reading full trace sizes only once enough candidates exist. Jobs with enough eligible data prepare and cluster up to 100 items. Ten items allow the algorithm to run; they do not guarantee groups. HDBSCAN can classify all items as outliers.
 
-`ClusteringRun` stores each first attempt and retry. A Celery dispatcher checks queued records every 10 seconds and retries deliveries after a minute, using the same Temporal workflow ID. Enabling clustering returns after persisting the request and adds defaults only within the project's 10-job limit. Each project can start at most 10 first-run attempts per hour across job creation, enable, and retry; deleting jobs does not reset this budget. Repeated enable requests reuse active attempts, and retry creates a new attempt after a failure. Changing a job's filters or analysis level cancels its active attempt and queues a replacement within the same budget.
+`ClusteringRun` stores first attempts, retries, and scheduled execution claims. A Celery dispatcher runs every 10 seconds, retries queued deliveries after a minute using the same Temporal workflow ID, and checks active executions for termination, timeout, or failure. Enabling clustering returns after persisting the request and adds defaults only within the project's 10-job limit. Each project can start at most 10 first-run attempts per hour; deleting jobs does not reset this budget. Create and scope changes admit only the affected job. Renaming does not start work. Repeated enable requests reuse active attempts; retry creates a new attempt after a failure.
 
 Runs retain the requesting user and a snapshot of their filters. Filter references must be accessible to that user before admission and at each stage check. Progress is hidden from readers who cannot access those filters. The `progress` action reads the stored records without querying ClickHouse or starting work. Completed records include the result ID so the page can keep checking for up to five minutes after completion while the emitted result reaches ClickHouse.
 
-Scheduled coordinators exclude jobs with active first runs and resume processing them once those runs finish. Turning clustering off preserves previous results and stops the first-run workflow at its next stage check. Canceling the workflow in Temporal also marks the attempt canceled.
+First and scheduled runs share one active execution claim per job, including when a coordinator has already fetched its job list. Scope changes and disabling clustering cancel active workflows. Workers recheck access before paid work and result emission. Embeddings carry a hash of the job's analysis level and filters, including in their document ID, so a changed job cannot consume another scope's data. Historical unversioned embeddings are refreshed by preparation before new runs can use them.
 
 ### Team Discovery
 
-Teams are discovered dynamically via `team_discovery.py`: guaranteed teams (in `GUARANTEED_TEAM_IDS`) plus a configurable random sample of teams with AI events.
-The coordinator passes its summarization window to discovery, so the sample only holds teams with AI events in that window.
+Teams are discovered via `team_discovery.py`: projects with clustering enabled, organization AI data processing consent, and AI events in the discovery window.
+The coordinator passes its summarization window to discovery, so only projects with AI events in that window are included.
 A team with no AI events in the window has nothing to summarize, and it would still cost a child workflow and a sampling query.
 The clustering coordinators pass no window, so their discovery uses `discovery_lookback_days` from the flag payload.
-Every discovered team must also pass the consent gate below, guaranteed teams included.
+The feature flag's `skip_team_ids` excludes projects from discovery, first runs, and worker execution. Legacy guaranteed-team and sampling fields no longer opt projects in.
 
 ### AI data processing consent
 
@@ -168,8 +167,8 @@ An unset flag counts as not approved.
 
 The rule is applied in two places:
 
-- Team discovery drops every team without consent, so a guaranteed team is not exempt.
-- The per-team workflow repeats the check and returns an empty result when consent is absent. This also gates a manual trigger and a stale allowlist entry, which both skip discovery.
+- Team discovery drops every project without consent.
+- Worker checks also apply to manual triggers and work queued before consent or opt-in changed.
 
 Discovery retries transient consent database connection errors up to three attempts, with a 100 ms wait between attempts.
 These retries reuse the candidate teams without repeating the ClickHouse discovery query.

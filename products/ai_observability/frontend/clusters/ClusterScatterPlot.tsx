@@ -28,7 +28,7 @@ export function ClusterScatterPlot(): JSX.Element {
         mapHighlight,
     } = useValues(clustersLogic)
     const { setMapSizeBy, setMapHighlight } = useActions(clustersLogic)
-    const { openRow } = useActions(traceDrawerLogic({ listId: 'clusters' }))
+    const { openRow, setRows } = useActions(traceDrawerLogic({ listId: 'clusters' }))
     const theme = useChartTheme()
     const [zoom, setZoom] = useState<ScatterAreaSelection | null>(null)
 
@@ -48,13 +48,25 @@ export function ClusterScatterPlot(): JSX.Element {
     const handlePointClick = (point: ScatterPointDatum<ClusterScatterMeta>): void => {
         const meta = point.meta
         if (meta?.itemId) {
-            const info = sortedClusters.find((cluster) => cluster.cluster_id === meta.clusterId)?.traces[meta.itemId]
+            const cluster = sortedClusters.find((cluster) => cluster.cluster_id === meta.clusterId)
+            const info = cluster?.traces[meta.itemId]
             if (info) {
                 const row = toClusterTraceDrawerRow(
                     { traceId: meta.itemId, traceInfo: info, summary: traceSummaries[meta.itemId] },
                     clusteringLevel
                 )
                 if (row) {
+                    setRows(
+                        Object.entries(cluster!.traces)
+                            .sort(([, a], [, b]) => a.rank - b.rank)
+                            .map(([traceId, traceInfo]) =>
+                                toClusterTraceDrawerRow(
+                                    { traceId, traceInfo, summary: traceSummaries[traceId] },
+                                    clusteringLevel
+                                )
+                            )
+                            .filter((item) => item !== null)
+                    )
                     openRow(row)
                 }
             }

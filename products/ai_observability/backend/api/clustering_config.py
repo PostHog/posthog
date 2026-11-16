@@ -97,7 +97,7 @@ class ClusteringConfigViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     @extend_schema(request=ClusteringConfigSetEnabledSerializer, responses={200: ClusteringConfigSerializer})
     @action(detail=False, methods=["post"], required_scopes=["ai_observability_clusters:write"])
     def set_enabled(self, request: Request, **kwargs) -> Response:
-        from ..facade.api import request_first_clustering_runs
+        from ..facade.api import cancel_clustering_job_runs, request_first_clustering_runs
 
         serializer = ClusteringConfigSetEnabledSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
@@ -130,6 +130,8 @@ class ClusteringConfigViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                     ignore_conflicts=True,
                 )
                 request_first_clustering_runs(self.team_id, cast(User, request.user))
+            else:
+                cancel_clustering_job_runs(self.team_id)
         report_user_action(
             request.user,
             "llma clustering enabled changed",

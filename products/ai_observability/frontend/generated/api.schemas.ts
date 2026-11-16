@@ -4397,6 +4397,7 @@ export const ClusteringAnalysisLevelEnumApi = {
  * * `completed` - Completed
  * * `failed` - Failed
  * * `canceled` - Stopped
+ * * `scheduled` - Waiting for scheduled runs
  */
 export type ClusteringRunStatusEnumApi = (typeof ClusteringRunStatusEnumApi)[keyof typeof ClusteringRunStatusEnumApi]
 
@@ -4408,6 +4409,7 @@ export const ClusteringRunStatusEnumApi = {
     Completed: 'completed',
     Failed: 'failed',
     Canceled: 'canceled',
+    Scheduled: 'scheduled',
 } as const
 
 export interface ClusteringJobProgressApi {
@@ -4435,7 +4437,8 @@ export interface ClusteringJobProgressApi {
      * * `clustering` - Finding clusters
      * * `completed` - Completed
      * * `failed` - Failed
-     * * `canceled` - Stopped */
+     * * `canceled` - Stopped
+     * * `scheduled` - Waiting for scheduled runs */
     status: ClusteringRunStatusEnumApi | null
     /**
      * Eligible items found, capped at the minimum; null while checking.

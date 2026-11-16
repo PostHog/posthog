@@ -109,6 +109,8 @@ async function loadEvaluationSummaries(
                 AND timestamp >= parseDateTimeBestEffort(${windowStart}) - INTERVAL 7 DAY
                 AND timestamp <= parseDateTimeBestEffort(${windowEnd}) + INTERVAL 1 DAY
                 AND uuid IN ${evalIds}
+            ORDER BY timestamp DESC
+            LIMIT 1 BY uuid
             LIMIT ${evalIds.length}
         `,
         { productKey: 'llm_analytics', scene: 'AIObservabilityClusters' },
@@ -188,7 +190,7 @@ export function formatEvalTitle(summary: TraceSummary | undefined, maxReasoningC
     }
     const preview =
         reasoning.length > maxReasoningChars ? reasoning.slice(0, maxReasoningChars).trimEnd() + '…' : reasoning
-    return `${name} — ${preview}`
+    return `${name}: ${preview}`
 }
 
 // HogQL returns these properties as text or as booleans, depending on how the column is typed.

@@ -28570,6 +28570,7 @@ export namespace Schemas {
      * * `completed` - Completed
      * * `failed` - Failed
      * * `canceled` - Stopped
+     * * `scheduled` - Waiting for scheduled runs
      */
     export type ClusteringRunStatusEnum = typeof ClusteringRunStatusEnum[keyof typeof ClusteringRunStatusEnum];
 
@@ -28582,6 +28583,7 @@ export namespace Schemas {
       Completed: 'completed',
       Failed: 'failed',
       Canceled: 'canceled',
+      Scheduled: 'scheduled',
     } as const;
 
     export interface ClusteringJobProgress {
@@ -28609,7 +28611,8 @@ export namespace Schemas {
        * * `clustering` - Finding clusters
        * * `completed` - Completed
        * * `failed` - Failed
-       * * `canceled` - Stopped */
+       * * `canceled` - Stopped
+       * * `scheduled` - Waiting for scheduled runs */
       status: ClusteringRunStatusEnum | null;
       /**
          * Eligible items found, capped at the minimum; null while checking.

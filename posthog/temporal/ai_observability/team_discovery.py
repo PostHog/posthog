@@ -11,7 +11,7 @@ parseable for callers and histories that still carry the old configuration.
 
 import asyncio
 import dataclasses
-from datetime import timedelta
+from datetime import UTC, datetime, timedelta
 
 from django.db import InterfaceError, OperationalError
 
@@ -149,7 +149,7 @@ DISCOVERY_FAIL_CLOSED_PATCH_ID = "ai-observability-discovery-fail-closed-2026-09
 
 @dataclasses.dataclass(frozen=True)
 class TeamDiscoveryInput:
-    # Retained for existing workflow histories; eligibility now depends on project opt-in.
+    # Restrict opted-in projects to those with data in the coordinator's window.
     window_start: str | None = None
     window_end: str | None = None
     trigger_events: list[str] | None = None
@@ -187,6 +187,26 @@ async def get_team_ids_for_ai_observability(inputs: TeamDiscoveryInput | None = 
             return []
 
         result = [team_id for team_id in discovered if team_id in consented]
+        if result:
+            from posthog.tasks.ai_observability_usage_report import (
+                LLM_ANALYTICS_DISCOVERY_TRIGGER_EVENTS,
+                get_teams_with_ai_events,
+            )
+
+            end = datetime.fromisoformat(inputs.window_end) if inputs and inputs.window_end else datetime.now(UTC)
+            begin = (
+                datetime.fromisoformat(inputs.window_start)
+                if inputs and inputs.window_start
+                else end - timedelta(days=config.discovery_lookback_days)
+            )
+            active = await asyncio.to_thread(
+                get_teams_with_ai_events,
+                begin,
+                end,
+                inputs.trigger_events if inputs and inputs.trigger_events else LLM_ANALYTICS_DISCOVERY_TRIGGER_EVENTS,
+                team_ids=result,
+            )
+            result = sorted(set(result).intersection(active))
 
         logger.info(
             "Team discovery completed",

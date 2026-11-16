@@ -316,23 +316,21 @@ if results:
 
 The coordinator workflow (`llma-trace-clustering-coordinator`) runs on a schedule and:
 
-1. Discovers teams dynamically via `get_team_ids_for_ai_observability` (guaranteed teams + a random sample of teams with AI events)
+1. Discovers opted-in projects with AI data processing consent and AI events in the discovery window via `get_team_ids_for_ai_observability`
 2. Spawns clustering workflow for each team in parallel
 3. Handles failures gracefully (individual team failures don't affect others)
 
-Team discovery is configured at runtime from the `llm-analytics-clustering-workflows`
-feature flag payload (distinct ID `internal_llma_team_discovery`), so it can change
-without a deploy. The payload carries:
+Clustering eligibility comes from `ClusteringConfig.enabled` and organization AI data processing consent.
+The `llm-analytics-clustering-workflows` feature flag (distinct ID `internal_llma_team_discovery`)
+retains `skip_team_ids` as an operational exclusion for scheduled and first runs, and
+`discovery_lookback_days` for coordinators without an explicit window. Legacy guaranteed-team
+and random-sampling settings no longer enable projects. Discovery failures stop dispatch rather
+than falling back to an allowlist.
 
-- `guaranteed_team_ids` — teams always included (dogfooding and customer teams). This
-  is the source of truth for the allowlist.
-- `skip_team_ids` — teams always excluded, even if guaranteed or sampled.
-- `sample_percentage` — fraction of remaining teams (with AI events) to sample.
-
-`team_discovery.py` holds only the dev/test fallbacks (`DEFAULT_GUARANTEED_TEAM_IDS`,
-`DEFAULT_SAMPLE_PERCENTAGE`), used when the flag payload is missing or invalid — i.e.
-local development and CI. If discovery fails entirely, the coordinator falls back to
-those guaranteed teams only.
+Scheduled and first runs atomically claim the same job before processing. They require at least
+10 items; first runs cap both preparation and clustering at 100 items. First-run polling stops
+after 24 hours and leaves the job enabled for scheduled runs. Embedding reads require the job's
+current filter and analysis-level scope, and paid work and emission recheck the active claim.
 
 ## Configuration
 

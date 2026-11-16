@@ -8,6 +8,7 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.clickhouse.client.connection import Workload
 from posthog.models.team import Team
 from posthog.models.user import User
+from posthog.schema_enums import AIEventType
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 
@@ -15,13 +16,17 @@ from ...facade.clustering_contracts import ClusteringJobProgress, ClusteringRunC
 from ...models.clustering_job import ClusteringJob
 from ...models.clustering_run import ClusteringRun
 from .constants import FIRST_RUN_SAMPLE_LIMIT, MIN_CLUSTERING_ITEMS, clustering_lookback_days
+from .execution import scope_key
 from .permissions import can_access_clustering_filters
 
 
 def load_job_progress(team_id: int, user: User) -> list[ClusteringJobProgress]:
     runs = {
         str(run.job_id): run
-        for run in ClusteringRun.objects.for_team(team_id).order_by("job_id", "-created_at").distinct("job_id")
+        for run in ClusteringRun.objects.for_team(team_id)
+        .filter(is_first_run=True)
+        .order_by("job_id", "-created_at")
+        .distinct("job_id")
     }
     progress = []
     for job in ClusteringJob.objects.filter(team_id=team_id, enabled=True).order_by("created_at"):
@@ -59,10 +64,12 @@ def count_ready_items(team_id: int, context: ClusteringRunContext, start: dateti
         query=parse_select(
             """
             SELECT DISTINCT arrayElement(splitByString('::', document_id), 1)
-            FROM raw_document_embeddings
+            FROM document_embeddings
             WHERE timestamp >= {start} AND timestamp < {end}
+                AND model_name = {model_name}
                 AND product = 'llm-analytics' AND document_type = {document_type}
                 AND JSONExtractString(metadata, 'job_id') = {job_id}
+                AND JSONExtractString(metadata, 'job_scope') = {job_scope}
                 AND length(embedding) > 0
             LIMIT {limit}
             """
@@ -71,7 +78,13 @@ def count_ready_items(team_id: int, context: ClusteringRunContext, start: dateti
             "start": ast.Constant(value=start),
             "end": ast.Constant(value=end),
             "document_type": ast.Constant(value=document_type),
+            "model_name": ast.Constant(
+                value="text-embedding-3-small-1536"
+                if context.analysis_level == "evaluation"
+                else "text-embedding-3-large-3072"
+            ),
             "job_id": ast.Constant(value=context.job_id),
+            "job_scope": ast.Constant(value=scope_key(context.analysis_level, context.event_filters)),
             "limit": ast.Constant(value=FIRST_RUN_SAMPLE_LIMIT),
         },
         team=Team.objects.get(id=team_id),
@@ -83,7 +96,7 @@ def count_ready_items(team_id: int, context: ClusteringRunContext, start: dateti
 def count_eligible_evaluations(team_id: int, context: ClusteringRunContext, start: datetime, end: datetime) -> int:
     team = Team.objects.get(id=team_id)
     user = User.objects.get(id=context.user_id, is_active=True)
-    filters = [property_to_expr(f, team) for f in context.event_filters]
+    filters = [property_to_expr(f, team, strict=True) for f in context.event_filters]
     result = execute_hogql_query(
         query_type="ClusteringFirstRunEligibleEvaluations",
         query=parse_select(
@@ -92,14 +105,42 @@ def count_eligible_evaluations(team_id: int, context: ClusteringRunContext, star
             WHERE event = '$ai_evaluation' AND timestamp >= {start} AND timestamp < {end}
                 AND (isNull(properties.$ai_evaluation_result_type) OR properties.$ai_evaluation_result_type != 'numeric')
                 AND (isNull(properties.$ai_evaluation_result_type) OR properties.$ai_evaluation_result_type != 'categorical')
-                AND {filters}
+                AND {job_filters}
             LIMIT {limit}
             """
         ),
         placeholders={
             "start": ast.Constant(value=start),
             "end": ast.Constant(value=end),
-            "filters": ast.And(exprs=filters) if filters else ast.Constant(value=True),
+            "job_filters": ast.And(exprs=filters) if filters else ast.Constant(value=True),
+            "limit": ast.Constant(value=context.minimum),
+        },
+        team=team,
+        user=user,
+        user_access_control=UserAccessControl(user, team),
+        workload=Workload.OFFLINE,
+    )
+    return len(result.results or [])
+
+
+def count_trace_candidates(team_id: int, context: ClusteringRunContext, start: datetime, end: datetime) -> int:
+    team = Team.objects.get(id=team_id)
+    user = User.objects.get(id=context.user_id, is_active=True)
+    filters = [property_to_expr(f, team, strict=True) for f in context.event_filters]
+    events = ["$ai_generation"] if context.analysis_level == "generation" else [event.value for event in AIEventType]
+    result = execute_hogql_query(
+        query_type="ClusteringFirstRunTraceCandidates",
+        query=parse_select("""
+            SELECT DISTINCT properties.$ai_trace_id FROM events
+            WHERE event IN {events} AND timestamp >= {start} AND timestamp < {end}
+                AND properties.$ai_trace_id != '' AND {job_filters}
+            LIMIT {limit}
+        """),
+        placeholders={
+            "events": ast.Constant(value=events),
+            "start": ast.Constant(value=start),
+            "end": ast.Constant(value=end),
+            "job_filters": ast.And(exprs=filters) if filters else ast.Constant(value=True),
             "limit": ast.Constant(value=context.minimum),
         },
         team=team,

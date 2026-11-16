@@ -16,14 +16,9 @@ CLUSTERING_OPT_IN_PATCH_ID = "ai-observability-clustering-opt-in"
 
 
 def enabled_clustering_team_ids(team_ids: list[int] | None = None) -> set[int]:
-    from products.ai_observability.backend.models.clustering_config import (  # noqa: PLC0415 - keeps Django models off the workflow import path
-        ClusteringConfig,
-    )
+    from products.ai_observability.backend.facade.api import eligible_clustering_team_ids
 
-    configs = ClusteringConfig.objects.filter(enabled=True)
-    if team_ids is not None:
-        configs = configs.filter(team_id__in=team_ids)
-    return set(configs.values_list("team_id", flat=True))
+    return eligible_clustering_team_ids(team_ids)
 
 
 @dataclass

@@ -118,4 +118,17 @@ describe('first clustering run progress', () => {
         expect(screen.getByText(/There wasn’t enough similarity/)).toBeVisible()
         expect(screen.queryByText('Finding clusters')).not.toBeInTheDocument()
     })
+
+    it('keeps a temporary dispatch failure queued without offering a no-op retry', async () => {
+        jobs = [{ ...traceJob, status: 'queued', failure_reason: 'could_not_start' }]
+        render(<ClusteringProgress />)
+        expect(await screen.findByText(/queued and will retry automatically/)).toBeVisible()
+        expect(screen.queryByText('Retry')).not.toBeInTheDocument()
+    })
+
+    it('explains the handoff after the first-run polling window', async () => {
+        jobs = [{ ...traceJob, status: 'scheduled' }]
+        render(<ClusteringProgress />)
+        expect(await screen.findByText(/first-run check ended after 24 hours/)).toBeVisible()
+    })
 })

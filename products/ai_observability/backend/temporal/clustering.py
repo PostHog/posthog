@@ -14,6 +14,7 @@ with workflow.unsafe.imports_passed_through():
     from ..facade import api
     from ..facade.clustering_contracts import ClusteringRunContext, ClusteringRunRef, ClusteringRunUpdate
     from ..logic.clustering.constants import FIRST_RUN_SAMPLE_LIMIT, FIRST_RUN_WORKFLOW
+    from .clustering_execution import acquire_clustering_execution_activity, finish_clustering_execution_activity
 
 
 @frozen
@@ -37,7 +38,15 @@ async def update_clustering_run_activity(update: ClusteringRunUpdate) -> None:
 
 @activity.defn
 async def clustering_count_activity(request: ClusteringCountRequest) -> int:
-    count = api.clustering_ready_items if request.prepared else api.clustering_eligible_evaluations
+    count = (
+        api.clustering_ready_items
+        if request.prepared
+        else (
+            api.clustering_eligible_evaluations
+            if request.context.analysis_level == "evaluation"
+            else api.clustering_trace_candidates
+        )
+    )
     return await on_asyncify_pool(count)(request.ref.team_id, request.context, request.start, request.end)
 
 
@@ -71,6 +80,9 @@ class ClusteringFirstRunWorkflow(PostHogWorkflow):
                 if context is None or not context.active:
                     return
                 end = workflow.now()
+                if context.created_at is not None and end - context.created_at >= timedelta(hours=24):
+                    await self.update(ref, "scheduled")
+                    return
                 start = end - timedelta(days=context.lookback_days)
                 payload = {
                     "team_id": ref.team_id,
@@ -79,15 +91,15 @@ class ClusteringFirstRunWorkflow(PostHogWorkflow):
                     "event_filters": context.event_filters,
                     "window_start": start.isoformat(),
                     "window_end": end.isoformat(),
+                    "execution_id": ref.run_id,
                 }
-                if context.analysis_level == "evaluation":
-                    eligible = await workflow.execute_activity(
-                        clustering_count_activity,
-                        ClusteringCountRequest(ref=ref, context=context, start=start, end=end, prepared=False),
-                        start_to_close_timeout=timedelta(minutes=3),
-                        retry_policy=RetryPolicy(maximum_attempts=3),
-                    )
-                else:
+                eligible = await workflow.execute_activity(
+                    clustering_count_activity,
+                    ClusteringCountRequest(ref=ref, context=context, start=start, end=end, prepared=False),
+                    start_to_close_timeout=timedelta(minutes=3),
+                    retry_policy=RetryPolicy(maximum_attempts=3),
+                )
+                if context.analysis_level != "evaluation" and eligible >= context.minimum:
                     payload["analysis_level"] = context.analysis_level
                     items = await workflow.execute_activity(
                         "sample_items_in_window_activity",
@@ -166,4 +178,10 @@ class ClusteringFirstRunWorkflow(PostHogWorkflow):
 
 
 WORKFLOWS = [ClusteringFirstRunWorkflow]
-ACTIVITIES = [clustering_run_context_activity, update_clustering_run_activity, clustering_count_activity]
+ACTIVITIES = [
+    clustering_run_context_activity,
+    update_clustering_run_activity,
+    clustering_count_activity,
+    acquire_clustering_execution_activity,
+    finish_clustering_execution_activity,
+]

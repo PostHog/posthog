@@ -83,6 +83,19 @@ and disabled when a custom job is created for the same level.
 
 ## Workflow: explore clusters
 
+### Check setup and first-run progress
+
+If there are no recent results, read `posthog:llma-clustering-config-get` before diagnosing missing data.
+Clustering is off by default. If the user wants automatic clustering, use
+`posthog:llma-clustering-config-set-enabled` with `enabled: true`; organization AI data processing consent is required.
+Reading historical clusters does not require enabling new runs.
+
+Use `posthog:llma-clustering-progress-get` to distinguish queued, waiting, preparing, failed, and completed jobs.
+Each job needs 10 eligible items. First runs check every 30 minutes for 24 hours, then scheduled runs take over.
+Trace and generation jobs look back seven days; evaluation jobs look back three days and exclude numeric and categorical results.
+For a failed job, use `posthog:llma-clustering-job-retry` with its `job_id` when the user wants to retry.
+A queued job with `could_not_start` retries automatically; do not repeatedly request retries.
+
 ### Step 1 — List recent clustering runs
 
 ```sql
