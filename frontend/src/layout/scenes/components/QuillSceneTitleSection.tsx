@@ -17,8 +17,8 @@ import { sceneLayoutLogic } from '../sceneLayoutLogic'
 import { QuillSceneHeader } from './QuillSceneHeader'
 import { QuillSceneName } from './QuillSceneName'
 import { QuillSceneTrail } from './QuillSceneTrail'
+import { SceneActionsMenu } from './SceneActionsMenu'
 import { SceneDescription } from './SceneDescription'
-import { SceneFlatMenu } from './SceneFlatMenu'
 import { SceneMenuBarHelpMenu } from './SceneMenuBar'
 import { useRegisterSceneMenuBarSlot, useSceneMenuBarSlotFilled } from './SceneMenuBarSlotProvider'
 import { sceneResourceIcon } from './sceneResourceIcon'
@@ -95,9 +95,9 @@ export function QuillSceneTitleSection({
     const helpOnlyMenu =
         menuBarSlot && !menuBarShown
             ? createPortal(
-                  <SceneFlatMenu helpOnly>
+                  <SceneActionsMenu helpOnly>
                       <SceneMenuBarHelpMenu />
-                  </SceneFlatMenu>,
+                  </SceneActionsMenu>,
                   menuBarSlot
               )
             : null

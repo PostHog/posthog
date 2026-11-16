@@ -7,9 +7,10 @@ This directory owns the **scene action surfaces**:
   This is the **legacy** action surface.
 - **`SceneMenuBar`** (`components/SceneMenuBar.tsx`): the Mac-style menu bar above `<SceneTitleSection>` that consolidates those actions into File / Edit / View / Metadata / Staff only menus.
   This is the **new** action surface, gated behind the `SCENE_MENU_BAR` feature flag.
-  Under the `today-rail-nav` flag a titled scene shows one "More actions" button after the scene name instead, which opens every menu as one searchable list (`components/SceneFlatMenu.tsx`).
+  Under the `today-rail-nav` flag a titled scene shows one "More actions" button after the scene name instead (`components/SceneActionsMenu.tsx`).
+  It opens a search field above one row per menu, each opening that menu as a submenu, with destructive rows last at the top level.
   Scenes still render the bar above `<SceneTitleSection>`, and the same primitives render both shapes.
-  The skill below says how menus map to that list.
+  The skill below says how menus map to that menu.
 
 We are mid-migration (`ScenePanel` to `SceneMenuBar`). Until the flag ships everywhere, **both surfaces
 must stay in sync**.
@@ -77,5 +78,5 @@ adding or moving menu items. This guide is the _when/why_; the skill is the _how
 
 ## Instrumentation is automatic
 
-`SceneMenuBar.tsx` and `SceneFlatMenu.tsx` capture `scene menu bar shown` / `menu opened` / `item clicked` (and `searched` in the flat menu) centrally, so you don't wire analytics per scene.
+`SceneMenuBar.tsx` and `SceneActionsMenu.tsx` capture `scene menu bar shown` / `menu opened` / `item clicked` (and `searched` in the "More actions" menu) centrally, so you don't wire analytics per scene.
 Just give items a stable `data-attr` (`${RESOURCE_TYPE}-menubar-<action>`) so the captured `item` is meaningful.

@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
-import { Children, ComponentProps, ReactNode, useContext, useEffect } from 'react'
+import { Children, ComponentProps, Fragment, ReactNode, isValidElement, useContext, useEffect } from 'react'
 import { createPortal } from 'react-dom'
 
 import { IconExternal, IconGear, IconSidePanel, IconSparkles } from '@posthog/icons'
@@ -13,9 +13,6 @@ import {
     DropdownMenuRadioItem,
     DropdownMenuSeparator,
     DropdownMenuShortcut,
-    DropdownMenuSub,
-    DropdownMenuSubContent,
-    DropdownMenuSubTrigger,
     Menubar,
     MenubarCheckboxItem,
     MenubarContent,
@@ -45,10 +42,16 @@ import { todayShellLogic } from '~/layout/today/todayShellLogic'
 import { SidePanelTab } from '~/types'
 
 import { captureSceneMenuBar } from './captureSceneMenuBar'
+import { SceneActionsMenu } from './SceneActionsMenu'
+import { SceneActionsMenuGroup } from './SceneActionsMenuGroup'
+import { SceneActionsSubmenu } from './SceneActionsSubmenu'
 import { SceneContentContext } from './SceneContent'
-import { SceneFlatMenu } from './SceneFlatMenu'
-import { SceneFlatMenuGroup } from './SceneFlatMenuGroup'
-import { SceneMenuBarRenderContext } from './sceneMenuBarRenderContext'
+import {
+    ActionsMenuRender,
+    MENU_PROBE_ATTRIBUTE,
+    ROW_PROBE_ATTRIBUTE,
+    SceneMenuBarRenderContext,
+} from './sceneMenuBarRenderContext'
 import { useFillSceneMenuBarSlot, useSceneMenuBarSlot } from './SceneMenuBarSlotProvider'
 import { getSceneSettingsUrl } from './sceneSettingsUrl'
 
@@ -86,10 +89,10 @@ export function SceneMenuBar({ children, className }: SceneMenuBarProps): JSX.El
         return (
             <>
                 {createPortal(
-                    <SceneFlatMenu>
+                    <SceneActionsMenu>
                         {children}
                         <SceneMenuBarHelpMenu />
-                    </SceneFlatMenu>,
+                    </SceneActionsMenu>,
                     slot
                 )}
                 {setupReminder}
@@ -267,21 +270,44 @@ function SceneMenuBarRightLinks(): JSX.Element {
  */
 export type SceneMenuBarLabel = 'File' | 'Edit' | 'View' | 'Metadata' | 'Staff only' | (string & {})
 
-function flatSectionLabel(label: SceneMenuBarLabel): string | undefined {
-    return label === 'File' ? undefined : label
+const ROW_ICON_SPACER = <span key="icon" aria-hidden className="size-3.5 shrink-0" />
+const ROW_PROBE = <span {...{ [ROW_PROBE_ATTRIBUTE]: '' }} />
+
+function withPath(render: ActionsMenuRender, content: ReactNode): ReactNode {
+    if (!render.results || render.level !== 'top' || render.path.length === 0) {
+        return content
+    }
+    const path = (
+        <span className="text-muted-foreground">
+            {render.path.map((segment, index) => (
+                <Fragment key={index}>
+                    {segment}
+                    {' › '}
+                </Fragment>
+            ))}
+        </span>
+    )
+    const rows = Children.toArray(content)
+    const [first, ...rest] = rows
+    if (isValidElement(first) && typeof first.type !== 'string' && rest.length > 0) {
+        return [first, <Fragment key="path">{path}</Fragment>, ...rest]
+    }
+    return [<Fragment key="path">{path}</Fragment>, ...rows]
 }
 
-const FLAT_ROW_ICON_SPACER = <span aria-hidden className="size-3.5 shrink-0" />
+function withPathSegment(render: ActionsMenuRender, segment: ReactNode): ActionsMenuRender {
+    return { ...render, path: [...render.path, segment] }
+}
 
 type SceneMenuBarMenuProps = {
     /** Top-level menu label. Use canonical labels (File / Edit / View / Metadata / Staff only). */
     label: SceneMenuBarLabel
     children: ReactNode
-    /** data-attr applied to the trigger for tests. In the flat menu it goes on the section. */
+    /** data-attr applied to the trigger for tests. */
     dataAttr?: string
-    /** Optional content alignment. The flat menu ignores it. */
+    /** Optional content alignment. */
     align?: 'start' | 'center' | 'end'
-    /** Class applied to the dropdown content — useful for widening menus that hold rich widgets. The flat menu ignores it. */
+    /** Class applied to the dropdown content — useful for widening menus that hold rich widgets. */
     contentClassName?: string
     /**
      * Force the trigger into a disabled state regardless of children. Use when the menu's
@@ -315,13 +341,44 @@ export function SceneMenuBarMenu({
     const render = useContext(SceneMenuBarRenderContext)
     const isDisabled = disabled || hasNoRenderableChildren(children)
     if (render.kind === 'popover-host') {
-        return null
+        return isDisabled ? null : <div {...{ [MENU_PROBE_ATTRIBUTE]: label }}>{children}</div>
     }
-    if (render.kind === 'flat') {
-        return isDisabled ? null : (
-            <SceneFlatMenuGroup label={flatSectionLabel(label)} dataAttr={dataAttr}>
-                {children}
-            </SceneFlatMenuGroup>
+    if (render.kind === 'actions-menu') {
+        if (isDisabled) {
+            return null
+        }
+        const rowsRender = withPathSegment(render, label)
+        if (render.destructiveOnly || render.level !== 'top') {
+            return (
+                <SceneMenuBarRenderContext.Provider value={rowsRender}>{children}</SceneMenuBarRenderContext.Provider>
+            )
+        }
+        if (!render.nonEmptyMenus.has(label)) {
+            return null
+        }
+        return (
+            <>
+                <SceneActionsSubmenu
+                    trigger={[ROW_ICON_SPACER, label]}
+                    dataAttr={dataAttr}
+                    render={{ ...rowsRender, level: 'submenu', results: false }}
+                    onOpenChange={(open) => {
+                        if (open) {
+                            captureSceneMenuBar('scene menu bar menu opened', {
+                                menu: label,
+                                ...render.getCaptureProperties(),
+                            })
+                        }
+                    }}
+                >
+                    {children}
+                </SceneActionsSubmenu>
+                {render.results && (
+                    <SceneMenuBarRenderContext.Provider value={rowsRender}>
+                        {children}
+                    </SceneMenuBarRenderContext.Provider>
+                )}
+            </>
         )
     }
     return (
@@ -361,7 +418,7 @@ type SceneMenuBarItemProps = ComponentProps<typeof MenubarItem> & {
     opensFloatingUi?: boolean
     /**
      * Hover hint, typically the reason a disabled item can't be used. The menu bar applies it as the native title, the
-     * flat menu as a tooltip beside the row.
+     * "More actions" menu as a tooltip beside the row.
      */
     tooltip?: string
 }
@@ -382,7 +439,9 @@ export function SceneMenuBarItem({
         const dataAttr = (props as Record<string, unknown>)['data-attr']
         captureSceneMenuBar('scene menu bar item clicked', {
             item: typeof dataAttr === 'string' ? dataAttr : typeof children === 'string' ? children : undefined,
-            ...(render.kind === 'flat' ? render.getCaptureProperties() : {}),
+            ...(render.kind === 'actions-menu'
+                ? { ...render.getCaptureProperties(), from_search_results: render.results }
+                : {}),
         })
         onClick?.(e)
     }
@@ -393,23 +452,19 @@ export function SceneMenuBarItem({
             …
         </span>
     )
+    const destructive = props.variant === 'destructive'
 
     if (render.kind === 'popover-host') {
-        return null
+        return destructive ? null : ROW_PROBE
     }
-    if (render.kind === 'flat') {
-        const item = (
+    if (render.kind === 'actions-menu') {
+        const shown = render.destructiveOnly ? destructive : !destructive || render.level === 'kept'
+        return shown ? (
             <DropdownMenuItem tooltip={tooltip} onClick={handleClick} {...props}>
-                {children}
+                {withPath(render, children)}
                 {ellipsis}
             </DropdownMenuItem>
-        )
-        if (props.variant !== 'destructive' || !render.inList) {
-            return item
-        }
-        // The footer is a DOM node inside the list, so the filter and arrow keys, which follow document order, reach
-        // the item where it shows. Context survives the portal, so an AccessControlAction wrapper still applies.
-        return render.destructiveFooter ? createPortal(item, render.destructiveFooter) : null
+        ) : null
     }
     return (
         <MenubarItem title={tooltip} onClick={handleClick} {...props}>
@@ -423,31 +478,64 @@ export function SceneMenuBarItem({
  * Use for toggle-style items (e.g. "Show debug panel", "Pin", "Favorite"). Renders a
  * checkmark indicator that reflects `checked` state.
  */
-export function SceneMenuBarCheckboxItem(props: ComponentProps<typeof MenubarCheckboxItem>): JSX.Element {
+export function SceneMenuBarCheckboxItem({
+    children,
+    ...props
+}: ComponentProps<typeof MenubarCheckboxItem>): JSX.Element | null {
     const render = useContext(SceneMenuBarRenderContext)
-    return render.kind === 'menubar' ? <MenubarCheckboxItem {...props} /> : <DropdownMenuCheckboxItem {...props} />
+    if (render.kind === 'popover-host') {
+        return ROW_PROBE
+    }
+    if (render.kind === 'actions-menu') {
+        return render.destructiveOnly ? null : (
+            <DropdownMenuCheckboxItem {...props}>{withPath(render, children)}</DropdownMenuCheckboxItem>
+        )
+    }
+    return <MenubarCheckboxItem {...props}>{children}</MenubarCheckboxItem>
 }
 
 /**
  * Wrap multiple `SceneMenuBarRadioItem` instances to make them mutually-exclusive.
  * Bind via `value` + `onValueChange`.
  */
-export function SceneMenuBarRadioGroup(props: ComponentProps<typeof MenubarRadioGroup>): JSX.Element {
+export function SceneMenuBarRadioGroup(props: ComponentProps<typeof MenubarRadioGroup>): JSX.Element | null {
     const render = useContext(SceneMenuBarRenderContext)
-    return render.kind === 'menubar' ? <MenubarRadioGroup {...props} /> : <DropdownMenuRadioGroup {...props} />
+    if (render.kind === 'popover-host') {
+        return <>{props.children}</>
+    }
+    if (render.kind === 'actions-menu') {
+        return render.destructiveOnly ? null : <DropdownMenuRadioGroup {...props} />
+    }
+    return <MenubarRadioGroup {...props} />
 }
 
 /**
  * One of several mutually-exclusive options inside a `<SceneMenuBarRadioGroup>`.
  */
-export function SceneMenuBarRadioItem(props: ComponentProps<typeof MenubarRadioItem>): JSX.Element {
+export function SceneMenuBarRadioItem({
+    children,
+    ...props
+}: ComponentProps<typeof MenubarRadioItem>): JSX.Element | null {
     const render = useContext(SceneMenuBarRenderContext)
-    return render.kind === 'menubar' ? <MenubarRadioItem {...props} /> : <DropdownMenuRadioItem {...props} />
+    if (render.kind === 'popover-host') {
+        return ROW_PROBE
+    }
+    if (render.kind === 'actions-menu') {
+        return <DropdownMenuRadioItem {...props}>{withPath(render, children)}</DropdownMenuRadioItem>
+    }
+    return <MenubarRadioItem {...props}>{children}</MenubarRadioItem>
 }
 
-export function SceneMenuBarSeparator(props: ComponentProps<typeof MenubarSeparator>): JSX.Element {
+export function SceneMenuBarSeparator(props: ComponentProps<typeof MenubarSeparator>): JSX.Element | null {
     const render = useContext(SceneMenuBarRenderContext)
-    return render.kind === 'menubar' ? <MenubarSeparator {...props} /> : <DropdownMenuSeparator {...props} />
+    if (render.kind === 'popover-host') {
+        return null
+    }
+    if (render.kind === 'actions-menu') {
+        const resultsList = render.results && render.level === 'top'
+        return render.destructiveOnly || resultsList ? null : <DropdownMenuSeparator {...props} />
+    }
+    return <MenubarSeparator {...props} />
 }
 
 export function SceneMenuBarShortcut(props: ComponentProps<typeof MenubarShortcut>): JSX.Element {
@@ -465,10 +553,11 @@ type SceneMenuBarSubMenuProps = {
      */
     withIconBlank?: boolean
     /**
-     * In the flat menu of the Today layout, a submenu renders by default as a group of rows under its label, in place,
-     * so the search finds its rows. The search only reaches one menu level. Pass `keepAsSubmenu` to render a real
-     * submenu instead, for a long list of toggles (such as visible tiles) or a submenu that holds another submenu.
-     * Its rows then stay out of the search and the destructive group, and submenus inside it stay submenus.
+     * In the "More actions" menu of the Today layout, a submenu renders by default as a labeled group of rows inside
+     * its menu's submenu, so the menu never nests two levels deep, and a search lists its rows. Pass `keepAsSubmenu`
+     * to render a real submenu instead, for a long list of toggles (such as visible tiles) or a submenu that holds
+     * another submenu. A search then lists it as one row that opens it: its rows stay out of the search and the
+     * destructive group, and submenus inside it stay submenus.
      * The legacy menu bar always renders a submenu and ignores this prop.
      */
     keepAsSubmenu?: boolean
@@ -482,24 +571,27 @@ export function SceneMenuBarSubMenu({
 }: SceneMenuBarSubMenuProps): JSX.Element | null {
     const render = useContext(SceneMenuBarRenderContext)
     if (render.kind === 'popover-host') {
-        return null
+        return keepAsSubmenu ? ROW_PROBE : <>{children}</>
     }
-    if (render.kind === 'flat') {
-        if (render.inList && !keepAsSubmenu) {
-            return <SceneFlatMenuGroup label={label}>{children}</SceneFlatMenuGroup>
+    if (render.kind === 'actions-menu') {
+        const rowsRender = withPathSegment(render, label)
+        if (keepAsSubmenu || render.level === 'kept') {
+            return render.destructiveOnly ? null : (
+                <SceneActionsSubmenu
+                    trigger={withPath(render, withIconBlank ? [ROW_ICON_SPACER, label] : label)}
+                    render={{ ...rowsRender, level: 'kept' }}
+                >
+                    {children}
+                </SceneActionsSubmenu>
+            )
         }
-        return (
-            <DropdownMenuSub>
-                <DropdownMenuSubTrigger>
-                    {withIconBlank && FLAT_ROW_ICON_SPACER}
-                    {label}
-                </DropdownMenuSubTrigger>
-                <DropdownMenuSubContent>
-                    <SceneMenuBarRenderContext.Provider value={{ ...render, inList: false }}>
-                        {children}
-                    </SceneMenuBarRenderContext.Provider>
-                </DropdownMenuSubContent>
-            </DropdownMenuSub>
+        const rows = (
+            <SceneMenuBarRenderContext.Provider value={rowsRender}>{children}</SceneMenuBarRenderContext.Provider>
+        )
+        return render.destructiveOnly || render.level === 'top' ? (
+            rows
+        ) : (
+            <SceneActionsMenuGroup label={label}>{rows}</SceneActionsMenuGroup>
         )
     }
     return (
@@ -539,7 +631,7 @@ export function SceneMenuBarPopover({
     dataAttr,
     align = 'start',
     contentClassName,
-}: SceneMenuBarPopoverProps): JSX.Element {
+}: SceneMenuBarPopoverProps): JSX.Element | null {
     const render = useContext(SceneMenuBarRenderContext)
     const popoverId = dataAttr ?? label
 
@@ -564,27 +656,28 @@ export function SceneMenuBarPopover({
             </Popover>
         )
     }
-    if (render.kind === 'flat') {
+    if (render.kind === 'actions-menu') {
+        if (render.destructiveOnly) {
+            return null
+        }
         const { openPopover, getCaptureProperties } = render
         return (
-            <SceneFlatMenuGroup>
-                <DropdownMenuItem
-                    data-attr={dataAttr}
-                    onClick={() => {
-                        captureSceneMenuBar('scene menu bar item clicked', {
-                            item: dataAttr ?? label,
-                            ...getCaptureProperties(),
-                        })
-                        openPopover(popoverId)
-                    }}
-                >
-                    {FLAT_ROW_ICON_SPACER}
-                    {label}
-                    <span aria-hidden className="-ms-2">
-                        …
-                    </span>
-                </DropdownMenuItem>
-            </SceneFlatMenuGroup>
+            <DropdownMenuItem
+                data-attr={dataAttr}
+                onClick={() => {
+                    captureSceneMenuBar('scene menu bar item clicked', {
+                        item: dataAttr ?? label,
+                        ...getCaptureProperties(),
+                        from_search_results: render.results,
+                    })
+                    openPopover(popoverId)
+                }}
+            >
+                {withPath(render, [ROW_ICON_SPACER, label])}
+                <span aria-hidden className="-ms-2">
+                    …
+                </span>
+            </DropdownMenuItem>
         )
     }
     return (

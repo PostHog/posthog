@@ -1,20 +1,24 @@
-import { RefObject, createContext } from 'react'
+import { ReactNode, RefObject, createContext } from 'react'
 
 interface MenubarRender {
     kind: 'menubar'
 }
 
-export interface FlatRender {
-    kind: 'flat'
-    inList: boolean
-    destructiveFooter: HTMLElement | null
+export interface ActionsMenuRender {
+    kind: 'actions-menu'
+    level: 'top' | 'submenu' | 'kept'
+    results: boolean
+    destructiveOnly: boolean
+    path: ReactNode[]
+    nonEmptyMenus: ReadonlySet<string>
     openPopover: (id: string) => void
     getCaptureProperties: () => Record<string, unknown>
 }
 
 /**
- * A second, always-mounted pass over the scene's menu children. Only `SceneMenuBarPopover` renders here. The menu
- * list unmounts when it closes, so a popover opened from a menu row cannot live inside it.
+ * A second, always-mounted pass over the scene's menu children. `SceneMenuBarPopover` renders its popover here,
+ * because the menu list unmounts when it closes. Every other row renders a hidden probe, which tells the menu which
+ * top-level menus have rows before any of them opens.
  */
 export interface PopoverHostRender {
     kind: 'popover-host'
@@ -23,6 +27,9 @@ export interface PopoverHostRender {
     anchor: RefObject<HTMLButtonElement>
 }
 
-export type SceneMenuBarRender = MenubarRender | FlatRender | PopoverHostRender
+export const MENU_PROBE_ATTRIBUTE = 'data-scene-menu-probe'
+export const ROW_PROBE_ATTRIBUTE = 'data-scene-menu-probe-row'
+
+export type SceneMenuBarRender = MenubarRender | ActionsMenuRender | PopoverHostRender
 
 export const SceneMenuBarRenderContext = createContext<SceneMenuBarRender>({ kind: 'menubar' })

@@ -1,6 +1,6 @@
-export type FlatMenuRowKind = 'item' | 'label' | 'separator'
+export type MenuRowKind = 'item' | 'label' | 'separator'
 
-export function visibleFlatMenuRows(kinds: FlatMenuRowKind[]): boolean[] {
+export function visibleMenuRows(kinds: MenuRowKind[]): boolean[] {
     const visible = kinds.map((kind) => kind === 'item')
 
     let seenItem = false

@@ -141,12 +141,16 @@ const meta: Meta<typeof SceneMenuStory> = {
         featureFlags: [FEATURE_FLAGS.TODAY_RAIL_NAV, FEATURE_FLAGS.SCENE_MENU_BAR],
         testOptions: { waitForSelector: '[data-attr="scene-menu-bar-trigger"]' },
     },
-    play: async ({ canvasElement }) => {
+    play: async ({ canvasElement, parameters }) => {
         const trigger = canvasElement.querySelector<HTMLElement>('[data-attr="scene-menu-bar-trigger"]')
         if (trigger) {
             await userEvent.click(trigger)
         }
-        await within(document.body).findByPlaceholderText('Search actions')
+        await within(document.body).findByRole('menu')
+        const query: string | undefined = parameters.menuQuery
+        if (query) {
+            await userEvent.type(within(document.body).getByPlaceholderText('Search actions'), query)
+        }
     },
 }
 export default meta
@@ -154,6 +158,10 @@ export default meta
 type Story = StoryObj<typeof SceneMenuStory>
 
 export const RichSceneMenu: Story = {}
+
+export const SearchResults: Story = { parameters: { menuQuery: 're' } }
+
+export const SearchWithNoMatches: Story = { parameters: { menuQuery: 'zzqx' } }
 
 export const HelpOnlyFallback: Story = { args: { withoutMenuBar: true } }
 
