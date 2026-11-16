@@ -1118,6 +1118,14 @@ def _release_card(ctx: _UnfurlContext, ref: str, url: str) -> _UnfurlCard | _Ski
         return "not_found"
     if not ctx.uac.check_access_level_for_resource("feature_flag", "viewer"):
         return "no_access"
+    if not releases_api.releases_enabled(
+        team_id=ctx.team.pk,
+        team_uuid=ctx.team.uuid,
+        organization_id=ctx.team.organization_id,
+        distinct_id=str(ctx.user.distinct_id),
+        email=None if ctx.user.anonymize_data else ctx.user.email,
+    ):
+        return "no_access"
     try:
         release = releases_api.get_summary(ctx.team.pk, release_id)
     except releases_api.ReleaseNotFoundError:

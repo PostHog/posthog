@@ -335,6 +335,9 @@ class TestCardText:
 class TestHandlePosthogLinkUnfurl(APIBaseTest):
     def setUp(self) -> None:
         super().setUp()
+        releases_enabled = patch(RELEASES_ENABLED, return_value=True)
+        releases_enabled.start()
+        self.addCleanup(releases_enabled.stop)
         self.integration = Integration.objects.create(
             team=self.team,
             kind="slack",
@@ -972,12 +975,11 @@ class TestHandlePosthogLinkUnfurl(APIBaseTest):
                 return f"{base}/surveys/{survey.pk}", ["Checkout NPS", "*Draft*", "1 question", "1. Why?"]
             case "release":
                 flag = FeatureFlag.objects.create(team=self.team, key="checkout-v2", created_by=self.user, active=True)
-                with patch(RELEASES_ENABLED, return_value=True):
-                    release_id = self.client.post(
-                        f"/api/projects/{self.team.pk}/releases/",
-                        {"name": "Checkout v2", "description": "One-page checkout", "feature_flag_ids": [flag.pk]},
-                        format="json",
-                    ).json()["id"]
+                release_id = self.client.post(
+                    f"/api/projects/{self.team.pk}/releases/",
+                    {"name": "Checkout v2", "description": "One-page checkout", "feature_flag_ids": [flag.pk]},
+                    format="json",
+                ).json()["id"]
                 return f"{base}/releases/{release_id}", ["Release", "Checkout v2", "1 flag", "checkout-v2 · Active"]
             case "cohort":
                 cohort = Cohort.objects.create(team=self.team, name="Power users", count=1200)
@@ -1173,6 +1175,21 @@ class TestHandlePosthogLinkUnfurl(APIBaseTest):
 
         mock_client.chat_unfurl.assert_not_called()
 
+    @patch("products.slack_app.backend.api.resolve_slack_user")
+    @patch("products.slack_app.backend.slack_link_unfurl.SlackIntegration")
+    def test_skips_release_while_releases_are_off_for_the_sharer(
+        self, mock_slack_integration_class: MagicMock, mock_resolve: MagicMock
+    ) -> None:
+        url, _ = self._create_object("release")
+        mock_resolve.return_value = MagicMock(user=self.user)
+        mock_client = MagicMock()
+        mock_slack_integration_class.return_value.client = mock_client
+
+        with patch(RELEASES_ENABLED, return_value=False):
+            self._unfurl_links([url])
+
+        mock_client.chat_unfurl.assert_not_called()
+
     @parameterized.expand([("live_flag", False), ("deleted_flag", True)])
     @patch("products.slack_app.backend.api.resolve_slack_user")
     @patch("products.slack_app.backend.slack_link_unfurl.SlackIntegration")
@@ -1184,9 +1201,8 @@ class TestHandlePosthogLinkUnfurl(APIBaseTest):
         ]
         self.organization.save()
         flag = FeatureFlag.objects.create(team=self.team, key="secret-pricing", created_by=self.user, active=True)
-        with patch(RELEASES_ENABLED, return_value=True):
-            self.client.post(f"/api/projects/{self.team.pk}/releases/import_all/")
-            release_id = self.client.get(f"/api/projects/{self.team.pk}/releases/").json()["results"][0]["id"]
+        self.client.post(f"/api/projects/{self.team.pk}/releases/import_all/")
+        release_id = self.client.get(f"/api/projects/{self.team.pk}/releases/").json()["results"][0]["id"]
         AccessControl.objects.create(
             team=self.team, resource="feature_flag", resource_id=str(flag.pk), access_level="none"
         )
