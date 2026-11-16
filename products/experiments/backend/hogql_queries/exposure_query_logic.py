@@ -26,6 +26,7 @@ from posthog.schema import (
 from posthog.hogql import ast
 from posthog.hogql.errors import ExposedHogQLError
 from posthog.hogql.property import action_to_expr, operator_is_negative, property_to_expr
+from posthog.hogql.transforms.flag_calls_from_flag_evaluations import EventsOnlyNames
 from posthog.hogql.utils import map_virtual_properties
 
 from posthog.models.team.team import Team
@@ -53,6 +54,11 @@ EXPERIMENT_EXPOSURE_EVENT_FLAG = "experiment-exposure-event"
 # (exposure_event_name_filter). Only experiments whose start_date is at or after the cutoff can
 # rely on $experiment_exposure covering their whole exposure window.
 EXPERIMENT_EXPOSURE_EVENT_CUTOFF = datetime(2026, 9, 1, tzinfo=UTC)
+
+# What an SDK puts on the $experiment_exposure event it sends when a feature flag rule assigns a variant.
+# A rule-linked experiment reads these and never $feature_flag_response: two variants can return one value.
+RULE_ID_PROPERTY = "$feature_flag_rule_id"
+RULE_VARIANT_KEY_PROPERTY = "$feature_flag_variant_key"
 
 
 def resolve_default_exposure_event(team: Team, start_date: Optional[datetime]) -> str:
@@ -104,13 +110,17 @@ def exposure_event_names(event: str, *, read_copies: bool = True) -> list[str]:
 
 
 def exposure_event_name_filter(event: str, *, read_copies: bool = True) -> ast.Expr:
-    """Matches the events that `exposure_event_names` returns for a resolved exposure event."""
+    """Matches the events that `exposure_event_names` returns for a resolved exposure event.
+
+    A filter on more than one name reads `events` on every mode, and never reads `flag_evaluations` or the flag-call
+    union. The union scans `flag_evaluations` too, which costs an exposure query far more than `events` alone.
+    """
     names = exposure_event_names(event, read_copies=read_copies)
     if len(names) > 1:
         return ast.CompareOperation(
             op=ast.CompareOperationOp.In,
             left=ast.Field(chain=["event"]),
-            right=ast.Constant(value=names),
+            right=ast.Constant(value=EventsOnlyNames(names)),
         )
     return ast.CompareOperation(
         op=ast.CompareOperationOp.Eq,
@@ -213,6 +223,28 @@ def is_default_exposure_config(
         DEFAULT_EXPOSURE_EVENT,
         EXPERIMENT_EXPOSURE_EVENT,
     )
+
+
+def rule_exposure_criteria_error(exposure_criteria: Union[ExperimentExposureCriteria, dict, None]) -> Optional[str]:
+    """Why these exposure criteria cannot apply to a rule-linked experiment, or None when they can.
+
+    Such an experiment counts only the $experiment_exposure events that carry its rule. A custom
+    exposure event or an action carries no rule, so it cannot tell the rules of one flag apart. An
+    activation event could build on the rule's exposures, but the rule analysis does not read one yet.
+    Test account filtering, the handling of multiple variants and property filters on the default
+    exposure all apply.
+    """
+    criteria = normalize_to_exposure_criteria(exposure_criteria)
+    if criteria is None:
+        return None
+    if not is_default_exposure_config(criteria.exposure_config):
+        return (
+            "An experiment on a feature flag rule counts exposures on the $experiment_exposure event of its "
+            "rule. A custom exposure event or action is not supported for it yet."
+        )
+    if criteria.activation_config is not None:
+        return "An activation event is not supported yet for an experiment on a feature flag rule."
+    return None
 
 
 def has_activation_config(exposure_criteria: Union[ExperimentExposureCriteria, dict, None]) -> bool:

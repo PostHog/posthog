@@ -2,10 +2,16 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { urls } from 'scenes/urls'
 
 import { ProductItemCategory } from '~/queries/schema/schema-general'
-import { ProductManifest } from '~/types'
+import { ActivityScope, ProductManifest } from '~/types'
 
 export const manifest: ProductManifest = {
     name: 'AlertsPlatform',
+    activityDescribers: {
+        [ActivityScope.PLATFORM_ALERT_CONFIGURATION]: () =>
+            import('./frontend/platformAlertConfigurationActivityDescriber').then(
+                (module) => module.platformAlertConfigurationActivityDescriber
+            ),
+    },
     scenes: {
         PlatformAlerts: {
             name: 'Platform alerts',

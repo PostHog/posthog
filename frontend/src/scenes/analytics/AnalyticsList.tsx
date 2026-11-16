@@ -47,6 +47,7 @@ import { TodayAnalyticsNewFolderDialog } from 'products/today/frontend/analytics
 import { AnalyticsBulkBar } from './AnalyticsBulkBar'
 import { AnalyticsBulkTagsDialog } from './AnalyticsBulkTagsDialog'
 import { AnalyticsCreateModals } from './AnalyticsCreateModals'
+import { AnalyticsDeleteDialog } from './AnalyticsDeleteDialog'
 import { analyticsOrderByOfColumn, parseAnalyticsOrderBy } from './analyticsFeed'
 import { AnalyticsFolderBreadcrumbs } from './AnalyticsFolderBreadcrumbs'
 import { AnalyticsListRow, analyticsListColumns, analyticsListRowId } from './AnalyticsListColumns'
@@ -54,20 +55,28 @@ import { AnalyticsListFilters } from './AnalyticsListFilters'
 import { analyticsListLogic, analyticsListUrlParams } from './analyticsListLogic'
 import { AnalyticsListSkeleton } from './AnalyticsListSkeleton'
 import { AnalyticsPinMenuItem } from './AnalyticsPinMenuItem'
+import { analyticsPinnedLogic } from './analyticsPinnedLogic'
 import { analyticsSelectionLogic } from './analyticsSelectionLogic'
 import { AnalyticsSpaceGlyph } from './AnalyticsSpaceGlyph'
+import { AnalyticsTagsDialog } from './AnalyticsTagsDialog'
 import { ANALYTICS_DRAG_SCOPE, ANALYTICS_TYPE_INFO, USERS_FOLDER, analyticsSpaceOfPath } from './analyticsUtils'
 import { NewAnalyticsMenu } from './NewAnalyticsMenu'
 import { ShareToSpaceDialog } from './ShareToSpaceDialog'
 
 const SCROLL_PREFETCH_MARGIN = '1200px 0px'
 const EMPTY_COLLECTION: ReactNode = <Text size="sm">Nothing in this collection.</Text>
-const canSelectRow = (row: AnalyticsListRow): boolean => row.kind === 'item'
+// Only items can be picked. A folder is not a thing the bulk bar can act on.
+const rowSelectionDisabledReason = (row: AnalyticsListRow): string | null =>
+    row.kind === 'item' ? null : 'Folders can’t be selected'
+const rowSelectionLabel = (row: AnalyticsListRow): string =>
+    `Select ${row.kind === 'item' ? row.item.name : row.folder.name}`
 
 export const scene: SceneExport = {
     component: AnalyticsList,
     logic: analyticsListLogic,
 }
+
+const rowHoverGroup = (): string => 'group/row'
 
 export function AnalyticsList(): JSX.Element {
     const analyticsEnabled = useFeatureFlag('TODAY_RAIL_NAV')
@@ -96,6 +105,7 @@ function AnalyticsListContent(): JSX.Element {
     const { setRowSelection } = useActions(analyticsSelectionLogic)
     const { setNewFolderDialogOpen } = useActions(todayAnalyticsLogic)
     const { deleteItem } = useActions(projectTreeDataLogic)
+    const { hidePinHint } = useActions(analyticsPinnedLogic)
     const [tableViewport, setTableViewport] = useState<HTMLDivElement | null>(null)
     const { ref: tableEndRef, inView: tableEndInView } = useInView({
         root: tableViewport,
@@ -126,6 +136,9 @@ function AnalyticsListContent(): JSX.Element {
     // Only the collection itself is deleted from Manage; a folder inside it is deleted from its row.
     const topLevelSpace = mode === 'folder' && filters.folder ? analyticsSpaceOfPath(filters.folder) : null
     const isSpaceRoot = !!topLevelSpace && topLevelSpace !== USERS_FOLDER && folderBreadcrumbs.length === 1
+
+    // The hint belongs to the visit that asked for it.
+    useEffect(() => () => hidePinHint(), [hidePinHint])
 
     useEffect(() => {
         if (nearEnd && hasMore) {
@@ -257,12 +270,15 @@ function AnalyticsListContent(): JSX.Element {
                                     setFilters({ orderBy })
                                 }
                             }}
+                            selectable
                             rowSelection={rowSelection}
                             onRowSelectionChange={setRowSelection}
-                            enableRowSelection={canSelectRow}
+                            rowSelectionDisabledReason={rowSelectionDisabledReason}
+                            rowSelectionLabel={rowSelectionLabel}
                             getRowId={analyticsListRowId}
                             className="flex min-h-0 flex-col [--quill-table-sticky-bg:var(--card)]"
                             empty={EMPTY_COLLECTION}
+                            rowClassName={rowHoverGroup}
                         />
                     </Card>
                 )}
@@ -368,6 +384,8 @@ function AnalyticsListContent(): JSX.Element {
             <AnalyticsCreateModals />
             <ShareToSpaceDialog />
             <AnalyticsBulkTagsDialog />
+            <AnalyticsTagsDialog />
+            <AnalyticsDeleteDialog />
             <TodayAnalyticsNewFolderDialog />
         </SceneContent>
     )

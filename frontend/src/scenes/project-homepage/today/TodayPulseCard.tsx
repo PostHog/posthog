@@ -21,13 +21,25 @@ function cardCaption(metric: HighlightMetricApi): string {
     return metric.experiment ? 'Experiment' : pulsePeriodCaption(metric)
 }
 
+const SUGGESTIONS: Partial<Record<string, string>> = {
+    experiment: 'You run this experiment',
+    evaluation: 'You created this evaluation',
+    popular: 'Opened often in this project',
+}
+
+const OPEN_LABELS: Partial<Record<string, string>> = {
+    experiment: 'Open experiment',
+    evaluation: 'Open evaluation',
+}
+
 function suggestionText(metric: HighlightMetricApi): string {
-    return metric.experiment ? 'You run this experiment' : 'Suggested based on your usage'
+    return SUGGESTIONS[metric.reason ?? ''] ?? 'Suggested based on your usage'
 }
 
 function openLabel(metric: HighlightMetricApi): string {
-    if (metric.experiment) {
-        return 'Open experiment'
+    const label = OPEN_LABELS[metric.reason ?? '']
+    if (label) {
+        return label
     }
     return metric.dashboard_id !== null || metric.reason === 'dashboard' ? 'Open dashboard' : 'Open insight'
 }

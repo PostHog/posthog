@@ -26,8 +26,8 @@ export function EvaluationCategoryPassing({
             />
             {grades && (
                 <div className="flex flex-col gap-1 pl-6">
+                    <span className="text-sm text-secondary">Passing categories</span>
                     <div className="flex flex-wrap items-center gap-x-4 gap-y-1 text-sm">
-                        <span className="text-secondary">Passing categories:</span>
                         {options.map((option) => (
                             <LemonCheckbox
                                 key={option.key}

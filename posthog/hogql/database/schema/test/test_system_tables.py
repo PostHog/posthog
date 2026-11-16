@@ -47,7 +47,7 @@ from products.access_control.backend.models.access_control import AccessControl
 from products.access_control.backend.models.property_access_control import PropertyAccessControl
 from products.access_control.backend.models.role import Role
 from products.actions.backend.facade.testing import create_action
-from products.aeo.backend.facade.testing import create_citation_check
+from products.aeo.backend.facade.testing import create_brand, create_citation_check
 from products.ai_observability.backend.models.datasets import Dataset, DatasetItem, DatasetItemVersion, DatasetRevision
 from products.ai_observability.backend.models.evaluation_directories import EvaluationDirectory
 from products.ai_observability.backend.models.evaluations import Evaluation
@@ -1119,6 +1119,7 @@ def _create_business_knowledge_chunk(team: Team, label: str):
 
 SYSTEM_TABLE_FACTORIES = [
     ("account_relationship_definitions", _create_account_relationship_definition),
+    ("aeo_brands", create_brand),
     ("aeo_citation_checks", create_citation_check),
     ("account_relationships", _create_account_relationship),
     ("accounts", _create_account),
@@ -1528,6 +1529,32 @@ class TestSystemTablesTaskInternalExclusionIsolation(NonAtomicBaseTest):
 
         assert str(regular_task.pk) in ids
         assert str(internal_task.pk) not in ids
+
+
+class TestSystemTablesFileSystemWorkflowExclusion(NonAtomicBaseTest):
+    CLASS_DATA_LEVEL_SETUP = False
+
+    def test_workflow_files_are_not_listed(self):
+        from posthog.models.file_system.constants import WORKFLOW_FILE_SYSTEM_TYPES
+        from posthog.models.file_system.file_system import FileSystem
+
+        FileSystem.objects.create(team=self.team, path="Reports/Weekly", type="insight", ref="weekly")
+        for file_type in WORKFLOW_FILE_SYSTEM_TYPES:
+            FileSystem.objects.create(team=self.team, path=f"Campaigns/{file_type}", type=file_type, ref=file_type)
+
+        response = execute_hogql_query("SELECT type FROM system.file_system", team=self.team, user=self.user)
+
+        assert {row[0] for row in response.results} == {"insight"}
+
+    def test_team_guard_stays_next_to_the_postgres_read(self):
+        db = Database.create_for(team=self.team, user=self.user)
+        context = HogQLContext(team_id=self.team.pk, enable_select_queries=True, database=db)
+
+        query, _ = prepare_and_print_ast(
+            parse_select("SELECT id FROM system.file_system"), context, dialect="clickhouse"
+        )
+
+        assert f"WHERE team_id = {self.team.pk}) AS system__file_system" in query
 
 
 class TestSystemTablesInboxAccess(BaseTest):

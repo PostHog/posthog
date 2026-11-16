@@ -39,7 +39,11 @@ When a change disagrees with this file, change this file in the same PR or don't
 └──────────────────────────────────────────────────────────────┘
 ```
 
-Placeholder: `Search or ask PostHog AI… try is:dashboard`.
+Placeholder: `Search or ask PostHog AI… try createdBy:me`.
+The example changes every 2.5 s, in this order: each other filter's `example` in `FILTER_DEFINITIONS`, then the first of those negated (`-createdBy:me`), then every type in the `is:` list.
+It uses quill's `quill-fade-cycle`, and the first example shows at once without fading in.
+A native placeholder cannot animate, so the hint is a node passed to quill's `InputGroupInput` `placeholder`, which lays it out in the input's own box, where the caret sits.
+With reduced motion it stays on the first example.
 
 Input controls, carried over from the current palette:
 
@@ -98,10 +102,11 @@ The input is always in exactly one mode, decided from the token under the cursor
   3. Remote lists that the file system does not hold: **Events**, **Properties**, **Workflows** (one unified search request), **Accounts** (behind the customer analytics flag, excluding accounts already shown in ranked results), **Support tickets** (3+ characters or a ticket number).
   4. **Ask PostHog AI**.
   5. **Persons**, **Groups**. Person and group searches can take seconds, so they usually come last. The person search starts with the file system search, after 50 ms. A search that contains "@" waits for the person search and ranks the persons it finds with **Results** / **Best matches**. A person who matches every word comes first. Persons that do not rank stay in **Persons** below, with no duplicates. Other searches do not wait for persons or groups.
+     - The person search returns no total. When it fills its page of 5, the **Persons** section ends with a **See all persons** row that adds the `is:person` chip and keeps the words.
 - With any filter (a chip, or a valid `key:value` still being typed), only **Results** and **Ask PostHog AI** show, because filters apply only to objects.
 - With an `is:` chip (not negated), **Results** holds a **View all <types>** row (`View all feature flags`) that opens the list page of that type. With no search text it is the first row; once you type a search it moves below the results. It shows only for types with a list page.
   - A list page that reads a search from its URL opens with the rest of the query. The type's product manifest names the URL param in `listSearchParam`, and Command K adds the search text to `listHref()`.
-  - Feature flags, experiments, cohorts, surveys, insights, and dashboards take the search text as `?search=`: the `name:` value, then the free text.
+  - Feature flags, experiments, cohorts, surveys, insights, dashboards, and persons take the search text as `?search=`: the `name:` value, then the free text. The Persons list turns `?search=` into the search of its query.
   - These lists match the search text as one phrase, in the order typed. So `?search=` leaves out what a phrase cannot express: excluded words (`-legacy`, `"-legacy"`, `!draft`, a lone `-`), an excluded `name:`, and the quotes that group words (`"checkout v2"`).
   - `createdBy:` and `in:` do not carry over, because the lists' own filters take user IDs and exact folders, not Command K's values.
   - Any other type opens its bare list page.
@@ -126,7 +131,8 @@ Results for a search with words rank with one scorer that applies the same rules
 - Results with the same name show as one row with a "+N with this name" badge.
 - A short list (8 or fewer) or a list of one type shows flat, under one **Results** header. A flat list of saved objects shows at most 20 rows and ends with its **See all N <types>** row. Products, settings, persons, and accounts have no **See all** row, so a flat list of one of those types shows every match.
 - With an `is:` chip, results show as one flat list. The creator shows on rows that share a name.
-- Some `is:` types are not file system objects, so the file system search cannot find them. `is:alert`, `is:ticket`, `is:workflow`, `is:endpoint`, and `is:product_tour` search their own API instead (`TYPE_SEARCHES` in `commandKSources.ts`): alerts, support tickets, and product tours through their list endpoint's `search=`, workflows and endpoints through the unified search API. Results keep the order the API returns, and the ranking keeps a result the API matched outside its name.
+- Some `is:` types are not file system objects, so the file system search cannot find them. `is:alert`, `is:ticket`, `is:person`, `is:workflow`, `is:endpoint`, and `is:product_tour` search their own API instead (`TYPE_SEARCHES` in `commandKSources.ts`): alerts, support tickets, persons, and product tours through their list endpoint's `search=`, workflows and endpoints through the unified search API. Results keep the order the API returns, and the ranking keeps a result the API matched outside its name.
+  - `is:person` (also `is:people`) finds up to 20 persons by email, name, person ID, or distinct ID, with the same person search as the **Persons** section. With no search text, it lists the most recently created persons.
   - `is:ticket` lists the most recently updated tickets with no search text. With text, it follows the **Support tickets** rule: 3+ characters or a ticket number (`42`, `#42`), because the ticket search also scans message text. The ticket API reads a numeric search as a ticket number, so a numeric `name:` value (`name:42`) is not sent. Command K sends the other words, or none, and keeps the tickets whose subject contains the value. With no other words it checks only the 20 most recently updated tickets. A ticket row shows its subject, then the number, the customer's name or email, and the status.
   - These APIs cannot apply `createdBy:`, `in:`, or excluded words, so a query with any of them finds nothing for these types. A search that ignored the filter would show objects the filter excludes. Quoted exclusions (`"-legacy"`) count too.
   - Some of these APIs also match descriptions, customers, or message text, so Command K keeps only the results whose name contains the `name:` value.
@@ -153,7 +159,7 @@ Quote values with spaces: `createdBy:"Ada Lovelace"`, `in:"Team Growth"`.
 
 The backend tokenizes these in `FileSystemViewSet._apply_search_to_queryset` (`posthog/api/file_system/file_system.py`), including `-` negation and quotes.
 The frontend maps friendly keys to backend keys (`is:` → `type:`, `createdBy:` → `user:`) and sends one `search` string.
-`is:` also offers insight alert, ticket, destination, and transformation, which no manifest lists (`EXTRA_TYPES` in `commandKFilterOptions.tsx`). Types that the file system does not hold search their own API (see [Ranked results](#ranked-results)).
+`is:` also offers insight alert, ticket, person, destination, and transformation, which no manifest lists (`EXTRA_TYPES` in `commandKFilterOptions.tsx`). Types that the file system does not hold search their own API (see [Ranked results](#ranked-results)).
 `is:alert` covers insight alerts only, because the log alerts list has no search, and its **View all** row opens the insight alerts tab.
 `is:destination` covers server and browser destinations (`hog_function/destination` and `hog_function/site_destination`), like the Destinations page. The file system search takes one `type:` value, so Command K sends one search per type with the other filters kept, and merges the results. `-is:destination` excludes both types in one search.
 
@@ -192,7 +198,7 @@ These are the rules reviewers check. Breaking one is a bug.
 
 - Keystroke to paint: under 16 ms for local filtering. Measure in the React profiler before merging.
 - Remote result under 300 ms p95 for `file_system` search with filters.
-- Per-section caps: Filters 3, Suggestions 8 (`is:` lists every type, since that list is short and fixed), Results 20 (a ranked search fetches 40 and shows up to 3 per group), Recents 5, Products, Settings, Persons and Groups 5 each in Search mode. No virtualization needed at these sizes.
+- Per-section caps: Filters 3, Suggestions 8 (`is:` lists every type, since that list is short and fixed), Results 20 (a ranked search fetches 40 and shows up to 3 per group), Recents 5, Products, Settings, Persons and Groups 5 each in Search mode (`is:person` shows up to 20). No virtualization needed at these sizes.
 - Cache remote responses by normalized query string (sorted chips + trimmed text) for the life of the palette. Backspacing to an earlier query paints from cache with zero network.
 - Org members for `createdBy:` and folders for `in:` load the first time that filter is used, then filter locally. Opening the palette sends no request.
 - The parser and the local filters are pure and memoized on input text.

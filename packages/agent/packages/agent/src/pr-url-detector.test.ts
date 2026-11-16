@@ -50,6 +50,15 @@ describe("findPrUrls", () => {
     ]);
   });
 
+  it("finds GitLab merge request URLs with nested groups, in order with GitHub PRs", () => {
+    const mr = "https://gitlab.com/acme/platform/api/-/merge_requests/12";
+    const update = JSON.stringify({
+      text: `Created ${mr}\nsee ${PR_URL} and ${mr}`,
+    });
+    expect(findPrUrls(update)).toEqual([mr, PR_URL]);
+    expect(findPrUrls("https://gitlab.com/acme/api/-/issues/3")).toEqual([]);
+  });
+
   it("dedupes repeated mentions of the same PR", () => {
     expect(findPrUrls(`${PR_URL} again: ${PR_URL}`)).toEqual([PR_URL]);
   });
@@ -105,6 +114,10 @@ describe("parsePrRepository", () => {
     ["https://github.com/PostHog/posthog/pull/123", "posthog/posthog"],
     ["https://github.com/PostHog/posthog.com/pull/1", "posthog/posthog.com"],
     ["https://example.com/PostHog/posthog/pull/1", null],
+    [
+      "https://gitlab.com/Acme/Platform/api/-/merge_requests/7",
+      "acme/platform/api",
+    ],
   ])("%s -> %s", (url, expected) => {
     expect(parsePrRepository(url)).toBe(expected);
   });

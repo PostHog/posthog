@@ -93,7 +93,6 @@ function EmptyStateActions({
                 minAccessLevel={AccessControlLevel.Editor}
             >
                 <Button
-                    elevated
                     variant="primary"
                     render={<LinkPrimitive to={urls.sqlEditor({ source: 'view' })} />}
                     data-attr="models-overview-create-view"
@@ -103,7 +102,6 @@ function EmptyStateActions({
                 </Button>
             </AccessControlAction>
             <Button
-                elevated
                 variant="outline"
                 render={<LinkPrimitive to={urls.models('data-quality')} />}
                 data-attr="models-overview-checks"

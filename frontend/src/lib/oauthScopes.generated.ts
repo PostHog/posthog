@@ -20,6 +20,8 @@ export const OAUTH_SCOPES_SUPPORTED = [
     'access_control:write',
     'account:read',
     'account:write',
+    'account_note:read',
+    'account_note:write',
     'activity_log:read',
     'activity_log:write',
     'alert:read',
@@ -226,8 +228,6 @@ export const OAUTH_SCOPES_SUPPORTED = [
     'usage_metric:write',
     'user:read',
     'user:write',
-    'user_interview:read',
-    'user_interview:write',
     'vision_action:read',
     'vision_action:write',
     'vision_alert:read',
@@ -274,6 +274,7 @@ export const OAUTH_SCOPES_HIDDEN = [
 // in posthog/scopes.py). While old tokens carry only the legacy scope, a held
 // `<legacy>:<action>` satisfies a required `<new>:<action>`.
 export const LEGACY_SCOPE_FALLBACKS: ReadonlyMap<string, string> = new Map([
+    ['account_note', 'account'],
     ['inbox', 'task'],
     ['messaging_preference', 'hog_flow'],
     ['transactional_email', 'hog_flow'],

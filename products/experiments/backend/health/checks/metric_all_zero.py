@@ -19,6 +19,7 @@ from products.experiments.backend.facade.contracts import (
     ExperimentHealthFinding,
     ExperimentHealthFindingCode,
     ExperimentHealthFindingSeverity,
+    ExperimentHealthValueKey,
 )
 from products.experiments.backend.health.checks.events_received import joined, quoted
 from products.experiments.backend.health.context import HealthContext, ZeroMetric
@@ -26,6 +27,7 @@ from products.experiments.backend.health.skips import (
     NOT_ON_ARCHIVED,
     RUNS_AFTER_LAUNCH,
     CheckOutcome,
+    CheckRows,
     no_calculated_metric,
     not_applicable,
     not_checked,
@@ -48,6 +50,8 @@ MIN_HOURS_OF_DATA = 72
 MIN_EXPOSURES_WITH_A_SETTING_CAUSE = 100
 MIN_HOURS_WITH_A_SETTING_CAUSE = 12
 
+WAITS_FOR_DATA = f"Runs once a primary metric at 0 has {MIN_EXPOSURES:,} users and {MIN_HOURS_OF_DATA} hours of data"
+
 # A change to these settings recalculates the metric over the events up to the end, so they stay a warning after it.
 _FIXED_BY_A_SETTING = frozenset({BLANK_EVENT, OUTLIER_BOUND})
 _BOUND_LABEL = '"Ignore zeros when calculating upper bound"'
@@ -61,6 +65,23 @@ class _Worded:
     cause: str | None
     # Without the usual causes, which the finding says once for all the metrics that have no cause.
     detail: str
+
+
+def metric_all_zero_rows(ctx: HealthContext) -> CheckRows:
+    calculation = ctx.latest_calculation
+    if ctx.archived or not ctx.is_launched or calculation is None or calculation.hours_of_data is None:
+        return ()
+    hours_of_data = calculation.hours_of_data
+    return tuple(
+        {
+            ExperimentHealthValueKey.METRIC_NAME: metric.name,
+            ExperimentHealthValueKey.METRIC_ROLE: metric.role,
+            ExperimentHealthValueKey.RATIO_SIDE: metric.ratio_side,
+            ExperimentHealthValueKey.SAMPLE_COUNT: metric.exposures,
+            ExperimentHealthValueKey.DATA_HOURS: round(max(_hours_that_count(metric, hours_of_data), 0), 1),
+        }
+        for metric in calculation.zero_metrics
+    )
 
 
 def metric_all_zero(ctx: HealthContext) -> CheckOutcome:
@@ -82,7 +103,11 @@ def metric_all_zero(ctx: HealthContext) -> CheckOutcome:
         if not _explained_elsewhere(metric, ctx) and (item := _word(metric, ctx, hours_of_data)) is not None
     ]
     if not worded:
-        return None
+        # A primary metric at zero that no gate let through is too new to judge, which is not a pass.
+        waiting = any(
+            metric.role == "primary" and not _explained_elsewhere(metric, ctx) for metric in calculation.zero_metrics
+        )
+        return not_applicable(WAITS_FOR_DATA) if waiting else None
     worded.sort(key=lambda item: (item.metric.role != "primary", item.cause is None))
     # Both sides of a ratio can read zero, and each is its own item.
     count = len({item.metric.metric_id for item in worded})

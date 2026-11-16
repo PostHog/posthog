@@ -148,7 +148,7 @@ export function NotableSessionsTable({
 }): JSX.Element {
     const { searchParams } = useValues(router)
     return (
-        <Card size="sm" className="gap-0">
+        <Card size="sm" className="gap-0 self-start">
             <CardHeader className="border-b border-border pb-3">
                 <CardTitle>Sessions flagged for review</CardTitle>
             </CardHeader>

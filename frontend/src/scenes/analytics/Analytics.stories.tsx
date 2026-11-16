@@ -386,6 +386,14 @@ async function clickWhenRendered(attr: string): Promise<void> {
 export const ListShareDialog: Story = {
     parameters: { pageUrl: urls.analyticsList() },
     play: async () => {
+        // The notebook is the one row outside a collection, so its menu offers to add it to one.
+        await userEvent.click(
+            await within(document.body).findByRole(
+                'button',
+                { name: 'Actions for Q4 experiment plan' },
+                { timeout: 15000 }
+            )
+        )
         await clickWhenRendered('analytics-list-row-share')
         await within(document.body).findAllByText('Finance', {}, { timeout: 15000 })
     },
@@ -403,7 +411,10 @@ export const ListNewInsightDialog: Story = {
 export const ListBulkSelection: Story = {
     parameters: { pageUrl: urls.analyticsList() },
     play: async () => {
-        await clickWhenRendered('analytics-list-select-all')
+        // The table draws its own checkbox column, so the header checkbox is reached by its label.
+        await userEvent.click(
+            await within(document.body).findByRole('checkbox', { name: 'Select all rows' }, { timeout: 15000 })
+        )
         await clickWhenRendered('analytics-bulk-tags')
         await within(document.body).findByText('Add tags…', {}, { timeout: 15000 })
     },

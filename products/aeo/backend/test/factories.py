@@ -34,3 +34,9 @@ def create_citation_check(team: Team, label: str) -> uuid.UUID:
             model="exa-answer",
         )
     return check.pk
+
+
+def create_brand(team: Team, label: str) -> uuid.UUID:
+    with team_scope(team.pk):
+        brand = AEOBrand.objects.create(team=team, name=label, domain=f"{label}.example.com", source=BrandSource.MANUAL)
+    return brand.pk

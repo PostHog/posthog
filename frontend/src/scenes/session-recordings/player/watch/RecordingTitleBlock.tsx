@@ -26,10 +26,12 @@ export function RecordingTitleBlock({
     actions,
     trailingActions,
     compact = false,
+    hideProperties = false,
 }: {
     actions?: ReactNode
     trailingActions?: ReactNode
     compact?: boolean
+    hideProperties?: boolean
 }): JSX.Element {
     const { logicProps, sessionPlayerMetaData } = useValues(sessionRecordingPlayerLogic)
     const { sessionPerson, loading, startTime } = useValues(playerMetaLogic(logicProps))
@@ -71,7 +73,9 @@ export function RecordingTitleBlock({
     const recordingProperties = sessionPlayerMetaData?.id
         ? recordingPropertiesById[sessionPlayerMetaData.id]
         : undefined
-    const iconProperties = gatherIconProperties(recordingProperties, sessionPlayerMetaData ?? undefined)
+    const iconProperties = hideProperties
+        ? []
+        : gatherIconProperties(recordingProperties, sessionPlayerMetaData ?? undefined)
     const durationSeconds = sessionPlayerMetaData?.recording_duration
     const personName = sessionPerson ? asDisplay(sessionPerson) : 'Unknown user'
     const personHref = asLink(sessionPerson)

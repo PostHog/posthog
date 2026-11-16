@@ -22,7 +22,8 @@ import { newEventsTableLogic } from '~/layout/navigation/newEventsTableLogic'
 
 import { todayMenuLinkItem } from './todayMenuLinkItem'
 
-export function TodayAccountMenu(): JSX.Element {
+/** The account menu, on the rail or in the phone layout's sidebar footer. */
+export function TodayAccountMenu({ placement = 'rail' }: { placement?: 'rail' | 'phone-footer' }): JSX.Element {
     const { user } = useValues(userLogic)
     const { logout } = useActions(userLogic)
     const { isAccountMenuOpen } = useValues(newAccountMenuLogic)
@@ -44,7 +45,7 @@ export function TodayAccountMenu(): JSX.Element {
                     </Button>
                 }
             />
-            <DropdownMenuContent side="right" align="end" className="w-64">
+            <DropdownMenuContent side={placement === 'phone-footer' ? 'top' : 'right'} align="end" className="w-64">
                 <DropdownMenuItem
                     render={todayMenuLinkItem(urls.settings(user?.organization?.id ? 'user' : 'user-danger-zone'))}
                     className="h-auto"

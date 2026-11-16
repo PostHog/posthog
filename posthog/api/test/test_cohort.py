@@ -8451,6 +8451,57 @@ class TestCohortTypeIntegration(APIBaseTest):
         cohort = Cohort.objects.get(id=response.data["id"])
         self.assertNotEqual(cohort.cohort_type, CohortType.REALTIME)
 
+    def test_history_limit_is_judged_when_criteria_are_saved(self):
+        def performed_pageview_since(start: str) -> dict:
+            leaf = {
+                "type": "behavioral",
+                "key": "$pageview",
+                "event_type": "events",
+                "value": "performed_event",
+                "explicit_datetime": start,
+            }
+            return {"properties": {"type": "AND", "values": [leaf]}}
+
+        self.team.timezone = "Pacific/Auckland"
+        self.team.save()
+
+        # It is already 2026-11-06 in Auckland, so 2025-10-01 is 401 days back for the team and 400 in UTC.
+        with time_machine.travel(datetime(2026, 11, 5, 12, 0, tzinfo=UTC), tick=False):
+            create = self.client.post(
+                f"/api/projects/{self.team.id}/cohorts/",
+                {"name": "Viewed a page since October 2025", "filters": performed_pageview_since("2025-10-01")},
+                format="json",
+            )
+            self.assertEqual(create.status_code, 201, create.data)
+            cohort_id = create.data["id"]
+            self.assertNotEqual(Cohort.objects.get(id=cohort_id).cohort_type, CohortType.REALTIME)
+
+            shorten = self.client.patch(
+                f"/api/projects/{self.team.id}/cohorts/{cohort_id}/",
+                {"filters": performed_pageview_since("2025-10-02")},
+                format="json",
+            )
+            self.assertEqual(shorten.status_code, 200, shorten.data)
+            self.assertEqual(Cohort.objects.get(id=cohort_id).cohort_type, CohortType.REALTIME)
+
+        # A day later 2025-10-02 is past the limit too, and a rename that resends the same filters keeps realtime.
+        with time_machine.travel(datetime(2026, 11, 6, 12, 0, tzinfo=UTC), tick=False):
+            rename = self.client.patch(
+                f"/api/projects/{self.team.id}/cohorts/{cohort_id}/",
+                {"name": "Renamed", "filters": performed_pageview_since("2025-10-02")},
+                format="json",
+            )
+            self.assertEqual(rename.status_code, 200, rename.data)
+            self.assertEqual(Cohort.objects.get(id=cohort_id).cohort_type, CohortType.REALTIME)
+
+            lengthen = self.client.patch(
+                f"/api/projects/{self.team.id}/cohorts/{cohort_id}/",
+                {"filters": performed_pageview_since("2025-09-01")},
+                format="json",
+            )
+            self.assertEqual(lengthen.status_code, 200, lengthen.data)
+            self.assertNotEqual(Cohort.objects.get(id=cohort_id).cohort_type, CohortType.REALTIME)
+
     def test_api_response_includes_cohort_type(self):
         """API responses should include the cohort_type and condition_type fields"""
 

@@ -398,3 +398,13 @@ body.has-today-phone-layout .Toastify__toast-container--bottom-right {
         }
     }
 }
+
+// The "PostHog is changing" dialog announces a change to the whole app, so its backdrop dims the page more than quill's
+// default. The starting and ending states stay at quill's 0, so the backdrop still fades in and out.
+.TodayNavSwitchDialog__overlay:not([data-starting-style], [data-ending-style]) {
+    opacity: 0.5;
+}
+
+:is(.dark, [theme='dark']) .TodayNavSwitchDialog__overlay:not([data-starting-style], [data-ending-style]) {
+    opacity: 0.85;
+}

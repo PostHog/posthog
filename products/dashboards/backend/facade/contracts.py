@@ -1,19 +1,22 @@
 """
 Contract types for dashboards.
 
-Frozen dataclasses and errors that cross the dashboards boundary. No Django imports: the facade
-maps dashboard and tile rows to these, and callers outside the product hold only these.
+Frozen dataclasses, errors and the `AppliedDashboard` protocol that cross the dashboards boundary.
+No Django imports: the facade maps dashboard and tile rows to these, and callers outside the
+product hold only these.
 """
 
+from dataclasses import field
 from datetime import datetime
-from typing import Any
+from typing import Any, Protocol
+from uuid import UUID
 
 from pydantic.dataclasses import dataclass
 
 from posthog.dataclasses import frozen
 
 from products.access_control.backend.facade.contracts import ObjectAccessRef
-from products.dashboards.backend.facade.enums import DashboardCreationMode
+from products.dashboards.backend.facade.enums import DashboardCreationMode, DashboardTemplateScope
 
 GRID_COLUMNS = 12
 MAX_TEXT_TILE_LENGTH = 4000
@@ -193,3 +196,100 @@ class DashboardTileSnapshot:
     description: str = ""
     query: dict[str, Any] | None = None
     body: str | None = None
+    # None follows the dashboard default, as `NewInsightTile.show_description` does.
+    show_description: bool | None = None
+
+
+class AppliedDashboard(Protocol):
+    """The dashboard an insight runs on, as far as running the insight reads it.
+
+    `DashboardSummary` satisfies it, and so does the dashboard row, so code outside this product can
+    annotate with it while its own callers still pass rows.
+    """
+
+    @property
+    def id(self) -> int: ...
+
+    @property
+    def filters(self) -> dict[str, Any]: ...
+
+    @property
+    def variables(self) -> dict[str, Any] | None: ...
+
+
+@dataclass(frozen=True)
+class InsightPlacement:
+    """An insight placed on a dashboard by a tile."""
+
+    insight_id: int
+    dashboard_id: int
+
+
+@dataclass(frozen=True)
+class TilePlacement:
+    """A live tile and the dashboard it sits on. `insight_id` is None for a text, button or widget tile."""
+
+    tile_id: int
+    dashboard_id: int
+    insight_id: int | None
+
+
+@dataclass(frozen=True)
+class TeamDashboardRef:
+    """A dashboard and the team that stores it, for listings that span teams."""
+
+    team_id: int
+    id: int
+    name: str | None
+
+
+@dataclass(frozen=True)
+class DashboardTemplateDefinition:
+    """A dashboard template as code defines it. `tiles` holds the stored template tile JSON."""
+
+    template_name: str
+    dashboard_description: str | None = None
+    dashboard_filters: dict[str, Any] | None = None
+    tiles: list[dict[str, Any]] = field(default_factory=list)
+    variables: list[dict[str, Any]] | None = None
+    tags: list[str] = field(default_factory=list)
+    image_url: str | None = None
+    scope: DashboardTemplateScope | None = None
+    availability_contexts: list[str] | None = None
+
+
+# Returned only by facade/testing.py; boundary-crossing data types live in this module.
+
+
+@dataclass(frozen=True)
+class PlantedWidgetTile:
+    tile_id: int
+    widget_id: UUID
+
+
+@dataclass(frozen=True)
+class InsightTileState:
+    tile_id: int
+    dashboard_id: int
+    insight_id: int
+    layouts: dict[str, Any]
+    color: str | None
+    filters_overrides: dict[str, Any] | None
+    deleted: bool
+
+
+@dataclass(frozen=True)
+class DashboardWidgetTile:
+    tile_id: int
+    widget_type: str
+    name: str | None
+    config: dict[str, Any]
+
+
+@dataclass(frozen=True)
+class DashboardExtras:
+    """The dashboard columns that `DashboardSummary` leaves out."""
+
+    share_token: str | None
+    is_shared: bool
+    quick_filter_ids: list[str] | None

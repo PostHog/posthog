@@ -14,6 +14,8 @@ import {
     IconToggle,
 } from '@posthog/icons'
 
+import { navSwitchLogic } from 'lib/components/NavSwitch/navSwitchLogic'
+import { IconBurst } from 'lib/lemon-ui/icons'
 import { Link } from 'lib/lemon-ui/Link/Link'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture/ProfilePicture'
 import { ScrollableShadows } from 'lib/lemon-ui/ScrollableShadows/ScrollableShadows'
@@ -84,6 +86,8 @@ export function NewAccountMenu({
     const { showCreateOrganizationModal } = useActions(globalModalsLogic)
     const projectSubmenu = useSubmenuSafeTriangle()
     const organizationSubmenu = useSubmenuSafeTriangle()
+    const { switchAvailable, switchLabel } = useValues(navSwitchLogic)
+    const { switchNav } = useActions(navSwitchLogic)
 
     const projectNameStartsWithEmoji = currentTeam?.name?.match(/^\p{Extended_Pictographic}/u) !== null
     const projectNameWithoutFirstEmoji = projectNameStartsWithEmoji
@@ -457,6 +461,18 @@ export function NewAccountMenu({
                                     </>
                                 )}
                                 <NewEventsTableSwitch />
+
+                                {switchAvailable && (
+                                    <Menu.Item
+                                        onClick={() => switchNav('account_menu')}
+                                        render={
+                                            <ButtonPrimitive menuItem data-attr="new-account-menu-nav-switch">
+                                                <IconBurst />
+                                                {switchLabel}
+                                            </ButtonPrimitive>
+                                        }
+                                    />
+                                )}
 
                                 <Label intent="menu" className="px-2 mt-2">
                                     Account

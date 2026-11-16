@@ -1,3 +1,4 @@
+import html
 import uuid
 import hashlib
 import datetime as dt
@@ -17,7 +18,6 @@ from parameterized import parameterized
 
 from posthog.api.authentication import password_reset_token_generator
 from posthog.constants import AvailableFeature
-from posthog.helpers.email_utils import ESPSuppressionReason, ESPSuppressionResult
 from posthog.models import Comment, Organization, Team, User
 from posthog.models.app_metrics2.sql import TRUNCATE_APP_METRICS2_TABLE_SQL
 from posthog.models.instance_setting import set_instance_setting
@@ -50,9 +50,11 @@ from posthog.tasks.email import (
     send_member_join,
     send_new_ticket_notification,
     send_password_reset,
+    send_personal_api_keys_changed_by_org_admin,
     send_posthog_ai_access_request,
     send_project_secret_api_key_exposed,
     send_provisioning_welcome,
+    send_team_hog_functions_digest,
     send_team_matview_failure_digest,
     send_warehouse_destination_paused,
     send_wizard_pr_ready_email,
@@ -62,6 +64,7 @@ from posthog.tasks.email import (
 )
 from posthog.tasks.test.utils_email_tests import mock_email_messages
 from posthog.test.api_keys import create_project_secret_api_key
+from posthog.test.fixtures import create_app_metric2
 
 from products.access_control.backend.models.access_control import AccessControl
 from products.batch_exports.backend.facade import testing as batch_exports_testing
@@ -173,14 +176,10 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
         assert MockEmailMessage.call_args.kwargs["template_name"] == "delegation_invite"
 
     @parameterized.expand([("member_invite", False), ("delegation_invite", True)])
-    @patch("posthog.tasks.email.check_esp_suppression")
-    def test_send_invite_flags_suppressed_target_email(
-        self, _name: str, is_setup_delegation: bool, mock_check: MagicMock, MockEmailMessage: MagicMock
+    def test_send_invite_flags_a_target_email_the_provider_refuses(
+        self, MockEmailMessage: MagicMock, _name: str, is_setup_delegation: bool
     ) -> None:
-        mock_email_messages(MockEmailMessage)
-        mock_check.return_value = ESPSuppressionResult(
-            is_suppressed=True, from_cache=False, reason=ESPSuppressionReason.SUPPRESSED
-        )
+        MockEmailMessage.return_value.send.return_value = ["bounced@example.com"]
         org, user = create_org_team_and_user("2022-01-02 00:00:00", "admin@posthog.com")
         invite = OrganizationInvite.objects.create(
             organization=org,
@@ -189,7 +188,7 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
             is_setup_delegation=is_setup_delegation,
         )
 
-        with self.settings(CUSTOMER_IO_API_KEY="test-key"):
+        with self.settings(POSTHOG_TRANSACTIONAL_EMAIL_API_KEY="phs_test", POSTHOG_HOST="https://us.posthog.com"):
             send_invite(invite.id)
 
         invite.refresh_from_db()
@@ -500,6 +499,94 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
         assert mocked_email_messages[0].send.call_count == 1
         assert mocked_email_messages[0].html_body
 
+    @parameterized.expand(
+        [
+            (
+                "one_change",
+                "https://phish.example.com",
+                [{"label": "rolled-key", "mask_value": "phx_...aaaa", "outcome": "rolled"}],
+                "Your personal API key was rolled",
+                ["made this change to your personal API key", "Key rolled", "roll the key in personal settings"],
+            ),
+            (
+                "several_changes",
+                "https://phish.example.com",
+                [
+                    {"label": "rolled-key", "mask_value": "phx_...aaaa", "outcome": "rolled"},
+                    {"label": "deleted-key", "mask_value": "phx_...bbbb", "outcome": "deleted"},
+                ],
+                "Your personal API keys changed",
+                [
+                    "made these changes to your personal API keys",
+                    "Key rolled",
+                    "Key revoked",
+                    "This key was permanently deleted",
+                    "no longer works in any organization.",
+                    "create a new key in personal settings",
+                ],
+            ),
+            (
+                "one_revoked",
+                "Example organization",
+                [{"label": "deleted-key", "mask_value": "phx_...aaaa", "outcome": "deleted"}],
+                "Your personal API key was revoked",
+                ["Key revoked", "This key was permanently deleted", "create a new key in personal settings"],
+            ),
+            (
+                "many_rolled",
+                "Example organization",
+                [
+                    {"label": "first-key", "mask_value": "phx_...aaaa", "outcome": "rolled"},
+                    {"label": "second-key", "mask_value": "phx_...bbbb", "outcome": "rolled"},
+                ],
+                "Your personal API keys were rolled",
+                ["Keys rolled", "first-key", "second-key", "roll these keys in personal settings"],
+            ),
+            (
+                "many_revoked",
+                "Example organization",
+                [
+                    {"label": "first-key", "mask_value": "phx_...aaaa", "outcome": "deleted"},
+                    {"label": "second-key", "mask_value": "phx_...bbbb", "outcome": "deleted"},
+                ],
+                "Your personal API keys were revoked",
+                ["Keys revoked", "first-key", "second-key", "create replacement keys in personal settings"],
+            ),
+            (
+                "bare_domain",
+                "example.com",
+                [{"label": "rolled-key", "mask_value": "phx_...aaaa", "outcome": "rolled"}],
+                "Your personal API key was rolled",
+                ["example.\u200bcom", "roll the key in personal settings"],
+            ),
+        ]
+    )
+    def test_send_personal_api_keys_changed_by_org_admin(
+        self,
+        MockEmailMessage: MagicMock,
+        _name: str,
+        organization_name: str,
+        changes: list[dict[str, str]],
+        expected_subject: str,
+        expected_in_body: list[str],
+    ) -> None:
+        mocked_email_messages = mock_email_messages(MockEmailMessage)
+        self.organization.name = organization_name
+        self.organization.save()
+
+        send_personal_api_keys_changed_by_org_admin(self.user.id, str(self.organization.id), changes)
+
+        assert len(mocked_email_messages) == 1
+        message = mocked_email_messages[0]
+        assert message.send.call_count == 1
+        assert message.subject == expected_subject
+        assert "phish.example.com" not in message.html_body
+        assert message.html_body.count("To reconnect your integrations") == len(
+            {change["outcome"] for change in changes}
+        )
+        for expected in ["phx_...aaaa", *expected_in_body]:
+            assert expected in html.unescape(message.html_body), expected
+
     def test_send_provisioning_welcome(self, MockEmailMessage: MagicMock) -> None:
         mocked_email_messages = mock_email_messages(MockEmailMessage)
         org, user = create_org_team_and_user("2022-01-02 00:00:00", "admin@posthog.com")
@@ -527,7 +614,7 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
         assert "via" not in mocked_email_messages[0].html_body
 
     @patch("posthog.tasks.email.ph_scoped_capture")
-    def test_send_wizard_pr_ready_email_uses_customer_io_context(
+    def test_send_wizard_pr_ready_email_uses_workflows_context(
         self, mock_ph_scoped_capture: MagicMock, MockEmailMessage: MagicMock
     ) -> None:
         mocked_email_messages = mock_email_messages(MockEmailMessage)
@@ -1893,6 +1980,42 @@ class TestEmail(APIBaseTest, ClickhouseTestMixin):
         send_hog_functions_daily_digest()
         # Should now be sent to all users (creator, editor, original user, test2) - 4 separate emails
         assert len(mocked_email_messages) == 4
+
+    @parameterized.expand(
+        [
+            ("below_both_minimums", 40, 5, False),
+            ("enough_runs_above_threshold", 95, 5, True),
+            ("few_runs_but_enough_failures", 20, 10, True),
+            ("every_run_failed_at_low_volume", 0, 3, True),
+        ]
+    )
+    def test_send_team_hog_functions_digest_requires_enough_runs(
+        self, MockEmailMessage: MagicMock, _name: str, succeeded: int, failed: int, expect_email: bool
+    ) -> None:
+        run_clickhouse_statement_in_parallel([TRUNCATE_APP_METRICS2_TABLE_SQL])
+        mocked_email_messages = mock_email_messages(MockEmailMessage)
+
+        self.user.partial_notification_settings = {"data_pipeline_error_threshold": 0.01}
+        self.user.save()
+
+        hog_function = HogFunction.objects.create(
+            team=self.team, name="Low Volume Function", type="transformation", enabled=True, hog="return event"
+        )
+        for metric_kind, metric_name, count in (("success", "succeeded", succeeded), ("failure", "failed", failed)):
+            if count:
+                create_app_metric2(
+                    team_id=self.team.id,
+                    app_source="hog_function",
+                    app_source_id=str(hog_function.id),
+                    timestamp=timezone.now() - dt.timedelta(hours=1),
+                    metric_kind=metric_kind,
+                    metric_name=metric_name,
+                    count=count,
+                )
+
+        send_team_hog_functions_digest(self.team.id)
+
+        assert len(mocked_email_messages) == (1 if expect_email else 0)
 
     def test_send_hog_functions_digest_email_with_test_email_override(self, MockEmailMessage: MagicMock) -> None:
         mocked_email_messages = mock_email_messages(MockEmailMessage)

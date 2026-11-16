@@ -1,74 +1,34 @@
-from collections.abc import Iterator
-from contextlib import contextmanager
 from typing import TYPE_CHECKING
-
-from django.db import transaction
 
 from products.signals.backend.agent_runtime import AgentRuntime
 from products.signals.backend.trial.billing import TrialContinuation, trial_billing_status
-from products.signals.backend.trial.models import SignalTrialGrant
-from products.signals.backend.trial.policy import TrialPolicy, lock_organization_trial
+from products.signals.backend.trial.policy import TrialPolicy
 from products.signals.backend.usage import trial_usage
 
 if TYPE_CHECKING:
+    from django.db.models import QuerySet
+
     from posthog.models import Team
 
     from products.signals.backend.models import SignalScoutConfig
 
 
-@contextmanager
-def scout_capacity(config: "SignalScoutConfig") -> Iterator[None]:
+def trial_counted_scouts(team_id: int) -> "QuerySet[SignalScoutConfig]":
     from products.signals.backend.models import SignalScoutConfig  # noqa: PLC0415 -- model registration cycle
+    from products.signals.backend.scout_harness.operational import (  # noqa: PLC0415 -- keeps the canonical fleet off the model import path
+        unedited_operational_skill_names,
+    )
 
-    if not config.enabled:
-        yield
-        return
-    team = config.team
-    policy = TrialPolicy(team)
-    if not policy.enabled():
-        yield
-        return
-    team_id = team.parent_team_id or team.id
-    with transaction.atomic():
-        previous = (
-            SignalScoutConfig.objects.for_team(team_id, canonical=True).select_for_update().filter(id=config.id).first()
-        )
-        if previous is not None and previous.enabled:
-            yield
-            return
-        lock_organization_trial(team.organization_id)
-        grant = SignalTrialGrant.objects.for_team(team_id, canonical=True).first()
-        if grant is not None and not trial_usage(grant).exhaustion_reason(grant):
-            count = (
-                SignalScoutConfig.objects.for_team(team_id, canonical=True)
-                .filter(enabled=True)
-                .exclude(id=config.id)
-                .count()
-            )
-            if count >= grant.scout_limit:
-                if not config._state.adding:
-                    from rest_framework.exceptions import (
-                        ValidationError,  # noqa: PLC0415 -- only API writes need the error renderer
-                    )
-
-                    raise ValidationError(
-                        {"enabled": "The free trial allows three enabled scouts. Pause one before enabling another."}
-                    )
-                config.enabled = False
-                config.status = SignalScoutConfig.Status.PAUSED_BY_SYSTEM
-                config.pause_reason = SignalScoutConfig.PauseReason.TRIAL_SCOUT_LIMIT
-        yield
-
-
-def trial_scout_limit(team_id: int) -> int | None:
-    from posthog.models import Team  # noqa: PLC0415 -- avoid model registration cycle
-
-    grant = TrialPolicy(Team.objects.get(id=team_id)).active_grant()
-    return grant.scout_limit if grant is not None and not trial_usage(grant).exhaustion_reason(grant) else None
+    return (
+        SignalScoutConfig.objects.for_team(team_id, canonical=True)
+        .filter(enabled=True)
+        .exclude(skill_name__in=unedited_operational_skill_names(team_id))
+    )
 
 
 def trial_scout_runtime(team: "Team") -> AgentRuntime | None:
-    if trial_scout_limit(team.parent_team_id or team.id) is None:
+    grant = TrialPolicy(team).active_grant()
+    if grant is None or trial_usage(grant).exhaustion_reason(grant):
         return None
     decision = TrialPolicy(team).flag_decision()
     if not decision.confirmed or decision.enabled is not True:
@@ -80,4 +40,4 @@ def trial_scout_runtime(team: "Team") -> AgentRuntime | None:
     # saved card before activating a subscription, so keep its normal model too.
     if team.organization.customer_id:
         return None
-    return AgentRuntime(runtime_adapter="codex", model="gpt-6-luna")
+    return AgentRuntime(runtime_adapter="codex", model="gpt-5.6-luna", service_tier="flex")

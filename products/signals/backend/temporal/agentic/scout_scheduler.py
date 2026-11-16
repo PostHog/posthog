@@ -5,6 +5,7 @@ import hashlib
 from dataclasses import replace
 from datetime import datetime, timedelta
 from typing import TYPE_CHECKING, cast
+from uuid import UUID
 
 from django.conf import settings
 from django.db import InterfaceError, OperationalError
@@ -26,6 +27,7 @@ from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.utils import close_db_connections
 
 from products.cdp.backend.workflow_step_resume import WorkflowStepResumeStatus, emit_workflow_step_resume
+from products.signals.backend.constants import FIRST_REPORT_SCOUT
 from products.signals.backend.daily_limit import capture_signal_report_daily_limit_paused, daily_report_limit_gate
 from products.signals.backend.models import SignalScoutConfig
 from products.signals.backend.quota import (
@@ -426,6 +428,7 @@ async def _run_signals_scout(input: RunSignalsScoutInput) -> RunSignalsScoutOutp
         )
         run_note = claimed.run_note if claimed.count else input.run_note
         trigger_workflow_id = input.trigger_workflow_id or claimed.trigger_workflow_id
+        workflow_run_id = temporalio.activity.info().workflow_run_id
         async with Heartbeater():
             result = await arun_signals_scout(
                 team_id=input.team_id,
@@ -440,6 +443,9 @@ async def _run_signals_scout(input: RunSignalsScoutInput) -> RunSignalsScoutOutp
                 check_id=input.check_id,
                 precheck_rows=input.precheck_rows,
                 precheck_query_source=input.precheck_query_source,
+                first_report_run_id=(
+                    UUID(workflow_run_id) if input.skill_name == FIRST_REPORT_SCOUT and workflow_run_id else None
+                ),
             )
         run_started = result.run_id is not None
     except SkillNotFoundError:

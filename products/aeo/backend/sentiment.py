@@ -2,7 +2,7 @@
 
 Only the sentences that name the brand are scored, so praise of a competitor in
 the same answer does not count as praise of the brand. The classifier itself is
-the AI observability ONNX model; it lives on the evals Temporal queue, and this
+the AI observability ONNX model; it runs on the AEO Temporal queue, and this
 module only prepares its input and folds its output back into one label per answer.
 """
 

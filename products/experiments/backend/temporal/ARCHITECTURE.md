@@ -1,6 +1,6 @@
 # Recalculation workflow architecture
 
-This document describes the **recalculation workflow** for experiment metrics: what it does, how it's built, and why we made the design choices we made. For the daily timeseries family of workflows (the ones in `posthog/temporal/experiments/`), see that package's `README.md`.
+This document describes the **recalculation workflow** for experiment metrics: what it does, how it's built, and why we made the design choices we made. For the daily timeseries family of workflows (the ones in `products/experiments/backend/temporal/timeseries/`), see that package's `README.md`.
 
 ## What it does
 
@@ -231,7 +231,7 @@ An entry without the flag predates it and counts as non-retriable, so an old run
 
 #### The cold-start payload
 
-`TIMESERIES_SYNC` is the one trigger no user or lifecycle event emits. The daily timeseries workflows write it as soon as each experiment's own metric activities finish: one completed row per experiment per daily run, with the run's timeseries points copied under the recalc fingerprint at a shared `query_to`, so the `latest` read serves fresh daily data without a recompute. The inline and saved metric workflows share that row: the first to finish creates it, the second adds the copies it lacks. See "Handing fresh points to the recalculation reader" in `posthog/temporal/experiments/README.md`.
+`TIMESERIES_SYNC` is the one trigger no user or lifecycle event emits. The daily timeseries workflows write it as soon as each experiment's own metric activities finish: one completed row per experiment per daily run, with the run's timeseries points copied under the recalc fingerprint at a shared `query_to`, so the `latest` read serves fresh daily data without a recompute. The inline and saved metric workflows share that row: the first to finish creates it, the second adds the copies it lacks. See "Handing fresh points to the recalculation reader" in `products/experiments/backend/temporal/timeseries/README.md`.
 
 `GET /metrics_recalculation/latest` returns a synthetic "completed" payload built from each metric's latest timeseries point (`build_timeseries_cold_start_payload`) when no real recalc run exists yet. This is the cold-start placeholder: the user sees the freshest cached timeseries values instead of a bare 404 on first open. Only points younger than `TIMESERIES_FALLBACK_MAX_AGE` (24 hours) count, so an older point reads as a gap and the frontend starts a `cold_run` for it; a fallback that covers every metric is accepted as is. The GET path never triggers a recompute itself; it only reads.
 
@@ -311,20 +311,20 @@ The split is intentional: Grafana tells you about the worker process, PostHog te
 
   The workload stays set explicitly rather than left to `Workload.DEFAULT`, which follows the process default and changes with how the activity is invoked.
 
-  The ClickHouse user follows the task queue of the calc. The calc activity reads its queue from `activity.info().task_queue` and passes it to `recalculation_clickhouse_user`, which returns the dedicated `experiments` user (`ClickHouseUser.EXPERIMENTS`) for the activity queue and the precompute queue. Those queues have a fixed slot count, so the `experiments` user always runs under a cap on concurrent queries. The calc sets the user as `ch_user` in the `tags_context` around the runner. Every query in that context that names no user takes it, the precompute inserts too. The tag wins over the cache-warming fallback. Some queries keep their own user: the HogQL metadata lookups name theirs, the query kill on cancellation uses the pod's user, and the live-progress read on the GET path runs as `app`.
+  The ClickHouse user follows the task queue of the calc. The calc activity reads its queue from `activity.info().task_queue` and passes it to `recalculation_clickhouse_user`, which returns the dedicated `experiments` user (`ClickHouseUser.EXPERIMENTS`) for the activity, precompute, build and direct-heavy queues. Those queues have a fixed slot count, so the `experiments` user always runs under a cap on concurrent queries. The calc sets the user as `ch_user` in the `tags_context` around the runner. Every query in that context that names no user takes it, the precompute inserts too. The tag wins over the cache-warming fallback. Some queries keep their own user: the HogQL metadata lookups name theirs, the query kill on cancellation uses the pod's user, and the live-progress read on the GET path runs as `app`.
 
-  A calc on the main queue sets no `ch_user`. The calc tags its queries with the cache-warming feature, so `sync_execute` asks for the `cache_warmup` user. The recalculation workers do not wire that user, so `get_clickhouse_creds` falls back to the pod's `default` user, and the queries count against its per-node limit on concurrent queries, which other products share. A queue that has the same name as the main queue counts as the main queue. Local development and single-queue mode collapse all three queues into one, so they run as `default`.
+  A calc on the main queue sets no `ch_user`. The calc tags its queries with the cache-warming feature, so `sync_execute` asks for the `cache_warmup` user. The recalculation workers do not wire that user, so `get_clickhouse_creds` falls back to the pod's `default` user, and the queries count against its per-node limit on concurrent queries, which other products share. A queue that has the same name as the main queue counts as the main queue. Local development and single-queue mode collapse all the recalculation queues into one, so they run as `default`.
 
   Operating rules:
-  - Both the activity worker and the precompute worker need the `experiments` user, its token grant, and the token mount (`CLICKHOUSE_EXPERIMENTS_USER` and `CLICKHOUSE_EXPERIMENTS_PASSWORD_FILE`). A query sent as a user the cluster does not know fails.
-  - Verify with `query_log_archive`: group the calc queries by `lc_service_name` (the worker deployment, one per queue) and `user`. The activity and precompute workers send only `experiments`, the main worker only `default`. A worker without `CLICKHOUSE_EXPERIMENTS_USER` or `CLICKHOUSE_EXPERIMENTS_PASSWORD_FILE` falls back to `default` with no error. A worker with both variables set but no file at that path still sends `experiments`, with an empty password, so its queries fail authentication and the activity retries them.
+  - The activity, precompute, build and direct-heavy workers need the `experiments` user, its token grant, and the token mount (`CLICKHOUSE_EXPERIMENTS_USER` and `CLICKHOUSE_EXPERIMENTS_PASSWORD_FILE`). A query sent as a user the cluster does not know fails.
+  - Verify with `query_log_archive`: group the calc queries by `lc_service_name` (the worker deployment, one per queue) and `user`. The activity, precompute, build and direct-heavy workers send only `experiments`, the main worker only `default`. A worker without `CLICKHOUSE_EXPERIMENTS_USER` or `CLICKHOUSE_EXPERIMENTS_PASSWORD_FILE` falls back to `default` with no error. A worker with both variables set but no file at that path still sends `experiments`, with an empty password, so its queries fail authentication and the activity retries them.
   - To roll back, turn the `experiment-recalculation-activity-queue` flag off. New runs then stay on the main queue and run as `default`. A run in flight keeps its queue, and so its user, for all retries.
 
 - **No saved-metric snapshot.** Each calc activity that processes a saved/shared metric re-queries the M2M through-model to resolve the metric definition. For a 5–10 metric experiment this is fine; for larger experiments the per-call query starts to add up. Tracked as a deferred optimization (snapshot resolved metric dicts on the recalc row at discovery time).
 
 ## What this doc doesn't cover
 
-- The legacy timeseries family of workflows (`posthog/temporal/experiments/`, three workflows). See that package's `README.md`.
+- The legacy timeseries family of workflows (`products/experiments/backend/temporal/timeseries/`, three workflows). See that package's `README.md`.
 - The Temporal SDK basics. See `posthog/temporal/README.md`.
 - Frontend polling and rendering in depth. The kea logic has landed (`experimentMetricsLogic.ts`, with `RecalculationStatus.tsx` for rendering); this doc covers only the backend contract it polls. See the "GET path" decisions above and the poll loop in that logic.
 - Eviction implementation. The plan above is design intent; the actual workflow is a separate PR.
