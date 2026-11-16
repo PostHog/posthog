@@ -36,12 +36,13 @@ from posthog.models.identity_provider_config import (
     saml_configured_q,
 )
 from posthog.models.linked_identity_provider_config import LinkedIdentityProviderConfig
-from posthog.models.organization import Organization, OrganizationMembership
+from posthog.models.organization import Organization
 from posthog.models.organization_domain import OrganizationDomain
 from posthog.models.scim_request_log import SCIMRequestLog
-from posthog.models.user import User
-from posthog.permissions import OrganizationAdminWritePermissions, TimeSensitiveActionPermission
+from posthog.permissions import OrganizationAdminWritePermissions, TimeSensitiveActionPermission, can_in_organization
 from posthog.security.url_validation import is_url_allowed
+
+from products.authorization.backend.facade.enums import Action
 
 
 def _capture_idp_config_event(
@@ -482,10 +483,7 @@ class IdentityProviderConfigViewSet(TeamAndOrgViewSetMixin, ModelViewSet):
     @action(methods=["GET"], detail=True, url_path="scim/logs")
     def scim_logs(self, request: Request, **kwargs: Any) -> response.Response:
         config = cast(IdentityProviderConfig, self.get_object())
-        membership = OrganizationMembership.objects.filter(
-            user=cast(User, request.user), organization=config.organization
-        ).first()
-        if not membership or membership.level < OrganizationMembership.Level.ADMIN:
+        if not can_in_organization(request, config.organization, Action.EDIT):
             raise exceptions.PermissionDenied("Only organization admins can view SCIM logs.")
 
         queryset = SCIMRequestLog.objects.filter(identity_provider_config=config)

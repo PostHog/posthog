@@ -27,6 +27,9 @@ from posthog.models.activity_logging.model_activity import ModelActivityMixin
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.utils import LowercaseSlugField, UUIDTModel, create_with_slug, generate_slug_candidates, sane_repr
 
+from products.authorization.backend.facade.contracts import CheckRequest, Resource, Subject
+from products.authorization.backend.facade.enums import Action, ResourceType
+
 if TYPE_CHECKING:
     from posthog.models import Team, User
 
@@ -870,26 +873,41 @@ class OrganizationMembership(ModelActivityMixin, UUIDTModel):
         membership_being_updated: "OrganizationMembership",
         new_level: Level | None = None,
     ) -> None:
-        if new_level is not None:
-            if membership_being_updated.id == self.id:
+        if membership_being_updated.id == self.id:
+            if new_level is not None:
                 raise exceptions.PermissionDenied("You can't change your own access level.")
+            return
+        level = self._level_held()
+        if new_level is not None:
             if new_level == OrganizationMembership.Level.OWNER:
-                if self.level != OrganizationMembership.Level.OWNER:
+                if level != OrganizationMembership.Level.OWNER:
                     raise exceptions.PermissionDenied(
                         "You can only make another member owner if you're this organization's owner."
                     )
                 self.save()
-            elif new_level > self.level:
+            elif new_level > level:
                 raise exceptions.PermissionDenied(
                     "You can only change access level of others to lower or equal to your current one."
                 )
-        if membership_being_updated.id != self.id:
-            if membership_being_updated.organization_id != self.organization_id:
-                raise exceptions.PermissionDenied("You both need to belong to the same organization.")
-            if self.level < OrganizationMembership.Level.ADMIN:
-                raise exceptions.PermissionDenied("You can only edit others if you are an admin.")
-            if membership_being_updated.level > self.level:
-                raise exceptions.PermissionDenied("You can only edit others with level lower or equal to you.")
+        if membership_being_updated.organization_id != self.organization_id:
+            raise exceptions.PermissionDenied("You both need to belong to the same organization.")
+        if level < OrganizationMembership.Level.ADMIN:
+            raise exceptions.PermissionDenied("You can only edit others if you are an admin.")
+        if membership_being_updated.level > level:
+            raise exceptions.PermissionDenied("You can only edit others with level lower or equal to you.")
+
+    def _level_held(self) -> int:
+        """The highest level the SDK allows this member in the organization, or 0 when it allows none."""
+        # The facade imports `posthog.models`, which imports this module.
+        from products.authorization.backend.facade import api as authorization  # noqa: PLC0415
+
+        resource = Resource(type=ResourceType.ORGANIZATION, id=str(self.organization_id))
+        subject = Subject(user_id=self.user_id)
+        levels = {self.Level.MEMBER: Action.VIEW, self.Level.ADMIN: Action.EDIT, self.Level.OWNER: Action.MANAGE_OWNERS}
+        allowed = authorization.check(
+            [CheckRequest(resource=resource, action=action, subject=subject) for action in levels.values()]
+        )
+        return max((level for level, ok in zip(levels, allowed, strict=True) if ok), default=0)
 
     def get_scoped_api_keys(self):
         """

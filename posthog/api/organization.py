@@ -60,6 +60,7 @@ from posthog.permissions import (
     OrganizationAdminWritePermissions,
     OrganizationMemberPermissions,
     TimeSensitiveActionPermission,
+    can_in_organization,
     extract_organization,
     get_authenticator_scoped_organization_ids,
 )
@@ -70,9 +71,11 @@ from posthog.tasks.email import send_posthog_ai_access_request
 from posthog.user_permissions import UserPermissions, UserPermissionsSerializerMixin
 from posthog.utils import get_safe_cache, safe_cache_set
 
-from products.access_control.backend.facade.user_access_control import UserAccessControl, visible_teams_for_user
 from products.access_control.backend.models.role import Role
 from products.access_control.backend.presentation.access_control import UserAccessControlSerializerMixin
+from products.authorization.backend.facade import api as authorization
+from products.authorization.backend.facade.contracts import Resource, Subject
+from products.authorization.backend.facade.enums import Action, ResourceType
 from products.legal_documents.backend.facade.api import SIGNED_BAA_ANNOTATION, annotate_signed_baa, has_signed_baa
 
 
@@ -99,15 +102,22 @@ class OrganizationPermissionsWithDelete(OrganizationAdminWritePermissions):
     def has_object_permission(self, request: Request, view, object: Model) -> bool:
         if request.method in permissions.SAFE_METHODS:
             return True
-        # TODO: Optimize so that this computation is only done once, on `OrganizationMemberPermissions`
         organization = extract_organization(object, view)
-        min_level = (
-            OrganizationMembership.Level.OWNER if request.method == "DELETE" else OrganizationMembership.Level.ADMIN
-        )
-        return (
-            OrganizationMembership.objects.get(user=cast(User, request.user), organization=organization).level
-            >= min_level
-        )
+        return can_in_organization(request, organization, Action.DELETE if request.method == "DELETE" else Action.EDIT)
+
+
+def _visible_teams(organization: Organization, user: User) -> QuerySet[Team]:
+    """The teams of `organization` that `user` can see."""
+    visible = authorization.list_objects(
+        resource=Resource(type=ResourceType.PROJECT, organization_id=organization.id),
+        action=Action.VIEW,
+        subject=Subject(user_id=user.pk),
+    )
+    teams = organization.teams.all()
+    if not visible.complete:
+        return teams.none()
+    team_ids = [int(team_id) for team_id in visible.ids]
+    return teams.exclude(id__in=team_ids) if visible.excluded else teams.filter(id__in=team_ids)
 
 
 tracer = trace.get_tracer(__name__)
@@ -444,8 +454,13 @@ class OrganizationSerializer(
         return _cached_per_user_org("teams", user_id, str(instance.id), lambda: self._fetch_visible_teams(instance))
 
     def _fetch_visible_teams(self, instance: Organization) -> list[dict[str, Any]]:
+        # Typed as `User`, but anonymous and service principals also reach here. They hold no
+        # membership, so they see no team.
+        user: object = self.user_permissions.user
+        if not isinstance(user, User) or user.pk is None:
+            return []
         visible_teams = (
-            visible_teams_for_user(instance, self.user_access_control, self.user_permissions)
+            _visible_teams(instance, user)
             .select_related("project")
             .prefetch_related(
                 Prefetch(
@@ -971,8 +986,9 @@ class OrganizationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             raise exceptions.ValidationError("PostHog AI is already enabled for this organization.")
 
         # Members only — admins can enable PostHog AI themselves, so there's nobody to ask.
-        membership = OrganizationMembership.objects.filter(user=user, organization=organization).first()
-        if membership is None or membership.level >= OrganizationMembership.Level.ADMIN:
+        if not can_in_organization(request, organization, Action.VIEW) or can_in_organization(
+            request, organization, Action.EDIT
+        ):
             raise exceptions.PermissionDenied("Only members can request access; admins can enable PostHog AI directly.")
 
         send_posthog_ai_access_request.delay(
@@ -1028,14 +1044,9 @@ class OrganizationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     def data_freshness(self, request: Request, **kwargs) -> Response:
         """When each project in the organization last received data, broken down by kind of data."""
         organization = self.get_object()
-        user = cast(User, request.user)
-        # `self.user_access_control` is scoped to the user's current organization, which on this route isn't
-        # necessarily the one being requested - so build one for the organization actually in the URL
-        visible_teams = visible_teams_for_user(
-            organization,
-            UserAccessControl(user=user, organization_id=str(organization.id)),
-            UserPermissions(user=user),
-        ).only("id", "project_id", "ingested_event")
+        visible_teams = _visible_teams(organization, cast(User, request.user)).only(
+            "id", "project_id", "ingested_event"
+        )
         results = get_organization_data_freshness(str(organization.id), list(visible_teams))
         return Response(
             OrganizationDataFreshnessSerializer(
