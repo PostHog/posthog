@@ -95,6 +95,50 @@ def split_variant_keys(split: Split) -> tuple[str, ...]:
     return tuple(variant.key for variant in split if variant.key)
 
 
+def switchable_shares(served: Split, current: Split) -> dict[str, float] | None:
+    """
+    For each variant key of `served`, the share of its slot that `current` gives to another variant. A person keeps
+    the same hash, so a person who got a variant under `served` gets another one under `current` only when their hash
+    lies in that part of the slot. None when a percentage can't be read, because the slots are then unknown.
+    """
+    served_ranges = _slots(served)
+    current_ranges = _slots(current)
+    if served_ranges is None or current_ranges is None:
+        return None
+    boundaries = sorted(
+        {point for slots in (served_ranges, current_ranges) for _, start, end in slots for point in (start, end)}
+    )
+    shares: dict[str, float] = {}
+    for key, start, end in served_ranges:
+        if key is None or end <= start:
+            continue
+        given_away = sum(
+            upper - lower
+            for lower, upper in zip(boundaries, boundaries[1:])
+            if start <= lower and upper <= end and _owner(current_ranges, (lower + upper) / 2) != key
+        )
+        shares[key] = given_away / (end - start)
+    return shares
+
+
+def _slots(split: Split) -> list[tuple[str | None, float, float]] | None:
+    # The cumulative ranges of `select_variant` in rust/feature-flags/src/flags/v1_bucketing.rs, on the 0-1 scale.
+    slots = []
+    cumulative = 0.0
+    for variant in split:
+        if variant.rollout_percentage is None:
+            return None
+        start = cumulative
+        cumulative += variant.rollout_percentage / 100
+        slots.append((variant.key, start, cumulative))
+    return slots
+
+
+def _owner(slots: list[tuple[str | None, float, float]], point: float) -> str | None:
+    # A hash past the last slot gets no variant, which differs from every variant key.
+    return next((key for key, start, end in slots if start <= point < end), None)
+
+
 def _flag_variant(variant: object) -> FlagVariant:
     if not isinstance(variant, dict):
         return FlagVariant(key=None, rollout_percentage=None)

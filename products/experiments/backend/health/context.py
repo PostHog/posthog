@@ -1,4 +1,6 @@
-from collections.abc import Iterable, Mapping
+import json
+from collections.abc import Iterable, Mapping, Sequence
+from dataclasses import replace
 from datetime import date, datetime, timedelta
 from enum import StrEnum
 from functools import reduce
@@ -96,6 +98,36 @@ class ChangeWindow:
     end: datetime
 
 
+# The variant a person or group got in each window between split changes that they were exposed in, as pairs of the
+# window's number and the variant key. Window 0 ends at the first split change.
+ExposurePath = tuple[tuple[int, str], ...]
+
+
+@frozen
+class ExposedUnits:
+    """The persons or groups exposed in a window, from one count that stops at a cap."""
+
+    units: int
+    paths: Mapping[ExposurePath, int]
+    # Whether the count stayed below its cap, so that it counts everyone.
+    complete: bool
+
+    def as_cached(self) -> dict[str, Any]:
+        return {
+            "units": self.units,
+            "paths": [[[list(step) for step in path], count] for path, count in self.paths.items()],
+            "complete": self.complete,
+        }
+
+    @classmethod
+    def from_cached(cls, cached: Mapping[str, Any]) -> "ExposedUnits":
+        return cls(
+            units=cached["units"],
+            paths={tuple((window, variant) for window, variant in path): count for path, count in cached["paths"]},
+            complete=cached["complete"],
+        )
+
+
 @frozen
 class FlagHistory:
     """The changes of the flag after launch that can have moved exposed people, and whether anyone was exposed
@@ -124,10 +156,14 @@ class FlagHistory:
     exposed_during_overrides: Mapping[ChangeWindow, bool | None]
     # Whether the experiment counts groups rather than persons, by the rule the exposure query uses.
     counts_groups: bool
-    # The persons or groups exposed between launch and the last counted change of a kind, up to
-    # MIN_EXPOSED_UNITS_TO_WARN. Asked only for a kind with a counted change, so a kind that was not asked is absent.
-    # None when unknown.
+    # The persons or groups exposed between launch and the last counted change of a kind, a lower bound once the count
+    # reaches its cap. Asked only for a kind with a counted change, so a kind that was not asked is absent. None when
+    # unknown.
     exposed_units_before_last: Mapping[ExperimentHealthFlagChangeKind, int | None]
+    # The persons or groups exposed before the last split change, from the same count, by the variant they got in each
+    # window between split changes. None when unknown, when no split change counts, or when the count reached its cap,
+    # because the windows and variants of the people past the cap are then unknown.
+    split_paths_before_last: Mapping[ExposurePath, int] | None = None
 
     def of_kind[C: FlagChange](self, kind: type[C]) -> tuple[C, ...]:
         return changes_of_kind(self.changes, kind)
@@ -278,6 +314,8 @@ class PrimaryMetric:
     # The current stored result, the one the results page shows after its last calculation. None when no completed
     # result is stored under the metric's current calculation key. Only read for a funnel.
     result: MetricResultStats | None
+    # The persons or groups that the current stored result counts, across the variants. None without a stored result.
+    exposures: int | None = None
 
 
 @frozen
@@ -688,14 +726,28 @@ def parse_flag_state(
     flag_variants = parse_variants(variants)
     variant_keys = {variant.key for variant in flag_variants if variant.key}
     reachable = reachable_conditions(conditions, flag_aggregation=aggregation_group_type_index, early_exit=early_exit)
+    parsed = tuple(
+        _reachable_condition(index + 1, conditions[index], variant_keys, aggregation_group_type_index)
+        for index in reachable
+    )
+    stratified = _stratified_variant_property(
+        [
+            (conditions[index], condition.pinned_variant)
+            for index, condition in zip(reachable, parsed)
+            if condition.pinned_variant is not None
+        ],
+        aggregation_group_type_index,
+    )
     return FlagState(
         active=active,
         deleted=deleted,
         release_groups=tuple(_release_group(group) for group in conditions),
         variants=flag_variants,
-        reachable_conditions=tuple(
-            _reachable_condition(index + 1, conditions[index], variant_keys, aggregation_group_type_index)
-            for index in reachable
+        reachable_conditions=parsed
+        if stratified is None
+        else tuple(
+            replace(condition, variant_property=stratified) if condition.pinned_variant is not None else condition
+            for condition in parsed
         ),
         early_exit=early_exit,
         saved_at=saved_at,
@@ -782,6 +834,87 @@ def _variant_property(
         if isinstance(group_type_index, int)
         else condition_aggregation(condition, flag_aggregation),
     )
+
+
+def _stratified_variant_property(
+    pinned: Sequence[tuple[Mapping[str, Any], str]], flag_aggregation: int | None
+) -> VariantProperty | None:
+    """
+    The property that assigns the variants when the pinned conditions form strata: the conditions of a stratum share
+    every other filter, differ in one property, and each value of that property serves one variant. Each stratum must
+    serve the same values with the same variants, and there must be two strata or more. One stratum alone can't tell a
+    property that the customer's code sets at random from a trait, such as the operating system or the country, that
+    makes the variants compare different users.
+    """
+    if len(pinned) < 2:
+        return None
+    candidates: set[tuple[str, str, int | None]] | None = None
+    for condition, _ in pinned:
+        keys = {filter_key for prop in _properties(condition) if (filter_key := _exact_filter_key(prop)) is not None}
+        candidates = keys if candidates is None else candidates & keys
+    for key, filter_type, group_type_index in sorted(candidates or (), key=str):
+        strata: dict[tuple[str, ...], dict[frozenset[str], str]] = {}
+        for condition, variant in pinned:
+            on_key = [
+                prop
+                for prop in _properties(condition)
+                if _exact_filter_key(prop) == (key, filter_type, group_type_index)
+            ]
+            if len(on_key) != 1:
+                break
+            value = on_key[0].get("value")
+            # The flag service compares `exact` values as lowercase strings.
+            values = frozenset(str(item).lower() for item in (value if isinstance(value, list) else [value]))
+            if not values:
+                break
+            rest = tuple(
+                sorted(
+                    json.dumps(prop, sort_keys=True, default=str)
+                    for prop in _properties(condition)
+                    if prop is not on_key[0]
+                )
+            )
+            strata.setdefault(rest, {})[values] = variant
+        else:
+            mappings = list(strata.values())
+            if (
+                len(mappings) >= 2
+                and all(mapping == mappings[0] for mapping in mappings)
+                and len(set(mappings[0].values())) == len(mappings[0]) >= 2
+                and _disjoint(mappings[0])
+            ):
+                if filter_type == "person":
+                    return VariantProperty(key=key, group_type_index=None)
+                return VariantProperty(
+                    key=key,
+                    group_type_index=group_type_index
+                    if group_type_index is not None
+                    else condition_aggregation(pinned[0][0], flag_aggregation),
+                )
+    return None
+
+
+def _properties(condition: Mapping[str, Any]) -> list[Mapping[str, Any]]:
+    properties = condition.get("properties")
+    return [prop for prop in properties if isinstance(prop, Mapping)] if isinstance(properties, list) else []
+
+
+def _exact_filter_key(prop: Mapping[str, Any]) -> tuple[str, str, int | None] | None:
+    key = prop.get("key")
+    filter_type = prop.get("type")
+    if (
+        not isinstance(key, str)
+        or filter_type not in ("person", "group")
+        or prop.get("operator") not in ("exact", None)
+    ):
+        return None
+    group_type_index = prop.get("group_type_index")
+    return key, filter_type, group_type_index if isinstance(group_type_index, int) else None
+
+
+def _disjoint(mapping: Mapping[frozenset[str], str]) -> bool:
+    values = [value for values in mapping for value in values]
+    return len(values) == len(set(values))
 
 
 def _release_group(group: object) -> FlagReleaseGroup:
