@@ -84,6 +84,8 @@ export interface InstructionsContext {
     /** Whether the Replay Vision scan tools are advertised to this client. Same reason
      *  as `docsSearchEnabled`: the line names three tools, and the reference drops `tools`. */
     replayVisionEnabled?: boolean | undefined
+    /** Whether `endpoint-create` is advertised to this client. Same reason as `docsSearchEnabled`. */
+    endpointsEnabled?: boolean | undefined
     businessKnowledgeContent?: BusinessKnowledgeContent | undefined
     /** Set only when the experiment flag is on and the report list and retrieve tools are advertised. */
     inboxFirstEnabled?: boolean | undefined
@@ -94,6 +96,10 @@ export interface InstructionsContext {
 const REPLAY_VISION_TOOLS = ['vision-scanners-inline-scan', 'vision-requests-create', 'vision-requests-get']
 const REPLAY_VISION =
     'To learn what happened inside session recordings (what users did, saw, or struggled with), use Replay Vision instead of SQL over the replay tables. Call `vision-scanners-inline-scan` with `session_ids` and a `prompt` for sessions you already have, or `vision-requests-create` for up to 200 sessions and read the result with `vision-requests-get`. SQL over `session_replay_events` returns recording metadata only, such as duration, URLs and event counts; use it to find candidate sessions.'
+
+const ENDPOINT_CREATE_TOOL = 'endpoint-create'
+const ENDPOINTS_ROUTING =
+    'When the user wants PostHog data in code, a script, a scheduled job, a backend, or a customer-facing feature, create an endpoint with `endpoint-create` and give them its run URL, even if they never say "endpoint". Do not write code that calls `/api/projects/:id/query/`, which is for one-off exploration. Use variables for values the caller changes, and materialization for heavy or frequent aggregates. Raw-data exports belong on batch exports.'
 
 const BUSINESS_KNOWLEDGE_SEARCH_TOOL = 'business-knowledge-documents-search'
 const BUSINESS_KNOWLEDGE_REPO_SEARCH_TOOL = 'business-knowledge-repositories-search'
@@ -144,6 +150,10 @@ function notebookSqlVars(ctx: InstructionsContext): Record<string, string> {
  *  build a context without it (the CLI's `--agent-help`). */
 function docsSearchAvailable(ctx: InstructionsContext): boolean {
     return ctx.docsSearchEnabled ?? ctx.tools?.some(({ name }) => name === 'docs-search') ?? false
+}
+
+function endpointsAvailable(ctx: InstructionsContext): boolean {
+    return ctx.endpointsEnabled ?? ctx.tools?.some(({ name }) => name === ENDPOINT_CREATE_TOOL) ?? false
 }
 
 function replayVisionAvailable(ctx: InstructionsContext): boolean {
@@ -482,6 +492,7 @@ export class InstructionsFormatter {
             tools: undefined,
             docsSearchEnabled: docsSearchAvailable(ctx),
             replayVisionEnabled: replayVisionAvailable(ctx),
+            endpointsEnabled: endpointsAvailable(ctx),
         }
         // Tool domains are temporarily omitted from the command reference while we
         // probe claude.ai's per-tool size cap (it silently drops oversized entries);
@@ -515,6 +526,7 @@ export class InstructionsFormatter {
             query_tools: ctx.queryTools ? buildQueryToolsBlock(ctx.queryTools) : '',
             entity_schema_discovery: ENTITY_SCHEMA_DISCOVERY.trim(),
             replay_vision: replayVisionAvailable(ctx) ? REPLAY_VISION : '',
+            endpoints_routing: endpointsAvailable(ctx) ? ENDPOINTS_ROUTING : '',
             extra_commands: opts.extraCommands ?? '',
             whats_new_check: docsSearchAvailable(ctx) ? WHATS_NEW_WITH_DOCS_SEARCH : WHATS_NEW_CHANGELOG_ONLY,
         }
