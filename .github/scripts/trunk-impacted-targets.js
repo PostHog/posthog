@@ -175,6 +175,19 @@ const PYTHON = 'python'
 const JAVASCRIPT = 'javascript'
 const RUST = 'rust'
 
+// The python lanes without the warehouse source vendor lane, for suites that
+// never import a vendor or load the vendor catalog: the side checks of the
+// backend suite, the ClickHouse and hogql parser builds, dagster, and the
+// signals ranking suite. A vendor-only PR runs none of them, so a change to one
+// cannot change how a vendor PR is checked, and no vendor change can fail one.
+const PYTHON_NO_VENDORS = 'python-no-vendors'
+
+// The docker services the suites test against: the compose files and the
+// configuration they mount. Every lane except one, because the warehouse
+// sources job runs without Postgres, ClickHouse, Redis or Kafka, so a vendor
+// PR is checked without any of these files.
+const SERVICE_STACK = 'service-stack'
+
 // The product manifests and the artifacts generated from them. Not a toolchain
 // domain: it names the two lane families that read that data rather than a
 // language, and it exists because `universal` was claiming lanes no reader of
@@ -301,17 +314,18 @@ const TRIPWIRE_RULES = [
     ['.github/workflows/ci-mcp.yml', JAVASCRIPT],
     ['.depot/workflows/ci-backend.yml', PYTHON],
     ['.github/workflows/ci-backend-update-test-timing.yml', PYTHON],
-    ['.github/workflows/ci-backend-schema-mirror.yml', PYTHON],
-    ['.github/workflows/ci-depot-action-mirrors.yml', PYTHON],
-    ['.github/workflows/ci-dagster.yml', PYTHON],
+    ['.github/workflows/ci-backend-schema-mirror.yml', PYTHON_NO_VENDORS],
+    ['.github/workflows/ci-depot-action-mirrors.yml', PYTHON_NO_VENDORS],
+    ['.github/workflows/ci-dagster.yml', PYTHON_NO_VENDORS],
+    ['.github/workflows/ci-inbox-ranking.yml', PYTHON_NO_VENDORS],
     ['.github/workflows/ci-rust.yml', RUST],
     ['.github/workflows/ci-rust-flags-integration.yml', RUST],
     // These two gate suites that run only Python: the tools and
     // approval-agent pytest suites, and the ClickHouse multinode migration
     // smoke.
     ['.github/workflows/ci-python.yml', PYTHON],
-    ['.github/workflows/ci-clickhouse-multinode-migrations.yml', PYTHON],
-    ['.github/workflows/ci-clickhouse-util-udfs.yml', PYTHON],
+    ['.github/workflows/ci-clickhouse-multinode-migrations.yml', PYTHON_NO_VENDORS],
+    ['.github/workflows/ci-clickhouse-util-udfs.yml', PYTHON_NO_VENDORS],
     // Blocks Django or sqlx migrations landing beside nodejs/ or other rust/
     // changes, so all three families interact with an edit to the gate.
     ['.github/workflows/ci-migrations-service-separation-check.yml', [PYTHON, NODE, RUST]],
@@ -358,6 +372,7 @@ const TRIPWIRE_RULES = [
     // request or in the merge queue. See addDeployLane.
     ['.github/workflows/container-images-cd.yml', DEPLOY],
     ['.github/workflows/cd-*-image.yml', DEPLOY],
+    ['.github/workflows/release-toolbar-extension.yml', DEPLOY],
     ['.github/workflows/rust-docker-build.yml', DEPLOY],
     ['.github/workflows/release-cli.yml', DEPLOY],
     ['.github/workflows/publish-hogli.yml', DEPLOY],
@@ -372,12 +387,13 @@ const TRIPWIRE_RULES = [
     // CI scripts held to the workflows that run them: the backend test-timing
     // pair and the IDOR coverage check run only in ci-backend and its timing
     // workflow, while report_test_timings is read by the backend, frontend,
-    // and nodejs workflows alike.
+    // and nodejs workflows alike. The IDOR check reads Django models, which no
+    // vendor has.
     ['.github/scripts/optimize_test_durations.py', PYTHON],
     ['.github/scripts/test_optimize_test_durations.py', PYTHON],
-    ['.github/scripts/check-idor-model-coverage.py', PYTHON],
+    ['.github/scripts/check-idor-model-coverage.py', PYTHON_NO_VENDORS],
     // ci-backend's events_json leg and its test selection read this list.
-    ['.github/new-events-schema-targets.txt', PYTHON],
+    ['.github/new-events-schema-targets.txt', PYTHON_NO_VENDORS],
     ['.github/scripts/report_test_timings.py', FULLSTACK],
     ['.github/scripts/test_report_test_timings.py', FULLSTACK],
     // Bot, report, sync, and canary workflows. None is a required check; each
@@ -409,13 +425,15 @@ const TRIPWIRE_RULES = [
     ['.github/workflows/update-bot-ips.yml', REPO_AUTOMATION],
     ['.github/workflows/weekly-flaky-report.yml', REPO_AUTOMATION],
     ['.github/workflows/weekly-slow-tests-report.yml', REPO_AUTOMATION],
+    ['.github/workflows/renovate-dashboard-digest.yml', REPO_AUTOMATION],
+    ['.github/workflows/update-sandbox-agent-version.yml', REPO_AUTOMATION],
     // More single-suite workflows, held to the trees their suites read:
     // ClickHouse HCL checks are Python; the
     // hogql parser builds wheels (python), an npm package (both families), and
     // a crate (rust); deltalite spans its crates and the wheel's python
     // consumers.
-    ['.github/workflows/ci-clickhouse-hcl-schema.yml', PYTHON],
-    ['.github/workflows/build-hogql-parser.yml', PYTHON],
+    ['.github/workflows/ci-clickhouse-hcl-schema.yml', PYTHON_NO_VENDORS],
+    ['.github/workflows/build-hogql-parser.yml', PYTHON_NO_VENDORS],
     ['.github/workflows/build-hogql-parser-npm.yml', FULLSTACK],
     ['.github/workflows/build-hogql-parser-rs.yml', RUST],
     ['.github/workflows/rust-smoke-test-build.yml', RUST],
@@ -460,6 +478,7 @@ const TRIPWIRE_RULES = [
     ['.github/scripts/monitor-github-rate-limit.test.js', REPO_AUTOMATION],
     ['.github/scripts/weekly-*.mjs', REPO_AUTOMATION],
     ['.github/scripts/eng-analytics-weekly-digest.mjs', REPO_AUTOMATION],
+    ['.github/scripts/eng-analytics-weekly-digest.test.mjs', REPO_AUTOMATION],
     ['.github/scripts/ci-alerts-devex.js', REPO_AUTOMATION],
     ['.github/scripts/ci-alerts-devex.test.js', REPO_AUTOMATION],
     ['.github/scripts/report_workflow_run_traces.py', REPO_AUTOMATION],
@@ -638,7 +657,7 @@ const TRIPWIRE_RULES = [
     ['hogli.yaml', UNIVERSAL],
     ['.github/**', UNIVERSAL],
     ['.depot/workflows/**', UNIVERSAL],
-    ['docker-compose*.yml', UNIVERSAL],
+    ['docker-compose*.yml', SERVICE_STACK],
     // Single-purpose images ahead of the fallback: each is read by exactly one
     // workflow or suite, whose rule above already carries the radius.
     // Dockerfile.llm-analytics is built only by its master-push CD workflow,
@@ -805,6 +824,8 @@ const TRIPWIRE_RULES = [
     ['bin/setup-gateway-e2e', DEV_ENV],
     ['bin/sync-storage', DEV_ENV],
     ['bin/warm-flags-cache', DEV_ENV],
+    // Run by the worktree hooks of local agent apps, never by CI.
+    ['bin/devbox-worktree-hook', DEV_ENV],
     // bin/ appears in the backend, frontend, and E2E path filters alike, and
     // what remains here is read across families: hogli and turbo drive the
     // suites, bin/docker is the image entrypoint, and download-mmdb and the
@@ -829,10 +850,10 @@ const TRIPWIRE_RULES = [
     // files ride along rather than earning a rule of their own.
     ['.env*', UNIVERSAL],
     // ClickHouse, Postgres, and Temporal configuration mounted by every
-    // docker-compose file, so it defines the services all the suites test
-    // against. The collector config is mounted the same way, from the root.
-    ['docker/**', UNIVERSAL],
-    ['otel-collector-config*.yaml', UNIVERSAL],
+    // docker-compose file, so it defines the services the suites test against.
+    // The collector config is mounted the same way, from the root.
+    ['docker/**', SERVICE_STACK],
+    ['otel-collector-config*.yaml', SERVICE_STACK],
     // duckgres.yaml is mounted into the same stack, and intent-map.yaml steers
     // bin/sandbox and hogli, both already tripwires.
     ['devenv/**', UNIVERSAL],
@@ -1745,6 +1766,32 @@ function addPythonLanes(targets, context) {
     return true
 }
 
+// See PYTHON_NO_VENDORS.
+function addPythonNoVendorLanes(targets, context) {
+    const lanes = new Set()
+    addPythonLanes(lanes, context)
+    lanes.delete(WAREHOUSE_SOURCE_VENDORS)
+    for (const lane of lanes) {
+        targets.add(lane)
+    }
+    return true
+}
+
+// See SERVICE_STACK. Built from allKnownTargets, so a lane added later is
+// claimed here too, and fails to universal when that set cannot be built.
+function addServiceStackLanes(targets, context) {
+    const lanes = allKnownTargets(context)
+    if (!lanes) {
+        return false
+    }
+    for (const lane of lanes) {
+        if (lane !== WAREHOUSE_SOURCE_VENDORS) {
+            targets.add(lane)
+        }
+    }
+    return true
+}
+
 function addJavaScriptLanes(targets, context) {
     if (!context.services) {
         return false
@@ -2001,6 +2048,8 @@ function addProtoLanes(targets, context, file) {
 
 const DOMAIN_LANES = new Map([
     [PYTHON, addPythonLanes],
+    [PYTHON_NO_VENDORS, addPythonNoVendorLanes],
+    [SERVICE_STACK, addServiceStackLanes],
     [JAVASCRIPT, addJavaScriptLanes],
     [FRONTEND_SUITE, addFrontendSuiteLanes],
     [JS_LOCKFILE, addJsLockfileLanes],
@@ -2283,7 +2332,10 @@ function computeTargets(changedFiles, context) {
         if (top === 'products' && segments.length === 2) {
             allPyProducts()
             allFeProducts()
-            if (hasWarehouseSourceVendorLane(context)) {
+            // The *_baseline.txt files are ledgers of imports between products,
+            // which the product lint keeps. A vendor can import no product, so it
+            // can neither add a line to them nor be failed by one.
+            if (hasWarehouseSourceVendorLane(context) && !file.endsWith('_baseline.txt')) {
                 targets.add(WAREHOUSE_SOURCE_VENDORS)
             }
             continue
