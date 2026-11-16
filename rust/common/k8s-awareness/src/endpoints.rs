@@ -27,6 +27,7 @@ use futures::StreamExt;
 use k8s_openapi::api::discovery::v1::EndpointSlice;
 use kube::api::Api;
 use kube::runtime::watcher::{self, Config as WatcherConfig, Event};
+use kube::runtime::WatchStreamExt;
 use kube::Client;
 use metrics::counter;
 use tokio::sync::watch;
@@ -104,7 +105,7 @@ async fn run(
     // rather than leaving the membership frozen until the pod restarts.
     loop {
         let config = WatcherConfig::default().labels(&label_selector);
-        let stream = watcher::watcher(api.clone(), config);
+        let stream = watcher::watcher(api.clone(), config).default_backoff();
         tokio::pin!(stream);
 
         loop {
@@ -204,15 +205,19 @@ fn slice_key(slice: &EndpointSlice) -> String {
 }
 
 /// Apply a watch event to the per-slice state, returning the desired member
-/// set to publish — or `None` when no update is due (the `Init` re-list start,
-/// where the last published set keeps serving until `InitDone`).
+/// set to publish — or `None` while a list is in progress, so the last
+/// published set keeps serving until `InitDone`.
 fn apply_event(
     event: Event<EndpointSlice>,
     slices: &mut HashMap<String, HashSet<IpAddr>>,
 ) -> Option<HashSet<IpAddr>> {
     match event {
-        Event::Apply(slice) | Event::InitApply(slice) => {
+        Event::Apply(slice) => {
             slices.insert(slice_key(&slice), extract_ready_ips(&slice));
+        }
+        Event::InitApply(slice) => {
+            slices.insert(slice_key(&slice), extract_ready_ips(&slice));
+            return None;
         }
         Event::Delete(slice) => {
             slices.remove(&slice_key(&slice));
@@ -322,13 +327,18 @@ mod tests {
         assert!(apply_event(Event::Init, &mut slices).is_none());
         assert!(slices.is_empty());
 
-        // Re-list finds a different pod; InitDone applies the new set.
-        apply_event(
+        // Re-list finds two slices; only InitDone applies the new set.
+        let partial = apply_event(
             Event::InitApply(slice("s1", vec![endpoint(&["10.0.0.9"], Some(true))])),
             &mut slices,
         );
+        assert!(partial.is_none());
+        apply_event(
+            Event::InitApply(slice("s2", vec![endpoint(&["10.0.0.8"], Some(true))])),
+            &mut slices,
+        );
         let desired = apply_event(Event::InitDone, &mut slices).unwrap();
-        assert_eq!(desired, HashSet::from([ip("10.0.0.9")]));
+        assert_eq!(desired, HashSet::from([ip("10.0.0.8"), ip("10.0.0.9")]));
     }
 
     #[test]

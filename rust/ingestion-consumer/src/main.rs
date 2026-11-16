@@ -315,7 +315,13 @@ async fn async_main(config: Config) -> Result<()> {
     // Select the worker discovery provider and start it (static applies the
     // configured list immediately; endpointslice watches and keeps in sync).
     let discovery: Box<dyn WorkerDiscovery> = match config.worker_discovery_mode {
-        DiscoveryMode::Static => Box::new(StaticDiscovery::new(config.worker_urls())),
+        DiscoveryMode::Static => {
+            let urls = config.worker_urls();
+            if urls.is_empty() {
+                anyhow::bail!("No worker addresses configured");
+            }
+            Box::new(StaticDiscovery::new(urls))
+        }
         DiscoveryMode::EndpointSlice => {
             if config.worker_service_name.is_empty() {
                 anyhow::bail!("WORKER_SERVICE_NAME is required for endpointslice discovery");
