@@ -145,6 +145,8 @@ PostHog object tags render as inline links to the selected host and project. Sta
 `display="block"` insight tags show an inline chart with the saved name and description.
 SQL tags show query results and a three-line query preview with Show all and Open SQL editor.
 Saved insight cards load their results; supported generated queries run when no result is supplied.
+Offscreen cards wait until they enter the viewport. Chart reads share a two-request queue, and native charts share a six-canvas budget.
+Saved insight cards check cached metadata before computing, so unsupported chart types do not trigger a query.
 Inline previews support trend lines and bars, big numbers, ranked totals, SQL tables and supported SQL charts, funnel steps, and retention grids.
 Other chart types open on the web without running an unsupported query in the app.
 A reply renders at most ten cards, then uses inline links. Unknown
