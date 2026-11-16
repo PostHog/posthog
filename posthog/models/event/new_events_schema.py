@@ -153,11 +153,11 @@ def _project_events_table_choices() -> dict[int, bool]:
     from posthog.models.team import Team  # noqa: PLC0415
     from posthog.models.team.team_events_table_config import TeamEventsTableConfig  # noqa: PLC0415
 
-    choices: dict[int, bool] = dict(
-        TeamEventsTableConfig.objects.unscoped()
-        .filter(use_new_events_table__isnull=False)
-        .values_list("team_id", "use_new_events_table")
-    )
+    choices: dict[int, bool] = {
+        team_id: choice
+        for team_id, choice in TeamEventsTableConfig.objects.unscoped().values_list("team_id", "use_new_events_table")
+        if choice is not None
+    }
     # A choice is stored on the project's root team, and queries run with the id of the environment they read.
     for child_id, root_id in Team.objects.filter(parent_team_id__in=choices).values_list("id", "parent_team_id"):
         choices[child_id] = choices[root_id]
