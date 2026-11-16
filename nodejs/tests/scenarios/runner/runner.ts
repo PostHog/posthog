@@ -526,6 +526,7 @@ export function createRunner(
                 evidenceDir,
             }
             const provenance = provenanceOf()
+            const host = os.hostname()
             const evidenceError = await errorOf(async () => {
                 await writeLogTails(evidenceDir)
                 const { journal, truth } = judge.evidence()
@@ -535,13 +536,14 @@ export function createRunner(
                 writeJson(evidenceDir, 'probes.json', { drive: driven ?? null, ...probed })
                 writeJson(evidenceDir, 'scorecard.json', {
                     ...verdict,
+                    host,
                     event: scorecardOf(verdict, loaded, provenance),
                 })
             })
             const judged = withEvidenceError(verdict, evidenceError)
             const scorecard = scorecardOf(judged, loaded, provenance)
             const written = await publish(scorecard, env, signal)
-            const reported = await reportToStore({ scorecard, host: os.hostname() }, env)
+            const reported = await reportToStore({ scorecard, host }, env)
             return {
                 ...judged,
                 recorded: written.recorded,

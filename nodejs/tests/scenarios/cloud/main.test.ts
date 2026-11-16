@@ -1,5 +1,5 @@
 import { createHash } from 'crypto'
-import { mkdtempSync, readFileSync, rmSync, writeFileSync } from 'fs'
+import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'fs'
 import os from 'os'
 import path from 'path'
 import { stringify } from 'yaml'
@@ -8,6 +8,7 @@ import { parseJSON } from '~/common/utils/json-parse'
 
 import { FAILOVER_RELEASE_WITHIN_MS } from '../environment/failover'
 import { FakeProjectApi, startFakeProjectApi } from '../scorecard/fake-project-api'
+import { storeTokenPathOf } from '../store/client'
 import { TestStore, UNREACHABLE_STORE, startTestStore, storeEnvOf } from '../store/test-store'
 import { FakeCloud, FakeCloudOptions, ReaderMinute } from './fake-cloud'
 import { PROFILE } from './fixtures'
@@ -1286,12 +1287,25 @@ describe('cloud controller', () => {
             expect(out).toContain('Reported the run to the run store.')
         })
 
-        it('keeps its exit code and warns when the run store is down', async () => {
-            const { controller } = prepare({ env: storeEnvOf(dir, UNREACHABLE_STORE) })
+        it.each<[string, (home: string) => NodeJS.ProcessEnv, RegExp]>([
+            ['the run store is down', (home) => storeEnvOf(home, UNREACHABLE_STORE), /the run store did not answer/],
+            [
+                'the run token cannot be read',
+                (home) => {
+                    const env = storeEnvOf(home, UNREACHABLE_STORE)
+                    const tokenPath = storeTokenPathOf(env)
+                    rmSync(tokenPath)
+                    mkdirSync(tokenPath)
+                    return env
+                },
+                /the run token could not be read: EISDIR/,
+            ],
+        ])('keeps its exit code and warns when %s', async (_story, envOf, said) => {
+            const { controller } = prepare({ env: envOf(dir) })
 
             await expect(main(['run', profilePath(), FAILOVER_CARD], controller)).resolves.toBe(0)
 
-            expect(err.join('\n')).toMatch(/Could not report the run to the run store: the run store did not answer/)
+            expect(err.join('\n')).toMatch(new RegExp(`Could not report the run to the run store: ${said.source}`))
         })
     })
 

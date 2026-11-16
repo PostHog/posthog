@@ -6,11 +6,12 @@ import { gzip } from 'zlib'
 
 import { internalFetch } from '~/common/utils/request'
 
-import { INGEST_PATH } from './server'
+import { INGEST_PATH } from './routes'
 
 export const STORE_URL = 'SCENARIO_STORE_URL'
 
 const REQUEST_TIMEOUT_MS = 30_000
+const PROBLEM_BODY_CHARS = 200
 
 const gzipAsync = promisify(gzip)
 
@@ -50,15 +51,21 @@ async function post(report: StoreReport, { url, token }: StoreTarget): Promise<S
     if (response.status === 200 || response.status === 201) {
         return { stored: true }
     }
-    return { stored: false, problem: `the run store answered ${response.status}: ${await response.text()}` }
+    const body = (await response.text()).slice(0, PROBLEM_BODY_CHARS)
+    return { stored: false, problem: `the run store answered ${response.status}: ${body}` }
 }
 
 export async function reportToStore(report: StoreReport, env: NodeJS.ProcessEnv): Promise<StoreOutcome> {
-    const { target, problem } = targetOf(env)
-    if (target === undefined) {
-        return { stored: false, problem }
+    let found: ReturnType<typeof targetOf>
+    try {
+        found = targetOf(env)
+    } catch (error) {
+        return { stored: false, problem: `the run token could not be read: ${(error as Error).message}` }
     }
-    return await post(report, target).catch((error: Error) => ({
+    if (found.target === undefined) {
+        return { stored: false, problem: found.problem }
+    }
+    return await post(report, found.target).catch((error: Error) => ({
         stored: false,
         problem: `the run store did not answer: ${error.message}`,
     }))

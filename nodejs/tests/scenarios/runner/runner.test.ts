@@ -263,6 +263,7 @@ describe('runner', () => {
             recorded: undefined,
             captured: undefined,
             scorecardError: undefined,
+            host: os.hostname(),
             event: api.captured[0].properties,
         })
         expect(parseJSON(readFileSync(path.join(result.evidenceDir, 'scorecard.json'), 'utf8'))).toEqual(onDisk)
@@ -306,17 +307,20 @@ describe('runner', () => {
 
         it('keeps its status when the run store is down, and publish --all stores the run later', async () => {
             jest.spyOn(process.stdout, 'write').mockReturnValue(true)
-            const result = await runnerWith(storeEnvOf(cacheHome, UNREACHABLE_STORE)).run(
-                withSettings({ DATABASE_URL: PROFILE_DATABASE_URL }),
-                NEVER_ABORTED
-            )
+            const loaded = withSettings({ DATABASE_URL: PROFILE_DATABASE_URL })
+            const withoutStore = await runner.run(loaded, NEVER_ABORTED)
+            const result = await runnerWith(storeEnvOf(cacheHome, UNREACHABLE_STORE)).run(loaded, NEVER_ABORTED)
 
             expect(result).toMatchObject({
                 recorded: true,
                 storeError: expect.stringMatching(/^the run store did not answer/),
             })
             expect(result.stored).toBeUndefined()
-            expect(exitCodeOf(result)).toBe(EXIT_CODE[result.status])
+            expect({ status: result.status, statusReason: result.statusReason, exitCode: exitCodeOf(result) }).toEqual({
+                status: withoutStore.status,
+                statusReason: withoutStore.statusReason,
+                exitCode: exitCodeOf(withoutStore),
+            })
 
             const published = await main(['publish', '--all'], {
                 ...processEnv,
@@ -325,7 +329,10 @@ describe('runner', () => {
             })
 
             expect(published).toBe(EXIT_CODE.passed)
-            expect((await store.read(result.runId))?.scorecard).toEqual(api.captured[0].properties)
+            expect(await store.read(result.runId)).toMatchObject({
+                scorecard: api.captured[1].properties,
+                host: os.hostname(),
+            })
         })
     })
 
@@ -999,6 +1006,7 @@ describe('runner through seed, drive and judge', () => {
                 recorded: undefined,
                 captured: undefined,
                 scorecardError: undefined,
+                host: os.hostname(),
                 event: api.captured[0]?.properties,
             })
             expect(api.captured.map(({ properties }) => properties)).toEqual([

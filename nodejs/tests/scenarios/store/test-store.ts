@@ -6,8 +6,9 @@ import { internalFetch } from '~/common/utils/request'
 
 import { scratchSchema } from '../environment/stack'
 import { STORE_URL, storeTokenPathOf } from './client'
+import { RUNS_PATH } from './routes'
 import type { Run } from './runs'
-import { RUNS_PATH, startStore } from './server'
+import { startStore } from './server'
 
 const TOKEN = 'test-run-token'
 

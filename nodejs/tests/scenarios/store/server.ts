@@ -7,11 +7,9 @@ import { gunzip } from 'zlib'
 
 import { parseJSON } from '~/common/utils/json-parse'
 
+import { INGEST_PATH, RUNS_PATH } from './routes'
 import { RunId, RunReport, RunStore } from './runs'
 import { ensureSchema } from './schema'
-
-export const INGEST_PATH = '/api/ingest/runs'
-export const RUNS_PATH = '/api/runs'
 
 const MAX_BODY_BYTES = 32 * 1024 * 1024
 const DEFAULT_LIMIT = 100

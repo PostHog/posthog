@@ -8,7 +8,8 @@ import { internalFetch } from '~/common/utils/request'
 
 import { scratchSchema } from '../environment/stack'
 import { SCHEMA_VERSION } from '../scorecard/scorecard'
-import { INGEST_PATH, RUNS_PATH, RunningStore, startStore } from './server'
+import { INGEST_PATH, RUNS_PATH } from './routes'
+import { RunningStore, startStore } from './server'
 
 const TOKEN = 'test-run-token'
 const AUTHORIZED = { Authorization: `Bearer ${TOKEN}` }

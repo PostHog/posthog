@@ -1,7 +1,7 @@
 import { existsSync, mkdirSync, readFileSync, readdirSync, realpathSync } from 'fs'
-import os from 'os'
 import path from 'path'
 import { parseArgs } from 'util'
+import { z } from 'zod'
 
 import { parseJSON } from '~/common/utils/json-parse'
 
@@ -57,7 +57,9 @@ export async function main(argv: string[], env: NodeJS.ProcessEnv = process.env)
     if (command === 'seed-backlog' && cards.length === 0 && values.profile !== undefined) {
         return seedBacklogOf(values.profile, env)
     }
-    if (command === 'publish' && (values.all === true) !== cards.length > 0) {
+    const publishesAll = values.all === true
+    const namesRuns = cards.length > 0
+    if (command === 'publish' && publishesAll !== namesRuns) {
         return publishRuns(cards, env)
     }
     if (command !== 'run' || cards.length === 0) {
@@ -75,6 +77,8 @@ export async function main(argv: string[], env: NodeJS.ProcessEnv = process.env)
     process.once('SIGTERM', () => interrupt.abort())
     return runCards(createRunner(createEnvironment(), env), checked.loaded, interrupt.signal)
 }
+
+const SavedRun = z.object({ host: z.string().optional(), event: z.record(z.string(), z.unknown()) })
 
 function runDirsOf(runs: string[], env: NodeJS.ProcessEnv): string[] {
     const stateDir = defaultStateDir(env)
@@ -95,12 +99,13 @@ async function publishSaved(runDir: string, env: NodeJS.ProcessEnv): Promise<str
     if (!existsSync(saved)) {
         return `no scorecard at ${saved}`
     }
-    const { event } = parseJSON(readFileSync(saved, 'utf8')) as { event?: Record<string, unknown> }
-    if (event === undefined) {
-        return `${saved} holds no scorecard event`
+    const parsed = SavedRun.safeParse(parseJSON(readFileSync(saved, 'utf8')))
+    if (!parsed.success) {
+        return `${saved} holds no scorecard event: ${parsed.error.issues[0].message}`
     }
-    const scorecard = { ...event, adapters: event.adapters ?? ADAPTERS, owners: event.owners ?? [] }
-    return (await reportToStore({ scorecard, host: os.hostname() }, env)).problem
+    const { event, host } = parsed.data
+    const scorecard = { ...event, adapters: event.adapters ?? [...ADAPTERS] }
+    return (await reportToStore({ scorecard, host }, env)).problem
 }
 
 async function publishRuns(runs: string[], env: NodeJS.ProcessEnv): Promise<number> {

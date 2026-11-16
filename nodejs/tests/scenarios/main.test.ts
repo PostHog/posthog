@@ -1,5 +1,7 @@
 import { randomUUID } from 'crypto'
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'fs'
+import { Server, createServer } from 'http'
+import { AddressInfo } from 'net'
 import os from 'os'
 import path from 'path'
 
@@ -236,9 +238,9 @@ describe('publish', () => {
 
     const runDirOf = (runId: string): string => path.join(cacheHome, 'posthog-scenarios', runId)
 
-    const saveRun = (runId: string, event: Record<string, unknown>): void => {
+    const saveRun = (runId: string, saved: Record<string, unknown>): void => {
         mkdirSync(runDirOf(runId), { recursive: true })
-        writeFileSync(path.join(runDirOf(runId), 'scorecard.json'), JSON.stringify({ runId, event }))
+        writeFileSync(path.join(runDirOf(runId), 'scorecard.json'), JSON.stringify({ runId, ...saved }))
     }
 
     const eventOf = (runId: string): Record<string, unknown> => ({
@@ -254,11 +256,18 @@ describe('publish', () => {
 
     const printed = (spy: jest.SpyInstance): string => spy.mock.calls.map(([text]) => text).join('')
 
+    let errorPage: Server
+
     beforeAll(async () => {
         store = await startTestStore('publish')
+        errorPage = createServer((_request, response) => response.writeHead(502).end('x'.repeat(5000)))
+        await new Promise<void>((resolve) => errorPage.listen(0, '127.0.0.1', resolve))
     })
 
-    afterAll(() => store.close())
+    afterAll(async () => {
+        await store.close()
+        await new Promise((resolve) => errorPage.close(resolve))
+    })
 
     beforeEach(() => {
         cacheHome = mkdtempSync(path.join(os.tmpdir(), 'scenario-publish-'))
@@ -273,8 +282,8 @@ describe('publish', () => {
 
     it('stores a run saved before runs named their adapters as a Workflows run, by id or by path', async () => {
         const [byId, byPath] = [randomUUID(), randomUUID()]
-        saveRun(byId, eventOf(byId))
-        saveRun(byPath, eventOf(byPath))
+        saveRun(byId, { host: 'box-that-ran-it', event: eventOf(byId) })
+        saveRun(byPath, { event: eventOf(byPath) })
 
         const exitCode = await main(['publish', byId, runDirOf(byPath)], {
             XDG_CACHE_HOME: cacheHome,
@@ -282,14 +291,14 @@ describe('publish', () => {
         })
 
         expect(exitCode).toBe(EXIT_CODE.passed)
-        expect(await store.read(byId)).toMatchObject({ adapters: ['workflows'], owners: [], host: os.hostname() })
+        expect(await store.read(byId)).toMatchObject({ adapters: ['workflows'], owners: [], host: 'box-that-ran-it' })
         expect(await store.read(byPath)).toMatchObject({ scorecard: { ...eventOf(byPath), adapters: ['workflows'] } })
         expect(printed(stdout)).toBe(`${byId}: stored\n${byPath}: stored\n`)
     })
 
     it('skips run directories without a scorecard under --all, and fails on one named outright', async () => {
         const [saved, unsaved] = [randomUUID(), randomUUID()]
-        saveRun(saved, eventOf(saved))
+        saveRun(saved, { event: eventOf(saved) })
         mkdirSync(runDirOf(unsaved), { recursive: true })
         mkdirSync(path.join(cacheHome, 'posthog-scenarios', 'logs'))
         const env = { XDG_CACHE_HOME: cacheHome, ...store.envOf(cacheHome) }
@@ -297,15 +306,33 @@ describe('publish', () => {
         expect(await main(['publish', '--all'], env)).toBe(EXIT_CODE.passed)
         expect(printed(stdout)).toBe(`${saved}: stored\n`)
 
-        expect(await main(['publish', unsaved], env)).toBe(EXIT_CODE.writeFailed)
+        const eventless = randomUUID()
+        saveRun(eventless, { status: 'passed' })
+
+        expect(await main(['publish', unsaved, eventless], env)).toBe(EXIT_CODE.writeFailed)
         expect(printed(stderr)).toContain(
             `${unsaved}: no scorecard at ${path.join(runDirOf(unsaved), 'scorecard.json')}`
+        )
+        expect(printed(stderr)).toContain(
+            `${eventless}: ${path.join(runDirOf(eventless), 'scorecard.json')} holds no scorecard event`
         )
         expect(await store.read(unsaved)).toBeUndefined()
     })
 
     it.each<[string, (home: string) => NodeJS.ProcessEnv, number, RegExp]>([
         ['no run store is set', (home) => ({ HOME: home }), EXIT_CODE.invalid, /Set SCENARIO_STORE_URL/],
+        [
+            'the run token file is missing',
+            (home) => ({ HOME: home, [STORE_URL]: UNREACHABLE_STORE }),
+            EXIT_CODE.writeFailed,
+            /holds no run token/,
+        ],
+        [
+            'the run store answers with a long error page',
+            (home) => storeEnvOf(home, `http://127.0.0.1:${(errorPage.address() as AddressInfo).port}`),
+            EXIT_CODE.writeFailed,
+            /the run store answered 502: x{200}\n$/,
+        ],
         [
             'the run store is down',
             (home) => storeEnvOf(home, UNREACHABLE_STORE),
@@ -314,7 +341,7 @@ describe('publish', () => {
         ],
     ])('stores nothing and says why when %s', async (_story, envOf, code, said) => {
         const runId = randomUUID()
-        saveRun(runId, eventOf(runId))
+        saveRun(runId, { event: eventOf(runId) })
 
         expect(await main(['publish', runId], { XDG_CACHE_HOME: cacheHome, ...envOf(cacheHome) })).toBe(code)
 
