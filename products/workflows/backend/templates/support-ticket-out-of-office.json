@@ -248,7 +248,8 @@
                                 "type": "section",
                                 "text": {
                                     "type": "mrkdwn",
-                                    "text": ":warning: Ticket *#{toInt(event.properties.ticket_number)}* has a new reply, but its assignee ({variables.ticket.assignee.user.email}) is out of office and it couldn't be reassigned. Check the assignee in the 'Reassign ticket' step."
+                                    "text": ":warning: Ticket *#{toInt(event.properties.ticket_number)}* has a new reply, but its assignee ({variables.ticket.assignee.user.email}) is out of office and it couldn't be reassigned. Check the assignee in the 'Reassign ticket' step.",
+                                    "verbatim": true
                                 }
                             },
                             {

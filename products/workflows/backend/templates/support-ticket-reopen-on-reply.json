@@ -174,7 +174,8 @@
                                 "type": "section",
                                 "text": {
                                     "type": "mrkdwn",
-                                    "text": ":rotating_light: Ticket *#{toInt(event.properties.ticket_number)}* from an important customer has a new reply\nFrom: {replaceAll(replaceAll(replaceAll(toString(event.properties.customer_email), '&', '&amp;'), '<', '&lt;'), '>', '&gt;')}"
+                                    "text": ":rotating_light: Ticket *#{toInt(event.properties.ticket_number)}* from an important customer has a new reply\nFrom: {replaceAll(replaceAll(replaceAll(toString(event.properties.customer_email), '&', '&amp;'), '<', '&lt;'), '>', '&gt;')}",
+                                    "verbatim": true
                                 }
                             },
                             {

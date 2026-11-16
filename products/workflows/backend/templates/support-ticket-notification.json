@@ -111,7 +111,8 @@
                                 "type": "section",
                                 "text": {
                                     "type": "mrkdwn",
-                                    "text": ":ticket: New ticket *#{toInt(event.properties.ticket_number)}*\nFrom: {replaceAll(replaceAll(replaceAll(toString(event.properties.customer_email), '&', '&amp;'), '<', '&lt;'), '>', '&gt;')}"
+                                    "text": ":ticket: New ticket *#{toInt(event.properties.ticket_number)}*\nFrom: {replaceAll(replaceAll(replaceAll(toString(event.properties.customer_email), '&', '&amp;'), '<', '&lt;'), '>', '&gt;')}",
+                                    "verbatim": true
                                 }
                             },
                             {

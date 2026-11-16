@@ -306,7 +306,8 @@
                                 "type": "section",
                                 "text": {
                                     "type": "mrkdwn",
-                                    "text": ":hourglass_flowing_sand: Ticket *#{variables.ticket.number}* is due in 1 hour\nAssignee: {variables.ticket.assignee.user.email ?? variables.ticket.assignee.role.name ?? 'unassigned'}"
+                                    "text": ":hourglass_flowing_sand: Ticket *#{variables.ticket.number}* is due in 1 hour\nAssignee: {variables.ticket.assignee.user.email ?? variables.ticket.assignee.role.name ?? 'unassigned'}",
+                                    "verbatim": true
                                 }
                             },
                             {

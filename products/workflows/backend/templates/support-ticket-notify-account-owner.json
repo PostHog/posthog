@@ -187,7 +187,8 @@
                                 "type": "section",
                                 "text": {
                                     "type": "mrkdwn",
-                                    "text": ":ticket: New ticket *#{toInt(event.properties.ticket_number)}* from {replaceAll(replaceAll(replaceAll(toString(groups.organization.properties.name ?? event.properties.customer_email), '&', '&amp;'), '<', '&lt;'), '>', '&gt;')}\nCSM: {variables.account.CSM[1].email}"
+                                    "text": ":ticket: New ticket *#{toInt(event.properties.ticket_number)}* from {replaceAll(replaceAll(replaceAll(toString(groups.organization.properties.name ?? event.properties.customer_email), '&', '&amp;'), '<', '&lt;'), '>', '&gt;')}\nCSM: {variables.account.CSM[1].email}",
+                                    "verbatim": true
                                 }
                             },
                             {

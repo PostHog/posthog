@@ -399,7 +399,8 @@
                                 "type": "section",
                                 "text": {
                                     "type": "mrkdwn",
-                                    "text": ":warning: Ticket *#{variables.ticket.number}* is over a day past its SLA, but couldn't be reassigned. Check the assignee in the 'Reassign ticket' step.\nAssignee: {variables.ticket.assignee.user.email ?? variables.ticket.assignee.role.name ?? 'unassigned'}"
+                                    "text": ":warning: Ticket *#{variables.ticket.number}* is over a day past its SLA, but couldn't be reassigned. Check the assignee in the 'Reassign ticket' step.\nAssignee: {variables.ticket.assignee.user.email ?? variables.ticket.assignee.role.name ?? 'unassigned'}",
+                                    "verbatim": true
                                 }
                             },
                             {
@@ -456,7 +457,8 @@
                                 "type": "section",
                                 "text": {
                                     "type": "mrkdwn",
-                                    "text": ":rotating_light: Ticket *#{variables.ticket.number}* is over a day past its SLA\nReassigned from {variables.ticket.assignee.user.email ?? variables.ticket.assignee.role.name ?? 'unassigned'} to *{variables.assignee_after.user.email ?? variables.assignee_after.role.name ?? 'unassigned'}*"
+                                    "text": ":rotating_light: Ticket *#{variables.ticket.number}* is over a day past its SLA\nReassigned from {variables.ticket.assignee.user.email ?? variables.ticket.assignee.role.name ?? 'unassigned'} to *{variables.assignee_after.user.email ?? variables.assignee_after.role.name ?? 'unassigned'}*",
+                                    "verbatim": true
                                 }
                             },
                             {

@@ -405,7 +405,8 @@
                                 "type": "section",
                                 "text": {
                                     "type": "mrkdwn",
-                                    "text": ":mag: Ticket *#{toInt(event.properties.ticket_number)}* investigated by AI. The write-up is also saved on the ticket as a private note."
+                                    "text": ":mag: Ticket *#{toInt(event.properties.ticket_number)}* investigated by AI. The write-up is also saved on the ticket as a private note.",
+                                    "verbatim": true
                                 }
                             },
                             {
@@ -492,7 +493,8 @@
                                 "type": "section",
                                 "text": {
                                     "type": "mrkdwn",
-                                    "text": ":warning: Ticket *#{toInt(event.properties.ticket_number)}* needs manual triage\nThe AI investigation didn't run, so it's been tagged needs_triage."
+                                    "text": ":warning: Ticket *#{toInt(event.properties.ticket_number)}* needs manual triage\nThe AI investigation didn't run, so it's been tagged needs_triage.",
+                                    "verbatim": true
                                 }
                             },
                             {
