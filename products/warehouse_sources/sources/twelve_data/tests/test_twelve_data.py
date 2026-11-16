@@ -418,7 +418,7 @@ class TestCalendars:
             {"date": "2026-11-17", "symbol": "EXA", "mic_code": "XNYS", "eps_estimate": 1.2},
             {"date": "2026-11-18", "symbol": "EXB", "mic_code": "XNAS", "eps_estimate": 0.4},
         ]
-        assert result.saved_states == []
+        assert result.final_state == TwelveDataResumeConfig(calendar_windows=[])
 
     def test_window_at_the_record_limit_is_split_in_half(self) -> None:
         def body(*days: str) -> dict[str, Any]:
@@ -446,6 +446,86 @@ class TestCalendars:
             ("2026-11-16", "2026-11-17"),
         ]
         assert [row["date"] for row in result.rows] == ["2026-11-14", "2026-11-16"]
+
+    def test_single_day_at_the_record_limit_fails_instead_of_truncating(self) -> None:
+        with (
+            mock.patch.object(twelve_data, "CALENDAR_LOOKBACK_DAYS", 0),
+            mock.patch.object(twelve_data, "CALENDAR_LOOKAHEAD_DAYS", 0),
+            _with_endpoint("earnings_calendar", record_limit=2, chunk_days=1),
+        ):
+            result = _run(
+                "earnings_calendar",
+                [
+                    _json(
+                        {
+                            "earnings": {
+                                "2026-11-14": [{"symbol": "A", "mic_code": "XNYS"}, {"symbol": "B", "mic_code": "XNYS"}]
+                            }
+                        }
+                    )
+                ],
+            )
+
+        assert isinstance(result.raised, TwelveDataError)
+        assert "record limit reached" in str(result.raised)
+        assert result.rows == []
+
+    def test_rate_limit_keeps_the_finished_windows(self) -> None:
+        with (
+            mock.patch.object(twelve_data, "CALENDAR_LOOKBACK_DAYS", 0),
+            mock.patch.object(twelve_data, "CALENDAR_LOOKAHEAD_DAYS", 2),
+            _with_endpoint("earnings_calendar", chunk_days=1),
+        ):
+            result = _run(
+                "earnings_calendar",
+                [
+                    _json({"earnings": {"2026-11-14": [{"symbol": "A", "mic_code": "XNYS"}]}}),
+                    _json(_error_body(429, "You have run out of API credits for the current minute")),
+                ],
+            )
+
+        assert isinstance(result.raised, TwelveDataError)
+        assert result.committed_states[-1] == TwelveDataResumeConfig(
+            calendar_windows=[["2026-11-15", "2026-11-15"], ["2026-11-16", "2026-11-16"]]
+        )
+
+    @parameterized.expand(
+        [
+            (
+                "unpaged_resumes_at_the_saved_window",
+                "earnings_calendar",
+                {"chunk_days": 7},
+                TwelveDataResumeConfig(calendar_windows=[["2026-11-21", "2026-11-27"]]),
+                _json({"earnings": {"2026-11-21": [{"symbol": "A", "mic_code": "XNYS"}]}}),
+                [("2026-11-21", "2026-11-27", None)],
+            ),
+            (
+                "paged_resumes_at_the_saved_page",
+                "dividends_calendar",
+                {"page_size": 2},
+                TwelveDataResumeConfig(calendar_windows=[["2026-11-07", "2026-12-14"]], calendar_next_page=3),
+                _json([{"symbol": "A", "mic_code": "XNAS", "ex_date": "2026-11-20"}]),
+                [("2026-11-07", "2026-12-14", "3")],
+            ),
+        ]
+    )
+    def test_resumes_from_saved_calendar_progress(
+        self,
+        _name: str,
+        endpoint: str,
+        changes: dict[str, Any],
+        resume_state: TwelveDataResumeConfig,
+        response: ScriptedResponse,
+        expected_requests: list[tuple[str, str, str | None]],
+    ) -> None:
+        with _with_endpoint(endpoint, **changes):
+            result = _run(endpoint, [response], resume_state=resume_state)
+
+        assert result.raised is None
+        pages: list[str | None] = result.params("page") or [None] * len(expected_requests)
+        assert list(zip(result.params("start_date"), result.params("end_date"), pages)) == expected_requests
+        assert [row["symbol"] for row in result.rows] == ["A"]
+        assert result.final_state == TwelveDataResumeConfig(calendar_windows=[])
 
     @parameterized.expand(
         [

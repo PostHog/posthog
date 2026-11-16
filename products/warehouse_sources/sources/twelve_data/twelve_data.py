@@ -10,6 +10,7 @@ from products.warehouse_sources.sources.sdk import (
     ResumableSourceManager,
     SortMode,
     SourceResponse,
+    frozen,
     make_tracked_session,
 )
 from products.warehouse_sources.sources.twelve_data.settings import (
@@ -37,13 +38,24 @@ class TwelveDataError(Exception):
     pass
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=True)
 class TwelveDataResumeConfig:
     # Symbols whose rows were fully yielded this job; a resumed attempt skips them.
     completed_symbols: list[str] = dataclasses.field(default_factory=list)
     # Symbol mid-way through its time series back-walk, and the end_date the next page should use.
     current_symbol: str | None = None
     next_end_date: str | None = None
+    # Calendar windows still to read, as [start, end] ISO dates in fetch order, and the page to
+    # request next from the first of them.
+    calendar_windows: list[list[str]] | None = None
+    calendar_next_page: int = 1
+
+
+@frozen
+class _CalendarWindow:
+    # Both bounds are inclusive.
+    start: date
+    end: date
 
 
 def parse_symbols(symbols: str) -> list[str]:
@@ -169,8 +181,17 @@ def _paged_symbol_rows(
     )
 
 
-def _calendar_window(today: date) -> tuple[date, date]:
-    return today - timedelta(days=CALENDAR_LOOKBACK_DAYS), today + timedelta(days=CALENDAR_LOOKAHEAD_DAYS)
+def _calendar_windows(today: date, chunk_days: int | None) -> list[_CalendarWindow]:
+    window_start = today - timedelta(days=CALENDAR_LOOKBACK_DAYS)
+    window_end = today + timedelta(days=CALENDAR_LOOKAHEAD_DAYS)
+    days = chunk_days or (window_end - window_start).days + 1
+    windows = []
+    chunk_start = window_start
+    while chunk_start <= window_end:
+        chunk_end = min(chunk_start + timedelta(days=days - 1), window_end)
+        windows.append(_CalendarWindow(start=chunk_start, end=chunk_end))
+        chunk_start = chunk_end + timedelta(days=1)
+    return windows
 
 
 def _calendar_body_rows(body: Any, endpoint_config: TwelveDataEndpointConfig) -> list[dict]:
@@ -197,23 +218,31 @@ def _calendar_rows(
     logger: FilteringBoundLogger,
     today: date,
 ) -> Iterator[list[dict]]:
-    window_start, window_end = _calendar_window(today)
-    chunk_days = endpoint_config.chunk_days or (window_end - window_start).days + 1
+    resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
+    if resume is not None and resume.calendar_windows is not None:
+        # A retry after a rate limit continues here instead of paying for the finished windows again.
+        windows = [
+            _CalendarWindow(start=date.fromisoformat(start), end=date.fromisoformat(end))
+            for start, end in resume.calendar_windows
+        ]
+        page = resume.calendar_next_page
+    else:
+        windows = _calendar_windows(today, endpoint_config.chunk_days)
+        page = 1
 
-    # Pending (start, end) windows, both inclusive, earliest last so pop() keeps date order.
-    windows: list[tuple[date, date]] = []
-    chunk_start = window_start
-    while chunk_start <= window_end:
-        chunk_end = min(chunk_start + timedelta(days=chunk_days - 1), window_end)
-        windows.append((chunk_start, chunk_end))
-        chunk_start = chunk_end + timedelta(days=1)
-    windows.reverse()
+    def stage(pending: list[_CalendarWindow], next_page: int = 1) -> None:
+        resumable_source_manager.save_state(
+            TwelveDataResumeConfig(
+                calendar_windows=[[w.start.isoformat(), w.end.isoformat()] for w in pending],
+                calendar_next_page=next_page,
+            )
+        )
 
     while windows:
-        start, end = windows.pop()
+        window, windows = windows[0], windows[1:]
         params: dict[str, Any] = {
-            "start_date": start.isoformat(),
-            "end_date": end.isoformat(),
+            "start_date": window.start.isoformat(),
+            "end_date": window.end.isoformat(),
             **endpoint_config.params,
         }
 
@@ -221,17 +250,20 @@ def _calendar_rows(
             rows = _calendar_body_rows(_fetch(session, endpoint_config.path, params), endpoint_config)
             limit = endpoint_config.record_limit
             if limit is not None and len(rows) >= limit:
-                if start < end:
-                    middle = start + timedelta(days=(end - start).days // 2)
-                    windows.extend([(middle + timedelta(days=1), end), (start, middle)])
-                    resumable_source_manager.safe_point()
-                    continue
-                logger.warning(
-                    "Twelve Data: calendar record limit reached for a single day, rows may be missing",
-                    endpoint=endpoint_config.path,
-                    date=start.isoformat(),
-                    limit=limit,
-                )
+                if window.start == window.end:
+                    # A full refresh must not replace the table with a silently truncated day.
+                    raise TwelveDataError(
+                        f"Twelve Data calendar record limit reached: {endpoint_config.path} returned "
+                        f"{len(rows)} records for {window.start.isoformat()}, so rows are missing"
+                    )
+                middle = window.start + timedelta(days=(window.end - window.start).days // 2)
+                windows = [
+                    _CalendarWindow(start=window.start, end=middle),
+                    _CalendarWindow(start=middle + timedelta(days=1), end=window.end),
+                    *windows,
+                ]
+                continue
+            stage(windows)
             if rows:
                 yield rows
             else:
@@ -239,23 +271,32 @@ def _calendar_rows(
             continue
 
         previous_page: list[dict] | None = None
-        for page in range(1, MAX_CALENDAR_PAGES + 1):
+        while True:
+            if page > MAX_CALENDAR_PAGES:
+                logger.warning(
+                    "Twelve Data: calendar page cap reached, stopping walk",
+                    endpoint=endpoint_config.path,
+                    pages_fetched=MAX_CALENDAR_PAGES,
+                )
+                stage(windows)
+                resumable_source_manager.safe_point()
+                break
             page_params = {**params, "outputsize": endpoint_config.page_size, "page": page}
             rows = _calendar_body_rows(_fetch(session, endpoint_config.path, page_params), endpoint_config)
             # Guards against the API ignoring `page` and returning the same rows forever.
             if not rows or rows == previous_page:
+                stage(windows)
                 resumable_source_manager.safe_point()
                 break
-            yield rows
             if len(rows) < endpoint_config.page_size:
+                stage(windows)
+                yield rows
                 break
+            stage([window, *windows], page + 1)
+            yield rows
             previous_page = rows
-        else:
-            logger.warning(
-                "Twelve Data: calendar page cap reached, stopping walk",
-                endpoint=endpoint_config.path,
-                pages_fetched=MAX_CALENDAR_PAGES,
-            )
+            page += 1
+        page = 1
 
 
 def _time_series_pages(

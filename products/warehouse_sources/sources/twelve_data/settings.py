@@ -29,7 +29,8 @@ CALENDAR_LOOKAHEAD_DAYS = 30
 CALENDAR_PAGE_SIZE = 500
 MAX_CALENDAR_PAGES = 20
 # /earnings_calendar silently truncates at 1200 records, so the window is requested a week at a
-# time, and a chunk that hits the cap is split in half until it fits or covers a single day.
+# time, and a chunk that hits the cap is split in half until it fits. A single day at the cap fails
+# the sync, because a full refresh must not publish a truncated calendar.
 EARNINGS_CALENDAR_RECORD_LIMIT = 1200
 EARNINGS_CALENDAR_CHUNK_DAYS = 7
 
