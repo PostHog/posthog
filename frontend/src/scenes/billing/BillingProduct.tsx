@@ -12,6 +12,9 @@ import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { More } from 'lib/lemon-ui/LemonButton/More'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { billingLogic } from 'lib/logic/billing/billingLogic'
+import { billingProductDisplayName } from 'lib/logic/billing/billingProductDisplayName'
+import { isUsageAtOrOverLimit } from 'lib/logic/billing/usageLimits'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { humanFriendlyCurrency } from 'lib/utils/numbers'
 import { capitalizeFirstLetter } from 'lib/utils/strings'
@@ -24,15 +27,12 @@ import {
     createGaugeItems,
     createProductValueFormatter,
     getProductUnitLabel,
-    isUsageAtOrOverLimit,
     isProductVariantPrimary,
 } from './billing-utils'
 import { BillingCompanionSection } from './BillingCompanionSection'
 import { BillingGauge } from './BillingGauge'
 import { BillingLimit } from './BillingLimit'
-import { billingLogic } from './billingLogic'
 import { BillingProductAddon } from './BillingProductAddon'
-import { billingProductDisplayName } from './billingProductDisplayName'
 import { billingProductLogic } from './billingProductLogic'
 import { BillingProductPricingTable } from './BillingProductPricingTable'
 import { DesktopUsageBreakdown } from './DesktopUsageBreakdown'

@@ -1,6 +1,7 @@
 import { createMockJobQueue } from '~/tests/helpers/mocks/job-queue.mock'
 
 import { DateTime } from 'luxon'
+import { Pool } from 'pg'
 
 import { HogFlow } from '~/cdp/schema/hogflow'
 import { InternalPersonWithDistinctId, PersonReadRepository } from '~/common/persons/repositories/person-repository'
@@ -12,13 +13,15 @@ import { createTeam, createTestTeamFixture, getTeam } from '~/tests/helpers/sql'
 
 import { Hub, InternalPerson, Team } from '../../types'
 import { FixtureHogFlowBuilder } from '../_tests/builders/hogflow.builder'
-import { createHogFlowInvocationContext, insertHogFlow } from '../_tests/fixtures-hogflows'
+import { createHogFlowInvocationContext, hideHogFlowsFromReplica, insertHogFlow } from '../_tests/fixtures-hogflows'
+import { attachmentMetadata, decodeAttachments } from '../services/hogflows/transactional-email'
 import {
     CyclotronJobInvocation,
     CyclotronJobInvocationHogFlow,
     CyclotronJobInvocationResult,
     HogFlowInvocationContext,
 } from '../types'
+import { createInvocationResult } from '../utils/invocation-utils'
 import { CdpCyclotronWorkerHogFlow } from './cdp-cyclotron-worker-hogflow.consumer'
 
 jest.setTimeout(1000)
@@ -88,6 +91,7 @@ describe('CdpCyclotronWorkerHogFlow', () => {
     let team: Team
     let team2: Team
     let hogFlows: HogFlow[]
+    let jobQueue: ReturnType<typeof createMockJobQueue>
 
     const createSerializedHogFlowInvocation = (
         hogFlow: HogFlow,
@@ -160,11 +164,11 @@ describe('CdpCyclotronWorkerHogFlow', () => {
         ]
 
         const mockRepo = createMockPersonReadRepository(testPersons)
-        const mockJobQueue = createMockJobQueue()
+        jobQueue = createMockJobQueue()
         processor = new CdpCyclotronWorkerHogFlow(
             hub,
             { ...createCdpConsumerDeps(hub), personRepository: mockRepo },
-            mockJobQueue
+            jobQueue
         )
 
         hogFlows = []
@@ -587,6 +591,33 @@ describe('CdpCyclotronWorkerHogFlow', () => {
             })
         })
 
+        it('runs a flow the replica does not have yet, and fails one missing from both', async () => {
+            const [lateFlow, missingFlow] = ['Flow only the primary has', 'Flow neither database has'].map((name) =>
+                new FixtureHogFlowBuilder()
+                    .withName(name)
+                    .withTeamId(team.id)
+                    .withStatus('active')
+                    .withSimpleWorkflow()
+                    .build()
+            )
+            await insertHogFlow(hub.postgres, lateFlow)
+            hideHogFlowsFromReplica(hub.postgres, [lateFlow.id])
+            const [lateInvocation, missingInvocation] = [lateFlow, missingFlow].map((flow) =>
+                createSerializedHogFlowInvocation(flow, {
+                    event: { distinct_id: 'distinct_A_1', properties: {} } as any,
+                })
+            )
+
+            const results = await processor.processInvocations([lateInvocation, missingInvocation])
+
+            expect(results).toHaveLength(1)
+            expect(results[0]).toMatchObject({
+                finished: true,
+                invocation: { hogFlow: { id: lateFlow.id } },
+            })
+            expect(jobQueue.dequeueInvocations).toHaveBeenLastCalledWith([missingInvocation])
+        })
+
         it('terminates invocations as canceled when the workflow is disabled after being queued', async () => {
             const hogFlow = hogFlows[0]
 
@@ -661,6 +692,100 @@ describe('CdpCyclotronWorkerHogFlow', () => {
             expect(results[0].finished).toBe(true)
             expect(results[0].canceled).toBe(true)
             expect((results[0].invocation as CyclotronJobInvocationHogFlow).hogFlow?.id).toBe(hogFlow.id)
+        })
+
+        describe('attachment files', () => {
+            const files = decodeAttachments({
+                tracking: { captureEngagement: false },
+                attachments: [{ filename: 'report.pdf', content: Buffer.from([0x25, 0x00, 0xff]).toString('base64') }],
+            })
+            let assertPool: Pool
+
+            beforeEach(() => {
+                assertPool = new Pool({ connectionString: hub.CYCLOTRON_NODE_DATABASE_URL })
+            })
+
+            afterEach(async () => {
+                await processor['emailAttachmentsService'].stop()
+                await assertPool.end()
+            })
+
+            it.each([
+                ['deletes the files of a run canceled before its email step', 'canceled', true, true, 0, 0, null],
+                ['deletes the files of a run whose send finished', 'finished', true, true, 0, 0, null],
+                [
+                    'deletes the files of a finished send whose job row is completed',
+                    'finished',
+                    true,
+                    true,
+                    0,
+                    0,
+                    'completed',
+                ],
+                [
+                    'keeps the files of a finished send whose job another worker now holds',
+                    'finished',
+                    true,
+                    true,
+                    1,
+                    0,
+                    'running',
+                ],
+                [
+                    'keeps the files of a finished send whose result was not written',
+                    'finished',
+                    true,
+                    false,
+                    1,
+                    0,
+                    null,
+                ],
+                ['keeps the files of a run rescheduled for a retry', 'rescheduled', true, true, 1, 0, null],
+                ['leaves stored files alone for a run that lists none', 'finished', false, true, 1, 0, null],
+                ["leaves another team's files under the same job id alone", 'finished', true, true, 1, 1, null],
+            ] as const)(
+                '%s',
+                async (_name, outcome, listsFiles, resultWritten, rowsLeft, storedTeamOffset, jobStatus) => {
+                    const invocation = createSerializedHogFlowInvocation(hogFlows[0], {
+                        event: { distinct_id: 'distinct_person_1', properties: {} } as any,
+                    })
+                    ;(invocation.state as CyclotronJobInvocationHogFlow['state']).send = {
+                        content: { subject: 'Receipt', text: 'Thanks' },
+                        tracking: { captureEngagement: false },
+                        attachments: listsFiles ? attachmentMetadata(files) : undefined,
+                    }
+                    if (outcome === 'canceled') {
+                        invocation.cancelRequestedAt = DateTime.now()
+                    }
+                    jest.spyOn(processor['hogFlowExecutor'], 'execute').mockImplementation((item) =>
+                        Promise.resolve(createInvocationResult(item, {}, { finished: outcome === 'finished' }))
+                    )
+                    await processor['emailAttachmentsService'].store(
+                        invocation.id,
+                        hogFlows[0].team_id + storedTeamOffset,
+                        files
+                    )
+                    if (!resultWritten) {
+                        jobQueue.queueInvocationResults.mockRejectedValueOnce(new Error('connection terminated'))
+                    }
+                    if (jobStatus) {
+                        await assertPool.query(
+                            `INSERT INTO cyclotron_jobs (id, team_id, queue_name, status, priority, scheduled, created, last_transition)
+                         VALUES ($1, $2, 'hogflow', $3, 0, NOW(), NOW(), NOW())`,
+                            [invocation.id, hogFlows[0].team_id, jobStatus]
+                        )
+                    }
+
+                    const { backgroundTask } = await processor.processBatch([invocation])
+                    await backgroundTask.catch(() => undefined)
+
+                    const rows = await assertPool.query(
+                        'SELECT id FROM cyclotron_email_attachments WHERE job_id = $1',
+                        [invocation.id]
+                    )
+                    expect(rows.rowCount).toBe(rowsLeft)
+                }
+            )
         })
 
         it('terminates cancel-requested invocations without loading the flow, so cancel works for deleted flows', async () => {

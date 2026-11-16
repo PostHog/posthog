@@ -314,6 +314,9 @@ def execute_tagger_activity(inputs: ExecuteTaggerInputs) -> dict[str, Any]:
         provider_key=provider_key,
         config=config,
         capture_analytics=False,
+        # Temporal retries a rate limit after the provider's delay. SDK retries underneath would
+        # multiply the calls and can run past the activity's timeout before the last attempt ends.
+        max_retries=0,
     )
 
     try:

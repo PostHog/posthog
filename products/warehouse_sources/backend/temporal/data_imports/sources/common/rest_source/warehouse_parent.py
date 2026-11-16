@@ -8,6 +8,7 @@ import pyarrow as pa
 import deltalake
 import structlog
 import pyarrow.compute as pc
+import deltalake.exceptions
 
 from posthog.dataclasses import frozen
 
@@ -17,7 +18,17 @@ from products.warehouse_sources.backend.temporal.data_imports.naming_convention 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import (
     pyarrow_schema_from_arrow_exportable,
 )
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.errors import (
+    TransientObjectStoreError,
+    is_transient_object_store_error,
+)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.maintenance import VACUUM_RETENTION
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.ops import (
+    OBJECT_STORE_PERMISSION_DENIED_MESSAGE,
+    OBJECT_STORE_TRANSIENT_MESSAGE,
+    ObjectStorePermissionDeniedError,
+    is_object_store_permission_denied,
+)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.table import (
     build_delta_table_uri,
     delta_storage_options,
@@ -33,6 +44,11 @@ MAX_PARENT_PAGE_SIZE = 5000
 # an in-flight fan-out. Vacuum keys deletion off tombstone age, and a file live at the pinned
 # version can only be tombstoned after that version, so any pin inside the window is safe.
 MAX_SNAPSHOT_ROLLBACK = VACUUM_RETENTION - dt.timedelta(hours=4)
+
+# How long a resumed fan-out may still read the snapshot it re-pins. The rest of its sweep runs
+# after the re-pin, so the snapshot needs this much retention left on top of the margin above.
+# The longest clean fan-out sweep in production takes about 6 hours.
+RESUMED_SWEEP_BUDGET = dt.timedelta(hours=8)
 
 logger = structlog.get_logger(__name__)
 
@@ -329,6 +345,61 @@ def try_resolve_parent_table(
         return None
 
 
+def pin_parent_table_version(table: ParentTableRef, version: int) -> ParentTableRef | None:
+    """`table` pinned back to an earlier `version`, or None when that version may no longer be readable.
+
+    A resumable fan-out checkpoints positions against the version its first attempt pinned, and a
+    parent that commits often (a webhook-synced one commits every drain) has moved on by the time a
+    later attempt resolves it. Reading that attempt from the checkpointed version keeps the position
+    meaningful instead of forcing the sweep back to its first row.
+
+    The caller has to check `parent_table_id` first: a rebuilt table reuses version numbers. A file
+    live at `version` can only be tombstoned by a later commit, and vacuum deletes it only once the
+    tombstone ages past its retention. So the version stays readable while the first commit
+    after it is inside `MAX_SNAPSHOT_ROLLBACK`, the bound `_snapshot_pin_as_of` puts on a rollback.
+    The rest of the sweep reads it after this check, so the version also needs
+    `RESUMED_SWEEP_BUDGET` of that window left, or vacuum can delete its files mid-sweep.
+
+    Returns None rather than raising on any failure, so the caller's start-over branch covers an
+    unreadable log too.
+    """
+    if version == table.version:
+        return table
+    if version > table.version:
+        # Versions restart at 0 when a table is rebuilt, so a newer number than the current pin
+        # names a version of a table that no longer exists.
+        return None
+    try:
+        delta_table = deltalake.DeltaTable(table.uri, storage_options=delta_storage_options())
+        newer_commits = delta_table.history(limit=delta_table.version() - version)
+        first_after = next((entry for entry in newer_commits if entry.get("version") == version + 1), None)
+        if first_after is None:
+            return None
+        tombstoned_from = dt.datetime.fromtimestamp(first_after["timestamp"] / 1000, tz=dt.UTC)
+    except Exception:
+        logger.warning("data_imports.fanout_parent_repin_failed", uri=table.uri, version=version, exc_info=True)
+        return None
+    if dt.datetime.now(dt.UTC) - tombstoned_from > MAX_SNAPSHOT_ROLLBACK - RESUMED_SWEEP_BUDGET:
+        return None
+    return ParentTableRef(uri=table.uri, version=version)
+
+
+def parent_table_id(table: ParentTableRef) -> str | None:
+    """The Delta table id of `table`, or None when it cannot be read.
+
+    Writes, schema changes and compaction keep the id, while a reset purges the table and rebuilds
+    it at the same URI under a new one. A caller that stores a version for a later attempt compares
+    this id too, because a rebuilt table reuses version numbers from 0.
+    """
+    try:
+        delta_table = deltalake.DeltaTable(table.uri, version=table.version, storage_options=delta_storage_options())
+        # deltalake annotates the id as int, but the Delta log stores it as a uuid string.
+        return str(delta_table.metadata().id)
+    except Exception:
+        logger.warning("data_imports.fanout_parent_table_id_failed", uri=table.uri, exc_info=True)
+        return None
+
+
 def parent_snapshot_covers_through(team_id: int, source_id: str, parent_name: str) -> dt.datetime | None:
     """How far the parent's data is guaranteed complete, or None if it has never completed a sync.
 
@@ -498,30 +569,31 @@ def iter_parent_pages_with_positions(
     skips the wrong rows rather than raising.
     """
     page_size = max(1, min(page_size, MAX_PARENT_PAGE_SIZE))
-    delta_table = deltalake.DeltaTable(table.uri, version=table.version, storage_options=delta_storage_options())
-    physical_by_api_name = _physical_columns_by_api_name(delta_table, parent_name, columns)
-
-    resolved_row_filter: _ResolvedRowFilter | None = None
-    projected = list(dict.fromkeys(physical_by_api_name.values()))
-    if row_filter is not None:
-        resolved_row_filter = _row_filter_scan_and_predicate(delta_table, parent_name, row_filter)
-        if resolved_row_filter.physical_column not in projected:
-            # The row check below needs the value even when the caller didn't ask for it as
-            # output — otherwise it reads as absent and every row would pass.
-            projected.append(resolved_row_filter.physical_column)
-
-    scan_filter = resolved_row_filter.scan_filter if resolved_row_filter is not None else None
-
-    dataset = delta_table.to_pyarrow_dataset()
-
-    # Enumerated here rather than through `dataset.get_fragments(filter=...)` so an index
-    # always names the same file: pushdown may prune fragments, and a pruned-away file must
-    # not shift the ones after it. Sorting is over paths — file metadata, never rows.
-    fragments = sorted(dataset.get_fragments(), key=lambda fragment: fragment.path)
 
     rows_streamed = 0
     outcome = "failed"
     try:
+        delta_table = deltalake.DeltaTable(table.uri, version=table.version, storage_options=delta_storage_options())
+        physical_by_api_name = _physical_columns_by_api_name(delta_table, parent_name, columns)
+
+        resolved_row_filter: _ResolvedRowFilter | None = None
+        projected = list(dict.fromkeys(physical_by_api_name.values()))
+        if row_filter is not None:
+            resolved_row_filter = _row_filter_scan_and_predicate(delta_table, parent_name, row_filter)
+            if resolved_row_filter.physical_column not in projected:
+                # The row check below needs the value even when the caller didn't ask for it as
+                # output — otherwise it reads as absent and every row would pass.
+                projected.append(resolved_row_filter.physical_column)
+
+        scan_filter = resolved_row_filter.scan_filter if resolved_row_filter is not None else None
+
+        dataset = delta_table.to_pyarrow_dataset()
+
+        # Enumerated here rather than through `dataset.get_fragments(filter=...)` so an index
+        # always names the same file: pushdown may prune fragments, and a pruned-away file must
+        # not shift the ones after it. Sorting is over paths — file metadata, never rows.
+        fragments = sorted(dataset.get_fragments(), key=lambda fragment: fragment.path)
+
         for fragment_index, fragment in enumerate(fragments):
             if start_position is not None and fragment_index < start_position.fragment_index:
                 continue
@@ -556,6 +628,29 @@ def iter_parent_pages_with_positions(
         outcome = "completed"
     except GeneratorExit:
         outcome = "stopped"
+        raise
+    except (OSError, deltalake.exceptions.DeltaError) as e:
+        # The table opened fine (resolve_parent_table_ref already succeeded), but a refusal or
+        # blip reading one file's bytes surfaces here instead — same object store, same failure
+        # shapes every Delta read/write path in this package already classifies, just missed on
+        # this one because it opens its own handle and scans fragments directly. Without this, the
+        # raw error crashes the activity with the bucket and object key in the message.
+        if is_object_store_permission_denied(e):
+            logger.warning(
+                "data_imports.fanout_parent_scan_denied",
+                schema=schema_name,
+                parent=parent_name,
+                exc_info=True,
+            )
+            raise ObjectStorePermissionDeniedError(OBJECT_STORE_PERMISSION_DENIED_MESSAGE) from e
+        if is_transient_object_store_error(e):
+            logger.warning(
+                "data_imports.fanout_parent_scan_transient",
+                schema=schema_name,
+                parent=parent_name,
+                exc_info=True,
+            )
+            raise TransientObjectStoreError(OBJECT_STORE_TRANSIENT_MESSAGE) from e
         raise
     finally:
         # In a `finally` because a consumer can stop early: a resumable child checkpoints

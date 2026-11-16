@@ -18,7 +18,10 @@ const response: MarketingAnalyticsAggregatedQueryResponse = {
 }
 
 describe('Ad performance metric selection', () => {
-    beforeEach(() => initKeaTests())
+    beforeEach(() => {
+        initKeaTests()
+        marketingAnalyticsTilesLogic.mount()
+    })
     afterEach(cleanup)
 
     it.each([

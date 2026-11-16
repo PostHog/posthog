@@ -92,7 +92,7 @@ def test_activity_rechecks_run_and_pr_before_requesting_review(monkeypatch, chan
         github.get_pull_request_babysit_snapshot.side_effect = RuntimeError("unavailable")
     github.get_pull_request_babysit_snapshot.return_value = raw
     monkeypatch.setattr(ready_module.posthoganalytics, "feature_enabled", lambda *args, **kwargs: change != "disabled")
-    monkeypatch.setattr(ready_module, "get_github_integration", lambda _: github)
+    monkeypatch.setattr(ready_module, "get_github_integration", lambda *_: github)
     with patch.object(ready_module.TaskRun.objects, "filter") as find_run:
         find_run.return_value.first.side_effect = [run, late_run]
         assert mark_pr_ready(MarkPrReadyInput(context=context, snapshot=snapshot)) is requested

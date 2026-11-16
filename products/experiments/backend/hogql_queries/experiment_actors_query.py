@@ -7,9 +7,15 @@ from typing import TYPE_CHECKING
 
 from rest_framework.exceptions import ValidationError
 
-from posthog.schema import ActionsNode, ExperimentEventExposureConfig, ExperimentFunnelMetric
+from posthog.schema import (
+    ActionsNode,
+    ExperimentEventExposureConfig,
+    ExperimentFunnelMetric,
+    ExperimentWarehouseNativeExposureConfig,
+)
 
 from posthog.hogql import ast
+from posthog.hogql.errors import ExposedHogQLError
 
 from posthog.clickhouse.query_tagging import Product, tag_queries
 
@@ -66,11 +72,12 @@ def build_experiment_actors_query(runner: "ExperimentQueryRunner") -> ast.Select
     exposure_config: ExperimentEventExposureConfig | ActionsNode
     activation_config: ExperimentEventExposureConfig | ActionsNode | None = None
     if runner.actors_query.exposureConfig is not None:
+        override = runner.actors_query.exposureConfig
+        if isinstance(override, ExperimentWarehouseNativeExposureConfig):
+            raise ExposedHogQLError("Warehouse-native sources cannot be calculated yet.")
         # An explicit override replaces the whole exposure definition, including any
         # stored activation event.
-        exposure_config = resolve_exposure_config_for_builder(
-            runner.actors_query.exposureConfig, runner.team, runner.experiment.start_date
-        )
+        exposure_config = resolve_exposure_config_for_builder(override, runner.team, runner.experiment.start_date)
     else:
         # Same resolution as the main experiment query, so the actor list matches the counts.
         exposure_params = get_exposure_config_params_for_builder(

@@ -85,6 +85,14 @@ describe('<ProjectSecretAPIKeys />', () => {
         }
     )
 
+    it('names the recipient preference row and says it cannot send email', () => {
+        expect(logic.values.filteredScopes.find(({ key }) => key === 'messaging_preference')).toMatchObject({
+            label: 'Recipient preference',
+            info: expect.stringContaining("can't send email"),
+            disabledActions: ['read'],
+        })
+    })
+
     it.each([
         { dialog: 'created', show: (key: ProjectSecretAPIKeyApi) => logic.actions.createKeySuccess(key) },
         { dialog: 'rolled', show: (key: ProjectSecretAPIKeyApi) => logic.actions.showRollKeySuccessDialog(key) },

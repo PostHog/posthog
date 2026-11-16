@@ -15,17 +15,21 @@ from rest_framework.views import APIView
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication, SessionAuthentication
+from posthog.exceptions import InsufficientScope
 from posthog.models.user import User
 from posthog.oauth_provenance import is_sandbox_oauth_request
 from posthog.permissions import APIScopePermission, get_authenticator_scopes
+from posthog.scopes import scopes_not_covered
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.signals.backend.facade.onboarding import (
     InboxOnboarding,
+    InboxOnboardingPermissionError,
     InboxOnboardingValidationError,
     can_create_onboarding_scout,
     onboarding_first_report_statuses,
     onboarding_priorities,
+    onboarding_setup_modes,
     onboarding_source_products,
     onboarding_source_types,
 )
@@ -33,23 +37,20 @@ from products.signals.backend.presentation.scout_permissions import ScoutCanonic
 from products.signals.backend.presentation.scout_suggestion_serializers import ScoutSuggestionItemSerializer
 
 
+def credential_may_start_tasks(request: Request) -> bool:
+    """Whether the request's credential may start a task run, as `task:write` allows.
+
+    For a write whose scope depends on the request body. Session auth has no scopes, so team
+    membership and access control gate it instead.
+    """
+    scopes = get_authenticator_scopes(getattr(request, "successful_authenticator", None))
+    return scopes is None or "*" in scopes or not scopes_not_covered(scopes, ["task:write"])
+
+
 class InboxOnboardingStep(models.TextChoices):
     SIGNALS = "signals", "Signals"
     SCOUTS = "scouts", "Scouts"
     GITHUB = "github", "GitHub"
-
-
-class InboxOnboardingVariant(models.TextChoices):
-    CONTROL = "control", "Control"
-    TEST_UI = "test-ui", "Focused steps"
-    TEST_GITHUB = "test-github", "Activate and explore"
-
-
-class InboxOnboardingExposureSerializer(serializers.Serializer):
-    variant = serializers.ChoiceField(
-        choices=InboxOnboardingVariant.choices,
-        help_text="Assigned experiment variant at the eligible Inbox impression.",
-    )
 
 
 class InboxOnboardingSourceSerializer(serializers.Serializer):
@@ -62,8 +63,22 @@ class InboxOnboardingSourceSerializer(serializers.Serializer):
     enabled = serializers.BooleanField(help_text="Whether this source should be enabled at activation.")
 
 
+class InboxActivationMode(models.TextChoices):
+    GITHUB_OPTIONAL = "github_optional", "GitHub optional"
+
+
 class InboxOnboardingDraftSerializer(serializers.Serializer):
+    activation_mode = serializers.ChoiceField(
+        choices=InboxActivationMode.choices,
+        required=False,
+        help_text="Activate the GitHub-optional pilot. Requires project eligibility and leaves automatic implementation off.",
+    )
     step = serializers.ChoiceField(choices=InboxOnboardingStep.choices, help_text="Step to resume after returning.")
+    setup_mode = serializers.ChoiceField(
+        choices=onboarding_setup_modes(),
+        required=False,
+        help_text="How setup was chosen: quick activation from the welcome screen, or the guided steps.",
+    )
     sources: serializers.ListSerializer[dict[str, object]] = serializers.ListSerializer(
         child=InboxOnboardingSourceSerializer(), max_length=50, help_text="Staged signal source choices."
     )
@@ -135,6 +150,9 @@ class FirstReportStateSerializer(serializers.Serializer):
 
 @extend_schema_serializer(many=False)
 class InboxOnboardingStateSerializer(serializers.Serializer):
+    github_optional_available = serializers.BooleanField(
+        required=False, help_text="Whether this project can activate Self-driving without connecting GitHub."
+    )
     first_report_completion_notification = serializers.BooleanField(
         required=False,
         help_text="Whether the current user can receive an in-app notification when this investigation finishes.",
@@ -148,11 +166,6 @@ class InboxOnboardingStateSerializer(serializers.Serializer):
     jobs = InboxOnboardingJobsSerializer(required=False, help_text="Background work started by quick activation.")
     draft = InboxOnboardingDraftSerializer(allow_null=True, help_text="Saved setup choices, without activating them.")
     completed_at = serializers.DateTimeField(allow_null=True, help_text="When verified setup completed.")
-    variant = serializers.ChoiceField(
-        choices=InboxOnboardingVariant.choices,
-        allow_null=True,
-        help_text="Variant recorded at the first eligible impression.",
-    )
 
 
 class InboxOnboardingPermission(BasePermission):
@@ -165,13 +178,13 @@ class InboxOnboardingPermission(BasePermission):
 class InboxOnboardingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     authentication_classes = [SessionAuthentication, PersonalAPIKeyAuthentication, OAuthAccessTokenAuthentication]
     permission_classes = [IsAuthenticated, APIScopePermission, InboxOnboardingPermission]
-    scope_object = "task"
+    scope_object = "inbox"
     requires_resource_level_access = True
     serializer_class = InboxOnboardingStateSerializer
     pagination_class = None
 
     def dangerously_get_required_scopes(self, request: Request, view: object) -> list[str]:
-        return ["task:read"] if request.method in ("GET", "HEAD", "OPTIONS") else ["task:write"]
+        return ["inbox:read"] if request.method in ("GET", "HEAD", "OPTIONS") else ["inbox:write"]
 
     def _check_scout_access(self, request: Request) -> None:
         permission = ScoutCanonicalTeamAccessPermission()
@@ -187,7 +200,10 @@ class InboxOnboardingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             if "signal_scout:write" in allowed:
                 allowed.add("signal_scout:read")
             if not required.issubset(allowed):
-                raise PermissionDenied("Your API key does not have permission to access these scout choices.")
+                raise InsufficientScope(
+                    sorted(required - allowed),
+                    detail="Your API key does not have permission to access these scout choices.",
+                )
         canonical_team = self.team.parent_team or self.team
         user = cast(User, request.user)
         access = UserAccessControl(user=user, team=canonical_team)
@@ -203,20 +219,10 @@ class InboxOnboardingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             lambda write: self._check_suggestion_access(self.request, write=write),
         )
 
-    @extend_schema(request=InboxOnboardingExposureSerializer, responses=InboxOnboardingStateSerializer)
-    @action(detail=False, methods=["POST"])
-    def expose(self, request: Request, *args: object, **kwargs: object) -> Response:
-        serializer = InboxOnboardingExposureSerializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-        if serializer.validated_data["variant"] == InboxOnboardingVariant.CONTROL:
-            self._check_scout_access(request)
-        return Response(self._service().expose(serializer.validated_data["variant"]))
-
     @extend_schema(request=None, responses=InboxOnboardingStateSerializer)
     @action(detail=False, methods=["POST"])
-    def reconcile(self, request: Request, *args: object, **kwargs: object) -> Response:
-        self._check_scout_access(request)
-        return Response(self._service().reconcile())
+    def expose(self, request: Request, *args: object, **kwargs: object) -> Response:
+        return Response(self._service().expose())
 
     @extend_schema(responses=InboxOnboardingStateSerializer)
     def list(self, request: Request, *args: object, **kwargs: object) -> Response:
@@ -226,7 +232,10 @@ class InboxOnboardingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     def create(self, request: Request, *args: object, **kwargs: object) -> Response:
         serializer = InboxOnboardingDraftSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
-        return Response(self._service().save_draft(dict(serializer.data)))
+        try:
+            return Response(self._service().save_draft(dict(serializer.data)))
+        except InboxOnboardingValidationError as error:
+            raise serializers.ValidationError(str(error)) from error
 
     @extend_schema(request=InboxOnboardingDraftSerializer, responses=InboxOnboardingStateSerializer)
     @action(detail=False, methods=["POST"])
@@ -235,7 +244,13 @@ class InboxOnboardingViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         serializer.is_valid(raise_exception=True)
         if any(source["source_product"] == "signals_scout" for source in serializer.validated_data["sources"]):
             self._check_scout_access(request)
+        if serializer.validated_data["automatic_implementation"] and not credential_may_start_tasks(request):
+            raise InsufficientScope(
+                ["task:write"], detail="Turning on automatic implementation requires the task:write scope."
+            )
         try:
             return Response(self._service().complete(dict(serializer.data)))
+        except InboxOnboardingPermissionError as error:
+            raise PermissionDenied(str(error)) from error
         except InboxOnboardingValidationError as error:
             raise serializers.ValidationError(str(error)) from error

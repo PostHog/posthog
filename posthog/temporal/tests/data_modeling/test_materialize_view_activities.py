@@ -23,12 +23,14 @@ from trino.exceptions import TrinoUserError
 from posthog.hogql.resolver import ResolverFactory
 from posthog.hogql.transforms.trino.errors import TrinoLoweringError
 
+from posthog.clickhouse.client.execute import KillSwitchLevel
 from posthog.clickhouse.query_tagging import get_query_tags
 from posthog.models import Team, User
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.clickhouse import (
     ClickHouseClient,
     ClickHouseError,
+    ClickHouseQueryTimeoutError,
     ClickHouseTooManySimultaneousQueriesError,
 )
 from posthog.temporal.common.errors import NonReportableError
@@ -51,7 +53,10 @@ from posthog.temporal.data_modeling.activities.materialize_view import (
     DuplicateOutputColumnError,
     EmptyHogQLResponseColumnsError,
     InvalidNodeTypeException,
+    _adaptive_retry_delay,
     _describe_columns,
+    _recent_capacity_errors,
+    _RecentCapacityErrors,
     get_aws_storage_options,
     get_s3_client,
     hogql_table,
@@ -2007,25 +2012,42 @@ class TestMaterializeViewActivity:
                 await activity_environment.run(materialize_view_activity, inputs)
 
     @pytest.mark.parametrize(
-        "clickhouse_error,expects_delayed_retry",
+        "clickhouse_error,attempt,expected_delay_bounds",
         [
             (
                 ClickHouseError(
                     "Code: 742. DB::Exception: Received DeltaLake kernel error GenericError: Generic delta kernel "
                     "error: No files in log segment (in snapshot). (DELTA_KERNEL_ERROR)"
                 ),
-                True,
+                1,
+                (dt.timedelta(minutes=2), dt.timedelta(minutes=2)),
             ),
             (
                 ClickHouseTooManySimultaneousQueriesError(
                     "Code: 202. DB::Exception: Too many simultaneous queries. Maximum: 100. "
                     "(TOO_MANY_SIMULTANEOUS_QUERIES)"
                 ),
-                True,
+                1,
+                (dt.timedelta(minutes=1), dt.timedelta(minutes=2)),
+            ),
+            (
+                ClickHouseQueryTimeoutError(
+                    "Code: 159. DB::Exception: Timeout exceeded: elapsed 600 seconds, maximum: 600. (TIMEOUT_EXCEEDED)"
+                ),
+                1,
+                (dt.timedelta(seconds=10), dt.timedelta(seconds=20)),
+            ),
+            (
+                ClickHouseQueryTimeoutError(
+                    "Code: 159. DB::Exception: Timeout exceeded: elapsed 600 seconds, maximum: 600. (TIMEOUT_EXCEEDED)"
+                ),
+                2,
+                (dt.timedelta(seconds=20), dt.timedelta(seconds=40)),
             ),
             (
                 ClickHouseError("Code: 241. DB::Exception: Memory limit (total) exceeded. (MEMORY_LIMIT_EXCEEDED)"),
-                False,
+                1,
+                None,
             ),
         ],
     )
@@ -2038,10 +2060,14 @@ class TestMaterializeViewActivity:
         bucket_name,
         adag,
         clickhouse_error,
-        expects_delayed_retry,
+        attempt,
+        expected_delay_bounds,
     ):
         def mock_hogql_table(*args, **kwargs):
             raise clickhouse_error
+
+        activity_environment.info = replace(activity_environment.info, attempt=attempt)
+        _recent_capacity_errors.clear()
 
         with (
             override_settings(
@@ -2065,14 +2091,42 @@ class TestMaterializeViewActivity:
 
         error = raised.value
         assert str(clickhouse_error) in str(error)
-        if expects_delayed_retry:
+        if expected_delay_bounds is not None:
             assert isinstance(error, ApplicationError)
             assert error.type == type(clickhouse_error).__name__
             assert not error.non_retryable
             assert error.next_retry_delay is not None
-            assert error.next_retry_delay >= dt.timedelta(minutes=1)
+            min_delay, max_delay = expected_delay_bounds
+            assert min_delay <= error.next_retry_delay <= max_delay
         else:
             assert type(error) is type(clickhouse_error)
+
+
+class TestAdaptiveRetryDelay:
+    @pytest.mark.parametrize(
+        "base,attempt,recent_errors,jitter,expected_delay",
+        [
+            (dt.timedelta(seconds=20), 1, 0, 0.5, dt.timedelta(seconds=10)),
+            (dt.timedelta(seconds=20), 1, 0, 1.0, dt.timedelta(seconds=20)),
+            (dt.timedelta(seconds=20), 1, 10, 0.5, dt.timedelta(seconds=30)),
+            (dt.timedelta(seconds=20), 2, 10, 1.0, dt.timedelta(seconds=120)),
+            (dt.timedelta(minutes=2), 3, 1000, 0.5, dt.timedelta(minutes=5)),
+            (dt.timedelta(minutes=2), 3, 1000, 1.0, dt.timedelta(minutes=10)),
+        ],
+    )
+    async def test_delay_grows_with_the_attempt_and_recent_errors(
+        self, base, attempt, recent_errors, jitter, expected_delay
+    ):
+        with unittest.mock.patch(
+            "posthog.temporal.data_modeling.activities.materialize_view.random.uniform", return_value=jitter
+        ):
+            assert _adaptive_retry_delay(base, attempt, recent_errors) == expected_delay
+
+    async def test_recent_errors_count_only_the_window(self):
+        errors = _RecentCapacityErrors(dt.timedelta(minutes=5))
+
+        assert [errors.record(now) for now in (0.0, 10.0, 20.0)] == [0, 1, 2]
+        assert errors.record(315.0) == 1
 
 
 class _EmptyArrowClient:
@@ -2085,7 +2139,8 @@ class _EmptyArrowClient:
         self.describe_settings: dict[str, str] | None = None
         self.describe_query: str | None = None
         self.describe_calls: list[tuple[str, dict[str, str] | None]] = []
-        self.reject_describe_with_settings = False
+        self.describe_error: Exception | None = None
+        self.arrow_error: Exception | None = None
         self.arrow_query: str | None = None
 
     async def astream_query_as_arrow(
@@ -2099,6 +2154,8 @@ class _EmptyArrowClient:
     ) -> AsyncIterator[pa.RecordBatch]:
         self.arrow_query_calls += 1
         self.arrow_query = query
+        if self.arrow_error is not None:
+            raise self.arrow_error
         if on_schema is not None:
             on_schema(self.schema)
         return
@@ -2116,8 +2173,8 @@ class _EmptyArrowClient:
     ) -> AsyncIterator[Any]:
         if query.startswith("DESCRIBE TABLE"):
             self.describe_calls.append((query, settings))
-            if self.reject_describe_with_settings and settings is not None:
-                raise ClickHouseError("Code: 8. DB::Exception: Cannot find column in source stream", query=query)
+            if self.describe_error is not None and settings is not None:
+                raise self.describe_error
             self.describe_settings = settings
             self.describe_query = query
             body = self.describe_body
@@ -2255,6 +2312,40 @@ class TestHogqlTableModifiers:
             expected_sql_new_events_schema if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA else expected_sql
         )
         assert captured_sql is not None and expected_sql in captured_sql
+
+    @pytest.mark.parametrize(
+        "kill_switch_level,expected_max_threads",
+        [
+            (KillSwitchLevel.OFF, None),
+            (KillSwitchLevel.LIGHT, 16),
+            (KillSwitchLevel.FULL, 8),
+        ],
+    )
+    async def test_kill_switch_lowers_the_threads_per_query(
+        self, ateam: Team, kill_switch_level: KillSwitchLevel, expected_max_threads: int | None
+    ) -> None:
+        client = _EmptyArrowClient(pa.schema([pa.field("id", pa.int64())]))
+
+        @contextlib.asynccontextmanager
+        async def fake_get_client(**kwargs: Any) -> AsyncIterator[_EmptyArrowClient]:
+            yield client
+
+        with (
+            unittest.mock.patch(
+                "posthog.temporal.data_modeling.activities.materialize_view.get_clickhouse_client", fake_get_client
+            ),
+            unittest.mock.patch(
+                "posthog.temporal.data_modeling.activities.materialize_view.resolve_kill_switch_level",
+                lambda _team_id: kill_switch_level,
+            ),
+        ):
+            _ = [batch async for batch in hogql_table("SELECT 1", ateam, LOGGER.bind())]
+
+        assert client.arrow_query is not None
+        if expected_max_threads is None:
+            assert "max_threads" not in client.arrow_query
+        else:
+            assert f"max_threads={expected_max_threads}" in client.arrow_query
 
     async def test_compiles_account_dependencies_without_a_user(self, ateam: Team) -> None:
         schema_fields: list[pa.Field[Any]] = [
@@ -2452,10 +2543,25 @@ class TestHogqlTableDescribeSettings:
         assert client.describe_query is not None and global_function not in client.describe_query
         assert client.arrow_query is not None and global_function in client.arrow_query
 
-    async def test_describe_probe_falls_back_to_the_untouched_query(self, ateam: Team) -> None:
+    @pytest.mark.parametrize(
+        "describe_error,should_fallback",
+        [
+            (
+                ClickHouseError("Code: 8. DB::Exception: Cannot find column in source stream"),
+                True,
+            ),
+            (
+                ClickHouseTooManySimultaneousQueriesError("Code: 202. DB::Exception: Too many simultaneous queries"),
+                False,
+            ),
+        ],
+    )
+    async def test_describe_probe_only_falls_back_for_planning_errors(
+        self, ateam: Team, describe_error: Exception, should_fallback: bool
+    ) -> None:
         client = _EmptyArrowClient(pa.schema([pa.field("distinct_id", pa.string())]))
         client.describe_body = b"distinct_id\tString\n"
-        client.reject_describe_with_settings = True
+        client.describe_error = describe_error
         query = "SELECT distinct_id FROM events WHERE distinct_id IN (SELECT distinct_id FROM events WHERE event = 'x')"
 
         @contextlib.asynccontextmanager
@@ -2465,14 +2571,38 @@ class TestHogqlTableDescribeSettings:
         with unittest.mock.patch(
             "posthog.temporal.data_modeling.activities.materialize_view.get_clickhouse_client", fake_get_client
         ):
-            batches = [batch async for batch in hogql_table(query, ateam, LOGGER.bind())]
+            if should_fallback:
+                batches = [batch async for batch in hogql_table(query, ateam, LOGGER.bind())]
+                assert batches[0][1] == [("distinct_id", "String")]
+            else:
+                with pytest.raises(type(describe_error)):
+                    _ = [batch async for batch in hogql_table(query, ateam, LOGGER.bind())]
 
-        assert [settings for _, settings in client.describe_calls] == [
-            {"distributed_product_mode": "allow", "prefer_global_in_and_join": "0"},
-            None,
+        expected_settings: list[dict[str, str] | None] = [
+            {"distributed_product_mode": "allow", "prefer_global_in_and_join": "0"}
         ]
-        assert "globalIn(" in client.describe_calls[1][0]
-        assert batches[0][1] == [("distinct_id", "String")]
+        if should_fallback:
+            expected_settings.append(None)
+            assert "globalIn(" in client.describe_calls[1][0]
+        assert [settings for _, settings in client.describe_calls] == expected_settings
+
+    async def test_arrow_query_preserves_a_generic_column_error(self, ateam: Team) -> None:
+        client = _EmptyArrowClient(pa.schema([pa.field("distinct_id", pa.string())]))
+        client.describe_body = b"distinct_id\tString\n"
+        client.arrow_error = ClickHouseError("Code: 8. DB::Exception: Cannot find column in source stream")
+
+        @contextlib.asynccontextmanager
+        async def fake_get_client(*args, **kwargs):
+            yield client
+
+        with unittest.mock.patch(
+            "posthog.temporal.data_modeling.activities.materialize_view.get_clickhouse_client", fake_get_client
+        ):
+            with pytest.raises(ClickHouseError) as error:
+                _ = [batch async for batch in hogql_table("SELECT distinct_id FROM events", ateam, LOGGER.bind())]
+
+        assert error.value is client.arrow_error
+        assert client.arrow_query_calls == 1
 
 
 class TestHogqlTableDuplicateOutputColumns:

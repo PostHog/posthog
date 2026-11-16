@@ -133,6 +133,7 @@ class PullRequestFacts:
     head_sha: str
     head_branch: str
     is_fork: bool
+    is_private: bool
 
 
 @frozen

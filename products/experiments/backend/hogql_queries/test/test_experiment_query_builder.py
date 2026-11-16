@@ -34,7 +34,7 @@ from posthog.hogql.parser import parse_select
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.team.team import Team
 
-from products.actions.backend.models.action import Action
+from products.actions.backend.facade.testing import create_action
 from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import (
     LazyComputationQuery,
     LazyComputationTable,
@@ -79,7 +79,7 @@ BROWSER = [Breakdown(property="$browser")]
 
 
 def _mean_on_action(team: Team) -> ExperimentMeanMetric:
-    action = Action.objects.create(team=team, name="purchase", steps_json=[{"event": "purchase"}])
+    action = create_action(team=team, name="purchase", steps_json=[{"event": "purchase"}])
     return ExperimentMeanMetric(source=ActionsNode(id=action.id))
 
 

@@ -21,6 +21,7 @@ from products.warehouse_sources.backend.models.external_data_schema import (
     SCHEMA_DELETED_JOB_ERROR,
     SYNC_DISABLED_JOB_ERROR,
 )
+from products.warehouse_sources.backend.self_managed_access import ADOPTION_ACCESS_ERROR
 from products.warehouse_sources.backend.temporal.data_imports.metrics import LOCK_TAKEOVER_LATEST_ERROR
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.errors import (
     TransientObjectStoreError,
@@ -307,6 +308,7 @@ class TestProcessSingle:
             "[Errno 5] An error occurred (XMinioStorageFull) when calling the CopyObject operation: "
             "Storage backend has reached its minimum free drive threshold. Please delete a few objects to proceed.",
             str(DestinationConfigurationError("Prod", "The host name does not exist.")),
+            f"{ADOPTION_ACCESS_ERROR} 'orders', because the access rules of the table or of its source changed",
         ],
     )
     @pytest.mark.asyncio
@@ -2137,6 +2139,9 @@ class TestFailRun:
             ),
             pytest.param("Decimal value is too large to store in a Decimal128", True, id="decimal_overflow"),
             pytest.param("Primary key required for incremental syncs", True, id="missing_primary_key"),
+            pytest.param(
+                f"{ADOPTION_ACCESS_ERROR} 'orders', because the access rules changed", True, id="adoption_refused"
+            ),
             pytest.param(
                 "XMinioStorageFull: storage backend has reached its minimum free drive threshold",
                 False,

@@ -30,6 +30,7 @@ from posthog.storage.object_storage import (
     get_presigned_url,
     health_check,
     is_usable_endpoint,
+    iter_keys,
     list_objects,
     object_storage_client,
     read,
@@ -164,6 +165,7 @@ class TestStorage(APIBaseTest):
                 "test_storage_bucket/a_shared_prefix/b",
                 "test_storage_bucket/a_shared_prefix/c",
             ]
+            assert list(iter_keys(prefix=f"{TEST_BUCKET}/{shared_prefix}", page_size=2)) == listing
 
     @patch("posthog.storage.object_storage.capture_exception")
     def test_can_list_unknown_prefix(self, mock_capture_exception) -> None:

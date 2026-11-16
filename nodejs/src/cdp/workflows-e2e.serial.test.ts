@@ -3941,22 +3941,21 @@ describe('Workflows E2E (email queue)', () => {
 
     it("a team over its tier cap does not hold up another team's emails", async () => {
         // Two teams, each with one email workflow. Team A sits on a tier that allows
-        // 2 emails per hour and gets 6 sends queued; team B is on a high tier with 3
+        // 2 emails per day and gets 6 sends queued; team B is on a high tier with 3
         // sends. The whole pipeline is real and the tier caps are enforced: B's emails
         // must all go out while A's over-cap sends park on future slots from A's own
         // refill, without cycling.
         //
         // The default email worker was built with the caps off, so swap in one that
-        // enforces them. Tier 0 allows 2/hour, tier 1 is effectively unlimited.
+        // enforces them. Tier 0 allows 2/day, tier 1 is effectively unlimited.
         await emailWorker.stop()
         hub.EMAIL_TEAM_SENDING_CAP_MODE = 'enforce'
-        hub.EMAIL_TEAM_SENDING_CAP_HOURLY_BY_TIER = '2,10000'
-        hub.EMAIL_TEAM_SENDING_CAP_DAILY_BY_TIER = '48,240000'
+        hub.EMAIL_TEAM_SENDING_CAP_DAILY_BY_TIER = '2,240000'
         const enforcedQueue = new CyclotronJobQueuePostgresV2(hub.CONSUMER_BATCH_SIZE, hub)
         emailWorker = new CdpCyclotronWorkerEmail(hub, deps, enforcedQueue)
         await emailWorker.start()
 
-        // The tier buckets are keyed by team id and the test Redis keeps data between
+        // The tier bucket is keyed by team id and the test Redis keeps data between
         // runs, so team A's bucket must start full or a previous run drains this one.
         const capValkey = createRedisV2PoolFromConfig({
             connection: hub.CDP_REDIS_HOST
@@ -3968,7 +3967,6 @@ describe('Workflows E2E (email queue)', () => {
             poolMinSize: hub.REDIS_POOL_MIN_SIZE,
             poolMaxSize: hub.REDIS_POOL_MAX_SIZE,
         })
-        await deleteKeysWithPrefix(capValkey, '@posthog/team-email-rate-hour')
         await deleteKeysWithPrefix(capValkey, '@posthog/team-email-rate-day')
 
         // Team A has no config row and defaults to tier 0. Team B gets tier 1.
@@ -4076,7 +4074,7 @@ describe('Workflows E2E (email queue)', () => {
         }, 15000)
 
         // Team A's 4 over-cap sends are parked far in the future (its refill is one
-        // token per 30 minutes), each dequeued once on the email queue.
+        // token per 12 hours), each dequeued once on the email queue.
         const jobs = await queryCyclotronJobs()
         const parkedA = jobs.filter(
             (j: any) => j.function_id === flowA.id && j.queue_name === 'email' && j.status === 'available'

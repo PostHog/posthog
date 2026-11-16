@@ -7,7 +7,7 @@ import { logger } from '~/common/utils/logger'
 import { captureException } from '~/common/utils/posthog'
 
 import { convertToHogFunctionInvocationGlobals } from '../../cdp/utils'
-import { HealthCheckResult, PluginsServerConfig, RawClickHouseEvent } from '../../types'
+import { HealthCheckResult, PluginsServerConfig, RawClickHouseEvent, Team } from '../../types'
 import { CDP_EVENTS_DLQ_OUTPUT } from '../outputs/outputs'
 import { CdpDeadLetterService } from '../services/dead-letter/cdp-dead-letter.service'
 import { HogFlowInvocationPipeline } from '../services/hog-flow-invocation-pipeline.service'
@@ -15,8 +15,12 @@ import { HogFunctionInvocationPipeline } from '../services/hog-function-invocati
 import { JobQueue } from '../services/job-queue/job-queue.interface'
 import { CyclotronJobInvocation, HogFunctionInvocationGlobals, HogFunctionTypeType } from '../types'
 import { CdpConsumerBase, CdpConsumerBaseDeps } from './cdp-base.consumer'
-import { parseBatch } from './message-parsing'
+import { parseBatch, readTeamIdHeader } from './message-parsing'
+import { counterParseError, counterTeamIdHeaderMismatch, counterTeamIdSource } from './metrics'
 import { PUSH_NOTIFICATION_OPENED_EVENT, buildPushOpenedMetric } from './push-open-tracking'
+
+const isEventObject = (value: unknown): value is RawClickHouseEvent =>
+    typeof value === 'object' && value !== null && !Array.isArray(value)
 
 export class CdpEventsConsumer<
     TConfig extends PluginsServerConfig = PluginsServerConfig,
@@ -70,6 +74,7 @@ export class CdpEventsConsumer<
             hogWatcherMirror: this.hogWatcherMirror,
             hogMasker: this.hogMasker,
             hogFunctionMonitoringService: this.hogFunctionMonitoringService,
+            workflowsActivationReporter: this.workflowsActivationReporter,
             quotaLimiting: deps.quotaLimiting,
             redis: this.redis,
             valkeyShadow: this.valkeyShadow,
@@ -197,23 +202,51 @@ export class CdpEventsConsumer<
         return await parseBatch(messages, {
             errorLog: 'Error parsing message',
             parse: (message) => {
-                const clickHouseEvent = parseJSON(message.value!.toString()) as RawClickHouseEvent
+                const parseEvent = (): RawClickHouseEvent => {
+                    const clickHouseEvent = parseJSON(message.value!.toString())
+                    if (!isEventObject(clickHouseEvent)) {
+                        throw new Error('not_an_event')
+                    }
+                    return clickHouseEvent
+                }
+                const buildGlobals = (team: Team, clickHouseEvent: RawClickHouseEvent) => {
+                    const globals = convertToHogFunctionInvocationGlobals(clickHouseEvent, team, this.config.SITE_URL)
+                    // The one place holding both. A failure found later in the pipeline carries
+                    // these globals, and this is how it gets back to the bytes to park.
+                    this.messageByGlobals.set(globals, message)
+                    return globals
+                }
+
+                const headerTeamId = readTeamIdHeader(message)
+                if (headerTeamId !== null) {
+                    counterTeamIdSource.labels({ source: 'header' }).inc()
+                    // The body stays unparsed until `toGlobals` runs, and it only runs for a team that
+                    // has a destination or a flow. Most events belong to a team with neither.
+                    return {
+                        teamId: headerTeamId,
+                        toGlobals: (team) => {
+                            const clickHouseEvent = parseEvent()
+                            if (clickHouseEvent.team_id !== headerTeamId) {
+                                // The loaded team comes from the header and the event data comes from
+                                // the body. Building globals from two teams would evaluate one team's
+                                // event against another team's destinations and send it there.
+                                counterTeamIdHeaderMismatch.inc()
+                                throw new Error('team_id_header_mismatch')
+                            }
+                            return buildGlobals(team, clickHouseEvent)
+                        },
+                    }
+                }
+
+                counterTeamIdSource.labels({ source: 'body' }).inc()
+                const clickHouseEvent = parseEvent()
                 return {
                     teamId: clickHouseEvent.team_id,
-                    toGlobals: (team) => {
-                        const globals = convertToHogFunctionInvocationGlobals(
-                            clickHouseEvent,
-                            team,
-                            this.config.SITE_URL
-                        )
-                        // The one place holding both. A failure found later in the pipeline carries
-                        // these globals, and this is how it gets back to the bytes to park.
-                        this.messageByGlobals.set(globals, message)
-                        return globals
-                    },
+                    toGlobals: (team) => buildGlobals(team, clickHouseEvent),
                 }
             },
             loadTeam: (teamId) => this.loadTeamWithHogFunctionsOrFlows(teamId, this.hogTypes),
+            onInvalidTeamId: () => counterParseError.labels({ error: 'invalid_team_id' }).inc(),
             // Parked rather than dropped: a schema we cannot read today is often one a later
             // version can.
             onError: park('parse'),

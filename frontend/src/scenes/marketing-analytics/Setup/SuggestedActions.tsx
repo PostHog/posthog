@@ -3,7 +3,12 @@ import { useActions, useValues } from 'kea'
 import { IconCheckCircle, IconRefresh } from '@posthog/icons'
 import { LemonButton, LemonSkeleton } from '@posthog/lemon-ui'
 
+import { RestrictionScope, useRestrictedArea } from 'lib/components/RestrictedArea'
+import { TeamMembershipLevel } from 'lib/constants'
+import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { setupPlanLogic } from 'scenes/web-analytics/tabs/marketing-analytics/frontend/logic/setupPlanLogic'
+
+import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { CAPABILITY_COPY, ReadinessHeader } from './ReadinessHeader'
 import { SuggestionRow } from './SuggestionRow'
@@ -55,6 +60,10 @@ export function SuggestedActions(): JSX.Element {
         restoreAllDismissed,
     } = useActions(setupPlanLogic)
 
+    const editDisabledReason =
+        useRestrictedArea({ scope: RestrictionScope.Project, minimumAccessLevel: TeamMembershipLevel.Admin }) ??
+        getAccessControlDisabledReason(AccessControlResourceType.MarketingAnalytics, AccessControlLevel.Editor)
+
     const isBatchApplying = safeBatch.some((s) => applyingIds.includes(s.id))
 
     return (
@@ -73,6 +82,7 @@ export function SuggestedActions(): JSX.Element {
                             type="secondary"
                             size="small"
                             loading={isBatchApplying}
+                            disabledReason={editDisabledReason}
                             onClick={reviewSafeBatch}
                             // "Safe" is about what can go in one batch, not a verdict on
                             // the rest — say so, because the label alone reads as one.

@@ -1,4 +1,4 @@
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import AsyncMock, MagicMock, call, patch
 
 from django.test import SimpleTestCase
 
@@ -194,9 +194,10 @@ class TestSeamEmitsSignalsOnFiringOnly(SimpleTestCase):
             patch(
                 "posthog.temporal.health_checks.processing.resolve_stale_issues_with_deltas", return_value=[resolved]
             ),
-            patch("posthog.temporal.health_checks.processing.emit_health_check_alert"),
+            patch("posthog.temporal.health_checks.processing.emit_health_check_alert") as emit_alert,
             patch("posthog.temporal.health_checks.processing.emit_health_check_signals") as emit_signals,
         ):
             _process_batch_detection([42], "k", lambda team_ids: {}, dry_run=dry_run)
 
         emit_signals.assert_called_once_with([firing])
+        emit_alert.assert_has_calls([call(firing, status="firing"), call(resolved, status="resolved")])

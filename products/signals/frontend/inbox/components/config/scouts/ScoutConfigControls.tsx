@@ -56,6 +56,7 @@ const SCOUT_MODEL_IDS = [
     'claude-opus-5-5',
     'gpt-6-luna',
     'gpt-5.6-luna',
+    'gpt-6.1-terra',
     'gpt-5.6-terra',
     'gpt-6.1-sol',
     'gpt-6-sol',

@@ -16,6 +16,7 @@ import { isRealtimeCohortCalculating } from '../../Workflows/hogflows/steps/real
 import { BroadcastAudienceCohorts } from '../audience/BroadcastAudienceCohorts'
 import { broadcastAudienceCohortsLogic } from '../audience/broadcastAudienceCohortsLogic'
 import { BroadcastEmailPreview } from '../BroadcastEmailPreview'
+import { BroadcastPushPreview } from '../BroadcastPushPreview'
 import { BroadcastWizardStep, SENDERS_LOAD_FAILED_ERROR, broadcastWizardLogic } from '../broadcastWizardLogic'
 import { BroadcastReviewTestEmail } from './BroadcastReviewTestEmail'
 
@@ -80,6 +81,7 @@ export function BroadcastReviewStep(): JSX.Element {
         aiEmailDraftStatus,
         email,
         launching,
+        channel,
     } = useValues(broadcastWizardLogic)
     const { categories } = useValues(optOutCategoriesLogic())
     const category = categories.find((item) => item.id === emailSettings.messageCategoryId)
@@ -108,7 +110,9 @@ export function BroadcastReviewStep(): JSX.Element {
         <div className="flex flex-col gap-4">
             <div>
                 <h2 className="m-0 text-xl font-semibold">Review and confirm</h2>
-                <p className="m-0 text-secondary">Check everything before sending. Emails can't be unsent.</p>
+                <p className="m-0 text-secondary">
+                    Check everything before sending. {channel === 'push' ? 'Notifications' : 'Emails'} can't be unsent.
+                </p>
             </div>
 
             <BroadcastReviewTestEmail />
@@ -121,6 +125,7 @@ export function BroadcastReviewStep(): JSX.Element {
                         <span>
                             Approximately {humanFriendlyNumber(blastRadius.affected)} of{' '}
                             {humanFriendlyNumber(blastRadius.total)} people
+                            {channel === 'push' ? '. Only people with push turned on in your app get it.' : ''}
                         </span>
                     ) : (
                         <span className="text-warning">Couldn't estimate the audience size</span>
@@ -158,52 +163,60 @@ export function BroadcastReviewStep(): JSX.Element {
                     )}
                 </ReviewRow>
 
-                <ReviewRow label="Email" step="content">
-                    {missingRecipientEmail ? <MissingRecipientEmailBanner {...missingRecipientEmail} /> : null}
-                    {!emailSettings.trackingEnabled && (
-                        <div className="text-xs text-secondary">Open and click tracking is off.</div>
-                    )}
-                    {emailSettings.utmTagsEnabled && <div className="text-xs text-secondary">Links get UTM tags.</div>}
-                    {aiEmailDraftStatus ? <AiEmailDraftStatus {...aiEmailDraftStatus} /> : null}
-                    <div className="@container">
-                        <div className="grid grid-cols-1 gap-2 @lg:grid-cols-2">
-                            <div className="flex flex-col gap-1">
-                                <LemonLabel htmlFor="broadcast-review-subject">Subject</LemonLabel>
-                                <LemonInput
-                                    id="broadcast-review-subject"
-                                    value={email.subject ?? ''}
-                                    onChange={(subject) => setEmail({ ...email, subject })}
-                                    placeholder="Add a subject"
-                                    disabledReason={launching ? 'Sending the broadcast' : undefined}
-                                    data-attr="broadcast-review-subject"
-                                />
-                            </div>
-                            <div className="flex flex-col gap-1">
-                                <LemonLabel
-                                    htmlFor="broadcast-review-preheader"
-                                    info="The preview text inboxes show next to the subject."
-                                >
-                                    Preheader
-                                </LemonLabel>
-                                <LemonInput
-                                    id="broadcast-review-preheader"
-                                    value={email.preheader ?? ''}
-                                    onChange={(preheader) => setEmail({ ...email, preheader })}
-                                    placeholder="Optional"
-                                    disabledReason={launching ? 'Sending the broadcast' : undefined}
-                                    data-attr="broadcast-review-preheader"
-                                />
+                {channel === 'push' ? (
+                    <ReviewRow label="Push notification" step="content">
+                        <BroadcastPushPreview showTestButton={false} />
+                    </ReviewRow>
+                ) : (
+                    <ReviewRow label="Email" step="content">
+                        {missingRecipientEmail ? <MissingRecipientEmailBanner {...missingRecipientEmail} /> : null}
+                        {!emailSettings.trackingEnabled && (
+                            <div className="text-xs text-secondary">Open and click tracking is off.</div>
+                        )}
+                        {emailSettings.utmTagsEnabled && (
+                            <div className="text-xs text-secondary">Links get UTM tags.</div>
+                        )}
+                        {aiEmailDraftStatus ? <AiEmailDraftStatus {...aiEmailDraftStatus} /> : null}
+                        <div className="@container">
+                            <div className="grid grid-cols-1 gap-2 @lg:grid-cols-2">
+                                <div className="flex flex-col gap-1">
+                                    <LemonLabel htmlFor="broadcast-review-subject">Subject</LemonLabel>
+                                    <LemonInput
+                                        id="broadcast-review-subject"
+                                        value={email.subject ?? ''}
+                                        onChange={(subject) => setEmail({ ...email, subject })}
+                                        placeholder="Add a subject"
+                                        disabledReason={launching ? 'Sending the broadcast' : undefined}
+                                        data-attr="broadcast-review-subject"
+                                    />
+                                </div>
+                                <div className="flex flex-col gap-1">
+                                    <LemonLabel
+                                        htmlFor="broadcast-review-preheader"
+                                        info="The preview text inboxes show next to the subject."
+                                    >
+                                        Preheader
+                                    </LemonLabel>
+                                    <LemonInput
+                                        id="broadcast-review-preheader"
+                                        value={email.preheader ?? ''}
+                                        onChange={(preheader) => setEmail({ ...email, preheader })}
+                                        placeholder="Optional"
+                                        disabledReason={launching ? 'Sending the broadcast' : undefined}
+                                        data-attr="broadcast-review-preheader"
+                                    />
+                                </div>
                             </div>
                         </div>
-                    </div>
-                    <BroadcastEmailPreview showTestButton={false} />
-                </ReviewRow>
+                        <BroadcastEmailPreview showTestButton={false} />
+                    </ReviewRow>
+                )}
 
                 <ReviewRow label="Schedule" step="schedule">
                     {scheduleSummary}
                 </ReviewRow>
 
-                {emailRateLimit && (
+                {emailRateLimit && channel === 'email' && (
                     <ReviewRow label="Sending rate" step="schedule" showErrors={false}>
                         At most {humanFriendlyNumber(emailRateLimit.count)} emails per {emailRateLimit.period}
                         {rateLimitedSendDuration ? `, so about ${rateLimitedSendDuration} to reach everyone` : ''}

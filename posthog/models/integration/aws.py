@@ -14,11 +14,14 @@ from rest_framework.exceptions import ValidationError
 from posthog.credentials import AWSKeyPair
 from posthog.credentials_service.callers import CredentialsCaller
 from posthog.credentials_service.settings_fallback import get_or_settings
+from posthog.dataclasses import frozen
+from posthog.integrations.contracts import IntegrationRecord
 from posthog.models.user import User
 from posthog.models.utils import IntegrityError
 from posthog.security.url_validation import is_url_allowed
 
 from . import common, model
+from .postgres import RedshiftIntegration
 
 _AWSKindType = Literal[model.Integration.IntegrationKind.AWS_REDSHIFT, model.Integration.IntegrationKind.AWS_S3]
 
@@ -258,13 +261,13 @@ class AWSRoleBasedIntegration:
 
     integration_kind: ClassVar[_AWSKindType]
 
-    def __init__(self, integration: model.Integration) -> None:
+    def __init__(self, integration: IntegrationRecord) -> None:
         if integration.kind != self.integration_kind:
             raise common.IntegrationError(
                 "Integration provided is not the expected AWS integration "
                 f"(got kind='{integration.kind}', expected kind='{self.integration_kind}')"
             )
-        self.integration = integration
+        self.integration = model.integration_model(integration)
         try:
             self.aws_role_arn = integration.config["aws_role_arn"]
         except KeyError:
@@ -346,6 +349,42 @@ AWS_REDSHIFT_SERVERLESS_WORKGROUP_ARN_RE = re.compile(
 )
 
 
+@frozen
+class RedshiftProvisionedCluster:
+    """A provisioned Redshift cluster parsed from its endpoint hostname."""
+
+    cluster_identifier: str
+    region: str
+
+
+@frozen
+class RedshiftServerlessWorkgroup:
+    """A Redshift Serverless workgroup parsed from its endpoint hostname."""
+
+    workgroup: str
+    account_id: str
+    region: str
+
+
+def parse_redshift_host(host: str) -> RedshiftProvisionedCluster | RedshiftServerlessWorkgroup:
+    """Parse a Redshift endpoint hostname into its cluster or workgroup location.
+
+    The IAM role and access key integrations need this to ask AWS for temporary database
+    credentials, because the AWS APIs take the cluster or workgroup name, not the host.
+    """
+    match host.split(".", maxsplit=3):
+        case [cluster_identifier, _, region, "redshift.amazonaws.com"]:
+            return RedshiftProvisionedCluster(cluster_identifier=cluster_identifier, region=region)
+        case [workgroup, account_id, region, "redshift-serverless.amazonaws.com"]:
+            return RedshiftServerlessWorkgroup(workgroup=workgroup, account_id=account_id, region=region)
+        case _:
+            raise common.IntegrationError(
+                f"Redshift host '{host}' is not a recognized AWS Redshift endpoint. Expected "
+                "'<cluster>.<id>.<region>.redshift.amazonaws.com' or "
+                "'<workgroup>.<account>.<region>.redshift-serverless.amazonaws.com'"
+            )
+
+
 def _return_redshift_workgroup_arn(**config) -> str | None:
     if (workgroup_arn := config.get("workgroup_arn")) is not None:
         if not isinstance(workgroup_arn, str) or not AWS_REDSHIFT_SERVERLESS_WORKGROUP_ARN_RE.match(workgroup_arn):
@@ -396,6 +435,26 @@ class AWSRedshiftRoleBasedIntegration(AWSRoleBasedIntegration):
         """ARN of a Redshift Serverless workgroup, required when the cluster is Serverless."""
         return self.integration.config.get("workgroup_arn")
 
+    def workgroup_arn_for(self, server: RedshiftServerlessWorkgroup) -> str:
+        """Return the workgroup ARN, checked against the workgroup the host points at.
+
+        Workgroup ARNs contain a UUID that cannot be derived from the endpoint hostname,
+        so Serverless requires the ARN on the integration to scope the assumed role exactly.
+        """
+        workgroup_arn = self.workgroup_arn
+        if workgroup_arn is None:
+            raise common.IntegrationError(
+                "A Redshift Serverless workgroup requires 'workgroup_arn' to be set on the integration"
+            )
+
+        _, _, _, arn_region, arn_account_id, _ = workgroup_arn.split(":", maxsplit=5)
+        if arn_region != server.region or arn_account_id != server.account_id:
+            raise common.IntegrationError(
+                f"The integration's workgroup ARN '{workgroup_arn}' does not match the region or account "
+                f"of the Redshift Serverless host (region '{server.region}', account '{server.account_id}')"
+            )
+        return workgroup_arn
+
     @staticmethod
     def read_extra_configuration_parameters(**config) -> dict[str, Any]:
         return _return_extra_redshift_configuration(**config)
@@ -413,14 +472,14 @@ class AWSCredentialsIntegration:
 
     integration_kind: ClassVar[_AWSKindType]
 
-    def __init__(self, integration: model.Integration) -> None:
+    def __init__(self, integration: IntegrationRecord) -> None:
         if integration.kind != self.integration_kind:
             raise common.IntegrationError(
                 "Integration provided is not the expected AWS integration "
                 f"(got kind='{integration.kind}', expected kind='{self.integration_kind}')"
             )
-        self.integration = integration
-        self.credentials = _read_aws_credentials(integration)
+        self.integration = model.integration_model(integration)
+        self.credentials = _read_aws_credentials(self.integration)
 
     @property
     def aws_account_id(self) -> str | None:
@@ -540,13 +599,13 @@ class S3CompatibleIntegration:
     credentials: AWSKeyPair
     endpoint_url: str
 
-    def __init__(self, integration: model.Integration) -> None:
+    def __init__(self, integration: IntegrationRecord) -> None:
         if integration.kind != model.Integration.IntegrationKind.S3_COMPATIBLE:
             raise common.IntegrationError(
                 f"Integration provided is not an S3-compatible integration (got kind='{integration.kind}')"
             )
-        self.integration = integration
-        self.credentials = _read_aws_credentials(integration)
+        self.integration = model.integration_model(integration)
+        self.credentials = _read_aws_credentials(self.integration)
         try:
             self.endpoint_url = integration.config["endpoint_url"]
         except KeyError:
@@ -596,3 +655,18 @@ class S3CompatibleIntegration:
             },
             created_by=created_by,
         )
+
+
+AnyRedshiftIntegration = AWSRedshiftRoleBasedIntegration | AWSRedshiftIntegration | RedshiftIntegration
+
+
+def redshift_integration_from_record(integration: IntegrationRecord) -> AnyRedshiftIntegration:
+    """Wrap an `aws-redshift` integration in the class its stored config belongs to.
+
+    The kind covers three classes, told apart only by which keys the integration stores.
+    """
+    if "aws_role_arn" in (integration.config or {}):
+        return AWSRedshiftRoleBasedIntegration(integration)
+    if "aws_access_key_id" in (integration.sensitive_config or {}):
+        return AWSRedshiftIntegration(integration)
+    return RedshiftIntegration(integration)

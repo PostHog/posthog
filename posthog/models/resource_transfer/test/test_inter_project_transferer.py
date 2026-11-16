@@ -12,11 +12,12 @@ from posthog.models.resource_transfer.inter_project_transferer import (
     duplicate_resource_to_new_team,
     get_suggested_substitutions,
 )
+from posthog.models.resource_transfer.registered_models import registered_model
 from posthog.models.resource_transfer.resource_transfer import ResourceTransfer
 from posthog.models.resource_transfer.types import ResourceKind, ResourceTransferVertex
 from posthog.models.scoping import team_scope
 
-from products.actions.backend.models.action import Action
+from products.actions.backend.facade.testing import create_action
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile, Text
 from products.dashboards.backend.models.dashboard_widget import DashboardWidget
@@ -61,7 +62,7 @@ class TestBuildResourceDuplicationGraph(BaseTest):
 
     def test_survey_with_insight_and_actions_includes_related_resources(self) -> None:
         insight = Insight.objects.create(team=self.team, name="Survey insight")
-        action = Action.objects.create(
+        action = create_action(
             team=self.team,
             name="survey action",
             steps_json=[{"event": "$pageview"}],
@@ -73,7 +74,7 @@ class TestBuildResourceDuplicationGraph(BaseTest):
             questions=[{"id": "q1", "type": "open", "question": "Hello"}],
             linked_insight=insight,
         )
-        survey.actions.add(action)
+        survey.actions.add(action.id)
 
         graph = list(build_resource_duplication_graph(survey, set()))
         model_types = {v.model for v in graph}
@@ -81,7 +82,7 @@ class TestBuildResourceDuplicationGraph(BaseTest):
 
         assert Survey in model_types
         assert Insight in model_types
-        assert Action in model_types
+        assert registered_model("Action") in model_types
         assert through in model_types
         assert Team in model_types
 
@@ -204,7 +205,7 @@ class TestDuplicateResourceToNewTeam(BaseTest):
     def test_duplicates_survey_with_linked_insight_and_actions(self) -> None:
         dest_team = self._create_destination_team()
         insight = Insight.objects.create(team=self.team, name="Linked", filters={})
-        action = Action.objects.create(
+        action = create_action(
             team=self.team,
             name="trigger action",
             steps_json=[{"event": "subscribed"}],
@@ -217,12 +218,12 @@ class TestDuplicateResourceToNewTeam(BaseTest):
             conditions={"linkedFlagVariant": "control", "url": "/p"},
             linked_insight=insight,
         )
-        survey.actions.add(action)
+        survey.actions.add(action.id)
 
         results = duplicate_resource_to_new_team(survey, dest_team, created_by=self.user)
         new_surveys = [r for r in results if isinstance(r, Survey)]
         new_insights = [r for r in results if isinstance(r, Insight)]
-        new_actions = [r for r in results if isinstance(r, Action)]
+        new_actions = [r for r in results if isinstance(r, registered_model("Action"))]
 
         assert len(new_surveys) == 1
         assert len(new_insights) == 1

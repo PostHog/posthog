@@ -44,7 +44,7 @@
         "typescript": "^5.7.2"
     },
     "engines": {
-        "node": ">=24 <25"
+        "node": ">=26 <27"
     },
     "packageManager": "pnpm@10.29.3",
     "pnpm": {

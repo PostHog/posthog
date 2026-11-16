@@ -420,6 +420,10 @@ const integer = z.coerce.number().int()
 
 const MCPMissingCapabilitiesQuery = z.object({
     dateRange: DateRange.optional(),
+    filterTestAccounts: z.coerce
+        .boolean()
+        .describe("Exclude reports from the project's internal and test users.")
+        .optional(),
     kind: z.literal('MCPMissingCapabilitiesQuery').default('MCPMissingCapabilitiesQuery'),
     limit: integer.describe('Page size; defaults to 100, capped at 500.').optional(),
     offset: integer

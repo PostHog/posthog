@@ -60,6 +60,18 @@ describe('traceRows', () => {
         expect(rows.map((s) => s.span_id)).toEqual(expected)
     })
 
+    it('shows a trace with several root spans as one row, in trace order', () => {
+        const laterRootA = span({
+            trace_id: 'a',
+            span_id: 'a9',
+            is_root_span: true,
+            timestamp: '2026-06-02T08:00:05.000Z',
+            trace_start: '2026-06-02T08:00:00.000Z',
+        })
+        const rows = traceRows([laterRootA, rootC, rootA], 'timestamp', 'DESC')
+        expect(rows.map((s) => s.span_id)).toEqual(['c1', 'a1'])
+    })
+
     it('orders by trace duration under duration sort', () => {
         const rows = traceRows(
             [

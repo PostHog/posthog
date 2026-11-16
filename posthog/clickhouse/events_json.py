@@ -14,6 +14,13 @@ DISTRIBUTED_EVENTS_JSON_TABLE = "events_json"
 KAFKA_EVENTS_NATIVE_JSON_TABLE = "kafka_events_json_native_json"
 UNPARSEABLE_PROPERTIES_KEY = "$unparseable_properties"
 TEMPORARY_PROPERTIES_COLUMN = "temporary_properties"
+# The JSON type cannot store null, so the cleaner drops each null field of a JSON column and records its path in the
+# column's companion array.
+NULL_KEYS_COLUMNS = {
+    "properties": "properties_null_keys",
+    TEMPORARY_PROPERTIES_COLUMN: "temporary_properties_null_keys",
+    "person_properties": "person_properties_null_keys",
+}
 
 # Mirrors isTemporaryProperty in clickhouse-udfs/util/cmd/json_clean_posthog_event_properties_udf/main.go, so update both.
 TEMPORARY_EVENT_PROPERTY_ROOTS = frozenset(
