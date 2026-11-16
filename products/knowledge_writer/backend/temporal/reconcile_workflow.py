@@ -122,7 +122,6 @@ async def reconcile_merged_pull_requests_activity() -> None:
     for change in merges.changes:
         await start_merge_check_workflow(change, team_id=merges.team_id, client=client)
     await database_sync_to_async(save_reconciled_at, thread_sensitive=False)(merges.reconciled_at_by_repository)
-    await database_sync_to_async(intake.sweep_held_requests, thread_sensitive=False)()
     logger.info(
         "knowledge_writer_reconcile_finished",
         merged_changes=len(merges.changes),
@@ -130,12 +129,25 @@ async def reconcile_merged_pull_requests_activity() -> None:
     )
 
 
+@activity.defn
+@close_db_connections
+async def start_stranded_held_requests_activity() -> None:
+    await database_sync_to_async(intake.sweep_held_requests, thread_sensitive=False)()
+
+
 @workflow.defn(name=RECONCILE_WORKFLOW_NAME)
 class MergeReconcileWorkflow:
     @workflow.run
     async def run(self) -> None:
-        await workflow.execute_activity(
-            reconcile_merged_pull_requests_activity,
-            start_to_close_timeout=timedelta(minutes=5),
-            retry_policy=RetryPolicy(maximum_attempts=3),
-        )
+        try:
+            await workflow.execute_activity(
+                reconcile_merged_pull_requests_activity,
+                start_to_close_timeout=timedelta(minutes=5),
+                retry_policy=RetryPolicy(maximum_attempts=3),
+            )
+        finally:
+            await workflow.execute_activity(
+                start_stranded_held_requests_activity,
+                start_to_close_timeout=timedelta(minutes=5),
+                retry_policy=RetryPolicy(maximum_attempts=3),
+            )

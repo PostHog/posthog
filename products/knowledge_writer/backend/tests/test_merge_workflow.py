@@ -52,6 +52,7 @@ from products.knowledge_writer.backend.temporal.merge_workflow import (
 )
 from products.knowledge_writer.backend.temporal.reconcile_workflow import (
     PULL_REQUESTS_PER_PAGE,
+    MergeReconcileWorkflow,
     reconcile_merged_pull_requests_activity,
     reconciled_at_cache_key,
 )
@@ -532,3 +533,38 @@ async def test_the_hourly_reconcile_starts_a_numbered_check_for_each_pull_reques
         for number in checked_pull_request_numbers
     ]
     assert reconciled_at == RECONCILE_STARTED_AT
+
+
+@pytest.mark.parametrize("reconcile_fails", [False, True])
+async def test_the_hourly_reconcile_starts_stranded_held_requests_even_when_the_merge_reconcile_fails(
+    reconcile_fails,
+) -> None:
+    started_held_requests = asyncio.Event()
+
+    @activity.defn(name="reconcile_merged_pull_requests_activity")
+    async def reconcile_merged_pull_requests_activity() -> None:
+        if reconcile_fails:
+            raise ApplicationError("GitHub is down", non_retryable=True)
+
+    @activity.defn(name="start_stranded_held_requests_activity")
+    async def start_stranded_held_requests_activity() -> None:
+        started_held_requests.set()
+
+    async with await WorkflowEnvironment.start_time_skipping() as env:
+        async with Worker(
+            env.client,
+            task_queue=settings.VIDEO_EXPORT_TASK_QUEUE,
+            workflows=[MergeReconcileWorkflow],
+            activities=[reconcile_merged_pull_requests_activity, start_stranded_held_requests_activity],
+            workflow_runner=UnsandboxedWorkflowRunner(),
+        ):
+            handle = await env.client.start_workflow(
+                MergeReconcileWorkflow.run, id="reconcile-test", task_queue=settings.VIDEO_EXPORT_TASK_QUEUE
+            )
+            if reconcile_fails:
+                with pytest.raises(WorkflowFailureError):
+                    await handle.result()
+            if not reconcile_fails:
+                await handle.result()
+
+    assert started_held_requests.is_set()
