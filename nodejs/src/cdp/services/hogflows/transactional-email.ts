@@ -269,6 +269,9 @@ export type TransactionalSendRefusal =
     | 'recipient_suppressed'
     | 'recipient_unreachable'
     | 'invalid_scheduled_at'
+    | 'sandbox_recipient_not_member'
+    | 'sandbox_fields_unsupported'
+    | 'sandbox_sender_unavailable'
 
 export type TransactionalEmailOutcome =
     | 'queued'

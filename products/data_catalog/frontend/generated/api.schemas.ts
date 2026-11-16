@@ -639,6 +639,39 @@ export interface AdjustedRunApi {
     is_scout: boolean
 }
 
+/**
+ * * `metric_runs` - Metric runs
+ * * `conversations` - Conversations
+ * * `adjusted_runs` - Adjusted runs
+ * * `topics` - Topics
+ * * `table_sources` - Table sources
+ * * `uncovered` - Uncovered
+ */
+export type UsageSectionEnumApi = (typeof UsageSectionEnumApi)[keyof typeof UsageSectionEnumApi]
+
+export const UsageSectionEnumApi = {
+    MetricRuns: 'metric_runs',
+    Conversations: 'conversations',
+    AdjustedRuns: 'adjusted_runs',
+    Topics: 'topics',
+    TableSources: 'table_sources',
+    Uncovered: 'uncovered',
+} as const
+
+export interface SectionFailureApi {
+    /** The payload section whose step failed.
+     *
+     * * `metric_runs` - Metric runs
+     * * `conversations` - Conversations
+     * * `adjusted_runs` - Adjusted runs
+     * * `topics` - Topics
+     * * `table_sources` - Table sources
+     * * `uncovered` - Uncovered */
+    section: UsageSectionEnumApi
+    /** Why the scan step failed. */
+    reason: string
+}
+
 export interface MetricUsageApi {
     /** ID of the catalog metric. */
     metric_id: string
@@ -657,6 +690,8 @@ export interface MetricUsageApi {
     runs: MetricRunCountsApi | null
     /** Agent queries that re-derived the metric. is_scout marks the ones a scout ran. */
     adjusted_runs: AdjustedRunApi[]
+    /** Failed sections that these numbers read, so a missing count is not a zero. */
+    failed_sections: SectionFailureApi[]
 }
 
 /**
@@ -932,10 +967,12 @@ export interface UncoveredGroupApi {
      * @nullable
      */
     matched_metric_id: string | null
-    /** Distinct people who ran the measure, without scouts. */
+    /** People who wrote the measure or created a chart of it, directly or through an agent. Without scouts. */
     distinct_people: number
-    /** Query runs of the measure, without scouts. */
-    runs: number
+    /** Runs of the measure that a person saw, in the web app or an agent session. At least the built count. */
+    views: number
+    /** Times a person or an agent wrote the measure, plus one per chart, notebook query or canvas query. */
+    built: number
     /** One query that computes the measure. */
     sample_sql: string
     /**
@@ -948,6 +985,77 @@ export interface UncoveredGroupApi {
      * @nullable
      */
     draft_description: string | null
+    /**
+     * Proposed HogQL definition, when one was drafted.
+     * @nullable
+     */
+    draft_definition: string | null
+    /** How hard the query is to write by hand: 1 low, 2 medium, 3 high, 0 when it does not parse. */
+    complexity: number
+}
+
+export interface ChartSourceApi {
+    /** Short ID of the saved chart, for a link to it. */
+    insight_short_id: string
+    /** Name of the saved chart. */
+    insight_name: string
+    /**
+     * The dashboard that ran the chart, if any.
+     * @nullable
+     */
+    dashboard_id: number | null
+    /**
+     * Name of the dashboard, if any.
+     * @nullable
+     */
+    dashboard_name: string | null
+    /** Distinct people whose visit ran the chart. Viewers count. */
+    people: number
+}
+
+export interface SurfaceSourceApi {
+    /** The web app area that ran the query. Empty when it is unknown. */
+    product: string
+    /** Distinct people who ran the query there. */
+    people: number
+    /** Query runs from that area. */
+    runs: number
+}
+
+export interface AgentSourceApi {
+    /** Distinct people whose agents ran the query, without scouts. */
+    people: number
+    /** Agent sessions that ran the query, without scouts. */
+    sessions: number
+    /** Query runs by agents, without scouts. */
+    runs: number
+}
+
+export interface ProposedMetricApi {
+    /** Proposed metric name. */
+    name: string
+    /** What the proposed metric counts. */
+    description: string
+    /** Proposed HogQL definition. */
+    definition: string
+    /** Recurring measures that this proposal merges. */
+    measures: number
+    /** Distinct people across the measures, without scouts. */
+    people: number
+    /** Runs of the measure that a person saw, in the web app or an agent session. At least the built count. */
+    views: number
+    /** Times a person or an agent wrote the most-built measure in the proposal, as on a measure. */
+    built: number
+    /** The saved charts with the most people. */
+    charts: ChartSourceApi[]
+    /** Saved charts that are not listed in charts. */
+    other_charts: number
+    /** Web app areas that ran it outside a saved chart. */
+    surfaces: SurfaceSourceApi[]
+    /** Agent use, or null when no agent ran it. */
+    agents: AgentSourceApi | null
+    /** How hard the query is to write by hand: 1 low, 2 medium, 3 high, 0 when it does not parse. */
+    complexity: number
 }
 
 export interface UsageSnapshotPayloadApi {
@@ -983,6 +1091,13 @@ export interface UsageSnapshotPayloadApi {
      * @nullable
      */
     uncovered: UncoveredGroupApi[] | null
+    /**
+     * Proposed metrics with their sources. Null until drafted.
+     * @nullable
+     */
+    proposed_metrics: ProposedMetricApi[] | null
+    /** Sections whose scan step failed. Each one stays null, and the others keep their results. */
+    failed_sections: SectionFailureApi[]
 }
 
 export interface UsageSnapshotApi {

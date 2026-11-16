@@ -140,6 +140,7 @@ export const productRoutes: Record<string, [string, string]> = {
     '/transformations': ['Transformations', 'transformations'],
     '/event-filtering': ['EventFiltering', 'eventFiltering'],
     '/feature-flags/staff/cohorts': ['CohortsStaffTools', 'cohortsStaffTools'],
+    '/support': ['SupportOverview', 'supportOverview'],
     '/support/tickets': ['SupportTickets', 'supportTickets'],
     '/support/tickets/:ticketId': ['SupportTicketDetail', 'supportTicketDetail'],
     '/support/settings': ['SupportSettings', 'supportSettings'],
@@ -313,6 +314,8 @@ export const productRoutes: Record<string, [string, string]> = {
     '/replay-vision/:id': ['ReplayVisionScanner', 'replayVision'],
     '/code-review': ['CodeReview', 'codeReview'],
     '/inbox': ['Inbox', 'inbox'],
+    '/inbox/activate': ['InboxActivate', 'inboxActivate'],
+    '/inbox/activate/without-github': ['InboxActivate', 'inboxActivate'],
     '/inbox/scout-trials': ['ScoutTrials', 'scoutTrials'],
     '/inbox/:tab': ['Inbox', 'inbox'],
     '/inbox/scouts/scratchpad': ['Inbox', 'inbox'],
@@ -374,8 +377,8 @@ export const productRoutes: Record<string, [string, string]> = {
         'visualReviewLegacySnapshotHistory',
     ],
     '/etl': ['PipelineOverview', 'pipelineOverview'],
-    '/web/content-autopilot': ['WebAnalytics', 'webAnalyticsContentAutopilot'],
-    '/web/content-autopilot/prompts/:promptId': ['WebAnalytics', 'webAnalyticsContentAutopilotPrompt'],
+    '/web/ai-visibility': ['WebAnalytics', 'webAnalyticsContentAutopilot'],
+    '/web/ai-visibility/prompts/:promptId': ['WebAnalytics', 'webAnalyticsContentAutopilotPrompt'],
     '/heatmaps': ['Heatmaps', 'heatmaps'],
     '/heatmaps/new': ['HeatmapNew', 'heatmapNew'],
     '/heatmaps/recording': ['HeatmapRecording', 'heatmapRecording'],
@@ -543,7 +546,6 @@ export const productRedirects: Record<
         combineUrl(urls.aiObservabilityUsers(), searchParams, hashParams).url,
     '/llm-observability/playground': (_params, searchParams, hashParams) =>
         combineUrl(urls.aiObservabilityPlayground(), searchParams, hashParams).url,
-    '/support': '/support/tickets',
     '/customer_analytics': (_params, searchParams, hashParams) => {
         const defaultTab = posthog.getFeatureFlag(FEATURE_FLAGS.CUSTOMER_ANALYTICS_CSP)
             ? '/customer_analytics/accounts'
@@ -622,6 +624,10 @@ export const productRedirects: Record<
         combineUrl(urls.visualReviewRuns(), searchParams, hashParams).url,
     '/visual_review/*': ({ _ }, searchParams, hashParams): string =>
         combineUrl(`/visual-review/${_}`, searchParams, hashParams).url,
+    '/web/content-autopilot': (_, searchParams) => combineUrl(urls.webAnalyticsContentAutopilot(), searchParams).url,
+    '/web/content-autopilot/prompts/:promptId': ({ promptId }, searchParams) =>
+        combineUrl(urls.webAnalyticsContentAutopilotPrompt(promptId ?? ''), searchParams).url,
+    '/web/bots': () => urls.webAnalyticsContentAutopilot(),
 }
 
 /** This const is auto-generated, as is the whole file */
@@ -847,6 +853,7 @@ export const productConfiguration: Record<string, any> = {
         iconType: 'data_pipeline',
     },
     CohortsStaffTools: { instanceLevel: true, name: 'Cohorts staff tools' },
+    SupportOverview: { name: 'Support overview', projectBased: true, layout: 'app-container' },
     SupportTickets: {
         name: 'Ticket list',
         description:
@@ -1219,6 +1226,7 @@ export const productConfiguration: Record<string, any> = {
         description: 'Automated code reviews of your pull requests, and your review agent settings.',
         iconType: 'code_review',
     },
+    InboxActivate: { name: 'Activate Self-driving', projectBased: true, layout: 'plain' },
     ScoutTrials: { name: 'Scout trials', projectBased: true },
     Inbox: {
         name: 'Self-driving inbox',
@@ -1574,7 +1582,7 @@ export const productUrls = {
     sharedDashboard: (shareToken: string): string => `/shared_dashboard/${shareToken}`,
     dataCatalog: (tab?: string): string => `/data-catalog${tab ? `?tab=${tab}` : ''}`,
     dataCatalogNewMetric: (): string => '/data-catalog/new-metric',
-    dataCatalogMetric: (name: string, tab?: 'definition' | 'data-quality' | 'lineage'): string =>
+    dataCatalogMetric: (name: string, tab?: 'definition' | 'data-quality' | 'lineage' | 'usage'): string =>
         `/data-catalog/metrics/${name}${tab && tab !== 'definition' ? `?tab=${tab}` : ''}`,
     models: (tab?: ModelsSceneTab): string => (tab && tab !== 'overview' ? `/models?tab=${tab}` : '/models'),
     nodeDetail: (id: string, tab?: NodeDetailSceneTab): string => `/models/${id}${tab ? `/${tab}` : ''}`,
@@ -1986,6 +1994,8 @@ export const productUrls = {
     replayVisionObservation: (observationId: string): string => `/replay-vision/observations/${observationId}`,
     codeReview: (): string => '/code-review',
     inbox: (tab?: InboxTabKey | ':tab'): string => `/inbox${tab ? `/${tab}` : ''}`,
+    inboxActivate: (): string => '/inbox/activate',
+    inboxActivateWithoutGithub: (): string => '/inbox/activate/without-github',
     inboxReport: (tab: InboxTabKey | ':tab', reportId: string | ':reportId'): string => `/inbox/${tab}/${reportId}`,
     inboxTriage: (): string => '/inbox/reports/triage',
     inboxScout: (skillName: string | ':skillName', findingId?: string | ':findingId'): string => {
@@ -2069,9 +2079,8 @@ export const productUrls = {
     webAnalyticsMarketing: (): string => `/web/marketing`,
     webAnalyticsHealth: (): string => `/web/health`,
     webAnalyticsLive: (): string => `/web/live`,
-    webAnalyticsBotAnalytics: (): string => `/web/bot-analytics`,
-    webAnalyticsContentAutopilot: (): string => `/web/content-autopilot`,
-    webAnalyticsContentAutopilotPrompt: (id: string): string => `/web/content-autopilot/prompts/${id}`,
+    webAnalyticsContentAutopilot: (): string => `/web/ai-visibility`,
+    webAnalyticsContentAutopilotPrompt: (id: string): string => `/web/ai-visibility/prompts/${id}`,
     heatmaps: (params?: string): string =>
         `/heatmaps${params ? `?${params.startsWith('?') ? params.slice(1) : params}` : ''}`,
     heatmapNew: (params?: string): string =>
@@ -2713,6 +2722,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         path: 'Data catalog',
         intents: [ProductKey.DATA_CATALOG],
         category: ProductItemCategory.DATA,
+        type: 'data_catalog',
         iconType: 'data_catalog',
         iconColor: ['var(--color-product-data-catalog-light)', 'var(--color-product-data-catalog-dark)'],
         href: urls.dataCatalog(),
@@ -3376,7 +3386,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         iconType: 'conversations',
         iconColor: ['var(--color-product-support-light)', 'var(--color-product-support-dark)'] as FileSystemIconColor,
         sceneKey: 'SupportTickets',
-        sceneKeys: ['SupportTickets', 'SupportTicketDetail', 'SupportSettings', 'MyTickets'],
+        sceneKeys: ['SupportOverview', 'SupportTickets', 'SupportTicketDetail', 'SupportSettings', 'MyTickets'],
     },
     {
         path: 'Surveys',

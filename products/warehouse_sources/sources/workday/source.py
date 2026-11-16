@@ -34,9 +34,10 @@ from products.warehouse_sources.sources.workday.workday import (
 class WorkdaySource(ResumableSource[WorkdaySourceConfig, WorkdayResumeConfig]):
     codebase_detection = detect(env=("^WORKDAY_",))
 
-    # Workday versions each REST service separately. The Staffing service carries all but one
-    # of the endpoints below, so its version is what a source pins; the Common service that
-    # serves `workers` is fixed at the `/ccx/api/v1` path.
+    # Workday versions each REST service separately. The Staffing service carries most of the
+    # endpoints below, so its version is what a source pins. The Common service that serves
+    # `workers` and the per-worker tables is fixed at the `/ccx/api/v1` path, and Time Tracking
+    # has its own version in `settings.py`.
     supported_versions = ("v7",)
     default_version = "v7"
     api_docs_url = "https://community.workday.com/sites/default/files/file-hosting/restapi/index.html"
@@ -62,7 +63,7 @@ class WorkdaySource(ResumableSource[WorkdaySourceConfig, WorkdayResumeConfig]):
             releaseStatus=ReleaseStatus.BETA,
             caption="""Pull your Workday HCM data into the PostHog Data warehouse over the Workday REST API.
 
-Register an API client for integrations in Workday (**Register API Client for Integrations**) with the `staffing` scope, then paste its client ID, client secret and refresh token below.
+Register an API client for integrations in Workday (**Register API Client for Integrations**) with the `staffing` scope, then paste its client ID, client secret and refresh token below. To sync time blocks, also add the `Time Tracking` scope. To sync pay slips, also add the `Core Payroll` scope.
 
 Your hostname and tenant are the first two parts of your Workday URL — for `https://wd2-impl-services1.workday.com/acme_pt1`, the hostname is `wd2-impl-services1.workday.com` and the tenant is `acme_pt1`.""",
             iconPath="/static/services/workday.png",

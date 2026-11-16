@@ -609,6 +609,11 @@
         "params": [],
         "scope": "project"
     },
+    "dataDeletionRequestNew": {
+        "template": "/settings/environment-danger-zone/data-deletion/new",
+        "params": [],
+        "scope": "project"
+    },
     "dataManagementHistory": {
         "template": "/data-management/history",
         "params": [],
@@ -981,6 +986,16 @@
     },
     "inbox": {
         "template": "/inbox",
+        "params": [],
+        "scope": "project"
+    },
+    "inboxActivate": {
+        "template": "/inbox/activate",
+        "params": [],
+        "scope": "project"
+    },
+    "inboxActivateWithoutGithub": {
+        "template": "/inbox/activate/without-github",
         "params": [],
         "scope": "project"
     },
@@ -2019,18 +2034,13 @@
         "params": [],
         "scope": "project"
     },
-    "webAnalyticsBotAnalytics": {
-        "template": "/web/bots",
-        "params": [],
-        "scope": "project"
-    },
     "webAnalyticsContentAutopilot": {
-        "template": "/web/content-autopilot",
+        "template": "/web/ai-visibility",
         "params": [],
         "scope": "project"
     },
     "webAnalyticsContentAutopilotPrompt": {
-        "template": "/web/content-autopilot/prompts/{id}",
+        "template": "/web/ai-visibility/prompts/{id}",
         "params": ["id"],
         "scope": "project"
     },

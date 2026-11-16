@@ -244,6 +244,13 @@ class SandboxSession(BaseSandboxService):
                 user_id=self.user.pk,
             )
             return None
+        except tasks_facade.TaskDoneError:
+            logger.info(
+                "sandbox_warm_task_done",
+                conversation_id=str(self.conversation.id),
+                user_id=self.user.pk,
+            )
+            return None
 
         return SandboxRouteResult(
             task_id=str(task_id),
@@ -362,6 +369,10 @@ class SandboxSession(BaseSandboxService):
         `_meta.attached_context` so the persisted ACP log stays a complete record.
         """
         try:
+            tasks_facade.check_wake_by_task_id(run.task_id, source="posthog_ai_follow_up")
+        except tasks_facade.TaskDoneError as error:
+            raise Conflict(str(error)) from error
+        try:
             signal_task_followup_message(run.workflow_id, wrapped, artifact_ids=[])
         except Exception as e:
             # Status race: the run still reads in-progress but its workflow has already finished or
@@ -452,7 +463,10 @@ class SandboxSession(BaseSandboxService):
             }
             extra_state.update(tasks_facade.get_resume_snapshot_carry_state(run.state))
 
-            new_run = task.create_run(mode="interactive", extra_state=extra_state)
+            try:
+                new_run = task.create_run(mode="interactive", extra_state=extra_state)
+            except tasks_facade.TaskDoneError as error:
+                raise Conflict(str(error)) from error
 
         # Same write scopes as the first message — the resumed agent keeps creating
         # insights/dashboards/notebooks on follow-up turns.

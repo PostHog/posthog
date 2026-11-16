@@ -41,6 +41,7 @@ from products.alerts_platform.backend.facade.platform_metrics import (
     increment_groups_over_cap,
     increment_history_rows_dropped,
     increment_instances_reaped,
+    record_check_completion_lag,
     safe_record,
 )
 from products.alerts_platform.backend.facade.scheduling import (
@@ -613,6 +614,12 @@ def record_outcomes(team_id: int, outcomes: Sequence[PlatformAlertOutcome], now:
         )
         if not configurations:
             return 0
+        # Captured before the write advances the schedule; the lag itself is measured at commit.
+        due_times = [
+            (configuration.source_kind, configuration.next_check_at)
+            for configuration in configurations
+            if configuration.next_check_at is not None
+        ]
         for configuration in configurations:
             by_id[str(configuration.id)] = _without_stale_groups(configuration, by_id[str(configuration.id)])
         # In outcome order, because the source put the groups it most wants kept first.
@@ -732,8 +739,20 @@ def record_outcomes(team_id: int, outcomes: Sequence[PlatformAlertOutcome], now:
         PlatformAlertDeliveryHold.objects.for_team(team_id).bulk_create(holds, ignore_conflicts=True)
         # `on_commit` rather than a statement after the block, so a caller that wraps this in its
         # own `atomic()` cannot leave history for state its rollback removed.
+        # The lag goes first, because callbacks run in order and a slow history insert is not
+        # part of the check's completion.
+        transaction.on_commit(lambda: _record_completion_lags(due_times))
         transaction.on_commit(lambda: record_history(team_id, rows))
     return len(configurations)
+
+
+def _record_completion_lags(due_times: Sequence[tuple[str, datetime]]) -> None:
+    # Wall time at commit rather than the tick's cutoff, so a slow write or an enclosing
+    # transaction that holds the commit counts towards the lag.
+    committed_at = django_timezone.now()
+    for source_kind, due_at in due_times:
+        lag_ms = max(0, int((committed_at - due_at).total_seconds() * 1000))
+        safe_record(record_check_completion_lag, source_kind, lag_ms)
 
 
 _CADENCE_FIELDS: Final = ("check_interval_minutes", "recurrence_unit", "anchor_time")
@@ -828,6 +847,11 @@ def upsert_configuration(upsert: PlatformAlertUpsert, *, revive: bool = False) -
             defaults=defaults,
             create_defaults={**defaults, "grouping": upsert.grouping.to_stored()},
         )
+        # `update()`, because `auto_now_add` replaces any value a create passes.
+        if upsert.created_at is not None and configuration.created_at != upsert.created_at:
+            PlatformAlertConfiguration.objects.unscoped().filter(pk=configuration.pk).update(
+                created_at=upsert.created_at
+            )
         if revived:
             PlatformAlert.objects.for_team(upsert.team_id).filter(configuration=configuration).update(
                 state=PlatformAlert.State.NOT_FIRING.value, firing_started_at=None

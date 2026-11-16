@@ -1,6 +1,7 @@
 import json
 import datetime
 import dataclasses
+from collections import Counter
 from collections.abc import Callable
 from io import StringIO
 from types import SimpleNamespace
@@ -31,22 +32,29 @@ from products.signals.backend.activity_summary.read import (
     ActivitySummaryTheme,
     ActivitySummaryView,
 )
+from products.signals.backend.activity_summary.render import InboxStrength
 from products.signals.backend.artefact_schemas import RankingModelResult, RankingScore
 from products.signals.backend.models import (
     PersonalInboxRanking,
     SignalReport,
+    SignalReportAction,
     SignalReportArtefact,
     SignalReportAssignment,
+    SignalReviewerExclusion,
 )
 from products.signals.backend.personal_ranking import serve as personal_ranking_serve
 from products.signals.backend.personal_ranking.candidates import Candidate
 from products.signals.backend.personal_ranking.config import (
+    DEFAULT_MODEL,
     CandidatePool,
+    ModelArm,
     PersonalRankingConfig,
     PersonalRankingTickConfig,
     ReasonLimits,
+    config_for_user,
     parse_config,
 )
+from products.signals.backend.personal_ranking.inbox_activity import read_inbox_activity
 from products.signals.backend.personal_ranking.list_sort import personal_ranking_state
 from products.signals.backend.personal_ranking.logic import (
     BUILT_EVENT,
@@ -367,8 +375,10 @@ class TestInputParts(SimpleTestCase):
         candidates = [_candidate(1, _IDS[0]), _candidate(2, _IDS[1], predictions=None, needs_you=())]
 
         assert (
-            input_hash(candidates, config=CONFIG, limit=25, activity_summary_version=7, focus="checkout")
-            == "3d3077866e85c6b1868f952a33a297762db56b2abc2978e2e68bdcf4811c4baf"
+            input_hash(
+                candidates, config=CONFIG, limit=25, activity_summary_version=7, focus="checkout", inbox_activity=None
+            )
+            == "9fd317c4f9be057d443190b2b97bc2608552333a6e816da77c07db2867b275e1"
         )
 
     @parameterized.expand(
@@ -424,7 +434,12 @@ class TestInputParts(SimpleTestCase):
     ) -> None:
         stored = PersonalInboxRanking(
             input_parts=input_parts(
-                [_candidate(1, _IDS[0])], config=CONFIG, limit=25, activity_summary_version=7, focus=None
+                [_candidate(1, _IDS[0])],
+                config=CONFIG,
+                limit=25,
+                activity_summary_version=7,
+                focus=None,
+                inbox_activity=None,
             )
         )
         current = input_parts(
@@ -433,6 +448,7 @@ class TestInputParts(SimpleTestCase):
             limit=25,
             activity_summary_version=summary_version,
             focus=None,
+            inbox_activity=None,
         )
 
         assert compare_inputs(stored, current, rank_top=10) == dataclasses.replace(
@@ -448,6 +464,7 @@ class TestInputParts(SimpleTestCase):
                 limit=25,
                 activity_summary_version=7,
                 focus=None,
+                inbox_activity=None,
             ),
             result={"ranked": [{"report_id": ids[1]}, {"report_id": ids[0]}, {"report_id": ids[2]}]},
         )
@@ -457,6 +474,7 @@ class TestInputParts(SimpleTestCase):
             limit=25,
             activity_summary_version=7,
             focus=None,
+            inbox_activity=None,
         )
 
         changes = compare_inputs(stored, current, rank_top=2)
@@ -478,7 +496,14 @@ class TestInputParts(SimpleTestCase):
     def test_a_previous_list_without_parts_reports_why(
         self, _name: str, previous: PersonalInboxRanking | None, expected: tuple[str, ...]
     ) -> None:
-        current = input_parts([_candidate(1, _IDS[0])], config=CONFIG, limit=25, activity_summary_version=7, focus=None)
+        current = input_parts(
+            [_candidate(1, _IDS[0])],
+            config=CONFIG,
+            limit=25,
+            activity_summary_version=7,
+            focus=None,
+            inbox_activity=None,
+        )
 
         assert compare_inputs(previous, current, rank_top=10) == InputChanges(changed_parts=expected)
 
@@ -641,10 +666,142 @@ class TestConfig(SimpleTestCase):
                 {"tick": {"target_interval_minutes": 180}},
                 PersonalRankingConfig(),
             ),
+            (
+                "model_arms_keep_their_order_and_cap_the_timeout",
+                {
+                    "model_arms_salt": "2026-11",
+                    "model_arms": [
+                        {"name": "terra", "percentage": 5, "model": "gpt-terra"},
+                        {
+                            "name": "luna_medium",
+                            "percentage": 2.5,
+                            "model": "gpt-luna",
+                            "reasoning_effort": "medium",
+                            "timeout_seconds": 500,
+                        },
+                    ],
+                },
+                PersonalRankingConfig(
+                    model_arms_salt="2026-11",
+                    model_arms=(
+                        ModelArm(name="terra", percentage=5.0, model="gpt-terra"),
+                        ModelArm(
+                            name="luna_medium",
+                            percentage=2.5,
+                            model="gpt-luna",
+                            reasoning_effort="medium",
+                            timeout_seconds=120.0,
+                        ),
+                    ),
+                ),
+            ),
+            ("model_arms_not_a_list", {"model_arms": {"name": "terra"}}, PersonalRankingConfig()),
+            (
+                "model_arms_past_the_maximum",
+                {"model_arms": [{"name": f"a{index}", "percentage": 1, "model": "m"} for index in range(6)]},
+                PersonalRankingConfig(),
+            ),
+            (
+                "model_arms_above_100_percent",
+                {
+                    "model_arms": [
+                        {"name": "terra", "percentage": 60, "model": "gpt-terra"},
+                        {"name": "luna", "percentage": 41, "model": "gpt-luna"},
+                    ]
+                },
+                PersonalRankingConfig(),
+            ),
+            (
+                "model_arms_with_duplicate_names",
+                {
+                    "model_arms": [
+                        {"name": "terra", "percentage": 5, "model": "gpt-terra"},
+                        {"name": "terra", "percentage": 5, "model": "gpt-terra"},
+                    ]
+                },
+                PersonalRankingConfig(),
+            ),
+            (
+                "one_invalid_arm_turns_every_arm_off",
+                {
+                    "model_arms": [
+                        {"name": "terra", "percentage": 5, "model": "gpt-terra"},
+                        {"name": "luna", "percentage": 5, "model": "gpt-luna", "pool": "x"},
+                    ]
+                },
+                PersonalRankingConfig(),
+            ),
+            (
+                "model_arm_named_default",
+                {"model_arms": [{"name": "default", "percentage": 5, "model": "gpt-terra"}]},
+                PersonalRankingConfig(),
+            ),
+            (
+                "model_arm_name_with_a_trailing_newline",
+                {"model_arms": [{"name": "terra\n", "percentage": 5, "model": "gpt-terra"}]},
+                PersonalRankingConfig(),
+            ),
+            (
+                "model_arm_without_a_percentage",
+                {"model_arms": [{"name": "terra", "percentage": 0, "model": "gpt-terra"}]},
+                PersonalRankingConfig(),
+            ),
+            (
+                "model_arm_without_a_model",
+                {"model_arms": [{"name": "terra", "percentage": 5, "model": " "}]},
+                PersonalRankingConfig(),
+            ),
+            (
+                "model_arm_with_an_invalid_reasoning_effort",
+                {"model_arms": [{"name": "terra", "percentage": 5, "model": "gpt-terra", "reasoning_effort": "max"}]},
+                PersonalRankingConfig(),
+            ),
+            (
+                "model_arms_with_an_invalid_salt",
+                {"model_arms_salt": 7, "model_arms": [{"name": "terra", "percentage": 5, "model": "gpt-terra"}]},
+                PersonalRankingConfig(),
+            ),
         ]
     )
     def test_parse_config(self, _name: str, payload: Any, expected: PersonalRankingConfig) -> None:
         assert parse_config(payload) == expected
+
+    def test_model_arms_split_people_by_a_stable_salted_hash_of_the_user_id(self) -> None:
+        def arms_config(terra_percentage: float, salt: str = "2026-11") -> PersonalRankingConfig:
+            return parse_config(
+                {
+                    "model": "gpt-base",
+                    "model_arms_salt": salt,
+                    "model_arms": [
+                        {"name": "terra", "percentage": terra_percentage, "model": "gpt-terra"},
+                        {"name": "base_medium", "percentage": 10, "model": "gpt-base", "reasoning_effort": "medium"},
+                    ],
+                }
+            )
+
+        def members(config: PersonalRankingConfig, arm: str) -> set[int]:
+            return {user_id for user_id in range(1, 5001) if config_for_user(config, user_id).model_arm == arm}
+
+        config = arms_config(10)
+        arm_of = {user_id: config_for_user(config, user_id).model_arm for user_id in range(1, 5001)}
+        shares = Counter(arm_of.values())
+        assert 400 < shares["terra"] < 600 and 400 < shares["base_medium"] < 600
+        assert shares["default"] == 5000 - shares["terra"] - shares["base_medium"]
+
+        terra = members(config, "terra")
+        assert members(arms_config(10), "terra") == terra
+        assert terra < members(arms_config(20), "terra")
+        assert members(arms_config(10, salt="2026-12"), "terra") != terra
+
+        terra_user = min(terra)
+        terra_config = config_for_user(config, terra_user)
+        assert (terra_config.model, terra_config.reasoning_effort) == ("gpt-terra", "low")
+        assert config_for_user(terra_config, terra_user) == terra_config
+        medium_user = next(user_id for user_id, arm in arm_of.items() if arm == "base_medium")
+        medium_config = config_for_user(config, medium_user)
+        assert (medium_config.model, medium_config.reasoning_effort) == ("gpt-base", "medium")
+        default_user = next(user_id for user_id, arm in arm_of.items() if arm == "default")
+        assert config_for_user(config, default_user).model == "gpt-base"
 
 
 def _response(content: str | None, finish_reason: str = "stop") -> SimpleNamespace:
@@ -658,13 +815,14 @@ class TestBuildPersonalRanking(BaseTest):
     def setUp(self) -> None:
         super().setUp()
         self.llm = MagicMock()
+        self.build_client = MagicMock(return_value=self.llm)
         scoped_capture = MagicMock()
         self.capture = scoped_capture.return_value.__enter__.return_value
         self.summary: ActivitySummaryView | None = ActivitySummaryView(
             status=ActivitySummaryStatus.READY, headline="Works on checkout", version=7
         )
         for target, value in (
-            ("products.signals.backend.personal_ranking.logic.build_openai_client", MagicMock(return_value=self.llm)),
+            ("products.signals.backend.personal_ranking.logic.build_openai_client", self.build_client),
             (
                 "products.signals.backend.personal_ranking.logic.get_summary",
                 MagicMock(side_effect=lambda *_: self.summary),
@@ -796,6 +954,7 @@ class TestBuildPersonalRanking(BaseTest):
         assert event["event"] == BUILT_EVENT
         assert event["properties"]["ranking_id"] == str(row.id)
         assert (event["properties"]["personalized"], event["properties"]["model_called"]) == (True, True)
+        assert event["properties"]["model_arm"] == "default"
         assert event["properties"]["tier_counts"] == {"top": 0, "worth_a_look": 2, "later": 1}
         assert event["properties"]["report_ids"] == [
             *(entry["report_id"] for entry in row.result["ranked"]),
@@ -845,6 +1004,28 @@ class TestBuildPersonalRanking(BaseTest):
         if not model_called:
             self.create.assert_not_called()
 
+    def test_a_person_in_an_arm_is_ranked_and_labelled_by_the_arm(self) -> None:
+        self._setup_reports()
+        self.create.return_value = _response(_answer([]))
+        config = parse_config(
+            {"model_arms": [{"name": "terra", "percentage": 100, "model": "gpt-terra", "reasoning_effort": "high"}]}
+        )
+
+        build_personal_ranking(self.team, self.user, config=config)
+
+        assert (self.create.call_args.kwargs["model"], self.create.call_args.kwargs["reasoning_effort"]) == (
+            "gpt-terra",
+            "high",
+        )
+        assert self.build_client.call_args.kwargs["properties"]["model_arm"] == "terra"
+        properties = self.capture.call_args.kwargs["properties"]
+        assert (properties["model"], properties["model_arm"], properties["reasoning_effort"]) == (
+            "gpt-terra",
+            "terra",
+            "high",
+        )
+        assert PersonalInboxRanking.objects.for_team(self.team.id).get().model == "gpt-terra"
+
     def test_a_model_that_rejects_reasoning_effort_gets_calls_without_it(self) -> None:
         self._setup_reports()
         rejection = BadRequestError(
@@ -889,6 +1070,50 @@ class TestBuildPersonalRanking(BaseTest):
         else:
             assert [candidate.report_id for candidate in build.candidates] == [str(own.id)]
             assert (build.candidates[0].predictions is not None) is staff
+
+    def test_the_inbox_activity_block_reaches_the_prompt_and_the_event(self) -> None:
+        routed = self._names_me(self._report("Export job timeouts"))
+        SignalReportAction.objects.for_team(self.team.id).create(
+            team=self.team,
+            report=routed,
+            user=self.user,
+            type="feedback",
+            metadata={"sentiment": "positive"},
+            last_at=timezone.now(),
+        )
+        self.create.return_value = _response(_answer([_entry("c1", 1)]))
+        config = PersonalRankingConfig(inbox_activity_lines=5)
+
+        build = build_personal_ranking(self.team, self.user, config=config, dry_run=False)
+
+        ref = build.candidates[0].ref
+        message = self.create.call_args.kwargs["messages"][1]["content"]
+        assert "# Recent inbox activity" in message
+        assert f"- {ref} | " in message and "rated it useful" in message
+        event = self.capture.call_args.kwargs["properties"]
+        assert (event["inbox_activity_lines"], event["inbox_activity_candidate_lines"]) == (1, 1)
+        assert event["inbox_activity_strength_counts"] == {"rated": 1}
+        assert "Export job timeouts" not in json.dumps(event)
+
+    def test_the_block_is_off_by_default_and_leaves_the_prompt_and_hash_unchanged(self) -> None:
+        routed = self._names_me(self._report("Export job timeouts"))
+        SignalReportAction.objects.for_team(self.team.id).create(
+            team=self.team,
+            report=routed,
+            user=self.user,
+            type="feedback",
+            metadata={"sentiment": "positive"},
+            last_at=timezone.now(),
+        )
+        self.create.return_value = _response(_answer([_entry("c1", 1)]))
+
+        build = build_personal_ranking(self.team, self.user, config=PersonalRankingConfig(), dry_run=True)
+
+        message = self.create.call_args.kwargs["messages"][1]["content"]
+        assert "# Recent inbox activity" not in message
+        assert build.inbox_activity is None
+        assert build.input_parts is not None
+        assert "inbox_activity" not in build.input_parts["parts"]
 
     def test_configured_pools_keep_their_order_and_names(self) -> None:
         claimed = self._report("Claimed", status=SignalReport.Status.IN_PROGRESS)
@@ -1110,17 +1335,30 @@ class TestForMeEndpoint(APIBaseTest):
         body = self._get(refresh="true", wait_seconds=5)
         assert (self._state(body), self._rows()) == ((False, False, False), 5)
 
-    def test_a_payload_change_rebuilds_the_list_and_another_limit_does_not(self) -> None:
+    @parameterized.expand(
+        [
+            ("lever", {"rank_top": 5}, DEFAULT_MODEL),
+            (
+                "model_arm",
+                {"model_arms": [{"name": "terra", "percentage": 100, "model": "gpt-terra"}]},
+                "gpt-terra",
+            ),
+        ]
+    )
+    def test_a_payload_change_rebuilds_the_list_and_another_limit_does_not(
+        self, _name: str, change: dict[str, Any], model: str
+    ) -> None:
         self._claimed_report("First")
         self._get()
         self._run_builds()
         assert self._state(self._get(limit=5)) == (True, False, False)
 
-        self.payload = {**self.payload, "rank_top": 5}
+        self.payload = {**self.payload, **change}
         assert self._state(self._get()) == (True, True, False)
         assert self._state(self._get(max_age_minutes=0)) == (True, True, True)
         self._run_builds()
         assert (self._state(self._get()), self._rows()) == ((True, False, False), 2)
+        assert PersonalInboxRanking.objects.for_team(self.team.id).latest("created_at").model == model
 
     @parameterized.expand(
         [
@@ -1293,6 +1531,56 @@ class TestForMeEndpoint(APIBaseTest):
         else:
             assert response.status_code == 404
         assert (self._rows(), self.queued) == (0, [])
+
+
+class TestReadInboxActivity(BaseTest):
+    def _report(self, title: str, **fields: Any) -> SignalReport:
+        return SignalReport.objects.create(
+            team=self.team, title=title, summary=f"{title} summary", signal_count=1, total_weight=1.0, **fields
+        )
+
+    def _acted(self, report: SignalReport, user: User, days_ago: float = 1) -> None:
+        action = SignalReportAction.objects.for_team(self.team.id).create(
+            team=self.team, report=report, user=user, type="view", last_at=timezone.now()
+        )
+        # A view on two days is the lightest fact the block keeps at the default minimum strength.
+        SignalReportAction.objects.for_team(self.team.id).filter(id=action.id).update(
+            first_at=timezone.now() - datetime.timedelta(days=days_ago + 1),
+            last_at=timezone.now() - datetime.timedelta(days=days_ago),
+        )
+
+    def test_only_the_person_and_project_reach_the_block(self) -> None:
+        other = User.objects.create_and_join(self.organization, "other@example.com", None)
+        mine = self._report("Export job timeouts")
+        theirs = self._report("Checkout funnel drops")
+        self._acted(mine, self.user)
+        self._acted(mine, other)
+        self._acted(theirs, other)
+        SignalReviewerExclusion.objects.create(
+            team=self.team, subject_user_uuid=self.user.uuid, repository="example-org/billing", instruction="moved on"
+        )
+        SignalReviewerExclusion.objects.create(
+            team=self.team, subject_user_uuid=other.uuid, repository="example-org/web", instruction="not mine"
+        )
+        SignalReviewerExclusion.objects.create(
+            team=self.team,
+            subject_user_uuid=self.user.uuid,
+            repository="example-org/old",
+            instruction="revoked",
+            status=SignalReviewerExclusion.Status.REVOKED,
+        )
+
+        config = PersonalRankingConfig(inbox_activity_lines=10, inbox_activity_min_strength=InboxStrength.VIEWED)
+        block = read_inbox_activity(self.team, self.user, config, now=timezone.now())
+
+        assert block is not None
+        assert [sorted(line.report_ids) for line in block.lines] == [[str(mine.id)]]
+        assert [area.repository for area in block.exclusions] == ["example-org/billing"]
+
+    def test_the_block_is_none_when_lines_are_zero(self) -> None:
+        self._acted(self._report("Export job timeouts"), self.user)
+
+        assert read_inbox_activity(self.team, self.user, PersonalRankingConfig(), now=timezone.now()) is None
 
 
 class TestPersonalRankingState(SimpleTestCase):

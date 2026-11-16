@@ -37,6 +37,7 @@ export interface TaxonomicBreakdownFilterProps {
     showInlineOptions?: boolean
     disablePropertyInfo?: boolean
     size?: 'small' | 'medium'
+    hideAddWhenFull?: boolean
 }
 
 export function TaxonomicBreakdownFilter({
@@ -52,6 +53,7 @@ export function TaxonomicBreakdownFilter({
     showInlineOptions = false,
     disablePropertyInfo,
     size = 'medium',
+    hideAddWhenFull = false,
 }: TaxonomicBreakdownFilterProps): JSX.Element {
     const logicProps: TaxonomicBreakdownFilterLogicProps = {
         insightProps,
@@ -161,11 +163,13 @@ export function TaxonomicBreakdownFilter({
             )}
             <div className="flex flex-wrap gap-2 items-center">
                 {tags}
-                <TaxonomicBreakdownButton
-                    disabledReason={composedDisabledReason}
-                    disabledReasonInteractive={!!composedDisabledReason}
-                    size={size}
-                />
+                {!(hideAddWhenFull && addBreakdownDisabledReason) && (
+                    <TaxonomicBreakdownButton
+                        disabledReason={composedDisabledReason}
+                        disabledReasonInteractive={!!composedDisabledReason}
+                        size={size}
+                    />
+                )}
             </div>
             {showInlineOptions &&
                 isMultipleBreakdownsEnabled &&

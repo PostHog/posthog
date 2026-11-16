@@ -383,6 +383,15 @@ class HogFunctionMaskingSerializer(serializers.Serializer):
     )
 
     def validate(self, attrs):
+        # A PATCH makes nested serializers partial too, and masking is always stored as a whole object.
+        missing = {
+            name: [field.error_messages["required"]]
+            for name, field in self.fields.items()
+            if field.required and name not in attrs
+        }
+        if missing:
+            raise serializers.ValidationError(missing, code="required")
+
         attrs["bytecode"] = generate_template_bytecode(attrs["hash"], input_collector=set())
 
         return super().validate(attrs)

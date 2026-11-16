@@ -637,3 +637,20 @@ export const dataCatalogUsageLatestRetrieve = async (
         method: 'GET',
     })
 }
+
+export const getDataCatalogUsageRecomputeCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/data_catalog/usage/recompute/`
+}
+
+/**
+ * Start a usage scan now. The new snapshot computes until the scan finishes.
+ */
+export const dataCatalogUsageRecomputeCreate = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<UsageSnapshotSummaryApi> => {
+    return apiMutator<UsageSnapshotSummaryApi>(getDataCatalogUsageRecomputeCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+    })
+}

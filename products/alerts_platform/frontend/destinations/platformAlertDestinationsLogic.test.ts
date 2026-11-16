@@ -43,6 +43,22 @@ describe('platformAlertDestinationsLogic', () => {
         expect(logic.values.addDisabledReason).toContain(`at most ${MAX_DESTINATIONS_PER_ALERT}`)
     })
 
+    it('takes more destinations when the routes set no cap', async () => {
+        const uncapped = platformAlertDestinationsLogic({
+            sourceKind: 'logs',
+            api: { list: jest.fn(), create: jest.fn(), remove: jest.fn() },
+        })
+        uncapped.mount()
+        uncapped.actions.setSelectedType(PlatformAlertDestinationTypeEnumApi.Webhook)
+        for (let i = 0; i <= MAX_DESTINATIONS_PER_ALERT; i++) {
+            uncapped.actions.setWebhookUrl(`https://hooks.example.com/alert-${i}`)
+            uncapped.actions.addSelectedDestination()
+            await expectLogic(uncapped).toFinishAllListeners()
+        }
+
+        expect(uncapped.values.pendingDestinations).toHaveLength(MAX_DESTINATIONS_PER_ALERT + 1)
+    })
+
     it('queues a PagerDuty destination with its incident settings', async () => {
         logic.actions.setSelectedType(PlatformAlertDestinationTypeEnumApi.Pagerduty)
         logic.actions.setPagerDutyRoutingKey(' abcdefghijklmnopqrstuvwxyz012345 ')

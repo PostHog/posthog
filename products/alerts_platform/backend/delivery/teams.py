@@ -90,6 +90,9 @@ def card_for(message: AlertMessage) -> dict[str, Any]:
 class TeamsTransport(WebhookUrlTransport):
     provider = PROVIDER
     display_name = "Microsoft Teams"
+    # 401 is a bad `sig`, 403 a flow its owner turned off and 404 a deleted flow. Teams answers a card
+    # it rejects with 400, which is PostHog's to fix, so it stays a reported, retried failure.
+    owner_refusals = {401: None, 403: None, 404: None}
 
     def check_url(self, url: str) -> None:
         if not is_microsoft_teams_webhook_url(url):
