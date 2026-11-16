@@ -165,6 +165,26 @@ function main() {
         if (process.argv[2] === 'prepare') {
             const candidate = classifyChanges(input)
             outputs = { needs_dependencies: candidate.mode === 'selective' && candidate.changedFiles.length > 0 }
+        } else if (process.argv[2] === 'plan') {
+            // Per-shard planning for the jest job: classification only, no dependency
+            // install and no related-test count. Every shard classifies the same diff
+            // and agrees, so the matrix does not have to wait for a selector job to
+            // install pnpm and count the tests reachable from the changed files.
+            const candidate = classifyChanges(input)
+            if (candidate.mode !== 'selective') {
+                const behavior =
+                    candidate.mode === 'skip'
+                        ? 'draft skips jest (its ready run selects again)'
+                        : 'running the full jest matrix'
+                console.log(`::notice::${candidate.reason.category} (${candidate.reason.detail}); ${behavior}`)
+            }
+            outputs = {
+                mode: candidate.mode,
+                changed_files: candidate.mode === 'selective' ? candidate.changedFiles.join(' ') : '',
+                // Drafts defer an untrusted selection to their ready run; the test step
+                // skips itself rather than running a matrix nothing selected.
+                should_run: String(candidate.mode !== 'skip'),
+            }
         } else if (process.argv[2] === 'select') {
             const selection = selectTests(input, listRelatedTests)
             if (selection.mode !== 'selective' && selection.reason.category !== 'selector_crash') {
@@ -176,7 +196,7 @@ function main() {
             }
             outputs = workflowOutputs(selection)
         } else {
-            throw new Error('Expected prepare or select, or no command for CHANGED_FILES input')
+            throw new Error('Expected prepare, plan or select, or no command for CHANGED_FILES input')
         }
     }
     fs.appendFileSync(
@@ -185,7 +205,7 @@ function main() {
             .map(([key, value]) => `${key}=${value}\n`)
             .join('')
     )
-    if (outputs.mode === 'selective') {
+    if (outputs.mode === 'selective' && outputs.related_test_count !== undefined) {
         console.log(
             `Selective mode: ${outputs.selected_file_count} changed files, ${outputs.related_test_count} related tests, ${outputs.shard_count} shards`
         )

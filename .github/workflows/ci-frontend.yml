@@ -1028,33 +1028,34 @@ jobs:
 
     jest:
         runs-on: ubuntu-24.04
-        # PRs run as many selective shards as the tests reachable from the changed
-        # files need under the file limit in .github/scripts/jest-select.js. The
-        # merge queue runs the full four-shard fanout. A copy of the repository lands
-        # on a slower GitHub-hosted runner pool, so it gets a longer budget.
+        # The fanout is fixed at eight chunks and each shard selects its own tests
+        # (see the matrix comment below). A copy of the repository lands on a slower
+        # GitHub-hosted runner pool, so it gets a longer budget.
         timeout-minutes: ${{ github.repository == 'PostHog/posthog' && 20 || 30 }}
-        needs: [changes, select-jest-tests]
-        # A status function is required because select-jest-tests is skipped on the
-        # merge queue's run and on master pushes, and a skipped need would otherwise
-        # cascade a skip here.
+        needs: changes
+        # A status function is required because changes is skipped on the merge
+        # queue's run, and a skipped need would otherwise cascade a skip here.
         # !cancelled() rather than always() so a superseded run's shards stop promptly.
         # Skipped on master push: the merge queue already ran the full matrix for every
         # landed commit, and the hourly scheduled run keeps master's jest coverage and
         # its Trunk flaky baseline.
         if: |
             !cancelled() && needs.changes.outputs.frontend_code == 'true'
-            && needs.select-jest-tests.outputs.should_run != 'false'
             && github.event_name != 'push'
         name: Jest test (${{ matrix.segment }} - ${{ matrix.chunk }})
         strategy:
             # If one test fails, still run the others
             fail-fast: false
-            # On PRs, select-jest-tests narrows this to the tests reachable from the
-            # changed frontend source files, skips jest entirely (should_run=false) on
-            # a draft whose selection can't be trusted, or emits the full fanout when a
-            # ready PR's can't be. On the merge queue's run and the hourly scheduled run
-            # the job is skipped and this default applies: the full four-chunk fanout.
-            # Master pushes do not reach here at all (see the `if` above).
+            # Eight chunks, always, and each shard decides what to run from the diff
+            # itself rather than reading a matrix handed down by select-jest-tests.
+            # That job installs pnpm (33s) and counts the tests reachable from the
+            # changed files (~75s more on a warmed store) before any shard can start,
+            # so gating the matrix on it put ~1.9 minutes of selector work on the
+            # frontend lane ahead of a shard's own ~1.5 minutes of setup. The cost of
+            # the fixed fanout is up to four extra free ubuntu-24.04 shards on a small
+            # selection; the big selections lose nothing, since the old file-count
+            # limit also capped the matrix at eight.
+            #
             # `segment` is a single fixed value: it survives only as the naming
             # token for job, JUnit file and artifact, which the timings reporter
             # parses as `junit-results-frontend-<segment>-<chunk>`. There used to
@@ -1062,7 +1063,10 @@ jobs:
             # ee/ holds no frontend code and nothing under frontend/, products/,
             # common/ or packages/ imports from it, so the two segments ran
             # byte-identical suites.
-            matrix: ${{ fromJson(needs.select-jest-tests.outputs.matrix || '{"segment":["app"],"chunk":[1,2,3,4]}') }}
+            matrix:
+                segment: [app]
+                chunk: [1, 2, 3, 4, 5, 6, 7, 8]
+                shard_count: [8]
 
         steps:
             # ubuntu-24.04 hands out several CPU models, and the same shard runs up to
@@ -1071,6 +1075,31 @@ jobs:
               run: lscpu | grep 'Model name' || true
 
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+            # The diff is computed per shard, in parallel with (and independent of)
+            # the other shards, instead of once in select-jest-tests before the matrix
+            # can start. Same `...` base as that job and as find-affected-stories.
+            - name: Compute changed files
+              id: diff
+              continue-on-error: true
+              env:
+                  BASE_REF: ${{ github.event.pull_request.base.ref }}
+              run: |
+                  set -euo pipefail
+                  git fetch --no-tags --depth=1000 --filter=blob:none origin "$GITHUB_SHA"
+                  git fetch --no-tags --depth=1000 --filter=blob:none origin "$BASE_REF:refs/remotes/origin/$BASE_REF"
+                  git diff --name-only "origin/$BASE_REF...HEAD" > /tmp/changed.txt
+                  wc -l < /tmp/changed.txt
+
+            # Classification is local and cheap (a few seconds against a warm tree) and
+            # needs no dependencies, so every shard can do it. A shard whose diff is
+            # unavailable falls back to the full fanout exactly as the selector did.
+            - name: Plan this shard's selection
+              id: plan
+              env:
+                  DIFF_OUTCOME: ${{ steps.diff.outcome }}
+                  PR_DRAFT: ${{ github.event.pull_request.draft }}
+              run: node .github/scripts/jest-select.js plan
 
             - name: Mint setup-action GitHub token
               id: setup-gh-token
@@ -1097,9 +1126,9 @@ jobs:
               env:
                   NODE_OPTIONS: --max-old-space-size=16384
                   SHARD_INDEX: ${{ matrix.chunk }}
-                  SHARD_COUNT: ${{ matrix.shard_count || 4 }}
-                  MODE: ${{ needs.select-jest-tests.outputs.mode }}
-                  CHANGED_FILES: ${{ needs.select-jest-tests.outputs.changed_files }}
+                  SHARD_COUNT: ${{ matrix.shard_count }}
+                  MODE: ${{ steps.plan.outputs.mode }}
+                  CHANGED_FILES: ${{ steps.plan.outputs.changed_files }}
                   JEST_JUNIT_OUTPUT_DIR: ${{ github.workspace }}/junit-results
                   JEST_JUNIT_OUTPUT_NAME: junit-${{ matrix.segment }}-${{ matrix.chunk }}.xml
                   # Trunk attributes flakes by test file; jest-junit's default suite name is the
@@ -1107,6 +1136,22 @@ jobs:
                   JEST_JUNIT_SUITE_NAME: '{filepath}'
                   JEST_JUNIT_ADD_FILE_ATTRIBUTE: 'true'
               run: |
+                  # An empty mode means the plan step itself failed; the selector treated any
+                  # planning failure as "run everything", so do the same here.
+                  MODE=${MODE:-full}
+                  if [ "$MODE" = "skip" ]; then
+                      # A draft whose selection can't be trusted: its ready run selects
+                      # again, so this shard runs nothing and reports green.
+                      echo "::notice::Draft with an untrusted test selection; skipping this shard."
+                      exit 0
+                  fi
+                  if [ "$MODE" = "selective" ] && [ -z "$CHANGED_FILES" ]; then
+                      # Nothing in the diff resolves to a Jest source file (a .scss-only
+                      # change, say). `--findRelatedTests` with no paths is an error, and
+                      # the selector used to skip the whole job for this case.
+                      echo "::notice::No Jest sources in the diff; skipping this shard."
+                      exit 0
+                  fi
                   if [ "$MODE" = "selective" ]; then
                       # --findRelatedTests walks jest's import graph from the changed
                       # source files and runs the matching tests. Sharding keeps broad
@@ -1115,7 +1160,7 @@ jobs:
                       # No --testPathPattern: it is mutually exclusive with
                       # --findRelatedTests (jest folds both into one path regex and
                       # matches nothing), and CHANGED_FILES is already scoped to
-                      # frontend source files by select-jest-tests. --passWithNoTests
+                      # frontend source files by jest-select.js. --passWithNoTests
                       # so a changed source file with no related test doesn't fail the
                       # run — the merge queue's trunk-merge/** run is the gate.
                       pnpm --filter=@posthog/frontend build:products
