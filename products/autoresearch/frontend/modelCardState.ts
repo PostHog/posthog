@@ -3,25 +3,42 @@ import { pluralize } from 'lib/utils/strings'
 
 import { AutoresearchPipelineApi } from './generated/api.schemas'
 
-export type ModelCardState = 'draft' | 'training' | 'awaiting_check' | 'confirmed'
+export type ModelCardState = 'draft' | 'training' | 'not_live' | 'waiting_to_train' | 'awaiting_check' | 'confirmed'
+
+/** Whether the model has a live version that scores people. */
+export function hasLiveModel({
+    champion_holdout_auc,
+    champion_realized_auc,
+}: Pick<AutoresearchPipelineApi, 'champion_holdout_auc' | 'champion_realized_auc'>): boolean {
+    return champion_holdout_auc != null || champion_realized_auc != null
+}
 
 /**
  * A live training run shows its progress only while the model has no champion. A retrain of a
  * model with a champion keeps the champion's body, and the card adds a retraining strip.
+ *
+ * A model with no champion and no live run is `training` only before its first run. After a run,
+ * it is `not_live` when that run's best model failed the check before going live, and
+ * `waiting_to_train` otherwise.
  */
-export function modelCardState({
-    status,
-    live_training_run,
-    champion_holdout_auc,
-    champion_realized_auc,
-    champion_is_preliminary,
-}: Pick<
-    AutoresearchPipelineApi,
-    'status' | 'live_training_run' | 'champion_holdout_auc' | 'champion_realized_auc' | 'champion_is_preliminary'
->): ModelCardState {
-    const hasChampion = champion_holdout_auc != null || champion_realized_auc != null
-    if (!hasChampion && (live_training_run || status === 'bootstrapping')) {
-        return 'training'
+export function modelCardState(
+    pipeline: Pick<
+        AutoresearchPipelineApi,
+        | 'status'
+        | 'live_training_run'
+        | 'champion_holdout_auc'
+        | 'champion_realized_auc'
+        | 'champion_is_preliminary'
+        | 'not_promoted_reason'
+        | 'training_run_count'
+    >
+): ModelCardState {
+    const { status, live_training_run, champion_realized_auc, champion_is_preliminary } = pipeline
+    if (!hasLiveModel(pipeline) && (live_training_run || status === 'bootstrapping')) {
+        if (live_training_run || pipeline.training_run_count === 0) {
+            return 'training'
+        }
+        return pipeline.not_promoted_reason ? 'not_live' : 'waiting_to_train'
     }
     if (status === 'draft') {
         return 'draft'

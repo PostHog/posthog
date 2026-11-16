@@ -102,6 +102,25 @@ export const Training: Story = {
     },
 }
 
+// The first run's best model failed the check before going live, so the model has no live version.
+export const NotLiveYet: Story = {
+    args: {
+        pipeline: {
+            ...Training.args!.pipeline!,
+            experiment_count: 19,
+            live_training_run: null,
+            research_interval_days: 7,
+            training_phase: 'explore',
+            next_research_at: '2026-03-02T00:00:00Z',
+            not_promoted_reason: 'The champion fit failed: model.pkl is 14830476 bytes, over the 10485760-byte cap',
+        },
+    },
+}
+
+export const WaitingToTrain: Story = {
+    args: { pipeline: { ...NotLiveYet.args!.pipeline!, not_promoted_reason: null } },
+}
+
 export const AwaitingCheck: Story = { args: { pipeline: BASE } }
 
 export const AwaitingCheckLongHorizon: Story = {

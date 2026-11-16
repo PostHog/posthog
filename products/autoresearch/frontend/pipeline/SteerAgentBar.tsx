@@ -19,14 +19,7 @@ export function SteerAgentBar(): JSX.Element {
     } = useValues(autoresearchPipelineLogic)
     const { requestTraining, steerOpened, stopTraining } = useActions(autoresearchPipelineLogic)
     const { props } = useMountedLogic(autoresearchPipelineLogic)
-    const { trainDisabledByLimitReason } = useValues(trainingScheduleLogic(props))
-    const trainDisabledReason = firstRunCheckRunning
-        ? 'Checking your data'
-        : startTrainingResultLoading
-          ? 'Starting…'
-          : pipeline?.status === 'paused'
-            ? 'Resume the model to train it'
-            : trainDisabledByLimitReason
+    const { trainDisabledReason } = useValues(trainingScheduleLogic(props))
     return (
         <div className="flex flex-col @md:flex-row @md:items-start gap-2">
             <LemonCollapse

@@ -9,7 +9,7 @@ import { pluralize } from 'lib/utils/strings'
 import { urls } from 'scenes/urls'
 
 import { autoresearchLogic } from './autoresearchLogic'
-import { AutoresearchLiveTrainingRunApi, AutoresearchPipelineApi } from './generated/api.schemas'
+import { AutoresearchLiveTrainingRunApi, AutoresearchPipelineApi, ProjectLimitsApi } from './generated/api.schemas'
 import { ModelCardMenu } from './ModelCardMenu'
 import { firstCheckCountdown, modelCardState } from './modelCardState'
 import { formatAuc, isLiftAtCeiling, modelQuality } from './modelQuality'
@@ -18,6 +18,7 @@ import { MetricSparkline } from './pipeline/MetricSparkline'
 import { eventName, pipelineSubtitle, pipelineTitle } from './pipelineQuestion'
 import { PipelineStatusTag } from './PipelineStatusTag'
 import { formatProbability } from './predictionSegments'
+import { trainingScheduleStatus } from './trainingScheduleLogic'
 
 const TEST_DATA_COLOR = 'var(--color-text-secondary)'
 const REAL_OUTCOME_COLOR = 'var(--success)'
@@ -198,7 +199,13 @@ function RetrainingStrip({
     )
 }
 
-function TrainingBody({ liveRun }: { liveRun: AutoresearchLiveTrainingRunApi | null }): JSX.Element {
+function TrainingBody({
+    liveRun,
+    trainingRunCount,
+}: {
+    liveRun: AutoresearchLiveTrainingRunApi | null
+    trainingRunCount: number
+}): JSX.Element {
     if (!liveRun) {
         return <span className="text-secondary">Starting the first training run…</span>
     }
@@ -208,6 +215,9 @@ function TrainingBody({ liveRun }: { liveRun: AutoresearchLiveTrainingRunApi | n
     }))
     return (
         <div className="flex flex-col gap-1">
+            <span className="text-xs font-semibold">
+                {trainingRunCount > 1 ? 'Training run in progress' : 'First training run in progress'}
+            </span>
             <div className="flex items-center justify-between gap-2">
                 <Headline
                     value={liveRun.best_holdout_score != null ? formatAuc(liveRun.best_holdout_score) : 'No score yet'}
@@ -221,6 +231,48 @@ function TrainingBody({ liveRun }: { liveRun: AutoresearchLiveTrainingRunApi | n
                     {liveRun.latest_agent_description}
                 </span>
             )}
+        </div>
+    )
+}
+
+function NotLiveBody({
+    pipeline,
+    limits,
+}: {
+    pipeline: AutoresearchPipelineApi
+    limits: ProjectLimitsApi | null
+}): JSX.Element {
+    const { modelCardOpened } = useActions(autoresearchLogic)
+    return (
+        <div className="flex flex-col gap-1">
+            <span className="font-semibold">Found a model, but it couldn't go live</span>
+            <span className="text-xs text-secondary">
+                {trainingScheduleStatus(pipeline, limits)}{' '}
+                <Link
+                    to={urls.autoresearchPipeline(pipeline.id)}
+                    onClick={() => modelCardOpened(pipeline.id)}
+                    data-attr="autoresearch-model-card-see-why"
+                >
+                    See why
+                </Link>
+            </span>
+        </div>
+    )
+}
+
+function WaitingToTrainBody({
+    pipeline,
+    limits,
+}: {
+    pipeline: AutoresearchPipelineApi
+    limits: ProjectLimitsApi | null
+}): JSX.Element {
+    return (
+        <div className="flex flex-col gap-1">
+            <span className="font-semibold">
+                {limits?.next_slot_at ? 'Waiting for a training slot' : 'Waiting for the next training run'}
+            </span>
+            <span className="text-xs text-secondary">{trainingScheduleStatus(pipeline, limits)}</span>
         </div>
     )
 }
@@ -248,12 +300,13 @@ function DraftBody({ pipeline }: { pipeline: AutoresearchPipelineApi }): JSX.Ele
 
 export function AutoresearchModelCard({ pipeline }: { pipeline: AutoresearchPipelineApi }): JSX.Element {
     const { modelCardOpened } = useActions(autoresearchLogic)
+    const { projectLimits } = useValues(autoresearchLogic)
     const state = modelCardState(pipeline)
     const subtitle = pipelineSubtitle(pipeline)
     return (
         <LemonCard hoverEffect={false} className="flex flex-col gap-3 p-4 min-w-0">
             <div className="flex items-center justify-between gap-2">
-                <PipelineStatusTag status={pipeline.status} />
+                <PipelineStatusTag pipeline={pipeline} />
                 <div className="flex items-center gap-1">
                     {pipeline.cadence_days != null && (
                         <span className="text-xs text-secondary">
@@ -279,7 +332,14 @@ export function AutoresearchModelCard({ pipeline }: { pipeline: AutoresearchPipe
             <div className="flex flex-col gap-1">
                 <div className="rounded border bg-surface-secondary p-3">
                     {state === 'training' ? (
-                        <TrainingBody liveRun={pipeline.live_training_run} />
+                        <TrainingBody
+                            liveRun={pipeline.live_training_run}
+                            trainingRunCount={pipeline.training_run_count}
+                        />
+                    ) : state === 'not_live' ? (
+                        <NotLiveBody pipeline={pipeline} limits={projectLimits} />
+                    ) : state === 'waiting_to_train' ? (
+                        <WaitingToTrainBody pipeline={pipeline} limits={projectLimits} />
                     ) : state === 'draft' ? (
                         <DraftBody pipeline={pipeline} />
                     ) : state === 'awaiting_check' ? (

@@ -10,7 +10,7 @@ The product is mostly a backend, and the UI is deliberately thin — it reads st
 | ------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------- |
 | `AutoresearchScene.tsx`         | `/autoresearch` — the model list: search and sort, a container-query grid of model cards, and the "New model" entry point.                  |
 | `modelList.ts`                  | The model list's search (name, target event and its display name) and sort (recently created, needs attention, name).                       |
-| `AutoresearchModelCard.tsx`     | One model card: the question, a headline metric per state (draft, training, awaiting check, confirmed). `ModelCardMenu.tsx` holds actions.  |
+| `AutoresearchModelCard.tsx`     | One model card: the question and a body per state from `modelCardState.ts`. `ModelCardMenu.tsx` holds actions.                              |
 | `pipelineQuestion.ts`           | The card and header title (a name written as a question, else "Who will do “X” in the next N days?"), `eventName()` and the subtitle.       |
 | `AutoresearchNewScene.tsx`      | `/autoresearch/new` — the create form. Its parts live in `newModel/`.                                                                       |
 | `AutoresearchPipelineScene.tsx` | `/autoresearch/:id` — the detail shell: the question header, the lifecycle strip, and four tabs. Each tab lives in `pipeline/`.             |
@@ -45,6 +45,8 @@ This is where the UI is easiest to get wrong, because the backend writes a train
 So a healthy run in progress reads `0/5` iterations with five iteration rows already in the database and no model at all. Rendering the counter alone makes a working run look stalled. Prefer the iteration rows for progress, and treat a missing champion on a `running` pipeline as normal rather than as an empty state.
 
 Pipeline status has six values (`draft`, `bootstrapping`, `running`, `converged`, `paused`, `archived`) and a fresh pipeline sits in `bootstrapping` for the whole first training run.
+It also stays in `bootstrapping` when its first champion rolls back, so `modelCardState()` splits a model with no live version into training, not live yet (`not_promoted_reason` is set) and waiting to train.
+The card and `PipelineStatusTag` both read it, and the UI never shows the word "bootstrapping".
 
 ## Conventions
 

@@ -1,7 +1,11 @@
 import { dayjs } from 'lib/dayjs'
 
 import type { AutoresearchPipelineApi, ProjectLimitsApi } from './generated/api.schemas'
-import { trainingScheduleStatus, trainingDisabledByLimitReason } from './trainingScheduleLogic'
+import {
+    notPromotedReasonSentence,
+    trainingDisabledByLimitReason,
+    trainingScheduleStatus,
+} from './trainingScheduleLogic'
 
 const NOW = dayjs('2026-03-01T12:00:00Z')
 
@@ -22,6 +26,15 @@ const PIPELINE = {
     research_interval_days: 7,
     training_phase: 'maintain',
     next_research_at: '2026-03-05T00:00:00Z',
+    champion_holdout_auc: 0.8,
+    champion_realized_auc: null,
+} as AutoresearchPipelineApi
+
+const NO_LIVE_MODEL = {
+    ...PIPELINE,
+    status: 'bootstrapping',
+    training_phase: 'explore',
+    champion_holdout_auc: null,
 } as AutoresearchPipelineApi
 
 describe('trainingScheduleLogic limits', () => {
@@ -39,6 +52,40 @@ describe('trainingScheduleLogic limits', () => {
         ],
     ])('status line when %s', (_name, overrides, expected) => {
         expect(trainingScheduleStatus(PIPELINE, { ...LIMITS, ...overrides }, NOW)).toEqual(expected)
+    })
+
+    it.each<[string, AutoresearchPipelineApi, string]>([
+        [
+            'a live model exploring',
+            { ...PIPELINE, training_phase: 'explore' },
+            'Exploring: training on each scoring day until a run stops improving the model.',
+        ],
+        ['a model with no live version', NO_LIVE_MODEL, 'Next research run on Mar 5.'],
+        [
+            'a model with no live version past its due date',
+            { ...NO_LIVE_MODEL, next_research_at: '2026-02-20T00:00:00Z' },
+            'Next research run on the next scoring day.',
+        ],
+    ])('status line for %s', (_name, pipeline, expected) => {
+        expect(trainingScheduleStatus(pipeline, LIMITS, NOW)).toEqual(expected)
+    })
+
+    it.each([
+        [
+            'The champion fit failed: model.pkl is 14830476 bytes, over the 10485760-byte cap',
+            'The model file was too large to run every day.',
+        ],
+        [
+            "features.sql took 412s against today's inference anchors, above the 300s budget for a scoring run",
+            "The model's daily query took too long to run.",
+        ],
+        [
+            "features.sql failed against today's inference anchors: Code: 159. Timeout exceeded: elapsed 300 seconds",
+            "The model's daily query took too long to run.",
+        ],
+        ['The champion fit failed: predict.py exited with code 1', 'The model failed a check before going live.'],
+    ])('plain sentence for not promoted reason %s', (reason, expected) => {
+        expect(notPromotedReasonSentence(reason)).toEqual(expected)
     })
 
     it.each<[string, AutoresearchPipelineApi['status'], Partial<ProjectLimitsApi>, boolean]>([

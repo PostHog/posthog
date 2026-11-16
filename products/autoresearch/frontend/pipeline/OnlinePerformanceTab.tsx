@@ -7,6 +7,7 @@ import { dayjs } from 'lib/dayjs'
 import { pluralize } from 'lib/utils/strings'
 
 import { autoresearchPipelineLogic } from '../autoresearchPipelineLogic'
+import { hasLiveModel } from '../modelCardState'
 import { isLiftAtCeiling, liftCeilingNote } from '../modelQuality'
 import { accuracyStats, accuracySummary, percent } from '../onlinePerformance'
 import { eventName } from '../pipelineQuestion'
@@ -59,6 +60,17 @@ function NotCheckedYet(): JSX.Element {
     )
 }
 
+function NothingToCheckYet(): JSX.Element {
+    const { pipeline } = useValues(autoresearchPipelineLogic)
+    const horizon = pluralize(pipeline?.horizon_days ?? 0, 'day')
+    return (
+        <EmptyTab icon={<IconGraph />} title="Nothing to check yet">
+            This model has no live version, so there are no predictions to check. Once a model goes live, the first
+            check comes {horizon} after its first scoring run.
+        </EmptyTab>
+    )
+}
+
 export function OnlinePerformanceTab(): JSX.Element {
     const {
         pipeline,
@@ -94,7 +106,7 @@ export function OnlinePerformanceTab(): JSX.Element {
     if (!latestChampionPerformance || !pipeline) {
         return (
             <div className="space-y-6">
-                <NotCheckedYet />
+                {pipeline && !hasLiveModel(pipeline) ? <NothingToCheckYet /> : <NotCheckedYet />}
                 <LiveModelDrivers />
             </div>
         )

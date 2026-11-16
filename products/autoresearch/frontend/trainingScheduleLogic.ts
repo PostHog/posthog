@@ -16,6 +16,7 @@ import type {
     ProjectLimitsApi,
     ResearchIntervalDaysEnumApi,
 } from './generated/api.schemas'
+import { hasLiveModel } from './modelCardState'
 
 export const MIN_ITERATIONS_PER_RUN = 1
 export const MAX_ITERATIONS_PER_RUN = 50
@@ -74,7 +75,8 @@ export function trainingScheduleStatus(
     if (pipeline.research_interval_days === null || !pipeline.next_research_at) {
         return 'Training starts only when you ask for it.'
     }
-    if (pipeline.training_phase === 'explore') {
+    // Exploring improves a live model, so a model with none gets the date of its next run instead.
+    if (pipeline.training_phase === 'explore' && hasLiveModel(pipeline)) {
         return 'Exploring: training on each scoring day until a run stops improving the model.'
     }
     const next = dayjs(pipeline.next_research_at)
@@ -84,16 +86,31 @@ export function trainingScheduleStatus(
     return `Next research run on ${next.format('MMM D')}.`
 }
 
-/** Why the model has no live version after its best model failed the final check, or null. */
-export function notLiveExplanation(pipeline: AutoresearchPipelineApi): string | null {
+/** A plain sentence for why the best model failed the check before going live. */
+export function notPromotedReasonSentence(reason: string): string {
+    if (/model\.pkl\b.*\bbytes\b/i.test(reason)) {
+        return 'The model file was too large to run every day.'
+    }
+    if (/\btook \d+s\b|\btimed? ?out\b|\btimeout\b|\btime limit\b/i.test(reason)) {
+        return "The model's daily query took too long to run."
+    }
+    return 'The model failed a check before going live.'
+}
+
+/** Why the model has no live version after its best model failed the final check, and when training tries again. */
+export function notLiveExplanation(
+    pipeline: AutoresearchPipelineApi,
+    limits: ProjectLimitsApi | null = null,
+    now: dayjs.Dayjs = dayjs()
+): string | null {
     if (!pipeline.not_promoted_reason || pipeline.live_training_run) {
         return null
     }
     const next =
         pipeline.research_interval_days === null
-            ? 'Start a training run to try again.'
-            : 'The next research run tries again.'
-    return `The best model from the last training run couldn't go live, so nothing is scored yet. ${next}`
+            ? 'Run training to try again.'
+            : trainingScheduleStatus(pipeline, limits, now)
+    return `${notPromotedReasonSentence(pipeline.not_promoted_reason)} ${next}`
 }
 
 export interface trainingScheduleLogicValues {
@@ -109,6 +126,9 @@ export interface trainingScheduleLogicValues {
     projectLimits: ProjectLimitsApi | null
     projectLimitsLoading: boolean
     trainDisabledByLimitReason: string | undefined
+    trainDisabledReason: string | undefined
+    startTrainingResultLoading: boolean
+    firstRunCheckRunning: boolean
 }
 
 export interface trainingScheduleLogicActions {
@@ -159,7 +179,12 @@ export const trainingScheduleLogic = kea<trainingScheduleLogicType>([
     key((props) => props.id),
     path((key) => ['products', 'autoresearch', 'frontend', 'trainingScheduleLogic', key]),
     connect((props: AutoresearchPipelineLogicProps) => ({
-        values: [teamLogic, ['currentTeamId'], autoresearchPipelineLogic(props), ['pipeline']],
+        values: [
+            teamLogic,
+            ['currentTeamId'],
+            autoresearchPipelineLogic(props),
+            ['pipeline', 'startTrainingResultLoading', 'firstRunCheckRunning'],
+        ],
         actions: [
             autoresearchPipelineLogic(props),
             ['loadPipelineSuccess', 'startTrainingSuccess', 'startTrainingFailure', 'resumePipelineSuccess'],
@@ -263,6 +288,22 @@ export const trainingScheduleLogic = kea<trainingScheduleLogicType>([
             (s) => [s.pipeline, s.projectLimits],
             (pipeline: AutoresearchPipelineApi | null, projectLimits: ProjectLimitsApi | null): string | undefined =>
                 trainingDisabledByLimitReason(pipeline, projectLimits),
+        ],
+        trainDisabledReason: [
+            (s) => [s.firstRunCheckRunning, s.startTrainingResultLoading, s.pipeline, s.trainDisabledByLimitReason],
+            (
+                firstRunCheckRunning: boolean,
+                startTrainingResultLoading: boolean,
+                pipeline: AutoresearchPipelineApi | null,
+                trainDisabledByLimitReason: string | undefined
+            ): string | undefined =>
+                firstRunCheckRunning
+                    ? 'Checking your data'
+                    : startTrainingResultLoading
+                      ? 'Starting…'
+                      : pipeline?.status === 'paused'
+                        ? 'Resume the model to train it'
+                        : trainDisabledByLimitReason,
         ],
         effortOptions: [
             (s) => [s.agentModelOptions, s.schedule],

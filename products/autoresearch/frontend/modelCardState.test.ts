@@ -31,7 +31,42 @@ describe('modelCardState', () => {
             status: 'bootstrapping' as const,
             live: false,
             champion: noChampion,
+            runs: 0,
             expected: 'training',
+        },
+        {
+            name: 'first run in progress',
+            status: 'bootstrapping' as const,
+            live: true,
+            champion: noChampion,
+            runs: 1,
+            expected: 'training',
+        },
+        {
+            name: 'first champion rolled back',
+            status: 'bootstrapping' as const,
+            live: false,
+            champion: noChampion,
+            runs: 1,
+            reason: 'The champion fit failed',
+            expected: 'not_live',
+        },
+        {
+            name: 'retry after a rollback in progress',
+            status: 'bootstrapping' as const,
+            live: true,
+            champion: noChampion,
+            runs: 2,
+            reason: 'The champion fit failed',
+            expected: 'training',
+        },
+        {
+            name: 'finished runs and no live model',
+            status: 'bootstrapping' as const,
+            live: false,
+            champion: noChampion,
+            runs: 1,
+            expected: 'waiting_to_train',
         },
         {
             name: 'no realized AUC',
@@ -62,8 +97,16 @@ describe('modelCardState', () => {
             champion: awaiting,
             expected: 'awaiting_check',
         },
-    ])('$name is $expected', ({ status, live, champion, expected }) => {
-        expect(modelCardState({ status, live_training_run: live ? liveRun : null, ...champion })).toEqual(expected)
+    ])('$name is $expected', ({ status, live, champion, runs = 1, reason = null, expected }) => {
+        expect(
+            modelCardState({
+                status,
+                live_training_run: live ? liveRun : null,
+                not_promoted_reason: reason,
+                training_run_count: runs,
+                ...champion,
+            })
+        ).toEqual(expected)
     })
 })
 

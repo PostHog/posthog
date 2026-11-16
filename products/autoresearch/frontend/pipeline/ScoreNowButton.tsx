@@ -6,14 +6,13 @@ import { LemonButton } from '@posthog/lemon-ui'
 import { dayjs } from 'lib/dayjs'
 
 import { autoresearchPipelineLogic } from '../autoresearchPipelineLogic'
-import { AutoresearchModelRoleEnumApi } from '../generated/api.schemas'
+import { hasLiveModel } from '../modelCardState'
 
-/** Score-now action, gated on a champion existing. Reused in the title bar and empty states. */
+/** Score-now action, shown only while the model has a live version. Reused in the title bar and empty states. */
 export function ScoreNowButton(): JSX.Element | null {
-    const { pipeline, models, scoreResultLoading, activeScoreRun } = useValues(autoresearchPipelineLogic)
+    const { pipeline, scoreResultLoading, activeScoreRun } = useValues(autoresearchPipelineLogic)
     const { scoreNow } = useActions(autoresearchPipelineLogic)
-    const hasChampion = models.some((m) => m.role === AutoresearchModelRoleEnumApi.Champion)
-    if (!pipeline || pipeline.status === 'archived') {
+    if (!pipeline || pipeline.status === 'archived' || !hasLiveModel(pipeline)) {
         return null
     }
     return (
@@ -24,13 +23,7 @@ export function ScoreNowButton(): JSX.Element | null {
             onClick={() => scoreNow()}
             data-attr="autoresearch-model-score"
             loading={scoreResultLoading || !!activeScoreRun}
-            disabledReason={
-                pipeline.status === 'paused'
-                    ? 'Resume the model to score it'
-                    : hasChampion
-                      ? undefined
-                      : 'Train a champion model first'
-            }
+            disabledReason={pipeline.status === 'paused' ? 'Resume the model to score it' : undefined}
         >
             {activeScoreRun
                 ? `Scoring… started ${dayjs(activeScoreRun.started_at ?? activeScoreRun.created_at).format('HH:mm')}`
