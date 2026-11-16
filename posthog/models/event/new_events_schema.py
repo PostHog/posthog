@@ -184,9 +184,7 @@ def set_project_events_table_opt_in(team: "Team", opted_in: bool) -> None:
 def project_moved_to_new_events_table(team_id: int | None) -> bool:
     """Whether staff or the rollout moved the project to events_json, whatever the project chose for itself.
 
-    CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA moves every project, CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA_TEAMS moves
-    a listed project, and the rollout flag moves the rest. Callers that pass no project, such as usage reports,
-    follow CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA alone.
+    Callers that pass no project, such as usage reports, follow CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA alone.
     """
     if get_instance_setting("CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA"):
         return True
@@ -209,15 +207,30 @@ def project_reads_new_events_table(team_id: int | None) -> bool:
 def use_new_events_schema(team_id: int | None = None, modifiers: "HogQLQueryModifiers | None" = None) -> bool:
     """Whether an events read uses the new events table (events_json) instead of the old one.
 
-    Checked in this order. The first one that is set wins:
+    Four things are checked in order. The first one that is set decides, and the rest are ignored.
 
     1. The query's own useNewEventsSchema modifier.
-    2. The table of the query this read runs inside.
+    2. If this read happens while another query is running, that query's table.
     3. A staff person's tab header or browser cookie (new_events_schema_for_request).
-    4. The project's table (project_reads_new_events_table).
+    4. The project.
 
-    A changed setting or opt-in reaches a worker within a minute. Inside a query, use
-    HogQLContext.uses_new_events_schema(): it decides once, so a query cannot mix the two tables.
+    The first three are overrides for one query or one staff browser. Each can choose either table.
+
+    The project reads the new table when any of these is true. None of them outranks another, and none of them
+    can choose the old table:
+
+    - It opted in early, in project settings. This counts only while the new-events-table-self-serve feature
+      flag is on for the project.
+    - The instance setting CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA is on. It moves every project.
+    - The instance setting CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA_TEAMS lists the project.
+    - The new-events-table-rollout feature flag includes the project.
+
+    To hold one project on the old table, exclude it in both feature flags and keep it off the list. Once
+    CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA is on, no project can be held back. A changed setting, flag or opt-in
+    takes up to a couple of minutes to reach every worker.
+
+    Inside a query, use HogQLContext.uses_new_events_schema(). It decides once, so a query cannot mix the two
+    tables.
     """
     if modifiers is not None and modifiers.useNewEventsSchema is not None:
         return modifiers.useNewEventsSchema
