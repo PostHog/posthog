@@ -150,13 +150,17 @@ def _project_events_table_choices() -> dict[int, bool]:
         return _project_choices[1]
 
     # Deferred: this module is imported at django.setup(), before the models load.
+    from posthog.models.team import Team  # noqa: PLC0415
     from posthog.models.team.team_events_table_config import TeamEventsTableConfig  # noqa: PLC0415
 
     choices: dict[int, bool] = dict(
-        TeamEventsTableConfig.objects.filter(use_new_events_table__isnull=False).values_list(
-            "team_id", "use_new_events_table"
-        )
+        TeamEventsTableConfig.objects.unscoped()
+        .filter(use_new_events_table__isnull=False)
+        .values_list("team_id", "use_new_events_table")
     )
+    # A choice is stored on the project's root team, and queries run with the id of the environment they read.
+    for child_id, root_id in Team.objects.filter(parent_team_id__in=choices).values_list("id", "parent_team_id"):
+        choices[child_id] = choices[root_id]
     _project_choices = (time.monotonic(), choices)
     return choices
 
@@ -175,12 +179,11 @@ def project_events_table_choice(team_id: int) -> bool | None:
 def set_project_events_table_choice(team: "Team", use_new_events_table: bool | None) -> None:
     """Store the project's choice. Other workers read it once their cached choices expire, within a minute."""
     # Deferred: this module is imported at django.setup(), before the models load.
-    from posthog.models.team.extensions import get_or_create_team_extension  # noqa: PLC0415
     from posthog.models.team.team_events_table_config import TeamEventsTableConfig  # noqa: PLC0415
 
-    config = get_or_create_team_extension(team, TeamEventsTableConfig)
-    config.use_new_events_table = use_new_events_table
-    config.save(update_fields=["use_new_events_table"])
+    TeamEventsTableConfig.objects.unscoped().update_or_create(
+        team_id=team.parent_team_id or team.pk, defaults={"use_new_events_table": use_new_events_table}
+    )
     clear_project_events_table_choices()
 
 
