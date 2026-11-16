@@ -64,38 +64,45 @@ def test_a_card_is_kept_only_when_its_judge_agrees_with_the_review(
 
 @parameterized.expand(
     [
-        ("fails_and_passes_share_the_slots", 40, 30, 0, 20, 20),
-        ("few_fails_leave_their_slots_to_passes", 5, 45, 0, 5, 35),
-        ("few_passes_leave_their_slots_to_fails", 45, 3, 0, 37, 3),
-        ("calls_the_question_skips_take_pass_slots", 10, 5, 40, 10, 30),
+        ("fails_and_passes_share_the_slots", 40, 30, 0, (20, 20, 0)),
+        ("few_fails_leave_their_slots_to_passes", 5, 45, 0, (5, 35, 0)),
+        ("few_passes_leave_their_slots_to_fails", 45, 3, 0, (37, 3, 0)),
+        ("passes_and_skipped_calls_share_the_pass_slots", 10, 5, 40, (10, 3, 27)),
     ]
 )
 def test_calibration_keeps_room_for_the_review_passes(
-    _name: str, fails: int, passes: int, na: int, picked_fails: int, picked_passes: int
+    _name: str, fails: int, passes: int, na: int, picked: tuple[int, int, int]
 ) -> None:
-    verdicts = ["fail"] * fails + ["pass"] * passes + ["na"] * na
+    # The skipped calls come before the passes, so an order-based pick would test no pass at all.
+    verdicts = ["fail"] * fails + ["na"] * na + ["pass"] * passes
     labels = dict(enumerate(verdicts, start=1))
     card = MagicMock(labels=labels)
 
     numbers = judge_calibration.calibration_calls(card)
 
-    assert sum(1 for n in numbers if labels[n] == "fail") == picked_fails
-    assert sum(1 for n in numbers if labels[n] != "fail") == picked_passes
+    assert tuple(sum(1 for n in numbers if labels[n] == kind) for kind in ("fail", "pass", "na")) == picked
 
 
-@parameterized.expand([("answers_na", "na", True), ("fails_them", "fail", False)])
-def test_a_judge_must_not_fail_calls_the_question_does_not_apply_to(_name: str, on_na: Verdict, kept: bool) -> None:
-    labels: dict[int, Verdict] = {n: "fail" if n <= 5 else "pass" if n <= 15 else "na" for n in range(1, 46)}
+@parameterized.expand(
+    [
+        ("answers_na_where_it_does_not_apply", "pass", "na", True, (5, 15)),
+        ("fails_calls_it_does_not_apply_to", "pass", "fail", False, (35, 45)),
+        ("fails_every_call_it_applies_to", "fail", "na", False, (15, 15)),
+    ]
+)
+def test_a_judge_is_tested_on_passes_and_on_calls_the_question_skips(
+    _name: str, on_pass: Verdict, on_na: Verdict, kept: bool, counts: tuple[int, int]
+) -> None:
+    labels: dict[int, Verdict] = {n: "fail" if n <= 5 else "na" if n <= 35 else "pass" for n in range(1, 46)}
     card = replace(_card_and_rendering()[0], labels=labels, failed=5, of=15)
     numbers = judge_calibration.calibration_calls(card)
+    verdicts: dict[Verdict, Verdict] = {"fail": "fail", "pass": on_pass, "na": on_na}
 
-    calibration = judge_calibration.calibrate(
-        card, numbers, [on_na if labels[n] == "na" else labels[n] for n in numbers]
-    )
+    calibration = judge_calibration.calibrate(card, numbers, [verdicts[labels[n]] for n in numbers])
 
     assert judge_calibration.keeps(card, calibration) is kept
     measured = judge_calibration.measured(card, calibration)
-    assert (measured.failed, measured.of) == ((5, 16) if kept else (34, 45))
+    assert (measured.failed, measured.of) == counts
 
 
 def _card_and_rendering() -> tuple[call_review.ReviewCard, call_review.Rendering]:

@@ -174,13 +174,18 @@ def build_client(team_id: int, run_id: str, model: str) -> JudgeClient:
 
 def calibration_calls(card: ReviewCard) -> list[int]:
     """The review's fails and passes, CALIBRATION_CALLS at most, half for each when both have that many: a judge
-    tested on fails alone would pass by failing everything."""
+    tested on fails alone would pass by failing everything. The pass slots go to real passes and to calls the
+    question does not apply to in their own proportion, so the judge's verdicts on them stand for both kinds."""
     labels = sorted(card.labels.items())
     fails = [number for number, verdict in labels if verdict == "fail"]
-    passes = [number for number, verdict in labels if verdict != "fail"]
-    fail_slots = max(CALIBRATION_CALLS // 2, CALIBRATION_CALLS - len(passes))
+    passes = [number for number, verdict in labels if verdict == "pass"]
+    skipped = [number for number, verdict in labels if verdict == "na"]
+    fail_slots = max(CALIBRATION_CALLS // 2, CALIBRATION_CALLS - len(passes) - len(skipped))
     picked_fails = fails[:fail_slots]
-    return picked_fails + passes[: CALIBRATION_CALLS - len(picked_fails)]
+    slots = CALIBRATION_CALLS - len(picked_fails)
+    share = round(slots * len(passes) / (len(passes) + len(skipped))) if passes or skipped else 0
+    pass_slots = min(len(passes), max(share, slots - len(skipped)))
+    return picked_fails + passes[:pass_slots] + skipped[: slots - pass_slots]
 
 
 def judge_request(card: ReviewCard, rendering: Rendering, number: int, model: str) -> JudgeRequest:
