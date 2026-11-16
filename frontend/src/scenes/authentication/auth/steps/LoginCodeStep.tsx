@@ -2,39 +2,27 @@ import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 
 import * as mailboxPng from '@posthog/brand/hoggies/png/mailbox'
-import { IconCheckCircle } from '@posthog/icons'
 
 import { pngHoggie } from 'lib/brand/hoggies'
-import { supportLogic } from 'lib/components/Support/supportLogic'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { Link } from 'lib/lemon-ui/Link'
-import { preflightLogic } from 'lib/logic/preflightLogic'
 import { AuthCardTitle } from 'scenes/authentication/shared/authScene/AuthCardTitle'
 import { AuthSceneCard } from 'scenes/authentication/shared/authScene/AuthScene'
 import { OpenInboxLink } from 'scenes/authentication/shared/OpenInboxLink'
 import { isValidVerificationCode, normalizeVerificationCode } from 'scenes/authentication/shared/verificationCode'
 import { VerificationCodeInput } from 'scenes/authentication/shared/VerificationCodeInput'
 
+import { LoginCodeResend } from '../components/LoginCodeResend'
 import { LoginErrorBanner } from '../components/LoginErrorBanner'
 import { loginLogic } from '../loginLogic'
 
 const HedgehogMailbox = pngHoggie(mailboxPng)
 
 export function LoginCodeStep(): JSX.Element {
-    const { exitCodeVerification, resendCodeBasedVerification, submitCodeVerification } = useActions(loginLogic)
-    const {
-        codeVerificationEmail,
-        codeVerificationInboxProvider,
-        resendResponseLoading,
-        resendResponse,
-        codeResendAttempted,
-        isCodeVerificationSubmitting,
-        codeVerification,
-    } = useValues(loginLogic)
-    const { preflight } = useValues(preflightLogic)
-    const { openSupportForm } = useActions(supportLogic)
-    const { sendSupportRequest } = useValues(supportLogic)
+    const { exitCodeVerification, submitCodeVerification } = useActions(loginLogic)
+    const { codeVerificationEmail, codeVerificationInboxProvider, isCodeVerificationSubmitting, codeVerification } =
+        useValues(loginLogic)
 
     return (
         <AuthSceneCard showPendingConnection>
@@ -62,7 +50,7 @@ export function LoginCodeStep(): JSX.Element {
                 // The code input renders a hidden input with a \d{6} pattern. Without noValidate,
                 // the browser blocks submit on a partial code and kea cannot show its error.
                 noValidate
-                className="flex flex-col gap-4"
+                className="flex flex-col"
             >
                 <LemonField
                     name="code"
@@ -85,7 +73,11 @@ export function LoginCodeStep(): JSX.Element {
                         }}
                     />
                 </LemonField>
+                <div className="mt-3">
+                    <LoginCodeResend />
+                </div>
                 <LemonButton
+                    className="mt-6"
                     type="primary"
                     status="alt"
                     htmlType="submit"
@@ -102,45 +94,7 @@ export function LoginCodeStep(): JSX.Element {
                 >
                     Verify and log in
                 </LemonButton>
-                <div className="flex flex-col items-center gap-3">
-                    <div className="flex flex-col items-center gap-1 text-sm">
-                        <Link
-                            onClick={() => resendCodeBasedVerification(null)}
-                            disabledReason={resendResponseLoading ? 'Sending...' : undefined}
-                            className="font-semibold no-underline cursor-pointer hover:underline hover:underline-offset-2 text-secondary"
-                        >
-                            Resend code
-                        </Link>
-                        {resendResponse?.success && (
-                            <p className="flex items-center gap-1 text-success mb-0" role="status">
-                                <IconCheckCircle />
-                                <span>Code sent</span>
-                            </p>
-                        )}
-                        {codeResendAttempted && preflight?.cloud && (
-                            <p className="text-xs text-secondary mb-0">
-                                <span>Still nothing? </span>
-                                <Link
-                                    data-attr="login-code-contact-support"
-                                    onClick={(e) => {
-                                        e.preventDefault()
-                                        openSupportForm({
-                                            kind: 'support',
-                                            email: codeVerificationEmail ?? undefined,
-                                            message: sendSupportRequest.message
-                                                ? undefined
-                                                : `I need help logging in.\nI haven't received the emailed verification code.${
-                                                      preflight?.region ? `\nData region: ${preflight.region}` : ''
-                                                  }`,
-                                        })
-                                    }}
-                                    className="font-semibold no-underline cursor-pointer hover:underline hover:underline-offset-2 text-secondary"
-                                >
-                                    Contact support
-                                </Link>
-                            </p>
-                        )}
-                    </div>
+                <div className="mt-3 flex justify-center text-sm">
                     <Link
                         onClick={() => exitCodeVerification()}
                         className="font-semibold no-underline cursor-pointer hover:underline hover:underline-offset-2 text-secondary"

@@ -11,7 +11,7 @@ import { initKea } from '~/initKea'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
-import { loginLogic } from './loginLogic'
+import { CODE_RESEND_COOLDOWN_MS, loginLogic } from './loginLogic'
 
 jest.mock('@simplewebauthn/browser', () => ({ startAuthentication: jest.fn() }))
 jest.mock('posthog-js')
@@ -214,26 +214,35 @@ describe('loginLogic', () => {
         })
 
         it('enters code-entry mode when login requires a code, and exits on demand', async () => {
-            logic.actions.setLoginValues({ email: 'user@example.com', password: 'a-password' })
-            logic.actions.submitLogin()
-            await expectLogic(logic).toDispatchActions(['setCodeVerificationRequired', 'submitLoginFailure'])
+            const now = jest.spyOn(Date, 'now').mockReturnValue(1_000_000)
+            try {
+                logic.actions.setLoginValues({ email: 'user@example.com', password: 'a-password' })
+                logic.actions.submitLogin()
+                await expectLogic(logic).toDispatchActions(['setCodeVerificationRequired', 'submitLoginFailure'])
 
-            expect(logic.values.codeVerificationRequired).toBe(true)
-            expect(logic.values.codeVerificationEmail).toBe('user@example.com')
-            expect(logic.values.codeVerificationInboxProvider).toBe('gmail')
-            expect(logic.values.generalError).toBe(null)
-            expect(logic.values.codeResendAttempted).toBe(false)
+                expect(logic.values.codeVerificationRequired).toBe(true)
+                expect(logic.values.codeVerificationEmail).toBe('user@example.com')
+                expect(logic.values.codeVerificationInboxProvider).toBe('gmail')
+                expect(logic.values.generalError).toBe(null)
+                expect(logic.values.codeResendAttempted).toBe(false)
+                expect(logic.values.codeResendAvailableAt).toBe(1_000_000 + CODE_RESEND_COOLDOWN_MS)
 
-            logic.actions.resendCodeBasedVerification(null)
-            await expectLogic(logic).toDispatchActions(['resendCodeBasedVerificationSuccess'])
-            expect(logic.values.resendResponse).toBe(null)
-            expect(logic.values.codeResendAttempted).toBe(true)
+                now.mockReturnValue(1_030_000)
+                logic.actions.resendCodeBasedVerification(null)
+                await expectLogic(logic).toDispatchActions(['resendCodeBasedVerificationSuccess'])
+                expect(logic.values.resendResponse).toBe(null)
+                expect(logic.values.codeResendAttempted).toBe(true)
+                expect(logic.values.codeResendAvailableAt).toBe(1_000_000 + CODE_RESEND_COOLDOWN_MS)
 
-            logic.actions.exitCodeVerification()
-            expect(logic.values.codeVerificationRequired).toBe(false)
-            expect(logic.values.codeVerificationEmail).toBe(null)
-            expect(logic.values.codeVerificationInboxProvider).toBe(null)
-            expect(logic.values.codeResendAttempted).toBe(false)
+                logic.actions.exitCodeVerification()
+                expect(logic.values.codeVerificationRequired).toBe(false)
+                expect(logic.values.codeVerificationEmail).toBe(null)
+                expect(logic.values.codeVerificationInboxProvider).toBe(null)
+                expect(logic.values.codeResendAttempted).toBe(false)
+                expect(logic.values.codeResendAvailableAt).toBe(null)
+            } finally {
+                now.mockRestore()
+            }
         })
 
         it('shows an undeliverable address on resend as a login error, and clears it once a resend goes out', async () => {
@@ -253,14 +262,22 @@ describe('loginLogic', () => {
             expect(logic.values.resendResponse).toBe(null)
             expect(logic.values.generalError).toEqual({ code: 'login_code_email_undeliverable', detail })
 
+            expect(logic.values.codeResendAvailableAt).toBe(null)
+
             const sent = { success: true, message: 'sent' }
             useMocks({ post: { '/api/login/code-based-verification/resend': () => [200, sent] } })
 
-            logic.actions.resendCodeBasedVerification(null)
-            await expectLogic(logic).toDispatchActions(['resendCodeBasedVerificationSuccess'])
+            const now = jest.spyOn(Date, 'now').mockReturnValue(2_000_000)
+            try {
+                logic.actions.resendCodeBasedVerification(null)
+                await expectLogic(logic).toDispatchActions(['resendCodeBasedVerificationSuccess'])
+            } finally {
+                now.mockRestore()
+            }
 
             expect(logic.values.resendResponse).toEqual(sent)
             expect(logic.values.generalError).toBe(null)
+            expect(logic.values.codeResendAvailableAt).toBe(2_000_000 + CODE_RESEND_COOLDOWN_MS)
         })
     })
 
