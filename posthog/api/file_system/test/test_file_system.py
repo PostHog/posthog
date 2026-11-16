@@ -3170,6 +3170,13 @@ TREE_READ_PATHS: list[tuple[str, str, dict[str, str]]] = [
 ]
 
 
+KNOWN_PER_ROW_TREE_SUBQUERIES = {
+    # Postgres may run this select-list EXISTS once per row, but only for the objects the NOT EXISTS anti-join kept,
+    # and an index on (team_id, type, ref) serves each run.
+    "unfiled_already_saved_annotation": 'AS "already_saved"',
+}
+
+
 def _scans_file_system(node: Mapping[str, Any]) -> bool:
     return node.get("Relation Name") == "posthog_filesystem" or any(
         _scans_file_system(child) for child in node.get("Plans", [])
@@ -3189,6 +3196,13 @@ def _per_row_file_system_subplans(plan: Mapping[str, Any]) -> list[Mapping[str, 
     # as "hashed SubPlan N" in a Filter or, with VERBOSE, an Output.
     hashed = set(re.findall(r"hashed (SubPlan \d+)", json.dumps(plan)))
     return [node for node in _subplans(plan) if node["Subplan Name"] not in hashed and _scans_file_system(node)]
+
+
+def _select_list_subplan_names(node: Mapping[str, Any]) -> set[str]:
+    names = {name for expression in node.get("Output", []) for name in re.findall(r"SubPlan \d+", expression)}
+    for child in node.get("Plans", []):
+        names |= _select_list_subplan_names(child)
+    return names
 
 
 class TestFileSystemReadPlans(APIBaseTest):
@@ -3272,8 +3286,15 @@ class TestFileSystemReadPlans(APIBaseTest):
                 row = cursor.fetchone()
                 assert row is not None
                 plan = row[0][0]["Plan"]
+                allowed = (
+                    _select_list_subplan_names(plan)
+                    if any(marker in sql for marker in KNOWN_PER_ROW_TREE_SUBQUERIES.values())
+                    else set()
+                )
                 offenders.extend(
-                    f"{sql}\n{sql_params}\n{json.dumps(node, indent=2)}" for node in _per_row_file_system_subplans(plan)
+                    f"{sql}\n{sql_params}\n{json.dumps(node, indent=2)}"
+                    for node in _per_row_file_system_subplans(plan)
+                    if node["Subplan Name"] not in allowed
                 )
         if offenders:
             flag_state = "on" if flag_enabled else "off"
