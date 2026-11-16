@@ -147,6 +147,12 @@ function recordRequestOrigin(url: string): void {
     origins.add(new URL(url).origin)
 }
 
+// The path and query of a webhook URL (template-webhook, Discord, Teams, Zapier) are the credential for the
+// channel, and the inputs that hold them are stored as secrets. Worker logs get only the scheme, host and port.
+export function loggableOrigin(url: string): string | undefined {
+    return URL.canParse(url) ? new URL(url).origin : undefined
+}
+
 export async function cdpTrackedFetch({
     url,
     fetchParams,
@@ -179,9 +185,17 @@ export async function cdpTrackedFetch({
     cdpHttpRequests.inc({ status: fetchResponse?.status?.toString() ?? 'error', template_id: templateId })
 
     if (fetchError && isConnectionLevelError(fetchError)) {
+        const origin = loggableOrigin(url)
         logger.warn('🦔', '[cdpTrackedFetch] Connection-level error detected, immediately retrying fetch once', {
-            url,
-            error: fetchError,
+            origin,
+            error: {
+                name: fetchError.name,
+                code: (fetchError as { code?: string }).code,
+                message: fetchError.message.split(url).join(origin ?? '<url>'),
+            },
+            templateId,
+            teamId,
+            hogFunctionId,
         })
         ;[fetchError, fetchResponse] = await doFetch()
         const retryDuration = performance.now() - start
