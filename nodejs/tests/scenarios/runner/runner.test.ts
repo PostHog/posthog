@@ -57,7 +57,7 @@ import { Environment, RoleExit, defaultStateDir } from '../environment/environme
 import { Role, RoleSpec, consumerGroupsOf, roleSpecs, secretsOf } from '../environment/roles'
 import { RESIDENT_TEAMS_FROM, cyclotronUrlOf, scratchSchema, withPostgres } from '../environment/stack'
 import { JournalEntry } from '../judge/judge'
-import { ProviderEdge, TruthRecord, startProviderEdge } from '../provider-edge'
+import { ProviderEdge, TruthRecord, WEBHOOK_HOST, startProviderEdge } from '../provider-edge'
 import { FakeProjectApi, startFakeProjectApi } from '../scorecard/fake-project-api'
 import { RunResult, Runner, createRunner } from './runner'
 
@@ -952,16 +952,35 @@ describe('runner through seed, drive and judge', () => {
         },
         30_000
     )
-    it('bounds duplicate sends by the jobs the janitor reset while the run was sampled', async () => {
-        janitor.resetsAfterFirstScrape = 3
+    it.each([
+        ['passes a duplicate send the janitor reset accounts for', 1, true],
+        ['fails a duplicate send that no janitor reset accounts for', 0, false],
+    ])(
+        '%s',
+        async (_story, resets, passed) => {
+            janitor.resetsAfterFirstScrape = resets
+            let duplicated = false
+            jest.mocked(fetch).mockImplementation(async (url, options) => {
+                if (!duplicated && String(url).includes(WEBHOOK_HOST)) {
+                    duplicated = true
+                    await _fetch(url, options, throughTheEdge)
+                }
+                return _fetch(url, options, throughTheEdge)
+            })
 
-        const result = await run('all')
+            const result = await run('all', [], 'event_webhook')
 
-        expect(result.invariants).toContainEqual(
-            expect.objectContaining({ name: 'duplicate_sends', passed: true, observed: 0, gate: 3 })
-        )
-        expect(api.captured[0]?.properties).toMatchObject({ inv_duplicate_sends_gate: 3 })
-    }, 30_000)
+            expect(result).toMatchObject({
+                status: passed ? 'passed' : 'failed',
+                janitorResets: resets,
+                invariants: expect.arrayContaining([
+                    expect.objectContaining({ name: 'duplicate_sends', passed, observed: 1, gate: 0 }),
+                ]),
+            })
+            expect(api.captured[0]?.properties).toMatchObject({ janitor_resets: resets, inv_duplicate_sends_gate: 0 })
+        },
+        30_000
+    )
 
     it('fails a run whose intake role refused every unit, rather than calling it invalid', async () => {
         const result = await createRunner(environmentOf('none'), env).run(
