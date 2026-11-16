@@ -48,8 +48,8 @@ def get_flag_evaluations_read_mode(organization_id: UUID) -> int:
     the stored mode unchanged. HogQL reads flag calls from flag_evaluations for a project on the native JSON events
     table whatever this returns, because that table holds no flag calls, so the switch does not move that project."""
     mode = get_organization_flag_evaluations_mode(organization_id)
-    # The switch skips FLAG_EVALUATIONS_ONLY. For teams in the ingestion allowlist, events holds none of that
-    # organization's flag calls, so the readers would show no calls instead of the flag_evaluations rows.
+    # The switch skips FLAG_EVALUATIONS_ONLY. Events holds no new flag calls of the teams that ingestion copies to
+    # flag_evaluations, so the readers would show no calls instead of the flag_evaluations rows.
     if mode == FlagEvaluationsMode.READ_FLAG_EVALUATIONS and get_instance_setting(
         "FLAG_EVALUATIONS_READS_FORCE_EVENTS"
     ):

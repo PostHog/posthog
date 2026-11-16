@@ -52,7 +52,7 @@ from posthog.rate_limit import (
     WorkloadTrustPolicyRequestBurstThrottle,
     WorkloadTrustPolicyRequestSustainedThrottle,
 )
-from posthog.scopes import RISKY_SCOPE_WARNINGS
+from posthog.scopes.exposure import RISKY_SCOPE_WARNINGS
 from posthog.tasks.email import WorkloadTrustPolicyChange, send_workload_trust_policy_changed
 from posthog.workload_identity.providers import (
     SNIPPET_HOST,
