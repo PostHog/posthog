@@ -7,6 +7,7 @@ import { initKeaTests } from '~/test/init'
 
 import type { ProviderImportRunApi } from 'products/messaging/frontend/generated/api.schemas'
 
+import { customerIOImportLogic } from './customerIOImportLogic'
 import { providerImportLogic } from './providerImportLogic'
 
 const STEP_OPTIONS = [
@@ -53,6 +54,7 @@ const importRun = (status: ProviderImportRunApi['status']): ProviderImportRunApi
 
 describe('providerImportLogic', () => {
     let logic: ReturnType<typeof providerImportLogic.build>
+    let customerIOLogic: ReturnType<typeof customerIOImportLogic.build>
     let runResponses: [number, ProviderImportRunApi[] | { detail: string }][]
     let listCalls: number
     let retrieved: ProviderImportRunApi
@@ -90,9 +92,12 @@ describe('providerImportLogic', () => {
         initKeaTests()
         logic = providerImportLogic()
         logic.mount()
+        customerIOLogic = customerIOImportLogic()
+        customerIOLogic.mount()
     })
 
     afterEach(() => {
+        customerIOLogic.unmount()
         logic.unmount()
         jest.useRealTimers()
     })
@@ -120,6 +125,7 @@ describe('providerImportLogic', () => {
         await expectLogic(logic).toDispatchActions(['loadImportRunsSuccess'])
 
         expect(logic.values.latestImportRun?.status).toBe('completed')
+        expect(customerIOLogic.values.stepCompletion.step1).toBe('completed')
 
         const callsWhenFinished = listCalls
         await jest.advanceTimersByTimeAsync(10000)
