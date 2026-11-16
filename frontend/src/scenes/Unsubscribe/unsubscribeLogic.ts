@@ -23,12 +23,12 @@ export interface unsubscribeLogicActions {
         errorObject?: any
     }
     attemptUnsubscribeSuccess: (
-        unsubscription: boolean,
+        unsubscription: boolean | null,
         payload?: {
             value: true
         }
     ) => {
-        unsubscription: boolean
+        unsubscription: boolean | null
         payload?: {
             value: true
         }
