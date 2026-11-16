@@ -55,7 +55,11 @@ CHART_SLOT_LEASE_SECONDS: Final = 5
 # default socket timeout.
 CHART_REDIS_SECONDS: Final = 0.5
 # Every group and destination of one evaluation renders from the same range query, so it runs once.
-_RESULT_CACHE_SIZE: Final = 32
+_RESULT_CACHE_SIZE: Final = 8
+# Twice the most groups a configuration can hold. A range can match far more series than the instant
+# that fired, so a bigger history costs the chart rather than worker memory. With the window's 16
+# steps, this bounds the cache at 8 x 200 x 16 points.
+CHART_MAX_SERIES: Final = 200
 _results: OrderedDict[tuple[int, str, datetime], list[dict[str, Any]] | None] = OrderedDict()
 
 
@@ -144,7 +148,11 @@ def _read_range(team_id: int, query: str, end: datetime) -> list[dict[str, Any]]
         data = payload.get("data") or {}
         if data.get("resultType") != "matrix":
             return None
-        return data.get("result") or []
+        result = data.get("result") or []
+        if len(result) > CHART_MAX_SERIES:
+            logger.info("metrics_alert_history_skipped_too_many_series", team_id=team_id, series=len(result))
+            return None
+        return result
     except Exception:
         # A chart is never worth a lost notification.
         logger.warning("metrics_alert_history_failed", team_id=team_id, exc_info=True)
