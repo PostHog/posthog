@@ -65,7 +65,7 @@ class TestEventsTableAPI(APIBaseTest):
     def test_a_project_that_posthog_moved_cannot_switch_back(
         self, _name: str, on_staff_list: bool, in_rollout: bool, opted_in_before: bool
     ) -> None:
-        set_project_events_table_opt_in(self.team, opted_in_before)
+        set_project_events_table_opt_in(self.team.pk, opted_in_before)
         self.flags[EVENTS_TABLE_ROLLOUT_FLAG] = in_rollout
         staff_list = str(self.team.pk) if on_staff_list else ""
 
@@ -80,7 +80,7 @@ class TestEventsTableAPI(APIBaseTest):
             self.assertTrue(use_new_events_schema(self.team.pk))
 
     def test_a_project_that_cannot_opt_in_is_refused_and_its_stored_opt_in_is_ignored(self) -> None:
-        set_project_events_table_opt_in(self.team, True)
+        set_project_events_table_opt_in(self.team.pk, True)
         self.flags[EVENTS_TABLE_SELF_SERVE_FLAG] = False
 
         response = self.client.post(self.url, {"use_new_events_table": True}, format="json")

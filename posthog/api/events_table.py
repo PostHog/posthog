@@ -102,7 +102,7 @@ class EventsTableViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             raise exceptions.PermissionDenied("This project can't switch its events table yet.")
 
         use_new_events_table = request.validated_data["use_new_events_table"]
-        set_project_events_table_opt_in(self.team, use_new_events_table)
+        set_project_events_table_opt_in(self.team_id, use_new_events_table)
         report_user_action(
             cast(User, request.user),
             "events table choice changed",

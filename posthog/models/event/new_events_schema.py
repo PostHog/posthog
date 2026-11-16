@@ -14,8 +14,6 @@ from posthog.models.instance_setting import get_instance_setting
 if TYPE_CHECKING:
     from posthog.schema import HogQLQueryModifiers
 
-    from posthog.models.team import Team
-
 
 # TODO: Remove the route helpers in this block after the events cluster migration is complete.
 EVENTS_ROUTE_MODIFIER_KEYS = ("useNewEventsSchema",)
@@ -156,14 +154,11 @@ def _opted_in_project_ids() -> set[int]:
         return cached[1]
 
     # Deferred: this module is imported at django.setup(), before the models load.
-    from posthog.models.team import Team  # noqa: PLC0415
     from posthog.models.team.team_events_table_config import TeamEventsTableConfig  # noqa: PLC0415
 
     opted_in = set(
         TeamEventsTableConfig.objects.unscoped().filter(use_new_events_table=True).values_list("team_id", flat=True)
     )
-    # An opt-in is stored on the project's root team, and queries run with the id of the environment they read.
-    opted_in.update(Team.objects.filter(parent_team_id__in=opted_in).values_list("id", flat=True))
     _opted_in_projects = (time.monotonic(), opted_in)
     return opted_in
 
@@ -176,13 +171,12 @@ def project_opted_in_to_new_events_table(team_id: int) -> bool:
     return project_can_opt_in_to_new_events_table(team_id) and team_id in _opted_in_project_ids()
 
 
-def set_project_events_table_opt_in(team: "Team", opted_in: bool) -> None:
+def set_project_events_table_opt_in(team_id: int, opted_in: bool) -> None:
     """Store the project's opt-in. Other workers read it once their cached opt-ins expire, within a minute."""
     from posthog.models.team.team_events_table_config import TeamEventsTableConfig  # noqa: PLC0415
 
-    root_team_id = team.parent_team_id or team.pk
-    TeamEventsTableConfig.objects.for_team(root_team_id, canonical=True).update_or_create(
-        team_id=root_team_id, defaults={"use_new_events_table": opted_in}
+    TeamEventsTableConfig.objects.for_team(team_id).update_or_create(
+        team_id=team_id, defaults={"use_new_events_table": opted_in}
     )
     clear_events_table_opt_ins()
 
