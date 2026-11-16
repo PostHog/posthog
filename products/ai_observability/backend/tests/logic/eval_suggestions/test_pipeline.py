@@ -2,9 +2,8 @@ import re
 import json
 import uuid
 from collections.abc import Callable
-from dataclasses import replace
 from datetime import datetime, timedelta
-from typing import Any, Literal
+from typing import Any
 
 import pytest
 from posthog.test.base import APIBaseTest, BaseTest, ClickhouseTestMixin, _create_event
@@ -13,24 +12,28 @@ from unittest.mock import MagicMock, patch
 from django.utils import timezone
 
 import httpx
-from openai import APIConnectionError, RateLimitError
+from anthropic import APIConnectionError
+from anthropic.types import ToolUseBlock, Usage
 from parameterized import parameterized
 
 from posthog.hogql_queries.ai.utils import HEAVY_PROPERTY_NAMES
 from posthog.models.ai_events.test_util import bulk_create_ai_events
 from posthog.models.team import Team
 
-from products.ai_observability.backend.logic.eval_suggestions import drafting, pipeline, runs
+from products.ai_observability.backend.logic.eval_suggestions import call_review, pipeline, runs
+from products.ai_observability.backend.logic.eval_suggestions.call_review_queries import CallTypeRow
 from products.ai_observability.backend.logic.eval_suggestions.config import SuggestionSettings
 from products.ai_observability.backend.logic.eval_suggestions.coverage import Coverage, ExistingEval
+from products.ai_observability.backend.logic.eval_suggestions.measure import SampleRef
 from products.ai_observability.backend.logic.eval_suggestions.pipeline import (
     dedupe,
     draft_stage,
     measure_stage,
-    paid_draft,
+    paid_call,
     publish_stage,
     screen_stage,
 )
+from products.ai_observability.backend.logic.eval_suggestions.prices import MODEL_PRICES
 from products.ai_observability.backend.logic.eval_suggestions.ranking import Proposal
 from products.ai_observability.backend.logic.eval_suggestions.runs import create_run, fail_run, publish
 from products.ai_observability.backend.models.eval_suggestions import (
@@ -165,11 +168,48 @@ def _dead_judge(team: Team) -> Evaluation:
     return evaluation
 
 
+SUPPORT_PROMPT = "You answer refund questions for Example Shop. Never promise a refund date."
+JUDGE_PROMPT = "Does the reply avoid promising a refund date? Pass when it gives no date, fail when it promises one."
+
+
+def _support_traffic(team: Team, end: datetime) -> None:
+    """30 support replies over the last hours, each in its own trace, all from one managed prompt."""
+    for index in range(30):
+        _event(
+            team,
+            "$ai_generation",
+            end - timedelta(hours=1, minutes=index * 10),
+            {
+                "$ai_trace_id": f"support-{index}",
+                "$ai_model": "gpt-5-mini",
+                "$ai_prompt_name": "support-reply",
+                "$ai_input": [
+                    {"role": "system", "content": SUPPORT_PROMPT},
+                    {"role": "user", "content": "Where is my refund?"},
+                ],
+                "$ai_output_choices": [{"role": "assistant", "content": "Your refund arrives by Friday."}],
+            },
+        )
+
+
+def _tool_reply(name: str, tool_input: dict[str, Any]) -> MagicMock:
+    return MagicMock(
+        content=[ToolUseBlock(id="toolu_1", name=name, input=tool_input, type="tool_use")],
+        usage=Usage(input_tokens=1000, output_tokens=500),
+        stop_reason="tool_use",
+    )
+
+
 def _run_stages(
-    team: Team, run: EvalSuggestionRun, *, include_paid: bool = False, now: datetime | None = None
+    team: Team,
+    run: EvalSuggestionRun,
+    *,
+    include_paid: bool = False,
+    now: datetime | None = None,
+    settings: SuggestionSettings | None = None,
 ) -> list[EvalSuggestion]:
     """Every stage in order, as the team workflow runs them."""
-    team_id, run_id, settings = team.pk, str(run.id), SuggestionSettings()
+    team_id, run_id, settings = team.pk, str(run.id), settings or SuggestionSettings()
     measure_stage(team_id, run_id, settings=settings, now=now)
     screen_stage(team_id, run_id, include_paid=include_paid, settings=settings)
     draft_stage(team_id, run_id, include_paid=include_paid, settings=settings)
@@ -226,6 +266,57 @@ class TestPipeline(ClickhouseTestMixin, APIBaseTest):
         assert [s.dedupe_key for s in suggestions] == [f"fix:{dead_judge.id}:no_runs"]
         run.refresh_from_db()
         assert run.stages["applicability"]["status"] == "skipped"
+
+    def test_the_review_publishes_a_judge_scoped_to_its_call_type(self) -> None:
+        now = timezone.now()
+        _support_traffic(self.team, now - timedelta(minutes=30))
+        self.organization.is_ai_data_processing_approved = True
+        self.organization.save()
+        run = create_run(self.team, "manual")
+        examples = [
+            {"trace_id": "support-3", "what_went_wrong": "Promised the refund by Friday"},
+            {"trace_id": "support-7", "what_went_wrong": "Promised the refund by Friday"},
+        ]
+        card = {
+            "title": "Replies promise refund dates",
+            "checks": "Checks whether a reply promises a refund date",
+            "why": "The prompt says never to promise a refund date",
+            "call_types": ["T1"],
+            "failed": 4,
+            "of": 20,
+            "examples": examples,
+            "judge_prompt": JUDGE_PROMPT,
+        }
+        client = MagicMock()
+        client.messages.create.side_effect = [
+            _tool_reply("pick_call_types", {"exclude": False, "picked": [{"id": "T1", "why": "answers users"}]}),
+            _tool_reply("propose_cards", {"product": "a shop", "themes": [], "cards": [card]}),
+        ]
+
+        with patch.object(call_review, "build_client", return_value=client):
+            suggestions = _run_stages(
+                self.team,
+                run,
+                include_paid=True,
+                now=now,
+                settings=SuggestionSettings(jeeves=False, llm_drafting=True),
+            )
+
+        [reviewed] = [s for s in suggestions if s.template_key == "review"]
+        assert reviewed.draft["evaluation_config"] == {"prompt": JUDGE_PROMPT}
+        assert reviewed.draft["target"] == "generation"
+        assert reviewed.filters == [
+            {"key": "$ai_prompt_name", "value": ["support-reply"], "operator": "exact", "type": "event"}
+        ]
+        assert reviewed.evidence == [{"trace_id": e["trace_id"], "reason": e["what_went_wrong"]} for e in examples]
+        assert (reviewed.headline, reviewed.measured_failure_rate, reviewed.sample_size) == (card["title"], 0.2, 20)
+        # The review read every sampled call, with the call type's system prompt shown once.
+        review_prompt = client.messages.create.call_args_list[1].kwargs["messages"][0]["content"]
+        assert review_prompt.count(SUPPORT_PROMPT) == 1
+        assert review_prompt.count("<call ") == 30
+        run.refresh_from_db()
+        assert run.stages["drafting"]["status"] == "ok"
+        assert run.cost_usd > 0
 
     def test_an_agent_whose_turns_end_on_a_tool_call_is_not_gated(self) -> None:
         now = timezone.now()
@@ -322,82 +413,37 @@ class TestRunRetries(ClickhouseTestMixin, APIBaseTest):
         assert run.stages["drafting"] == {"status": "failed", "detail": "the stage did not finish"}
 
 
-def _completion(content: str) -> MagicMock:
-    response = MagicMock(service_tier="flex")
-    response.usage.prompt_tokens = 1000
-    response.usage.completion_tokens = 500
-    response.choices = [MagicMock(message=MagicMock(content=content))]
-    return response
-
-
-class TestDraftingBudget(BaseTest):
+class TestReviewBudget(BaseTest):
     def test_spend_is_held_before_each_call_and_kept_when_the_call_fails(self) -> None:
-        brief = json.dumps({"field": "findings[].priority"})
-        reserve = drafting.max_cost_usd(brief)
-        served_cost = 1000 * drafting.INPUT_PRICE_PER_TOKEN + 500 * drafting.OUTPUT_PRICE_PER_TOKEN
+        call_type = CallTypeRow(source="prompt_name", name="support", calls=100, model="gpt-5-mini", example_input="")
+        request = call_review.triage_request([call_type])
+        reserve = call_review.max_cost_usd(request)
+        price = MODEL_PRICES[request.model]
+        served_cost = 1000 * price.input_per_token + 500 * price.output_per_token
         # Room for one served call and one reservation, not for a second reservation on top.
         budget = served_cost + 1.5 * reserve
         served, failed, refused = (create_run(self.team, "scheduled", batch_id="batch-1") for _ in range(3))
         connection_reset = APIConnectionError(request=httpx.Request("POST", "https://gateway.example.com"))
         client = MagicMock()
-        client.with_options.return_value = client
-        client.chat.completions.create.side_effect = [
-            _completion(json.dumps({"evaluation_type": "hog", "name": "n", "description": "d", "body": "return true"})),
-            *[connection_reset] * (2 + drafting.STANDARD_MAX_RETRIES),
+        client.messages.create.side_effect = [
+            _tool_reply("pick_call_types", {"exclude": False, "picked": []}),
+            *[connection_reset] * call_review.ATTEMPTS,
         ]
 
-        with (
-            patch.object(drafting, "build_openai_client", return_value=client),
-            patch.object(drafting, "RETRY_BACKOFF_SECONDS", 0),
-        ):
-            call = paid_draft(self.team, served, brief, budget)
+        with patch.object(call_review, "RETRY_BACKOFF_SECONDS", 0):
+            call = paid_call(served, client, request, budget)
             with pytest.raises(APIConnectionError):
-                paid_draft(self.team, failed, brief, budget)
-            refused_call = paid_draft(self.team, refused, brief, budget)
+                paid_call(failed, client, request, budget)
+            refused_call = paid_call(refused, client, request, budget)
 
-        assert call is not None and call.draft is not None
+        assert call is not None and call.tool_input == {"exclude": False, "picked": []}
         assert refused_call is None
         spent = dict(EvalSuggestionRun.objects.for_team(self.team.pk).values_list("id", "cost_usd"))
         assert spent[served.id] == pytest.approx(served_cost)
         assert spent[failed.id] == pytest.approx(reserve)
         assert spent[refused.id] == 0
-        # The failed call tried flex and every standard attempt, and the refused one never reached the provider.
-        assert client.chat.completions.create.call_count == 3 + drafting.STANDARD_MAX_RETRIES
-
-    @parameterized.expand(
-        [
-            ("lost_flex_response_may_have_billed", False, 0, 1),
-            ("capacity_refusal_never_bills", True, 0, 0),
-            ("lost_standard_retry_may_have_billed_too", False, 1, 2),
-        ]
-    )
-    def test_a_failed_attempt_keeps_its_spend_unless_refused(
-        self, _name: str, refused: bool, standard_failures: int, unsettled_calls: int
-    ) -> None:
-        brief = json.dumps({"field": "findings[].priority"})
-        served_cost = 1000 * drafting.INPUT_PRICE_PER_TOKEN + 500 * drafting.OUTPUT_PRICE_PER_TOKEN
-        request = httpx.Request("POST", "https://gateway.example.com")
-        flex_error = (
-            RateLimitError("busy", response=httpx.Response(429, request=request), body=None)
-            if refused
-            else APIConnectionError(request=request)
-        )
-        client = MagicMock()
-        client.with_options.return_value = client
-        client.chat.completions.create.side_effect = [
-            flex_error,
-            *[APIConnectionError(request=request)] * standard_failures,
-            _completion(json.dumps({"evaluation_type": "hog", "name": "n", "description": "d", "body": "return true"})),
-        ]
-
-        with (
-            patch.object(drafting, "build_openai_client", return_value=client),
-            patch.object(drafting, "RETRY_BACKOFF_SECONDS", 0),
-        ):
-            call = drafting.draft_check(self.team.pk, brief, privacy_mode=False)
-
-        one_call = drafting.max_cost_usd(brief) / (2 + drafting.STANDARD_MAX_RETRIES)
-        assert call.cost_usd == pytest.approx(served_cost + unsettled_calls * one_call)
+        # The failed call used every attempt, and the refused one never reached the provider.
+        assert client.messages.create.call_count == 1 + call_review.ATTEMPTS
 
 
 class TestRunRecords(BaseTest):
@@ -471,64 +517,38 @@ class TestRunRecords(BaseTest):
         fetch_coverage.assert_not_called()
         assert publish_stage(self.team.pk, str(run.id)) == 0
 
-    @patch.object(pipeline, "_drafted_proposals")
-    def test_the_draft_deadline_counts_the_time_hydration_took(self, drafted: MagicMock) -> None:
+    @parameterized.expand(
+        [
+            ("free_stages_only", False, SuggestionSettings(llm_drafting=True), True, None, "free stages only"),
+            ("switched_off", True, SuggestionSettings(), True, None, "switched off"),
+            (
+                "no_consent",
+                True,
+                SuggestionSettings(llm_drafting=True),
+                False,
+                None,
+                "AI data processing not approved",
+            ),
+            ("too_late_to_finish", True, SuggestionSettings(llm_drafting=True), True, 0.0, "not enough time left"),
+        ]
+    )
+    def test_the_review_runs_only_when_allowed_and_in_time(
+        self,
+        _name: str,
+        include_paid: bool,
+        settings: SuggestionSettings,
+        consent: bool,
+        deadline: float | None,
+        detail: str,
+    ) -> None:
+        self.organization.is_ai_data_processing_approved = consent
+        self.organization.save()
         run = create_run(self.team, "scheduled")
         handoff = runs.Handoff(
             window=pipeline.ProfileWindow(start=timezone.now() - timedelta(days=7), end=timezone.now()),
             profile=pipeline.TeamProfile.empty(),
-            sample=[],
+            sample=[SampleRef(trace_id="t1", days=1, held_out=False)],
             proposals=[],
-            gaps=[runs.GapCandidate(gap=MagicMock(), proposal=_candidate("gap:lens=security:priority", []))],
-            screened_judges=[],
-            judge_target="trace",
-            judge_model="gpt-5-mini",
-            sources={},
-            candidate_options={},
-        )
-        clock = [0.0]
-
-        def slow_hydration(*_args: Any) -> MagicMock:
-            clock[0] += 120
-            return MagicMock()
-
-        needed = drafting.max_draft_seconds() + pipeline.DRAFT_MEASURE_BUDGET_SECONDS
-        with (
-            patch.object(runs, "load_handoff", return_value=handoff),
-            patch.object(pipeline, "_paid_skip", return_value=None),
-            patch.object(pipeline, "hydrate_sample", side_effect=slow_hydration),
-            patch.object(pipeline.time, "monotonic", side_effect=lambda: clock[0]),
-        ):
-            draft_stage(
-                self.team.pk, str(run.id), include_paid=True, settings=SuggestionSettings(), deadline=needed + 60
-            )
-
-        drafted.assert_not_called()
-        run.refresh_from_db()
-        assert run.stages["drafting"] == {"status": "skipped", "detail": "not enough time left"}
-
-    @parameterized.expand([("privacy_on", True), ("privacy_off", False)])
-    def test_a_paid_draft_follows_the_organization_privacy_mode(self, _name: str, privacy: bool) -> None:
-        run = create_run(self.team, "scheduled")
-        with (
-            patch.object(pipeline, "is_privacy_mode_enabled", return_value=privacy),
-            patch.object(
-                pipeline.drafting, "draft_check", return_value=drafting.DraftCall(draft=None, cost_usd=0.0)
-            ) as draft_check,
-        ):
-            paid_draft(self.team, run, "brief", budget=10.0)
-
-        assert draft_check.call_args.kwargs["privacy_mode"] is privacy
-
-    @patch.object(pipeline, "_drafted_proposals")
-    def test_a_draft_that_cannot_finish_before_the_deadline_is_not_started(self, drafted: MagicMock) -> None:
-        run = create_run(self.team, "scheduled")
-        handoff = runs.Handoff(
-            window=pipeline.ProfileWindow(start=timezone.now() - timedelta(days=7), end=timezone.now()),
-            profile=pipeline.TeamProfile.empty(),
-            sample=[],
-            proposals=[],
-            gaps=[runs.GapCandidate(gap=MagicMock(), proposal=_candidate("gap:lens=security:priority", []))],
             screened_judges=[],
             judge_target="trace",
             judge_model="gpt-5-mini",
@@ -538,16 +558,16 @@ class TestRunRecords(BaseTest):
 
         with (
             patch.object(runs, "load_handoff", return_value=handoff),
-            patch.object(pipeline, "_paid_skip", return_value=None),
+            patch.object(pipeline, "load_call_types") as load_call_types,
         ):
-            drafted_count = draft_stage(
-                self.team.pk, str(run.id), include_paid=True, settings=SuggestionSettings(), deadline=0.0
+            drafted = draft_stage(
+                self.team.pk, str(run.id), include_paid=include_paid, settings=settings, deadline=deadline
             )
 
-        assert drafted_count == 0
-        drafted.assert_not_called()
+        assert drafted == 0
+        load_call_types.assert_not_called()
         run.refresh_from_db()
-        assert run.stages["drafting"] == {"status": "skipped", "detail": "not enough time left"}
+        assert run.stages["drafting"] == {"status": "skipped", "detail": detail}
 
 
 def _existing(**overrides: Any) -> ExistingEval:
@@ -652,50 +672,3 @@ def test_a_less_confident_match_that_covers_the_scope_still_drops_the_candidate(
     coverage = Coverage(evals=[narrow, wide], fixes=[], dismissed_dedupe_keys=frozenset())
 
     assert dedupe([AUTH_GAP], coverage, {AUTH_GAP.dedupe_key: [(narrow, 0.95), (wide, 0.7)]}, {}) == []
-
-
-@parameterized.expand([("judge_draft", "llm_judge"), ("hog_draft", "hog")])
-def test_a_draft_replaces_the_templated_card_for_its_gap(
-    _name: str, evaluation_type: Literal["hog", "llm_judge"]
-) -> None:
-    templated = _candidate("gap:review_lens=security:findings[].priority", [SECURITY_LENS], GAP_PROMPT)
-    draft = drafting.Draft(evaluation_type=evaluation_type, name="Drafted", description="d", body="return true")
-    hog_card = replace(_candidate("check:drafted_review_lens", []), kind="new_hog")
-    with (
-        patch.object(pipeline.drafting, "gap_brief", return_value="brief"),
-        patch.object(pipeline, "paid_draft", return_value=drafting.DraftCall(draft=draft, cost_usd=0.01)),
-        patch.object(pipeline, "run_check", return_value=[MagicMock(failed=False, reasoning="ok")]),
-        patch.object(pipeline.ranking, "code_check_proposal", return_value=hog_card),
-    ):
-        result = pipeline._drafted_proposals(
-            MagicMock(),
-            MagicMock(),
-            [(MagicMock(), templated)],
-            MagicMock(),
-            MagicMock(),
-            SuggestionSettings(),
-            pipeline._Stages(),
-        )
-
-    assert [p.dedupe_key for p in result] == [templated.dedupe_key]
-
-
-def test_a_drafted_check_stops_at_the_first_trace_that_runs_too_long() -> None:
-    templated = _candidate("gap:review_lens=security:findings[].priority", [SECURITY_LENS], GAP_PROMPT)
-    draft = drafting.Draft(evaluation_type="hog", name="Drafted", description="d", body="return true")
-    sample = MagicMock(traces=[MagicMock(held_out=False) for _ in range(20)])
-    passing = MagicMock(failed=False, reasoning="ok")
-    timed_out = MagicMock(failed=None, reasoning="Execution timed out (10s limit exceeded)")
-    stages = pipeline._Stages()
-    with (
-        patch.object(pipeline.drafting, "gap_brief", return_value="brief"),
-        patch.object(pipeline, "paid_draft", return_value=drafting.DraftCall(draft=draft, cost_usd=0.01)),
-        patch.object(pipeline, "run_check", side_effect=[[passing]] * 7 + [[timed_out]]) as run_check,
-    ):
-        result = pipeline._drafted_proposals(
-            MagicMock(), MagicMock(), [(MagicMock(), templated)], sample, MagicMock(), SuggestionSettings(), stages
-        )
-
-    assert result == []
-    assert run_check.call_count == 8
-    assert stages.record["drafting"] == {"status": "failed", "detail": "drafted Hog runs too long"}

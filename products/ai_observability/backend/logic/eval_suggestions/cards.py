@@ -12,6 +12,7 @@ from collections.abc import Sequence
 from posthog.dataclasses import frozen
 
 from .adapters import REFUSALS, REPEAT_THRESHOLD, REPEATED_TOOL_CALLS, UNRECOVERED_ERRORS, AdaptedCheck
+from .call_review import ReviewCard
 from .catalog import EvalTemplate
 from .coverage import DEAD_LOOKBACK, EvalFix
 from .profile import StructuredGap
@@ -213,6 +214,15 @@ def judge_text(template: EvalTemplate, target: str, cost: str) -> CardText:
             "How often it happens is not measured yet."
         ),
     )
+
+
+def _sentence(text: str) -> str:
+    return text if text.endswith((".", "!", "?")) else f"{text}."
+
+
+def review_text(card: ReviewCard, cost: str) -> CardText:
+    """The review's own words. The card shows its failure count from `measured_failure_rate` and `sample_size`."""
+    return CardText(headline=card.title, outcome=f"{_sentence(card.checks)} {cost}", reason=_sentence(card.why))
 
 
 def fix_text(fix: EvalFix) -> CardText:

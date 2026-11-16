@@ -1,11 +1,18 @@
 from dataclasses import replace
 
+from unittest.mock import MagicMock
+
 from parameterized import parameterized
 
 from posthog.schema import LLMTrace
 
+from posthog.hogql import ast
+from posthog.hogql.property import property_to_expr
+
 from products.ai_observability.backend.llm import DEFAULT_MODEL_BY_PROVIDER
-from products.ai_observability.backend.logic.eval_suggestions import adapters, ranking
+from products.ai_observability.backend.logic.eval_suggestions import adapters, prices, ranking
+from products.ai_observability.backend.logic.eval_suggestions.call_review import ReviewCard, ReviewExample
+from products.ai_observability.backend.logic.eval_suggestions.call_review_queries import CallTypeRow
 from products.ai_observability.backend.logic.eval_suggestions.measure import (
     Measurement,
     Outcome,
@@ -299,7 +306,7 @@ def test_a_long_dedupe_key_is_bounded_and_stable() -> None:
 
 
 def test_every_provider_default_model_has_a_price() -> None:
-    assert set(DEFAULT_MODEL_BY_PROVIDER.values()) <= set(ranking.MODEL_PRICES)
+    assert set(DEFAULT_MODEL_BY_PROVIDER.values()) <= set(prices.MODEL_PRICES)
 
 
 @parameterized.expand(
@@ -331,3 +338,87 @@ def test_a_gap_judge_checks_what_the_field_means(meaning: FieldMeaning, values: 
     )
 
     assert phrase in proposal.draft["evaluation_config"]["prompt"]
+
+
+def _call_type(source: str, name: str, calls: int = 100) -> CallTypeRow:
+    return CallTypeRow(source=source, name=name, calls=calls, model="gpt-5-mini", example_input="")
+
+
+def _review_card(call_types: list[CallTypeRow]) -> ReviewCard:
+    return ReviewCard(
+        title="Replies promise refund dates",
+        checks="Checks whether a reply promises a refund date",
+        why="The prompt says never to promise a date",
+        call_types=call_types,
+        failed=4,
+        of=20,
+        examples=[ReviewExample(trace_id="t1", reason="Promised Friday")],
+        judge_prompt="Does the reply avoid promising a refund date?",
+    )
+
+
+@parameterized.expand(
+    [
+        (
+            "managed_prompts",
+            [_call_type("prompt_name", "support-reply"), _call_type("prompt_name", "refund-reply")],
+            [
+                {
+                    "key": "$ai_prompt_name",
+                    "value": ["refund-reply", "support-reply"],
+                    "operator": "exact",
+                    "type": "event",
+                }
+            ],
+            1400,
+        ),
+        (
+            "span_name",
+            [_call_type("span_name", "answer")],
+            [
+                {"key": "$ai_span_name", "value": ["answer"], "operator": "exact", "type": "event"},
+                {"key": "$ai_prompt_name", "value": ["is_not_set"], "operator": "is_not_set", "type": "event"},
+            ],
+            700,
+        ),
+        # No one property names both, so the judge runs on every generation and the prompt's N/A covers the rest.
+        ("mixed_properties", [_call_type("prompt_name", "support-reply"), _call_type("span_name", "answer")], [], 5000),
+        ("named_by_input", [_call_type("input", "1234567")], [], 5000),
+    ]
+)
+def test_a_reviewed_judge_runs_on_the_generations_of_its_call_types(
+    _name: str, call_types: list[CallTypeRow], filters: list[dict], weekly_units: int
+) -> None:
+    card = _review_card(call_types)
+
+    proposal = ranking.review_proposal(card, PROFILE, judge_model="gpt-5-mini")
+
+    assert proposal.filters == filters
+    assert not any(isinstance(property_to_expr(f, team=MagicMock()), ast.Constant) for f in proposal.filters)
+    assert proposal.estimated_weekly_runs == min(weekly_units, ranking.WEEKLY_JUDGE_RUNS)
+    assert proposal.draft["evaluation_config"] == {"prompt": card.judge_prompt}
+    assert (proposal.draft["target"], proposal.draft["output_config"]) == ("generation", {"allows_na": True})
+    assert (proposal.template_key, proposal.measured_failure_rate, proposal.sample_size) == ("review", 0.2, 20)
+    assert proposal.score > 0
+
+
+@parameterized.expand(
+    [
+        ("same_check_reworded", "support-reply", "Whether the reply promises a refund date.", True),
+        ("another_check", "support-reply", "Checks whether a reply answers in the user's language", False),
+        ("another_call_type", "refund-reply", "Checks whether a reply promises a refund date", False),
+    ]
+)
+def test_a_reviewed_card_keeps_its_dedupe_key_when_a_later_review_rewords_it(
+    _name: str, prompt_name: str, checks: str, same_key: bool
+) -> None:
+    first = _review_card([_call_type("prompt_name", "support-reply")])
+    later = replace(
+        first,
+        title="Refund dates get promised",
+        checks=checks,
+        call_types=[_call_type("prompt_name", prompt_name)],
+        judge_prompt="Is the customer told when the refund arrives?",
+    )
+
+    assert (ranking.review_dedupe_key(first) == ranking.review_dedupe_key(later)) is same_key
