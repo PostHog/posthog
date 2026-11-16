@@ -244,6 +244,9 @@ export const WarehouseSuggestionStatusEnumApi = {
 /**
  * * `not_useful` - Not useful
  * * `not_now` - Not now
+ * * `wrong_estimate` - Wrong estimate
+ * * `already_handled` - Already handled
+ * * `not_owner` - Someone else decides
  * * `other` - Other
  */
 export type WarehouseSuggestionDismissalReasonEnumApi =
@@ -252,6 +255,9 @@ export type WarehouseSuggestionDismissalReasonEnumApi =
 export const WarehouseSuggestionDismissalReasonEnumApi = {
     NotUseful: 'not_useful',
     NotNow: 'not_now',
+    WrongEstimate: 'wrong_estimate',
+    AlreadyHandled: 'already_handled',
+    NotOwner: 'not_owner',
     Other: 'other',
 } as const
 
@@ -313,6 +319,9 @@ export interface WarehouseSuggestionApi {
      *
      * * `not_useful` - Not useful
      * * `not_now` - Not now
+     * * `wrong_estimate` - Wrong estimate
+     * * `already_handled` - Already handled
+     * * `not_owner` - Someone else decides
      * * `other` - Other */
     dismissal_reason: WarehouseSuggestionDismissalReasonEnumApi | null
     /** What happened to the asset an accepted suggestion created.
@@ -422,6 +431,9 @@ export interface DismissWarehouseSuggestionApi {
      *
      * * `not_useful` - Not useful
      * * `not_now` - Not now
+     * * `wrong_estimate` - Wrong estimate
+     * * `already_handled` - Already handled
+     * * `not_owner` - Someone else decides
      * * `other` - Other */
     reason: WarehouseSuggestionDismissalReasonEnumApi
     /**
@@ -561,6 +573,10 @@ export const WarehouseSuggestionsListSurface = {
 
 export type WarehouseSuggestionsAcceptCreateParams = {
     /**
+     * Whether the decision was part of one action on several selected suggestions. Only recorded on the analytics event.
+     */
+    bulk?: boolean
+    /**
      * Page the decision was made on. Only recorded on the analytics event.
      *
      * * `models` - Models
@@ -579,6 +595,10 @@ export const WarehouseSuggestionsAcceptCreateSurface = {
 } as const
 
 export type WarehouseSuggestionsDismissCreateParams = {
+    /**
+     * Whether the decision was part of one action on several selected suggestions. Only recorded on the analytics event.
+     */
+    bulk?: boolean
     /**
      * Page the decision was made on. Only recorded on the analytics event.
      *

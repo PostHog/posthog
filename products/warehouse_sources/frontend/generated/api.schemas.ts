@@ -16,6 +16,7 @@
  * * `Databricks` - Databricks
  * * `AzureBlob` - Azure Blob
  * * `S3` - S3
+ * * `MotherDuck` - MotherDuck
  */
 export type ExternalDataDestinationTypeEnumApi =
     (typeof ExternalDataDestinationTypeEnumApi)[keyof typeof ExternalDataDestinationTypeEnumApi]
@@ -29,6 +30,7 @@ export const ExternalDataDestinationTypeEnumApi = {
     Databricks: 'Databricks',
     AzureBlob: 'AzureBlob',
     S3: 'S3',
+    MotherDuck: 'MotherDuck',
 } as const
 
 /**
@@ -70,7 +72,8 @@ export interface ExternalDataDestinationApi {
      * * `Postgres` - Postgres
      * * `Databricks` - Databricks
      * * `AzureBlob` - Azure Blob
-     * * `S3` - S3 */
+     * * `S3` - S3
+     * * `MotherDuck` - MotherDuck */
     type: ExternalDataDestinationTypeEnumApi
     /**
      * Human-readable name shown when picking destinations for a source or table.
@@ -133,7 +136,8 @@ export interface PatchedExternalDataDestinationApi {
      * * `Postgres` - Postgres
      * * `Databricks` - Databricks
      * * `AzureBlob` - Azure Blob
-     * * `S3` - S3 */
+     * * `S3` - S3
+     * * `MotherDuck` - MotherDuck */
     type?: ExternalDataDestinationTypeEnumApi
     /**
      * Human-readable name shown when picking destinations for a source or table.
@@ -3051,6 +3055,7 @@ export type ExternalDataDestinationsConnectLinkRetrieveParams = {
      * * `Databricks` - Databricks
      * * `AzureBlob` - Azure Blob
      * * `S3` - S3
+     * * `MotherDuck` - MotherDuck
      * @minLength 1
      */
     destination_type: ExternalDataDestinationsConnectLinkRetrieveDestinationType
@@ -3076,6 +3081,7 @@ export const ExternalDataDestinationsConnectLinkRetrieveDestinationType = {
     Databricks: 'Databricks',
     AzureBlob: 'AzureBlob',
     S3: 'S3',
+    MotherDuck: 'MotherDuck',
 } as const
 
 export type ExternalDataDestinationsConnectLinkStatusRetrieveParams = {
