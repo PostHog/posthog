@@ -240,9 +240,9 @@ class SendGridImportProvider(ImportProvider):
             key="contacts",
             label="Contacts",
             description=(
-                "Matches each contact to a person in PostHog by email and sets their first and last name. Fills a "
-                "cohort with all your contacts and one with each list's contacts. Each person updated counts as one "
-                "event. Needs marketing.read."
+                "Matches each contact to a person in PostHog by email and fills in their first and last name where "
+                "PostHog has none. Fills a cohort with all your contacts and one with each list's contacts. Each "
+                "person updated counts as one event. Needs marketing.read."
             ),
             count_labels=CONTACT_COUNT_LABELS,
             requires=("global_unsubscribes", "group_unsubscribes"),
