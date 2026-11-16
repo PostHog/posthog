@@ -97,7 +97,9 @@ describe('CodeEmailTabs', () => {
             [FEATURE_FLAGS.TODAY_RAIL_NAV]: quillFilters,
         }
         featureFlagLogic.actions.setFeatureFlags(
-            Object.keys(flags).filter((flag) => flags[flag]),
+            Object.entries(flags)
+                .filter(([, on]) => on)
+                .map(([flag]) => flag),
             flags
         )
         mountTabs()
