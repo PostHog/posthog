@@ -94,7 +94,6 @@ def test_a_judge_must_not_fail_calls_the_question_does_not_apply_to(_name: str, 
     )
 
     assert judge_calibration.keeps(card, calibration) is kept
-    # The judge saw 35 of the review's 40 other calls, so each verdict on one of them stands for 40 / 35 calls.
     measured = judge_calibration.measured(card, calibration)
     assert (measured.failed, measured.of) == ((5, 16) if kept else (34, 45))
 

@@ -373,7 +373,7 @@ class TestPipeline(ClickhouseTestMixin, APIBaseTest):
         # The judge's own fails, 5 caught and 2 false alarms, not the review's 6.
         assert (suggestion.headline, suggestion.measured_failure_rate, suggestion.sample_size) == (
             REVIEW_TITLE,
-            pytest.approx(7 / 30),
+            7 / 30,
             30,
         )
         # The review read every sampled call, with the call type's system prompt shown once, and the judge read each.
