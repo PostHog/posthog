@@ -136,7 +136,7 @@ describe('cluster setup and jobs', () => {
                     </ProductEmptyStateGate>
                 )
             )
-            fireEvent.click(await screen.findByText('Jobs (1)'))
+            fireEvent.click(await screen.findByText(page === 'waiting screen' ? 'Manage jobs' : 'Jobs (1)'))
             expect(await screen.findByText('All traces')).toBeVisible()
             fireEvent.click(screen.getByText('Add job'))
             expect(await screen.findByText('Create')).toBeVisible()
@@ -201,15 +201,15 @@ describe('cluster setup and jobs', () => {
         expect(screen.queryByText(/Jobs/)).not.toBeInTheDocument()
         fireEvent.click(await screen.findByText('Enable clustering'))
         await waitFor(() => expect(config.enabled).toBe(true))
-        expect(await screen.findByText('Clustering is enabled')).toBeVisible()
+        expect(await screen.findByText('No clusters yet')).toBeVisible()
         expect(screen.queryByText('Find the patterns in how people use your AI')).not.toBeInTheDocument()
         expect(screen.queryByText('Clusters, once your traces are grouped')).not.toBeInTheDocument()
         expect(screen.queryByText('Enable clustering')).not.toBeInTheDocument()
-        expect(await screen.findByText('Jobs (1)')).toBeVisible()
+        expect(await screen.findByText('Manage jobs')).toBeVisible()
         fireEvent.click(screen.getByLabelText('Clustering enabled'))
         expect(await screen.findByText('Enable clustering')).toBeVisible()
         expect(screen.queryByText(/Jobs/)).not.toBeInTheDocument()
-        expect(screen.queryByText('Waiting for your first clusters')).not.toBeInTheDocument()
+        expect(screen.queryByText('No clusters yet')).not.toBeInTheDocument()
     })
 
     it.each([false, true])('shows previous clusters when enabled=%s', async (enabled) => {

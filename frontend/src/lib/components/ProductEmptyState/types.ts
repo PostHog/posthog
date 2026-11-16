@@ -123,6 +123,7 @@ export interface ProductEmptyStateConfig {
      */
     hedgehogPlacement?: 'above' | 'beside'
     text: ProductEmptyStateTextByMode
+    WaitingForData?: ComponentType<{ onDocs: () => void }>
     /**
      * Install-command CTA. Omit for creation-first products (use `primaryAction`) or self-hosted-only flows.
      * One wizard covers every mode; pass a `ProductEmptyStateWizardByMode` map to show it in some only.

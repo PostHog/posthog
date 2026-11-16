@@ -131,6 +131,11 @@ export function ProductEmptyState({ config: baseConfig, mode, preview = false }:
         minimumAccessLevel: primaryAction?.restriction?.minimumAccessLevel ?? TeamMembershipLevel.Member,
     })
     const primaryActionRestriction = primaryAction?.restriction ? restrictionReason : null
+
+    if (mode === 'waiting-for-data' && config.WaitingForData) {
+        return <config.WaitingForData onDocs={() => captureClick('docs clicked')} />
+    }
+
     const primaryActionButton = primaryAction ? (
         <LemonButton
             type="primary"
