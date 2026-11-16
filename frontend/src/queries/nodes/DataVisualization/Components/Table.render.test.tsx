@@ -120,11 +120,11 @@ describe('SQL table rendering', () => {
             fireEvent.click(screen.getByText('occurred_at').closest('.LemonTable__header-content')!)
         }
         expect(screen.getAllByRole('link')).toHaveLength(2)
-        expect(screen.getByRole('link', { name: person })).toHaveAttribute(
+        expect(screen.getByText(person, { selector: 'a' })).toHaveAttribute(
             'href',
             expect.stringContaining(urls.personByUUID(person))
         )
-        expect(screen.getByRole('link', { name: event })).toHaveAttribute(
+        expect(screen.getByText(event, { selector: 'a' })).toHaveAttribute(
             'href',
             expect.stringContaining(urls.event(event, timestamp))
         )
