@@ -1,7 +1,7 @@
-import uuid
 import random
 import asyncio
 from collections.abc import Callable
+from types import SimpleNamespace
 from typing import Any
 
 import pytest
@@ -15,7 +15,7 @@ from limits.strategies import SlidingWindowCounterRateLimiter
 from parameterized import parameterized
 from prometheus_client import REGISTRY
 
-from posthog.egress.harmonic.limiter import HARMONIC_WINDOW_SECONDS
+from posthog.egress.harmonic.limiter import HARMONIC_ACCOUNT_KEY, HARMONIC_WINDOW_SECONDS
 from posthog.egress.harmonic.transport import HarmonicEgressBudgetExhausted
 from posthog.egress.limiter.backends import LimitsBackend
 from posthog.egress.limiter.outbound import OutboundRateLimiter
@@ -397,8 +397,53 @@ async def test_enrich_companies_batch_spaces_admissions_by_the_paced_interval_de
     assert wait_after - wait_before == pytest.approx(2 * paced_interval)
 
 
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "first_response",
+    [
+        pytest.param(_not_found(), id="miss"),
+        pytest.param(_http_500(), id="error"),
+        pytest.param(HarmonicEgressBudgetExhausted("shed"), id="shed"),
+    ],
+)
+async def test_enrich_companies_batch_paces_the_www_fallback_request(first_response: Any) -> None:
+    # A bare-domain miss, error or shed sends a second request for www. Pacing only the lookup let
+    # that request reach the limiter off the schedule, so a run that fell back often went over the lane.
+    events: list[object] = []
+    responses = iter([first_response, _found({"name": "a.com"})])
+
+    def pace(priority: Priority) -> float:
+        events.append("pace")
+        return 0.0
+
+    async def sleep(seconds: float) -> None:
+        events.append(("sleep", seconds))
+
+    async def request(*args: Any, **kwargs: Any) -> MagicMock:
+        events.append("request")
+        response = next(responses)
+        if isinstance(response, Exception):
+            raise response
+        return response
+
+    client = _client(priority=Priority.BATCH)
+    with (
+        patch(PACE_SECONDS_HARMONIC, new=pace),
+        patch(ADMISSION_INTERVAL_HARMONIC, new=lambda priority: 0.25),
+        patch(MONOTONIC, new=lambda: 1000.0),
+        patch(ASYNCIO_SLEEP, new=sleep),
+        patch(ASYNCIO_TO_THREAD, new=_fake_to_thread),
+        patch(HARMONIC_REQUEST, new=request),
+    ):
+        results = await client.enrich_companies_batch(["a.com"])
+
+    assert results == [{"name": "a.com"}]
+    paced_interval = pytest.approx(0.25 / _ENRICH_BUDGET_FRACTION)
+    assert events == ["pace", "request", "pace", ("sleep", paced_interval), "request"]
+
+
 def test_bulk_pacing_leaves_room_for_limiter_calls_that_drift_from_the_schedule() -> None:
-    # The limiter decides in a worker thread after the pacing lock admits a lookup, so the decisions
+    # The limiter decides in a worker thread after the pacing lock admits a request, so the decisions
     # drift from the paced schedule. This replays a run that Harmonic answers quickly enough for the
     # pacing alone to set its rate, against the real Harmonic policy and admission rule on a fake
     # clock. Paced at the full BATCH share, a drift of up to 0.2 s gets several percent of the calls
@@ -407,17 +452,19 @@ def test_bulk_pacing_leaves_room_for_limiter_calls_that_drift_from_the_schedule(
     start = 1_000.0
     clock = start
     backend = LimitsBackend()
-    with patch("limits.storage.memory.time") as fake_time:
-        fake_time.time.side_effect = lambda: clock
+    # The fake is complete before it is installed, so a storage timer thread that reads the clock
+    # while the patch goes in never sees a bare mock.
+    with patch("limits.storage.memory.time", new=SimpleNamespace(time=lambda: clock)):
         backend._redis = SlidingWindowCounterRateLimiter(MemoryStorage())
         limiter = OutboundRateLimiter(backend)
-        key = f"harmonic:test:{uuid.uuid4().hex}"
-        interval = limiter.admission_interval_seconds(key, priority=Priority.BATCH) / _ENRICH_BUDGET_FRACTION
+        interval = (
+            limiter.admission_interval_seconds(HARMONIC_ACCOUNT_KEY, priority=Priority.BATCH) / _ENRICH_BUDGET_FRACTION
+        )
         decision_times = sorted(start + i * interval + rng.uniform(0, 0.2) for i in range(int(60 / interval)))
         grants = []
         for decision_time in decision_times:
             clock = decision_time
-            grants.append(limiter.consume_sync(key, priority=Priority.BATCH, source="test"))
+            grants.append(limiter.consume_sync(HARMONIC_ACCOUNT_KEY, priority=Priority.BATCH, source="test"))
 
     assert all(grants)
 

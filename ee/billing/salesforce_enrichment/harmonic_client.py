@@ -1,5 +1,6 @@
 import time
 import asyncio
+from collections.abc import Awaitable, Callable
 from contextlib import suppress
 from typing import Any, Optional
 
@@ -41,11 +42,9 @@ _ENRICHMENT_STATUS_BATCH_SIZE = 50
 # Caps how many slow lookups can overlap. Admission pacing controls the request rate.
 _ENRICH_MAX_CONCURRENT_LOOKUPS = 24
 _ENRICH_MAX_ATTEMPTS = 3
-# Bulk admissions aim at this fraction of the lane's share. The limiter admits a BATCH call only
-# while the window's weighted count is below that share, and it decides in a worker thread some time
-# after the pacing admits the lookup. A run paced at the full share holds the count at the edge, so
-# that drift alone gets calls denied whenever Harmonic answers quickly enough for the pacing to set
-# the rate.
+# Bulk requests aim at this fraction of the lane's share. The limiter admits a BATCH call only while
+# the window's weighted count is below that share, and it decides in a worker thread some time after
+# the pacing admits the request. A run paced at the full share has no headroom for that delay.
 _ENRICH_BUDGET_FRACTION = 0.8
 
 
@@ -163,7 +162,9 @@ class AsyncHarmonicClient:
 
         return None
 
-    async def enrich_company_by_domain_strict(self, domain: str) -> HarmonicCompanyLookup:
+    async def enrich_company_by_domain_strict(
+        self, domain: str, *, before_request: Optional[Callable[[], Awaitable[None]]] = None
+    ) -> HarmonicCompanyLookup:
         """Like enrich_company_by_domain, but distinguishes not-found from operational failure.
 
         Returns a company-less lookup for a genuine not-found: at least one domain variation
@@ -185,6 +186,9 @@ class AsyncHarmonicClient:
         A shed variation always re-raises and is never suppressed by a sibling not-found. A shed
         means Harmonic was never asked, so writing the miss would archive "no Harmonic company"
         over our own throttling, and the sweep would not revisit it for up to 90 days.
+
+        before_request is awaited before each Harmonic call, so a caller that paces its requests
+        paces the www. fallback too. An exception from it propagates unchanged and ends the lookup.
         """
         domain = self._clean_domain(domain)
         domain_variations = [f"{prefix}{domain}" if prefix else domain for prefix in HARMONIC_DOMAIN_VARIATIONS]
@@ -195,6 +199,8 @@ class AsyncHarmonicClient:
         saw_clean_not_found = False
         not_found_urn: Optional[str] = None
         for domain_variation in domain_variations:
+            if before_request is not None:
+                await before_request()
             try:
                 variables = {"identifiers": {"websiteUrl": f"https://{domain_variation}"}}
 
@@ -242,7 +248,9 @@ class AsyncHarmonicClient:
             capture_exception(last_error, {"domain": domain, "failed_variation": last_error_variation})
         return HarmonicCompanyLookup(company=None, enrichment_urn=not_found_urn)
 
-    async def _enrich_company_by_domain_observing_denial(self, domain: str) -> Optional[dict[str, Any]]:
+    async def _enrich_company_by_domain_observing_denial(
+        self, domain: str, *, before_request: Optional[Callable[[], Awaitable[None]]] = None
+    ) -> Optional[dict[str, Any]]:
         """Lookup for the batch path, which must see a denial rather than a miss.
 
         Delegates to enrich_company_by_domain_strict for its shed-always-wins precedence: a shed on
@@ -250,7 +258,7 @@ class AsyncHarmonicClient:
         a clean companyFound=false, because the shed means Harmonic was never asked. enrich_companies_batch
         relies on that to know a domain was denied, not missing, so it can retry it in a later wave.
         """
-        lookup = await self.enrich_company_by_domain_strict(domain)
+        lookup = await self.enrich_company_by_domain_strict(domain, before_request=before_request)
         return lookup.company
 
     async def get_company_by_urn(self, urn: str) -> Optional[dict[str, Any]]:
@@ -323,11 +331,11 @@ class AsyncHarmonicClient:
         """Enrich multiple domains concurrently, one task per domain.
 
         An asyncio.Semaphore bounds how many lookups run at once (_ENRICH_MAX_CONCURRENT_LOOKUPS); admission
-        for each request is paced individually against the shared egress budget and held at least the
-        lane's admission interval, stretched by _ENRICH_BUDGET_FRACTION, after the previous one,
-        serialized through a lock so only the wait blocks, not the request itself. A domain shed by the egress limiter
-        waits one budget window and retries, up to _ENRICH_MAX_ATTEMPTS. A domain still shed after
-        every attempt is reported to error tracking and left None, distinctly from a genuine
+        for each request, the www. fallback included, is paced individually against the shared egress budget
+        and held at least the lane's admission interval divided by _ENRICH_BUDGET_FRACTION after the previous
+        one, serialized through a lock so only the wait blocks, not the request itself. A domain shed by
+        the egress limiter waits one budget window and retries, up to _ENRICH_MAX_ATTEMPTS. A domain still
+        shed after every attempt is reported to error tracking and left None, distinctly from a genuine
         not-found or an operational failure (also None): callers persist these results against a
         Salesforce account, and a shed means Harmonic was never asked.
 
@@ -362,14 +370,15 @@ class AsyncHarmonicClient:
                     time.monotonic() + admission_interval_harmonic(self.priority) / _ENRICH_BUDGET_FRACTION
                 )
 
+        before_request = None if self.priority is Priority.CRITICAL else wait_for_admission
+
         async def enrich_one(index: int, domain: str) -> None:
             for attempt in range(1, _ENRICH_MAX_ATTEMPTS + 1):
                 async with semaphore:
-                    if self.priority is not Priority.CRITICAL:
-                        await wait_for_admission()
-
                     try:
-                        results[index] = await self._enrich_company_by_domain_observing_denial(domain)
+                        results[index] = await self._enrich_company_by_domain_observing_denial(
+                            domain, before_request=before_request
+                        )
                         return
                     except HarmonicEgressBudgetExhausted:
                         pass
