@@ -139,20 +139,25 @@ describe('broadcastPreviewLogic', () => {
         }
         const previewPeople = (): string[] => logic.values.persons.map((person) => person.id)
 
-        it('loads preview people for an included cohort', async () => {
-            await resume([
-                savedCondition({ key: 'id', type: 'cohort', value: 42, operator: 'in' }, false),
-                savedCondition({ key: 'plan', type: 'person', value: ['pro'], operator: 'exact' }, false),
-            ])
+        const COHORT = { key: 'id', type: 'cohort', value: 42, operator: 'in' }
+        const PRO = { key: 'plan', type: 'person', value: ['pro'], operator: 'exact' }
+
+        it.each([
+            [
+                'an included cohort and sends it to the query as in',
+                [savedCondition(COHORT, false), savedCondition(PRO, false)],
+                [COHORT, PRO],
+            ],
+            [
+                'an excluded cohort and sends it to the query as not_in',
+                [savedCondition(COHORT, true), savedCondition(PRO, false)],
+                [{ ...COHORT, operator: 'not_in' }, PRO],
+            ],
+        ])('loads preview people for %s', async (_name, saved, sent) => {
+            await resume(saved)
 
             await waitFor(() => expect(previewPeople()).toEqual(['person-ada']))
-        })
-
-        it('loads preview people for an excluded cohort and sends it to the query as not_in', async () => {
-            await resume([savedCondition({ key: 'id', type: 'cohort', value: 42, operator: 'in' }, true)])
-
-            await waitFor(() => expect(previewPeople()).toEqual(['person-ada']))
-            expect(received.at(-1)).toEqual([{ key: 'id', type: 'cohort', value: 42, operator: 'not_in' }])
+            expect(received.at(-1)).toEqual(sent)
         })
     })
 
