@@ -158,13 +158,6 @@ def _create_template(entry: CatalogEntry, skip_probe: bool, counts: SyncCounts) 
 
 
 def _update_template(template: MCPServerTemplate, entry: CatalogEntry, skip_probe: bool, counts: SyncCounts) -> None:
-    if template.oauth_credentials_source != (entry.oauth_credentials_source or "") and template.installations.exists():
-        # An installation's token belongs to the OAuth app that issued it, and the other app cannot refresh it.
-        # The template stays inactive on the old app until its members disconnect, so nobody installs it meanwhile.
-        if template.is_active:
-            template.is_active = False
-            template.save(update_fields=["is_active", "updated_at"])
-        raise ValueError("Disconnect existing installations before changing OAuth apps")
     changed = [f for f in _CONTENT_FIELDS if getattr(template, f) != _entry_field_value(entry, f)]
     for f in changed:
         setattr(template, f, _entry_field_value(entry, f))

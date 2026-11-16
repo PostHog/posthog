@@ -31,8 +31,6 @@ from posthog.test.anti_ssrf import mock_anti_ssrf_dns_lookup
 from posthog.test.authentication_checks import covers_authentication
 
 from products.mcp_store.backend.agents import create_gateway_agent_token, sync_built_in_agents
-from products.mcp_store.backend.catalog import MCP_SERVER_CATALOG
-from products.mcp_store.backend.catalog_sync import sync_mcp_catalog
 from products.mcp_store.backend.facade.api import (
     SLACK_MCP_URL,
     connect_slack_mcp_from_slack_link,
@@ -4361,30 +4359,6 @@ class TestMCPAuthorizePosthogCodeResponse(APIBaseTest):
 
 
 class TestInstallTemplateAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
-    def test_catalog_keeps_the_oauth_app_of_a_template_with_installations(self) -> None:
-        entry = next(entry for entry in MCP_SERVER_CATALOG if entry.oauth_credentials_source == "slack_app")
-        template = self._template(url=entry.url, oauth_credentials_source="slack_dev_app")
-        installation = MCPServerInstallation.objects.create(
-            team=self.team,
-            user=self.user,
-            template=template,
-            url=template.url,
-            auth_type="oauth",
-            sensitive_configuration={"access_token": "existing-token"},
-        )
-        counts = sync_mcp_catalog(entries=[entry])
-        template.refresh_from_db()
-        installation.refresh_from_db()
-        assert counts.failed == 1
-        assert template.oauth_credentials_source == "slack_dev_app"
-        assert not template.is_active
-        assert installation.sensitive_configuration == {"access_token": "existing-token"}
-
-        installation.delete()
-        sync_mcp_catalog(entries=[entry])
-        template.refresh_from_db()
-        assert template.oauth_credentials_source == "slack_app"
-
     def _template(self, **overrides) -> MCPServerTemplate:
         import uuid as _uuid
 

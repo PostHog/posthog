@@ -41,5 +41,7 @@ def resolve_oauth_credentials_source(source: str) -> dict[str, str]:
 
 
 def oauth_credentials_source_is_configured(source: str) -> bool:
+    if source not in SUPPORTED_OAUTH_CREDENTIAL_SOURCES:
+        return False
     credentials = resolve_oauth_credentials_source(source)
     return bool(credentials["client_id"] and credentials["client_secret"])
