@@ -10,7 +10,6 @@ tools:
     canvas-builds-retrieve:
         operation: canvases_builds_retrieve
         enabled: true
-        feature_flag: today-rail-nav
         scopes:
             - canvas:read
         annotations:
@@ -28,10 +27,10 @@ tools:
         param_overrides:
             id:
                 description: ID of the canvas whose builds to read.
+        feature_flag: today-rail-nav
     canvas-comments-list:
         operation: canvases_comments_list
         enabled: true
-        feature_flag: today-rail-nav
         scopes:
             - canvas:read
             - comment:read
@@ -50,10 +49,10 @@ tools:
         param_overrides:
             id:
                 description: ID of the canvas whose comments to list.
+        feature_flag: today-rail-nav
     canvas-comments-retrieve:
         operation: canvases_comments_retrieve
         enabled: true
-        feature_flag: today-rail-nav
         scopes:
             - canvas:read
             - comment:read
@@ -73,10 +72,10 @@ tools:
                 description: ID of the canvas the thread is on.
             root_comment_id:
                 description: Root comment id from canvas-comments-list.
+        feature_flag: today-rail-nav
     canvas-connectors-retrieve:
         operation: canvases_connectors_retrieve
         enabled: true
-        feature_flag: today-rail-nav
         scopes:
             - canvas:read
         annotations:
@@ -92,10 +91,10 @@ tools:
             provider and tool you call in the project's `capabilities.connectors`. Calls run with the VIEWER's own
             connection at view time, never the author's, so results are never baked into the source. Only read-only
             tools may be declared. Pass `mcp_hosts` to include a server the user has not connected yet.
+        feature_flag: today-rail-nav
     canvas-create:
         operation: canvases_create
         enabled: true
-        feature_flag: today-rail-nav
         scopes:
             - canvas:write
         annotations:
@@ -124,10 +123,10 @@ tools:
                 description:
                     Short prose describing the canvas. For components this is the store-search text — say what the widget shows
                     and what its config controls, so future searches find it.
+        feature_flag: today-rail-nav
     canvas-draft-create:
         operation: canvases_draft_create
         enabled: true
-        feature_flag: today-rail-nav
         scopes:
             - canvas:write
         annotations:
@@ -154,10 +153,10 @@ tools:
         param_overrides:
             id:
                 description: ID of the canvas to stage a draft for.
+        feature_flag: today-rail-nav
     canvas-drafts-retrieve:
         operation: canvases_drafts_retrieve
         enabled: true
-        feature_flag: today-rail-nav
         scopes:
             - canvas:read
         annotations:
@@ -173,10 +172,10 @@ tools:
         param_overrides:
             id:
                 description: ID of the canvas whose drafts to list.
+        feature_flag: today-rail-nav
     canvas-edit-create:
         operation: canvases_edit_create
         enabled: true
-        feature_flag: today-rail-nav
         scopes:
             - canvas:write
         annotations:
@@ -211,10 +210,10 @@ tools:
         param_overrides:
             id:
                 description: ID of the canvas whose source to edit.
+        feature_flag: today-rail-nav
     canvas-layout-get:
         operation: canvases_layout_retrieve
         enabled: true
-        feature_flag: today-rail-nav
         scopes:
             - canvas:read
         annotations:
@@ -233,10 +232,10 @@ tools:
         param_overrides:
             id:
                 description: ID of the grid canvas whose layout to read.
+        feature_flag: today-rail-nav
     canvas-layout-patch:
         operation: canvases_layout_patch_create
         enabled: true
-        feature_flag: today-rail-nav
         scopes:
             - canvas:write
         annotations:
@@ -261,10 +260,10 @@ tools:
         param_overrides:
             id:
                 description: ID of the grid canvas whose layout to patch.
+        feature_flag: today-rail-nav
     canvas-layout-publish:
         operation: canvases_layout_publish_create
         enabled: true
-        feature_flag: today-rail-nav
         scopes:
             - canvas:write
         annotations:
@@ -293,10 +292,10 @@ tools:
                     that has never published a layout). A whole document replaces the head, so without the guard a
                     layout the user changed after you read it is silently discarded.
                 required: true
+        feature_flag: today-rail-nav
     canvas-list:
         operation: canvases_list
         enabled: true
-        feature_flag: today-rail-nav
         scopes:
             - canvas:read
         annotations:
@@ -319,10 +318,10 @@ tools:
                 description: Only return canvases of this kind. kind=component lists the component store.
             search:
                 description: Case-insensitive match on name and description — use to find store components by what they show.
+        feature_flag: today-rail-nav
     canvas-move:
         operation: canvases_partial_update
         enabled: true
-        feature_flag: today-rail-nav
         scopes:
             - canvas:write
         annotations:
@@ -342,10 +341,10 @@ tools:
             channel_id:
                 description: ID of the visible destination space.
                 required: true
+        feature_flag: today-rail-nav
     canvas-promote-create:
         operation: canvases_promote_create
         enabled: true
-        feature_flag: today-rail-nav
         scopes:
             - canvas:write
         annotations:
@@ -366,10 +365,10 @@ tools:
         param_overrides:
             id:
                 description: ID of the canvas whose draft to promote.
+        feature_flag: today-rail-nav
     canvas-publish-create:
         operation: canvases_publish_create
         enabled: true
-        feature_flag: today-rail-nav
         scopes:
             - canvas:write
         annotations:
@@ -401,10 +400,10 @@ tools:
         param_overrides:
             id:
                 description: ID of the canvas whose source to publish.
+        feature_flag: today-rail-nav
     canvas-publish-current-version:
         operation: canvases_publish_current_version_create
         enabled: true
-        feature_flag: today-rail-nav
         scopes:
             - canvas:write
         annotations:
@@ -416,10 +415,10 @@ tools:
             Queue a build for the canvas's current source version without changing its source or metadata. Any project
             member can use this in a public space. Pass the current_version_id read from canvas-source-retrieve. A stale
             value returns a 409 version_conflict.
+        feature_flag: today-rail-nav
     canvas-source-retrieve:
         operation: canvases_source_retrieve
         enabled: true
-        feature_flag: today-rail-nav
         scopes:
             - canvas:read
         annotations:
@@ -435,10 +434,10 @@ tools:
         param_overrides:
             id:
                 description: ID of the canvas whose source to read.
+        feature_flag: today-rail-nav
     canvas-state-retrieve:
         operation: canvases_state_retrieve
         enabled: true
-        feature_flag: today-rail-nav
         scopes:
             - canvas:read
         annotations:
@@ -459,10 +458,10 @@ tools:
                 input_schema: CanvasStateReadLimitSchema
             keys_only:
                 input_schema: CanvasStateKeysOnlySchema
+        feature_flag: today-rail-nav
     canvas-state-set:
         operation: canvases_state_set
         enabled: true
-        feature_flag: today-rail-nav
         scopes:
             - canvas:write
         annotations:
@@ -475,10 +474,10 @@ tools:
             only the authenticated user's private state; `shared` updates the state every viewer sees. The scope must be
             declared by the live canvas version. Read the current entries with canvas-state-retrieve before changing
             progress or other existing values.
+        feature_flag: today-rail-nav
     canvas-state-value-retrieve:
         operation: canvases_state_value_retrieve
         enabled: true
-        feature_flag: today-rail-nav
         scopes:
             - canvas:read
         annotations:
@@ -494,10 +493,10 @@ tools:
             while any other 404 means the canvas is not available to this caller.
         validators:
             - validateCanvasStateValueContinuation
+        feature_flag: today-rail-nav
     canvas-validate-create:
         operation: canvases_validate_create
         enabled: true
-        feature_flag: today-rail-nav
         scopes:
             - canvas:read
         annotations:
@@ -513,3 +512,4 @@ tools:
         param_overrides:
             id:
                 description: ID of the canvas the project is for.
+        feature_flag: today-rail-nav
