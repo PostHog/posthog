@@ -271,12 +271,23 @@ def _refuse_what_the_standard_message_cannot_send(
     team_id: int, alert_id: UUID, allowed_event_ids: Collection[str], hog_function_ids: Collection[UUID]
 ) -> None:
     named = set(hog_function_ids)
-    blocking = {
-        hold_back
+    classified = [
+        eligibility
         for eligibility in classify_alert_destinations(
             team_id=team_id, alert_id=str(alert_id), allowed_event_ids=allowed_event_ids
         )
         if eligibility.hog_function_id in named
+    ]
+    if {eligibility.hog_function_id for eligibility in classified} != named:
+        # A HogFunction the classifier skips never received the alert's events, so nothing says the
+        # standard message may reach its address.
+        raise AlertDestinationValidationError(
+            "This destination doesn't receive this alert's notifications, so it can't be reset.",
+            field="hog_function_ids",
+        )
+    blocking = {
+        hold_back
+        for eligibility in classified
         for hold_back in eligibility.hold_backs
         if hold_back in _DELIVERY_HOLD_BACKS
     }
