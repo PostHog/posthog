@@ -21,17 +21,23 @@ import { QuillDismissNoteField } from './QuillDismissNoteField'
 const REASON_CHOICES = dismissReasonChoices('warehouse-suggestions-dismiss-reason', { includeNotNow: false })
 
 export function QuillDismissSuggestionDialog(): JSX.Element | null {
-    const { dismissDialogSuggestion, dismissReason, dismissNote } = useValues(warehouseSuggestionsLogic)
+    const { dismissDialogSuggestion, dismissReason, dismissNote, actionsInFlight } =
+        useValues(warehouseSuggestionsLogic)
     const { closeDismissDialog, setDismissReason, setDismissNote, confirmDismiss } =
         useActions(warehouseSuggestionsLogic)
 
     if (!dismissDialogSuggestion) {
         return null
     }
+    const inFlight = !!actionsInFlight[dismissDialogSuggestion.id]
 
     return (
-        <Dialog open onOpenChange={(open: boolean) => !open && closeDismissDialog()}>
-            <DialogContent className="max-w-lg" data-attr="warehouse-suggestions-dismiss-dialog">
+        <Dialog open onOpenChange={(open: boolean) => !open && !inFlight && closeDismissDialog()}>
+            <DialogContent
+                className="max-w-lg"
+                showCloseButton={!inFlight}
+                data-attr="warehouse-suggestions-dismiss-dialog"
+            >
                 <DialogHeader>
                     <DialogTitle>{`Dismiss the suggestion for ${dismissDialogSuggestion.payload.subject_name}?`}</DialogTitle>
                     <DialogDescription>It won't be suggested again.</DialogDescription>
@@ -44,7 +50,7 @@ export function QuillDismissSuggestionDialog(): JSX.Element | null {
                             value={dismissReason}
                             onChange={setDismissReason}
                             choices={REASON_CHOICES}
-                            disabled={false}
+                            disabled={inFlight}
                         />
                         <QuillDismissNoteField
                             id="dismiss-note"
@@ -55,11 +61,16 @@ export function QuillDismissSuggestionDialog(): JSX.Element | null {
                     </FieldGroup>
                 </DialogBody>
                 <DialogFooter>
-                    <Button variant="outline" onClick={closeDismissDialog}>
+                    <Button
+                        variant="outline"
+                        onClick={closeDismissDialog}
+                        disabledReason={inFlight ? 'Working' : undefined}
+                    >
                         Cancel
                     </Button>
                     <Button
                         variant="primary"
+                        loading={inFlight}
                         onClick={() => confirmDismiss()}
                         data-attr="warehouse-suggestions-dismiss-confirm"
                     >

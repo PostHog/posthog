@@ -439,6 +439,9 @@ export interface warehouseSuggestionsLogicActions {
     suggestionAccepted: (suggestion: WarehouseSuggestionApi) => {
         suggestion: WarehouseSuggestionApi
     }
+    suggestionDismissed: (id: string) => {
+        id: string
+    }
     suggestionResumed: (suggestion: WarehouseSuggestionApi) => {
         suggestion: WarehouseSuggestionApi
     }
@@ -552,6 +555,7 @@ export const warehouseSuggestionsLogic: LogicWrapper<warehouseSuggestionsLogicTy
             setMaterializeError: (error: string | null) => ({ error }),
             setMaterializeInterval: (interval: DataModelingSyncInterval | null) => ({ interval }),
             suggestionAccepted: (suggestion: WarehouseSuggestionApi) => ({ suggestion }),
+            suggestionDismissed: (id: string) => ({ id }),
             reload: true,
             showMore: (placement: ShowMorePlacement) => ({ placement }),
             setShowingMore: (showingMore: boolean) => ({ showingMore }),
@@ -649,7 +653,7 @@ export const warehouseSuggestionsLogic: LogicWrapper<warehouseSuggestionsLogicTy
                 {
                     openDismissDialog: (_, { id }) => id,
                     closeDismissDialog: () => null,
-                    hideSuggestion: (state, { id }) => (state === id ? null : state),
+                    suggestionDismissed: (state, { id }) => (state === id ? null : state),
                 },
             ],
             dismissReason: [
@@ -1115,6 +1119,7 @@ export const warehouseSuggestionsLogic: LogicWrapper<warehouseSuggestionsLogicTy
                             { reason, note },
                             { surface: props.surface }
                         )
+                        actions.suggestionDismissed(id)
                         lemonToast.success(dismissedMessage(reason, kind), {
                             toastId: `warehouse-suggestion-dismissed-${id}`,
                             button: {

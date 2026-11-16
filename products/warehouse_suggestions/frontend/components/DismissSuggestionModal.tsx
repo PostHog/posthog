@@ -16,26 +16,34 @@ import { warehouseSuggestionsLogic } from '../warehouseSuggestionsLogic'
 const REASON_CHOICES = dismissReasonChoices('warehouse-suggestions-dismiss-reason', { includeNotNow: false })
 
 export function DismissSuggestionModal(): JSX.Element | null {
-    const { dismissDialogSuggestion, dismissReason, dismissNote } = useValues(warehouseSuggestionsLogic)
+    const { dismissDialogSuggestion, dismissReason, dismissNote, actionsInFlight } =
+        useValues(warehouseSuggestionsLogic)
     const { closeDismissDialog, setDismissReason, setDismissNote, confirmDismiss } =
         useActions(warehouseSuggestionsLogic)
 
     if (!dismissDialogSuggestion) {
         return null
     }
+    const inFlight = !!actionsInFlight[dismissDialogSuggestion.id]
 
     return (
         <LemonModal
             isOpen
+            closable={!inFlight}
             onClose={closeDismissDialog}
             title={`Dismiss the suggestion for ${dismissDialogSuggestion.payload.subject_name}?`}
             footer={
                 <>
-                    <LemonButton type="secondary" onClick={closeDismissDialog}>
+                    <LemonButton
+                        type="secondary"
+                        onClick={closeDismissDialog}
+                        disabledReason={inFlight ? 'Working' : undefined}
+                    >
                         Cancel
                     </LemonButton>
                     <LemonButton
                         type="primary"
+                        loading={inFlight}
                         onClick={() => confirmDismiss()}
                         data-attr="warehouse-suggestions-dismiss-confirm"
                     >
@@ -46,7 +54,7 @@ export function DismissSuggestionModal(): JSX.Element | null {
         >
             <div className="flex max-w-xl flex-col gap-4">
                 <p className="m-0 text-sm text-secondary">It won't be suggested again.</p>
-                <fieldset className="flex flex-col gap-2">
+                <fieldset disabled={inFlight} className="flex flex-col gap-2">
                     <h4 className="m-0 text-sm font-semibold">{DISMISS_REASON_LEGEND}</h4>
                     <LemonRadio
                         aria-label={DISMISS_REASON_LEGEND}

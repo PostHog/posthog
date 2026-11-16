@@ -309,6 +309,23 @@ describe('warehouseSuggestionsLogic', () => {
         expect(logic.values.dismissDialogSuggestion).toBeNull()
     })
 
+    it('keeps the dismiss dialog and its answers when the dismiss fails', async () => {
+        mockDismiss.mockRejectedValue(new Error('network'))
+        await mountLogic()
+
+        logic.actions.openDismissDialog(MATERIALIZE.id)
+        logic.actions.setDismissReason('already_handled')
+        logic.actions.setDismissNote('We cover this elsewhere')
+        logic.actions.confirmDismiss()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values).toMatchObject({
+            dismissDialogSuggestionId: MATERIALIZE.id,
+            dismissReason: 'already_handled',
+            dismissNote: 'We cover this elsewhere',
+        })
+    })
+
     it('shows the new assignee on the row and keeps the row listed', async () => {
         const assignee = { id: 7, first_name: 'Ana', email: 'ana@example.com' }
         mockAssign.mockResolvedValue({ ...MATERIALIZE, assignee })
