@@ -30,7 +30,6 @@ import { todayAnalyticsLogic } from './todayAnalyticsLogic'
 import { TodayAnalyticsMetric } from './TodayAnalyticsMetric'
 import { resolveSidebarTarget } from './todayAnalyticsSidebarTargets'
 
-/** Marks a dashboard pinned for everyone in the project, not by this person. */
 function ProjectPinnedMarker(): JSX.Element {
     return (
         <Tooltip>

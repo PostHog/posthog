@@ -260,7 +260,6 @@ export const todayAnalyticsLogic = kea<todayAnalyticsLogicType>([
         },
     })),
     afterMount(({ actions }) => {
-        // The dashboards model is shared, so a pin changed anywhere in the app shows here too.
         actions.loadDashboardsIfNeeded()
     }),
     subscriptions(({ actions, values }) => ({
