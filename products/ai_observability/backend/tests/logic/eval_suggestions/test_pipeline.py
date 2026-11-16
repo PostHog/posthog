@@ -65,7 +65,12 @@ def _event(team: Team, event: str, at: datetime, properties: dict[str, Any]) -> 
     )
 
 
-def _chat_traffic(team: Team, end: datetime) -> None:
+def _content(captured: bool, messages: list[dict[str, Any]], choices: list[dict[str, Any]]) -> dict[str, Any]:
+    """The input and output of a generation, or nothing, as an SDK in privacy mode sends it."""
+    return {"$ai_input": messages, "$ai_output_choices": choices} if captured else {}
+
+
+def _chat_traffic(team: Team, end: datetime, *, capture_content: bool = True, final_answer: bool = True) -> None:
     """60 chat turns over three days. Every action goes through one dispatcher tool, answers link to docs,
     some turns pause for approval, and 3 turns end on a timeout nobody retried."""
     for index in range(60):
@@ -87,8 +92,7 @@ def _chat_traffic(team: Team, end: datetime) -> None:
                 {
                     **trace,
                     **model,
-                    "$ai_input": messages,
-                    "$ai_output_choices": [assistant],
+                    **_content(capture_content, messages, [assistant]),
                     "$ai_tools_called": "run_action",
                     "$ai_tool_call_count": 1,
                 },
@@ -122,6 +126,8 @@ def _chat_traffic(team: Team, end: datetime) -> None:
                     "$ai_error": "GraphInterrupt(value={'needs_approval': 'archive'})",
                 },
             )
+        if not final_answer:
+            continue
         answer = {
             "role": "assistant",
             "content": "Done. See https://example.com/docs/archive for version 2.1 of the archive.",
@@ -130,7 +136,7 @@ def _chat_traffic(team: Team, end: datetime) -> None:
             team,
             "$ai_generation",
             at + timedelta(seconds=1),
-            {**trace, **model, "$ai_input": messages, "$ai_output_choices": [answer]},
+            {**trace, **model, **_content(capture_content, messages, [answer])},
         )
 
 
@@ -174,7 +180,7 @@ def _run_stages(
 @pytest.fixture(autouse=True)
 def _organization_in_rollout() -> Any:
     with patch(
-        "products.ai_observability.backend.logic.eval_suggestions.pipeline.is_enabled_for_organization",
+        "products.ai_observability.backend.logic.eval_suggestions.pipeline.runs_for_organization",
         return_value=True,
     ):
         yield
@@ -209,6 +215,29 @@ class TestPipeline(ClickhouseTestMixin, APIBaseTest):
         # Paid stages were off, and the handoff is gone once the run published.
         assert run.stages["screening"] == {"status": "skipped", "detail": "free stages only"}
         assert run.handoff == {}
+
+    def test_a_team_that_captures_no_content_gets_only_fix_cards(self) -> None:
+        now = timezone.now()
+        _chat_traffic(self.team, now - timedelta(minutes=30), capture_content=False)
+        dead_judge = _dead_judge(self.team)
+        run = create_run(self.team, "manual")
+
+        suggestions = _run_stages(self.team, run, include_paid=True, now=now)
+
+        assert [s.dedupe_key for s in suggestions] == [f"fix:{dead_judge.id}:no_runs"]
+        run.refresh_from_db()
+        assert run.stages["applicability"]["status"] == "skipped"
+
+    def test_an_agent_whose_turns_end_on_a_tool_call_is_not_gated(self) -> None:
+        now = timezone.now()
+        _chat_traffic(self.team, now - timedelta(minutes=30), final_answer=False)
+        run = create_run(self.team, "manual")
+
+        _run_stages(self.team, run, now=now)
+
+        run.refresh_from_db()
+        assert run.stages["profile"]["text_share"] == 0
+        assert run.stages["applicability"]["status"] == "ok"
 
 
 class TestRunRetries(ClickhouseTestMixin, APIBaseTest):
@@ -429,7 +458,7 @@ class TestRunRecords(BaseTest):
 
         assert publish(run, [_candidate("check:unrecovered_errors", [])], {}) == []
 
-    @patch.object(pipeline, "is_enabled_for_organization", return_value=False)
+    @patch.object(pipeline, "runs_for_organization", return_value=False)
     @patch.object(pipeline.coverage_stage, "fetch_coverage")
     def test_a_run_for_an_organization_out_of_the_rollout_does_nothing(
         self, fetch_coverage: MagicMock, _flag: MagicMock
