@@ -1262,6 +1262,27 @@ class TestPluginAPI(APIBaseTest, QueryMatchingTest):
             },
         }
 
+    @parameterized.expand([("multipart", "{"), ("json", "{"), ("json", "[]")])
+    def test_create_plugin_config_rejects_config_that_is_not_a_json_object(
+        self, mock_get, mock_reload, request_format, config
+    ):
+        plugin = Plugin.objects.create(
+            organization=self.organization,
+            plugin_type="local",
+            name="Taxonomy",
+            url="https://github.com/PostHog/taxonomy-plugin",
+        )
+
+        response = self.client.post(
+            "/api/plugin_config/",
+            {"plugin": plugin.id, "enabled": True, "order": 0, "config": config},
+            format=request_format,
+        )
+
+        assert response.status_code == 400, response.json()
+        assert response.json()["attr"] == "config"
+        assert HogFunction.objects.count() == 0
+
     def test_check_for_updates_plugins_reload_not_called(self, _, mock_reload):
         response = self.client.post(
             "/api/organizations/@current/plugins/",
