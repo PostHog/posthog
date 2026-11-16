@@ -52,7 +52,7 @@ const REASON_TEXT: Record<string, string> = {
     attachments_missing: "The email's attachments couldn't be found",
 }
 
-// The reasons the log filters on, under the status they belong to. A click on an email metric sets one of them.
+// pinned: values of the log's `reason` filter - kept in sync with EmailStatusReason in nodejs/src/cdp/services/messaging/email-status.service.ts
 const REASON_FILTER_OPTIONS: Partial<Record<EmailDeliveryStatusEnumApi, { value: string; label: string }[]>> = {
     bounced: [
         { value: 'hard', label: 'Hard bounce' },

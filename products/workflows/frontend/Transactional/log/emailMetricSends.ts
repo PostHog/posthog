@@ -5,7 +5,7 @@ import type { EmailDeliveryStatusEnumApi } from 'products/messaging/frontend/gen
 import type { EmailMetricName } from '../../Workflows/workflowMetricsSummaryLogic'
 import { logWindow } from './transactionalEmailLogLogic'
 
-// Kept in sync with EmailStatusReason in nodejs/src/cdp/services/messaging/email-status.service.ts.
+// pinned: values of the log's `reason` filter - kept in sync with EmailStatusReason in nodejs/src/cdp/services/messaging/email-status.service.ts
 const EMAIL_METRIC_SENDS: Partial<Record<EmailMetricName, { status: EmailDeliveryStatusEnumApi; reason?: string }>> = {
     email_bounced: { status: 'bounced' },
     email_bounced_hard: { status: 'bounced', reason: 'hard' },
@@ -27,7 +27,6 @@ export function emailMetricSendFilters(
     if (!sends) {
         return null
     }
-    // The log keeps fewer days than a metrics range can span, so the date filter shows the days the list covers.
     const window = logWindow(range)
     return {
         status: sends.status,

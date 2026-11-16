@@ -93,7 +93,6 @@ export interface WorkflowMetricsProps extends WorkflowLogicProps {
      * The step picker is hidden because it opens the workflow.
      */
     onEmailMetricClick?: (metric: EmailMetricName, range: { dateFrom: string; dateTo: string }) => void
-    /** Like `onEmailMetricClick`, but takes the Invocations tab's filters for the clicked metric. */
     onShowInvocations?: (searchParams: Record<string, string>) => void
 }
 
