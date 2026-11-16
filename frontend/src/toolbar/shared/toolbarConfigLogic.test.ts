@@ -797,6 +797,22 @@ describe('toolbar toolbarConfigLogic', () => {
             warnSpy.mockRestore()
         })
 
+        it('signs out a token from toolbar params without a project when a stale code fails to exchange', async () => {
+            const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {})
+            localStorage.removeItem(PKCE_STORAGE_KEY)
+            window.history.pushState(
+                {},
+                '',
+                '/#__posthog_toolbar=code:stale,client_id:some-client,team_id:2,project_id:1'
+            )
+
+            const logic = toolbarConfigLogic.build({ apiURL: 'http://localhost', accessToken: 'legacy-access' })
+            logic.mount()
+
+            await expectLogic(logic).delay(0).toMatchValues({ accessToken: null, isAuthenticated: false })
+            warnSpy.mockRestore()
+        })
+
         it('falls back to stored tokens when no PKCE verifier exists', async () => {
             const warnSpy = jest.spyOn(console, 'warn').mockImplementation(() => {})
             localStorage.setItem(

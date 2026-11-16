@@ -5,8 +5,9 @@ import { toolbarPosthogJS } from '~/toolbar/shared/toolbarPosthogJS'
 
 import { withTokenRefresh } from './toolbarAuth'
 import { toolbarConfigLogic } from './toolbarConfigLogic'
+import { ToolbarRouteScope, toolbarScopedPath } from './toolbarProject'
 import { ToolbarRequestError } from './toolbarRequestError'
-import { safeFetch, ToolbarRouteScope, toolbarScopedPath } from './utils'
+import { safeFetch } from './utils'
 
 /**
  * Low-level authenticated transport for the toolbar — the single place that knows how

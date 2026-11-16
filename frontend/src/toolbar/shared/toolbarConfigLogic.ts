@@ -19,9 +19,9 @@ import { captureToolbarException, toolbarPosthogJS } from '~/toolbar/shared/tool
 import { TOOLBAR_USER_INTENTS, ToolbarProps, ToolbarUserIntent } from '~/types'
 
 import type { ExperimentIdType } from '../../types'
+import { asToolbarProject, ToolbarProject } from './toolbarProject'
 import {
     asNonEmptyString,
-    asToolbarProject,
     cleanToolbarAuthHash,
     generatePKCE,
     LOCALSTORAGE_KEY,
@@ -31,7 +31,6 @@ import {
     requestOAuthTokens,
     safeFetch,
     ToolbarAuthParams,
-    ToolbarProject,
 } from './utils'
 
 export type ApiHostSource = 'posthog_api_host' | 'api_url' | 'fallback_rejected' | 'fallback_absent'
@@ -530,7 +529,7 @@ export const toolbarConfigLogic = kea<toolbarConfigLogicType>([
         //   fine for real API calls but CORS-rejects the cheap HEAD)
         if (isPostHogCloudHost(values.uiHost)) {
             if (authParams) {
-                startCodeExchange(values.uiHost, authParams, actions)
+                startCodeExchange(values.uiHost, authParams, values, actions)
             }
             return
         }
@@ -651,7 +650,9 @@ type TokenActions = {
         project: ToolbarProject
     ) => void
     setAuthStatus: (status: 'idle' | 'checking' | 'authenticating' | 'error') => void
+    tokenExpired: () => void
 }
+type SessionValues = { accessToken: string | null; project: ToolbarProject | null }
 type CheckActions = TokenActions & {
     openUiHostConfigModal: () => void
 }
@@ -845,7 +846,7 @@ function classifyFetchError(error: unknown): string {
  */
 function verifyUiHostReachability(
     props: ToolbarProps,
-    values: { uiHost: string; apiHost: string; isAuthenticated: boolean },
+    values: SessionValues & { uiHost: string; apiHost: string; isAuthenticated: boolean },
     actions: CheckActions,
     authParams: ToolbarAuthParams | null
 ): void {
@@ -884,7 +885,7 @@ function verifyUiHostReachability(
             })
 
             if (authParams) {
-                startCodeExchange(values.uiHost, authParams, actions)
+                startCodeExchange(values.uiHost, authParams, values, actions)
             }
         })
         .catch((error: unknown) => {
@@ -910,13 +911,21 @@ function verifyUiHostReachability(
 }
 
 /** Exchange an OAuth authorization code for access + refresh tokens. */
-function startCodeExchange(uiHost: string, authParams: ToolbarAuthParams, actions: TokenActions): void {
+function startCodeExchange(
+    uiHost: string,
+    authParams: ToolbarAuthParams,
+    values: SessionValues,
+    actions: TokenActions
+): void {
     void exchangeCodeForTokens(uiHost, authParams, actions).then((succeeded) => {
         if (!succeeded) {
             // Code exchange failed (stale code, expired PKCE, network error).
             // Fall back to stored OAuth tokens so users don't have to
             // re-authenticate when the hash wasn't cleaned properly.
             restoreOAuthTokens(false, { accessToken: null, uiHost }, actions)
+            // The mount skipped this check while the exchange was pending, and a token from toolbar params is
+            // still live when the stored tokens could not replace it.
+            discardTokensWithoutProject(false, values, actions)
         }
     })
 }

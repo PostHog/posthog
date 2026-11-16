@@ -137,6 +137,8 @@ export class PageToolbarHost {
             accessToken: session.accessToken,
             refreshToken: session.refreshToken ?? undefined,
             clientId: session.clientId,
+            teamId: session.project.teamId,
+            projectId: session.project.projectId,
             dataAttributes: session.dataAttributes,
             posthog: this.posthogBridge?.posthog,
         }
