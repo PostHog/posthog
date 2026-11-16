@@ -2611,40 +2611,45 @@ def test_hoglake_registration_replaces_the_team_table_in_one_add_files(
 
 
 @pytest.mark.parametrize(
-    "_name, landing_uri, hive_partition_columns, namespace_present, should_publish, error, retryable",
+    "_name, landing_uri, hive_partition_columns, namespace_present, should_publish, max_files, error, retryable",
     [
-        ("stale_generation", HOGLAKE_LANDING, (), True, False, None, None),
+        ("stale_generation", HOGLAKE_LANDING, (), True, False, 10, None, None),
         (
             "landing_outside_the_team_folder",
             HOGLAKE_LANDING.replace("team_7", "team_8"),
             (),
             True,
             True,
+            10,
             "not under",
             False,
         ),
-        ("data_only_in_partition_paths", HOGLAKE_LANDING, ("region",), True, True, "Hive partition", False),
-        ("namespace_missing", HOGLAKE_LANDING, (), False, True, "does not exist", True),
+        ("data_only_in_partition_paths", HOGLAKE_LANDING, ("region",), True, True, 10, "Hive partition", False),
+        ("namespace_missing", HOGLAKE_LANDING, (), False, True, 10, "does not exist", True),
+        ("more_files_than_one_add_files_takes", HOGLAKE_LANDING, (), True, True, 1, "at most 1", False),
     ],
 )
-def test_hoglake_registration_adds_no_files_when_it_cannot_replace_the_table(
+def test_hoglake_registration_leaves_the_table_alone_when_it_cannot_replace_it(
     _name: str,
     landing_uri: str,
     hive_partition_columns: tuple[str, ...],
     namespace_present: bool,
     should_publish: bool,
+    max_files: int,
     error: str | None,
     retryable: bool | None,
     monkeypatch,
     tmp_path,
 ) -> None:
-    fake = _FakeTrino(namespace_present=namespace_present)
+    monkeypatch.setattr(hoglake_module, "ADD_FILES_MAX_FILES", max_files)
+    # Columns that differ from the generation's would make the registration recreate the live table.
+    fake = _FakeTrino(namespace_present=namespace_present, existing_columns=[["id", "varchar"]])
     register = partial(
         _register_in_hoglake,
         monkeypatch,
         fake,
         tmp_path,
-        {"a.parquet": _rows(2)},
+        {"a.parquet": _rows(2), "b.parquet": _rows(2)},
         landing_uri=landing_uri,
         hive_partition_columns=hive_partition_columns,
         should_publish=should_publish,
@@ -2656,6 +2661,7 @@ def test_hoglake_registration_adds_no_files_when_it_cannot_replace_the_table(
         with pytest.raises(ApplicationError, match=error) as raised:
             register()
         assert raised.value.non_retryable is not retryable
+    assert fake.statements_matching("CREATE ") == []
     assert fake.statements_matching("EXECUTE add_files") == []
 
 

@@ -37,6 +37,9 @@ _HOGLAKE_IDENTIFIER = re.compile(r"^[A-Za-z_][A-Za-z0-9_-]{0,127}$")
 # The Delta writer's partition column. The hoglake add_files procedure registers files only into an unpartitioned
 # table or one partitioned by day, so this bucket column, which PostHog adds to spread a table's files, is left out.
 DROPPABLE_HIVE_PARTITION_COLUMNS = frozenset({"_ph_partition_key"})
+# The hoglake add_files procedure refuses a call with more files. A replacement must be one call to stay atomic, so a
+# larger generation is refused instead of split.
+ADD_FILES_MAX_FILES = 10_000
 
 
 def hoglake_import_table_name(name: str) -> str:
@@ -138,6 +141,13 @@ def register_prepared_files_in_hoglake(
         # the procedure.
         raise ApplicationError(f"Refusing to register {landing_uri}, which is not under {marker}", non_retryable=True)
 
+    if len(landing_paths) > ADD_FILES_MAX_FILES:
+        raise ApplicationError(
+            f"The generation has {len(landing_paths)} files, and one hoglake add_files call registers at most "
+            f"{ADD_FILES_MAX_FILES}",
+            non_retryable=True,
+        )
+
     sorted_paths = sorted(landing_paths)
     footers = read_parquet_footers(filesystem, sorted_paths)
     table_schema, dropped_partitions = hoglake_import_columns(footers, hive_partition_columns)
@@ -156,6 +166,9 @@ def register_prepared_files_in_hoglake(
         canary=canary,
     ) as statements:
         _require_namespace(statements, schema_name)
+        # CREATE OR REPLACE empties the live table, so a stale generation must stop before it.
+        if not should_publish():
+            return TrinoRegistrationResult(published=False, row_count=0)
         qualified = statements.qualified(schema_name, table_name)
         existing = _existing_columns(statements, schema_name, table_name)
         if not existing:
@@ -168,8 +181,6 @@ def register_prepared_files_in_hoglake(
             )
             statements.run(f"CREATE OR REPLACE TABLE {qualified} ({_column_definitions(table_schema)})")
 
-        if not should_publish():
-            return TrinoRegistrationResult(published=False, row_count=0)
         if before_add_files is not None:
             before_add_files()
         options = [
