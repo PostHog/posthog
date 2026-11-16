@@ -1222,6 +1222,36 @@ class TestHandlePosthogLinkUnfurl(APIBaseTest):
 
     @patch("products.slack_app.backend.api.resolve_slack_user")
     @patch("products.slack_app.backend.slack_link_unfurl.SlackIntegration")
+    def test_release_card_from_a_child_environment_checks_the_parent_flag_access(
+        self, mock_slack_integration_class: MagicMock, mock_resolve: MagicMock
+    ) -> None:
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        flag = FeatureFlag.objects.create(team=self.team, key="secret-pricing", created_by=self.user, active=True)
+        self.client.post(f"/api/projects/{self.team.pk}/releases/import_all/")
+        release_id = self.client.get(f"/api/projects/{self.team.pk}/releases/").json()["results"][0]["id"]
+        AccessControl.objects.create(
+            team=self.team, resource="feature_flag", resource_id=str(flag.pk), access_level="none"
+        )
+        child = Team.objects.create(organization=self.organization, project=self.project, parent_team=self.team)
+        self.integration.team = child
+        self.integration.save()
+        member = User.objects.create_and_join(self.organization, "child-viewer@posthog.com", "password")
+        mock_resolve.return_value = MagicMock(user=member)
+        mock_client = MagicMock()
+        mock_slack_integration_class.return_value.client = mock_client
+        url = f"http://testserver/project/{child.pk}/releases/{release_id}"
+
+        self._unfurl_links([url])
+
+        text = self._unfurl_text(mock_client.chat_unfurl.call_args.kwargs["unfurls"][url])
+        assert "Release of a restricted flag" in text
+        assert "secret" not in text.lower()
+
+    @patch("products.slack_app.backend.api.resolve_slack_user")
+    @patch("products.slack_app.backend.slack_link_unfurl.SlackIntegration")
     def test_dashboard_card_lists_only_insights_the_sharer_can_view(
         self, mock_slack_integration_class: MagicMock, mock_resolve: MagicMock
     ) -> None:

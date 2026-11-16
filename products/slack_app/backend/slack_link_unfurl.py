@@ -1116,7 +1116,9 @@ def _release_card(ctx: _UnfurlContext, ref: str, url: str) -> _UnfurlCard | _Ski
     release_id = _uuid(ref)
     if release_id is None:
         return "not_found"
-    if not ctx.uac.check_access_level_for_resource("feature_flag", "viewer"):
+    root_team = Team.objects.get(pk=ctx.team.parent_team_id) if ctx.team.parent_team_id else ctx.team
+    uac = ctx.uac if root_team.pk == ctx.team.pk else UserAccessControl(user=ctx.user, team=root_team)
+    if not uac.check_access_level_for_resource("feature_flag", "viewer"):
         return "no_access"
     if not releases_api.releases_enabled(
         team_id=ctx.team.pk,
@@ -1132,11 +1134,11 @@ def _release_card(ctx: _UnfurlContext, ref: str, url: str) -> _UnfurlCard | _Ski
     except releases_api.ReleaseNotFoundError:
         return "not_found"
     flags = list(
-        FeatureFlag.objects_including_soft_deleted.filter(team_id=ctx.team.pk, pk__in=release.feature_flag_ids).only(
+        FeatureFlag.objects_including_soft_deleted.filter(team_id=root_team.pk, pk__in=release.feature_flag_ids).only(
             "id", "team_id", "created_by_id", "key", "active", "deleted"
         )
     )
-    viewable = [flag for flag in flags if ctx.uac.check_access_level_for_object(flag, required_level="viewer")]
+    viewable = [flag for flag in flags if uac.check_access_level_for_object(flag, required_level="viewer")]
     hidden = len(viewable) < len(flags)
     visible = [flag for flag in viewable if not flag.deleted]
     lines = [f"{flag.key} · {'Active' if flag.active else 'Disabled'}" for flag in visible]
