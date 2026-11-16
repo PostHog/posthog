@@ -1,0 +1,21 @@
+sequenceDiagram
+    participant PC as persons-cohorts
+    participant S as services
+    participant W as workflows
+    participant E as edge
+    participant L as lifecycle
+    participant J as judge
+    PC->>S: $set at capture: 200
+    S->>S: person and membership<br/>rows written
+    S--xS: membership change never<br/>reaches the trigger consumer
+    Note over S,E: no webhook arrives
+    L->>PC: pending()
+    PC-->>L: 0, groups at the end
+    L->>W: pending()
+    W-->>L: 0, Cyclotron empty
+    Note over W,L: pending is 0 but deliveries<br/>are missing: wait to<br/>convergeWithin, not converged
+    L->>J: check
+    J->>PC: counts(): accepted N,<br/>persons N, members N
+    J->>W: counts(): triggered 0,<br/>delivered 0
+    J-->>L: at_least_once fails for N units,<br/>ledger drops at members to triggered (Q5)
+    Note over L,J: fail, not invalid: validity and<br/>topology passed, so the<br/>harness could test (Q6)

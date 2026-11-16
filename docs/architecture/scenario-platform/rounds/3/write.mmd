@@ -1,0 +1,36 @@
+sequenceDiagram
+    participant L as lifecycle
+    participant PR as processes
+    participant PC as persons-cohorts
+    participant W as workflows
+    participant S as services
+    participant E as edge
+    participant H as history
+    participant J as judge
+    L->>L: loadCard(path, adapters):<br/>refused if a link drops the carrier
+    L->>PR: stop, head first
+    L->>W: reset(): jobs, SES bucket
+    L->>PC: reset(): groups to the end
+    L->>PR: start tail first, readiness
+    L->>W: prepare(run)
+    W-->>L: seed, hook path {person.id}
+    L->>PC: prepare(run)
+    PC-->>L: validity: live topic, allowlist
+    L->>PR: observe topology vs manifest
+    Note over L,W: a failed check or a process<br/>declared but not observed:<br/>invalid, stop before drive (Q2)
+    L->>H: manifest beside topology
+    loop each unit, open loop
+        L->>PC: offer(unit)
+        PC->>S: $set to capture,<br/>distinct_id = unit
+        PC->>H: offer: carrier person_id
+    end
+    S->>E: POST /hook/{person.id}
+    E->>H: outcome: person_id,<br/>status (Q3)
+    loop until quiet or convergeWithin
+        L->>PC: pending()
+        L->>W: pending()
+    end
+    Note over L,W: quiet: all pending is 0 and every<br/>expected delivery is recorded.<br/>Unknown pending is not 0 (Q4)
+    L->>J: check(history, counts)
+    J-->>L: invariants, ledger (Q5), status (Q6)
+    L->>L: payloadOf v2, publish, down
