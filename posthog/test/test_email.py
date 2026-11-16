@@ -739,6 +739,7 @@ class TestEmail(BaseTest):
                 "sensitive": False,
             },
         )
+        self.assertTrue(mock_flag.call_args.kwargs["only_evaluate_locally"])
         self.assertEqual(
             mock_flag.call_args.kwargs["person_properties"],
             {"email": "test@posthog.com", "transactional_email_template": "async_migration_error", "region": "US"},

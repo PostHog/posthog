@@ -415,6 +415,8 @@ def _smtp_email_via_workflows(dest: dict[str, str], template_name: str) -> bool:
                 SMTP_EMAILS_VIA_WORKFLOWS_FLAG,
                 dest.get("distinct_id") or dest["raw_email"],
                 person_properties=person_properties,
+                # Without local definitions the email stays on SMTP, instead of waiting on a remote call per recipient.
+                only_evaluate_locally=True,
                 send_feature_flag_events=False,
             )
         )
