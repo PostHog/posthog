@@ -64,7 +64,7 @@ def _validate_pagination_url(url: str) -> str:
     return url
 
 
-@dataclasses.dataclass
+@dataclasses.dataclass(frozen=False)
 class ZendeskSellResumeConfig:
     # Full next-page URL returned by the API. None means "start the endpoint at its first page".
     next_url: str | None = None
