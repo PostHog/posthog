@@ -1,4 +1,10 @@
-import { addressFromLocalPart, addressLocalPart, fromWithSenders, senderAddressError } from './emailSenderFields'
+import {
+    addressFromLocalPart,
+    addressLocalPart,
+    fromWithSenders,
+    senderAddressError,
+    sendingStoppedWarning,
+} from './emailSenderFields'
 
 describe('emailSenderFields', () => {
     const withDomain = { id: 1, config: { email: 'hello@example.com', domain: 'example.com' } }
@@ -114,5 +120,12 @@ describe('emailSenderFields', () => {
         ['shows an off-domain address whole so its error is visible', 'security@example.org', 'security@example.org'],
     ])('%s', (_name, address, expected) => {
         expect(addressLocalPart(address, 'example.com')).toEqual(expected)
+    })
+
+    test('warns only about the senders whose domain stopped sending', () => {
+        const stopped = { ...otherDomain, config: { ...otherDomain.config, ses_sending_status: 'failed' } }
+
+        expect(sendingStoppedWarning([withDomain, otherDomain])).toBeNull()
+        expect(sendingStoppedWarning([withDomain, stopped])).toContain('Emails from example.org are failing')
     })
 })

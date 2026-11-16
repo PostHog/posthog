@@ -3,7 +3,7 @@ import { EmailTemplate, EmailTemplateFrom } from './types'
 export type EmailSender = {
     id: number
     display_name?: string
-    config?: { domain?: string; email?: string; name?: string; reply_to?: string }
+    config?: { domain?: string; email?: string; name?: string; reply_to?: string; ses_sending_status?: string }
 }
 
 export function senderFrom(email: Partial<EmailTemplate>): EmailTemplateFrom {
@@ -20,6 +20,18 @@ export function senderIntegrationFor<T extends { id: number }>(
 
 export function senderDomain(sender: EmailSender | undefined): string {
     return (sender?.config?.domain ?? sender?.config?.email?.split('@')[1] ?? '').toLowerCase()
+}
+
+export function sendingStoppedWarning(senders: EmailSender[]): string | null {
+    const domains = [...new Set(senders.filter(isSendingStopped).map(senderDomain))]
+    if (domains.length === 0) {
+        return null
+    }
+    return `Emails from ${domains.join(', ')} are failing because the domain's DNS records are missing. Add the records back with your DNS provider, then verify the domain in Channels.`
+}
+
+export function isSendingStopped(sender: EmailSender): boolean {
+    return sender.config?.ses_sending_status === 'failed'
 }
 
 // A workflow can rotate through several senders, kept in `integrationIds`. One sender is in `integrationId` alone.
