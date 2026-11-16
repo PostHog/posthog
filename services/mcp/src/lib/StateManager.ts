@@ -30,6 +30,7 @@ import type {
     CachedOrg,
     CachedProject,
     CachedUser,
+    MetricCatalogContent,
     PinnedActiveContext,
     SessionScopedState,
     State,
@@ -46,6 +47,7 @@ const NO_DATA_CACHE_TTL_MS = 60 * 1000 // 1 minute
 // hold `switch-project` for the full default request deadline. The caller serves the cached list.
 const INTEGRATION_KINDS_TIMEOUT_MS = 10 * 1000
 const BUSINESS_KNOWLEDGE_CONTENT_TIMEOUT_MS = 3 * 1000
+const METRIC_CATALOG_TIMEOUT_MS = 1000
 
 // Entitlement-related fields shared by both org shapes we read from — the
 // standalone org endpoint and the org embedded in `/api/users/@me/`.
@@ -614,6 +616,7 @@ export class StateManager {
         ttlMs?: number | ((cached: State[D]) => number)
         /** Skip the error report when the fetch hits its deadline. Use it for optional data with a short timeout. */
         expectTimeouts?: boolean
+        discardOnError?: (cached: State[D]) => boolean
     }): Promise<State[D]> {
         const [cached, fetchedAt] = (await Promise.all([
             this._cache.get(opts.cacheKey),
@@ -641,6 +644,10 @@ export class StateManager {
                 this._reportException(error, `get_or_fetch_${opts.name}`)
             }
             await this._cache.set(opts.fetchedAtKey, Date.now() as State[F]).catch(() => {})
+            if (opts.discardOnError?.(cached)) {
+                await this._cache.delete(opts.cacheKey).catch(() => {})
+                return undefined as State[D]
+            }
             return cached
         }
     }
@@ -768,6 +775,27 @@ export class StateManager {
             ttlMs: (cached) =>
                 cached?.hasSources === false && cached.hasRepositories === false ? NO_DATA_CACHE_TTL_MS : CACHE_TTL_MS,
             expectTimeouts: true,
+        })
+    }
+
+    async getOrFetchMetricCatalog(projectId: string): Promise<MetricCatalogContent | undefined> {
+        return this.getOrFetchCached({
+            name: 'metric_catalog',
+            cacheKey: `metricCatalog:${projectId}` as const,
+            fetchedAtKey: `metricCatalogFetchedAt:${projectId}` as const,
+            fetcher: async () => {
+                const availability = await this._api.request<Schemas.MetricAvailability>({
+                    method: 'GET',
+                    path: `/api/projects/${encodeURIComponent(projectId)}/data_catalog/metric_availability/`,
+                    timeoutMs: METRIC_CATALOG_TIMEOUT_MS,
+                    signal: AbortSignal.timeout(METRIC_CATALOG_TIMEOUT_MS),
+                })
+                return { hasMetrics: availability.has_metrics }
+            },
+            ttlMs: (cached) => (cached?.hasMetrics === false ? NO_DATA_CACHE_TTL_MS : CACHE_TTL_MS),
+            expectTimeouts: true,
+            // A stale "no metrics" would keep agents skipping a metric saved since, so fall back to lookup.
+            discardOnError: (cached) => cached?.hasMetrics === false,
         })
     }
 
