@@ -200,7 +200,7 @@ services:
             JS_URL: 'http://localhost:${SANDBOX_VITE_PORT:-49001}'
             CDP_VALKEY_HOST: valkey-cluster
             CDP_FREQUENCY_CAP_VALKEY_HOST: valkey-cluster
-            CDP_IDEMPOTENCY_VALKEY_HOST: valkey-cluster
+            CDP_EMAIL_ATTACHMENTS_VALKEY_HOST: valkey-cluster
             SES_RATE_LIMITER_VALKEY_HOST: valkey-cluster
         depends_on:
             db:
