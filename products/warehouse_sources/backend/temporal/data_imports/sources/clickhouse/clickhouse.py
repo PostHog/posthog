@@ -1566,6 +1566,13 @@ def _is_arrow_format_rejected(message: str) -> bool:
     return _ARROW_FORMAT_REJECTED_SUBSTRING in message
 
 
+# ClickHouse sends a completely empty HTTP body for an ArrowStream query that matches zero rows,
+# instead of a stream that opens with a schema message and no record batches. pyarrow's reader
+# needs that schema message just to open the stream, so it raises rather than yielding nothing.
+# An empty body is exactly what a zero-row match looks like, so we treat it as one.
+_EMPTY_ARROW_RESPONSE_MESSAGE = "Tried reading schema message, was null or length 0"
+
+
 # Per-query caps some hosts enforce and a user can't raise. Tinybird caps each result at 500 MiB and
 # each query's memory, and fails the query before it sends any row.
 _QUERY_LIMIT_EXCEEDED_SUBSTRINGS: tuple[str, ...] = ("TOO_MANY_ROWS_OR_BYTES", "MEMORY_LIMIT_EXCEEDED")
@@ -1651,6 +1658,10 @@ def _stream_record_batches(
     """
     try:
         arrow_stream = client.query_arrow_stream(query, parameters=parameters)
+    except pa.ArrowInvalid as e:
+        if _EMPTY_ARROW_RESPONSE_MESSAGE not in str(e):
+            raise
+        return
     except ClickHouseError as e:
         if not _is_arrow_format_rejected(str(e)):
             raise
