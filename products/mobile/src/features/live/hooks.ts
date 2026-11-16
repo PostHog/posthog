@@ -1,3 +1,4 @@
+import { skipToken, useQuery } from '@tanstack/react-query'
 import { useIsFocused } from 'expo-router'
 import { useCallback, useEffect, useMemo, useRef, useState } from 'react'
 
@@ -10,6 +11,7 @@ import {
     liveStatsHost,
     liveWindow,
 } from '@/api/live'
+import { queryClient } from '@/api/queryClient'
 import type { ProjectScope } from '@/api/reports'
 import { addSessionEndTask } from '@/auth/authStore'
 import { sessionGeneration } from '@/auth/tokens'
@@ -175,6 +177,11 @@ const INITIAL_STATE: LiveControllerState<never> = {
     paused: false,
     reading: false,
     failures: 0,
+}
+
+interface SavedLive {
+    snapshot: LiveSnapshot
+    dataReadAt: number
 }
 
 interface PollerOptions<T> {
@@ -420,6 +427,17 @@ export function useLiveFeed(onError: (kind: LiveErrorKind) => void): LiveFeed {
     const { preference } = useLivePreference()
     const mode = useDataMode()
     const scope = useProjectScope()
+    const cacheKey = useMemo(
+        () => [
+            'views',
+            mode === 'demo' ? 'demo' : (scope?.host ?? mode),
+            mode === 'demo' ? null : (scope?.projectId ?? null),
+            'live',
+            preference,
+        ],
+        [mode, scope, preference]
+    )
+    const { data: saved } = useQuery<SavedLive>({ queryKey: cacheKey, queryFn: skipToken }, queryClient)
     const source = useMemo(() => sourceFor(mode, scope), [mode, scope])
     const project = useLiveProject(source)
     const notSetUp = project.info?.ingestedEvent === false
@@ -443,7 +461,10 @@ export function useLiveFeed(onError: (kind: LiveErrorKind) => void): LiveFeed {
             const result = await readLiveSnapshot({
                 profile,
                 run: mode === 'demo' ? (sourceFor(mode, scope, preference)?.run ?? source.run) : source.run,
-                previous: previous?.profile?.kind === profile.kind ? previous : EMPTY_LIVE_SNAPSHOT,
+                previous:
+                    previous?.preference === preference
+                        ? previous
+                        : (queryClient.getQueryData<SavedLive>(cacheKey)?.snapshot ?? EMPTY_LIVE_SNAPSHOT),
                 countUsersOnline:
                     preference !== 'all' || !(source.statsHost !== null && info?.token && statsActive.current),
                 pathCleaning: info?.pathCleaning ?? false,
@@ -453,7 +474,7 @@ export function useLiveFeed(onError: (kind: LiveErrorKind) => void): LiveFeed {
             completedPreference.current = preference
             return { ...result, data: { ...result.data, preference } }
         },
-        [source, mode, scope, preference]
+        [source, mode, scope, preference, cacheKey]
     )
     const onEvent = useCallback((event: LiveControllerEvent) => {
         if (event === 'background_stopped') {
@@ -473,14 +494,13 @@ export function useLiveFeed(onError: (kind: LiveErrorKind) => void): LiveFeed {
     const slow = useMobileMetrics(source, slowEnabled)
     const preferredKind = preference === 'all' ? 'mixed' : preference
     const mismatch = main.state.data !== null && main.state.data.preference !== preference
-    const fastSnapshot = mismatch
-        ? {
-              ...EMPTY_LIVE_SNAPSHOT,
-              profile: {
-                  kind: preferredKind as 'web' | 'mobile' | 'mixed' | 'unknown',
-              },
-          }
-        : (main.state.data ?? EMPTY_LIVE_SNAPSHOT)
+    const fastSnapshot = (!mismatch ? main.state.data : null) ??
+        saved?.snapshot ?? {
+            ...EMPTY_LIVE_SNAPSHOT,
+            profile: {
+                kind: preferredKind as 'web' | 'mobile' | 'mixed' | 'unknown',
+            },
+        }
     const snapshot =
         slowEnabled && slow.state.data
             ? {
@@ -520,6 +540,21 @@ export function useLiveFeed(onError: (kind: LiveErrorKind) => void): LiveFeed {
     )
     statsActive.current = stats.active
 
+    useEffect(() => {
+        if (!main.state.data || mismatch || !main.state.updatedAt) return
+        queryClient.setQueryData<SavedLive>(cacheKey, {
+            snapshot: {
+                ...main.state.data,
+                mobileMetrics:
+                    slowEnabled && slow.state.data
+                        ? { ...slow.state.data, sessions: main.state.data.mobileMetrics?.sessions ?? null }
+                        : main.state.data.mobileMetrics,
+                usersOnline: stats.count ?? main.state.data.usersOnline,
+            },
+            dataReadAt: main.state.updatedAt,
+        })
+    }, [cacheKey, main.state.data, main.state.updatedAt, mismatch, slowEnabled, slow.state.data, stats.count])
+
     const paused = main.state.paused
     useEffect(() => {
         if (paused) {
@@ -535,7 +570,7 @@ export function useLiveFeed(onError: (kind: LiveErrorKind) => void): LiveFeed {
     const mainFailing = main.state.failures > 0
     const slowFailing = slowEnabled && slow.state.failures > 0
     const failing = mainFailing || slowFailing
-    const hasData = main.state.data !== null && !mismatch
+    const hasData = (main.state.data !== null && !mismatch) || saved !== undefined
     const reconnecting = useDelayedReconnecting(
         failing && !paused && main.screenActive,
         source,
@@ -604,10 +639,10 @@ export function useLiveFeed(onError: (kind: LiveErrorKind) => void): LiveFeed {
         snapshot,
         state,
         status,
-        updatedAt: main.state.updatedAt,
+        updatedAt: (mismatch ? null : main.state.updatedAt) ?? saved?.dataReadAt ?? null,
         usersOnline: stats.count ?? snapshot.usersOnline,
         paused,
-        reading: main.state.reading,
+        reading: !paused && (project.info === undefined || main.state.reading || slow.state.reading),
         loadFailed: mainFailing && !hasData,
         pulling,
         pull,

@@ -1,11 +1,13 @@
-import { act, cleanupAsync, renderHook } from '@testing-library/react-native'
+import { act, cleanupAsync, renderHook, waitFor } from '@testing-library/react-native'
 import type { Context, ReactElement, ReactNode } from 'react'
 
 import { type LiveProjectApi, MOBILE_EVENT, WEB_EVENT } from '@/api/live'
+import { queryClient } from '@/api/queryClient'
 import type { ProjectScope } from '@/api/reports'
 import { LIVE_DEMO_READ_MS, LiveDemo } from '@/demo/live'
 import { track } from '@/lib/analytics'
 import { RECONNECT_NOTICE_DELAY_MS } from '@/lib/useDelayedReconnecting'
+import { EMPTY_LIVE_SNAPSHOT } from '@/model/live'
 
 import { useLiveFeed, useLiveUsersOnline, useLiveWorld } from './hooks'
 import { useLivePreference } from './livePreference'
@@ -309,6 +311,7 @@ describe('useLiveFeed', () => {
     })
 
     beforeEach(() => {
+        queryClient.clear()
         mockFocused = true
         liveFocused = true
         mockAppActive = true
@@ -327,6 +330,50 @@ describe('useLiveFeed', () => {
         jest.useRealTimers()
         jest.restoreAllMocks()
         jest.clearAllMocks()
+    })
+
+    test('reopening keeps the last values while refreshing and after a failed refresh', async () => {
+        const first = await renderFeed()
+        await advance(5000)
+        const previous = first.result.current.snapshot
+        first.unmount()
+        const respond = jest.spyOn(LiveDemo.prototype, 'respond').mockImplementation(() => {
+            throw new Error('Offline')
+        })
+        const reopened = await renderFeed()
+        expect(reopened.result.current.reading).toBe(true)
+        expect(reopened.result.current.snapshot.activity).toEqual(previous.activity)
+        expect(reopened.result.current.snapshot.world).toEqual(previous.world)
+        await advance(5000)
+        expect(reopened.result.current.loadFailed).toBe(false)
+        expect(reopened.result.current.snapshot.activity).toEqual(previous.activity)
+        respond.mockRestore()
+        act(() => reopened.result.current.retry())
+        await advance(5000)
+        expect(reopened.result.current.reading).toBe(false)
+        expect(reopened.result.current.snapshot.activity).not.toEqual(previous.activity)
+    })
+
+    test('restored data appears while the project request is still pending and stays scoped to its audience', async () => {
+        mockMode = 'live'
+        mockScope = { host: 'https://example.com', projectId: 55 }
+        mockFetchProject.mockImplementation(() => new Promise(() => undefined))
+        const saved = { ...EMPTY_LIVE_SNAPSHOT, preference: 'all' as const, usersOnline: 17 }
+        const hook = await renderFeed()
+        expect(hook.result.current.snapshot.usersOnline).toBeNull()
+        act(() =>
+            queryClient.setQueryData(['views', mockScope?.host, 55, 'live', 'all'], {
+                snapshot: saved,
+                dataReadAt: Date.now() - 60000,
+            })
+        )
+        await advance(0)
+        await waitFor(() => expect(hook.result.current.usersOnline).toBe(17))
+        expect(hook.result.current.reading).toBe(true)
+        const preference = renderHook(() => useLivePreference())
+        act(() => preference.result.current.setPreference('mobile'))
+        await advance(0)
+        expect(hook.result.current.usersOnline).toBeNull()
     })
 
     test('demo mode fills every card, counts users online with HogQL, and reads nothing while paused', async () => {
