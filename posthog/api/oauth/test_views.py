@@ -52,7 +52,13 @@ from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.organization_ip_restrictions import OrganizationIPRestrictions
 from posthog.models.team.team import Team
 from posthog.models.user import User
-from posthog.scopes import ALL_SCOPES, ALWAYS_ALLOWED_SCOPES, MIN_SCOPES_BEFORE_TRUNCATION, get_oauth_scopes_supported
+from posthog.scopes import (
+    ALL_SCOPES,
+    ALWAYS_ALLOWED_SCOPES,
+    EMA_ISSUER_MANAGE_SCOPE,
+    MIN_SCOPES_BEFORE_TRUNCATION,
+    OAUTH_SCOPES_SUPPORTED,
+)
 from posthog.settings.utils import generate_rsa_private_key_pem
 from posthog.utils import absolute_uri
 
@@ -6133,8 +6139,16 @@ class TestOpenIDProviderMetadata(SimpleTestCase):
 
         shared = set(oidc) & set(authorization_server)
         self.assertIn("scopes_supported", shared)
-        for field in shared:
+        for field in shared - {"scopes_supported"}:
             self.assertEqual(oidc[field], authorization_server[field], f"{field} differs between the two documents")
+        self.assertEqual(
+            [
+                scope
+                for scope in cast(list[str], authorization_server["scopes_supported"])
+                if scope != EMA_ISSUER_MANAGE_SCOPE
+            ],
+            oidc["scopes_supported"],
+        )
 
 
 class TestOpenIDProviderMetadataEndpoint(APIBaseTest):
@@ -6169,7 +6183,7 @@ class TestOAuthClientManifest(APIBaseTest):
         response = self.client.get("/auth.md")
         body = response.content.decode()
 
-        for scope in get_oauth_scopes_supported():
+        for scope in OAUTH_SCOPES_SUPPORTED:
             with self.subTest(scope=scope):
                 self.assertIn(f"`{scope}`", body)
                 # A scope with no description falls back to its own name, so an

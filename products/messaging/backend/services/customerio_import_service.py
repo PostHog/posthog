@@ -7,8 +7,10 @@ from collections.abc import Iterator
 from datetime import UTC, datetime
 from typing import Any, Optional
 
-from django.db import transaction
+from django.db import OperationalError, transaction
 from django.utils import timezone
+
+from psycopg.errors import LockNotAvailable
 
 from posthog.dataclasses import frozen
 from posthog.models.scoping.manager import resolve_effective_team_id
@@ -20,6 +22,7 @@ from products.messaging.backend.models.message_preferences import (
     PreferenceStatus,
 )
 from products.messaging.backend.models.message_suppression import MessageSuppression, SuppressionSource
+from products.messaging.backend.services.suppression import block_transactional_for_hard_bounces
 
 from .customerio_client import CustomerIOAPIError, CustomerIOClient
 
@@ -36,6 +39,8 @@ CUSTOMERIO_SUPPRESSION_TYPES: dict[str, tuple[SuppressionSource, str]] = {
 SUPPRESSION_PAGE_SIZE = 1000
 # Customer.io allows 10 App API requests per second.
 SUPPRESSION_PAGE_DELAY_SECONDS = 0.2
+PAGE_LOCK_ATTEMPTS = 3
+PAGE_LOCK_RETRY_SECONDS = 0.5
 
 
 @frozen
@@ -75,6 +80,7 @@ class CustomerIOImportService:
         self.topic_mapping: dict[str, str] = {}  # Maps Customer.io topic IDs to PostHog MessageCategory IDs
         self.topic_names: dict[str, str] = {}  # Maps topic IDs to their display names
         self.all_processed_users: set[str] = set()  # Track ALL unique users across API and CSV
+        self.skipped_suppression_pages = False
         self.progress: dict[str, Any] = {
             "status": "initializing",
             "topics_found": 0,
@@ -147,7 +153,7 @@ class CustomerIOImportService:
             # Step 4: Process globally unsubscribed users
             self._process_globally_unsubscribed_users()
 
-            self.progress["status"] = "completed"
+            self.progress["status"] = "failed" if self.skipped_suppression_pages else "completed"
 
         except Exception as e:
             self.progress["status"] = "failed"
@@ -498,7 +504,16 @@ class CustomerIOImportService:
                     break
                 if page is None:
                     break
-                self.progress["suppressions_imported"] += self.save_suppression_page(page)
+                try:
+                    self.progress["suppressions_imported"] += self.save_suppression_page(page)
+                except OperationalError as e:
+                    if not isinstance(e.__cause__, LockNotAvailable):
+                        raise
+                    self.skipped_suppression_pages = True
+                    self.progress["errors"].append(
+                        f"Couldn't import part of the Customer.io {suppression_type} list because bounce feedback was "
+                        "updating some of the same addresses. Run the import again to add them."
+                    )
 
     def fetch_suppression_pages(self, suppression_type: str, offset: int) -> Iterator[SuppressionPage]:
         """Page through one Customer.io suppression list, starting at `offset`.
@@ -538,12 +553,31 @@ class CustomerIOImportService:
     ) -> int:
         """Suppress the addresses that have no suppression row yet, and return how many it added.
 
-        An existing row is left alone. It can be a manual entry, an address someone removed from the list on
-        purpose, or a row the bounce feedback already manages. The one exception is a row an earlier import of
-        this list created without Customer.io's date and diagnostic, which gets them filled in.
+        An existing row keeps its source. It can be a manual entry, an address someone removed from the list on
+        purpose, or a row the bounce feedback already manages. A bounce still makes a row nobody removed block
+        transactional email, see `block_transactional_for_hard_bounces`. A row an earlier import of this list created
+        without Customer.io's date and diagnostic gets them filled in.
+
+        Once its inserts are in, the page locks its rows without waiting, so it never waits on a bounce write while it
+        holds rows that write needs. Only its inserts wait on another write's insert, as before. When a bounce write
+        holds one of the rows, the page undoes its writes and tries again after a short pause, a few times, then fails.
         """
+        for _ in range(PAGE_LOCK_ATTEMPTS - 1):
+            try:
+                with transaction.atomic():
+                    return self._write_page(team_id, imported, source, reason)
+            except OperationalError as error:
+                if not isinstance(error.__cause__, LockNotAvailable):
+                    raise
+            time.sleep(PAGE_LOCK_RETRY_SECONDS)
+        with transaction.atomic():
+            return self._write_page(team_id, imported, source, reason)
+
+    def _write_page(
+        self, team_id: int, imported: dict[str, _ImportedSuppression], source: SuppressionSource, reason: str
+    ) -> int:
         suppressions = MessageSuppression.objects.for_team(team_id, canonical=True)
-        existing = {row.identifier: row for row in suppressions.filter(identifier__in=list(imported))}
+        existing = set(suppressions.filter(identifier__in=list(imported)).values_list("identifier", flat=True))
         now = timezone.now()
         is_bounce = source == SuppressionSource.BOUNCE
         new_rows = [
@@ -564,12 +598,17 @@ class CustomerIOImportService:
             for email, details in sorted(imported.items())
             if email not in existing
         ]
-        # ignore_conflicts covers an address the bounce feedback inserts between the read above and this write.
         suppressions.bulk_create(new_rows, batch_size=500, ignore_conflicts=True)
+        locked = {
+            row.identifier: row
+            for row in suppressions.filter(identifier__in=list(imported)).select_for_update(nowait=True)
+        }
+        if is_bounce:
+            block_transactional_for_hard_bounces(team_id, list(imported), reason, rows_locked=True)
 
         backfilled = []
-        for email, row in existing.items():
-            details = imported[email]
+        for email in existing:
+            row, details = locked[email], imported[email]
             if row.reason != reason or row.deleted or row.last_bounce_diagnostic or not details.suppressed_at:
                 continue
             row.suppressed_at = details.suppressed_at

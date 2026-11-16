@@ -1,7 +1,9 @@
+import html
 import uuid
 import hashlib
 import datetime
 import collections
+from collections.abc import Collection
 from enum import Enum
 from typing import Any, Literal, Optional, cast
 
@@ -32,7 +34,7 @@ from posthog.email import (
 )
 from posthog.event_usage import groups
 from posthog.geoip import get_geoip_properties
-from posthog.helpers.email_utils import sanitize_display_name, sanitize_message_body
+from posthog.helpers.email_utils import sanitize_display_name, sanitize_email_string, sanitize_message_body
 from posthog.helpers.two_factor_session import CODE_TTL_SECONDS
 from posthog.models import (
     Organization,
@@ -116,13 +118,17 @@ def send_message_to_all_staff_users(message: EmailMessage) -> None:
     message.send()
 
 
-def get_members_to_notify(team: Team, notification_setting: NotificationSettingType) -> list[OrganizationMembership]:
+def get_members_to_notify(
+    team: Team, notification_setting: NotificationSettingType, *, user_ids: Collection[int] | None = None
+) -> list[OrganizationMembership]:
+    """Members who turned this email on and may open the project. `user_ids` limits the check to those people."""
     memberships_to_email = []
-    memberships = list(
-        OrganizationMembership.objects.prefetch_related("user", "organization").filter(
-            organization_id=team.organization_id, user__is_active=True
-        )
+    queryset = OrganizationMembership.objects.prefetch_related("user", "organization").filter(
+        organization_id=team.organization_id, user__is_active=True
     )
+    if user_ids is not None:
+        queryset = queryset.filter(user_id__in=user_ids)
+    memberships = list(queryset)
     # Resolved once, or this is a query per member on every fan-out.
     locks_by_user = notification_locks_for_users(
         [membership.user_id for membership in memberships], organization_id=team.organization_id
@@ -2562,6 +2568,60 @@ def send_personal_api_key_exposed(user_id: int, personal_api_key_id: str, old_ma
 
 
 @shared_task(**EMAIL_TASK_KWARGS)
+@skip_team_scope_audit
+def send_personal_api_keys_changed_by_org_admin(
+    user_id: int, organization_id: str, changes: list[dict[str, str]]
+) -> None:
+    if not is_email_available(with_absolute_urls=True):
+        return
+
+    user = User.objects.filter(pk=user_id).first()
+    if user is None:
+        return
+    organization = Organization.objects.filter(id=organization_id).first()
+    # The organization name is text that an admin controls, in an email to another user. A name that
+    # looks like a link gets a placeholder.
+    organization_name = sanitize_display_name(
+        organization.name if organization else None,
+        fallback="your organization",
+        context={
+            "task": "send_personal_api_keys_changed_by_org_admin",
+            "field": "organization_name",
+            "organization_id": organization_id,
+        },
+    )
+    # The SMTP template autoescapes HTML but does not defang domains like the HTTP transport does.
+    organization_name = html.unescape(sanitize_email_string(organization_name))
+    rolled_keys = [change for change in changes if change["outcome"] == "rolled"]
+    revoked_keys = [change for change in changes if change["outcome"] == "deleted"]
+    if rolled_keys and not revoked_keys:
+        heading = "Your personal API key was rolled" if len(rolled_keys) == 1 else "Your personal API keys were rolled"
+    elif revoked_keys and not rolled_keys:
+        heading = (
+            "Your personal API key was revoked" if len(revoked_keys) == 1 else "Your personal API keys were revoked"
+        )
+    else:
+        heading = "Your personal API keys changed"
+    message = EmailMessage(
+        use_http=True,
+        campaign_key=f"personal-api-keys-changed-by-org-admin-{user.uuid}-{timezone.now().timestamp()}",
+        subject=heading,
+        template_name="personal_api_key_changed_by_org_admin",
+        template_context={
+            "preheader": "Review the changes and how to reconnect your integrations.",
+            "heading": heading,
+            "organization_name": organization_name,
+            "changes": changes,
+            "rolled_keys": rolled_keys,
+            "revoked_keys": revoked_keys,
+            "url": f"{settings.SITE_URL}/settings/user-api-keys",
+        },
+    )
+    message.add_user_recipient(user)
+    message.send()
+
+
+@shared_task(**EMAIL_TASK_KWARGS)
 def send_feature_flags_secure_api_key_exposed(team_id: int, mask_value: str, more_info: str) -> None:
     if not is_email_available(with_absolute_urls=True):
         return
@@ -2992,7 +3052,7 @@ def send_error_tracking_weekly_digest_for_org(self: Task, org_id: str) -> None:
             "disabled_project_names": disabled_team_names,
             "excluded_project_count": excluded_project_count,
             "settings_url": f"{settings.SITE_URL}/settings/user-notifications?highlight=et-weekly-digest",
-            "feedback_survey_url": f"https://us.posthog.com/external_surveys/019c7fd6-7cfa-0000-2b03-a8e5d4c03743?distinct_id={distinct_id}",
+            "feedback_survey_url": f"https://posthogsurveys.com/019c7fd6-7cfa-0000-2b03-a8e5d4c03743?distinct_id={distinct_id}",
         }
 
         campaign_key = f"error_tracking_weekly_digest_{org_id}_{user.uuid}_{date_suffix}"

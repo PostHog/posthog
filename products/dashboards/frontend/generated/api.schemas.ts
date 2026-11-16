@@ -5828,6 +5828,7 @@ export const IntegrationKindApi = {
     AwsRedshift: 'aws-redshift',
     S3Compatible: 's3-compatible',
     Snowflake: 'snowflake',
+    Motherduck: 'motherduck',
     YoutubeAnalytics: 'youtube-analytics',
     TwitterAds: 'twitter-ads',
 } as const
@@ -8742,6 +8743,10 @@ export interface ErrorTrackingQueryApi {
     useQueryV3?: boolean | null
     /** version of the node, used for schema migrations */
     version?: number | null
+    /**
+     * @minimum 0
+     * @maximum 200
+     */
     volumeResolution: number
     withAggregations?: boolean | null
     withFirstEvent?: boolean | null
@@ -9553,6 +9558,7 @@ export interface HeatmapSettingsApi {
     valueColumn?: string | null
     xAxisColumn?: string | null
     xAxisLabel?: string | null
+    xAxisSortOrder?: HeatmapSortOrderApi | null
     yAxisColumn?: string | null
     yAxisLabel?: string | null
 }

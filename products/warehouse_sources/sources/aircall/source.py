@@ -106,10 +106,17 @@ You can create an API key (API ID + API token) in your [Aircall dashboard](https
         schema_name: Optional[str] = None,
         api_version: str | None = None,
     ) -> tuple[bool, str | None]:
-        if validate_aircall_credentials(config.api_id, config.api_token):
+        ok, status = validate_aircall_credentials(config.api_id, config.api_token)
+        if ok:
             return True, None
 
-        return False, "Invalid Aircall API credentials"
+        if status in (401, 403):
+            return (
+                False,
+                "Aircall rejected your API ID or API token. Copy both from Integrations & API in your Aircall dashboard, then reconnect.",
+            )
+
+        return False, "Couldn't reach Aircall to check your credentials. Try again in a few minutes."
 
     def get_resumable_source_manager(self, inputs: SourceInputs) -> ResumableSourceManager[AircallResumeConfig]:
         return ResumableSourceManager[AircallResumeConfig](inputs, AircallResumeConfig)

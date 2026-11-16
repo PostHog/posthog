@@ -795,7 +795,7 @@ export interface BulkAddSuppressionsResultApi {
     total: number
     /** Number of addresses added to the suppression list. */
     created: number
-    /** Number of addresses that already had an entry. Their entry is left unchanged, even when someone removed it from the list. */
+    /** Number of addresses that already had an entry. A manual entry or a spam complaint keeps its reason. A `bounce` also makes an entry block transactional email, unless someone removed it from the list. */
     already_present: number
 }
 
@@ -1343,6 +1343,11 @@ export interface TransactionalEmailLogEntryApi {
     template_id: string | null
     /** The template's name. Empty when it was deleted. */
     template_name: string
+    /**
+     * The email sent from code under a `template_key`, for a send that has no template. Null otherwise.
+     * @nullable
+     */
+    code_email_id: string | null
     /** The domain the email was sent from. Empty before it was sent. */
     sending_domain: string
     /** Whether the recipient opened the email. */
@@ -1434,6 +1439,11 @@ export interface TransactionalEmailLogDetailApi {
     template_id: string | null
     /** The template's name. Empty when it was deleted. */
     template_name: string
+    /**
+     * The email sent from code under a `template_key`, for a send that has no template. Null otherwise.
+     * @nullable
+     */
+    code_email_id: string | null
     /** The domain the email was sent from. Empty before it was sent. */
     sending_domain: string
     /** Whether the recipient opened the email. */
@@ -1532,6 +1542,16 @@ export interface TransactionalEmailStatsRowApi {
     key: string
     /** The template name or the sending domain. Empty for a deleted template. */
     label: string
+    /**
+     * The template that sent this row's emails. Null for a deleted template, emails sent from code, and a sending domain.
+     * @nullable
+     */
+    template_id: string | null
+    /**
+     * The email sent from code under a `template_key`, for a row of sends that have no template. Null otherwise.
+     * @nullable
+     */
+    code_email_id: string | null
     /** Emails that reached the email provider. */
     sent: number
     /** Emails the recipient's mail server accepted. */
@@ -1683,6 +1703,12 @@ export type TransactionalEmailLogListParams = {
      * @minimum 0
      */
     offset?: number
+    /**
+     * Only sends whose delivery status has this reason, such as `soft` for a soft bounce or `sending_paused` for a send skipped while sending was paused.
+     * @minLength 1
+     * @maxLength 64
+     */
+    reason?: string
     /**
      * A `message_id` for an exact match, or part of the recipient's email address.
      */

@@ -3,6 +3,8 @@ package process
 import (
 	"fmt"
 	"os"
+	"path/filepath"
+	"slices"
 	"strings"
 	"sync"
 	"syscall"
@@ -143,6 +145,7 @@ func TestSnapshot_withMetrics(t *testing.T) {
 		Children:   2,
 		FDs:        10,
 		SampledAt:  someTime,
+		cpuKnown:   true,
 	}
 
 	snap := p.Snapshot()
@@ -217,6 +220,40 @@ func pidAlive(pid int) bool {
 		return false
 	}
 	return proc.Signal(syscall.Signal(0)) == nil
+}
+
+func TestStart_whilePendingKeepsTheFirstChild(t *testing.T) {
+	p := NewProcess("svc", config.ProcConfig{Shell: "sleep 30", ReadyPattern: "never printed"}, 100, "")
+	send, _, _ := collectMsgs()
+	if err := p.Start(send); err != nil {
+		t.Skipf("cannot spawn subprocess: %v", err)
+	}
+	t.Cleanup(p.Stop)
+	firstPID := p.PID()
+
+	if err := p.Start(send); err != nil {
+		t.Fatalf("second Start: %v", err)
+	}
+
+	if p.PID() != firstPID {
+		t.Errorf("second Start while pending replaced the child: pid %d, want %d", p.PID(), firstPID)
+	}
+}
+
+func TestStart_spawnFailureMarksCrashedWithReason(t *testing.T) {
+	p := NewProcess("svc", config.ProcConfig{Shell: "true", Cwd: filepath.Join(t.TempDir(), "missing")}, 100, "")
+	send, _, _ := collectMsgs()
+
+	if err := p.Start(send); err == nil {
+		t.Fatal("Start with a missing cwd: want an error")
+	}
+
+	if p.Status() != StatusCrashed {
+		t.Errorf("status: got %s, want crashed", p.Status())
+	}
+	if lines := strings.Join(p.Lines(), "\n"); !strings.Contains(lines, "could not start svc") {
+		t.Errorf("output should explain the failure, got %q", lines)
+	}
 }
 
 func TestStop_kills_entire_process_group(t *testing.T) {
@@ -657,6 +694,9 @@ func TestVT_scrollbackEviction(t *testing.T) {
 
 	for i := range 8 {
 		_, _ = fmt.Fprintf(p.emulator, "line %d\r\n", i)
+		if i == 3 {
+			_ = p.Lines()
+		}
 	}
 
 	lines := p.Lines()
@@ -760,6 +800,37 @@ func TestVT_clearLinesResetsScrollback(t *testing.T) {
 	}
 	if len(after) >= len(before) {
 		t.Errorf("after ClearLines: expected fewer lines (%d before), got %d", len(before), len(after))
+	}
+}
+
+func TestVT_linesSurviveRepeatedReads(t *testing.T) {
+	p := NewProcess("vt", config.ProcConfig{}, 100, "")
+	p.emulator.Resize(40, 2)
+
+	var want []string
+	for i := range 6 {
+		_, _ = fmt.Fprintf(p.emulator, "line %d\r\n", i)
+		want = append(want, fmt.Sprintf("line %d", i))
+		_ = p.Lines()
+	}
+
+	if got := p.Lines(); !slices.Equal(got, want) {
+		t.Errorf("Lines() after repeated reads:\n got %q\nwant %q", got, want)
+	}
+}
+
+func TestReadLoop_eraseScrollbackClearsHistory(t *testing.T) {
+	p := NewProcess("vt", config.ProcConfig{}, 100, "")
+	p.emulator.Resize(40, 2)
+	runReadLoop(t, p, "old 1\r\nold 2\r\nold 3\r\nold 4\r\n")
+	_ = p.Lines()
+
+	// Split ESC[3J across two reads, as a PTY read boundary can.
+	runReadLoop(t, p, "\x1b[H\x1b[2J\x1b[")
+	runReadLoop(t, p, "3Jnew\r\n")
+
+	if got := p.Lines(); !slices.Equal(got, []string{"new"}) {
+		t.Errorf("Lines() after ESC[3J: got %q, want [\"new\"]", got)
 	}
 }
 
@@ -1025,5 +1096,30 @@ func TestProcess_noAutorestartWhenDisabled(t *testing.T) {
 	data, _ := os.ReadFile(mark)
 	if got := strings.Count(string(data), "run"); got != 1 {
 		t.Errorf("expected exactly 1 run without autorestart, got %d", got)
+	}
+}
+
+func TestCPUPercentSince(t *testing.T) {
+	at := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	for _, tc := range []struct {
+		name      string
+		prev, cur map[int32]float64
+		prevAt    time.Time
+		now       time.Time
+		want      float64
+		wantKnown bool
+	}{
+		{"first sample has no baseline", nil, map[int32]float64{1: 5}, time.Time{}, at, 0, false},
+		{"stale baseline would average over the gap", map[int32]float64{1: 5}, map[int32]float64{1: 6}, at, at.Add(time.Minute), 0, false},
+		{"half a core over one second", map[int32]float64{1: 10}, map[int32]float64{1: 10.5}, at, at.Add(time.Second), 50, true},
+		{"exited child keeps the rest of the tree", map[int32]float64{1: 10, 2: 30}, map[int32]float64{1: 12}, at, at.Add(time.Second), 200, true},
+		{"new child counts its full time", map[int32]float64{1: 10}, map[int32]float64{1: 10, 3: 0.5}, at, at.Add(time.Second), 50, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got, known := cpuPercentSince(tc.prev, tc.prevAt, tc.cur, tc.now)
+			if got != tc.want || known != tc.wantKnown {
+				t.Errorf("got %v (known %v), want %v (known %v)", got, known, tc.want, tc.wantKnown)
+			}
+		})
 	}
 }

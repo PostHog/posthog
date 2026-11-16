@@ -344,6 +344,8 @@ class EmailSendingState:
     tier: int
     tier_pinned: bool
     tier_updated_at: datetime | None
+    provider_paused: bool = False
+    provider_reputation_impact: str = ""
 
 
 @frozen
