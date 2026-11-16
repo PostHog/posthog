@@ -5,6 +5,7 @@ import { Scene } from 'scenes/sceneTypes'
 
 import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { useMocks } from '~/mocks/jest'
+import schema from '~/queries/schema.json'
 import { NodeKind, ProductKey } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import { AnyPropertyFilter, PropertyFilterType, PropertyOperator } from '~/types'
@@ -25,10 +26,9 @@ const SAVED_DRAFT = {
     actions: [{ id: 'trigger_node', type: 'trigger', config: { type: 'batch', filters: { properties: PRO_PLAN } } }],
 }
 
-// The keys `CohortPropertyFilter` and `PersonPropertyFilter` accept in `posthog/schema.py`. Both forbid any other.
 const ACCEPTED_FILTER_KEYS: Record<string, string[]> = {
-    cohort: ['cohort_deleted', 'cohort_missing', 'cohort_name', 'key', 'label', 'operator', 'type', 'value'],
-    person: ['key', 'label', 'operator', 'type', 'value'],
+    cohort: Object.keys(schema.definitions.CohortPropertyFilter.properties),
+    person: Object.keys(schema.definitions.PersonPropertyFilter.properties),
 }
 const savedCondition = (filter: Record<string, unknown>, negation: boolean): Record<string, unknown> => ({
     ...filter,

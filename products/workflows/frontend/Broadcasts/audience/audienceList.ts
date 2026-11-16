@@ -26,6 +26,9 @@ export function isCohortInclusion(filter: AnyPropertyFilter): boolean {
     return filter.type === PropertyFilterType.Cohort && filter.operator !== PropertyOperator.NotIn
 }
 
+/** The keys a save compiles onto each audience condition. */
+export const COMPUTED_FILTER_KEYS = new Set(['bytecode', 'bytecode_error', 'conditionHash'])
+
 /**
  * A saved audience in the shape an actors query accepts. Saving adds `negation` and compiled bytecode to each
  * condition, and the query schema refuses both. The backend excludes a cohort when either `negation` or `not_in`
@@ -33,12 +36,13 @@ export function isCohortInclusion(filter: AnyPropertyFilter): boolean {
  */
 export function toActorsQueryProperties(audienceProperties: AnyPropertyFilter[]): AnyPersonScopeFilter[] {
     return audienceProperties.map((filter) => {
-        const { negation, bytecode, bytecode_error, conditionHash, ...queryFilter } = filter as AnyPropertyFilter &
-            Record<'negation' | 'bytecode' | 'bytecode_error' | 'conditionHash', unknown>
-        if (queryFilter.type === PropertyFilterType.Cohort && negation === true) {
+        const queryFilter = Object.fromEntries(
+            Object.entries(filter).filter(([key]) => key !== 'negation' && !COMPUTED_FILTER_KEYS.has(key))
+        ) as AnyPersonScopeFilter
+        if (queryFilter.type === PropertyFilterType.Cohort && (filter as { negation?: unknown }).negation === true) {
             queryFilter.operator = PropertyOperator.NotIn
         }
-        return queryFilter as AnyPersonScopeFilter
+        return queryFilter
     })
 }
 
