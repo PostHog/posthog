@@ -8,6 +8,7 @@ import { NotFound } from 'lib/components/NotFound'
 import { LemonTab, LemonTabs } from 'lib/lemon-ui/LemonTabs'
 import { Link } from 'lib/lemon-ui/Link'
 import { userHasAccess } from 'lib/utils/accessControlUtils'
+import { PlanFloorClampBanner } from 'scenes/data-warehouse/saved_queries/PlanFloorClampBanner'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -67,6 +68,7 @@ export function NodeDetailScene({ id }: NodeDetailSceneLogicProps): JSX.Element 
         dataQualitySubject,
         modelMetadata,
         catalogRestructureEnabled,
+        savedQuery,
     } = useValues(nodeDetailSceneLogic({ id }))
 
     if (catalogRestructureEnabled) {
@@ -137,6 +139,15 @@ export function NodeDetailScene({ id }: NodeDetailSceneLogicProps): JSX.Element 
     return (
         <SceneContent>
             <NodeDetailHeader id={id} />
+            {savedQuery?.plan_clamp && (
+                <PlanFloorClampBanner
+                    subject={node.type === 'endpoint' ? 'endpoint' : 'view'}
+                    subjectId={savedQuery.id}
+                    previousSeconds={savedQuery.plan_clamp.previous_target_seconds}
+                    planFloorSeconds={savedQuery.plan_clamp.plan_floor_seconds}
+                    at={savedQuery.plan_clamp.at}
+                />
+            )}
             <NodeDetailOverview id={id} metadata={modelMetadata && <ModelMetadata {...modelMetadata} />} />
             {!effectiveTab ? (
                 <LemonSkeleton className="h-10 w-96" />
