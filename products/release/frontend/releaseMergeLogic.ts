@@ -8,7 +8,7 @@ import { releasesMergeCreate } from './generated/api'
 import type { ReleaseDTOApi } from './generated/api.schemas'
 import { releaseLogic } from './releaseLogic'
 import { MergeCandidate, mergeCandidate, releaseToKeep } from './releaseMerge'
-import { ReleaseRow } from './releaseUtils'
+import { ReleaseRow, ReleaseStage } from './releaseUtils'
 
 interface ReleaseMergeLogicValues {
     currentProjectId: number | null
@@ -28,6 +28,9 @@ interface ReleaseMergeLogicValues {
 
 interface ReleaseMergeLogicActions {
     loadReleases: () => void
+    setSearch: (search: string) => { search: string }
+    setStageFilter: (stage: ReleaseStage | null) => { stage: ReleaseStage | null }
+    setDecisionOnly: (decisionOnly: boolean) => { decisionOnly: boolean }
     setSelection: (selection: RowSelectionState) => { selection: RowSelectionState }
     setMergeOpen: (open: boolean) => { open: boolean }
     openMergeInto: (releaseId: string) => { releaseId: string }
@@ -46,7 +49,7 @@ export const releaseMergeLogic = kea<releaseMergeLogicType>([
     path(['products', 'release', 'frontend', 'releaseMergeLogic']),
     connect(() => ({
         values: [releaseLogic, ['currentProjectId', 'releases', 'rows', 'canEditReleases']],
-        actions: [releaseLogic, ['loadReleases']],
+        actions: [releaseLogic, ['loadReleases', 'setSearch', 'setStageFilter', 'setDecisionOnly']],
     })),
     actions({
         setSelection: (selection: RowSelectionState) => ({ selection }),
@@ -61,7 +64,15 @@ export const releaseMergeLogic = kea<releaseMergeLogicType>([
         mergeReleasesDone: true,
     }),
     reducers({
-        selection: [{} as RowSelectionState, { setSelection: (_, { selection }) => selection }],
+        selection: [
+            {} as RowSelectionState,
+            {
+                setSelection: (_, { selection }) => selection,
+                setSearch: () => ({}),
+                setStageFilter: () => ({}),
+                setDecisionOnly: () => ({}),
+            },
+        ],
         mergeOpen: [false, { setMergeOpen: (_, { open }) => open }],
         mergeTargetId: [null as string | null, { setMergeTarget: (_, { releaseId }) => releaseId }],
         keepId: [null as string | null, { setKeepId: (_, { keepId }) => keepId }],

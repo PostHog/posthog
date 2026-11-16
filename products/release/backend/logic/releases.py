@@ -74,7 +74,9 @@ def merge_releases(team_id: int, target_id: UUID, source_ids: list[UUID], name: 
     with transaction.atomic():
         found = {
             release.id: release
-            for release in Release.objects.select_for_update().filter(team_id=team_id, id__in=[target_id, *source_ids])
+            for release in Release.objects.select_for_update()
+            .filter(team_id=team_id, id__in=[target_id, *source_ids])
+            .order_by("id")
         }
         for release_id in [target_id, *source_ids]:
             if release_id not in found:

@@ -87,6 +87,17 @@ describe('releaseMergeLogic', () => {
         expect(logic.values.selection).toEqual({})
     })
 
+    it.each([
+        ['search', (): void => releaseLogic.actions.setSearch('copy')],
+        ['stage filter', (): void => releaseLogic.actions.setStageFilter('flag')],
+        ['decision filter', (): void => releaseLogic.actions.setDecisionOnly(true)],
+    ])('clears the list selection when the %s changes', (_name, changeFilter) => {
+        logic.actions.setSelection({ r1: true, r2: true })
+        changeFilter()
+
+        expect(logic.values.selection).toEqual({})
+    })
+
     it('clears the selection when the release page dialog closes without merging', () => {
         logic.actions.openMergeInto('r1')
         logic.actions.setMergeSources(['r2'])
