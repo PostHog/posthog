@@ -84,6 +84,11 @@ const InsightExplainChart = lazyWithRetry(() =>
         default: m.InsightExplainChart,
     }))
 )
+const FunnelCardSummary = lazyWithRetry(() =>
+    import('products/product_analytics/frontend/insights/funnels/FunnelCardSummary').then((m) => ({
+        default: m.FunnelCardSummary,
+    }))
+)
 const ExplainChartButton = lazyWithRetry(() =>
     import('products/product_analytics/frontend/insights/explainChart/ExplainChartButton').then((m) => ({
         default: m.ExplainChartButton,
@@ -633,6 +638,11 @@ export function InsightVizDisplay({
                 {showingResults && (
                     <QuillSurfaceContext.Provider value={quillSurface}>
                         <ExplainEmptyInsightContext.Provider value={!embedded}>
+                            {embedded && isFunnels && hasFunnelResults && (
+                                <Suspense fallback={null}>
+                                    <FunnelCardSummary />
+                                </Suspense>
+                            )}
                             {!embedded &&
                                 ((isFunnels && hasFunnelResults) ||
                                     isPaths ||
