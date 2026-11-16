@@ -26,6 +26,7 @@ function scorecardFixture(runId: string, overrides: Record<string, unknown> = {}
         ended_at: '2026-01-02T03:09:05.000Z',
         evidence_dir: '/tmp/example/evidence',
         adapters: ['example'],
+        owners: ['example-team'],
         inv_example_passed: true,
         bars: [{ name: 'example-bar', passed: true }],
         ...overrides,
@@ -82,8 +83,11 @@ describe('run store', () => {
         const runId = randomUUID()
         const series = [seriesOf('offered', [3, 4]), { ...seriesOf('lag', [1]), points: [{ at: 1, value: null }] }]
         const topology = { nodes: ['a', 'b'], edges: [['a', 'b']] }
+        const manifest = { adapters: [{ id: 'example', owner: 'example-team' }] }
 
-        expect((await ingest({ scorecard: scorecardFixture(runId), series, topology, host: 'box-1' })).status).toBe(201)
+        expect(
+            (await ingest({ scorecard: scorecardFixture(runId), series, topology, manifest, host: 'box-1' })).status
+        ).toBe(201)
 
         expect(await read(`${RUNS_PATH}/${runId}`)).toEqual({
             status: 200,
@@ -99,13 +103,24 @@ describe('run store', () => {
                 endedAt: '2026-01-02T03:09:05.000Z',
                 evidenceDir: '/tmp/example/evidence',
                 adapters: ['example'],
+                owners: ['example-team'],
                 receivedAt: expect.any(String),
                 updatedAt: expect.any(String),
                 scorecard: scorecardFixture(runId),
                 series,
                 topology,
+                manifest,
             },
         })
+    })
+
+    it('stores a scorecard of schema version 2 as given', async () => {
+        const runId = randomUUID()
+        const scorecard = scorecardFixture(runId, { schema_version: 2 })
+
+        expect((await ingest({ scorecard })).status).toBe(201)
+
+        expect((await read(`${RUNS_PATH}/${runId}`)).body).toMatchObject({ scorecard })
     })
 
     it('stores a run posted twice once, with the second report', async () => {
@@ -123,16 +138,17 @@ describe('run store', () => {
 
     it.each([
         ['leaves them out', {}],
-        ['sends them as null', { series: null, topology: null, host: null }],
-    ])('keeps the series, topology and host when a re-report %s', async (_, absent) => {
+        ['sends them as null', { series: null, topology: null, manifest: null, host: null }],
+    ])('keeps the series, topology, manifest and host when a re-report %s', async (_, absent) => {
         const runId = randomUUID()
         const series = [seriesOf('offered', [1, 2, 3])]
         const topology = { nodes: ['a'] }
-        await ingest({ scorecard: scorecardFixture(runId), series, topology, host: 'box-1' })
+        const manifest = { adapters: [{ id: 'example' }] }
+        await ingest({ scorecard: scorecardFixture(runId), series, topology, manifest, host: 'box-1' })
 
         expect((await ingest({ scorecard: scorecardFixture(runId), ...absent })).status).toBe(200)
 
-        expect((await read(`${RUNS_PATH}/${runId}`)).body).toMatchObject({ series, topology, host: 'box-1' })
+        expect((await read(`${RUNS_PATH}/${runId}`)).body).toMatchObject({ series, topology, manifest, host: 'box-1' })
     })
 
     it('takes a gzipped report', async () => {
@@ -173,7 +189,7 @@ describe('run store', () => {
         ],
         [
             'a scorecard of another schema version',
-            (runId) => ({ body: { scorecard: scorecardFixture(runId, { schema_version: 2 }) }, headers: AUTHORIZED }),
+            (runId) => ({ body: { scorecard: scorecardFixture(runId, { schema_version: 3 }) }, headers: AUTHORIZED }),
             400,
         ],
         [
@@ -184,6 +200,11 @@ describe('run store', () => {
         [
             'adapters that are not a list of names',
             (runId) => ({ body: { scorecard: scorecardFixture(runId, { adapters: 'example' }) }, headers: AUTHORIZED }),
+            400,
+        ],
+        [
+            'owners that are not a list of names',
+            (runId) => ({ body: { scorecard: scorecardFixture(runId, { owners: [''] }) }, headers: AUTHORIZED }),
             400,
         ],
         ['a body that is not JSON', () => ({ body: Buffer.from('{"scorecard":'), headers: AUTHORIZED }), 400],
@@ -283,18 +304,18 @@ describe('run store', () => {
         )
     })
 
-    it('lists the runs of one adapter, and keeps no adapter for a run that names none', async () => {
+    it('lists the runs of one adapter, and keeps no adapter or owner for a run that names none', async () => {
         const [single, shared, none] = [randomUUID(), randomUUID(), randomUUID()]
         const card_id = 'adapter-card'
         await ingest({ scorecard: scorecardFixture(single, { card_id }) })
         await ingest({ scorecard: scorecardFixture(shared, { card_id, adapters: ['other', 'example'] }) })
-        await ingest({ scorecard: scorecardFixture(none, { card_id, adapters: undefined }) })
+        await ingest({ scorecard: scorecardFixture(none, { card_id, adapters: undefined, owners: undefined }) })
 
         expect(await runIdsOf(`${RUNS_PATH}?card_id=${card_id}&adapter=other`)).toEqual([shared])
         expect(new Set(await runIdsOf(`${RUNS_PATH}?card_id=${card_id}&adapter=example`))).toEqual(
             new Set([single, shared])
         )
-        expect((await read(`${RUNS_PATH}/${none}`)).body).toMatchObject({ adapters: [] })
+        expect((await read(`${RUNS_PATH}/${none}`)).body).toMatchObject({ adapters: [], owners: [] })
     })
 
     it('finishes a report already in flight when it closes, even when told to close twice', async () => {

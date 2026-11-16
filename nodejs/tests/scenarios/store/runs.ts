@@ -1,15 +1,13 @@
 import type { Pool } from 'pg'
 import { z } from 'zod'
 
-import { SCHEMA_VERSION } from '../scorecard/scorecard'
-
 export const RunId = z.uuid().transform((runId) => runId.toLowerCase())
 
 const Name = z.string().min(1)
 
 const Scorecard = z
     .object({
-        schema_version: z.literal(SCHEMA_VERSION),
+        schema_version: z.literal([1, 2]),
         run_id: RunId,
         card_id: Name,
         status: z.enum(['passed', 'failed', 'invalid']),
@@ -20,6 +18,7 @@ const Scorecard = z
         card_hash: z.string().nullish(),
         evidence_dir: z.string().nullish(),
         adapters: z.array(Name).nullish(),
+        owners: z.array(Name).nullish(),
     })
     .catchall(z.unknown())
 
@@ -34,6 +33,7 @@ export const RunReport = z.object({
     scorecard: Scorecard,
     series: z.array(NamedSeries).nullish(),
     topology: z.unknown().optional(),
+    manifest: z.unknown().optional(),
     host: Name.nullish(),
 })
 
@@ -44,6 +44,7 @@ type RunSummary = {
     cardId: string
     status: string
     adapters: string[]
+    owners: string[]
     target: string | null
     host: string | null
     headSha: string | null
@@ -56,13 +57,14 @@ type RunSummary = {
     scorecard: Record<string, unknown>
 }
 
-export type Run = RunSummary & { series: z.infer<typeof NamedSeries>[] | null; topology: unknown }
+export type Run = RunSummary & { series: z.infer<typeof NamedSeries>[] | null; topology: unknown; manifest: unknown }
 
 const SUMMARY_COLUMNS = `
     run_id AS "runId",
     card_id AS "cardId",
     status,
     adapters,
+    owners,
     target,
     host,
     head_sha AS "headSha",
@@ -79,15 +81,16 @@ const jsonOrNull = (value: unknown): string | null => (value == null ? null : JS
 export class RunStore {
     constructor(private readonly pool: Pool) {}
 
-    async put({ scorecard, series, topology, host }: RunReport): Promise<'created' | 'updated'> {
+    async put({ scorecard, series, topology, manifest, host }: RunReport): Promise<'created' | 'updated'> {
         const { rows } = await this.pool.query<{ created: boolean }>(
-            `INSERT INTO runs (run_id, card_id, status, adapters, target, host, head_sha, card_hash, started_at,
-                               ended_at, scorecard, series, topology, evidence_dir)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
+            `INSERT INTO runs (run_id, card_id, status, adapters, owners, target, host, head_sha, card_hash,
+                               started_at, ended_at, scorecard, series, topology, manifest, evidence_dir)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14, $15, $16)
              ON CONFLICT (run_id) DO UPDATE SET
                 card_id = EXCLUDED.card_id,
                 status = EXCLUDED.status,
                 adapters = EXCLUDED.adapters,
+                owners = EXCLUDED.owners,
                 target = EXCLUDED.target,
                 host = COALESCE(EXCLUDED.host, runs.host),
                 head_sha = EXCLUDED.head_sha,
@@ -97,6 +100,7 @@ export class RunStore {
                 scorecard = EXCLUDED.scorecard,
                 series = COALESCE(EXCLUDED.series, runs.series),
                 topology = COALESCE(EXCLUDED.topology, runs.topology),
+                manifest = COALESCE(EXCLUDED.manifest, runs.manifest),
                 evidence_dir = EXCLUDED.evidence_dir,
                 updated_at = now()
              RETURNING (xmax = 0) AS created`,
@@ -105,6 +109,7 @@ export class RunStore {
                 scorecard.card_id,
                 scorecard.status,
                 scorecard.adapters ?? [],
+                scorecard.owners ?? [],
                 scorecard.target ?? null,
                 host ?? null,
                 scorecard.head_sha ?? null,
@@ -114,6 +119,7 @@ export class RunStore {
                 JSON.stringify(scorecard),
                 jsonOrNull(series),
                 jsonOrNull(topology),
+                jsonOrNull(manifest),
                 scorecard.evidence_dir ?? null,
             ]
         )
@@ -142,7 +148,7 @@ export class RunStore {
 
     async get(runId: string): Promise<Run | undefined> {
         const { rows } = await this.pool.query<Run>(
-            `SELECT ${SUMMARY_COLUMNS}, series, topology FROM runs WHERE run_id = $1`,
+            `SELECT ${SUMMARY_COLUMNS}, series, topology, manifest FROM runs WHERE run_id = $1`,
             [runId]
         )
         return rows[0]

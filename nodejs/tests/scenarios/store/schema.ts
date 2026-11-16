@@ -6,6 +6,7 @@ const SCHEMA_STATEMENTS: readonly string[] = [
         card_id text NOT NULL,
         status text NOT NULL,
         adapters text[] NOT NULL DEFAULT '{}',
+        owners text[] NOT NULL DEFAULT '{}',
         target text,
         host text,
         head_sha text,
@@ -15,6 +16,7 @@ const SCHEMA_STATEMENTS: readonly string[] = [
         scorecard jsonb NOT NULL,
         series jsonb,
         topology jsonb,
+        manifest jsonb,
         evidence_dir text,
         received_at timestamptz NOT NULL DEFAULT now(),
         updated_at timestamptz NOT NULL DEFAULT now()
@@ -22,6 +24,7 @@ const SCHEMA_STATEMENTS: readonly string[] = [
     'CREATE INDEX IF NOT EXISTS runs_started_at ON runs (started_at DESC)',
     'CREATE INDEX IF NOT EXISTS runs_card_started_at ON runs (card_id, started_at DESC)',
     'CREATE INDEX IF NOT EXISTS runs_adapters ON runs USING gin (adapters)',
+    'CREATE INDEX IF NOT EXISTS runs_owners ON runs USING gin (owners)',
 ]
 
 const SCHEMA_LOCK = 0x5ce7a710

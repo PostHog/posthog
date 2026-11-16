@@ -865,24 +865,26 @@ The store names no product: a run lists the adapters it drove, and each series n
 
 | Column                                                                           | Holds                                                                                                    |
 | -------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------- |
-| `scorecard`                                                                      | The scorecard properties as posted, schema version 1, with the run id lowercased                         |
+| `scorecard`                                                                      | The scorecard properties as posted, schema version 1 or 2 as given, with the run id lowercased           |
 | `adapters`                                                                       | The scorecard's `adapters`: the ids of the adapters the run drove, empty when it names none              |
+| `owners`                                                                         | The scorecard's `owners`: the teams whose adapters ran, empty when it names none                         |
 | `card_id`, `status`, `target`, `head_sha`, `card_hash`, `started_at`, `ended_at` | Copied from the scorecard, so lists filter and sort without reading the JSON                             |
 | `evidence_dir`                                                                   | The scorecard's `evidence_dir`: a path on the box for a local run, an S3 prefix for a cloud run          |
 | `host`                                                                           | The box that reported the run, when the report names it                                                  |
 | `series`                                                                         | Named series for the viewer, each `{ adapter, name, unit, points: [{ at, value }] }`; never raw evidence |
 | `topology`                                                                       | The systems the run saw, when the report has them                                                        |
+| `manifest`                                                                       | The run's merged adapter manifest, when the report has it, so an old run still draws after it changes    |
 
 **Routes**
 
-| Route                   | Who can call it                                               | Does                                                                                                                                                           |
-| ----------------------- | ------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `POST /api/ingest/runs` | Anyone with the run token, as `Authorization: Bearer <token>` | Stores `{ scorecard, series?, topology?, host? }`: `201` for a new run, `200` for a run it already had. A wrong or missing token gets `401` and stores nothing |
-| `GET /api/runs`         | Whoever reaches the host                                      | Lists runs newest first, without `series` and `topology`. `?card_id=` and `?adapter=` filter, `?limit=` takes 1 to 500, default 100                            |
-| `GET /api/runs/<id>`    | Whoever reaches the host                                      | One run with its `series` and `topology`, by its id in any letter case                                                                                         |
+| Route                   | Who can call it                                               | Does                                                                                                                                                                      |
+| ----------------------- | ------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `POST /api/ingest/runs` | Anyone with the run token, as `Authorization: Bearer <token>` | Stores `{ scorecard, series?, topology?, manifest?, host? }`: `201` for a new run, `200` for a run it already had. A wrong or missing token gets `401` and stores nothing |
+| `GET /api/runs`         | Whoever reaches the host                                      | Lists runs newest first, without `series`, `topology` and `manifest`. `?card_id=` and `?adapter=` filter, `?limit=` takes 1 to 500, default 100                           |
+| `GET /api/runs/<id>`    | Whoever reaches the host                                      | One run with its `series`, `topology` and `manifest`, by its id in any letter case                                                                                        |
 
-A report for a run the store already has replaces its scorecard and the columns copied from it, `adapters` included, and keeps the `series`, `topology` and `host` the new report leaves out or sends as `null`, so re-sending a scorecard never drops a series a backfill added.
-The ingest route takes scorecards of schema version 1 only.
+A report for a run the store already has replaces its scorecard and the columns copied from it, `adapters` and `owners` included, and keeps the `series`, `topology`, `manifest` and `host` the new report leaves out or sends as `null`, so re-sending a scorecard never drops a series a backfill added.
+The ingest route takes scorecards of schema version 1 or 2, and keeps the scorecard opaque past the columns above.
 It accepts a gzipped body with `Content-Encoding: gzip`, and answers `413` to a body over 32 MiB, zipped or unzipped.
 
 Ingest has its own path because the hosted app opens paths past its sign-in by path, for every method.
