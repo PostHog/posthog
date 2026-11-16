@@ -1,4 +1,8 @@
+import { useValues } from 'kea'
+
 import { LemonTable, LemonTableColumns } from '@posthog/lemon-ui'
+
+import { teamLogic } from 'scenes/teamLogic'
 
 import {
     ExperimentMetric,
@@ -25,6 +29,7 @@ type NotebookCompactTableProps = {
 type TableRow = ExperimentVariantResult & { key: string; isBaseline: boolean }
 
 export function NotebookCompactTable({ result, metric }: NotebookCompactTableProps): JSX.Element {
+    const { baseCurrency } = useValues(teamLogic)
     const goal = 'goal' in metric ? metric.goal : undefined
 
     const columns: LemonTableColumns<TableRow> = [
@@ -43,7 +48,7 @@ export function NotebookCompactTable({ result, metric }: NotebookCompactTablePro
                     ? formatQuantileLevel(metric.quantile)
                     : 'Conversion',
             render: (_, item) => {
-                const value = formatMetricValue(item, metric)
+                const value = formatMetricValue(item, metric, baseCurrency)
                 const delta = item.isBaseline ? null : formatDeltaPercent(item)
 
                 return (

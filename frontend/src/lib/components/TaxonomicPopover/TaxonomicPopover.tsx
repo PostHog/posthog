@@ -47,6 +47,7 @@ export interface TaxonomicPopoverProps<ValueType extends TaxonomicFilterValue = 
     excludedProperties?: ExcludedProperties
     excludedOperators?: ExcludedOperators
     includeHiddenEvents?: boolean
+    offerHiddenEventStandIns?: boolean
     selectedProperties?: SelectedProperties
     metadataSource?: AnyDataNode
     showNumericalPropsOnly?: boolean
@@ -94,6 +95,7 @@ export const TaxonomicPopover = forwardRef(function TaxonomicPopover_<
         excludedProperties,
         excludedOperators,
         includeHiddenEvents,
+        offerHiddenEventStandIns,
         selectedProperties,
         metadataSource,
         schemaColumns,
@@ -167,6 +169,7 @@ export const TaxonomicPopover = forwardRef(function TaxonomicPopover_<
             excludedProperties={excludedProperties}
             excludedOperators={excludedOperators}
             includeHiddenEvents={includeHiddenEvents}
+            offerHiddenEventStandIns={offerHiddenEventStandIns}
             selectedProperties={selectedProperties}
             showNumericalPropsOnly={showNumericalPropsOnly}
             dataWarehousePopoverFields={dataWarehousePopoverFields}

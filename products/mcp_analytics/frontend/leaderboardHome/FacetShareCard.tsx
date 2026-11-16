@@ -38,12 +38,14 @@ export function FacetShareCard({
     loading,
     failed,
     theme,
+    maxVisibleRows,
 }: {
     title: string
     rows: WindowFacetRow[]
     loading: boolean
     failed: boolean
     theme: ChartTheme
+    maxVisibleRows?: number
 }): JSX.Element | null {
     const shownRows = useMemo(() => topFacetRows(rows, MAX_ROWS), [rows])
     const totalCalls = useMemo(() => shownRows.reduce((sum, row) => sum + row.calls, 0), [shownRows])
@@ -74,7 +76,14 @@ export function FacetShareCard({
                 skeleton={<ChartSkeleton kind="shares" />}
                 empty={failed ? <LoadErrorMessage /> : <NoDataMessage />}
             >
-                <ShareBarChart rows={chartRows} totalCalls={totalCalls} theme={theme} tooltip={renderTooltip} />
+                <ShareBarChart
+                    rows={chartRows}
+                    totalCalls={totalCalls}
+                    theme={theme}
+                    tooltip={renderTooltip}
+                    maxVisibleRows={maxVisibleRows}
+                    label={title}
+                />
             </CardState>
         </Card>
     )

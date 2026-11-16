@@ -37,12 +37,6 @@ class WorkloadCollector(TraversingVisitor):
         if len(self.workloads) == 1:
             return next(iter(self.workloads))
 
-        # Ingestion writes every metrics4 table to the logs cluster as well as the metrics cluster, so a query that
-        # joins metrics with logs or spans can run on the logs cluster. This stops working once the logs cluster
-        # no longer receives metrics.
-        if self.workloads == {Workload.LOGS, Workload.METRICS}:
-            return Workload.LOGS
-
         raise QueryError(
             f"Cannot query tables from different clusters in the same query. "
             f"Found tables requiring clusters: {', '.join(sorted(w.value.capitalize() for w in self.workloads))}"

@@ -24,7 +24,7 @@ const CONFIG = {
 
 describe('buildMetricsTableDrilldown', () => {
     it('builds one full chart query per column, split by the label of the table', () => {
-        const [errors, latency] = buildMetricsTableDrilldown(CONFIG, ['GET /api/traces/{id}']).charts
+        const [errors, latency] = buildMetricsTableDrilldown(CONFIG, [['GET /api/traces/{id}']]).charts
 
         expect(errors.title).toEqual('Errors/s')
         expect(errors.query).toEqual({
@@ -50,7 +50,7 @@ describe('buildMetricsTableDrilldown', () => {
     })
 
     it('escapes a dollar sign so a single row is not read as a dashboard variable', () => {
-        const [errors] = buildMetricsTableDrilldown(CONFIG, ['/api/$tenant']).charts
+        const [errors] = buildMetricsTableDrilldown(CONFIG, [['/api/$tenant']]).charts
 
         expect(errors.query.clauses[0].filters?.at(-1)).toEqual({
             key: 'http.route',
@@ -73,11 +73,11 @@ describe('buildMetricsTableDrilldown', () => {
             'hour_6',
         ],
     ] as const)('%s', (_name, dateFrom, interval, dashboardFilters, rowCount, expectedInterval) => {
-        const keys = Array.from({ length: rowCount }, (_, index) => `/api/${index}`)
+        const rows = Array.from({ length: rowCount }, (_, index) => [`/api/${index}`])
 
         const drilldown = buildMetricsTableDrilldown(
             { ...CONFIG, dateRange: { date_from: dateFrom as '-1h' }, interval },
-            keys,
+            rows,
             dashboardFilters
         )
 
@@ -109,7 +109,7 @@ describe('buildMetricsTableDrilldown', () => {
             { date_from: '2026-10-02T23:59:59', date_to: '2026-11-01T23:59:59' },
         ],
     ])('queries %s', (_name, dashboardFilters, expectedDateRange) => {
-        const [errors] = buildMetricsTableDrilldown(CONFIG, ['/api/0'], dashboardFilters).charts
+        const [errors] = buildMetricsTableDrilldown(CONFIG, [['/api/0']], dashboardFilters).charts
 
         expect(errors.query.dateRange).toEqual(expectedDateRange)
     })
@@ -117,21 +117,67 @@ describe('buildMetricsTableDrilldown', () => {
     it('measures a dashboard range from midnight in the project timezone', () => {
         // 01:00 UTC is 17:00 the day before in Los Angeles, so "today" there is 17 hours long, not one.
         jest.useFakeTimers().setSystemTime(new Date('2026-11-10T01:00:00Z'))
-        const keys = Array.from({ length: 50 }, (_, index) => `/api/${index}`)
+        const rows = Array.from({ length: 50 }, (_, index) => [`/api/${index}`])
 
-        const drilldown = buildMetricsTableDrilldown(CONFIG, keys, { date_from: 'dStart' }, 'America/Los_Angeles')
+        const drilldown = buildMetricsTableDrilldown(CONFIG, rows, { date_from: 'dStart' }, 'America/Los_Angeles')
 
         expect(drilldown.interval).toEqual('minute_15')
         jest.useRealTimers()
     })
 
+    it('budgets for every combination the filters match past the clause limit', () => {
+        // 25 rows that differ in both labels need more clauses than the query allows, so one clause matches
+        // all 625 combinations. Over three hours at one point a minute that is over 100,000 rows.
+        const rows = Array.from({ length: 25 }, (_, index) => [`M${index}`, `view${index}`])
+
+        const drilldown = buildMetricsTableDrilldown(
+            { ...CONFIG, groupBy: ['method', 'view'], interval: 'minute' },
+            rows
+        )
+
+        expect(drilldown.charts[0].query.clauses).toHaveLength(1)
+        expect(drilldown.interval).toEqual('minute_15')
+    })
+
     it('matches several rows with one anchored regex that escapes the values', () => {
-        const [errors] = buildMetricsTableDrilldown(CONFIG, ['GET /api/traces/{id}', 'POST /api/chat']).charts
+        const [errors] = buildMetricsTableDrilldown(CONFIG, [['GET /api/traces/{id}'], ['POST /api/chat']]).charts
 
         expect(errors.query.clauses[0].filters?.at(-1)).toEqual({
             key: 'http.route',
             op: 'regex',
             value: '^(?:GET /api/traces/\\{id\\}|POST /api/chat)$',
         })
+    })
+
+    it.each([
+        [
+            'matches rows that differ in one label with one clause',
+            [
+                ['GET', 'detail'],
+                ['PATCH', 'detail'],
+            ],
+            [['^(?:GET|PATCH)$', '^(?:detail)$']],
+        ],
+        [
+            'splits rows that differ in both labels so no other combination shows',
+            [
+                ['GET', 'detail'],
+                ['POST', 'list'],
+            ],
+            [
+                ['^(?:GET)$', '^(?:detail)$'],
+                ['^(?:POST)$', '^(?:list)$'],
+            ],
+        ],
+    ])('%s', (_name, rows, expectedClauseFilters) => {
+        const [errors] = buildMetricsTableDrilldown({ ...CONFIG, groupBy: ['method', 'view'] }, rows).charts
+
+        expect(errors.query.clauses.map((clause) => clause.filters?.slice(1).map((filter) => filter.value))).toEqual(
+            expectedClauseFilters
+        )
+        expect(errors.query.clauses.map((clause) => clause.name)).toEqual(
+            expectedClauseFilters.map((_, index) => 'ab'[index])
+        )
+        expect(errors.query.clauses[0].groupBy).toEqual([{ key: 'method' }, { key: 'view' }])
     })
 })

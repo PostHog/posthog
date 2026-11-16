@@ -9,6 +9,7 @@ import copy
 import builtins
 import itertools
 import threading
+from collections import Counter
 from collections.abc import Callable, Iterable, Iterator, Mapping, Sequence
 from dataclasses import replace
 from datetime import datetime, timedelta
@@ -26,6 +27,8 @@ from posthog.integrations.contracts import (
     IntegrationNotFound,
     IntegrationPatch,
     IntegrationRecord,
+    RepositoryCache,
+    UpdatedRows,
 )
 from posthog.integrations.observability import TokenRefreshResult
 from posthog.integrations.references import IntegrationReference
@@ -122,6 +125,8 @@ class FakeBackend:
         self._lock = threading.RLock()
         self._token_refresher = token_refresher
         self._last_created_at: datetime | None = None
+        # The repository cache columns of a row, apart from the record, like the deferred columns of the model.
+        self._repository_caches: dict[int, RepositoryCache] = {}
 
     def seed(
         self,
@@ -165,11 +170,13 @@ class FakeBackend:
 
     @staticmethod
     def _copy(record: FrozenIntegrationRecord) -> FrozenIntegrationRecord:
-        # A caller that changes a returned dict must not change the stored row.
+        # A caller that changes a returned dict must not change the stored row. Like Django, a secret
+        # field that cannot be decrypted is a raw string, not a dict.
+        secrets = record.sensitive_config
         return replace(
             record,
             config=copy.deepcopy(dict(record.config)),
-            sensitive_config=copy.deepcopy(dict(record.sensitive_config)),
+            sensitive_config=copy.deepcopy(dict(secrets) if isinstance(secrets, Mapping) else secrets),
         )
 
     @staticmethod
@@ -256,6 +263,12 @@ class FakeBackend:
     def count(self, scope: RowScope, row_filter: RowFilter) -> int:
         return len(self._selected(scope, row_filter))
 
+    def count_by_external_ids(self, scope: RowScope, *, external_ids: Sequence[str]) -> dict[str, int]:
+        wanted = set(external_ids)
+        with self._lock:
+            counts = Counter(record.integration_id for record in self._scoped(scope) if record.integration_id in wanted)
+        return {external_id: count for external_id, count in counts.items() if external_id is not None}
+
     def get_by_external_id(self, scope: RowScope, *, external_id: str, id: int) -> IntegrationRecord:
         with self._lock:
             record = self._stored(id)
@@ -309,6 +322,7 @@ class FakeBackend:
             changed: dict[str, object] = {
                 "config": copy.deepcopy(dict(new.config)),
                 "sensitive_config": _as_stored_secrets(new.sensitive_config),
+                "errors": "",
             }
             if new.created_by_id is not None:
                 changed["created_by_id"] = new.created_by_id
@@ -327,7 +341,29 @@ class FakeBackend:
 
     def delete(self, scope: RowScope, *, team_id: int, id: int) -> None:
         with self._lock:
-            del self._rows[self._row(scope, team_id, id).id]
+            record_id = self._row(scope, team_id, id).id
+            del self._rows[record_id]
+            self._repository_caches.pop(record_id, None)
+
+    def change_external_id(self, scope: RowScope, *, team_id: int, id: int, external_id: str) -> IntegrationRecord:
+        with self._lock:
+            record = self._row(scope, team_id, id)
+            if record.integration_id == external_id:
+                return self._copy(record)
+            if any(
+                (other.team_id, other.kind, other.integration_id) == (record.team_id, record.kind, external_id)
+                for other in self._rows.values()
+            ):
+                raise IntegrationConflict(
+                    f"Team {team_id} already has a {record.kind!r} integration with external id {external_id!r}"
+                )
+            moved = replace(
+                record,
+                integration_id=external_id,
+                display_name=_display_name(record.kind, external_id, record.config),
+            )
+            self._rows[record.id] = moved
+            return self._copy(moved)
 
     def _by_external_id(self, scope: RowScope, external_id: str) -> Iterable[FrozenIntegrationRecord]:
         return self._selected(scope, RowFilter(external_id=external_id))
@@ -343,6 +379,7 @@ class FakeBackend:
             rows = builtins.list(self._by_external_id(scope, external_id))
             for record in rows:
                 del self._rows[record.id]
+                self._repository_caches.pop(record.id, None)
             return len(rows)
 
     def refresh_access_token(
@@ -358,3 +395,46 @@ class FakeBackend:
             refreshed = self._patched(record, self._token_refresher(self._copy(record))) or record
             result: TokenRefreshResult = "error" if refreshed.errors else "refreshed" if expired else "stale_token"
             return TokenRefresh(record=self._copy(refreshed), result=result)
+
+    def update_where(self, scope: RowScope, row_filter: RowFilter, patch: IntegrationPatch) -> UpdatedRows:
+        with self._lock:
+            records: builtins.list[IntegrationRecord] = []
+            changed: set[int] = set()
+            for record in self._selected(scope, row_filter):
+                patched = self._patched(record, patch)
+                if patched is not None:
+                    changed.add(record.id)
+                records.append(self._copy(patched or record))
+            return UpdatedRows(records=tuple(records), changed_ids=frozenset(changed))
+
+    def get_repository_cache(self, scope: RowScope, *, team_id: int, id: int) -> RepositoryCache:
+        with self._lock:
+            record_id = self._row(scope, team_id, id).id
+            return copy.deepcopy(
+                self._repository_caches.get(record_id, RepositoryCache(repositories=[], updated_at=None))
+            )
+
+    def set_repository_cache(
+        self,
+        scope: RowScope,
+        *,
+        team_id: int,
+        id: int,
+        repositories: builtins.list[dict[str, object]] | None,
+        updated_at: datetime,
+    ) -> None:
+        with self._lock:
+            record_id = self._row(scope, team_id, id).id
+            stored = self._repository_caches.get(record_id, RepositoryCache(repositories=[], updated_at=None))
+            self._repository_caches[record_id] = RepositoryCache(
+                repositories=stored.repositories if repositories is None else copy.deepcopy(repositories),
+                updated_at=updated_at,
+            )
+
+    def expire_repository_cache_by_external_id(self, scope: RowScope, *, external_id: str) -> int:
+        with self._lock:
+            rows = builtins.list(self._by_external_id(scope, external_id))
+            for record in rows:
+                stored = self._repository_caches.get(record.id, RepositoryCache(repositories=[], updated_at=None))
+                self._repository_caches[record.id] = replace(stored, updated_at=None)
+            return len(rows)

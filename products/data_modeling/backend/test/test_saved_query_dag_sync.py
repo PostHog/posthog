@@ -10,10 +10,10 @@ from posthog.hogql.database.database import Database
 from posthog.hogql.database.models import StringDatabaseField
 from posthog.hogql.errors import QueryError, TableAccessDeniedError
 
+from products.data_modeling.backend.facade.contracts import HasDependentsError
 from products.data_modeling.backend.facade.modeling import ResolutionCycleError
 from products.data_modeling.backend.facade.system_tables import DATA_MODELING_ALLOWED_SYSTEM_TABLES
 from products.data_modeling.backend.logic.saved_query_dag_sync import (
-    HasDependentsError,
     blocked_lineage_node_id,
     delete_node_from_dag,
     describe_dependents,

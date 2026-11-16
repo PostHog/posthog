@@ -27,6 +27,16 @@ if TYPE_CHECKING:
     from posthog.schema import PersonPropertyFilter
 
 
+class PersonAccount(TypedDict):
+    id: str
+    name: str
+
+
+class PersonAccounts(TypedDict):
+    person_id: str
+    accounts: list[PersonAccount]
+
+
 class AccountPersonsPropertyAccessError(Exception):
     pass
 
@@ -60,6 +70,18 @@ class AccountPersonsPage:
     offset: int
     has_more: bool
     next_offset: int | None
+
+
+@frozen
+class AccountAutomation:
+    workflow_id: str
+    workflow_name: str
+    invocation_id: str
+    status: str
+    triggered_at: datetime
+    last_completed_step_at: datetime | None
+    expected_resume_at: datetime | None
+    last_completed_step_name: str | None = None
 
 
 class InvalidCustomPropertyOptions(ValueError):

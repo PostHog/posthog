@@ -16,6 +16,7 @@ from products.warehouse_sources.backend.models.external_data_schema import Exter
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 
 HEALTH_SERVICE = "products.customer_analytics.backend.logic.custom_property_source_health"
+RUN_ID = "00000000-0000-4000-8000-0000000000a1"
 
 
 class TestRecordSyncRun(TeamScopedTestMixin, APIBaseTest):
@@ -103,6 +104,29 @@ class TestRecordSyncRun(TeamScopedTestMixin, APIBaseTest):
         run = CustomPropertySyncRun.objects.for_team(self.team.id).get(source_id=self.source.id)
         assert run.status == "failed" and run.error == "boom"
         assert mock_notify.call_count == int(count_failure)
+
+    @parameterized.expand(
+        [
+            ("both_ids", "backfill-warehouse-person-properties-1", RUN_ID, RUN_ID),
+            ("run_id_is_not_a_uuid", "backfill-warehouse-person-properties-1", "not-a-uuid", None),
+            ("no_ids", None, None, None),
+        ]
+    )
+    def test_run_row_keeps_the_temporal_run_that_did_the_work(self, _name, workflow_id, workflow_run_id, expected_run):
+        record_sync_run(self._record(workflow_id=workflow_id, workflow_run_id=workflow_run_id))
+
+        run = CustomPropertySyncRun.objects.for_team(self.team.id).get(source_id=self.source.id)
+        assert run.workflow_id == workflow_id
+        assert (str(run.workflow_run_id) if run.workflow_run_id else None) == expected_run
+        assert run.status == "completed"
+
+    def test_a_record_without_ids_does_not_clear_the_ids_of_the_run_row(self):
+        record_sync_run(self._record(status="running", workflow_id="wf-1", workflow_run_id=RUN_ID))
+        record_sync_run(self._record())
+
+        run = CustomPropertySyncRun.objects.for_team(self.team.id).get(source_id=self.source.id)
+        assert (run.workflow_id, str(run.workflow_run_id)) == ("wf-1", RUN_ID)
+        assert run.status == "completed"
 
     def test_unknown_source_is_a_noop(self):
         # A run for a since-deleted source must not crash or orphan a row.

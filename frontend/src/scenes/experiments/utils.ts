@@ -598,14 +598,6 @@ export function seriesToExposureConfig(series: SeriesNode[]): ExperimentEventExp
     return undefined
 }
 
-export function experimentHasQuantileMetric(experiment: Experiment): boolean {
-    return [
-        ...(experiment.metrics ?? []),
-        ...(experiment.metrics_secondary ?? []),
-        ...(experiment.saved_metrics ?? []).map((savedMetric: { query?: ExperimentMetric }) => savedMetric.query),
-    ].some((metric) => metric?.kind === NodeKind.ExperimentMetric && isExperimentQuantileMetric(metric))
-}
-
 // The backend accepts quantile levels from 0.01 to 0.99.
 export const MIN_PERCENTILE = 1
 export const MAX_PERCENTILE = 99

@@ -714,7 +714,7 @@ export const getNotebooksRunsCreateUrl = (projectId: string, shortId: string) =>
 }
 
 /**
- * Run every SQL and Python cell of a markdown notebook, in document order, stopping at the first cell that does not finish. Returns as soon as the run starts; poll the run status endpoint until the status is terminal. Flag-gated (revamped-py-notebooks).
+ * Run every SQL and Python cell of a markdown notebook, in document order, stopping at the first cell that does not finish. Returns as soon as the run starts; poll the run status endpoint until the status is terminal.
  */
 export const notebooksRunsCreate = async (
     projectId: string,
@@ -735,7 +735,7 @@ export const getNotebooksRunsRetrieveUrl = (projectId: string, shortId: string, 
 }
 
 /**
- * Read a whole-notebook run: its state, which cell it is on, and one line per planned cell. Carries no result rows — fetch a cell's result from the cell run result endpoint. Flag-gated (revamped-py-notebooks).
+ * Read a whole-notebook run: its state, which cell it is on, and one line per planned cell. Carries no result rows — fetch a cell's result from the cell run result endpoint.
  */
 export const notebooksRunsRetrieve = async (
     projectId: string,
@@ -754,7 +754,7 @@ export const getNotebooksRunsInterruptCreateUrl = (projectId: string, shortId: s
 }
 
 /**
- * Stop a whole-notebook run and the cell it is on. Idempotent: stopping a run that already finished returns its outcome unchanged. Flag-gated (revamped-py-notebooks).
+ * Stop a whole-notebook run and the cell it is on. Idempotent: stopping a run that already finished returns its outcome unchanged.
  */
 export const notebooksRunsInterruptCreate = async (
     projectId: string,
@@ -773,7 +773,7 @@ export const getNotebooksSqlV2RunCreateUrl = (projectId: string, shortId: string
 }
 
 /**
- * Dispatch an asynchronous run of a notebook SQL or Python cell. Returns a run_id immediately; poll the run result endpoint until the status is terminal. One run at a time per notebook. Python notebooks enable all run types. HogQL runs without a connection or kernel are always available.
+ * Dispatch an asynchronous run of a notebook SQL or Python cell. Returns a run_id immediately; poll the run result endpoint until the status is terminal. One run at a time per notebook. HogQL runs without a connection or kernel are always available.
  */
 export const notebooksSqlV2RunCreate = async (
     projectId: string,
@@ -813,7 +813,7 @@ export const getNotebooksSqlV2RunsInterruptCreateUrl = (projectId: string, short
 }
 
 /**
- * Stop a running cell. Idempotent: interrupting an already-finished run returns its outcome unchanged. Flag-gated (revamped-py-notebooks).
+ * Stop a running cell. Idempotent: interrupting an already-finished run returns its outcome unchanged.
  */
 export const notebooksSqlV2RunsInterruptCreate = async (
     projectId: string,
@@ -835,7 +835,7 @@ export const getNotebooksSqlV2StateRetrieveUrl = (projectId: string, shortId: st
 }
 
 /**
- * The full notebook view for agents: title, document source (markdown, or raw content for legacy rich-text notebooks), the notebook's declared variables, every cell with its dependency edges and derived run status (including staleness), and the kernel's runtime state and compute config. Flag-gated (revamped-py-notebooks).
+ * The full notebook view for agents: title, document source (markdown, or raw content for legacy rich-text notebooks), the notebook's declared variables, every cell with its dependency edges and derived run status (including staleness), and the kernel's runtime state and compute config.
  */
 export const notebooksSqlV2StateRetrieve = async (
     projectId: string,

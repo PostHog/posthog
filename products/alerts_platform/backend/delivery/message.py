@@ -7,6 +7,7 @@ A provider turns this into its own body shape.
 """
 
 import hashlib
+from dataclasses import field
 from typing import Any, Final
 
 from posthog.dataclasses import frozen
@@ -23,6 +24,7 @@ from products.alerts_platform.backend.facade.contracts import (
     MessageLink,
     SourceKind,
 )
+from products.alerts_platform.backend.logic.rule_metadata import render_annotations
 
 _HEADLINES: Final[dict[AlertEventKind, str]] = {
     AlertEventKind.FIRING: "{kind} alert '{name}' is firing",
@@ -87,11 +89,21 @@ class AlertMessage:
     source_incident_key: str | None = None
     # The project the alert belongs to, which a reader with alerts in several projects needs.
     project: MessageLink | None = None
+    # The group's labels with the rule's over them, and the rule's annotations with templates filled in.
+    labels: dict[str, str] = field(default_factory=dict)
+    annotations: dict[str, str] = field(default_factory=dict)
+    # The rule's labels, then its annotations, each by name. Kept apart from `details`, so a rule
+    # entry can never stand in for a fact the platform measured.
+    rule_details: tuple[MessageDetail, ...] = ()
 
     @property
     def title(self) -> str:
         """The headline with its state symbol, for a provider a person reads."""
         return f"{self.symbol} {self.headline}"
+
+    @property
+    def all_details(self) -> tuple[MessageDetail, ...]:
+        return (*self.details, *self.rule_details)
 
     @property
     def links(self) -> tuple[MessageLink, ...]:
@@ -209,6 +221,8 @@ def build_message(
                 value=f"{untracked} not tracked because this alert is at its group limit",
             )
         )
+    labels = {**transition.labels, **announcement.rule.labels}
+    annotations = render_annotations(announcement.rule.annotations, labels=labels, value=transition.value)
     return AlertMessage(
         headline=headline.format(kind=_SOURCE_LABELS[announcement.source], name=announcement.alert_name),
         symbol=_SYMBOLS[kind],
@@ -225,4 +239,11 @@ def build_message(
         incident_action=incident_action,
         source_incident_key=source_incident_key,
         project=project,
+        labels=labels,
+        annotations=annotations,
+        rule_details=tuple(
+            MessageDetail(label=name, value=value)
+            for entries in (announcement.rule.labels, annotations)
+            for name, value in sorted(entries.items())
+        ),
     )

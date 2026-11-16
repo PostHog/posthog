@@ -70,7 +70,7 @@ class TestDashboardImportAPI(APIBaseTest):
         self.enterContext(
             patch("posthoganalytics.feature_enabled", side_effect=lambda key, *args, **kwargs: key in self.flags)
         )
-        self.enterContext(override_settings(SNUFFLE_APM_URL="http://snuffle.test"))
+        self.enterContext(override_settings(SNUFFLE_METRICS_URL="http://snuffle.test"))
         self.workflow = self.enterContext(patch(WORKFLOW))
         self.storage = self.enterContext(patch(f"{IMPORTER}.object_storage"))
         self.enterContext(
@@ -131,7 +131,15 @@ class TestDashboardImportAPI(APIBaseTest):
         promql: str,
         variable_filters: dict[str, Any],
     ) -> None:
-        body = self._start(source="grafana", grafana_json=_grafana(expr, templating=templating))
+        with patch(f"{IMPORTER}.report_user_action") as report:
+            body = self._start(source="grafana", grafana_json=_grafana(expr, templating=templating))
+
+        started, finished = report.call_args_list
+        assert started.args[1] == "metrics dashboard import started"
+        assert "$update_person_last_seen_at" not in started.args[2]
+        assert finished.args[1] == "metrics dashboard import finished"
+        assert finished.args[2]["$update_person_last_seen_at"] is False
+        assert finished.args[0].distinct_id == self.user.distinct_id
 
         assert (body["id"], body["status"], body["error"]) == (None, "completed", None)
         assert body["summary"] == {"total": 2, "imported": 2, "approximated": 0, "failed": 0, "skipped": 0}
@@ -210,7 +218,14 @@ class TestDashboardImportAPI(APIBaseTest):
             ],
         }
 
-        self._finish_run(started["id"], run_status=TaskRun.Status.COMPLETED, output=answer)
+        with patch(f"{IMPORTER}.ph_scoped_capture") as scoped_capture:
+            self._finish_run(started["id"], run_status=TaskRun.Status.COMPLETED, output=answer)
+        capture = scoped_capture.return_value.__enter__.return_value
+        capture.assert_called_once()
+        assert capture.call_args.kwargs["event"] == "metrics dashboard import finished"
+        assert capture.call_args.kwargs["distinct_id"] == str(self.user.distinct_id)
+        assert capture.call_args.kwargs["properties"]["$update_person_last_seen_at"] is False
+
         first = self.client.get(f"{self.url}{started['id']}/").json()
         second = self.client.get(f"{self.url}{started['id']}/").json()
 

@@ -81,6 +81,7 @@ def _make_task_run_mock(team_id: int = 7, created_by_id: int | None = 42, state:
     task.mcp_builtin_agent_key = None
     task.mcp_credential_owner_id = None
     task.mcp_gateway_server_allowlist = None
+    task.repository_integration_id = None
     if created_by_id is not None:
         task.created_by = MagicMock(id=created_by_id, distinct_id=f"user-{created_by_id}")
     else:
@@ -469,6 +470,40 @@ class TestSandboxGithubIdentityGate:
         assert _refresh_sandbox_github(_make_task_run_mock(), MagicMock(id=42), None) is None
         mock_apply.assert_called_once()
         assert mock_apply.call_args.args[2] == "ghu_token"
+        mock_clear.assert_not_called()
+
+    @pytest.mark.parametrize(
+        "cleared, expected",
+        [(True, None), (False, SandboxRebindFailure.LOGOUT_UNCONFIRMED)],
+        ids=["cleared", "clear_unconfirmed"],
+    )
+    @pytest.mark.parametrize("state", [None, {"github_read_access": True}, {"github_token_scope": "push"}])
+    def test_gitlab_task_clears_github_credentials_left_from_github(
+        self,
+        mock_authorship,
+        mock_resolve,
+        mock_get_token,
+        mock_apply,
+        mock_clear,
+        mock_upgrade,
+        cleared,
+        expected,
+        state,
+    ):
+        # A task that moved from GitHub to GitLab while its sandbox ran can still hold the previous
+        # actor's GitHub token, so the GitLab turn clears it and fails closed when it can't.
+        mock_resolve.return_value = _gate_lookup()
+        mock_get_token.return_value = "ghu_token"
+        task_run = _make_task_run_mock()
+        task_run.task.repository_integration_id = 5
+
+        with patch(f"{_GH_MODULE}.clear_github_env_from_gitlab_sandbox", return_value=cleared) as clear_env:
+            assert _refresh_sandbox_github(task_run, MagicMock(id=42), state) == expected
+
+        clear_env.assert_called_once()
+        mock_upgrade.assert_not_called()
+        mock_get_token.assert_not_called()
+        mock_apply.assert_not_called()
         mock_clear.assert_not_called()
 
     def test_revoked_connection_logs_the_sandbox_out_on_the_same_actor(

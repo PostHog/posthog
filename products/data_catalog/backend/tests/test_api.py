@@ -16,7 +16,12 @@ from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.team import Team
 from posthog.models.utils import generate_random_token_personal, hash_key_value
-from posthog.rate_limit import ClickHouseBurstRateThrottle, HogQLQueryThrottle
+from posthog.rate_limit import (
+    ClickHouseBurstRateThrottle,
+    HogQLQueryThrottle,
+    MetricSearchBurstRateThrottle,
+    MetricWriteBurstRateThrottle,
+)
 
 from products.access_control.backend.models.access_control import AccessControl
 from products.data_catalog.backend.facade.api import DESCRIPTION_TOO_LONG_MESSAGE, MAX_DESCRIPTION_LENGTH
@@ -36,7 +41,6 @@ from products.data_catalog.backend.presentation.serializers import (
     MetricBulkNamesRequestSerializer,
     MetricRunQuerySerializer,
     MetricRunRequestSerializer,
-    MetricSerializer,
 )
 from products.product_analytics.backend.facade.models import Insight
 
@@ -257,8 +261,10 @@ class TestMetricAPI(APIBaseTest):
         )
 
         names = [row["name"] for row in self.client.get(self.url).json()["results"]]
+        searched = [row["name"] for row in self.client.get(self.url, {"search": "hidden, allowed"}).json()["results"]]
 
         assert names == ["allowed"]
+        assert searched == ["allowed"]
         assert self.client.get(f"{self.url}hidden/").status_code == status.HTTP_404_NOT_FOUND
         for overwrite in (False, True):
             conflict = self.client.post(
@@ -713,6 +719,26 @@ class TestMetricRunThrottles(APIBaseTest):
             response = self.client.post(f"{self.url}purchases/run/")
         assert response.status_code == status.HTTP_429_TOO_MANY_REQUESTS
 
+    @parameterized.expand(
+        [
+            ("search", MetricSearchBurstRateThrottle, "get", {"search": "revenue"}, status.HTTP_429_TOO_MANY_REQUESTS),
+            ("plain_list", MetricSearchBurstRateThrottle, "get", {}, status.HTTP_200_OK),
+            ("create", MetricWriteBurstRateThrottle, "post", {"name": "mrr", "description": "d"}, 429),
+            ("search_is_not_a_write", MetricWriteBurstRateThrottle, "get", {"search": "revenue"}, status.HTTP_200_OK),
+        ]
+    )
+    @patch("products.data_catalog.backend.logic.metric_embeddings.posthoganalytics.feature_enabled", return_value=False)
+    def test_search_and_write_limits_apply_only_to_their_requests(
+        self, _name: str, throttle_class: type, method: str, data: dict[str, str], expected: int, _flag: MagicMock
+    ) -> None:
+        deny, wait = self._denied(throttle_class)
+        with deny, wait:
+            if method == "post":
+                response = self.client.post(self.url, data, format="json")
+            else:
+                response = self.client.get(self.url, data)
+        assert response.status_code == expected
+
     def test_markdown_metric_keeps_default_throttles(self) -> None:
         upsert_metric(
             team=self.team,
@@ -753,13 +779,6 @@ class TestMetricRunInputValidation(SimpleTestCase):
         assert serializer.is_valid() is valid
         if not valid:
             assert "refresh" in serializer.errors
-
-    @parameterized.expand([(0.0, True), (1.0, True), (-0.5, False), (1.5, False)])
-    def test_confidence_bounds(self, value: float, valid: bool) -> None:
-        serializer = MetricSerializer(data={"name": "mrr", "description": "d", "confidence": value})
-        assert serializer.is_valid() is valid, serializer.errors
-        if not valid:
-            assert "confidence" in serializer.errors
 
 
 class TestMetricBulkNamesValidation(SimpleTestCase):

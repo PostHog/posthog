@@ -33,9 +33,12 @@ def changed_fields(
     new_config = _patched(config, patch.config_patch, patch.config_remove)
     if not same_json(new_config, config or {}):
         changed["config"] = new_config
-    new_sensitive_config = _patched(sensitive_config, patch.sensitive_config_patch, patch.sensitive_config_remove)
-    if not same_json(new_sensitive_config, sensitive_config or {}):
-        changed["sensitive_config"] = new_sensitive_config
+    # A secret field that cannot be decrypted reads back as a raw string, not a dict. Leave it alone
+    # unless the patch touches it.
+    if patch.sensitive_config_patch or patch.sensitive_config_remove:
+        new_sensitive_config = _patched(sensitive_config, patch.sensitive_config_patch, patch.sensitive_config_remove)
+        if not same_json(new_sensitive_config, sensitive_config or {}):
+            changed["sensitive_config"] = new_sensitive_config
     if patch.errors is not None and patch.errors != errors:
         changed["errors"] = patch.errors
     return changed

@@ -18,7 +18,11 @@ from products.warehouse_sources.sources.sdk import (
     detect,
 )
 from products.warehouse_sources.sources.tinyemail._config import TinyemailSourceConfig
-from products.warehouse_sources.sources.tinyemail.settings import ENDPOINTS, INCREMENTAL_FIELDS
+from products.warehouse_sources.sources.tinyemail.settings import (
+    ENDPOINTS,
+    INCREMENTAL_FIELDS,
+    INCREMENTAL_LOOKBACK_SECONDS,
+)
 from products.warehouse_sources.sources.tinyemail.tinyemail import (
     tinyemail_source,
     validate_credentials as validate_tinyemail_credentials,
@@ -45,7 +49,7 @@ class TinyemailSource(SimpleSource[TinyemailSourceConfig]):
             keywords=["tiny email"],
             docsUrl="https://posthog.com/docs/cdp/sources/tinyemail",
             iconPath="/static/services/tinyemail.png",
-            caption="""Enter a tinyEmail API key to sync campaigns, contact lists, contact members, and sender details.
+            caption="""Enter a tinyEmail API key to sync campaigns, contact lists, contact members, sender details, suppression lists, and engagement reports.
 
 You can generate an API key in tinyEmail under **My account → API keys**. Note that tinyEmail API access requires an Enterprise plan.
 """,
@@ -87,7 +91,14 @@ You can generate an API key in tinyEmail under **My account → API keys**. Note
         force_refresh: bool = False,
         api_version: str | None = None,
     ) -> list[SourceSchema]:
-        return build_endpoint_schemas(ENDPOINTS, INCREMENTAL_FIELDS, names)
+        return build_endpoint_schemas(
+            ENDPOINTS,
+            INCREMENTAL_FIELDS,
+            names,
+            # Report rows for recent days change as opens and clicks arrive, so appending would duplicate them.
+            merge_only=INCREMENTAL_LOOKBACK_SECONDS.keys(),
+            default_incremental_lookback_seconds=INCREMENTAL_LOOKBACK_SECONDS,
+        )
 
     def validate_credentials(
         self,
@@ -104,4 +115,6 @@ You can generate an API key in tinyEmail under **My account → API keys**. Note
             endpoint=inputs.schema_name,
             team_id=inputs.team_id,
             job_id=inputs.job_id,
+            should_use_incremental_field=inputs.should_use_incremental_field,
+            db_incremental_field_last_value=inputs.db_incremental_field_last_value,
         )

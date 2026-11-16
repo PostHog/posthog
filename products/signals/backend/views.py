@@ -3,6 +3,7 @@ import json
 import math
 import time
 import uuid
+import dataclasses
 from collections.abc import Callable, Iterable, Sequence
 from contextlib import ExitStack
 from datetime import UTC, datetime, timedelta
@@ -165,7 +166,11 @@ from products.signals.backend.models import (
     SignalUserAutonomyConfig,
 )
 from products.signals.backend.personal_ranking.config import PERSONAL_INBOX_RANKING_FLAG
-from products.signals.backend.personal_ranking.list_sort import PersonalListOrder, personal_list_order
+from products.signals.backend.personal_ranking.list_sort import (
+    PersonalListOrder,
+    personal_list_order,
+    personal_ranking_status,
+)
 from products.signals.backend.personal_ranking.serve import serve_personal_ranking
 from products.signals.backend.pr_ci_status import pr_ci_statuses_for_references, rollup_ci_status
 from products.signals.backend.presentation.scout_permissions import ScoutCanonicalTeamAccessPermission
@@ -231,8 +236,13 @@ from products.signals.backend.report_merge import (
     was_merged_away,
 )
 from products.signals.backend.report_metric_access import ReportMetricAccessPolicy
-from products.signals.backend.report_metric_refresh import CURRENT_REPORT_STATUSES, refresh_report_metric_snapshots
+from products.signals.backend.report_metric_refresh import (
+    CURRENT_REPORT_STATUSES,
+    REFRESHABLE_REPORT_STATUSES,
+    refresh_report_metric_snapshots,
+)
 from products.signals.backend.report_monitoring_attempts import complete_implementation
+from products.signals.backend.report_monitoring_summary import ReportMonitoringSummary, monitoring_summaries
 from products.signals.backend.report_plan import report_plan
 from products.signals.backend.report_priority import latest_priority_rank, update_report_priority
 from products.signals.backend.report_read_state import (
@@ -349,7 +359,7 @@ from products.signals.backend.task_attribution import (
     resolve_external_agent_name,
     resolve_request_attribution,
 )
-from products.signals.backend.task_run_artefacts import ReportTaskCapExceeded
+from products.signals.backend.task_run_artefacts import ReportTaskCapExceeded, implementation_in_flight_report_ids
 from products.signals.backend.tasks import send_reviewer_added_slack_notifications, sync_signals_refund_credit
 from products.signals.backend.temporal.backfill_error_tracking import (
     BackfillErrorTrackingInput,
@@ -979,6 +989,8 @@ class SignalReportBulkStateOutcome(models.TextChoices):
 # resolves it directly, so the archive grants it nothing it could not do on its own — and a report
 # that failed in processing can only be reached through the archive, because a dismissal is the only
 # verdict the inbox offered it.
+_REOPENABLE_STATUSES = frozenset({SignalReport.Status.MONITORING, SignalReport.Status.CLOSED})
+
 _RESOLVABLE_STATUSES_BEFORE_SUPPRESSION = frozenset(
     {
         SignalReport.Status.READY,
@@ -995,6 +1007,7 @@ class SignalReportState(models.TextChoices):
     POTENTIAL = "potential", "potential"
     RESOLVED = "resolved", "resolved"
     MONITORING = "monitoring", "monitoring"
+    READY = "ready", "ready"
 
 
 class SignalReportStateRequestSerializer(serializers.Serializer):
@@ -1002,7 +1015,7 @@ class SignalReportStateRequestSerializer(serializers.Serializer):
         choices=SignalReportState.choices,
         help_text=(
             "Target state for the report. Use 'suppressed' to dismiss the report from the inbox, "
-            "'potential' to snooze/reopen it for later review, or 'resolved' when the report is finished. "
+            "'potential' to snooze it or restore it from the archive, or 'resolved' when the report is finished. "
             "Resolving is allowed from ready, pending_input, failed, closed, or monitoring, "
             "or from a suppressed report that previously held one of those statuses or resolved. "
             "Resolving an already resolved report succeeds. Other statuses return 409 (skipped in bulk). "
@@ -1010,7 +1023,10 @@ class SignalReportStateRequestSerializer(serializers.Serializer):
             "Use 'monitoring' when implementation is complete and outcome verification is pending. "
             "Entry requires the organization rollout and snapshots this report's pending or active, unexpired checks. "
             "Without applicable checks the report resolves directly. Manual completion records caller "
-            "attribution, stops remaining follow-up checks, and does not claim automatic verification or an evidence amendment."
+            "attribution, stops remaining follow-up checks, and does not claim automatic verification or an evidence amendment. "
+            "Use 'ready' to reopen a report in monitoring or closed. It returns to ready with its research, pull requests, "
+            "and follow-up checks kept, and its Monitoring period ends. Completing implementation again starts a new period. "
+            "Reopening is refused for other statuses and for refunded reports."
         ),
     )
     dismissal_reason = serializers.ChoiceField(
@@ -1506,10 +1522,10 @@ class SignalReportListPagination(FacadeLimitOffsetPagination):
             "nullable": True,
             "description": (
                 "The ranker that ordered the page when sort=recommended or sort=personal: priority, or open, "
-                "action or fix for that outcome of the served ranking model. For sort=personal it is personal "
-                "when a stored personal ranking ordered the page: the teammate's with scope=teammate, else yours. "
-                "Null for every other sort. Each row's "
-                "inbox_merge_key belongs to this ranker."
+                "action or fix for that outcome of the served ranking model, or personal when a stored personal "
+                "ranking ordered the page. For sort=personal that is the teammate's ranking with scope=teammate, "
+                "else yours. For sort=recommended it is yours, when your flag arm serves it. Null for every other "
+                "sort. Each row's inbox_merge_key belongs to this ranker."
             ),
         }
         paginated["properties"]["ranking_id"] = {
@@ -1517,10 +1533,54 @@ class SignalReportListPagination(FacadeLimitOffsetPagination):
             "format": "uuid",
             "nullable": True,
             "description": (
-                "The stored personal ranking that ordered the page when sort=personal. Pass it back as "
+                "The stored personal ranking that ordered the page, when the ranker is personal. Pass it back as "
                 "ranking_id on later pages, so a new ranking does not reorder them. Null when no personal "
                 "ranking applied, and for every other sort."
             ),
+        }
+        paginated["properties"]["personal_ranking_status"] = {
+            "type": "object",
+            "nullable": True,
+            "description": (
+                "Your own stored personal ranking, for every sort and also with scope=teammate. Read on the first "
+                "page only, and never starts a build. Null on later pages and when personal ranking is off for you."
+            ),
+            "properties": {
+                "state": {
+                    "type": "string",
+                    "enum": ["real", "one_report", "not_personalized", "empty", "fallback", "none"],
+                    "description": (
+                        "real: the model personalized 2 or more reports, so the ranking can reorder the list. "
+                        "one_report: it personalized a single report. not_personalized: the build finished "
+                        "without personalizing. empty: the build had no reports to rank. fallback: the build "
+                        "kept the default order, see fallback_reason. none: no ranking is stored."
+                    ),
+                },
+                "size": {
+                    "type": "integer",
+                    "nullable": True,
+                    "description": "Reports in the stored ranking. Null when state is none.",
+                },
+                "age_minutes": {
+                    "type": "integer",
+                    "nullable": True,
+                    "description": "Minutes since the ranking was built. Null when state is none.",
+                },
+                "checked_age_minutes": {
+                    "type": "integer",
+                    "nullable": True,
+                    "description": (
+                        "Minutes since a build or the scheduled check last confirmed the ranking's inputs. "
+                        "Null when state is none."
+                    ),
+                },
+                "fallback_reason": {
+                    "type": "string",
+                    "nullable": True,
+                    "description": "Why the build kept the default order, when state is fallback. Else null.",
+                },
+            },
+            "required": ["state", "size", "age_minutes", "checked_age_minutes", "fallback_reason"],
         }
         paginated["properties"]["count_is_capped"] = {
             "type": "boolean",
@@ -1577,7 +1637,8 @@ _REPORT_LIST_PARAMETERS = [
         required=False,
         description=(
             "Comma-separated list of statuses to include. "
-            "Valid values: potential, candidate, in_progress, pending_input, ready, resolved, failed, suppressed. "
+            "Valid values: potential, candidate, in_progress, pending_input, ready, monitoring, resolved, closed, failed, "
+            "suppressed. "
             "Defaults to all statuses except suppressed."
         ),
     ),
@@ -1693,8 +1754,9 @@ _REPORT_LIST_PARAMETERS = [
         required=False,
         description=(
             "Apply an inbox view: actionable, for_you, needs_input, needs_decision, monitoring, resolved, "
-            "dismissed, held_back, not_actionable, or all. Each view applies the corresponding status, "
-            "actionability, and implementation-PR filters. for_you holds the open, actionable reports that "
+            "closed, dismissed, held_back, not_actionable, or all. Each view applies the corresponding status, "
+            "actionability, and implementation-PR filters. monitoring holds the reports whose outcome is being "
+            "verified after implementation. for_you holds the open, actionable reports that "
             "wait for the requesting user's input, that they claimed, or that name them as a suggested "
             "reviewer. needs_decision also includes failed reports without a judgment. "
             "dismissed and held_back split the suppressed reports: dismissed holds the ones a person or agent "
@@ -1737,13 +1799,14 @@ _REPORT_LIST_PARAMETERS = [
             "Inbox sort preset: priority, recommended, personal, last_updated, newest, or oldest. Ignored "
             "when ordering is supplied. recommended resolves per user to a ranker: the priority order, or "
             "the open, action or fix outcome of the served ranking model, highest score first, with "
-            "unscored and stale reports in priority order after the scored ones. The response's ranker "
+            "unscored and stale reports in priority order after the scored ones, or your stored personal "
+            "ranking, as personal gives it, then the priority order. The response's ranker "
             "field names the one used, and its ranking_pill field says whether to show score pills. "
             "personal puts the reports of a stored personal ranking first, by rank, then the reports it "
             "folded, then every other report in your recommended order. With scope=teammate it reads the "
             "teammate's stored ranking, else yours. It only reads the stored ranking and never starts a "
             "build. With no stored personal ranking, or a teammate outside the organization, it is the "
-            "recommended order."
+            "recommended order, or the priority order when recommended gives you the personal ranking."
         ),
     ),
     OpenApiParameter(
@@ -2740,7 +2803,9 @@ class SignalReportViewSet(
                 )
             )
         if inbox_view == "monitoring":
-            return queryset.filter(status=SignalReport.Status.READY).filter(self._implementation_pr_report_filter())
+            if not self._report_monitoring_enabled:
+                return queryset.none()
+            return queryset.filter(status=SignalReport.Status.MONITORING)
         if inbox_view == "resolved":
             return queryset.filter(status__in=self._resolved_read_statuses())
         if inbox_view == "closed":
@@ -2985,19 +3050,36 @@ class SignalReportViewSet(
         inbox_sort = params.get("sort")
         if params.get("ordering") is not None or inbox_sort not in ("recommended", "personal"):
             return None
+        own_order = self._own_personal_order
         # The personal sort only borrows the arm's order, so it records no exposure for the experiment.
         return resolve_recommended_arm(
-            self.team, cast(User, self.request.user), send_feature_flag_events=inbox_sort == "recommended"
+            self.team,
+            cast(User, self.request.user),
+            personal_list_size=len(own_order.report_ids) if own_order is not None else 0,
+            send_feature_flag_events=inbox_sort == "recommended",
         )
+
+    @cached_property
+    def _own_personal_order(self) -> PersonalListOrder | None:
+        """The caller's stored list. The personal arm of `sort=recommended` serves it."""
+        request = self.request
+        user = request.user
+        if is_service_auth(request) or not isinstance(user, User):
+            return None
+        return personal_list_order(self.team, user, request.query_params.get("ranking_id"))
 
     @cached_property
     def _personal_order(self) -> PersonalListOrder | None:
         request = self.request
         user = request.user
+        arm = self._recommended_arm
+        if arm is None:
+            return None
+        if request.query_params.get("sort") == "recommended":
+            # Only a caller with a stored list can get the personal arm, so this order is never None for it.
+            return self._own_personal_order if arm.personal else None
         if (
-            self._recommended_arm is None
-            or request.query_params.get("sort") != "personal"
-            or is_service_auth(request)
+            is_service_auth(request)
             or not isinstance(user, User)
             or not user_flag_enabled(PERSONAL_INBOX_RANKING_FLAG, user, self.team)
         ):
@@ -3005,7 +3087,22 @@ class SignalReportViewSet(
         owner = self._personal_ranking_owner(user)
         if owner is None:
             return None
+        if owner == user:
+            return self._own_personal_order
         return personal_list_order(self.team, owner, request.query_params.get("ranking_id"))
+
+    def _personal_ranking_status(self) -> dict[str, object] | None:
+        """The caller's own stored ranking, also when `scope=teammate` orders the page by a teammate's."""
+        request = self.request
+        user = request.user
+        if (
+            is_service_auth(request)
+            or not isinstance(user, User)
+            or not user_flag_enabled(PERSONAL_INBOX_RANKING_FLAG, user, self.team)
+        ):
+            return None
+        status = personal_ranking_status(self.team, user, timezone.now())
+        return dataclasses.asdict(status) if status is not None else None
 
     def _personal_ranking_owner(self, user: User) -> User | None:
         """Whose stored ranking `sort=personal` reads: the teammate `scope=teammate` names, else the caller."""
@@ -3143,6 +3240,9 @@ class SignalReportViewSet(
             "source_products_map": {rid: meta.source_products for rid, meta in signal_meta_map.items()},
             "scout_names_map": {rid: meta.scout_name for rid, meta in signal_meta_map.items() if meta.scout_name},
             **self._claim_and_pull_request_context(report_ids, pull_requests_map, claims),
+            "implementation_in_flight_ids": implementation_in_flight_report_ids(
+                team_id=self.team_id, report_ids=report_ids
+            ),
             "source_suggestions_map": {str(report.id): source_suggestion},
             "report_plans_map": {str(report.id): plan},
             "source_issues_map": source_issues_by_report(team_id=self.team_id, report_ids=report_ids),
@@ -3488,6 +3588,10 @@ class SignalReportViewSet(
                 self._recommended_arm.ranking_pill if self._recommended_arm is not None else None
             )
             response.data["ranking_id"] = self._personal_order.ranking_id if self._personal_order is not None else None
+            # Later pages skip the read: the client records the status of the first page only.
+            response.data["personal_ranking_status"] = (
+                self._personal_ranking_status() if getattr(self.paginator, "offset", None) == 0 else None
+            )
             return response
         return Response(data)
 
@@ -3597,12 +3701,25 @@ class SignalReportViewSet(
                     channel_id=live_channel_ids.get(str(report.id)),
                 )
         claims = get_active_claims(team_id=self.team_id, report_ids=report_ids)
+        monitoring_summaries_map: dict[str, ReportMonitoringSummary] = {}
+        if self._report_monitoring_enabled:
+            with tracer.start_as_current_span("signals.reports.list.fetch_monitoring_summaries"):
+                monitoring_summaries_map = monitoring_summaries(
+                    reports,
+                    team_id=self.team_id,
+                    now=timezone.now(),
+                    may_read_values=ReportMetricAccessPolicy(request=self.request, team=self.team).may_read_snapshot,
+                )
         context = {
             **self.get_serializer_context(),
             "source_products_map": {rid: meta.source_products for rid, meta in signal_meta_map.items()},
             "scout_names_map": {rid: meta.scout_name for rid, meta in signal_meta_map.items() if meta.scout_name},
             **self._claim_and_pull_request_context(report_ids, pull_requests_map, claims),
+            "implementation_in_flight_ids": implementation_in_flight_report_ids(
+                team_id=self.team_id, report_ids=report_ids
+            ),
             "first_billable_pr_run_at_map": first_billable_pr_run_at_map,
+            "monitoring_summaries_map": monitoring_summaries_map,
             "inbox_ranker": self._base_inbox_ranker,
             "personal_order": self._personal_order,
             "source_issues_map": source_issues_by_report(team_id=self.team_id, report_ids=report_ids),
@@ -3833,7 +3950,7 @@ class SignalReportViewSet(
         can't be injected.
 
         Body: {
-            "state": "suppressed" | "potential" | "resolved",
+            "state": "suppressed" | "potential" | "resolved" | "monitoring" | "ready",
             # Optional dismissal feedback (honored when state == "suppressed", "potential", or "resolved"):
             "dismissal_reason": "<canonical reason code, see SIGNAL_REPORT_DISMISSAL_REASON_CHOICES>",
             "dismissal_note": "free-form text",
@@ -4257,9 +4374,9 @@ class SignalReportViewSet(
 
     # `list` names the viewset's own action inside the class body, so the annotations use `Sequence`.
     def _refreshable_reports_in_request_order(self, requested_ids: Sequence[str]) -> Sequence[SignalReport]:
+        statuses = REFRESHABLE_REPORT_STATUSES if self._report_monitoring_enabled else CURRENT_REPORT_STATUSES
         by_id = {
-            str(report.id): report
-            for report in self.get_queryset().filter(id__in=requested_ids, status__in=CURRENT_REPORT_STATUSES)
+            str(report.id): report for report in self.get_queryset().filter(id__in=requested_ids, status__in=statuses)
         }
         return [by_id[report_id] for report_id in dict.fromkeys(requested_ids) if report_id in by_id]
 
@@ -4276,8 +4393,8 @@ class SignalReportViewSet(
             "15 minutes is served as is. Each call runs at most 40 source series inside a 20-second "
             "budget, row metrics first; the rest keep their previous snapshot until the next open. "
             "Returns snapshot-only metrics for every requested report the caller can read whose status "
-            "is ready or pending_input. A report in any other status is left out of the response, and "
-            "its saved snapshots stay as they are."
+            "is ready or pending_input, or monitoring when Monitoring is enabled. A report in any other "
+            "status is left out of the response, and its saved snapshots stay as they are."
         ),
         operation_id="signals_reports_refresh_metrics_create",
     )
@@ -4298,7 +4415,19 @@ class SignalReportViewSet(
         requested_ids = [str(report_id) for report_id in request.validated_data["report_ids"]]
         reports = self._refreshable_reports_in_request_order(requested_ids)
         policy = ReportMetricAccessPolicy(request=request, team=self.team)
-        refresh_report_metric_snapshots(team=self.team, reports=reports, policy=policy)
+        monitoring_row_metrics: dict[str, str] = {}
+        if self._report_monitoring_enabled:
+            summaries = monitoring_summaries(
+                reports, team_id=self.team_id, now=timezone.now(), may_read_values=policy.may_read_snapshot
+            )
+            monitoring_row_metrics = {
+                report_id: summary.lead_check.metric_id
+                for report_id, summary in summaries.items()
+                if summary.lead_check is not None and summary.lead_check.metric_id is not None
+            }
+        refresh_report_metric_snapshots(
+            team=self.team, reports=reports, policy=policy, row_metric_ids=monitoring_row_metrics
+        )
         # A refresh runs its queries between the read above and each compare-and-swap, and an edit
         # landing in that window wins. Read the rows back so the response carries what the edit
         # left rather than the state this request measured against.
@@ -4607,6 +4736,16 @@ class SignalReportViewSet(
                     "Manual verification requires an enabled Monitoring period.",
                 )
             is_refunded = SignalReportRefund.objects.filter(report_id=report.id).exists()
+
+            if target_status == SignalReport.Status.READY:
+                if report.effective_status not in _REOPENABLE_STATUSES:
+                    return (
+                        SignalReportBulkStateOutcome.SKIPPED,
+                        "Only a report in monitoring or closed can be reopened.",
+                    )
+                # Ready offers Create PR again, and a refunded report's next PR can never be billed.
+                if is_refunded:
+                    return SignalReportBulkStateOutcome.SKIPPED, "Refunded reports can't be reopened."
 
             # Refund guard: a refunded report can never be billed again (see billing.py), so putting
             # it back where the pipeline can pick it up again is repeatable free work. POTENTIAL is
@@ -7540,7 +7679,7 @@ class SignalUserAutonomyConfigView(APIView):
             workspace = (
                 defaults["slack_notification_integration"]
                 if integration_in_request
-                else saved_notification_integration(user)
+                else saved_notification_integration(user, request.user.current_team_id)
             )
             if wants_direct_message:
                 defaults["slack_notification_channel"] = resolve_own_direct_message_target(user, workspace)

@@ -12,6 +12,12 @@
 //! The module converts `le` and `quantile` label values to Go's shortest float
 //! format. Therefore, `le="1.0"` and `le="1"` identify the same series.
 //!
+//! A stale marker on the `_sum` series or the `+Inf` bucket of such a
+//! histogram makes the native row stale: the module writes one row with the
+//! stale marker value and zero bucket counts in place of the components. Its
+//! bounds come from the finite `le` labels of the group, so it has the
+//! fingerprint of the live native series when the group has every bucket.
+//!
 //! The series fingerprint of a native row includes its bound set. The storage
 //! keeps one bound set for each series and hour, so a partial bucket set and
 //! the complete bucket set of one histogram must not share a series.
@@ -19,6 +25,7 @@
 use std::collections::HashMap;
 use std::hash::Hasher;
 
+use capture_logs::endpoints::prometheus::{is_stale_marker, STALE_NAN_BITS};
 use capture_logs::log_record::ORIGINAL_TIMESTAMP_ATTRIBUTE;
 use capture_logs::metric_record::{compute_series_fingerprint, KafkaMetricRow};
 use chrono::{DateTime, Utc};
@@ -83,10 +90,18 @@ pub fn fold_classic_histograms(
 
     let mut consumed = vec![false; rows.len()];
     let mut folded = Vec::new();
+    let mut stale = 0u64;
     for key in order {
         let parts = &groups[&key];
-        let Some(histogram) = assemble_histogram(parts) else {
-            continue;
+        let histogram = match stale_histogram(parts) {
+            Some(histogram) => {
+                stale += 1;
+                histogram
+            }
+            None => match assemble_histogram(parts) {
+                Some(histogram) => histogram,
+                None => continue,
+            },
         };
         let Some((_, sum_index)) = parts.sums.last() else {
             continue;
@@ -134,13 +149,19 @@ pub fn fold_classic_histograms(
             series_fingerprint,
             has_labels: true,
             retention_days: sum_row.retention_days,
+            start_timestamp: None,
         });
     }
 
     let folded_rows = consumed.iter().filter(|consumed| **consumed).count() as u64;
-    if !folded.is_empty() {
+    if stale > 0 {
+        counter!("capture_metrics_remote_write_histograms_stale").increment(stale);
+    }
+    if folded.len() as u64 > stale {
         counter!("capture_metrics_remote_write_histograms_assembled")
-            .increment(folded.len() as u64);
+            .increment(folded.len() as u64 - stale);
+    }
+    if folded_rows > 0 {
         counter!("capture_metrics_remote_write_histogram_samples_folded").increment(folded_rows);
     }
     if component_rows > folded_rows {
@@ -298,6 +319,32 @@ fn sorted_pairs(map: &HashMap<String, String>, skip: Option<&str>) -> Vec<(Strin
         .collect();
     pairs.sort_unstable();
     pairs
+}
+
+fn stale_histogram(parts: &HistogramParts) -> Option<AssembledHistogram> {
+    let inf_bucket = parts
+        .buckets
+        .iter()
+        .find(|(le, _, _)| le.is_infinite() && *le > 0.0)?;
+    parts.sums.last()?;
+    let sum_is_stale = parts.sums.iter().any(|(value, _)| is_stale_marker(*value));
+    if !sum_is_stale && !is_stale_marker(inf_bucket.1) {
+        return None;
+    }
+    let mut bounds: Vec<f64> = parts
+        .buckets
+        .iter()
+        .map(|(le, _, _)| *le)
+        .filter(|le| le.is_finite())
+        .collect();
+    bounds.sort_by(|a, b| a.total_cmp(b));
+    bounds.dedup();
+    Some(AssembledHistogram {
+        counts: vec![0; bounds.len() + 1],
+        bounds,
+        total: 0,
+        sum: f64::from_bits(STALE_NAN_BITS),
+    })
 }
 
 /// A histogram is converted only when it has `_sum` and `+Inf` bucket values.

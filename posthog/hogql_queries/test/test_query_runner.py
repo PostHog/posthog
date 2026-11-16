@@ -112,6 +112,7 @@ from posthog.query_cache.failures import (
     QueryFailureCache,
     WarmingQueryFailureCache,
 )
+from posthog.query_cache.read_history import days_read_at_this_time
 from posthog.query_cache.single_flight import (
     QUERY_SINGLE_FLIGHT_FLAG,
     FlightWait,
@@ -533,6 +534,21 @@ class TestQueryRunner(BaseTest):
         assert consumed["calculation_trigger"] == "warmingV2"
         assert consumed["request_trigger"] is None
         assert warmer_hit["request_trigger"] == "warmingV2"
+
+    @parameterized.expand([("warming_run", "warmingV2", 0), ("user_read", None, 1)])
+    def test_only_reads_outside_warming_enter_the_read_history(
+        self, _name: str, trigger: Optional[str], expected_days: int
+    ) -> None:
+        Runner = self.setup_test_query_runner_class()
+        runner = Runner(query={"some_attr": f"read-history-{_name}"}, team=self.team)
+        with mock.patch("posthog.hogql_queries.query_runner.get_query_tag_value", return_value=trigger):
+            runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS, insight_id=4242)
+
+        days = days_read_at_this_time(
+            team_id=self.team.pk, identifiers=["4242:"], now=datetime.now(UTC) + timedelta(days=1)
+        )
+
+        assert days == {"4242:": expected_days}
 
     @parameterized.expand([("failed_write", LimitContext.QUERY), ("uncached_export", LimitContext.EXPORT)])
     def test_failed_cache_write_is_not_reported_as_a_warmed_version(
@@ -1351,6 +1367,39 @@ class TestQueryRunner(BaseTest):
         response = runner.calculate()
         assert response.clickhouse is not None
         assert "events.`mat_$browser" not in response.clickhouse
+
+    @parameterized.expand(
+        [(raw, change) for raw in (False, True) for change in ("extra_field", "missing_field", "invalid_field")]
+    )
+    @time_machine.travel("2023-02-04T13:37:42Z", tick=False)
+    def test_cached_response_schema_compatibility(self, raw: bool, change: str) -> None:
+        runner = self.setup_test_query_runner_class()(query={"some_attr": "bla"}, team=self.team)
+        fresh = runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
+        payload = fresh.model_dump()
+        payload["results"] = [["cached", 42]]
+        payload["future_response_metadata"] = {"version": 2}
+        payload["warehouse_suggestions"] = []
+        if change == "missing_field":
+            del payload["last_refresh"]
+        elif change == "invalid_field":
+            payload["last_refresh"] = "invalid timestamp"
+        cache_manager = QueryCache(team_id=self.team.pk, cache_key=runner.get_cache_key())
+        assert cache_manager.store_result(response=payload, target_age=None)
+
+        runner.serve_raw_cached_results = raw
+        response = runner.run(execution_mode=ExecutionMode.CACHE_ONLY_NEVER_CALCULATE)
+
+        if change == "extra_field":
+            assert isinstance(response, TheTestCachedBasicQueryResponse)
+            assert response.is_cached
+            results = (
+                json.loads(runner.raw_cached_results_bytes) if runner.raw_cached_results_bytes else response.results
+            )
+            assert results == [["cached", 42]]
+            assert response.warehouse_suggestions == []
+            assert "future_response_metadata" not in response.model_dump()
+        else:
+            assert isinstance(response, CacheMissResponse)
 
     @mock.patch("posthog.hogql_queries.query_runner.QueryCache")
     def test_schema_change_triggers_recalculation(self, mock_query_cache_cls):

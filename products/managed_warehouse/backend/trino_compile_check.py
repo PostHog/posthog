@@ -7,11 +7,13 @@ finds missing tables, type errors and functions the deployed Trino lacks. Nothin
 
 from __future__ import annotations
 
+import re
+import uuid
 from collections import Counter
 from collections.abc import Iterable, Iterator, Sequence
 from contextlib import nullcontext
 from enum import StrEnum
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, Any
 
 from pydantic import ValidationError
 
@@ -25,6 +27,7 @@ from posthog.hogql.trino_parameters import convert_pyformat_placeholders
 from posthog.dataclasses import frozen
 from posthog.models import Team
 
+from products.managed_warehouse.backend.common import ducklake_data_modeling_schema
 from products.managed_warehouse.backend.trino_compiler import TrinoTarget, TrinoTargetUnavailable, resolve_trino_target
 from products.managed_warehouse.backend.trino_connection import connect_managed_warehouse_trino
 from products.managed_warehouse.backend.trino_materialization import compile_trino_shadow_query
@@ -36,6 +39,7 @@ if TYPE_CHECKING:
 
 _MESSAGE_LIMIT = 300
 _COMPILE_ERRORS = (BaseHogQLError, TrinoTargetUnavailable, ValidationError)
+UPSTREAM_NOT_BUILT = "UPSTREAM_NOT_BUILT"
 
 
 class TrinoCompileCheckStage(StrEnum):
@@ -51,10 +55,23 @@ class TrinoCompileCheckRow:
     """The last stage that ran: the stage that failed, or the last stage that passed."""
     error_code: str | None = None
     message: str | None = None
+    upstream_saved_query_id: str | None = None
+    """The saved query whose table is missing, when the model fails because that upstream was never built."""
 
     @property
     def ok(self) -> bool:
         return self.error_code is None
+
+    def to_json(self) -> dict[str, Any]:
+        return {
+            "saved_query_id": self.saved_query_id,
+            "name": self.name,
+            "stage": self.stage.value,
+            "status": "ok" if self.ok else "failed",
+            "error_code": self.error_code,
+            "message": self.message,
+            "upstream_saved_query_id": self.upstream_saved_query_id,
+        }
 
 
 @frozen
@@ -138,7 +155,18 @@ def _check(
         cursor.fetchall()
     except TrinoQueryError as error:
         code = error.error_name or type(error).__name__
-        return _failed(saved_query_id, name, TrinoCompileCheckStage.EXPLAIN, code, error)
+        row = _failed(saved_query_id, name, TrinoCompileCheckStage.EXPLAIN, code, error)
+        upstream = missing_upstream_saved_query_id(team.pk, row.message) if code == "TABLE_NOT_FOUND" else None
+        if upstream is None:
+            return row
+        return TrinoCompileCheckRow(
+            saved_query_id=saved_query_id,
+            name=name,
+            stage=TrinoCompileCheckStage.EXPLAIN,
+            error_code=UPSTREAM_NOT_BUILT,
+            message=row.message,
+            upstream_saved_query_id=upstream,
+        )
     except BaseHogQLError as error:
         # escape_trino_string refuses a NUL, which the printer binds instead of inlining.
         return _failed(saved_query_id, name, TrinoCompileCheckStage.EXPLAIN, type(error).__name__, error)
@@ -163,6 +191,15 @@ def _explain_literal(value: object) -> str:
     if not isinstance(value, str):
         raise TypeError(f"Trino compile check cannot bind a {type(value).__name__} value to EXPLAIN")
     return escape_trino_string(value)
+
+
+def missing_upstream_saved_query_id(team_id: int, message: str | None) -> str | None:
+    """Return the saved query id behind a missing table in the team's data modeling schema, if it is one."""
+    # A model table is named after its saved query id without dashes, with a `model_` prefix when the id
+    # starts with a digit. See ducklake_data_modeling_table_name.
+    pattern = rf"\b{re.escape(ducklake_data_modeling_schema(team_id))}\.(?:model_)?([0-9a-f]{{32}})\b"
+    match = re.search(pattern, message or "")
+    return str(uuid.UUID(match.group(1))) if match else None
 
 
 def _failed(

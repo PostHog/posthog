@@ -25,6 +25,7 @@ from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.models.team.team import DEPRECATED_ATTRS
 from posthog.models.user import User
 
+from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.experiments.backend.experiment_service import ExperimentService
 from products.experiments.backend.flag_enrollment import enrolled_people_by_flag
 from products.experiments.backend.health.inputs_payload import health_inputs_payload
@@ -44,6 +45,7 @@ from products.experiments.backend.metric_calculation.config import (
 from products.experiments.backend.metric_calculation.results import MetricResultStore
 from products.experiments.backend.models.experiment import (
     Experiment as ExperimentModel,
+    experiment_variants,
     flag_has_live_experiment as _flag_has_live_experiment,
 )
 from products.experiments.backend.models.team_experiments_config import (
@@ -52,6 +54,7 @@ from products.experiments.backend.models.team_experiments_config import (
 )
 from products.experiments.backend.running_time_target import load_running_time_target
 from products.experiments.stats.shared.enums import DifferenceType
+from products.feature_flags.backend.facade.rules import ExperimentRuleError
 
 from .contracts import (
     CreateExperimentInput,
@@ -149,6 +152,7 @@ def create_experiment(*, team: Team, user: User, input_dto: CreateExperimentInpu
         repository=input_dto.repository,
         serializer_context=input_dto.serializer_context,
         allow_unknown_events=input_dto.allow_unknown_events,
+        feature_flag_rule_id=input_dto.feature_flag_rule_id,
     )
 
     # Convert model to DTO
@@ -170,6 +174,9 @@ def count_running_experiments_on_feature_flag_called(organization_id: UUID) -> i
     )
     count = 0
     for experiment in experiments:
+        # A rule-linked experiment counts the $experiment_exposure events of its rule only.
+        if experiment.is_rule_linked:
+            continue
         exposure_event, _ = get_exposure_event_and_property(
             experiment.feature_flag.key,
             experiment.exposure_criteria,
@@ -307,6 +314,8 @@ def list_running_experiments(
         start_date__lte=started_before,
         end_date__isnull=True,
         archived=False,
+        # The caller counts flag calls, and a rule-linked experiment enrolls on $experiment_exposure.
+        feature_flag_rule_id__isnull=True,
     ).exclude(deleted=True)
     if started_after is not None:
         experiments = experiments.filter(start_date__gt=started_after)
@@ -320,12 +329,47 @@ def list_running_experiments(
     ]
 
 
+def list_own_running_experiments(*, team_id: int, user_id: int, limit: int) -> list[RunningExperiment]:
+    rows = (
+        ExperimentModel.objects.filter(
+            team_id=team_id, created_by_id=user_id, start_date__isnull=False, end_date__isnull=True, archived=False
+        )
+        .exclude(deleted=True)
+        .order_by("-start_date")
+        .values_list("id", "name", "start_date", "feature_flag__key")[:limit]
+    )
+    return [
+        RunningExperiment(id=id, name=name, started_at=started_at, flag_key=flag_key)
+        for id, name, started_at, flag_key in rows
+    ]
+
+
+def viewable_experiment_names(*, team: Team, user: User, experiment_ids: Collection[int]) -> dict[int, str]:
+    rows = list(
+        ExperimentModel.objects.filter(team_id=team.id, id__in=experiment_ids)
+        .exclude(deleted=True)
+        .values_list("id", "name", "team_id", "created_by_id")
+    )
+    denied = set(
+        UserAccessControl(user=user, team=team, organization_id=str(team.organization_id)).denied_object_ids(
+            "experiment",
+            ((str(id), team_id, created_by_id) for id, _name, team_id, created_by_id in rows),
+            "viewer",
+        )
+    )
+    return {id: name for id, name, _team_id, _created_by_id in rows if str(id) not in denied}
+
+
 def count_enrolled_people(*, team: Team, user: User, flag_keys: list[str]) -> dict[str, int]:
     return enrolled_people_by_flag(team, user, flag_keys)
 
 
 def _to_assistant_context(experiment: ExperimentModel) -> ExperimentAssistantContext:
     flag = experiment.feature_flag
+    try:
+        variants = experiment_variants(experiment)
+    except ExperimentRuleError:
+        variants = []
     return ExperimentAssistantContext(
         id=experiment.id,
         team_id=experiment.team_id,
@@ -343,7 +387,7 @@ def _to_assistant_context(experiment: ExperimentModel) -> ExperimentAssistantCon
         feature_flag_key=flag.key,
         feature_flag_variants=tuple(
             ExperimentFlagVariantSplit(key=variant.get("key"), rollout_percentage=variant.get("rollout_percentage", 0))
-            for variant in flag.variants
+            for variant in variants
         ),
     )
 

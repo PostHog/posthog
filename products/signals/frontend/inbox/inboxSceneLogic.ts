@@ -312,7 +312,7 @@ function findReportRank(id: string): {
         })?.values
         // The opened report can come from the detail endpoint, which has no personal fields, so they
         // come from the list row the person saw.
-        const personalSort = filterValues.activeSortField === 'personal'
+        const personalSort = filterValues.activeSortField === 'personal' || sectionValues?.loadedRanker === 'personal'
         return {
             rank: idx + 1,
             listSize: rows.length,

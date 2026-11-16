@@ -132,7 +132,8 @@ function MetricCardInner({
 
     const restingValue = value ?? (sparklineData ? sparklineData[lastIndex] : undefined)
     const animationTarget = sparklineData && intentIndex >= 0 ? (sparklineData[intentIndex] ?? 0) : (restingValue ?? 0)
-    const animatedValue = useAnimatedNumber(animationTarget, animationMs)
+    const rawAnimatedValue = useAnimatedNumber(animationTarget, animationMs)
+    const animatedValue = Number.isInteger(animationTarget) ? Math.round(rawAnimatedValue) : rawAnimatedValue
 
     const baselineValue = sparklineData?.find((v) => v !== 0 && Number.isFinite(v))
 

@@ -604,6 +604,49 @@ def test_create_implementation_task_rejects_a_changed_reviewer_list(organization
         create_task.assert_not_called()
 
 
+@pytest.mark.django_db
+def test_autostart_blocks_a_repository_the_installation_no_longer_reaches(team: Team) -> None:
+    # A saved repository from a removed installation, or one a scout named, fails at clone. The
+    # dispatch paths that read the saved artefact without new research must not start on it.
+    Integration.objects.create(
+        team=team,
+        kind="github",
+        integration_id="current",
+        config={"installation_id": "current"},
+        repository_cache=[{"id": 1, "name": "new-app", "full_name": "example/new-app", "private": True}],
+        repository_cache_updated_at=timezone.now(),
+    )
+    report = SignalReport.objects.create(team=team, status=SignalReport.Status.READY, title="t", summary="s")
+
+    with (
+        patch(
+            "products.signals.backend.auto_start.database_sync_to_async",
+            side_effect=lambda f, **kw: sync_to_async(f, thread_sensitive=True),
+        ),
+        patch("products.signals.backend.auto_start.assignment_side_effects_allowed", return_value=True),
+        patch.object(tasks_facade, "create_and_run_task") as create_task,
+    ):
+        outcome = async_to_sync(maybe_autostart_implementation_task)(
+            team_id=team.id,
+            report_id=str(report.id),
+            repository="example/old-app",
+            title="t",
+            summary="s",
+            actionability=ActionabilityAssessment(
+                explanation="A clear fix",
+                actionability=ActionabilityChoice.IMMEDIATELY_ACTIONABLE,
+                already_addressed=False,
+            ),
+            priority=PriorityAssessment(explanation="Affects sessions", priority=Priority.P2),
+            reviewers_content=[_reviewer("example-reviewer")],
+        )
+
+    assert outcome == AutostartOutcome(
+        status="blocked", reason="Connect or repair GitHub access to the selected repository"
+    )
+    create_task.assert_not_called()
+
+
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.parametrize("has_automatic_reviewer,enrolled", [(False, True), (True, True), (False, False)])
 def test_human_pin_does_not_authorize_automatic_execution(
@@ -1769,19 +1812,25 @@ async def test_background_scout_reports_never_reach_autostart(run_origin, config
 @pytest.mark.asyncio
 @pytest.mark.django_db(transaction=True)
 @pytest.mark.parametrize(
-    ("repository_autostart_eligible", "user_triggered", "expect_task"),
+    ("repository_autostart_eligible", "user_triggered", "with_reviewer", "expect_task"),
     [
-        (True, False, True),
-        (False, False, False),
-        (False, True, True),
+        (True, False, False, True),
+        (False, False, False, False),
+        (False, False, True, False),
+        (False, True, False, True),
     ],
 )
 @pytest.mark.parametrize("monitoring,private_destination", [(False, False), (True, False), (True, True)])
-async def test_inferred_repository_only_blocks_the_reviewerless_fallback(
-    repository_autostart_eligible, user_triggered, expect_task, monitoring: bool, private_destination: bool
+async def test_inferred_repository_starts_only_for_a_triggering_user(
+    repository_autostart_eligible,
+    user_triggered,
+    with_reviewer,
+    expect_task,
+    monitoring: bool,
+    private_destination: bool,
 ):
-    # A repo read out of the report's own text is a target for whoever clicks Create PR, so it must not
-    # reach the reviewer-less fallback — the one path where nobody named the destination or the runner.
+    # A repo read out of the report's own text is a target for whoever clicks Create PR, so no automatic
+    # path may start on it: a suggested reviewer authorizes the runner, not the destination.
     # It must still yield to a person: a later reviewer edit re-runs autostart as the editing user, and
     # the documented contract is that the report can open a draft PR then.
     Task = apps.get_model("tasks", "Task")
@@ -1790,8 +1839,7 @@ async def test_inferred_repository_only_blocks_the_reviewerless_fallback(
     def _setup() -> tuple[Team, SignalReport, User]:
         organization = Organization.objects.create(name="inferred-org")
         team = Team.objects.create(organization=organization, name="inferred-team")
-        enabler = User.objects.create(email="inferred-enabler@example.com")
-        OrganizationMembership.objects.create(user=enabler, organization=organization)
+        enabler = _create_org_member_with_github("inferred-enabler@example.com", organization, "InferredCat")
         SignalSourceConfig.objects.create(
             team=team, source_product="error_tracking", source_type="issue_created", created_by=enabler
         )
@@ -1859,7 +1907,7 @@ async def test_inferred_repository_only_blocks_the_reviewerless_fallback(
                 actionability=ActionabilityChoice.IMMEDIATELY_ACTIONABLE,
                 already_addressed=False,
             ),
-            reviewers_content=[],
+            reviewers_content=[_reviewer("inferredcat")] if with_reviewer else [],
             priority=PriorityAssessment(explanation="Affects many sessions.", priority=Priority.P2),
             triggering_user_id=enabler.id if user_triggered else None,
             repository_autostart_eligible=repository_autostart_eligible,

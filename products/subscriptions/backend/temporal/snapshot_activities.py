@@ -318,6 +318,7 @@ def _capture_summary_generated_event(
                 distinct_id=distinct_id,
                 event="subscription_ai_summary_generated",
                 properties={
+                    "$update_person_last_seen_at": False,
                     "subscription_id": subscription.id,
                     "team_id": subscription.team_id,
                     "delivery_id": delivery_id,
@@ -619,7 +620,6 @@ async def _run_snapshot_subscription_insights(inputs: SnapshotInsightsInputs) ->
                 insight_images=insight_images or None,
                 core_memory_text=core_memory_text,
                 annotations_section=annotations_section,
-                slack_formatting=subscription.target_type == Subscription.SubscriptionTarget.SLACK,
             )
         SUBSCRIPTION_SUMMARY_SUCCESS.inc()
     except Exception as e:

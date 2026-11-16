@@ -19,6 +19,7 @@ import { isDevEnv } from '~/common/utils/env-utils'
 import { logger } from '~/common/utils/logger'
 import { TeamManager } from '~/common/utils/team-manager'
 import { UUID7 } from '~/common/utils/utils'
+import { UnknownTokenRecorder } from '~/logs/services/unknown-token-recorder'
 import type { LogsSettings } from '~/types'
 import { HealthCheckResult, PluginServerService } from '~/types'
 
@@ -52,8 +53,8 @@ import { rethrowKafkaOutageAsDependency } from './logs-produce-errors'
 import type { CompiledMetricRule, MetricRuleSource } from './metrics-rules/compile-metric-rules'
 import { withDefaultMetricRules } from './metrics-rules/default-metric-rules'
 import { MetricRulesCache } from './metrics-rules/metric-rules-cache'
+import { MetricRulesEmission } from './metrics-rules/metric-rules-window'
 import { LogsMetricsEmitter } from './metrics-rules/metrics-emitter'
-import { buildMetricRulesOtlpPayload } from './metrics-rules/otlp-payload'
 import { type BatchTallies, MetricSeriesAdmission, createBatchTallies, tallyRecords } from './metrics-rules/tally'
 import { LOGS_DLQ_OUTPUT, LOGS_OUTPUT, LogsDlqOutput, LogsOutput } from './outputs/outputs'
 import { PatternMessageKeysCache } from './pattern-message-keys-cache'
@@ -69,7 +70,7 @@ import { RetentionRulesCache } from './retention/retention-rules-cache'
 import { makeRetentionStage } from './retention/retention-stage'
 import type { CompiledRuleSet } from './sampling/evaluate'
 import { LogsSamplingService, SAMPLING_STAGE_NAME } from './sampling/logs-sampling.service'
-import { SamplingRulesCache } from './sampling/sampling-rules-cache'
+import { type SamplingRuleSource, SamplingRulesCache } from './sampling/sampling-rules-cache'
 import { LogsRateLimiterService } from './services/logs-rate-limiter.service'
 import { LogsTransformerService, TransformationBatchBudget } from './transformations/logs-transformer.service'
 import { LogsIngestionMessage } from './types'
@@ -397,9 +398,12 @@ export class LogsIngestionConsumer {
     // Record source this consumer evaluates retention rules for. Same vocabulary as
     // `metricRuleSource` ('logs' | 'spans'), not the billing `appSource`.
     protected retentionRuleSource: RetentionRuleSource = 'logs'
+    // Drop rules and rate limits this consumer evaluates. TracesIngestionConsumer overrides to 'spans'.
+    protected samplingRuleSource: SamplingRuleSource = 'logs'
     protected kafkaConsumer: KafkaConsumerInterface
     private appMetricsAggregator: AppMetricsAggregator
     private redis: RedisV2
+    private unknownTokens: UnknownTokenRecorder
     private rateLimiter: LogsRateLimiterService
     private readonly backfillEnabledTeamsRaw: string
     private readonly internalLogsVerifier: InternalLogsVerifier
@@ -411,6 +415,7 @@ export class LogsIngestionConsumer {
     private readonly metricRulesKillswitch: boolean
     private readonly defaultMetricRulesEnabledTeamsRaw: string
     private readonly metricSeriesAdmission = new MetricSeriesAdmission()
+    private readonly metricRulesEmission: MetricRulesEmission
     private readonly transformationsEnabledTeamsRaw: string
     private readonly transformationsKillswitch: boolean
     private readonly retentionEnabledTeamsRaw: string
@@ -457,6 +462,7 @@ export class LogsIngestionConsumer {
             poolMaxSize: mergedConfig.REDIS_POOL_MAX_SIZE,
         })
         this.rateLimiter = new LogsRateLimiterService(mergedConfig, this.redis, rateLimiterName)
+        this.unknownTokens = new UnknownTokenRecorder(this.redis)
         this.backfillEnabledTeamsRaw = mergedConfig.LOGS_BACKFILL_ENABLED_TEAMS
         this.internalLogsVerifier = new InternalLogsVerifier(
             mergedConfig.LOGS_INTERNAL_INGESTION_SIGNING_KEYS,
@@ -470,6 +476,12 @@ export class LogsIngestionConsumer {
         this.metricRulesEnabledTeamsRaw = mergedConfig.LOGS_METRICS_RULES_ENABLED_TEAMS
         this.metricRulesKillswitch = mergedConfig.LOGS_METRICS_RULES_KILLSWITCH
         this.defaultMetricRulesEnabledTeamsRaw = mergedConfig.LOGS_DEFAULT_METRIC_RULES_ENABLED_TEAMS
+        const metricRulesWindowTeams = mergedConfig.LOGS_METRICS_RULES_WINDOW_TEAMS
+        this.metricRulesEmission = new MetricRulesEmission(
+            deps.metricsEmitter,
+            (teamId) => teamIdMatchesCsv(metricRulesWindowTeams, teamId),
+            mergedConfig.LOGS_METRICS_RULES_WINDOW_MS
+        )
         this.transformationsEnabledTeamsRaw = mergedConfig.LOGS_TRANSFORMATIONS_ENABLED_TEAMS
         this.transformationsKillswitch = mergedConfig.LOGS_TRANSFORMATIONS_KILLSWITCH
         this.retentionEnabledTeamsRaw = mergedConfig.LOGS_RETENTION_ENABLED_TEAMS
@@ -601,7 +613,7 @@ export class LogsIngestionConsumer {
         const samplingEvalEnabled = this.isSamplingEvalEnabledForTeam(message.teamId)
         let ruleSet: CompiledRuleSet | null = null
         if (samplingCache && samplingEvalEnabled && this.appliesTeamLogRules(message)) {
-            ruleSet = await samplingCache.getCompiledRuleSet(message.teamId)
+            ruleSet = await samplingCache.getCompiledRuleSet(message.teamId, this.samplingRuleSource)
         }
         const useSamplingPipeline = Boolean(ruleSet && ruleSet.rules.length > 0)
         const recordsTransform = await this.buildRecordsTransform(message, batchBudget)
@@ -1023,7 +1035,7 @@ export class LogsIngestionConsumer {
     }
 
     private async emitMetricRuleTallies(byTeam: MetricTalliesByTeam): Promise<void> {
-        for (const [teamId, { token, rules, tallies }] of byTeam) {
+        for (const [teamId, { tallies }] of byTeam) {
             const teamIdLabel = teamId.toString()
             if (tallies.valueSkipped > 0) {
                 logsMetricRulesValueSkippedCounter.inc({ team_id: teamIdLabel }, tallies.valueSkipped)
@@ -1047,18 +1059,8 @@ export class LogsIngestionConsumer {
             if (matched > 0) {
                 logsMetricRulesRecordsMatchedCounter.inc({ team_id: teamIdLabel }, matched)
             }
-
-            const payload = buildMetricRulesOtlpPayload(rules, tallies, Date.now())
-            if (!payload) {
-                continue
-            }
-            try {
-                await this.deps.metricsEmitter!.emit(token, teamId, payload)
-            } catch (error) {
-                // Emission is best-effort: a failing metrics endpoint must never fail log ingestion.
-                logger.warn('[logs-metric-rules] emit threw', { teamId, error: String(error) })
-            }
         }
+        await this.metricRulesEmission.emitBatch(byTeam)
     }
 
     private async processAndProduceLogMessages(
@@ -1549,6 +1551,7 @@ export class LogsIngestionConsumer {
                         // resolution to here because it has no Postgres access, so this fires on every
                         // dropped message for a bad token. Already tracked via the metrics below.
                         logger.warn('team_not_found', { token_with_no_team: token })
+                        this.unknownTokens.record(token)
                         logMessageDroppedCounter.inc({ reason: 'team_not_found', team_id: 'unknown' })
                         recordLogMessageDropped('team_not_found', 'unknown')
                         return
@@ -1652,12 +1655,19 @@ export class LogsIngestionConsumer {
             return await instrumentFn('logsIngestionConsumer.handleEachBatch', async () => {
                 return await this.processKafkaBatch(messages)
             })
-        })
+        }, this.flushMetricRuleWindow)
+    }
+
+    // Revocation runs after the revoked partitions' batches finish, so their counts are in the open window.
+    private readonly flushMetricRuleWindow = async (): Promise<void> => {
+        await this.metricRulesEmission.flushOpen()
     }
 
     public async stop(): Promise<void> {
         logger.info('💤', 'Stopping consumer...')
         await this.kafkaConsumer.disconnect()
+        // The last batch has finished, so the open metric-rule window holds every count still unsent.
+        await this.metricRulesEmission.flushAll()
         logger.info('💤', 'Consumer stopped!')
     }
 

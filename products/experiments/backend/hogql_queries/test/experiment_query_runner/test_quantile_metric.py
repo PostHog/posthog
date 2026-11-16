@@ -8,10 +8,13 @@ from django.test import override_settings
 from parameterized import parameterized
 
 from posthog.schema import (
+    Breakdown,
+    BreakdownFilter,
     EventsNode,
     ExperimentQuantileMetric,
     ExperimentQuery,
     ExperimentQueryResponse,
+    ExperimentStatsBaseValidated,
     ExperimentStatsValidationFailure,
     ExperimentVariantResultBayesian,
     ExperimentVariantResultFrequentist,
@@ -30,7 +33,7 @@ EXPOSURE_TIME = "2024-01-02T12:00:00"
 class TestExperimentQuantileMetric(ExperimentQueryRunnerBaseTest):
     snapshot_replace_all_numbers = True
 
-    def _exposure(self, variant: str) -> dict[str, Any]:
+    def _exposure(self, variant: str, properties: dict[str, Any] | None = None) -> dict[str, Any]:
         return {
             "event": "$feature_flag_called",
             "timestamp": EXPOSURE_TIME,
@@ -38,6 +41,7 @@ class TestExperimentQuantileMetric(ExperimentQueryRunnerBaseTest):
                 "$feature_flag_response": variant,
                 f"$feature/{self.feature_flag.key}": variant,
                 "$feature_flag": self.feature_flag.key,
+                **(properties or {}),
             },
         }
 
@@ -48,14 +52,23 @@ class TestExperimentQuantileMetric(ExperimentQueryRunnerBaseTest):
             "properties": {f"$feature/{self.feature_flag.key}": variant, **properties},
         }
 
-    def _user(self, variant: str, values: list[float]) -> list[dict[str, Any]]:
-        return [self._exposure(variant), *(self._app_ready(variant, {"app_ready_ms": value}) for value in values)]
+    def _user(
+        self, variant: str, values: list[float], exposure_properties: dict[str, Any] | None = None
+    ) -> list[dict[str, Any]]:
+        return [
+            self._exposure(variant, exposure_properties),
+            *(self._app_ready(variant, {"app_ready_ms": value}) for value in values),
+        ]
 
     def _run(
-        self, metric: ExperimentQuantileMetric, *, use_precomputation: bool = False, method: str = "frequentist"
+        self,
+        metric: ExperimentQuantileMetric,
+        *,
+        use_precomputation: bool = False,
+        stats_config: dict[str, Any] | None = None,
     ) -> ExperimentQueryRunner:
         experiment = self.create_experiment(feature_flag=self.feature_flag)
-        experiment.stats_config = {"method": method}
+        experiment.stats_config = stats_config or {"method": "frequentist"}
         experiment.metrics = [metric.model_dump(mode="json")]
         self._save_experiment_with_precomputation(experiment, use_precomputation)
         return ExperimentQueryRunner(
@@ -121,6 +134,68 @@ class TestExperimentQuantileMetric(ExperimentQueryRunnerBaseTest):
             test.denominator_sum_squares,
             test.numerator_denominator_sum_product,
         ) == (3, 4, 8, 6, 14, 10)
+
+    @time_machine.travel("2024-01-01T12:00:00Z", tick=False)
+    @snapshot_clickhouse_queries
+    def test_quantile_metric_with_breakdown_counts_against_the_breakdown_and_the_whole_variant(self) -> None:
+        self.feature_flag = self.create_feature_flag()
+        metric = ExperimentQuantileMetric(
+            source=EventsNode(event="app_ready", math_property="app_ready_ms"),
+            quantile=0.5,
+            breakdownFilter=BreakdownFilter(breakdowns=[Breakdown(property="$browser")]),
+        )
+        query_runner = self._run(metric)
+
+        chrome, safari, firefox = {"$browser": "Chrome"}, {"$browser": "Safari"}, {"$browser": "Firefox"}
+        journeys_for(
+            {
+                "control_a": self._user("control", [1, 2, 3], chrome),
+                "control_b": self._user("control", [4, 50], chrome),
+                "control_c": self._user("control", [10, 20], safari),
+                "control_d": self._user("control", [30], safari),
+                "control_no_events": self._user("control", [], safari),
+                "control_firefox_no_events": self._user("control", [], firefox),
+                "test_a": self._user("test", [100, 200], chrome),
+                "test_b": self._user("test", [300], chrome),
+                "test_c": self._user("test", [50], safari),
+            },
+            self.team,
+        )
+        flush_persons_and_events()
+
+        result = cast(ExperimentQueryResponse, query_runner.calculate())
+
+        def stats(
+            variant: ExperimentStatsBaseValidated
+            | ExperimentVariantResultFrequentist
+            | ExperimentVariantResultBayesian,
+        ) -> tuple:
+            return (
+                variant.number_of_samples,
+                variant.quantile_grid[0] if variant.quantile_grid else None,
+                variant.sum,
+                variant.sum_squares,
+                variant.denominator_sum,
+                variant.denominator_sum_squares,
+                variant.numerator_denominator_sum_product,
+            )
+
+        assert result.baseline is not None and result.variant_results is not None
+        assert result.breakdown_results is not None
+        # (users, quantile, Σ S_i, Σ S_i², Σ N_i, Σ N_i², Σ S_i·N_i). The overall control median is 10, and in
+        # Chrome and Safari it is 3 and 20, so control a counts 3 events, b 1 and c 1 against the overall median.
+        assert {v.key: stats(v) for v in [result.baseline, *result.variant_results]} == {
+            "control": (6, 10, 5, 11, 8, 18, 13),
+            "test": (3, 200, 3, 5, 4, 6, 5),
+        }
+        assert {
+            tuple(breakdown.breakdown_value): {v.key: stats(v) for v in [breakdown.baseline, *breakdown.variants]}
+            for breakdown in result.breakdown_results
+        } == {
+            ("Chrome",): {"control": (2, 3, 3, 9, 5, 13, 9), "test": (2, 200, 2, 4, 3, 5, 4)},
+            ("Safari",): {"control": (3, 20, 2, 4, 3, 5, 4), "test": (1, 50, 1, 1, 1, 1, 1)},
+            ("Firefox",): {"control": (1, None, 0, 0, 0, 0, 0), "test": (0, None, 0, 0, None, None, None)},
+        }
 
     @parameterized.expand(
         [
@@ -197,14 +272,25 @@ class TestExperimentQuantileMetric(ExperimentQueryRunnerBaseTest):
         assert test.validation_failures is not None
         assert ExperimentStatsValidationFailure.NOT_ENOUGH_METRIC_DATA in test.validation_failures
 
-    @parameterized.expand([("frequentist",), ("bayesian",)])
+    @parameterized.expand(
+        [
+            ("frequentist", {"method": "frequentist"}),
+            (
+                "frequentist_sequential",
+                {"method": "frequentist", "frequentist": {"sequential_testing_enabled": True}},
+            ),
+            ("bayesian", {"method": "bayesian"}),
+        ]
+    )
     @time_machine.travel("2024-01-01T12:00:00Z", tick=False)
-    def test_quantile_metric_reaches_inference_with_enough_users(self, method: str) -> None:
+    def test_quantile_metric_reaches_inference_with_enough_users(
+        self, _name: str, stats_config: dict[str, Any]
+    ) -> None:
         self.feature_flag = self.create_feature_flag()
         metric = ExperimentQuantileMetric(
             source=EventsNode(event="app_ready", math_property="app_ready_ms"), quantile=0.5
         )
-        query_runner = self._run(metric, method=method)
+        query_runner = self._run(metric, stats_config=stats_config)
 
         journeys: dict[str, list[dict[str, Any]]] = {}
         for i in range(60):
@@ -223,7 +309,7 @@ class TestExperimentQuantileMetric(ExperimentQueryRunnerBaseTest):
         assert (result.baseline.quantile_grid[0], test.quantile_grid[0]) == (61, 161)
         assert (result.baseline.validation_failures, test.validation_failures) == ([], [])
 
-        if method == "frequentist":
+        if stats_config["method"] == "frequentist":
             interval = cast(ExperimentVariantResultFrequentist, test).confidence_interval
         else:
             interval = cast(ExperimentVariantResultBayesian, test).credible_interval

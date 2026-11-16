@@ -25,7 +25,12 @@ with workflow.unsafe.imports_passed_through():
     from django.conf import settings
 
     from posthog.schema_enums import AlertCalculationInterval
-    from posthog.temporal.alerts.retry_policy import alert_timeouts
+    from posthog.temporal.alerts.retry_policy import (
+        ALERT_SIGNAL_RETRY_POLICY,
+        ALERT_SIGNAL_SCHEDULE_TO_CLOSE,
+        ALERT_SIGNAL_START_TO_CLOSE,
+        alert_timeouts,
+    )
     from posthog.temporal.common.errors import (
         MAX_ERROR_MESSAGE_CHARS,
         truncate_for_temporal_payload,
@@ -41,6 +46,7 @@ with workflow.unsafe.imports_passed_through():
         pending_chart_alert_id,
         with_chart,
     )
+    from products.alerts.backend.platform_firing_signal_detail import FiringSignalRequest, requested_firing_signals
     from products.alerts.backend.platform_investigation_detail import (
         InvestigationClaims,
         InvestigationStart,
@@ -153,7 +159,8 @@ ADMISSION_POLL_INTERVAL = dt.timedelta(seconds=2)
 # the batch costs the admission rounds plus one check's budget, not one per check. The last check
 # can end while an earlier record still runs, so the tail holds two records and their failures,
 # or one record and the stop of a failed check's queries. A firing's claim follows its record, and a
-# failed check claims nothing.
+# failed check claims nothing. A firing's inbox signal is sent beside its claim, within the claim and
+# metrics investigation's share.
 EVALUATION_BUDGET = (
     PLAN_SCHEDULE_TO_CLOSE
     + ADMISSION_RUN_BUDGET
@@ -182,6 +189,8 @@ _PATCH_WAIT_FOR_POOL = "platform-insight-wait-for-pool-2026-10"
 _PATCH_INVESTIGATIONS = "platform-insight-investigations-2026-11"
 # Runs started before it ran metrics investigations after a claim, and replay must not schedule one.
 _PATCH_METRICS_INVESTIGATIONS = "platform-insight-metrics-investigations-2026-11"
+# Runs started before it emitted inbox signals after a record, and replay must not schedule one.
+_PATCH_FIRING_SIGNALS = "platform-insight-firing-signals-2026-11"
 # Runs started before it rendered a firing's chart again once the firing went out without it.
 _PATCH_LATE_CHART = "platform-insight-late-chart-2026-11"
 
@@ -233,6 +242,11 @@ class FailedInsightCheckInputs:
 class ClaimInsightInvestigationsInputs:
     team_id: int
     outcomes: tuple[PlatformAlertOutcome, ...]
+
+
+@frozen
+class FiringSignalsInputs:
+    requests: tuple[FiringSignalRequest, ...]
 
 
 @frozen
@@ -291,7 +305,7 @@ def plan_platform_insight_round_activity(inputs: InsightBatchPlanInputs) -> list
 def plan_platform_insight_checks_activity(inputs: InsightBatchPlanInputs) -> list[AdmittedInsightCheck]:
     """`plan_platform_insight_round_activity` with each check's cadence, under its own name, because
     a run that recorded the old name must decode bare ids on replay."""
-    from products.alerts.backend.llm_detector_limits import is_llm_detector_config  # noqa: PLC0415
+    from products.alerts.backend.llm_detector_limits import calls_ai_gateway  # noqa: PLC0415
     from products.alerts.backend.platform_source_cycle import legacy_alerts_of, plan_insight_batch  # noqa: PLC0415
 
     key = inputs.evaluation.batch_key
@@ -305,7 +319,7 @@ def plan_platform_insight_checks_activity(inputs: InsightBatchPlanInputs) -> lis
             AdmittedInsightCheck(
                 configuration_id=configuration_id,
                 real_time=alert is not None and alert.calculation_interval == AlertCalculationInterval.REAL_TIME,
-                uses_llm_detector=alert is not None and is_llm_detector_config(alert.detector_config),
+                uses_llm_detector=alert is not None and calls_ai_gateway(alert.detector_config),
                 owned_by_platform=alert is not None and alert.platform_owned,
             )
         )
@@ -455,6 +469,20 @@ def run_platform_metrics_investigations_activity(inputs: MetricsInvestigationsIn
 
 
 @activity.defn
+async def emit_platform_insight_firing_signals_activity(inputs: FiringSignalsInputs) -> None:
+    """Sends the inbox signals that recorded firings asked for, side by side. Each send gives up on
+    its own, and a failed one never touches the recorded firing."""
+    from posthog.sync import database_sync_to_async  # noqa: PLC0415
+    from posthog.temporal.alerts.alert_firing_signal import dispatch_alert_firing_signal  # noqa: PLC0415
+
+    from products.alerts.backend.platform_firing_signal import prepare_platform_firing_signals  # noqa: PLC0415
+
+    signals = await database_sync_to_async(prepare_platform_firing_signals, thread_sensitive=False)(inputs.requests)
+    # On the event loop, not in a thread: emit_signal needs the default executor.
+    await asyncio.gather(*(dispatch_alert_firing_signal(signal) for signal in signals))
+
+
+@activity.defn
 @close_db_connections
 def render_platform_insight_chart_activity(inputs: InsightChartInputs) -> RenderedChart | None:
     """Sync, because the render blocks for its whole duration. A full render pool raises, for a retry, and
@@ -504,7 +532,8 @@ class InsightAlertPlatformEvaluateWorkflow(PostHogWorkflow):
         # From the workflow's clock, so a retried plan reuses the expiry and gets its slots back. A
         # check releases its slot only while the slot still carries this expiry.
         expires_at = (workflow.now() + source_evaluation_timeout(SourceKind.INSIGHT)).timestamp()
-        self._investigating: list[asyncio.Task[None]] = []
+        # A record's investigation claims and inbox signals, which the batch waits for before it ends.
+        self._after_record: list[asyncio.Task[None]] = []
         self._late_charts: dict[str, str] = {}
         if workflow.patched(_PATCH_READMISSION) and workflow.patched(_PATCH_RECORD_AS_FINISHED):
             return await self._evaluate_and_record_in_rounds(inputs, expires_at)
@@ -543,7 +572,7 @@ class InsightAlertPlatformEvaluateWorkflow(PostHogWorkflow):
         if not outcomes:
             return 0
         await self._record(inputs, evaluations, chunked=workflow.patched(_PATCH_CHUNKED_RECORD))
-        await asyncio.gather(*self._investigating)
+        await asyncio.gather(*self._after_record)
         return len(outcomes)
 
     async def _with_charts(
@@ -746,7 +775,7 @@ class InsightAlertPlatformEvaluateWorkflow(PostHogWorkflow):
                     continue
                 recorded += await self._record_waiting(inputs, waiting, last_chance=True)
                 await asyncio.gather(*stopping, return_exceptions=True)
-                await asyncio.gather(*self._investigating)
+                await asyncio.gather(*self._after_record)
                 return recorded
             running = [task for task in unrecorded.values() if not task.done()]
             if not running:
@@ -914,7 +943,24 @@ class InsightAlertPlatformEvaluateWorkflow(PostHogWorkflow):
         investigated = tuple(outcome for outcome in chunk if requested_investigation(outcome) is not None)
         if workflow.patched(_PATCH_INVESTIGATIONS) and investigated:
             # A task, so a slow claim holds back only the firings it holds, not the next record or round.
-            self._investigating.append(asyncio.create_task(self._investigate(inputs, investigated)))
+            self._after_record.append(asyncio.create_task(self._investigate(inputs, investigated)))
+        signals = requested_firing_signals(inputs.batch_key.team_id, chunk)
+        if workflow.patched(_PATCH_FIRING_SIGNALS) and signals:
+            # Beside the claim and inside its share of the budget, so a slow send holds back nothing.
+            self._after_record.append(asyncio.create_task(self._emit_firing_signals(signals)))
+
+    async def _emit_firing_signals(self, requests: tuple[FiringSignalRequest, ...]) -> None:
+        try:
+            await workflow.execute_activity(
+                emit_platform_insight_firing_signals_activity,
+                FiringSignalsInputs(requests=requests),
+                start_to_close_timeout=ALERT_SIGNAL_START_TO_CLOSE,
+                schedule_to_close_timeout=ALERT_SIGNAL_SCHEDULE_TO_CLOSE,
+                retry_policy=ALERT_SIGNAL_RETRY_POLICY,
+            )
+        except ActivityError:
+            # The signals are best effort. Their failure must not fail a batch whose firings already went out.
+            workflow.logger.warning("Could not emit the inbox signals of recorded platform insight firings")
 
     async def _investigate(self, inputs: SourceEvaluationInputs, outcomes: tuple[PlatformAlertOutcome, ...]) -> None:
         claims = await self._claim_investigations(inputs, outcomes)
@@ -1013,6 +1059,7 @@ PLATFORM_EVALUATION_ACTIVITIES = [
     render_platform_insight_chart_activity,
     claim_platform_insight_investigations_activity,
     run_platform_metrics_investigations_activity,
+    emit_platform_insight_firing_signals_activity,
     fail_platform_insight_check_activity,
     stop_platform_insight_queries_activity,
 ]
