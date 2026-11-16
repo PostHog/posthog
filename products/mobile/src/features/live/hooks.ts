@@ -54,7 +54,7 @@ import {
 import { useLivePreference } from './livePreference'
 import { type LiveQueryRunner, liveMobileMetrics, readLiveSnapshot, readLiveWorld } from './liveRead'
 import { clearSlowLiveQuery, readSlowLiveQuery } from './liveSlowQuery'
-import { clearLiveWorldShare, useLiveWorldShare } from './liveWorldStore'
+import { useLiveWorldShare } from './liveWorldStore'
 
 /** The web's HogQL reload interval. */
 const READ_INTERVAL_MS = 30_000
@@ -116,7 +116,7 @@ function denyLiveRead(scope: ProjectScope, error: unknown, generation: number, s
     }
     clearSlowLiveQuery(`${sessionGeneration()}|${scope.host}|${scope.projectId}`)
     const active = useAuthStore.getState()
-    if (active.host === scope.host && active.projectId === scope.projectId) clearLiveWorldShare()
+    if (active.host === scope.host && active.projectId === scope.projectId) useLiveWorldShare.setState({ world: null })
     return true
 }
 

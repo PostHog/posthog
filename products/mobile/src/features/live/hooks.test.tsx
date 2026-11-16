@@ -6,6 +6,7 @@ import { queryClient } from '@/api/queryClient'
 import { persistReadCache } from '@/api/readCache'
 import { ReadCacheStore } from '@/api/readCacheStore'
 import type { ProjectScope } from '@/api/reports'
+import { useAuthStore } from '@/auth/authStore'
 import * as tokens from '@/auth/tokens'
 import { LIVE_DEMO_READ_MS, LiveDemo } from '@/demo/live'
 import { useItemErrors } from '@/features/views/viewsCache'
@@ -557,6 +558,44 @@ describe('useLiveFeed', () => {
             expect(countries.result.current.status).toBe(status)
             countries.unmount()
             live.unmount()
+        }
+    )
+
+    test.each(['web', 'mobile'] as const)(
+        'country retry keeps its %s audience after access denial',
+        async (audience) => {
+            liveProject({ ingested_event: true }, 'web')
+            if (!mockScope) throw new Error('The test requires a project.')
+            jest.spyOn(useAuthStore, 'getState').mockReturnValue({ ...useAuthStore.getState(), ...mockScope })
+            const selected = renderHook(() => useLivePreference())
+            act(() => selected.result.current.setPreference(audience))
+            act(() =>
+                useLiveWorldShare.setState({
+                    world: null,
+                    paused: false,
+                    users: audience === 'mobile',
+                    webOnly: audience === 'web',
+                    mobileOnly: audience === 'mobile',
+                })
+            )
+            const countries = renderHook(() => useLiveWorld())
+            await advance(0)
+            expect(countries.result.current.world?.total).toBe(3)
+            mockFetchQuery.mockRejectedValue(new ApiError(403, { detail: 'No access' }))
+            act(() => countries.result.current.retry())
+            await advance(0)
+            expect(countries.result.current.loadFailed).toBe(true)
+            expect(countries.result.current.world).toBeNull()
+            mockFetchQuery.mockImplementation(async (query) => fakeLiveAnswer(query))
+            mockFetchQuery.mockClear()
+            act(() => countries.result.current.retry())
+            await advance(0)
+            expect(countries.result.current.loadFailed).toBe(false)
+            expect(countries.result.current.world?.total).toBe(3)
+            expect(mockFetchQuery.mock.calls.map(([query]) => query.query)).toEqual([
+                expect.stringContaining(audience === 'web' ? WEB_EVENT : MOBILE_EVENT),
+            ])
+            expect(useLiveWorldShare.getState().users).toBe(audience === 'mobile')
         }
     )
 
