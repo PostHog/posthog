@@ -517,8 +517,8 @@ class _SmtpPolicy(email.policy.EmailPolicy):
 
 
 class _SmtpEmail(mail.EmailMultiAlternatives):
-    def message(self, *, policy: email.policy.Policy = email.policy.default) -> email.message.EmailMessage:
-        return super().message(policy=_SmtpPolicy(linesep=policy.linesep))
+    def message(self, *, policy: email.policy.Policy | None = None) -> email.message.EmailMessage:
+        return super().message(policy=_SmtpPolicy(linesep=(policy or email.policy.default).linesep))
 
 
 def _send_via_smtp(
