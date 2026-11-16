@@ -191,3 +191,19 @@ def parts_list_unpacked_into_concat(queryset):
 def containment_next_to_a_star_argument(queryset, conditions):
     # ok: no-pattern-lookup-from-outer-row
     return queryset.filter(*conditions, labels__contains=[OuterRef("label")])
+
+
+# ok: no-pattern-lookup-from-outer-row
+Task.objects.filter(Contains(F("labels"), (OuterRef("label"),)))
+
+# ok: no-pattern-lookup-from-outer-row
+Task.objects.filter(Contains(F("labels"), rhs=[OuterRef("label")]))
+
+# ok: no-pattern-lookup-from-outer-row
+Task.objects.filter(Contains(lhs=F("labels"), rhs=(OuterRef("label"),)))
+
+# ruleid: no-pattern-lookup-from-outer-row
+Task.objects.filter(Contains(F("labels"), [OuterRef("label")]), StartsWith(F("path"), OuterRef("path")))
+
+# ruleid: no-pattern-lookup-from-outer-row
+Task.objects.filter(**{"labels__contains": [OuterRef("label")], "path__startswith": OuterRef("path")})
