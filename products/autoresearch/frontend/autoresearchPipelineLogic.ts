@@ -71,14 +71,16 @@ import {
 import type { ConfusionByCutoffApi } from './generated/api.schemas'
 import {
     type AccuracyCutoff,
+    type AccuracyFrame,
     type AccuracyTrend,
     type AccuracyTrendMetric,
     type PooledConfusion,
-    SegmentCalibration,
+    type RankCalibration,
+    accuracyFrameRows,
     accuracyTrend,
-    calibrationBySegment,
+    calibrationByRank,
     firstCheckDate,
-    latestChampionRow,
+    liveModelRows,
     pooledConfusion,
     validatedPredictionDates,
 } from './onlinePerformance'
@@ -323,6 +325,8 @@ export interface autoresearchPipelineLogicValues {
     currentProjectId: number | null // projectLogic
     currentTeamId: number | null // teamLogic
     accuracyCutoff: AccuracyCutoff
+    accuracyFrame: AccuracyFrame
+    accuracyFrameRows: OnlinePerformanceRowApi[]
     accuracyTrend: AccuracyTrend
     accuracyTrendMetric: AccuracyTrendMetric
     activeScoreRun: AutoresearchRunApi | null
@@ -351,7 +355,7 @@ export interface autoresearchPipelineLogicValues {
     hideLowestBucket: boolean | null
     hoveredAccuracyDate: string | null
     hoveredSearchPoint: SearchPoint | null
-    latestChampionPerformance: OnlinePerformanceRowApi | null
+    liveModelPerformance: OnlinePerformanceRowApi[]
     latestPropertyCleanupRun: AutoresearchRunApi | null
     lifecycleSteps: LifecycleStep[] | null
     liveTrainingRun: AutoresearchTrainingRunApi | null
@@ -395,7 +399,7 @@ export interface autoresearchPipelineLogicValues {
     scoredChallenger: AutoresearchModelApi | null
     scoredPeopleCount: number | null
     scoringCoverage: ScoringCoverage | null
-    segmentCalibration: SegmentCalibration[]
+    rankCalibration: RankCalibration[]
     segmentDefinitions: PredictionSegmentDefinition[] | null
     segmentThresholds: PredictionSegmentThresholdsApi | null
     selectedTab: AutoresearchPipelineTab | null
@@ -738,6 +742,9 @@ export interface autoresearchPipelineLogicActions {
         cutoff: keyof ConfusionByCutoffApi
         source: AccuracyCutoffSource
     }
+    setAccuracyFrame: (frame: AccuracyFrame) => {
+        frame: AccuracyFrame
+    }
     setAccuracyTrendMetric: (metric: AccuracyTrendMetric) => {
         metric: AccuracyTrendMetric
     }
@@ -900,7 +907,14 @@ export interface autoresearchPipelineLogicMeta {
             pipeline: AutoresearchPipelineApi | null
         ) => CoverageSummary | null
         coverageHistory: (runs: AutoresearchRunApi[]) => CoveragePoint[]
-        latestChampionPerformance: (onlinePerformance: OnlinePerformanceRowApi[]) => OnlinePerformanceRowApi | null
+        liveModelPerformance: (
+            onlinePerformance: OnlinePerformanceRowApi[],
+            champion: AutoresearchModelApi | null
+        ) => OnlinePerformanceRowApi[]
+        accuracyFrameRows: (
+            liveModelPerformance: OnlinePerformanceRowApi[],
+            accuracyFrame: AccuracyFrame
+        ) => OnlinePerformanceRowApi[]
         accuracyTrend: (
             onlinePerformance: OnlinePerformanceRowApi[],
             accuracyTrendMetric: AccuracyTrendMetric,
@@ -911,12 +925,12 @@ export interface autoresearchPipelineLogicMeta {
         segmentDefinitions: (
             segmentThresholds: PredictionSegmentThresholdsApi | null
         ) => PredictionSegmentDefinition[] | null
-        segmentCalibration: (
-            latestChampionPerformance: OnlinePerformanceRowApi | null,
+        rankCalibration: (
+            accuracyFrameRows: OnlinePerformanceRowApi[],
             segmentThresholds: PredictionSegmentThresholdsApi | null
-        ) => SegmentCalibration[]
+        ) => RankCalibration[]
         championConfusion: (
-            onlinePerformance: OnlinePerformanceRowApi[],
+            accuracyFrameRows: OnlinePerformanceRowApi[],
             accuracyCutoff: keyof ConfusionByCutoffApi
         ) => PooledConfusion | null
         firstCheck: (runs: AutoresearchRunApi[], pipeline: AutoresearchPipelineApi | null) => dayjs.Dayjs | null
@@ -990,6 +1004,7 @@ export const autoresearchPipelineLogic = kea<autoresearchPipelineLogicType>([
         showCoverage: true,
         setHideLowestBucket: (hidden: boolean) => ({ hidden }),
         setAccuracyCutoff: (cutoff: AccuracyCutoff, source: AccuracyCutoffSource) => ({ cutoff, source }),
+        setAccuracyFrame: (frame: AccuracyFrame) => ({ frame }),
         setAccuracyTrendMetric: (metric: AccuracyTrendMetric) => ({ metric }),
         setShowChallengersInTrend: (show: boolean) => ({ show }),
         setHoveredAccuracyDate: (date: string | null) => ({ date }),
@@ -1069,6 +1084,12 @@ export const autoresearchPipelineLogic = kea<autoresearchPipelineLogicType>([
             'top_10' as AccuracyCutoff,
             {
                 setAccuracyCutoff: (_, { cutoff }) => cutoff,
+            },
+        ],
+        accuracyFrame: [
+            'all' as AccuracyFrame,
+            {
+                setAccuracyFrame: (_, { frame }) => frame,
             },
         ],
         accuracyTrendMetric: [
@@ -1599,10 +1620,19 @@ export const autoresearchPipelineLogic = kea<autoresearchPipelineLogicType>([
                 coverageSummary(runs, scoringCoverage?.rescoreDays ?? Math.max(pipeline?.cadence_days ?? 1, 1)),
         ],
         coverageHistory: [(s) => [s.runs], (runs: AutoresearchRunApi[]): CoveragePoint[] => coverageHistory(runs)],
-        latestChampionPerformance: [
-            (s) => [s.onlinePerformance],
-            (onlinePerformance: OnlinePerformanceRowApi[]): OnlinePerformanceRowApi | null =>
-                latestChampionRow(onlinePerformance),
+        liveModelPerformance: [
+            (s) => [s.onlinePerformance, s.champion],
+            (
+                onlinePerformance: OnlinePerformanceRowApi[],
+                champion: AutoresearchModelApi | null
+            ): OnlinePerformanceRowApi[] => liveModelRows(onlinePerformance, champion?.id),
+        ],
+        accuracyFrameRows: [
+            (s) => [s.liveModelPerformance, s.accuracyFrame],
+            (
+                liveModelPerformance: OnlinePerformanceRowApi[],
+                accuracyFrame: AccuracyFrame
+            ): OnlinePerformanceRowApi[] => accuracyFrameRows(liveModelPerformance, accuracyFrame),
         ],
         accuracyTrend: [
             (s) => [s.onlinePerformance, s.accuracyTrendMetric, s.accuracyCutoff, s.showChallengersInTrend],
@@ -1624,20 +1654,17 @@ export const autoresearchPipelineLogic = kea<autoresearchPipelineLogicType>([
             (segmentThresholds: PredictionSegmentThresholdsApi | null): PredictionSegmentDefinition[] | null =>
                 segmentThresholds ? predictionSegmentDefinitions(segmentThresholds) : null,
         ],
-        segmentCalibration: [
-            (s) => [s.latestChampionPerformance, s.segmentThresholds],
+        rankCalibration: [
+            (s) => [s.accuracyFrameRows, s.segmentThresholds],
             (
-                latestChampionPerformance: OnlinePerformanceRowApi | null,
+                accuracyFrameRows: OnlinePerformanceRowApi[],
                 segmentThresholds: PredictionSegmentThresholdsApi | null
-            ): SegmentCalibration[] =>
-                segmentThresholds
-                    ? calibrationBySegment(latestChampionPerformance?.calibration_bins ?? [], segmentThresholds)
-                    : [],
+            ): RankCalibration[] => (segmentThresholds ? calibrationByRank(accuracyFrameRows, segmentThresholds) : []),
         ],
         championConfusion: [
-            (s) => [s.onlinePerformance, s.accuracyCutoff],
-            (onlinePerformance: OnlinePerformanceRowApi[], accuracyCutoff: AccuracyCutoff): PooledConfusion | null =>
-                pooledConfusion(onlinePerformance, accuracyCutoff),
+            (s) => [s.accuracyFrameRows, s.accuracyCutoff],
+            (accuracyFrameRows: OnlinePerformanceRowApi[], accuracyCutoff: AccuracyCutoff): PooledConfusion | null =>
+                pooledConfusion(accuracyFrameRows, accuracyCutoff),
         ],
         firstCheck: [
             (s) => [s.runs, s.pipeline],
@@ -1767,7 +1794,7 @@ export const autoresearchPipelineLogic = kea<autoresearchPipelineLogicType>([
                           pipeline,
                           champion,
                           runs,
-                          validatedDates: validatedPredictionDates(runs),
+                          validatedDates: validatedPredictionDates(runs, champion?.id),
                           now: dayjs(),
                       })
                     : null,
@@ -2110,6 +2137,10 @@ export const autoresearchPipelineLogic = kea<autoresearchPipelineLogicType>([
         setAccuracyCutoff: ({ cutoff, source }) => {
             // pinned: analytics event name and properties. Renaming breaks insights built on them.
             posthog.capture('autoresearch model accuracy cutoff changed', { pipeline_id: props.id, cutoff, source })
+        },
+        setAccuracyFrame: ({ frame }) => {
+            // pinned: analytics event name and properties. Renaming breaks insights built on them.
+            posthog.capture('autoresearch model accuracy frame changed', { pipeline_id: props.id, frame })
         },
         setAccuracyTrendMetric: ({ metric }) => {
             // pinned: analytics event name and properties. Renaming breaks insights built on them.
