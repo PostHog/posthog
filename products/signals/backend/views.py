@@ -1799,7 +1799,7 @@ _REPORT_LIST_PARAMETERS = [
             "Inbox sort preset: priority, recommended, personal, last_updated, newest, or oldest. Ignored "
             "when ordering is supplied. recommended resolves per user to a ranker: the priority order, or "
             "the open, action or fix outcome of the served ranking model, highest score first, with "
-            "unscored and stale reports in priority order after the scored ones, or your stored personal "
+            "unscored reports in priority order after the scored ones, or your stored personal "
             "ranking, as personal gives it, then the priority order. The response's ranker "
             "field names the one used, and its ranking_pill field says whether to show score pills. "
             "personal puts the reports of a stored personal ranking first, by rank, then the reports it "
@@ -1832,8 +1832,8 @@ _REPORT_LIST_PARAMETERS = [
         description=(
             "Comma-separated <outcome>:<lift> pairs, e.g. fix:2,open:1.5. Keeps reports whose served "
             "ranking lift is at least the value for every named outcome. Outcomes: open, action, fix. Read "
-            "inbox-ranking-outcomes-list for what each outcome means. Unscored and stale reports never match. "
-            "Needs staff or the inbox model sort rollout: other users get a 400."
+            "inbox-ranking-outcomes-list for what each outcome means. A report edited after its last score "
+            "matches on that score. Unscored reports never match. Needs staff or the inbox model sort rollout: other users get a 400."
         ),
     ),
     OpenApiParameter(
@@ -1844,8 +1844,8 @@ _REPORT_LIST_PARAMETERS = [
         description=(
             "Comma-separated <outcome>:<probability> pairs, e.g. fix:0.3. Keeps reports whose served "
             "ranking probability is at least the value for every named outcome. Outcomes: open, action, "
-            "fix. Read inbox-ranking-outcomes-list for what each outcome means. Unscored and stale reports "
-            "never match. "
+            "fix. Read inbox-ranking-outcomes-list for what each outcome means. A report edited after its last "
+            "score matches on that score. Unscored reports never match. "
             "Needs staff or the inbox model sort rollout: other users get a 400."
         ),
     ),

@@ -2539,7 +2539,7 @@ export interface ReportRankingPredictionApi {
 }
 
 export interface ReportRankingApi {
-    /** scored: the predictions describe the current text. stale: the title or summary changed after the text the model read, so the predictions describe the old text and the model sorts and filters treat the report as unscored. unscored: the model has not scored the report yet, or skipped it. This does not mean a low score. not_available: you cannot see the ranking model's output, so every other field is empty.
+    /** scored: the predictions describe the current text. stale: the title or summary changed after the text the model read, so the predictions describe the old text. The model sorts and filters still use them. unscored: the model has not scored the report yet, or skipped it. This does not mean a low score. not_available: you cannot see the ranking model's output, so every other field is empty.
      *
      * * `scored` - scored
      * * `stale` - stale
@@ -12711,11 +12711,11 @@ export type SignalsReportsListParams = {
      */
     ranking_id?: string
     /**
-     * Comma-separated <outcome>:<lift> pairs, e.g. fix:2,open:1.5. Keeps reports whose served ranking lift is at least the value for every named outcome. Outcomes: open, action, fix. Read inbox-ranking-outcomes-list for what each outcome means. Unscored and stale reports never match. Needs staff or the inbox model sort rollout: other users get a 400.
+     * Comma-separated <outcome>:<lift> pairs, e.g. fix:2,open:1.5. Keeps reports whose served ranking lift is at least the value for every named outcome. Outcomes: open, action, fix. Read inbox-ranking-outcomes-list for what each outcome means. A report edited after its last score matches on that score. Unscored reports never match. Needs staff or the inbox model sort rollout: other users get a 400.
      */
     ranking_min_lift?: string
     /**
-     * Comma-separated <outcome>:<probability> pairs, e.g. fix:0.3. Keeps reports whose served ranking probability is at least the value for every named outcome. Outcomes: open, action, fix. Read inbox-ranking-outcomes-list for what each outcome means. Unscored and stale reports never match. Needs staff or the inbox model sort rollout: other users get a 400.
+     * Comma-separated <outcome>:<probability> pairs, e.g. fix:0.3. Keeps reports whose served ranking probability is at least the value for every named outcome. Outcomes: open, action, fix. Read inbox-ranking-outcomes-list for what each outcome means. A report edited after its last score matches on that score. Unscored reports never match. Needs staff or the inbox model sort rollout: other users get a 400.
      */
     ranking_min_probability?: string
     /**
@@ -12735,7 +12735,7 @@ export type SignalsReportsListParams = {
      */
     search?: string
     /**
-     * Inbox sort preset: priority, recommended, personal, last_updated, newest, or oldest. Ignored when ordering is supplied. recommended resolves per user to a ranker: the priority order, or the open, action or fix outcome of the served ranking model, highest score first, with unscored and stale reports in priority order after the scored ones, or your stored personal ranking, as personal gives it, then the priority order. The response's ranker field names the one used, and its ranking_pill field says whether to show score pills. personal puts the reports of a stored personal ranking first, by rank, then the reports it folded, then every other report in your recommended order. With scope=teammate it reads the teammate's stored ranking, else yours. It only reads the stored ranking and never starts a build. With no stored personal ranking, or a teammate outside the organization, it is the recommended order, or the priority order when recommended gives you the personal ranking.
+     * Inbox sort preset: priority, recommended, personal, last_updated, newest, or oldest. Ignored when ordering is supplied. recommended resolves per user to a ranker: the priority order, or the open, action or fix outcome of the served ranking model, highest score first, with unscored reports in priority order after the scored ones, or your stored personal ranking, as personal gives it, then the priority order. The response's ranker field names the one used, and its ranking_pill field says whether to show score pills. personal puts the reports of a stored personal ranking first, by rank, then the reports it folded, then every other report in your recommended order. With scope=teammate it reads the teammate's stored ranking, else yours. It only reads the stored ranking and never starts a build. With no stored personal ranking, or a teammate outside the organization, it is the recommended order, or the priority order when recommended gives you the personal ranking.
      */
     sort?: string
     /**
@@ -12996,11 +12996,11 @@ export type SignalsReportsSectionCountsRetrieveParams = {
      */
     priority?: string
     /**
-     * Comma-separated <outcome>:<lift> pairs, e.g. fix:2,open:1.5. Keeps reports whose served ranking lift is at least the value for every named outcome. Outcomes: open, action, fix. Read inbox-ranking-outcomes-list for what each outcome means. Unscored and stale reports never match. Needs staff or the inbox model sort rollout: other users get a 400.
+     * Comma-separated <outcome>:<lift> pairs, e.g. fix:2,open:1.5. Keeps reports whose served ranking lift is at least the value for every named outcome. Outcomes: open, action, fix. Read inbox-ranking-outcomes-list for what each outcome means. A report edited after its last score matches on that score. Unscored reports never match. Needs staff or the inbox model sort rollout: other users get a 400.
      */
     ranking_min_lift?: string
     /**
-     * Comma-separated <outcome>:<probability> pairs, e.g. fix:0.3. Keeps reports whose served ranking probability is at least the value for every named outcome. Outcomes: open, action, fix. Read inbox-ranking-outcomes-list for what each outcome means. Unscored and stale reports never match. Needs staff or the inbox model sort rollout: other users get a 400.
+     * Comma-separated <outcome>:<probability> pairs, e.g. fix:0.3. Keeps reports whose served ranking probability is at least the value for every named outcome. Outcomes: open, action, fix. Read inbox-ranking-outcomes-list for what each outcome means. A report edited after its last score matches on that score. Unscored reports never match. Needs staff or the inbox model sort rollout: other users get a 400.
      */
     ranking_min_probability?: string
     /**

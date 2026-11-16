@@ -1710,8 +1710,8 @@ class ReportRankingSerializer(serializers.Serializer):
         choices=RankingStatus.choices,
         help_text=(
             "scored: the predictions describe the current text. stale: the title or summary changed after the text "
-            "the model read, so the predictions describe the old text and the model sorts and filters treat the report as "
-            "unscored. unscored: the model has not scored the report yet, or skipped it. This does not mean a low "
+            "the model read, so the predictions describe the old text. The model sorts and filters still use them. "
+            "unscored: the model has not scored the report yet, or skipped it. This does not mean a low "
             "score. not_available: you cannot see the ranking model's output, so every other field is empty."
         ),
     )
