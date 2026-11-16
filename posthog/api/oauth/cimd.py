@@ -49,6 +49,7 @@ from posthog.security.url_validation import UNRESOLVED_HOST_REASON, is_url_allow
 
 from .client_name import sanitize_client_name, validate_cimd_client_name
 from .logo_uri import usable_logo_uri
+from .provisioning_review import open_review, review_required, start_review
 
 if TYPE_CHECKING:
     from posthog.models.oauth_provisioning import ProvisioningConfig
@@ -267,6 +268,7 @@ _TUNNEL_HOST_SUFFIXES = frozenset(
         "sharedwithexpose.com",  # Expose
         "localto.net",  # Localtonet
         "tunnelto.dev",
+        "srv.us",
     }
 )
 
@@ -311,13 +313,30 @@ _JSON_AND_PASTE_HOST_SUFFIXES = frozenset(
     }
 )
 
+# Public instances of editors, forges and storage where any visitor can publish a page or a file,
+# so a document there says nothing about who controls the client.
+_PUBLIC_EDITABLE_HOST_SUFFIXES = frozenset(
+    {
+        "etherpad.wikimedia.org",
+        "pad.riseup.net",
+        "pad.systemli.org",
+        "pad.tetaneutral.net",
+        "textdb.online",
+        "git.kaki87.net",
+        "play.min.io",
+    }
+)
 THROWAWAY_HOST_SUFFIXES: frozenset[str] = (
-    _TUNNEL_HOST_SUFFIXES | _REQUEST_BIN_HOST_SUFFIXES | _JSON_AND_PASTE_HOST_SUFFIXES
+    _TUNNEL_HOST_SUFFIXES | _REQUEST_BIN_HOST_SUFFIXES | _JSON_AND_PASTE_HOST_SUFFIXES | _PUBLIC_EDITABLE_HOST_SUFFIXES
 )
 
 THROWAWAY_HOST_MESSAGE = (
     "PostHog doesn't accept client metadata from this host. "
     "Host your client metadata document on a domain you control and use that URL as your client_id."
+)
+
+PROVISIONING_CONTENT_TYPE_MESSAGE = (
+    "A metadata document that sets com.posthog.provisioning must be served with Content-Type: application/json."
 )
 
 THROWAWAY_JWKS_HOST_MESSAGE = (
@@ -587,8 +606,18 @@ def fetch_cimd_metadata(url: str) -> tuple[CIMDMetadataDocument, int]:
     if logo_uri is not None and usable_logo_uri(logo_uri) is None:
         metadata.pop("logo_uri", None)
 
+    # Pads, forges and paste sites serve the text a user typed as HTML or plain text, so a
+    # provisioning document that is not served as JSON is not from a server its client runs.
+    if _cimd_declares_provisioning(metadata) and not _is_json_media_type(response.headers.get("Content-Type")):
+        raise CIMDValidationError(PROVISIONING_CONTENT_TYPE_MESSAGE)
+
     cache_ttl = _parse_cache_ttl(response)
     return metadata, cache_ttl
+
+
+def _is_json_media_type(content_type: str | None) -> bool:
+    media_type = (content_type or "").split(";", 1)[0].strip().lower()
+    return media_type == "application/json" or (media_type.startswith("application/") and media_type.endswith("+json"))
 
 
 def _resolve_verification_token(
@@ -1025,7 +1054,7 @@ def _register_partner_if_declared(
         return
     if not _cimd_declares_provisioning(metadata):
         return
-    apply_provisioning_defaults(app)
+    apply_provisioning_defaults(app, metadata=metadata)
     app.refresh_from_db()
 
 
@@ -1207,7 +1236,7 @@ def enqueue_cimd_refresh_if_stale(url: str) -> None:
     refresh_cimd_metadata_task.delay(url)
 
 
-def _cimd_provisioning_defaults_for(app: OAuthApplication) -> "ProvisioningConfig":
+def _cimd_provisioning_defaults_for(app: OAuthApplication, *, active: bool) -> "ProvisioningConfig":
     """The config a CIMD app gets when it registers itself, layered over whatever it already has.
 
     Nothing here touches client authentication: that is derived from the client's own metadata
@@ -1227,13 +1256,18 @@ def _cimd_provisioning_defaults_for(app: OAuthApplication) -> "ProvisioningConfi
     before the app first registered does not have it silently dropped here. For the ordinary
     case - a brand new self-registered client - the existing config is empty and the two are
     the same thing.
+
+    ``active`` is False while the partner waits on its review, so the capabilities are in place
+    for the moment the review accepts it, and nothing is usable before then.
     """
     return app.provisioning.model_copy(
-        update={"active": True, "can_create_accounts": True, "can_provision_resources": True}
+        update={"active": active, "can_create_accounts": True, "can_provision_resources": True}
     )
 
 
-def apply_provisioning_defaults(app: OAuthApplication) -> OAuthApplication:
+def apply_provisioning_defaults(
+    app: OAuthApplication, *, metadata: CIMDMetadataDocument | None = None
+) -> OAuthApplication:
     """Opt a CIMD app into provisioning with the self-serve defaults, and persist them.
 
     Only ever promotes a client that is not a partner yet, and respects the `disabled` kill
@@ -1251,7 +1285,12 @@ def apply_provisioning_defaults(app: OAuthApplication) -> OAuthApplication:
     that is a partner but still public would accept an unauthenticated caller acting as that
     partner. The locked row supplies the key set, since a stale in-memory copy could promote an
     app whose document no longer publishes one.
+
+    Where a review is required, the partner is promoted inactive with a pending review, and the
+    review workflow starts once the promotion commits. An admin who activated the app before it
+    registered has already vouched for it, so that app skips the review.
     """
+    needs_review = False
     with transaction.atomic():
         current = OAuthApplication.objects.select_for_update().get(pk=app.pk)
         app._provisioning_config = current._provisioning_config
@@ -1262,14 +1301,23 @@ def apply_provisioning_defaults(app: OAuthApplication) -> OAuthApplication:
             return app
         if app.provisioning.disabled:
             return app
+        needs_review = review_required() and not app.provisioning.active
         app.is_provisioning_partner = True
-        app.provisioning = _cimd_provisioning_defaults_for(app)
+        app.provisioning = _cimd_provisioning_defaults_for(app, active=not needs_review)
         updated_fields = ["is_provisioning_partner", "_provisioning_config"]
         if current.jwks_uri:
             app.jwks_uri = current.jwks_uri
             app.client_type = AbstractApplication.CLIENT_CONFIDENTIAL
             updated_fields.append("client_type")
         app.save(update_fields=updated_fields)
+        if needs_review:
+            open_review(
+                app,
+                domain=registrable_domain(app.client_id),
+                metadata_document=cast(dict[str, object], metadata) if metadata is not None else None,
+            )
+            application_id = str(app.pk)
+            transaction.on_commit(lambda: start_review(application_id))
 
     # A partner appearing without an admin creating it is the event worth watching for abuse.
     # Only the promotion reaches here, so it fires on the transition and nowhere else.
@@ -1283,6 +1331,7 @@ def apply_provisioning_defaults(app: OAuthApplication) -> OAuthApplication:
             "partner_tier": app.partner_tier,
             "is_verified": app.organization_id is not None,
             "organization_id": str(app.organization_id) if app.organization_id else None,
+            "under_review": needs_review,
         },
     )
     return app
