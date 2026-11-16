@@ -223,6 +223,12 @@ def _fix_formdata_config_json(request: request.Request, validated_data: dict):
         validated_data["config"] = json.loads(request.POST["config"])
 
 
+# `config` is a read-only method field, so it never reaches validated_data: form data sends it as a string, JSON as an object
+def _config_from_request(request: request.Request) -> dict:
+    config = request.data.get("config") or {}
+    return json.loads(config) if isinstance(config, str) else config
+
+
 class PlainRenderer(renderers.BaseRenderer):
     format = "txt"
 
@@ -713,7 +719,7 @@ class PluginConfigSerializer(serializers.ModelSerializer):
         if not can_configure_plugins(self.context["get_organization"]()):
             raise ValidationError("Plugin configuration is not available for the current organization!")
         validated_data["team_id"] = self.context["team_id"]
-        _fix_formdata_config_json(self.context["request"], validated_data)
+        validated_data["config"] = _config_from_request(self.context["request"])
 
         validated_data["web_token"] = generate_random_token()
 
