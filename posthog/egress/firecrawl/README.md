@@ -21,6 +21,7 @@ They are sized for roughly one scrape per event a person triggers, and are meant
 The default reserve ladder applies, and `firecrawl_request` defaults to `NORMAL`.
 Domain research for Tasks (`products/tasks/backend/facade/domain_research.py`) scrapes on `NORMAL`.
 The AI-enrichment label tools (`products/growth/backend/enrichment/tools.py`) search and scrape on `BATCH`.
+The CIMD provisioning partner review (`posthog/temporal/cimd_provisioning_review/research.py`) scrapes one homepage and runs two searches per review on `BATCH`.
 Nothing in this domain runs `CRITICAL`, because what gets scraped comes from user-supplied input and callers can do without the scrape.
 
 ## Rate-limit headers

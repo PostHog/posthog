@@ -5,6 +5,8 @@ rules:
       owners: team-ai-observability
     - match: '/alerts/'
       owners: team-product-analytics
+    - match: '/cimd_provisioning_review/'
+      owners: team-growth
     - match: '/data_modeling/'
       owners: team-data-modeling
     - match: '/delete_persons/'

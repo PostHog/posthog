@@ -54,6 +54,7 @@ from posthog.models.oauth import (
     create_cimd_verification_token,
 )
 from posthog.models.oauth_provisioning import PartnerTier
+from posthog.models.oauth_provisioning_review import CIMDProvisioningReview
 from posthog.scopes import OAUTH_SCOPES_HIDDEN, PRIVILEGED_SCOPES
 from posthog.test.anti_ssrf import mock_anti_ssrf_dns_lookup
 
@@ -1032,6 +1033,36 @@ class TestApplyProvisioningDefaults(APIBaseTest):
         self.assertFalse(app.provisioning.can_issue_deep_links)
         # The self-serve defaults still land - only the admin's revocation survives on top.
         self.assertTrue(app.provisioning.can_create_accounts)
+
+    @parameterized.expand(
+        [
+            ("new_partner_waits_for_review", False, False, ["pending"]),
+            ("admin_activated_partner_skips_review", True, True, []),
+        ]
+    )
+    @patch("posthog.api.oauth.cimd.start_review")
+    @patch("posthog.api.oauth.cimd.review_required", return_value=True)
+    @patch("posthog.api.oauth.cimd.requests.Session.get")
+    def test_review_holds_a_new_partner_inactive(
+        self, _name, admin_activated, expected_active, expected_reviews, mock_get, _required, mock_start, _url_mock
+    ):
+        mock_get.return_value = _mock_response(_make_metadata(), headers={})
+        existing = fetch_and_upsert_cimd_application(VALID_CIMD_URL)
+        assert existing is not None
+        if admin_activated:
+            existing.update_provisioning(active=True)
+
+        with self.captureOnCommitCallbacks(execute=True):
+            app = apply_provisioning_defaults(existing)
+
+        app.refresh_from_db()
+        self.assertTrue(app.is_provisioning_partner)
+        self.assertTrue(app.provisioning.can_create_accounts)
+        self.assertEqual(app.provisioning.active, expected_active)
+        reviews = CIMDProvisioningReview.objects.filter(application=app)
+        self.assertEqual([review.status for review in reviews], expected_reviews)
+        self.assertEqual([review.domain for review in reviews], ["example.com"] * len(expected_reviews))
+        self.assertEqual(mock_start.call_args_list, [((str(app.pk),),)] * len(expected_reviews))
 
 
 @mock_anti_ssrf_dns_lookup()
