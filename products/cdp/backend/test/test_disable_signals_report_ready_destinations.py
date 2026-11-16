@@ -33,7 +33,7 @@ class TestDisableSignalsReportReadyDestinations(BaseTest):
             ),
             "other event": self._destination("other event", filters=OTHER_EVENT),
             "already disabled": self._destination("already disabled", filters=REPORT_EVENT, enabled=False),
-            "deleted": self._destination("deleted", filters=REPORT_EVENT, deleted=True),
+            "soft-deleted": self._destination("soft-deleted", filters=REPORT_EVENT, deleted=True),
         }
         schema_editor = SimpleNamespace(connection=SimpleNamespace(alias="default"))
 
@@ -51,7 +51,7 @@ class TestDisableSignalsReportReadyDestinations(BaseTest):
             "on the event and another": False,
             "other event": True,
             "already disabled": False,
-            "deleted": True,
+            "soft-deleted": False,
         }
         reloaded = [call.args for call in publish.call_args_list]
         assert len(reloaded) == 1
@@ -59,5 +59,5 @@ class TestDisableSignalsReportReadyDestinations(BaseTest):
         assert channel == "reload-hog-functions"
         assert message["teamId"] == self.team.id
         assert sorted(message["hogFunctionIds"]) == sorted(
-            [str(rows["on the event"].id), str(rows["on the event and another"].id)]
+            [str(rows["on the event"].id), str(rows["on the event and another"].id), str(rows["soft-deleted"].id)]
         )

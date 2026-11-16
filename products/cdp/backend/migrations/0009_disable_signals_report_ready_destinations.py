@@ -22,7 +22,8 @@ def disable_report_ready_destinations(apps, schema_editor):
     # `type` and `enabled` lead the (type, enabled, team) index, so only enabled internal destinations are scanned.
     matching = (
         HogFunction.objects.using(db_alias)
-        .filter(type="internal_destination", enabled=True, deleted=False)
+        # Soft-deleted rows too: a restore must not bring back a destination that never passed the read check.
+        .filter(type="internal_destination", enabled=True)
         .filter(filters__events__contains=[{"id": REPORT_READY_EVENT}])
     )
     disabled_by_team: dict[int, list[str]] = defaultdict(list)
