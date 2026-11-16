@@ -807,6 +807,16 @@ select {
     text-anchor: start;
 }
 
+.map .pin-label.on-demand,
+.map .pins:has(.pin:hover .on-demand, .pin:focus .on-demand) .more {
+    visibility: hidden;
+}
+
+.map .pin:hover .pin-label.on-demand,
+.map .pin:focus .pin-label.on-demand {
+    visibility: visible;
+}
+
 .scenarios {
     display: grid;
     grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));

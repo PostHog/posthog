@@ -1,3 +1,4 @@
+import { isAccepted } from '../judge/invariants'
 import type { JournalEntry } from '../judge/judge'
 import { LatencyEvidence, MetricSample, QueueSample, deliveryLatenciesOf, nearestRank } from '../judge/measurements'
 import type { WriterSample } from '../probe/writer-probe'
@@ -41,9 +42,7 @@ export type Evidence = {
     truth: readonly (Pick<TruthRecord, 'kind' | 'fault'> & LatencyEvidence['truth'][number])[]
 }
 
-const FLOW_BUCKET_MS = 5000
-
-const isOk = (status: number): boolean => status >= 200 && status < 300
+const BUCKET_MS = 5000
 
 const bucketOf = (at: number, bucketMs: number): number => Math.floor(at / bucketMs) * bucketMs
 
@@ -55,7 +54,8 @@ const processedOf = (sample: MetricSample): number =>
 
 type Weighted = { weightMs: number; cpuPercent: number; processedPerSecond: number; rssMb: number }
 
-function replicaBucketsOf(ofReplica: readonly MetricSample[], restarts: number[]): Map<number, RolePoint> {
+function replicaBucketsOf(ofReplica: readonly MetricSample[]): { restarts: number[]; buckets: Map<number, RolePoint> } {
+    const restarts: number[] = []
     const weighted = new Map<number, Weighted>()
     for (let i = 1; i < ofReplica.length; i++) {
         const [before, after] = [ofReplica[i - 1], ofReplica[i]]
@@ -70,8 +70,8 @@ function replicaBucketsOf(ofReplica: readonly MetricSample[], restarts: number[]
         const cpuPercent = ((after.cpuSeconds - before.cpuSeconds) / seconds) * 100
         const processedPerSecond = Math.max(processedOf(after) - processedOf(before), 0) / seconds
         const rssMb = after.rssBytes / 1024 / 1024
-        for (let at = bucketOf(before.at, FLOW_BUCKET_MS); at < after.at; at += FLOW_BUCKET_MS) {
-            const weightMs = Math.min(after.at, at + FLOW_BUCKET_MS) - Math.max(before.at, at)
+        for (let at = bucketOf(before.at, BUCKET_MS); at < after.at; at += BUCKET_MS) {
+            const weightMs = Math.min(after.at, at + BUCKET_MS) - Math.max(before.at, at)
             const sum = weighted.get(at) ?? { weightMs: 0, cpuPercent: 0, processedPerSecond: 0, rssMb: 0 }
             sum.weightMs += weightMs
             sum.cpuPercent += cpuPercent * weightMs
@@ -80,7 +80,7 @@ function replicaBucketsOf(ofReplica: readonly MetricSample[], restarts: number[]
             weighted.set(at, sum)
         }
     }
-    return new Map(
+    const buckets = new Map(
         [...weighted].map(([at, sum]) => [
             at,
             {
@@ -91,6 +91,7 @@ function replicaBucketsOf(ofReplica: readonly MetricSample[], restarts: number[]
             },
         ])
     )
+    return { restarts, buckets }
 }
 
 export function roleSeriesOf(samples: readonly MetricSample[]): RoleSeries[] {
@@ -105,7 +106,9 @@ export function roleSeriesOf(samples: readonly MetricSample[]): RoleSeries[] {
         const entry: RoleEntry = byRole.get(role) ?? { replicas: 0, restarts: [], buckets: new Map() }
         byRole.set(role, entry)
         entry.replicas += 1
-        for (const [at, point] of replicaBucketsOf(ofReplica, entry.restarts)) {
+        const { restarts, buckets } = replicaBucketsOf(ofReplica)
+        entry.restarts.push(...restarts)
+        for (const [at, point] of buckets) {
             const sum = entry.buckets.get(at) ?? { at, cpuPercent: 0, processedPerSecond: 0, rssMb: 0 }
             sum.cpuPercent += point.cpuPercent
             sum.processedPerSecond += point.processedPerSecond
@@ -145,7 +148,7 @@ export function writerSeriesOf(writer: readonly WriterSample[]): WriterPoint[] {
 export function flowSeriesOf({ journal, truth }: Pick<Evidence, 'journal' | 'truth'>): FlowPoint[] {
     const buckets = new Map<number, FlowPoint & { latencies: number[] }>()
     const pointAt = (at: number): FlowPoint & { latencies: number[] } => {
-        const key = bucketOf(at, FLOW_BUCKET_MS)
+        const key = bucketOf(at, BUCKET_MS)
         const point = buckets.get(key) ?? {
             at: key,
             offeredEvents: 0,
@@ -182,7 +185,7 @@ export function flowSeriesOf({ journal, truth }: Pick<Evidence, 'journal' | 'tru
             continue
         }
         const email = record.kind === 'ses.send'
-        if (isOk(record.status) && record.fault === undefined) {
+        if (isAccepted(record.status) && record.fault === undefined) {
             point[email ? 'emailOk' : 'webhookOk'] += 1
         } else {
             point[email ? 'emailFaulted' : 'webhookFaulted'] += 1
@@ -201,7 +204,7 @@ export function flowSeriesOf({ journal, truth }: Pick<Evidence, 'journal' | 'tru
 
 export function seriesOf(evidence: Evidence): Series {
     return {
-        bucketMs: FLOW_BUCKET_MS,
+        bucketMs: BUCKET_MS,
         roles: roleSeriesOf(evidence.samples),
         queue: queueSeriesOf(evidence.queue),
         writer: writerSeriesOf(evidence.writer),

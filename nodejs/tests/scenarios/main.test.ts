@@ -57,7 +57,7 @@ function environmentWhoseResetFails(): Environment {
         dependencyHealth: () => Promise.resolve({ healthy: true, down: [] }),
         actuate: () => Promise.reject(new Error('the main test schedules no valves')),
         writerCpu: () => Promise.reject(new Error('these runs read no writer CPU')),
-        topology: () => Promise.reject(new Error('the reset fails before the topology is read')),
+        wiring: () => Promise.reject(new Error('the reset fails before the topology is read')),
         exits: () => [],
         groupLag: () => Promise.resolve(0),
         down: () => Promise.resolve(),

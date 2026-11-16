@@ -48,12 +48,18 @@ const s = (tag, attrs = {}, ...children) => {
 let navigation = 0
 let renderedFor = 0
 
-const render = (...children) => {
-    renderedFor = navigation
-    app.replaceChildren(
-        ...children.flat(Infinity).filter((child) => child !== null && child !== undefined && child !== false)
-    )
-}
+const renderFor =
+    (token) =>
+    (...children) => {
+        if (token !== navigation) {
+            return false
+        }
+        renderedFor = token
+        app.replaceChildren(
+            ...children.flat(Infinity).filter((child) => child !== null && child !== undefined && child !== false)
+        )
+        return true
+    }
 
 const getJson = async (url) => {
     // oxlint-disable-next-line no-restricted-globals
@@ -126,10 +132,7 @@ const valveText = (entry) => {
     return `${entry.valve} on ${entry.target}${dose ? ` (${dose})` : ''}, ${when}, for ${fmtDuration(entry.forMs)}`
 }
 
-const barText = ({ name, params, unit }) => {
-    const threshold = Object.values(params).find((value) => typeof value === 'number')
-    return threshold === undefined ? name : `${name} ${threshold}${unit}`
-}
+const barText = ({ name, limit, unit }) => `${name} ${limit}${unit}`
 
 const trafficText = ({ name, ratePerSecond }) =>
     ratePerSecond === null ? name : `${name} ${fmtNumber(ratePerSecond)}/s`
@@ -334,10 +337,16 @@ const atOrBefore = (points, t) => {
 
 const KILL_SHOWN_MS = 4000
 
+const cardOfRun = (cardView, detail) =>
+    !cardView?.ok || !detail.scorecard.cardHash
+        ? 'unknown'
+        : cardView.cardHash === detail.scorecard.cardHash
+          ? 'same'
+          : 'changed'
+
 function valveWindows(detail, cardView) {
     const driveEnd = detail.drive?.endedAt ?? Date.parse(detail.endedAt)
-    const sameCard = cardView?.ok && cardView.cardHash === detail.scorecard.cardHash
-    const cardValves = sameCard ? cardView.valves : []
+    const cardValves = cardOfRun(cardView, detail) === 'same' ? cardView.valves : []
     return (detail.scorecard.timeline ?? []).map((entry, i) => {
         const cardEntry = cardValves[i]?.valve === entry.valve ? cardValves[i] : undefined
         const from = entry.appliedAt ? Date.parse(entry.appliedAt) : null
@@ -878,13 +887,13 @@ const pinRowY = (row) => 20 + 20 * row
 
 const breaksText = (count) => `${count} ${count === 1 ? 'scenario breaks' : 'scenarios break'} this part`
 
-function pinLabelAt(cx, y, text) {
+function pinLabelAt(cx, y, text, kind = 'pin-label') {
     const fits = Math.floor((MAP_W - 8) / PIN_LABEL_CHAR_W)
     const shown = text.length > fits ? `${text.slice(0, fits - 1)}…` : text
     const width = shown.length * PIN_LABEL_CHAR_W
     return cx - 6 - width >= 4
-        ? s('text', { x: cx - 6, y, class: 'pin-label' }, shown)
-        : s('text', { x: Math.min(cx + 14, MAP_W - 4 - width), y, class: 'pin-label start' }, shown)
+        ? s('text', { x: cx - 6, y, class: kind }, shown)
+        : s('text', { x: Math.min(cx + 14, MAP_W - 4 - width), y, class: `${kind} start` }, shown)
 }
 const podHeightOf = (node) => (node.group ? 78 : 62)
 const heightOf = (node) =>
@@ -1081,12 +1090,20 @@ function mapOf(topology) {
             pins.append(
                 s(
                     'g',
-                    { class: card ? 'pin on' : 'pin' },
+                    {
+                        class: card ? 'pin on' : 'pin',
+                        tabindex: card ? 0 : null,
+                        'aria-label': card ? text : null,
+                    },
                     s('title', {}, card ? text : breaksText(hitBy.size)),
                     row < labelled ? s('line', { x1: cx, y1: cy, x2: cx, y2: labelY + 4 }) : null,
                     s('circle', { cx, cy, r: 10 }),
                     s('text', { x: cx, y: cy + 4, class: 'pin-mark' }, card ? '!' : String(hitBy.size)),
-                    row < labelled ? pinLabelAt(cx, labelY, text) : null
+                    row < labelled
+                        ? pinLabelAt(cx, labelY, text)
+                        : card
+                          ? pinLabelAt(cx, pinRowY(PIN_ROWS - 1), text, 'pin-label on-demand')
+                          : null
                 )
             )
         })
@@ -1094,8 +1111,8 @@ function mapOf(topology) {
             pins.append(
                 s(
                     'text',
-                    { x: MAP_W - 10, y: pinRowY(PIN_ROWS - 1), class: 'pin-label' },
-                    `+${pinned.length - labelled} more, hover a pin to read it`
+                    { x: MAP_W - 10, y: pinRowY(PIN_ROWS - 1), class: 'pin-label more' },
+                    `+${pinned.length - labelled} more, hover or focus a pin to read it`
                 )
             )
         }
@@ -1156,11 +1173,8 @@ const foundLines = (found) =>
           ? [h('span', { class: 'muted' }, `The viewer cannot read its last run: ${found.problem}`)]
           : found.lines.map((line) => h('span', {}, line))
 
-async function mapPage(stale) {
+async function mapPage(render) {
     const [all, runs, wiring] = await Promise.all([cards(), getJson('/api/runs'), readTopology()])
-    if (stale()) {
-        return
-    }
     const loaded = all.filter((card) => card.ok)
     const map = mapOf(wiring.recorded?.topology ?? DECLARED_TOPOLOGY)
     map.setCards(loaded)
@@ -1231,7 +1245,7 @@ async function mapPage(stale) {
             )
         })
     )
-    render(
+    const painted = render(
         h('h1', {}, 'Workflows delivery path'),
         h(
             'p',
@@ -1284,6 +1298,9 @@ async function mapPage(stale) {
                           : null,
                   ].filter(Boolean))
         )
+    }
+    if (!painted) {
+        return
     }
     const timer = setInterval(() => void showLive(), 2000)
     stopReplay = () => clearInterval(timer)
@@ -1396,11 +1413,8 @@ function runsTable(runs, columns = EVERY_RUN) {
     )
 }
 
-async function runsPage(stale) {
+async function runsPage(render) {
     const runs = await getJson('/api/runs')
-    if (stale()) {
-        return
-    }
     render(h('h1', {}, 'Runs'), h('p', { class: 'sub' }, 'Every run on this box, newest first.'), runsTable(runs))
 }
 
@@ -1421,26 +1435,28 @@ const runMark = (run) => ({
 
 const RECENT_FINDINGS = 6
 
-function findingsList(details) {
-    if (details.length === 0) {
+function findingsList(found) {
+    if (found.length === 0) {
         return h('p', { class: 'muted' }, 'No runs on this box yet.')
     }
     return h(
         'div',
         { class: 'findings' },
-        details.map((detail) =>
+        found.map(({ run, detail, problem }) =>
             h(
                 'a',
-                { class: 'found', href: `#/runs/${detail.runId}` },
+                { class: 'found', href: `#/runs/${run.runId}` },
                 h(
                     'div',
                     { class: 'found-head' },
-                    statusPill(detail.status),
-                    h('span', {}, fmtTime(detail.startedAt)),
-                    h('span', { class: 'muted' }, `${ago(detail.startedAt)}, ${detail.where}`),
-                    detail.headSha ? h('span', { class: 'muted mono' }, detail.headSha.slice(0, 10)) : null
+                    statusPill(run.status),
+                    h('span', {}, fmtTime(run.startedAt)),
+                    h('span', { class: 'muted' }, `${ago(run.startedAt)}, ${run.where}`),
+                    detail?.headSha ? h('span', { class: 'muted mono' }, detail.headSha.slice(0, 10)) : null
                 ),
-                findingOf(detail).map((line) => h('div', {}, line))
+                problem
+                    ? h('div', { class: 'muted' }, `The viewer cannot read this run: ${problem}`)
+                    : findingOf(detail).map((line) => h('div', {}, line))
             )
         )
     )
@@ -1449,11 +1465,8 @@ function findingsList(details) {
 const fmtWhen = (t) =>
     new Date(t).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
 
-async function cardPage(id, stale) {
+async function cardPage(id, render) {
     const [all, runs, wiring] = await Promise.all([cards(), getJson('/api/runs'), readTopology(id)])
-    if (stale()) {
-        return
-    }
     const card = all.find((c) => c.id === id)
     if (!card) {
         render(h('a', { href: '#/scenarios' }, '← Scenarios'), h('h1', {}, 'No such scenario'))
@@ -1477,11 +1490,14 @@ async function cardPage(id, stale) {
     const map = mapOf(wiring.recorded?.topology ?? DECLARED_TOPOLOGY)
     map.setCards([card])
     map.focus(card)
-    const details = (
-        await Promise.all(
-            ofCard.slice(0, RECENT_FINDINGS).map((run) => getJson(`/api/runs/${run.runId}`).catch(() => null))
+    const found = await Promise.all(
+        ofCard.slice(0, RECENT_FINDINGS).map((run) =>
+            getJson(`/api/runs/${run.runId}`).then(
+                (detail) => ({ run, detail }),
+                (error) => ({ run, problem: error.message })
+            )
         )
-    ).filter(Boolean)
+    )
     const held = ofCard.filter((run) => run.status === 'passed').length
     const chronological = [...ofCard].reverse()
     const history = lineChart({
@@ -1526,7 +1542,7 @@ async function cardPage(id, stale) {
         ),
         h('div', { class: 'panel' }, h('p', { class: 'muted' }, wiringText(wiring)), map.svg),
         h('h2', {}, 'What its runs found'),
-        findingsList(details),
+        findingsList(found),
         h(
             'div',
             { class: 'split', style: 'margin-top:16px' },
@@ -1591,11 +1607,8 @@ async function cardPage(id, stale) {
     )
 }
 
-async function scenariosPage(stale) {
+async function scenariosPage(render) {
     const [all, runs] = await Promise.all([cards(), getJson('/api/runs')])
-    if (stale()) {
-        return
-    }
     const open = new Set()
     const body = h('tbody', {})
     const draw = () =>
@@ -2088,7 +2101,7 @@ function generatorLanes(detail, cardView, windows, from, to, onSeek) {
             onSeek(from + ((px - LABEL_W) / plotW) * span)
         }
     })
-    const changed = cardView?.cardHash && detail.scorecard.cardHash && cardView.cardHash !== detail.scorecard.cardHash
+    const changed = cardOfRun(cardView, detail) === 'changed'
     return {
         el: h(
             'div',
@@ -2129,12 +2142,9 @@ const happeningsOf = (windows, roles) =>
         .filter(Boolean)
         .sort((a, b) => a.at - b.at)
 
-async function runPage(runId, startAtSeconds, stale) {
+async function runPage(runId, startAtSeconds, render) {
     stopReplay()
     const [detail, all] = await Promise.all([getJson(`/api/runs/${runId}`), cards()])
-    if (stale()) {
-        return
-    }
     const cardView = all.find((c) => c.id === detail.cardId)
     const windows = valveWindows(detail, cardView)
     const from = detail.drive?.startedAt ?? Date.parse(detail.startedAt)
@@ -2282,12 +2292,9 @@ const liveDetail = (live) => ({
     scorecard: { timeline: live.timeline, cardHash: live.cardHash },
 })
 
-async function livePage(stale) {
+async function livePage(render) {
     stopReplay()
     const all = await cards()
-    if (stale()) {
-        return
-    }
     const diagram = deliveryPath()
     const header = h('div')
     const clock = h('span', { class: 'clock' })
@@ -2331,8 +2338,11 @@ async function livePage(stale) {
         h('h2', {}, 'So far'),
         chartsEl
     )
-    render(header, empty, body)
+    if (!render(header, empty, body)) {
+        return
+    }
     body.hidden = true
+    const stoppedLine = h('span')
     let shownRun
     let watched
     let busy = false
@@ -2394,11 +2404,7 @@ async function livePage(stale) {
                                       : null
                               )
                             : lost
-                              ? h(
-                                    'div',
-                                    { class: 'reason invalid' },
-                                    `The runner stopped writing ${ago(new Date(live.updatedAt).toISOString())} without a verdict, so this run has no scorecard. Its process most likely died.`
-                                )
+                              ? h('div', { class: 'reason invalid' }, stoppedLine)
                               : null,
                     ].filter(Boolean)
                 )
@@ -2416,6 +2422,9 @@ async function livePage(stale) {
                     )
                 )
             }
+            stoppedLine.textContent = lost
+                ? `The runner stopped writing ${ago(new Date(live.updatedAt).toISOString())} without a verdict, so this run has no scorecard. Its process most likely died.`
+                : ''
             diagram.paint(viewAt(detail, windows, t))
             clock.textContent = live.drive
                 ? `t+${fmtDuration(Math.max(0, (live.ended ? lastData : lastSeen) - from))}${live.drive.forMs ? ` of ${fmtDuration(live.drive.forMs)} drive` : ''}`
@@ -2459,7 +2468,7 @@ async function livePage(stale) {
 
 async function route() {
     const token = ++navigation
-    const stale = () => token !== navigation
+    const render = renderFor(token)
     stopReplay()
     hideTooltip()
     const [path, query] = location.hash.split('?')
@@ -2473,28 +2482,23 @@ async function route() {
                 a.dataset.nav === (page || 'map') || (['cards', 'runs'].includes(page) && a.dataset.nav === 'scenarios')
             )
         )
-    const loading = setTimeout(
-        () => stale() || renderedFor === token || render(h('p', { class: 'muted' }, 'Loading…')),
-        300
-    )
+    const loading = setTimeout(() => renderedFor === token || render(h('p', { class: 'muted' }, 'Loading…')), 300)
     try {
         if (page === 'live') {
-            await livePage(stale)
+            await livePage(render)
         } else if (page === 'runs' && id) {
-            await runPage(id, startAt, stale)
+            await runPage(id, startAt, render)
         } else if (page === 'runs') {
-            await runsPage(stale)
+            await runsPage(render)
         } else if (page === 'scenarios') {
-            await scenariosPage(stale)
+            await scenariosPage(render)
         } else if (page === 'cards' && id) {
-            await cardPage(id, stale)
+            await cardPage(id, render)
         } else {
-            await mapPage(stale)
+            await mapPage(render)
         }
     } catch (error) {
-        if (!stale()) {
-            render(h('h1', {}, 'Something went wrong'), h('div', { class: 'reason failed' }, error.message))
-        }
+        render(h('h1', {}, 'Something went wrong'), h('div', { class: 'reason failed' }, error.message))
     } finally {
         clearTimeout(loading)
     }

@@ -133,7 +133,7 @@ describe('runner', () => {
         dependencyHealth: () => Promise.resolve({ healthy: true, down: [] }),
         exits: () => [],
         groupLag: () => Promise.resolve(0),
-        topology: () =>
+        wiring: () =>
             Promise.resolve(
                 wiringOf({
                     adapter: WORKFLOWS_ADAPTER,
@@ -666,8 +666,9 @@ describe('runner through seed, drive and judge', () => {
     let handles: RoleSpec[] = []
     let exits: RoleExit[]
     let killExits: (role: Role) => RoleExit[]
-    let missingFromTopology: { role: Role; reads: number } | undefined
-    let topologyReads = 0
+    let failedWiringReads = 0
+    let cyclotronJoinsAtRead = 0
+    let wiringReads = 0
     const exitOfTheKill = (role: Role): RoleExit[] => [
         { role, replica: 0, at: new Date().toISOString(), code: null, signal: 'SIGKILL', byValve: true },
     ]
@@ -705,16 +706,26 @@ describe('runner through seed, drive and judge', () => {
         dependencyHealth: () => Promise.resolve({ healthy: true, down: [] }),
         exits: () => [...exits],
         groupLag: () => Promise.resolve(0),
-        topology: () => {
-            const missing = topologyReads++ < (missingFromTopology?.reads ?? 0) ? missingFromTopology?.role : undefined
+        wiring: () => {
+            const read = wiringReads++
+            if (read < failedWiringReads) {
+                return Promise.reject(new Error('rpk group list timed out'))
+            }
             return Promise.resolve(
                 wiringOf({
                     adapter: WORKFLOWS_ADAPTER,
-                    specs: handles.filter(({ role }) => role !== missing),
+                    specs: handles,
                     groups: [],
-                    clients: [
-                        { application: 'scenario-cdp-cyclotron-worker-hogflow', database: 'cyclotron', connections: 1 },
-                    ],
+                    clients:
+                        read >= cyclotronJoinsAtRead
+                            ? [
+                                  {
+                                      application: 'scenario-cdp-cyclotron-worker-hogflow',
+                                      database: 'cyclotron',
+                                      connections: 1,
+                                  },
+                              ]
+                            : [],
                     recordedAt: new Date(),
                 })
             )
@@ -802,8 +813,9 @@ describe('runner through seed, drive and judge', () => {
     })
 
     beforeEach(async () => {
-        missingFromTopology = undefined
-        topologyReads = 0
+        failedWiringReads = 0
+        cyclotronJoinsAtRead = 0
+        wiringReads = 0
         api = await startFakeProjectApi()
         cacheHome = mkdtempSync(path.join(os.tmpdir(), 'scenario-runner-'))
         env = {
@@ -1231,29 +1243,39 @@ describe('runner through seed, drive and judge', () => {
     )
 
     it('calls a run invalid before its drive when a valve targets a node its topology lacks, and names the nodes found', async () => {
-        missingFromTopology = { role: 'cdp-cyclotron-worker-email', reads: Infinity }
+        cyclotronJoinsAtRead = Infinity
+        const [failover] = load(path.join(__dirname, '..', 'cards', 'cyclotron-failover-under-load.yaml')).card.valves
 
-        const result = await run('all', [{ ...KILL_EMAIL_WORKER, at: '1s', for: '500ms' }])
+        const result = await run('all', [{ ...failover, at: '1s', for: '500ms' }])
 
         expect(result).toMatchObject({
             status: 'invalid',
             statusReason:
-                "the run stopped: the card targets cdp-cyclotron-worker-email, which this run's topology does not have; it found cdp-api, cdp-cyclotron-v2-janitor, cdp-cyclotron-worker-hogflow, cdp-processed-events, cdp-ses-webhooks, postgres, cyclotron, ses, hooks.example.com",
+                "the run stopped: the card targets cyclotron, which this run's topology does not have; it found cdp-api, cdp-cyclotron-v2-janitor, cdp-cyclotron-worker-email, cdp-cyclotron-worker-hogflow, cdp-processed-events, cdp-ses-webhooks, ses, hooks.example.com",
             timeline: [],
         })
         expect(api.captured[0]?.properties.topology_hash).toEqual(result.topologyHash)
     }, 30_000)
 
-    it('reads the topology again until a role that joined late shows, and runs the card', async () => {
-        missingFromTopology = { role: 'cdp-cyclotron-worker-email', reads: 1 }
+    it.each([
+        ['a database client that joined late', { failed: 0, joinsAt: 2 }],
+        ['a read that failed', { failed: 1, joinsAt: 0 }],
+    ])(
+        'reads the topology again past %s, and runs the card',
+        async (_case, { failed, joinsAt }) => {
+            failedWiringReads = failed
+            cyclotronJoinsAtRead = joinsAt
+            const [failover] = load(path.join(__dirname, '..', 'cards', 'cyclotron-failover-under-load.yaml')).card
+                .valves
 
-        const result = await run('all', [{ ...KILL_EMAIL_WORKER, at: '1s', for: '500ms' }])
+            const result = await run('all', [{ ...failover, at: '1s', for: '500ms' }])
 
-        expect(result.statusReason).not.toContain('topology')
-        expect(result.timeline).toEqual([
-            expect.objectContaining({ valve: 'role.kill', target: 'cdp-cyclotron-worker-email' }),
-        ])
-    }, 30_000)
+            expect(result.statusReason).toEqual(
+                'pg.failover on cyclotron was not observed: pg.failover runs only on a run host'
+            )
+        },
+        30_000
+    )
 
     it('calls the failover card invalid at its valve on a host without a run manifest', async () => {
         const [failover] = load(path.join(__dirname, '..', 'cards', 'cyclotron-failover-under-load.yaml')).card.valves

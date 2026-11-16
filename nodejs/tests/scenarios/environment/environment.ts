@@ -70,7 +70,7 @@ export interface Environment {
     dependencyHealth(): Promise<{ healthy: boolean; down: string[] }>
     exits(): RoleExit[]
     groupLag(group: string): Promise<number>
-    topology(): Promise<Wiring>
+    wiring(): Promise<Wiring>
     writerCpu(manifest: RunManifest, window: DriveWindow, signal: AbortSignal): Promise<CpuPoint[]>
     down(): Promise<void>
 }
@@ -282,7 +282,7 @@ export function createEnvironment({
 
         groupLag: (group) => groupLag(group, docker),
 
-        async topology() {
+        async wiring() {
             const clients = await Promise.all(postgresServers.map((server) => postgresClients(server)))
             return wiringOf({
                 adapter: WORKFLOWS_ADAPTER,

@@ -11,7 +11,7 @@ export const WORKFLOWS_ADAPTER = 'workflows'
 
 type Partition = { topic: string; lag: number | null; client: string }
 
-export type KafkaGroup = { group: string; state: string; partitions: Partition[] }
+export type KafkaGroup = { group: string; partitions: Partition[] }
 
 export type PostgresClient = { application: string; database: string; connections: number }
 
@@ -62,7 +62,7 @@ function groupsOf(rpkDescribe: string): KafkaGroup[] {
                 lag: numberOr(row.LAG),
                 client: row['CLIENT-ID'],
             }))
-            return { group: field('GROUP'), state: field('STATE'), partitions }
+            return { group: field('GROUP'), partitions }
         })
 }
 

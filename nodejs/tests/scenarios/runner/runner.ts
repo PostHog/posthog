@@ -329,13 +329,24 @@ export function createRunner(
         const deadline = Date.now() + topologyWithinMs
         let previousHash: string | undefined
         for (;;) {
-            const wiring = await environment.topology()
-            const nodes = nodesOf(wiring, EDGE_HOSTS)
-            const missing = missingTargets(targets, nodes)
-            if ((missing.length === 0 && wiring.hash === previousHash) || Date.now() >= deadline) {
-                return { wiring, nodes, missing }
+            const read = await environment.wiring().then(
+                (wiring) => ({ wiring }),
+                (error: unknown) => ({ error })
+            )
+            const late = Date.now() >= deadline
+            if ('error' in read) {
+                if (late) {
+                    throw read.error
+                }
+            } else {
+                const nodes = nodesOf(read.wiring, EDGE_HOSTS)
+                const missing = missingTargets(targets, nodes)
+                const settled = missing.length === 0 && (targets.length === 0 || read.wiring.hash === previousHash)
+                if (settled || late) {
+                    return { wiring: read.wiring, nodes, missing }
+                }
+                previousHash = missing.length === 0 ? read.wiring.hash : undefined
             }
-            previousHash = missing.length === 0 ? wiring.hash : undefined
             await sleep(topologyEveryMs, undefined, { signal })
         }
     }
@@ -423,7 +434,7 @@ export function createRunner(
             let probes: Probes | undefined
             let probed: Probed = { writer: [], queue: [] }
             let driven: DriveWindow | undefined
-            let topology: Wiring | undefined
+            let recorded: Wiring | undefined
             let producer: KafkaProducerWrapper | undefined
             try {
                 producer = await KafkaProducerWrapper.createWithConfig(undefined, producerConfigOf(specs[0].env))
@@ -450,7 +461,7 @@ export function createRunner(
                     card.valves.map(({ target }) => target),
                     signal
                 )
-                topology = wiring
+                recorded = wiring
                 if (missing.length > 0) {
                     throw new Error(
                         `the card targets ${missing.join(', ')}, which this run's topology does not have; it found ${nodes.join(', ')}`
@@ -580,7 +591,7 @@ export function createRunner(
                 cardId: card.id,
                 cardHash: loaded.cardHash,
                 profileHash: loaded.profileHash,
-                ...(topology ? { topologyHash: topology.hash } : {}),
+                ...(recorded ? { topologyHash: recorded.hash } : {}),
                 origin: 'local-agent',
                 timeline: valves.timeline(),
                 startedAt,
@@ -595,8 +606,8 @@ export function createRunner(
                 writeJson(evidenceDir, 'truth.json', truth)
                 writeJson(evidenceDir, 'metrics.json', sampled)
                 writeJson(evidenceDir, 'probes.json', { drive: driven ?? null, ...probed })
-                if (topology) {
-                    writeJson(evidenceDir, TOPOLOGY_FILE, { ...topology, hosts: hostsOf(truth) })
+                if (recorded) {
+                    writeJson(evidenceDir, TOPOLOGY_FILE, { ...recorded, hosts: hostsOf(truth) })
                 }
                 writeJson(evidenceDir, 'scorecard.json', {
                     ...verdict,

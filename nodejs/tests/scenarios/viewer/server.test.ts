@@ -204,6 +204,15 @@ function writeCards(cardsDir: string): void {
         '      params:',
         '          percent: 60',
     ])
+    write('failover', [
+        ...common('failover', ['    for: 40s', '    traffic:', '        - name: event_webhook']),
+        'valves:',
+        '    - valve: pg.failover',
+        '      target: cyclotron',
+        '      dose: {}',
+        '      at: 10s',
+        '      for: 20s',
+    ])
     write('broken', ['id: broken', 'version: one'])
 }
 
@@ -335,8 +344,9 @@ describe('scenario viewer', () => {
                 ok: false,
                 id: 'broken',
                 file: path.join(cardsDir, 'broken.yaml'),
-                problems: expect.arrayContaining([expect.any(String)]),
+                problems: expect.arrayContaining(['version: Invalid input: expected number, received string']),
             },
+            expect.objectContaining({ ok: true, id: 'failover', bars: [], runHostOnly: true }),
             expect.objectContaining({
                 ok: true,
                 id: 'frozen-worker',
@@ -369,7 +379,7 @@ describe('scenario viewer', () => {
                     { scale: 1, fromMs: 0, toMs: 60_000 },
                     { scale: 3, fromMs: 60_000, toMs: 180_000 },
                 ],
-                bars: [{ name: 'writer_cpu_under', params: { percent: 60 }, unit: '%' }],
+                bars: [{ name: 'writer_cpu_under', limit: 60, unit: '%' }],
             }),
         ])
     })
