@@ -35,12 +35,9 @@ export function zodEnLocaleOnlyPlugin(): Plugin {
     }
 }
 
+// Must match CHUNK_GRAPH_FILE in frontend/bin/viteAppBuild.mjs, which reads this file.
 export const CHUNK_GRAPH_FILE = 'vite-app-graph.json'
 
-/**
- * Records the chunk graph for frontend/bin/viteAppBuild.mjs: which chunks import which, which
- * source modules each chunk holds, and the stylesheets Vite attached to each chunk.
- */
 export function chunkGraphPlugin(): Plugin {
     return {
         name: 'chunk-graph',

@@ -91,7 +91,6 @@ function plan(code: Record<string, string> = {}): ReturnType<typeof planViteApp>
 const placeholderUrl = (fileName: string): string => `static/vite/${PLACEHOLDER[fileName]}`
 
 describe('planViteApp', () => {
-    // Vite can change a chunk's bytes and keep its file name. An immutable cache then serves the old bytes.
     it('renames only the chunk whose bytes changed, and keeps every placeholder', () => {
         const before = plan()
         const after = plan({ 'chunk-grid.js': 'export const columns = 12' })

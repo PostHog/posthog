@@ -30,7 +30,6 @@ export const MANIFEST_FILE = 'vite-app-manifest.json'
 export const IMPORT_MAP_FILE = 'importmap.json'
 export const CHUNK_GRAPH_FILE = 'vite-app-graph.json'
 
-// Chunks below this size aren't worth a preload tag in the HTML document.
 const PRELOAD_MIN_CHUNK_BYTES = 50 * 1024
 
 const SOURCE_MAP_COMMENT = /\n\/\/# sourceMappingURL=[^\n]*\s*$/
@@ -61,8 +60,6 @@ function facadeKey(chunk, frontendDir) {
 }
 
 /**
- * Plans the build's final shape. Pure apart from `readCode` and `fileSize`.
- *
  * - `graph`: the chunks that chunkGraphPlugin recorded, minus the chunks Vite deleted afterwards.
  * - `importMapUrls`: Vite's import map, placeholder URL -> file URL, both under `urlBase`.
  * - `signedInModules`: module keys that a logged-out page never loads.
@@ -207,7 +204,6 @@ export function planViteApp({ graph, importMapUrls, urlBase, frontendDir, signed
     }
 }
 
-/** Which modules a logged-out page never loads: every scene it cannot show, and the signed-in shell. */
 export function signedInModuleKeys(frontendDir) {
     const scenes = sceneModules(frontendDir)
     const loggedOut = new Set(LOGGED_OUT_SCENES.map((scene) => scenes.get(scene)))

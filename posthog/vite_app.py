@@ -58,7 +58,6 @@ class ViteApp:
     asset_prefix: str
     # import map: placeholder path -> file path
     imports: dict[str, str]
-    # The placeholders a logged-out page can reach.
     logged_out_specifiers: frozenset[str]
     # The stylesheets the page links before the entry runs, in cascade order.
     eager_css_urls: tuple[str, ...]

@@ -1,5 +1,4 @@
 #!/usr/bin/env node
-// Runs after `vite build --config vite.app.config.mts`. See viteAppBuild.mjs for what it does and why.
 import fs from 'node:fs'
 import path from 'node:path'
 import { fileURLToPath } from 'node:url'
