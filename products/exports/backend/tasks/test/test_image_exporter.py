@@ -1,5 +1,7 @@
 import json
 from datetime import datetime
+from pathlib import Path
+from tempfile import TemporaryDirectory
 from typing import Any
 from urllib.parse import parse_qs, urlparse
 
@@ -102,7 +104,7 @@ class TestImageExporter(APIBaseTest):
         )
 
         with self.assertRaises(InvalidExportContext):
-            image_exporter._export_to_png(exported_asset)
+            image_exporter._export_rendered_asset(exported_asset)
 
     @patch("products.exports.backend.tasks.image_exporter.process_query_dict")
     def test_adhoc_query_export_renders_without_insight(
@@ -244,8 +246,11 @@ class TestImageExporter(APIBaseTest):
 
             assert self.exported_asset.content == b"image_data"
 
+    @parameterized.expand([ExportedAsset.ExportFormat.PNG, ExportedAsset.ExportFormat.PDF])
     @patch("products.exports.backend.tasks.image_exporter.calculate_for_query_based_insight")
-    def test_dashboard_export_calculates_all_insights(self, mock_calculate: Any, *args: Any) -> None:
+    def test_dashboard_export_calculates_all_insights(
+        self, export_format: str, mock_calculate: Any, *args: Any
+    ) -> None:
         mock_calculate.return_value = make_insight_result("test_cache_key")
 
         dashboard = Dashboard.objects.create(team=self.team, name="Test Dashboard")
@@ -266,13 +271,15 @@ class TestImageExporter(APIBaseTest):
 
         dashboard_asset = ExportedAsset.objects.create(
             team=self.team,
-            export_format=ExportedAsset.ExportFormat.PNG,
+            export_format=export_format,
             dashboard=dashboard,
             insight=None,
         )
 
         with self.settings(OBJECT_STORAGE_ENABLED=False):
             image_exporter.export_image(dashboard_asset)
+
+        assert dashboard_asset.content == b"image_data"
 
         assert mock_calculate.call_count == insight_count, (
             f"Expected cache warming for {insight_count} insights, got {mock_calculate.call_count} calls"
@@ -980,6 +987,25 @@ class TestBuildCdpEndpoint(SimpleTestCase):
 
 
 class TestScreenshotAssetBrowserless(SimpleTestCase):
+    def test_pdf_renderer_writes_pdf_bytes(self) -> None:
+        page = MagicMock()
+        page.evaluate.return_value = 800
+        page.pdf.side_effect = lambda path, **kwargs: Path(path).write_bytes(b"%PDF-rendered")
+        page.screenshot.side_effect = lambda path: Path(path).write_bytes(b"PNG-rendered")
+        playwright_cm = MagicMock()
+        browser = playwright_cm.__enter__.return_value.chromium.connect_over_cdp.return_value
+        browser.new_context.return_value.new_page.return_value = page
+
+        with (
+            TemporaryDirectory() as directory,
+            patch("products.exports.backend.tasks.image_exporter.sync_playwright", return_value=playwright_cm),
+        ):
+            path = Path(directory) / "dashboard.pdf"
+            image_exporter._screenshot_asset_browserless(
+                str(path), "https://example.com/export", 1122, ".react-grid-item", export_pdf=True
+            )
+            assert path.read_bytes() == b"%PDF-rendered"
+
     def test_connect_error_is_wrapped_as_browserless_unavailable(self) -> None:
         playwright_obj = MagicMock()
         playwright_obj.chromium.connect_over_cdp.side_effect = PlaywrightError("ECONNREFUSED")

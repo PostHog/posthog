@@ -159,8 +159,8 @@ MEASURE_CONTENT_WIDTH_JS = f"""
             return null;
         """
 
-ScreenWidth = Literal[600, 800, 1920, 1400, 4000]
-CSSSelector = Literal[".InsightCard", ".ExportedInsight", ".replayer-wrapper", ".heatmap-exporter"]
+ScreenWidth = Literal[600, 800, 1122, 1920, 1400, 4000]
+CSSSelector = Literal[".InsightCard", ".ExportedInsight", ".replayer-wrapper", ".heatmap-exporter", ".react-grid-item"]
 
 
 def _insight_query_wants_legend(query: dict) -> bool:
@@ -206,16 +206,16 @@ def _insight_query_screenshot_width(query: dict) -> ScreenWidth:
     return 600 if is_metric else 800
 
 
-def _export_to_png(
+def _export_rendered_asset(
     exported_asset: ExportedAsset,
     max_height_pixels: Optional[int] = None,
     insight_cache_keys: Optional[dict[int, str]] = None,
 ) -> None:
     """
-    Exporting an Insight means:
-    1. Loading the Insight from the web app in a dedicated rendering mode
-    2. Waiting for the page to have fully loaded before taking a screenshot to disk
-    3. Loading that screenshot into memory and saving the data representation to the relevant Insight
+    Exporting a rendered asset means:
+    1. Loading the asset from the web app in a dedicated rendering mode
+    2. Waiting for the page to have fully loaded before writing the PNG or PDF to disk
+    3. Loading the file into memory and saving it to the exported asset
     4. Cleanup: Remove the old file and close the browser session
 
     Args:
@@ -239,7 +239,8 @@ def _export_to_png(
             )
 
         image_id = str(uuid.uuid4())
-        image_path = os.path.join(TMP_DIR, f"{image_id}.png")
+        extension = "pdf" if exported_asset.export_format == ExportedAsset.ExportFormat.PDF else "png"
+        image_path = os.path.join(TMP_DIR, f"{image_id}.{extension}")
 
         if not os.path.exists(TMP_DIR):
             os.makedirs(TMP_DIR)
@@ -260,8 +261,10 @@ def _export_to_png(
         elif exported_asset.dashboard is not None:
             cache_keys_param = _build_cache_keys_param(insight_cache_keys)
             url_to_render = _exporter_url(f"token={access_token}{cache_keys_param}")
-            wait_for_css_selector = ".InsightCard"
-            screenshot_width = 1920
+            wait_for_css_selector = (
+                ".react-grid-item" if exported_asset.export_format == ExportedAsset.ExportFormat.PDF else ".InsightCard"
+            )
+            screenshot_width = 1122 if exported_asset.export_format == ExportedAsset.ExportFormat.PDF else 1920
         elif exported_asset.export_context and exported_asset.export_context.get("session_recording_id"):
             # Handle replay export using /exporter route (same as insights/dashboards)
             url_to_render = _exporter_url(
@@ -337,6 +340,7 @@ def _export_to_png(
                 screenshot_height,
                 max_height_pixels,
                 page_load_timeout,
+                export_pdf=exported_asset.export_format == ExportedAsset.ExportFormat.PDF,
             )
         except Exception as e:
             IMAGE_EXPORT_RENDER_DURATION.labels(backend="browserless", outcome="failure").observe(
@@ -454,6 +458,8 @@ def _screenshot_asset_browserless(
     screenshot_height: int = 600,
     max_height_pixels: Optional[int] = None,
     page_load_timeout: int = 40,
+    *,
+    export_pdf: bool = False,
 ) -> None:
     endpoint = _build_cdp_endpoint(
         settings.BROWSERLESS_CDP_URL, settings.BROWSERLESS_TOKEN, settings.BROWSERLESS_SESSION_TIMEOUT_MS
@@ -504,6 +510,19 @@ def _screenshot_asset_browserless(
                     _save_debug_screenshot(lambda p: page.screenshot(path=p), image_path)
                     capture_exception(e)
 
+            if export_pdf:
+                # Grid DOM order can differ from its saved visual order; preserve that order when print stacks tiles.
+                page.evaluate("""() => {
+                    document.querySelectorAll('.react-grid-layout').forEach(grid => {
+                        Array.from(grid.children)
+                            .filter(element => element.classList.contains('react-grid-item'))
+                            .map(element => ({ element, rect: element.getBoundingClientRect() }))
+                            .sort((a, b) => a.rect.top - b.rect.top || a.rect.left - b.rect.left)
+                            .forEach(({ element }, index) => { element.style.order = String(index) })
+                    })
+                }""")
+                page.emulate_media(media="print")
+
             effective_max = _effective_max_height(max_height_pixels)
             height = _cap_height(
                 int(page.evaluate(f"() => {{ {MEASURE_CONTENT_HEIGHT_JS} }}")), effective_max, url_to_render
@@ -524,7 +543,15 @@ def _screenshot_asset_browserless(
                 page.set_viewport_size({"width": width, "height": final_height})
                 # Charts redraw their canvas after a resize, so a screenshot taken at once can catch them blank.
                 page.wait_for_timeout(500)
-            page.screenshot(path=image_path)
+            if export_pdf:
+                page.pdf(
+                    path=image_path,
+                    format="A4",
+                    landscape=True,
+                    print_background=True,
+                )
+            else:
+                page.screenshot(path=image_path)
         except BrowserlessUnavailable:
             raise
         except PlaywrightTimeoutError:
@@ -691,9 +718,11 @@ def export_image(
                 if warm_error:
                     raise InvalidExportContext(f"Invalid query: {warm_error}")
 
-            if exported_asset.export_format == "image/png":
+            if exported_asset.export_format == ExportedAsset.ExportFormat.PNG or (
+                exported_asset.export_format == ExportedAsset.ExportFormat.PDF and exported_asset.dashboard_id
+            ):
                 with EXPORT_TIMER.labels(type=exported_asset.export_format).time():
-                    _export_to_png(
+                    _export_rendered_asset(
                         exported_asset,
                         max_height_pixels=max_height_pixels,
                         insight_cache_keys=insight_cache_keys or None,
