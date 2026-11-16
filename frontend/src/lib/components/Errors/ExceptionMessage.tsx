@@ -4,7 +4,12 @@ import { DETAIL_URL_REGEX } from 'lib/utils/renderDetailWithLinks'
 function isLinkableUrl(value: string): boolean {
     try {
         const url = new URL(value)
-        return (url.protocol === 'https:' || url.protocol === 'http:') && !url.username && !url.password
+        return (
+            (url.protocol === 'https:' || url.protocol === 'http:') &&
+            !url.username &&
+            !url.password &&
+            value.startsWith(`${url.protocol}//${url.host}`)
+        )
     } catch {
         return false
     }
