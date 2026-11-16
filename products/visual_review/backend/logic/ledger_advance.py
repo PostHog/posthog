@@ -338,8 +338,32 @@ class _LedgerAdvancer:
         if self._open_approvals is not None:
             self._open_approvals = [other for other in self._open_approvals if other.id not in approval_ids]
 
+    def _pull_requests_applying(self, approvals: list[BaselineApproval]) -> set[tuple[int, str]]:
+        """The (pull request number, run type) of each current run whose frozen record applied one of the approvals.
+
+        A stack child applies its parent's approval through the overlay without owning it, so only its
+        record links the two.
+        """
+        if not approvals:
+            return set()
+        runs = (
+            Run.objects.using(WRITER_DB)
+            .filter(
+                repo_id=self.repo.id,
+                run_type__in={approval.run_type for approval in approvals},
+                status=RunStatus.COMPLETED,
+                superseded_by__isnull=True,
+                pr_number__isnull=False,
+                metadata__baseline__candidate_approval_ids__has_any_keys=[str(approval.id) for approval in approvals],
+            )
+            .values_list("pr_number", "run_type")
+            .distinct()
+        )
+        return set(runs)
+
     def _publish_for_landed_identifiers(self) -> None:
-        """Publish again for the pull requests with an open approval of an identifier this transaction landed.
+        """Publish again for the pull requests with an open approval of an identifier this transaction landed,
+        and for the pull requests whose current run applied one of those approvals.
 
         It runs after the commit, so no GitHub request runs under the ledger lock. The first callback of
         a transaction takes the whole buffer, so the later callbacks of that transaction do nothing.
@@ -348,11 +372,11 @@ class _LedgerAdvancer:
         if not landed or not commit_status.guards_stale_approvals(self.repo):
             return
         open_approvals = self._open_approvals if self._open_approvals is not None else self._read_open_approvals()
-        holders = {
-            (approval.pr_number, approval.run_type)
-            for approval in open_approvals
-            if approval.identifier in landed.get(approval.run_type, set())
-        }
+        touched = [
+            approval for approval in open_approvals if approval.identifier in landed.get(approval.run_type, set())
+        ]
+        holders = {(approval.pr_number, approval.run_type) for approval in touched}
+        holders |= self._pull_requests_applying(touched)
         commit_status.publish_for_pull_requests(self.repo, holders)
 
     def land(self, landing: _Landing, approvals: list[BaselineApproval], position: int, commit_sha: str) -> None:

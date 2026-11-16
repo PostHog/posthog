@@ -733,6 +733,46 @@ class TestAdvance:
             mocker.call(repo.team_id, str(repo.id), commit_sha, RunType.STORYBOOK) for commit_sha in published_commits
         ]
 
+    @pytest.mark.parametrize(
+        ("child_run", "published_commits"),
+        [
+            pytest.param("applies_parent", ["head-1", "head-2"], id="child_run_applies_the_parent_approval"),
+            pytest.param("applies_nothing", ["head-1"], id="child_run_applies_no_approval"),
+            pytest.param("superseded", ["head-1"], id="only_a_superseded_child_run_applies_it"),
+        ],
+    )
+    def test_a_landing_publishes_again_for_stack_children_that_applied_a_landed_story_approval(
+        self, repo, github, mocker, django_capture_on_commit_callbacks, child_run, published_commits
+    ) -> None:
+        set_baseline_mode(repo, BaselineMode.LEDGER)
+        parent = approve(repo, 1, "Button", "b1")
+        _pull_request_run(repo, 1, "head-1")
+        applied = make_record(candidate_approval_ids=(parent.id,))
+        current_child = _pull_request_run(
+            repo,
+            2,
+            "head-2",
+            minute=1,
+            metadata={METADATA_KEY: (make_record() if child_run != "applies_parent" else applied).to_json()},
+        )
+        if child_run == "superseded":
+            older_child = _pull_request_run(
+                repo, 2, "head-2-old", branch="pr-2-old", metadata={METADATA_KEY: applied.to_json()}
+            )
+            older_child.superseded_by = current_child
+            older_child.save()
+        approve(repo, 8, "Button", "b8")
+        publish = mocker.patch.object(tasks.publish_visual_review_commit_status, "delay")
+        github.merge(8, "s1")
+
+        with django_capture_on_commit_callbacks(using=WRITER_DB, execute=True):
+            ledger_advance.advance(repo)
+
+        assert _ledger(repo)["Button"] == "b8"
+        assert publish.call_args_list == [
+            mocker.call(repo.team_id, str(repo.id), commit_sha, RunType.STORYBOOK) for commit_sha in published_commits
+        ]
+
     # Only real transactions commit the two landings apart. Inside a test transaction both callbacks run at its end.
     @pytest.mark.django_db(transaction=True, databases=PRODUCT_DATABASES)
     def test_each_landing_transaction_of_one_advance_publishes_again(self, repo, github, mocker) -> None:
