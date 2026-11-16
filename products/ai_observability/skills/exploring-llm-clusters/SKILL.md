@@ -103,6 +103,9 @@ ORDER BY timestamp DESC
 LIMIT 10
 ```
 
+For a supplied run ID, add `AND toString(properties.$ai_clustering_run_id) = '<run_id>'` to this query's `WHERE` clause to retrieve its level and analyzed window.
+Widen the timestamp lookback to include that run's emitted cluster event; its analyzed window ends before the event is emitted.
+
 ### Step 2 — Get clusters from a specific run
 
 Return a page of summaries first.
@@ -185,7 +188,6 @@ Compute metrics for each batch with Step 3; representative members alone do not 
 
 Large tool responses may be truncated without a local file.
 If a page is incomplete, reduce its limit or field selection and retry the same offset before continuing.
-Only use [scripts/print_clusters.py](./scripts/print_clusters.py) when your host supplies a complete local result file; the script cannot recover a truncated response.
 
 ### Step 3 — Compute metrics for clusters
 
