@@ -35,6 +35,7 @@ A weekend build that ships events straight into ClickHouse is cheap to run, but 
 4. **Fill in the ledger with the user.**
    Use their volume and spend from step 1 and the inputs the per-event page lists.
    Ask for what only they know: engineer cost, on-call, the retention they need, and infrastructure they already run.
+   Always ask for their engineer cost and where the engineers are based; see "Engineer cost".
    Where they don't know, use the defaults below and label them as defaults.
    Compare month 1 with month 36, not only the first build.
 5. **Work out the break-even headcount.**
@@ -50,18 +51,20 @@ Then ask whether they can run it on fewer.
 This puts the staffing question to the user instead of asking them to trust a table.
 
 ```text
-break-even FTE = (monthly spend the alternative replaces - monthly infrastructure) / monthly engineer cost
+break-even FTE = (monthly spend the alternative replaces - monthly infrastructure - one-off cost / 36) / monthly engineer cost
 ```
 
 - **Spend the alternative replaces** comes from their bill in step 1.
   Count only the products the build or self-host would replace.
   Use what they pay, including any discount, not list prices.
 - **Infrastructure** is their own estimate, or the default below.
-- **Engineer cost** is their own figure, or the default below.
+- **One-off cost** is the build or self-host work plus migration, from "One-off build cost" below.
+  Spread over 36 months, the build default alone takes up 0.17-0.33 FTE, so leaving it out can flip the verdict.
+- **Engineer cost** is their own figure, or the default for their location below.
 
 How to read the result:
 
-- Zero or negative: infrastructure alone costs more than the bill.
+- Zero or negative: infrastructure and the spread one-off cost alone cost more than the bill.
   Say plainly that the alternative cannot win on cost, and stop the cost comparison there.
 - The user gave their own staffing estimate: compare it with the break-even headcount directly.
   If their estimate is below the break-even headcount, the alternative can win on cost.
@@ -72,7 +75,7 @@ How to read the result:
   - In between: the answer depends on their team.
     Ask who would own it and how much of their week it would take.
 
-When the alternative can win on cost, say so, then check the one-off build cost and "Other things to weigh" before the verdict.
+When the alternative can win on cost, say so, then check "Other things to weigh" before the verdict.
 
 Show the working, so the user can change any input and see the result move.
 
@@ -101,7 +104,7 @@ Tell the user that, and use them to check the break-even headcount, not to repla
 - Between rows, headcount roughly doubles for every 10x in volume.
 - Building needs about twice the self-host headcount.
   The team owns everything PostHog's code would otherwise do: capture, queueing, identity merging, the query layer, and exports.
-- Treat the self-host figures as a floor.
+- Treat the self-host figures as a minimum.
   Self-hosting PostHog beyond the hobby deploy is unsupported, so upgrades and incidents have no vendor to call.
 - Treat the 10B row as a minimum.
   Teams at that volume often already have a data platform team, which changes the comparison; see "Who the engineers are".
@@ -111,12 +114,15 @@ Tell the user that, and use them to check the break-even headcount, not to repla
 The staffing table starts after the system is live.
 Add the work to get there:
 
-- **Build your own:** use two engineers for three to six months as the default, which is $125,000 to $250,000 at the default engineer cost.
+- **Build your own:** use two engineers for three to six months as the default (6-12 engineer-months).
+  That is $125,000 to $250,000 at the US default engineer cost.
   This covers a production pipeline and the first set of queries, not a product analytics UI.
-- **Self-host PostHog:** use one engineer for one to two months as the default.
+- **Self-host PostHog:** use one engineer for one to two months as the default (1-2 engineer-months).
 - Add the migration work listed under "Other things to weigh" to either option.
 
-Spread the one-off cost over 36 months when you compare month 36, and show it in full when you compare month 1.
+Price engineer-months at their engineer cost.
+The break-even formula spreads the one-off cost over 36 months.
+Show it in full when you compare month 1.
 
 ### Who the engineers are
 
@@ -131,9 +137,34 @@ If they already run ClickHouse and Kafka for something else, the extra headcount
 
 ### Engineer cost
 
-If the user doesn't give a figure, use $250,000 per year fully loaded (about $21,000 per month).
-Fully loaded means salary plus benefits, taxes, equipment, and overhead.
-Say this is a US default and ask them to replace it with their own.
+Ask the user what one engineer costs them per year, all in, and where the engineers are based.
+Use their number when they give one.
+
+All in means everything the company pays for the engineer, not only salary:
+
+- Salary, bonus, and equity.
+- Employer payroll taxes and social contributions, such as US FICA, UK employer National Insurance, or social security in much of Europe.
+- Health insurance, pension or retirement contributions, and other benefits.
+- Equipment, software, office or remote costs, recruiting fees, and a share of management time.
+
+All in is often 1.2-1.5x base salary, and higher where employer contributions are high.
+For contractors, use the full rate they pay, including any agency fee.
+
+If they don't know, use the default for where the engineers are based.
+These are rough planning judgements for a senior infrastructure engineer, not salary data:
+
+| Where the engineers are based | All in per year (USD) |
+| ----------------------------- | --------------------- |
+| United States                 | $250,000              |
+| Canada, UK, Australia         | $150,000 - $200,000   |
+| Western and Northern Europe   | $130,000 - $180,000   |
+| Eastern Europe, Latin America | $70,000 - $110,000    |
+| India, Southeast Asia         | $40,000 - $80,000     |
+
+- Use the middle of the range, and show the result at both ends if that changes the verdict.
+- If the location is not in the table, use the closest match and say so.
+- If they would hire, use the cost where they would hire, not where the current team is.
+- Label the figure as a default and ask them to replace it with their own.
 
 ### Infrastructure
 
