@@ -96,7 +96,7 @@ from posthog.rate_limit import (
     HogQLQueryThrottle,
 )
 from posthog.schema_migrations.upgrade import upgrade
-from posthog.scopes import APIScopeObject
+from posthog.scopes.catalog import APIScopeObject
 
 from products.access_control.backend.facade.user_access_control import UserAccessControlError
 from products.customer_analytics.backend.facade.api import (
