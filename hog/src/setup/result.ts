@@ -58,6 +58,8 @@ export interface SetupContext {
     host: string | null
     projectId: string | null
     loggedIn: boolean
+    // The host of the latest hog login, which setup uses when nothing names a host and no --region is given.
+    lastLoginHost?: string
     token?: ProjectToken
     apiHost?: string
     agentsMd?: WrittenFile[]

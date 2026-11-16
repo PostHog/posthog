@@ -17,7 +17,8 @@ import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 import { SidePanelTab } from '~/types'
 
-import { runStreamLogic, taskRunDefaultsLogic } from 'products/posthog_ai/frontend/api/logics'
+import { taskRunDefaultsLogic } from 'products/posthog_ai/frontend/api/launch'
+import { runStreamLogic } from 'products/posthog_ai/frontend/api/logics'
 import type { SignalReportCheckApi } from 'products/signals/frontend/generated/api.schemas'
 
 import { makeReport } from './__mocks__/inboxMocks'
@@ -128,11 +129,34 @@ describe('inboxTaskKickoffLogic', () => {
                 },
             })
             initKeaTests()
+            featureFlagLogic.mount()
+            featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.PHAI_SANDBOX_MODE]: true })
             logic = inboxTaskKickoffLogic()
             logic.mount()
         })
 
         afterEach(() => logic.unmount())
+
+        it.each([false, undefined])('does not launch report AI when access is %s', async (access) => {
+            featureFlagLogic.actions.setFeatureFlags([], {
+                [FEATURE_FLAGS.SIGNALS_REPORT_MONITORING]: true,
+                ...(access === undefined ? {} : { [FEATURE_FLAGS.PHAI_SANDBOX_MODE]: access }),
+            })
+            await expectLogic(logic, () => {
+                logic.actions.openReportCheckMetricSuggestion(report, { id: 'check-1' } as SignalReportCheckApi)
+                logic.actions.openReportDiscussion(report, 'https://example.com/report')
+                logic.actions.warmReportDiscussion(report)
+                logic.actions.discussReport(report, 'https://example.com/report', 'Explain the fix')
+                logic.actions.implementReport(report, undefined, 'detail_pane')
+                logic.actions.createPrFromReport(report)
+            }).toFinishAllListeners()
+            expect(createdTasks).toEqual([])
+            expect(startedRuns).toEqual([])
+            expect(warmRequests).toEqual([])
+            expect(logic.values.reportChatContext).toBeNull()
+            expect(logic.values.isCreatingPr).toBe(false)
+            expect(logic.values.isDiscussing).toBe(false)
+        })
 
         it.each([
             { enabled: true, legacyEnabled: true },
@@ -146,6 +170,7 @@ describe('inboxTaskKickoffLogic', () => {
                     ...(legacyEnabled ? ['signals-report-checks-replace'] : []),
                 ],
                 {
+                    [FEATURE_FLAGS.PHAI_SANDBOX_MODE]: true,
                     'signals-report-checks-replace': legacyEnabled,
                     ...(enabled === undefined ? {} : { [FEATURE_FLAGS.SIGNALS_REPORT_MONITORING]: enabled }),
                 }
@@ -857,6 +882,8 @@ describe('inboxTaskKickoffLogic', () => {
             // featureFlagLogic persists to localStorage, which jsdom keeps across tests.
             localStorage.clear()
             initKeaTests()
+            featureFlagLogic.mount()
+            featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.PHAI_SANDBOX_MODE]: true })
             featureFlagLogic.mount()
             logic = inboxTaskKickoffLogic()
             logic.mount()

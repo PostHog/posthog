@@ -9,6 +9,7 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import type { FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 import { uuid } from 'lib/utils/dom'
 import { addProjectIdIfMissing } from 'lib/utils/kea-router'
+import { retryImport } from 'lib/utils/retryImport'
 import { projectLogic } from 'scenes/projectLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -16,6 +17,7 @@ import { userLogic } from 'scenes/userLogic'
 
 import { aiConsentLogic } from '~/layout/ai/aiConsentLogic'
 import { REPORT_AI_PANEL } from '~/layout/ai/aiPanelIds'
+import { aiShellLogic } from '~/layout/ai/aiShellLogic'
 import type { AttachedContextItem } from '~/layout/ai/attachedContext'
 import { attachedContextLogic } from '~/layout/ai/attachedContextLogic'
 import { runnerPanelLogic } from '~/layout/ai/runnerPanelLogic'
@@ -26,10 +28,9 @@ import { SidePanelTab, UserType } from '~/types'
 import {
     chatContextLogic,
     chatSendItems,
-    runStreamLogic,
     taskRunDefaultsLogic,
     wrapWithPosthogContext,
-} from 'products/posthog_ai/frontend/api/logics'
+} from 'products/posthog_ai/frontend/api/launch'
 import { submitWithWarmRunRetry } from 'products/posthog_ai/frontend/utils/warmRunSubmission'
 import type { SelfDrivingTrialStatusApi } from 'products/signals/frontend/generated/api.schemas'
 import {
@@ -119,6 +120,12 @@ const REPORT_FALLBACK_RUNTIME: ClaudeRuntimeSelection = {
 // project and personal defaults means sending none. `defaultModel` is the server's own resolution
 // for this user, but it also reads null while `@me/config` is still in flight, so wait for that
 // answer first: a fallback sent over a default nobody has looked up yet would silently win.
+// Lazy: the stream logic is the largest part of the agent-run code, and only a started run needs it.
+// A static import puts it in the first load of the home page.
+function loadRunStreamLogic(): Promise<typeof import('products/posthog_ai/frontend/api/logics')> {
+    return retryImport(() => import('products/posthog_ai/frontend/api/logics'))
+}
+
 async function launchSelection(values: inboxTaskKickoffLogicValues): Promise<ReportRuntimeSelection> {
     if (!values.defaultsResolved) {
         await taskRunDefaultsLogic.asyncActions.loadMyConfig()
@@ -441,6 +448,7 @@ function panelStillOnReport(context: ReportChatContext | null, reportId: string)
 export interface inboxTaskKickoffLogicValues {
     dataProcessingAccepted: boolean // aiConsentLogic
     dataProcessingApprovalDisabledReason: string | null // aiConsentLogic
+    isPhaiSandboxFlagOn: boolean // aiShellLogic
     pageItems: AttachedContextItem[] // chatContextLogic
     picks: AttachedContextItem[] // chatContextLogic
     featureFlags: FeatureFlagsSet // featureFlagLogic
@@ -652,6 +660,8 @@ export const inboxTaskKickoffLogic = kea<inboxTaskKickoffLogicType>([
             ['openSidePanel', 'closeSidePanel', 'setSidePanelOptions'],
         ],
         values: [
+            aiShellLogic,
+            ['isPhaiSandboxFlagOn'],
             projectLogic,
             ['currentProjectId'],
             teamLogic,
@@ -833,6 +843,9 @@ export const inboxTaskKickoffLogic = kea<inboxTaskKickoffLogicType>([
 
     listeners(({ actions, cache, values, selectors }) => ({
         openReportCheckMetricSuggestion: ({ report, check }) => {
+            if (!values.isPhaiSandboxFlagOn) {
+                return
+            }
             if (values.metricCheckReplacementDisabledReason) {
                 return
             }
@@ -855,6 +868,9 @@ export const inboxTaskKickoffLogic = kea<inboxTaskKickoffLogicType>([
             }
         },
         openReportDiscussion: ({ report, reportUrl }) => {
+            if (!values.isPhaiSandboxFlagOn) {
+                return
+            }
             actions.alignReportDiscussion(report, reportUrl)
             actions.openSidePanel(SidePanelTab.Max, REPORT_AI_PANEL)
             if (!values.isCreatingPr) {
@@ -862,6 +878,9 @@ export const inboxTaskKickoffLogic = kea<inboxTaskKickoffLogicType>([
             }
         },
         warmReportDiscussion: async ({ report }) => {
+            if (!values.isPhaiSandboxFlagOn) {
+                return
+            }
             if (values.aiConsentDisabledReason || values.currentProjectId == null) {
                 return
             }
@@ -970,6 +989,10 @@ export const inboxTaskKickoffLogic = kea<inboxTaskKickoffLogicType>([
             actions.openSidePanel(SidePanelTab.Max, REPORT_AI_PANEL)
         },
         discussReport: async ({ report, reportUrl, question, agentQuestion, intent, pullRequestUrl, background }) => {
+            if (!values.isPhaiSandboxFlagOn) {
+                actions.discussReportFailure()
+                return
+            }
             // The CTAs carry this as a `disabledReason`, but Discuss also submits on Enter, and the
             // run endpoint enforces no consent of its own.
             const disabledReason =
@@ -990,6 +1013,10 @@ export const inboxTaskKickoffLogic = kea<inboxTaskKickoffLogicType>([
                 }
                 return
             }
+            // Starts the download now, so it overlaps the report refetch. The quick ask shows no thread.
+            const runStreamModule = background ? null : loadRunStreamLogic()
+            // The await below reports a failed download. This keeps an early return from leaving it unhandled.
+            runStreamModule?.catch(() => {})
             // The sidebar context can belong to another report, and the quick ask shows no attachments.
             const contextItems = background ? [] : chatSendItems(values.pageItems, values.picks)
             // The composer renders from a snapshot that can go stale between load and submit (the
@@ -1051,6 +1078,9 @@ export const inboxTaskKickoffLogic = kea<inboxTaskKickoffLogicType>([
                 } else if (!background && cache.warmingReportId === report.id) {
                     cache.warmReleaseRequested = true
                 }
+                // Before the task exists, so a failed download fails the ask with no run started, and no
+                // await sits between the panel check below and the optimistic stream.
+                const runStream = await runStreamModule
                 const { taskId, runId } = await createReportTask(
                     String(values.currentProjectId),
                     cache.disposables,
@@ -1069,9 +1099,9 @@ export const inboxTaskKickoffLogic = kea<inboxTaskKickoffLogicType>([
                         toastId: `report-quick-ask-${runId}`,
                         button: { label: 'View', action: () => actions.openReportTask(report, taskId, runId) },
                     })
-                } else if (panelStillOnReport(values.reportChatContext, report.id)) {
+                } else if (runStream && panelStillOnReport(values.reportChatContext, report.id)) {
                     const streamKey = `report-discussion-${uuid()}`
-                    const stream = runStreamLogic({ streamKey })
+                    const stream = runStream.runStreamLogic({ streamKey })
                     cache.disposables.add(() => stream.mount(), OPTIMISTIC_REPORT_STREAM, {
                         pauseOnPageHidden: false,
                     })
@@ -1092,6 +1122,9 @@ export const inboxTaskKickoffLogic = kea<inboxTaskKickoffLogicType>([
             }
         },
         implementReport: async ({ report, feedback, surface, openedFromLink, repository }) => {
+            if (!values.isPhaiSandboxFlagOn) {
+                return
+            }
             // A repeated press while the lazy chunks load would start the run twice.
             if (cache.implementationPending || values.isCreatingPr) {
                 return
@@ -1172,16 +1205,22 @@ export const inboxTaskKickoffLogic = kea<inboxTaskKickoffLogicType>([
             }
         },
         createPrFromReport: async ({ report, feedback, repository }) => {
-            // Lazy: a static import puts the inbox setup stack in the shell bundle of every logged-in page.
-            const githubAccess = await import('./logics/reportGithubAccessLogic').catch((error) => {
-                handleKickoffError(error, report, 'create_pr', "Couldn't start the PR task. Try again.")
-                return null
-            })
-            if (!githubAccess) {
+            if (!values.isPhaiSandboxFlagOn) {
                 actions.createPrFailure()
                 return
             }
-            const { reportGithubAccessLogic } = githubAccess
+            // Lazy: a static import puts the inbox setup stack in the shell bundle of every logged-in page.
+            const modules = await Promise.all([import('./logics/reportGithubAccessLogic'), loadRunStreamLogic()]).catch(
+                (error) => {
+                    handleKickoffError(error, report, 'create_pr', "Couldn't start the PR task. Try again.")
+                    return null
+                }
+            )
+            if (!modules) {
+                actions.createPrFailure()
+                return
+            }
+            const [{ reportGithubAccessLogic }, { runStreamLogic }] = modules
             const githubAccessLogic =
                 reportGithubAccessLogic.findMounted({ report, surface: 'triage_mode' }) ??
                 reportGithubAccessLogic.findMounted({ report })

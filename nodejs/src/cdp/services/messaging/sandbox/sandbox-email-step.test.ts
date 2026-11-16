@@ -129,6 +129,7 @@ describe('SandboxEmailSendStep', () => {
             siteUrl: 'http://localhost:8000',
             recipientPreferences: recipientPreferences(),
             events,
+            teamWorkflowsConfig: new TeamWorkflowsConfigService(world.postgres, pubSub),
             sesBucket,
         })
         return new HogFlowExecutorService(

@@ -27,6 +27,7 @@ import { relationshipsLogic } from './relationshipsLogic'
 import { CertificationsTab } from './tabs/CertificationsTab'
 import { MetricsTab } from './tabs/MetricsTab'
 import { RelationshipsTab } from './tabs/RelationshipsTab'
+import { UsageTab } from './tabs/UsageTab'
 
 const DataCatalogSections = lazyWithRetry(() =>
     import('./DataCatalogSections').then((module) => ({ default: module.DataCatalogSections }))
@@ -56,6 +57,7 @@ export function DataCatalogScene(): JSX.Element {
     const { proposedCount: certificationsPending } = useValues(certificationsLogic)
     const contextItems = useMemo(() => buildDataCatalogAgentContext(activeTab), [activeTab])
     const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+    const usageEnabled = useFeatureFlag('DATA_CATALOG_USAGE')
 
     useSceneAgentPanel({
         sceneKey: 'data-catalog',
@@ -73,7 +75,7 @@ export function DataCatalogScene(): JSX.Element {
         )
     }
 
-    const tabs: LemonTab<DataCatalogTab>[] = [
+    const tabs: (LemonTab<DataCatalogTab> | null)[] = [
         {
             key: 'metrics',
             label: <TabLabel label="Metrics" count={metricsPending} />,
@@ -92,6 +94,14 @@ export function DataCatalogScene(): JSX.Element {
             content: <CertificationsTab />,
             link: urls.dataCatalog('certifications'),
         },
+        usageEnabled
+            ? {
+                  key: 'usage',
+                  label: 'Usage',
+                  content: <UsageTab />,
+                  link: urls.dataCatalog('usage'),
+              }
+            : null,
     ]
 
     return (
@@ -130,6 +140,8 @@ export function DataCatalogScene(): JSX.Element {
                     data-attr="data-catalog-tabs"
                     tabs={tabs}
                     sceneInset
+                    // The pending counts load after the tabs render and widen the labels before the active tab.
+                    trackTabSizes
                 />
             </SceneContent>
         </BindLogic>

@@ -560,6 +560,12 @@ def setup_test_organization_team_and_user(
     organization_name: str, team_api_token: str, user_email: str | None = None, user_password: str | None = None
 ) -> tuple[Organization, Project, Team, User | None, OrganizationMembership | None]:
     organization = Organization.objects.create(name=organization_name)
+    project, team = _create_test_project_and_team(organization, team_api_token)
+    user, organization_membership = _create_test_user(organization, user_email, user_password)
+    return organization, project, team, user, organization_membership
+
+
+def _create_test_project_and_team(organization: Organization, team_api_token: str) -> tuple[Project, Team]:
     project = Project.objects.create(id=Team.objects.increment_id_sequence(), organization=organization)
     team = Team.objects.create(
         id=project.id,
@@ -576,13 +582,33 @@ def setup_test_organization_team_and_user(
         ],
         has_completed_onboarding_for={"product_analytics": True},
     )
-    if user_email and user_password:
-        user = User.objects.create_and_join(organization, user_email, user_password)
-        organization_membership = user.organization_memberships.get()
-    else:
-        user = None
-        organization_membership = None
-    return organization, project, team, user, organization_membership
+    return project, team
+
+
+def _create_test_user(
+    organization: Organization, user_email: str | None, user_password: str | None
+) -> tuple[User | None, OrganizationMembership | None]:
+    if not (user_email and user_password):
+        return None, None
+    user = User.objects.create_and_join(organization, user_email, user_password)
+    return user, user.organization_memberships.get()
+
+
+def _setup_test_organization_and_user(klass):
+    klass.organization = Organization.objects.create(name=klass.CONFIG_ORGANIZATION_NAME)
+    klass.user, klass.organization_membership = _create_test_user(
+        klass.organization, klass.CONFIG_EMAIL, klass.CONFIG_PASSWORD
+    )
+
+
+def _setup_test_project_and_team(test_case):
+    test_case.project, test_case.team = _create_test_project_and_team(
+        test_case.organization, test_case.CONFIG_API_TOKEN
+    )
+    if test_case.user:
+        User.objects.filter(pk=test_case.user.pk).update(current_team=test_case.team)
+        test_case.user.current_team = test_case.team
+        test_case.user.__dict__.pop("team", None)
 
 
 def _setup_test_data(klass):
@@ -692,6 +718,7 @@ class PostHogTestCase(SimpleTestCase):
     # which can greatly speed up tests. Some tests will require test data to be set up on every test case, setting this
     # to `False` will set up test data on every test case instead.
     CLASS_DATA_LEVEL_SETUP = True
+    CLASS_LEVEL_ORGANIZATION_AND_USER = False
 
     databases = {"default"}
 
@@ -713,9 +740,15 @@ class PostHogTestCase(SimpleTestCase):
         return Team.objects.create(organization=self.organization, project=self.project, name=name)
 
     @classmethod
+    def _shares_organization_and_user_across_tests(cls) -> bool:
+        return not cls.CLASS_DATA_LEVEL_SETUP and cls.CLASS_LEVEL_ORGANIZATION_AND_USER and issubclass(cls, TestCase)
+
+    @classmethod
     def setUpTestData(cls):
         if cls.CLASS_DATA_LEVEL_SETUP:
             _setup_test_data(cls)
+        elif cls._shares_organization_and_user_across_tests():
+            _setup_test_organization_and_user(cls)
 
     def setUp(self):
         get_instance_setting.cache_clear()  # type: ignore[attr-defined]
@@ -738,7 +771,9 @@ class PostHogTestCase(SimpleTestCase):
 
             util.can_enable_actor_on_events = True
 
-        if not self.CLASS_DATA_LEVEL_SETUP:
+        if self._shares_organization_and_user_across_tests():
+            _setup_test_project_and_team(self)
+        elif not self.CLASS_DATA_LEVEL_SETUP:
             _setup_test_data(self)
 
     def tearDown(self):
@@ -1098,7 +1133,8 @@ class APIBaseTest(PostHogTestCase, ErrorResponsesMixin, DRFTestCase):
     @classmethod
     def setUpTestData(cls):
         super().setUpTestData()
-        if cls.CLASS_DATA_LEVEL_SETUP and cls.CONFIG_AUTO_LOGIN and cls.user:
+        has_class_level_user = cls.CLASS_DATA_LEVEL_SETUP or cls._shares_organization_and_user_across_tests()
+        if has_class_level_user and cls.CONFIG_AUTO_LOGIN and cls.user:
             client = cls.client_class()
             client.force_login(cls.user)
             cls._class_login_cookies = client.cookies
@@ -2002,6 +2038,7 @@ class ClickhouseTestMixin(QueryMatchingTest):
     # overrides the basetest in posthog/test/base.py
     # this way the team id will increment so we don't have to destroy all clickhouse tables on each test
     CLASS_DATA_LEVEL_SETUP = False
+    CLASS_LEVEL_ORGANIZATION_AND_USER = True
 
     snapshot: Any
 

@@ -1,5 +1,10 @@
-import { mergeOverlapping } from './releaseTracks'
-import { ReleaseSpan } from './releaseUtils'
+import { dayjs } from 'lib/dayjs'
+
+import type { ReleaseDTOApi } from './generated/api.schemas'
+import { RelatedSurvey } from './releaseRelated'
+import { RolloutStep } from './releaseRollout'
+import { Scale, buildTrack, mergeOverlapping, rolloutSegments, surveyStatus, todayScrollLeft } from './releaseTracks'
+import { ReleaseSpan, buildReleaseIndex, buildReleaseRow } from './releaseUtils'
 
 const span = (key: string, kind: ReleaseSpan['kind'], from: string, to: string, label: string): ReleaseSpan => ({
     key,
@@ -21,5 +26,106 @@ describe('mergeOverlapping', () => {
             ['/ea', 'Early access, beta'],
             ['/exp-1', '2 experiments'],
         ])
+    })
+})
+
+const SURVEY: RelatedSurvey = {
+    id: 'survey-1',
+    name: 'Feedback',
+    createdAt: '2026-11-01T00:00:00Z',
+    startDate: null,
+    endDate: null,
+    linkedFlagId: null,
+    archived: false,
+}
+
+describe('survey lanes', () => {
+    it.each([
+        ['a draft', {}, 'Draft'],
+        ['a running survey', { startDate: '2026-11-02T00:00:00Z' }, 'Running'],
+        ['a finished survey', { startDate: '2026-11-02T00:00:00Z', endDate: '2026-11-05T00:00:00Z' }, 'Complete'],
+        ['an archived survey that never ended', { startDate: '2026-11-02T00:00:00Z', archived: true }, 'Archived'],
+    ])('reads %s as %s', (_name, extra, status) => {
+        expect(surveyStatus({ ...SURVEY, ...extra })).toBe(status)
+    })
+
+    it('ends an archived survey at its start instead of today and does not mark it live', () => {
+        const release = {
+            id: 'release-1',
+            name: 'Quiet theme',
+            description: '',
+            owner: null,
+            feature_flag_ids: [],
+            has_hidden_flags: false,
+            broadcast_ids: [],
+            survey_ids: [SURVEY.id],
+            surveys: [],
+            insight_ids: [],
+            insights: [],
+            broadcasts: [],
+            created_at: '2026-10-02T00:00:00Z',
+        } as unknown as ReleaseDTOApi
+        const row = buildReleaseRow(
+            release,
+            buildReleaseIndex([], [], [], [], { complete: true, resolvedFlagIds: [], unknownFlagIds: [] })
+        )
+        const archived = { ...SURVEY, startDate: '2026-11-02T00:00:00Z', archived: true }
+
+        const lane = buildTrack(row, new Map(), { surveys: [archived], insights: [] }).lanes.find(
+            (item) => item.kind === 'survey'
+        )
+
+        expect(lane && 'span' in lane ? [lane.live, lane.span?.to, lane.span?.label] : null).toEqual([
+            false,
+            '2026-11-02T00:00:00Z',
+            'Survey archived',
+        ])
+    })
+})
+
+describe('rolloutSegments', () => {
+    const scale: Scale = { start: dayjs('2026-11-01T00:00:00Z'), days: 30, day: 10 }
+    const today = dayjs('2026-11-11T12:00:00Z')
+    const step = (from: string, to: string, percent: number, upcoming = false): RolloutStep =>
+        ({ from, to, percent, label: `${percent}%`, upcoming }) as RolloutStep
+
+    it('drops steps outside the window, ends the current step today and projects to the next one', () => {
+        const segments = rolloutSegments(
+            [
+                step('2026-09-01T00:00:00Z', '2026-09-20T00:00:00Z', 5),
+                step('2026-09-20T00:00:00Z', '2026-11-05T00:00:00Z', 20),
+                step('2026-11-05T00:00:00Z', '2026-11-11T12:00:00Z', 50),
+                step('2026-11-15T00:00:00Z', '2026-12-01T00:00:00Z', 100, true),
+                step('2026-12-03T00:00:00Z', '2026-12-20T00:00:00Z', 100, true),
+            ],
+            scale,
+            today
+        )
+
+        expect(segments.map(({ step, left, width, projected }) => [step.percent, left, width, projected])).toEqual([
+            [20, 0, 40, false],
+            [50, 40, 65, false],
+            [50, 105, 35, true],
+            [100, 140, 160, false],
+        ])
+    })
+
+    it('keeps a step that runs into the window from before it', () => {
+        const segments = rolloutSegments([step('2026-09-01T00:00:00Z', '2026-11-11T12:00:00Z', 50)], scale, today)
+
+        expect(segments.map(({ left, width }) => [left, width])).toEqual([[0, 105]])
+    })
+})
+
+describe('todayScrollLeft', () => {
+    const scale: Scale = { start: dayjs('2026-11-01T00:00:00Z'), days: 30, day: 10 }
+    const today = dayjs('2026-11-11T12:00:00Z')
+
+    it.each([
+        ['leaves the calendar alone while today sits in the left part of the view', today, 400, 100, null],
+        ['moves today off the right edge even when it is visible', today, 220, 100, 27],
+        ['scrolls today into view past the sticky column', today, 200, 100, 40],
+    ])('%s', (_name, day, viewportWidth, stickyWidth, expected) => {
+        expect(todayScrollLeft(scale, viewportWidth, stickyWidth, day)).toBe(expected)
     })
 })

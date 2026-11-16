@@ -1,6 +1,7 @@
 import os
 import hmac
 import json
+import asyncio
 from datetime import UTC, datetime, timedelta
 from typing import Any
 
@@ -8,11 +9,17 @@ import pytest
 import time_machine
 from unittest.mock import AsyncMock, MagicMock, patch
 
+from django.conf import settings
 from django.core.cache import cache, caches
 from django.test import RequestFactory
 
 import requests
-from temporalio.testing import ActivityEnvironment
+from django_redis.exceptions import ConnectionInterrupted
+from temporalio import activity
+from temporalio.client import WorkflowFailureError
+from temporalio.exceptions import ApplicationError
+from temporalio.testing import ActivityEnvironment, WorkflowEnvironment
+from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
 from posthog.ingress.dispatch.dedup import INGRESS_DEDUP_CACHE_ALIAS
 from posthog.ingress.dispatch.dispatcher import WebhookDispatcher
@@ -21,12 +28,27 @@ from posthog.ingress.dispatch.registry import ConsumerRegistry
 from posthog.ingress.github.provider import SPECS, build_github_provider
 from posthog.ingress.views import build_webhook_view
 from posthog.models.integration import Integration
+from posthog.redis import get_client
+from posthog.token_bucket import Budget
 
-from products.knowledge_writer.backend.temporal.client import merge_check_workflow_id
+from products.knowledge_writer.backend.adapters.repo_merge import pull_request_dedupe_id
+from products.knowledge_writer.backend.facade import finished_check_hooks
+from products.knowledge_writer.backend.facade.contracts import DocsCommandRequest, IntakeOutcome
+from products.knowledge_writer.backend.facade.enums import DocsRequestSource, MergeCheckFailure
+from products.knowledge_writer.backend.facade.finished_check_hooks import FinishedDocsCheck
+from products.knowledge_writer.backend.temporal.client import (
+    docs_check_id,
+    merge_check_workflow_id,
+    start_command_check_workflow,
+)
 from products.knowledge_writer.backend.temporal.merge_workflow import (
     MergeCheckInputs,
     MergeCheckNotAdmitted,
+    MergeCheckWorkflow,
     check_merge,
+    merge_check_budget_key,
+    reused_report_key,
+    tell_docs_check_waiters_activity,
 )
 from products.knowledge_writer.backend.temporal.reconcile_workflow import (
     PULL_REQUESTS_PER_PAGE,
@@ -34,6 +56,8 @@ from products.knowledge_writer.backend.temporal.reconcile_workflow import (
     reconciled_at_cache_key,
 )
 from products.knowledge_writer.backend.webhook_consumers import WEBHOOK_CONSUMERS
+from products.knowledge_writer.merge_check.check import no_docs_report
+from products.knowledge_writer.merge_check.deadline import CheckDeadlineExceeded
 from products.knowledge_writer.merge_check.sources import LandedChange
 
 MERGE_COMMIT_SHA = "b" * 40
@@ -45,6 +69,7 @@ START_MERGE_CHECK = "products.knowledge_writer.backend.temporal.client.start_mer
 KNOWLEDGE_WRITER_ENABLED = "products.knowledge_writer.backend.settings.is_writer_enabled"
 RECONCILE_MODULE = "products.knowledge_writer.backend.temporal.reconcile_workflow"
 MERGE_WORKFLOW_MODULE = "products.knowledge_writer.backend.temporal.merge_workflow"
+TEMPORAL_CONNECT = "products.knowledge_writer.backend.temporal.client.async_connect"
 
 
 @pytest.fixture
@@ -160,7 +185,7 @@ def test_a_redelivered_merged_pull_request_starts_one_merge_check(team, writer_e
 
 @pytest.mark.django_db
 @pytest.mark.parametrize(
-    "installation_id, pull_request_number, is_writer_enabled, reads_github, recorded_reasons",
+    "installation_id, pull_request_number, is_writer_enabled, reads_github, recorded_reasons, origin",
     [
         pytest.param(
             str(LINKED_INSTALLATION_ID),
@@ -168,11 +193,26 @@ def test_a_redelivered_merged_pull_request_starts_one_merge_check(team, writer_e
             True,
             True,
             ("merge_check_failed", "no_docs_github"),
+            DocsRequestSource.REPO_MERGE,
             id="linked_installation",
         ),
-        pytest.param("9999", PULL_REQUEST_NUMBER, True, False, ("not_admitted", None), id="installation_not_linked"),
         pytest.param(
-            str(LINKED_INSTALLATION_ID), PULL_REQUEST_NUMBER, False, False, ("not_admitted", None), id="writer_disabled"
+            "9999",
+            PULL_REQUEST_NUMBER,
+            True,
+            False,
+            ("not_admitted", None),
+            DocsRequestSource.REPO_MERGE,
+            id="installation_not_linked",
+        ),
+        pytest.param(
+            str(LINKED_INSTALLATION_ID),
+            PULL_REQUEST_NUMBER,
+            False,
+            False,
+            ("not_admitted", None),
+            DocsRequestSource.REPO_MERGE,
+            id="writer_disabled",
         ),
         pytest.param(
             None,
@@ -180,6 +220,7 @@ def test_a_redelivered_merged_pull_request_starts_one_merge_check(team, writer_e
             False,
             True,
             ("merge_check_failed", "no_docs_github"),
+            DocsRequestSource.REPO_MERGE,
             id="started_by_the_reconcile",
         ),
         pytest.param(
@@ -188,18 +229,29 @@ def test_a_redelivered_merged_pull_request_starts_one_merge_check(team, writer_e
             False,
             False,
             ("merge_check_failed", "no_pull_request_number"),
+            DocsRequestSource.REPO_MERGE,
             id="started_without_a_pull_request_number",
+        ),
+        pytest.param(
+            None,
+            PULL_REQUEST_NUMBER,
+            False,
+            False,
+            ("not_admitted", None),
+            DocsRequestSource.COMMAND_TAG,
+            id="docs_command_while_the_writer_is_disabled",
         ),
     ],
 )
 def test_a_merge_check_reads_github_only_for_a_numbered_pull_request_of_the_linked_writer(
-    team, writer_env, installation_id, pull_request_number, is_writer_enabled, reads_github, recorded_reasons
+    team, writer_env, installation_id, pull_request_number, is_writer_enabled, reads_github, recorded_reasons, origin
 ) -> None:
     inputs = MergeCheckInputs(
         commit_sha=MERGE_COMMIT_SHA,
         team_id=team.id,
         pull_request_number=pull_request_number,
         installation_id=installation_id,
+        origin=origin,
     )
     with (
         patch(KNOWLEDGE_WRITER_ENABLED, return_value=is_writer_enabled),
@@ -211,6 +263,166 @@ def test_a_merge_check_reads_github_only_for_a_numbered_pull_request_of_the_link
     assert docs_github.called == reads_github
     verdict = submit.call_args.args[0]
     assert (verdict.reason, verdict.failure_reason) == recorded_reasons
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    "merged_at, checked_change, failure_reason",
+    [
+        pytest.param("2026-11-09T12:00:00Z", LANDED, None, id="merged"),
+        pytest.param(None, None, MergeCheckFailure.PULL_REQUEST_NOT_MERGED, id="not_merged"),
+    ],
+)
+def test_a_docs_command_check_judges_the_merge_its_pull_request_names_and_returns_how_it_ended(
+    team, writer_env, merged_at, checked_change, failure_reason
+) -> None:
+    listed = {
+        "number": PULL_REQUEST_NUMBER,
+        "merge_commit_sha": MERGE_COMMIT_SHA,
+        "merged_at": merged_at,
+        "title": "Add a retention option",
+        "html_url": f"https://github.com/PostHog/posthog/pull/{PULL_REQUEST_NUMBER}",
+    }
+    inputs = MergeCheckInputs(
+        commit_sha=None,
+        team_id=team.id,
+        pull_request_number=PULL_REQUEST_NUMBER,
+        origin=DocsRequestSource.COMMAND_TAG,
+        requested_by="@octo",
+    )
+    with (
+        patch(KNOWLEDGE_WRITER_ENABLED, return_value=True),
+        patch(f"{MERGE_WORKFLOW_MODULE}.docs_github", return_value=MagicMock()),
+        patch(f"{MERGE_WORKFLOW_MODULE}.read_pull_request", return_value=listed),
+        patch(f"{MERGE_WORKFLOW_MODULE}.judge_client", return_value=MagicMock()),
+        patch(
+            f"{MERGE_WORKFLOW_MODULE}.run_merge_check", return_value=no_docs_report(LANDED, title="", reason="judge")
+        ) as run_merge_check,
+        patch(f"{MERGE_WORKFLOW_MODULE}.intake.submit", return_value=IntakeOutcome(status="no_docs")) as submit,
+    ):
+        finished = check_merge(inputs, is_final_attempt=True)
+
+    assert (run_merge_check.call_args.args[0] if run_merge_check.called else None) == checked_change
+    verdict = submit.call_args.args[0]
+    assert (verdict.source, verdict.subject_id, verdict.failure_reason) == (
+        DocsRequestSource.COMMAND_TAG,
+        pull_request_dedupe_id("PostHog/posthog", PULL_REQUEST_NUMBER),
+        failure_reason,
+    )
+    assert finished == FinishedDocsCheck(status="no_docs", failure_reason=failure_reason, pull_request_url=None)
+
+
+@pytest.mark.parametrize(
+    "check_fails, failure_reason",
+    [
+        pytest.param(False, None, id="check_finished"),
+        pytest.param(True, MergeCheckFailure.RETRIES_EXHAUSTED, id="check_failed"),
+    ],
+)
+async def test_every_docs_command_that_joins_a_running_check_hears_how_it_ended(
+    monkeypatch, check_fails, failure_reason
+) -> None:
+    told: list[FinishedDocsCheck] = []
+    monkeypatch.setattr(
+        finished_check_hooks,
+        "_finished_docs_check_hooks",
+        [MagicMock(side_effect=RuntimeError("a hook failure never fails the check")), told.append],
+    )
+    check_may_end = asyncio.Event()
+
+    @activity.defn(name="run_merge_check_activity")
+    async def run_merge_check_activity(inputs: MergeCheckInputs) -> FinishedDocsCheck:
+        await check_may_end.wait()
+        if check_fails:
+            raise ApplicationError("GitHub is down", non_retryable=True)
+        return FinishedDocsCheck(status="no_docs", failure_reason=None, pull_request_url=None)
+
+    command = DocsCommandRequest(
+        repository="PostHog/posthog",
+        pull_request_number=PULL_REQUEST_NUMBER,
+        note="",
+        requested_by="@octo",
+        requested_by_user_id=42,
+    )
+    async with await WorkflowEnvironment.start_time_skipping() as env:
+        async with Worker(
+            env.client,
+            task_queue=settings.VIDEO_EXPORT_TASK_QUEUE,
+            workflows=[MergeCheckWorkflow],
+            activities=[run_merge_check_activity, tell_docs_check_waiters_activity],
+            workflow_runner=UnsandboxedWorkflowRunner(),
+        ):
+            with patch(TEMPORAL_CONNECT, new=AsyncMock(return_value=env.client)):
+                for waiter_id in ("first-waiter", "joining-waiter"):
+                    await start_command_check_workflow(command, team_id=1, waiter_id=waiter_id)
+            check_may_end.set()
+            handle = env.client.get_workflow_handle(docs_check_id("PostHog/posthog", PULL_REQUEST_NUMBER))
+            if check_fails:
+                with pytest.raises(WorkflowFailureError):
+                    await handle.result()
+            if not check_fails:
+                await handle.result()
+
+    assert sorted(waiter_id for finished in told for waiter_id in finished.waiter_ids) == [
+        "first-waiter",
+        "joining-waiter",
+    ]
+    assert {finished.failure_reason for finished in told} == {failure_reason}
+
+
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    "report_reason, cache_error, expected_check_count",
+    [
+        pytest.param("judge", None, 1, id="decided_report_reused"),
+        pytest.param("no_pull_request", None, 2, id="undecided_report_checked_again"),
+        pytest.param("judge", ConnectionInterrupted("redis down"), 2, id="cache_down_checks_again"),
+    ],
+)
+def test_a_repeat_check_of_the_same_merge_reuses_only_a_decided_report_and_still_reaches_intake(
+    team, writer_env, report_reason, cache_error, expected_check_count
+) -> None:
+    inputs = MergeCheckInputs(commit_sha=MERGE_COMMIT_SHA, team_id=team.id, pull_request_number=PULL_REQUEST_NUMBER)
+    cache.delete(reused_report_key(LANDED))
+    broken_cache = MagicMock(**{"get.side_effect": cache_error, "set.side_effect": cache_error})
+    with (
+        patch(f"{MERGE_WORKFLOW_MODULE}.cache", broken_cache if cache_error else cache),
+        patch(f"{MERGE_WORKFLOW_MODULE}.docs_github", return_value=MagicMock()),
+        patch(f"{MERGE_WORKFLOW_MODULE}.judge_client", return_value=MagicMock()),
+        patch(
+            f"{MERGE_WORKFLOW_MODULE}.run_merge_check",
+            return_value=no_docs_report(LANDED, title="", reason=report_reason),
+        ) as run_merge_check,
+        patch(f"{MERGE_WORKFLOW_MODULE}.intake.submit", return_value=IntakeOutcome(status="no_docs")) as submit,
+    ):
+        check_merge(inputs, is_final_attempt=True)
+        check_merge(inputs, is_final_attempt=True)
+
+    assert (run_merge_check.call_count, submit.call_count) == (expected_check_count, 2)
+
+
+@pytest.mark.django_db
+def test_a_team_past_its_check_budget_records_capped_merges_without_reading_github(team, writer_env) -> None:
+    inputs = MergeCheckInputs(commit_sha=MERGE_COMMIT_SHA, team_id=team.id, pull_request_number=PULL_REQUEST_NUMBER)
+    get_client().delete(merge_check_budget_key(team.id))
+    cache.delete(reused_report_key(LANDED))
+    with (
+        patch(f"{MERGE_WORKFLOW_MODULE}.MERGE_CHECK_BUDGET", Budget(burst=1, per_hour=1)),
+        patch(f"{MERGE_WORKFLOW_MODULE}.docs_github", side_effect=[MagicMock(), None]) as docs_github,
+        patch(f"{MERGE_WORKFLOW_MODULE}.judge_client", return_value=MagicMock()),
+        patch(f"{MERGE_WORKFLOW_MODULE}.run_merge_check", side_effect=CheckDeadlineExceeded()),
+        patch(f"{MERGE_WORKFLOW_MODULE}.intake.submit") as submit,
+    ):
+        with pytest.raises(CheckDeadlineExceeded):
+            check_merge(inputs, is_final_attempt=False)
+        check_merge(inputs, is_final_attempt=True)
+        check_merge(inputs, is_final_attempt=True)
+
+    assert docs_github.call_count == 2
+    assert [(call.args[0].reason, call.args[0].failure_reason) for call in submit.call_args_list] == [
+        ("merge_check_failed", MergeCheckFailure.NO_DOCS_GITHUB),
+        ("check_capped", MergeCheckFailure.CHECK_CAPPED),
+    ]
 
 
 @pytest.mark.django_db
