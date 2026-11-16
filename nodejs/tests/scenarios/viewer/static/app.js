@@ -606,124 +606,6 @@ function lineChart({ title, unit, series, from, to, bands = [], height = 220 }) 
 let cardsCache
 const cards = async () => (cardsCache ??= await getJson('/api/cards'))
 
-function cardTile(card, runs) {
-    const ofCard = runs.filter((run) => run.cardId === card.id)
-    const last = ofCard[0]
-    return h(
-        'a',
-        { class: 'panel card-tile', href: `#/cards/${card.id}` },
-        h(
-            'div',
-            { class: 'title' },
-            card.id,
-            h('span', { class: 'badge' }, `v${card.version ?? '?'}`),
-            card.runHostOnly ? h('span', { class: 'badge' }, 'run host only') : null,
-            h('span', { style: 'flex:1' }),
-            h('span', { class: 'status running live-badge', 'data-card': card.id, hidden: 'hidden' }, 'running now'),
-            last ? statusPill(last.status) : h('span', { class: 'muted' }, 'never run')
-        ),
-        card.problems.length
-            ? h('div', { class: 'reason failed' }, card.problems.join('; '))
-            : [
-                  h(
-                      'div',
-                      { class: 'row' },
-                      h('span', { class: 'label' }, 'Found'),
-                      h(
-                          'div',
-                          { class: 'finding', 'data-finding': card.id },
-                          last
-                              ? h('span', { class: 'muted' }, 'reading the last run…')
-                              : h('span', { class: 'muted' }, '-')
-                      )
-                  ),
-                  h(
-                      'div',
-                      { class: 'row' },
-                      h('span', { class: 'label' }, 'Injects'),
-                      card.valves.length
-                          ? h(
-                                'div',
-                                { class: 'chips' },
-                                card.valves.map((valve) =>
-                                    h(
-                                        'span',
-                                        { class: 'chip valve', title: valveText(valve) },
-                                        valvePlain(valve),
-                                        h('span', { class: 'tech' }, `${valve.valve} → ${valve.target}`)
-                                    )
-                                )
-                            )
-                          : h(
-                                'span',
-                                { class: 'muted' },
-                                card.steps.length > 1
-                                    ? 'no valve: the load ramps until a bar breaks'
-                                    : 'nothing: a baseline'
-                            )
-                  ),
-                  h(
-                      'div',
-                      { class: 'row' },
-                      h('span', { class: 'label' }, 'Load'),
-                      h(
-                          'div',
-                          { class: 'chips' },
-                          card.traffic.map((traffic) => h('span', { class: 'chip' }, trafficText(traffic))),
-                          h('span', { class: 'chip' }, `for ${fmtDuration(card.driveMs)}`),
-                          card.steps.length > 1
-                              ? h(
-                                    'span',
-                                    { class: 'chip' },
-                                    `ramp ${card.steps.map(({ scale }) => `${scale}x`).join(' → ')}`
-                                )
-                              : null
-                      )
-                  ),
-                  h(
-                      'div',
-                      { class: 'row' },
-                      h('span', { class: 'label' }, 'Judged by'),
-                      h(
-                          'div',
-                          { class: 'chips' },
-                          card.invariants.map(({ name, gate }) =>
-                              h('span', { class: 'chip', title: name }, invariantPlain(name, gate))
-                          ),
-                          card.bars.map(({ name, params }) =>
-                              h(
-                                  'span',
-                                  { class: 'chip' },
-                                  `${name} ${params.percent ?? params.seconds ?? ''}${params.percent ? '%' : 's'}`
-                              )
-                          )
-                      )
-                  ),
-                  h(
-                      'div',
-                      { class: 'row' },
-                      h('span', { class: 'label' }, 'History'),
-                      ofCard.length
-                          ? h(
-                                'div',
-                                { class: 'dots' },
-                                ofCard
-                                    .slice(0, 20)
-                                    .reverse()
-                                    .map((run) =>
-                                        h('span', {
-                                            class: `dot ${run.status}`,
-                                            title: `${run.status}, ${fmtTime(run.startedAt)}`,
-                                        })
-                                    )
-                            )
-                          : h('span', { class: 'muted' }, 'no runs on this box yet'),
-                      last ? h('span', { class: 'muted', style: 'margin-left:8px' }, ago(last.startedAt)) : null
-                  ),
-              ]
-    )
-}
-
 const PHASE_PLAIN = {
     reset: 'resetting the services',
     seed: 'creating test workflows',
@@ -765,34 +647,491 @@ function findingOf(detail) {
     return lines.slice(0, 3)
 }
 
-async function cardsPage() {
-    const [all, runs] = await Promise.all([cards(), getJson('/api/runs')])
+// ---------- the map, drawn from the wiring a run recorded ----------
+
+// What each part does, for readers who don't know the stack. The map draws the parts a run
+// recorded; this only names them, and a part it does not know keeps its component name.
+const PARTS = {
+    'source:events': { name: 'Captured events', tech: 'load generator', shape: 'pill' },
+    'source:api': { name: 'Send API calls', tech: 'load generator', shape: 'pill' },
+    'topic:clickhouse_events_json': { name: 'Event stream', meaning: 'every captured event' },
+    'topic:cdp_ses_webhooks': { name: 'Email feedback stream', meaning: 'bounces and complaints' },
+    'role:cdp-api': { name: 'Send API', meaning: 'sends and SES feedback in' },
+    'role:cdp-processed-events': { name: 'Workflow trigger', meaning: 'starts matching workflows' },
+    'role:cdp-ses-webhooks': { name: 'Email feedback intake', meaning: 'suppresses bounced mail' },
+    'role:cdp-cyclotron-worker-hogflow': { name: 'Workflow runner', meaning: 'runs steps, calls webhooks' },
+    'role:cdp-cyclotron-worker-email': { name: 'Email sender', meaning: 'sends each email via SES' },
+    'role:cdp-cyclotron-v2-janitor': { name: 'Stuck job cleanup', meaning: 'frees jobs of dead workers' },
+    'db:cyclotron': { name: 'Job queue database', meaning: 'every step waits as a job' },
+    'host:ses': { name: 'Email provider', tech: 'fake SES', shape: 'pill' },
+    'host:hooks.example.com': { name: 'Customer webhooks', tech: 'fake hooks.example.com', shape: 'pill' },
+}
+
+// Roles that take jobs out of the job queue; any other role that talks to a database puts them in.
+const JOB_TAKERS = ['cdp-cyclotron-worker-hogflow', 'cdp-cyclotron-worker-email', 'cdp-cyclotron-v2-janitor']
+
+// Links no recording shows: who produces to a topic, who calls a host, and the feedback SES posts back.
+const DECLARED_LINKS = [
+    { from: 'source:events', to: 'topic:clickhouse_events_json' },
+    { from: 'source:api', to: 'role:cdp-api' },
+    { from: 'role:cdp-cyclotron-worker-hogflow', to: 'host:hooks.example.com' },
+    { from: 'role:cdp-cyclotron-worker-email', to: 'host:ses' },
+    { from: 'host:ses', to: 'role:cdp-api', back: true, label: 'bounce feedback' },
+    { from: 'role:cdp-api', to: 'topic:cdp_ses_webhooks' },
+]
+
+// The wiring before the runner recorded it, for runs older than topology.json.
+const DECLARED_TOPOLOGY = {
+    hash: null,
+    processes: [
+        'cdp-api',
+        'cdp-processed-events',
+        'cdp-ses-webhooks',
+        'cdp-cyclotron-worker-hogflow',
+        'cdp-cyclotron-worker-email',
+        'cdp-cyclotron-v2-janitor',
+    ].map((role) => ({ role, replicas: 1 })),
+    consumers: [
+        { role: 'cdp-processed-events', group: 'cdp-processed-events-consumer', topics: ['clickhouse_events_json'] },
+        { role: 'cdp-ses-webhooks', group: 'cdp-ses-webhooks-consumer', topics: ['cdp_ses_webhooks'] },
+    ],
+    databases: [
+        'cdp-api',
+        'cdp-processed-events',
+        'cdp-cyclotron-worker-hogflow',
+        'cdp-cyclotron-worker-email',
+        'cdp-cyclotron-v2-janitor',
+    ].map((role) => ({ role, database: 'cyclotron_node', connections: 1 })),
+    hosts: [],
+}
+
+const EVENTS_PATH = [
+    'source:events',
+    'topic:clickhouse_events_json',
+    'role:cdp-processed-events',
+    'db:cyclotron',
+    'role:cdp-cyclotron-worker-hogflow',
+]
+
+// The parts each kind of traffic passes through, in order.
+const TRAFFIC_PATH = {
+    event_email: [...EVENTS_PATH, 'role:cdp-cyclotron-worker-email', 'host:ses'],
+    event_webhook: [...EVENTS_PATH, 'host:hooks.example.com'],
+    transactional_email: ['source:api', 'role:cdp-api', 'db:cyclotron', 'role:cdp-cyclotron-worker-email', 'host:ses'],
+    bounce_followup: [
+        ...EVENTS_PATH,
+        'role:cdp-cyclotron-worker-email',
+        'host:ses',
+        'role:cdp-api',
+        'topic:cdp_ses_webhooks',
+        'role:cdp-ses-webhooks',
+    ],
+}
+
+const dbIdOf = (database) => (database.includes('cyclotron') ? 'db:cyclotron' : `db:${database}`)
+
+const partOfTarget = (target) =>
+    target === 'postgres' || target === 'cyclotron'
+        ? 'db:cyclotron'
+        : target.startsWith('cdp-')
+          ? `role:${target}`
+          : `host:${target}`
+
+function graphOf(topology) {
+    const nodes = new Map()
+    const add = (id, extra = {}) => {
+        const [kind, ...rest] = id.split(':')
+        const tech = rest.join(':')
+        nodes.set(id, {
+            id,
+            kind,
+            tech,
+            name: tech,
+            shape: kind === 'db' ? 'cylinder' : kind === 'role' ? 'pod' : 'pill',
+            ...PARTS[id],
+            ...nodes.get(id),
+            ...extra,
+        })
+        return id
+    }
+    const links = []
+    const link = (from, to, extra = {}) => {
+        if (!links.some((l) => l.from === from && l.to === to)) {
+            links.push({ from, to, ...extra })
+        }
+    }
+    add('source:events')
+    add('source:api')
+    for (const { role, replicas } of topology.processes) {
+        add(`role:${role}`, { replicas })
+    }
+    for (const { role, group, topics } of topology.consumers) {
+        for (const topic of topics) {
+            link(add(`topic:${topic}`), add(`role:${role}`, { group }))
+        }
+    }
+    for (const { role, database } of topology.databases) {
+        const db = add(dbIdOf(database), {
+            tech: database === 'cyclotron_node' ? 'Cyclotron, cyclotron_node' : database,
+        })
+        if (JOB_TAKERS.includes(role)) {
+            link(db, add(`role:${role}`))
+        } else {
+            link(add(`role:${role}`), db)
+        }
+    }
+    for (const host of ['ses', 'hooks.example.com', ...topology.hosts.map(({ host }) => host)]) {
+        add(`host:${host}`, { requests: topology.hosts.find((h) => h.host === host)?.requests ?? null })
+    }
+    for (const declared of DECLARED_LINKS) {
+        if (nodes.has(declared.from) && nodes.has(declared.to)) {
+            link(declared.from, declared.to, declared)
+        }
+    }
+    return { nodes: [...nodes.values()], links }
+}
+
+const MAP_W = 1400
+const COL_W = 196
+const GAP = 22
+const PIN_BAND = 70
+const podHeightOf = (node) => (node.group ? 78 : 62)
+const heightOf = (node) =>
+    node.shape === 'cylinder'
+        ? 150
+        : node.shape === 'pod'
+          ? podHeightOf(node) + 6 * Math.min(2, (node.replicas ?? 1) - 1)
+          : 48
+
+// Columns follow the longest path from the load, so a part sits right of everything that feeds it.
+function layoutOf(graph) {
+    const forward = graph.links.filter((l) => !l.back)
+    const rank = Object.fromEntries(graph.nodes.map((n) => [n.id, n.kind === 'source' ? 0 : 1]))
+    for (let pass = 0; pass < graph.nodes.length; pass++) {
+        for (const { from, to } of forward) {
+            rank[to] = Math.max(rank[to], rank[from] + 1)
+        }
+    }
+    const order = Object.keys(PARTS)
+    const columns = []
+    for (const node of graph.nodes) {
+        ;(columns[rank[node.id]] ??= []).push(node)
+    }
+    const y = {}
+    const height = Math.max(...columns.map((col) => col.reduce((sum, n) => sum + heightOf(n) + GAP, -GAP)))
+    const step = (MAP_W - COL_W - 40) / Math.max(1, columns.length - 1)
+    const placed = {}
+    columns.forEach((column, i) => {
+        const centre = (node) => {
+            const feeders = forward.filter((l) => l.to === node.id && y[l.from] !== undefined).map((l) => y[l.from])
+            return feeders.length ? feeders.reduce((a, b) => a + b, 0) / feeders.length : Infinity
+        }
+        column.sort((a, b) => {
+            const ia = order.indexOf(a.id)
+            const ib = order.indexOf(b.id)
+            return centre(a) - centre(b) || (ia < 0 ? 99 : ia) - (ib < 0 ? 99 : ib) || a.id.localeCompare(b.id)
+        })
+        const total = column.reduce((sum, n) => sum + heightOf(n) + GAP, -GAP)
+        let at = PIN_BAND + (height - total) / 2
+        for (const node of column) {
+            placed[node.id] = { x: 20 + i * step, y: at, w: COL_W, h: heightOf(node) }
+            y[node.id] = at + heightOf(node) / 2
+            at += heightOf(node) + GAP
+        }
+    })
+    return { placed, height: height + PIN_BAND + 90 }
+}
+
+// Monospace glyphs run about 0.62em wide, so a name longer than its part is squeezed to fit
+// rather than run past the edge.
+const MONO_EM = 0.62
+const fitted = (attrs, text, width, fontSize = 10) =>
+    s(
+        'text',
+        text.length * fontSize * MONO_EM > width
+            ? { ...attrs, textLength: width, lengthAdjust: 'spacingAndGlyphs' }
+            : attrs,
+        text
+    )
+
+function shapeOf(node, { x, y, w, h }) {
+    const g = s('g', { class: `part ${node.kind}`, 'data-part': node.id })
+    if (node.shape === 'cylinder') {
+        const ry = 12
+        g.append(
+            s('path', {
+                class: 'body',
+                d: `M${x},${y + ry} A${w / 2},${ry} 0 0 1 ${x + w},${y + ry} L${x + w},${y + h - ry} A${w / 2},${ry} 0 0 1 ${x},${y + h - ry} Z`,
+            }),
+            s('path', { class: 'rim', d: `M${x},${y + ry} A${w / 2},${ry} 0 0 0 ${x + w},${y + ry}` }),
+            s('text', { x: x + 14, y: y + 50, class: 'name' }, node.name),
+            s('text', { x: x + 14, y: y + 68, class: 'tech' }, node.tech),
+            s('text', { x: x + 14, y: y + 92, class: 'meaning' }, node.meaning ?? ''),
+            s('text', { x: x + 14, y: y + 116, class: 'tech' }, 'queues: hogflow, email')
+        )
+    } else if (node.shape === 'pod') {
+        const extra = Math.min(2, (node.replicas ?? 1) - 1)
+        for (let i = extra; i > 0; i--) {
+            g.append(
+                s('rect', {
+                    class: 'shadow',
+                    x: x + 6 * i,
+                    y: y - 6 * i + 6 * extra,
+                    width: w,
+                    height: podHeightOf(node),
+                    rx: 8,
+                })
+            )
+        }
+        const top = y + 6 * extra
+        g.append(
+            s('rect', { class: 'body', x, y: top, width: w, height: podHeightOf(node), rx: 8 }),
+            s('text', { x: x + 12, y: top + 20, class: 'name' }, node.name),
+            fitted({ x: x + 12, y: top + 36, class: 'tech' }, node.tech, w - 24),
+            s('text', { x: x + 12, y: top + 52, class: 'meaning' }, node.meaning ?? ''),
+            node.group ? fitted({ x: x + 12, y: top + 68, class: 'tech' }, node.group, w - 24) : null,
+            (node.replicas ?? 1) > 1
+                ? s('text', { x: x + w - 10, y: top + 20, class: 'count' }, `×${node.replicas}`)
+                : null
+        )
+    } else {
+        g.append(
+            s('rect', { class: 'body', x, y, width: w, height: h, rx: h / 2 }),
+            s('text', { x: x + 18, y: y + 20, class: 'name' }, node.name),
+            fitted({ x: x + 18, y: y + 36, class: 'tech' }, node.tech, w - 36)
+        )
+    }
+    return g
+}
+
+function mapOf(topology) {
+    const graph = graphOf(topology)
+    const { placed, height } = layoutOf(graph)
+    const svg = s('svg', {
+        viewBox: `0 0 ${MAP_W} ${height}`,
+        class: 'map',
+        role: 'img',
+        'aria-label': 'Delivery path',
+    })
+    const bottomOf = Math.max(...Object.values(placed).map((p) => p.y + p.h))
+    const linkEls = graph.links.map((l) => {
+        const a = placed[l.from]
+        const b = placed[l.to]
+        const d = l.back
+            ? `M${a.x + a.w / 2},${a.y + a.h} C${a.x + a.w / 2},${bottomOf + 70} ${b.x + b.w / 2},${bottomOf + 70} ${b.x + b.w / 2},${b.y + b.h}`
+            : curve([a.x + a.w, a.y + a.h / 2], [b.x, b.y + b.h / 2])
+        const g = s('g', { class: `wire${l.back ? ' back' : ''}` }, s('path', { d, 'marker-end': 'url(#arrow)' }))
+        if (l.label) {
+            const mx = l.back ? (a.x + b.x + a.w) / 2 : (a.x + a.w + b.x) / 2
+            const my = l.back ? bottomOf + 72 : (a.y + a.h / 2 + b.y + b.h / 2) / 2 - 8
+            g.append(s('text', { x: mx, y: my, class: 'wire-label' }, l.label))
+        }
+        svg.append(g)
+        return { ...l, el: g }
+    })
+    svg.prepend(
+        s(
+            'defs',
+            {},
+            s(
+                'marker',
+                {
+                    id: 'arrow',
+                    viewBox: '0 0 10 10',
+                    refX: 9,
+                    refY: 5,
+                    markerWidth: 7,
+                    markerHeight: 7,
+                    orient: 'auto',
+                },
+                s('path', { d: 'M0,0 L10,5 L0,10 z', class: 'arrowhead' })
+            )
+        )
+    )
+    const partEls = {}
+    for (const node of graph.nodes) {
+        partEls[node.id] = shapeOf(node, placed[node.id])
+        svg.append(partEls[node.id])
+    }
+    const pins = s('g', { class: 'pins' })
+    svg.append(pins)
+    // Light the parts a card's traffic passes through and pin each fault it injects to its part.
+    const focus = (card) => {
+        pins.replaceChildren()
+        const active = new Set(card ? card.traffic.flatMap(({ name }) => TRAFFIC_PATH[name] ?? []) : [])
+        for (const valve of card?.valves ?? []) {
+            active.add(partOfTarget(valve.target))
+        }
+        svg.classList.toggle('focused', Boolean(card))
+        for (const [id, el] of Object.entries(partEls)) {
+            el.classList.toggle('on', active.has(id))
+        }
+        // A wire lights when traffic passes from one end to the other, so a send and the feedback
+        // that comes back through the same two parts stay apart.
+        const paths = (card?.traffic ?? []).map(({ name }) => TRAFFIC_PATH[name] ?? [])
+        for (const l of linkEls) {
+            l.el.classList.toggle(
+                'on',
+                paths.some((path) => path.includes(l.from) && path.indexOf(l.from) < path.lastIndexOf(l.to))
+            )
+        }
+        // At rest a pin counts the scenarios that break a part; a focused scenario labels what it does there.
+        const perPart = new Map()
+        for (const c of card ? [card] : allCards) {
+            for (const valve of c.valves ?? []) {
+                const part = partOfTarget(valve.target)
+                const entry = perPart.get(part) ?? { cards: new Set(), labels: [] }
+                entry.cards.add(c.id)
+                if (!entry.labels.includes(valvePlain(valve))) {
+                    entry.labels.push(valvePlain(valve))
+                }
+                perPart.set(part, entry)
+            }
+        }
+        let row = 0
+        for (const [part, { cards: hitBy, labels }] of perPart) {
+            const p = placed[part]
+            if (!p) {
+                continue
+            }
+            const cx = p.x + p.w - 10
+            const cy = p.y + 2
+            const labelY = 20 + 20 * row++
+            pins.append(
+                s(
+                    'g',
+                    { class: card ? 'pin on' : 'pin' },
+                    card ? s('line', { x1: cx, y1: cy, x2: cx, y2: labelY + 4 }) : null,
+                    s('circle', { cx, cy, r: 10 }),
+                    s('text', { x: cx, y: cy + 4, class: 'pin-mark' }, card ? '!' : String(hitBy.size)),
+                    card ? s('text', { x: cx - 6, y: labelY, class: 'pin-label' }, labels.join('; ')) : null
+                )
+            )
+        }
+    }
+    let allCards = []
+    return {
+        svg,
+        graph,
+        focus,
+        setCards: (all) => {
+            allCards = all
+            focus(null)
+        },
+    }
+}
+
+const scenarioLine = (card) =>
+    card.problems.length
+        ? 'Does not load'
+        : card.valves.length
+          ? card.valves
+                .map(valvePlain)
+                .map((line, i) => (i === 0 ? line : line[0].toLowerCase() + line.slice(1)))
+                .join(', then ')
+          : card.steps.length > 1
+            ? 'Ramps the load until a bar breaks'
+            : 'A baseline with no fault'
+
+async function mapPage() {
+    const [all, runs, recorded] = await Promise.all([
+        cards(),
+        getJson('/api/runs'),
+        getJson('/api/topology').catch(() => null),
+    ])
+    const loaded = all.filter((card) => !card.problems.length)
+    const map = mapOf(recorded?.topology ?? DECLARED_TOPOLOGY)
+    map.setCards(loaded)
     const running = h('div', { class: 'panel running-now' }, h('span', { class: 'muted' }, 'Checking for a run…'))
-    const diagram = deliveryPath()
-    diagram.paint({ nodes: {}, links: {} })
+    const found = recorded
+        ? `Drawn from the wiring run ${recorded.cardId} recorded ${ago(recorded.startedAt)}: ${recorded.topology.processes.length} services, ${recorded.topology.consumers.length} Kafka consumer groups, topology ${recorded.topology.hash}.`
+        : 'No run on this box recorded its wiring yet, so this is the path as declared.'
+    const findings = {}
+    const resting = h(
+        'span',
+        { class: 'muted' },
+        'Hover a scenario below to light the parts its traffic passes through and pin what it breaks.'
+    )
+    const strip = h('div', { class: 'focus' }, resting)
+    // Hovering a scenario lights its path on the map and shows what its last run found.
+    const select = (card, meta) => {
+        map.focus(card && !card.problems.length ? card : null)
+        strip.replaceChildren(
+            ...(card
+                ? [
+                      h(
+                          'div',
+                          { class: 'focus-head' },
+                          h('b', {}, card.id),
+                          h('span', {}, scenarioLine(card)),
+                          h('span', { class: 'muted' }, meta)
+                      ),
+                      h(
+                          'div',
+                          { class: 'focus-found' },
+                          ...(findings[card.id] ?? []).map((line) => h('span', {}, line))
+                      ),
+                  ]
+                : [resting])
+        )
+    }
+    const list = h(
+        'div',
+        { class: 'scenarios' },
+        all.map((card) => {
+            const ofCard = runs.filter((run) => run.cardId === card.id)
+            const last = ofCard[0]
+            const p95 = last ? latencyOf(last, 'p95') : null
+            const meta = last
+                ? `${ofCard.length} ${ofCard.length === 1 ? 'run' : 'runs'}, last ${ago(last.startedAt)}, ${last.where}${p95 !== null ? `, 95% arrived within ${fmtNumber(p95 / 1000)} s` : ''}`
+                : 'no runs on this box'
+            return h(
+                'a',
+                {
+                    class: 'scenario',
+                    href: `#/cards/${card.id}`,
+                    onmouseenter: () => select(card, meta),
+                    onfocus: () => select(card, meta),
+                    onmouseleave: () => select(null),
+                    onblur: () => select(null),
+                },
+                h(
+                    'div',
+                    { class: 'head' },
+                    h('span', { class: 'name' }, card.id),
+                    h(
+                        'span',
+                        { class: 'status running live-badge', 'data-card': card.id, hidden: 'hidden' },
+                        'running'
+                    ),
+                    last ? statusPill(last.status) : h('span', { class: 'muted' }, 'never run')
+                ),
+                h('div', { class: 'line' }, scenarioLine(card)),
+                h('div', { class: 'meta muted' }, meta)
+            )
+        })
+    )
     render(
-        h('h1', {}, 'Scenario dashboard'),
+        h('h1', {}, 'Workflows delivery path'),
         h(
             'p',
             { class: 'sub' },
-            `Each card breaks one part of the Workflows delivery path on purpose while synthetic load runs through it, then checks that every message still arrived. ${all.length} cards, ${runs.length} ${runs.length === 1 ? 'run' : 'runs'} on this box.`
+            'Each scenario breaks one part of this path on purpose while synthetic load runs through it, then checks that every message still arrived. ',
+            h('span', { class: 'muted' }, found)
         ),
         running,
+        h('div', { class: 'panel map-panel' }, strip, map.svg),
+        h('h2', {}, 'Scenarios'),
+        list,
         h(
             'div',
-            { class: 'grid' },
-            all.map((card) => cardTile(card, runs))
-        ),
-        h('h2', {}, 'The delivery path the cards break'),
-        h(
-            'div',
-            { class: 'panel' },
+            { class: 'panel note' },
+            h('h3', {}, 'What a run here says about production'),
             h(
                 'p',
-                { class: 'sub' },
-                'An event or an API call starts a workflow. Its steps wait as jobs in the job queue database until a worker picks them up and sends the email or webhook.'
-            ),
-            diagram.svg
+                {},
+                'A run on this box shows behaviour: whether messages were lost, sent twice, or recovered after the fault. It does not show capacity, since one machine runs every service. Capacity against production traffic comes from the cloud slice, where the cyclotron-scale card ramps from 1x to 10x of the mean rate. Every run says where it ran: local or cloud.'
+            )
         )
     )
     const showLive = async () => {
@@ -824,14 +1163,8 @@ async function cardsPage() {
     await Promise.all(
         all.map(async (card) => {
             const last = runs.find((run) => run.cardId === card.id)
-            const slot = document.querySelector(`[data-finding="${card.id}"]`)
-            if (!last || !slot) {
-                return
-            }
-            const detail = await getJson(`/api/runs/${last.runId}`).catch(() => null)
-            slot.replaceChildren(
-                ...(detail ? findingOf(detail).map((line) => h('div', {}, line)) : [h('span', { class: 'muted' }, '-')])
-            )
+            const detail = last ? await getJson(`/api/runs/${last.runId}`).catch(() => null) : null
+            findings[card.id] = detail ? findingOf(detail) : []
         })
     )
 }
@@ -948,7 +1281,7 @@ async function cardPage(id) {
         to: chronological.length ? Date.parse(chronological.at(-1).startedAt) : 0,
     })
     render(
-        h('a', { href: '#/cards' }, '← Cards'),
+        h('a', { href: '#/' }, '← Map'),
         h('h1', {}, card.id, ' ', h('span', { class: 'badge' }, `v${card.version}`)),
         h(
             'p',
@@ -1629,7 +1962,7 @@ async function route() {
         .forEach((a) =>
             a.classList.toggle(
                 'active',
-                a.dataset.nav === (page || 'cards') || (page === 'cards' && a.dataset.nav === 'cards')
+                a.dataset.nav === (page || 'map') || (page === 'cards' && a.dataset.nav === 'map')
             )
         )
     try {
@@ -1642,7 +1975,7 @@ async function route() {
         } else if (page === 'cards' && id) {
             await cardPage(id)
         } else {
-            await cardsPage()
+            await mapPage()
         }
     } catch (error) {
         render(h('h1', {}, 'Something went wrong'), h('div', { class: 'reason failed' }, error.message))

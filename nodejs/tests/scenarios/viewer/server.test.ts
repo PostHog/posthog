@@ -30,6 +30,15 @@ const sample = (seconds: number, cpuSeconds: number, processed: number, startedA
     lateness: {},
 })
 
+const TOPOLOGY = {
+    recordedAt: iso(-20),
+    hash: '0123456789ab',
+    processes: [{ adapter: 'workflows', role: 'cdp-cyclotron-worker-email', replicas: 1 }],
+    consumers: [],
+    databases: [{ adapter: 'workflows', role: 'cdp-cyclotron-worker-email', database: 'jobs', connections: 1 }],
+    hosts: [{ host: 'ses', requests: 2 }],
+}
+
 function writeRun(stateDir: string): void {
     const dir = path.join(stateDir, RUN_ID)
     mkdirSync(dir, { recursive: true })
@@ -123,6 +132,7 @@ function writeRun(stateDir: string): void {
         },
         { seq: 5, at: iso(7), kind: 'ses.feedback', status: 200, detail: {} },
     ])
+    write('topology.json', TOPOLOGY)
     mkdirSync(path.join(stateDir, UNFINISHED_RUN_ID))
 }
 
@@ -149,7 +159,7 @@ describe('scenario viewer', () => {
         rmSync(stateDir, { recursive: true, force: true })
     })
 
-    it('lists only runs that wrote a scorecard', async () => {
+    it('lists only runs that wrote a scorecard, and serves the topology the newest one recorded', async () => {
         const { body } = await get('/api/runs')
 
         expect(body).toEqual([
@@ -164,6 +174,12 @@ describe('scenario viewer', () => {
                 where: 'local',
             }),
         ])
+        expect((await get('/api/topology')).body).toEqual({
+            runId: RUN_ID,
+            cardId: 'email-worker-killed',
+            startedAt: iso(-30),
+            topology: TOPOLOGY,
+        })
     })
 
     it('turns a run’s evidence into rates that skip a restart and latency to the first clean delivery', async () => {
@@ -184,6 +200,7 @@ describe('scenario viewer', () => {
             },
         ])
         expect(body.series.queue).toEqual([{ at: at(5), due: 7, running: 2, oldestDueSeconds: 1.5 }])
+        expect(body.topology).toEqual(TOPOLOGY)
         expect(body.series.flow).toEqual([
             {
                 at: at(0),

@@ -3,6 +3,7 @@ import path from 'path'
 
 import { parseJSON } from '~/common/utils/json-parse'
 
+import { TOPOLOGY_FILE, Topology } from '../environment/topology'
 import type { DriveWindow, Measurement } from '../judge/measurements'
 import type { RunVerdict } from '../runner/runner'
 import type { ScorecardProperties } from '../scorecard/scorecard'
@@ -31,7 +32,10 @@ export type RunDetail = RunSummary & {
     scorecard: Scorecard
     drive: DriveWindow | null
     series: Series
+    topology: Topology | null
 }
+
+export type RecordedTopology = Pick<RunSummary, 'runId' | 'cardId' | 'startedAt'> & { topology: Topology }
 
 export const isRunId = (value: string): boolean => RUN_ID.test(value)
 
@@ -105,5 +109,22 @@ export function runDetailOf(stateDir: string, runId: string): RunDetail | undefi
         journal: readJson<Evidence['journal']>(path.join(dir, 'journal.json')) ?? [],
         truth: readJson<Evidence['truth']>(path.join(dir, 'truth.json')) ?? [],
     }
-    return { ...summaryOf(scorecard), scorecard, drive: probes?.drive ?? null, series: seriesOf(evidence) }
+    return {
+        ...summaryOf(scorecard),
+        scorecard,
+        drive: probes?.drive ?? null,
+        series: seriesOf(evidence),
+        topology: readJson<Topology>(path.join(dir, TOPOLOGY_FILE)) ?? null,
+    }
+}
+
+// The wiring the newest run recorded. Runs from before the runner recorded one have none.
+export function latestTopology(stateDir: string): RecordedTopology | undefined {
+    for (const { runId, cardId, startedAt } of listRuns(stateDir)) {
+        const topology = readJson<Topology>(path.join(stateDir, runId, TOPOLOGY_FILE))
+        if (topology) {
+            return { runId, cardId, startedAt, topology }
+        }
+    }
+    return undefined
 }

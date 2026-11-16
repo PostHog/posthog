@@ -4,7 +4,7 @@ import path from 'path'
 
 import { CARDS_DIR, catalogOf } from './catalog'
 import { liveOf } from './live'
-import { listRuns, runDetailOf } from './runs'
+import { latestTopology, listRuns, runDetailOf } from './runs'
 
 const STATIC_DIR = path.join(__dirname, 'static')
 
@@ -41,6 +41,9 @@ export function createViewerServer({ stateDir, cardsDir = CARDS_DIR }: ViewerOpt
         }
         if (pathname === '/api/runs') {
             return sendJson(response, 200, listRuns(stateDir))
+        }
+        if (pathname === '/api/topology') {
+            return sendJson(response, 200, latestTopology(stateDir) ?? null)
         }
         if (pathname === '/api/live') {
             return sendJson(response, 200, liveOf(stateDir) ?? null)

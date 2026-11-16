@@ -21,7 +21,11 @@
     --serious: #ec835a;
     --critical: #d03b3b;
 
-    font-family: system-ui, -apple-system, 'Segoe UI', sans-serif;
+    font-family:
+        system-ui,
+        -apple-system,
+        'Segoe UI',
+        sans-serif;
     color-scheme: dark;
 }
 
@@ -125,38 +129,11 @@ code,
     font-size: 12px;
 }
 
-.grid {
-    display: grid;
-    grid-template-columns: repeat(auto-fill, minmax(380px, 1fr));
-    gap: 16px;
-}
-
 .panel {
     padding: 16px;
     background: var(--surface);
     border: 1px solid var(--border);
     border-radius: 10px;
-}
-
-.card-tile {
-    display: flex;
-    flex-direction: column;
-    gap: 10px;
-    color: var(--ink);
-}
-
-.card-tile:hover {
-    text-decoration: none;
-    border-color: rgb(255 255 255 / 25%);
-}
-
-.card-tile .title {
-    display: flex;
-    flex-wrap: wrap;
-    gap: 8px;
-    align-items: center;
-    font-size: 15px;
-    font-weight: 600;
 }
 
 .row {
@@ -692,8 +669,214 @@ select {
     margin-left: auto;
 }
 
-.finding {
+.map {
+    display: block;
+    width: 100%;
+    height: auto;
+}
+
+.map .part .body,
+.map .part .shadow {
+    fill: var(--surface-2);
+    stroke: var(--axis);
+    stroke-width: 1.5;
+}
+
+.map .part .shadow {
+    fill: var(--surface);
+}
+
+.map .part .rim {
+    fill: none;
+    stroke: var(--axis);
+    stroke-width: 1.5;
+}
+
+.map .part .name {
     font-size: 13px;
-    line-height: 1.45;
+    font-weight: 600;
+    fill: var(--ink);
+}
+
+.map .part .tech {
+    font-family: ui-monospace, monospace;
+    font-size: 10px;
+    fill: var(--muted);
+}
+
+.map .part .meaning {
+    font-size: 11px;
+    fill: var(--ink-2);
+}
+
+.map .part .count {
+    font-size: 11px;
+    text-anchor: end;
+    fill: var(--muted);
+}
+
+.map .part.source .body {
+    stroke: var(--series-1);
+}
+
+.map .part.topic .body {
+    stroke: var(--series-7);
+}
+
+.map .part.host .body {
+    stroke-dasharray: 4 3;
+}
+
+.map .wire path {
+    fill: none;
+    stroke: var(--axis);
+    stroke-width: 2;
+}
+
+.map .wire.back path {
+    stroke-dasharray: 5 4;
+}
+
+.map .wire-label {
+    font-family: ui-monospace, monospace;
+    font-size: 10px;
+    text-anchor: middle;
+    fill: var(--muted);
+}
+
+.map .arrowhead {
+    fill: var(--axis);
+}
+
+.map.focused .part:not(.on),
+.map.focused .wire:not(.on) {
+    opacity: 0.25;
+}
+
+.map .part.on .body {
+    stroke: var(--series-1);
+    stroke-width: 2.5;
+}
+
+.map .wire.on path {
+    stroke: var(--series-1);
+}
+
+.map .pin circle {
+    opacity: 0.55;
+    fill: var(--critical);
+    stroke: var(--surface);
+    stroke-width: 2;
+}
+
+.map .pin.on circle {
+    opacity: 1;
+}
+
+.map .pin line {
+    stroke: var(--critical);
+    stroke-width: 1.5;
+}
+
+.map .pin-mark {
+    font-size: 12px;
+    font-weight: 700;
+    text-anchor: middle;
+    fill: #fff;
+}
+
+.map .pin-label {
+    font-size: 12px;
+    font-weight: 600;
+    text-anchor: end;
+    fill: var(--ink);
+    stroke: var(--page);
+    stroke-width: 4px;
+    paint-order: stroke;
+}
+
+.scenarios {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+    gap: 10px;
+}
+
+.map-panel {
+    position: sticky;
+    top: 49px;
+    z-index: 5;
+    padding: 10px 12px 4px;
+}
+
+.focus {
+    height: 44px;
+    overflow: hidden;
+    font-size: 13px;
+}
+
+.focus-head {
+    display: flex;
+    flex-wrap: nowrap;
+    gap: 12px;
+    align-items: baseline;
+    overflow: hidden;
+    white-space: nowrap;
+}
+
+.focus-found {
+    overflow: hidden;
+    color: var(--ink-2);
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+
+.focus-found span + span {
+    margin-left: 14px;
+}
+
+.scenario {
+    display: block;
+    padding: 10px 12px;
     color: var(--ink);
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+}
+
+.scenario:hover,
+.scenario:focus {
+    text-decoration: none;
+    border-color: var(--series-1);
+    outline: none;
+}
+
+.scenario .head {
+    display: flex;
+    gap: 8px;
+    align-items: center;
+}
+
+.scenario .name {
+    flex: 1;
+    font-weight: 600;
+}
+
+.scenario .line {
+    margin-top: 4px;
+    color: var(--ink-2);
+}
+
+.scenario .meta {
+    margin-top: 2px;
+    font-size: 12px;
+}
+
+.note {
+    margin-top: 16px;
+}
+
+.note p {
+    max-width: 900px;
+    margin: 0;
+    color: var(--ink-2);
 }
