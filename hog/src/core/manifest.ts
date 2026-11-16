@@ -43,7 +43,10 @@ export function describeCommands(tree: CommandTree, prefix = ''): ManifestEntry[
         const path = prefix ? `${prefix} ${name}` : name
         switch (node.kind) {
             case 'group':
-                return describeCommands(node.commands, path)
+                return [
+                    ...(node.guide ? describeCommands({ [name]: node.guide }, prefix) : []),
+                    ...describeCommands(node.commands, path),
+                ]
             case 'legacy':
                 return [{ name: path, description: node.description, available: false, use: node.use }]
             case 'command':

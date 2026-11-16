@@ -10,15 +10,15 @@ from __future__ import annotations
 import json
 from collections.abc import Sequence
 from datetime import datetime
-from typing import Literal
+from typing import Any, Literal
 
-from django.db import connection
+from django.db import connection, router
 
 from posthog.dataclasses import frozen
 from posthog.models.team import Team
 from posthog.tasks.calculate_cohort import insert_cohort_from_query, schedule_static_cohort_count_refresh
 
-from products.cohorts.backend.models.cohort import Cohort, ImportResolution
+from products.cohorts.backend.models.cohort import Cohort, CohortType, ImportResolution
 
 
 def cohort_exists_for_team(*, team_id: int, cohort_id: int) -> bool:
@@ -205,3 +205,79 @@ def queue_static_cohort_resyncs(*, cohort_ids: list[int]) -> StaticCohortResync:
         queued=queued,
         skipped=tuple(candidate for candidate in candidates if candidate.skip_reason is not None),
     )
+
+
+@frozen
+class CohortSummary:
+    id: int
+    name: str
+    # Whether the cohort's filters let it update in real time, which workflow triggers need.
+    is_realtime: bool
+
+
+def realtime_cohorts_available(*, team_id: int) -> bool:
+    """Whether the team's users can use realtime cohorts, in workflows and flags."""
+    from products.cohorts.backend.realtime_teams import is_serving_team
+
+    return is_serving_team(team_id)
+
+
+def find_cohort_by_description_prefix(*, team_id: int, prefix: str) -> CohortSummary | None:
+    """The oldest cohort of the team that is not deleted and whose description starts with `prefix`."""
+    # Reads the writer, so a cohort created a moment ago by another import is found despite replica lag.
+    cohort = (
+        Cohort.objects.using(router.db_for_write(Cohort))
+        .filter(team_id=team_id, deleted=False, description__startswith=prefix)
+        .only("id", "name", "cohort_type", "is_static")
+        .order_by("id")
+        .first()
+    )
+    if cohort is None:
+        return None
+    # A cohort switched to static keeps its realtime type, but it no longer updates.
+    return CohortSummary(
+        id=cohort.id,
+        name=cohort.name or "",
+        is_realtime=cohort.cohort_type == CohortType.REALTIME and not cohort.is_static,
+    )
+
+
+def create_cohort_from_filters(
+    *, team_id: int, user_id: int, was_impersonated: bool, name: str, description: str, filters: dict[str, Any]
+) -> CohortSummary:
+    """Creates a dynamic cohort the way the cohort API does: checked filters, a queued calculation and an activity log entry.
+
+    Raises `ValueError` when the filters are not valid cohort filters.
+    """
+    from posthog.api.cohort import validate_filters_and_compute_realtime_support
+    from posthog.event_usage import report_user_action
+    from posthog.models import User
+    from posthog.models.activity_logging.activity_log import Detail, log_activity
+
+    team = Team.objects.get(id=team_id)
+    user = User.objects.get(id=user_id)
+    clean_filters, cohort_type, errors = validate_filters_and_compute_realtime_support(filters, team)
+    if errors:
+        raise ValueError("; ".join(errors))
+    cohort = Cohort.objects.create(
+        team_id=team_id,
+        name=name,
+        description=description,
+        filters=clean_filters,
+        cohort_type=cohort_type,
+        is_calculating=True,
+        created_by=user,
+    )
+    cohort.enqueue_calculation(initiating_user=user)
+    report_user_action(user, "cohort created", cohort.get_analytics_metadata(), team=team)
+    log_activity(
+        organization_id=team.organization_id,
+        team_id=team_id,
+        user=user,
+        was_impersonated=was_impersonated,
+        item_id=cohort.id,
+        scope="Cohort",
+        activity="created",
+        detail=Detail(name=cohort.name),
+    )
+    return CohortSummary(id=cohort.id, name=cohort.name or "", is_realtime=cohort.cohort_type == CohortType.REALTIME)

@@ -27,6 +27,7 @@ export const appScenes: Record<Scene | string, () => any> = {
     [Scene.CustomCss]: () => import('./themes/CustomCssScene'),
     [Scene.Dashboard]: () => import('./dashboard/Dashboard'),
     [Scene.Dashboards]: () => import('products/dashboards/frontend/dashboards/Dashboards'),
+    [Scene.DataDeletionRequestNew]: () => import('./settings/environment/DataDeletion/DataDeletionRequestNewScene'),
     [Scene.DataManagement]: () => import('./data-management/DataManagementScene'),
     [Scene.DataPipelinesNew]: () => import('./data-pipelines/DataPipelinesNewScene'),
     [Scene.DeadLetterQueue]: () => import('./instance/DeadLetterQueue/DeadLetterQueue'),

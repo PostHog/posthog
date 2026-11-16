@@ -17,7 +17,13 @@ from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.instance_setting import override_instance_config
 from posthog.models.scoping import team_scope
 
-from products.stamphog.backend.facade.enums import AudienceReason, ReviewMode, ReviewRunStatus, ReviewVerdict
+from products.stamphog.backend.facade.enums import (
+    AudienceReason,
+    ReviewMode,
+    ReviewRunStatus,
+    ReviewVerdict,
+    RoutingMode,
+)
 from products.stamphog.backend.facade.review_requests import reviewing_team_ids
 from products.stamphog.backend.logic.audiences import ResolvedAudience
 from products.stamphog.backend.models import (
@@ -57,6 +63,7 @@ _RESOLVER_SLOT = "products.stamphog.backend.facade.inbox_hooks._inbox_acting_rev
 # Deferred import inside the carve-out, so the defining module is the patch target.
 # tasks.py imports the name at module top, so the use site is the patch target.
 _FIND_RUN = "products.stamphog.backend.tasks.tasks.find_signal_implementation_run"
+_ROUTE_AFTER_RETRACTION = "products.stamphog.backend.tasks.tasks.route_reviewers_after_approval_retracted.delay"
 
 
 def _signal_run_dto(team_id: int) -> SignalImplementationRunDTO:
@@ -1370,13 +1377,18 @@ def _approved_run(team_id: int, *, lifted: bool | None = False) -> None:
 
 @pytest.mark.django_db(databases=PRODUCT_DATABASES)
 @pytest.mark.parametrize(
-    "same_diff,clean_base_merge,lifted,expect_retained",
+    "review_mode,author_permission,same_diff,clean_base_merge,lifted,expect_retained",
     [
-        (True, False, False, True),
-        (False, False, False, False),
-        (False, True, False, True),
-        (True, False, True, False),
-        (True, False, None, False),
+        (ReviewMode.ALL, "write", True, False, False, True),
+        (ReviewMode.ALL, "write", False, False, False, False),
+        (ReviewMode.ALL, "write", False, True, False, True),
+        (ReviewMode.ALL, "write", True, False, True, False),
+        (ReviewMode.ALL, "write", True, False, None, False),
+        # The push lacks the trigger label, so it skips the review. A silent approval survives a clean base merge.
+        (ReviewMode.LABEL, "write", False, True, False, True),
+        (ReviewMode.LABEL, "write", False, False, False, False),
+        # The main path drops an author below write before retention, so the label skip retains nothing for one.
+        (ReviewMode.LABEL, "read", True, False, False, False),
     ],
     ids=[
         "identical_diff_retains",
@@ -1384,10 +1396,13 @@ def _approved_run(team_id: int, *, lifted: bool | None = False) -> None:
         "clean_base_merge_retains",
         "lifted_approval_dismisses",
         "approval_the_worker_did_not_record_dismisses",
+        "label_skip_clean_base_merge_retains",
+        "label_skip_changed_diff_dismisses",
+        "label_skip_author_below_write_dismisses",
     ],
 )
 def test_push_retains_the_approval_only_when_the_diff_is_identical(
-    team, repo_config, same_diff, clean_base_merge, lifted, expect_retained
+    team, repo_config, review_mode, author_permission, same_diff, clean_base_merge, lifted, expect_retained
 ):
     # A merge of the base branch does not change any blob in the PR's own diff, so there is nothing
     # new to review, and a dismissal would drop the PR out of merge readiness. A blob that did move
@@ -1397,18 +1412,27 @@ def test_push_retains_the_approval_only_when_the_diff_is_identical(
     # Each case uses its own delivery id, because _mark_pr_event_processed writes to the
     # process-wide cache. A shared id would let the first case remove the second case's deliveries
     # as duplicates.
+    case = f"{review_mode}-{author_permission}-{same_diff}-{clean_base_merge}-{lifted}"
     current_diff = _APPROVED if same_diff else _APPROVED.replace("+added", "+something else")
-    _run_task(_pr_payload(), f"delivery-retention-approved-{same_diff}-{clean_base_merge}-{lifted}", team.id)
+    _run_task(_pr_payload(), f"delivery-retention-approved-{case}", team.id)
     _approved_run(team.id, lifted=lifted)
+    with team_scope(team.id):
+        StamphogRepoConfig.objects.filter(id=repo_config.id).update(
+            review_mode=review_mode, routing_mode=RoutingMode.FALLBACK
+        )
+    # The first run cached the author's write permission.
+    cache.clear()
 
     with (
         patch("products.stamphog.backend.tasks.tasks.dismiss_stale_approvals_for_head", return_value=1) as dismiss,
         patch("products.stamphog.backend.tasks.tasks.base_merge_is_clean", return_value=clean_base_merge),
+        patch(_ROUTE_AFTER_RETRACTION) as route_after_retraction,
     ):
         mock_execute = _run_task(
             _pr_payload(action="synchronize", head_sha="sha-2"),
-            f"delivery-retention-push-{same_diff}-{clean_base_merge}-{lifted}",
+            f"delivery-retention-push-{case}",
             team.id,
+            author_permission=author_permission,
             compare_diffs=[_APPROVED, current_diff],
         )
 
@@ -1417,9 +1441,18 @@ def test_push_retains_the_approval_only_when_the_diff_is_identical(
     if expect_retained:
         dismiss.assert_not_called()
         mock_execute.assert_not_called()
+        route_after_retraction.assert_not_called()
+        assert run_count == 1
+    elif review_mode == ReviewMode.LABEL:
+        dismiss.assert_called_once()
+        mock_execute.assert_not_called()
+        route_after_retraction.assert_called_once_with(
+            team_id=team.id, repo_config_id=str(repo_config.id), pr_number=42
+        )
         assert run_count == 1
     else:
         mock_execute.assert_called_once()
+        route_after_retraction.assert_not_called()
         assert run_count == 2
 
 

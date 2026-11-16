@@ -8,25 +8,55 @@ import { VERSION } from '@/version'
 
 import type { Mode } from './agent'
 import { detectCi, isRunningInCI } from './ci'
-import { parseJsonOrUndefined } from './json'
+import { JsonObject, parseJsonOrUndefined } from './json'
 import type { Runtime } from './runtime'
 import type { Schema } from './schema'
 
 // PostHog's own project, where posthog-cli release builds send their events too.
 export const DEFAULT_TELEMETRY_TOKEN = 'sTMFPsFhdP1Ssg'
 
-const TELEMETRY_HOST = INGESTION_HOSTS.us
+const TELEMETRY_BATCH_URL = new URL('/batch/', INGESTION_HOSTS.us)
 // posthog-cli's timeout. A CLI must not hang on its own analytics.
-const SEND_TIMEOUT_MS = 5000
+export const SEND_TIMEOUT_MS = 5000
 const ID_FILE = 'hog-telemetry-id'
 const IDENTITY_FILE = 'hog-telemetry-identity.json'
 const LOOKUP_TIMEOUT_MS = 2000
 const DAY_MS = 24 * 60 * 60 * 1000
 
+export const TelemetryBatch = z.object({ api_key: z.string(), batch: z.array(JsonObject).min(1) })
+
+export function postBatch(fetch: (url: URL, init: RequestInit) => Promise<Response>, body: string): Promise<Response> {
+    return fetch(TELEMETRY_BATCH_URL, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body,
+        signal: AbortSignal.timeout(SEND_TIMEOUT_MS),
+    })
+}
+
 interface QueuedEvent {
     event: string
     properties: Record<string, unknown>
     timestamp: string
+}
+
+interface BatchEvent {
+    event: string
+    timestamp: string
+    distinct_id: string
+    properties: Record<string, unknown>
+}
+
+interface Sender {
+    distinctId: string
+    installId: string
+    identified: boolean
+    properties: Record<string, unknown>
+}
+
+export interface SentEvent {
+    sent: boolean
+    identified: boolean
 }
 
 interface Identity {
@@ -103,6 +133,71 @@ export class Telemetry {
         if (!this.enabled || this.queue.length === 0) {
             return
         }
+
+        const sender = await this.sender()
+        if (this.loggedIn && sender.identified) {
+            this.queue.unshift({
+                event: '$identify',
+                properties: { $anon_distinct_id: sender.installId },
+                timestamp: new Date(this.runtime.now()).toISOString(),
+            })
+        }
+
+        const batch = this.queue.splice(0).map(({ event, properties, timestamp }) => ({
+            event,
+            timestamp,
+            distinct_id: sender.distinctId,
+            properties: { ...sender.properties, ...properties },
+        }))
+        // Attempt to send telemetry in the background, except if:
+        //   1. we're in debug mode, where we need to print the result
+        //   2. we're in CI where we can just take a bit longer to avoid the job being killed
+        //
+        // If attempting to send it in the background fails then let's just send it inline
+        if (!debug && !isRunningInCI(this.runtime.env)) {
+            const backgroundJobCreated = await this.runtime.sendTelemetryInBackground?.(this.body(batch))
+
+            if (backgroundJobCreated) {
+                return
+            }
+        }
+
+        await this.post(batch, debug)
+    }
+
+    // Sends one event a person asked hog to send, such as feedback, at once and outside the usage
+    // queue. Unless it belongs to the person's PostHog user, it goes out under an ID of its own, with
+    // no install ID or invocation ID: an earlier login can have linked the install ID to that user,
+    // and this run's usage event pairs the invocation ID with the install ID.
+    async send(event: string, properties: Record<string, unknown>, debug = false): Promise<SentEvent> {
+        if (this.runtime.telemetryToken === undefined) {
+            return { sent: false, identified: false }
+        }
+
+        const known = this.enabled ? await this.sender() : undefined
+        const sender: Sender = known?.identified
+            ? known
+            : {
+                  distinctId: randomUUID(),
+                  installId: '',
+                  identified: false,
+                  properties: { ...this.commonProperties(), invocation_id: undefined, $process_person_profile: false },
+              }
+        const sent = await this.post(
+            [
+                {
+                    event,
+                    timestamp: new Date(this.runtime.now()).toISOString(),
+                    distinct_id: sender.distinctId,
+                    properties: { ...sender.properties, ...properties },
+                },
+            ],
+            debug
+        )
+        return { sent, identified: sent && sender.identified }
+    }
+
+    private async sender(): Promise<Sender> {
         const key = this.loggedIn ?? (await this.credentials?.().catch(() => undefined))?.key
         const identity = key ? await this.identity(key) : undefined
         const installId = await this.installId()
@@ -111,53 +206,49 @@ export class Telemetry {
         const workloadId =
             workload &&
             `workload_${createHash('sha256').update(`${key?.host}\n${workload.provider}\n${workload.subject}`).digest('hex').slice(0, 32)}`
-        const distinctId = identity?.distinctId ?? workloadId ?? installId
         const groups = Object.fromEntries(
             Object.entries({
                 organization: identity?.organization ?? workload?.organization,
                 project: identity?.project,
             }).filter(([, key]) => key !== undefined)
         )
-        const common = {
-            ...this.commonProperties(),
-            install_id: installId,
-            // A self-hosted project ID means nothing in PostHog Cloud and would tie the install to that instance.
-            env_id: key && isCloudHost(key.host) ? key.projectId : null,
-            credential_type: key?.status().kind ?? null,
-            ...(workload ? { workload_provider: workload.provider } : {}),
-            ...(identity?.distinctId ? {} : { $process_person_profile: false }),
-            ...(Object.keys(groups).length > 0 ? { $groups: groups } : {}),
+
+        return {
+            distinctId: identity?.distinctId ?? workloadId ?? installId,
+            installId,
+            identified: identity?.distinctId !== undefined,
+            properties: {
+                ...this.commonProperties(),
+                install_id: installId,
+                // A self-hosted project ID means nothing in PostHog Cloud and would tie the install to that instance.
+                env_id: key && isCloudHost(key.host) ? key.projectId : null,
+                credential_type: key?.status().kind ?? null,
+                ...(workload ? { workload_provider: workload.provider } : {}),
+                ...(identity?.distinctId ? {} : { $process_person_profile: false }),
+                ...(Object.keys(groups).length > 0 ? { $groups: groups } : {}),
+            },
         }
-        if (this.loggedIn && identity?.distinctId) {
-            this.queue.unshift({
-                event: '$identify',
-                properties: { $anon_distinct_id: installId },
-                timestamp: new Date(this.runtime.now()).toISOString(),
-            })
-        }
-        const batch = this.queue.splice(0).map(({ event, properties, timestamp }) => ({
-            event,
-            timestamp,
-            distinct_id: distinctId,
-            properties: { ...common, ...properties },
-        }))
+    }
+
+    private async post(batch: BatchEvent[], debug: boolean): Promise<boolean> {
         try {
-            const response = await this.runtime.fetch(new URL('/batch/', TELEMETRY_HOST), {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ api_key: this.runtime.telemetryToken, batch }),
-                signal: AbortSignal.timeout(SEND_TIMEOUT_MS),
-            })
+            const response = await postBatch(this.runtime.fetch, this.body(batch))
             if (debug) {
                 this.runtime.writeStderr(`[debug] telemetry: sent ${batch.length} events, ${response.status}\n`)
             }
+            return response.ok
         } catch (error) {
             if (debug) {
                 this.runtime.writeStderr(
                     `[debug] telemetry: not sent: ${error instanceof Error ? error.message : error}\n`
                 )
             }
+            return false
         }
+    }
+
+    private body(batch: BatchEvent[]): string {
+        return JSON.stringify({ api_key: this.runtime.telemetryToken, batch })
     }
 
     private commonProperties(): Record<string, unknown> {

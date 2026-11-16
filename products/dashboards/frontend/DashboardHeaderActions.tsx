@@ -18,25 +18,16 @@ import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 import { AccessControlLevel, AccessControlResourceType, DashboardPlacement, DashboardType } from '~/types'
 
 import {
+    ADD_TILE_MENU_DATA_ATTRS,
     DashboardAddTileHandlers,
-    DashboardAddTileKey,
     DashboardAddTileOption,
     getDashboardAddTileOptions,
     groupDashboardAddTileOptions,
 } from './dashboardAddTileOptions'
 import { DashboardCustomizeButton } from './DashboardCustomizeButton'
 import { DashboardLayoutUndoButton } from './DashboardLayoutUndoButton'
+import { DashboardShortcuts } from './DashboardShortcuts'
 import { DashboardSubscribeButton } from './DashboardSubscribeButton'
-
-// pinned: autocapture data-attrs for the header's Add menu items
-const ADD_TILE_MENU_DATA_ATTRS: Record<DashboardAddTileKey, string> = {
-    insight: 'dashboard-add-insight',
-    text: 'dashboard-add-text-tile',
-    image: 'dashboard-add-image-tile',
-    button: 'dashboard-add-button-tile',
-    widget: 'dashboard-add-widget',
-    group: 'dashboard-add-tile-group',
-}
 
 export function getAddTileMenuItems({
     onBeforeSelect,
@@ -193,6 +184,7 @@ export function DashboardActions(): JSX.Element {
         <>
             <DashboardSubscribeButton />
             <DashboardLayoutUndoButton />
+            <DashboardShortcuts />
             {!dashboardEditing && (tiles.length > 0 || dashboard.is_shared) && (
                 <DashboardShareButton dashboard={dashboard} />
             )}

@@ -3,11 +3,13 @@
 from typing import Any, cast
 
 from drf_spectacular.utils import extend_schema
+from rest_framework import status
 from rest_framework.decorators import action
 from rest_framework.request import Request
 from rest_framework.response import Response
 
 from posthog.api.monitoring import monitor
+from posthog.auth import IDJagAccessTokenAuthentication
 from posthog.models import User
 
 from products.ai_observability.backend.api.metrics import llma_track_latency
@@ -85,6 +87,13 @@ class SkillMarketplaceActionsMixin(SkillAccessMixin):
         auth_error = self._ensure_web_authenticated(request)
         if auth_error is not None:
             return auth_error
+        # The credential is a personal API key with no expiry, so minting it from a short-lived
+        # ID-JAG token would outlive the token and the identity provider's control over it.
+        if isinstance(request.successful_authenticator, IDJagAccessTokenAuthentication):
+            return Response(
+                {"detail": "Sign in to PostHog to create or rotate the skill store install command."},
+                status=status.HTTP_403_FORBIDDEN,
+            )
 
         payload = LLMSkillMarketplaceIssueSerializer(data=request.data)
         payload.is_valid(raise_exception=True)

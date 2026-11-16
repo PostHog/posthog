@@ -81,7 +81,7 @@ ORDER BY status, hours_since_sync DESC
 `system.source_schemas` carries `should_sync`, `status`, `sync_type`, `last_synced_at`, `latest_error`, `source_id` — the fields you triage on. Group the `Failed` rows by `source_id` to find cascades (one source whose tables all fail at once is **one source-level finding**, not N). What the system table does **not** have: `sync_frequency` (the promised cadence) and the **source-level** `status` / `latest_error`. Get those from REST, but only for the handful of candidates the SQL sweep surfaced:
 
 - `external-data-schemas-list` (`search=<schema name>`) — the one candidate's `sync_frequency`, `incremental_field`, full `latest_error`. **Footgun: never call it unfiltered to page the whole project, and never use `external-data-sources-list` for the schema sweep — each source there embeds all its schemas, so the response is many MB on a large project.**
-- `external-data-sources-retrieve {source_id}` — the source's connection-level `status` (`Error`/`Running`/…) and `latest_error`, to confirm a cascade is a broken _connection_ rather than N independent table failures.
+- `external-data-sources-retrieve {id}` (pass the `source_id` value from `system.source_schemas` as `id`) — the source's connection-level `status` (`Error`/`Running`/…) and `latest_error`, to confirm a cascade is a broken _connection_ rather than N independent table failures.
 
 If `Failed` schemas span _many_ sources in the same window, suspect a platform/warehouse incident — one finding naming the shared cause.
 
@@ -121,7 +121,7 @@ The active-failure view does not flag this — it's where you earn your keep. Th
 
 #### Broken webhook behind a green status
 
-For `sync_type: webhook` schemas, the bulk-sync safety net can keep the status `Completed` while the push channel is silently dead, so real-time data lands hours late. Check the source with `external-data-sources-webhook-info-retrieve {source_id}`: `exists: false` (never registered or deleted), `external_status.error` set (remote revoked/deleted it), or `external_status.status` ≠ `enabled` (remote disabled it after delivery failures) each mean the push path is down. This never shows on `external-data-schemas-list`.
+For `sync_type: webhook` schemas, the bulk-sync safety net can keep the status `Completed` while the push channel is silently dead, so real-time data lands hours late. Check the source with `external-data-sources-webhook-info-retrieve {id}`: `exists: false` (never registered or deleted), `external_status.error` set (remote revoked/deleted it), or `external_status.status` ≠ `enabled` (remote disabled it after delivery failures) each mean the push path is down. This never shows on `external-data-schemas-list`.
 
 #### Row-volume cliff
 
@@ -269,7 +269,7 @@ The sweep is SQL over the metadata system tables; REST is per-candidate drill-do
 REST (per-candidate detail the system tables don't carry):
 
 - `external-data-schemas-list` (`search=<name>`) — one schema's `sync_frequency`, `incremental_field`, full `latest_error`. **Never page it unfiltered; never use `external-data-sources-list` for the schema sweep (embeds all schemas, many MB).**
-- `external-data-sources-retrieve {source_id}` — the source's connection-level `status` (`Error`/…) and `latest_error`, to confirm a cascade is a broken connection.
+- `external-data-sources-retrieve {id}` — the source's connection-level `status` (`Error`/…) and `latest_error`, to confirm a cascade is a broken connection.
 - `external-data-schemas-retrieve` — one schema's columns / `sync_type_config` when the sweep's `latest_error` is null but the schema is `Failed`.
 - `external-data-sources-webhook-info-retrieve` — per-source webhook registration + remote status for `sync_type: webhook` schemas; the only place push-channel health shows.
 - `view-list` / `view-run-history` — materialized-view `latest_error` and the run trail when a `system.data_modeling_views` row is `Failed`.

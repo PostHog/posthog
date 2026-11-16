@@ -354,6 +354,8 @@ function scene(rows: EvaluationResultApi[], { rateLimited = false } = {}): Retur
             },
             '/api/projects/:team_id/evaluations/:id/runs/': ({ params }) => [200, failingRuns(String(params.id))],
             '/api/projects/:team_id/evaluations/:id/score_distribution/': SCORE_HISTOGRAM,
+            // No evaluation here has a report, so the drawer shows no latest-report card.
+            '/api/projects/:team_id/llm_analytics/evaluation_reports/': toPaginatedResponse([]),
             '/api/projects/:team_id/evaluation_directories/': DIRECTORIES.filter((directory) =>
                 rows.some((row) => row.directoryName === directory.name)
             ),

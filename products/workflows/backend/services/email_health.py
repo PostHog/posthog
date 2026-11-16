@@ -22,6 +22,7 @@ from products.workflows.backend.facade.contracts import (
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
 from products.workflows.backend.providers.ses import SESProvider
 from products.workflows.backend.services.email_sending_attribution import fold_email_totals_by_flow
+from products.workflows.backend.utils.batch_trigger_limit import resolve_batch_audience_limit
 from products.workflows.backend.utils.email_sending_tiers import max_email_sending_tier, resolve_team_email_sending_tier
 
 logger = structlog.get_logger(__name__)
@@ -66,12 +67,13 @@ def team_email_sending_allowance(team_id: int) -> EmailSendingAllowance:
     keystroke while these two aggregations do not depend on the search.
     """
     # Entries are pickles: bump the version when EmailSendingAllowance changes module or shape.
-    cache_key = f"workflows_email_sending_allowance_v3_{team_id}"
+    cache_key = f"workflows_email_sending_allowance_v4_{team_id}"
     cached = cache.get(cache_key)
     if cached is not None:
         return cached
 
     resolved = resolve_team_email_sending_tier(team_id)
+    rate_limited = resolve_batch_audience_limit(team_id).rate_limited
     now = timezone.now()
     allowance = EmailSendingAllowance(
         tier=resolved.tier,
@@ -80,6 +82,7 @@ def team_email_sending_allowance(team_id: int) -> EmailSendingAllowance:
         max_batch_audience=resolved.limits.max_batch_audience,
         emails_sent_last_day=_team_email_sends_since(team_id, now - timedelta(days=1)),
         enforced=resolved.enforced,
+        rate_limited_max_batch_audience=rate_limited.limit if rate_limited else None,
     )
     cache.set(cache_key, allowance, SENDING_ALLOWANCE_CACHE_SECONDS)
     return allowance

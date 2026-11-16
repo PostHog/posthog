@@ -42,8 +42,7 @@ export type ExecToolState = Pick<
     | 'toolFeatureFlags'
 > & { allTools: readonly { name: string }[] }
 
-/** Presence of this tool is the runtime signal that the notebook cell surface
- *  (the `revamped-py-notebooks` flag) is live for this client. */
+/** Tool availability accounts for the client's scopes and selected features. */
 const NOTEBOOK_ADD_CELL_TOOL = 'notebooks-add-cell'
 const NOTEBOOK_RUN_TOOL = 'notebooks-run'
 const DOCS_SEARCH_TOOL = 'docs-search'

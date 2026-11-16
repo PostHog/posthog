@@ -1,12 +1,9 @@
-import React from 'react'
-
 import { IconPlay } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
 import { EventType } from '~/types'
 
 import { AIDataLoading } from '../components/AIDataLoading'
-import { buildInputSourceIndices } from '../extractSessionTurns'
 import { useAIData } from '../hooks/useAIData'
 import { normalizeMessages } from '../messageNormalization'
 import { openInPlayground } from '../playground/llmPlaygroundPromptsLogic'
@@ -59,8 +56,6 @@ export function ConversationDisplay({
 
     const showPlaygroundButton = eventProperties.$ai_model && input
 
-    const inputSourceIndices = React.useMemo(() => buildInputSourceIndices(input, tools), [input, tools])
-
     return (
         <>
             <header className="mb-2 flex justify-between items-center">
@@ -96,7 +91,6 @@ export function ConversationDisplay({
                 <ConversationMessagesDisplay
                     inputNormalized={normalizeMessages(input, 'user', tools).messages}
                     outputNormalized={normalizeMessages(output, 'assistant').messages}
-                    inputSourceIndices={inputSourceIndices}
                     errorData={eventProperties.$ai_error}
                     httpStatus={eventProperties.$ai_http_status}
                     raisedError={eventProperties.$ai_is_error}

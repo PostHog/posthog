@@ -337,16 +337,10 @@ def start_mcp_server(
         # here (no POSTHOG_ANALYTICS_* config), so every flag would resolve false.
         # Force the selected behavior via the dev/test-only override seam
         # (honored only when NODE_ENV is explicitly development/test — set above).
-        # revamped-py-notebooks gates the markdown notebook tools (create-markdown,
-        # add-cell, update-cell, delete-cell, get, list-frames). It also *hides* the
-        # legacy notebooks-create / notebooks-retrieve pair, which the two surfaces
-        # being mutually exclusive makes unavoidable — an eval of the legacy tools
-        # needs its own lever, not this one. mcp-exec-skills follows the run's
-        # skill delivery mode. dashboard-widgets gates the widget batch tools that
-        # the dashboard widget evals exercise.
+        # mcp-exec-skills follows the run's skill delivery mode. dashboard-widgets gates
+        # the widget batch tools that the dashboard widget evals exercise.
         "FEATURE_FLAG_OVERRIDES": json.dumps(
             {
-                "revamped-py-notebooks": True,
                 "dashboard-widgets": True,
                 MCP_EXEC_SKILLS_FEATURE_FLAG: exec_skills_enabled,
             }

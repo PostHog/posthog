@@ -76,7 +76,6 @@ from products.batch_exports.backend.temporal.sql.events import (
     EXPORT_TO_S3_FROM_EVENTS,
     EXPORT_TO_S3_FROM_EVENTS_BACKFILL,
     EXPORT_TO_S3_FROM_EVENTS_RECENT,
-    EXPORT_TO_S3_FROM_EVENTS_UNBOUNDED,
     EXPORT_TO_S3_FROM_EVENTS_WORKFLOWS,
     native_events_export_query,
 )
@@ -636,9 +635,6 @@ async def _get_query(
         ):
             logger.info("Using distributed_events_recent table for batch export")
             query_template = EXPORT_TO_S3_FROM_DISTRIBUTED_EVENTS_RECENT
-        elif str(team_id) in settings.UNCONSTRAINED_TIMESTAMP_TEAM_IDS:
-            logger.info("Using unbounded events query for batch export")
-            query_template = EXPORT_TO_S3_FROM_EVENTS_UNBOUNDED
         elif is_workflows:
             logger.info("Using workflows events query for batch export")
             query_template = EXPORT_TO_S3_FROM_EVENTS_WORKFLOWS
@@ -651,9 +647,10 @@ async def _get_query(
             lookback_days = settings.OVERRIDE_TIMESTAMP_TEAM_IDS.get(team_id, settings.DEFAULT_TIMESTAMP_LOOKBACK_DAYS)
             parameters["lookback_days"] = lookback_days
 
-        native_source = query_template is EXPORT_TO_S3_FROM_EVENTS_BACKFILL and await database_sync_to_async(
-            use_new_events_schema
-        )(team_id)
+        native_source = query_template in (
+            EXPORT_TO_S3_FROM_EVENTS_BACKFILL,
+            EXPORT_TO_S3_FROM_EVENTS_WORKFLOWS,
+        ) and await database_sync_to_async(use_new_events_schema)(team_id)
 
         filters_str = ""
         if filters is not None and len(filters) > 0:

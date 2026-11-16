@@ -31,15 +31,18 @@ role "ops" {
   env "prod-eu" { layers = ["roles/shared", "roles/coshared/custom_metrics", "roles/coshared/tophog", "roles/ops/shared", "roles/ops/cloud", "roles/ops/prod", "roles/ops/prod-eu"] }
 }
 
-# Every logs node composes the trace suite and the metrics ingest chain
-# (roles/logs/metrics, created locally by migration 0309); the local node adds a
+# Every logs node composes the trace suite. The local node also composes the
+# metrics tables (roles/logs/metrics, created locally by migration 0309) and a
 # self-contained roles/logs/local (extracted from the live node) for the legacy
-# logs32 family it still runs.
+# logs32 family it still runs. The cloud logs nodes leave out roles/logs/metrics:
+# metrics are read from and written to the metrics cluster, and migrations 0379
+# and 0381 drop the metrics tables from the logs cluster. The local stacks run
+# every role on one node and keep them.
 role "logs" {
   env "local-multi"   { layers = ["roles/shared/qla.hcl", "roles/coshared/named_collections", "roles/coshared/apm_ingest", "roles/logs/base", "roles/logs/traces", "roles/logs/traces_kafka_metrics", "roles/logs/metrics", "roles/logs/local"] }
-  env "dev"     { layers = ["roles/shared", "roles/coshared/named_collections", "roles/coshared/custom_metrics", "roles/logs/base", "roles/logs/traces", "roles/logs/traces_kafka_metrics", "roles/logs/metrics", "roles/logs/shared", "roles/logs/dev"] }
-  env "prod-us" { layers = ["roles/shared", "roles/coshared/named_collections", "roles/coshared/apm_ingest", "roles/coshared/custom_metrics", "roles/logs/base", "roles/logs/traces", "roles/logs/traces_kafka_metrics", "roles/logs/metrics", "roles/logs/shared", "roles/logs/prod", "roles/logs/prod-us"] }
-  env "prod-eu" { layers = ["roles/shared", "roles/coshared/named_collections", "roles/coshared/apm_ingest", "roles/coshared/custom_metrics", "roles/logs/base", "roles/logs/traces", "roles/logs/traces_kafka_metrics", "roles/logs/metrics", "roles/logs/shared", "roles/logs/prod", "roles/logs/prod-eu"] }
+  env "dev"     { layers = ["roles/shared", "roles/coshared/named_collections", "roles/coshared/custom_metrics", "roles/logs/base", "roles/logs/traces", "roles/logs/traces_kafka_metrics", "roles/logs/shared", "roles/logs/dev"] }
+  env "prod-us" { layers = ["roles/shared", "roles/coshared/named_collections", "roles/coshared/apm_ingest", "roles/coshared/custom_metrics", "roles/logs/base", "roles/logs/traces", "roles/logs/traces_kafka_metrics", "roles/logs/shared", "roles/logs/prod", "roles/logs/prod-us"] }
+  env "prod-eu" { layers = ["roles/shared", "roles/coshared/named_collections", "roles/coshared/apm_ingest", "roles/coshared/custom_metrics", "roles/logs/base", "roles/logs/traces", "roles/logs/traces_kafka_metrics", "roles/logs/shared", "roles/logs/prod", "roles/logs/prod-eu"] }
 }
 
 # APM satellite: the ingestion-apm nodes. Every environment runs the shared
@@ -53,8 +56,8 @@ role "apm" {
   env "prod-eu" { layers = ["roles/shared/qla_write.hcl", "roles/coshared/named_collections", "roles/coshared/custom_metrics", "roles/coshared/logs_avro_ingest"] }
 }
 
-# Dedicated metrics storage, split off the logs cluster. Holds the metrics4 tables, which the
-# logs role keeps composing until reads cut over, so one declaration reaches both clusters.
+# Dedicated metrics storage, split off the logs cluster. Holds the metrics4 tables, declared once in
+# roles/logs/metrics/metrics4.hcl, which the local logs stacks also compose.
 role "metrics" {
   env "dev"     { layers = ["roles/shared/qla_write.hcl", "roles/shared/custom_metrics.hcl", "roles/coshared/custom_metrics", "roles/logs/metrics/metrics4.hcl", "roles/metrics/shared", "roles/metrics/dev"] }
   env "prod-us" { layers = ["roles/shared/qla_write.hcl", "roles/shared/custom_metrics.hcl", "roles/coshared/custom_metrics", "roles/logs/metrics/metrics4.hcl", "roles/metrics/shared"] }

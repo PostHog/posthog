@@ -15,7 +15,7 @@ import { firstCheckCountdown, modelCardState } from './modelCardState'
 import { formatAuc, isLiftAtCeiling, modelQuality } from './modelQuality'
 import { ModelQualityTag } from './ModelQualityTag'
 import { MetricSparkline } from './pipeline/MetricSparkline'
-import { pipelineQuestion } from './pipelineQuestion'
+import { eventName, pipelineSubtitle, pipelineTitle } from './pipelineQuestion'
 import { PipelineStatusTag } from './PipelineStatusTag'
 import { formatProbability } from './predictionSegments'
 
@@ -48,7 +48,7 @@ function TrendChart({
     }
     return (
         <Tooltip title={title}>
-            <span className="shrink-0">
+            <span className="shrink-0" role="img" aria-label={title}>
                 <MetricSparkline points={points} color={color} width={96} height={32} />
             </span>
         </Tooltip>
@@ -91,8 +91,8 @@ function AwaitingCheckBody({ pipeline }: { pipeline: AutoresearchPipelineApi }):
                                 value={humanFriendlyNumber(pipeline.likely_count)}
                                 label={
                                     pipeline.horizon_days
-                                        ? `people likely to do ${pipeline.target_event} in the next ${pluralize(pipeline.horizon_days, 'day')}`
-                                        : `people likely to do ${pipeline.target_event}`
+                                        ? `people likely to do ${eventName(pipeline.target_event)} in the next ${pluralize(pipeline.horizon_days, 'day')}`
+                                        : `people likely to do ${eventName(pipeline.target_event)}`
                                 }
                             />
                         </span>
@@ -227,7 +227,7 @@ function TrainingBody({ liveRun }: { liveRun: AutoresearchLiveTrainingRunApi | n
 
 function DraftBody({ pipeline }: { pipeline: AutoresearchPipelineApi }): JSX.Element {
     const { mutatingPipelineIds } = useValues(autoresearchLogic)
-    const { startTraining } = useActions(autoresearchLogic)
+    const { requestTraining } = useActions(autoresearchLogic)
     const mutating = !!mutatingPipelineIds[pipeline.id]
     return (
         <div className="flex items-center justify-between gap-2">
@@ -237,7 +237,7 @@ function DraftBody({ pipeline }: { pipeline: AutoresearchPipelineApi }): JSX.Ele
                 size="small"
                 loading={mutating}
                 disabledReason={mutating ? 'Another change is still saving' : undefined}
-                onClick={() => startTraining(pipeline)}
+                onClick={() => requestTraining(pipeline)}
                 data-attr="autoresearch-model-card-train"
             >
                 Start training
@@ -249,6 +249,7 @@ function DraftBody({ pipeline }: { pipeline: AutoresearchPipelineApi }): JSX.Ele
 export function AutoresearchModelCard({ pipeline }: { pipeline: AutoresearchPipelineApi }): JSX.Element {
     const { modelCardOpened } = useActions(autoresearchLogic)
     const state = modelCardState(pipeline)
+    const subtitle = pipelineSubtitle(pipeline)
     return (
         <LemonCard hoverEffect={false} className="flex flex-col gap-3 p-4 min-w-0">
             <div className="flex items-center justify-between gap-2">
@@ -271,11 +272,9 @@ export function AutoresearchModelCard({ pipeline }: { pipeline: AutoresearchPipe
                     className="font-semibold text-base break-words"
                     data-attr="autoresearch-model-card"
                 >
-                    {pipelineQuestion(pipeline)}
+                    {pipelineTitle(pipeline)}
                 </Link>
-                <span className="text-xs text-secondary truncate">
-                    {pipeline.name} · {pipeline.target_event}
-                </span>
+                {subtitle && <span className="text-xs text-secondary truncate">{subtitle}</span>}
             </div>
             <div className="flex flex-col gap-1">
                 <div className="rounded border bg-surface-secondary p-3">
