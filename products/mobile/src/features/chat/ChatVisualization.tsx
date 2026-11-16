@@ -155,7 +155,7 @@ export function ChatVisualization({
     const instanceId = useId()
     const client = useQueryClient()
     const normalizedQuery = useMemo(() => visualizationQuery(query), [query])
-    const supported = query ? queryDisplay(normalizedQuery) !== 'web' : !!shortId
+    const supported = !!shortId || (!!query && queryDisplay(normalizedQuery) !== 'web')
     const inline = useMemo(() => {
         if (!query || result === undefined || result === null) return undefined
         const snapshot = visualizationSnapshot(normalizedQuery, result, title)
@@ -168,7 +168,7 @@ export function ChatVisualization({
         queryFn: () => {
             const owner = client.getQueryCache().find({ queryKey, exact: true })
             if (!owner) throw new Error('Chart query unavailable')
-            return queuedChartRead(owner, shortId && !query ? 'insights' : 'query', (signal) =>
+            return queuedChartRead(owner, shortId ? 'insights' : 'query', (signal) =>
                 readChatVisualization({
                     query: normalizedQuery,
                     shortId,

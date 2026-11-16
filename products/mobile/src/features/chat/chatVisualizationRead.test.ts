@@ -29,7 +29,7 @@ test.each(['cached', 'compute', 'missing'])('resolves numeric insights with serv
     try {
         const cached: unknown[] = []
         const result = await readChatVisualization({
-            query: undefined,
+            query: { kind: 'PathsQuery' },
             shortId: '1234',
             scope: null,
             signal: new AbortController().signal,

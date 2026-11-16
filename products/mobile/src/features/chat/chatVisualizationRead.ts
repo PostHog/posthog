@@ -50,7 +50,7 @@ async function savedVisualization({
 }
 
 export async function readChatVisualization(input: VisualizationRead): Promise<InsightSnapshot | null> {
-    if (input.shortId && !input.query) return savedVisualization(input)
+    if (input.shortId) return savedVisualization(input)
     const response = await runQuery(visualizationSource(input.query), { signal: input.signal, scope: input.scope })
     const snapshot = visualizationSnapshot(input.query, response, input.title)
     if (!snapshot.lastRefreshAt) throw new Error('Chart data unavailable')
