@@ -2149,6 +2149,7 @@ class TestAlertTestDelivery(TrendsInsightAPITest):
         template_id: str | None = "template-webhook",
         function_type: str = "internal_destination",
         source: str | None = "internal-events",
+        operator: str = "exact",
     ) -> HogFunction:
         return HogFunction.objects.create(
             team=self.team,
@@ -2166,7 +2167,7 @@ class TestAlertTestDelivery(TrendsInsightAPITest):
                     {
                         "key": "alert_id",
                         "value": alert_id or self.alert["id"],
-                        "operator": "exact",
+                        "operator": operator,
                         "type": "event",
                     }
                 ],
@@ -2301,17 +2302,24 @@ class TestAlertTestDelivery(TrendsInsightAPITest):
 
     @parameterized.expand(
         [
-            ("disabled", False, "internal_destination", "internal-events"),
-            ("event_destination", True, "destination", "internal-events"),
-            ("event_source", True, "internal_destination", "events"),
-            ("missing_source", True, "internal_destination", None),
+            ("disabled", False, "internal_destination", "internal-events", "exact"),
+            ("event_destination", True, "destination", "internal-events", "exact"),
+            ("event_source", True, "internal_destination", "events", "exact"),
+            ("missing_source", True, "internal_destination", None, "exact"),
+            ("excluded_alert", True, "internal_destination", "internal-events", "is_not"),
         ]
     )
     @mock.patch("products.cdp.backend.internal_events.get_producer")
     def test_rejects_test_delivery_without_active_destinations(
-        self, _name: str, enabled: bool, function_type: str, source: str | None, mock_producer: mock.MagicMock
+        self,
+        _name: str,
+        enabled: bool,
+        function_type: str,
+        source: str | None,
+        operator: str,
+        mock_producer: mock.MagicMock,
     ) -> None:
-        self._create_destination(enabled=enabled, function_type=function_type, source=source)
+        self._create_destination(enabled=enabled, function_type=function_type, source=source, operator=operator)
 
         response = self.client.post(f"/api/projects/{self.team.id}/alerts/{self.alert['id']}/test-delivery/")
 

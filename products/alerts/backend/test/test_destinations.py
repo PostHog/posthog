@@ -102,6 +102,7 @@ class AlertDestinationTestCase(APIBaseTest):
         secret_keys: set[str] | None = None,
         function_type: str = "internal_destination",
         source: str | None = "internal-events",
+        properties: list[dict[str, Any]] | None = None,
     ) -> HogFunction:
         resolved_inputs = _READABLE_INPUTS_BY_TEMPLATE.get(template_id or "", {}) if inputs is None else inputs
         return HogFunction.objects.create(
@@ -116,7 +117,7 @@ class AlertDestinationTestCase(APIBaseTest):
             filters={
                 **({"source": source} if source is not None else {}),
                 "events": [{"id": event_id, "type": "events"}],
-                "properties": [{"key": "alert_id", "value": alert_id}],
+                "properties": properties if properties is not None else [{"key": "alert_id", "value": alert_id}],
             },
         )
 
@@ -764,7 +765,13 @@ class TestListActiveAlertDestinations(AlertDestinationTestCase):
             template_id=template_id, alert_id="alert-1", name="Alerts — Signups (firing) → Engineering"
         )
         self._make_hog_function(
-            template_id="template-slack", alert_id="alert-1", name="Alerts — Signups (firing) → Slack #alerts"
+            template_id="template-slack",
+            alert_id="alert-1",
+            name="Alerts — Signups (firing) → Slack #alerts",
+            properties=[
+                {"key": "alert_id", "value": "alert-1", "operator": "exact"},
+                {"key": "is_test", "value": True, "operator": "exact"},
+            ],
         )
         self._make_hog_function(template_id="template-webhook", alert_id="alert-2")
         self._make_hog_function(template_id=template_id, alert_id="alert-1", event_id="$logs_alert_resolved")
@@ -780,6 +787,19 @@ class TestListActiveAlertDestinations(AlertDestinationTestCase):
         self._make_hog_function(template_id=template_id, alert_id="alert-1", function_type="destination")
         self._make_hog_function(template_id=template_id, alert_id="alert-1", source="events")
         self._make_hog_function(template_id=template_id, alert_id="alert-1", source=None)
+        self._make_hog_function(
+            template_id=template_id,
+            alert_id="alert-1",
+            properties=[
+                {"key": "alert_id", "value": "alert-1", "operator": "is_not"},
+                {"key": "alert_id", "value": "alert-2", "operator": "exact"},
+            ],
+        )
+        self._make_hog_function(
+            template_id=template_id,
+            alert_id="alert-1",
+            properties=[{"key": "alert_id", "value": "alert-1", "operator": "icontains"}],
+        )
 
         destinations = list_active_alert_destinations(
             team_id=self.team.id, alert_id="alert-1", allowed_event_ids=("$logs_alert_firing",)

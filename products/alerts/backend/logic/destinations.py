@@ -9,7 +9,7 @@ from typing import Any, NamedTuple, cast
 from uuid import UUID
 
 from django.db import transaction
-from django.db.models import Q, QuerySet
+from django.db.models import BooleanField, F, Func, JSONField, Q, QuerySet, Value
 
 import structlog
 import posthoganalytics
@@ -227,7 +227,21 @@ def _active_alert_destinations_qs(
 ) -> QuerySet[HogFunction]:
     return owned_alert_destinations_qs(
         team_id=team_id, alert_ids=[alert_id], allowed_event_ids=allowed_event_ids, known_templates_only=False
-    ).filter(type="internal_destination", filters__source="internal-events", enabled=True)
+    ).filter(
+        Func(
+            F("filters"),
+            Value(
+                '$.properties[*] ? (@.key == "alert_id" && @.value.type() == "string" && @.value == $alert_id'
+                ' && (!(exists(@.operator)) || @.operator == "exact"))'
+            ),
+            Value({"alert_id": alert_id}, output_field=JSONField()),
+            function="jsonb_path_exists",
+            output_field=BooleanField(),
+        ),
+        type="internal_destination",
+        filters__source="internal-events",
+        enabled=True,
+    )
 
 
 def _raise_if_alert_already_has_these_destination_configs(
