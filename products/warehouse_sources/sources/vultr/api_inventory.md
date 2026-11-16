@@ -38,10 +38,10 @@ The OpenAPI schema names the bare metal plan array `plans`, but its own example 
 
 ## Fan-out endpoints
 
-| Schema name          | Path                                     | Parent      | Response key    | Primary key                   |
-| -------------------- | ---------------------------------------- | ----------- | --------------- | ----------------------------- |
-| `invoice_items`      | `/v2/billing/invoices/{invoice-id}/items` | `invoices`  | `invoice_items` | `invoice_id`, `line_number`   |
-| `instance_bandwidth` | `/v2/instances/{instance-id}/bandwidth`   | `instances` | `bandwidth`     | `instance_id`, `date`         |
+| Schema name          | Path                                      | Parent      | Response key    | Primary key                 |
+| -------------------- | ----------------------------------------- | ----------- | --------------- | --------------------------- |
+| `invoice_items`      | `/v2/billing/invoices/{invoice-id}/items` | `invoices`  | `invoice_items` | `invoice_id`, `line_number` |
+| `instance_bandwidth` | `/v2/instances/{instance-id}/bandwidth`   | `instances` | `bandwidth`     | `instance_id`, `date`       |
 
 - `invoice_items` uses the same `meta.links.next` cursor as the list endpoints. Line items have no id,
   so `vultr.py` adds `line_number`, the item's position on its invoice in response order. Both tables are

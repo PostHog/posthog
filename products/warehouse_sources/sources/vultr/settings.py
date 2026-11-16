@@ -1,5 +1,7 @@
-from dataclasses import dataclass, field
+from dataclasses import field
 from typing import Any
+
+from posthog.dataclasses import frozen
 
 from products.warehouse_sources.sources.sdk import DependentEndpointConfig, IncrementalField
 
@@ -7,7 +9,7 @@ from products.warehouse_sources.sources.sdk import DependentEndpointConfig, Incr
 VULTR_PER_PAGE = 500
 
 
-@dataclass
+@frozen
 class VultrEndpointConfig:
     name: str
     # API path, appended to the Vultr base URL (https://api.vultr.com).
