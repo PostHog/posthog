@@ -183,6 +183,23 @@ class TestLogParserToolCalls(unittest.TestCase):
         self.assertTrue(calls[0].is_error)
         self.assertEqual(calls[0].output, "")
 
+    def test_tool_result_just_before_end_turn_is_kept(self):
+        raw = join_lines(
+            [
+                prompt_line("2026-04-15T10:00:00.000Z"),
+                tool_call_start_line("2026-04-15T10:00:01.000Z", "t1", "query-trends"),
+                tool_call_input_line("2026-04-15T10:00:01.100Z", "t1", {"foo": 1}),
+                tool_call_completed_line("2026-04-15T10:00:02.000Z", "t1", "42"),
+                end_turn_line("2026-04-15T10:00:03.000Z"),
+            ]
+        )
+        parser = LogParser(raw, initial_prompt="hi")
+
+        calls = parser.get_tool_calls()
+        self.assertEqual(len(calls), 1)
+        self.assertFalse(calls[0].is_error)
+        self.assertEqual(calls[0].output, "42")
+
     def test_mcp_prefix_is_stripped_in_normalized_name(self):
         raw = _make_tool_log("mcp__posthog__query-trends", {"foo": 1})
         parser = LogParser(raw, initial_prompt="hi")
