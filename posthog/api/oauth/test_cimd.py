@@ -55,7 +55,7 @@ from posthog.models.oauth import (
 )
 from posthog.models.oauth_provisioning import PartnerTier
 from posthog.models.oauth_provisioning_review import CIMDProvisioningReview
-from posthog.scopes import OAUTH_SCOPES_HIDDEN, PRIVILEGED_SCOPES
+from posthog.scopes.exposure import OAUTH_SCOPES_HIDDEN, PRIVILEGED_SCOPES
 from posthog.test.anti_ssrf import mock_anti_ssrf_dns_lookup
 
 VALID_CIMD_URL = "https://app.example.com/.well-known/oauth-client-metadata.json"

@@ -7,7 +7,8 @@ import { resolveSessionKey } from '../mcp-context'
 import { guidanceEvaluationErrorsTotal, guidanceNoticesTotal } from '../metrics'
 import type { ResolvedState } from '../request-state-resolver'
 import { GuidanceProductState } from './product-state'
-import { GUIDANCE_RULES, type GuidanceRule } from './rules'
+import type { GuidanceRule } from './rule-schema'
+import { GUIDANCE_RULES } from './rules'
 import { selfDrivingActivationGuidance } from './self-driving-activation'
 
 // A conversation handle outlives any single request, so its counters keep the session store's

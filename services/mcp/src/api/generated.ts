@@ -117,6 +117,19 @@ export namespace Schemas {
       aliases?: string[];
     }
 
+    export interface AEOCompetitorCandidate {
+      /** Brand id. Confirm the brand as a competitor or ignore it with aeo_brands_partial_update. */
+      brand_id: string;
+      /** Brand name. Starts as a guess from the domain until someone edits it. */
+      name: string;
+      /** Registrable domain of the brand. */
+      domain: string;
+      /** Answers to non-branded prompts whose text has the brand's name or one of its other names as a whole word. */
+      answers_naming: number;
+      /** Answers to non-branded prompts that cite a page on the brand's domain or one of its subdomains. */
+      answers_citing: number;
+    }
+
     /**
      * * `web_search` - Web search
      * * `no_search` - No search
@@ -10633,6 +10646,7 @@ export namespace Schemas {
       AwsRedshift: 'aws-redshift',
       S3Compatible: 's3-compatible',
       Snowflake: 'snowflake',
+      Motherduck: 'motherduck',
       YoutubeAnalytics: 'youtube-analytics',
       TwitterAds: 'twitter-ads',
     } as const;
@@ -12085,6 +12099,10 @@ export namespace Schemas {
       useQueryV3?: boolean | null;
       /** version of the node, used for schema migrations */
       version?: number | null;
+      /**
+         * @minimum 0
+         * @maximum 200
+         */
       volumeResolution: number;
       withAggregations?: boolean | null;
       withFirstEvent?: boolean | null;
@@ -16353,9 +16371,21 @@ export namespace Schemas {
          * @nullable
          */
       last_flagged_bucket: string | null;
-      /** Up to 3 flagged series, most anomalous first. */
+      /** Up to 3 flagged series, in the requested `order`. */
       top_series: AnomalyTopSeries[];
     }
+
+    /**
+     * * `unusual` - Unusual
+     * * `recent` - Recent
+     */
+    export type AnomalyOrderEnum = typeof AnomalyOrderEnum[keyof typeof AnomalyOrderEnum];
+
+
+    export const AnomalyOrderEnum = {
+      Unusual: 'unusual',
+      Recent: 'recent',
+    } as const;
 
     export interface AnomalySeries {
       /** The numeric id of the insight. */
@@ -16446,10 +16476,17 @@ export namespace Schemas {
        * * `series` - Series
        * * `insight` - Insight */
       group_by: AnomalyGroupByEnum;
-      /** One row per series, most anomalous first. Empty unless `group_by` is `series`. */
+      /** The applied order.
+       *
+       * * `unusual` - Unusual
+       * * `recent` - Recent */
+      order: AnomalyOrderEnum;
+      /** One row per series, in the requested `order`. Empty unless `group_by` is `series`. */
       series: AnomalySeries[];
-      /** One row per insight, most anomalous first. Empty unless `group_by` is `insight`. */
+      /** One row per insight, in the requested `order`. Empty unless `group_by` is `insight`. */
       insights: AnomalyInsightRow[];
+      /** True when rows exist after this page. Read them with `offset` set to `offset + limit`. */
+      has_more: boolean;
       /** True when `limit` or a read cap left rows out. */
       truncated: boolean;
       /**
@@ -17748,6 +17785,21 @@ export namespace Schemas {
     export interface AutoresearchLiveTrainingRun {
       /** Unique UUID of the live training run. */
       readonly id: string;
+      /**
+         * Parent Task ID of the run's sandbox. Null for a run that an external agent opened.
+         * @nullable
+         */
+      readonly task_id: string | null;
+      /**
+         * Task run ID of the run's sandbox, which holds its log, cost and failure reason. Null for a run that an external agent opened.
+         * @nullable
+         */
+      readonly task_run_id: string | null;
+      /**
+         * Relative URL to the run's Task detail page. Null for a run that an external agent opened.
+         * @nullable
+         */
+      readonly task_url: string | null;
       /** Maximum experiments allowed for this run. */
       readonly iteration_budget: number;
       /** Experiments the agent has recorded so far in this run. */
@@ -29079,6 +29131,7 @@ export namespace Schemas {
      * * `static` - Static
      * * `person_properties` - Person properties
      * * `daily` - Daily
+     * * `off` - Off
      * * `building` - Building
      * * `rebuilding` - Rebuilding
      * * `ready` - Ready
@@ -29091,6 +29144,7 @@ export namespace Schemas {
       Static: 'static',
       PersonProperties: 'person_properties',
       Daily: 'daily',
+      Off: 'off',
       Building: 'building',
       Rebuilding: 'rebuilding',
       Ready: 'ready',
@@ -29143,11 +29197,12 @@ export namespace Schemas {
     } as const;
 
     export interface CohortRealtimeReadiness {
-      /** Whether feature flags can target this cohort now. `ready`: they can, and they see membership changes within about a minute. `building` / `rebuilding`: PostHog is preparing the cohort from past events, and flags cannot target it yet. `needs_attention`: the cohort qualifies but nothing is preparing it. `daily`: its criteria are not supported in realtime, so its membership only comes from the once-a-day calculation. `person_properties`: it matches on person properties, which flags read directly, so they can always target it. `static`: it is a fixed list of people.
+      /** Whether feature flags can target this cohort now. `ready`: they can, and they see membership changes within about a minute. `building` / `rebuilding`: PostHog is preparing the cohort from past events, and flags cannot target it yet. `needs_attention`: the cohort qualifies but nothing is preparing it. `off`: the cohort qualifies and realtime is off for it, so feature flags cannot target it until it is turned on. `daily`: its criteria are not supported in realtime, so its membership only comes from the once-a-day calculation. `person_properties`: it matches on person properties, which flags read directly, so they can always target it. `static`: it is a fixed list of people.
        *
        * * `static` - Static
        * * `person_properties` - Person properties
        * * `daily` - Daily
+       * * `off` - Off
        * * `building` - Building
        * * `rebuilding` - Rebuilding
        * * `ready` - Ready
@@ -29225,6 +29280,8 @@ export namespace Schemas {
       readonly condition_type: CohortConditionTypeFlags | null;
       /** Whether feature flags can target this cohort, and the progress of the build that gets it there. Null outside the realtime cohort flag targeting rollout, on projects the realtime pipeline does not cover, and for cohorts that match on neither events nor person properties, which nothing in the flag API decides on. */
       readonly realtime: CohortRealtimeReadiness | null;
+      /** Whether realtime is on for this cohort, so PostHog keeps its membership current for feature flags and workflows. Send true when you create a cohort to turn realtime on for it. It stays false when the project has no realtime cohorts or the cohort's criteria can't be realtime. For an existing cohort, use the `realtime` endpoint to turn it on or off. */
+      realtime_enabled?: boolean;
       readonly experiment_set: readonly number[];
       /** How this row matched the `search` query parameter: `exact` (the term is a case-insensitive substring of a searched field) or `similar` (a fuzzy trigram match, returned only when no exact match exists). Null when the list is not filtered by `search`. */
       readonly search_match_type: SearchMatchTypeEnum | null;
@@ -29403,6 +29460,11 @@ export namespace Schemas {
       next: string | null;
       /** @nullable */
       previous: string | null;
+    }
+
+    export interface CohortRealtimeRequest {
+      /** True turns realtime on for the cohort and for every realtime cohort it includes as criteria, and starts preparing them from past events. False turns realtime off. PostHog refuses that while a feature flag, an active workflow, or another cohort with realtime on reads the cohort. */
+      enabled: boolean;
     }
 
     export interface CohortUsedInCohort {
@@ -39114,6 +39176,9 @@ export namespace Schemas {
     /**
      * * `not_useful` - Not useful
      * * `not_now` - Not now
+     * * `wrong_estimate` - Wrong estimate
+     * * `already_handled` - Already handled
+     * * `not_owner` - Someone else decides
      * * `other` - Other
      */
     export type WarehouseSuggestionDismissalReasonEnum = typeof WarehouseSuggestionDismissalReasonEnum[keyof typeof WarehouseSuggestionDismissalReasonEnum];
@@ -39122,6 +39187,9 @@ export namespace Schemas {
     export const WarehouseSuggestionDismissalReasonEnum = {
       NotUseful: 'not_useful',
       NotNow: 'not_now',
+      WrongEstimate: 'wrong_estimate',
+      AlreadyHandled: 'already_handled',
+      NotOwner: 'not_owner',
       Other: 'other',
     } as const;
 
@@ -39130,6 +39198,9 @@ export namespace Schemas {
        *
        * * `not_useful` - Not useful
        * * `not_now` - Not now
+       * * `wrong_estimate` - Wrong estimate
+       * * `already_handled` - Already handled
+       * * `not_owner` - Someone else decides
        * * `other` - Other */
       reason: WarehouseSuggestionDismissalReasonEnum;
       /**
@@ -51927,6 +51998,7 @@ export namespace Schemas {
      * * `Databricks` - Databricks
      * * `AzureBlob` - Azure Blob
      * * `S3` - S3
+     * * `MotherDuck` - MotherDuck
      */
     export type ExternalDataDestinationTypeEnum = typeof ExternalDataDestinationTypeEnum[keyof typeof ExternalDataDestinationTypeEnum];
 
@@ -51940,6 +52012,7 @@ export namespace Schemas {
       Databricks: 'Databricks',
       AzureBlob: 'AzureBlob',
       S3: 'S3',
+      MotherDuck: 'MotherDuck',
     } as const;
 
     /**
@@ -51967,7 +52040,8 @@ export namespace Schemas {
        * * `Postgres` - Postgres
        * * `Databricks` - Databricks
        * * `AzureBlob` - Azure Blob
-       * * `S3` - S3 */
+       * * `S3` - S3
+       * * `MotherDuck` - MotherDuck */
       type: ExternalDataDestinationTypeEnum;
       /**
          * Human-readable name shown when picking destinations for a source or table.
@@ -64989,6 +65063,7 @@ export namespace Schemas {
      * * `linear` - Linear
      * * `linkedin-ads` - Linkedin Ads
      * * `meta-ads` - Meta Ads
+     * * `motherduck` - Motherduck
      * * `pardot` - Pardot
      * * `pinterest-ads` - Pinterest Ads
      * * `postgresql` - Postgresql
@@ -65045,6 +65120,7 @@ export namespace Schemas {
       Linear: 'linear',
       LinkedinAds: 'linkedin-ads',
       MetaAds: 'meta-ads',
+      Motherduck: 'motherduck',
       Pardot: 'pardot',
       PinterestAds: 'pinterest-ads',
       Postgresql: 'postgresql',
@@ -65101,6 +65177,7 @@ export namespace Schemas {
        * * `linear` - Linear
        * * `linkedin-ads` - Linkedin Ads
        * * `meta-ads` - Meta Ads
+       * * `motherduck` - Motherduck
        * * `pardot` - Pardot
        * * `pinterest-ads` - Pinterest Ads
        * * `postgresql` - Postgresql
@@ -65268,6 +65345,7 @@ export namespace Schemas {
        * * `linear` - Linear
        * * `linkedin-ads` - Linkedin Ads
        * * `meta-ads` - Meta Ads
+       * * `motherduck` - Motherduck
        * * `pardot` - Pardot
        * * `pinterest-ads` - Pinterest Ads
        * * `postgresql` - Postgresql
@@ -81540,7 +81618,7 @@ export namespace Schemas {
     }
 
     export interface ReportRanking {
-      /** scored: the predictions describe the current text. stale: the title or summary changed after the text the model read, so the predictions describe the old text and the model sorts and filters treat the report as unscored. unscored: the model has not scored the report yet, or skipped it. This does not mean a low score. not_available: you cannot see the ranking model's output, so every other field is empty.
+      /** scored: the predictions describe the current text. stale: the title or summary changed after the text the model read, so the predictions describe the old text. The model sorts and filters still use them. unscored: the model has not scored the report yet, or skipped it. This does not mean a low score. not_available: you cannot see the ranking model's output, so every other field is empty.
        *
        * * `scored` - scored
        * * `stale` - stale
@@ -85720,6 +85798,9 @@ export namespace Schemas {
        *
        * * `not_useful` - Not useful
        * * `not_now` - Not now
+       * * `wrong_estimate` - Wrong estimate
+       * * `already_handled` - Already handled
+       * * `not_owner` - Someone else decides
        * * `other` - Other */
       dismissal_reason: WarehouseSuggestionDismissalReasonEnum | null;
       /** What happened to the asset an accepted suggestion created.
@@ -87744,6 +87825,8 @@ export namespace Schemas {
       readonly condition_type?: CohortConditionTypeFlags | null;
       /** Whether feature flags can target this cohort, and the progress of the build that gets it there. Null outside the realtime cohort flag targeting rollout, on projects the realtime pipeline does not cover, and for cohorts that match on neither events nor person properties, which nothing in the flag API decides on. */
       readonly realtime?: CohortRealtimeReadiness | null;
+      /** Whether realtime is on for this cohort, so PostHog keeps its membership current for feature flags and workflows. Send true when you create a cohort to turn realtime on for it. It stays false when the project has no realtime cohorts or the cohort's criteria can't be realtime. For an existing cohort, use the `realtime` endpoint to turn it on or off. */
+      realtime_enabled?: boolean;
       readonly experiment_set?: readonly number[];
       /** How this row matched the `search` query parameter: `exact` (the term is a case-insensitive substring of a searched field) or `similar` (a fuzzy trigram match, returned only when no exact match exists). Null when the list is not filtered by `search`. */
       readonly search_match_type?: SearchMatchTypeEnum | null;
@@ -89758,7 +89841,8 @@ export namespace Schemas {
        * * `Postgres` - Postgres
        * * `Databricks` - Databricks
        * * `AzureBlob` - Azure Blob
-       * * `S3` - S3 */
+       * * `S3` - S3
+       * * `MotherDuck` - MotherDuck */
       type?: ExternalDataDestinationTypeEnum;
       /**
          * Human-readable name shown when picking destinations for a source or table.
@@ -92869,6 +92953,26 @@ export namespace Schemas {
       Number1: 1,
     } as const;
 
+    /**
+     * * `off` - Off
+     * * `serving` - Serving
+     */
+    export type RealtimeCohortsAccessEnum = typeof RealtimeCohortsAccessEnum[keyof typeof RealtimeCohortsAccessEnum];
+
+
+    export const RealtimeCohortsAccessEnum = {
+      Off: 'off',
+      Serving: 'serving',
+    } as const;
+
+    export interface TeamRealtimeCohorts {
+      /** `serving` when the request's user sees realtime cohorts in this project: whether feature flags can target each cohort, and the control to turn realtime on and off for it. `off` otherwise.
+       *
+       * * `off` - Off
+       * * `serving` - Serving */
+      access: RealtimeCohortsAccessEnum;
+    }
+
     export interface TeamRevenueAnalyticsConfig {
       base_currency?: BaseCurrencyEnum;
       events?: unknown;
@@ -93853,6 +93957,8 @@ export namespace Schemas {
          */
       readonly user_access_level?: string | null;
       readonly managed_viewsets?: PatchedProjectBackwardCompatManagedViewsets;
+      /** Realtime cohorts as the request's user sees them in this project. */
+      readonly realtime_cohorts?: TeamRealtimeCohorts;
       /** Which table this project's feature flag usage data is read from. PostHog sets it for the whole organization. 0 reads the events table. 1 and 2 read the flag_evaluations table. */
       readonly flag_evaluations_mode?: FlagEvaluationsModeEnum;
       /** Host the PostHog SDKs send events to, set as their `api_host` option. It is `https://us.i.posthog.com` on US Cloud, `https://eu.i.posthog.com` on EU Cloud, and the instance URL when self-hosted. */
@@ -100333,6 +100439,8 @@ export namespace Schemas {
          */
       readonly user_access_level: string | null;
       readonly managed_viewsets: ProjectBackwardCompatManagedViewsets;
+      /** Realtime cohorts as the request's user sees them in this project. */
+      readonly realtime_cohorts: TeamRealtimeCohorts;
       /** Which table this project's feature flag usage data is read from. PostHog sets it for the whole organization. 0 reads the events table. 1 and 2 read the flag_evaluations table. */
       readonly flag_evaluations_mode: FlagEvaluationsModeEnum;
       /** Host the PostHog SDKs send events to, set as their `api_host` option. It is `https://us.i.posthog.com` on US Cloud, `https://eu.i.posthog.com` on EU Cloud, and the instance URL when self-hosted. */
@@ -116895,6 +117003,28 @@ export namespace Schemas {
       Ready: 'ready',
     } as const;
 
+    export interface SiteStyle {
+      /** Hex color of the page surface behind its main content. */
+      background_color: string;
+      /** Hex color of the page's main text. */
+      text_color: string;
+      /**
+         * Hex background color of the page's most prominent button. Null when none was found.
+         * @nullable
+         */
+      button_color: string | null;
+      /**
+         * Hex text color of that button. Null when no button was found.
+         * @nullable
+         */
+      button_text_color: string | null;
+      /**
+         * Corner radius of that button in CSS pixels. Null when no button was found.
+         * @nullable
+         */
+      button_border_radius: number | null;
+    }
+
     export interface SiteSnapshot {
       /** `ready` when the snapshot image can be loaded, `rendering` while it is being created, `unavailable` when no recent session recording matches the survey or the user cannot view recordings.
        *
@@ -116917,6 +117047,8 @@ export namespace Schemas {
          * @nullable
          */
       viewport_width: number | null;
+      /** Colors read from the snapshot's page, to suggest a survey appearance that matches the site. Null until the snapshot is ready, or when the page's colors could not be read. */
+      site_style: SiteStyle | null;
     }
 
     export interface SlackAppChannelJoinResult {
@@ -117918,7 +118050,7 @@ export namespace Schemas {
     }
 
     export interface StaffFlagEvaluationsModeMutation {
-      /** Target flag_evaluations mode. 0 reads events. 1 reads flag_evaluations for the flag Usage tab, the per-project counts on a flag's Projects tab, and events lists filtered to only $feature_flag_called, such as the Activity page. 2 reads the same way as 1, and ingestion stops writing $feature_flag_called to events for teams in the ingestion allowlist. On PostHog Cloud the table is available in SQL on every mode. Self-hosted, it is available on 1 and 2.
+      /** Target flag_evaluations mode. 0 reads events. 1 reads flag_evaluations for the flag Usage tab, the per-project counts on a flag's Projects tab, events lists filtered to only $feature_flag_called, such as the Activity page, and the flag call and experiment enrollment counts on the home page. On 1, a HogQL query, such as an insight, also reads flag_evaluations when it pins $feature_flag_called and $feature_flag to string keys, and its date range starts within the table's coverage. Other queries, including default experiment exposures, read events. 1 also hides $feature_flag_called from event pickers, and refuses a new action step on it and a new cohort criterion on it that the batch calculation would read from events. 2 also stops ingestion writing $feature_flag_called to events for the teams it copies to flag_evaluations, which on PostHog Cloud is every team outside INGESTION_FLAG_EVALUATIONS_EXCLUDED_TEAMS. On 2, a HogQL query reads flag_evaluations for any date range and fails when it can't, a query that mixes flag calls with other events reads both tables, realtime cohorts refuse new flag-call criteria, and flags keep no last called time unless it syncs from flag_evaluations. On PostHog Cloud the table is available in SQL on every mode. Self-hosted, it is available on 1 and 2.
        *
        * * `0` - Events
        * * `1` - Read flag evaluations
@@ -117930,7 +118062,7 @@ export namespace Schemas {
          * @maxItems 50
          */
       team_ids: number[];
-      /** Also lower organizations that are above the target mode. Lowering an organization from 2 restarts the events writes that ingestion stopped for its teams in the ingestion allowlist. The events table keeps a gap for those teams for the time the organization spent on 2. */
+      /** Also lower organizations that are above the target mode. Lowering an organization from 2 restarts the events writes that ingestion stopped for its teams. The events table keeps a gap for those teams for the time the organization spent on 2. */
       allow_downgrade?: boolean;
       /** Report what the write would change, and write nothing. */
       dry_run?: boolean;
@@ -117955,8 +118087,8 @@ export namespace Schemas {
       organization_name: string;
       /** Teams of the organization. They all read the organization's mode. */
       team_count: number;
-      /** Running experiments of the organization that count exposures on $feature_flag_called. On teams in the ingestion allowlist, mode 2 stops those exposures. */
-      running_experiments_on_feature_flag_called: number;
+      /** Running experiments of the organization that read $feature_flag_called from events without its $experiment_exposure copy: through an exposure action, an activation, or a metric. Mode 2 stops those events writes, so those reads find no new calls. */
+      running_experiments_needing_flag_calls_in_events: number;
       /** True when the write moved the organization to the target mode, or would on a dry run. */
       changed: boolean;
       /** True when the organization is above the target mode and stays there, because allow_downgrade is not set. */
@@ -118000,7 +118132,7 @@ export namespace Schemas {
       max_feature_flags_override: number | null;
       /** The flag-count limit actually enforced for this team: the override when one is set, otherwise the global MAX_FEATURE_FLAGS_PER_TEAM setting. */
       effective_max_feature_flags: number;
-      /** Which table the $feature_flag_called data of this team's organization is read from. Every team of an organization shares one mode. 0 reads events. 1 reads flag_evaluations for the flag Usage tab, the per-project counts on a flag's Projects tab, and events lists filtered to only $feature_flag_called, such as the Activity page. 2 reads the same way as 1, and ingestion stops writing $feature_flag_called to events for teams in the ingestion allowlist. On PostHog Cloud the table is available in SQL on every mode. Self-hosted, it is available on 1 and 2. This is the stored mode: while the FLAG_EVALUATIONS_READS_FORCE_EVENTS instance setting is on, an organization on 1 reads events anyway.
+      /** Which table the $feature_flag_called data of this team's organization is read from. Every team of an organization shares one mode. 0 reads events. 1 reads flag_evaluations for the flag Usage tab, the per-project counts on a flag's Projects tab, events lists filtered to only $feature_flag_called, such as the Activity page, and the flag call and experiment enrollment counts on the home page. On 1, a HogQL query, such as an insight, also reads flag_evaluations when it pins $feature_flag_called and $feature_flag to string keys, and its date range starts within the table's coverage. Other queries, including default experiment exposures, read events. 1 also hides $feature_flag_called from event pickers, and refuses a new action step on it and a new cohort criterion on it that the batch calculation would read from events. 2 also stops ingestion writing $feature_flag_called to events for the teams it copies to flag_evaluations, which on PostHog Cloud is every team outside INGESTION_FLAG_EVALUATIONS_EXCLUDED_TEAMS. On 2, a HogQL query reads flag_evaluations for any date range and fails when it can't, a query that mixes flag calls with other events reads both tables, realtime cohorts refuse new flag-call criteria, and flags keep no last called time unless it syncs from flag_evaluations. On PostHog Cloud the table is available in SQL on every mode. Self-hosted, it is available on 1 and 2. This is the stored mode: while the FLAG_EVALUATIONS_READS_FORCE_EVENTS instance setting is on, an organization on 1 reads events anyway.
        *
        * * `0` - Events
        * * `1` - Read flag evaluations
@@ -124637,6 +124769,7 @@ export namespace Schemas {
      * * `Databricks` - Databricks
      * * `AzureBlob` - Azure Blob
      * * `S3` - S3
+     * * `MotherDuck` - MotherDuck
      */
     export type UserCreatableDestinationTypeEnum = typeof UserCreatableDestinationTypeEnum[keyof typeof UserCreatableDestinationTypeEnum];
 
@@ -124649,6 +124782,7 @@ export namespace Schemas {
       Databricks: 'Databricks',
       AzureBlob: 'AzureBlob',
       S3: 'S3',
+      MotherDuck: 'MotherDuck',
     } as const;
 
     export interface UserCustomerAnalyticsConfig {
@@ -126643,7 +126777,8 @@ export namespace Schemas {
        * * `Postgres` - Postgres
        * * `Databricks` - Databricks
        * * `AzureBlob` - Azure Blob
-       * * `S3` - S3 */
+       * * `S3` - S3
+       * * `MotherDuck` - MotherDuck */
       warehouse_destination_type: UserCreatableDestinationTypeEnum | null;
       /** How the wizard sets up the source: in the terminal or in the app. Null for a tool with no warehouse source.
        *
@@ -131096,7 +131231,7 @@ export namespace Schemas {
      */
     detail_filters?: string;
     /**
-     * Upper bound on `created_at` (inclusive), ISO-8601.
+     * Upper bound on `created_at` (inclusive), as an ISO 8601 timestamp with a UTC offset, such as `2026-01-15T11:30:00Z`.
      */
     end_date?: string;
     /**
@@ -131159,7 +131294,7 @@ export namespace Schemas {
      */
     search_text?: string;
     /**
-     * Lower bound on `created_at` (inclusive), ISO-8601.
+     * Lower bound on `created_at` (inclusive), as an ISO 8601 timestamp with a UTC offset, such as `2026-01-15T10:30:00Z`.
      */
     start_date?: string;
     /**
@@ -132797,7 +132932,7 @@ export namespace Schemas {
      */
     detail_filters?: string;
     /**
-     * Upper bound on `created_at` (inclusive), ISO-8601.
+     * Upper bound on `created_at` (inclusive), as an ISO 8601 timestamp with a UTC offset, such as `2026-01-15T11:30:00Z`.
      */
     end_date?: string;
     /**
@@ -132860,7 +132995,7 @@ export namespace Schemas {
      */
     search_text?: string;
     /**
-     * Lower bound on `created_at` (inclusive), ISO-8601.
+     * Lower bound on `created_at` (inclusive), as an ISO 8601 timestamp with a UTC offset, such as `2026-01-15T10:30:00Z`.
      */
     start_date?: string;
     /**
@@ -132939,6 +133074,15 @@ export namespace Schemas {
       Confirmed: 'confirmed',
       Ignored: 'ignored',
     } as const;
+
+    export type AeoBrandsCompetitorCandidatesParams = {
+    /**
+     * How many candidates to return, at most 100.
+     * @minimum 1
+     * @maximum 100
+     */
+    limit?: number;
+    };
 
     export type AeoKeywordsModifiersParams = {
     /**
@@ -135895,7 +136039,7 @@ export namespace Schemas {
      */
     offset?: number;
     /**
-     * Find metrics for a measure instead of reading the whole catalog. Send the user's words, the likely metric name, and the spelled-out form of an acronym, separated by commas, such as 'mrr, monthly recurring revenue'. Results come best match first, 10 by default, and match_reason says why each one matched. Words match by stem in the name, display name, description, and definition. Synonyms do not match unless the metric's text contains them.
+     * Find metrics for a measure instead of reading the whole catalog. Send the user's words, the likely metric name, and the spelled-out form of an acronym, separated by commas, such as 'mrr, monthly recurring revenue'. Results come best match first, 20 by default, and match_reason says why each one matched. Words match by stem in the name, display name, description, and definition. Synonyms do not match unless the metric's text contains them.
      */
     search?: string;
     /**
@@ -138928,6 +139072,7 @@ export namespace Schemas {
      * * `Databricks` - Databricks
      * * `AzureBlob` - Azure Blob
      * * `S3` - S3
+     * * `MotherDuck` - MotherDuck
      * @minLength 1
      */
     destination_type: ExternalDataDestinationsConnectLinkRetrieveDestinationType;
@@ -138953,6 +139098,7 @@ export namespace Schemas {
       Databricks: 'Databricks',
       AzureBlob: 'AzureBlob',
       S3: 'S3',
+      MotherDuck: 'MotherDuck',
     } as const;
 
     export type ExternalDataDestinationsConnectLinkStatusRetrieveParams = {
@@ -139593,6 +139739,11 @@ export namespace Schemas {
      * A search term.
      */
     search?: string;
+    /**
+     * A JSON array of tag names, such as ["growth", "weekly"]. Keeps only the dashboards and insights that carry at least one of them.
+     * @minLength 1
+     */
+    tags?: string;
     /**
      * Only entries of this type, such as 'insight', 'dashboard', 'notebook' or 'folder'.
      */
@@ -141388,6 +141539,7 @@ export namespace Schemas {
      * * `linear` - Linear
      * * `linkedin-ads` - Linkedin Ads
      * * `meta-ads` - Meta Ads
+     * * `motherduck` - Motherduck
      * * `pardot` - Pardot
      * * `pinterest-ads` - Pinterest Ads
      * * `postgresql` - Postgresql
@@ -141455,6 +141607,7 @@ export namespace Schemas {
       Linear: 'linear',
       LinkedinAds: 'linkedin-ads',
       MetaAds: 'meta-ads',
+      Motherduck: 'motherduck',
       Pardot: 'pardot',
       PinterestAds: 'pinterest-ads',
       Postgresql: 'postgresql',
@@ -144879,9 +145032,28 @@ export namespace Schemas {
      */
     limit?: number;
     /**
+     * Rows to skip in the sorted result. Pass the previous `offset` plus `limit` when `has_more` is true.
+     * @minimum 0
+     * @maximum 10000
+     */
+    offset?: number;
+    /**
      * Only series, or insights, with at least one flagged bucket in the range. Set false to also list quiet ones.
      */
     only_flagged?: boolean;
+    /**
+     * `unusual` puts the series that flagged most above its usual rate first. `recent` puts the newest flagged bucket first, then sorts as `unusual`. With `group_by: insight`, each insight sorts by its first series.
+     *
+     * * `unusual` - Unusual
+     * * `recent` - Recent
+     * @minLength 1
+     */
+    order?: SignalsAnomaliesSearchRetrieveOrder;
+    /**
+     * Only insights whose name contains this text, ignoring case.
+     * @maxLength 200
+     */
+    search?: string;
     };
 
     export type SignalsAnomaliesSearchRetrieveGroupBy = typeof SignalsAnomaliesSearchRetrieveGroupBy[keyof typeof SignalsAnomaliesSearchRetrieveGroupBy];
@@ -144900,6 +145072,14 @@ export namespace Schemas {
       Day: 'day',
       Week: 'week',
       Month: 'month',
+    } as const;
+
+    export type SignalsAnomaliesSearchRetrieveOrder = typeof SignalsAnomaliesSearchRetrieveOrder[keyof typeof SignalsAnomaliesSearchRetrieveOrder];
+
+
+    export const SignalsAnomaliesSearchRetrieveOrder = {
+      Unusual: 'unusual',
+      Recent: 'recent',
     } as const;
 
     export type SignalsProcessingListParams = {
@@ -144985,11 +145165,11 @@ export namespace Schemas {
      */
     ranking_id?: string;
     /**
-     * Comma-separated <outcome>:<lift> pairs, e.g. fix:2,open:1.5. Keeps reports whose served ranking lift is at least the value for every named outcome. Outcomes: open, action, fix. Read inbox-ranking-outcomes-list for what each outcome means. Unscored and stale reports never match. Needs staff or the inbox model sort rollout: other users get a 400.
+     * Comma-separated <outcome>:<lift> pairs, e.g. fix:2,open:1.5. Keeps reports whose served ranking lift is at least the value for every named outcome. Outcomes: open, action, fix. Read inbox-ranking-outcomes-list for what each outcome means. A report edited after its last score matches on that score. Unscored reports never match. Needs staff or the inbox model sort rollout: other users get a 400.
      */
     ranking_min_lift?: string;
     /**
-     * Comma-separated <outcome>:<probability> pairs, e.g. fix:0.3. Keeps reports whose served ranking probability is at least the value for every named outcome. Outcomes: open, action, fix. Read inbox-ranking-outcomes-list for what each outcome means. Unscored and stale reports never match. Needs staff or the inbox model sort rollout: other users get a 400.
+     * Comma-separated <outcome>:<probability> pairs, e.g. fix:0.3. Keeps reports whose served ranking probability is at least the value for every named outcome. Outcomes: open, action, fix. Read inbox-ranking-outcomes-list for what each outcome means. A report edited after its last score matches on that score. Unscored reports never match. Needs staff or the inbox model sort rollout: other users get a 400.
      */
     ranking_min_probability?: string;
     /**
@@ -145009,7 +145189,7 @@ export namespace Schemas {
      */
     search?: string;
     /**
-     * Inbox sort preset: priority, recommended, personal, last_updated, newest, or oldest. Ignored when ordering is supplied. recommended resolves per user to a ranker: the priority order, or the open, action or fix outcome of the served ranking model, highest score first, with unscored and stale reports in priority order after the scored ones, or your stored personal ranking, as personal gives it, then the priority order. The response's ranker field names the one used, and its ranking_pill field says whether to show score pills. personal puts the reports of a stored personal ranking first, by rank, then the reports it folded, then every other report in your recommended order. With scope=teammate it reads the teammate's stored ranking, else yours. It only reads the stored ranking and never starts a build. With no stored personal ranking, or a teammate outside the organization, it is the recommended order, or the priority order when recommended gives you the personal ranking.
+     * Inbox sort preset: priority, recommended, personal, last_updated, newest, or oldest. Ignored when ordering is supplied. recommended resolves per user to a ranker: the priority order, or the open, action or fix outcome of the served ranking model, highest score first, with unscored reports in priority order after the scored ones, or your stored personal ranking, as personal gives it, then the priority order. The response's ranker field names the one used, and its ranking_pill field says whether to show score pills. personal puts the reports of a stored personal ranking first, by rank, then the reports it folded, then every other report in your recommended order. With scope=teammate it reads the teammate's stored ranking, else yours. It only reads the stored ranking and never starts a build. With no stored personal ranking, or a teammate outside the organization, it is the recommended order, or the priority order when recommended gives you the personal ranking.
      */
     sort?: string;
     /**
@@ -145269,11 +145449,11 @@ export namespace Schemas {
      */
     priority?: string;
     /**
-     * Comma-separated <outcome>:<lift> pairs, e.g. fix:2,open:1.5. Keeps reports whose served ranking lift is at least the value for every named outcome. Outcomes: open, action, fix. Read inbox-ranking-outcomes-list for what each outcome means. Unscored and stale reports never match. Needs staff or the inbox model sort rollout: other users get a 400.
+     * Comma-separated <outcome>:<lift> pairs, e.g. fix:2,open:1.5. Keeps reports whose served ranking lift is at least the value for every named outcome. Outcomes: open, action, fix. Read inbox-ranking-outcomes-list for what each outcome means. A report edited after its last score matches on that score. Unscored reports never match. Needs staff or the inbox model sort rollout: other users get a 400.
      */
     ranking_min_lift?: string;
     /**
-     * Comma-separated <outcome>:<probability> pairs, e.g. fix:0.3. Keeps reports whose served ranking probability is at least the value for every named outcome. Outcomes: open, action, fix. Read inbox-ranking-outcomes-list for what each outcome means. Unscored and stale reports never match. Needs staff or the inbox model sort rollout: other users get a 400.
+     * Comma-separated <outcome>:<probability> pairs, e.g. fix:0.3. Keeps reports whose served ranking probability is at least the value for every named outcome. Outcomes: open, action, fix. Read inbox-ranking-outcomes-list for what each outcome means. A report edited after its last score matches on that score. Unscored reports never match. Needs staff or the inbox model sort rollout: other users get a 400.
      */
     ranking_min_probability?: string;
     /**
@@ -146148,6 +146328,22 @@ export namespace Schemas {
      * @minLength 1
      */
     device: SurveysSiteSnapshotRetrieveDevice;
+    /**
+     * URL condition to use instead of the survey's saved one, for an editor with unsaved targeting. Empty means every page. Leave out to use the saved targeting.
+     */
+    url?: string;
+    /**
+     * How `url` matches a page URL. Defaults to `icontains`. Ignored without `url`.
+     *
+     * * `regex` - regex
+     * * `not_regex` - not_regex
+     * * `exact` - exact
+     * * `is_not` - is_not
+     * * `icontains` - icontains
+     * * `not_icontains` - not_icontains
+     * @minLength 1
+     */
+    url_match_type?: SurveysSiteSnapshotRetrieveUrlMatchType;
     };
 
     export type SurveysSiteSnapshotRetrieveDevice = typeof SurveysSiteSnapshotRetrieveDevice[keyof typeof SurveysSiteSnapshotRetrieveDevice];
@@ -146156,6 +146352,18 @@ export namespace Schemas {
     export const SurveysSiteSnapshotRetrieveDevice = {
       Desktop: 'desktop',
       Mobile: 'mobile',
+    } as const;
+
+    export type SurveysSiteSnapshotRetrieveUrlMatchType = typeof SurveysSiteSnapshotRetrieveUrlMatchType[keyof typeof SurveysSiteSnapshotRetrieveUrlMatchType];
+
+
+    export const SurveysSiteSnapshotRetrieveUrlMatchType = {
+      Regex: 'regex',
+      NotRegex: 'not_regex',
+      Exact: 'exact',
+      IsNot: 'is_not',
+      Icontains: 'icontains',
+      NotIcontains: 'not_icontains',
     } as const;
 
     export type SurveysStatsRetrieveParams = {
@@ -148592,6 +148800,10 @@ export namespace Schemas {
 
     export type WarehouseSuggestionsAcceptCreateParams = {
     /**
+     * Whether the decision was part of one action on several selected suggestions. Only recorded on the analytics event.
+     */
+    bulk?: boolean;
+    /**
      * Page the decision was made on. Only recorded on the analytics event.
      *
      * * `models` - Models
@@ -148610,6 +148822,10 @@ export namespace Schemas {
     } as const;
 
     export type WarehouseSuggestionsDismissCreateParams = {
+    /**
+     * Whether the decision was part of one action on several selected suggestions. Only recorded on the analytics event.
+     */
+    bulk?: boolean;
     /**
      * Page the decision was made on. Only recorded on the analytics event.
      *

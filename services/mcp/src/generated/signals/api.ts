@@ -251,7 +251,13 @@ export const signalsAnomaliesSearchRetrieveQueryGroupByDefault = `series`
 export const signalsAnomaliesSearchRetrieveQueryLimitDefault = 25
 export const signalsAnomaliesSearchRetrieveQueryLimitMax = 100
 
+export const signalsAnomaliesSearchRetrieveQueryOffsetDefault = 0
+export const signalsAnomaliesSearchRetrieveQueryOffsetMin = 0
+export const signalsAnomaliesSearchRetrieveQueryOffsetMax = 10000
+
 export const signalsAnomaliesSearchRetrieveQueryOnlyFlaggedDefault = true
+export const signalsAnomaliesSearchRetrieveQueryOrderDefault = `unusual`
+export const signalsAnomaliesSearchRetrieveQuerySearchMax = 200
 
 export const SignalsAnomaliesSearchRetrieveQueryParams = () => zod.object({
     dashboard_id: zod.number().optional().describe('Only the series of the insights on this dashboard, by numeric id.'),
@@ -284,12 +290,31 @@ export const SignalsAnomaliesSearchRetrieveQueryParams = () => zod.object({
         .max(signalsAnomaliesSearchRetrieveQueryLimitMax)
         .default(signalsAnomaliesSearchRetrieveQueryLimitDefault)
         .describe('The most rows to return.'),
+    offset: zod
+        .number()
+        .min(signalsAnomaliesSearchRetrieveQueryOffsetMin)
+        .max(signalsAnomaliesSearchRetrieveQueryOffsetMax)
+        .default(signalsAnomaliesSearchRetrieveQueryOffsetDefault)
+        .describe(
+            'Rows to skip in the sorted result. Pass the previous `offset` plus `limit` when `has_more` is true.'
+        ),
     only_flagged: zod
         .boolean()
         .default(signalsAnomaliesSearchRetrieveQueryOnlyFlaggedDefault)
         .describe(
             'Only series, or insights, with at least one flagged bucket in the range. Set false to also list quiet ones.'
         ),
+    order: zod
+        .enum(['unusual', 'recent'])
+        .default(signalsAnomaliesSearchRetrieveQueryOrderDefault)
+        .describe(
+            '`unusual` puts the series that flagged most above its usual rate first. `recent` puts the newest flagged bucket first, then sorts as `unusual`. With `group_by: insight`, each insight sorts by its first series.\n\n\* `unusual` - Unusual\n\* `recent` - Recent'
+        ),
+    search: zod
+        .string()
+        .max(signalsAnomaliesSearchRetrieveQuerySearchMax)
+        .optional()
+        .describe('Only insights whose name contains this text, ignoring case.'),
 })
 
 /**
@@ -585,13 +610,13 @@ export const SignalsReportsListQueryParams = () => zod.object({
         .string()
         .optional()
         .describe(
-            'Comma-separated <outcome>:<lift> pairs, e.g. fix:2,open:1.5. Keeps reports whose served ranking lift is at least the value for every named outcome. Outcomes: open, action, fix. Read inbox-ranking-outcomes-list for what each outcome means. Unscored and stale reports never match. Needs staff or the inbox model sort rollout: other users get a 400.'
+            'Comma-separated <outcome>:<lift> pairs, e.g. fix:2,open:1.5. Keeps reports whose served ranking lift is at least the value for every named outcome. Outcomes: open, action, fix. Read inbox-ranking-outcomes-list for what each outcome means. A report edited after its last score matches on that score. Unscored reports never match. Needs staff or the inbox model sort rollout: other users get a 400.'
         ),
     ranking_min_probability: zod
         .string()
         .optional()
         .describe(
-            'Comma-separated <outcome>:<probability> pairs, e.g. fix:0.3. Keeps reports whose served ranking probability is at least the value for every named outcome. Outcomes: open, action, fix. Read inbox-ranking-outcomes-list for what each outcome means. Unscored and stale reports never match. Needs staff or the inbox model sort rollout: other users get a 400.'
+            'Comma-separated <outcome>:<probability> pairs, e.g. fix:0.3. Keeps reports whose served ranking probability is at least the value for every named outcome. Outcomes: open, action, fix. Read inbox-ranking-outcomes-list for what each outcome means. A report edited after its last score matches on that score. Unscored reports never match. Needs staff or the inbox model sort rollout: other users get a 400.'
         ),
     scope: zod
         .string()
@@ -614,7 +639,7 @@ export const SignalsReportsListQueryParams = () => zod.object({
         .string()
         .optional()
         .describe(
-            "Inbox sort preset: priority, recommended, personal, last_updated, newest, or oldest. Ignored when ordering is supplied. recommended resolves per user to a ranker: the priority order, or the open, action or fix outcome of the served ranking model, highest score first, with unscored and stale reports in priority order after the scored ones, or your stored personal ranking, as personal gives it, then the priority order. The response's ranker field names the one used, and its ranking_pill field says whether to show score pills. personal puts the reports of a stored personal ranking first, by rank, then the reports it folded, then every other report in your recommended order. With scope=teammate it reads the teammate's stored ranking, else yours. It only reads the stored ranking and never starts a build. With no stored personal ranking, or a teammate outside the organization, it is the recommended order, or the priority order when recommended gives you the personal ranking."
+            "Inbox sort preset: priority, recommended, personal, last_updated, newest, or oldest. Ignored when ordering is supplied. recommended resolves per user to a ranker: the priority order, or the open, action or fix outcome of the served ranking model, highest score first, with unscored reports in priority order after the scored ones, or your stored personal ranking, as personal gives it, then the priority order. The response's ranker field names the one used, and its ranking_pill field says whether to show score pills. personal puts the reports of a stored personal ranking first, by rank, then the reports it folded, then every other report in your recommended order. With scope=teammate it reads the teammate's stored ranking, else yours. It only reads the stored ranking and never starts a build. With no stored personal ranking, or a teammate outside the organization, it is the recommended order, or the priority order when recommended gives you the personal ranking."
         ),
     source_id: zod
         .string()
