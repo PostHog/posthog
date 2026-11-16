@@ -29,7 +29,8 @@ import { DetectorType } from '~/queries/schema/schema-general'
 import { AlertStateIndicator } from 'products/alerts/frontend/components/AlertDefinition'
 import { AlertHistoryChart } from 'products/alerts/frontend/views/AlertHistoryChart'
 
-import { alertLogic, CHART_CHECKS_LIMIT, TABLE_CHECKS_PAGE_SIZE } from '../logic/alertLogic'
+import { alertLogic, CHART_CHECKS_LIMIT, detectorHasAnomalyScore, TABLE_CHECKS_PAGE_SIZE } from '../logic/alertLogic'
+import { formatForecastRange, getForecastCheckDetail } from '../logic/forecastRules'
 import { isAnyRowHogQLConfig } from '../types'
 import type { AlertCheck, AlertType, InvestigationVerdict } from '../types'
 import { isFailedDelivery, summarizeDeliveries } from '../utils'
@@ -190,6 +191,9 @@ export function AlertHistorySection({
     const isAnyRowSqlAlert = isAnyRowHogQLConfig(alert?.config)
     // Only the AI detector reports a reason, so no other alert type gets an always-empty column.
     const isLLMDetectorAlert = alert?.detector_config?.type === DetectorType.LLM
+    const showScoreColumn = detectorHasAnomalyScore(alert?.detector_config)
+    // Past forecast checks keep their forecast after the alert moves to another detector.
+    const showForecastColumns = alertHistoryChecksSortedDesc.some((check) => getForecastCheckDetail(check) !== null)
     // Past AI checks keep their reason after the alert moves to another detector.
     const showWhyColumn =
         isLLMDetectorAlert ||
@@ -228,8 +232,8 @@ export function AlertHistorySection({
                 },
             })
         }
-        // The AI detector has no score. Its checks read as fired or not fired, with a kind and a reason.
-        if (alertHistoryIsAnomalyDetection && !isLLMDetectorAlert) {
+        // The AI and forecast detectors have no score. Their checks read as fired or not fired.
+        if (showScoreColumn) {
             columns.push({
                 title: 'Score',
                 align: 'right',
@@ -239,6 +243,26 @@ export function AlertHistorySection({
                     return lastScore != null ? lastScore.toFixed(3) : '—'
                 },
             })
+        }
+        if (showForecastColumns) {
+            columns.push(
+                {
+                    title: 'Expected',
+                    align: 'right',
+                    render: (_value, check) => {
+                        const detail = getForecastCheckDetail(check)
+                        return detail ? humanFriendlyNumber(detail.expected) : '—'
+                    },
+                },
+                {
+                    title: 'Forecast range',
+                    align: 'right',
+                    render: (_value, check) => {
+                        const detail = getForecastCheckDetail(check)
+                        return detail ? formatForecastRange(detail) : '—'
+                    },
+                }
+            )
         }
         if (alertHistoryChecksSortedDesc.some((check) => typeof check.triggered_metadata?.kind === 'string')) {
             columns.push({
@@ -332,10 +356,10 @@ export function AlertHistorySection({
         return columns
     }, [
         alertId,
-        alertHistoryIsAnomalyDetection,
         investigationAgentEnabled,
         isAnyRowSqlAlert,
-        isLLMDetectorAlert,
+        showScoreColumn,
+        showForecastColumns,
         showWhyColumn,
         alertHistoryChecksSortedDesc,
     ])

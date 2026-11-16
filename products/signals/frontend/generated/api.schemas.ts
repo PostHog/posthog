@@ -344,6 +344,59 @@ export interface ActivitySummarySearchMatchApi {
     snippet: string | null
 }
 
+/**
+ * * `owned` - Owned
+ * * `watched` - Watched
+ */
+export type SummaryObjectRelationEnumApi =
+    (typeof SummaryObjectRelationEnumApi)[keyof typeof SummaryObjectRelationEnumApi]
+
+export const SummaryObjectRelationEnumApi = {
+    Owned: 'owned',
+    Watched: 'watched',
+} as const
+
+export interface ActivitySummarySearchObjectApi {
+    /** `owned` when the member changed the object, `watched` when they opened it on many days.
+     *
+     * * `owned` - Owned
+     * * `watched` - Watched */
+    relation: SummaryObjectRelationEnumApi
+    /** The object type, such as `insight` or `dashboard`. */
+    type: string
+    /** The short id for an insight, a notebook or a replay playlist, else the primary key. */
+    id: string
+    /** The object name. */
+    name: string
+    /**
+     * Days the member changed the object. Set on an owned object only.
+     * @nullable
+     */
+    edit_days: number | null
+    /**
+     * Days the member opened the object. Set on a watched object only.
+     * @nullable
+     */
+    open_days: number | null
+    /**
+     * The last day of the change or the view, as YYYY-MM-DD.
+     * @nullable
+     */
+    last_at: string | null
+    /**
+     * True when someone else created the watched object. Null on an owned object.
+     * @nullable
+     */
+    not_theirs: boolean | null
+}
+
+export interface ActivitySummarySearchProductsApi {
+    /** Products the member changed something in, the most active first. */
+    works_in: ActivitySummaryProductEnumApi[]
+    /** Products the member only opened, the most opened first. */
+    visits: ActivitySummaryProductEnumApi[]
+}
+
 export interface ActivitySummarySearchHitApi {
     /** The member. Use it in `suggested_reviewers`. */
     user_uuid: string
@@ -363,6 +416,8 @@ export interface ActivitySummarySearchHitApi {
     score: number | null
     /** Why this member matched. */
     matched_on: ActivitySummarySearchMatchApi[]
+    /** The member's owned and watched objects that matched the object filter, or whose name matched a query term. */
+    objects: ActivitySummarySearchObjectApi[]
     /**
      * One or two sentences about what the member works on in this project.
      * @nullable
@@ -372,6 +427,8 @@ export interface ActivitySummarySearchHitApi {
     themes: ActivitySummaryThemeApi[]
     /** How the member works in this project overall, the main mode first. */
     modes: ActivitySummaryModeEnumApi[]
+    /** The products the member works in or visits. */
+    products: ActivitySummarySearchProductsApi
     /**
      * When this summary was written.
      * @nullable
@@ -389,6 +446,8 @@ export interface ActivitySummarySearchHitApi {
 export interface ActivitySummarySearchResultApi {
     /** The matching members, best match first. */
     results: ActivitySummarySearchHitApi[]
+    /** All the members that matched, before `offset` and `limit`. */
+    total: number
     /** False when the search used keywords only: a `keyword` search, a request with no query, or a `hybrid` search whose vector search failed. */
     semantic_used: boolean
     /** Members with access to the project and no summary yet. The search cannot find them. */
@@ -1167,6 +1226,17 @@ export const InboxOnboardingSetupModeEnumApi = {
  * * `amazon_cloudwatch` - Amazon CloudWatch
  * * `logicmonitor` - LogicMonitor
  * * `mux` - Mux
+ * * `sonarcloud` - SonarCloud
+ * * `checkmarx` - Checkmarx
+ * * `veracode` - Veracode
+ * * `veracode_sca` - Veracode SCA
+ * * `semgrep_sca` - Semgrep Supply Chain
+ * * `gitguardian` - GitGuardian
+ * * `infisical` - Infisical
+ * * `aws_macie` - AWS Macie
+ * * `sentinelone` - SentinelOne
+ * * `jfrog_xray` - JFrog Xray
+ * * `dynatrace_security` - Dynatrace Application Security
  */
 export type SignalSourceProductEnumApi = (typeof SignalSourceProductEnumApi)[keyof typeof SignalSourceProductEnumApi]
 
@@ -1305,6 +1375,17 @@ export const SignalSourceProductEnumApi = {
     AmazonCloudwatch: 'amazon_cloudwatch',
     Logicmonitor: 'logicmonitor',
     Mux: 'mux',
+    Sonarcloud: 'sonarcloud',
+    Checkmarx: 'checkmarx',
+    Veracode: 'veracode',
+    VeracodeSca: 'veracode_sca',
+    SemgrepSca: 'semgrep_sca',
+    Gitguardian: 'gitguardian',
+    Infisical: 'infisical',
+    AwsMacie: 'aws_macie',
+    Sentinelone: 'sentinelone',
+    JfrogXray: 'jfrog_xray',
+    DynatraceSecurity: 'dynatrace_security',
 } as const
 
 /**
@@ -1493,7 +1574,18 @@ export interface InboxOnboardingSourceApi {
      * * `airbrake` - Airbrake
      * * `amazon_cloudwatch` - Amazon CloudWatch
      * * `logicmonitor` - LogicMonitor
-     * * `mux` - Mux */
+     * * `mux` - Mux
+     * * `sonarcloud` - SonarCloud
+     * * `checkmarx` - Checkmarx
+     * * `veracode` - Veracode
+     * * `veracode_sca` - Veracode SCA
+     * * `semgrep_sca` - Semgrep Supply Chain
+     * * `gitguardian` - GitGuardian
+     * * `infisical` - Infisical
+     * * `aws_macie` - AWS Macie
+     * * `sentinelone` - SentinelOne
+     * * `jfrog_xray` - JFrog Xray
+     * * `dynatrace_security` - Dynatrace Application Security */
     source_product: SignalSourceProductEnumApi
     /** Signal type selected during setup.
      *
@@ -2447,7 +2539,7 @@ export interface ReportRankingPredictionApi {
 }
 
 export interface ReportRankingApi {
-    /** scored: the predictions describe the current text. stale: the title or summary changed after the text the model read, so the predictions describe the old text and the model sorts and filters treat the report as unscored. unscored: the model has not scored the report yet, or skipped it. This does not mean a low score. not_available: you cannot see the ranking model's output, so every other field is empty.
+    /** scored: the predictions describe the current text. stale: the title or summary changed after the text the model read, so the predictions describe the old text. The model sorts and filters still use them. unscored: the model has not scored the report yet, or skipped it. This does not mean a low score. not_available: you cannot see the ranking model's output, so every other field is empty.
      *
      * * `scored` - scored
      * * `stale` - stale
@@ -3542,6 +3634,7 @@ export interface SignalReportDeletionStatusApi {
 /**
  * * `get_it_merged` - Get it merged
  * * `make_it_green` - Make it green
+ * * `resolve_conflicts` - Resolve conflicts
  * * `suggested_prompt` - Suggested prompt
  * * `ask` - Ask
  */
@@ -3550,6 +3643,7 @@ export type ReportTaskActionKindEnumApi = (typeof ReportTaskActionKindEnumApi)[k
 export const ReportTaskActionKindEnumApi = {
     GetItMerged: 'get_it_merged',
     MakeItGreen: 'make_it_green',
+    ResolveConflicts: 'resolve_conflicts',
     SuggestedPrompt: 'suggested_prompt',
     Ask: 'ask',
 } as const
@@ -3558,10 +3652,11 @@ export const ReportTaskActionKindEnumApi = {
  * One report action that starts an agent run, with whether the report offers it now.
  */
 export interface SignalReportTaskActionApi {
-    /** The action. `get_it_merged` fixes CI on the report's open, approved pull request and merges it. `make_it_green` fixes failing CI on the report's open pull request and stops without merging it. `suggested_prompt` sends one of the prompts the report suggests.
+    /** The action. `get_it_merged` fixes CI on the report's open, approved pull request and merges it. `make_it_green` fixes failing CI and resolves merge conflicts on the report's open pull request, and stops without merging it. `resolve_conflicts` updates the report's open pull request from its base branch, resolves the conflicts, pushes, and stops without merging it or fixing unrelated CI. `suggested_prompt` sends one of the prompts the report suggests.
      *
      * * `get_it_merged` - Get it merged
      * * `make_it_green` - Make it green
+     * * `resolve_conflicts` - Resolve conflicts
      * * `suggested_prompt` - Suggested prompt
      * * `ask` - Ask */
     action: ReportTaskActionKindEnumApi
@@ -3591,6 +3686,7 @@ export interface SignalReportTaskActionRunRequestApi {
      *
      * * `get_it_merged` - Get it merged
      * * `make_it_green` - Make it green
+     * * `resolve_conflicts` - Resolve conflicts
      * * `suggested_prompt` - Suggested prompt
      * * `ask` - Ask */
     action: ReportTaskActionKindEnumApi
@@ -3600,7 +3696,7 @@ export interface SignalReportTaskActionRunRequestApi {
      */
     suggested_prompt_index?: number
     /**
-     * Your own request for the run. Required for `ask`, where it is the question or the work you want done on the report. Optional for `get_it_merged` and `make_it_green`, where it replaces the action's fixed request and keeps its instructions and gates: pass it when you know something the report does not, such as a merge order, a failure that is already on the base branch, or an expected conflict. Not accepted for `suggested_prompt`.
+     * Your own request for the run. Required for `ask`, where it is the question or the work you want done on the report. Optional for `get_it_merged`, `make_it_green`, and `resolve_conflicts`, where it replaces the action's fixed request and keeps its instructions and gates: pass it when you know something the report does not, such as a merge order, a failure that is already on the base branch, or an expected conflict. Not accepted for `suggested_prompt`.
      * @maxLength 2000
      */
     message?: string
@@ -3754,6 +3850,8 @@ export interface PullRequestCheckApi {
  */
 export interface PullRequestChecksResponseApi {
     readonly checks: readonly PullRequestCheckApi[]
+    /** True when GitHub reports that the pull request conflicts with its base branch. False while GitHub is still computing it. */
+    readonly has_conflict: boolean
 }
 
 /**
@@ -4429,6 +4527,17 @@ export interface SignalReportLeaveReviewersApi {
  * * `amazon_cloudwatch` - amazon_cloudwatch
  * * `logicmonitor` - logicmonitor
  * * `mux` - mux
+ * * `sonarcloud` - sonarcloud
+ * * `checkmarx` - checkmarx
+ * * `veracode` - veracode
+ * * `veracode_sca` - veracode_sca
+ * * `semgrep_sca` - semgrep_sca
+ * * `gitguardian` - gitguardian
+ * * `infisical` - infisical
+ * * `aws_macie` - aws_macie
+ * * `sentinelone` - sentinelone
+ * * `jfrog_xray` - jfrog_xray
+ * * `dynatrace_security` - dynatrace_security
  */
 export type SignalSourceProductApi = (typeof SignalSourceProductApi)[keyof typeof SignalSourceProductApi]
 
@@ -4567,6 +4676,17 @@ export const SignalSourceProductApi = {
     AmazonCloudwatch: 'amazon_cloudwatch',
     Logicmonitor: 'logicmonitor',
     Mux: 'mux',
+    Sonarcloud: 'sonarcloud',
+    Checkmarx: 'checkmarx',
+    Veracode: 'veracode',
+    VeracodeSca: 'veracode_sca',
+    SemgrepSca: 'semgrep_sca',
+    Gitguardian: 'gitguardian',
+    Infisical: 'infisical',
+    AwsMacie: 'aws_macie',
+    Sentinelone: 'sentinelone',
+    JfrogXray: 'jfrog_xray',
+    DynatraceSecurity: 'dynatrace_security',
 } as const
 
 /**
@@ -5635,6 +5755,106 @@ export interface CursorIssueSignalExtraApi {
     timestamp: string | null
 }
 
+export interface SonarcloudScannerFindingSignalExtraApi {
+    severity: string | null
+    type: string | null
+    status: string | null
+    component: string | null
+    rule: string | null
+    creation_date: string | null
+}
+
+export interface CheckmarxScannerFindingSignalExtraApi {
+    result_type: string | null
+    finding_severity: string | null
+    finding_state: string | null
+    first_seen: string | null
+    scans: string | null
+}
+
+export interface VeracodeScannerFindingSignalExtraApi {
+    application_guid: string | null
+    scan_type: string | null
+    finding_severity: string | null
+    violates_policy: string | null
+    cwe_id: string | null
+    finding_category: string | null
+    finding_state: string | null
+    resolution_status: string | null
+    first_found_date: string | null
+}
+
+export interface VeracodeScaScannerFindingSignalExtraApi {
+    cve_name: string | null
+    component_filename: string | null
+    component_version: string | null
+    max_severity: string | null
+    affected_applications: string | null
+    first_seen: string | null
+}
+
+export interface SemgrepScaScannerFindingSignalExtraApi {
+    vulnerability_identifier: string | null
+    package_name: string | null
+    ecosystem: string | null
+    finding_severity: string | null
+    reachability_state: string | null
+    affected_findings: string | null
+    first_seen: string | null
+}
+
+export interface GitguardianScannerFindingSignalExtraApi {
+    severity: string | null
+    validity: string | null
+    status: string | null
+    occurrences_count: string | null
+    gitguardian_url: string | null
+    date: string | null
+}
+
+export interface InfisicalScannerFindingSignalExtraApi {
+    rule: string | null
+    resource_name: string | null
+    resource_type: string | null
+    data_source_type: string | null
+    severity: string | null
+    status: string | null
+    created_at: string | null
+}
+
+export interface AwsMacieScannerFindingSignalExtraApi {
+    type: string | null
+    category: string | null
+    severity_level: string | null
+    region: string | null
+    created_at: string | null
+}
+
+export interface SentineloneScannerFindingSignalExtraApi {
+    classification: string | null
+    confidence_level: string | null
+    analyst_verdict: string | null
+    incident_status: string | null
+    threat_mitigation_status: string | null
+    detection_type: string | null
+    created_at: string | null
+}
+
+export interface JfrogXrayScannerFindingSignalExtraApi {
+    issue_id: string | null
+    violation_severity: string | null
+    violation_type: string | null
+    violations: string | null
+    first_seen: string | null
+}
+
+export interface DynatraceSecurityScannerFindingSignalExtraApi {
+    display_id: string | null
+    vulnerability_type: string | null
+    status: string | null
+    first_seen_timestamp: string | null
+}
+
 export interface TriggerDevErrorSignalExtraApi {
     task_identifier: string | null
     status: string | null
@@ -6034,6 +6254,17 @@ export type SignalExtraApi =
     | AzureApplicationInsightsIssueSignalExtraApi
     | AppsignalIssueSignalExtraApi
     | CursorIssueSignalExtraApi
+    | SonarcloudScannerFindingSignalExtraApi
+    | CheckmarxScannerFindingSignalExtraApi
+    | VeracodeScannerFindingSignalExtraApi
+    | VeracodeScaScannerFindingSignalExtraApi
+    | SemgrepScaScannerFindingSignalExtraApi
+    | GitguardianScannerFindingSignalExtraApi
+    | InfisicalScannerFindingSignalExtraApi
+    | AwsMacieScannerFindingSignalExtraApi
+    | SentineloneScannerFindingSignalExtraApi
+    | JfrogXrayScannerFindingSignalExtraApi
+    | DynatraceSecurityScannerFindingSignalExtraApi
     | TriggerDevErrorSignalExtraApi
     | ChecklyErrorGroupSignalExtraApi
     | RoarkIssueSignalExtraApi
@@ -6249,7 +6480,18 @@ export interface SignalNodeApi {
      * * `airbrake` - airbrake
      * * `amazon_cloudwatch` - amazon_cloudwatch
      * * `logicmonitor` - logicmonitor
-     * * `mux` - mux */
+     * * `mux` - mux
+     * * `sonarcloud` - sonarcloud
+     * * `checkmarx` - checkmarx
+     * * `veracode` - veracode
+     * * `veracode_sca` - veracode_sca
+     * * `semgrep_sca` - semgrep_sca
+     * * `gitguardian` - gitguardian
+     * * `infisical` - infisical
+     * * `aws_macie` - aws_macie
+     * * `sentinelone` - sentinelone
+     * * `jfrog_xray` - jfrog_xray
+     * * `dynatrace_security` - dynatrace_security */
     source_product: SignalSourceProductApi
     /** Signal type within the source product.
      *
@@ -12118,6 +12360,12 @@ export type SignalsActivitySummaryVersionsRetrieveParams = {
 
 export type SignalsActivitySummaryMembersSearchParams = {
     /**
+     * Only members with a theme or an object seen in this many days.
+     * @minimum 1
+     * @maximum 365
+     */
+    active_since_days?: number
+    /**
      * Members to leave out, such as people you already checked.
      */
     exclude_user_uuids?: string[]
@@ -12131,6 +12379,45 @@ export type SignalsActivitySummaryMembersSearchParams = {
      * @maximum 25
      */
     limit?: number
+    /**
+     * Only members who work in this mode, overall or on one of their themes.
+     *
+     * * `building` - Building
+     * * `analyzing` - Analyzing
+     * * `monitoring` - Monitoring
+     * * `investigating` - Investigating
+     * * `operating` - Operating
+     * * `experimenting` - Experimenting
+     * @minLength 1
+     */
+    mode?: SignalsActivitySummaryMembersSearchMode
+    /**
+     * Only members who changed or often open this object. Requires `object_type`. Use the short id for an insight, a notebook or a replay playlist (the id in its URL, such as `aBc123Xy`), and the numeric or UUID primary key for every other type.
+     * @minLength 1
+     * @maxLength 64
+     */
+    object_id?: string
+    /**
+     * With `object_type` or `object_id`: `owned` matches members who changed the object, `watched` members who opened it on many days, and `any` both.
+     *
+     * * `any` - Any
+     * * `owned` - Owned
+     * * `watched` - Watched
+     * @minLength 1
+     */
+    object_relation?: SignalsActivitySummaryMembersSearchObjectRelation
+    /**
+     * Only members who changed or often open an object of this type, such as `insight`, `dashboard`, `feature_flag`, `experiment`, `notebook` or `hog_function`. Combine with `object_id` for one object.
+     * @minLength 1
+     * @maxLength 64
+     */
+    object_type?: string
+    /**
+     * The number of results to skip, for the next page. Compare with `total`.
+     * @minimum 0
+     * @maximum 500
+     */
+    offset?: number
     /**
      * Only members who work in or visit this product.
      *
@@ -12179,7 +12466,33 @@ export type SignalsActivitySummaryMembersSearchParams = {
      * @minLength 1
      */
     search_mode?: SignalsActivitySummaryMembersSearchSearchMode
+    /**
+     * Only these members. With no query, this reads their summaries directly.
+     * @maxItems 25
+     */
+    user_uuids?: string[]
 }
+
+export type SignalsActivitySummaryMembersSearchMode =
+    (typeof SignalsActivitySummaryMembersSearchMode)[keyof typeof SignalsActivitySummaryMembersSearchMode]
+
+export const SignalsActivitySummaryMembersSearchMode = {
+    Building: 'building',
+    Analyzing: 'analyzing',
+    Monitoring: 'monitoring',
+    Investigating: 'investigating',
+    Operating: 'operating',
+    Experimenting: 'experimenting',
+} as const
+
+export type SignalsActivitySummaryMembersSearchObjectRelation =
+    (typeof SignalsActivitySummaryMembersSearchObjectRelation)[keyof typeof SignalsActivitySummaryMembersSearchObjectRelation]
+
+export const SignalsActivitySummaryMembersSearchObjectRelation = {
+    Any: 'any',
+    Owned: 'owned',
+    Watched: 'watched',
+} as const
 
 export type SignalsActivitySummaryMembersSearchProduct =
     (typeof SignalsActivitySummaryMembersSearchProduct)[keyof typeof SignalsActivitySummaryMembersSearchProduct]
@@ -12404,11 +12717,11 @@ export type SignalsReportsListParams = {
      */
     ranking_id?: string
     /**
-     * Comma-separated <outcome>:<lift> pairs, e.g. fix:2,open:1.5. Keeps reports whose served ranking lift is at least the value for every named outcome. Outcomes: open, action, fix. Read inbox-ranking-outcomes-list for what each outcome means. Unscored and stale reports never match. Needs staff or the inbox model sort rollout: other users get a 400.
+     * Comma-separated <outcome>:<lift> pairs, e.g. fix:2,open:1.5. Keeps reports whose served ranking lift is at least the value for every named outcome. Outcomes: open, action, fix. Read inbox-ranking-outcomes-list for what each outcome means. A report edited after its last score matches on that score. Unscored reports never match. Needs staff or the inbox model sort rollout: other users get a 400.
      */
     ranking_min_lift?: string
     /**
-     * Comma-separated <outcome>:<probability> pairs, e.g. fix:0.3. Keeps reports whose served ranking probability is at least the value for every named outcome. Outcomes: open, action, fix. Read inbox-ranking-outcomes-list for what each outcome means. Unscored and stale reports never match. Needs staff or the inbox model sort rollout: other users get a 400.
+     * Comma-separated <outcome>:<probability> pairs, e.g. fix:0.3. Keeps reports whose served ranking probability is at least the value for every named outcome. Outcomes: open, action, fix. Read inbox-ranking-outcomes-list for what each outcome means. A report edited after its last score matches on that score. Unscored reports never match. Needs staff or the inbox model sort rollout: other users get a 400.
      */
     ranking_min_probability?: string
     /**
@@ -12428,7 +12741,7 @@ export type SignalsReportsListParams = {
      */
     search?: string
     /**
-     * Inbox sort preset: priority, recommended, personal, last_updated, newest, or oldest. Ignored when ordering is supplied. recommended resolves per user to a ranker: the priority order, or the open, action or fix outcome of the served ranking model, highest score first, with unscored and stale reports in priority order after the scored ones, or your stored personal ranking, as personal gives it, then the priority order. The response's ranker field names the one used, and its ranking_pill field says whether to show score pills. personal puts the reports of a stored personal ranking first, by rank, then the reports it folded, then every other report in your recommended order. With scope=teammate it reads the teammate's stored ranking, else yours. It only reads the stored ranking and never starts a build. With no stored personal ranking, or a teammate outside the organization, it is the recommended order, or the priority order when recommended gives you the personal ranking.
+     * Inbox sort preset: priority, recommended, personal, last_updated, newest, or oldest. Ignored when ordering is supplied. recommended resolves per user to a ranker: the priority order, or the open, action or fix outcome of the served ranking model, highest score first, with unscored reports in priority order after the scored ones, or your stored personal ranking, as personal gives it, then the priority order. The response's ranker field names the one used, and its ranking_pill field says whether to show score pills. personal puts the reports of a stored personal ranking first, by rank, then the reports it folded, then every other report in your recommended order. With scope=teammate it reads the teammate's stored ranking, else yours. It only reads the stored ranking and never starts a build. With no stored personal ranking, or a teammate outside the organization, it is the recommended order, or the priority order when recommended gives you the personal ranking.
      */
     sort?: string
     /**
@@ -12689,11 +13002,11 @@ export type SignalsReportsSectionCountsRetrieveParams = {
      */
     priority?: string
     /**
-     * Comma-separated <outcome>:<lift> pairs, e.g. fix:2,open:1.5. Keeps reports whose served ranking lift is at least the value for every named outcome. Outcomes: open, action, fix. Read inbox-ranking-outcomes-list for what each outcome means. Unscored and stale reports never match. Needs staff or the inbox model sort rollout: other users get a 400.
+     * Comma-separated <outcome>:<lift> pairs, e.g. fix:2,open:1.5. Keeps reports whose served ranking lift is at least the value for every named outcome. Outcomes: open, action, fix. Read inbox-ranking-outcomes-list for what each outcome means. A report edited after its last score matches on that score. Unscored reports never match. Needs staff or the inbox model sort rollout: other users get a 400.
      */
     ranking_min_lift?: string
     /**
-     * Comma-separated <outcome>:<probability> pairs, e.g. fix:0.3. Keeps reports whose served ranking probability is at least the value for every named outcome. Outcomes: open, action, fix. Read inbox-ranking-outcomes-list for what each outcome means. Unscored and stale reports never match. Needs staff or the inbox model sort rollout: other users get a 400.
+     * Comma-separated <outcome>:<probability> pairs, e.g. fix:0.3. Keeps reports whose served ranking probability is at least the value for every named outcome. Outcomes: open, action, fix. Read inbox-ranking-outcomes-list for what each outcome means. A report edited after its last score matches on that score. Unscored reports never match. Needs staff or the inbox model sort rollout: other users get a 400.
      */
     ranking_min_probability?: string
     /**

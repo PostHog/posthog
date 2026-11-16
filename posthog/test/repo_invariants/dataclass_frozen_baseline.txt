@@ -357,7 +357,6 @@
 1 products/warehouse_sources/sources/travis_ci/travis_ci.py
 1 products/warehouse_sources/sources/trigger_dev/settings.py
 1 products/warehouse_sources/sources/trigger_dev/trigger_dev.py
-1 products/warehouse_sources/sources/twelve_data/twelve_data.py
 1 products/warehouse_sources/sources/twelve_labs/twelve_labs.py
 1 products/warehouse_sources/sources/uk_companies_house/uk_companies_house.py
 1 products/warehouse_sources/sources/unleash/settings.py
@@ -365,10 +364,8 @@
 1 products/warehouse_sources/sources/upstash/settings.py
 1 products/warehouse_sources/sources/veeqo/settings.py
 1 products/warehouse_sources/sources/veeqo/veeqo.py
-1 products/warehouse_sources/sources/vultr/settings.py
 1 products/warehouse_sources/sources/webflow/settings.py
 1 products/warehouse_sources/sources/webflow/webflow.py
-1 products/warehouse_sources/sources/weights_and_biases/weights_and_biases.py
 1 products/warehouse_sources/sources/whop/whop.py
 1 products/warehouse_sources/sources/wikipedia_pageviews/wikipedia_pageviews.py
 1 products/warehouse_sources/sources/woocommerce/woocommerce.py
