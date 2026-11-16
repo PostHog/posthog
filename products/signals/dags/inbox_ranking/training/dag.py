@@ -403,14 +403,24 @@ def load_snapshots(
     born: dict[datetime.date, pd.Index] = {}
     for date in sorted(dates):
         key = date.isoformat()
-        state = read_parquet_if_exists(client, bucket, partition_object_key(prefix, STATE_TABLE, key))
-        labels = read_parquet_if_exists(client, bucket, partition_object_key(prefix, LABELS_TABLE, key))
+        state = read_parquet_if_exists(
+            client,
+            bucket,
+            partition_object_key(prefix, STATE_TABLE, key),
+            columns=["report_id", *_STATE_READ_COLUMNS],
+            skip_absent_columns=True,
+        )
+        labels = read_parquet_if_exists(
+            client,
+            bucket,
+            partition_object_key(prefix, LABELS_TABLE, key),
+            columns=["report_id", *_LABEL_COLUMNS],
+            skip_absent_columns=True,
+        )
         if state is None or labels is None:
             continue
-        state_columns = [column for column in _STATE_READ_COLUMNS if column in state.column_names]
-        state_frame = state.select(["report_id", *state_columns]).to_pandas().set_index("report_id")
-        label_columns = [column for column in _LABEL_COLUMNS if column in labels.column_names]
-        labels_frame = labels.select(["report_id", *label_columns]).to_pandas().set_index("report_id")
+        state_frame = state.to_pandas().set_index("report_id")
+        labels_frame = labels.to_pandas().set_index("report_id")
         if birth_horizons is not None:
             born[date] = state_frame.index[birth_day_mask(state_frame, date).to_numpy()]
             keep = born[date].append(

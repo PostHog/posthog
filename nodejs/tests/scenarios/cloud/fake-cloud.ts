@@ -6,6 +6,7 @@ import { parseJSON } from '~/common/utils/json-parse'
 
 import type { ValveTimelineEntry } from '../valves/valves'
 import { Aws, AwsError } from './aws'
+import type { RunManifest } from './lease'
 
 type Schedule = { expression: string; target: { Arn: string; RoleArn: string; Input: string } }
 
@@ -23,6 +24,7 @@ type Resource = {
     createdAt?: number
     image?: string
     seeded?: boolean
+    writer?: string
 }
 
 type Command = {
@@ -43,6 +45,7 @@ type Card = {
     endsAt: number
     exitCode: number
     reportsDone: boolean
+    stopTimeoutMs: number
 }
 
 export type ReaderMinute = { minute: number; max?: number; avg?: number }
@@ -72,13 +75,14 @@ type Stack = {
 }
 
 const DELETED_STATES = new Set(['gone', 'terminated', 'deleted'])
+const RUN_LEASE_MS = 6 * 60 * 60_000
 const MINUTE_MS = 60_000
 const SECRET_LISTING_LAG_MS = 5 * MINUTE_MS
 const BACKUP = 'AWS::RDS::DBClusterAutomatedBackup'
 const SNAPSHOT = 'AWS::RDS::DBClusterSnapshot'
 const EXIT_INVALID = 2
 const INVOCATION_LAG_MS = 20_000
-const STOP_TIMEOUT_MS = 5 * MINUTE_MS
+const SYSTEMD_STOP_TIMEOUT_MS = 90_000
 const DEFAULT_DELIVERY_TIMEOUT_S = 3600
 const FAILOVER_AFTER_MS = 15 * MINUTE_MS
 const STATUSES = ['passed', 'failed', 'invalid', 'passed']
@@ -107,6 +111,7 @@ export type FakeCloudOptions = {
         exitCode?: number
         takesMs?: number
         ignoresStop?: boolean
+        stopTakesMs?: number
         uploadFails?: boolean
         diesAfterMs?: number
         runnerStatus?: string
@@ -116,6 +121,8 @@ export type FakeCloudOptions = {
     agent?: 'offline'
     readerAcu?: ReaderMinute[]
     averageStatuses?: string[]
+    liveReaderAcu?: { maxima: (number | null)[]; lagMinutes?: number }
+    failover?: { takesMs?: number; showsAfterMs?: number }
 }
 
 function actionOf(service: string, operation: string): string {
@@ -169,10 +176,13 @@ export class FakeCloud implements Aws {
     readonly failovers = new Map<string, number>()
     private deleteFailures: number
     private readonly failures = new Map<string, { from: number; to: number }>()
-    private readonly conditions = new Map<string, (args: string[]) => boolean>()
+    private readonly conditions = new Map<string, { applies: (args: string[]) => boolean; code: string }>()
     private readonly lostResponses = new Map<string, number>()
     private readonly calls = new Map<string, number>()
     private readonly hooks = new Map<string, () => void>()
+    readonly promotions: { cluster: string; to: string; at: number }[] = []
+    private readonly pendingPromotions: { cluster: Resource; to: string; showsAt: number; at: number }[] = []
+    private promotionsHeld = false
 
     constructor(private readonly options: FakeCloudOptions) {
         this.account = options.account ?? '000000000000'
@@ -187,8 +197,8 @@ export class FakeCloud implements Aws {
         this.failures.set(operation, { from, to: from + times })
     }
 
-    failWhen(operation: string, applies: (args: string[]) => boolean): void {
-        this.conditions.set(operation, applies)
+    failWhen(operation: string, applies: (args: string[]) => boolean, code: string = 'InternalFailure'): void {
+        this.conditions.set(operation, { applies, code })
     }
 
     heal(): void {
@@ -219,8 +229,60 @@ export class FakeCloud implements Aws {
         })
     }
 
+    runCluster(runId: string): { cluster: string; writer: string; reader: string; manifest: RunManifest } {
+        const cluster = `scn-${runId}`
+        const [writer, reader] = [`${cluster}-writer`, `${cluster}-reader`]
+        const arn = (kind: string, id: string): string => `arn:aws:rds:us-east-1:${this.account}:${kind}:${id}`
+        this.resources.push(
+            {
+                logicalId: 'Cluster',
+                type: 'AWS::RDS::DBCluster',
+                id: cluster,
+                arn: arn('cluster', cluster),
+                state: 'available',
+                runTag: runId,
+                writer,
+            },
+            ...[writer, reader].map((id) => ({
+                logicalId: id === writer ? 'Writer' : 'Reader',
+                type: 'AWS::RDS::DBInstance',
+                id,
+                arn: arn('db', id),
+                state: 'available',
+                runTag: runId,
+            }))
+        )
+        const expiresAt = new Date(this.options.now().getTime() + RUN_LEASE_MS).toISOString()
+        return { cluster, writer, reader, manifest: { runId, account: this.account, expiresAt, stackName: cluster } }
+    }
+
+    writerOf(clusterId: string): string | undefined {
+        return this.resources.find(({ type, id }) => type === 'AWS::RDS::DBCluster' && id === clusterId)?.writer
+    }
+
+    holdPromotions(): void {
+        this.promotionsHeld = true
+    }
+
+    landPromotions(): void {
+        this.promotionsHeld = false
+        for (const promotion of this.pendingPromotions) {
+            promotion.at = 0
+        }
+        this.tick()
+    }
+
     tick(): void {
         const now = this.options.now().getTime()
+        for (const promotion of this.pendingPromotions.filter(({ showsAt }) => showsAt <= now)) {
+            promotion.cluster.state = 'failing-over'
+        }
+        const due = this.promotionsHeld ? [] : this.pendingPromotions.filter(({ at }) => at <= now)
+        for (const promotion of due) {
+            this.pendingPromotions.splice(this.pendingPromotions.indexOf(promotion), 1)
+            promotion.cluster.writer = promotion.to
+            promotion.cluster.state = 'available'
+        }
         if (this.card && this.card.endsAt <= now) {
             this.finishCard(this.card.exitCode)
         }
@@ -249,7 +311,11 @@ export class FakeCloud implements Aws {
         this.calls.set(operation, count)
         this.hooks.get(operation)?.()
         const failing = this.failures.get(operation)
-        if ((failing && count >= failing.from && count < failing.to) || this.conditions.get(operation)?.(rest)) {
+        const condition = this.conditions.get(operation)
+        if (condition?.applies(rest)) {
+            throw serviceError(operation, condition.code, 'injected by the fake cloud')
+        }
+        if (failing && count >= failing.from && count < failing.to) {
             throw serviceError(operation, 'InternalFailure', 'injected by the fake cloud')
         }
         const answer = this.answer(service, operation, flags, positionals)
@@ -470,12 +536,16 @@ export class FakeCloud implements Aws {
             Metric.Namespace === 'AWS/RDS' && Metric.MetricName === 'ServerlessDatabaseCapacity' && Period === 60
         const failoverAt = runId && measured ? this.failovers.get(runId) : undefined
         const t0Minute = failoverAt === undefined ? 0 : failoverAt - (failoverAt % MINUTE_MS)
-        const points = (failoverAt === undefined ? [] : (this.options.readerAcu ?? DEFAULT_READER_ACU))
-            .map(({ minute, max, avg }) => ({
-                at: t0Minute + minute * MINUTE_MS,
-                value: { Maximum: max, Average: avg, SampleCount: 60 }[Stat],
-            }))
-            .filter(({ at, value }) => at >= from && at < to && value !== undefined)
+        const recorded =
+            failoverAt === undefined && measured && this.options.liveReaderAcu
+                ? this.liveCapacity(Stat)
+                : (failoverAt === undefined ? [] : (this.options.readerAcu ?? DEFAULT_READER_ACU)).map(
+                      ({ minute, max, avg }) => ({
+                          at: t0Minute + minute * MINUTE_MS,
+                          value: { Maximum: max, Average: avg, SampleCount: 60 }[Stat],
+                      })
+                  )
+        const points = recorded.filter(({ at, value }) => at >= from && at < to && value !== undefined)
         return {
             Id,
             Label: Id,
@@ -483,6 +553,28 @@ export class FakeCloud implements Aws {
             Values: points.map(({ value }) => value),
             StatusCode: 'Complete',
         }
+    }
+
+    private membersOf(cluster: Resource): { DBInstanceIdentifier: string; IsClusterWriter: boolean }[] {
+        return this.resources
+            .filter(
+                ({ type, id, state }) =>
+                    type === 'AWS::RDS::DBInstance' && id.startsWith(`${cluster.id}-`) && !DELETED_STATES.has(state)
+            )
+            .map(({ id }) => ({
+                DBInstanceIdentifier: id,
+                IsClusterWriter: id === (cluster.writer ?? `${cluster.id}-writer`),
+            }))
+    }
+
+    private liveCapacity(Stat: string): { at: number; value: number | undefined }[] {
+        const { maxima, lagMinutes = 0 } = this.options.liveReaderAcu!
+        const now = this.options.now().getTime()
+        const newest = now - (now % MINUTE_MS) - (1 + lagMinutes) * MINUTE_MS
+        return maxima.map((max, i) => ({
+            at: newest - (maxima.length - 1 - i) * MINUTE_MS,
+            value: max === null ? undefined : { Maximum: max, Average: max, SampleCount: 60 }[Stat],
+        }))
     }
 
     private sendCommand(flags: Map<string, string>, operation: string): string {
@@ -528,10 +620,20 @@ export class FakeCloud implements Aws {
             command.code = takesMs > timeoutMs ? -1 : exitCode
         } else if (script.includes('systemd-run') && script.includes('host-run-card.sh') && runId) {
             const { exitCode = 0, takesMs = 90 * MINUTE_MS, diesAfterMs } = this.options.card ?? {}
+            const stopTimeoutS = /TimeoutStopSec=(\d+)/.exec(script)?.[1]
+            const stopTimeoutMs = stopTimeoutS === undefined ? SYSTEMD_STOP_TIMEOUT_MS : Number(stopTimeoutS) * 1000
             this.objects.set(`runs/${runId}/host/started`, '{}')
             this.card =
                 diesAfterMs === undefined
-                    ? { runId, instanceId, startedAt: now, endsAt: now + takesMs, exitCode, reportsDone: true }
+                    ? {
+                          runId,
+                          instanceId,
+                          startedAt: now,
+                          endsAt: now + takesMs,
+                          exitCode,
+                          reportsDone: true,
+                          stopTimeoutMs,
+                      }
                     : {
                           runId,
                           instanceId,
@@ -539,18 +641,23 @@ export class FakeCloud implements Aws {
                           endsAt: now + diesAfterMs,
                           exitCode: EXIT_INVALID,
                           reportsDone: false,
+                          stopTimeoutMs,
                       }
         } else if (script.includes('systemctl is-active')) {
             command.settlesAt = this.options.probe === 'lost' ? Infinity : command.settlesAt
             command.status = this.options.probe === 'timedOut' ? 'TimedOut' : this.card ? 'Success' : 'Failed'
             command.code = this.options.probe === 'timedOut' ? -1 : this.card ? 0 : 3
         } else if (script.includes('systemctl stop')) {
-            const ignoresStop = this.options.card?.ignoresStop === true
-            const stopsAt = now + (ignoresStop ? STOP_TIMEOUT_MS : MINUTE_MS)
-            if (this.card && this.card.endsAt > stopsAt) {
-                this.card.endsAt = stopsAt
-                this.card.exitCode = EXIT_INVALID
-                this.card.reportsDone = !ignoresStop
+            const { ignoresStop = false, stopTakesMs = MINUTE_MS } = this.options.card ?? {}
+            const takesMs = ignoresStop ? Infinity : stopTakesMs
+            if (this.card) {
+                const killed = takesMs > this.card.stopTimeoutMs
+                const stopsAt = now + Math.min(takesMs, this.card.stopTimeoutMs)
+                if (this.card.endsAt > stopsAt) {
+                    this.card.endsAt = stopsAt
+                    this.card.exitCode = EXIT_INVALID
+                    this.card.reportsDone = !killed
+                }
             }
             command.settlesAt = Math.max(command.settlesAt, this.card?.endsAt ?? now)
         } else {
@@ -755,9 +862,36 @@ export class FakeCloud implements Aws {
                             Status: cluster.state,
                             DbClusterResourceId: cluster.clusterResourceId,
                             MasterUserSecret: { SecretArn: cluster.secretArn },
+                            TagList:
+                                cluster.runTag === undefined ? [] : [{ Key: 'scenario-run', Value: cluster.runTag }],
+                            DBClusterMembers: this.membersOf(cluster),
                         },
                     ],
                 }
+            }
+            case 'rds failover-db-cluster': {
+                const cluster = this.liveResource(
+                    'AWS::RDS::DBCluster',
+                    flags.get('db-cluster-identifier')!,
+                    operation,
+                    'DBClusterNotFoundFault'
+                )
+                const to = flags.get('target-db-instance-identifier')!
+                if (cluster.state !== 'available') {
+                    throw serviceError(operation, 'InvalidDBClusterStateFault', `${cluster.id} is ${cluster.state}`)
+                }
+                if (!this.membersOf(cluster).some(({ DBInstanceIdentifier }) => DBInstanceIdentifier === to)) {
+                    throw serviceError(operation, 'InvalidDBInstanceState', `${to} is not a member of ${cluster.id}`)
+                }
+                const requestedAt = this.options.now().getTime()
+                const at = requestedAt + (this.options.failover?.takesMs ?? 30_000)
+                const showsAt = requestedAt + (this.options.failover?.showsAfterMs ?? 0)
+                if (showsAt <= requestedAt) {
+                    cluster.state = 'failing-over'
+                }
+                this.promotions.push({ cluster: cluster.id, to, at: requestedAt })
+                this.pendingPromotions.push({ cluster, to, showsAt, at })
+                return { DBCluster: { DBClusterIdentifier: cluster.id, Status: cluster.state } }
             }
             case 'rds describe-db-instances':
                 return {
