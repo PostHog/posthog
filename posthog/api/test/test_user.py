@@ -1505,7 +1505,7 @@ class TestUserAPI(APIBaseTest):
             user=other_user, provider="google-oauth2", uid="other-google-sub"
         ).id
         OrganizationDomain.objects.create(
-            organization=self.organization, domain="example.com", verified_at=timezone.now()
+            organization=self.organization, domain="example.com", verified_at="2024-01-01T00:00:00Z"
         )
         other_organization = Organization.objects.create(name="Other")
         id_jag_bindings = {
