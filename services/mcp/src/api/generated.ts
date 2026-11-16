@@ -47743,6 +47743,8 @@ export namespace Schemas {
      * * `changed_setting` - The flag setting that a change of the bucketing changed, as the flag page names it
      * * `before` - What a change of the feature flag changed, as it was before the change, in words
      * * `after` - What a change of the feature flag changed, as it was after the change, in words
+     * * `before_filters` - The feature flag's release conditions before a change, as the flag stores them: an object with the groups and the aggregation_group_type_index of its filters. Null when they don't fit the size limit of the check's rows. The flag's history shows them in full
+     * * `after_filters` - The feature flag's release conditions after a change, as the flag stores them, like before_filters
      * * `flag_service_call_percentage` - Of the feature flag's calls since traffic_since_at that returned a variant, the share that the flag service evaluated. Only these calls name the release condition that served them, so local evaluation and bootstrapped values count in no condition
      * * `event` - The name of an event that the check looked up
      * * `event_received` - Whether the project has received the event. Null when PostHog keeps no record of the event name
@@ -47804,6 +47806,8 @@ export namespace Schemas {
       ChangedSetting: 'changed_setting',
       Before: 'before',
       After: 'after',
+      BeforeFilters: 'before_filters',
+      AfterFilters: 'after_filters',
       FlagServiceCallPercentage: 'flag_service_call_percentage',
       Event: 'event',
       EventReceived: 'event_received',
@@ -47887,6 +47891,8 @@ export namespace Schemas {
        * * `changed_setting` - The flag setting that a change of the bucketing changed, as the flag page names it
        * * `before` - What a change of the feature flag changed, as it was before the change, in words
        * * `after` - What a change of the feature flag changed, as it was after the change, in words
+       * * `before_filters` - The feature flag's release conditions before a change, as the flag stores them: an object with the groups and the aggregation_group_type_index of its filters. Null when they don't fit the size limit of the check's rows. The flag's history shows them in full
+       * * `after_filters` - The feature flag's release conditions after a change, as the flag stores them, like before_filters
        * * `flag_service_call_percentage` - Of the feature flag's calls since traffic_since_at that returned a variant, the share that the flag service evaluated. Only these calls name the release condition that served them, so local evaluation and bootstrapped values count in no condition
        * * `event` - The name of an event that the check looked up
        * * `event_received` - Whether the project has received the event. Null when PostHog keeps no record of the event name
@@ -47951,6 +47957,8 @@ export namespace Schemas {
        * * `changed_setting` - The flag setting that a change of the bucketing changed, as the flag page names it
        * * `before` - What a change of the feature flag changed, as it was before the change, in words
        * * `after` - What a change of the feature flag changed, as it was after the change, in words
+       * * `before_filters` - The feature flag's release conditions before a change, as the flag stores them: an object with the groups and the aggregation_group_type_index of its filters. Null when they don't fit the size limit of the check's rows. The flag's history shows them in full
+       * * `after_filters` - The feature flag's release conditions after a change, as the flag stores them, like before_filters
        * * `flag_service_call_percentage` - Of the feature flag's calls since traffic_since_at that returned a variant, the share that the flag service evaluated. Only these calls name the release condition that served them, so local evaluation and bootstrapped values count in no condition
        * * `event` - The name of an event that the check looked up
        * * `event_received` - Whether the project has received the event. Null when PostHog keeps no record of the event name
@@ -47982,7 +47990,11 @@ export namespace Schemas {
      */
     export type ExperimentHealthCheckResultValues = {[key: string]: string | number | boolean | null};
 
-    export type ExperimentHealthCheckResultRowsItem = {[key: string]: string | number | boolean | null};
+    export type ExperimentHealthCheckResultRowsItem = {[key: string]: string | number | boolean | {
+      groups: { [key: string]: unknown }[];
+      /** @nullable */
+      aggregation_group_type_index: number | null;
+    } | null};
 
     export interface ExperimentHealthCheckResult {
       /** Stable identifier of the check. A check can report several finding codes, so the key is not a finding code.
@@ -48033,7 +48045,7 @@ export namespace Schemas {
       values: ExperimentHealthCheckResultValues;
       /** How the check decides. The same for every experiment and every status. Null for a check without a numeric rule. */
       rule: ExperimentHealthCheckRule | null;
-      /** What the check read per variant, metric or feature flag change, one object each, with the keys and units of `values`. For example, the significance check gives each variant's difference and the smallest difference its sample can detect. Empty when the check reads no such list. */
+      /** What the check read per variant, metric or feature flag change, one object each, with the keys and units of `values`. For example, the significance check gives each variant's difference and the smallest difference its sample can detect. A release condition change also gives the conditions as the flag stores them, in before_filters and after_filters. Empty when the check reads no such list. */
       rows: ExperimentHealthCheckResultRowsItem[];
     }
 
@@ -65779,6 +65791,18 @@ export namespace Schemas {
     }
 
     /**
+     * * `rolled` - Rolled
+     * * `deleted` - Deleted
+     */
+    export type KeyActionOutcomeEnum = typeof KeyActionOutcomeEnum[keyof typeof KeyActionOutcomeEnum];
+
+
+    export const KeyActionOutcomeEnum = {
+      Rolled: 'rolled',
+      Deleted: 'deleted',
+    } as const;
+
+    /**
      * * `problem` - Problem
      * * `cause` - Cause
      * * `fix` - Fix
@@ -67635,6 +67659,19 @@ export namespace Schemas {
       title: string | null;
       /** Current report status (e.g. `potential`, `ready`, `resolved`). */
       status: string;
+    }
+
+    export interface LinkedSurveyDTO {
+      id: string;
+      name: string;
+      created_at: string;
+      /** @nullable */
+      start_date: string | null;
+      /** @nullable */
+      end_date: string | null;
+      /** @nullable */
+      linked_flag_id: number | null;
+      archived: boolean;
     }
 
     /**
@@ -76578,6 +76615,8 @@ export namespace Schemas {
     }
 
     export interface OrganizationPersonalAPIKey {
+      /** Unique ID of the key. */
+      readonly id: string;
       /** The organization member who owns this key. */
       readonly owner: OrganizationPersonalAPIKeyOwner;
       /** Masked, display-safe hint of the key value (e.g. 'phx_***1234'). Not the secret. The owner sees the same masked value in their own settings, so it can be used to identify a key. */
@@ -76586,6 +76625,8 @@ export namespace Schemas {
       readonly scopes: readonly string[];
       /** Where the key's scopes apply within this organization. */
       readonly access_scope: OrganizationPersonalAPIKeyAccessScope;
+      /** Whether the key also works in at least one other organization its owner belongs to. */
+      readonly reaches_other_organizations: boolean;
       /**
          * When the key was last used to authenticate, if ever.
          * @nullable
@@ -76593,6 +76634,35 @@ export namespace Schemas {
       readonly last_used_at: string | null;
       /** When the key was created. */
       readonly created_at: string;
+    }
+
+    export interface OrganizationPersonalAPIKeyActionResult {
+      /** What happened to the key. 'rolled': the key has a new secret that nobody sees, and the old secret no longer works anywhere. 'deleted': the key no longer exists and cannot be used in any organization.
+       *
+       * * `rolled` - Rolled
+       * * `deleted` - Deleted */
+      outcome: KeyActionOutcomeEnum;
+    }
+
+    export interface OrganizationPersonalAPIKeyBulkActionResult {
+      /** Number of keys that got a new secret that nobody sees. Their old secrets no longer work anywhere. */
+      rolled: number;
+      /** Number of keys that no longer exist. */
+      deleted: number;
+      /** Number of keys left unchanged because they were rolled at or after 'skip_rolled_since'. */
+      skipped: number;
+      /** Number of keys that an error left unchanged. Run the action again to change them. */
+      failed: number;
+      /** When the roll of all keys started. A retry returns the 'skip_rolled_since' it was given. */
+      started_at: string;
+    }
+
+    export interface OrganizationPersonalAPIKeyRollAllRequest {
+      /**
+         * Leave keys alone that were rolled at or after this time. To retry a roll of all keys without rolling its keys again, pass the 'started_at' that the earlier attempt returned.
+         * @nullable
+         */
+      skip_rolled_since?: string | null;
     }
 
     export interface OrganizationRemoveBlockedMembersResponse {
@@ -79178,6 +79248,8 @@ export namespace Schemas {
     }
 
     export interface ReleaseDTO {
+      /** ID, name, dates, targeting flag and archived state of each linked survey the caller can see. */
+      readonly surveys: readonly LinkedSurveyDTO[];
       /** ID, short ID, name and dates of each linked insight the caller can see, including deleted ones. */
       readonly insights: readonly LinkedInsightDTO[];
       /** ID, name and status of each linked broadcast the caller can see. Deleted broadcasts are left out. */
