@@ -287,6 +287,17 @@ describe('dataQualityChecksLogic', () => {
         return options.button
     }
 
+    it('replaces the previous run warning with the newest one', async () => {
+        await mountLogic()
+
+        logic.actions.finishSuiteRun(buildSuiteRun({ id: 'suite-1', status: 'completed', checks_failed: 1 }))
+        logic.actions.finishSuiteRun(buildSuiteRun({ id: 'suite-2', status: 'completed', checks_failed: 1 }))
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(lemonToast.dismiss).toHaveBeenCalledWith('data-quality-suite-run-suite-1')
+        expect(lemonToast.dismiss).not.toHaveBeenCalledWith('data-quality-suite-run-suite-2')
+    })
+
     it('opens the run history on the finished run from the toast', async () => {
         ;(dataQualityRunsCreate as jest.Mock).mockResolvedValue(
             buildSuiteRun({ id: 'suite-9', status: 'completed', checks_failed: 2 })

@@ -159,6 +159,8 @@ export function suiteRunSummary(suiteRun: DataQualitySuiteRunApi): string {
         .join(', ')
 }
 
+export const SUITE_RUN_TOAST_DISPOSABLE = 'suiteRunToast'
+
 export function suiteRunToastId(suiteRun: DataQualitySuiteRunApi): string {
     return `data-quality-suite-run-${suiteRun.id}`
 }

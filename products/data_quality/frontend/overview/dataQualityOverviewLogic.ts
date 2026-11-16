@@ -25,6 +25,7 @@ import {
     isTerminalSuiteRun,
     suiteRunOutcome,
     suiteRunPollListeners,
+    SUITE_RUN_TOAST_DISPOSABLE,
     suiteRunToastId,
     suiteRunToastMessage,
 } from 'products/data_quality/frontend/suiteRuns'
@@ -775,7 +776,7 @@ export const dataQualityOverviewLogic = kea<dataQualityOverviewLogicType>([
                         dataAttr: 'data-quality-toast-show-failing',
                     },
                 })
-                cache.disposables.add(() => () => lemonToast.dismiss(toastId), toastId, {
+                cache.disposables.add(() => () => lemonToast.dismiss(toastId), SUITE_RUN_TOAST_DISPOSABLE, {
                     pauseOnPageHidden: false,
                 })
             },
