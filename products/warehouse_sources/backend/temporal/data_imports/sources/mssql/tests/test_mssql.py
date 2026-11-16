@@ -348,6 +348,20 @@ class TestFetchTableStats:
         assert impl.fetch_table_stats(cursor, "dbo", "t", logger) is None
         capture.assert_not_called()
 
+    def test_no_resultset_skips_capture(self, impl, cursor, logger, mocker):
+        # sp_spaceused can run without raising yet leave no result set to fetch for an object
+        # type it can't report on (e.g. an external table) — pymssql's fetchone then raises this
+        # instead of a sp_spaceused-side error. It recurs for that object every sync, so it must
+        # not flood error tracking.
+        capture = mocker.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.mssql.mssql.capture_exception"
+        )
+        cursor.fetchone.side_effect = pymssql.OperationalError(
+            "Statement not executed or executed statement has no resultset"
+        )
+        assert impl.fetch_table_stats(cursor, "dbo", "t", logger) is None
+        capture.assert_not_called()
+
 
 class TestFetchAverageRowSize:
     """MSSQL's `fetch_average_row_size` samples a separate `TOP 100` query

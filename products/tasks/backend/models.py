@@ -35,6 +35,7 @@ from posthog.integrations import IntegrationManager
 from posthog.integrations.lifecycle import sdk_runs_hooks
 from posthog.models.github_integration_base import INSTALLATION_UNAVAILABLE_SINCE_CONFIG_KEY
 from posthog.models.integration import ERROR_TOKEN_REFRESH_FAILED, Integration
+from posthog.models.scoping.manager import EnvironmentScopedManager
 from posthog.models.scoping.root_mixin import TeamScopedRootMixin
 from posthog.models.tagged_items_relation import Taggable
 from posthog.models.team.team import Team
@@ -48,6 +49,7 @@ from products.tasks.backend.constants import (
     DEFAULT_TRUSTED_DOMAINS,
     GITHUB_PR_URL_PREFIX,
     PR_LOOP_ENABLED_STATE_KEY,
+    STOPPED_BEFORE_TURN_CLOSED_STATE_KEY,
     is_same_run_resume_state,
 )
 from products.tasks.backend.dev_stack_image_models import (
@@ -2949,6 +2951,7 @@ class TaskRun(models.Model):
         "cancel_requested_at",
         # A resumed run's turns must be able to replace the previous execution's finish report.
         TASK_RUN_FINISH_REPORT_STATE_KEY,
+        STOPPED_BEFORE_TURN_CLOSED_STATE_KEY,
     )
 
     def restore_cloud_resume_state(self, prior_state: dict[str, Any]) -> None:
@@ -3941,6 +3944,30 @@ class TaskRun(models.Model):
 
     def delete(self, *args, **kwargs):
         raise Exception("Cannot delete TaskRun. Task runs are immutable records.")
+
+
+class AgentEgressRegistration(models.Model):
+    execution_id = models.UUIDField(unique=True, editable=False)
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+", db_constraint=False)
+    task_run = models.ForeignKey(TaskRun, on_delete=models.CASCADE, related_name="egress_registrations")
+    region = models.CharField(max_length=32)
+    actor_id = models.PositiveBigIntegerField()
+    actor_epoch = models.PositiveBigIntegerField()
+    task_ownership_version = models.TextField(null=True)
+    authority = models.CharField(max_length=259)
+    relay_key_sha256 = models.CharField(max_length=43)
+    lease_expires_at = models.DateTimeField()
+    revoked = models.BooleanField(default=False)
+
+    objects = EnvironmentScopedManager()
+
+    class Meta:
+        db_table = "posthog_agent_egress_registration"
+        constraints = [
+            models.UniqueConstraint(
+                fields=["task_run"], condition=models.Q(revoked=False), name="agent_egress_active_run_unique"
+            ),
+        ]
 
 
 class TaskStatusChange(TeamScopedRootMixin, UUIDModel):

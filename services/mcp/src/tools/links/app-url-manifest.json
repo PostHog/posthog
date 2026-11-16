@@ -364,6 +364,11 @@
         "params": ["id"],
         "scope": "project"
     },
+    "businessKnowledgeUsage": {
+        "template": "/business-knowledge/usage",
+        "params": [],
+        "scope": "project"
+    },
     "canvas": {
         "template": "/canvas",
         "params": [],
@@ -606,6 +611,11 @@
     },
     "dataCatalogNewMetric": {
         "template": "/data-catalog/new-metric",
+        "params": [],
+        "scope": "project"
+    },
+    "dataDeletionRequestNew": {
+        "template": "/settings/environment-danger-zone/data-deletion/new",
         "params": [],
         "scope": "project"
     },
@@ -981,6 +991,16 @@
     },
     "inbox": {
         "template": "/inbox",
+        "params": [],
+        "scope": "project"
+    },
+    "inboxActivate": {
+        "template": "/inbox/activate",
+        "params": [],
+        "scope": "project"
+    },
+    "inboxActivateWithoutGithub": {
+        "template": "/inbox/activate/without-github",
         "params": [],
         "scope": "project"
     },

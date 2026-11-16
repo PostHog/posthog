@@ -374,6 +374,7 @@ export type CyclotronJobInvocation = {
     queueMetadata?: Record<string, any> | null
     // Where the invocation came from (kafka or postgres)
     queueSource?: CyclotronJobQueueSource
+    queueLockId?: string
     // Cancellation was requested (CyclotronV2Manager.cancelJobs) while this invocation
     // was in flight. The consumer must terminate it as canceled instead of executing.
     cancelRequestedAt?: DateTime
@@ -392,6 +393,7 @@ export type CyclotronJobInvocationResult<T extends CyclotronJobInvocation = Cycl
      */
     deliveredToRecipient?: boolean
     emailSendResult?: { status: 'accepted' | 'skipped' | 'failed'; reason?: string }
+    parked?: boolean
     // The run was canceled rather than succeeding or failing. Only meaningful with
     // finished=true and no error: the job row and the lifecycle row both flip to
     // 'canceled'.
@@ -457,6 +459,8 @@ export type CyclotronJobInvocationHogFunctionContext = {
     customerTaskIdempotencyVersion?: 1
     send?: QueuedSend
     scheduledAt?: string
+    // Copied from the workflow state, like `send`, so the email step can measure the send's wait from its acceptance.
+    acceptedAt?: string
     renderedWorkflowVersion?: number
     // Set when the inputs come from the stored function config, so the job queue can drop them and the
     // executor can build them again. The job queue sets `inputsOmitted` when it drops them.
@@ -539,6 +543,9 @@ export type HogFlowInvocationContext = {
     // Set by the transactional email API, which skips the trigger pipeline. The email worker counts the run as
     // `triggered` and clears this flag, so a rescheduled run does not count again.
     triggerMetricPending?: boolean
+    // ISO time the API accepted a transactional email send. It lives in the state so that it travels with the job
+    // through Kafka, the queue and every reschedule, and the send's wait counts from it.
+    acceptedAt?: string
     actionStepCount: number
     // Missing on legacy runs, which must keep run:action keys even when no function state was persisted.
     customerTaskIdempotencyVersion?: 1

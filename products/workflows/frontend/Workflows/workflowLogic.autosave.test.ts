@@ -1154,18 +1154,31 @@ describe('workflowLogic auto-save', () => {
                 expect(logic.values.discardDisabledReason).toBeUndefined()
             })
 
-            it('reloads to show the current draft when the confirmed publish is refused', async () => {
+            it.each([
                 // A refused confirm is usually a stale token: the draft moved after the preview.
-                useMocks(serverMocks({ [PUBLISH_URL]: recordPublish(() => [409, { detail: 'stale' }]) }))
-                const errorToast = jest.spyOn(lemonToast, 'error')
+                ['a stale token', 409, 'stale', 'Publishing failed. Review the staged changes and try again.'],
+                [
+                    'an invalid draft',
+                    400,
+                    "Can't publish these changes. Step 'Send': This field is required.",
+                    "Can't publish these changes. Step 'Send': This field is required.",
+                ],
+            ])(
+                'reloads to show the current draft when the confirmed publish is refused for %s',
+                async (_, status, detail, toast) => {
+                    useMocks(serverMocks({ [PUBLISH_URL]: recordPublish(() => [status, { detail }]) }))
+                    const errorToast = jest.spyOn(lemonToast, 'error')
 
-                logic.actions.confirmPublishDraft('old-token')
-                await expectLogic(logic).toDispatchActions(['loadWorkflowSuccess']).toFinishAllListeners()
+                    logic.actions.confirmPublishDraft('old-token')
+                    await expectLogic(logic).toDispatchActions(['loadWorkflowSuccess']).toFinishAllListeners()
 
-                expect(errorToast).toHaveBeenCalledWith('Publishing failed. Review the staged changes and try again.')
-                expect(reloads).toBe(1)
-                expect(logic.values.draftActionPending).toBeNull()
-            })
+                    expect(errorToast).toHaveBeenCalledWith(toast, {
+                        capturedMessage: 'Publishing failed. Review the staged changes and try again.',
+                    })
+                    expect(reloads).toBe(1)
+                    expect(logic.values.draftActionPending).toBeNull()
+                }
+            )
 
             it('sends one publish and starts no other draft action while a publish is in flight', async () => {
                 let release: () => void = () => {}

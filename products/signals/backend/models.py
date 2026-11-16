@@ -1506,6 +1506,9 @@ class SignalGroupingRecord(TeamScopedRootMixin, UUIDModel):
         constraints = [
             models.UniqueConstraint(fields=["team", "signal_id"], name="signals_grouping_record_unique"),
         ]
+        indexes = [
+            models.Index(fields=["created_at"], name="signals_grouping_rec_created"),
+        ]
 
 
 def signal_report_artefact_type_choices() -> list[tuple[str, str | Promise]]:
@@ -3416,12 +3419,7 @@ class SignalScoutConfig(ModelActivityMixin, TeamScopedRootMixin, UUIDModel):
                     touched.add("status_changed_at")
             if fields is not None:
                 kwargs["update_fields"] = fields | touched
-        from products.signals.backend.trial.scouts import (
-            scout_capacity,  # noqa: PLC0415 -- capacity policy depends on this model
-        )
-
-        with scout_capacity(self):
-            super().save(*args, **kwargs)
+        super().save(*args, **kwargs)
 
     @classmethod
     def _pause_reasons_share_writer(cls, current: str | None, incoming: "SignalScoutConfig.PauseReason") -> bool:

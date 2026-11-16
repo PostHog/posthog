@@ -7,11 +7,12 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { FeatureFlagsSet, featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import posthog from 'lib/posthog-typed'
 import { userHasAccess } from 'lib/utils/accessControlUtils'
+import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { projectLogic } from 'scenes/projectLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
-import { AccessControlLevel, AccessControlResourceType, type UserType } from '~/types'
+import { AccessControlLevel, AccessControlResourceType, type Breadcrumb, type UserType } from '~/types'
 
 import { earlyAccessFeatureList } from 'products/early_access_features/frontend/generated/api'
 import type { EarlyAccessFeatureApi } from 'products/early_access_features/frontend/generated/api.schemas'
@@ -103,6 +104,7 @@ interface ReleaseLogicValues {
     scheduleIndex: ScheduleIndex
     canEditReleases: boolean
     rows: ReleaseRow[]
+    breadcrumbs: Breadcrumb[]
     filteredRows: ReleaseRow[]
     decisionRows: ReleaseRow[]
 }
@@ -119,10 +121,12 @@ interface ReleaseLogicActions {
         id: string
         changes: PatchedUpdateReleaseApi
         broadcasts?: LinkedBroadcastDTOApi[]
+        linked?: Pick<ReleaseDTOApi, 'surveys' | 'insights'>
     }) => {
         id: string
         changes: PatchedUpdateReleaseApi
         broadcasts?: LinkedBroadcastDTOApi[]
+        linked?: Pick<ReleaseDTOApi, 'surveys' | 'insights'>
     }
     loadFlags: () => void
     loadFlagsSuccess: (flags: FeatureFlagApi[]) => { flags: FeatureFlagApi[] }
@@ -185,7 +189,7 @@ interface ReleaseLogicActions {
 type releaseLogicType = MakeLogicType<ReleaseLogicValues, ReleaseLogicActions>
 
 export interface ReleaseUsageEvent {
-    event: 'release item linked' | 'release item unlinked' | 'release broadcasts auto linked'
+    event: 'release item linked' | 'release item unlinked' | 'release broadcasts auto linked' | 'release owner changed'
     properties: Record<string, string | number>
 }
 
@@ -350,7 +354,7 @@ export const releaseLogic = kea<releaseLogicType>([
                     breakpoint()
                     return releases
                 },
-                setReleaseLocally: ({ id, changes, broadcasts }) =>
+                setReleaseLocally: ({ id, changes, broadcasts, linked }) =>
                     values.releases.map((release) =>
                         release.id === id
                             ? {
@@ -359,6 +363,10 @@ export const releaseLogic = kea<releaseLogicType>([
                                   description: changes.description ?? release.description,
                                   feature_flag_ids: changes.feature_flag_ids ?? release.feature_flag_ids,
                                   broadcast_ids: changes.broadcast_ids ?? release.broadcast_ids,
+                                  survey_ids: changes.survey_ids ?? release.survey_ids,
+                                  insight_ids: changes.insight_ids ?? release.insight_ids,
+                                  surveys: linked?.surveys ?? release.surveys,
+                                  insights: linked?.insights ?? release.insights,
                                   broadcasts:
                                       broadcasts ??
                                       release.broadcasts.filter(
@@ -680,6 +688,20 @@ export const releaseLogic = kea<releaseLogicType>([
         ],
     }),
     selectors({
+        breadcrumbs: [
+            (s) => [s.rows, router.selectors.location],
+            (rows: ReleaseRow[], location: { pathname: string }): Breadcrumb[] => {
+                const path = removeProjectIdIfPresent(location.pathname)
+                if (path === urls.releaseList()) {
+                    return [{ key: 'Releases', name: 'Releases' }]
+                }
+                const id = path.match(/^\/releases\/([^/]+)$/)?.[1]
+                if (!id) {
+                    return [{ key: 'ReleaseCalendar', name: 'Release calendar' }]
+                }
+                return [{ key: ['Release', id], name: rows.find((row) => row.id === id)?.name }]
+            },
+        ],
         releasesEnabled: [
             (s) => [s.featureFlags],
             (featureFlags: FeatureFlagsSet): boolean => !!featureFlags[FEATURE_FLAGS.RELEASES_AREA],
@@ -872,8 +894,11 @@ export const releaseLogic = kea<releaseLogicType>([
                                 description: saved.description,
                                 feature_flag_ids: saved.feature_flag_ids,
                                 broadcast_ids: saved.broadcast_ids,
+                                survey_ids: saved.survey_ids,
+                                insight_ids: saved.insight_ids,
                             },
                             broadcasts: [...saved.broadcasts],
+                            linked: { surveys: saved.surveys, insights: saved.insights },
                         })
                     }
                     if (successMessage) {

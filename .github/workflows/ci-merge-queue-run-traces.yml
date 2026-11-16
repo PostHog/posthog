@@ -1,0 +1,75 @@
+name: Merge queue run traces
+
+# Emits one OTLP trace per completed merge queue run of the workflows listed below, a few
+# minutes after the run ends, so a traces alert on service `ci-workflows` can page while a
+# burst of queue failures is still going on. ci-master-run-traces.yml covers master hourly,
+# which is too late for an alert whose window is anchored on job start.
+#
+# The list is named rather than `'*'`: `'*'` matches this workflow too, and every queue
+# attempt completes dozens of runs. Each listed workflow costs one dispatch per queue attempt
+# it runs on, so add one only when its jobs fail queue attempts and emit no test spans of
+# their own. Backend CI and Frontend CI get per-test spans from report_test_timings.py.
+#
+# A workflow_run run executes this file from master and checks out master, so code on the
+# queue branch never reaches the project token.
+on:
+    workflow_run:
+        workflows:
+            - Storybook
+            - E2E CI Playwright
+            - MCP CI
+            - Python CI
+            - ClickHouse HCL Schema Guard
+        types: [completed]
+        branches: ['trunk-merge/**']
+
+permissions:
+    contents: read
+    actions: read # read the traced run's jobs when the App-token mint falls back
+
+jobs:
+    emit-trace:
+        name: Emit merge queue run trace
+        # hogli-lint: not-a-required-gate — report-only telemetry, gates nothing.
+        if: >-
+            github.repository == 'PostHog/posthog'
+            && github.event.workflow_run.head_repository.full_name == github.repository
+        runs-on: ubuntu-24.04
+        timeout-minutes: 10
+        steps:
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  persist-credentials: false
+                  sparse-checkout: |
+                      .github/scripts/report_workflow_run_traces.py
+                      .github/scripts/depot_backend_runs.py
+                      .github/actions/setup-uv
+                  sparse-checkout-cone-mode: false
+
+            - name: Mint telemetry GitHub token
+              id: app-token
+              continue-on-error: true
+              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+              with:
+                  client-id: ${{ vars.GH_APP_TELEMETRY_APP_ID }}
+                  private-key: ${{ secrets.GH_APP_TELEMETRY_PRIVATE_KEY }}
+                  skip-token-revoke: true
+
+            - uses: ./.github/actions/setup-uv
+              with:
+                  enable-cache: false
+
+            # Traces alerts count entry spans only, so jobs go out as consumer spans. Steps are
+            # dropped: a failed step is often named like its job and would count twice.
+            - name: Emit merge queue run trace
+              env:
+                  GITHUB_TOKEN: ${{ steps.app-token.outputs.token || github.token }}
+                  RUN_ID: ${{ github.event.workflow_run.id }}
+                  RUN_ATTEMPT: ${{ github.event.workflow_run.run_attempt }}
+                  POSTHOG_DEVEX_PROJECT_API_TOKEN: ${{ secrets.POSTHOG_DEVEX_PROJECT_API_TOKEN }}
+                  # dual emission while CI traces migrate to the project behind POSTHOG_API_TOKEN
+                  POSTHOG_CI_TRACES_EXTRA_TOKEN: ${{ secrets.POSTHOG_API_TOKEN }}
+                  POSTHOG_OTLP_TRACES_ENDPOINT: ${{ vars.POSTHOG_OTLP_TRACES_ENDPOINT || 'https://us.i.posthog.com/i/v1/traces' }}
+              run: >-
+                  uv run --script .github/scripts/report_workflow_run_traces.py
+                  --run-id "$RUN_ID" --run-attempt "$RUN_ATTEMPT" --entry-jobs
