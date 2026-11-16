@@ -61,6 +61,9 @@ export const CloudProfile = z
                 hostSubnet: Name,
                 hostSecurityGroup: Name,
                 hostInstanceProfile: Name,
+                hostLaunchTemplateId: Name,
+                hostLaunchTemplateVersion: z.string().regex(/^[1-9]\d*$/, 'a launch template version number'),
+                hostRootVolumeGb: z.number().int().positive(),
             })
             .strict(),
         engineVersion: Name,
@@ -69,7 +72,6 @@ export const CloudProfile = z
         host: z
             .object({
                 class: Name,
-                ebsGb: z.number().int().positive(),
                 imageParameter: Name,
                 bootstrapDeadline: Duration,
             })
