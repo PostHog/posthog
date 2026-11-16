@@ -17,6 +17,7 @@ The classic conversation transport uses a 30-second connection deadline and a 60
 Each received chunk, including a heartbeat, resets the inactivity deadline.
 An interrupted accepted reply offers reconnection; the app does not resend it automatically.
 History reconciliation retains streamed generation failures.
+Classic tool-result messages do not carry a success or failure flag. Activity treats a received result as finished.
 Pending approvals and clarification forms pause reconnection until the person responds.
 The classic chat hook exposes form questions from both streamed replies and history, with submit and dismiss methods.
 Form responses send no new chat message; they resume the conversation with the selected answers or a dismissal.

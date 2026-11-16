@@ -1,4 +1,5 @@
-import { act, fireEvent, render, screen, waitFor } from '@testing-library/react-native'
+import { act, fireEvent, render, screen, waitFor, within } from '@testing-library/react-native'
+import * as Clipboard from 'expo-clipboard'
 
 import { useChatDraft } from '../useChatDraft'
 import { ClassicChatScreen } from './ClassicChatScreen'
@@ -37,6 +38,55 @@ jest.mock('../useChatDraft', () => ({ useChatDraft: jest.fn() }))
 jest.mock('./useClassicChat', () => ({ useClassicChat: jest.fn() }))
 
 describe('classic chat draft recovery', () => {
+    test('keeps tool commentary collapsed while the final answer stays readable and copyable', async () => {
+        const copy = jest.spyOn(Clipboard, 'setStringAsync').mockResolvedValue(true)
+        jest.mocked(useChatDraft).mockReturnValue({
+            draft: { text: '', reportIds: [] },
+            ready: true,
+        } as unknown as ReturnType<typeof useChatDraft>)
+        jest.mocked(useClassicChat).mockReturnValue({
+            id: 'saved-chat',
+            loading: false,
+            working: false,
+            stopping: false,
+            historyError: null,
+            error: null,
+            state: classicHistory(
+                [
+                    { id: 'question', type: 'human', content: 'Compare signup events.' },
+                    {
+                        id: 'inspection',
+                        type: 'ai',
+                        content: 'Inspecting the selected events.',
+                        meta: { thinking: [{ type: 'thinking', thinking: 'Use the same date range.' }] },
+                        tool_calls: [{ id: 'query', name: 'query_insight', args: {} }],
+                    },
+                    { id: 'query-result', type: 'tool', tool_call_id: 'query', content: 'Done.' },
+                    { id: 'answer', type: 'ai', content: 'Signups increased.' },
+                ],
+                'Signup comparison'
+            ),
+        } as unknown as ReturnType<typeof useClassicChat>)
+        render(
+            <ClassicChatScreen
+                conversationId="saved-chat"
+                source={{ entry: 'chats_list', origin: 'chat' }}
+                autoFocus={false}
+                onBack={jest.fn()}
+                onNewChat={jest.fn()}
+            />
+        )
+        expect(screen.getByText('Signups increased.')).toBeTruthy()
+        expect(screen.queryByText('Inspecting the selected events.')).toBeNull()
+        expect(screen.queryByText('Use the same date range.')).toBeNull()
+        fireEvent.press(screen.getByLabelText('1 tool call'))
+        expect(screen.getByText('Inspecting the selected events.')).toBeTruthy()
+        expect(screen.getByText('Use the same date range.')).toBeTruthy()
+        fireEvent.press(within(screen.getByTestId('session-assistant')).getByLabelText('Copy message text'))
+        await waitFor(() => expect(copy).toHaveBeenCalledWith('Signups increased.'))
+        copy.mockRestore()
+    })
+
     test.each(['empty', 'partial', 'reloading'] as const)(
         'keeps %s history recoverable without hiding received messages',
         (kind) => {

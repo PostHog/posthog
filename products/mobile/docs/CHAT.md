@@ -15,6 +15,8 @@ its local Tasks fixtures.
 
 Classic chat supports streamed responses, saved history, follow-up messages, stopping a reply,
 and approving or rejecting a requested change. Generated charts and insights link to the web.
+Assistant commentary that leads into tool calls, tool activity, and provider thinking share collapsed activity rows.
+The final standalone answer stays visible outside those rows.
 Its composer omits the model and permission controls that only the Tasks runtime supports.
 The Chats list combines unlinked conversations and tasks. Conversations with a linked task use the task row. Classic
 conversation links use `conversationId`; Tasks links continue to use `taskId` and `runId`.
@@ -458,7 +460,7 @@ New chat drops it.
 - The status line shows the current stage or tool, or "Thinking…". Automatic reconnection stays quiet; confirmed failures still show recovery controls.
 - Compacting and clearing each show one active spinner, even when the stream repeats the start.
   Completion removes that spinner, so a later compaction or clear can show a new one.
-- Thoughts and tool calls fold into activity rows. Every row starts closed, also while it runs. `mobile_chat_activity_expanded` is captured with `running` and `tool_count` when the person opens one.
+- Thoughts and tool calls fold into activity rows. Opening or closing a row pauses automatic scrolling. Its spinner stops when the session stops working. Every row starts closed, also while it runs. `mobile_chat_activity_expanded` is captured with `running` and `tool_count` when the person opens one.
 - Background-task notices (including checkmarked completion summaries) align left and show at most two lines by default.
   Notices that wrap beyond two lines offer Show more to read the full text and Show less to return to the preview.
   Expanding or collapsing a notice pauses automatic scrolling so it stays in view.
