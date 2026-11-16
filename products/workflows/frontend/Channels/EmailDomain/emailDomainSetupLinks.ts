@@ -5,7 +5,6 @@ import { urls } from 'scenes/urls'
 
 import { DEFAULT_EMAIL_DOMAIN_SETUP_ORIGIN, EmailDomainSetupOrigin, originSearchParams } from './emailDomainSetupOrigin'
 
-/** The button a person pressed to start the sending domain setup. */
 export type EmailDomainSetupEntry = 'channels' | 'broadcast' | 'add_sender' | 'transactional' | 'configure'
 
 export const emailDomainSetupPath = (

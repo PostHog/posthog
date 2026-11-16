@@ -22,7 +22,6 @@ export const scene: SceneExport<EmailDomainLogicProps> = {
 }
 
 export function EmailDomainScene({ id }: Pick<EmailDomainLogicProps, 'id'>): JSX.Element {
-    // The app renders a scene with its path params only, so the origin comes from the URL as in paramsToProps.
     const { searchParams } = useValues(router)
     return (
         <BindEmailDomainLogics id={id || 'new'} origin={originFromSearchParams(searchParams)}>
