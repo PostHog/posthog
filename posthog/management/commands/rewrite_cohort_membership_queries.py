@@ -49,7 +49,8 @@ class Command(BaseCommand):
         self.stdout.write(f"{row.source} {row.pk} (team {row.team_id}):")
         if apply and row.changed and not row.written:
             self.stdout.write("  changed while running, not written; run again")
-        if row.still_mentions_table:
+        # A query left for a manual fix also keeps the name, so the line below would point at the wrong place.
+        if row.still_mentions_table and not any(rewrite.needs_manual_fix for rewrite in row.rewrites):
             self.stdout.write(f"  still names {LEGACY_TABLE} outside a query this command rewrites")
         for rewrite in row.rewrites:
             if rewrite.needs_manual_fix:
