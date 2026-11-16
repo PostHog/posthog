@@ -2,7 +2,6 @@ import { ClickHouseClient } from '@clickhouse/client'
 import { DateTime } from 'luxon'
 
 import { HogFlowManagerService } from '../services/hogflows/hogflow-manager.service'
-import { HOGFLOW_QUEUE_PRIORITY, HogFlowQueuePriority } from '../services/hogflows/hogflow-queue-priority'
 import { CyclotronJobQueuePostgresV2 } from '../services/job-queue/job-queue-postgres-v2'
 import { JobQueue } from '../services/job-queue/job-queue.interface'
 import { HogFunctionManagerService } from '../services/managers/hog-function-manager.service'
@@ -44,8 +43,7 @@ describe('RerunPaginatorService replay fidelity (hog_flow)', () => {
         monitoring = {
             queueLogs: jest.fn(),
             flush: jest.fn().mockResolvedValue(undefined),
-        } as unknown as jest.Mocked<HogFunctionMonitoringService>,
-        broadcastChildPriority?: HogFlowQueuePriority
+        } as unknown as jest.Mocked<HogFunctionMonitoringService>
     ): RerunPaginatorService {
         const hogFlowManager = {
             getHogFlow: jest.fn().mockResolvedValue({ id: functionId, team_id: teamId, variables: [] }),
@@ -66,8 +64,7 @@ describe('RerunPaginatorService replay fidelity (hog_flow)', () => {
             lifecycle,
             { hog_function: {} as unknown as JobQueue, hog_flow: hogFlowQueue },
             monitoring,
-            10000,
-            broadcastChildPriority
+            10000
         )
     }
 
@@ -239,39 +236,5 @@ describe('RerunPaginatorService replay fidelity (hog_flow)', () => {
         const invocation = hogFlowQueue.queueInvocations.mock.calls[0][0][0] as CyclotronJobInvocationHogFlow
         expect(invocation.state?.currentAction).toBeUndefined()
         expect(invocation.state?.customerTaskIdempotencyVersion).toBeUndefined()
-    })
-
-    it.each([
-        ['a broadcast child', 'run-1', HOGFLOW_QUEUE_PRIORITY.background],
-        ['an event-triggered run', '', HOGFLOW_QUEUE_PRIORITY.triggered],
-    ])('re-enqueues %s at the priority it first ran at', async (_name, parentRunId, expectedPriority) => {
-        const rows = [
-            {
-                invocation_id: 'inv-4',
-                parent_run_id: parentRunId,
-                attempts: 0,
-                last_scheduled_at: '2026-06-01 09:00:00.000000',
-                run_first_scheduled_at: '2026-06-01 09:00:00.000000',
-                invocation_globals: JSON.stringify({
-                    event: { uuid: 'evt-4', distinct_id: 'd-4', properties: {}, timestamp: '2026-06-01T09:00:00Z' },
-                    actionStepCount: 0,
-                    variables: {},
-                }),
-            },
-        ]
-        const hogFlowQueue = {
-            queueInvocations: jest.fn().mockResolvedValue(undefined),
-        } as unknown as jest.Mocked<CyclotronJobQueuePostgresV2>
-
-        const paginator = buildPaginator(
-            fakeClickhouse(rows),
-            hogFlowQueue,
-            undefined,
-            HOGFLOW_QUEUE_PRIORITY.background
-        )
-        await paginator.processPage(teamId, state, { jobId: 'rerun-4', createdAt: DateTime.now() })
-
-        const invocation = hogFlowQueue.queueInvocations.mock.calls[0][0][0] as CyclotronJobInvocationHogFlow
-        expect(invocation.queuePriority).toBe(expectedPriority)
     })
 })

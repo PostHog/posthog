@@ -620,7 +620,10 @@ describe('CDP hog invocation rerun e2e', () => {
         expect(mockFetch.mock.calls.filter(([url]) => String(url) === FLOW_WEBHOOK_URL).length).toBe(1)
     })
 
-    it('reruns a broadcast child at the broadcast priority when the low-priority switch is on', async () => {
+    it.each([
+        ['a broadcast child at the broadcast priority', 'broadcast-run-1', HOGFLOW_QUEUE_PRIORITY.background],
+        ['an event-triggered run at the triggered priority', null, HOGFLOW_QUEUE_PRIORITY.triggered],
+    ])('reruns %s when the low-priority switch is on', async (_name, parentRunId, expectedPriority) => {
         const flow = new FixtureHogFlowBuilder()
             .withTeamId(team.id)
             .withStatus('active')
@@ -637,10 +640,10 @@ describe('CDP hog invocation rerun e2e', () => {
         hogflowWorker = new CdpCyclotronWorkerHogFlow(hub, cdpDeps, postgresV2Queue)
         await hogflowWorker.start()
 
-        // Enqueued the way the batch resolver enqueues a broadcast child with the switch on.
+        // A broadcast child is enqueued the way the batch resolver enqueues it with the switch on.
         const child = createHogFlowInvocation(globals, flow, convertToHogFunctionFilterGlobal(globals))
-        child.parentRunId = 'broadcast-run-1'
-        child.queuePriority = HOGFLOW_QUEUE_PRIORITY.background
+        child.parentRunId = parentRunId
+        child.queuePriority = expectedPriority
         await postgresV2Queue.queueInvocations([child])
 
         await waitForExpect(async () => {
@@ -681,6 +684,6 @@ describe('CDP hog invocation rerun e2e', () => {
         const rerunChild = await nodeAssertPool.query('SELECT status, priority FROM cyclotron_jobs WHERE id = $1', [
             child.id,
         ])
-        expect(rerunChild.rows[0]).toEqual({ status: 'available', priority: HOGFLOW_QUEUE_PRIORITY.background })
+        expect(rerunChild.rows[0]).toEqual({ status: 'available', priority: expectedPriority })
     })
 })

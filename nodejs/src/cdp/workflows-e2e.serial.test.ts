@@ -5033,16 +5033,19 @@ describe('Workflows E2E: batch resolver dispatch via cdp-api', () => {
     })
 
     it.each([
-        ['ahead of a later event-triggered run with the switch off', false, 'broadcast child'],
-        ['behind a later event-triggered run with the switch on', true, 'event run'],
-    ])('dequeues broadcast children %s', async (_name, lowPriority, firstOut) => {
+        ['ahead of a later event-triggered run with the switch off', false, 'broadcast child', 'persons'],
+        ['behind a later event-triggered run with the switch on', true, 'event run', 'persons'],
+        ['of an account audience behind a later event-triggered run with the switch on', true, 'event run', 'accounts'],
+    ])('dequeues broadcast children %s', async (_name, lowPriority, firstOut, audienceType) => {
         const flow = await insertActiveBatchFlow()
         const parentRunId = new UUIDT().toString()
         const statusPuts: Array<{ status: string }> = []
         mockInternalFetch.mockImplementation((url: string, opts: any) => {
             const body = url.includes('/user_blast_radius_persons')
                 ? { users_affected: [new UUIDT().toString(), new UUIDT().toString()], cursor: null, has_more: false }
-                : {}
+                : url.includes('/account_audience')
+                  ? { accounts: ['account-1', 'account-2'], cursor: null, has_more: false, group_type: 'organization' }
+                  : {}
             if (url.includes('/batch_jobs/') && url.endsWith('/status')) {
                 statusPuts.push(parseJSON(opts.body) as { status: string })
             }
@@ -5060,7 +5063,10 @@ describe('Workflows E2E: batch resolver dispatch via cdp-api', () => {
             hub.CDP_HOGFLOW_BROADCAST_LOW_PRIORITY = lowPriority
             await supertest(app)
                 .post(`/api/projects/${team.id}/hog_flows/${flow.id}/batch_invocations/${parentRunId}`)
-                .send({ filters: { filter_test_accounts: false }, max_audience_size: 1000 })
+                .send({
+                    filters: { filter_test_accounts: false, audience_type: audienceType },
+                    max_audience_size: 1000,
+                })
                 .expect(200)
             resolverWorker = buildResolverConsumer()
             await resolverWorker.start()
