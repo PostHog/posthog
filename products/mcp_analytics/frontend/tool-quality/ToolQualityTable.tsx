@@ -251,6 +251,7 @@ export function ToolQualityTable(): JSX.Element {
         toolQualityPageIndex,
         loadedToolQualityPageIndex,
         toolRows,
+        toolRowsPage,
         toolRowsPageLoading,
         toolRowsTotalCount,
         searchTerm,
@@ -260,7 +261,7 @@ export function ToolQualityTable(): JSX.Element {
     const pageRange = getPaginationRange(pageCount, toolQualityPageIndex)
     const firstRow = toolRowsTotalCount === 0 ? 0 : loadedToolQualityPageIndex * TOOL_QUALITY_PAGE_SIZE + 1
     const lastRow = Math.min(firstRow + toolRows.length - 1, toolRowsTotalCount)
-    const showSkeleton = toolRowsPageLoading && toolRows.length === 0
+    const showSkeleton = toolRowsPageLoading && toolRowsPage === null
 
     return (
         <Card size="sm" className="gap-0">
