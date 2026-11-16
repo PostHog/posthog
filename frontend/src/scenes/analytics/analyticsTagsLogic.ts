@@ -118,11 +118,7 @@ export const analyticsTagsLogic = kea<analyticsTagsLogicType>([
             const projectId = String(teamLogic.values.currentTeamId)
             const tags = values.draftTags
             try {
-                if (target.type === 'dashboard') {
-                    await dashboardsPartialUpdate(projectId, Number(target.ref), { tags })
-                } else {
-                    await insightsPartialUpdate(projectId, encodeURIComponent(target.ref), { tags })
-                }
+                await SAVE_TAGS[target.type](projectId, target.ref, tags)
             } catch {
                 actions.saveTagsFailure()
                 toast.error({ title: "Couldn't save the tags. Try again." })
@@ -138,3 +134,9 @@ export const analyticsTagsLogic = kea<analyticsTagsLogicType>([
         },
     })),
 ])
+
+// Keyed by every taggable type, so making a new type taggable fails the typecheck until it has a save request here.
+const SAVE_TAGS: Record<TaggableAnalyticsType, (projectId: string, ref: string, tags: string[]) => Promise<unknown>> = {
+    dashboard: (projectId, ref, tags) => dashboardsPartialUpdate(projectId, Number(ref), { tags }),
+    insight: (projectId, ref, tags) => insightsPartialUpdate(projectId, encodeURIComponent(ref), { tags }),
+}

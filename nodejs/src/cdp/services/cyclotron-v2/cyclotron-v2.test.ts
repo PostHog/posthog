@@ -1835,7 +1835,7 @@ describe('Cyclotron V2', () => {
 
             it.each([
                 ['reclaims it once its job is gone', true, null, ['created']],
-                ['keeps it while its job still exists', false, { fingerprint: 'a' }, ['mismatch']],
+                ['keeps it while its job still exists', false, { fingerprint: 'a', reply: null }, ['mismatch']],
             ])('for an expired key the janitor has not swept, %s', async (_name, jobGone, found, expected) => {
                 const id = uuidv7()
                 await manager.createJobsIdempotently([keyed(id, 'a')])
@@ -3212,12 +3212,18 @@ describe('Cyclotron V2', () => {
         })
 
         it.each([
-            ['below the churn threshold', CYCLOTRON_TRANSITION_CHURN_THRESHOLD - 2, 0],
-            ['at the churn threshold', CYCLOTRON_TRANSITION_CHURN_THRESHOLD - 1, 1],
-        ])('counts a dequeue %s', async (_label, seeded, expected) => {
+            ['below the churn threshold', CYCLOTRON_TRANSITION_CHURN_THRESHOLD - 2, 0, 0],
+            ['at the churn threshold', CYCLOTRON_TRANSITION_CHURN_THRESHOLD - 1, 0, 1],
+            ['at the churn threshold on a day-old job', CYCLOTRON_TRANSITION_CHURN_THRESHOLD - 1, 24, 1],
+            ['at the churn threshold on a weeks-old job', CYCLOTRON_TRANSITION_CHURN_THRESHOLD - 1, 400, 0],
+            ['at the counter cap on a day-old job', CYCLOTRON_COUNTER_MAX, 24, 1],
+        ])('counts a dequeue %s', async (_label, seeded, ageHours, expected) => {
             const before = await churnCountForQueue(QUEUE)
             const id = await manager.createJob({ teamId: 1, queueName: QUEUE })
-            await assertPool.query('UPDATE cyclotron_jobs SET transition_count = $1 WHERE id = $2', [seeded, id])
+            await assertPool.query(
+                'UPDATE cyclotron_jobs SET transition_count = $1, created = NOW() - make_interval(hours => $3) WHERE id = $2',
+                [seeded, id, ageHours]
+            )
 
             await dequeueOneBatch(createWorker())
 

@@ -1,3 +1,4 @@
+import re
 import json
 from collections.abc import Callable, Iterable, Mapping
 from datetime import UTC, timedelta
@@ -3260,3 +3261,150 @@ class TestFileSystemInsightType(SimpleTestCase):
     )
     def test_insight_type(self, query_kind: str | None, legacy_type: str | None, expected: str) -> None:
         self.assertEqual(get_file_system_insight_type(query_kind, legacy_type), expected)
+
+
+TREE_READ_PATHS: list[tuple[str, str, dict[str, str]]] = [
+    ("list", "", {"limit": "10"}),
+    ("list_in_folder", "", {"parent": "Unfiled", "depth": "2", "limit": "10"}),
+    ("list_search", "", {"search": "Unfiled", "limit": "10"}),
+    ("typed_list", "", {"type": "dashboard", "limit": "10"}),
+    ("typed_list_by_created_at", "", {"type": "dashboard", "order_by": "-created_at", "limit": "10"}),
+    ("typed_list_by_last_viewed", "", {"type": "notebook", "order_by": "-last_viewed_at", "limit": "10"}),
+    ("recents", "", {"order_by": "-last_viewed_at", "limit": "10"}),
+    ("recents_search", "", {"order_by": "-last_viewed_at", "search": "welcome", "limit": "10"}),
+    ("search", "search/", {"search": "welcome"}),
+    ("unfiled", "unfiled/", {}),
+    ("frequent", "frequent/", {}),
+]
+
+
+PATTERN_FROM_A_COLUMN = re.compile(r"\s!?~~?\*?\s+(?!')")
+PLAN_CONDITIONS = ("Filter", "Join Filter", "Index Cond")
+
+
+def _plan_nodes(node: Mapping[str, Any]) -> Iterable[Mapping[str, Any]]:
+    yield node
+    for child in node.get("Plans", []):
+        yield from _plan_nodes(child)
+
+
+def _scans_file_system(node: Mapping[str, Any]) -> bool:
+    return any(child.get("Relation Name") == "posthog_filesystem" for child in _plan_nodes(node))
+
+
+def _names_marked_hashed_by_their_parent(plan: Mapping[str, Any]) -> set[str]:
+    return set(re.findall(r"hashed (SubPlan \d+)", json.dumps(plan)))
+
+
+def _per_row_tree_subplans(plan: Mapping[str, Any]) -> list[Mapping[str, Any]]:
+    hashed = _names_marked_hashed_by_their_parent(plan)
+    return [
+        node
+        for node in _plan_nodes(plan)
+        if node.get("Parent Relationship") == "SubPlan"
+        and _scans_file_system(node)
+        and node["Subplan Name"] not in hashed
+    ]
+
+
+def _column_pattern_nodes(plan: Mapping[str, Any]) -> list[Mapping[str, Any]]:
+    return [
+        node
+        for node in _plan_nodes(plan)
+        if any(PATTERN_FROM_A_COLUMN.search(node.get(condition, "")) for condition in PLAN_CONDITIONS)
+    ]
+
+
+class TestFileSystemReadPlans(APIBaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        self.organization.available_product_features = [
+            {"key": "access_control", "name": "access_control"},
+            {"key": "role_based_access", "name": "role_based_access"},
+        ]
+        self.organization.save()
+        Dashboard.objects.create(team=self.team, name="Welcome dashboard", created_by=self.user)
+        flow_ref = "0f1e2d3c-4b5a-4987-a6b5-c4d3e2f1a0b9"
+        template_ref = "1a2b3c4d-5e6f-4a1b-8c2d-3e4f5a6b7c8d"
+        files = [
+            ("Docs", "folder", None),
+            ("Docs/Reports", "folder", None),
+            ("Docs/Reports/Welcome report", "notebook", "welcome-notebook"),
+            ("Unfiled", "folder", None),
+            ("Unfiled/Insights", "folder", None),
+            ("Unfiled/Insights/Welcome insight", "insight", "welcome-insight"),
+            ("Unfiled/Workflows", "folder", None),
+            ("Unfiled/Workflows/Welcome flow", "hog_flow", flow_ref),
+            ("Unfiled/Email templates", "folder", None),
+            ("Unfiled/Email templates/Welcome email", "message_template", template_ref),
+        ]
+        for path, file_type, ref in files:
+            FileSystem.objects.create(
+                team=self.team, path=path, depth=path.count("/") + 1, type=file_type, ref=ref, created_by=self.user
+            )
+        now = timezone.now()
+        for file_type, ref in [
+            ("notebook", "welcome-notebook"),
+            ("insight", "welcome-insight"),
+            ("hog_flow", flow_ref),
+            ("message_template", template_ref),
+        ]:
+            FileSystemViewLog.objects.create(
+                team=self.team,
+                user=self.user,
+                type=file_type,
+                ref=ref,
+                viewed_at=now,
+                view_days=[now.date(), (now - timedelta(days=1)).date()],
+            )
+
+    @parameterized.expand(
+        [
+            (f"{name}_flag_{'on' if flag_enabled else 'off'}", flag_enabled, action, params)
+            for name, action, params in TREE_READ_PATHS
+            for flag_enabled in (False, True)
+        ]
+    )
+    def test_tree_reads_run_no_per_row_subquery_over_the_tree(
+        self, _name: str, flag_enabled: bool, action: str, params: dict[str, str]
+    ) -> None:
+        statements: list[tuple[str, Any]] = []
+
+        def capture_with_typed_params(
+            execute: Callable[..., Any], sql: str, sql_params: Any, many: bool, context: Any
+        ) -> Any:
+            if not many:
+                statements.append((sql, sql_params))
+            return execute(sql, sql_params, many, context)
+
+        with (
+            patch("posthoganalytics.feature_enabled", return_value=flag_enabled),
+            connection.execute_wrapper(capture_with_typed_params),
+        ):
+            response = self.client.get(f"/api/projects/{self.team.id}/file_system/{action}", params)
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+
+        tree_reads = [
+            (sql, sql_params)
+            for sql, sql_params in statements
+            if sql.lstrip().upper().startswith(("SELECT", "WITH")) and '"posthog_filesystem"' in sql
+        ]
+        self.assertNotEqual(tree_reads, [])
+        offenders: list[str] = []
+        with connection.cursor() as cursor:
+            for sql, sql_params in tree_reads:
+                cursor.execute(f"EXPLAIN (FORMAT JSON, VERBOSE) {sql}", sql_params)
+                row = cursor.fetchone()
+                assert row is not None
+                plan = row[0][0]["Plan"]
+                offenders.extend(
+                    f"Per-row subquery over the tree:\n{sql}\n{sql_params}\n{json.dumps(node, indent=2)}"
+                    for node in _per_row_tree_subplans(plan)
+                )
+                offenders.extend(
+                    f"Pattern built from a column:\n{sql}\n{sql_params}\n{json.dumps(node, indent=2)}"
+                    for node in _column_pattern_nodes(plan)
+                )
+        if offenders:
+            flag_state = "on" if flag_enabled else "off"
+            self.fail(f"{action or 'list'} {params} with the flag {flag_state}:\n\n" + "\n\n".join(offenders))

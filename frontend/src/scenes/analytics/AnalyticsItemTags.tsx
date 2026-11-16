@@ -1,5 +1,6 @@
 import { useActions, useValues } from 'kea'
 
+import { IconPlus } from '@posthog/icons'
 import {
     Button,
     DropdownMenu,
@@ -17,7 +18,7 @@ import { isTaggableAnalyticsType } from './analyticsFeed'
 import { analyticsListLogic } from './analyticsListLogic'
 import { AnalyticsTagIcon } from './AnalyticsTagIcon'
 import { analyticsTagsLogic } from './analyticsTagsLogic'
-import { AnalyticsItem, analyticsItemTarget } from './analyticsUtils'
+import { AnalyticsItem, analyticsItemTarget, ROW_HOVER_REVEAL } from './analyticsUtils'
 
 /** While the list is filtered by one of the row's tags, the chip names that tag, so the reason the row matched stays visible. */
 export function AnalyticsItemTags({ item }: { item: AnalyticsItem }): JSX.Element | null {
@@ -25,8 +26,23 @@ export function AnalyticsItemTags({ item }: { item: AnalyticsItem }): JSX.Elemen
     const { setFilters } = useActions(analyticsListLogic)
     const { openTagEditor } = useActions(analyticsTagsLogic)
     const { type, tags } = item
-    if (!isTaggableAnalyticsType(type) || !tags.length) {
+    if (!isTaggableAnalyticsType(type)) {
         return null
+    }
+    if (!tags.length) {
+        return (
+            <Button
+                variant="default"
+                size="icon-xs"
+                tooltip="Add tags"
+                aria-label={`Add tags to ${item.name}`}
+                className={ROW_HOVER_REVEAL}
+                onClick={() => openTagEditor({ ...analyticsItemTarget(item), type })}
+                data-attr="analytics-list-row-tags-add"
+            >
+                <IconPlus />
+            </Button>
+        )
     }
     const filtered = tags.find((tag) => filters.tags.includes(tag))
     const toggle = (tag: string): void =>
