@@ -254,4 +254,42 @@ describe('sessionEventsDataLogic', () => {
             expect(reportedFailures()).toEqual(expectedFailures)
         }
     )
+
+    // New York repeats 01:00-02:00 on 2026-11-01. 05:58Z is 01:58 EDT and 06:02Z is 01:02 EST.
+    it('finds the properties of flag calls in the hour a daylight saving change repeats', async () => {
+        const appContext = window.POSTHOG_APP_CONTEXT
+        window.POSTHOG_APP_CONTEXT = {
+            ...appContext,
+            current_team: { ...appContext?.current_team, timezone: 'America/New_York' },
+        } as any
+        try {
+            setFlagCallsOnlyInFlagEvaluations(true)
+            const before = { ...makeEvent('before', '$feature_flag_called'), timestamp: '2026-11-01T05:58:00Z' }
+            const after = { ...makeEvent('after', '$feature_flag_called'), timestamp: '2026-11-01T06:02:00Z' }
+            logic.actions.loadEventsSuccess([before, after])
+            const bound = (query: string, operator: string): string =>
+                query.match(new RegExp(`timestamp ${operator} [^']*'([^']+)'`))?.[1] ?? ''
+            mockQueries({
+                flagEvaluationsRows: (query) =>
+                    bound(query, '>') < bound(query, '<')
+                        ? [
+                              [JSON.stringify({ $feature_flag: 'before' }), 'before'],
+                              [JSON.stringify({ $feature_flag: 'after' }), 'after'],
+                          ]
+                        : [],
+                eventsRows: () => [],
+            })
+
+            await expectLogic(logic, () => {
+                logic.actions.loadFullEventData([before, after])
+            }).toDispatchActions(['loadFullEventDataSuccess'])
+
+            expect(logic.values.sessionEventsData?.map((e) => e.properties)).toEqual([
+                { $feature_flag: 'before' },
+                { $feature_flag: 'after' },
+            ])
+        } finally {
+            window.POSTHOG_APP_CONTEXT = appContext
+        }
+    })
 })

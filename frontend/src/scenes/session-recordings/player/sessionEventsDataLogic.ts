@@ -24,7 +24,7 @@ import { Dayjs, dayjs } from 'lib/dayjs'
 import { uniqueBy } from 'lib/utils/arrays'
 import { chainToElements } from 'lib/utils/elements-chain'
 import { getEventsWithPrimaryProperty } from 'lib/utils/events'
-import { HogQLQueryString, hogql } from 'lib/utils/hogql'
+import { HogQLQueryString, HogQLRaw, escapeHogQLString, hogql } from 'lib/utils/hogql'
 import { TimeTree } from 'lib/utils/time-tree'
 import {
     FEATURE_FLAG_CALLED_EVENT,
@@ -49,6 +49,12 @@ const SESSION_EVENT_COLUMNS = hogql.raw(
 const RELATED_EVENT_COLUMNS = hogql.raw(
     'uuid, event, timestamp, elements_chain, properties.$window_id, properties.$current_url, properties.$event_type, distinct_id'
 )
+
+// hogql writes a Dayjs in the project timezone without an offset. In the hour that a daylight saving change repeats,
+// a lower bound can then come out later than its upper bound, so the flag_evaluations reads write UTC bounds.
+function utcBound(instant: Dayjs): HogQLRaw {
+    return hogql.raw(`toDateTime(${escapeHogQLString(instant.utc().format('YYYY-MM-DD HH:mm:ss'))}, 'UTC')`)
+}
 
 /** The query's rows, or null after the failure is reported. */
 async function queryRows(query: HogQLQueryString, feature: string): Promise<any[] | null> {
@@ -259,23 +265,33 @@ AND properties.$lib != 'web'` +
                         ? hogql`
 SELECT ${SESSION_EVENT_COLUMNS}
 FROM ${hogql.raw(FLAG_EVALUATIONS_TABLE)}
-WHERE timestamp > ${start.subtract(TWENTY_FOUR_HOURS_IN_MS, 'ms')}
-AND timestamp < ${end.add(TWENTY_FOUR_HOURS_IN_MS, 'ms')}
+WHERE timestamp > ${utcBound(start.subtract(TWENTY_FOUR_HOURS_IN_MS, 'ms'))}
+AND timestamp < ${utcBound(end.add(TWENTY_FOUR_HOURS_IN_MS, 'ms'))}
 AND session_id = ${props.sessionRecordingId}
 ORDER BY timestamp ASC
 LIMIT 1000000`
                         : null
+                    // flag_evaluations' person_id joins the person overrides, so no index serves a filter on it.
+                    // The stored flag_evaluation_person_id has a bloom filter index. It misses a call made before a merge
+                    // into this person until the overrides squash rewrites the call.
+                    let flagCallsPersonFilter: HogQLQueryString | null = null
+                    if (person?.uuid) {
+                        flagCallsPersonFilter = hogql`\nAND flag_evaluation_person_id = ${person.uuid}`
+                    }
+                    if (!person?.uuid && values.sessionPlayerMetaData?.distinct_id) {
+                        flagCallsPersonFilter = hogql`\nAND distinct_id = ${values.sessionPlayerMetaData.distinct_id}`
+                    }
                     // Without a person filter the read would cover every server-side flag call of the team.
                     const relatedFlagCallsQuery =
-                        readsFlagEvaluations && personFilter
+                        readsFlagEvaluations && flagCallsPersonFilter
                             ? ((hogql`
 SELECT ${RELATED_EVENT_COLUMNS}
 FROM ${hogql.raw(FLAG_EVALUATIONS_TABLE)}
-WHERE timestamp > ${start.subtract(FIVE_MINUTES_IN_MS, 'ms')}
-AND timestamp < ${end.add(FIVE_MINUTES_IN_MS, 'ms')}
+WHERE timestamp > ${utcBound(start.subtract(FIVE_MINUTES_IN_MS, 'ms'))}
+AND timestamp < ${utcBound(end.add(FIVE_MINUTES_IN_MS, 'ms'))}
 AND empty(session_id)
 AND properties.$lib != 'web'` +
-                                  personFilter +
+                                  flagCallsPersonFilter +
                                   hogql`\nORDER BY timestamp ASC\nLIMIT 1000000`) as HogQLQueryString)
                             : null
 
@@ -386,8 +402,8 @@ AND properties.$lib != 'web'` +
                             ? hogql`
                             SELECT properties, uuid
                             FROM ${hogql.raw(FLAG_EVALUATIONS_TABLE)}
-                            WHERE timestamp > ${dayjs(earliestTimestamp).subtract(FIVE_MINUTES_IN_MS, 'ms')}
-                            AND timestamp < ${dayjs(latestTimestamp).add(FIVE_MINUTES_IN_MS, 'ms')}
+                            WHERE timestamp > ${utcBound(dayjs(earliestTimestamp).subtract(FIVE_MINUTES_IN_MS, 'ms'))}
+                            AND timestamp < ${utcBound(dayjs(latestTimestamp).add(FIVE_MINUTES_IN_MS, 'ms'))}
                             AND session_id in ${[props.sessionRecordingId, '']}
                             AND uuid in ${flagCallIds}`
                             : null
