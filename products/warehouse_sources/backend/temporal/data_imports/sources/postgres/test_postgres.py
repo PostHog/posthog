@@ -2909,6 +2909,14 @@ class TestIsConnectionDroppedError:
                 'connection failed: connection to server at "203.0.113.5", port 5432 failed: '
                 "FATAL:  failed to connect to upstream 10.0.0.2:5432"
             ),
+            # A Neon-style proxy refuses a connect because the branch's compute endpoint has no
+            # primary assigned yet — a brief failover/promotion window, not a permanent
+            # customer-facing restriction. Transient; the reconnect must catch it rather than
+            # letting it escape and fail the whole sync.
+            psycopg.OperationalError(
+                'connection failed: connection to server at "203.0.113.5", port 5432 failed: '
+                "FATAL:  no primary available for branch ep-cool-branch-12345678"
+            ),
         ],
     )
     def test_connection_dropped_errors_are_detected(self, error):
