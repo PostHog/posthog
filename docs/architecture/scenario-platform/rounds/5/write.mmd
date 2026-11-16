@@ -1,0 +1,39 @@
+sequenceDiagram
+    participant L as lifecycle
+    participant PR as processes
+    participant PC as persons-cohorts
+    participant W as workflows
+    participant S as services
+    participant E as edge
+    participant H as history
+    participant J as judge
+    L->>PR: build once (cargo), own deadline
+    L->>PR: stop, head first
+    L->>W: reset(), tail first
+    L->>PC: reset()
+    L->>PC: seed(): team, cohort, allowlist row
+    PC-->>L: exports: team, cohort id
+    L->>W: seed(upstream): hook flow on the cohort
+    L->>PR: start tail first, readiness
+    Note over PR,S: the catalog and team index load at boot,<br/>after the seed rows exist (C1)
+    L->>PC: ready(): catalog covers cohort, live topic,<br/>canary person id matches (C3)
+    L->>W: ready()
+    Note over L,W: any failed check: invalid, stop before drive
+    loop each unit, open loop
+        L->>PC: offer(unit with team)
+        PC->>S: $set to capture
+        PC-->>L: answer, carrier person_id
+        L->>H: offer line (core writes it)
+    end
+    S->>E: POST /hook/{person.id}
+    L->>E: pull outcomes by seq
+    L->>H: outcome lines
+    loop until quiet held for settleMs
+        L->>PR: lag of declared groups, one call (C4)
+        L->>PC: pending()
+        L->>W: pending()
+    end
+    L->>W: validAfter(): writer interruption, admissions (C6)
+    L->>J: check(history)
+    J-->>L: statusOf order, strays invalid, hops as diagnostics
+    L->>L: scorecard, publish, down
