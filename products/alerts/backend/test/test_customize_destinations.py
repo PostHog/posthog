@@ -1,5 +1,6 @@
 from collections.abc import Collection
 from datetime import UTC, datetime
+from typing import Any
 from uuid import UUID, uuid4
 
 from posthog.test.base import BaseTest
@@ -89,6 +90,7 @@ class TestCustomizeSourceDestination(BaseTest):
                     {"key": "url", "type": "string"},
                     {"key": "body", "type": "json"},
                     {"key": "headers", "type": "dictionary"},
+                    {"key": "method", "type": "choice"},
                     {"key": "secret_headers", "type": "dictionary", "secret": True},
                     {"key": "signing_secret", "type": "string", "secret": True},
                 ],
@@ -270,16 +272,56 @@ class TestCustomizeSourceDestination(BaseTest):
         (row,) = list_alert_destinations(team_id=self.team.id, configuration_id=self.configuration.id)
         assert row.data["webhook_headers"] == {"Authorization": "Bearer test-token"}
 
-    def test_reset_is_refused_for_a_webhook_that_signs_its_requests(self) -> None:
+    @parameterized.expand(
+        [
+            ("signs_its_requests", None, None, {"signing_secret": {"value": "whsec_test"}}),
+            ("templated_url", {"url": "https://example.com/hooks/{event.properties.alert_id}"}, None, None),
+            ("templated_header", {"headers": {"X-Alert-ID": "{event.properties.alert_id}"}}, None, None),
+            ("put_method", {"method": "PUT"}, None, None),
+            (
+                "different_secret_headers_per_event",
+                None,
+                {"secret_headers": {"value": {"Authorization": "Bearer second-token"}}},
+                {"secret_headers": {"value": {"Authorization": "Bearer first-token"}}},
+            ),
+        ]
+    )
+    def test_reset_is_refused_when_the_standard_message_cannot_send_the_same_way(
+        self,
+        _name: str,
+        input_values: dict[str, Any] | None,
+        last_encrypted: dict[str, Any] | None,
+        encrypted: dict[str, Any] | None,
+    ) -> None:
         hog_function_ids = self._hog_functions(DestinationType.WEBHOOK)
-        for hog_function in HogFunction.objects.filter(id__in=hog_function_ids):
-            hog_function.encrypted_inputs = {"signing_secret": {"value": "whsec_test"}}
-            hog_function.save(update_fields=["encrypted_inputs"])
+        hog_functions = list(HogFunction.objects.filter(id__in=hog_function_ids).order_by("id"))
+        for index, hog_function in enumerate(hog_functions):
+            if input_values is not None:
+                hog_function.inputs = {
+                    **(hog_function.inputs or {}),
+                    **{key: {"value": value} for key, value in input_values.items()},
+                }
+            chosen = last_encrypted if last_encrypted is not None and index == len(hog_functions) - 1 else encrypted
+            if chosen is not None:
+                hog_function.encrypted_inputs = chosen
+            hog_function.save(update_fields=["inputs", "encrypted_inputs"])
 
         with self.assertRaises(AlertDestinationValidationError):
             self._reset(hog_function_ids)
 
         assert self._senders() == ["hog_functions:webhook"]
+
+    def test_reset_sends_a_secret_header_over_an_added_one_of_the_same_name(self) -> None:
+        hog_function_ids = self._hog_functions(DestinationType.WEBHOOK)
+        for hog_function in HogFunction.objects.filter(id__in=hog_function_ids):
+            hog_function.inputs = {**(hog_function.inputs or {}), "headers": {"value": {"authorization": "old"}}}
+            hog_function.encrypted_inputs = {"secret_headers": {"value": {"Authorization": "new"}}}
+            hog_function.save(update_fields=["inputs", "encrypted_inputs"])
+
+        self._reset(hog_function_ids)
+
+        (row,) = list_alert_destinations(team_id=self.team.id, configuration_id=self.configuration.id)
+        assert row.data["webhook_headers"] == {"Authorization": "new"}
 
     def test_a_pagerduty_destination_does_not_move_while_its_alert_fires(self) -> None:
         row_id = self._row(DestinationType.PAGERDUTY)

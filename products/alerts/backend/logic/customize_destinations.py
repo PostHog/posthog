@@ -9,24 +9,27 @@ from __future__ import annotations
 
 from collections.abc import Callable, Collection, Sequence
 from dataclasses import replace
-from typing import cast
+from typing import Final, cast
 from uuid import UUID
 
 from django.db import transaction
 
-from products.alerts.backend.facade.contracts import CustomizableDestination, ResetDestination
+from products.alerts.backend.facade.contracts import CustomizableDestination, DestinationHoldBack, ResetDestination
 from products.alerts.backend.logic.destination_configs import (
     DESTINATION_SPECS,
     SPEC_BY_TEMPLATE_ID,
+    WEBHOOK_HEADERS,
     added_webhook_headers,
     input_value,
 )
+from products.alerts.backend.logic.destination_eligibility import classify_alert_destinations
 from products.alerts.backend.logic.destinations import (
     create_alert_destination_hog_functions,
     list_alert_destination_groups,
     list_owned_alert_destinations,
     owned_alert_destinations_qs,
     soft_delete_alert_destinations,
+    stored_inputs,
 )
 from products.alerts.backend.logic.insight_alert_destinations import with_secret_inputs
 from products.alerts_platform.backend.facade.api import (
@@ -144,6 +147,7 @@ def reset_source_destination(
             )
         _refuse_incident_move_while_firing(team_id, alert_id, destination_type)
         _refuse_partly_paused(team_id, alert_id, allowed_event_ids, group.hog_function_ids)
+        _refuse_what_the_standard_message_cannot_send(team_id, alert_id, allowed_event_ids, group.hog_function_ids)
         data = _with_secret_headers(team_id, group.data, group.hog_function_ids)
         soft_delete_alert_destinations(
             team_id=team_id,
@@ -247,30 +251,75 @@ def _kept_secret(
     return replace(config, payload=payload)
 
 
+# What the standard message cannot do the same way: send to another address, sign, use another method,
+# or render a header. A reset that dropped one would change where or how the destination is reached.
+# Message, body, code and filter edits are what a reset is for, so they do not block it.
+_DELIVERY_HOLD_BACKS: Final = frozenset(
+    {
+        DestinationHoldBack.NO_TEMPLATE,
+        DestinationHoldBack.OTHER_TEMPLATE,
+        DestinationHoldBack.REFUSED_ADDRESS,
+        DestinationHoldBack.TEMPLATED_ADDRESS,
+        DestinationHoldBack.WEBHOOK_METHOD,
+        DestinationHoldBack.WEBHOOK_SIGNING,
+        DestinationHoldBack.WEBHOOK_TEMPLATED_HEADER,
+    }
+)
+
+
+def _refuse_what_the_standard_message_cannot_send(
+    team_id: int, alert_id: UUID, allowed_event_ids: Collection[str], hog_function_ids: Collection[UUID]
+) -> None:
+    named = set(hog_function_ids)
+    blocking = {
+        hold_back
+        for eligibility in classify_alert_destinations(
+            team_id=team_id, alert_id=str(alert_id), allowed_event_ids=allowed_event_ids
+        )
+        if eligibility.hog_function_id in named
+        for hold_back in eligibility.hold_backs
+        if hold_back in _DELIVERY_HOLD_BACKS
+    }
+    if blocking:
+        raise AlertDestinationValidationError(
+            "The standard message can't reach this destination the way it does now "
+            f"({', '.join(sorted(blocking))}). Change that in the destination's editor, then reset it.",
+            field="hog_function_ids",
+        )
+
+
 def _with_secret_headers(
     team_id: int, data: AlertDestinationData, hog_function_ids: Collection[UUID]
 ) -> AlertDestinationData:
-    """A webhook's settings with the secret headers its HogFunctions send, which the native message sends
-    as stored headers. Refused when the standard message cannot send what they do."""
+    """A webhook's settings with every header its HogFunctions send, as the standard message would send
+    them: an added header and a secret one merged by name, ignoring case, the secret one winning, as the
+    HogFunction does. Refused when a header cannot be sent natively or the HogFunctions disagree."""
     if data["type"] != DestinationType.WEBHOOK:
         return data
-    secret_headers: dict[str, str] = {}
-    for encrypted in HogFunction.objects.filter(team_id=team_id, id__in=list(hog_function_ids)).values_list(
-        "encrypted_inputs", flat=True
+    sent_headers: list[dict[str, str]] = []
+    for inputs, encrypted in HogFunction.objects.filter(team_id=team_id, id__in=list(hog_function_ids)).values_list(
+        "inputs", "encrypted_inputs"
     ):
-        if input_value(encrypted or {}, "signing_secret"):
+        stored = stored_inputs(inputs, encrypted)
+        by_name: dict[str, tuple[str, str]] = {}
+        for headers in (input_value(stored, "headers") or {}, input_value(stored, "secret_headers") or {}):
+            for name, value in headers.items():
+                if WEBHOOK_HEADERS.get(name) != value:
+                    by_name[str(name).lower()] = (name, value)
+        merged = dict(by_name.values())
+        sendable = added_webhook_headers(merged)
+        if len(sendable) != len(merged):
             raise AlertDestinationValidationError(
-                "This webhook signs its requests, which the standard message can't do.", field="hog_function_ids"
+                "This webhook sends a header the standard message can't send.", field="hog_function_ids"
             )
-        stored = input_value(encrypted or {}, "secret_headers") or {}
-        sendable = added_webhook_headers(stored)
-        if len(sendable) != len(stored):
-            raise AlertDestinationValidationError(
-                "This webhook has a secret header the standard message can't send.", field="hog_function_ids"
-            )
-        secret_headers.update(sendable)
-    if not secret_headers:
-        return data
-    return cast(
-        AlertDestinationData, {**data, "webhook_headers": {**data.get("webhook_headers", {}), **secret_headers}}
-    )
+        sent_headers.append(sendable)
+    if any(headers != sent_headers[0] for headers in sent_headers):
+        raise AlertDestinationValidationError(
+            "This webhook sends different headers for different events. Make them match, then reset it.",
+            field="hog_function_ids",
+        )
+    restored = cast(AlertDestinationData, {**data})
+    restored.pop("webhook_headers", None)
+    if sent_headers and sent_headers[0]:
+        restored["webhook_headers"] = sent_headers[0]
+    return restored

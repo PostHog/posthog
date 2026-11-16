@@ -31,7 +31,6 @@ from products.alerts_platform.backend.facade.contracts import (
 
 from .. import activity_logging
 from ..logic import (
-    customize_destinations,
     delivery_destinations,
     delivery_path,
     destination_bucket_report,
@@ -437,6 +436,9 @@ def customize_source_destination(
     `build_configs` is the source's own builder for a new destination of that type, given the event
     kinds the row heard. A PagerDuty destination does not move while its alert fires. Raises
     `AlertDestinationValidationError` when the destination is not the alert's or has changed."""
+    # Deferred: it reads the platform's facade, which a bare `django.setup()` must not import.
+    from ..logic import customize_destinations  # noqa: PLC0415
+
     return customize_destinations.customize_source_destination(
         team_id=team_id,
         alert_id=alert_id,
@@ -461,6 +463,8 @@ def reset_source_destination(
     """Retires a destination's HogFunctions and gives it an `AlertDestination` row with the standard message.
     Raises `AlertDestinationValidationError` when the platform does not evaluate the alert, when some of
     the destination's events are paused, and for a PagerDuty destination while its alert fires."""
+    from ..logic import customize_destinations  # noqa: PLC0415
+
     return customize_destinations.reset_source_destination(
         team_id=team_id,
         alert_id=alert_id,
