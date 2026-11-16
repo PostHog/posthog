@@ -13327,15 +13327,15 @@ Note: Read the official eCommerce operation index and linked Stores, Blog, Booki
 
 ## Wordpress — gaps
 
-Today (7): `categories`, `comments`, `media`, `pages`, `posts`, `tags`, `users`
+Today (11): `categories`, `comments`, `media`, `page_revisions`, `pages`, `post_revisions`, `post_types`, `posts`, `tags`, `taxonomies`, `users`
 
 Diffed against: <https://developer.wordpress.org/rest-api/reference/>
 
-- [ ] `types (GET /wp/v2/types)` — lookup enumerating registered post types; also the only way to discover custom post types this source never syncs (high)
-- [ ] `taxonomies (GET /wp/v2/taxonomies)` — lookup enumerating taxonomies beyond the built-in categories/tags we already sync (high)
-- [ ] `post revisions (GET /wp/v2/posts/{id}/revisions)` — edit history for posts, the only source of content change-over-time (high)
+- [x] `types (GET /wp/v2/types)` — lookup enumerating registered post types; also the only way to discover custom post types this source never syncs (high)
+- [x] `taxonomies (GET /wp/v2/taxonomies)` — lookup enumerating taxonomies beyond the built-in categories/tags we already sync (high)
+- [x] `post revisions (GET /wp/v2/posts/{id}/revisions)` — edit history for posts, the only source of content change-over-time (high)
 - [ ] `statuses (GET /wp/v2/statuses)` — lookup resolving the status field on posts and pages (medium)
-- [ ] `page revisions (GET /wp/v2/pages/{id}/revisions)` — edit history for pages (medium)
+- [x] `page revisions (GET /wp/v2/pages/{id}/revisions)` — edit history for pages (medium)
 - [ ] `blocks (GET /wp/v2/blocks)` — reusable block content referenced across posts and pages (low)
 - [ ] `block revisions (GET /wp/v2/blocks/{id}/revisions)` — change history for reusable blocks (low)
 
