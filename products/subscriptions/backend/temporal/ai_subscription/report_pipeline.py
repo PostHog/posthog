@@ -98,7 +98,7 @@ _PROMPT_DATE_BOUND_RE = re.compile(
 
 
 def _prompt_sets_own_date_bounds(prompt: Optional[str]) -> bool:
-    return bool(prompt) and _PROMPT_DATE_BOUND_RE.search(prompt) is not None
+    return prompt is not None and _PROMPT_DATE_BOUND_RE.search(prompt) is not None
 
 
 # Wall-clock bounds for the in-band LLM + HogQL pipeline. The caller's outer deadline (Temporal
