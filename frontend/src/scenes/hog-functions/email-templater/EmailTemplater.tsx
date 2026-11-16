@@ -570,16 +570,14 @@ function NativeEmailTemplaterForm({
     // Unlayer tools panel starts collapsed to give the canvas room.
     const { sceneIntegrationEnabled } = useValues(sceneAgentPanelLogic)
 
-    const emailHeaderEnabled = useFeatureFlag('WORKFLOWS_EMAIL_HEADER')
     const isWorkflowEmail = logicProps.type === 'native_email' || logicProps.type === 'native_email_sandbox'
     // Each header field gets one short row to keep vertical space for the canvas. A transactional template adds its
     // sender as one summary line above, and a workflow email adds the sender and the recipients.
-    const workflowHeader = isWorkflowEmail && emailHeaderEnabled
     const compactHeader =
-        workflowHeader ||
+        isWorkflowEmail ||
         ((logicProps.type === 'native_email_template' || logicProps.type === 'native_email_transactional_template') &&
             mode === 'full')
-    const showSenderRow = workflowHeader || logicProps.type === 'native_email_transactional_template'
+    const showSenderRow = isWorkflowEmail || logicProps.type === 'native_email_transactional_template'
     // A modal shows the visual/plain-text switch in its own header, and a preview has no editor to switch.
     const showContentSwitch = mode === 'full' && logicProps.layout === 'inline'
     const preheaderVisible = isHeaderFieldShown(visibleFields, 'preheader')
@@ -596,7 +594,7 @@ function NativeEmailTemplaterForm({
                     {compactHeader ? (
                         <>
                             {showSenderRow && <EmailSenderRow />}
-                            {workflowHeader && <EmailRecipientFields />}
+                            {isWorkflowEmail && <EmailRecipientFields />}
                             <EmailHeaderRow label="Subject" error={logicProps.fieldErrors?.subject}>
                                 <LemonField name="subject" className="flex-1 min-w-0" renderError={() => null}>
                                     {({ value, onChange }: ChildFunctionProps) => (

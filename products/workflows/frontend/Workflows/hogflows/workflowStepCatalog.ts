@@ -239,7 +239,7 @@ function aiSteps({ featureFlags, currentTeam }: StepCatalogContext): CreateActio
 function posthogSteps({ featureFlags }: StepCatalogContext): CreateActionType[] {
     return [
         ...POSTHOG_NODES_TO_SHOW,
-        ...(featureFlags[FEATURE_FLAGS.WORKFLOW_ADD_TO_STATIC_COHORT_ACTION] ? [ADD_TO_STATIC_COHORT_ACTION_NODE] : []),
+        ADD_TO_STATIC_COHORT_ACTION_NODE,
         ...(featureFlags[FEATURE_FLAGS.WORKFLOW_OPT_OUT_OF_MESSAGES_ACTION] ? [OPT_OUT_OF_MESSAGES_ACTION_NODE] : []),
     ]
 }

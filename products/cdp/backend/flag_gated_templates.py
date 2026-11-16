@@ -14,7 +14,6 @@ logger = structlog.get_logger(__name__)
 # frontend/src/lib/constants.tsx. Remove an entry when its feature goes GA.
 FLAG_GATED_TEMPLATE_IDS = {
     "template-posthog-classify": "workflow-classify-action",
-    "template-posthog-add-to-static-cohort": "workflow-add-to-static-cohort-action",
     "template-posthog-opt-out-of-messages": "workflow-opt-out-of-messages-action",
 }
 
