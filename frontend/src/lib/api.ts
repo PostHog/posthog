@@ -2067,9 +2067,8 @@ export function getPageNewEventsTable(): boolean | null {
 }
 
 /**
- * Two tabs of one browser share one cookie, so each page sends the table its link asked for, and
- * two tabs can show the two tables side by side. Same-origin only, for the same CORS reason as the
- * build header.
+ * Two tabs of one browser share one cookie, so each page sends the table its link asked for.
+ * Same-origin only, for the same CORS reason as the build header.
  */
 function newEventsTableHeader(url: string): Record<string, string> {
     const requested = getPageNewEventsTable()
