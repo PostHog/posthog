@@ -35,8 +35,9 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.auth import PersonalAPIKeyAuthentication, ProjectSecretAPIKeyAuthentication
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded, ConcurrencySlot, get_logs_api_team_rate_limiter
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
-from posthog.errors import ExposedCHQueryError
+from posthog.errors import CHQueryErrorTooManyBytes, ExposedCHQueryError
 from posthog.event_usage import get_request_analytics_properties, report_user_action
+from posthog.exceptions import ClickHouseBytesLimitExceeded
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.hogql_queries.utils.time_sliced_query import time_sliced_results
 from posthog.models import User
@@ -118,6 +119,7 @@ logger = structlog.get_logger(__name__)
 LOGS_MAX_EXPORT_ROWS = 10_000
 LOGS_API_SLOT_TTL_MARGIN_SECONDS = 30
 MAX_ATTRIBUTE_KEYS = 100
+LOGS_READ_CAP_USER_MESSAGE = "This query reads too much log data. Try a shorter time range or narrower filters."
 
 
 class DateRangeSerializer(serializers.Serializer):
@@ -1632,6 +1634,22 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
             sessionId=query_data.get("sessionId", None),
         )
 
+    @staticmethod
+    def _run_capped_aggregate(
+        runner: CountQueryRunner | CountRangesQueryRunner | ImpactQueryRunner | LogFacetValuesQueryRunner,
+        request: Request,
+    ) -> LogsQueryResponse | CachedLogsQueryResponse:
+        try:
+            response = runner.run(
+                ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
+                analytics_props=get_request_analytics_properties(request),
+            )
+        except CHQueryErrorTooManyBytes as error:
+            # The read cap is deliberate, so a query over it is the caller's to narrow, not a server error.
+            raise ClickHouseBytesLimitExceeded(LOGS_READ_CAP_USER_MESSAGE) from error
+        assert isinstance(response, LogsQueryResponse | CachedLogsQueryResponse)
+        return response
+
     def _session_team_has_logs(self) -> bool:
         try:
             return team_has_logs(self.team, cache_negative=True)
@@ -1890,11 +1908,7 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
             facet_attribute=facet_attribute or None,
             facet_search=query_data.get("facetSearch"),
         )
-        response = runner.run(
-            ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
-            analytics_props=get_request_analytics_properties(request),
-        )
-        assert isinstance(response, LogsQueryResponse | CachedLogsQueryResponse)
+        response = self._run_capped_aggregate(runner, request)
         return Response({"results": response.results}, status=status.HTTP_200_OK)
 
     @extend_schema(request=_LogsCountRequestSerializer, responses={200: _LogsCountResponseSerializer})
@@ -1907,11 +1921,7 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
         query = self._filtered_logs_query(query_data)
 
         runner = CountQueryRunner(team=self.team, query=query)
-        response = runner.run(
-            ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
-            analytics_props=get_request_analytics_properties(request),
-        )
-        assert isinstance(response, LogsQueryResponse | CachedLogsQueryResponse)
+        response = self._run_capped_aggregate(runner, request)
 
         report_user_action(
             request.user,
@@ -1933,11 +1943,7 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
         query = self._filtered_logs_query(query_data)
 
         runner = ImpactQueryRunner(team=self.team, query=query)
-        response = runner.run(
-            ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
-            analytics_props=get_request_analytics_properties(request),
-        )
-        assert isinstance(response, LogsQueryResponse | CachedLogsQueryResponse)
+        response = self._run_capped_aggregate(runner, request)
 
         report_user_action(
             request.user,
@@ -1974,11 +1980,7 @@ class LogsViewSet(TeamAndOrgViewSetMixin, PydanticModelMixin, viewsets.ViewSet):
         )
 
         runner = CountRangesQueryRunner(team=self.team, query=query, target_buckets=target_buckets)
-        response = runner.run(
-            ExecutionMode.CALCULATE_BLOCKING_ALWAYS,
-            analytics_props=get_request_analytics_properties(request),
-        )
-        assert isinstance(response, LogsQueryResponse | CachedLogsQueryResponse)
+        response = self._run_capped_aggregate(runner, request)
 
         report_user_action(
             request.user,
