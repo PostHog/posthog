@@ -224,7 +224,7 @@ export interface AlertRouteApi {
     receiver_id: string
     /** Label conditions, all of which must hold for an alert to match. An empty list matches every alert in the project. */
     matchers: AlertRouteMatcherApi[]
-    /** The alert transitions the receiver hears about through this route. A PagerDuty receiver hears the incident trigger and resolve of every firing, whatever this lists. */
+    /** The alert transitions the receiver hears about through this route. An incident receiver, PagerDuty or incident.io, hears the trigger and resolve of every firing, whatever this lists. */
     event_kinds: PlatformAlertDestinationEventKindEnumApi[]
     /** Whether this route sends. */
     enabled: boolean
@@ -236,7 +236,7 @@ export interface AlertRouteWriteApi {
     /** Label conditions, all of which must hold for an alert to match. An empty list matches every alert in the project. */
     matchers?: AlertRouteMatcherApi[]
     /**
-     * The alert transitions the receiver hears about through this route. A PagerDuty receiver hears the incident trigger and resolve of every firing, whatever this lists. Defaults to every kind.
+     * The alert transitions the receiver hears about through this route. An incident receiver, PagerDuty or incident.io, hears the trigger and resolve of every firing, whatever this lists. Defaults to every kind.
      * @minItems 1
      */
     event_kinds?: PlatformAlertDestinationEventKindEnumApi[]
@@ -250,7 +250,7 @@ export interface PatchedAlertRouteWriteApi {
     /** Label conditions, all of which must hold for an alert to match. An empty list matches every alert in the project. */
     matchers?: AlertRouteMatcherApi[]
     /**
-     * The alert transitions the receiver hears about through this route. A PagerDuty receiver hears the incident trigger and resolve of every firing, whatever this lists. Defaults to every kind.
+     * The alert transitions the receiver hears about through this route. An incident receiver, PagerDuty or incident.io, hears the trigger and resolve of every firing, whatever this lists. Defaults to every kind.
      * @minItems 1
      */
     event_kinds?: PlatformAlertDestinationEventKindEnumApi[]

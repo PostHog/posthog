@@ -11,6 +11,7 @@ from django.utils import timezone
 
 import structlog
 
+from products.alerts_platform.backend.delivery import incident_io, pagerduty
 from products.alerts_platform.backend.delivery.message import AlertMessage, build_message
 from products.alerts_platform.backend.delivery.refusal_notices import notify_refused
 from products.alerts_platform.backend.delivery.root_state import state_line
@@ -48,9 +49,10 @@ from products.alerts_platform.backend.temporal.metrics import (
 
 logger = structlog.get_logger(__name__)
 
-# PagerDuty dedups on the event's `dedup_key`, so a retry of a send whose answer was lost cannot
-# page twice. It keeps release-and-retry, which also delivers the event the first try never did.
-_IDEMPOTENT_PROVIDERS = frozenset({"pagerduty"})
+# PagerDuty dedups on the event's `dedup_key`, and incident.io on its `deduplication_key`, so a retry
+# of a send whose answer was lost cannot page twice. They keep release-and-retry, which also delivers
+# the event the first try never did, such as a resolve that would otherwise leave the incident open.
+_IDEMPOTENT_PROVIDERS = frozenset({pagerduty.PROVIDER, incident_io.PROVIDER})
 
 
 def _recorded_as_delivered(error: Exception, provider: str) -> bool:

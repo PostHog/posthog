@@ -222,8 +222,8 @@ _MATCHERS_HELP = (
     "Label conditions, all of which must hold for an alert to match. An empty list matches every alert in the project."
 )
 _EVENT_KINDS_HELP = (
-    "The alert transitions the receiver hears about through this route. A PagerDuty receiver hears the incident "
-    "trigger and resolve of every firing, whatever this lists."
+    "The alert transitions the receiver hears about through this route. An incident receiver, PagerDuty or "
+    "incident.io, hears the trigger and resolve of every firing, whatever this lists."
 )
 
 

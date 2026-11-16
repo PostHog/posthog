@@ -173,7 +173,7 @@ export const PlatformAlertRoutesCreateBody = /* @__PURE__ */ zod.object({
         .min(1)
         .optional()
         .describe(
-            'The alert transitions the receiver hears about through this route. A PagerDuty receiver hears the incident trigger and resolve of every firing, whatever this lists. Defaults to every kind.'
+            'The alert transitions the receiver hears about through this route. An incident receiver, PagerDuty or incident.io, hears the trigger and resolve of every firing, whatever this lists. Defaults to every kind.'
         ),
     enabled: zod.boolean().optional().describe('Whether this route sends. Defaults to true.'),
 })
@@ -206,7 +206,7 @@ export const PlatformAlertRoutesPartialUpdateBody = /* @__PURE__ */ zod.object({
         .min(1)
         .optional()
         .describe(
-            'The alert transitions the receiver hears about through this route. A PagerDuty receiver hears the incident trigger and resolve of every firing, whatever this lists. Defaults to every kind.'
+            'The alert transitions the receiver hears about through this route. An incident receiver, PagerDuty or incident.io, hears the trigger and resolve of every firing, whatever this lists. Defaults to every kind.'
         ),
     enabled: zod.boolean().optional().describe('Whether this route sends. Defaults to true.'),
 })
