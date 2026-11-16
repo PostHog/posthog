@@ -72,9 +72,10 @@ REVIEW_TEMPLATE_KEY = "review"
 # The property that names each kind of call type on a live generation. A call type named by its input has none.
 CALL_TYPE_PROPERTIES = {"prompt_name": "$ai_prompt_name", "span_name": "$ai_span_name"}
 # Plain text that a generation's input holds as is and that the condition matcher's string of the input keeps. The
-# matcher escapes quotes, backslashes and line breaks, and an SDK can escape non-ASCII letters. None of these
-# characters is special in a LIKE or a regex pattern, so a snippet needs no escaping.
-_PLAIN_TEXT = re.compile(r"[A-Za-z0-9 _,:;!/=<>#@&-]+")
+# matcher escapes quotes, backslashes and control characters, so they are left out, and so is every character that
+# is special in a LIKE or a regex pattern, so a snippet needs no escaping. Any script's letters are plain, except the
+# Unicode line and paragraph separators.
+_PLAIN_TEXT = re.compile("[A-Za-z0-9 _,:;!/=<>#@&\u00a0-\u2027\u202a-\U0010ffff-]+")
 _JSON_ESCAPE = re.compile(r"\\(u[0-9a-fA-F]{4}|.)")
 MIN_SNIPPET_CHARS = 24
 MAX_SNIPPET_CHARS = 120

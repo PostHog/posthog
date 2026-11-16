@@ -354,12 +354,15 @@ SUMMARIZER = _messages('You summarize one trace for an engineer.\nEach bullet\'s
 # Its longest plain text follows a line break, which the stored JSON escapes.
 ROUTER = _messages("Route it.\nAnswer with the name of the single tool to call.")
 TRANSLATOR = _messages("You translate the reply into the language of the user.")
+SUPPORT_IN_JAPANESE = _messages(
+    "あなたはサポート担当です。返金の日付を約束しないでください。\n「返金」は丁寧に説明します。"
+)
 # The team's call type that the card does not cover, by test case.
 OTHER_CALL_TYPES = {"input_shared_with_another_call_type": [SUMMARIZER[0], {"role": "user", "content": "Another"}]}
 
 
 def _call_type(source: str, name: str, calls: int = 100, messages: list[dict[str, str]] | None = None) -> CallTypeRow:
-    example_input = json.dumps(messages) if messages else ""
+    example_input = json.dumps(messages, ensure_ascii=False) if messages else ""
     return CallTypeRow(source=source, name=name, calls=calls, model="gpt-5-mini", example_input=example_input)
 
 
@@ -418,6 +421,20 @@ def _review_card(call_types: list[CallTypeRow]) -> ReviewCard:
                 {
                     "key": "$ai_input",
                     "value": "You summarize one trace for an engineer",
+                    "operator": "icontains",
+                    "type": "event",
+                }
+            ],
+            700,
+            100.0,
+        ),
+        (
+            "named_by_input_in_japanese",
+            [_call_type("input", "1", messages=SUPPORT_IN_JAPANESE)],
+            [
+                {
+                    "key": "$ai_input",
+                    "value": "あなたはサポート担当です。返金の日付を約束しないでください。",
                     "operator": "icontains",
                     "type": "event",
                 }
