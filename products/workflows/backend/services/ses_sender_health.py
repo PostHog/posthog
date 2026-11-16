@@ -101,8 +101,8 @@ def _notify_sending_stopped(team_id: int, domain: str) -> None:
                 priority=Priority.NORMAL,
                 title=f"Emails from {domain} are failing",
                 body=(
-                    f"The DNS records of {domain} can no longer be found, so every email sent from it fails. "
-                    "Add the records back with your DNS provider, then verify the domain in Channels."
+                    f"The DNS records of {domain} can no longer be verified, so every email sent from it fails. "
+                    "Fix the records with your DNS provider, then verify the domain again in Channels."
                 ),
                 target_type=TargetType.TEAM,
                 target_id=str(team_id),
