@@ -67,7 +67,7 @@ class ReportText(BaseModel):
 
     items: list[ReportTextItem | ReportLinkItem | ReportChangeItem]
 
-    def render(self) -> str:
+    def render(self, *, styled: bool = True) -> str:
         parts: list[str] = []
         previous_text = ""
         for item in self.items:
@@ -76,8 +76,9 @@ class ReportText(BaseModel):
                 and item.text
                 and not previous_text[-1].isspace()
                 and not item.text[0].isspace()
-                and item.text[0] not in ".,;:!?)]}"
-                and previous_text[-1] not in "([{"
+                # A space inside an emphasis marker, as in "** Total **", stops it rendering as bold.
+                and item.text[0] not in ".,;:!?)]}*_~"
+                and previous_text[-1] not in "([{*_~"
             ):
                 parts.append(" ")
             if item.kind == "link" and item.url:
@@ -91,7 +92,9 @@ class ReportText(BaseModel):
                 parts.append(f"[{label}]({item.url})")
             elif item.kind == "change":
                 triangle = "▲" if item.direction == "increase" else "▼"
-                parts.append(_inline_code(item.text, prefix=f"{triangle} "))
+                parts.append(_inline_code(item.text, prefix=f"{triangle} ") if styled else f"{triangle} {item.text}")
+            elif not styled:
+                parts.append(item.text)
             elif item.kind in ("name", "value"):
                 parts.append(_inline_code(item.text))
             elif item.kind == "time":
@@ -175,7 +178,7 @@ class ReportDocument(BaseModel):
         description="Sections in decreasing order of importance. The first gives the main result, key evidence, and any necessary action or caveat. Later sections add supporting detail."
     )
     custom_layout: list[ReportText] = Field(
-        description="Use only when the user explicitly requests a fixed output template. Otherwise return an empty list."
+        description="Use only when the user explicitly requests a fixed output template. Otherwise return an empty list. One part per template line. Copy the template's own Markdown, such as bold markers, into text items exactly where the template has them."
     )
 
     def render(self) -> str:
@@ -184,7 +187,8 @@ class ReportDocument(BaseModel):
             for part in self.custom_layout:
                 if parts and not parts[-1].endswith("\n"):
                     parts.append("\n")
-                parts.append(part.render())
+                # The user's template decides the formatting, so item kinds add no code or italic styles here.
+                parts.append(part.render(styled=False))
             return _join_table_rows("".join(parts))
         parts = [f"# {self.topic}"] if self.topic else []
         parts.extend(section.render() for section in self.sections)

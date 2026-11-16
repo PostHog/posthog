@@ -77,18 +77,35 @@ def test_custom_layout_preserves_lines(lines: list[str], expected: str) -> None:
     assert document.render() == expected
 
 
-def test_custom_layout_keeps_styled_items_on_the_same_line() -> None:
-    document = ReportDocument(
-        topic=None,
-        sections=[],
-        custom_layout=[
-            _visual("Daily totals"),
-            ReportText(items=[ReportTextItem(kind="text", text="Jobs: "), ReportTextItem(kind="value", text="7")]),
-            ReportText(items=[ReportTextItem(kind="text", text="Errors: "), ReportTextItem(kind="value", text="2")]),
-        ],
+def test_custom_layout_keeps_the_template_formatting() -> None:
+    document = ReportDocument.model_validate(
+        {
+            "topic": None,
+            "sections": [],
+            "custom_layout": [
+                {
+                    "items": [
+                        {"kind": "text", "text": "**"},
+                        {"kind": "name", "text": "Daily jobs"},
+                        {"kind": "text", "text": ": "},
+                        {"kind": "value", "text": "7"},
+                        {"kind": "text", "text": "**"},
+                    ]
+                },
+                {"items": [{"kind": "text", "text": "Errors: "}, {"kind": "value", "text": "2"}]},
+                {
+                    "items": [
+                        {"kind": "text", "text": "Change since "},
+                        {"kind": "time", "text": "Monday"},
+                        {"kind": "text", "text": ": "},
+                        {"kind": "change", "text": "3", "direction": "increase"},
+                    ]
+                },
+            ],
+        }
     )
 
-    assert document.render() == "Daily totals\nJobs: `7`\nErrors: `2`"
+    assert document.render() == "**Daily jobs: 7**\nErrors: 2\nChange since Monday: ▲ 3"
 
 
 @pytest.mark.parametrize(

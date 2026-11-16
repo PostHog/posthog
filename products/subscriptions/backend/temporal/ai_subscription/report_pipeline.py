@@ -610,6 +610,9 @@ markers inside finding text. Use visuals for tables, code, or other Markdown blo
 Put a whole table in one visual: header, separator, and every row, with one newline between rows.
 Leave unused lists empty. Do not add empty sections or repeat findings to create hierarchy.
 Use custom_layout only when the user explicitly requests a fixed template; otherwise leave it empty.
+In custom_layout, the template sets the formatting: item kinds add no styles there. Put each template line
+in its own part and keep the template's own Markdown, such as bold markers, in text items exactly where
+the template has them, even though other parts of the report leave bold markers out.
 """
     )
 
