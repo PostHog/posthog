@@ -47,7 +47,7 @@ describe('SchemaRowMore', () => {
     it('keeps the menu open when a poll re-renders the row with a fresh schema object', () => {
         const schema = makeSchema()
         const { rerender } = render(rowMenu(schema))
-        fireEvent.click(screen.getByRole('button', { name: 'more' }))
+        fireEvent.click(screen.getByLabelText('more'))
         expect(screen.getByText('Sync now')).toBeInTheDocument()
 
         rerender(rowMenu({ ...schema }))
@@ -58,6 +58,6 @@ describe('SchemaRowMore', () => {
     it('disables the menu for a user without editor access to the table', () => {
         render(rowMenu(makeSchema({ user_access_level: AccessControlLevel.Viewer })))
 
-        expect(screen.getByRole('button', { name: 'more' })).toHaveAttribute('aria-disabled', 'true')
+        expect(screen.getByLabelText('more')).toHaveAttribute('aria-disabled', 'true')
     })
 })
