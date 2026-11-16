@@ -758,7 +758,7 @@ FROM {database}.{source_table}
 # Events JSON recent tables: events_json's columns with String in place of JSON, and events_recent's retention
 
 
-def _events_json_recent_table_sql(table_name: str, engine: str) -> str:
+def _events_json_recent_table_sql(table_name: str, engine: Distributed | ReplacingMergeTree) -> str:
     return EVENTS_JSON_TABLE_BASE_SQL.format(
         table_name=table_name,
         on_cluster_clause="",
