@@ -6,7 +6,8 @@ structured report.
 
 Budget: at most MAX_TOOL_CALLS tool invocations. After that the agent is told
 to finalize with what it has. The loop exits either on a final assistant
-message with no tool calls, or on budget exhaustion.
+message with no tool calls, or on budget exhaustion. A turn cut off at the
+output token limit gets the same finalize turn instead of ending the loop.
 """
 
 from __future__ import annotations
@@ -67,6 +68,11 @@ class InvestigationRunResult:
 def _result(report: InvestigationReport, tool_calls_used: int) -> InvestigationRunResult:
     report.tool_calls_used = tool_calls_used
     return InvestigationRunResult(report=report, tool_calls_used=tool_calls_used, model=AGENT_MODEL)
+
+
+def _stopped_at_max_tokens(response: Any) -> bool:
+    metadata = getattr(response, "response_metadata", None) or {}
+    return metadata.get("stop_reason") == "max_tokens"
 
 
 def _validation_error_summary(err: ValidationError) -> str:
@@ -152,7 +158,7 @@ class _InvestigationRunner:
             self._tick_heartbeat()
 
             if self.tool_calls_used >= MAX_TOOL_CALLS:
-                result = await self._finalize_after_tool_budget()
+                result = await self._finalize_report("Tool call budget exhausted.")
                 if result is not None:
                     return result
                 break
@@ -165,9 +171,20 @@ class _InvestigationRunner:
                     f"LLM tool-calling loop failed: {err}"
                 )
                 return _result(report, self.tool_calls_used)
-            self.messages.append(response)
 
             tool_calls = getattr(response, "tool_calls", None) or []
+            if not tool_calls and _stopped_at_max_tokens(response):
+                # LangChain drops a tool call cut off mid-arguments, so this turn looks like a
+                # final answer with no report. Leave it out of the history: it can still hold a
+                # partial tool_use block, which the API rejects without a matching tool_result.
+                logger.warning("anomaly_investigation.max_tokens_stop", extra={"tool_calls_used": self.tool_calls_used})
+                result = await self._finalize_report(
+                    "Your last response hit the output token limit and was cut off. Keep the report concise."
+                )
+                if result is not None:
+                    return result
+                break
+            self.messages.append(response)
             if not tool_calls:
                 break
             result = await self._handle_tool_calls(tool_calls)
@@ -176,13 +193,13 @@ class _InvestigationRunner:
 
         return self._finish_investigation()
 
-    async def _finalize_after_tool_budget(self) -> InvestigationRunResult | None:
-        # Budget exhausted — no tool_use block in flight so we can send a plain
-        # HumanMessage rather than stubbing pending tool_result pairs.
+    async def _finalize_report(self, reason: str) -> InvestigationRunResult | None:
+        # No tool_use block in flight so we can send a plain HumanMessage rather
+        # than stubbing pending tool_result pairs.
         self.messages.append(
             HumanMessage(
                 content=(
-                    "Tool call budget exhausted. Submit the final InvestigationReport "
+                    f"{reason} Submit the final InvestigationReport "
                     "now using whatever evidence you have. Pass hypotheses as a JSON "
                     "array of objects (title, rationale, evidence) and recommendations "
                     "as a JSON array of strings, never as serialized strings."
