@@ -101,6 +101,12 @@ assert_eq "a malformed file is an error" "2 error" "$(SQLX_SCHEMA_CHECK_REQUIREM
 assert_eq "an image without sqlx databases passes" "0 satisfied" \
     "$(SQLX_SCHEMA_CHECK_REQUIREMENTS="$WORK/empty.txt" run_check)"
 
+# Shadow mode must not wait for a pending migration, or it delays the rollout it must not hold.
+printf '20250101000001 t\n' > "$WORK/persons"
+shadow_output=$(SQLX_SCHEMA_CHECK_MODE=shadow SQLX_SCHEMA_CHECK_INTERVAL_SECONDS=30 "$BIN_DIR/sqlx-schema-check")
+assert_eq "shadow mode checks once without waiting" "0" \
+    "$(echo "$shadow_output" | sed -n 's/.*"elapsed_seconds":\([0-9]*\).*/\1/p')"
+
 if [ "$failures" -gt 0 ]; then
     echo "$failures test(s) failed"
     exit 1

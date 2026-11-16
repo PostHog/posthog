@@ -17,7 +17,7 @@
 #   SQLX_SCHEMA_CHECK_REQUIREMENTS      path of the requirements file
 #   SQLX_SCHEMA_CHECK_MODE              shadow (default) or enforce
 #   SQLX_SCHEMA_CHECK_APP               app name for the log line
-#   SQLX_SCHEMA_CHECK_WAIT_SECONDS      total wait, default 540
+#   SQLX_SCHEMA_CHECK_WAIT_SECONDS      total wait, default 540 in enforce mode and 0 in shadow mode
 #   SQLX_SCHEMA_CHECK_INTERVAL_SECONDS  pause between attempts, default 15
 #   PERSONS_DATABASE_URL, BEHAVIORAL_COHORTS_DATABASE_URL, CYCLOTRON_NODE_DATABASE_URL,
 #   FLAGS_READ_STORE_DATABASE_URL       the URL of each database that the file names
@@ -26,7 +26,12 @@ set -uo pipefail
 REQUIREMENTS="${SQLX_SCHEMA_CHECK_REQUIREMENTS:-/shared/sqlx-requirements.txt}"
 MODE="${SQLX_SCHEMA_CHECK_MODE:-shadow}"
 APP="${SQLX_SCHEMA_CHECK_APP:-unknown}"
-WAIT_SECONDS="${SQLX_SCHEMA_CHECK_WAIT_SECONDS:-540}"
+# Shadow mode checks once, so a pending migration cannot delay a rollout that it must not hold.
+if [ "$MODE" = "enforce" ]; then
+    WAIT_SECONDS="${SQLX_SCHEMA_CHECK_WAIT_SECONDS:-540}"
+else
+    WAIT_SECONDS="${SQLX_SCHEMA_CHECK_WAIT_SECONDS:-0}"
+fi
 INTERVAL_SECONDS="${SQLX_SCHEMA_CHECK_INTERVAL_SECONDS:-15}"
 
 # Bound each psql call, so one slow database cannot use the whole wait.
