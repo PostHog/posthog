@@ -148,7 +148,7 @@ async def test_ducklake_copy_data_imports_gate_respects_feature_flag(
         return flag_enabled
 
     monkeypatch.setattr(
-        "products.managed_warehouse.backend.temporal.ducklake_copy_data_imports_workflow.feature_enabled_or_false",
+        "products.managed_warehouse.backend.logic.ducklake_copy.feature_enabled_or_false",
         fake_feature_enabled,
     )
 
@@ -1400,7 +1400,7 @@ async def test_ducklake_copy_data_imports_workflow_skips_when_feature_flag_disab
 
     monkeypatch.setattr(
         ducklake_module,
-        "feature_enabled_or_false",
+        "data_imports_ducklake_copy_enabled",
         lambda *args, **kwargs: False,
     )
     monkeypatch.setattr(ducklake_module, "prepare_data_imports_ducklake_metadata_activity", metadata_stub)
@@ -1468,8 +1468,8 @@ async def test_ducklake_copy_data_imports_workflow_runs_when_feature_flag_enable
 
     monkeypatch.setattr(
         ducklake_module,
-        "feature_enabled_or_false",
-        lambda key, *args, **kwargs: key == "ducklake-data-imports-copy-workflow",
+        "data_imports_ducklake_copy_enabled",
+        lambda **kwargs: True,
     )
     monkeypatch.setattr(ducklake_module, "prepare_data_imports_ducklake_metadata_activity", metadata_stub)
     monkeypatch.setattr(ducklake_module, "copy_data_imports_to_ducklake_activity", copy_stub)
@@ -1559,8 +1559,8 @@ async def test_ducklake_copy_data_imports_workflow_calls_cleanup_after_verify(mo
 
     monkeypatch.setattr(
         ducklake_module,
-        "feature_enabled_or_false",
-        lambda key, *args, **kwargs: key == "ducklake-data-imports-copy-workflow",
+        "data_imports_ducklake_copy_enabled",
+        lambda **kwargs: True,
     )
     monkeypatch.setattr(ducklake_module, "prepare_data_imports_ducklake_metadata_activity", metadata_stub)
     monkeypatch.setattr(ducklake_module, "copy_data_imports_to_ducklake_activity", copy_stub)
@@ -1699,7 +1699,7 @@ def test_stage_gives_up_after_rebuild_wait_budget(monkeypatch):
 async def test_ducklake_copy_data_imports_gate_refuses_trino_organizations(monkeypatch, bootstrap):
     team = MagicMock(organization_id="org", uuid="team-uuid")
     monkeypatch.setattr(ducklake_module.Team.objects, "only", lambda *fields: MagicMock(get=lambda id: team))
-    monkeypatch.setattr(ducklake_module, "feature_enabled_or_false", lambda *args, **kwargs: True)
+    monkeypatch.setattr(ducklake_module, "data_imports_ducklake_copy_enabled", lambda *args, **kwargs: True)
     monkeypatch.setattr(
         "products.managed_warehouse.backend.facade.access.internal_loading_enabled", lambda organization_id: True
     )

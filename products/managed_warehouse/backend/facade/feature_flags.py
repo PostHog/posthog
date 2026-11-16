@@ -10,3 +10,4 @@ DUCKLAKE_TRINO_REGISTRATION_FLAG = "managed-warehouse-trino-import-registration"
 # Marks an organization whose data imports register through Trino. It is separate from the backfill flag so an
 # organization can move backfills and data imports at different times.
 DATA_IMPORTS_TRINO_REGISTRATION_FLAG = "managed-warehouse-trino-data-imports-registration"
+DUCKLAKE_DATA_IMPORTS_COPY_FLAG = "ducklake-data-imports-copy-workflow"
