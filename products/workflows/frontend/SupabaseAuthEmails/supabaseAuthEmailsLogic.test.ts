@@ -15,7 +15,11 @@ const SENDABLE = '00000000-0000-4000-8000-000000000001'
 const NOT_SENSITIVE = '00000000-0000-4000-8000-000000000002'
 const DELETED = '00000000-0000-4000-8000-000000000003'
 const NOT_TRANSACTIONAL = '00000000-0000-4000-8000-000000000004'
-const STARTER_TYPES = ['signup', 'recovery']
+const EMAIL_TYPES = [
+    { value: 'signup', label: 'Confirm sign-up', has_starter_template: true },
+    { value: 'recovery', label: 'Reset password', has_starter_template: true },
+    { value: 'invite', label: 'Invite user', has_starter_template: false },
+]
 
 type FailingAction = 'saveConnection' | 'disconnect' | 'createStarterTemplates'
 
@@ -24,16 +28,13 @@ describe('supabaseAuthEmailsLogic', () => {
     let messageTemplates: Record<string, unknown>[]
     let patches: Record<string, unknown>[]
     let failure: [number, Record<string, string>?] | null
+    let failedLoads: string[]
     let templatesListed: Promise<void>
 
     const settingsResponse = (): Record<string, unknown> => ({
         ...stored,
         hook_url: 'https://example.com/hook',
-        email_types: [
-            { value: 'signup', label: 'Confirm sign-up', has_starter_template: true },
-            { value: 'recovery', label: 'Reset password', has_starter_template: true },
-            { value: 'invite', label: 'Invite user', has_starter_template: false },
-        ],
+        email_types: EMAIL_TYPES,
     })
 
     beforeEach(() => {
@@ -46,17 +47,18 @@ describe('supabaseAuthEmailsLogic', () => {
         ]
         patches = []
         failure = null
+        failedLoads = []
         templatesListed = Promise.resolve()
         const sendable = (id: string): boolean =>
             messageTemplates.some((t) => t.id === id && t.transactional_hog_flow_id && t.sensitive && !t.deleted)
         useMocks({
             get: {
                 '/api/projects/:team_id/messaging_supabase_auth_emails/settings/': () =>
-                    failure ?? [200, settingsResponse()],
+                    failedLoads.includes('settings') ? [500] : [200, settingsResponse()],
                 '/api/projects/:team_id/messaging_templates/': async ({ request }) => {
                     await templatesListed
-                    if (failure) {
-                        return failure
+                    if (failedLoads.includes('templates')) {
+                        return [500]
                     }
                     const offset = Number(new URL(request.url).searchParams.get('offset') ?? 0)
                     const results = messageTemplates.slice(offset, offset + 100)
@@ -92,7 +94,8 @@ describe('supabaseAuthEmailsLogic', () => {
                     if (failure) {
                         return failure
                     }
-                    for (const type of STARTER_TYPES.filter((type) => !sendable(stored.templates[type]))) {
+                    const starters = EMAIL_TYPES.filter((type) => type.has_starter_template).map((type) => type.value)
+                    for (const type of starters.filter((type) => !sendable(stored.templates[type]))) {
                         const id = `00000000-0000-4000-9000-00000000000${messageTemplates.length}`
                         messageTemplates.push({ id, transactional_hog_flow_id: id, sensitive: true, deleted: false })
                         stored.templates = { ...stored.templates, [type]: id }
@@ -160,18 +163,24 @@ describe('supabaseAuthEmailsLogic', () => {
         expect(logic.values.status).toEqual(status)
     })
 
-    it('shows a failed load of the settings or the templates until a retry succeeds', async () => {
-        failure = [500]
+    it.each([
+        ['settings', 'loadSettings', 'loadTemplates'],
+        ['templates', 'loadTemplates', 'loadSettings'],
+    ] as const)('shows a failed %s load until its own retry succeeds', async (failed, retry, otherLoad) => {
+        failedLoads = [failed]
         const logic = await mounted()
         logic.actions.openSetup()
         await settled(logic)
-        expect(logic.values).toMatchObject({ settingsLoadFailed: true, templatesLoadFailed: true })
+        const failedFlags = { settingsLoadFailed: failed === 'settings', templatesLoadFailed: failed === 'templates' }
+        expect(logic.values).toMatchObject(failedFlags)
 
-        failure = null
-        logic.actions.loadSettings()
-        logic.actions.loadTemplates()
+        failedLoads = []
+        logic.actions[otherLoad]()
         await settled(logic)
+        expect(logic.values).toMatchObject(failedFlags)
 
+        logic.actions[retry]()
+        await settled(logic)
         expect(logic.values).toMatchObject({ settingsLoadFailed: false, templatesLoadFailed: false })
     })
 
