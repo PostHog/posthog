@@ -29,6 +29,12 @@ from posthog.models.integration import (
 from posthog.permissions import is_service_auth
 
 from products.access_control.backend.facade.user_access_control import access_level_satisfied_for_resource
+from products.authorization.backend.facade import api as authorization
+from products.authorization.backend.facade.contracts import Resource
+from products.authorization.backend.facade.enums import (
+    Action as AuthorizationAction,
+    ResourceType,
+)
 from products.data_warehouse.backend.facade.api import is_any_external_data_schema_paused
 from products.warehouse_sources.backend.facade import (
     contracts,
@@ -88,6 +94,28 @@ DESTINATION_INTEGRATION_KINDS: dict[str, tuple[str, ...]] = {
     str(ExternalDataDestination.Type.AZURE_BLOB): (str(IntegrationKind.AZURE_BLOB),),
     str(ExternalDataDestination.Type.MOTHERDUCK): (str(IntegrationKind.MOTHERDUCK),),
 }
+
+INTEGRATION_ACCESS_DENIED = (
+    "You do not have access to this integration. Ask a project admin for access, or connect your own credentials."
+)
+
+
+def can_use_integration(integration: IntegrationRecord) -> bool:
+    """Whether the requesting user may use this integration's credentials.
+
+    The integration field only checks the team and kind, so without this a member denied an
+    integration could still write with its credentials through a destination.
+    """
+    return authorization.check(
+        resource=Resource(
+            type=ResourceType.INTEGRATION,
+            id=str(integration.id),
+            project_id=integration.team_id,
+            created_by_id=integration.created_by_id,
+        ),
+        action=AuthorizationAction.VIEW,
+    )
+
 
 # Types a user may create. The PostHog warehouse row is created by the sync itself the first
 # time a schema resolves to it, and every team has exactly one, so it is not user-managed.
@@ -519,6 +547,11 @@ class ExternalDataDestinationSerializer(serializers.ModelSerializer):
         if integration.kind not in allowed_kinds:
             expected = " or ".join(f"'{kind}'" for kind in allowed_kinds)
             raise ValidationError({"integration": f"A {destination_type} destination needs a {expected} integration."})
+        if self.instance is None and not can_use_integration(integration):
+            raise ValidationError({"integration": INTEGRATION_ACCESS_DENIED})
+
+        if destination_type == ExternalDataDestination.Type.MOTHERDUCK and isinstance(attrs.get("config"), dict):
+            self._check_motherduck_names(attrs["config"])
 
         if isinstance(attrs.get("config"), dict):
             attrs["config"] = self._trim_names(str(destination_type), attrs["config"])
@@ -573,6 +606,18 @@ class ExternalDataDestinationSerializer(serializers.ModelSerializer):
         except DestinationConnectionCheckError as error:
             field = "config" if error.failure in CONFIG_FAILURES else "integration"
             raise ValidationError({field: str(error)})
+
+    # The writer quotes both names into SQL and the connection string, so each must be text a
+    # quoted identifier can hold. Anything else would save, then fail every sync.
+    def _check_motherduck_names(self, config: dict[str, Any]) -> None:
+        for key in ("database", "schema"):
+            value = config.get(key)
+            if value is None:
+                continue
+            if not isinstance(value, str):
+                raise ValidationError({"config": f"The {key} must be text."})
+            if any(ord(character) < 0x20 or ord(character) == 0x7F for character in value):
+                raise ValidationError({"config": f"The {key} cannot contain control characters."})
 
     def _check_motherduck_connection(self, integration: IntegrationRecord, config: dict[str, Any] | None) -> None:
         try:
@@ -1050,6 +1095,8 @@ class ExternalDataDestinationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewS
             raise ValidationError(
                 {"type": "The PostHog warehouse is managed for you, so it has no connection to test."}
             )
+        if not can_use_integration(integration):
+            raise PermissionDenied(INTEGRATION_ACCESS_DENIED)
 
         if destination.type == ExternalDataDestination.Type.POSTGRES:
             run: ConnectionTestRun | None = run_postgres_connection_test(integration, destination.config)

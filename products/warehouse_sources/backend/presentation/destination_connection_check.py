@@ -26,6 +26,7 @@ class CheckFailure(StrEnum):
     AUTHENTICATION = "authentication"
     UNKNOWN_DATABASE = "unknown_database"
     MISSING_PRIVILEGE = "missing_privilege"
+    BUSY = "busy"
 
 
 # The messages never include the driver's error text, because that text can echo the user name,
@@ -41,6 +42,7 @@ FAILURE_MESSAGES: dict[CheckFailure, str] = {
         "The user cannot create tables in the schema. Grant the CREATE privilege on the schema, or "
         "on the database if the schema does not exist yet, and try again."
     ),
+    CheckFailure.BUSY: "PostHog is already running several connection checks. Wait a minute and try again.",
 }
 
 
@@ -164,6 +166,7 @@ MOTHERDUCK_FAILURE_MESSAGES: dict[CheckFailure, str] = {
         "PostHog cannot create tables in this database. Use a read-write access token and a database you own, "
         "not a share, and try again."
     ),
+    CheckFailure.BUSY: "PostHog is already running several connection checks. Wait a minute and try again.",
 }
 
 

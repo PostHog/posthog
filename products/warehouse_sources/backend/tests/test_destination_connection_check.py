@@ -203,7 +203,8 @@ class TestCheckPostgresDestination:
             assert seen["path"] == expected_path
 
 
-MOTHERDUCK_CONNECT = "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.destinations_load.writers.motherduck.connect_motherduck"
+MOTHERDUCK_WRITER = "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.destinations_load.writers.motherduck"
+MOTHERDUCK_CONNECT = f"{MOTHERDUCK_WRITER}.connect_motherduck"
 
 
 def _motherduck_integration(token: str | None = "md-token") -> Integration:
@@ -235,6 +236,12 @@ class TestCheckMotherDuckDestination:
             ("no_token", None, {"database": "analytics"}, CheckFailure.AUTHENTICATION),
             ("no_database", "md-token", {}, CheckFailure.UNKNOWN_DATABASE),
             ("unsafe_database", "md-token", {"database": "x?motherduck_token=y"}, CheckFailure.UNKNOWN_DATABASE),
+            (
+                "control_character_schema",
+                "md-token",
+                {"database": "analytics", "schema": "main\x00"},
+                CheckFailure.UNKNOWN_DATABASE,
+            ),
         ]
     )
     def test_settings_that_cannot_work_fail_before_connecting(
@@ -267,6 +274,14 @@ class TestCheckMotherDuckDestination:
 
         assert raised.value.failure == failure
         assert "secret-detail" not in str(raised.value)
+
+    def test_a_check_is_refused_while_every_probe_slot_is_held(self) -> None:
+        with patch(MOTHERDUCK_CONNECT) as connect, patch(f"{MOTHERDUCK_WRITER}._PROBE_SLOTS", threading.Semaphore(0)):
+            with pytest.raises(DestinationConnectionCheckError) as raised:
+                check_motherduck_destination(_motherduck_integration(), {"database": "analytics"})
+
+        connect.assert_not_called()
+        assert raised.value.failure == CheckFailure.BUSY
 
     def test_a_connection_that_hangs_is_unreachable(self) -> None:
         release = threading.Event()

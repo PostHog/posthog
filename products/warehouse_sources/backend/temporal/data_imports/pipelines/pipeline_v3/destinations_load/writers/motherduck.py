@@ -62,6 +62,9 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import error_message_matches
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql import AnsiIdentifierQuoter
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql.identifiers import (
+    InvalidIdentifierError,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.motherduck.motherduck import (
     MOTHERDUCK_TRANSIENT_ERRORS,
     build_motherduck_connection_string,
@@ -84,6 +87,14 @@ _SOURCE_VIEW = "__ph_source_batch"
 _MAX_IDENTIFIER_LENGTH = 255
 
 _QUOTER = AnsiIdentifierQuoter()
+
+# Every statement a writer runs gets this long before its connection is interrupted. A stalled
+# connection otherwise holds the batch lease forever, so its retries never start.
+OPERATION_TIMEOUT_SECONDS = 30 * 60
+
+# Records which record batches of an append run are already in the destination, so a redelivered
+# batch is not inserted twice. One row per record batch, written in the insert's own transaction.
+RECEIPTS_TABLE = "__ph_sync_receipts"
 
 INVALID_DATABASE_DETAIL = "The database name is missing or not valid. Check the database on the destination."
 AUTHENTICATION_FAILED_DETAIL = (
@@ -197,25 +208,19 @@ _PROBE_FAILURES: dict[str, str] = {
 }
 
 
-def _run_with_deadline(work: Callable[[], T], timeout_seconds: float) -> T:
-    """Run `work` on a daemon thread, giving up after `timeout_seconds`.
+# Probes run in the web process, and a stalled MotherDuck can keep one blocked past its deadline.
+# A slot is held until the probe's thread really exits, so stalls cannot pile up threads without
+# limit.
+MAX_CONCURRENT_PROBES = 4
+_PROBE_SLOTS = threading.BoundedSemaphore(MAX_CONCURRENT_PROBES)
 
-    DuckDB's connect takes no timeout, and a request must not hang on an unreachable service. A
-    thread that overruns is left to finish on its own; it holds nothing the caller needs.
-    """
-    future: Future[T] = Future()
 
-    def run() -> None:
+def _interrupt(connections: list[duckdb.DuckDBPyConnection]) -> None:
+    for connection in connections:
         try:
-            future.set_result(work())
-        except BaseException as error:
-            future.set_exception(error)
-
-    threading.Thread(target=run, daemon=True, name="motherduck-destination-probe").start()
-    try:
-        return future.result(timeout=timeout_seconds)
-    except FutureTimeoutError as error:
-        raise TimeoutError("The MotherDuck probe did not finish in time") from error
+            connection.interrupt()
+        except duckdb.Error:
+            pass
 
 
 def probe_write_access(access_token: str, database: str, schema: str, *, timeout_seconds: float) -> str | None:
@@ -223,29 +228,51 @@ def probe_write_access(access_token: str, database: str, schema: str, *, timeout
 
     Creates the schema when it is missing, as the writer does, then creates and drops a scratch
     table with a random name. Returns None on success, or `authentication`, `unknown_database`,
-    `missing_privilege` or `unreachable`.
+    `missing_privilege`, `unreachable` or `busy`.
     """
     try:
         if not database:
             raise ValueError("Database is missing")
         build_motherduck_connection_string(database, access_token)
-    except ValueError:
+        quoted_schema = _quote(schema or DEFAULT_SCHEMA)
+    except (ValueError, InvalidIdentifierError):
         return "unknown_database"
-
-    quoted_schema = _quote(schema or DEFAULT_SCHEMA)
     table = f"{quoted_schema}.{_quote(f'{PROBE_TABLE_PREFIX}_{uuid4().hex[:12]}')}"
 
+    if not _PROBE_SLOTS.acquire(blocking=False):
+        return "busy"
+
+    future: Future[None] = Future()
+    opened: list[duckdb.DuckDBPyConnection] = []
+
     def probe() -> None:
-        connection = connect_motherduck(access_token, database, read_only=False)
         try:
-            connection.execute(f"CREATE SCHEMA IF NOT EXISTS {quoted_schema}")
-            connection.execute(f"CREATE TABLE {table} (id INTEGER)")
-            connection.execute(f"DROP TABLE IF EXISTS {table}")
+            connection = connect_motherduck(access_token, database, read_only=False)
+            opened.append(connection)
+            try:
+                connection.execute(f"CREATE SCHEMA IF NOT EXISTS {quoted_schema}")
+                connection.execute(f"CREATE TABLE {table} (id INTEGER)")
+                connection.execute(f"DROP TABLE IF EXISTS {table}")
+            finally:
+                connection.close()
+            future.set_result(None)
+        except BaseException as error:
+            future.set_exception(error)
         finally:
-            connection.close()
+            _PROBE_SLOTS.release()
 
     try:
-        _run_with_deadline(probe, timeout_seconds)
+        threading.Thread(target=probe, daemon=True, name="motherduck-destination-probe").start()
+    except BaseException:
+        _PROBE_SLOTS.release()
+        raise
+
+    try:
+        future.result(timeout=timeout_seconds)
+    except FutureTimeoutError:
+        # DuckDB's connect takes no timeout, but a statement in flight can be interrupted.
+        _interrupt(opened)
+        return "unreachable"
     except Exception as error:
         return _PROBE_FAILURES.get(configuration_error_detail(error) or "", "unreachable")
     return None
@@ -259,12 +286,19 @@ class MotherDuckDestinationWriter:
 
     integration_kind: ClassVar[str] = IntegrationKind.MOTHERDUCK.value
 
-    def __init__(self, ctx: DestinationRunContext, *, connector: MotherDuckConnector | None = None) -> None:
+    def __init__(
+        self,
+        ctx: DestinationRunContext,
+        *,
+        connector: MotherDuckConnector | None = None,
+        operation_timeout_seconds: float = OPERATION_TIMEOUT_SECONDS,
+    ) -> None:
         self._ctx = ctx
         config = ctx.config or {}
-        self._database: str = (config.get("database") or "").strip()
-        self._schema: str = (config.get("schema") or "").strip() or DEFAULT_SCHEMA
+        self._database: str = str(config.get("database") or "").strip()
+        self._schema: str = str(config.get("schema") or "").strip() or DEFAULT_SCHEMA
         self._connector = connector
+        self._operation_timeout_seconds = operation_timeout_seconds
 
     # --- connection -------------------------------------------------------------------
 
@@ -318,16 +352,26 @@ class MotherDuckDestinationWriter:
 
     async def _run(self, work: Callable[[duckdb.DuckDBPyConnection], T]) -> T:
         connector = await self._resolve_connector()
+        opened: list[duckdb.DuckDBPyConnection] = []
 
         def run() -> T:
             with self._configuration_errors():
                 connection = connector()
+                opened.append(connection)
                 try:
                     return work(connection)
                 finally:
                     connection.close()
 
-        return await asyncio.to_thread(run)
+        try:
+            return await asyncio.wait_for(asyncio.to_thread(run), timeout=self._operation_timeout_seconds)
+        except TimeoutError:
+            # The thread keeps running until DuckDB notices the interrupt and rolls back. The
+            # batch fails here, so the consumer can retry it.
+            _interrupt(opened)
+            raise TimeoutError(
+                f"MotherDuck did not finish within {self._operation_timeout_seconds:g} seconds"
+            ) from None
 
     # --- statements -------------------------------------------------------------------
 
@@ -337,8 +381,10 @@ class MotherDuckDestinationWriter:
     def _table_comment(self, connection: duckdb.DuckDBPyConnection, table: str) -> tuple[bool, str | None]:
         """Whether `table` exists in the destination schema, and its comment."""
         row = connection.execute(
-            "SELECT comment FROM duckdb_tables() "
-            "WHERE database_name = current_database() AND schema_name = ? AND table_name = ?",
+            # DuckDB resolves identifiers without regard to case, even quoted ones, so a lookup
+            # that compared case would miss the table a statement then acts on.
+            "SELECT comment FROM duckdb_tables() WHERE database_name = current_database() "
+            "AND lower(schema_name) = lower(?) AND lower(table_name) = lower(?)",
             [self._schema, table],
         ).fetchone()
         if row is None:
@@ -360,15 +406,15 @@ class MotherDuckDestinationWriter:
     def _evolve_table(self, connection: duckdb.DuckDBPyConnection, table: str) -> None:
         """Add columns the source has grown. Additive only, same as the other SQL writers."""
         existing = {
-            row[0]
+            row[0].lower()
             for row in connection.execute(
-                "SELECT column_name FROM information_schema.columns "
-                "WHERE table_catalog = current_database() AND table_schema = ? AND table_name = ?",
+                "SELECT column_name FROM information_schema.columns WHERE table_catalog = current_database() "
+                "AND lower(table_schema) = lower(?) AND lower(table_name) = lower(?)",
                 [self._schema, table],
             ).fetchall()
         }
         for name, column_type, *_ in connection.execute(f"DESCRIBE SELECT * FROM {_quote(_SOURCE_VIEW)}").fetchall():
-            if name in existing:
+            if name.lower() in existing:
                 continue
             connection.execute(
                 f"ALTER TABLE {self._qualified(table)} ADD COLUMN IF NOT EXISTS {_quote(name)} {column_type}"
@@ -396,14 +442,14 @@ class MotherDuckDestinationWriter:
         self, batches: AsyncIterator[pa.RecordBatch], ctx: DestinationBatchContext
     ) -> BatchWriteOutcome:
         rows_written = 0
-        first = True
+        record_index = 0
         async for batch in batches:
             rows_written += await self._run(
-                lambda connection, batch=batch, first=first: self._write_record_batch(
-                    connection, batch, ctx, first=first
+                lambda connection, batch=batch, record_index=record_index: self._write_record_batch(
+                    connection, batch, ctx, record_index=record_index
                 )
             )
-            first = False
+            record_index += 1
         return BatchWriteOutcome(rows_written=rows_written)
 
     def _write_record_batch(
@@ -412,11 +458,15 @@ class MotherDuckDestinationWriter:
         batch: pa.RecordBatch,
         ctx: DestinationBatchContext,
         *,
-        first: bool,
+        record_index: int,
     ) -> int:
         run = ctx.run
         full_refresh = run.is_full_refresh
         target = staging_table_name(run) if full_refresh else run.table_name
+        merges = run.is_incremental and bool(run.primary_keys)
+        if merges and (missing := [key for key in run.primary_keys if key not in batch.schema.names]):
+            # Merging on the keys the batch has would match rows on part of the key and overwrite them.
+            raise ValueError(f"The batch has no column for primary key {', '.join(missing)}, so it cannot be merged")
 
         if full_refresh and self._already_published(connection, run):
             # The staging table is gone and the live table carries this run's publish stamp, so
@@ -437,7 +487,7 @@ class MotherDuckDestinationWriter:
 
         if full_refresh:
             source = stamp_batch_index(batch, ctx.batch_index)
-        elif run.is_incremental and run.primary_keys:
+        elif merges:
             source = dedupe_merge_source(batch, list(run.primary_keys))
         else:
             source = batch
@@ -453,19 +503,21 @@ class MotherDuckDestinationWriter:
                     self._set_comment(connection, target, owned_marker(run.schema_id))
 
                 if full_refresh:
-                    if first:
+                    if record_index == 0:
                         # A re-apply after a crash: clear what this batch's previous attempt wrote.
                         connection.execute(
                             f"DELETE FROM {self._qualified(target)} WHERE {_quote(BATCH_INDEX_COLUMN)} = ?",
                             [ctx.batch_index],
                         )
                     self._insert(connection, target)
-                elif run.is_incremental and (
-                    merge_keys := [key for key in run.primary_keys if key in source.schema.names]
-                ):
-                    self._merge(connection, target, merge_keys)
-                else:
+                elif merges:
+                    self._merge(connection, target, list(run.primary_keys))
+                elif self._claim_receipt(connection, run, ctx.batch_index, record_index):
                     self._insert(connection, target)
+                else:
+                    # An earlier attempt already committed these rows.
+                    connection.commit()
+                    return 0
                 connection.commit()
             except BaseException:
                 connection.rollback()
@@ -474,6 +526,34 @@ class MotherDuckDestinationWriter:
             connection.unregister(_SOURCE_VIEW)
 
         return source.num_rows
+
+    def _claim_receipt(
+        self, connection: duckdb.DuckDBPyConnection, run: DestinationRunContext, batch_index: int, record_index: int
+    ) -> bool:
+        """Record that this record batch is being appended, or return False when it already was."""
+        receipts = self._qualified(RECEIPTS_TABLE)
+        connection.execute(
+            f"CREATE TABLE IF NOT EXISTS {receipts} "
+            "(schema_id VARCHAR, run_uuid VARCHAR, batch_index INTEGER, record_index INTEGER)"
+        )
+        key = [run.schema_id, run.run_uuid, batch_index, record_index]
+        seen = connection.execute(
+            f"SELECT 1 FROM {receipts} WHERE schema_id = ? AND run_uuid = ? AND batch_index = ? AND record_index = ?",
+            key,
+        ).fetchone()
+        if seen is not None:
+            return False
+        connection.execute(f"INSERT INTO {receipts} VALUES (?, ?, ?, ?)", key)
+        return True
+
+    def _drop_older_receipts(self, connection: duckdb.DuckDBPyConnection, ctx: DestinationRunContext) -> None:
+        """Keep only this run's receipts: no earlier run of the schema can be redelivered any more."""
+        exists, _ = self._table_comment(connection, RECEIPTS_TABLE)
+        if exists:
+            connection.execute(
+                f"DELETE FROM {self._qualified(RECEIPTS_TABLE)} WHERE schema_id = ? AND run_uuid <> ?",
+                [ctx.schema_id, ctx.run_uuid],
+            )
 
     def _already_published(self, connection: duckdb.DuckDBPyConnection, ctx: DestinationRunContext) -> bool:
         staging_exists, _ = self._table_comment(connection, staging_table_name(ctx))
@@ -485,7 +565,8 @@ class MotherDuckDestinationWriter:
     async def finalize_run(self, ctx: DestinationRunContext) -> None:
         """Publish a full refresh by swapping the staging table into place."""
         if not ctx.is_full_refresh:
-            # An incremental run merges straight into the live table, so it has nothing to publish.
+            # Other runs write straight into the live table, so they have nothing to publish.
+            await self._run(lambda connection: self._drop_older_receipts(connection, ctx))
             return
         await self._run(lambda connection: self._publish(connection, ctx))
 
@@ -526,6 +607,11 @@ class MotherDuckDestinationWriter:
             return
 
         def drop(connection: duckdb.DuckDBPyConnection) -> None:
-            connection.execute(f"DROP TABLE IF EXISTS {self._qualified(staging_table_name(ctx))}")
+            staging = staging_table_name(ctx)
+            exists, comment = self._table_comment(connection, staging)
+            # A table under the staging name that this sync did not create stopped the run in the
+            # first place. It is the customer's, so it stays.
+            if exists and is_owned_by(comment, ctx.schema_id):
+                connection.execute(f"DROP TABLE {self._qualified(staging)}")
 
         await self._run(drop)

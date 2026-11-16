@@ -24,6 +24,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     COMPUTE_LIMIT_DETAIL,
     INVALID_DATABASE_DETAIL,
     READ_ONLY_DETAIL,
+    RECEIPTS_TABLE,
     UNKNOWN_DATABASE_DETAIL,
     MotherDuckDestinationWriter,
     UnrelatedTableExistsError,
@@ -178,10 +179,14 @@ class TestFullRefresh:
 
         assert BATCH_INDEX_COLUMN not in destination.columns("charges")
 
-    async def test_refuses_to_replace_a_table_it_did_not_create(self, destination: LocalDuckDB) -> None:
+    @pytest.mark.parametrize("existing_name", ["charges", "Charges"])
+    @pytest.mark.parametrize("schema", [SCHEMA, SCHEMA.upper()])
+    async def test_refuses_to_replace_a_table_it_did_not_create(
+        self, destination: LocalDuckDB, existing_name: str, schema: str
+    ) -> None:
         destination.execute(f'CREATE SCHEMA "{SCHEMA}"')
-        destination.execute(f'CREATE TABLE "{SCHEMA}"."charges" AS SELECT 99 AS id')
-        ctx = _ctx()
+        destination.execute(f'CREATE TABLE "{SCHEMA}"."{existing_name}" AS SELECT 99 AS id')
+        ctx = _ctx(config={"database": "analytics_db", "schema": schema})
         await destination.write(ctx, 0, _batch(id=[1]))
 
         with pytest.raises(UnrelatedTableExistsError):
@@ -202,6 +207,17 @@ class TestFullRefresh:
         await destination.writer(ctx).abort_run(ctx)
 
         assert staging_table_name(ctx) not in destination.tables()
+
+    async def test_abort_keeps_a_table_under_the_staging_name_it_did_not_create(self, destination: LocalDuckDB) -> None:
+        ctx = _ctx()
+        destination.execute(f'CREATE SCHEMA "{SCHEMA}"')
+        destination.execute(f'CREATE TABLE "{SCHEMA}"."{staging_table_name(ctx)}" AS SELECT 99 AS id')
+
+        with pytest.raises(UnrelatedTableExistsError):
+            await destination.write(ctx, 0, _batch(id=[1]))
+        await destination.writer(ctx).abort_run(ctx)
+
+        assert destination.rows(staging_table_name(ctx)) == [(99,)]
 
     async def test_a_long_table_name_keeps_its_run_suffix(self, destination: LocalDuckDB) -> None:
         ctx = _ctx(table_name="t" * 300)
@@ -233,12 +249,17 @@ class TestIncremental:
 
         assert destination.rows("charges") == [(1, None), (2, 5.5)]
 
-    async def test_refuses_to_merge_into_a_table_it_did_not_create(self, destination: LocalDuckDB) -> None:
+    @pytest.mark.parametrize("existing_name", ["charges", "CHARGES"])
+    @pytest.mark.parametrize("schema", [SCHEMA, SCHEMA.upper()])
+    async def test_refuses_to_merge_into_a_table_it_did_not_create(
+        self, destination: LocalDuckDB, existing_name: str, schema: str
+    ) -> None:
         destination.execute(f'CREATE SCHEMA "{SCHEMA}"')
-        destination.execute(f'CREATE TABLE "{SCHEMA}"."charges" AS SELECT 99 AS id')
+        destination.execute(f'CREATE TABLE "{SCHEMA}"."{existing_name}" AS SELECT 99 AS id')
+        ctx = _ctx("incremental", config={"database": "analytics_db", "schema": schema})
 
         with pytest.raises(UnrelatedTableExistsError):
-            await destination.write(_ctx("incremental"), 0, _batch(id=[1]))
+            await destination.write(ctx, 0, _batch(id=[1]))
         assert destination.rows("charges") == [(99,)]
 
     async def test_merges_into_a_table_it_marked_as_its_own(self, destination: LocalDuckDB) -> None:
@@ -258,6 +279,39 @@ class TestIncremental:
         await destination.write(ctx, 1, _batch(id=[1]))
 
         assert destination.rows("charges") == [(1,), (1,)]
+
+    @pytest.mark.parametrize(
+        ("first_attempt", "redelivery"),
+        [
+            ([[1, 2]], [[1, 2]]),
+            ([[1]], [[1], [2]]),
+        ],
+        ids=["whole_batch_again", "after_a_crash_mid_batch"],
+    )
+    async def test_a_redelivered_append_batch_is_not_inserted_twice(
+        self, destination: LocalDuckDB, first_attempt: list[list[int]], redelivery: list[list[int]]
+    ) -> None:
+        ctx = _ctx("append")
+        await destination.write(ctx, 0, *[_batch(id=ids) for ids in first_attempt])
+        await destination.write(ctx, 0, *[_batch(id=ids) for ids in redelivery])
+
+        assert destination.rows("charges") == [(1,), (2,)]
+
+    async def test_a_later_append_run_keeps_only_its_own_receipts(self, destination: LocalDuckDB) -> None:
+        first, second = _ctx("append", run_uuid="run-1"), _ctx("append", run_uuid="run-2")
+        await destination.sync(first, _batch(id=[1]))
+        await destination.sync(second, _batch(id=[2]))
+
+        assert destination.rows("charges") == [(1,), (2,)]
+        assert destination.rows(RECEIPTS_TABLE, order_by="run_uuid") == [("schema-1", "run-2", 0, 0)]
+
+    async def test_a_batch_missing_a_primary_key_column_is_not_merged(self, destination: LocalDuckDB) -> None:
+        ctx = _ctx("incremental", primary_keys=("id", "region"))
+        await destination.write(ctx, 0, _batch(id=[1], region=["eu"], name=["a"]))
+
+        with pytest.raises(ValueError, match="region"):
+            await destination.write(ctx, 1, _batch(id=[1], name=["b"]))
+        assert destination.rows("charges") == [(1, "eu", "a")]
 
 
 class TestTypes:
@@ -358,6 +412,19 @@ class TestConfigurationErrors:
             with pytest.raises(DestinationConfigurationError) as raised:
                 await writer.finalize_run(ctx)
         assert raised.value.detail == INVALID_DATABASE_DETAIL
+
+    async def test_a_stalled_statement_is_interrupted_and_the_batch_fails(self, destination: LocalDuckDB) -> None:
+        real = destination.connect()
+        stalled = mock.MagicMock(wraps=real)
+        stalled.execute.side_effect = lambda *_args, **_kwargs: real.execute(
+            "SELECT sum(i) FROM range(1000000000000) t(i)"
+        )
+        writer = MotherDuckDestinationWriter(_ctx(), connector=lambda: stalled, operation_timeout_seconds=0.2)
+
+        with pytest.raises(TimeoutError):
+            await writer.write_batch(
+                _stream(_batch(id=[1])), DestinationBatchContext(run=_ctx(), batch_index=0, is_final_batch=False)
+            )
 
     async def test_a_destination_without_an_integration_is_a_configuration_error(self) -> None:
         ctx = _ctx(integration_id=None)

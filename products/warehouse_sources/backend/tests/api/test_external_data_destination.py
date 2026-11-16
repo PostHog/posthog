@@ -693,6 +693,29 @@ class TestExternalDataDestinationAPI(DestinationAPITestBase):
         self.check_motherduck.assert_called_once_with(integration, {"database": "analytics"})
         assert not ExternalDataDestination.objects.for_team(self.team.pk).filter(name="unusable").exists()
 
+    @parameterized.expand(
+        [
+            ("schema_number", {"database": "analytics", "schema": 123}),
+            ("database_list", {"database": ["analytics"]}),
+            ("schema_control_character", {"database": "analytics", "schema": "main\u0000"}),
+        ]
+    )
+    def test_a_motherduck_target_must_be_plain_text(self, _name: str, config: dict) -> None:
+        response = self.client.post(
+            self.base,
+            {
+                "type": ExternalDataDestination.Type.MOTHERDUCK,
+                "name": "bad target",
+                "integration": self._integration(Integration.IntegrationKind.MOTHERDUCK).pk,
+                "config": config,
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["attr"] == "config"
+        self.check_motherduck.assert_not_called()
+
     def test_a_motherduck_destination_cannot_be_created_while_its_flag_is_off(self) -> None:
         existing = self._create_destination(
             type=ExternalDataDestination.Type.MOTHERDUCK,
@@ -1554,6 +1577,63 @@ class TestDestinationResumeAccessControl(DestinationAPITestBase):
         self.hidden_link.refresh_from_db()
         assert self.destination.status == ExternalDataDestination.Status.PAUSED
         assert self.hidden_link.enabled is False
+
+
+class TestDestinationIntegrationAccessControl(DestinationAPITestBase):
+    def setUp(self) -> None:
+        super().setUp()
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+            {"key": AvailableFeature.ROLE_BASED_ACCESS, "name": AvailableFeature.ROLE_BASED_ACCESS},
+        ]
+        self.organization.save()
+        self.destination = self._create_destination(
+            type=ExternalDataDestination.Type.MOTHERDUCK,
+            integration=self._integration(Integration.IntegrationKind.MOTHERDUCK).pk,
+            config={"database": "analytics"},
+        )
+        self.member = User.objects.create_and_join(self.organization, "member@posthog.com", "testtest")
+        membership = self.organization.memberships.get(user=self.member)
+        AccessControl.objects.create(
+            team=self.team,
+            resource="external_data_source",
+            resource_id=None,
+            access_level="editor",
+            organization_member=membership,
+        )
+        AccessControl.objects.create(
+            team=self.team,
+            resource="integration",
+            resource_id=str(self.destination.integration_id),
+            access_level="none",
+            organization_member=membership,
+        )
+        self.client.force_login(self.member)
+
+    def test_a_member_cannot_create_a_destination_with_an_integration_they_are_denied(self) -> None:
+        response = self.client.post(
+            self.base,
+            {
+                "type": ExternalDataDestination.Type.MOTHERDUCK,
+                "name": "borrowed",
+                "integration": self.destination.integration_id,
+                "config": {"database": "analytics"},
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["attr"] == "integration"
+        self.check_motherduck.assert_not_called()
+
+    def test_a_member_cannot_test_a_connection_with_an_integration_they_are_denied(self) -> None:
+        with patch(
+            "products.warehouse_sources.backend.presentation.destination_connection_testing.check_motherduck_destination"
+        ) as check:
+            response = self.client.post(f"{self.base}/{self.destination.id}/test_connection")
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        check.assert_not_called()
 
 
 class TestDestinationConnectLinkQuery(SimpleTestCase):
