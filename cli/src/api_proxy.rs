@@ -288,6 +288,7 @@ pub fn run(
 ) -> Result<Option<i32>, CapturedError> {
     let script = find_script().map_err(|error| CapturedError::from(anyhow::Error::new(error)))?;
     let mut cmd = Command::new("node");
+    cmd.arg("--");
     cmd.arg(script);
     cmd.args(args);
     cmd.env("POSTHOG_CLI_VERSION", env!("CARGO_PKG_VERSION"));

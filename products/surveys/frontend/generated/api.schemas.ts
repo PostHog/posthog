@@ -422,6 +422,11 @@ export interface SurveyApi {
      * @nullable
      */
     iteration_frequency_days?: number | null
+    /**
+     * For a recurring schedule, keep repeating every iteration_frequency_days until the survey is stopped. When true, iteration_count is ignored and the survey never closes on its own after a final repeat.
+     * @nullable
+     */
+    repeat_until_stopped?: boolean | null
     /** @nullable */
     iteration_start_dates?: (string | null)[] | null
     /**
@@ -1545,7 +1550,7 @@ export interface SurveySerializerCreateUpdateOnlySchemaApi {
      * * `external_survey` - external survey
      * * `api` - api */
     type: SurveyTypeEnumApi
-    /** Survey scheduling behavior: 'once' = show once per user (default), 'recurring' = repeat based on iteration_count and iteration_frequency_days settings, 'always' = show every time conditions are met (mainly for widget surveys)
+    /** Survey scheduling behavior: 'once' = show once per user (default), 'recurring' = repeat every iteration_frequency_days, either iteration_count times or until stopped (repeat_until_stopped), 'always' = show every time conditions are met (mainly for widget surveys)
      *
      * * `once` - once
      * * `recurring` - recurring
@@ -1710,7 +1715,7 @@ export interface SurveySerializerCreateUpdateOnlySchemaApi {
      */
     responses_limit?: number | null
     /**
-     * For a recurring schedule, this field specifies the number of times the survey should be shown to the user. Use 1 for 'once every X days', higher numbers for multiple repetitions. Works together with iteration_frequency_days to determine the overall survey schedule.
+     * For a recurring schedule, this field specifies the number of times the survey should be shown to the user. Use 1 for 'once every X days', higher numbers for multiple repetitions. Works together with iteration_frequency_days to determine the overall survey schedule. Setting it turns repeat_until_stopped off; sending repeat_until_stopped=true clears it.
      * @minimum 1
      * @maximum 500
      * @nullable
@@ -1723,6 +1728,11 @@ export interface SurveySerializerCreateUpdateOnlySchemaApi {
      * @nullable
      */
     iteration_frequency_days?: number | null
+    /**
+     * For a recurring schedule, keep repeating every iteration_frequency_days until the survey is stopped. When true, iteration_count is ignored and the survey never closes on its own after a final repeat.
+     * @nullable
+     */
+    repeat_until_stopped?: boolean | null
     /** @nullable */
     iteration_start_dates?: (string | null)[] | null
     /**
@@ -1925,6 +1935,11 @@ export interface SurveySerializerCreateUpdateOnlyApi {
      * @nullable
      */
     iteration_frequency_days?: number | null
+    /**
+     * For a recurring schedule, keep repeating every iteration_frequency_days until the survey is stopped. When true, iteration_count is ignored and the survey never closes on its own after a final repeat.
+     * @nullable
+     */
+    repeat_until_stopped?: boolean | null
     /** @nullable */
     iteration_start_dates?: (string | null)[] | null
     /**
@@ -1982,7 +1997,7 @@ export interface PatchedSurveySerializerCreateUpdateOnlySchemaApi {
      * * `external_survey` - external survey
      * * `api` - api */
     type?: SurveyTypeEnumApi
-    /** Survey scheduling behavior: 'once' = show once per user (default), 'recurring' = repeat based on iteration_count and iteration_frequency_days settings, 'always' = show every time conditions are met (mainly for widget surveys)
+    /** Survey scheduling behavior: 'once' = show once per user (default), 'recurring' = repeat every iteration_frequency_days, either iteration_count times or until stopped (repeat_until_stopped), 'always' = show every time conditions are met (mainly for widget surveys)
      *
      * * `once` - once
      * * `recurring` - recurring
@@ -2147,7 +2162,7 @@ export interface PatchedSurveySerializerCreateUpdateOnlySchemaApi {
      */
     responses_limit?: number | null
     /**
-     * For a recurring schedule, this field specifies the number of times the survey should be shown to the user. Use 1 for 'once every X days', higher numbers for multiple repetitions. Works together with iteration_frequency_days to determine the overall survey schedule.
+     * For a recurring schedule, this field specifies the number of times the survey should be shown to the user. Use 1 for 'once every X days', higher numbers for multiple repetitions. Works together with iteration_frequency_days to determine the overall survey schedule. Setting it turns repeat_until_stopped off; sending repeat_until_stopped=true clears it.
      * @minimum 1
      * @maximum 500
      * @nullable
@@ -2160,6 +2175,11 @@ export interface PatchedSurveySerializerCreateUpdateOnlySchemaApi {
      * @nullable
      */
     iteration_frequency_days?: number | null
+    /**
+     * For a recurring schedule, keep repeating every iteration_frequency_days until the survey is stopped. When true, iteration_count is ignored and the survey never closes on its own after a final repeat.
+     * @nullable
+     */
+    repeat_until_stopped?: boolean | null
     /** @nullable */
     iteration_start_dates?: (string | null)[] | null
     /**
@@ -2201,6 +2221,73 @@ export interface PatchedSurveySerializerCreateUpdateOnlySchemaApi {
     translations?: unknown
     _create_in_folder?: string
     form_content?: unknown
+}
+
+export interface ChangeApi {
+    readonly type: string
+    readonly action: string
+    readonly field: string
+    readonly before: unknown
+    readonly after: unknown
+}
+
+export interface MergeApi {
+    readonly type: string
+    readonly source: unknown
+    readonly target: unknown
+}
+
+export interface TriggerApi {
+    readonly job_type: string
+    readonly job_id: string
+    readonly payload: unknown
+}
+
+export interface DetailApi {
+    readonly id: string
+    changes?: ChangeApi[]
+    merge?: MergeApi
+    trigger?: TriggerApi
+    readonly name: string
+    readonly short_id: string
+    readonly type: string
+}
+
+/**
+ * @nullable
+ */
+export type ActivityLogEntryApiUser = { [key: string]: unknown } | null
+
+export interface ActivityLogEntryApi {
+    readonly id: string
+    /** @nullable */
+    readonly user: ActivityLogEntryApiUser
+    readonly activity: string
+    readonly scope: string
+    readonly item_id: string
+    detail?: DetailApi
+    readonly created_at: string
+    /** Whether the activity was performed by the system rather than a user. */
+    readonly is_system: boolean
+    /** Whether the acting user was being impersonated by PostHog staff. */
+    readonly was_impersonated: boolean
+    /**
+     * API client that triggered the activity. Self-reported through the x-posthog-client request header (e.g. 'mcp'), or 'scout:<skill_name>' when a scout run made the change, which the server derives from the run's own token. Null for requests that did neither.
+     * @nullable
+     */
+    readonly client: string | null
+}
+
+/**
+ * Response shape for paginated activity log endpoints.
+ */
+export interface ActivityLogPaginatedResponseApi {
+    results: ActivityLogEntryApi[]
+    /** @nullable */
+    next: string | null
+    /** @nullable */
+    previous: string | null
+    total_count: number
 }
 
 /**
@@ -2359,7 +2446,20 @@ export interface SurveyResponseRowApi {
     extra: SurveyResponseExtraApi
 }
 
+/**
+ * Declares the `next` and `previous` links of a page response that the view fills with `page_link`.
+ */
 export interface SurveyResponsesListApi {
+    /**
+     * URL of the next page, or null on the last page.
+     * @nullable
+     */
+    readonly next: string | null
+    /**
+     * URL of the previous page, or null on the first page and on lists that page forward only.
+     * @nullable
+     */
+    readonly previous: string | null
     /** Survey response rows for the requested page. */
     results: SurveyResponseRowApi[]
     /** True if more rows exist beyond the current page — fetch the next page with offset + limit. */
@@ -2368,6 +2468,43 @@ export interface SurveyResponsesListApi {
     limit: number
     /** The offset applied to this query (echoed back for pagination). */
     offset: number
+}
+
+/**
+ * * `unavailable` - unavailable
+ * * `rendering` - rendering
+ * * `ready` - ready
+ */
+export type SnapshotStatusEnumApi = (typeof SnapshotStatusEnumApi)[keyof typeof SnapshotStatusEnumApi]
+
+export const SnapshotStatusEnumApi = {
+    Unavailable: 'unavailable',
+    Rendering: 'rendering',
+    Ready: 'ready',
+} as const
+
+export interface SiteSnapshotApi {
+    /** `ready` when the snapshot image can be loaded, `rendering` while it is being created, `unavailable` when no recent session recording matches the survey or the user cannot view recordings.
+     *
+     * * `unavailable` - unavailable
+     * * `rendering` - rendering
+     * * `ready` - ready */
+    status: SnapshotStatusEnumApi
+    /**
+     * ID of the exported image. Load it from the exports content endpoint once the status is `ready`.
+     * @nullable
+     */
+    exported_asset_id: number | null
+    /**
+     * URL of the page the snapshot shows. Null when the status is `unavailable`.
+     * @nullable
+     */
+    page_url: string | null
+    /**
+     * Width in CSS pixels of the browser window the snapshot was recorded in, to draw it at its real scale.
+     * @nullable
+     */
+    viewport_width: number | null
 }
 
 /**
@@ -2501,6 +2638,19 @@ export const SurveysListType = {
     Widget: 'widget',
 } as const
 
+export type SurveysActivityRetrieveParams = {
+    /**
+     * Number of items per page
+     * @minimum 1
+     */
+    limit?: number
+    /**
+     * Page number
+     * @minimum 1
+     */
+    page?: number
+}
+
 export type SurveysResponsesListParams = {
     /**
      * When true, exclude responses that have been archived via the archive_response endpoint.
@@ -2540,13 +2690,32 @@ export type SurveysResponsesListParams = {
     until?: string
 }
 
+export type SurveysSiteSnapshotRetrieveParams = {
+    /**
+     * Which viewport to show. Desktop picks a page viewed in a window at least 1024px wide, mobile one at most 767px wide.
+     *
+     * * `desktop` - Desktop
+     * * `mobile` - Mobile
+     * @minLength 1
+     */
+    device: SurveysSiteSnapshotRetrieveDevice
+}
+
+export type SurveysSiteSnapshotRetrieveDevice =
+    (typeof SurveysSiteSnapshotRetrieveDevice)[keyof typeof SurveysSiteSnapshotRetrieveDevice]
+
+export const SurveysSiteSnapshotRetrieveDevice = {
+    Desktop: 'desktop',
+    Mobile: 'mobile',
+} as const
+
 export type SurveysStatsRetrieveParams = {
     /**
-     * Optional ISO timestamp for start date (e.g. 2024-01-01T00:00:00Z)
+     * Optional start date: an ISO 8601 timestamp (e.g. 2024-01-01T00:00:00Z) or a relative date such as -7d, -24h or -1m
      */
     date_from?: string
     /**
-     * Optional ISO timestamp for end date (e.g. 2024-01-31T23:59:59Z)
+     * Optional end date: an ISO 8601 timestamp (e.g. 2024-01-31T23:59:59Z) or a relative date such as -1d
      */
     date_to?: string
     /**
@@ -2568,11 +2737,11 @@ export type SurveysSummarizeResponsesCreateParams = {
 
 export type SurveysGlobalStatsRetrieveParams = {
     /**
-     * Optional ISO timestamp for start date (e.g. 2024-01-01T00:00:00Z)
+     * Optional start date: an ISO 8601 timestamp (e.g. 2024-01-01T00:00:00Z) or a relative date such as -7d, -24h or -1m
      */
     date_from?: string
     /**
-     * Optional ISO timestamp for end date (e.g. 2024-01-31T23:59:59Z)
+     * Optional end date: an ISO 8601 timestamp (e.g. 2024-01-31T23:59:59Z) or a relative date such as -1d
      */
     date_to?: string
 }

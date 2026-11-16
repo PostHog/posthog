@@ -147,6 +147,7 @@ describe('api-error', () => {
             ['a re-auth gate', { status: 403, code: 'sensitive_action_required_reauth' }, false],
             ['an approvals 409', { status: 409, data: { change_request_id: 'abc' } }, false],
             ['an optimistic-concurrency 409', { status: 409, data: { current_version: 5 } }, false],
+            ['a rollback reason 409', { status: 409, code: 'rollback_reason_required' }, false],
             ['a 502', { status: 502 }, false],
             ['a 503', { status: 503 }, false],
             ['a 504', { status: 504 }, false],
@@ -155,6 +156,8 @@ describe('api-error', () => {
             ['a 409 that is neither an approvals gate nor a concurrency conflict', { status: 409, data: {} }, true],
             ['a 500 backend exception', { status: 500 }, true],
             ['a 400 validation error', { status: 400 }, true],
+            // An OAuth integration that needs reconnecting. The picker toasts the reconnect message.
+            ['an integration token refresh 400', { status: 400, code: 'integration_token_refresh_failed' }, false],
             // A route the backend does not serve stays reportable here. Only a caller that already
             // degrades excuses one, through `isUnavailableEndpointError`.
             ['a 404', { status: 404 }, true],

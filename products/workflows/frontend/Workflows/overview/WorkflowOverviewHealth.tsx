@@ -6,7 +6,7 @@ import type { Dayjs } from 'lib/dayjs'
 import { humanFriendlyNumber, percentage } from 'lib/utils/numbers'
 import { urls } from 'scenes/urls'
 
-import { RATE_LEVEL_TAG, classifyRate, minimumVolumeToClassify } from '../Reputation/emailRateLevels'
+import { RATE_LEVEL_TAG } from '../Reputation/emailRateLevels'
 import { workflowLogic } from '../workflowLogic'
 import { workflowMetricsSummaryLogic } from '../workflowMetricsSummaryLogic'
 import { workflowOverviewLogic } from './workflowOverviewLogic'
@@ -42,23 +42,6 @@ function HealthItem({
     )
 }
 
-function rateItem(
-    kind: 'bounce' | 'complaint',
-    count: number,
-    sent: number,
-    detail: string
-): { value: string; tag: { label: string; type: LemonTagType } | null; detail: string } {
-    if (sent === 0) {
-        return { value: '-', tag: null, detail: 'No emails sent' }
-    }
-    const rate = count / sent
-    return {
-        value: percentage(rate, 2, true),
-        tag: sent < minimumVolumeToClassify(kind) ? null : RATE_LEVEL_TAG[classifyRate(rate, kind)],
-        detail,
-    }
-}
-
 // A failed step does not fail the run when the step continues on error, so the run status filter would miss it.
 // Absolute bounds, because Invocations resolves a relative range from the current time rather than the start of the day.
 function loggedErrorsUrl(id: string, dateFrom: Dayjs, dateTo: Dayjs): string {
@@ -84,6 +67,7 @@ export function WorkflowOverviewHealth({
     const logic = workflowOverviewLogic({ id, logicKey })
     const {
         healthTotals,
+        emailHealth,
         healthTotalsLoading,
         failedRuns,
         stepTotalsLoading,
@@ -95,36 +79,19 @@ export function WorkflowOverviewHealth({
     const range = getDateRangeAbsolute()
     const { retry } = useActions(logic)
     const { messagingChannels } = useValues(workflowMetricsSummaryLogic({ logicKey, id, overview: true, appSourceId }))
-    const { emailSendingPaused } = useValues(workflowLogic)
+    const { emailSendingPause } = useValues(workflowLogic)
 
     const loading = (healthTotalsLoading && !healthTotals) || (stepTotalsLoading && failedRuns === null)
     const totals = healthTotals ?? {}
     const started = totals.triggered ?? 0
-    const emailSent = totals.email_sent ?? 0
     const pushSent = totals.push_sent ?? 0
-    // Reputation thresholds apply to permanent bounces only, as on the Reputation page.
-    const hardBounces = totals.email_bounced_hard ?? 0
-    const bounce = rateItem(
-        'bounce',
-        hardBounces,
-        emailSent,
-        `${humanFriendlyNumber(hardBounces)} hard, ${humanFriendlyNumber(totals.email_bounced ?? 0)} bounced in total`
-    )
-    // Spam complaints are stored under the email_blocked metric name.
-    const complaintCount = totals.email_blocked ?? 0
-    const complaint = rateItem(
-        'complaint',
-        complaintCount,
-        emailSent,
-        `${humanFriendlyNumber(complaintCount)} marked as spam`
-    )
     const failed = stepTotalsFailed || healthTotalsFailed
 
     return (
         <div className="@container rounded border bg-surface-primary" data-attr="workflow-overview-health">
             <div className="flex items-center justify-between gap-2 border-b px-4 py-2">
                 <h3 className="mb-0 text-base font-semibold">Health</h3>
-                {emailSendingPaused ? (
+                {emailSendingPause.paused ? (
                     <LemonTag type="danger" data-attr="workflow-overview-health-paused">
                         Email sending paused
                     </LemonTag>
@@ -171,13 +138,13 @@ export function WorkflowOverviewHealth({
                         <>
                             <HealthItem
                                 label="Hard bounce rate"
-                                tooltip="Permanent bounces as a share of emails sent. A high hard bounce rate can pause email from this workflow automatically."
-                                {...bounce}
+                                tooltip="Permanent bounces as a share of emails sent from your own sender. A high hard bounce rate can pause email from this workflow automatically."
+                                {...emailHealth.bounce}
                             />
                             <HealthItem
                                 label="Spam complaint rate"
-                                tooltip="Spam complaints as a share of emails sent. A high complaint rate can pause email from this workflow automatically."
-                                {...complaint}
+                                tooltip="Spam complaints as a share of emails sent from your own sender. A high complaint rate can pause email from this workflow automatically."
+                                {...emailHealth.complaint}
                             />
                         </>
                     ) : null}

@@ -24,7 +24,6 @@ import requests
 import tenacity
 from urllib3.util.retry import Retry
 
-import products.warehouse_sources.backend.temporal.data_imports.sources._load_all  # noqa: F401
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http.transport import (
     NO_REQUEST_TIMEOUT,
     make_tracked_session,
@@ -65,9 +64,7 @@ NO_ADAPTER_RETRY = Retry(total=0)
 # A stub is a source directory with a `source.py` and no extraction code: its class still has the
 # base `source_for_pipeline`. The contract does not apply to it until the extraction code ships.
 IMPLEMENTED_SOURCES = {
-    str(source_type.value): source
-    for source_type, source in SourceRegistry.get_all_sources().items()
-    if not is_stub(source)
+    str(source_type): source for source_type, source in SourceRegistry.get_all_sources().items() if not is_stub(source)
 }
 
 

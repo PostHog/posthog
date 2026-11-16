@@ -6,8 +6,9 @@ from typing import Any, Literal, Optional, Union, cast
 
 from django.db import models
 
-from posthog.constants import PropertyOperatorType
-from posthog.models.filters.utils import GroupTypeIndex, validate_group_type_index
+from rest_framework.exceptions import ValidationError
+
+from posthog.constants import GROUP_TYPES_LIMIT, GroupTypeIndex, PropertyOperatorType
 
 # Relocated to the Django-free posthog.property_columns module so the HogQL engine can use them
 # without booting Django; re-exported here for existing callers.
@@ -251,6 +252,26 @@ VALIDATE_BEHAVIORAL_PROP_TYPES = {
         "seq_time_interval",
     ],
 }
+
+
+def validate_group_type_index(param_name: str, value: Any, required=False) -> GroupTypeIndex | None:
+    error = ValidationError(
+        f"{param_name} is required to be at least 0 and less than {GROUP_TYPES_LIMIT}",
+        code="invalid",
+    )
+
+    if required and value is None:
+        raise error
+
+    if value is not None:
+        try:
+            value = int(value)
+        except:
+            raise error
+        if not (0 <= value < GROUP_TYPES_LIMIT):
+            raise error
+
+    return cast(GroupTypeIndex | None, value)
 
 
 class PropertyValidationError(ValueError):

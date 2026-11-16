@@ -1,4 +1,3 @@
-import uuid
 import asyncio
 import contextlib
 import dataclasses
@@ -13,7 +12,7 @@ from openai.lib._pydantic import to_strict_json_schema
 
 from posthog.schema import AssistantHogQLQuery
 
-from posthog.hogql.errors import ExposedHogQLError, InternalHogQLError
+from posthog.hogql.errors import ExposedHogQLError, InternalHogQLError, QueryError
 
 from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
@@ -58,20 +57,34 @@ from products.subscriptions.backend.temporal.ai_subscription.schemas import (
 )
 from products.subscriptions.backend.temporal.ai_subscription.spec_generator import (
     AI_QUERY_PLAN_VERSION,
+    COMPARE_DATE_RANGE_PLACEHOLDER,
+    COMPARE_WINDOW_START_PLACEHOLDER,
     DEFAULT_PLANNER_MODEL,
     DEFAULT_SYNTHESIS_MODEL,
+    LLM_REASONING_EFFORT,
+    WINDOW_BOUND_PLACEHOLDERS,
+    WINDOW_FILTER_PLACEHOLDERS,
     WINDOW_PLACEHOLDERS,
+    WINDOW_START_PLACEHOLDER,
     ReportWindow,
     StoredPlanInvalidError,
+    ai_subscription_llm_trace,
+    ai_subscription_llm_tracing,
     build_enriched_prompt,
     build_frozen_prompt,
     get_ai_query_plan_status,
     resolve_ai_query_plan_status,
+    window_token_problems,
 )
-from products.subscriptions.backend.temporal.types import safe_query_error_details
+from products.subscriptions.backend.temporal.types import QueryErrorDetails, safe_query_error_details
 
+from ee.hogai.context.insight.clickhouse_rejections import describe_clickhouse_rejection
 from ee.hogai.context.insight.format import format_access_control_warnings, format_warehouse_sync_warnings
-from ee.hogai.context.insight.query_executor import AssistantQueryExecutor
+from ee.hogai.context.insight.query_executor import (
+    HOGQL_ERROR_CODES_BY_MESSAGE_PREFIX,
+    HOGQL_INPUT_ERROR_CODES,
+    AssistantQueryExecutor,
+)
 from ee.hogai.llm import MaxChatOpenAI
 from ee.hogai.tool_errors import MaxToolRetryableError
 
@@ -120,6 +133,42 @@ _RETRYABLE_QUERY_ERRORS: tuple[type[BaseException], ...] = (
     ExposedHogQLError,
     InternalHogQLError,
 )
+
+
+def _or_list(tokens: Sequence[str]) -> str:
+    quoted = [f"`{token}`" for token in tokens]
+    return f"{', '.join(quoted[:-1])} or {quoted[-1]}"
+
+
+WINDOW_TOKEN_HINT = (
+    f"For the report window, use {_or_list(WINDOW_FILTER_PLACEHOLDERS)} as a whole time filter, or "
+    f"{_or_list(WINDOW_BOUND_PLACEHOLDERS)} as a single timestamp, outside quotes. "
+    f"`{COMPARE_DATE_RANGE_PLACEHOLDER}` covers the previous and the current period together. For the previous "
+    f"period alone, use `timestamp >= {COMPARE_WINDOW_START_PLACEHOLDER} AND timestamp < {WINDOW_START_PLACEHOLDER}`. "
+    "The report fills in the dates when it runs."
+)
+
+
+def _reject_unknown_placeholders(hogql: str) -> None:
+    if problems := window_token_problems(hogql):
+        raise QueryError(" ".join([*problems, WINDOW_TOKEN_HINT]))
+
+
+_HOGQL_INPUT_ERROR_CODES = HOGQL_INPUT_ERROR_CODES | {code for _, code in HOGQL_ERROR_CODES_BY_MESSAGE_PREFIX}
+
+
+def _safe_step_error_details(exc: BaseException) -> QueryErrorDetails | None:
+    if details := safe_query_error_details(exc):
+        return details
+    if not isinstance(exc, MaxToolRetryableError) or not exc.error_code:
+        return None
+    if exc.error_code in _HOGQL_INPUT_ERROR_CODES and exc.error_type == "validation":
+        message: str | None = str(exc)
+    else:
+        message = describe_clickhouse_rejection(exc.error_code)
+    if not message:
+        return None
+    return {"type": type(exc).__name__, "code": exc.error_code, "message": message.replace("\x00", "")}
 
 
 def _all_queries_failed_notice(total_steps: int, *, include_manage_link: bool = True) -> str:
@@ -241,16 +290,19 @@ async def generate_ai_report(
 
     initial_query_plan_status = get_ai_query_plan_status(ai_query_plan)
 
-    with slo_operation(
-        spec=SloSpec(
-            distinct_id=str(user.distinct_id),
-            area=SloArea.ANALYTIC_PLATFORM,
-            operation=SloOperation.AI_SUBSCRIPTION_PROMPT_GENERATION,
-            team_id=team.id,
-            resource_id=str(trace_correlation_id) if trace_correlation_id is not None else None,
-        ),
-        properties={"window_start": window.start_literal, "window_end": window.end_literal},
-    ) as slo:
+    with (
+        ai_subscription_llm_trace(),
+        slo_operation(
+            spec=SloSpec(
+                distinct_id=str(user.distinct_id),
+                area=SloArea.ANALYTIC_PLATFORM,
+                operation=SloOperation.AI_SUBSCRIPTION_PROMPT_GENERATION,
+                team_id=team.id,
+                resource_id=str(trace_correlation_id) if trace_correlation_id is not None else None,
+            ),
+            properties={"window_start": window.start_literal, "window_end": window.end_literal},
+        ) as slo,
+    ):
         try:
             # A stored plan that no longer validates self-heals by re-planning live.
             if ai_query_plan is not None:
@@ -358,6 +410,7 @@ async def generate_ai_report(
             trace_correlation_id=trace_correlation_id,
             chart_failure_count=chart_spec_failures,
             no_rows_count=execution.no_rows_count,
+            coverage_complete=spec.coverage_complete,
         )
         query_plan_status = resolve_ai_query_plan_status(
             initial_status=initial_query_plan_status,
@@ -401,6 +454,7 @@ def _plan_to_freeze(
     trace_correlation_id: Optional[Union[int, str]],
     chart_failure_count: int = 0,
     no_rows_count: int = 0,
+    coverage_complete: bool = True,
 ) -> Optional[dict]:
     # Steps already carry their final HogQL by this point — see the write-back in `run_step`.
     # Never freeze a plan the next delivery is better off re-planning: a plan with any failed step would
@@ -428,6 +482,9 @@ def _plan_to_freeze(
             trace_correlation_id=trace_correlation_id,
             total_steps=total_steps,
         )
+        return None
+    if not coverage_complete:
+        logger.warning("ai_report.plan_coverage_incomplete_not_frozen", trace_correlation_id=trace_correlation_id)
         return None
     if chart_failure_count:
         logger.warning(
@@ -507,13 +564,10 @@ async def _synthesize(
     trace_correlation_id: Optional[Union[int, str]],
     source_urls: tuple[str, ...] = (),
 ) -> str:
-    posthog_properties: dict[str, Union[str, int]] = {
-        "feature": "ai_subscription",
-        "stage": "synthesis",
-        "trace_id": str(uuid.uuid4()),
-    }
-    if trace_correlation_id is not None:
-        posthog_properties["subscription_id"] = trace_correlation_id
+    # The privacy-mode flag check can make a blocking HTTP request.
+    posthog_properties, llm_config = await database_sync_to_async(ai_subscription_llm_tracing, thread_sensitive=False)(
+        team=team, user=user, stage="synthesis", trace_correlation_id=trace_correlation_id
+    )
 
     report_schema = to_strict_json_schema(ReportDocument)
     allowed_urls: list[str] = []
@@ -531,6 +585,7 @@ async def _synthesize(
         report_schema["$defs"]["ReportText"]["properties"]["items"]["items"] = {"$ref": "#/$defs/ReportTextItem"}
     chat = MaxChatOpenAI(
         model=DEFAULT_SYNTHESIS_MODEL,
+        reasoning_effort=LLM_REASONING_EFFORT,
         timeout=_SYNTHESIS_LLM_TIMEOUT_SECONDS,
         user=user,
         team=team,
@@ -552,6 +607,7 @@ section headings for related findings, and subsection headings only for a meanin
 Headings are topic labels, not sentences or findings. Put every result, value, date, and explanation
 in a finding under its heading. Each finding becomes one bullet. Do not put heading or bullet
 markers inside finding text. Use visuals for tables, code, or other Markdown blocks when useful.
+Put a whole table in one visual: header, separator, and every row, with one newline between rows.
 Leave unused lists empty. Do not add empty sections or repeat findings to create hierarchy.
 Use custom_layout only when the user explicitly requests a fixed template; otherwise leave it empty.
 """
@@ -566,6 +622,7 @@ Use custom_layout only when the user explicitly requests a fixed template; other
                 ("system", synthesis_prompt),
                 ("human", human_message),
             ],
+            config=llm_config,
         )
         result = ReportDocument.model_validate(response)
     except Exception as exc:
@@ -616,6 +673,7 @@ async def _run_steps(
         for attempt in range(_MAX_QUERY_FIX_RETRIES + 1):
             executable_hogql = window.render_window_filter(current_hogql)
             try:
+                _reject_unknown_placeholders(current_hogql)
                 query = AssistantHogQLQuery(query=executable_hogql)
                 query_result = await asyncio.wait_for(
                     executor.arun_format_and_capture(query),
@@ -686,7 +744,7 @@ async def _run_steps(
                     max_retries=_MAX_QUERY_FIX_RETRIES,
                     error_type=type(exc).__name__,
                 )
-                error_details = safe_query_error_details(exc)
+                error_details = _safe_step_error_details(exc)
                 fixed = await _arequest_hogql_fix(
                     original_hogql=current_hogql,
                     # Forward explicitly safe detail when available; fall back to the type name.
@@ -704,7 +762,7 @@ async def _run_steps(
                 current_hogql = fixed
 
         type_name = type(last_exc).__name__ if last_exc is not None else "UnknownError"
-        error_details = safe_query_error_details(last_exc) if last_exc is not None else None
+        error_details = _safe_step_error_details(last_exc) if last_exc is not None else None
         logger.warning(
             "ai_report.query_failed",
             trace_correlation_id=trace_correlation_id,
@@ -771,12 +829,14 @@ async def _arequest_hogql_fix(
     user: User,
     trace_correlation_id: Optional[Union[int, str]],
 ) -> Optional[str]:
-    posthog_properties: dict[str, Union[str, int]] = {"feature": "ai_subscription", "stage": "query_fix"}
-    if trace_correlation_id is not None:
-        posthog_properties["subscription_id"] = trace_correlation_id
+    # The privacy-mode flag check can make a blocking HTTP request.
+    posthog_properties, llm_config = await database_sync_to_async(ai_subscription_llm_tracing, thread_sensitive=False)(
+        team=team, user=user, stage="query_fix", trace_correlation_id=trace_correlation_id
+    )
 
     llm = MaxChatOpenAI(
         model=DEFAULT_PLANNER_MODEL,
+        reasoning_effort=LLM_REASONING_EFFORT,
         timeout=_FIX_LLM_TIMEOUT_SECONDS,
         user=user,
         team=team,
@@ -798,7 +858,9 @@ async def _arequest_hogql_fix(
     rendered = f"{rendered}\n\n{_fix_project_context_block(context_blob)}"
 
     try:
-        result = await database_sync_to_async(llm.invoke, thread_sensitive=False)([("system", rendered)])
+        result = await database_sync_to_async(llm.invoke, thread_sensitive=False)(
+            [("system", rendered)], config=llm_config
+        )
     except Exception as exc:
         logger.warning(
             "ai_report.query_fix_llm_failed",

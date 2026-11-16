@@ -38,6 +38,16 @@ interface ReferenceLineSummary {
     orientation: 'horizontal' | 'vertical' | null
 }
 
+export interface ValueBandSummary {
+    /** Pixel box of the band, from its inline style. */
+    top: number | null
+    left: number | null
+    width: number | null
+    height: number | null
+    /** Fill color from inline style. */
+    color: string
+}
+
 interface ValueLabelSummary {
     text: string
     /** Inline style backgroundColor (matches the series color). */
@@ -58,6 +68,19 @@ interface SlopeValueLabelSummary {
     side: 'start' | 'end'
 }
 
+interface GaugeSummary {
+    value: string
+    label: string | null
+    min: string | null
+    max: string | null
+}
+
+interface PieSliceLabelSummary {
+    text: string
+    /** One entry per rendered line (label and/or value). */
+    lines: string[]
+}
+
 interface LegendItemSummary {
     label: string
     /** The row's secondary text (a slope chart's change, a proportion bar's `share · value`), or null
@@ -72,6 +95,8 @@ export interface ChartAccessor<Meta = unknown> {
     canvas: HTMLCanvasElement
     /** Number of non-excluded data series rendered (read from the chart's aria-label). */
     readonly seriesCount: number
+    /** Label index where another chart in a `ChartHoverSync` draws its crosshair here, or null. */
+    syncedIndex(): number | null
     /** Visible y-axis tick labels (left axis). */
     yTicks(): string[]
     /** Visible right y-axis tick labels (multi-axis charts). */
@@ -86,29 +111,61 @@ export interface ChartAccessor<Meta = unknown> {
     hasRightAxis: boolean
     /** All reference lines currently rendered for this chart (goal/alert/marker). */
     referenceLines(): ReferenceLineSummary[]
+    /** All value bands currently rendered for this chart. */
+    valueBands(): ValueBandSummary[]
     /** All value-label overlays currently rendered for this chart. */
     valueLabels(): ValueLabelSummary[]
     /** All anomaly point markers currently rendered (TimeSeriesLineChart only). */
     anomalyPoints(): AnomalyPointSummary[]
-    /** All slope-chart value labels currently rendered (start + end columns). */
-    slopeValueLabels(): SlopeValueLabelSummary[]
-    /** Series name labels currently rendered by a slope chart (post-collision-avoidance). */
-    slopeSeriesLabels(): string[]
+    slope: {
+        /** Value labels currently rendered (start + end columns). */
+        valueLabels(): SlopeValueLabelSummary[]
+        /** Series name labels currently rendered (post-collision-avoidance). */
+        seriesLabels(): string[]
+    }
+    sankey: {
+        /** Node labels in layout order. */
+        nodeLabels(): string[]
+        /** Column headers, left to right. */
+        columnLabels(): string[]
+    }
+    pie: {
+        /** On-slice labels, in slice order. */
+        sliceLabels(): PieSliceLabelSummary[]
+    }
+    gauge: {
+        /** The text a `Gauge` shows, or null for other charts. `label`, `min` and `max` are null when
+         *  hidden, for example when the min and max labels would overlap. */
+        text(): GaugeSummary | null
+        /** The CSS color of the value text, or null for other charts. */
+        valueColor(): string | null
+    }
+    flame: {
+        /** The zoom path as shown, from `All` down to the focused node. A deep path collapses its
+         *  middle crumbs into an ellipsis, which is not listed. */
+        breadcrumb(): string[]
+        /** The search summary (`3 matches · 12% of total`), or null without a search. */
+        searchSummary(): string | null
+        /** The scroll viewport, which takes keyboard focus and handles Escape. */
+        viewport(): HTMLElement
+        /** The "Reset zoom" button, or null when the whole graph is in view. */
+        resetButton(): HTMLElement | null
+    }
+    /** The legend container in this chart's render scope, or null when the legend is hidden. */
+    legend(): HTMLElement | null
     /** Legend rows in this chart's render scope — label plus the row's secondary text (a slope
      *  chart's change, a proportion bar's `share · value`), or null when none. Empty when the
      *  legend is hidden. */
     legendItems(): LegendItemSummary[]
-    /** @deprecated Use `legendItems()`, which reads any chart's legend. */
-    slopeLegendItems(): LegendItemSummary[]
     /** Click the legend row with this label. `additive` holds ⌘/Ctrl, which toggles that one series
      *  instead of isolating it. Throws when no legend row has the label. */
     clickLegendItem(label: string, options?: { additive?: boolean }): void
-    /** Node labels rendered by a Sankey chart, in layout order. */
-    sankeyNodeLabels(): string[]
-    /** Column headers rendered by a Sankey chart, left to right. */
-    sankeyColumnLabels(): string[]
-    /** Annotation badges currently rendered. */
-    annotationBadges(): HTMLElement[]
+    /** Click the value-table header with this text, which sorts the legend by that column. Throws
+     *  when no header has the text. */
+    sortLegendBy(header: string): void
+    /** The value-table cells of each legend row as rendered, in row then column order. Empty for a
+     *  list legend. */
+    legendValues(): string[][]
     /** Fire one `mouseMove` over the label at `index`, without waiting for a tooltip. */
     hoverAtIndex(index: number): void
     /** Hover the label at `index` until the tooltip shows its content, then read it as a `DefaultTooltip`.
@@ -160,13 +217,24 @@ function findCanvas(scope: HTMLElement): HTMLCanvasElement | null {
     return scope.querySelector('canvas[aria-label]')
 }
 
-function parsePixelStyle(style: CSSStyleDeclaration, prop: 'top' | 'left'): number | null {
+function parsePixelStyle(style: CSSStyleDeclaration, prop: 'top' | 'left' | 'width' | 'height'): number | null {
     const raw = style[prop]
     if (!raw || !raw.endsWith('px')) {
         return null
     }
     const n = Number(raw.slice(0, -2))
     return Number.isFinite(n) ? n : null
+}
+
+/** Value bands rendered inside `scope`. Exported for overlay tests that render without a chart. */
+export function readValueBands(scope: ParentNode): ValueBandSummary[] {
+    return Array.from(scope.querySelectorAll<HTMLElement>('[data-attr="hog-chart-value-band"]')).map((el) => ({
+        top: parsePixelStyle(el.style, 'top'),
+        left: parsePixelStyle(el.style, 'left'),
+        width: parsePixelStyle(el.style, 'width'),
+        height: parsePixelStyle(el.style, 'height'),
+        color: el.style.backgroundColor,
+    }))
 }
 
 // The reference-line component renders a 1px line as a single coloured border
@@ -216,10 +284,20 @@ export function getChart<Meta = unknown>(
         }
         return count
     }
+    const gaugePart = (part: string): HTMLElement | null =>
+        wrapper.querySelector<HTMLElement>(`[data-attr="hog-chart-gauge-${part}"]`)
+    const flamePart = (part: string): HTMLElement | null =>
+        wrapper
+            .closest('[data-hog-charts-flame]')
+            ?.querySelector<HTMLElement>(`[data-attr="hog-chart-flame-${part}"]`) ?? null
 
     return {
         element: wrapper,
         canvas,
+        syncedIndex: () => {
+            const raw = wrapper.dataset.hogChartsSyncedIndex
+            return raw == null ? null : Number(raw)
+        },
         get seriesCount(): number {
             const match = SERIES_COUNT_RE.exec(canvas.getAttribute('aria-label') ?? '')
             return match ? Number(match[1]) : 0
@@ -249,6 +327,7 @@ export function getChart<Meta = unknown>(
             Array.from(wrapper.querySelectorAll<HTMLElement>('[data-attr="hog-chart-reference-line"]')).map(
                 readReferenceLine
             ),
+        valueBands: () => readValueBands(wrapper),
         valueLabels: () =>
             Array.from(wrapper.querySelectorAll<HTMLElement>('[data-attr="hog-chart-value-label"]')).map((el) => ({
                 text: el.textContent ?? '',
@@ -259,20 +338,55 @@ export function getChart<Meta = unknown>(
                 element: el,
                 color: el.style.backgroundColor,
             })),
-        slopeValueLabels: () =>
-            Array.from(wrapper.querySelectorAll<HTMLElement>('[data-attr="hog-chart-slope-value-label"]')).map(
-                (el) => ({
-                    text: el.textContent ?? '',
-                    color: el.style.color,
-                    side: el.dataset.slopeSide === 'end' ? 'end' : 'start',
-                })
-            ),
-        slopeSeriesLabels: () =>
-            Array.from(wrapper.querySelectorAll<HTMLElement>('[data-attr="hog-chart-slope-series-label"]')).map(
-                (el) => el.textContent ?? ''
-            ),
+        slope: {
+            valueLabels: () =>
+                Array.from(wrapper.querySelectorAll<HTMLElement>('[data-attr="hog-chart-slope-value-label"]')).map(
+                    (el) => ({
+                        text: el.textContent ?? '',
+                        color: el.style.color,
+                        side: el.dataset.slopeSide === 'end' ? 'end' : 'start',
+                    })
+                ),
+            seriesLabels: () => textsOf(wrapper, 'hog-chart-slope-series-label'),
+        },
+        sankey: {
+            nodeLabels: () => textsOf(wrapper, 'hog-chart-sankey-node-label'),
+            columnLabels: () => textsOf(wrapper, 'hog-chart-sankey-column-label'),
+        },
+        pie: {
+            sliceLabels: () =>
+                Array.from(wrapper.querySelectorAll<HTMLElement>('[data-attr="hog-chart-pie-slice-label"]')).map(
+                    (el) => ({
+                        text: el.textContent ?? '',
+                        lines: Array.from(el.querySelectorAll('div')).map((line) => line.textContent ?? ''),
+                    })
+                ),
+        },
+        gauge: {
+            text: () => {
+                const text = (part: string): string | null => gaugePart(part)?.textContent ?? null
+                const value = text('value')
+                return value === null ? null : { value, label: text('label'), min: text('min'), max: text('max') }
+            },
+            valueColor: () => gaugePart('value')?.style.color ?? null,
+        },
+        flame: {
+            breadcrumb: () => {
+                const root = wrapper.closest('[data-hog-charts-flame]')
+                return root ? textsOf(root, 'hog-chart-flame-breadcrumb') : []
+            },
+            searchSummary: () => flamePart('search-summary')?.textContent ?? null,
+            viewport: () => {
+                const viewport = flamePart('viewport')
+                if (!viewport) {
+                    throw new Error('This chart is not a flame graph')
+                }
+                return viewport
+            },
+            resetButton: () => flamePart('reset'),
+        },
+        legend: () => scope.querySelector<HTMLElement>('[data-hog-charts-legend]'),
         legendItems: () => readLegendItems(scope),
-        slopeLegendItems: () => readLegendItems(scope),
         clickLegendItem(label: string, { additive = false }: { additive?: boolean } = {}): void {
             const labelEl = Array.from(
                 scope.querySelectorAll<HTMLElement>('[data-attr="hog-chart-legend-label"]')
@@ -285,15 +399,26 @@ export function getChart<Meta = unknown>(
                 fireEvent.click(row, { metaKey: additive })
             })
         },
-        sankeyNodeLabels: () =>
-            Array.from(wrapper.querySelectorAll<HTMLElement>('[data-attr="hog-chart-sankey-node-label"]')).map(
-                (el) => el.textContent ?? ''
-            ),
-        sankeyColumnLabels: () =>
-            Array.from(wrapper.querySelectorAll<HTMLElement>('[data-attr="hog-chart-sankey-column-label"]')).map(
-                (el) => el.textContent ?? ''
-            ),
-        annotationBadges: () => Array.from(wrapper.querySelectorAll<HTMLElement>('.AnnotationsBadge')),
+        legendValues: () =>
+            Array.from(scope.querySelectorAll<HTMLElement>('[data-attr="hog-chart-legend-label"]'), (labelEl) =>
+                Array.from(
+                    labelEl
+                        .closest('button, div')
+                        ?.querySelectorAll<HTMLElement>('[data-attr="hog-chart-legend-value"]') ?? [],
+                    (cell) => cell.textContent ?? ''
+                )
+            ).filter((cells) => cells.length > 0),
+        sortLegendBy(header: string): void {
+            const button = Array.from(scope.querySelectorAll<HTMLElement>('[data-attr="hog-chart-legend-sort"]')).find(
+                (el) => el.textContent?.replace(/ [↑↓]$/, '') === header
+            )
+            if (!button) {
+                throw new Error(`No legend column headed "${header}"`)
+            }
+            act(() => {
+                fireEvent.click(button)
+            })
+        },
         hoverAtIndex(index: number): void {
             hoverAtIndex(wrapper, index, labelCount())
         },
@@ -332,6 +457,10 @@ export function getChart<Meta = unknown>(
             }
         },
     }
+}
+
+function textsOf(root: ParentNode, dataAttr: string): string[] {
+    return Array.from(root.querySelectorAll<HTMLElement>(`[data-attr="${dataAttr}"]`)).map((el) => el.textContent ?? '')
 }
 
 // The legend renders as a sibling of the chart wrapper (inside ChartLegendLayout), so it lives in the

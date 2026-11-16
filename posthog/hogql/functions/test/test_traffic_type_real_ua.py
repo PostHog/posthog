@@ -266,6 +266,7 @@ class TestTrafficTypeIntegration(BaseTest):
             ("google-special-v4", {"$raw_user_agent": renderer_ua, "$ip": "74.125.150.10"}, 1, "Bot", None),
             ("google-v6", {"$raw_user_agent": renderer_ua, "$ip": google_v6}, 1, "Bot", None),
             ("openai-chatgpt-user", {"$raw_user_agent": renderer_ua, "$ip": chatgpt_user_v4}, 1, "AI Agent", None),
+            ("anthropic-claude", {"$raw_user_agent": renderer_ua, "$ip": "216.73.216.10"}, 1, "AI Agent", None),
             ("residential", {"$raw_user_agent": renderer_ua, "$ip": "203.0.113.7"}, 0, "Regular", ""),
             ("garbage-ip", {"$raw_user_agent": renderer_ua, "$ip": "not-an-ip"}, 0, "Regular", ""),
             ("missing-ip", {"$raw_user_agent": renderer_ua}, 0, "Regular", ""),

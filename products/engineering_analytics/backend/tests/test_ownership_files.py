@@ -20,8 +20,7 @@ _CREDENTIAL = "products.warehouse_sources.backend.facade.api.github_source_crede
 class TestOwnershipFiles(BaseTest):
     def setUp(self) -> None:
         super().setUp()
-        # The team's covering integration is cached per repository, so one test's fallback would
-        # otherwise answer the next one's lookup.
+        # The team's covering integration is cached per repository, across tests.
         cache.clear()
 
     def _integration(self) -> Integration:
@@ -34,8 +33,6 @@ class TestOwnershipFiles(BaseTest):
         )
 
     def test_the_selected_sources_token_is_what_reads_the_repository(self) -> None:
-        # A connected source is the only credential engineering analytics has for a private
-        # repository, and the read must use the token of the source it was scoped to.
         with (
             patch(_CREDENTIAL, return_value=GitHubSourceCredential(personal_access_token="selected")) as credential,
             patch.object(GitHubFilesFetcher, "from_token", side_effect=GitHubFilesFetcher.from_token) as built,
@@ -47,8 +44,7 @@ class TestOwnershipFiles(BaseTest):
 
     @parameterized.expand([("a_connected_integration", True), ("an_integration_row_that_is_gone", False)])
     def test_an_oauth_source_reads_as_its_github_integration(self, _name: str, connected: bool) -> None:
-        # The source names an integration row rather than holding a token, so a row that was
-        # disconnected since the sync was configured has to fall back rather than fail the board.
+        # An OAuth source names an integration row, which can be disconnected after the sync is configured.
         integration_id = self._integration().pk if connected else 0
         with (
             patch(_CREDENTIAL, return_value=GitHubSourceCredential(integration_id=integration_id)),
@@ -68,7 +64,6 @@ class TestOwnershipFiles(BaseTest):
             ) as team_lookup,
         ):
             files = repo_files(self.team, _REPOSITORY, source_id=source_id, priority=Priority.BATCH)
-        # An empty source_id names no source, so it must not cost a source lookup either.
         assert credential.call_count == lookups
         team_lookup.assert_called_once()
         assert isinstance(files, GitHubRepoFiles)

@@ -7,6 +7,8 @@ from unittest.mock import MagicMock, patch
 
 from rest_framework import exceptions
 
+from products.surveys.backend.llm import generate_structured_output
+
 from .formatting import format_as_markdown
 from .llm.gemini import SummarizationResult, summarize_with_gemini
 from .llm.schema import SurveySummaryResponse, SurveyTheme
@@ -162,3 +164,57 @@ class TestSummarizeWithGemini:
 
         properties = mock_client.models.generate_content.call_args.kwargs["posthog_properties"]
         assert "$ai_billable" not in properties
+
+    @patch("products.surveys.backend.llm.client.create_gemini_client")
+    @patch("products.surveys.backend.llm.client.build_gemini_client")
+    def test_gateway_client_used_when_configured(self, mock_build_gateway, mock_create_client):
+        gateway_client = MagicMock()
+        mock_build_gateway.return_value = gateway_client
+        valid_response = {
+            "overview": "Users want better performance",
+            "themes": [{"theme": "Speed", "description": "Fast loading times", "frequency": ">50%"}],
+            "key_insight": "Focus on performance",
+        }
+        gateway_client.models.generate_content.return_value = MagicMock(text=json.dumps(valid_response))
+
+        result = summarize_with_gemini("What do you want?", ["Make it faster"], team_id=42, distinct_id="user-1")
+
+        mock_create_client.assert_not_called()
+        assert not any(key.startswith("posthog_") for key in gateway_client.models.generate_content.call_args.kwargs)
+        assert mock_build_gateway.call_args.kwargs == {
+            "ai_product": "surveys",
+            "trace_id": result.trace_id,
+            "properties": {
+                "ai_feature": "survey_summary",
+                "response_count": "1",
+                "team_id": "42",
+            },
+            "distinct_id": "user-1",
+        }
+
+    @pytest.mark.parametrize("billable,expected_headers", [(True, None), (False, {"X-PostHog-Billable": "false"})])
+    @patch("products.surveys.backend.llm.client.build_gemini_client")
+    def test_gateway_unbilled_call_opts_out_of_billing(self, mock_build_gateway, billable, expected_headers):
+        gateway_client = MagicMock()
+        mock_build_gateway.return_value = gateway_client
+        gateway_client.models.generate_content.return_value = MagicMock(
+            text=json.dumps(
+                {
+                    "overview": "o",
+                    "themes": [{"theme": "t", "description": "d", "frequency": ">50%"}],
+                    "key_insight": "k",
+                }
+            )
+        )
+
+        generate_structured_output(
+            model="gemini-3-flash-preview",
+            system_prompt="system",
+            user_prompt="user",
+            response_schema=SurveySummaryResponse,
+            team_id=42,
+            billable=billable,
+        )
+
+        http_options = gateway_client.models.generate_content.call_args.kwargs["config"].http_options
+        assert (http_options.headers if http_options else None) == expected_headers

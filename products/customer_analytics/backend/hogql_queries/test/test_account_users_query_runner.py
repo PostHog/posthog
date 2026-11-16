@@ -1,151 +1,944 @@
-from posthog.test.base import APIBaseTest, ClickhouseTestMixin, flush_persons_and_events
+import json
+from datetime import UTC, datetime
+from functools import partial
+from typing import Any
+
+from posthog.test.base import APIBaseTest, ClickhouseTestMixin, QueryMatchingTest, flush_persons_and_events
 from unittest.mock import patch
 
+from django.test import SimpleTestCase, override_settings
+
 from parameterized import parameterized
-from rest_framework import status
 
-from posthog.schema import CacheMissResponse, QueryStatus
+from posthog.schema import ActorsQuery, CacheMissResponse, HogQLQueryResponse, QueryStatus
 
+from posthog.hogql import ast
+from posthog.hogql.context import HogQLContext
+from posthog.hogql.database.database import Database
+from posthog.hogql.printer import prepare_and_print_ast
+from posthog.hogql.query import execute_hogql_query
+
+from posthog.api_queries_budget import budget_spec_for, debit, get_request_query_cost, refill_and_read
+from posthog.clickhouse.client import sync_execute
+from posthog.clickhouse.client.limit import get_api_team_rate_limiter, get_app_org_rate_limiter
+from posthog.clickhouse.query_tagging import get_query_tags
 from posthog.constants import AvailableFeature
-from posthog.hogql_queries.query_runner import ExecutionMode, get_query_runner
-from posthog.models import Organization, OrganizationMembership, User
+from posthog.hogql_queries.actors_query_runner import ActorsQueryRunner
+from posthog.hogql_queries.paginators import HogQLHasMorePaginator
+from posthog.hogql_queries.query_runner import API_QUERIES_BUDGET_ENFORCEMENT_FLAG, ExecutionMode, get_query_runner
+from posthog.models import OrganizationMembership, Team, User
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.utils import generate_random_token_personal, hash_key_value
-from posthog.test.persons import create_person
+from posthog.test.persons import create_person, update_person
 
 from products.access_control.backend.models.access_control import AccessControl
-from products.customer_analytics.backend.constants import ACCOUNT_USERS_QUERY_STATUS_LABEL_PREFIX
-from products.customer_analytics.backend.logic.account_member_search import list_organization_member_distinct_ids
+from products.access_control.backend.models.property_access_control import PropertyAccessControl
+from products.customer_analytics.backend.hogql_queries.account_persons_catalog import (
+    ACCOUNT_PERSONS_CATALOG_FLAG,
+    AccountPersonsCatalog,
+)
+from products.customer_analytics.backend.logic import account_person_memberships as memberships_logic
+from products.customer_analytics.backend.logic.account_persons import AccountPersonsReader
+from products.customer_analytics.backend.models import TeamCustomerAnalyticsConfig
+from products.customer_analytics.backend.presentation.views.account_persons import AccountPersonsQuerySerializer
 from products.customer_analytics.backend.test.factories import create_account
+from products.event_definitions.backend.models import PropertyDefinition
 
-FLAG_CHECK = "products.customer_analytics.backend.logic.account_member_search.posthog_feature_flag_enabled"
+FLAG_CHECK = "products.customer_analytics.backend.logic.account_persons.posthog_feature_flag_enabled"
+CATALOG_FLAG_CHECK = (
+    "products.customer_analytics.backend.hogql_queries.account_persons_catalog.get_feature_flag_or_none"
+)
 
 
-class TestAccountUsersQuery(ClickhouseTestMixin, APIBaseTest):
+class TestAccountPersonMembershipLimits(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ([3, 1, 1], 2, 6, [2]),
+            ([2, 2, 2], 2, 6, [1, 2]),
+            ([2], 2, 3, [1]),
+            ([2], 2, 2, []),
+        ]
+    )
+    def test_alias_budget_omits_incomplete_people(
+        self, alias_counts: list[int], person_limit: int, request_limit: int, expected_ids: list[int]
+    ) -> None:
+        aliases = {
+            person_id: [f"person-{person_id}-alias-{index}" for index in range(count)]
+            for person_id, count in enumerate(alias_counts, start=1)
+        }
+        fetched: list[str] = []
+
+        def get_aliases(team_id: int, person_ids: list[int], *, limit_per_person: int) -> dict[int, list[str]]:
+            rows = {person_id: aliases[person_id][:limit_per_person] for person_id in person_ids}
+            fetched.extend(alias for values in rows.values() for alias in values)
+            return rows
+
+        with (
+            patch.object(memberships_logic, "MAX_ALIASES_PER_PERSON", person_limit),
+            patch.object(memberships_logic, "MAX_ALIASES_PER_REQUEST", request_limit),
+            patch.object(memberships_logic, "get_distinct_ids_for_persons", side_effect=get_aliases),
+        ):
+            resolved = memberships_logic.get_person_distinct_ids(1, list(aliases))
+
+        assert resolved == {person_id: aliases[person_id] for person_id in expected_ids}
+        assert len(fetched) <= request_limit
+
+
+class TestAccountPersonsQueryValidation(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ({}, True),
+            ({"select": ["person.$delete"]}, True),
+            ({"select": ["person.$delete -- Label"]}, False),
+            ({"select": ["person.$delete -- Label\n + (SELECT count() FROM warehouse_table)"]}, False),
+            ({"select": ["persons.id", "properties.`a.b` AS value", "source.distinct_ids"]}, True),
+            ({"orderBy": ["person_display_name DESC"]}, True),
+            ({"select": ["coalesce(nullIf(toString(properties.name), ''), persons.id)"]}, True),
+            ({"orderBy": ["toString(properties.name) DESC"]}, True),
+            ({"orderBy": ["1 WITH FILL"]}, False),
+            ({"orderBy": ["1 WITH FILL FROM (SELECT count() FROM warehouse_table)"]}, False),
+            ({"select": ["toString(1)(properties.name)"]}, False),
+            ({"select": ["toString(properties.name) FILTER (WHERE (SELECT count() FROM warehouse_table))"]}, False),
+            ({"select": ["toString(properties.name ORDER BY (SELECT count() FROM warehouse_table))"]}, False),
+            (
+                {"select": ["toString(properties.name) WITHIN GROUP (ORDER BY (SELECT count() FROM warehouse_table))"]},
+                False,
+            ),
+            ({"select": ["toString(DISTINCT properties.name)"]}, False),
+            ({"orderBy": ["toString(properties.name) FILTER (WHERE (SELECT count() FROM warehouse_table))"]}, False),
+            ({"select": ["coalesce(toString(properties.name) FILTER (WHERE 1), '')"]}, False),
+            ({"select": ["persons.revenue_analytics.mrr"]}, False),
+            ({"select": ["properties.$virt_mrr"]}, False),
+            ({"select": ["(SELECT count() FROM warehouse_table)"]}, False),
+            ({"select": ["persons.custom_join.email"]}, False),
+            ({"select": ["persons.source.account_last_seen"]}, False),
+            ({"select": ["1 + 1"]}, False),
+            ({"select": ["("]}, False),
+            ({"orderBy": ["(SELECT count() FROM warehouse_table) DESC"]}, False),
+            ({"properties": [{"type": "hogql", "key": "1=1"}]}, False),
+            ({"fixedProperties": [{"type": "cohort", "key": "id", "value": 1}]}, False),
+            (
+                {
+                    "properties": {
+                        "type": "AND",
+                        "values": [{"type": "person", "key": "plan", "operator": "exact", "value": "paid"}],
+                    }
+                },
+                True,
+            ),
+            ({"properties": [{"type": "person", "key": "$virt_mrr", "operator": "gt", "value": 0}]}, False),
+            ({"modifiers": {"dataWarehouseEventsModifiers": []}}, False),
+        ]
+    )
+    def test_builtin_catalog_accepts_only_supported_inputs(self, overrides: dict, supported: bool) -> None:
+        query = ActorsQuery.model_validate(
+            {
+                "kind": "ActorsQuery",
+                "source": {"kind": "AccountUsersQuery", "accountId": "example-account"},
+                "select": ["person_display_name -- Person", "properties.plan", "source.account_last_seen"],
+                **overrides,
+            }
+        )
+        assert AccountPersonsCatalog.supports_query(query, Team()) is supported
+
+    @parameterized.expand(
+        [
+            ({"limit": 0}, "limit"),
+            ({"limit": 501}, "limit"),
+            ({"offset": -1}, "offset"),
+            ({"sort_column": "unselected"}, "sort_column"),
+            ({"sort_direction": "sideways"}, "sort_direction"),
+            ({"filters": "invalid"}, "filters"),
+            ({"filters": json.dumps([{"type": "hogql", "key": "1=1"}])}, "filters"),
+        ]
+    )
+    def test_invalid_parameters(self, parameters: dict, field: str) -> None:
+        serializer = AccountPersonsQuerySerializer(data=parameters)
+        assert not serializer.is_valid()
+        assert field in serializer.errors
+
+
+class TestAccountPersonsCatalogEvents(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("control", False, True),
+            ("test", False, True),
+            ("test", True, True),
+            ("test", False, False),
+            (None, False, True),
+        ]
+    )
+    def test_exposure_and_outcome(self, variant: str | None, failed: bool, track: bool) -> None:
+        team = Team(id=123, organization_id="00000000-0000-0000-0000-000000000001")
+        user = User(distinct_id="example-reader", email="reader@example.com")
+        catalog = AccountPersonsCatalog(team, user)
+        with (
+            patch("posthog.ph_client.posthoganalytics.get_feature_flag", return_value=variant) as flag_check,
+            patch(
+                "products.customer_analytics.backend.hogql_queries.account_persons_catalog.emit_slo_started"
+            ) as started,
+            patch(
+                "products.customer_analytics.backend.hogql_queries.account_persons_catalog.emit_slo_completed"
+            ) as completed,
+        ):
+            if failed:
+                with self.assertRaises(RuntimeError), catalog.run(track=track):
+                    raise RuntimeError("Do not capture this content")
+            else:
+                with catalog.run(track=track):
+                    catalog.cache_hit = True
+            assert flag_check.call_args.kwargs["only_evaluate_locally"] is True
+            assert flag_check.call_args.kwargs["send_feature_flag_events"] is False
+            if variant is None or not track:
+                assert not started.called and not completed.called
+            else:
+                exposure = started.call_args.kwargs["extra_properties"]
+                assert started.call_args.kwargs["properties"].operation == "account_persons_query"
+                assert completed.call_args.kwargs["properties"].operation == "account_persons_query"
+                assert exposure[f"$feature/{ACCOUNT_PERSONS_CATALOG_FLAG}"] == variant
+                assert completed.call_args.kwargs["properties"].outcome == ("failure" if failed else "success")
+                assert "error_message" not in completed.call_args.kwargs["extra_properties"]
+                assert completed.call_args.kwargs["extra_properties"]["cache_hit"] is not failed
+
+
+class TestMembershipSchema(QueryMatchingTest, SimpleTestCase):
+    def test_source_resolves_current_mappings_and_binds_account_key(self) -> None:
+        team = Team(id=123, project_id=123)
+        group_key = "workspace' OR 1 = 1 --"
+        reader = AccountPersonsReader(team=team, user=User(), group_type_index=0, group_key=group_key)
+        context = HogQLContext(
+            team_id=team.pk,
+            team=team,
+            database=Database(),
+            enable_select_queries=True,
+            restricted_properties=set(),
+            use_new_events_schema=False,
+        )
+        sql, _ = prepare_and_print_ast(reader.get_source_query(), context=context, dialect="clickhouse")
+        self.assertQueryMatchesSnapshot(sql)
+        assert group_key not in sql
+        assert group_key in context.values.values()
+
+
+@override_settings(HOGQL_MATERIALIZED_CTE_SUPPORTED=True)
+class TestAccountUsersQuery(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
     def setUp(self) -> None:
         super().setUp()
-        customer_org = Organization.objects.create(name="Customer")
-        for email in ("ana@example.com", "bo@example.com"):
-            member = User.objects.create(email=email, distinct_id=f"distinct-{email}")
-            OrganizationMembership.objects.create(organization=customer_org, user=member)
-            create_person(team=self.team, distinct_ids=[member.distinct_id], properties={"email": email})
-        create_person(team=self.team, distinct_ids=["outsider"], properties={"email": "outsider@example.com"})
+        self.enterContext(patch(FLAG_CHECK, return_value=True))
+        self.catalog_flag_check = self.enterContext(patch(CATALOG_FLAG_CHECK, return_value=None))
+        TeamCustomerAnalyticsConfig.objects.update_or_create(team=self.team, defaults={"account_group_type_index": 0})
+        self.account = create_account(team_id=self.team.pk, external_id="workspace-demo")
+        self.endpoint = f"/api/projects/{self.team.pk}/accounts/{self.account.id}/persons/"
+        self.first = create_person(
+            team=self.team,
+            distinct_ids=["member-one", "member-one-alias"],
+            properties={"email": "first@example.com", "name": "First member", "plan": "paid", "private_note": "hidden"},
+            is_identified=True,
+        )
+        self.second = create_person(
+            team=self.team,
+            distinct_ids=["member-two"],
+            properties={"email": "second@example.com", "plan": "free"},
+            is_identified=True,
+        )
+        create_person(team=self.team, distinct_ids=["anonymous-member"], properties={"email": "anon@example.com"})
+        create_person(team=self.team, distinct_ids=["non-member"], properties={"email": "outside@example.com"})
         flush_persons_and_events()
-        self.account = create_account(team_id=self.team.id, external_id=str(customer_org.id))
-        self.query = {
-            "kind": "ActorsQuery",
-            "source": {"kind": "AccountUsersQuery", "accountId": str(self.account.id)},
-            "select": ["properties.email"],
-            "orderBy": ["properties.email DESC"],
-        }
-        self.user.is_staff = True
-        self.user.save()
-
-    def _run(self, headers: dict[str, str] | None = None):
-        return self.client.post(
-            f"/api/projects/{self.team.id}/query/",
-            {"query": self.query, "refresh": "blocking"},
-            format="json",
-            headers=headers,
+        self._insert_membership("member-one", "2024-01-01", "2024-01-05")
+        self._insert_membership("member-one-alias", "2024-01-02", "2024-01-09")
+        self._insert_membership("member-two", "2024-01-03", "2024-01-06")
+        self._insert_membership("anonymous-member", "2024-01-01", "2024-01-10")
+        self._insert_membership("non-member", "2024-01-01", "2024-01-10", group_key="another-workspace")
+        self._insert_membership("non-member", "2024-01-01", "2024-01-10", group_type_index=1)
+        self._insert_membership(
+            "non-member", "2024-01-01", "2024-01-10", team_id=Team.objects.create(organization=self.organization).pk
         )
 
-    def _hide_account_from_user(self) -> None:
+    def _get_widget_query(self, **overrides: Any) -> dict[str, Any]:
+        return {
+            "kind": "ActorsQuery",
+            "source": {"kind": "AccountUsersQuery", "accountId": str(self.account.id)},
+            "select": ["person_display_name -- Person", "properties.plan", "source.account_last_seen"],
+            "orderBy": ["source.account_last_seen DESC"],
+            **overrides,
+        }
+
+    def _run_widget_query(self, **overrides: Any) -> Any:
+        return self.client.post(
+            self.endpoint,
+            {"query": self._get_widget_query(**overrides), "refresh": "blocking"},
+            format="json",
+        )
+
+    @parameterized.expand([(False, None), (True, 120)])
+    def test_widget_query_supports_display_names_filters_search_sort_and_pages(
+        self, materialized_cte: bool, max_threads: int | None
+    ) -> None:
+        self.catalog_flag_check.return_value = "test"
+        self.enterContext(
+            self.settings(
+                HOGQL_MATERIALIZED_CTE_SUPPORTED=materialized_cte, CLICKHOUSE_ACCOUNT_USERS_MAX_THREADS=max_threads
+            )
+        )
+        with patch("posthog.hogql_queries.paginators.execute_hogql_query", wraps=execute_hogql_query) as execute_query:
+            response = self._run_widget_query(limit=1)
+        assert execute_query.call_args.kwargs["settings"].max_threads == max_threads
+        assert response.status_code == 200, response.content
+        page = response.json()
+        assert page["results"][0][0] == {"display_name": "first@example.com", "id": str(self.first.uuid)}
+        assert page["hasMore"] and page["limit"] == 1
+        runner = get_query_runner(self._get_widget_query(limit=1), self.team, user=self.user)
+        assert isinstance(runner, ActorsQueryRunner)
+        query = runner.paginator.paginate(runner.to_query())
+        context = runner.build_hogql_context(enable_select_queries=True, modifiers=runner.modifiers)
+        sql, _ = prepare_and_print_ast(
+            query,
+            context=context,
+            dialect="clickhouse",
+        )
+        self.assertQueryMatchesSnapshot(sql)
+        plan = json.loads(sync_execute("EXPLAIN PLAN indexes=1, json=1 " + sql, context.values)[0][0])
+        pending = [plan[0]["Plan"]]
+        person_reads = []
+        while pending:
+            step = pending.pop()
+            if step["Node Type"] == "ReadFromMergeTree" and step.get("Description", "").endswith(".person"):
+                person_reads.append(step)
+            pending.extend(step.get("Plans", []))
+        assert person_reads
+        assert all(
+            any(
+                index["Type"] == "PrimaryKey" and "(id in " in index.get("Condition", "")
+                for index in step.get("Indexes", [])
+            )
+            for step in person_reads
+        )
+        response = self._run_widget_query(limit=1, offset=1)
+        assert response.status_code == 200, response.content
+        assert response.json()["results"][0][0]["id"] == str(self.second.uuid)
+        response = self._run_widget_query(
+            search="member-one-alias",
+            properties=[{"type": "person", "key": "plan", "operator": "exact", "value": "paid"}],
+            orderBy=["properties.plan ASC"],
+        )
+        assert response.status_code == 200, response.content
+        assert len(response.json()["results"]) == 1
+        assert response.json()["results"][0][0]["id"] == str(self.first.uuid)
+
+    def test_widget_catalog_variants_keep_results_and_caches_separate(self) -> None:
+        self.catalog_flag_check.return_value = "control"
+        control = self._run_widget_query().json()
+        self.catalog_flag_check.return_value = "test"
+        treatment = self._run_widget_query().json()
+        cached = self._run_widget_query().json()
+        assert control["results"] == treatment["results"] == cached["results"]
+        assert not control["is_cached"] and not treatment["is_cached"]
+        assert cached["is_cached"]
+
+    @parameterized.expand([("flag_disabled",), ("account_hidden",)])
+    def test_widget_cached_results_repeat_access_checks(self, condition: str) -> None:
+        response = self._run_widget_query()
+        assert response.status_code == 200, response.content
+        if condition == "account_hidden":
+            self.organization.available_product_features = [{"key": AvailableFeature.ACCESS_CONTROL}]
+            self.organization.save()
+            AccessControl.objects.create(
+                team=self.team,
+                resource="account",
+                resource_id=str(self.account.id),
+                access_level="none",
+                organization_member=self.organization_membership,
+            )
+        with patch(FLAG_CHECK, return_value=condition != "flag_disabled"):
+            response = self.client.post(self.endpoint, {"query": self._get_widget_query()}, format="json")
+        assert response.status_code == 400, response.content
+
+    @parameterized.expand(
+        [
+            ("no_user",),
+            ("different_user",),
+            ("person_properties",),
+            ("event_properties",),
+            ("group_properties",),
+            ("resource_access",),
+        ]
+    )
+    def test_widget_cache_read_requires_the_same_authorization_context(self, condition: str) -> None:
+        if condition.endswith("properties"):
+            self.organization.available_product_features = [{"key": AvailableFeature.PROPERTY_ACCESS_CONTROL}]
+            self.organization.save()
+            self.organization_membership.level = OrganizationMembership.Level.MEMBER
+            self.organization_membership.save()
+        elif condition == "resource_access":
+            self.organization.available_product_features = [{"key": AvailableFeature.ACCESS_CONTROL}]
+            self.organization.save()
+        get_query_runner(self._get_widget_query(), self.team, user=self.user).run(
+            ExecutionMode.CALCULATE_BLOCKING_ALWAYS, user=self.user
+        )
+        user: User | None = self.user
+        if condition == "no_user":
+            user = None
+        elif condition == "different_user":
+            user = User.objects.create_and_join(self.organization, "reader@example.com", password=None)
+        elif condition == "resource_access":
+            AccessControl.objects.create(
+                team=self.team,
+                resource="dashboard",
+                access_level="none",
+                organization_member=self.organization_membership,
+            )
+        else:
+            property_type = {
+                "person_properties": PropertyDefinition.Type.PERSON,
+                "event_properties": PropertyDefinition.Type.EVENT,
+                "group_properties": PropertyDefinition.Type.GROUP,
+            }[condition]
+            self._restrict_properties(property_type)
+        response = get_query_runner(self._get_widget_query(), self.team, user=user).run(
+            ExecutionMode.CACHE_ONLY_NEVER_CALCULATE, user=user
+        )
+        assert isinstance(response, CacheMissResponse)
+
+    @parameterized.expand([("control",), ("test",)])
+    def test_widget_display_name_and_search_hide_restricted_properties(self, variant: str) -> None:
+        self.catalog_flag_check.return_value = variant
+        if variant == "test":
+            self.enterContext(
+                patch.object(Database, "_fetch_sources", side_effect=AssertionError("Unexpected catalog load"))
+            )
+        self._restrict_properties()
+        response = self._run_widget_query()
+        assert response.status_code == 200, response.content
+        assert all(row[0]["display_name"] == row[0]["id"] for row in response.json()["results"])
+        response = self._run_widget_query(search="first@example.com")
+        assert response.status_code == 200, response.content
+        assert response.json()["results"] == []
+        assert self.catalog_flag_check.call_args.args == (ACCOUNT_PERSONS_CATALOG_FLAG, str(self.user.distinct_id))
+        assert self.catalog_flag_check.call_args.kwargs["groups"]["organization"] == str(self.team.organization_id)
+
+    @parameterized.expand(
+        [
+            ([],),
+            (["person"],),
+            (["actor"],),
+            (["persons.id AS `group`", "group"],),
+            (["persons.id AS session", "session"],),
+            (["(SELECT count() FROM posthog.person_group_membership)"],),
+            (["lower(properties.email)"],),
+        ]
+    )
+    def test_widget_rejects_unsupported_columns(self, columns: list[str]) -> None:
+        self._restrict_properties()
+        assert self._run_widget_query(select=columns).status_code == 400
+
+    @parameterized.expand(
+        [
+            (refresh, interface)
+            for refresh in ("async", "force_async", "async_except_on_cache_miss", "lazy_async", "legacy")
+            for interface in ("dedicated", "generic", "wrapped")
+        ]
+    )
+    def test_async_account_user_requests_are_rejected(self, refresh: str, interface: str) -> None:
+        query = self._get_widget_query()
+        data: dict[str, Any] = {
+            "query": {"kind": "DataTableNode", "source": query} if interface == "wrapped" else query
+        }
+        if refresh == "legacy":
+            data["async"] = True
+        else:
+            data["refresh"] = refresh
+        endpoint = self.endpoint if interface == "dedicated" else f"/api/projects/{self.team.pk}/query/"
+        with patch("posthog.hogql_queries.query_runner.enqueue_process_query_task") as enqueue:
+            response = self.client.post(endpoint, data, format="json")
+        assert response.status_code == 400, response.content
+        enqueue.assert_not_called()
+
+    @parameterized.expand(["missing_source", "other_source", "different_account", "other_query"])
+    def test_widget_endpoint_rejects_queries_outside_its_account(self, condition: str) -> None:
+        query = self._get_widget_query()
+        if condition == "missing_source":
+            query.pop("source")
+        elif condition == "other_source":
+            query["source"] = {"kind": "PersonsNode"}
+        elif condition == "different_account":
+            query["source"]["accountId"] = str(create_account(team_id=self.team.pk, external_id="other-workspace").id)
+        else:
+            query = {"kind": "HogQLQuery", "query": "select 1"}
+        assert self.client.post(self.endpoint, {"query": query}, format="json").status_code == 400
+
+    @parameterized.expand([(True, 403), (False, 200)])
+    def test_account_user_query_ids_are_unavailable(self, account_users: bool, expected: int) -> None:
+        stored = QueryStatus(
+            id="stored-query",
+            team_id=self.team.pk,
+            complete=True,
+            labels=[f"customer-analytics-account-users:{self.account.id}"] if account_users else [],
+            results={"results": [["member"]]},
+        )
+        with patch("posthog.api.query.get_query_status", return_value=stored):
+            response = self.client.get(f"/api/projects/{self.team.pk}/query/stored-query/")
+        assert response.status_code == expected, response.content
+
+    def _insert_membership(
+        self,
+        distinct_id: str,
+        first_seen: str,
+        last_seen: str,
+        *,
+        group_key: str = "workspace-demo",
+        group_type_index: int = 0,
+        team_id: int | None = None,
+    ) -> None:
+        sync_execute(
+            "INSERT INTO person_group_membership (team_id, group_type_index, group_key, distinct_id, first_seen, last_seen) VALUES",
+            [
+                {
+                    "team_id": self.team.pk if team_id is None else team_id,
+                    "group_type_index": group_type_index,
+                    "group_key": group_key,
+                    "distinct_id": distinct_id,
+                    "first_seen": datetime.fromisoformat(first_seen).replace(tzinfo=UTC),
+                    "last_seen": datetime.fromisoformat(last_seen).replace(tzinfo=UTC),
+                }
+            ],
+        )
+
+    @parameterized.expand(
+        [
+            (100, 500, 5_000, True, True),
+            (100, 1, 5_000, True, True),
+            (1, 500, 5_000, False, True),
+            (2, 1, 3, True, False),
+            (2, 500, 2, False, False),
+        ]
+    )
+    def test_membership_enrichment_resolves_aliases_and_excludes_inaccessible_accounts(
+        self,
+        alias_limit: int,
+        query_batch_size: int,
+        request_limit: int,
+        include_first: bool,
+        include_second: bool,
+    ) -> None:
+        other_key = "second-workspace"
+        hidden_key = "hidden-workspace"
+        other = create_account(team_id=self.team.pk, external_id=other_key, name="Second workspace")
+        hidden = create_account(team_id=self.team.pk, external_id=hidden_key)
         self.organization.available_product_features = [{"key": AvailableFeature.ACCESS_CONTROL}]
         self.organization.save()
         AccessControl.objects.create(
             team=self.team,
             resource="account",
-            resource_id=str(self.account.id),
+            resource_id=str(hidden.id),
             access_level="none",
             organization_member=OrganizationMembership.objects.get(user=self.user, organization=self.organization),
         )
+        self._insert_membership("member-one-alias", "2024-01-01", "2024-01-05", group_key=other_key)
+        self._insert_membership("member-one", "2024-01-01", "2024-01-05", group_key=hidden_key)
+        self._insert_membership("member-one", "2024-01-01", "2024-01-05", group_key="untracked-workspace")
+        outside = create_person(team=self.team, distinct_ids=["outside-person"], is_identified=True)
+        self._insert_membership("outside-person", "2024-01-01", "2024-01-05", group_key=other_key)
+        flush_persons_and_events()
+        with (
+            patch.object(memberships_logic, "MAX_ALIASES_PER_PERSON", alias_limit),
+            patch.object(memberships_logic, "MAX_ALIASES_PER_REQUEST", request_limit),
+            patch.object(memberships_logic, "MEMBERSHIP_QUERY_BATCH_SIZE", query_batch_size),
+            patch.object(
+                memberships_logic, "list_membership_keys", wraps=memberships_logic.list_membership_keys
+            ) as queries,
+        ):
+            response = self.client.post(
+                self.endpoint + "memberships/",
+                {"person_ids": [str(self.first.uuid), str(self.second.uuid), str(outside.uuid)]},
+                format="json",
+            )
+        assert all(len(call.args[2]) <= query_batch_size for call in queries.call_args_list)
+        assert response.status_code == 200, response.content
+        accounts = {item["person_id"]: {account["id"] for account in item["accounts"]} for item in response.json()}
+        expected = {}
+        if include_first:
+            expected[str(self.first.uuid)] = {str(self.account.id), str(other.id)}
+        if include_second:
+            expected[str(self.second.uuid)] = {str(self.account.id)}
+        assert accounts == expected
+        assert sum(len(call.args[2]) for call in queries.call_args_list) <= request_limit
 
-    @patch(FLAG_CHECK, return_value=True)
-    def test_staff_get_the_organization_members_as_persons(self, _flag) -> None:
-        response = self._run()
+    @parameterized.expand([([],), (["invalid"],), (["00000000-0000-0000-0000-000000000001"] * 501,)])
+    def test_membership_enrichment_rejects_invalid_or_oversized_requests(self, person_ids: list[str]) -> None:
+        response = self.client.post(self.endpoint + "memberships/", {"person_ids": person_ids}, format="json")
+        assert response.status_code == 400
 
-        assert response.status_code == status.HTTP_200_OK, response.content
-        assert response.json()["results"] == [["bo@example.com"], ["ana@example.com"]]
+    def test_persons_are_narrowed_aggregated_and_paginated(self) -> None:
+        self.first.properties["email"] = "updated@example.com"
+        del self.first.properties["private_note"]
+        self.first.version = (self.first.version or 0) + 1
+        update_person(self.first)
+        flush_persons_and_events()
+        response = self.client.get(
+            self.endpoint, {"limit": "1", "properties": json.dumps(["email", "plan", "private_note"])}
+        )
+        assert response.status_code == 200, response.content
+        page = response.json()
+        assert page["has_more"] and page["next_offset"] == 1
+        assert page["columns"] == ["email", "plan", "private_note"]
+        person = page["results"][0]
+        assert person["id"] == str(self.first.uuid)
+        assert set(person["distinct_ids"]) == {"member-one", "member-one-alias"}
+        assert person["properties"] == {"email": "updated@example.com", "plan": "paid", "private_note": None}
+        assert person["display_name"] == "updated@example.com"
+        assert person["account_first_seen"] == "2024-01-01T00:00:00Z"
+        assert person["account_last_seen"] == "2024-01-09T00:00:00Z"
+        next_page = self.client.get(self.endpoint, {"limit": 1, "offset": page["next_offset"]}).json()
+        assert [item["id"] for item in next_page["results"]] == [str(self.second.uuid)]
+        assert not next_page["has_more"] and next_page["next_offset"] is None
+
+        self._insert_membership("member-two", "2024-01-03", "2024-01-09")
+        id_order_response = self.client.get(self.endpoint, {"sort_column": "id", "sort_direction": "asc"})
+        assert id_order_response.status_code == 200, id_order_response.content
+        expected_ids = [person["id"] for person in id_order_response.json()["results"]]
+        assert set(expected_ids) == {str(self.first.uuid), str(self.second.uuid)}
+        first_page_response = self.client.get(self.endpoint, {"limit": 1})
+        assert first_page_response.status_code == 200, first_page_response.content
+        first_page = first_page_response.json()
+        assert first_page["limit"] == 1 and first_page["offset"] == 0
+        assert first_page["has_more"] and first_page["next_offset"] == 1
+        second_page_response = self.client.get(self.endpoint, {"limit": 1, "offset": first_page["next_offset"]})
+        assert second_page_response.status_code == 200, second_page_response.content
+        second_page = second_page_response.json()
+        assert second_page["limit"] == 1 and second_page["offset"] == 1
+        assert not second_page["has_more"] and second_page["next_offset"] is None
+        assert [person["id"] for person in first_page["results"] + second_page["results"]] == expected_ids
 
     @parameterized.expand(
         [
-            ("not_staff", False, True, False),
-            ("flag_off", True, False, False),
-            ("account_hidden", True, True, True),
+            ({"search": "first@example.com"}, "first"),
+            ({"search": "First member"}, "first"),
+            ({"search": "member-one-alias"}, "first"),
+            ({"filters": json.dumps([{"key": "plan", "operator": "exact", "value": "free"}])}, "second"),
+            (
+                {"properties": json.dumps(["email"]), "sort_column": "email", "sort_direction": "asc", "limit": 1},
+                "first",
+            ),
+            ({"sort_column": "account_first_seen", "sort_direction": "desc", "limit": 1}, "second"),
         ]
     )
-    def test_denies_access_even_when_cached(self, _name, is_staff, flag_on, account_hidden) -> None:
-        with patch(FLAG_CHECK, return_value=True):
-            assert self._run().status_code == status.HTTP_200_OK
+    def test_search_filter_and_sort(self, parameters: dict, expected: str) -> None:
+        response = self.client.get(self.endpoint, parameters)
+        assert response.status_code == 200, response.content
+        assert [item["id"] for item in response.json()["results"]] == [str(getattr(self, expected).uuid)]
 
-        self.user.is_staff = is_staff
-        self.user.save()
-        if account_hidden:
-            self._hide_account_from_user()
-        with patch(FLAG_CHECK, return_value=flag_on):
-            response = self._run()
+    def test_search_by_person_id(self) -> None:
+        response = self.client.get(self.endpoint, {"search": str(self.second.uuid)})
+        assert response.status_code == 200, response.content
+        assert [person["id"] for person in response.json()["results"]] == [str(self.second.uuid)]
 
-        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.content
-        assert "Access control failure" in response.json()["detail"]
-
-    @patch(FLAG_CHECK, return_value=True)
-    def test_cache_only_read_without_a_user_misses_staff_results(self, _flag) -> None:
-        get_query_runner(self.query, self.team, user=self.user).run(
-            ExecutionMode.CALCULATE_BLOCKING_ALWAYS, user=self.user
+    def test_current_mapping_combines_reassigned_aliases(self) -> None:
+        sync_execute(
+            "INSERT INTO person_distinct_id2 (team_id, distinct_id, person_id, is_deleted, version) VALUES",
+            [
+                {
+                    "team_id": self.team.pk,
+                    "distinct_id": "member-two",
+                    "person_id": self.first.uuid,
+                    "is_deleted": 0,
+                    "version": 100,
+                }
+            ],
         )
+        response = self.client.get(self.endpoint)
+        assert response.status_code == 200, response.content
+        assert [person["id"] for person in response.json()["results"]] == [str(self.first.uuid)]
+        assert set(response.json()["results"][0]["distinct_ids"]) == {"member-one", "member-one-alias", "member-two"}
 
-        response = get_query_runner(self.query, self.team).run(ExecutionMode.CACHE_ONLY_NEVER_CALCULATE)
+    @parameterized.expand([("empty-workspace",), (None,)])
+    def test_empty_account_returns_an_empty_page(self, external_id: str | None) -> None:
+        account = create_account(team_id=self.team.pk, external_id=external_id)
+        response = self.client.get(f"/api/projects/{self.team.pk}/accounts/{account.id}/persons/")
+        assert response.status_code == 200, response.content
+        assert response.json()["results"] == []
+        assert not response.json()["has_more"]
 
-        assert isinstance(response, CacheMissResponse)
+    def test_query_tags_and_slo_exclude_property_values(self) -> None:
+        execute = HogQLHasMorePaginator.execute_hogql_query
+        tags = []
 
-    @parameterized.expand([("staff", True, status.HTTP_200_OK), ("not_staff", False, status.HTTP_403_FORBIDDEN)])
-    @patch(FLAG_CHECK, return_value=True)
-    def test_async_result_retrieval_repeats_the_access_check(self, _name, is_staff, expected_status, _flag) -> None:
-        self.user.is_staff = is_staff
-        self.user.save()
-        stored = QueryStatus(
-            id="account-users-query",
-            team_id=self.team.id,
-            complete=True,
-            labels=[f"{ACCOUNT_USERS_QUERY_STATUS_LABEL_PREFIX}{self.account.id}"],
-            results={"results": [["ana@example.com"]]},
-        )
+        def execute_with_tags(
+            paginator: HogQLHasMorePaginator,
+            query: ast.SelectQuery | ast.SelectSetQuery,
+            *,
+            query_type: str,
+            **kwargs: Any,
+        ) -> HogQLQueryResponse:
+            tags.append(get_query_tags().model_dump())
+            return execute(paginator, query, query_type=query_type, **kwargs)
 
-        with patch("posthog.api.query.get_query_status", return_value=stored):
-            response = self.client.get(f"/api/projects/{self.team.id}/query/account-users-query/")
+        with (
+            patch.object(HogQLHasMorePaginator, "execute_hogql_query", execute_with_tags),
+            patch("posthoganalytics.capture") as capture,
+        ):
+            response = self.client.get(
+                self.endpoint,
+                {
+                    "properties": json.dumps(["plan"]),
+                    "filters": json.dumps([{"key": "plan", "operator": "exact", "value": "paid"}]),
+                },
+            )
+        assert response.status_code == 200, response.content
+        assert tags and all(tag["product"] == "customer_analytics" for tag in tags)
+        completions = [
+            call.kwargs["properties"]
+            for call in capture.call_args_list
+            if call.kwargs.get("event") == "slo_operation_completed"
+            and call.kwargs["properties"].get("operation") == "account_persons_list"
+        ]
+        assert len(completions) == 1
+        assert completions[0]["target_duration_ms"] == 500
+        assert completions[0]["selected_property_count"] == 1
+        assert completions[0]["result_count"] == 1
+        assert completions[0]["has_filters"]
+        assert "duration_ms" in completions[0]
+        assert "paid" not in json.dumps(completions[0])
 
-        assert response.status_code == expected_status, response.content
+    @parameterized.expand(
+        [(side, interface) for side in ("mapping", "person") for interface in ("rest", "widget", "membership")]
+    )
+    def test_deleted_identity_is_not_returned(self, deleted_side: str, interface: str) -> None:
+        if deleted_side == "mapping":
+            sync_execute(
+                "INSERT INTO person_distinct_id2 (team_id, distinct_id, person_id, is_deleted, version) VALUES",
+                [
+                    {
+                        "team_id": self.team.pk,
+                        "distinct_id": "member-two",
+                        "person_id": self.second.uuid,
+                        "is_deleted": 1,
+                        "version": 100,
+                    }
+                ],
+            )
+        else:
+            sync_execute(
+                "INSERT INTO person (team_id, id, properties, is_identified, is_deleted, version, created_at) VALUES",
+                [
+                    {
+                        "team_id": self.team.pk,
+                        "id": self.second.uuid,
+                        "properties": "{}",
+                        "is_identified": 1,
+                        "is_deleted": 1,
+                        "version": 100,
+                        "created_at": datetime(2024, 1, 1, tzinfo=UTC),
+                    }
+                ],
+            )
+        if interface == "rest":
+            response = self.client.get(self.endpoint)
+            assert response.status_code == 200, response.content
+            assert [person["id"] for person in response.json()["results"]] == [str(self.first.uuid)]
+        else:
+            columns = ["persons.id"] if interface == "widget" else ["source.distinct_ids"]
+            response = self._run_widget_query(select=columns, limit=1)
+            assert response.status_code == 200, response.content
+            page = response.json()
+            assert len(page["results"]) == 1
+            assert not page["hasMore"]
+            if interface == "widget":
+                assert page["results"][0][0] == str(self.first.uuid)
+            else:
+                assert set(page["results"][0][0]) == {"member-one", "member-one-alias"}
 
     @parameterized.expand(
         [
-            ("query_scope_only", ["query:read"], status.HTTP_403_FORBIDDEN),
-            ("all_scopes", ["query:read", "account:read", "person:read"], status.HTTP_200_OK),
+            ("account_only", ["account:read"], 403, "rest"),
+            ("person_only", ["person:read"], 403, "rest"),
+            ("both", ["account:read", "person:read"], 200, "rest"),
+            ("query_account_only", ["query:read", "account:read"], 403, "query"),
+            ("query_person_only", ["query:read", "person:read"], 403, "query"),
+            ("query_both", ["query:read", "account:read", "person:read"], 200, "query"),
+            ("widget_account_only", ["account:read"], 403, "widget"),
+            ("widget_person_only", ["person:read"], 403, "widget"),
+            ("widget_without_query", ["account:read", "person:read"], 403, "widget"),
+            ("widget_all", ["query:read", "account:read", "person:read"], 200, "widget"),
         ]
     )
-    @patch(FLAG_CHECK, return_value=True)
-    def test_api_tokens_need_account_and_person_scopes(self, _name, scopes, expected_status, _flag) -> None:
+    def test_tokens_require_both_scopes(self, _name: str, scopes: list[str], expected: int, interface: str) -> None:
         token = generate_random_token_personal()
         PersonalAPIKey.objects.create(
-            label="account users query",
+            label="account persons", user=self.user, secure_value=hash_key_value(token), scopes=scopes
+        )
+        self.client.logout()
+        headers = {"authorization": f"Bearer {token}"}
+        if interface in {"query", "widget"}:
+            response = self.client.post(
+                self.endpoint if interface == "widget" else f"/api/projects/{self.team.pk}/query/",
+                {"query": self._get_widget_query(), "refresh": "blocking"},
+                format="json",
+                headers=headers,
+            )
+        else:
+            response = self.client.get(self.endpoint, headers=headers)
+        assert response.status_code == expected, response.content
+
+    @parameterized.expand([("flag_disabled",), ("account_hidden",), ("other_team",), ("group_unconfigured",)])
+    def test_inaccessible_accounts_return_404(self, condition: str) -> None:
+        if condition == "account_hidden":
+            self.organization.available_product_features = [{"key": AvailableFeature.ACCESS_CONTROL}]
+            self.organization.save()
+            AccessControl.objects.create(
+                team=self.team,
+                resource="account",
+                resource_id=str(self.account.id),
+                access_level="none",
+                organization_member=OrganizationMembership.objects.get(user=self.user, organization=self.organization),
+            )
+        elif condition == "other_team":
+            other_team = Team.objects.create(organization=self.organization)
+            other = create_account(team_id=other_team.pk, external_id="workspace-demo")
+            self.endpoint = f"/api/projects/{self.team.pk}/accounts/{other.id}/persons/"
+        elif condition == "group_unconfigured":
+            TeamCustomerAnalyticsConfig.objects.filter(team=self.team).update(account_group_type_index=None)
+        with patch(FLAG_CHECK, return_value=condition != "flag_disabled"):
+            response = self.client.get(self.endpoint)
+        assert response.status_code == 404, response.content
+        with patch(FLAG_CHECK, return_value=condition != "flag_disabled"):
+            memberships = self.client.post(
+                self.endpoint + "memberships/", {"person_ids": [str(self.first.uuid)]}, format="json"
+            )
+        assert memberships.status_code == 404, memberships.content
+
+    def test_bad_parameter_returns_400(self) -> None:
+        assert self.client.get(self.endpoint, {"limit": -1}).status_code == 400
+
+    def test_invalid_regex_returns_400(self) -> None:
+        response = self.client.get(
+            self.endpoint,
+            {"filters": json.dumps([{"key": "email", "operator": "regex", "value": "["}])},
+        )
+        assert response.status_code == 400, response.content
+
+    @parameterized.expand([(False, False), (False, True), (True, False), (True, True)])
+    def test_reads_obey_concurrency_limits(self, api_key: bool, memberships: bool) -> None:
+        read = (
+            partial(
+                self.client.post, self.endpoint + "memberships/", {"person_ids": [str(self.first.uuid)]}, format="json"
+            )
+            if memberships
+            else partial(self.client.get, self.endpoint)
+        )
+        if api_key:
+            token = generate_random_token_personal()
+            PersonalAPIKey.objects.create(
+                label="account persons",
+                user=self.user,
+                secure_value=hash_key_value(token),
+                scopes=["query:read", "account:read", "person:read"],
+            )
+            self.client.logout()
+            self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {token}")
+        limiter = get_api_team_rate_limiter() if api_key else get_app_org_rate_limiter()
+        with (
+            patch("posthog.clickhouse.client.limit.TEST", False),
+            patch.object(limiter, "max_concurrency", 1),
+            patch.object(limiter, "retry_timeout", 0),
+            patch.object(limiter, "allow_team_bypass", False),
+            self.settings(API_QUERIES_PER_TEAM={self.team.pk: 1}),
+        ):
+            with limiter.run(
+                team_id=self.team.pk, org_id=self.organization.pk, is_api=api_key, task_id="occupied", limit=1
+            ):
+                response = read()
+            assert response.status_code == 429, response.content
+            assert "Retry-After" in response
+            assert read().status_code == 200
+
+    @parameterized.expand([(False, False), (False, True), (True, False), (True, True)])
+    def test_api_reads_obey_the_read_budget(self, enforced: bool, memberships: bool) -> None:
+        read = (
+            partial(
+                self.client.post, self.endpoint + "memberships/", {"person_ids": [str(self.first.uuid)]}, format="json"
+            )
+            if memberships
+            else partial(self.client.get, self.endpoint)
+        )
+        spec = budget_spec_for(self.organization)
+        refill_and_read(str(self.team.pk), spec)
+        debit(str(self.team.pk), int(spec.capacity_bytes + spec.bytes_per_hour))
+        token = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="account persons",
             user=self.user,
             secure_value=hash_key_value(token),
-            scopes=scopes,
-            scoped_teams=[],
-            scoped_organizations=[],
+            scopes=["query:read", "account:read", "person:read"],
         )
-
-        response = self._run(headers={"authorization": f"Bearer {token}"})
-
-        assert response.status_code == expected_status, response.content
-
-    def test_eu_lookup_failure_raises_instead_of_returning_no_members(self) -> None:
-        with (
-            patch(
-                "products.customer_analytics.backend.logic.account_member_search.execute_hogql_query",
-                side_effect=TimeoutError("eu lookup timed out"),
-            ),
-            self.assertRaises(TimeoutError),
+        with patch(
+            "posthog.hogql_queries.query_runner.posthoganalytics.feature_enabled",
+            side_effect=lambda flag, *args, **kwargs: flag == API_QUERIES_BUDGET_ENFORCEMENT_FLAG and enforced,
         ):
-            list_organization_member_distinct_ids(
-                team=self.team, user=self.user, organization_id=str(Organization.objects.create(name="EU").id)
+            assert read().status_code == 200
+            response = read(headers={"Authorization": f"Bearer {token}"})
+        assert response.status_code == (429 if enforced else 200), response.content
+        if enforced:
+            assert "Retry-After" in response
+        else:
+            cost = get_request_query_cost()
+            assert cost is not None and cost.bytes_read > 0
+
+    @parameterized.expand([("query",), ("source",), ("both",)])
+    def test_widget_accepts_default_query_kinds(self, omitted: str) -> None:
+        query = self._get_widget_query()
+        if omitted in {"query", "both"}:
+            del query["kind"]
+        if omitted in {"source", "both"}:
+            del query["source"]["kind"]
+        response = self.client.post(self.endpoint, {"query": query}, format="json")
+        assert response.status_code == 200, response.content
+        assert len(response.json()["results"]) == 2
+
+    @parameterized.expand([("GET",), ("POST",)])
+    def test_session_requests_are_throttled(self, method: str) -> None:
+        with patch(
+            "products.customer_analytics.backend.presentation.views.account_persons.AccountPersonsWebBurstThrottle.rate",
+            "1/minute",
+        ):
+            if method == "GET":
+                assert self.client.get(self.endpoint).status_code == 200
+                assert self.client.get(self.endpoint).status_code == 429
+            else:
+                assert self._run_widget_query().status_code == 200
+                assert self._run_widget_query().status_code == 429
+
+    def _restrict_properties(self, property_type: int = PropertyDefinition.Type.PERSON) -> None:
+        self.organization.available_product_features = [{"key": AvailableFeature.PROPERTY_ACCESS_CONTROL}]
+        self.organization.save()
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+        for name in ["email", "name", "private_note"]:
+            definition = PropertyDefinition.objects.create(
+                team=self.team,
+                name=name,
+                type=property_type,
+                group_type_index=0 if property_type == PropertyDefinition.Type.GROUP else None,
             )
+            PropertyAccessControl.objects.create(team=self.team, property_definition=definition, access_level="none")
+
+    def test_restricted_properties_are_hidden_from_columns_names_and_search(self) -> None:
+        self._restrict_properties()
+        response = self.client.get(self.endpoint, {"properties": json.dumps(["email", "private_note", "plan"])})
+        assert response.status_code == 200, response.content
+        page = response.json()
+        assert page["columns"] == ["plan"]
+        for person in page["results"]:
+            assert set(person["properties"]) == {"plan"}
+            assert person["display_name"] == person["id"]
+        assert self.client.get(self.endpoint, {"search": "first@example.com"}).json()["results"] == []
+        assert len(self.client.get(self.endpoint, {"search": "member-one"}).json()["results"]) == 1
+
+    @parameterized.expand([("filter",), ("sort",)])
+    def test_restricted_properties_cannot_filter_or_sort(self, operation: str) -> None:
+        self._restrict_properties()
+        parameters = (
+            {"properties": json.dumps(["email"]), "sort_column": "email"}
+            if operation == "sort"
+            else {"filters": json.dumps([{"key": "email", "operator": "is_set"}])}
+        )
+        assert self.client.get(self.endpoint, parameters).status_code == 403

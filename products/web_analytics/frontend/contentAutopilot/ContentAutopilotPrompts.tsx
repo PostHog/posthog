@@ -1,107 +1,127 @@
 import { useActions, useValues } from 'kea'
 
+import { IconPlusSmall } from '@posthog/icons'
 import {
     LemonBanner,
     LemonButton,
     LemonCard,
-    LemonSelect,
-    LemonSkeleton,
+    LemonSegmentedButton,
     LemonSwitch,
     LemonTable,
     LemonTag,
     Link,
+    Tooltip,
 } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
+import { urls } from 'scenes/urls'
 
 import type { AEOPromptApi } from 'products/web_analytics/frontend/generated/api.schemas'
 
-import { ContentAutopilotCheckResultTag } from './ContentAutopilotCheckResultTag'
+import { promptsTabFilters } from './aiVisibilityFilters'
+import { ContentAutopilotCheckResult } from './ContentAutopilotCheckResult'
+import { ContentAutopilotDraftButton } from './ContentAutopilotDraftButton'
+import { ContentAutopilotEngineLabel } from './ContentAutopilotEngineLabel'
+import { ContentAutopilotFilterBar } from './ContentAutopilotFilterBar'
+import { contentAutopilotFilterBarLogic } from './contentAutopilotFilterBarLogic'
+import { contentAutopilotFiltersLogic } from './contentAutopilotFiltersLogic'
+import { contentAutopilotLogic } from './contentAutopilotLogic'
+import { ContentAutopilotMentionResultTag } from './ContentAutopilotMentionResultTag'
 import { ContentAutopilotPromptActiveSwitch } from './ContentAutopilotPromptActiveSwitch'
-import { ContentAutopilotPromptDetail } from './ContentAutopilotPromptDetail'
-import { contentAutopilotPromptDetailLogic } from './contentAutopilotPromptDetailLogic'
+import { ContentAutopilotPromptsDisabled } from './ContentAutopilotPromptsDisabled'
 import { PROMPTS_PAGE_SIZE, contentAutopilotPromptsLogic } from './contentAutopilotPromptsLogic'
-import { engineLabel } from './utils'
+import { ContentAutopilotPromptSuggestButton } from './ContentAutopilotPromptSuggestButton'
+import { draftableOpportunity, engineLabel, isNoSearchEngine, promptSearches } from './utils'
 
 const checkTag = (prompt: AEOPromptApi, engine: string): JSX.Element => {
     const check = prompt.latest_checks.find((latest) => latest.engine === engine)
     if (!check) {
-        return <span className="text-muted whitespace-nowrap">Not checked</span>
+        return <span className="text-muted whitespace-nowrap">-</span>
     }
-    return <ContentAutopilotCheckResultTag cited={check.cited} checkFailed={check.check_failed} />
+    if (check.mode === 'no_search') {
+        return <ContentAutopilotMentionResultTag mentioned={check.mentioned} checkFailed={check.check_failed} />
+    }
+    return (
+        <ContentAutopilotCheckResult
+            cited={check.cited}
+            checkFailed={check.check_failed}
+            position={check.target_best_position}
+        />
+    )
 }
 
+const PromptSearchesLine = ({ prompt }: { prompt: AEOPromptApi }): JSX.Element | null => {
+    const { primary, byEngine, distinct } = promptSearches(prompt)
+    if (!primary) {
+        return null
+    }
+    return (
+        <Tooltip
+            title={
+                <div className="flex flex-col gap-1">
+                    {byEngine.map(({ engine, queries }) => (
+                        <div key={engine}>
+                            <div className="font-semibold">{engineLabel(engine)} searched</div>
+                            {queries.map((query) => (
+                                <div key={query}>{query}</div>
+                            ))}
+                        </div>
+                    ))}
+                </div>
+            }
+        >
+            <div
+                className="mt-0.5 text-xs text-muted truncate max-w-120"
+                tabIndex={0}
+                data-attr="content-autopilot-prompt-searches"
+            >
+                Searched for "{primary}"{distinct > 1 ? ` +${distinct - 1} more` : ''}
+            </div>
+        </Tooltip>
+    )
+}
+
+const LOADING_ROWS = 6
+
 export const ContentAutopilotPrompts = (): JSX.Element => {
-    const {
-        prompts,
-        promptsLoading,
-        promptsError,
-        promptsPage,
-        promptsTopic,
-        promptTopics,
-        promptTopicsError,
-        promptTopicsLoading,
-        promptEngines,
-        showArchived,
-    } = useValues(contentAutopilotPromptsLogic)
-    const { loadAeoPrompts, loadAeoPromptTopics, setPromptsPage, setPromptsTopic, setShowArchived } =
+    const { prompts, promptsLoading, promptsError, promptsPage, promptEngines, showArchived, needsImprovement } =
+        useValues(contentAutopilotPromptsLogic)
+    const { loadAeoPrompts, openAddPrompts, setNeedsImprovement, setPromptsPage, setShowArchived } =
         useActions(contentAutopilotPromptsLogic)
-    const { openPromptDetail } = useActions(contentAutopilotPromptDetailLogic)
+    const { filters } = useValues(contentAutopilotFiltersLogic)
+    // The topic list counts every prompt that is not archived, so an empty one means the project has no prompts yet.
+    const { promptTopics } = useValues(contentAutopilotFilterBarLogic)
+    const { opportunityByPromptId, draftingEnabled } = useValues(contentAutopilotLogic)
 
     if (promptsError === 'forbidden') {
-        return (
-            <LemonCard hoverEffect={false} className="p-6 text-center">
-                <h3 className="m-0">AI citation tracking is not turned on</h3>
-                <p className="m-0 mt-2 text-muted max-w-xl mx-auto">
-                    This project doesn't have access to prompt tracking yet. Ask PostHog support to turn on AI citation
-                    tracking for it.
-                </p>
-            </LemonCard>
-        )
+        return <ContentAutopilotPromptsDisabled />
     }
 
     const count = prompts?.count ?? 0
 
     return (
         <section className="flex flex-col gap-3">
+            <ContentAutopilotFilterBar tab="prompts" filters={promptsTabFilters(needsImprovement)} />
             <p className="m-0 text-muted max-w-3xl">
-                The questions PostHog asks AI assistants every day, and whether each one cited your site the last time
-                it ran.
-            </p>
-            <p className="m-0 text-muted max-w-3xl">
-                You can view tracked prompts, turn them on or off, and archive them here. To add prompts or change their
-                text, use the API (<code>POST /api/projects/:project_id/aeo_prompts/bulk_import/</code>) or the PostHog
-                MCP tools. A text change adds a new version of the prompt.
+                PostHog sends each active prompt to AI assistants once a day and records whether the answer cites your
+                site. Open a prompt to see the answers, edit it, or archive it.
             </p>
             <div className="flex flex-wrap items-center gap-2">
-                <LemonSelect
+                <LemonSegmentedButton
                     size="small"
-                    aria-label="Topic"
-                    value={promptsTopic}
-                    onChange={setPromptsTopic}
+                    value={needsImprovement ? 'needs-improvement' : 'all'}
+                    onChange={(value) => setNeedsImprovement(value === 'needs-improvement')}
                     options={[
-                        { value: null, label: 'All topics' },
-                        ...promptTopics.map(({ topic, prompts: topicCount }) => ({
-                            value: topic,
-                            label: `${topic || 'No topic'} (${topicCount})`,
-                        })),
+                        { value: 'all', label: 'All prompts' },
+                        {
+                            value: 'needs-improvement',
+                            label: 'Needs improvement',
+                            tooltip:
+                                'Prompts the AI assistants answered in the chosen date range without citing your site.',
+                        },
                     ]}
-                    data-attr="content-autopilot-prompts-topic-filter"
+                    data-attr="content-autopilot-prompts-needs-improvement"
                 />
-                {promptTopicsError ? (
-                    <span className="flex items-center gap-1 text-danger text-sm">
-                        Couldn't load topics.
-                        <LemonButton
-                            size="xsmall"
-                            type="secondary"
-                            onClick={loadAeoPromptTopics}
-                            loading={promptTopicsLoading}
-                            data-attr="content-autopilot-prompts-topics-retry"
-                        >
-                            Try again
-                        </LemonButton>
-                    </span>
-                ) : null}
                 <LemonSwitch
                     checked={showArchived}
                     onChange={setShowArchived}
@@ -110,6 +130,18 @@ export const ContentAutopilotPrompts = (): JSX.Element => {
                     size="small"
                     data-attr="content-autopilot-prompts-show-archived"
                 />
+                <div className="ml-auto flex gap-2">
+                    <ContentAutopilotPromptSuggestButton size="small" />
+                    <LemonButton
+                        type="primary"
+                        size="small"
+                        icon={<IconPlusSmall />}
+                        onClick={openAddPrompts}
+                        data-attr="content-autopilot-prompts-add"
+                    >
+                        Add prompts
+                    </LemonButton>
+                </div>
             </div>
 
             {promptsError === 'failed' ? (
@@ -121,24 +153,33 @@ export const ContentAutopilotPrompts = (): JSX.Element => {
                 </LemonBanner>
             ) : null}
 
-            {prompts === null ? (
-                promptsError ? null : (
-                    <LemonSkeleton className="h-40 w-full" />
-                )
-            ) : count === 0 && promptsTopic === null && !showArchived ? (
+            {prompts === null && promptsError ? null : prompts !== null &&
+              count === 0 &&
+              !showArchived &&
+              promptTopics?.length === 0 ? (
                 <LemonCard hoverEffect={false} className="p-6 text-center">
                     <h3 className="m-0">No prompts yet</h3>
                     <p className="m-0 mt-2 text-muted max-w-xl mx-auto">
-                        Add prompts with the API (<code>POST /api/projects/:project_id/aeo_prompts/bulk_import/</code>)
-                        or the PostHog MCP tools. They're checked against AI assistants on the next daily run.
+                        Add the questions your buyers ask AI assistants. PostHog can suggest them from your site, or you
+                        can write your own. You can also import prompts with the API (
+                        <code>POST /api/projects/:project_id/aeo_prompts/bulk_import/</code>) or the PostHog MCP tools.
                     </p>
+                    <div className="mt-4 flex justify-center">
+                        <ContentAutopilotPromptSuggestButton type="primary" />
+                    </div>
                 </LemonCard>
             ) : (
                 <LemonTable
-                    dataSource={prompts.results}
+                    dataSource={prompts?.results ?? []}
                     rowKey="id"
-                    loading={promptsLoading}
-                    emptyState={promptsTopic === null ? 'No prompts to show' : 'No prompts have this topic'}
+                    // Before the first page arrives, placeholder rows hold the table's shape.
+                    loading={promptsLoading || prompts === null}
+                    loadingSkeletonRows={LOADING_ROWS}
+                    emptyState={
+                        needsImprovement
+                            ? `No prompts need improvement. A prompt shows here when an AI assistant answered it in the last ${filters.days} days without citing your site.`
+                            : 'No prompts match these filters'
+                    }
                     pagination={{
                         controlled: true,
                         pageSize: PROMPTS_PAGE_SIZE,
@@ -156,12 +197,23 @@ export const ContentAutopilotPrompts = (): JSX.Element => {
                                 <div className="py-2 min-w-60 break-words">
                                     <Link
                                         subtle
-                                        onClick={() => openPromptDetail(prompt.id)}
+                                        to={urls.webAnalyticsContentAutopilotPrompt(prompt.id)}
                                         className="text-left font-semibold"
                                         data-attr="content-autopilot-prompt-open-detail"
                                     >
                                         {prompt.prompt}
                                     </Link>
+                                    {prompt.branded ? (
+                                        <LemonTag
+                                            type="muted"
+                                            size="small"
+                                            className="ml-2 align-middle"
+                                            title="This prompt names your brand, so answers to it almost always mention you."
+                                        >
+                                            Branded
+                                        </LemonTag>
+                                    ) : null}
+                                    <PromptSearchesLine prompt={prompt} />
                                 </div>
                             ),
                         },
@@ -176,7 +228,10 @@ export const ContentAutopilotPrompts = (): JSX.Element => {
                                 ),
                         },
                         ...promptEngines.map((engine) => ({
-                            title: engineLabel(engine),
+                            title: <ContentAutopilotEngineLabel engine={engine} />,
+                            tooltip: isNoSearchEngine(engine)
+                                ? `Whether ${engineLabel(engine)}'s last answer named your brand. It answers without searching the web, so it never links to your site.`
+                                : `Whether ${engineLabel(engine)}'s last answer linked to a page on your site.`,
                             key: `engine-${engine}`,
                             render: (_: unknown, prompt: AEOPromptApi) => checkTag(prompt, engine),
                         })),
@@ -190,6 +245,21 @@ export const ContentAutopilotPrompts = (): JSX.Element => {
                                     <span className="text-muted whitespace-nowrap">Never</span>
                                 ),
                         },
+                        ...(draftingEnabled
+                            ? [
+                                  {
+                                      key: 'draft',
+                                      render: (_: unknown, prompt: AEOPromptApi) => {
+                                          const opportunity = draftableOpportunity(opportunityByPromptId, prompt)
+                                          return opportunity ? (
+                                              <div className="whitespace-nowrap">
+                                                  <ContentAutopilotDraftButton opportunity={opportunity} />
+                                              </div>
+                                          ) : null
+                                      },
+                                  },
+                              ]
+                            : []),
                         {
                             title: 'Active',
                             key: 'active',
@@ -203,7 +273,6 @@ export const ContentAutopilotPrompts = (): JSX.Element => {
                     ]}
                 />
             )}
-            <ContentAutopilotPromptDetail />
         </section>
     )
 }

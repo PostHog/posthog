@@ -11,11 +11,12 @@ export interface MetricsHeaders {
     kafkaHeaders: Record<string, string>
     token: string
     bytesUncompressed: number
+    bytesUncompressedRecords: number
     bytesCompressed: number
     recordCount: number
 }
 
-const SIZE_HEADERS = ['bytes_uncompressed', 'bytes_compressed', 'record_count'] as const
+const SIZE_HEADERS = ['bytes_uncompressed', 'bytes_uncompressed_records', 'bytes_compressed', 'record_count'] as const
 
 /** A missing header counts as 0. A negative value makes the Prometheus counters throw, so only non-negative safe integers are valid. */
 function parseSizeHeader(value: string | undefined): number | null {
@@ -39,17 +40,30 @@ export function createParseMetricsHeadersStep<T extends { message: Message }>():
                 metricMessageDroppedCounter.inc({ reason: 'missing_token', team_id: 'unknown' })
                 return Promise.resolve(drop('missing_token'))
             }
-            const [bytesUncompressed, bytesCompressed, recordCount] = SIZE_HEADERS.map((name) =>
-                parseSizeHeader(headers[name])
+            const [bytesUncompressed, bytesUncompressedRecords, bytesCompressed, recordCount] = SIZE_HEADERS.map(
+                (name) => parseSizeHeader(headers[name])
             )
-            if (bytesUncompressed === null || bytesCompressed === null || recordCount === null) {
+            if (
+                bytesUncompressed === null ||
+                bytesUncompressedRecords === null ||
+                bytesCompressed === null ||
+                recordCount === null
+            ) {
                 const invalid = SIZE_HEADERS.filter((name) => parseSizeHeader(headers[name]) === null)
                 logger.error('invalid_size_header', { headers: invalid })
                 metricMessageDroppedCounter.inc({ reason: 'invalid_size_header', team_id: 'unknown' })
                 return Promise.resolve(drop('invalid_size_header'))
             }
             return Promise.resolve(
-                ok({ ...input, kafkaHeaders: headers, token, bytesUncompressed, bytesCompressed, recordCount })
+                ok({
+                    ...input,
+                    kafkaHeaders: headers,
+                    token,
+                    bytesUncompressed,
+                    bytesUncompressedRecords,
+                    bytesCompressed,
+                    recordCount,
+                })
             )
         } catch (e) {
             logger.error('Error parsing message', e)

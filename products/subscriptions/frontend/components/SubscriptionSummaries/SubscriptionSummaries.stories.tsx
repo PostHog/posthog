@@ -9,6 +9,7 @@ import type { PaginatedSubscriptionSummaryListApi } from 'products/subscriptions
 import { SubscriptionSummaries } from './SubscriptionSummaries'
 
 const SUMMARIES: PaginatedSubscriptionSummaryListApi = {
+    count: 3,
     next: null,
     previous: null,
     results: [

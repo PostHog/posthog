@@ -7,10 +7,10 @@ objects stay inside the product.
 
 from __future__ import annotations
 
-from collections.abc import Collection, Iterable, Iterator, Sequence
+from collections.abc import Collection, Iterable, Iterator, Mapping, Sequence
 from dataclasses import asdict
 from datetime import datetime
-from typing import Any, Final
+from typing import Any, Final, Literal
 from uuid import UUID
 
 from posthog.kafka_client.client import ProduceResult
@@ -28,8 +28,8 @@ from products.alerts_platform.backend.facade.contracts import (
     SourceKind,
 )
 
+from .. import activity_logging
 from ..logic import (
-    alert_email,
     delivery_destinations,
     delivery_path,
     destination_bucket_report,
@@ -40,7 +40,6 @@ from ..logic import (
     insight_alert_message,
 )
 from .contracts import (
-    AlertEmailRecipientResolver,
     AlertInternalEvent,
     DeliveryPathChoice,
     DestinationBucket,
@@ -112,6 +111,22 @@ def build_insight_alert_slack_config(
     )
 
 
+def build_insight_alert_url_config(
+    *, alert_id: str, alert_name: str | None, data: AlertDestinationData
+) -> AlertDestinationConfig:
+    return insight_alert_destinations.build_insight_alert_url_config(
+        alert_id=alert_id, alert_name=alert_name, data=data
+    )
+
+
+def build_insight_alert_pagerduty_configs(
+    *, alert_id: str, alert_name: str | None, data: AlertDestinationData
+) -> list[AlertDestinationConfig]:
+    return insight_alert_destinations.build_insight_alert_pagerduty_configs(
+        alert_id=alert_id, alert_name=alert_name, data=data
+    )
+
+
 def insight_alert_slack_properties(
     *,
     breaches: list[str],
@@ -163,10 +178,29 @@ def create_alert_destination_hog_functions(
     )
 
 
+def log_destination_changes(
+    *,
+    team_id: int,
+    alert_id: UUID,
+    actor_id: int,
+    was_impersonated: bool,
+    action: Literal["created", "deleted"],
+    destination_types: Mapping[UUID, str | None],
+) -> None:
+    activity_logging.log_destination_changes(
+        team_id=team_id,
+        alert_id=alert_id,
+        actor_id=actor_id,
+        was_impersonated=was_impersonated,
+        action=action,
+        destination_types=destination_types,
+    )
+
+
 def soft_delete_alert_destinations(
     *, team_id: int, alert_id: str, allowed_event_ids: Collection[str], hog_function_ids: list[UUID]
-) -> None:
-    destinations.soft_delete_alert_destinations(
+) -> dict[UUID, str | None]:
+    return destinations.soft_delete_alert_destinations(
         team_id=team_id,
         alert_id=alert_id,
         allowed_event_ids=allowed_event_ids,
@@ -195,6 +229,11 @@ def list_alert_destination_groups(
     return destinations.list_alert_destination_groups(
         team_id=team_id, alert_id=alert_id, allowed_event_ids=allowed_event_ids
     )
+
+
+def live_hog_function_ids(*, team_id: int, hog_function_ids: Collection[UUID]) -> frozenset[UUID]:
+    """The platform's lookup for HogFunctions that still exist, which `products.alerts` registers when Django starts."""
+    return destinations.live_hog_function_ids(team_id=team_id, hog_function_ids=hog_function_ids)
 
 
 def owned_alert_destination_ids(
@@ -298,16 +337,6 @@ def list_delivery_destination_groups(
     )
 
 
-def register_email_recipient_resolver(*, event_ids: Collection[str], resolver: AlertEmailRecipientResolver) -> None:
-    """Platform delivery of these events also emails the addresses `resolver` returns for the alert.
-
-    Register the events a source maps firing and resolved onto, and not its incident events, or an
-    incident would send a second email. Call it from the source's `ready()`. Raises when another
-    resolver already owns one of the events.
-    """
-    alert_email.register_recipient_resolver(event_ids=event_ids, resolver=resolver)
-
-
 def classify_alert_destinations(
     *, team_id: int, alert_id: str, allowed_event_ids: Collection[str]
 ) -> tuple[DestinationEligibility, ...]:
@@ -330,6 +359,25 @@ def customized_alert_destination_ids(
             team_id=team_id, alert_id=alert_id, allowed_event_ids=allowed_event_ids
         )
         if set(eligibility.hold_backs) - {DestinationHoldBack.REFUSED_ADDRESS}
+    )
+
+
+def unrevised_hold_backs(
+    config: AlertDestinationConfig, *, allowed_event_ids: Collection[str]
+) -> tuple[DestinationHoldBack, ...]:
+    """What a destination built from this config holds back when it has no revision to compare with.
+
+    Empty means the source lists every message the builder wrote as one of its defaults.
+    """
+    return destination_eligibility.unrevised_hold_backs(
+        config.payload["template_id"], config.payload["inputs"], allowed_event_ids
+    )
+
+
+def alert_has_enabled_destinations(*, team_id: int, alert_id: str, allowed_event_ids: Collection[str]) -> bool:
+    """Whether an enabled function takes the alert's events, bound to it on any template or unbound."""
+    return destination_eligibility.alert_has_enabled_destinations(
+        team_id=team_id, alert_id=alert_id, allowed_event_ids=allowed_event_ids
     )
 
 

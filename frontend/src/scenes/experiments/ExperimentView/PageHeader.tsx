@@ -20,6 +20,7 @@ import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { CopyExperimentToProjectModal } from 'products/experiments/frontend/components/CopyExperimentToProjectModal'
 import { DuplicateExperimentModal } from 'products/experiments/frontend/components/DuplicateExperimentModal'
+import { experimentUsesWarehouseNativeSources } from 'products/experiments/frontend/warehouseNative/warehouseNativeSources'
 
 import { experimentLogic } from '../experimentLogic'
 import { modalsLogic } from '../modalsLogic'
@@ -48,6 +49,12 @@ export function PageHeaderCustom(): JSX.Element {
     useOnMountEffect(() => {
         setHogfettiTrigger(trigger)
     })
+
+    // The API refuses to launch an experiment that reads warehouse-native queries, because nothing runs them yet
+    const launchDisabledReason =
+        experiment && experimentUsesWarehouseNativeSources(experiment)
+            ? 'Warehouse-native experiments cannot run yet. You can keep this one as a draft.'
+            : undefined
 
     const canEdit = userHasAccess(
         AccessControlResourceType.Experiment,
@@ -79,6 +86,7 @@ export function PageHeaderCustom(): JSX.Element {
                                     data-attr="launch-experiment"
                                     onClick={() => launchExperiment()}
                                     loading={launchExperimentLoading}
+                                    disabledReason={launchDisabledReason}
                                 >
                                     Launch
                                 </Button>
@@ -107,6 +115,7 @@ export function PageHeaderCustom(): JSX.Element {
                                         data-attr="launch-experiment"
                                         onClick={() => launchExperiment()}
                                         loading={launchExperimentLoading}
+                                        disabledReason={launchDisabledReason}
                                         size="small"
                                     >
                                         Launch

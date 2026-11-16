@@ -4,7 +4,7 @@ from posthog.dags import events_backfill_to_duckling
 
 from products.data_modeling.backend.facade.dags import job_usage
 from products.data_warehouse.backend.facade.dags import managed_viewset_sync
-from products.managed_warehouse.backend.facade.dags import groups_backfill
+from products.managed_warehouse.backend.facade.dags import groups_backfill, trino_conversion
 
 from . import loggers, resources
 
@@ -17,6 +17,7 @@ defs = dagster.Definitions(
     jobs=[
         job_usage.model_job_usage_job,
         groups_backfill.duckling_groups_backfill_job,
+        trino_conversion.duckling_trino_conversion_job,
         managed_viewset_sync.sync_managed_viewsets_job,
         events_backfill_to_duckling.duckling_events_backfill_job,
         events_backfill_to_duckling.duckling_persons_backfill_job,

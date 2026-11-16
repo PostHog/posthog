@@ -4,8 +4,16 @@ import pytest
 from unittest.mock import ANY, AsyncMock, MagicMock, call, patch
 
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
+from products.warehouse_sources.backend.temporal.data_imports.cdc.batcher import LEGACY_HISTORY_NAMING
 from products.warehouse_sources.backend.temporal.data_imports.cdc.lane_position import LanePosition
+from products.warehouse_sources.backend.temporal.data_imports.cdc.snapshot_lane import CDC_SNAPSHOT_POSITION_KEY
 from products.warehouse_sources.backend.temporal.data_imports.cdc.source_manager import ListingProof
+from products.warehouse_sources.backend.temporal.data_imports.cdc.tests.conformance_kit import (
+    SourceDatabase,
+    TableDef,
+    insert,
+)
+from products.warehouse_sources.backend.temporal.data_imports.cdc.tests.fake_engine import FakeCDCAdapter
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source import PostgresSource
 
@@ -15,6 +23,10 @@ _MANAGER = "products.warehouse_sources.backend.temporal.data_imports.cdc.source_
 _COMPANIONS = "products.warehouse_sources.backend.temporal.data_imports.cdc.companion_jobs"
 _SOURCE = "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source"
 _SNAPSHOT_LANE = "products.warehouse_sources.backend.temporal.data_imports.cdc.snapshot_lane"
+_HISTORY_TABLE = "products.warehouse_sources.backend.temporal.data_imports.cdc.history_table"
+_MIXIN = "products.warehouse_sources.backend.temporal.data_imports.cdc.source_mixin"
+_CONFIG_WRITE = "products.warehouse_sources.backend.models.external_data_schema.update_sync_type_config_keys"
+_USERS = TableDef(name="public.users", columns={"id": int}, primary_key=("id",))
 
 
 def _schema(**overrides) -> MagicMock:
@@ -75,6 +87,7 @@ def _dispatch(
     proof: ListingProof | None = None,
     hand_reset: MagicMock | None = None,
     expired: AsyncMock | None = None,
+    resumable: MagicMock | None = None,
 ):
     job = None if job_version is None else MagicMock(pipeline_version=job_version)
     with (
@@ -89,11 +102,16 @@ def _dispatch(
         patch(f"{_MANAGER}.completed_listing_proof", AsyncMock(return_value=proof)),
         patch(f"{_MANAGER}.buffer_expired_unread", expired or AsyncMock(return_value=False)),
         patch(f"{_SNAPSHOT_LANE}.hand_reset_to_capture", hand_reset or MagicMock()),
+        # The schemas are mocks, so the registered naming cannot be read. Every history table here is legacy.
+        patch(
+            f"{_HISTORY_TABLE}.kept_history_naming",
+            side_effect=lambda schema: LEGACY_HISTORY_NAMING if schema.cdc_table_mode in ("cdc_only", "both") else None,
+        ),
         patch.object(PostgresSource, "make_ssh_tunnel_func", return_value=MagicMock()),
     ):
         objects.select_related.return_value.get.return_value = schema
         job_objects.filter.return_value.first.return_value = job
-        return PostgresSource().source_for_pipeline(MagicMock(), MagicMock(), inputs)
+        return PostgresSource().source_for_pipeline(MagicMock(), resumable or MagicMock(), inputs)
 
 
 class TestBufferedDispatch:
@@ -209,3 +227,68 @@ class TestBufferedDispatch:
         _dispatch(schema, inputs, clear_listing=clear, hand_reset=MagicMock(), expired=AsyncMock(return_value=True))
 
         clear.assert_called_once_with(inputs.job_id, inputs.team_id)
+
+
+class TestSnapshotPosition:
+    @staticmethod
+    def _snapshot(
+        cdc_table_mode: str, *, adapter: object, reset: bool = False, resuming: bool = False, recorded: bool = False
+    ) -> MagicMock:
+        schema = _schema(cdc_mode="snapshot", cdc_table_mode=cdc_table_mode, initial_sync_complete=False)
+        schema.delta_revive_required = None
+        schema.sync_type_config = {CDC_SNAPSHOT_POSITION_KEY: 1} if recorded else {}
+        resumable = MagicMock()
+        resumable.can_resume.return_value = resuming
+        write = MagicMock()
+        with (
+            patch(f"{_SOURCE}.source_requires_ssl", return_value=False),
+            patch(f"{_SOURCE}.postgres_source") as snapshot,
+            patch(f"{_MIXIN}.get_cdc_adapter", return_value=adapter),
+            patch(_CONFIG_WRITE, write),
+        ):
+            _dispatch(schema, _inputs(reset_pipeline=reset), resumable=resumable)
+        snapshot.assert_called_once()
+        return write
+
+    @pytest.mark.parametrize(
+        "cdc_table_mode, reset, recorded",
+        [
+            pytest.param("both", False, False, id="first_snapshot_both"),
+            pytest.param("cdc_only", False, False, id="first_snapshot_cdc_only"),
+            pytest.param("both", True, True, id="reset_replaces_the_old_position"),
+        ],
+    )
+    def test_a_snapshot_in_a_history_mode_records_the_position_before_it_reads(
+        self, cdc_table_mode: str, reset: bool, recorded: bool
+    ):
+        db = SourceDatabase([_USERS])
+        db.commit(insert(_USERS, id=1))
+        db.commit(insert(_USERS, id=2))
+
+        write = self._snapshot(cdc_table_mode, adapter=FakeCDCAdapter(db), reset=reset, recorded=recorded)
+
+        write.assert_called_once_with(ANY, ANY, updates={CDC_SNAPSHOT_POSITION_KEY: db.head})
+
+    @pytest.mark.parametrize(
+        "cdc_table_mode, resuming, recorded",
+        [
+            pytest.param("both", True, False, id="resumed_read"),
+            pytest.param("both", False, True, id="restarted_read_after_an_earlier_attempt"),
+            pytest.param("consolidated", False, False, id="no_history_table"),
+        ],
+    )
+    def test_the_recorded_position_is_left_alone(self, cdc_table_mode: str, resuming: bool, recorded: bool):
+        adapter = MagicMock()
+
+        write = self._snapshot(cdc_table_mode, adapter=adapter, resuming=resuming, recorded=recorded)
+
+        write.assert_not_called()
+        adapter.management_connection.assert_not_called()
+
+    def test_a_position_that_cannot_be_read_is_recorded_as_unknown(self):
+        adapter = MagicMock()
+        adapter.management_connection.side_effect = OSError("connection refused")
+
+        write = self._snapshot("both", adapter=adapter, reset=True, recorded=True)
+
+        write.assert_called_once_with(ANY, ANY, updates={CDC_SNAPSHOT_POSITION_KEY: None})

@@ -27,6 +27,7 @@ export interface organizationIntegrationsLogicValues {
             | 'customerio-webhook'
             | 'databricks'
             | 'email'
+            | 'email_sandbox'
             | 'firebase'
             | 'github'
             | 'gitlab'
@@ -106,6 +107,7 @@ export interface organizationIntegrationsLogicActions {
                 | 'customerio-webhook'
                 | 'databricks'
                 | 'email'
+                | 'email_sandbox'
                 | 'firebase'
                 | 'github'
                 | 'gitlab'
@@ -140,6 +142,7 @@ export interface organizationIntegrationsLogicActions {
                 | 'twitter-ads'
                 | 'vercel'
                 | 'youtube-analytics'
+            needs_webhook_reconnect?: boolean | null | undefined
         }[],
         payload?: any
     ) => {
@@ -167,6 +170,7 @@ export interface organizationIntegrationsLogicActions {
                 | 'customerio-webhook'
                 | 'databricks'
                 | 'email'
+                | 'email_sandbox'
                 | 'firebase'
                 | 'github'
                 | 'gitlab'
@@ -201,6 +205,7 @@ export interface organizationIntegrationsLogicActions {
                 | 'twitter-ads'
                 | 'vercel'
                 | 'youtube-analytics'
+            needs_webhook_reconnect?: boolean | null | undefined
         }[]
         payload?: any
     }
@@ -226,6 +231,7 @@ export interface organizationIntegrationsLogicMeta {
                 | 'customerio-webhook'
                 | 'databricks'
                 | 'email'
+                | 'email_sandbox'
                 | 'firebase'
                 | 'github'
                 | 'gitlab'

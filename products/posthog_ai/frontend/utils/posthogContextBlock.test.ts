@@ -1,5 +1,6 @@
+import type { AttachedContextItem } from '~/layout/ai/attachedContext'
+
 import { splitUserMessageContent, unwrapUserMessageContent } from '../logics/runStreamLogic'
-import type { AttachedContextItem } from '../types/contextTypes'
 import {
     AGENT_TOOL_APPLY_BACK_CONTEXT_ITEM,
     contextItemLine,

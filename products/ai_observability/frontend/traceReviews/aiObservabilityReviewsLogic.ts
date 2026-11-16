@@ -19,6 +19,7 @@ import { urls } from '~/scenes/urls'
 
 import { llmAnalyticsScoreDefinitionsList as aiObservabilityScoreDefinitionsList } from '../generated/api'
 import type { ScoreDefinitionApi } from '../generated/api.schemas'
+import { changedOnlyTraceDrawerParams } from '../redesign/trace/traceDrawerRows'
 import { buildTraceReviewsListUrl, traceReviewListParamsFromFilters, traceReviewsApi } from './traceReviewsApi'
 import { fetchAllReviewsForExport, formatReviewsForClipboard, type ReviewClipboardFormat } from './traceReviewsExport'
 import type { TraceReview } from './types'
@@ -234,6 +235,7 @@ export const aiObservabilityReviewsLogic = kea<aiObservabilityReviewsLogicType>(
 
                     const response = await aiObservabilityScoreDefinitionsList(String(ApiConfig.getCurrentTeamId()), {
                         archived: false,
+                        calculation: 'reported',
                         order_by: 'name',
                         limit: 1000,
                     })
@@ -346,12 +348,15 @@ export const aiObservabilityReviewsLogic = kea<aiObservabilityReviewsLogicType>(
     })),
 
     urlToAction(({ actions, values }) => ({
-        [urls.aiObservabilityReviews()]: (_, searchParams, __, { method }) => {
+        [urls.aiObservabilityReviews()]: (_, searchParams, __, { method, pathname }, previousLocation) => {
             const newFilters = filtersFromUrl(searchParams)
 
             if (!objectsEqual(values.filters, newFilters)) {
                 actions.setFilters(newFilters, false)
-            } else if (method !== 'REPLACE') {
+            } else if (
+                method !== 'REPLACE' &&
+                !changedOnlyTraceDrawerParams(previousLocation, { pathname, searchParams })
+            ) {
                 actions.loadReviews(false)
             }
         },

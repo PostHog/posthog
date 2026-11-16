@@ -8,8 +8,8 @@
 
 # Pin the same Node version as the rest of the monorepo (.nvmrc).
 # The digest wins over the tag; update both together when bumping NODE_VERSION.
-ARG NODE_VERSION=24.22.1
-ARG NODE_IMAGE=node:${NODE_VERSION}-bookworm-slim@sha256:55fb5f5a527ea2c5c4a95f963e48ef90aa38c7b346054fdc8ee9957a2b55d205
+ARG NODE_VERSION=26.13.1
+ARG NODE_IMAGE=node:${NODE_VERSION}-bookworm-slim@sha256:5df79989ed685e09f0a98019db4cebfb22fb9df1a53c0161664a011f7ff6b0f1
 
 #
 # Build stage: install workspace deps, bundle the entry into a single self-contained
@@ -20,7 +20,7 @@ WORKDIR /code
 
 # `corepack enable` reads the `packageManager` field in package.json to pick the
 # pnpm version; `corepack prepare pnpm@latest` would be non-deterministic.
-RUN corepack enable
+RUN npm install -g corepack@0.36.0 && corepack enable
 
 # Copy lockfile + workspace manifests first so the install layer caches across
 # unrelated source changes. `patches/` is needed because pnpm-lock.yaml may
@@ -54,6 +54,14 @@ RUN echo "${COMMIT_HASH:-unknown}" > /code/commit.txt
 
 COPY --from=build --chown=node:node /code/services/credentials-service/dist/credentials-service.mjs ./credentials-service.mjs
 COPY --from=build --chown=node:node /code/services/credentials-service/dist/credentials-service.mjs.map ./credentials-service.mjs.map
+# The migration Job runs `node credentials-service-migrate.mjs` from this image. It reads
+# ./migrations relative to the working directory.
+COPY --from=build --chown=node:node /code/services/credentials-service/dist/credentials-service-migrate.mjs ./credentials-service-migrate.mjs
+COPY --from=build --chown=node:node /code/services/credentials-service/dist/credentials-service-migrate.mjs.map ./credentials-service-migrate.mjs.map
+# The audit retention CronJob runs `node credentials-service-maintenance.mjs audit-retention`.
+COPY --from=build --chown=node:node /code/services/credentials-service/dist/credentials-service-maintenance.mjs ./credentials-service-maintenance.mjs
+COPY --from=build --chown=node:node /code/services/credentials-service/dist/credentials-service-maintenance.mjs.map ./credentials-service-maintenance.mjs.map
+COPY --from=build --chown=node:node /code/services/credentials-service/migrations ./migrations
 
 ENV NODE_ENV=production \
     PORT=8004

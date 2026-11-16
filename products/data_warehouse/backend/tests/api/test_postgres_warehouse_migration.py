@@ -14,6 +14,11 @@ from unittest.mock import Mock, patch
 from rest_framework import status
 
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable, ExternalDataSchema, ExternalDataSource
+from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.job_input_classification import (
+    stored_field_kinds,
+    stored_reference_options,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.schema import SourceSchema
 
 
@@ -33,11 +38,27 @@ def _stub_source_security_gate(source_mock) -> None:
     source_mock.job_inputs_add_connection_host.return_value = False
     source_mock.has_preserved_row_backed_credentials.return_value = False
     source_mock.serialize_config.side_effect = lambda config: config.to_dict()
+    source_mock.uploaded_file_name.return_value = None
+
+
+def _mock_source_without_oauth_fields(mock_get_source: Mock) -> None:
+    # Each read of the inputs asks the source class where its OAuth pointer is. A MagicMock answer is not an
+    # integration id.
+    mock_get_source.return_value.in_use_oauth_slot.return_value = None
+    mock_get_source.return_value.in_use_oauth_pointer.return_value = None
 
 
 class TestPostgresWarehouseMigration(APIBaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        # Tests here patch `SourceRegistry.get_source`, and each read of the inputs classifies them. The
+        # classification caches its results per source type, so fill the cache from the real registry first.
+        stored_field_kinds(ExternalDataSourceType.POSTGRES)
+        stored_reference_options(ExternalDataSourceType.POSTGRES)
+
     @patch("products.warehouse_sources.backend.presentation.views.external_data_source.base.SourceRegistry.get_source")
     def test_refresh_schemas_qualifies_legacy_warehouse_rows_in_place(self, mock_get_source):
+        _mock_source_without_oauth_fields(mock_get_source)
         # A pre-PR warehouse Postgres source had `schema=public` on the source config and
         # `ExternalDataSchema.name="auth_group"` (no schema prefix). After this PR, discovery
         # returns the qualified `public.auth_group`. `consolidate_postgres_legacy_rows` qualifies
@@ -112,6 +133,7 @@ class TestPostgresWarehouseMigration(APIBaseTest):
 
     @patch("products.warehouse_sources.backend.presentation.views.external_data_source.base.SourceRegistry.get_source")
     def test_refresh_schemas_idempotent_on_legacy_warehouse_rows(self, mock_get_source):
+        _mock_source_without_oauth_fields(mock_get_source)
         # Calling refresh_schemas twice on a legacy row should be a no-op on the second call —
         # name stays put, schema_metadata stays put, no thrash of updated_at.
         mock_get_source.return_value.parse_config.return_value = None
@@ -167,6 +189,7 @@ class TestPostgresWarehouseMigration(APIBaseTest):
 
     @patch("products.warehouse_sources.backend.presentation.views.external_data_source.base.SourceRegistry.get_source")
     def test_refresh_schemas_refreshes_legacy_warehouse_metadata_when_columns_change(self, mock_get_source):
+        _mock_source_without_oauth_fields(mock_get_source)
         # available_columns must keep up with upstream changes for legacy unqualified rows.
         # Without resolving the row by source location, reconcile_postgres_schemas would only
         # write metadata on the very first refresh and then leave the column-picker UI stale.
@@ -231,6 +254,7 @@ class TestPostgresWarehouseMigration(APIBaseTest):
 
     @patch("products.warehouse_sources.backend.presentation.views.external_data_source.base.SourceRegistry.get_source")
     def test_refresh_schemas_writes_metadata_for_new_other_schema_table_after_schema_cleared(self, mock_get_source):
+        _mock_source_without_oauth_fields(mock_get_source)
         # Scenario reported by users:
         #   1. Source created on master with `job_inputs={schema: "public"}` — limits sync to the
         #      `public` namespace. Legacy `example_table` row has no schema_metadata.
@@ -312,6 +336,7 @@ class TestPostgresWarehouseMigration(APIBaseTest):
 
     @patch("products.warehouse_sources.backend.presentation.views.external_data_source.base.SourceRegistry.get_source")
     def test_clearing_postgres_schema_pins_legacy_rows_to_old_default_schema(self, mock_get_source):
+        _mock_source_without_oauth_fields(mock_get_source)
         # Repro for "lost data after clearing schema". Source had schema=poblic, legacy unqualified
         # rows were synced from poblic.<name>. When user clears the schema field, the next refresh
         # would otherwise reanchor those rows to "public" (the static fallback) and orphan their
@@ -398,6 +423,7 @@ class TestPostgresWarehouseMigration(APIBaseTest):
 
     @patch("products.warehouse_sources.backend.presentation.views.external_data_source.base.SourceRegistry.get_source")
     def test_clearing_postgres_schema_drops_duplicate_qualified_row(self, mock_get_source):
+        _mock_source_without_oauth_fields(mock_get_source)
         # A prior refresh (before this migration landed) might have created `poblic.example_table`
         # as a separate row. When the user clears the schema, the legacy unqualified row gets
         # renamed to that qualified form — the orphan duplicate must be soft-deleted so the legacy
@@ -491,6 +517,7 @@ class TestPostgresWarehouseMigration(APIBaseTest):
 
     @patch("products.warehouse_sources.backend.presentation.views.external_data_source.base.SourceRegistry.get_source")
     def test_refresh_schemas_persists_detected_primary_key_for_cdc(self, mock_get_source):
+        _mock_source_without_oauth_fields(mock_get_source)
         # A table added after source creation is discovered via refresh. Its detected primary key
         # must be persisted to sync_type_config.primary_key_columns so it can later be switched to
         # CDC (which requires a PK) — otherwise the toggle fails with "refresh to pick one up".
@@ -536,6 +563,7 @@ class TestPostgresWarehouseMigration(APIBaseTest):
 
     @patch("products.warehouse_sources.backend.presentation.views.external_data_source.base.SourceRegistry.get_source")
     def test_refresh_schemas_does_not_clobber_existing_primary_key(self, mock_get_source):
+        _mock_source_without_oauth_fields(mock_get_source)
         # A user-set / previously-stored PK must survive refresh even if discovery detects a
         # different one — the explicit choice wins.
         mock_get_source.return_value.parse_config.return_value = None

@@ -1,18 +1,30 @@
-from collections.abc import Collection, Mapping
-from datetime import datetime
+import json
+from collections.abc import Collection, Mapping, Sequence
+from datetime import date, datetime, timedelta
 from typing import TYPE_CHECKING, Any
 from uuid import UUID
 
-from django.db.models import Count, OuterRef, QuerySet, Subquery, TextField, Value
+from django.contrib.postgres.aggregates import ArrayAgg
+from django.db import connection, router
+from django.db.models import Count, Max, OuterRef, Q, QuerySet, Subquery, TextField, Value
 from django.db.models.fields.json import KT
 from django.db.models.functions import Coalesce
 from django.utils.timezone import now
 
-from products.product_analytics.backend.facade.contracts import InsightVariableDefinition, SavedTrendsInsight
-from products.product_analytics.backend.models.insight import Insight, InsightViewed
+from posthog.ingress.dispatch.database import bounded_statement_timeout
+
+from products.actions.backend.facade.enums import ACTION_REFERENCE_JSONPATH, ACTIONS_ARRAY_JSONPATH
+from products.product_analytics.backend.facade.contracts import (
+    InsightActionReference,
+    InsightVariableDefinition,
+    SavedTrendsInsight,
+)
+from products.product_analytics.backend.models.insight import Insight, InsightAgentRead, InsightViewed
+from products.product_analytics.backend.models.insight_explanation import InsightExplanation
 from products.product_analytics.backend.models.insight_variable import InsightVariable
 
 if TYPE_CHECKING:
+    from posthog.models.team import Team
     from posthog.models.user import User
 
 # The columns `InsightVariableDefinition` carries; `values` and `values_query` stay on the row.
@@ -49,10 +61,66 @@ def lock_insight_for_evaluation(*, team_id: int, insight_id: int) -> bool:
     )
 
 
+def store_backfilled_query_metadata(
+    *, insight_id: int, query_at_read: dict[str, Any], query_metadata: dict[str, Any]
+) -> bool:
+    needs_metadata = Q(query_metadata__isnull=True) | Q(query_metadata={}) | Q(query_metadata__properties__isnull=True)
+    return (
+        Insight.objects_including_soft_deleted.filter(needs_metadata, id=insight_id, query=query_at_read).update(
+            query_metadata=query_metadata
+        )
+        > 0
+    )
+
+
 def record_insight_view(*, insight_id: int, team_id: int | None, user_id: int | None) -> None:
-    InsightViewed.objects.update_or_create(
+    InsightViewed.objects.update_or_create(  # type: ignore[misc]  # nullable FKs; django-stubs drops None from *_id lookups
         insight_id=insight_id, team_id=team_id, user_id=user_id, defaults={"last_viewed_at": now()}
     )
+
+
+AGENT_READ_DAYS_KEPT = 35
+AGENT_READ_DELETE_BATCH = 10_000
+AGENT_READ_WRITE_TIMEOUT_MS = 500
+
+
+def record_agent_insight_read(*, team: "Team", user_id: int, insight_id: int) -> None:
+    team_id = team.parent_team_id or team.id
+    day = now().astimezone(team.timezone_info).date()
+    with bounded_statement_timeout(AGENT_READ_WRITE_TIMEOUT_MS, aliases=[router.db_for_write(InsightAgentRead)]):
+        InsightAgentRead.objects.for_team(team_id, canonical=True).bulk_create(
+            [InsightAgentRead(team_id=team_id, user_id=user_id, insight_id=insight_id, day=day)],
+            ignore_conflicts=True,
+        )
+
+
+def insight_reads_by_agents(
+    *, team_id: int, user_id: int, since: date, min_days: int, limit: int
+) -> list[tuple[str, list[date]]]:
+    return list(
+        InsightAgentRead.objects.for_team(team_id)
+        .filter(user_id=user_id, day__gte=since, insight__deleted=False, insight__saved=True)
+        .values("insight__short_id")
+        .annotate(read_days=ArrayAgg("day", order_by="day"), days=Count("day"), last_day=Max("day"))
+        .filter(days__gte=min_days)
+        .order_by("-last_day")
+        .values_list("insight__short_id", "read_days")[:limit]
+    )
+
+
+def delete_agent_insight_reads_for_teams(team_ids: Collection[int]) -> None:
+    _delete_in_batches(InsightAgentRead.objects.unscoped().filter(team_id__in=team_ids))
+
+
+def expire_agent_insight_reads() -> None:
+    oldest = now().date() - timedelta(days=AGENT_READ_DAYS_KEPT)
+    _delete_in_batches(InsightAgentRead.objects.unscoped().filter(day__lt=oldest))
+
+
+def _delete_in_batches(reads: QuerySet[InsightAgentRead]) -> None:
+    writer = reads.using(router.db_for_write(InsightAgentRead))
+    while batch := list(writer.values_list("id", flat=True)[:AGENT_READ_DELETE_BATCH]):
+        writer.filter(id__in=batch).delete()
 
 
 def record_insight_views(*, team_id: int, user_id: int, last_viewed_at_by_insight_id: Mapping[int, datetime]) -> None:
@@ -263,3 +331,81 @@ def get_or_create_saved_insight(
         insight.deleted = False
         insight.save(update_fields=["deleted"])
     return insight.id, created
+
+
+def create_insight_explanation(
+    *, team_id: int, insight_id: int, user_id: int, data: dict[str, Any]
+) -> InsightExplanation:
+    return InsightExplanation.objects.for_team(team_id).create(
+        team_id=team_id, insight_id=insight_id, created_by_id=user_id, data=data
+    )
+
+
+def update_insight_explanation(
+    *, team_id: int, insight_id: int, explanation_id: UUID, user_id: int, data: dict[str, Any]
+) -> InsightExplanation | None:
+    explanation = (
+        InsightExplanation.objects.for_team(team_id)
+        .select_related("created_by")
+        .filter(insight_id=insight_id, id=explanation_id, created_by_id=user_id)
+        .first()
+    )
+    if explanation is None:
+        return None
+    explanation.data = data
+    explanation.save(update_fields=["data"])
+    return explanation
+
+
+def insights_referencing_action(*, team_id: int, action_id: int, limit: int) -> list[InsightActionReference]:
+    vars_json = json.dumps({"id": action_id, "id_str": str(action_id)})
+    rows = (
+        # nosemgrep: python.django.security.audit.query-set-extra.avoid-query-set-extra (parameterized via params)
+        Insight.objects.filter(team_id=team_id, deleted=False)
+        .extra(
+            where=[
+                f"""
+                jsonb_path_exists(query, '{ACTION_REFERENCE_JSONPATH}', %s::jsonb)
+                OR jsonb_path_exists(filters, '{ACTION_REFERENCE_JSONPATH}', %s::jsonb)
+                OR jsonb_path_exists(filters, '{ACTIONS_ARRAY_JSONPATH}', %s::jsonb)
+                """
+            ],
+            params=[vars_json] * 3,
+        )
+        .values("id", "short_id", "name", "derived_name", "created_at", "created_by_id")
+    )
+    return [InsightActionReference(**row) for row in rows[:limit]]
+
+
+def count_insights_referencing_actions(*, team_id: int, action_ids: Sequence[int]) -> dict[int, int]:
+    if not action_ids:
+        return {}
+    insight_table = Insight._meta.db_table
+    # nosemgrep: python.django.security.audit.raw-query.avoid-raw-sql (parameterized via %s)
+    with connection.cursor() as cursor:
+        cursor.execute(
+            f"""
+            SELECT aid, count(*) FROM unnest(%s::int[]) AS aid
+            CROSS JOIN LATERAL (
+                SELECT 1 FROM {insight_table}
+                WHERE team_id = %s AND NOT deleted
+                AND (
+                    jsonb_path_exists(query, '{ACTION_REFERENCE_JSONPATH}', jsonb_build_object('id', aid, 'id_str', aid::text))
+                    OR jsonb_path_exists(filters, '{ACTION_REFERENCE_JSONPATH}', jsonb_build_object('id', aid, 'id_str', aid::text))
+                    OR jsonb_path_exists(filters, '{ACTIONS_ARRAY_JSONPATH}', jsonb_build_object('id', aid, 'id_str', aid::text))
+                )
+            ) AS matched
+            GROUP BY aid
+            """,
+            [list(action_ids), team_id],
+        )
+        return dict(cursor.fetchall())
+
+
+def insight_explanation(*, team_id: int, insight_id: int, explanation_id: UUID) -> InsightExplanation | None:
+    return (
+        InsightExplanation.objects.for_team(team_id)
+        .select_related("created_by")
+        .filter(insight_id=insight_id, id=explanation_id)
+        .first()
+    )

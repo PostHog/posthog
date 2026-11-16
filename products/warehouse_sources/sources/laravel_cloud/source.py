@@ -1,0 +1,29 @@
+from typing import cast
+
+from products.warehouse_sources.sources.laravel_cloud._config import LaravelCloudSourceConfig
+from products.warehouse_sources.sources.sdk import (
+    DataWarehouseSourceCategory,
+    ExternalDataSourceType,
+    FieldType,
+    SimpleSource,
+    SourceConfig,
+    SourceRegistry,
+)
+
+
+@SourceRegistry.register
+class LaravelCloudSource(SimpleSource[LaravelCloudSourceConfig]):
+    @property
+    def source_type(self) -> ExternalDataSourceType:
+        return ExternalDataSourceType.LARAVELCLOUD
+
+    @property
+    def get_source_config(self) -> SourceConfig:
+        return SourceConfig(
+            name=ExternalDataSourceType.LARAVELCLOUD,
+            category=DataWarehouseSourceCategory.ENGINEERING___MONITORING,
+            label="Laravel Cloud",
+            iconPath="/static/services/laravel_cloud.png",
+            fields=cast(list[FieldType], []),
+            unreleasedSource=True,
+        )

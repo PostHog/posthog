@@ -5,12 +5,14 @@ from typing import TYPE_CHECKING
 import structlog
 
 from posthog.schema import (
+    BreakdownNotAppliedWarning,
     DataWarehouseNode,
     DataWarehousePropertyFilter,
     MarketingAnalyticsDrillDownLevel,
     PropertyOperator,
 )
 
+from posthog.dataclasses import frozen
 from posthog.models.team.team import DEFAULT_CURRENCY
 
 from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import (
@@ -34,6 +36,15 @@ if TYPE_CHECKING:
     from posthog.models import Team
 
 logger = structlog.get_logger(__name__)
+
+# The live fallback has one series per source, so a split by source survives without the breakdown.
+LIVE_FALLBACK_BREAKDOWN_PROPERTY = "source_name"
+
+
+@frozen
+class ResolvedMarketingCostTrend:
+    query: TrendsQuery
+    warning: BreakdownNotAppliedWarning | None = None
 
 
 class MarketingCostTrendsQueryResolver:
@@ -88,7 +99,26 @@ class MarketingCostTrendsQueryResolver:
                     return None
         return sorted(selected_ids)
 
-    def resolve_query(self) -> TrendsQuery:
+    def _live_breakdown_warning(self, *, all_time: bool) -> BreakdownNotAppliedWarning | None:
+        breakdown_filter = self.query.breakdownFilter
+        if breakdown_filter is None:
+            return None
+        properties = {breakdown.property for breakdown in breakdown_filter.breakdowns or []}
+        single = breakdown_filter.breakdown
+        if single is not None:
+            properties.update(single if isinstance(single, list) else [single])
+        if properties <= {LIVE_FALLBACK_BREAKDOWN_PROPERTY}:
+            return None
+        return BreakdownNotAppliedWarning(
+            type="breakdown_not_applied",
+            message=(
+                "Costs are shown by source. To break them down further, pick a date range other than all time."
+                if all_time
+                else "Costs are shown by source. This breakdown isn't available right now."
+            ),
+        )
+
+    def resolve_query(self) -> ResolvedMarketingCostTrend:
         fallback = self.query.marketingAnalyticsCostFallback
         assert fallback is not None
         requested_query = self.query.model_copy(deep=True)
@@ -98,21 +128,23 @@ class MarketingCostTrendsQueryResolver:
             or not isinstance(self.query.series[0], DataWarehouseNode)
             or self.query.series[0].table_name != "marketing_costs_precomputed"
         ):
-            return requested_query
+            return ResolvedMarketingCostTrend(query=requested_query)
         live_query = requested_query.model_copy(deep=True)
         live_query.series = [series.model_copy(deep=True) for series in fallback.series]
         live_query.breakdownFilter = None
-        if not fallback.series or (self.query.dateRange and self.query.dateRange.date_from == "all"):
-            return live_query
+        all_time = self.query.dateRange is not None and self.query.dateRange.date_from == "all"
+        live = ResolvedMarketingCostTrend(query=live_query, warning=self._live_breakdown_warning(all_time=all_time))
+        if not fallback.series or all_time:
+            return live
         try:
             if not MarketingAnalyticsConfig.from_team(self.team).costs_precomputation_enabled:
-                return live_query
+                return live
             source_ids = self._covered_source_ids(self.date_ranges)
             if source_ids is None:
-                return live_query
+                return live
         except Exception:
             logger.exception("marketing_cost_trend_coverage_check_failed", team_id=self.team.pk)
-            return live_query
+            return live
 
         precomputed_query = self.query.model_copy(deep=True)
         precomputed_query.marketingAnalyticsCostFallback = None
@@ -123,7 +155,7 @@ class MarketingCostTrendsQueryResolver:
         series.properties.append(
             DataWarehousePropertyFilter(key="source_id", operator=PropertyOperator.EXACT, value=list(source_ids))
         )
-        return precomputed_query
+        return ResolvedMarketingCostTrend(query=precomputed_query)
 
 
 def resolve_marketing_cost_trend(
@@ -132,5 +164,5 @@ def resolve_marketing_cost_trend(
     team: Team,
     date_ranges: Sequence[QueryDateRange],
     get_database: Callable[[], Database],
-) -> TrendsQuery:
+) -> ResolvedMarketingCostTrend:
     return MarketingCostTrendsQueryResolver(query, team, date_ranges, get_database).resolve_query()
