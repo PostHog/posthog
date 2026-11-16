@@ -154,6 +154,13 @@ Direct connections group tables by schema. Search matches table and folder names
 
 **Search fields** also searches property definitions in the selected table and expanded related tables. Search for `$browser`, `$pathname`, or a custom property name to open matching property groups, then drag or double-click a property onto a shelf. Clearing the search restores each group's previous expansion and local search. Searching for a group's name, such as `properties`, shows all its definitions.
 
+## SQL heatmaps
+
+For a 2D heatmap, **X-axis order** in the Series settings sorts columns ascending or descending by their labels, with numeric labels in numeric order.
+Ascending order places numeric labels before text labels; descending order reverses both groups.
+**Query order** keeps the order in which values first appear in the results.
+Clicking a column header sorts rows by that column's values independently of the X-axis order.
+
 ## Calculated measures in BI mode
 
 Choose **Edit measure expression** from a measure pill to edit its SQL and aggregation together. The editor shows the aggregation applied to each group. Choose **Custom SQL · no extra aggregation** when the expression already contains aggregate functions, such as `sum(revenue) / nullIf(count(), 0)`. This uses the expression directly without wrapping it in Count or Sum. Changes apply together when you select **Update SQL expression**; closing the editor discards the draft.
