@@ -4,7 +4,7 @@ from uuid import UUID
 
 from django.conf import settings
 from django.db import models, transaction
-from django.db.models import Q
+from django.db.models import Model, Q
 from django.utils import timezone
 
 from drf_spectacular.utils import extend_schema, extend_schema_field
@@ -29,12 +29,6 @@ from posthog.models.integration import (
 from posthog.permissions import is_service_auth
 
 from products.access_control.backend.facade.user_access_control import access_level_satisfied_for_resource
-from products.authorization.backend.facade import api as authorization
-from products.authorization.backend.facade.contracts import Resource
-from products.authorization.backend.facade.enums import (
-    Action as AuthorizationAction,
-    ResourceType,
-)
 from products.data_warehouse.backend.facade.api import is_any_external_data_schema_paused
 from products.warehouse_sources.backend.facade import (
     contracts,
@@ -100,21 +94,16 @@ INTEGRATION_ACCESS_DENIED = (
 )
 
 
-def can_use_integration(integration: IntegrationRecord) -> bool:
+def can_use_integration(view: Any, integration: IntegrationRecord) -> bool:
     """Whether the requesting user may use this integration's credentials.
 
     The integration field only checks the team and kind, so without this a member denied an
     integration could still write with its credentials through a destination.
     """
-    return authorization.check(
-        resource=Resource(
-            type=ResourceType.INTEGRATION,
-            id=str(integration.id),
-            project_id=integration.team_id,
-            created_by_id=integration.created_by_id,
-        ),
-        action=AuthorizationAction.VIEW,
-    )
+    user_access_control = getattr(view, "user_access_control", None)
+    if user_access_control is None:
+        return True
+    return user_access_control.check_access_level_for_object(cast(Model, integration), required_level="viewer")
 
 
 # Types a user may create. The PostHog warehouse row is created by the sync itself the first
@@ -547,7 +536,7 @@ class ExternalDataDestinationSerializer(serializers.ModelSerializer):
         if integration.kind not in allowed_kinds:
             expected = " or ".join(f"'{kind}'" for kind in allowed_kinds)
             raise ValidationError({"integration": f"A {destination_type} destination needs a {expected} integration."})
-        if self.instance is None and not can_use_integration(integration):
+        if self.instance is None and not can_use_integration(self.context.get("view"), integration):
             raise ValidationError({"integration": INTEGRATION_ACCESS_DENIED})
 
         if destination_type == ExternalDataDestination.Type.MOTHERDUCK and isinstance(attrs.get("config"), dict):
@@ -1095,7 +1084,7 @@ class ExternalDataDestinationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewS
             raise ValidationError(
                 {"type": "The PostHog warehouse is managed for you, so it has no connection to test."}
             )
-        if not can_use_integration(integration):
+        if not can_use_integration(self, integration):
             raise PermissionDenied(INTEGRATION_ACCESS_DENIED)
 
         if destination.type == ExternalDataDestination.Type.POSTGRES:

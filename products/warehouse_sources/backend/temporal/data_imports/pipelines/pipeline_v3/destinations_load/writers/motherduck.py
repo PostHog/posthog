@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import re
 import asyncio
+import functools
 import threading
 from collections.abc import AsyncIterator, Callable, Iterator
 from concurrent.futures import (
@@ -168,7 +169,7 @@ def _duckdb_compatible_type(arrow_type: pa.DataType) -> pa.DataType:
     if pa.types.is_fixed_size_list(arrow_type):
         return pa.list_(_duckdb_compatible_field(arrow_type.value_field), arrow_type.list_size)
     if pa.types.is_map(arrow_type):
-        return pa.map_(_duckdb_compatible_type(arrow_type.key_type), _duckdb_compatible_field(arrow_type.item_field))
+        return pa.map_(_duckdb_compatible_type(arrow_type.key_type), _duckdb_compatible_type(arrow_type.item_type))
     if pa.types.is_struct(arrow_type):
         return pa.struct([_duckdb_compatible_field(arrow_type.field(i)) for i in range(arrow_type.num_fields)])
     return arrow_type
@@ -445,9 +446,7 @@ class MotherDuckDestinationWriter:
         record_index = 0
         async for batch in batches:
             rows_written += await self._run(
-                lambda connection, batch=batch, record_index=record_index: self._write_record_batch(
-                    connection, batch, ctx, record_index=record_index
-                )
+                functools.partial(self._write_record_batch, batch=batch, ctx=ctx, record_index=record_index)
             )
             record_index += 1
         return BatchWriteOutcome(rows_written=rows_written)
