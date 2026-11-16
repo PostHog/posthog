@@ -1,6 +1,8 @@
 import type { GuidanceCall } from './engine'
 import type { GuidanceCondition, GuidanceRule } from './rule-schema'
 
+export const MCP_GUIDANCE_EMPTY_STATES_FLAG = 'mcp-guidance-empty-states'
+
 export function hasArg(call: GuidanceCall, name: string): boolean {
     const value = call.args?.[name]
     return value !== undefined && value !== null && value !== '' && !(Array.isArray(value) && value.length === 0)
@@ -14,8 +16,8 @@ function isLaterPage(call: GuidanceCall): boolean {
 
 export function emptyResultRule(rule: {
     id: string
-    flag: string
     tool: string
+    flag?: string
     when: GuidanceCondition
     text: GuidanceRule['text']
     maxPerSession?: number
@@ -24,7 +26,7 @@ export function emptyResultRule(rule: {
 }): GuidanceRule {
     return {
         id: rule.id,
-        flag: rule.flag,
+        flag: rule.flag ?? MCP_GUIDANCE_EMPTY_STATES_FLAG,
         trigger: { tool: rule.tool, resultEmpty: true, outcome: 'success', presets: ['user'] },
         threshold: 1,
         maxPerSession: rule.maxPerSession ?? 1,
