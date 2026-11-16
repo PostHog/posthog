@@ -132,12 +132,27 @@ export function isValidIpFilterValue(raw: string): boolean {
     return v.includes(':')
 }
 
-const OFFSET_FREE_DATETIME = /^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}(:\d{2}(\.\d+)?)?$/
+const UTC_OFFSET = /T.*(Z|[+-]\d{2}:?\d{2})$/i
 
-// The time picker shows and emits browser-local times without an offset.
-export function filterDateToISOString(value: string, browserTimezone: string = dayjs.tz.guess()): string | undefined {
-    const date = OFFSET_FREE_DATETIME.test(value) ? dayjs.tz(value, browserTimezone) : dateStringToDayJs(value)
+// A value without a UTC offset is in the project timezone, as in insights.
+export function filterDateToISOString(value: string, timezone: string): string | undefined {
+    const date = UTC_OFFSET.test(value) ? dayjs(value) : dateStringToDayJs(value, timezone)
     return date?.isValid() ? date.toISOString() : undefined
+}
+
+// The date picker shows a value as written, so a jump's UTC instants are stored in project time.
+export function toFilterDates(
+    dateFrom: string | null,
+    dateTo: string | null,
+    timezone: string
+): { start_date?: string; end_date?: string; hadUtcOffset: boolean } {
+    const toProjectTime = (value: string): string =>
+        UTC_OFFSET.test(value) ? dayjs(value).tz(timezone).format('YYYY-MM-DDTHH:mm:ss') : value
+    return {
+        start_date: dateFrom ? toProjectTime(dateFrom) : undefined,
+        end_date: dateTo ? toProjectTime(dateTo) : undefined,
+        hadUtcOffset: [dateFrom, dateTo].some((value) => !!value && UTC_OFFSET.test(value)),
+    }
 }
 
 function parseBooleanSearchParam(raw: unknown): boolean | undefined {
@@ -157,6 +172,7 @@ export interface advancedActivityLogsLogicValues {
     currentOrganizationId: string // organizationLogic
     currentProjectId: number | string // teamLogic
     currentTeamIdStrict: number | string // teamLogic
+    timezone: string // teamLogic
     hasAvailableFeature: (feature: AvailableFeature, currentUsage?: number | undefined) => boolean // userLogic
     activeAdvancedFiltersCount: number
     activeFilters: ActiveDetailFilter[]
@@ -342,7 +358,7 @@ export const advancedActivityLogsLogic = kea<advancedActivityLogsLogicType>([
             userLogic,
             ['hasAvailableFeature'],
             teamLogic,
-            ['currentTeamIdStrict', 'currentProjectId'],
+            ['currentTeamIdStrict', 'currentProjectId', 'timezone'],
             organizationLogic,
             ['currentOrganization', 'currentOrganizationId'],
         ],
@@ -435,11 +451,13 @@ export const advancedActivityLogsLogic = kea<advancedActivityLogsLogicType>([
 
                     const params = new URLSearchParams()
 
-                    const startDate = values.filters.start_date && filterDateToISOString(values.filters.start_date)
+                    const startDate =
+                        values.filters.start_date && filterDateToISOString(values.filters.start_date, values.timezone)
                     if (startDate) {
                         params.append('start_date', startDate)
                     }
-                    const endDate = values.filters.end_date && filterDateToISOString(values.filters.end_date)
+                    const endDate =
+                        values.filters.end_date && filterDateToISOString(values.filters.end_date, values.timezone)
                     if (endDate) {
                         params.append('end_date', endDate)
                     }
@@ -767,9 +785,11 @@ export const advancedActivityLogsLogic = kea<advancedActivityLogsLogicType>([
             }
             try {
                 const startDate = values.filters.start_date
-                    ? filterDateToISOString(values.filters.start_date)
+                    ? filterDateToISOString(values.filters.start_date, values.timezone)
                     : undefined
-                const endDate = values.filters.end_date ? filterDateToISOString(values.filters.end_date) : undefined
+                const endDate = values.filters.end_date
+                    ? filterDateToISOString(values.filters.end_date, values.timezone)
+                    : undefined
 
                 const filtersToExport = {
                     start_date: startDate,
