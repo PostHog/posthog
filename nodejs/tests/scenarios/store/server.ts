@@ -8,7 +8,7 @@ import { gunzip } from 'zlib'
 import { parseJSON } from '~/common/utils/json-parse'
 
 import { RunId, RunReport, RunStore } from './runs'
-import { migrate } from './schema'
+import { ensureSchema } from './schema'
 
 export const INGEST_PATH = '/api/ingest/runs'
 export const RUNS_PATH = '/api/runs'
@@ -24,13 +24,14 @@ const gunzipAsync = promisify(gunzip)
 class HttpError extends Error {
     constructor(
         readonly status: number,
-        message: string
+        message: string,
+        readonly closesConnection = false
     ) {
         super(message)
     }
 }
 
-const tooLarge = (): HttpError => new HttpError(413, `the body is larger than ${MAX_BODY_BYTES} bytes`)
+const tooLarge = (): HttpError => new HttpError(413, `the body is larger than ${MAX_BODY_BYTES} bytes`, true)
 
 const digest = (value: string): Buffer => createHash('sha256').update(value).digest()
 
@@ -89,11 +90,8 @@ async function reportOf(request: IncomingMessage): Promise<RunReport> {
     return parsed.data
 }
 
-function send(response: ServerResponse, status: number, body: unknown): void {
-    response.writeHead(status, {
-        'Content-Type': 'application/json',
-        ...(status === 413 ? { Connection: 'close' } : {}),
-    })
+function send(response: ServerResponse, status: number, body: unknown, headers: Record<string, string> = {}): void {
+    response.writeHead(status, { 'Content-Type': 'application/json', ...headers })
     response.end(JSON.stringify(body))
 }
 
@@ -126,7 +124,11 @@ async function ingest(store: RunStore, token: Buffer, request: IncomingMessage, 
 
 async function listRuns(store: RunStore, query: URLSearchParams, request: IncomingMessage, response: ServerResponse) {
     requireMethod(request, 'GET')
-    const runs = await store.list({ cardId: query.get('card_id') || undefined, limit: limitOf(query.get('limit')) })
+    const runs = await store.list({
+        cardId: query.get('card_id') || undefined,
+        adapter: query.get('adapter') || undefined,
+        limit: limitOf(query.get('limit')),
+    })
     send(response, 200, { runs })
 }
 
@@ -151,13 +153,17 @@ async function handle(store: RunStore, token: Buffer, request: IncomingMessage, 
     if (path === RUNS_PATH) {
         return await listRuns(store, new URLSearchParams(query), request, response)
     }
-    if (path.startsWith(`${RUNS_PATH}/`)) {
-        return await readRun(store, path.slice(RUNS_PATH.length + 1), request, response)
+    const runId = path.startsWith(`${RUNS_PATH}/`) ? path.slice(RUNS_PATH.length + 1) : '/'
+    if (!runId.includes('/')) {
+        return await readRun(store, runId, request, response)
     }
     throw new HttpError(404, 'not found')
 }
 
-export type StoreOptions = { databaseUrl: string; token: string; port: number; host?: string }
+type StoreOptions = { databaseUrl: string; token: string; port: number; host?: string }
+
+const closeServer = (server: Server): Promise<void> =>
+    new Promise((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())))
 
 export type RunningStore = { url: string; close: () => Promise<void> }
 
@@ -177,14 +183,15 @@ export async function startStore({
     const server: Server = createServer((request, response) => {
         handle(store, expected, request, response).catch((error: unknown) => {
             if (error instanceof HttpError) {
-                return send(response, error.status, { error: error.message })
+                const headers: Record<string, string> = error.closesConnection ? { Connection: 'close' } : {}
+                return send(response, error.status, { error: error.message }, headers)
             }
             process.stderr.write(`store: ${request.method} ${request.url?.split('?')[0]}: ${String(error)}\n`)
             send(response, 500, { error: 'the store failed to answer' })
         })
     })
     try {
-        await migrate(pool)
+        await ensureSchema(pool)
         await new Promise<void>((resolve, reject) => {
             server.once('error', reject)
             server.listen(port, host, resolve)
@@ -194,11 +201,12 @@ export async function startStore({
         throw error
     }
     const { port: bound } = server.address() as AddressInfo
+    let closing: Promise<void> | undefined
     return {
-        url: `http://${host === '0.0.0.0' ? '127.0.0.1' : host}:${bound}`,
-        close: async () => {
-            await new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())))
-            await pool.end()
+        url: `http://${host}:${bound}`,
+        close: () => {
+            closing ??= closeServer(server).then(() => pool.end())
+            return closing
         },
     }
 }

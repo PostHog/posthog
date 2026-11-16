@@ -859,24 +859,26 @@ The run store keeps every run, local or cloud, in one place.
 The runners report to it and the hosted viewer reads from it; both land in later changes.
 It is one Node HTTP service over Postgres, in `store/`, and it runs nowhere in production.
 The scorecard event stays the durable record: everything in the store can be rebuilt from scorecard events and the evidence bucket.
+The store names no product: a run lists the adapters it drove, and each series names its adapter, so a new adapter needs no store change.
 
 **What a run stores**, keyed by `run_id`:
 
-| Column                                                                           | Holds                                                                                           |
-| -------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------- |
-| `scorecard`                                                                      | The scorecard properties as posted, schema version 1                                            |
-| `card_id`, `status`, `target`, `head_sha`, `card_hash`, `started_at`, `ended_at` | Copied from the scorecard, so lists filter and sort without reading the JSON                    |
-| `evidence_dir`                                                                   | The scorecard's `evidence_dir`: a path on the box for a local run, an S3 prefix for a cloud run |
-| `host`                                                                           | The box that reported the run, when the report names it                                         |
-| `series`                                                                         | Derived time series for the viewer, as JSON; never raw evidence                                 |
-| `topology`                                                                       | The systems the run saw, when the report has them                                               |
+| Column                                                                           | Holds                                                                                                    |
+| -------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------- |
+| `scorecard`                                                                      | The scorecard properties as posted, schema version 1, with the run id lowercased                         |
+| `adapters`                                                                       | The scorecard's `adapters`: the ids of the adapters the run drove, empty when it names none              |
+| `card_id`, `status`, `target`, `head_sha`, `card_hash`, `started_at`, `ended_at` | Copied from the scorecard, so lists filter and sort without reading the JSON                             |
+| `evidence_dir`                                                                   | The scorecard's `evidence_dir`: a path on the box for a local run, an S3 prefix for a cloud run          |
+| `host`                                                                           | The box that reported the run, when the report names it                                                  |
+| `series`                                                                         | Named series for the viewer, each `{ adapter, name, unit, points: [{ at, value }] }`; never raw evidence |
+| `topology`                                                                       | The systems the run saw, when the report has them                                                        |
 
 **Routes**
 
 | Route                   | Who can call it                                               | Does                                                                                                                                                           |
 | ----------------------- | ------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `POST /api/ingest/runs` | Anyone with the run token, as `Authorization: Bearer <token>` | Stores `{ scorecard, series?, topology?, host? }`: `201` for a new run, `200` for a run it already had. A wrong or missing token gets `401` and stores nothing |
-| `GET /api/runs`         | Whoever reaches the host                                      | Lists runs newest first, without `series` and `topology`. `?card_id=` filters, `?limit=` takes 1 to 500, default 100                                           |
+| `GET /api/runs`         | Whoever reaches the host                                      | Lists runs newest first, without `series` and `topology`. `?card_id=` and `?adapter=` filter, `?limit=` takes 1 to 500, default 100                            |
 | `GET /api/runs/<id>`    | Whoever reaches the host                                      | One run with its `series` and `topology`, by its id in any letter case                                                                                         |
 
 A report for a run the store already has replaces its scorecard and keeps the `series`, `topology` and `host` the new report leaves out or sends as `null`, so re-sending a scorecard never drops a series a backfill added.
@@ -895,9 +897,10 @@ DATABASE_URL=postgres://... SCENARIO_STORE_TOKEN=<a long random token> PORT=8080
 ```
 
 It listens on `127.0.0.1` unless `HOST` names another address, such as `0.0.0.0` in a container.
-It applies its migrations before it opens the port, and refuses to start without `SCENARIO_STORE_TOKEN`.
-Each migration is one idempotent statement, such as `ADD COLUMN IF NOT EXISTS`, that runs on every start under an advisory lock.
-Migrations only add, because the old revision keeps serving while a new one starts.
+It applies its schema before it opens the port, and refuses to start without `SCENARIO_STORE_TOKEN`.
+The schema is a list of idempotent statements in `store/schema.ts` that runs on every start under an advisory lock.
+Once a store runs somewhere, a change is a new statement at the end of the list, such as `ALTER TABLE runs ADD COLUMN IF NOT EXISTS`, never an edit to the `CREATE TABLE`, which an existing table skips.
+Changes only add, because the old revision keeps serving while a new one starts.
 On `SIGTERM` it stops taking connections and finishes the requests in flight before it exits.
 It holds at most 5 database connections and stops any statement after 25 seconds.
 

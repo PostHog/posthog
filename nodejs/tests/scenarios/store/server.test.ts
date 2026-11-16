@@ -25,11 +25,19 @@ function scorecardFixture(runId: string, overrides: Record<string, unknown> = {}
         started_at: '2026-01-02T03:04:05.000Z',
         ended_at: '2026-01-02T03:09:05.000Z',
         evidence_dir: '/tmp/example/evidence',
+        adapters: ['example'],
         inv_example_passed: true,
         bars: [{ name: 'example-bar', passed: true }],
         ...overrides,
     }
 }
+
+const seriesOf = (name: string, values: number[]) => ({
+    adapter: 'example',
+    name,
+    unit: 'per_second',
+    points: values.map((value, index) => ({ at: 1_700_000_000_000 + index * 5000, value })),
+})
 
 const withoutStatus = (runId: string): Record<string, unknown> => {
     const { status: _status, ...scorecard } = scorecardFixture(runId)
@@ -72,7 +80,7 @@ describe('run store', () => {
 
     it('reads back exactly what was posted', async () => {
         const runId = randomUUID()
-        const series = { bucketMs: 5000, flow: [{ at: 1, offered: 3 }] }
+        const series = [seriesOf('offered', [3, 4]), { ...seriesOf('lag', [1]), points: [{ at: 1, value: null }] }]
         const topology = { nodes: ['a', 'b'], edges: [['a', 'b']] }
 
         expect((await ingest({ scorecard: scorecardFixture(runId), series, topology, host: 'box-1' })).status).toBe(201)
@@ -90,6 +98,7 @@ describe('run store', () => {
                 startedAt: '2026-01-02T03:04:05.000Z',
                 endedAt: '2026-01-02T03:09:05.000Z',
                 evidenceDir: '/tmp/example/evidence',
+                adapters: ['example'],
                 receivedAt: expect.any(String),
                 updatedAt: expect.any(String),
                 scorecard: scorecardFixture(runId),
@@ -117,7 +126,7 @@ describe('run store', () => {
         ['sends them as null', { series: null, topology: null, host: null }],
     ])('keeps the series, topology and host when a re-report %s', async (_, absent) => {
         const runId = randomUUID()
-        const series = { flow: [1, 2, 3] }
+        const series = [seriesOf('offered', [1, 2, 3])]
         const topology = { nodes: ['a'] }
         await ingest({ scorecard: scorecardFixture(runId), series, topology, host: 'box-1' })
 
@@ -167,6 +176,16 @@ describe('run store', () => {
             (runId) => ({ body: { scorecard: scorecardFixture(runId, { schema_version: 2 }) }, headers: AUTHORIZED }),
             400,
         ],
+        [
+            'a series that is not a list of named series',
+            (runId) => ({ body: { scorecard: scorecardFixture(runId), series: { flow: [1] } }, headers: AUTHORIZED }),
+            400,
+        ],
+        [
+            'adapters that are not a list of names',
+            (runId) => ({ body: { scorecard: scorecardFixture(runId, { adapters: 'example' }) }, headers: AUTHORIZED }),
+            400,
+        ],
         ['a body that is not JSON', () => ({ body: Buffer.from('{"scorecard":'), headers: AUTHORIZED }), 400],
         [
             'a gzip header on a plain body',
@@ -204,6 +223,7 @@ describe('run store', () => {
         ['DELETE', `${RUNS_PATH}/${randomUUID()}`, 405],
         ['POST', `${INGEST_PATH}/`, 404],
         ['GET', '/api/unknown', 404],
+        ['GET', `${RUNS_PATH}/${randomUUID()}/series`, 404],
         ['GET', `${RUNS_PATH}/not-a-run-id`, 400],
         ['GET', `${RUNS_PATH}/${randomUUID()}`, 404],
         ['GET', `${RUNS_PATH}?limit=0`, 400],
@@ -250,13 +270,32 @@ describe('run store', () => {
 
         expect(await runIdsOf(`${RUNS_PATH}?card_id=list-card`)).toEqual([newer, older, oldest])
         expect(await runIdsOf(`${RUNS_PATH}?card_id=list-card&limit=2`)).toEqual([newer, older])
-        expect(await runIdsOf(`${RUNS_PATH}?card_id=`)).toEqual(expect.arrayContaining([newer, other]))
     })
 
-    it('finishes a report already in flight when it closes', async () => {
+    it('treats an empty card_id as no filter', async () => {
+        const [first, second] = [randomUUID(), randomUUID()]
+        await ingest({ scorecard: scorecardFixture(first, { card_id: 'first-card' }) })
+        await ingest({ scorecard: scorecardFixture(second, { card_id: 'second-card' }) })
+
+        expect(await runIdsOf(`${RUNS_PATH}?card_id=&limit=500`)).toEqual(expect.arrayContaining([first, second]))
+    })
+
+    it('lists the runs of one adapter, and keeps no adapter for a run that names none', async () => {
+        const [single, shared, none] = [randomUUID(), randomUUID(), randomUUID()]
+        const card_id = 'adapter-card'
+        await ingest({ scorecard: scorecardFixture(single, { card_id }) })
+        await ingest({ scorecard: scorecardFixture(shared, { card_id, adapters: ['other', 'example'] }) })
+        await ingest({ scorecard: scorecardFixture(none, { card_id, adapters: undefined }) })
+
+        expect(await runIdsOf(`${RUNS_PATH}?card_id=${card_id}&adapter=other`)).toEqual([shared])
+        expect((await read(`${RUNS_PATH}/${none}`)).body).toMatchObject({ adapters: [] })
+    })
+
+    it('finishes a report already in flight when it closes, even when told to close twice', async () => {
         const runId = randomUUID()
         const body = JSON.stringify({ scorecard: scorecardFixture(runId) })
         const { hostname, port } = new URL(store.url)
+        let closed: Promise<unknown> = Promise.resolve()
         const answered = new Promise<number>((resolve, reject) => {
             const request = httpRequest({
                 hostname,
@@ -266,9 +305,8 @@ describe('run store', () => {
                 headers: { ...AUTHORIZED, 'Content-Length': Buffer.byteLength(body), Expect: '100-continue' },
             })
             request.on('continue', () => {
-                const closed = store.close()
+                closed = Promise.all([store.close(), store.close()])
                 request.end(body)
-                closed.catch(reject)
             })
             request.on('response', (response) => {
                 response.resume()
@@ -279,6 +317,7 @@ describe('run store', () => {
         })
 
         expect(await answered).toBe(201)
+        await closed
 
         store = await startStore({ databaseUrl: schema.url, token: TOKEN, port: 0 })
         expect(await read(`${RUNS_PATH}/${runId}`)).toMatchObject({ status: 200 })

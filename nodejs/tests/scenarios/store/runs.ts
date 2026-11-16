@@ -5,11 +5,13 @@ import { SCHEMA_VERSION } from '../scorecard/scorecard'
 
 export const RunId = z.uuid().transform((runId) => runId.toLowerCase())
 
-export const Scorecard = z
+const Name = z.string().min(1)
+
+const Scorecard = z
     .object({
         schema_version: z.literal(SCHEMA_VERSION),
         run_id: RunId,
-        card_id: z.string().min(1),
+        card_id: Name,
         status: z.enum(['passed', 'failed', 'invalid']),
         started_at: z.iso.datetime(),
         ended_at: z.iso.datetime(),
@@ -17,22 +19,31 @@ export const Scorecard = z
         head_sha: z.string().nullish(),
         card_hash: z.string().nullish(),
         evidence_dir: z.string().nullish(),
+        adapters: z.array(Name).nullish(),
     })
     .catchall(z.unknown())
 
+const NamedSeries = z.object({
+    adapter: Name,
+    name: Name,
+    unit: Name,
+    points: z.array(z.object({ at: z.number(), value: z.number().nullable() })),
+})
+
 export const RunReport = z.object({
     scorecard: Scorecard,
-    series: z.unknown().optional(),
+    series: z.array(NamedSeries).nullish(),
     topology: z.unknown().optional(),
-    host: z.string().min(1).nullish(),
+    host: Name.nullish(),
 })
 
 export type RunReport = z.infer<typeof RunReport>
 
-export type RunSummary = {
+type RunSummary = {
     runId: string
     cardId: string
     status: string
+    adapters: string[]
     target: string | null
     host: string | null
     headSha: string | null
@@ -45,24 +56,23 @@ export type RunSummary = {
     scorecard: Record<string, unknown>
 }
 
-export type Run = RunSummary & { series: unknown; topology: unknown }
+export type Run = RunSummary & { series: z.infer<typeof NamedSeries>[] | null; topology: unknown }
 
-export type ListOptions = { cardId?: string; limit: number }
-
-const isoText = (column: string): string =>
-    `to_char(${column} AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS "${camelCase(column)}"`
-
-function camelCase(column: string): string {
-    return column.replace(/_([a-z])/g, (_, letter: string) => letter.toUpperCase())
-}
-
-const SUMMARY_COLUMNS = [
-    ...['run_id', 'card_id', 'status', 'target', 'host', 'head_sha', 'card_hash', 'evidence_dir'].map(
-        (column) => `${column} AS "${camelCase(column)}"`
-    ),
-    ...['started_at', 'ended_at', 'received_at', 'updated_at'].map(isoText),
-    'scorecard',
-].join(', ')
+const SUMMARY_COLUMNS = `
+    run_id AS "runId",
+    card_id AS "cardId",
+    status,
+    adapters,
+    target,
+    host,
+    head_sha AS "headSha",
+    card_hash AS "cardHash",
+    to_char(started_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS "startedAt",
+    to_char(ended_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS "endedAt",
+    evidence_dir AS "evidenceDir",
+    to_char(received_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS "receivedAt",
+    to_char(updated_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS "updatedAt",
+    scorecard`
 
 const jsonOrNull = (value: unknown): string | null => (value == null ? null : JSON.stringify(value))
 
@@ -71,12 +81,13 @@ export class RunStore {
 
     async put({ scorecard, series, topology, host }: RunReport): Promise<'created' | 'updated'> {
         const { rows } = await this.pool.query<{ created: boolean }>(
-            `INSERT INTO runs (run_id, card_id, status, target, host, head_sha, card_hash, started_at, ended_at,
-                               scorecard, series, topology, evidence_dir)
-             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13)
+            `INSERT INTO runs (run_id, card_id, status, adapters, target, host, head_sha, card_hash, started_at,
+                               ended_at, scorecard, series, topology, evidence_dir)
+             VALUES ($1, $2, $3, $4, $5, $6, $7, $8, $9, $10, $11, $12, $13, $14)
              ON CONFLICT (run_id) DO UPDATE SET
                 card_id = EXCLUDED.card_id,
                 status = EXCLUDED.status,
+                adapters = EXCLUDED.adapters,
                 target = EXCLUDED.target,
                 host = COALESCE(EXCLUDED.host, runs.host),
                 head_sha = EXCLUDED.head_sha,
@@ -93,6 +104,7 @@ export class RunStore {
                 scorecard.run_id,
                 scorecard.card_id,
                 scorecard.status,
+                scorecard.adapters ?? [],
                 scorecard.target ?? null,
                 host ?? null,
                 scorecard.head_sha ?? null,
@@ -108,13 +120,22 @@ export class RunStore {
         return rows[0].created ? 'created' : 'updated'
     }
 
-    async list({ cardId, limit }: ListOptions): Promise<RunSummary[]> {
+    async list({
+        cardId,
+        adapter,
+        limit,
+    }: {
+        cardId?: string
+        adapter?: string
+        limit: number
+    }): Promise<RunSummary[]> {
         const { rows } = await this.pool.query<RunSummary>(
             `SELECT ${SUMMARY_COLUMNS} FROM runs
-             WHERE $1::text IS NULL OR card_id = $1
+             WHERE ($1::text IS NULL OR card_id = $1)
+               AND ($2::text IS NULL OR adapters @> ARRAY[$2::text])
              ORDER BY started_at DESC, run_id
-             LIMIT $2`,
-            [cardId ?? null, limit]
+             LIMIT $3`,
+            [cardId ?? null, adapter ?? null, limit]
         )
         return rows
     }

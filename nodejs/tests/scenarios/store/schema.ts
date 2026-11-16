@@ -1,10 +1,11 @@
-import type { Pool } from 'pg'
+import type { Pool, PoolClient } from 'pg'
 
-export const MIGRATIONS: readonly string[] = [
+const SCHEMA_STATEMENTS: readonly string[] = [
     `CREATE TABLE IF NOT EXISTS runs (
         run_id uuid PRIMARY KEY,
         card_id text NOT NULL,
         status text NOT NULL,
+        adapters text[] NOT NULL DEFAULT '{}',
         target text,
         host text,
         head_sha text,
@@ -20,23 +21,28 @@ export const MIGRATIONS: readonly string[] = [
     )`,
     'CREATE INDEX IF NOT EXISTS runs_started_at ON runs (started_at DESC)',
     'CREATE INDEX IF NOT EXISTS runs_card_started_at ON runs (card_id, started_at DESC)',
+    'CREATE INDEX IF NOT EXISTS runs_adapters ON runs USING gin (adapters)',
 ]
 
-const MIGRATION_LOCK = 0x5ce7a710
+const SCHEMA_LOCK = 0x5ce7a710
 
-export async function migrate(pool: Pool): Promise<void> {
+async function applyStatements(client: PoolClient): Promise<void> {
+    await client.query('BEGIN')
+    await client.query('SELECT pg_advisory_xact_lock($1)', [SCHEMA_LOCK])
+    for (const statement of SCHEMA_STATEMENTS) {
+        await client.query(statement)
+    }
+    await client.query('COMMIT')
+}
+
+export async function ensureSchema(pool: Pool): Promise<void> {
     const client = await pool.connect()
     try {
-        await client.query('BEGIN')
-        await client.query('SELECT pg_advisory_xact_lock($1)', [MIGRATION_LOCK])
-        for (const statement of MIGRATIONS) {
-            await client.query(statement)
-        }
-        await client.query('COMMIT')
-    } catch (error) {
-        await client.query('ROLLBACK')
-        throw error
-    } finally {
+        await applyStatements(client)
         client.release()
+    } catch (error) {
+        await client.query('ROLLBACK').catch(() => undefined)
+        client.release(error instanceof Error ? error : true)
+        throw error
     }
 }
