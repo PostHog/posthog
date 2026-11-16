@@ -261,11 +261,23 @@ describe('emailTemplaterLogic', () => {
                 expected: true,
             },
             {
-                name: 'flag on: an email the new editor cannot hold stays on the old editor',
+                name: 'flag on: an email the new editor cannot rebuild converts as its own html',
                 flag: true,
                 value: {
                     ...DEFAULT_EMAIL_TEMPLATE,
                     html: '<p>Video</p>',
+                    design: {
+                        body: { rows: [{ cells: [1], columns: [{ contents: [{ type: 'video', values: {} }] }] }] },
+                    },
+                },
+                expected: true,
+            },
+            {
+                name: 'flag on: an email it cannot rebuild and has no html for stays on the old editor',
+                flag: true,
+                value: {
+                    ...DEFAULT_EMAIL_TEMPLATE,
+                    html: '',
                     design: {
                         body: { rows: [{ cells: [1], columns: [{ contents: [{ type: 'video', values: {} }] }] }] },
                     },

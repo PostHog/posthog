@@ -1,4 +1,5 @@
 import { emailDocumentToUnlayer } from './emailDocumentToUnlayer'
+import { renderEmailHtml } from './renderEmailHtml'
 import { unlayerToEmailDocument } from './unlayerToEmailDocument'
 
 jest.mock('./components/EmailHtmlBlockView', () => ({ EmailHtmlBlockView: () => null }))
@@ -218,11 +219,11 @@ describe('unlayerToEmailDocument', () => {
             content('button', { border: { borderTopWidth: '2px', borderTopStyle: 'solid' } }),
             'buttons with a border on only some sides',
         ],
-        ['right-to-left text', content('text', { text: '<p dir="rtl">x</p>' }), 'right-to-left text'],
-    ])('refuses %s rather than dropping it', (_name, block, reason) => {
-        const conversion = unlayerToEmailDocument(design([block]))
-        expect(conversion.document).toBeNull()
-        expect(conversion.unsupported).toContain(reason)
+    ])('rebuilds an email with %s and no html, and says the border is dropped', (_name, block, reason) => {
+        // An email saved only in plain text has a design but no html, so there is nothing else to fall back on.
+        const conversion = unlayerToEmailDocument(design([block]), '')
+        expect(conversion.document?.doc.content?.[0].type).toBe('emailButton')
+        expect(conversion.notKept).toEqual([reason])
     })
 
     it('keeps what real emails rely on: preview text, web fonts, button width and border, column border, tables in text', () => {
@@ -261,7 +262,138 @@ describe('unlayerToEmailDocument', () => {
         expect(table.type).toBe('emailHtml')
         expect(table.attrs.html).toContain('<td>Cell</td>')
         expect(button.attrs.emailStyle).toMatchObject({ buttonWidth: 100, borderWidth: 2, borderColor: '#123456' })
-        expect(conversion.notKept).toEqual(['button colors on hover'])
+        expect(conversion.notKept).toEqual([])
+    })
+
+    it.each([
+        {
+            name: 'its export has a hover rule for it',
+            exported: '#u_content_button_1 .v-button-colors:hover { color: #fff }',
+            kept: '#222222',
+        },
+        // Most exports leave hover colors out, so adding them would change how those emails behave.
+        { name: 'its export has no hover rule', exported: '.v-button { color: #fff }', kept: undefined },
+    ])("keeps a button's hover color only when $name", ({ exported, kept }) => {
+        const button = content('button', {
+            text: 'Go',
+            buttonColors: { backgroundColor: '#111111', hoverBackgroundColor: '#222222' },
+            _meta: { htmlID: 'u_content_button_1' },
+        })
+        const html = `<html><head><style>${exported}</style></head><body><div class="u-row-container">Go</div></body></html>`
+
+        const [converted] = unlayerToEmailDocument(design([button]), html).document?.doc.content as Record<
+            string,
+            any
+        >[]
+
+        expect(converted.attrs.emailStyle.hoverBackgroundColor).toEqual(kept)
+    })
+
+    it('keeps right-to-left text as its own markup with the direction on it', () => {
+        const [block] = unlayerToEmailDocument(design([content('text', { text: '<p dir="rtl">שלום</p>' })])).document
+            ?.doc.content as Record<string, any>[]
+
+        expect(block.type).toBe('emailHtml')
+        expect(block.attrs.html).toContain('<div dir="rtl"><p dir="rtl">שלום</p></div>')
+    })
+
+    it('keeps who sees a block or a row: its Liquid condition and the screens it is hidden on', () => {
+        const condition = {
+            type: 'paid',
+            label: 'Paying customers',
+            description: '',
+            before: '{% if person.properties.plan == "paid" %}',
+            after: '{% endif %}',
+        }
+        const { document } = unlayerToEmailDocument(
+            design(
+                [
+                    content('text', {
+                        text: '<p>Thanks for paying</p>',
+                        displayCondition: condition,
+                        hideMobile: true,
+                    }),
+                    content('text', { text: '<p>Everyone</p>' }),
+                ],
+                { hideDesktop: true, displayCondition: { ...condition, label: 'Row rule' } }
+            )
+        )
+        const [section] = document?.doc.content as Record<string, any>[]
+        const [paid, everyone] = section.content[0].content
+
+        expect(section.type).toBe('emailColumns')
+        expect(section.attrs.emailVisibility).toEqual({
+            condition: { label: 'Row rule', before: condition.before, after: condition.after },
+            hideDesktop: true,
+        })
+        expect(paid.attrs.emailVisibility).toEqual({
+            condition: { label: 'Paying customers', before: condition.before, after: condition.after },
+            hideMobile: true,
+        })
+        expect(everyone.attrs.emailVisibility).toBeFalsy()
+    })
+
+    it.each([
+        { name: 'a video', block: content('video', { videoUrl: { url: 'https://example.com/v' } }), reason: 'videos' },
+        { name: 'a table', block: content('table', {}), reason: 'tables' },
+        { name: 'a block type it has never seen', block: content('somethingNew', {}), reason: 'somethingNew blocks' },
+    ])("keeps a row with $name as the old editor's own html, and rebuilds the rest", ({ block, reason }) => {
+        const twoRows = design([content('text', { text: '<p>Intro</p>' })])
+        twoRows.body.rows.push({
+            id: 'r2',
+            cells: [1],
+            values: {},
+            columns: [{ id: 'c2', values: {}, contents: [block] }],
+        })
+        const exported = `<html><head><style>.u-row .u-col-100 { width: 500px !important; }</style></head><body>
+<div class="u-row-container" style="padding:0px"><p>Intro</p></div>
+<div class="u-row-container" style="padding:0px"><div class="u-row"><a href="https://example.com/v"><img src="https://example.com/thumb.png" /></a></div></div>
+</body></html>`
+
+        const conversion = unlayerToEmailDocument(twoRows, exported)
+        const [intro, kept] = conversion.document?.doc.content as Record<string, any>[]
+
+        expect(intro.type).toBe('paragraph')
+        expect(kept.type).toBe('emailHtml')
+        expect(kept.attrs.html).toBe(
+            '<div class="u-row-container" style="padding:0px"><div class="u-row"><a href="https://example.com/v"><img src="https://example.com/thumb.png"></a></div></div>'
+        )
+        expect(conversion.document?.doc.attrs?.page.globalCss).toContain('.u-col-100')
+        expect(conversion.keptAsHtml).toEqual([reason])
+    })
+
+    it.each([
+        { name: 'no design at all', design: null },
+        { name: 'an empty design', design: {} },
+    ])('opens an email with $name and no html as a blank email', ({ design: empty }) => {
+        expect(unlayerToEmailDocument(empty, '').document?.doc).toEqual({
+            type: 'doc',
+            attrs: { page: {} },
+            content: [{ type: 'paragraph' }],
+        })
+    })
+
+    it.each([
+        {
+            name: "its rows can't be matched to the design",
+            block: content('video', {}),
+            body: '<table><tr><td>Only one export</td></tr></table>',
+            reason: 'videos',
+        },
+        {
+            // The html was changed after the design, for example through the API, so the design shows older words.
+            name: 'the design no longer matches it',
+            block: content('text', { text: '<p>Words from before</p>' }),
+            body: '<div class="u-row-container"><p>Words since</p></div>',
+            reason: 'a design that no longer matches the email',
+        },
+    ])("sends the old editor's html unchanged when $name", ({ block, body, reason }) => {
+        const exported = `<!DOCTYPE html><html><body>${body}</body></html>`
+
+        const conversion = unlayerToEmailDocument(design([block]), `${exported}\n`)
+
+        expect(renderEmailHtml(conversion.document?.doc ?? {})).toBe(exported)
+        expect(conversion.keptAsHtml).toEqual([reason])
     })
 
     it('reads text kept only in textJson, and prefers text when a block has both', () => {
@@ -365,7 +497,19 @@ describe('unlayerToEmailDocument', () => {
         })
         const doc = {
             type: 'doc',
-            attrs: { page: { bodyWidth: 560, backgroundColor: '#eeeeee', bodyBackgroundColor: '#fafafa' } },
+            attrs: {
+                page: {
+                    bodyWidth: 560,
+                    backgroundColor: '#eeeeee',
+                    bodyBackgroundColor: '#fafafa',
+                    backgroundImage: {
+                        url: 'https://example.com/bg.png',
+                        repeat: true,
+                        size: 'cover',
+                        fullWidth: true,
+                    },
+                },
+            },
             content: [
                 { type: 'heading', attrs: { level: 1 }, content: [text('Rollback héading 🚀')] },
                 paragraph(
@@ -394,13 +538,26 @@ describe('unlayerToEmailDocument', () => {
                         emailStyle: { width: 101 },
                     },
                 },
-                { type: 'emailButton', attrs: { href: 'https://example.com/start' }, content: [text('Get started')] },
+                {
+                    type: 'emailButton',
+                    attrs: {
+                        href: 'https://example.com/start',
+                        emailVisibility: { hideMobile: true },
+                    },
+                    content: [text('Get started')],
+                },
                 { type: 'horizontalRule' },
                 { type: 'emailSpacer', attrs: { height: 16 } },
                 { type: 'emailSpacer', attrs: { height: 20, backgroundColor: '#123456' } },
                 {
                     type: 'emailColumns',
-                    attrs: { emailStyle: { backgroundColor: '#ffeecc' } },
+                    attrs: {
+                        emailStyle: { backgroundColor: '#ffeecc' },
+                        emailVisibility: {
+                            condition: { label: 'Trial', before: '{% if trial %}', after: '{% endif %}' },
+                            hideDesktop: true,
+                        },
+                    },
                     content: [
                         { type: 'emailColumn', attrs: { ratio: 1 }, content: [paragraph(text('Left column'))] },
                         { type: 'emailColumn', attrs: { ratio: 1 }, content: [paragraph(text('Right column'))] },
@@ -431,6 +588,13 @@ describe('unlayerToEmailDocument', () => {
         expect(back?.content?.[8].attrs?.emailStyle.backgroundColor).toEqual('#ffeecc')
         expect(back?.content?.[0].attrs?.emailStyle.padding).toEqual({ top: 32, right: 24, bottom: 8, left: 24 })
         expect(back?.content?.[3].attrs?.emailStyle.width).toEqual(101)
+        expect(back?.content?.[4].attrs?.emailVisibility).toEqual({ hideMobile: true })
+        expect(back?.content?.[8].attrs?.emailVisibility).toEqual(doc.content[8].attrs?.emailVisibility)
+        expect(back?.attrs?.page.backgroundImage).toMatchObject({
+            url: 'https://example.com/bg.png',
+            repeat: true,
+            size: 'cover',
+        })
         for (const expected of [
             'Rollback héading 🚀',
             'person.properties.name',

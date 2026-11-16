@@ -1,9 +1,11 @@
 import type { JSONContent } from '@tiptap/core'
 
 import {
+    EmailBackgroundImage,
     EmailBlockStyle,
     EmailPageStyle,
     EmailSides,
+    EmailVisibility,
     emailFontUrls,
     isEmailDocEmpty,
     resolvePageStyle,
@@ -113,7 +115,14 @@ function css(properties: Record<string, string | number | undefined | null | fal
         .join(';')
 }
 
-const STYLE_COLORS = ['color', 'backgroundColor', 'borderColor', 'linkColor'] as const
+const STYLE_COLORS = [
+    'color',
+    'backgroundColor',
+    'borderColor',
+    'linkColor',
+    'hoverColor',
+    'hoverBackgroundColor',
+] as const
 const STYLE_NUMBERS = [
     'fontSize',
     'lineHeight',
@@ -205,6 +214,30 @@ function safeTextStyleMark(attrs: Record<string, any>): Record<string, any> {
     return clean
 }
 
+/** Who sees a block, with anything else dropped. The condition goes into the email as written, never into the app page. */
+export function safeEmailVisibility(value: unknown): EmailVisibility | null {
+    if (!value || typeof value !== 'object' || Array.isArray(value)) {
+        return null
+    }
+    const raw = value as Record<string, any>
+    const visibility: EmailVisibility = {}
+    const condition = raw.condition
+    if (condition && typeof condition === 'object' && typeof condition.before === 'string') {
+        visibility.condition = {
+            before: condition.before,
+            after: typeof condition.after === 'string' ? condition.after : '',
+            ...(typeof condition.label === 'string' && condition.label ? { label: condition.label } : {}),
+        }
+    }
+    if (raw.hideDesktop === true) {
+        visibility.hideDesktop = true
+    }
+    if (raw.hideMobile === true) {
+        visibility.hideMobile = true
+    }
+    return Object.keys(visibility).length ? visibility : null
+}
+
 /**
  * A saved document with every style value checked, so one written by the API or another person can't put its own
  * CSS into the app page once the editor shows it.
@@ -213,6 +246,9 @@ export function safeEmailDoc(node: JSONContent): JSONContent {
     const attrs = node.attrs ? { ...node.attrs } : undefined
     if (attrs && 'emailStyle' in attrs) {
         attrs.emailStyle = safeEmailStyle(attrs.emailStyle)
+    }
+    if (attrs && 'emailVisibility' in attrs) {
+        attrs.emailVisibility = safeEmailVisibility(attrs.emailVisibility)
     }
     if (attrs && node.type === 'emailColumn' && 'ratio' in attrs) {
         attrs.ratio = Number(attrs.ratio) || 1
@@ -246,6 +282,8 @@ interface RenderContext {
     page: EmailPageStyle
     contentWidth: number
     linkUnderline?: boolean
+    /** Hover rules for the email's head, one per button that changes color under the pointer. */
+    hoverRules?: string[]
 }
 
 function textFromNodes(nodes: JSONContent[] | undefined): string {
@@ -430,6 +468,20 @@ function renderImage(node: JSONContent, ctx: RenderContext): string {
     return blockCell({ ...style, borderRadius: undefined, borderWidth: undefined }, inner, NO_SIDES)
 }
 
+function buttonHoverClass(style: EmailBlockStyle, background: string, color: string, ctx: RenderContext): string {
+    const hoverBackground = safeColor(style.hoverBackgroundColor)
+    const hoverColor = safeColor(style.hoverColor)
+    const changes = (hoverBackground && hoverBackground !== background) || (hoverColor && hoverColor !== color)
+    if (!changes || !ctx.hoverRules) {
+        return ''
+    }
+    const className = `ph-button-${ctx.hoverRules.length + 1}`
+    ctx.hoverRules.push(
+        `.${className}:hover { background-color: ${hoverBackground || background} !important; }\n.${className}:hover a, .${className}:hover span { color: ${hoverColor || color} !important; }`
+    )
+    return className
+}
+
 function renderButton(node: JSONContent, ctx: RenderContext): string {
     const style = styleOf(node)
     const href = safeEmailLink(node.attrs?.href)
@@ -485,7 +537,8 @@ function renderButton(node: JSONContent, ctx: RenderContext): string {
               })()
             : ''
     const tableWidth = fullWidth ? ` width="${fullWidth}%"` : ''
-    const button = `<table role="presentation"${tableWidth} border="0" cellpadding="0" cellspacing="0" style="${fullWidth ? `width:${fullWidth}%;` : ''}display:inline-table;border-collapse:separate"><tr><td align="center" bgcolor="${background}" style="${cellCss}">${anchor}</td></tr></table>`
+    const hoverClass = buttonHoverClass(style, background, color, ctx)
+    const button = `<table role="presentation"${tableWidth} border="0" cellpadding="0" cellspacing="0" style="${fullWidth ? `width:${fullWidth}%;` : ''}display:inline-table;border-collapse:separate"><tr><td${hoverClass ? ` class="${hoverClass}"` : ''} align="center" bgcolor="${background}" style="${cellCss}">${anchor}</td></tr></table>`
     return blockCell(
         { textAlign: style.textAlign, padding: style.padding ?? { ...DEFAULT_BLOCK_SIDES, top: 12, bottom: 12 } },
         outlookButton ? `${outlookButton}<!--[if !mso]><!-->${button}<!--<![endif]-->` : button
@@ -642,8 +695,59 @@ function renderBlock(node: JSONContent, parentCtx: RenderContext): string {
     }
 }
 
+/** A block that only some people see. A Liquid condition removes it before sending, and the classes on a phone or a desktop. */
+function withVisibility(node: JSONContent, html: string): string {
+    const visibility = safeEmailVisibility(node.attrs?.emailVisibility)
+    if (!visibility || !html) {
+        return html
+    }
+    let wrapped = html
+    const classes = [visibility.hideDesktop && 'ph-hide-desktop', visibility.hideMobile && 'ph-hide-mobile']
+        .filter(Boolean)
+        .join(' ')
+    if (classes && wrapped.startsWith('<tr>')) {
+        wrapped = `<tr class="${classes}">${wrapped.slice(4)}`
+    }
+    // Outlook on Windows only runs on desktops and ignores the screen-size rules.
+    if (visibility.hideDesktop) {
+        wrapped = `<!--[if !mso]><!-->${wrapped}<!--<![endif]-->`
+    }
+    if (visibility.condition && !isEmptyCondition(visibility.condition.before)) {
+        wrapped = `${visibility.condition.before}${wrapped}${visibility.condition.after}`
+    }
+    return wrapped
+}
+
+/** A condition someone started but hasn't written yet. Sent as is, Liquid would refuse the whole email. */
+export function isEmptyCondition(before: string): boolean {
+    return /^\{%-?\s*(if|unless)?\s*-?%\}$/.test(before.trim()) || !before.trim()
+}
+
 function renderBlockRows(nodes: JSONContent[] | undefined, ctx: RenderContext): string {
-    return (nodes ?? []).map((node) => renderBlock(node, ctx)).join('')
+    return (nodes ?? []).map((node) => withVisibility(node, renderBlock(node, ctx))).join('')
+}
+
+function usesScreenSizes(nodes: JSONContent[] | undefined): boolean {
+    return (nodes ?? []).some((node) => {
+        const visibility = safeEmailVisibility(node.attrs?.emailVisibility)
+        return !!(visibility?.hideDesktop || visibility?.hideMobile) || usesScreenSizes(node.content)
+    })
+}
+
+// The old editor's own rules, so a converted email hides the same blocks at the same widths.
+const SCREEN_SIZE_CSS = `@media (min-width: 481px) { .ph-hide-desktop { max-height: 0px; overflow: hidden; display: none !important; } }
+@media (max-width: 480px) { .ph-hide-mobile { max-height: 0px; overflow: hidden; display: none !important; } }`
+
+function backgroundImageCss(image: EmailBackgroundImage | null): string {
+    if (!image) {
+        return ''
+    }
+    return css({
+        'background-image': `url('${image.url.replace(/'/g, '%27')}')`,
+        'background-repeat': image.repeat ? 'repeat' : 'no-repeat',
+        'background-size': image.size ?? 'auto',
+        'background-position': safeCssValue(image.position ?? 'center top'),
+    })
 }
 
 function renderBlockTable(nodes: JSONContent[] | undefined, ctx: RenderContext): string {
@@ -668,7 +772,7 @@ table, td { color: ${safeColor(page.textColor, '#000000')}; }
 @media (max-width: 480px) { .hide-mobile { max-height: 0px; overflow: hidden; display: none !important; } }`
 }
 
-function responsiveCss(page: EmailPageStyle): string {
+function responsiveCss(page: EmailPageStyle, extra: string[] = []): string {
     const breakpoint = page.bodyWidth + 20
     const custom = page.globalCss.replace(/<\/?style/gi, '')
     return `
@@ -684,6 +788,7 @@ a[x-apple-data-detectors='true'] { color: inherit !important; text-decoration: n
   .ph-col-gap { padding-left: 0 !important; padding-right: 0 !important; }
 }
 ${page.oldEditorStyles ? oldEditorCss(page) : ''}
+${extra.filter(Boolean).join('\n')}
 ${custom}`.trim()
 }
 
@@ -700,6 +805,8 @@ export function oldEditorBlockHtml(
     page: EmailPageStyle,
     contentWidth: number
 ): { kind: 'text' | 'html'; html: string } {
+    // The old editor keeps who sees a block in its own settings, so the markup leaves it out.
+    node = node.attrs?.emailVisibility ? { ...node, attrs: { ...node.attrs, emailVisibility: null } } : node
     const ctx = oldEditorContext(page, contentWidth, styleOf(node))
     if (node.type === 'paragraph' && isOnlyLiquidTags(textFromNodes(node.content))) {
         return { kind: 'html', html: textFromNodes(node.content).trim() }
@@ -738,7 +845,12 @@ export function renderEmailHtml(doc: JSONContent): string {
         page,
         // A border is drawn inside the body's width, so it takes room from the content too.
         contentWidth: Math.max(1, bodyWidth - px(padding.left) - px(padding.right) - px(page.bodyBorderWidth) * 2),
+        hoverRules: [],
     }
+    const blocks = renderBlockTable(nodes, ctx)
+    const backgroundImage = page.backgroundImage
+    const pageImageCss = backgroundImage?.fullWidth ? backgroundImageCss(backgroundImage) : ''
+    const bodyImageCss = backgroundImage && !backgroundImage.fullWidth ? backgroundImageCss(backgroundImage) : ''
     const pageBackground = safeColor(page.backgroundColor, '#ffffff')
     const bodyBackground = safeColor(page.bodyBackgroundColor, '#ffffff')
     const bodyCss = css({
@@ -750,6 +862,7 @@ export function renderEmailHtml(doc: JSONContent): string {
             ? `${px(page.bodyBorderWidth)}px solid ${safeColor(page.bodyBorderColor, '#e5e5e5')}`
             : undefined,
     })
+    const extraCss = [usesScreenSizes(nodes) ? SCREEN_SIZE_CSS : '', ...(ctx.hoverRules ?? [])]
     // Declaring light keeps a mail app from recoloring the email in dark mode. Old-editor emails never declared it, so
     // on a converted one that would be a change people notice.
     const colorSchemeMeta = page.oldEditorStyles
@@ -771,14 +884,14 @@ export function renderEmailHtml(doc: JSONContent): string {
 <meta name="x-apple-disable-message-reformatting" />
 ${colorSchemeMeta}${fontLinks}<!--[if mso]><xml><o:OfficeDocumentSettings><o:AllowPNG/><o:PixelsPerInch>96</o:PixelsPerInch></o:OfficeDocumentSettings></xml><![endif]-->
 <style type="text/css">
-${responsiveCss(page)}
+${responsiveCss(page, extraCss)}
 </style>
 </head>
 <body style="margin:0;padding:0;background-color:${pageBackground}">
-${previewText}<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="${pageBackground}" style="background-color:${pageBackground}"><tr><td align="${page.align}" style="padding:${px(page.padding)}px">
+${previewText}<table role="presentation" width="100%" cellpadding="0" cellspacing="0" border="0" bgcolor="${pageBackground}" style="background-color:${pageBackground}${pageImageCss ? `;${pageImageCss}` : ''}"><tr><td align="${page.align}" style="padding:${px(page.padding)}px">
 <!--[if mso]><table role="presentation" width="${bodyWidth}" align="${page.align}" cellpadding="0" cellspacing="0" border="0"><tr><td><![endif]-->
-<table class="ph-body" role="presentation" width="100%" align="${page.align}" cellpadding="0" cellspacing="0" border="0" bgcolor="${bodyBackground}" style="${bodyCss}"><tr><td style="padding:${sides(padding)}">
-${renderBlockTable(nodes, ctx)}
+<table class="ph-body" role="presentation" width="100%" align="${page.align}" cellpadding="0" cellspacing="0" border="0" bgcolor="${bodyBackground}" style="${bodyCss}${bodyImageCss ? `;${bodyImageCss}` : ''}"><tr><td style="padding:${sides(padding)}">
+${blocks}
 </td></tr></table>
 <!--[if mso]></td></tr></table><![endif]-->
 </td></tr></table>

@@ -46,6 +46,34 @@ export interface EmailBlockStyle {
     /** Button only: the padding inside the button. */
     innerPaddingX?: number
     innerPaddingY?: number
+    /** Button only: its colors under the pointer, in email apps that show that. */
+    hoverColor?: string
+    hoverBackgroundColor?: string
+}
+
+/** A Liquid condition around a block, as the old editor's display conditions write it. */
+export interface EmailCondition {
+    /** What people see on the block, such as "Paying customers". */
+    label?: string
+    before: string
+    after: string
+}
+
+/** Who sees a block. Left out, everyone does. */
+export interface EmailVisibility {
+    condition?: EmailCondition
+    hideDesktop?: boolean
+    hideMobile?: boolean
+}
+
+export interface EmailBackgroundImage {
+    url: string
+    repeat?: boolean
+    /** `cover` fills the area, `contain` fits it, and anything else keeps the image's own size. */
+    size?: 'cover' | 'contain' | 'auto'
+    position?: string
+    /** Behind the whole page, rather than only behind the email's body. */
+    fullWidth?: boolean
 }
 
 export interface EmailPageStyle {
@@ -78,6 +106,7 @@ export interface EmailPageStyle {
     buttonTextColor: string
     buttonBorderRadius: number
     globalCss: string
+    backgroundImage: EmailBackgroundImage | null
 }
 
 const GOOGLE_FONTS = 'https://fonts.googleapis.com/css2?display=swap&family='
@@ -143,6 +172,7 @@ export const DEFAULT_EMAIL_PAGE_STYLE: EmailPageStyle = {
     buttonTextColor: '#ffffff',
     buttonBorderRadius: 4,
     globalCss: '',
+    backgroundImage: null,
 }
 
 export interface EmailDocument {
@@ -151,6 +181,28 @@ export interface EmailDocument {
     doc: JSONContent
     /** The html it rendered when saved. Left out by documents saved before the design held the full old-editor email. */
     html?: string
+}
+
+const BACKGROUND_POSITION = /^[a-z0-9 .%-]+$/i
+
+/** A background image someone else may have written, with only what the email can safely use. */
+export function safeBackgroundImage(value: unknown): EmailBackgroundImage | null {
+    if (!value || typeof value !== 'object') {
+        return null
+    }
+    const raw = value as Record<string, unknown>
+    const url = typeof raw.url === 'string' ? raw.url.trim() : ''
+    if (!/^https?:\/\/[^\s"'()<>\\]+$/i.test(url)) {
+        return null
+    }
+    return {
+        url,
+        repeat: raw.repeat === true,
+        size: raw.size === 'cover' || raw.size === 'contain' ? raw.size : 'auto',
+        position:
+            typeof raw.position === 'string' && BACKGROUND_POSITION.test(raw.position) ? raw.position : 'center top',
+        fullWidth: raw.fullWidth !== false,
+    }
 }
 
 const PAGE_COLOR = /^(#[0-9a-f]{3,8}|rgba?\([\d\s.,%]+\)|[a-z]+)$/i
@@ -163,6 +215,9 @@ function pageValue(key: keyof EmailPageStyle, value: unknown): unknown {
     }
     if (typeof fallback === 'boolean') {
         return typeof value === 'boolean' ? value : fallback
+    }
+    if (key === 'backgroundImage') {
+        return safeBackgroundImage(value)
     }
     if (key === 'bodyPadding') {
         const sides = (value ?? {}) as Record<string, unknown>

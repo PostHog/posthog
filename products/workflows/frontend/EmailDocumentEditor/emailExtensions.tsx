@@ -13,7 +13,7 @@ import { EmailImageBlockView } from './components/EmailImageBlockView'
 import { EmailVariableChip } from './components/EmailVariableChip'
 import { EmailBlockStyle } from './emailDocument'
 import { parseLiquidOutput } from './emailVariables'
-import { safeColor, safeEmailLink, safeEmailStyle } from './renderEmailHtml'
+import { safeColor, safeEmailLink, safeEmailStyle, safeEmailVisibility } from './renderEmailHtml'
 
 const COLUMN_BLOCKS =
     '(paragraph | heading | bulletList | orderedList | blockquote | horizontalRule | emailImage | emailButton | emailSpacer | emailHtml)+'
@@ -91,6 +91,24 @@ function emailStyleAttribute(keepOnSplit: boolean): Record<string, any> {
     }
 }
 
+const emailVisibilityAttribute = {
+    emailVisibility: {
+        default: null,
+        // A new line typed after a conditional block is ordinary content until someone says otherwise.
+        keepOnSplit: false,
+        parseHTML: (element: HTMLElement) => {
+            const raw = element.getAttribute('data-email-visibility')
+            try {
+                return raw ? safeEmailVisibility(JSON.parse(raw)) : null
+            } catch {
+                return null
+            }
+        },
+        renderHTML: (attributes: Record<string, any>) =>
+            attributes.emailVisibility ? { 'data-email-visibility': JSON.stringify(attributes.emailVisibility) } : {},
+    },
+}
+
 export const EmailBlockStyleExtension = Extension.create({
     name: 'emailBlockStyle',
     addGlobalAttributes() {
@@ -98,6 +116,10 @@ export const EmailBlockStyleExtension = Extension.create({
             { types: STYLED_BLOCKS, attributes: emailStyleAttribute(true) },
             // Enter after a heading starts a normal paragraph, which shouldn't take on the heading's size or spacing.
             { types: ['heading'], attributes: emailStyleAttribute(false) },
+            {
+                types: [...STYLED_BLOCKS.filter((type) => type !== 'emailColumn'), 'heading', 'emailSpacer'],
+                attributes: emailVisibilityAttribute,
+            },
         ]
     },
 })

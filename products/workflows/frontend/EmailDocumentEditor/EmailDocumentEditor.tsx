@@ -25,9 +25,9 @@ import { EmailInsertToolbar } from './components/EmailInsertToolbar'
 import { EmailSelectionToolbar } from './components/EmailSelectionToolbar'
 import { EmailStylePanel } from './components/EmailStylePanel'
 import { EMAIL_BLOCK_OPTIONS } from './emailBlockCatalog'
-import { EmailBlockKeymap, EmailLiquidHighlight } from './emailCanvasPlugins'
+import { EmailBlockKeymap, EmailLiquidHighlight, EmailVisibilityBadges } from './emailCanvasPlugins'
 import { hasUnsubscribeLink, insertBlock } from './emailCommands'
-import { emailDocumentFromValue, emailFontUrls, resolvePageStyle } from './emailDocument'
+import { EmailBackgroundImage, emailDocumentFromValue, emailFontUrls, resolvePageStyle } from './emailDocument'
 import { EmailDragSource } from './emailDragDrop'
 import { createEmailEditorAdapter, isDocumentEdit } from './emailEditorAdapter'
 import { EmailEditorContext, EmailEditorContextValue } from './emailEditorContext'
@@ -44,6 +44,16 @@ type Mode = 'edit' | 'preview'
 
 function firstImageFile(files: FileList | null | undefined): File | null {
     return Array.from(files ?? []).find((file) => file.type.startsWith('image/')) ?? null
+}
+
+/** The page's background image on the canvas, as the email draws it. The url is already checked by `resolvePageStyle`. */
+function backgroundImageStyle(image: EmailBackgroundImage): React.CSSProperties {
+    return {
+        backgroundImage: `url("${image.url}")`,
+        backgroundRepeat: image.repeat ? 'repeat' : 'no-repeat',
+        backgroundSize: image.size ?? 'auto',
+        backgroundPosition: image.position ?? 'center top',
+    }
 }
 
 /** The new email editor, for hosts that use `emailTemplaterLogic`. */
@@ -116,6 +126,7 @@ export function EmailDocumentEditor(): JSX.Element {
         () => [
             ...buildEmailExtensions(PLACEHOLDER),
             EmailLiquidHighlight,
+            EmailVisibilityBadges,
             EmailBlockKeymap,
             EmailDragSource,
             createEmailSuggestion({
@@ -416,7 +427,10 @@ export function EmailDocumentEditor(): JSX.Element {
                         <div
                             ref={setCanvas}
                             className="EmailDocumentEditor__scroll relative flex-1 min-w-0 overflow-auto"
-                            style={{ backgroundColor: page.backgroundColor }}
+                            style={{
+                                backgroundColor: page.backgroundColor,
+                                ...(page.backgroundImage?.fullWidth ? backgroundImageStyle(page.backgroundImage) : {}),
+                            }}
                             data-attr="email-editor-scroll"
                         >
                             <div className="EmailDocumentEditor__toolbar sticky top-2 z-10 h-0 pl-2">
@@ -441,6 +455,9 @@ export function EmailDocumentEditor(): JSX.Element {
                                     style={
                                         {
                                             backgroundColor: page.bodyBackgroundColor,
+                                            ...(page.backgroundImage && !page.backgroundImage.fullWidth
+                                                ? backgroundImageStyle(page.backgroundImage)
+                                                : {}),
                                             color: page.textColor,
                                             fontFamily: page.fontFamily,
                                             fontSize: page.fontSize,

@@ -257,6 +257,40 @@ describe('renderEmailHtml', () => {
         expect(withoutLiquidBetweenRows(html)).toContain('{% if a %}')
     })
 
+    it('wraps a block only some people see in its condition, hides it by screen size, and changes a button on hover', () => {
+        const visible = (emailVisibility: Record<string, any>, block: JSONContent): JSONContent => ({
+            ...block,
+            attrs: { ...block.attrs, emailVisibility },
+        })
+        const html = renderEmailHtml(
+            doc(
+                visible({ condition: { before: '{% if paid %}', after: '{% endif %}' } }, paragraph('Paid only')),
+                visible({ hideDesktop: true }, paragraph('Phones only')),
+                visible(
+                    { hideMobile: true },
+                    {
+                        type: 'emailButton',
+                        attrs: {
+                            href: 'https://example.com',
+                            emailStyle: { backgroundColor: '#111111', hoverBackgroundColor: '#333333' },
+                        },
+                        content: [{ type: 'text', text: 'Go' }],
+                    }
+                )
+            )
+        )
+
+        expect(html).toMatch(/\{% if paid %\}<tr><td[^>]*><p[^>]*>Paid only<\/p><\/td><\/tr>\{% endif %\}/)
+        expect(html).toMatch(
+            /<!--\[if !mso\]><!--><tr class="ph-hide-desktop">.*Phones only.*?<\/tr><!--<!\[endif\]-->/
+        )
+        expect(html).toContain('<tr class="ph-hide-mobile">')
+        expect(html).toContain('.ph-hide-desktop { max-height: 0px; overflow: hidden; display: none !important; }')
+        expect(html).toContain('.ph-button-1:hover { background-color: #333333 !important; }')
+        expect(html).toContain('<td class="ph-button-1"')
+        expect(renderEmailHtml(doc(paragraph('Everyone')))).not.toContain('ph-hide')
+    })
+
     it('leaves out a button with no label and adds the preview text and font stylesheet', () => {
         const html = renderEmailHtml({
             type: 'doc',

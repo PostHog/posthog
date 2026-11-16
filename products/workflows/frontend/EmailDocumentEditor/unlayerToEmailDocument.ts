@@ -7,9 +7,13 @@ import {
     EmailPageStyle,
     EmailSides,
     EmailTextAlign,
+    EmailVisibility,
+    emptyEmailDoc,
+    safeBackgroundImage,
 } from './emailDocument'
 import { buildEmailExtensions } from './emailExtensions'
 import { parseLiquidOutput } from './emailVariables'
+import { renderEmailHtml } from './renderEmailHtml'
 
 const UNSUPPORTED_CONTENT: Record<string, string> = {
     video: 'videos',
@@ -25,6 +29,8 @@ export interface EmailDocumentConversion {
     unsupported: string[]
     /** What a conversion leaves out, for the person to weigh up before accepting. */
     notKept: string[]
+    /** What only converts as the old editor's own html, which is sent unchanged but edited as code. */
+    keptAsHtml?: string[]
 }
 
 function parsePx(value: unknown): number | undefined {
@@ -477,6 +483,7 @@ function parseFontWeight(value: string): number | undefined {
 }
 
 const BORDER_SIDES = ['Top', 'Right', 'Bottom', 'Left']
+const BORDER_REASONS = new Set(['buttons with a border on only some sides', 'columns with a border on only some sides'])
 
 /** A border on every side, or null with none. Anything else can't be drawn the same way, so it's reported. */
 function uniformBorder(
@@ -662,22 +669,81 @@ function isRightToLeft(values: Record<string, any>): boolean {
     return values.direction === 'rtl' || /\bdir=["']?rtl/i.test(String(values.text ?? ''))
 }
 
+/** The old editor's display condition and screen-size settings, which the new editor keeps as they are. */
+function visibilityFrom(values: Record<string, any>): EmailVisibility | null {
+    const visibility: EmailVisibility = {}
+    const condition = values.displayCondition
+    if (condition && typeof condition === 'object' && typeof condition.before === 'string') {
+        visibility.condition = {
+            before: condition.before,
+            after: typeof condition.after === 'string' ? condition.after : '',
+            ...(condition.label && condition.label !== condition.before ? { label: String(condition.label) } : {}),
+        }
+    }
+    if (values.hideDesktop === true) {
+        visibility.hideDesktop = true
+    }
+    if (values.hideMobile === true) {
+        visibility.hideMobile = true
+    }
+    return Object.keys(visibility).length ? visibility : null
+}
+
+function withVisibility(nodes: JSONContent[], visibility: EmailVisibility | null): JSONContent[] {
+    return visibility
+        ? nodes.map((node) => ({ ...node, attrs: { ...node.attrs, emailVisibility: visibility } }))
+        : nodes
+}
+
+/** A condition the old editor can't run, such as one with no Liquid in it, would be sent as text. */
+function hasUnknownCondition(values: Record<string, any>): boolean {
+    return !!values.displayCondition && typeof values.displayCondition.before !== 'string'
+}
+
+interface ConvertContext {
+    unsupported: Set<string>
+    /** Buttons whose hover colors the old editor's export actually has. Most exports leave them out. */
+    hoverButtons: Set<string>
+}
+
+function exportedHoverButtons(storedHtml: string | null | undefined): Set<string> {
+    return new Set([...(storedHtml ?? '').matchAll(/#(u_content_button_\d+)[^{}]*:hover/g)].map((match) => match[1]))
+}
+
 function convertContent(
     content: Record<string, any>,
     contentWidth: number,
     rowSidePadding: number,
-    unsupported: Set<string>,
-    notKept: Set<string>
+    context: ConvertContext
 ): JSONContent[] {
     const values = content.values ?? {}
-    if (isRightToLeft(values)) {
-        unsupported.add('right-to-left text')
+    if (hasUnknownCondition(values)) {
+        context.unsupported.add('blocks shown on a condition')
     }
-    if (values.displayCondition) {
-        unsupported.add('blocks shown on a condition')
-    }
-    if (values.hideDesktop || values.hideMobile) {
-        unsupported.add('blocks hidden on some screen sizes')
+    return withVisibility(convertContentBlocks(content, contentWidth, rowSidePadding, context), visibilityFrom(values))
+}
+
+function convertContentBlocks(
+    content: Record<string, any>,
+    contentWidth: number,
+    rowSidePadding: number,
+    { unsupported, hoverButtons }: ConvertContext
+): JSONContent[] {
+    const values = content.values ?? {}
+    if (
+        (content.type === 'text' || content.type === 'paragraph' || content.type === 'heading') &&
+        isRightToLeft(values)
+    ) {
+        // Right-to-left text keeps its own markup, with the direction on it, and is edited as code.
+        const style = textStyleFrom(values, { fontSize: content.type === 'heading' ? 22 : 14, lineHeight: 140 })
+        const html = richTextOf(values)
+        const level = Math.min(3, parseInt(String(values.headingType ?? 'h1').slice(1), 10) || 1)
+        return [
+            textAsHtmlBlock(
+                `<div dir="rtl">${content.type === 'heading' ? `<h${level} style="margin:0;font-size:inherit">${html}</h${level}>` : html}</div>`,
+                style
+            ),
+        ]
     }
     switch (content.type) {
         case 'text':
@@ -714,12 +780,9 @@ function convertContent(
         case 'button': {
             const colors = values.buttonColors ?? {}
             const inner = parseSides(values.padding ?? '10px 20px')
-            const hover = colors.hoverBackgroundColor
-            if (hover && hover !== colors.backgroundColor) {
-                notKept.add('button colors on hover')
-            }
             const text = richTextOf(values)
             const fontSize = parsePx(values.fontSize) ?? 14
+            const hover = hoverButtons.has(String(values._meta?.htmlID ?? content.id ?? ''))
             return [
                 {
                     type: 'emailButton',
@@ -728,6 +791,14 @@ function convertContent(
                         emailStyle: compact({
                             backgroundColor: colors.backgroundColor || '#0879A1',
                             color: colors.color || '#FFFFFF',
+                            hoverBackgroundColor:
+                                hover && colors.hoverBackgroundColor !== colors.backgroundColor
+                                    ? colors.hoverBackgroundColor || undefined
+                                    : undefined,
+                            hoverColor:
+                                hover && colors.hoverColor !== colors.color
+                                    ? colors.hoverColor || undefined
+                                    : undefined,
                             ...fontStyleFrom(values),
                             ...uniformBorder(values.border, unsupported, 'buttons with a border on only some sides'),
                             buttonWidth:
@@ -837,26 +908,88 @@ function convertContent(
     }
 }
 
+/** The old editor's export of each row, in order, with the page styles its markup depends on. */
+function exportedRows(storedHtml: string | null | undefined): { rows: string[]; css: string } | null {
+    if (!storedHtml || !storedHtml.includes('u-row-container')) {
+        return null
+    }
+    const exported = new DOMParser().parseFromString(storedHtml, 'text/html')
+    const rows = Array.from(exported.querySelectorAll('.u-row-container'))
+        // A row inside another row's markup would be counted twice.
+        .filter((row) => !row.parentElement?.closest('.u-row-container'))
+        .map((row) => row.outerHTML)
+    const css = Array.from(exported.querySelectorAll('style'))
+        .map((style) => style.textContent ?? '')
+        .join('\n')
+        .trim()
+    return { rows, css }
+}
+
 /**
- * Builds a document from an old-editor design. Anything the new editor can't show faithfully is reported instead of
- * being dropped, and the email then stays on the old editor. Nothing is saved until a person accepts the result.
+ * What a reader gets from an email: its words, links and Liquid. Spacing, the quotes around a Liquid fallback and an
+ * empty fallback don't change what is sent, so they are left out.
+ */
+function sentContent(html: string): string {
+    const doc = new DOMParser().parseFromString(html, 'text/html')
+    doc.querySelectorAll('style, script, head, title').forEach((element) => element.remove())
+    const links = Array.from(doc.querySelectorAll('a[href]'))
+        .map((link) => (link.getAttribute('href') ?? '').trim())
+        .filter(Boolean)
+        .sort()
+    const text = (doc.body?.textContent ?? '') + links.join(' ')
+    return text
+        .replace(/\{[{%][\s\S]*?[}%]\}/g, (tag) => tag.replace(/"/g, "'").replace(/\|\s*default:\s*''/g, ''))
+        .replace(/[\s\u00a0\u200b-\u200f\u034f\u2060\ufeff\u00ad]+/g, '')
+}
+
+/** The whole email as one HTML block, sent exactly as the old editor exported it. */
+function wholeEmailAsHtml(storedHtml: string, reasons: string[]): EmailDocumentConversion {
+    return {
+        document: {
+            version: EMAIL_DOCUMENT_VERSION,
+            doc: {
+                type: 'doc',
+                attrs: { page: { oldEditorStyles: true } },
+                content: [{ type: 'emailHtml', attrs: { html: storedHtml.trim(), emailStyle: null } }],
+            },
+        },
+        unsupported: [],
+        notKept: [],
+        keptAsHtml: reasons,
+    }
+}
+
+/**
+ * Builds a document from an old-editor design. A row the new editor can't rebuild keeps the old editor's own html for
+ * it, so every email converts and sends the same. Nothing is saved until a person accepts the result.
  */
 export function unlayerToEmailDocument(
     design: Record<string, any> | null | undefined,
     storedHtml?: string | null
 ): EmailDocumentConversion {
     const body = design?.body
+    if (!body && !storedHtml?.trim()) {
+        // Nothing visual to keep, such as an email written only in plain text.
+        return {
+            document: { version: EMAIL_DOCUMENT_VERSION, doc: emptyEmailDoc() },
+            unsupported: [],
+            notKept: [],
+        }
+    }
     if (!body || !Array.isArray(body.rows)) {
-        return { document: null, unsupported: ['a design this editor can’t read'], notKept: [] }
+        return storedHtml?.trim()
+            ? wholeEmailAsHtml(storedHtml, ['a design this editor can’t read'])
+            : { document: null, unsupported: ['a design this editor can’t read'], notKept: [] }
     }
     const unsupported = new Set<string>()
+    const keptAsHtml = new Set<string>()
     const notKept = new Set<string>()
     const bodyValues = body.values ?? {}
     const rows: any[] = [...(body.headers ?? []), ...body.rows, ...(body.footers ?? [])]
     const bodyWidth = parsePx(bodyValues.contentWidth) ?? 500
-    if (bodyValues.backgroundImage?.url) {
-        unsupported.add('background images')
-    }
+    const exported = exportedRows(storedHtml)
+    const hoverButtons = exportedHoverButtons(storedHtml)
+    const rowHtml = exported && exported.rows.length === rows.length ? exported.rows : null
 
     const rowBackgrounds = new Set(rows.map((row) => row.values?.backgroundColor ?? ''))
     const sharedRowBackground = rowBackgrounds.size === 1 ? [...rowBackgrounds][0] : ''
@@ -880,20 +1013,38 @@ export function unlayerToEmailDocument(
         ...(bodyValues.preheaderText ? { previewText: bodyValues.preheaderText } : {}),
         textColor: bodyValues.textColor || '#000000',
         linkColor: bodyValues.linkStyle?.linkColor || '#0000ee',
+        ...(bodyValues.backgroundImage?.url
+            ? {
+                  backgroundImage: safeBackgroundImage({
+                      url: bodyValues.backgroundImage.url,
+                      repeat:
+                          bodyValues.backgroundImage.repeat === 'repeat' || bodyValues.backgroundImage.repeat === true,
+                      size:
+                          bodyValues.backgroundImage.size === 'cover' || bodyValues.backgroundImage.size === 'contain'
+                              ? bodyValues.backgroundImage.size
+                              : 'auto',
+                      position: bodyValues.backgroundImage.position === 'center' ? 'center center' : 'center top',
+                      fullWidth: bodyValues.backgroundImage.fullWidth !== false,
+                  }),
+              }
+            : {}),
+    }
+    if (bodyValues.backgroundImage?.url && !page.backgroundImage) {
+        unsupported.add('background images')
     }
 
     const content: JSONContent[] = []
-    for (const row of rows) {
+    for (const [rowIndex, row] of rows.entries()) {
         const rowValues = row.values ?? {}
-        if (rowValues.displayCondition) {
-            unsupported.add('rows shown on a condition')
+        const rowUnsupported = new Set<string>()
+        const rowVisibility = visibilityFrom(rowValues)
+        if (hasUnknownCondition(rowValues)) {
+            rowUnsupported.add('rows shown on a condition')
         }
         if (rowValues.backgroundImage?.url) {
-            unsupported.add('background images')
+            rowUnsupported.add('background images')
         }
-        if (rowValues.hideDesktop || rowValues.hideMobile) {
-            unsupported.add('rows hidden on some screen sizes')
-        }
+        const rowContent: JSONContent[] = []
         const cells: number[] = row.cells ?? []
         const columns: any[] = row.columns ?? []
         const totalCells = cells.reduce((total, cell) => total + cell, 0) || columns.length || 1
@@ -936,13 +1087,10 @@ export function unlayerToEmailDocument(
                 (rowWidth * (cells[index] ?? 1)) / totalCells -
                 (columnPadding ? columnPadding.left + columnPadding.right : 0)
             const blocks = (column.contents ?? []).flatMap((item: any) =>
-                convertContent(
-                    item,
-                    width,
-                    (parsedRowPadding?.left ?? 0) + (parsedRowPadding?.right ?? 0),
-                    unsupported,
-                    notKept
-                )
+                convertContent(item, width, (parsedRowPadding?.left ?? 0) + (parsedRowPadding?.right ?? 0), {
+                    unsupported: rowUnsupported,
+                    hoverButtons,
+                })
             )
             const background = column.values?.backgroundColor
             const padding = parseSides(column.values?.padding)
@@ -953,44 +1101,79 @@ export function unlayerToEmailDocument(
                     backgroundColor: background && background !== page.bodyBackgroundColor ? background : undefined,
                     padding: hasPadding ? padding : undefined,
                     borderRadius: parsePx(column.values?.borderRadius) || undefined,
-                    ...uniformBorder(column.values?.border, unsupported, 'columns with a border on only some sides'),
+                    ...uniformBorder(column.values?.border, rowUnsupported, 'columns with a border on only some sides'),
                 }),
                 ratio: cells[index] ?? 1,
             }
         })
 
-        const plain = converted.length === 1 && !converted[0].style && !sectionBackground && !rowHasPadding
+        const plain =
+            converted.length === 1 && !converted[0].style && !sectionBackground && !rowHasPadding && !rowVisibility
         const onlyColor = converted.length === 1 && Object.keys(converted[0].style ?? {}).join() === 'backgroundColor'
-        if (isSpacerRow(row) && onlyColor && !sectionBackground && !rowHasPadding) {
-            const spacer = converted[0].blocks[0]
-            const backgroundColor = spacer.attrs?.backgroundColor ?? converted[0].style?.backgroundColor
-            content.push({ ...spacer, attrs: { ...spacer.attrs, backgroundColor } })
-            continue
+        const rowSpacer =
+            isSpacerRow(row) && onlyColor && !sectionBackground && !rowHasPadding ? converted[0].blocks[0] : null
+        if (rowSpacer) {
+            const backgroundColor = rowSpacer.attrs?.backgroundColor ?? converted[0].style?.backgroundColor
+            rowContent.push({
+                ...rowSpacer,
+                attrs: {
+                    ...rowSpacer.attrs,
+                    backgroundColor,
+                    ...(rowVisibility ? { emailVisibility: rowVisibility } : {}),
+                },
+            })
+        } else {
+            if (paddingAsSpacers) {
+                rowContent.push(...withVisibility(spacer(rowPadding?.top ?? 0), rowVisibility))
+            }
+            if (plain) {
+                rowContent.push(...converted[0].blocks)
+            } else {
+                rowContent.push({
+                    type: 'emailColumns',
+                    attrs: {
+                        emailStyle: compact({
+                            backgroundColor: sectionBackground || undefined,
+                            padding: rowHasPadding && !paddingAsSpacers ? rowPadding : undefined,
+                            columnGap: 0,
+                        }),
+                        ...(rowVisibility ? { emailVisibility: rowVisibility } : {}),
+                    },
+                    content: converted.map((column) => ({
+                        type: 'emailColumn',
+                        attrs: { ratio: column.ratio, emailStyle: column.style },
+                        content: column.blocks.length ? column.blocks : [{ type: 'paragraph' }],
+                    })),
+                })
+            }
+            if (paddingAsSpacers) {
+                rowContent.push(...withVisibility(spacer(rowPadding?.bottom ?? 0), rowVisibility))
+            }
         }
-        if (paddingAsSpacers) {
-            content.push(...spacer(rowPadding?.top ?? 0))
-        }
-        if (plain) {
-            content.push(...converted[0].blocks)
-            continue
-        }
-        content.push({
-            type: 'emailColumns',
-            attrs: {
-                emailStyle: compact({
-                    backgroundColor: sectionBackground || undefined,
-                    padding: rowHasPadding && !paddingAsSpacers ? rowPadding : undefined,
-                    columnGap: 0,
-                }),
-            },
-            content: converted.map((column) => ({
-                type: 'emailColumn',
-                attrs: { ratio: column.ratio, emailStyle: column.style },
-                content: column.blocks.length ? column.blocks : [{ type: 'paragraph' }],
-            })),
-        })
-        if (paddingAsSpacers) {
-            content.push(...spacer(rowPadding?.bottom ?? 0))
+
+        if (!rowUnsupported.size) {
+            content.push(...rowContent)
+        } else if (rowHtml) {
+            // The old editor's own html for this row, so it looks and sends the same. Its condition and screen
+            // settings sit outside that html, so they carry over as they do for any other block.
+            rowUnsupported.forEach((reason) => keptAsHtml.add(reason))
+            content.push(
+                ...withVisibility(
+                    [
+                        {
+                            type: 'emailHtml',
+                            attrs: { html: rowHtml[rowIndex], emailStyle: compact({ inheritText: true }) },
+                        },
+                    ],
+                    rowVisibility
+                )
+            )
+        } else if ([...rowUnsupported].every((reason) => BORDER_REASONS.has(reason))) {
+            // With no html to keep, the row is rebuilt with only its uniform borders, and the note says what's lost.
+            rowUnsupported.forEach((reason) => notKept.add(reason))
+            content.push(...rowContent)
+        } else {
+            rowUnsupported.forEach((reason) => unsupported.add(reason))
         }
     }
 
@@ -1001,14 +1184,29 @@ export function unlayerToEmailDocument(
     }
 
     if (unsupported.size) {
-        return { document: null, unsupported: [...unsupported], notKept: [...notKept] }
+        // The rows can't be matched to the exported html, so the email as a whole keeps it.
+        return storedHtml?.trim()
+            ? wholeEmailAsHtml(storedHtml, [...unsupported])
+            : { document: null, unsupported: [...unsupported], notKept: [...notKept] }
+    }
+    if (keptAsHtml.size && exported?.css) {
+        // The old editor's rows lay out with the page styles it exported, such as its column widths.
+        page.globalCss = exported.css
+    }
+    const doc: JSONContent = {
+        type: 'doc',
+        attrs: { page },
+        content: content.length ? content : [{ type: 'paragraph' }],
+    }
+    // A design can fall behind its html, for example after the html was changed through the API. The html is what
+    // people receive, so it wins.
+    if (storedHtml?.trim() && sentContent(renderEmailHtml(doc)) !== sentContent(storedHtml)) {
+        return wholeEmailAsHtml(storedHtml, ['a design that no longer matches the email'])
     }
     return {
-        document: {
-            version: EMAIL_DOCUMENT_VERSION,
-            doc: { type: 'doc', attrs: { page }, content: content.length ? content : [{ type: 'paragraph' }] },
-        },
+        document: { version: EMAIL_DOCUMENT_VERSION, doc },
         unsupported: [],
         notKept: [...notKept],
+        keptAsHtml: [...keptAsHtml],
     }
 }

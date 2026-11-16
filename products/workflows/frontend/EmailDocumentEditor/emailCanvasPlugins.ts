@@ -3,6 +3,7 @@ import { NodeSelection, Plugin, PluginKey, Selection } from '@tiptap/pm/state'
 import { Decoration, DecorationSet } from '@tiptap/pm/view'
 
 import { blockAtPos, moveBlock } from './emailCommands'
+import { safeEmailVisibility } from './renderEmailHtml'
 
 const LIQUID_TAG = /\{%[\s\S]*?%\}/g
 
@@ -24,6 +25,51 @@ export const EmailLiquidHighlight = Extension.create({
                                 decorations.push(
                                     Decoration.inline(pos + match.index, pos + match.index + match[0].length, {
                                         class: 'email-canvas-liquid-tag',
+                                    })
+                                )
+                            }
+                        })
+                        return DecorationSet.create(state.doc, decorations)
+                    },
+                },
+            }),
+        ]
+    },
+})
+
+/** How a block's visibility reads on its badge, such as "Only if Paying customers · Hidden on phones". */
+export function visibilityLabel(raw: unknown): string {
+    const visibility = safeEmailVisibility(raw)
+    if (!visibility) {
+        return ''
+    }
+    return [
+        visibility.condition &&
+            `Only if ${visibility.condition.label || visibility.condition.before.replace(/^\{%-?\s*(if|unless)\s*|\s*-?%\}$/g, '')}`,
+        visibility.hideDesktop && 'Hidden on desktop',
+        visibility.hideMobile && 'Hidden on phones',
+    ]
+        .filter(Boolean)
+        .join(' · ')
+}
+
+/** Blocks that not everyone sees get a badge, so the canvas doesn't pass them off as part of every email. */
+export const EmailVisibilityBadges = Extension.create({
+    name: 'emailVisibilityBadges',
+    addProseMirrorPlugins() {
+        return [
+            new Plugin({
+                key: new PluginKey('emailVisibilityBadges'),
+                props: {
+                    decorations: (state) => {
+                        const decorations: Decoration[] = []
+                        state.doc.descendants((node, pos) => {
+                            const label = visibilityLabel(node.attrs.emailVisibility)
+                            if (label) {
+                                decorations.push(
+                                    Decoration.node(pos, pos + node.nodeSize, {
+                                        class: 'email-canvas-conditional',
+                                        'data-visibility-label': label,
                                     })
                                 )
                             }

@@ -2,9 +2,11 @@ import type { JSONContent } from '@tiptap/core'
 
 import { EmailBlockStyle, EmailPageStyle, EmailSides, resolvePageStyle } from './emailDocument'
 import {
+    isEmptyCondition,
     oldEditorBlockHtml,
     oldEditorInlineHtml,
     safeEmailLink,
+    safeEmailVisibility,
     withoutTrailingEmptyParagraphs,
 } from './renderEmailHtml'
 
@@ -33,6 +35,28 @@ class Ids {
         const count = (this.counters[kind] ?? 0) + 1
         this.counters[kind] = count
         return { id: `${kind}_${count}`, meta: { htmlID: `${kind}_${count}`, htmlClassNames: kind } }
+    }
+}
+
+/** Who sees a block, written the way the old editor stores it on a block or a row. */
+function visibilityValues(node: JSONContent): UnlayerValues {
+    const visibility = safeEmailVisibility(node.attrs?.emailVisibility)
+    if (!visibility) {
+        return {}
+    }
+    return {
+        ...(visibility.condition && !isEmptyCondition(visibility.condition.before)
+            ? {
+                  displayCondition: {
+                      label: visibility.condition.label ?? visibility.condition.before,
+                      description: '',
+                      before: visibility.condition.before,
+                      after: visibility.condition.after,
+                  },
+              }
+            : {}),
+        ...(visibility.hideDesktop ? { hideDesktop: true } : {}),
+        ...(visibility.hideMobile ? { hideMobile: true } : {}),
     }
 }
 
@@ -161,7 +185,12 @@ function buttonContent(node: JSONContent, page: EmailPageStyle, outer: EmailSide
         values: {
             text,
             ...(href ? { href: webLink(href) } : {}),
-            buttonColors: { color, backgroundColor: background, hoverColor: color, hoverBackgroundColor: background },
+            buttonColors: {
+                color,
+                backgroundColor: background,
+                hoverColor: style.hoverColor ?? color,
+                hoverBackgroundColor: style.hoverBackgroundColor ?? background,
+            },
             size: buttonSize(style),
             padding: `${number(style.innerPaddingY, 12)}px ${number(style.innerPaddingX, 24)}px`,
             ...buttonText(style, page),
@@ -214,6 +243,16 @@ function blockContent(
     page: EmailPageStyle,
     contentWidth: number,
     outer: EmailSides = NO_SIDES
+): Content | null {
+    const content = blockContentOf(node, page, contentWidth, outer)
+    return content ? { ...content, values: { ...content.values, ...visibilityValues(node) } } : null
+}
+
+function blockContentOf(
+    node: JSONContent,
+    page: EmailPageStyle,
+    contentWidth: number,
+    outer: EmailSides
 ): Content | null {
     switch (node.type) {
         case 'emailImage':
@@ -299,6 +338,7 @@ function columnsRow(
         ...ROW_VALUES,
         padding: `${number(sectionPadding.top, 0)}px 0px ${number(sectionPadding.bottom, 0)}px 0px`,
         ...(style.backgroundColor ? { columnsBackgroundColor: style.backgroundColor } : {}),
+        ...visibilityValues(node),
     })
 }
 
@@ -370,6 +410,17 @@ export function emailDocumentToUnlayer(doc: JSONContent): Record<string, any> {
                     linkHoverUnderline: true,
                 },
                 preheaderText: page.previewText,
+                ...(page.backgroundImage
+                    ? {
+                          backgroundImage: {
+                              url: page.backgroundImage.url,
+                              fullWidth: page.backgroundImage.fullWidth !== false,
+                              repeat: page.backgroundImage.repeat ? 'repeat' : 'no-repeat',
+                              size: page.backgroundImage.size ?? 'auto',
+                              position: page.backgroundImage.position === 'center center' ? 'center' : 'top-center',
+                          },
+                      }
+                    : {}),
                 _meta: { htmlID: 'u_body', htmlClassNames: 'u_body' },
             },
         },

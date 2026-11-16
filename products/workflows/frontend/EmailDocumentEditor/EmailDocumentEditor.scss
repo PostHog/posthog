@@ -320,6 +320,32 @@
         background: #f4f0fa;
         border-radius: 3px;
     }
+
+    .email-canvas-conditional {
+        position: relative;
+        outline: 1px dashed #b49ad6;
+        outline-offset: -1px;
+
+        &::after {
+            position: absolute;
+            top: 0;
+            right: 0;
+            z-index: 1;
+            max-width: 70%;
+            padding: 1px 6px;
+            overflow: hidden;
+            font-family: var(--font-sans, sans-serif);
+            font-size: 11px;
+            line-height: 16px;
+            color: #6b3fa0;
+            text-overflow: ellipsis;
+            white-space: nowrap;
+            pointer-events: none;
+            content: attr(data-visibility-label);
+            background: #f4f0fa;
+            border-bottom-left-radius: 4px;
+        }
+    }
 }
 
 // Drawn over the canvas, so it uses the canvas's own neutral rather than a theme color.

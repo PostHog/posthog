@@ -9,6 +9,7 @@ import { useEmailEditorContext } from '../emailEditorContext'
 import { EmailBoxFields } from './EmailBoxFields'
 import { EmailColumnsFields } from './EmailColumnsFields'
 import { EmailTextFields } from './EmailTextFields'
+import { EmailVisibilityFields } from './EmailVisibilityFields'
 import { EmailAlignField } from './fields/EmailAlignField'
 import { EmailColorField } from './fields/EmailColorField'
 import { EmailFieldRow } from './fields/EmailFieldRow'
@@ -88,6 +89,20 @@ export function EmailBlockFields({ editor }: { editor: Editor }): JSX.Element | 
                         placeholder={page.buttonTextColor}
                         onChange={(color) => set({ color })}
                         attr="email-editor-button-color"
+                    />
+                    <EmailColorField
+                        label="Hover background"
+                        value={style.hoverBackgroundColor}
+                        placeholder={style.backgroundColor ?? page.buttonBackgroundColor}
+                        onChange={(hoverBackgroundColor) => set({ hoverBackgroundColor })}
+                        attr="email-editor-button-hover-background"
+                    />
+                    <EmailColorField
+                        label="Hover text"
+                        value={style.hoverColor}
+                        placeholder={style.color ?? page.buttonTextColor}
+                        onChange={(hoverColor) => set({ hoverColor })}
+                        attr="email-editor-button-hover-color"
                     />
                     <EmailNumberField
                         label="Font size"
@@ -301,10 +316,12 @@ export function EmailBlockFields({ editor }: { editor: Editor }): JSX.Element | 
                 <h3 className="text-sm font-semibold m-0">{BLOCK_LABELS[type] ?? type}</h3>
             ) : null}
             {type !== 'emailColumns' ? fields : null}
+            {type !== 'emailColumns' ? <EmailVisibilityFields editor={editor} pos={pos} /> : null}
             {columns ? (
                 <>
                     {type !== 'emailColumns' ? <LemonDivider className="my-1" /> : null}
                     <EmailColumnsFields editor={editor} pos={columns.pos} columnIndex={columns.columnIndex} />
+                    <EmailVisibilityFields editor={editor} pos={columns.pos} />
                 </>
             ) : null}
         </div>

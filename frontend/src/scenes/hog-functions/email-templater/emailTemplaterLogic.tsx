@@ -971,6 +971,7 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
                 convertible: !!conversion.document,
                 unsupported: conversion.unsupported,
                 not_kept: conversion.notKept,
+                kept_as_html: conversion.keptAsHtml ?? [],
             })
             actions.setEmailConversion(conversion)
             // The email changed elsewhere while the new editor is open, so the canvas has to follow it.

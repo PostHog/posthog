@@ -29,6 +29,28 @@ export function EmailPageStyleFields({ editor }: { editor: Editor }): JSX.Elemen
                 onChange={required('backgroundColor')}
                 attr="email-editor-page-background"
             />
+            <EmailFieldRow label="Background image">
+                <LemonInput
+                    size="small"
+                    fullWidth
+                    placeholder="https://example.com/background.png"
+                    // The saved value, so a link that isn't complete yet doesn't disappear while it's typed.
+                    value={String(editor.state.doc.attrs.page?.backgroundImage?.url ?? '')}
+                    onChange={(url) =>
+                        set({
+                            backgroundImage: url.trim()
+                                ? {
+                                      size: 'cover',
+                                      fullWidth: true,
+                                      ...editor.state.doc.attrs.page?.backgroundImage,
+                                      url: url.trim(),
+                                  }
+                                : null,
+                        })
+                    }
+                    data-attr="email-editor-page-background-image"
+                />
+            </EmailFieldRow>
             <EmailNumberField
                 label="Padding"
                 value={page.padding}

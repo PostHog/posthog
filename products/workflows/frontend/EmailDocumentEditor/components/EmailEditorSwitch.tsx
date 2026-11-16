@@ -87,6 +87,9 @@ function ConvertedNotice(): JSX.Element | null {
                     {emailConversion?.notKept.length
                         ? `, and editing won't keep ${emailConversion.notKept.join(', ')}.`
                         : '.'}
+                    {emailConversion?.keptAsHtml?.length
+                        ? ` Parts with ${emailConversion.keptAsHtml.join(', ')} keep their old HTML, which you can edit as code.`
+                        : ''}
                 </span>
                 <LemonButton
                     size="xsmall"

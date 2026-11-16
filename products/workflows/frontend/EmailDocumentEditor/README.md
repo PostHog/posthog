@@ -28,13 +28,19 @@ This shape does three things:
 | ------------------------------------------- | -------------------------------------------------------- |
 | Blank, or the untouched new template sample | New                                                      |
 | Has a current `emailDocument`               | New                                                      |
-| Anything else, if it converts               | New, converted when opened                               |
-| Anything else, if it doesn't                | Old, with a note saying why                              |
+| Anything else with html or a design         | New, converted when opened                               |
+| A design it can't rebuild and no html       | Old, with a note saying why                              |
 | The person chose "Use old editor"           | Old, in this browser, until they choose "Use new editor" |
 
 Opening never changes an email. `unlayerToEmailDocument` runs when it opens, and the stored email stays exactly as it is until someone edits it.
 Saving without editing keeps the stored html, text and design as they were.
-Anything the conversion can't hold faithfully keeps the email on the old editor, or stays as an HTML block when it's only part of a text block. Button hover colors are the exception: the note above the editor says they won't be kept.
+Every email converts, so the old editor can be removed once the flag is on everywhere:
+
+- Display conditions, blocks hidden on phones or desktops, button hover colors and the body's background image convert to the new editor's own settings.
+- Text the editor can't hold faithfully, such as right-to-left text, stays as an HTML block.
+- A row it can't rebuild (a video, a table, a row background image, a border on only some sides, a block type it doesn't know) becomes an HTML block holding that row's html from the old editor's export, and the export's styles go into the page CSS.
+- When the rows can't be matched to the export, the whole email becomes one HTML block holding the export, and is sent exactly as before.
+- Only a design it can't rebuild with no html at all stays on the old editor.
 
 The new editor reaches `emailTemplaterLogic` through `emailEditorAdapter`, which implements the part of Unlayer's API the logic calls. Saving, live changes and external edits share one code path.
 

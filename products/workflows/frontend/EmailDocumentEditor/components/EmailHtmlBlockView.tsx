@@ -21,7 +21,9 @@ function previewDocument(html: string, editor: NodeViewProps['editor']): string 
         .map((url) => `<link rel="stylesheet" href="${url.replace(/"/g, '&quot;')}" />`)
         .join('')
     const oldStyles = page.oldEditorStyles ? oldEditorCss(page) : ''
-    return `${fonts}<style>body{margin:0;font-family:${page.fontFamily};font-size:${page.fontSize}px;line-height:${page.lineHeight}%;color:${page.textColor}}${oldStyles}</style>${html}`
+    // A row kept from the old editor lays out with the page CSS it was exported with.
+    const pageCss = page.globalCss.replace(/<\/?style/gi, '')
+    return `${fonts}<style>body{margin:0;font-family:${page.fontFamily};font-size:${page.fontSize}px;line-height:${page.lineHeight}%;color:${page.textColor}}${oldStyles}${pageCss}</style>${html}`
 }
 
 export function EmailHtmlBlockView({ node, selected, updateAttributes, editor }: NodeViewProps): JSX.Element {
@@ -49,9 +51,10 @@ export function EmailHtmlBlockView({ node, selected, updateAttributes, editor }:
     const srcDoc = previewDocument(node.attrs.html, editor)
 
     const measure = (): void => {
-        const body = iframeRef.current?.contentDocument?.documentElement
-        if (body) {
-            setHeight(Math.max(40, body.scrollHeight))
+        // The document's own height: its scroll height never drops below the frame's, so a short block kept the default.
+        const root = iframeRef.current?.contentDocument?.documentElement
+        if (root) {
+            setHeight(Math.max(20, Math.ceil(root.getBoundingClientRect().height)))
         }
     }
 
