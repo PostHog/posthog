@@ -1,11 +1,26 @@
 from collections.abc import Iterable, Iterator, Mapping
 from functools import cache
 
+from django.utils import timezone
+
+import structlog
+
 from posthog.integrations import CrossTeamFilter, IntegrationManager, IntegrationPatch, IntegrationRecord, UpdatedRows
 from posthog.models.integration.email import SES_SENDING_FAILED, SES_SENDING_STATUS_KEY
 from posthog.models.integration.row_writes import row_accessor
 from posthog.models.team import Team
 from posthog.ph_client import feature_enabled_or_false
+from posthog.tasks.email import send_email_sender_domain_sending_stopped
+
+from products.notifications.backend.facade.api import (
+    NotificationData,
+    NotificationType,
+    Priority,
+    TargetType,
+    create_notification,
+)
+
+logger = structlog.get_logger(__name__)
 
 SES_SENDER_HEALTH_FLAG = "workflows-ses-sender-health"
 
@@ -23,8 +38,8 @@ def record_ses_sending_status(failed_domains: Iterable[str]) -> None:
     failed = tuple(sorted({domain.lower() for domain in failed_domains}))
     rolled_out = cache(_rolled_out)
     for sender in _one_sender_per_project_domain(where_in={"domain": failed}):
-        if rolled_out(sender.team_id):
-            _patch_domain(sender, _MARK)
+        if rolled_out(sender.team_id) and _patch_domain(sender, _MARK).changed_ids:
+            _notify_sending_stopped(sender.team_id, sender.config["domain"])
     for sender in _one_sender_per_project_domain(where={SES_SENDING_STATUS_KEY: SES_SENDING_FAILED}):
         if sender.config["domain"] not in failed or not rolled_out(sender.team_id):
             _patch_domain(sender, _UNMARK)
@@ -69,3 +84,31 @@ def _one_sender_per_project_domain(
                 seen.add(key)
                 yield sender
         after_id = page[-1].id
+
+
+# The mark is already stored, so a failed notice must not stop the notices of other domains.
+def _notify_sending_stopped(team_id: int, domain: str) -> None:
+    try:
+        send_email_sender_domain_sending_stopped.delay(
+            team_id=team_id, domain=domain, stopped_at=timezone.now().isoformat()
+        )
+    except Exception:
+        logger.exception("ses_sending_stopped_email_dispatch_failed", team_id=team_id)
+    try:
+        create_notification(
+            NotificationData(
+                team_id=team_id,
+                notification_type=NotificationType.EMAIL_REPUTATION,
+                priority=Priority.NORMAL,
+                title=f"Emails from {domain} are failing",
+                body=(
+                    f"The DNS records of {domain} can no longer be found, so every email sent from it fails. "
+                    "Add the records back with your DNS provider, then verify the domain in Channels."
+                ),
+                target_type=TargetType.TEAM,
+                target_id=str(team_id),
+                source_url="/workflows/channels",
+            )
+        )
+    except Exception:
+        logger.exception("ses_sending_stopped_notification_failed", team_id=team_id)

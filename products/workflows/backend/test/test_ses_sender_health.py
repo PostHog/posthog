@@ -3,10 +3,15 @@ from typing import Any
 
 from unittest.mock import patch
 
+from django.core import mail
+
 import posthoganalytics
 from parameterized import parameterized
 from rest_framework import status
 
+from posthog.models.instance_setting import override_instance_config
+
+from products.notifications.backend.facade.testing import stored_notifications_for_team
 from products.workflows.backend.services.ses_sender_health import SES_SENDER_HEALTH_FLAG
 from products.workflows.backend.tasks.ses_sender_health import check_ses_sender_health
 from products.workflows.backend.test.email_domain_api_test_case import ALL_KINDS, DOMAIN, EmailDomainApiTestCase
@@ -84,3 +89,29 @@ class TestSesSenderHealth(EmailDomainApiTestCase):
         check_ses_sender_health()
 
         assert not self.sending_stopped(sender)
+
+    def test_tells_the_project_admins_once_when_a_domain_in_the_rollout_stops_sending(self) -> None:
+        self.enterContext(override_instance_config("EMAIL_HOST", "localhost"))
+        self.enterContext(
+            patch(
+                "posthoganalytics.feature_enabled",
+                side_effect=lambda key, *args, **kwargs: key != SES_SENDER_HEALTH_FLAG or self.rolled_out,
+            )
+        )
+        self.verified_sender(f"hello@{DOMAIN}")
+        self.verified_sender(f"news@{DOMAIN}")
+        self.world.ses.identities[DOMAIN].forced_verification_status = "Failed"
+        mail.outbox.clear()
+        self.rolled_out = False
+        check_ses_sender_health()
+        assert mail.outbox == []
+        self.rolled_out = True
+
+        check_ses_sender_health()
+        check_ses_sender_health()
+
+        [message] = mail.outbox
+        assert message.to == [self.user.email]
+        assert DOMAIN in message.subject
+        [notification] = stored_notifications_for_team(self.team.id)
+        assert DOMAIN in notification.body
