@@ -5479,13 +5479,24 @@ class TestAIEventsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhouse
 
     @parameterized.expand(
         [
-            ("billable", True, 400),
-            ("non_billable", False, None),
+            ("billable", {"$ai_billable": True}, 400),
+            ("non_billable", {"$ai_billable": False}, None),
+            ("estimated_without_tokens", {"$ai_billable": True, "$ai_cost_estimated": True}, None),
+            (
+                "estimated_with_null_tokens",
+                {"$ai_billable": True, "$ai_cost_estimated": True, "$ai_input_tokens": None},
+                None,
+            ),
+            (
+                "estimated_with_tokens",
+                {"$ai_billable": True, "$ai_cost_estimated": True, "$ai_input_tokens": 150000},
+                400,
+            ),
         ]
     )
     @patch("posthog.tasks.usage_report.get_instance_region")
     def test_posthog_code_credits_billable_fallback(
-        self, _name: str, billable: bool, expected_credits: int | None, mock_region: MagicMock
+        self, _name: str, cost_properties: dict[str, object], expected_credits: int | None, mock_region: MagicMock
     ) -> None:
         """A traceless posthog_code generation bills via the empty-trace fallback only when billable.
 
@@ -5511,9 +5522,9 @@ class TestAIEventsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhouse
                 "team_id": self.org_1_team_1.id,
                 "$ai_trace_id": "trace_posthog_code",
                 "$ai_total_cost_usd": 4.0,  # 4.0 USD * 100 * 1.0 (no markup) = 400 credits
-                "$ai_billable": billable,
                 "ai_product": "posthog_code",
                 "$group_1": "https://us.posthog.com",
+                **cost_properties,
             },
         )
 

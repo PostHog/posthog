@@ -2044,11 +2044,12 @@ def _get_teams_with_ai_credits_for_products(
 
     Conversion logic:
     1. Extract $ai_total_cost_usd from billable $ai_generation events
-    2. Filter out negative or zero costs (defensive)
-    3. Exclude generations from traces with only excluded tool calls
-    4. Convert to cents (multiply by 100)
-    5. Add markup
-    6. Convert 1:1 to credits
+    2. Filter out gateway cost estimates that have no input or output token counts
+    3. Filter out negative or zero costs (defensive)
+    4. Exclude generations from traces with only excluded tool calls
+    5. Convert to cents (multiply by 100)
+    6. Add markup
+    7. Convert 1:1 to credits
 
     Events are stored in team 1 (EU) or team 2 (US), with the actual team (on which we group by) in properties.
     We filter by the configured `instance` group column, which contains the region URL.
@@ -2103,6 +2104,15 @@ def _get_teams_with_ai_credits_for_products(
     )
     billable_expr, _ = get_property_string_expr(
         "events", "$ai_billable", "'$ai_billable'", "properties", use_new_events_schema=use_new
+    )
+    cost_estimated_expr, _ = get_property_string_expr(
+        "events", "$ai_cost_estimated", "'$ai_cost_estimated'", "properties", use_new_events_schema=use_new
+    )
+    input_tokens_expr, _ = get_property_string_expr(
+        "events", "$ai_input_tokens", "'$ai_input_tokens'", "properties", use_new_events_schema=use_new
+    )
+    output_tokens_expr, _ = get_property_string_expr(
+        "events", "$ai_output_tokens", "'$ai_output_tokens'", "properties", use_new_events_schema=use_new
     )
     ai_product_expr, _ = get_property_string_expr(
         "events", "ai_product", "'ai_product'", "properties", use_new_events_schema=use_new
@@ -2180,7 +2190,10 @@ def _get_teams_with_ai_credits_for_products(
                             {total_cost_expr},
                             5
                         ) AS cost_usd,
-                        {billable_expr} IN ('true', '1') AS ai_billable
+                        {billable_expr} IN ('true', '1') AS ai_billable,
+                        {cost_estimated_expr} IN ('true', '1')
+                            AND {input_tokens_expr} IN ('', 'null')
+                            AND {output_tokens_expr} IN ('', 'null') AS is_cost_guess
                     FROM {events_table}
                     PREWHERE
                         -- data inside PostHog project used as ground truth for billing (depends on region)
@@ -2198,6 +2211,10 @@ def _get_teams_with_ai_credits_for_products(
                 )
                 WHERE
                     ai_billable = 1
+                    -- The gateway estimates a cost for a call that ended before the provider
+                    -- reported usage, such as a client abort. Without token counts that estimate
+                    -- can be many times the real cost, so we do not charge the customer for it.
+                    AND NOT is_cost_guess
                     AND cost_usd > 0
             )
             SELECT
