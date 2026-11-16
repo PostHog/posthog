@@ -209,6 +209,17 @@ describe('run store', () => {
             400,
         ],
         [
+            'a series point whose value is a string',
+            (runId) => ({
+                body: {
+                    scorecard: scorecardFixture(runId),
+                    series: [{ ...seriesOf('offered', [1]), points: [{ at: 1, value: '3' }] }],
+                },
+                headers: AUTHORIZED,
+            }),
+            400,
+        ],
+        [
             'series labels that are not strings',
             (runId) => ({
                 body: {
