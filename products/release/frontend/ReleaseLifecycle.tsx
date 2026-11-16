@@ -46,7 +46,7 @@ export function ReleaseLifecycle({ steps, color }: { steps: ReleaseLifecycleStep
                             size="xs"
                             weight={step.state === 'current' ? 'semibold' : 'medium'}
                             variant={step.state === 'upcoming' ? 'muted' : 'default'}
-                            className="truncate"
+                            className="leading-tight break-words"
                         >
                             {step.label}
                         </Text>

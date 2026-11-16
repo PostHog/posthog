@@ -32,6 +32,7 @@ import type {
     OrganizationDataFreshnessApi,
     OrganizationMemberApi,
     OrganizationMemberGithubLoginApi,
+    OrganizationPersonalAPIKeyActionResultApi,
     OrganizationRemoveBlockedMembersResponseApi,
     PaginatedActivityLogListApi,
     PaginatedApprovalPolicyListApi,
@@ -385,6 +386,42 @@ export const personalApiKeysList = async (
         ...options,
         method: 'GET',
     })
+}
+
+export const getOrganizationPersonalApiKeysRevokeUrl = (organizationId: string, id: string) => {
+    return `/api/organizations/${organizationId}/personal_api_keys/${id}/revoke/`
+}
+
+export const organizationPersonalApiKeysRevoke = async (
+    organizationId: string,
+    id: string,
+    options?: RequestInit
+): Promise<OrganizationPersonalAPIKeyActionResultApi> => {
+    return apiMutator<OrganizationPersonalAPIKeyActionResultApi>(
+        getOrganizationPersonalApiKeysRevokeUrl(organizationId, id),
+        {
+            ...options,
+            method: 'POST',
+        }
+    )
+}
+
+export const getOrganizationPersonalApiKeysRollUrl = (organizationId: string, id: string) => {
+    return `/api/organizations/${organizationId}/personal_api_keys/${id}/roll/`
+}
+
+export const organizationPersonalApiKeysRoll = async (
+    organizationId: string,
+    id: string,
+    options?: RequestInit
+): Promise<OrganizationPersonalAPIKeyActionResultApi> => {
+    return apiMutator<OrganizationPersonalAPIKeyActionResultApi>(
+        getOrganizationPersonalApiKeysRollUrl(organizationId, id),
+        {
+            ...options,
+            method: 'POST',
+        }
+    )
 }
 
 export const getProxyRecordsListUrl = (organizationId: string) => {
