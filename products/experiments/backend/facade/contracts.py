@@ -558,7 +558,6 @@ class ExperimentHealthValueKey(LabeledStrEnum):
 
 
 ExperimentHealthValue = str | int | float | bool | None
-# A row can also hold a feature flag's release conditions as the flag stores them, which is a JSON object.
 ExperimentHealthRowValue = ExperimentHealthValue | Mapping[str, object]
 
 

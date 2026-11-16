@@ -18,7 +18,6 @@ export interface HealthRowsColumn {
     align?: 'right'
 }
 
-/** A release condition change with the conditions as the flag saved them, for the flag page's diff. */
 export interface HealthConditionsChange {
     changedAt: string
     before: FeatureFlagFilters

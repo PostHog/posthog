@@ -145,9 +145,8 @@ class ConditionsChange:
     changed_at: datetime
     before: ReleaseConditions
     after: ReleaseConditions
-    # The parsed sides reduce the filters to signatures, so a reader can't see from them which value or operator
-    # changed. These keep the conditions as saved for that reader. None when the caller doesn't have them. Equality
-    # compares only the parsed sides, because they decide who matches.
+    # The conditions as saved, for a reader that needs the values and operators that the parsed sides drop. They
+    # take no part in eq and hash, so that the change stays hashable while it holds dicts.
     before_filters: SavedReleaseConditions | None = dataclasses.field(default=None, compare=False)
     after_filters: SavedReleaseConditions | None = dataclasses.field(default=None, compare=False)
 

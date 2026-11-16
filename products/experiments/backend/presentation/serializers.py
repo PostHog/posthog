@@ -206,11 +206,14 @@ class ExperimentMetricDefinitionField(serializers.JSONField):
     pass
 
 
+_HEALTH_VALUE_SCHEMAS = ({"type": "string"}, {"type": "number"}, {"type": "boolean"})
+
+
 @extend_schema_field(
     {
         "type": "object",
         "additionalProperties": {
-            "oneOf": [{"type": "string"}, {"type": "number"}, {"type": "boolean"}],
+            "oneOf": [*_HEALTH_VALUE_SCHEMAS],
             "nullable": True,
         },
     }
@@ -223,7 +226,7 @@ class ExperimentHealthEvidenceField(serializers.DictField):
     {
         "type": "object",
         "additionalProperties": {
-            "oneOf": [{"type": "string"}, {"type": "number"}, {"type": "boolean"}],
+            "oneOf": [*_HEALTH_VALUE_SCHEMAS],
             "nullable": True,
         },
     }
@@ -237,9 +240,7 @@ class ExperimentHealthCheckValuesField(serializers.DictField):
         "type": "object",
         "additionalProperties": {
             "oneOf": [
-                {"type": "string"},
-                {"type": "number"},
-                {"type": "boolean"},
+                *_HEALTH_VALUE_SCHEMAS,
                 {
                     "type": "object",
                     "description": (
