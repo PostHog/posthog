@@ -1998,6 +1998,7 @@ test('a warehouse source vendor claims only the vendor lane, which every vendor 
             'conftest.py',
             [
                 'from posthog.test.junit import set_junit_report_location',
+                'from posthog import redis',
                 'def pytest_configure(config):',
                 '    from posthog.test import authentication_checks  # noqa: PLC0415',
                 '',
@@ -2006,6 +2007,7 @@ test('a warehouse source vendor claims only the vendor lane, which every vendor 
         write('products/conftest.py', 'from posthog.conftest import *  # noqa: F403\n')
         write(sdkImport, '')
         write('posthog/conftest.py', '')
+        write('posthog/redis.py', '')
         write('posthog/test/__init__.py', '')
         write('posthog/test/authentication_checks.py', '')
         write('posthog/test/junit.py', '')
@@ -2014,6 +2016,7 @@ test('a warehouse source vendor claims only the vendor lane, which every vendor 
         assert.deepEqual([...loadWarehouseSourceSdkImports(root)].sort(), [
             'posthog/conftest.py',
             sdkImport,
+            'posthog/redis.py',
             'posthog/security/url_validation.py',
             'posthog/test/__init__.py',
             'posthog/test/authentication_checks.py',

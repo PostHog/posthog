@@ -1624,7 +1624,7 @@ function loadWarehouseSourceRegistryFiles(repoRoot) {
 // name` can itself be a module, as in `from posthog.test import
 // authentication_checks`, so each name is resolved as a submodule too.
 const WAREHOUSE_SOURCE_SDK_IMPORT = /^\s*(?:from\s+([\w.]+)\s+import\s+(\([^)]*\)|[^\n#]*)|import\s+([\w.]+))/gm
-const WAREHOUSE_SOURCE_SDK_IMPORT_ROOTS = ['posthog.', 'common.', 'ee.', 'products.']
+const WAREHOUSE_SOURCE_SDK_IMPORT_ROOTS = ['posthog', 'common', 'ee', 'products']
 const WAREHOUSE_SOURCE_VENDOR_CONFTESTS = [
     'conftest.py',
     'products/conftest.py',
@@ -1644,7 +1644,7 @@ function loadWarehouseSourceSdkImports(repoRoot) {
         const text = fs.readFileSync(path.join(repoRoot, source), 'utf8')
         for (const match of text.matchAll(WAREHOUSE_SOURCE_SDK_IMPORT)) {
             const module = match[1] || match[3]
-            if (!WAREHOUSE_SOURCE_SDK_IMPORT_ROOTS.some((root) => module.startsWith(root))) {
+            if (!WAREHOUSE_SOURCE_SDK_IMPORT_ROOTS.includes(module.split('.')[0])) {
                 continue
             }
             if (module.startsWith(`products.${WAREHOUSE_SOURCES_PRODUCT}.`)) {
