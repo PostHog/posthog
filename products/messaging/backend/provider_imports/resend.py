@@ -434,6 +434,7 @@ def _fetch_contacts(client: ResendClient, context: ImportContext) -> Iterator[Im
             context,
             _everyone(everyone),
             segments,
+            contacts.other_spellings,
         ),
     )
 

@@ -16,6 +16,7 @@ from products.messaging.backend.provider_imports.base import (
     SavedPage,
 )
 from products.messaging.backend.provider_imports.emails import exact_email
+from products.messaging.backend.services.imported_data import carry_opt_outs
 from products.workflows.backend.facade.contracts import ProviderContactsResult
 from products.workflows.backend.facade.people_import import MAX_PEOPLE_IMPORT_ROW_BYTES, import_provider_contacts
 
@@ -77,6 +78,8 @@ class ContactCollector:
 
     def __init__(self) -> None:
         self._rows: dict[str, dict[str, str]] = {}
+        # Addresses the provider spelled more than one way, by lowercased address.
+        self._spellings: dict[str, set[str]] = {}
         self._memberships = 0
         self._bytes = 0
 
@@ -91,6 +94,8 @@ class ContactCollector:
         if row is None:
             row = self._rows[address.lower()] = {"email": address}
             self._bytes += _row_bytes(row)
+        elif address != row["email"]:
+            self._spellings.setdefault(address.lower(), {row["email"]}).add(address)
         self._bytes += _add_properties(row, properties)
         if self._bytes > MAX_CONTACT_BYTES:
             raise ImportTooLarge(TOO_MANY_CONTACTS_MESSAGE)
@@ -99,6 +104,15 @@ class ContactCollector:
     @property
     def everyone(self) -> tuple[dict[str, str], ...]:
         return tuple(self._rows.values())
+
+    @property
+    def other_spellings(self) -> dict[str, tuple[str, ...]]:
+        """Each spelling of an address the provider spelled more than one way, with its other spellings."""
+        return {
+            spelling: tuple(sorted(spellings - {spelling}))
+            for spellings in self._spellings.values()
+            for spelling in spellings
+        }
 
 
 def _add_properties(row: dict[str, str], properties: Mapping[str, Any]) -> int:
@@ -131,11 +145,20 @@ def _row_bytes(row: Mapping[str, str]) -> int:
     return len(json.dumps(row).encode())
 
 
-def save_contact_lists(context: ImportContext, everyone: ContactList, lists: Iterable[ContactList]) -> SavedPage:
+def save_contact_lists(
+    context: ImportContext,
+    everyone: ContactList,
+    lists: Iterable[ContactList],
+    other_spellings: Mapping[str, Iterable[str]] | None = None,
+) -> SavedPage:
     """Import `everyone` as people, then fill a cohort for each of `lists`, whose contacts are all in `everyone`.
 
     Only `everyone` sends the events that create and update people, so a contact in several lists counts once.
+    `other_spellings` holds each address the provider spelled more than one way, as from
+    `ContactCollector.other_spellings`, so an opt-out under one spelling covers them all.
     """
+    if other_spellings:
+        carry_opt_outs(context.team_id, other_spellings, context.created_by_id)
     create_people = NEW_PEOPLE_STEP in context.steps
     result = _import(context, everyone, create_people=create_people, send_events=True)
     notes = _notes(everyone, result)

@@ -187,6 +187,31 @@ def import_opt_outs(team_id: int, opt_outs: Mapping[str, Iterable[str]], created
     return inserted + len(merged)
 
 
+def carry_opt_outs(team_id: int, spellings: Mapping[str, Iterable[str]], created_by_id: int | None) -> int:
+    """Give each address the opt-outs stored under its other spellings, because a send matches the exact address.
+
+    `spellings` maps the address a person gets to the other ways the provider spelled it.
+    """
+    others = {other for spelled in spellings.values() for other in spelled}
+    if not others:
+        return 0
+    stored = dict(
+        MessageRecipientPreference.objects.filter(team_id=team_id, identifier__in=others, deleted=False).values_list(
+            "identifier", "preferences"
+        )
+    )
+    opt_outs = {
+        address: {
+            category_id
+            for other in spelled
+            for category_id, status in (stored.get(other) or {}).items()
+            if status == PreferenceStatus.OPTED_OUT.value
+        }
+        for address, spelled in spellings.items()
+    }
+    return import_opt_outs(team_id, opt_outs, created_by_id)
+
+
 def import_categories(
     team_id: int, categories: Iterable[ImportedCategory], created_by_id: int | None
 ) -> CategoryImportResult:

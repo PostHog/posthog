@@ -28,6 +28,10 @@ class TestContactCollector(SimpleTestCase):
 
         assert merged is row
         assert row is not None and row["plan"] == "pro"
+        assert collector.other_spellings == {
+            "ada@example.com": ("ADA@example.com",),
+            "ADA@example.com": ("ada@example.com",),
+        }
         assert len(json.dumps(row).encode()) <= MAX_PEOPLE_IMPORT_ROW_BYTES
 
     def test_too_much_contact_data_stops_the_step_for_good(self) -> None:
