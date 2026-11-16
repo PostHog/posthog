@@ -391,14 +391,15 @@ fn compute_team_baseline(exception_values: &[Option<i64>], issue_counts: &[u64])
     }
 }
 
-// Redis stores a bucket only when the issue had exceptions in it, so a missing bucket means either
-// that the issue was quiet or that the issue did not exist yet. A quiet bucket counts as zero.
-// Otherwise an issue that was quiet and then ramps up over several buckets is compared only with
-// the earlier buckets of the same ramp, and it never exceeds the multiplier. Buckets from before the
-// issue was created stay out of the average, so that a new issue is not compared with a history it
-// never had.
+// Redis stores a bucket only when the issue had exceptions in it, so a missing bucket means that
+// the issue was quiet, that the issue did not exist yet, or that Redis lost the bucket. Only a
+// quiet bucket counts as zero. Otherwise an issue that was quiet and then ramps up over several
+// buckets is compared only with the earlier buckets of the same ramp, and it never exceeds the
+// multiplier. A bucket is quiet when the issue existed and the team bucket for the same interval
+// is present, because the team bucket shows that Redis recorded exceptions for that interval.
 fn compute_issue_baseline(
     historical_buckets: &[Option<i64>],
+    historical_team_buckets: &[Option<i64>],
     buckets_since_creation: usize,
     team_baseline: f64,
 ) -> f64 {
@@ -406,10 +407,18 @@ fn compute_issue_baseline(
 
     if non_empty_count >= MIN_HISTORICAL_BUCKETS_FOR_ISSUE_BASELINE {
         let sum: i64 = historical_buckets.iter().filter_map(|v| *v).sum();
-        let counted_buckets = buckets_since_creation
-            .min(historical_buckets.len())
-            .max(non_empty_count);
-        sum as f64 / counted_buckets as f64
+        let quiet_count = historical_buckets
+            .iter()
+            .enumerate()
+            .filter(|(idx, value)| {
+                value.is_none()
+                    && *idx < buckets_since_creation
+                    && historical_team_buckets
+                        .get(*idx)
+                        .is_some_and(Option::is_some)
+            })
+            .count();
+        sum as f64 / (non_empty_count + quiet_count) as f64
     } else {
         team_baseline
     }
@@ -455,6 +464,10 @@ async fn get_spiking_issues(
         };
 
     let team_baselines: HashMap<i32, f64> = compute_team_baselines(&team_buckets);
+    let team_exception_counts: HashMap<i32, &[Option<i64>]> = team_buckets
+        .iter()
+        .map(|bucket| (bucket.team_id, bucket.exception_counts.as_slice()))
+        .collect();
 
     let mut spiking = Vec::new();
     for bucket in &issue_buckets {
@@ -467,7 +480,16 @@ async fn get_spiking_issues(
         let team_baseline = *team_baselines.get(&issue.team_id).unwrap_or(&0.0);
         let buckets_since_creation =
             buckets_since_issue_creation(issue.created_at, current_bucket_start);
-        let baseline = compute_issue_baseline(historical, buckets_since_creation, team_baseline);
+        let historical_team = team_exception_counts
+            .get(&issue.team_id)
+            .and_then(|counts| counts.get(1..))
+            .unwrap_or(&[]);
+        let baseline = compute_issue_baseline(
+            historical,
+            historical_team,
+            buckets_since_creation,
+            team_baseline,
+        );
         let config = team_configs.get(&issue.team_id).ok_or_else(|| {
             UnhandledError::Other(format!(
                 "No spike detection config for team {}",
@@ -912,7 +934,7 @@ mod tests {
         let mut ctx = TestContext::new();
         ctx.issue_created_at = Utc::now() - Duration::days(30);
         ctx.setup_issue_buckets(&[Some(2000), Some(330)]);
-        ctx.setup_team_buckets(&[Some(2000), Some(330)], &[1, 1]);
+        ctx.setup_team_buckets(&[Some(2100); NUM_BUCKETS], &[2; NUM_BUCKETS]);
 
         let result = ctx.get_spiking().await;
 
@@ -922,28 +944,41 @@ mod tests {
     }
 
     #[test]
-    fn test_issue_baseline_counts_quiet_buckets_since_creation() {
+    fn test_issue_baseline_counts_quiet_buckets() {
         let team_baseline = 7.0;
-        let mut one_active = vec![None; NUM_BUCKETS - 1];
+        let no_buckets: Vec<Option<i64>> = vec![None; NUM_BUCKETS - 1];
+        let all_team_buckets = vec![Some(1000); NUM_BUCKETS - 1];
+        let mut one_active = no_buckets.clone();
         one_active[0] = Some(330);
         let mut two_active = one_active.clone();
         two_active[1] = Some(270);
+        let mut recent_team_buckets = no_buckets.clone();
+        recent_team_buckets[0] = Some(1000);
+        recent_team_buckets[1] = Some(1000);
+        recent_team_buckets[2] = Some(1000);
 
         let cases = [
-            (&one_active, 500, 30.0),
-            (&one_active, 11, 30.0),
-            (&one_active, 4, 82.5),
-            (&one_active, 1, 330.0),
-            (&one_active, 0, 330.0),
-            (&two_active, 1, 300.0),
-            (&vec![None; NUM_BUCKETS - 1], 11, team_baseline),
+            (&one_active, &all_team_buckets, 500, 30.0),
+            (&one_active, &all_team_buckets, 11, 30.0),
+            (&one_active, &all_team_buckets, 4, 82.5),
+            (&one_active, &all_team_buckets, 1, 330.0),
+            (&one_active, &all_team_buckets, 0, 330.0),
+            (&two_active, &all_team_buckets, 1, 300.0),
+            (&one_active, &recent_team_buckets, 500, 110.0),
+            (&one_active, &no_buckets, 500, 330.0),
+            (&no_buckets, &all_team_buckets, 11, team_baseline),
         ];
 
-        for (historical, buckets_since_creation, expected) in cases {
+        for (historical, historical_team, buckets_since_creation, expected) in cases {
             assert_eq!(
-                compute_issue_baseline(historical, buckets_since_creation, team_baseline),
+                compute_issue_baseline(
+                    historical,
+                    historical_team,
+                    buckets_since_creation,
+                    team_baseline
+                ),
                 expected,
-                "buckets since creation: {buckets_since_creation}"
+                "buckets since creation: {buckets_since_creation}, team buckets: {historical_team:?}"
             );
         }
     }
