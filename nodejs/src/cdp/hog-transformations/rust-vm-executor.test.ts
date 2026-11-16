@@ -210,12 +210,13 @@ describe('RustVmExecutor', () => {
         expect(await outcomeCount('fallback_unsupported')).toEqual(1)
     })
 
-    it('falls back to the node vm on an input shape the rust vm has no implementation for', () => {
+    it('falls back to the node vm on an input shape the rust vm has no implementation for', async () => {
         mockHogvmNode.executeRegisteredSync.mockReturnValue(
             rustResult({ result: undefined, error: 'Not implemented: extract of a value only luxon reads' })
         )
 
         expect(executor.execute(createExampleInvocation(), [])).toBeNull()
+        expect(await outcomeCount('fallback_unsupported')).toEqual(1)
     })
 
     it('falls back to the node vm when the ffi boundary throws instead of returning an error', async () => {
@@ -293,6 +294,7 @@ describe('RustVmExecutor', () => {
             mockHogvmNode.executeRegisteredBatch.mockRejectedValue(new Error('native fault'))
 
             expect(await executor.executeBatched(createExampleInvocation(), [])).toBeNull()
+            expect(await outcomeCount('fallback_exception')).toEqual(1)
         })
 
         it('falls back to the node vm when registering the program throws during dispatch', async () => {
