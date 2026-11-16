@@ -11,7 +11,7 @@ const RECORDING_OFF = { ingested_event: true, session_recording_opt_in: false }
 
 async function noticeFor(project: unknown, args: Record<string, unknown>): Promise<string | undefined> {
     const state = makeToolExecutorState(
-        [{ name: 'query-session-recordings-list' }, { name: 'read-data-schema' }, { name: 'docs-search' }],
+        [{ name: 'query-session-recordings-list' }, { name: 'read-data-schema' }, { name: 'execute-sql' }],
         { suppressAnalytics: false, toolFeatureFlags: { [MCP_GUIDANCE_EMPTY_STATES_FLAG]: true } }
     )
     state.context.stateManager = { getCachedOrFetchProject: vi.fn(async () => project) } as any
