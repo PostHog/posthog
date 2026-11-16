@@ -177,11 +177,13 @@ def merge(
     sources = [release_id for release_id in dict.fromkeys(source_ids) if release_id != target_id]
     if not sources:
         raise contracts.InvalidMergeError("Pick at least one other release to merge into this one.")
-    involved = logic.releases_by_id(team_id, [target_id, *sources])
-    flag_ids = sorted({flag_id for release in involved.values() for flag_id in release.feature_flag_ids})
-    if flag_ids and lookups.flags(flag_ids).hidden:
-        raise contracts.InvalidMergeError("These releases link flags you cannot see, so they cannot be merged.")
-    return _visible_dto(logic.merge_releases(team_id, target_id, sources, name), lookups)
+
+    def no_hidden_flags(releases: list[Release]) -> None:
+        flag_ids = sorted({flag_id for release in releases for flag_id in release.feature_flag_ids})
+        if flag_ids and lookups.flags(flag_ids).hidden:
+            raise contracts.InvalidMergeError("These releases link flags you cannot see, so they cannot be merged.")
+
+    return _visible_dto(logic.merge_releases(team_id, target_id, sources, name, no_hidden_flags), lookups)
 
 
 def import_all(team_id: int, load_flags: Callable[[], list[contracts.ImportFlag]]) -> int:

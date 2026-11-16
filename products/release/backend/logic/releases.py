@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import Callable
 from uuid import UUID
 
 from django.db import transaction
@@ -66,11 +67,13 @@ LINKED_NOUNS = {
 LINKED_FIELDS = tuple(LINKED_NOUNS)
 
 
-def releases_by_id(team_id: int, release_ids: list[UUID]) -> dict[UUID, Release]:
-    return {release.id: release for release in Release.objects.filter(team_id=team_id, id__in=release_ids)}
-
-
-def merge_releases(team_id: int, target_id: UUID, source_ids: list[UUID], name: str | None = None) -> Release:
+def merge_releases(
+    team_id: int,
+    target_id: UUID,
+    source_ids: list[UUID],
+    name: str | None = None,
+    check: Callable[[list[Release]], None] | None = None,
+) -> Release:
     with transaction.atomic():
         found = {
             release.id: release
@@ -83,6 +86,8 @@ def merge_releases(team_id: int, target_id: UUID, source_ids: list[UUID], name: 
                 raise ReleaseNotFoundError(release_id)
         target = found[target_id]
         sources = [found[release_id] for release_id in source_ids]
+        if check:
+            check([target, *sources])
         for field in LINKED_FIELDS:
             merged = list(
                 dict.fromkeys(
