@@ -14,7 +14,7 @@ from parameterized import parameterized
 
 from products.ai_observability.backend.logic.eval_suggestions import call_review
 from products.ai_observability.backend.logic.eval_suggestions.call_review_queries import CallTypeRow, ReviewCallRow
-from products.ai_observability.backend.logic.eval_suggestions.config import MAX_REVIEW_CALLS, REVIEW_CALLS
+from products.ai_observability.backend.logic.eval_suggestions.config import MAX_REVIEW_CALLS, MIN_REVIEW_CALLS
 from products.ai_observability.backend.logic.eval_suggestions.prices import MODEL_PRICES
 
 SUPPORT = CallTypeRow(source="prompt_name", name="support-reply", calls=900, model="gpt-5-mini", example_input="[]")
@@ -147,7 +147,7 @@ def test_selection_takes_equal_shares_caps_traces_and_skips_outputs_without_text
     assert [call.event_uuid for call in call_review.select_calls(rows, limit=10, per_trace=2)][8:] == ["s6", "s7"]
 
 
-@parameterized.expand([("default", REVIEW_CALLS), ("most", MAX_REVIEW_CALLS)])
+@parameterized.expand([("fewest", MIN_REVIEW_CALLS), ("most", MAX_REVIEW_CALLS)])
 def test_the_rendering_fills_its_bound_and_shows_each_system_prompt_once(_name: str, review_calls: int) -> None:
     system = "SYSTEM-MARKER " + "Answer refund questions. " * 400
     long_input = [{"role": "system", "content": system}, {"role": "user", "content": "Where is my refund? " * 500}]
