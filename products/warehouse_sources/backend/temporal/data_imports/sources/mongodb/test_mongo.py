@@ -448,10 +448,14 @@ class TestMongoDBNonRetryableErrors(SimpleTestCase):
                 "found in project 000000000000000000000000, correlationID = 000000000000000000000000', "
                 "'code': 125, 'codeName': 'CommandFailed'}",
             ),
-            # pymongo's fixed message when the connection string sets authMechanism=GSSAPI but the
-            # optional pykerberos/winkerberos package isn't installed. We don't bundle that package,
+            # pymongo's fixed message when the connection string sets authMechanism=MONGODB-AWS but
+            # the optional pymongo-auth-aws package isn't installed. We don't bundle that package,
             # so the mechanism never works and a retry can't change that.
-            ("gssapi_auth_unsupported", 'The "kerberos" module must be installed to use GSSAPI authentication.'),
+            (
+                "mongodb_aws_auth_unsupported",
+                "MONGODB-AWS authentication requires pymongo-auth-aws: install with: "
+                "python -m pip install 'pymongo[aws]'",
+            ),
         ]
     )
     def test_known_errors_are_non_retryable(self, _name, error_msg):
@@ -512,8 +516,8 @@ class TestMongoDBNonRetryableErrors(SimpleTestCase):
             ("replica_set_mismatch", "client is configured to connect to a replica set named", "replica set"),
             ("cluster_not_found_in_project", "not found in project", "data federation"),
             (
-                "gssapi_auth_unsupported",
-                "must be installed to use GSSAPI authentication",
+                "mongodb_aws_auth_unsupported",
+                "MONGODB-AWS authentication requires pymongo-auth-aws",
                 "username and password",
             ),
         ]
