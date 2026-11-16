@@ -203,6 +203,14 @@ REVISION_READ_ACTIONS = ("revisions", "revision_detail")
 PAYLOAD_HISTORY_ACTIONS = frozenset({"rerun", "logs"})
 
 
+def _hog_falsy_literal(value: Any) -> bool:
+    """Whether the Hog VM reads this input value as false. It uses JavaScript truthiness, so the string "false"
+    is true, and a template string is only known when it runs, so it never counts as false here."""
+    if value is None or value is False or value == "":
+        return True
+    return isinstance(value, int | float) and not isinstance(value, bool) and value == 0
+
+
 def _event_ids(filters: Any) -> set[str]:
     events = filters.get("events") if isinstance(filters, dict) else None
     if not isinstance(events, list):
@@ -798,8 +806,9 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
         # Debug output lands in the shared log store, which a reader without the event's read scope can query.
         guarded = sorted(_event_ids(proposed_filters) & INTERNAL_EVENT_READ_SCOPES.keys())
         inputs = attrs.get("inputs", instance.inputs if isinstance(instance, HogFunction) else None) or {}
-        debug_value = (inputs.get("debug") or {}).get("value") if isinstance(inputs.get("debug"), dict) else None
-        if guarded and debug_value not in (None, False, "", "false"):
+        debug_input = inputs.get("debug")
+        debug_value = debug_input.get("value") if isinstance(debug_input, dict) else debug_input
+        if guarded and not _hog_falsy_literal(debug_value):
             raise serializers.ValidationError(
                 {"inputs": f"Destinations on {', '.join(guarded)} can't log debug output. Turn off the debug input."}
             )

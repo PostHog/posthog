@@ -479,10 +479,17 @@ class TestHogFunctionAPIWithoutAvailableFeature(ClickhouseTestMixin, APIBaseTest
 
     @parameterized.expand(
         [
-            ("debug on for the report event", _REPORT_FILTERS, True, status.HTTP_400_BAD_REQUEST),
-            ("debug as a truthy template", _REPORT_FILTERS, "{true}", status.HTTP_400_BAD_REQUEST),
-            ("debug off for the report event", _REPORT_FILTERS, False, status.HTTP_201_CREATED),
-            ("debug on for another event", _OTHER_INTERNAL_FILTERS, True, status.HTTP_201_CREATED),
+            # The Hog VM uses JavaScript truthiness, and a template is only known when it runs.
+            ("true", _REPORT_FILTERS, True, status.HTTP_400_BAD_REQUEST),
+            ("string false", _REPORT_FILTERS, "false", status.HTTP_400_BAD_REQUEST),
+            ("string zero", _REPORT_FILTERS, "0", status.HTTP_400_BAD_REQUEST),
+            ("one", _REPORT_FILTERS, 1, status.HTTP_400_BAD_REQUEST),
+            ("template", _REPORT_FILTERS, "{false}", status.HTTP_400_BAD_REQUEST),
+            ("false", _REPORT_FILTERS, False, status.HTTP_201_CREATED),
+            ("no debug input", _REPORT_FILTERS, None, status.HTTP_201_CREATED),
+            ("empty string", _REPORT_FILTERS, "", status.HTTP_201_CREATED),
+            ("zero", _REPORT_FILTERS, 0, status.HTTP_201_CREATED),
+            ("true for another event", _OTHER_INTERNAL_FILTERS, True, status.HTTP_201_CREATED),
         ]
     )
     def test_a_destination_on_signals_reports_cannot_log_debug_output(self, _name, filters, debug, expected_status):
@@ -493,8 +500,8 @@ class TestHogFunctionAPIWithoutAvailableFeature(ClickhouseTestMixin, APIBaseTest
                 "hog": "fetch('https://example.com');",
                 "type": "internal_destination",
                 "filters": filters,
-                "inputs_schema": [{"key": "debug", "type": "boolean", "required": False}],
-                "inputs": {"debug": {"value": debug}},
+                "inputs_schema": [{"key": "debug", "type": "json", "required": False}],
+                "inputs": {} if debug is None else {"debug": {"value": debug}},
             },
         )
 
