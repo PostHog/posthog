@@ -1,6 +1,33 @@
 import type { YAxisConfig, YFormatterConfig } from '@posthog/quill-charts'
+import { DEFAULT_Y_AXIS_ID } from '@posthog/quill-charts'
 
+import { computeMagnitudeAxisIds } from './magnitudeAxisIds'
 import type { YFormatterFields } from './trendsChartDisplayOptions'
+
+export type TrendsYAxisPositions = readonly ('auto' | 'left' | 'right' | undefined)[]
+
+export function resolveTrendsYAxisIds(
+    datasets: readonly (readonly number[])[],
+    positions: TrendsYAxisPositions | undefined,
+    showMultipleYAxes: boolean | undefined
+): string[] | undefined {
+    if (positions?.some((position) => position === 'left' || position === 'right')) {
+        return datasets.map((_, index) => (positions[index] === 'right' ? 'right' : DEFAULT_Y_AXIS_ID))
+    }
+    return showMultipleYAxes ? computeMagnitudeAxisIds(datasets) : undefined
+}
+
+export function applyTrendsYAxisPositions(
+    axis: YAxisConfig,
+    positions: TrendsYAxisPositions | undefined
+): YAxisConfig | YAxisConfig[] {
+    return positions?.includes('right')
+        ? [
+              { ...axis, id: DEFAULT_Y_AXIS_ID, position: 'left' },
+              { ...axis, id: 'right', position: 'right', showGrid: false },
+          ]
+        : axis
+}
 
 export function trendsFilterToYFormatterConfig(
     trendsFilter: YFormatterFields | null | undefined,

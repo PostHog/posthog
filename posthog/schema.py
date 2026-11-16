@@ -372,6 +372,7 @@ from posthog.schema_enums import (
     WindowDays as WindowDays,
     XScale as XScale,
     YAxisPosition as YAxisPosition,
+    YAxisPosition2 as YAxisPosition2,
     YAxisScaleType as YAxisScaleType,
 )
 
@@ -3455,6 +3456,7 @@ class ResultCustomizationBase(BaseModel):
     )
     color: DataColorToken | None = None
     hidden: bool | None = None
+    yAxisPosition: YAxisPosition2 | None = None
 
 
 class ResultCustomizationByPosition(BaseModel):
@@ -3464,6 +3466,7 @@ class ResultCustomizationByPosition(BaseModel):
     assignmentBy: Literal["position"] = "position"
     color: DataColorToken | None = None
     hidden: bool | None = None
+    yAxisPosition: YAxisPosition2 | None = None
 
 
 class ResultCustomizationByValue(BaseModel):
@@ -3475,6 +3478,7 @@ class ResultCustomizationByValue(BaseModel):
     customColor: str | None = None
     hidden: bool | None = None
     label: str | None = None
+    yAxisPosition: YAxisPosition2 | None = None
 
 
 class RetentionValue(BaseModel):

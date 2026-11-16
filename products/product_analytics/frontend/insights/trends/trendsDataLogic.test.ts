@@ -7,6 +7,7 @@ import { getTrendResultCustomizationKey } from 'scenes/insights/utils'
 
 import { ExportType } from '~/exporter/types'
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
+import { resultCustomizationsModalLogic } from '~/queries/nodes/InsightViz/resultCustomizationsModalLogic'
 import {
     DataNode,
     LifecycleQuery,
@@ -46,6 +47,49 @@ describe('trendsDataLogic', () => {
     beforeEach(async () => {
         initKeaTests(false)
         await initTrendsDataLogic()
+    })
+
+    it('saves an axis assignment without changing the existing color and restores automatic axes', async () => {
+        const query: TrendsQuery = {
+            kind: NodeKind.TrendsQuery,
+            series: [],
+            trendsFilter: { display: ChartDisplayType.ActionsLineGraph },
+        }
+        await expectLogic(logic, () => {
+            insightVizDataLogic(insightProps).actions.updateQuerySource(query)
+            builtDataNodeLogic.actions.loadDataSuccess({ result: trendPieResult.result })
+        }).toFinishAllListeners()
+        const dataset = logic.values.indexedResults[0]
+        const key = getTrendResultCustomizationKey(logic.values.resultCustomizationBy, dataset, query)
+        await expectLogic(logic, () => {
+            insightVizDataLogic(insightProps).actions.updateInsightFilter({
+                resultCustomizations: {
+                    [key]: { assignmentBy: ResultCustomizationBy.Value, color: 'preset-5', hidden: true },
+                },
+            })
+        }).toFinishAllListeners()
+        const modal = resultCustomizationsModalLogic(insightProps)
+        modal.mount()
+        modal.actions.openModal(dataset)
+        modal.actions.setYAxisPosition('right')
+        await expectLogic(modal, () => modal.actions.save()).toFinishAllListeners()
+        expect(logic.values.resultCustomizations).toMatchObject({
+            [key]: {
+                color: 'preset-5',
+                hidden: true,
+                yAxisPosition: 'right',
+            },
+        })
+        expect(logic.values.getTrendsYAxisPosition(dataset)).toBe('right')
+        modal.actions.openModal(dataset)
+        expect(modal.values.yAxisPosition).toBe('right')
+        modal.actions.setYAxisPosition('left')
+        modal.actions.closeModal()
+        expect(logic.values.getTrendsYAxisPosition(dataset)).toBe('right')
+        modal.actions.openModal(dataset)
+        modal.actions.setYAxisPosition('auto')
+        await expectLogic(modal, () => modal.actions.save()).toFinishAllListeners()
+        expect(logic.values.getTrendsYAxisPosition(dataset)).toBe('auto')
     })
 
     describe('showMovingAverage', () => {

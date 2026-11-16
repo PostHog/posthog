@@ -3069,6 +3069,12 @@ class RefreshType(StrEnum):
     LAZY_ASYNC = "lazy_async"
 
 
+class YAxisPosition2(StrEnum):
+    AUTO = "auto"
+    LEFT = "left"
+    RIGHT = "right"
+
+
 class ResultCustomizationBy(StrEnum):
     VALUE = "value"
     POSITION = "position"

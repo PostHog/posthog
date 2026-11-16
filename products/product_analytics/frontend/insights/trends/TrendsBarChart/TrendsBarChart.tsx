@@ -122,6 +122,7 @@ export function TrendsBarChart({
         querySource,
         getTrendsColor,
         getTrendsHidden,
+        getTrendsYAxisPosition,
         goalLines,
         showValuesOnSeries,
         showMultipleYAxes,
@@ -205,6 +206,10 @@ export function TrendsBarChart({
         [getTrendsColor, indexedResults, isSeriesHighlighted]
     )
 
+    const yAxisPositions = useMemo(
+        () => (isGrouped && !isPercentStackView ? indexedResults?.map(getTrendsYAxisPosition) : undefined),
+        [isGrouped, isPercentStackView, indexedResults, getTrendsYAxisPosition]
+    )
     const { series, labels, displayLabels } = useMemo(() => {
         if (isAggregated) {
             return buildTrendsBarAggregatedSeries<IndexedTrendResult, TrendsSeriesMeta>(indexedResults ?? [], {
@@ -223,6 +228,7 @@ export function TrendsBarChart({
             getLabel,
             buildMeta,
             showMultipleYAxes: applyMultipleYAxes,
+            yAxisPositions,
         })
         // Bands are keyed by these strings, so they must be unique per point. Display labels
         // are not (week and hour labels omit the year), which folds a multi-year range's bars
@@ -247,6 +253,7 @@ export function TrendsBarChart({
         getLabel,
         buildMeta,
         applyMultipleYAxes,
+        yAxisPositions,
     ])
 
     const valueLabelFormatter = useCallback(
@@ -276,6 +283,7 @@ export function TrendsBarChart({
                 hideAxes,
                 xAxisLabel: trendsFilter?.xAxisLabel,
                 yAxisLabel: trendsFilter?.yAxisLabel,
+                yAxisPositions,
                 goalLines,
                 valueLabels: showValuesOnSeries ? { formatter: valueLabelFormatter } : false,
                 tooltip: INSIGHT_TOOLTIP_CONFIG,
@@ -290,6 +298,7 @@ export function TrendsBarChart({
             isPercentStackView,
             isGrouped,
             yAxisScaleType,
+            yAxisPositions,
             interval,
             timezone,
             currentPeriodResult?.days,

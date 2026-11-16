@@ -98,6 +98,7 @@ export function TrendsLineChart({
         goalLines,
         getTrendsColor,
         getTrendsHidden,
+        getTrendsYAxisPosition,
         currentPeriodResult,
         breakdownFilter,
         insightData,
@@ -308,11 +309,19 @@ export function TrendsLineChart({
         [getTrendsColor, indexedResults, isSeriesHighlighted]
     )
 
+    const yAxisPositions = useMemo(
+        () =>
+            !isPercentStackView && display !== ChartDisplayType.ActionsAreaGraph
+                ? indexedResults?.map(getTrendsYAxisPosition)
+                : undefined,
+        [isPercentStackView, display, indexedResults, getTrendsYAxisPosition]
+    )
     const series = useMemo(
         () =>
             buildTrendsSeries<IndexedTrendResult, TrendsSeriesMeta>(indexedResults ?? [], {
                 isArea: display === ChartDisplayType.ActionsAreaGraph,
                 showMultipleYAxes: showMultipleYAxes ?? undefined,
+                yAxisPositions,
                 incompletenessOffsetFromEnd,
                 isStickiness,
                 getColor,
@@ -326,6 +335,7 @@ export function TrendsLineChart({
             indexedResults,
             display,
             showMultipleYAxes,
+            yAxisPositions,
             incompletenessOffsetFromEnd,
             isStickiness,
             getColor,
@@ -356,6 +366,7 @@ export function TrendsLineChart({
                 hideAxes,
                 xAxisLabel: trendsFilter?.xAxisLabel,
                 yAxisLabel: trendsFilter?.yAxisLabel,
+                yAxisPositions,
                 yAxisStartAtZero: trendsFilter?.yAxisStartAtZero,
                 yAxisMin: trendsFilter?.yAxisMin,
                 yAxisMax: trendsFilter?.yAxisMax,
@@ -382,6 +393,7 @@ export function TrendsLineChart({
             isPercentStackView,
             isStickiness,
             yAxisScaleType,
+            yAxisPositions,
             interval,
             timezone,
             allDays,
