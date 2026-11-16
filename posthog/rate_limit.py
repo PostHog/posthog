@@ -542,6 +542,33 @@ class WorkloadSubjectLookupThrottle(UserRateThrottle):
     rate = "30/minute"
 
 
+class _OrganizationPersonalAPIKeyBulkActionThrottle(SimpleRateThrottle):
+    """One bucket per organization, shared by the roll all and revoke all actions.
+
+    Each bulk action writes every key that reaches the organization and emails each key owner. The bucket is per
+    organization, so a second admin gets no new budget. This is a plain `SimpleRateThrottle`, so it applies to session
+    requests and does not depend on the RATE_LIMIT_ENABLED instance setting.
+
+    The rates allow the incident path: a run, retries after a partial failure, and a revoke after a roll. The actions
+    on one key do not use this bucket, so an admin can still roll or revoke a single key when the bucket is empty.
+    """
+
+    def get_cache_key(self, request: "Request", view: "APIView") -> str:
+        organization_id = PersonalApiKeyRateThrottle.safely_get_organization_id_from_view(view)
+        ident = organization_id or (request.user.pk if request.user.is_authenticated else self.get_ident(request))
+        return self.cache_format % {"scope": self.scope, "ident": ident}
+
+
+class OrganizationPersonalAPIKeyBulkActionBurstThrottle(_OrganizationPersonalAPIKeyBulkActionThrottle):
+    scope = "organization_personal_api_key_bulk_action_burst"
+    rate = "3/minute"
+
+
+class OrganizationPersonalAPIKeyBulkActionSustainedThrottle(_OrganizationPersonalAPIKeyBulkActionThrottle):
+    scope = "organization_personal_api_key_bulk_action_sustained"
+    rate = "10/hour"
+
+
 class BurstRateThrottle(PersonalApiKeyRateThrottle):
     # Throttle class that's applied on all endpoints (except for capture + decide)
     # Intended to block quick bursts of requests, per project
