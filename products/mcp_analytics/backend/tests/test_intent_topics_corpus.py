@@ -383,12 +383,24 @@ class TestIntentEmbeddingsAccess(ClickhouseTestMixin, APIBaseTest):
         predicates = [f"{content} = 'list flags'", f"{document_id} = '{intent}'", f"{embedding}[1] = 1"]
 
         assert rows() == [("fp-1", "TypeError in checkout", 256)]
+        assert run(f"SELECT count() FROM {source} WHERE {model_filter}") == [(1,)]
         assert [matches(p) for p in predicates] == [0, 0, 0]
+
+        insert_intent_embedding(self.team.pk, intent_hash("another intent"), "another intent", at=WINDOW_START)
+        assert run(f"SELECT count() FROM {source} WHERE {model_filter}") == [(1,)]
 
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()
-        assert rows() == sorted([("fp-1", "TypeError in checkout", 256), (intent, "list flags", 256)], key=str)
-        assert [matches(p) for p in predicates] == [1, 1, 1]
+        assert rows() == sorted(
+            [
+                ("fp-1", "TypeError in checkout", 256),
+                (intent, "list flags", 256),
+                (intent_hash("another intent"), "another intent", 256),
+            ],
+            key=str,
+        )
+        assert [matches(p) for p in predicates] == [1, 1, 2]
+        assert run(f"SELECT count() FROM {source} WHERE {model_filter}") == [(3,)]
 
     @parameterized.expand(
         [
