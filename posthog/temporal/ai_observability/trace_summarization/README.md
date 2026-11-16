@@ -154,7 +154,7 @@ Teams are discovered via `team_discovery.py`: projects with clustering enabled, 
 The coordinator passes its summarization window to discovery, so only projects with AI events in that window are included.
 A team with no AI events in the window has nothing to summarize, and it would still cost a child workflow and a sampling query.
 The clustering coordinators pass no window, so their discovery uses `discovery_lookback_days` from the flag payload.
-The feature flag's `skip_team_ids` excludes projects from discovery, first runs, and worker execution. Legacy guaranteed-team and sampling fields no longer opt projects in.
+The feature flag's `skip_team_ids` excludes projects from discovery and worker execution. Legacy guaranteed-team and sampling fields no longer opt projects in.
 
 ### AI data processing consent
 
