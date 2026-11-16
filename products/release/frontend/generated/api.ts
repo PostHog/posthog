@@ -11,6 +11,7 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
 import type {
     BroadcastOptionApi,
     ImportAllResponseApi,
+    MergeReleasesApi,
     PaginatedReleaseDTOListApi,
     PatchedUpdateReleaseApi,
     ReleaseDTOApi,
@@ -101,6 +102,27 @@ export const releasesDestroy = async (projectId: string, id: string, options?: R
     return apiMutator<void>(getReleasesDestroyUrl(projectId, id), {
         ...options,
         method: 'DELETE',
+    })
+}
+
+export const getReleasesMergeCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/releases/${id}/merge/`
+}
+
+/**
+ * Merge other releases into this one. This release keeps its name, gains their links, then they are deleted.
+ */
+export const releasesMergeCreate = async (
+    projectId: string,
+    id: string,
+    mergeReleasesApi: MergeReleasesApi,
+    options?: RequestInit
+): Promise<ReleaseDTOApi> => {
+    return apiMutator<ReleaseDTOApi>(getReleasesMergeCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(mergeReleasesApi),
     })
 }
 
