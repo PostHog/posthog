@@ -9,6 +9,8 @@ from django.db.models import Field, Model, Q, QuerySet
 
 from posthog.paging import CursorPageRequest, Page, PageRequest
 
+_LARGEST_ROW_BOUND_POSTGRES_ACCEPTS = 2**63 - 1
+
 
 def stable_queryset_ordering(queryset: QuerySet) -> QuerySet:
     """Add the primary key as a final ordering term for a paginated queryset."""
@@ -43,6 +45,33 @@ def select_page[M: Model](queryset: QuerySet[M], page: PageRequest) -> Page[M]:
         return Page(results=[], count=count)
     rows = stable_queryset_ordering(queryset)[page.offset : page.offset + page.limit]
     return Page(results=list(rows), count=count)
+
+
+def select_page_without_count[M: Model](queryset: QuerySet[M], page: PageRequest) -> Page[M]:
+    if _starts_past_any_table(page):
+        return Page(results=[], count=page.offset)
+    page_and_one_row_past = list(
+        stable_queryset_ordering(queryset)[page.offset : page.offset + _rows_to_read_to_see_past(page)]
+    )
+    results = page_and_one_row_past[: page.limit]
+    another_page_follows = len(page_and_one_row_past) > page.limit
+    return Page(
+        results=results, count=_count_that_sets_next_only_when_another_page_follows(page, results, another_page_follows)
+    )
+
+
+def _rows_to_read_to_see_past(page: PageRequest) -> int:
+    return page.limit + 1
+
+
+def _count_that_sets_next_only_when_another_page_follows(
+    page: PageRequest, results: Sequence[object], another_page_follows: bool
+) -> int:
+    return page.offset + len(results) + (1 if another_page_follows else 0)
+
+
+def _starts_past_any_table(page: PageRequest) -> bool:
+    return page.offset + _rows_to_read_to_see_past(page) > _LARGEST_ROW_BOUND_POSTGRES_ACCEPTS
 
 
 def _model_field(model: type[Model], field: str) -> Field | None:
