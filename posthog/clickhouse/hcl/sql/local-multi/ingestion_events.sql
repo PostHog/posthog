@@ -234,6 +234,42 @@ CREATE TABLE posthog.writable_events_json (
   captured_at DateTime64(6, 'UTC') DEFAULT now(),
   _partition UInt64
 ) ENGINE = Distributed('posthog', 'posthog', 'sharded_events_json', sipHash64(distinct_id));
+CREATE TABLE posthog.writable_events_json_recent (
+  uuid UUID,
+  event String,
+  properties String,
+  temporary_properties String,
+  properties_null_keys Array(LowCardinality(String)),
+  temporary_properties_null_keys Array(LowCardinality(String)),
+  timestamp DateTime64(6, 'UTC'),
+  team_id Int64,
+  distinct_id String,
+  created_at DateTime64(6, 'UTC') DEFAULT now(),
+  _timestamp DateTime,
+  _offset UInt64,
+  elements_chain String,
+  person_id UUID,
+  person_properties String,
+  person_properties_null_keys Array(LowCardinality(String)),
+  group0_properties String,
+  group1_properties String,
+  group2_properties String,
+  group3_properties String,
+  group4_properties String,
+  person_created_at DateTime64(3),
+  group0_created_at DateTime64(3),
+  group1_created_at DateTime64(3),
+  group2_created_at DateTime64(3),
+  group3_created_at DateTime64(3),
+  group4_created_at DateTime64(3),
+  inserted_at DateTime64(6, 'UTC') DEFAULT now64(),
+  person_mode Enum8('full'=0, 'propertyless'=1, 'force_upgrade'=2),
+  consumer_breadcrumbs Array(String),
+  historical_migration Bool,
+  total_event_size UInt32,
+  captured_at DateTime64(6, 'UTC') DEFAULT now(),
+  _partition UInt64
+) ENGINE = Distributed('posthog', 'posthog', 'sharded_events_json_recent', sipHash64(distinct_id));
 CREATE TABLE posthog.writable_logs34 (
   time_bucket DateTime MATERIALIZED toStartOfDay(timestamp),
   original_expiry_timestamp DateTime64(6),
@@ -278,6 +314,12 @@ CREATE TABLE posthog.writable_person_group_membership (
   first_seen SimpleAggregateFunction(min, DateTime64(6, 'UTC')),
   last_seen SimpleAggregateFunction(max, DateTime64(6, 'UTC'))
 ) ENGINE = Distributed('aux', 'posthog', 'sharded_person_group_membership', sipHash64(team_id, group_type_index, group_key));
+CREATE MATERIALIZED VIEW posthog.events_json_recent_mv TO posthog.writable_events_json_recent (uuid UUID, event String, properties String, temporary_properties String, properties_null_keys Array(LowCardinality(String)), temporary_properties_null_keys Array(LowCardinality(String)), timestamp DateTime64(6, 'UTC'), team_id Int64, distinct_id String, created_at DateTime64(6, 'UTC'), _timestamp DateTime, _offset UInt64, elements_chain String, person_id UUID, person_properties String, person_properties_null_keys Array(LowCardinality(String)), group0_properties String, group1_properties String, group2_properties String, group3_properties String, group4_properties String, person_created_at DateTime64(3), group0_created_at DateTime64(3), group1_created_at DateTime64(3), group2_created_at DateTime64(3), group3_created_at DateTime64(3), group4_created_at DateTime64(3), inserted_at DateTime64(6, 'UTC'), person_mode Enum8('full'=0, 'propertyless'=1, 'force_upgrade'=2), consumer_breadcrumbs Array(String), historical_migration Bool, total_event_size UInt32, captured_at DateTime64(6, 'UTC'), _partition UInt64) AS SELECT
+  * REPLACE(toJSONString(properties) AS properties, toJSONString(temporary_properties) AS temporary_properties, toJSONString(person_properties) AS person_properties)
+FROM posthog.writable_events_json
+SETTINGS
+  json_type_escape_dots_in_keys = 1,
+  output_format_json_escape_forward_slashes = 0;
 CREATE MATERIALIZED VIEW posthog.events_json_table_mv TO posthog.writable_events_json (uuid UUID, event String, properties String, temporary_properties String, inserted_at DateTime64(3), timestamp DateTime64(6, 'UTC'), team_id Int64, distinct_id String, elements_chain String, created_at DateTime64(6, 'UTC'), person_id UUID, person_properties String, person_created_at DateTime64(3), group0_properties String, group1_properties String, group2_properties String, group3_properties String, group4_properties String, group0_created_at DateTime64(3), group1_created_at DateTime64(3), group2_created_at DateTime64(3), group3_created_at DateTime64(3), group4_created_at DateTime64(3), person_mode Enum8('full'=0, 'propertyless'=1, 'force_upgrade'=2), historical_migration Bool, captured_at DateTime64(6, 'UTC'), _timestamp Nullable(DateTime), _offset UInt64, _partition UInt64, consumer_breadcrumbs Array(String), total_event_size UInt32) AS SELECT
   *,
   accurateCast(byteSize(*) + byteSize(toUInt32(0)), 'UInt32') AS total_event_size
