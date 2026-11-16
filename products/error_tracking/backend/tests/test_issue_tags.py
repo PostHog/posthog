@@ -28,7 +28,11 @@ from products.error_tracking.backend.logic.issue_tags.registry import (
 )
 from products.error_tracking.backend.logic.issue_tags.taggers.base import TagAnswer
 from products.error_tracking.backend.logic.issue_tags.writer import set_issue_tag
-from products.error_tracking.backend.models import ErrorTrackingIssue, ErrorTrackingIssueTag
+from products.error_tracking.backend.models import (
+    ErrorTrackingIssue,
+    ErrorTrackingIssueMergeResult,
+    ErrorTrackingIssueTag,
+)
 from products.ml_inference.backend.facade.contracts import MAX_QUESTIONS_PER_REQUEST
 
 Source = ErrorTrackingIssueTag.Source
@@ -227,6 +231,24 @@ class TestCarryIssueTagsOnMerge(BaseTest):
             ),
             ("manual_label_replaces_tagger_label", (Source.JEV, True), [(Source.MANUAL, True)], (Source.MANUAL, True)),
             ("tagger_label_replaces_tagger_no", (Source.JEV, False), [(Source.JEV, True)], (Source.JEV, True)),
+            (
+                "tagger_label_already_on_target_is_left_alone",
+                (Source.JEV, True),
+                [(Source.JEV, True)],
+                (Source.JEV, True),
+            ),
+            (
+                "manual_label_on_a_later_source_replaces_tagger_label",
+                None,
+                [(Source.JEV, True), (Source.MANUAL, True)],
+                (Source.MANUAL, True),
+            ),
+            (
+                "tagger_label_on_a_later_source_does_not_replace_manual_label",
+                None,
+                [(Source.MANUAL, True), (Source.JEV, True)],
+                (Source.MANUAL, True),
+            ),
         ]
     )
     def test_merge_carries_applied_labels_unless_a_person_answered_on_the_target(
@@ -246,6 +268,7 @@ class TestCarryIssueTagsOnMerge(BaseTest):
         target.merge([source.id for source in sources])
 
         assert self._target_answer(target) == expected
+        assert _issue_activity(target).count() == int(expected != on_target)
 
     def test_a_carried_label_is_logged_on_the_target_and_reaches_clickhouse(self) -> None:
         target = ErrorTrackingIssue.objects.create(team=self.team, name="TypeError: cart is undefined")
@@ -267,6 +290,20 @@ class TestCarryIssueTagsOnMerge(BaseTest):
             ],
         }
         assert _latest_clickhouse_answer(target)[0] is True
+
+    def test_a_failed_activity_log_write_does_not_undo_the_merge(self) -> None:
+        target = ErrorTrackingIssue.objects.create(team=self.team)
+        source = ErrorTrackingIssue.objects.create(team=self.team)
+        self._tag(source, Source.JEV, True)
+
+        with (
+            self.settings(TEST=False, ACTIVITY_LOG_TRANSACTION_MANAGEMENT=True),
+            patch.object(ActivityLog.objects, "create", side_effect=IntegrityError("write timed out")),
+        ):
+            outcome = target.merge([source.id])
+
+        assert outcome.result == ErrorTrackingIssueMergeResult.MERGED
+        assert self._target_answer(target) == (Source.JEV, True)
 
     def test_carries_a_label_between_issues_of_a_child_environment(self) -> None:
         child = Team.objects.create(
