@@ -175,7 +175,7 @@ Django must be up at that moment.
 > manifest must declare them first. Slack refuses an authorize request for an undeclared scope. With the
 > `slack-app-slack-mcp` flag on and the Slack MCP available to the team in the MCP store, the link asks for exactly
 > the Slack MCP template's scopes instead, and the same token connects the person's Slack MCP.
-> The token must hold every scope in the template, so a person who clears an optional private search scope on the consent screen is linked but not connected to the Slack MCP.
+> The token must hold nothing outside the template's scopes. A person who clears an optional private search scope on the consent screen is still connected, without that search.
 > Drop those if you don't want either feature
 > locally. Neither is behind a feature flag: the App Home tab renders for every install, and the
 > identity link appears only when the install holds the `users:read` and `users:read.email` scopes.
