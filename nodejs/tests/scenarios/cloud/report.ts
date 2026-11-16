@@ -165,7 +165,10 @@ function costOf(profile: CloudProfile, hours: number, capacity: Capacity | undef
         [`reader, ${acuHours.toFixed(2)} ACU-hours, ${missing}`, acuHours * rates.acuPerHour],
         [`host ${profile.host.class}, ${hours.toFixed(2)} h`, hours * rates.hostPerHour],
         [`Aurora storage, ${allowances.storageGb} GB bound`, allowances.storageGb * rates.storagePerGbMonth * months],
-        [`host EBS, ${profile.host.ebsGb} GB`, profile.host.ebsGb * rates.ebsPerGbMonth * months],
+        [
+            `host EBS, ${profile.baseline.hostRootVolumeGb} GB`,
+            profile.baseline.hostRootVolumeGb * rates.ebsPerGbMonth * months,
+        ],
     ]
 }
 

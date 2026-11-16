@@ -3170,7 +3170,6 @@ TREE_READ_PATHS: list[tuple[str, str, dict[str, str]]] = [
 ]
 
 
-UNFILED_ALREADY_SAVED_SELECT = 'AS "already_saved"'
 PATTERN_FROM_A_COLUMN = re.compile(r"\s!?~~?\*?\s+(?!')")
 PLAN_CONDITIONS = ("Filter", "Join Filter", "Index Cond")
 
@@ -3189,25 +3188,15 @@ def _names_marked_hashed_by_their_parent(plan: Mapping[str, Any]) -> set[str]:
     return set(re.findall(r"hashed (SubPlan \d+)", json.dumps(plan)))
 
 
-def _select_list_subplan_names(plan: Mapping[str, Any]) -> set[str]:
-    return {
-        name
+def _per_row_tree_subplans(plan: Mapping[str, Any]) -> list[Mapping[str, Any]]:
+    hashed = _names_marked_hashed_by_their_parent(plan)
+    return [
+        node
         for node in _plan_nodes(plan)
-        for expression in node.get("Output", [])
-        for name in re.findall(r"SubPlan \d+", expression)
-    }
-
-
-def _per_row_tree_subplans(sql: str, plan: Mapping[str, Any]) -> list[Mapping[str, Any]]:
-    tree_subplans = [
-        node for node in _plan_nodes(plan) if node.get("Parent Relationship") == "SubPlan" and _scans_file_system(node)
+        if node.get("Parent Relationship") == "SubPlan"
+        and _scans_file_system(node)
+        and node["Subplan Name"] not in hashed
     ]
-    skipped = _names_marked_hashed_by_their_parent(plan)
-    if UNFILED_ALREADY_SAVED_SELECT in sql:
-        select_list = _select_list_subplan_names(plan) & {node["Subplan Name"] for node in tree_subplans}
-        if len(select_list) == 1:
-            skipped |= select_list
-    return [node for node in tree_subplans if node["Subplan Name"] not in skipped]
 
 
 def _column_pattern_nodes(plan: Mapping[str, Any]) -> list[Mapping[str, Any]]:
@@ -3302,7 +3291,7 @@ class TestFileSystemReadPlans(APIBaseTest):
                 plan = row[0][0]["Plan"]
                 offenders.extend(
                     f"Per-row subquery over the tree:\n{sql}\n{sql_params}\n{json.dumps(node, indent=2)}"
-                    for node in _per_row_tree_subplans(sql, plan)
+                    for node in _per_row_tree_subplans(plan)
                 )
                 offenders.extend(
                     f"Pattern built from a column:\n{sql}\n{sql_params}\n{json.dumps(node, indent=2)}"
