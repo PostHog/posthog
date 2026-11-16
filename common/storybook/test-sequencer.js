@@ -38,13 +38,29 @@ function getDuration(timings, relativePath, browser) {
     return entry[browser] ?? entry.chromium ?? Object.values(entry)[0] ?? null
 }
 
-function loadStoryCounts(browser) {
+function readTagFilter(name, fallback) {
+    return process.env[name] ? process.env[name].split(',').map((tag) => tag.trim()) : fallback
+}
+
+function runnableStoryFilter() {
+    const included = readTagFilter('STORYBOOK_INCLUDE_TAGS', ['test'])
+    const omitted = [
+        ...readTagFilter('STORYBOOK_EXCLUDE_TAGS', []),
+        ...readTagFilter('STORYBOOK_SKIP_TAGS', ['test-skip']),
+    ]
+    return (entry) =>
+        entry.type === 'story' &&
+        (included.length === 0 || included.some((tag) => entry.tags?.includes(tag))) &&
+        !omitted.some((tag) => entry.tags?.includes(tag))
+}
+
+function loadStoryCounts() {
     try {
         const index = JSON.parse(fs.readFileSync(path.join(__dirname, 'dist/index.json'), 'utf8'))
-        const skippedTags = new Set((process.env.STORYBOOK_SKIP_TAGS || `test-skip,test-skip-${browser}`).split(','))
+        const isRunnable = runnableStoryFilter()
         const counts = new Map()
         for (const entry of Object.values(index.entries)) {
-            if (entry.type !== 'story' || entry.tags?.some((tag) => skippedTags.has(tag))) {
+            if (!isRunnable(entry)) {
                 continue
             }
             const file = path.resolve(__dirname, entry.importPath)
@@ -151,7 +167,7 @@ class BalancedSequencer extends Sequencer {
         }
 
         const browser = (process.env.TEST_BROWSERS || 'chromium').split(',')[0].trim()
-        return binPackShard(tests, options.shardCount, options.shardIndex, timings, browser, loadStoryCounts(browser))
+        return binPackShard(tests, options.shardCount, options.shardIndex, timings, browser, loadStoryCounts())
     }
 
     // Keep default sort() — it uses Jest's built-in perf cache for
