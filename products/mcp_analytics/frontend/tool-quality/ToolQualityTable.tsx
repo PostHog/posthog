@@ -1,7 +1,6 @@
 import { useActions, useValues } from 'kea'
 
 import { IconSearch } from '@posthog/icons'
-import { LemonSkeleton } from '@posthog/lemon-ui'
 import {
     Badge,
     Button,
@@ -20,6 +19,7 @@ import {
     PaginationItem,
     PaginationNext,
     PaginationPrevious,
+    Skeleton,
     Spinner,
     Table,
     TableBody,
@@ -39,6 +39,7 @@ import { formatPercentage } from 'lib/utils/numbers'
 import { pluralize } from 'lib/utils/strings'
 
 import { DESTRUCTIVE_ERROR_RATE_PCT, formatMs, formatNumber } from '../dashboard/formatters'
+import { SkeletonLine } from '../dashboard/SkeletonLine'
 import {
     type SortState,
     type ToolQualitySortColumn,
@@ -94,7 +95,7 @@ const SORTABLE_COLUMNS: ColumnSpec[] = [
     { key: 'last_seen', label: 'Last seen' },
 ]
 
-const COLUMN_COUNT = SORTABLE_COLUMNS.length + 2
+const SKELETON_ROW_WIDTHS = ['70%', '50%', '85%', '40%', '60%', '75%', '45%', '65%']
 
 function ErrorRateBadge({ pct }: { pct: number }): JSX.Element {
     if (pct <= 0) {
@@ -141,34 +142,34 @@ function SortableHead({
     )
 }
 
+function ToolRowsSkeleton(): JSX.Element {
+    return (
+        <TableBody>
+            {SKELETON_ROW_WIDTHS.map((width, i) => (
+                <TableRow key={i}>
+                    <TableCell expand>
+                        <SkeletonLine style={{ width }} />
+                    </TableCell>
+                    {SORTABLE_COLUMNS.map((column) => (
+                        <TableCell key={column.key} align={column.align}>
+                            <SkeletonLine className={column.align === 'right' ? 'ml-auto w-10' : 'w-16'} />
+                        </TableCell>
+                    ))}
+                    <TableCell align="right">
+                        <Skeleton className="ml-auto h-6 w-18" />
+                    </TableCell>
+                </TableRow>
+            ))}
+        </TableBody>
+    )
+}
+
 function ToolRows(): JSX.Element {
-    const {
-        toolRows,
-        toolRowsTotalSessions,
-        toolRowsPreviousTotalSessions,
-        toolRowsPageLoading,
-        selectedTool,
-        dateFilter,
-        pinnedInterval,
-    } = useValues(mcpAnalyticsToolQualityLogic)
+    const { toolRows, toolRowsTotalSessions, toolRowsPreviousTotalSessions, selectedTool, dateFilter, pinnedInterval } =
+        useValues(mcpAnalyticsToolQualityLogic)
     const { setSelectedTool } = useActions(mcpAnalyticsToolQualityLogic)
     const toggleRow = (tool: string): void => setSelectedTool(tool === selectedTool ? null : tool)
 
-    if (toolRowsPageLoading && toolRows.length === 0) {
-        return (
-            <TableBody>
-                <TableRow>
-                    <TableCell colSpan={COLUMN_COUNT}>
-                        <div className="space-y-2 py-1">
-                            {Array.from({ length: 6 }).map((_, i) => (
-                                <LemonSkeleton key={i} className="h-3.5 w-full" />
-                            ))}
-                        </div>
-                    </TableCell>
-                </TableRow>
-            </TableBody>
-        )
-    }
     if (toolRows.length === 0) {
         return <TableEmpty className="py-6 text-secondary">No tool calls match the current filters.</TableEmpty>
     }
@@ -259,6 +260,7 @@ export function ToolQualityTable(): JSX.Element {
     const pageRange = getPaginationRange(pageCount, toolQualityPageIndex)
     const firstRow = toolRowsTotalCount === 0 ? 0 : loadedToolQualityPageIndex * TOOL_QUALITY_PAGE_SIZE + 1
     const lastRow = Math.min(firstRow + toolRows.length - 1, toolRowsTotalCount)
+    const showSkeleton = toolRowsPageLoading && toolRows.length === 0
 
     return (
         <Card size="sm" className="gap-0">
@@ -296,9 +298,9 @@ export function ToolQualityTable(): JSX.Element {
                             <TableHead />
                         </TableRow>
                     </TableHeader>
-                    <ToolRows />
+                    {showSkeleton ? <ToolRowsSkeleton /> : <ToolRows />}
                 </Table>
-                {toolRowsPageLoading ? (
+                {toolRowsPageLoading && !showSkeleton ? (
                     <div className="absolute inset-0 z-10 flex items-center justify-center bg-background/60">
                         <Spinner className="size-5" />
                     </div>
