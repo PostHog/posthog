@@ -11,7 +11,7 @@ from rest_framework.response import Response
 from posthog.api.monitoring import monitor
 from posthog.models import User
 
-from products.ai_observability.backend.api.metrics import llma_track_latency
+from products.skills.backend.api.metrics import skills_track_latency
 
 from .archive_guards import SkillArchiveRefused, SkillRenameConflict, SkillRenameRefused
 from .skill_analytics import record_skill_event, skill_analytics_props
@@ -44,7 +44,7 @@ class SkillLifecycleActionsMixin(SkillAccessMixin):
         url_path=r"name/(?P<skill_name>[^/]+)/archive",
         required_scopes=["llm_skill:write"],
     )
-    @llma_track_latency("llma_skills_archive")
+    @skills_track_latency("llma_skills_archive")
     @monitor(feature=None, endpoint="llma_skills_archive", method="POST")
     def archive(self, request: Request, skill_name: str = "", **kwargs) -> Response:
         guard_error = self._guard_write(request, skill_name)
@@ -87,7 +87,7 @@ class SkillLifecycleActionsMixin(SkillAccessMixin):
         url_path=r"name/(?P<skill_name>[^/]+)/duplicate",
         required_scopes=["llm_skill:write"],
     )
-    @llma_track_latency("llma_skills_duplicate")
+    @skills_track_latency("llma_skills_duplicate")
     @monitor(feature=None, endpoint="llma_skills_duplicate", method="POST")
     def duplicate(self, request: Request, skill_name: str = "", **kwargs) -> Response:
         guard_error = self._guard_write(request, skill_name)
@@ -152,7 +152,7 @@ class SkillLifecycleActionsMixin(SkillAccessMixin):
         url_path=r"name/(?P<skill_name>[^/]+)/rename",
         required_scopes=["llm_skill:write"],
     )
-    @llma_track_latency("llma_skills_rename")
+    @skills_track_latency("llma_skills_rename")
     @monitor(feature=None, endpoint="llma_skills_rename", method="POST")
     def rename(self, request: Request, skill_name: str = "", **kwargs) -> Response:
         guard_error = self._guard_write(request, skill_name)

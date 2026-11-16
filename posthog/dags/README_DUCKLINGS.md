@@ -70,6 +70,67 @@ Day and table replacements remove rows without a team filter, so the Trino path 
 Trino-created tables have no year/month/day partitioning.
 Each file holds one day, so file statistics still prune reads.
 
+### Registration in hoglake
+
+A warehouse whose Trino catalog uses the hoglake connector has no duckgres organization and no DuckLake tables.
+The backend comes from the hogtower Trino status (`backend`), and it never changes after the warehouse exists.
+Dagster reads it at the start of each run and on each sensor tick, even for a tenancy that is not enabled yet.
+A failed or refused lookup fails the run, so Dagster retries it. The one exception is an organization whose stored bucket is named `posthog-duckling-*`, a per-org DuckLake bucket, which keeps running as DuckLake. Hoglake warehouses live under a per-warehouse prefix of a shared bucket.
+
+Routing for a hoglake warehouse:
+
+- With the `managed-warehouse-hoglake-backfill-registration` flag, or `register_through_hoglake: true` in the run config, the run registers through hoglake.
+- Without either, the run fails with `HoglakeBackfillNotEnabled` before it exports anything, and records the skip reason `hoglake_not_enabled`.
+  The run fails instead of finishing, because a finished run would mark its days as backfilled.
+- The sensors create no partitions for such a team, so its days appear once the flag turns on.
+- The sensors also create no partitions for a team whose backend they cannot tell, and record the skip reason `backend_unknown`. A later tick creates them.
+  A tick reuses a reported backend for six hours, because the backend is fixed when the warehouse is created.
+  After 20 seconds it stops asking the control plane for backends and the flags service for the hoglake flag, and records `backend_unknown` or `hoglake_flag_deferred`.
+  Without an answer, a `posthog-duckling-*` bucket still counts as DuckLake, as it does for a run.
+- A DuckLake warehouse keeps the paths above. If the control plane reports a `bucket_prefix` for it, the run refuses with an error, because ClickHouse can neither list nor reach files under a prefix of a shared bucket.
+  The sensors still create partitions for such a team, so its runs keep failing with that error.
+
+The tables are `team_<team_id>.events`, `.persons` and `.groups`, partitioned by `day(timestamp)` for events and `day(_timestamp)` for persons and groups.
+Dagster creates the tables, but not the `team_<team_id>` namespace, which hogtower creates when it enables the team.
+A missing namespace fails the run with a message that names hogtower.
+Column validation and `rebuild_mismatched_table` work as for DuckLake, and the rebuild runs `CREATE OR REPLACE TABLE ... WITH (partitioning = ...)`.
+Each table holds one team, so there is no shared-table guard.
+
+ClickHouse writes the same Trino-typed Parquet as above, under the data path of the warehouse that the control plane returns:
+
+- Day export: `<data_path>data/team_<id>/_ph_backfill/<table>/day=YYYY-MM-DD/<run>_<token>_<n>.parquet`
+- Full persons or groups export: `<data_path>data/team_<id>/_ph_backfill/<table>/full/<run>_<token>_<query>_<day>_<n>.parquet`
+
+Every hoglake file holds one UTC day, because `add_files` refuses a file whose `_timestamp` range spans two days.
+A full persons or groups export therefore partitions its queries by UTC day and hash bucket.
+It runs one ClickHouse query per range of consecutive days, as long as each query keeps its writers within the row-group buffer budget.
+All queries write into the same `full/` directory, and one `add_files` call registers them together, which takes at most 10,000 files.
+The files per day follow the busiest UTC day, and shrink as needed to keep the whole export within that limit.
+The first query has no lower bound on `_timestamp` and the last none above, and they run oldest first.
+An update only moves a row to a later `_timestamp`, so a row updated during the export can be exported twice, as with the daily exports, but never left out.
+Daily exports select the UTC day with an explicit `'UTC'` zone.
+
+ClickHouse lists nothing.
+One `add_files` call names the directory and the file prefix of the export, and the procedure lists the files itself:
+
+```sql
+ALTER TABLE <catalog>.team_2.events EXECUTE add_files(
+    location => 's3://<bucket>/warehouses/<org>/data/team_2/_ph_backfill/events/day=2026-11-09/',
+    file_prefix => '<run>_<token>_', import_id => '<run>_<token>',
+    allow_missing => true, delete_on_failure => true,
+    replace_range_column => 'timestamp',
+    replace_range_start => '2026-11-09 00:00:00.000000 UTC',
+    replace_range_end => '2026-11-10 00:00:00.000000 UTC')
+```
+
+A full persons or groups run passes `replace => true` instead of the range, and `cleanup_existing_partition_data: false` passes neither, so the files are only added.
+The procedure ends the replaced files and adds the new ones in one commit.
+A call with no matching files still ends the day.
+When the procedure rejects the files before it commits, it deletes them.
+A retry with the same import ID adds nothing.
+A statement that fails with `TRANSACTION_CONFLICT` or `HOGLAKE_SNAPSHOT_EXPIRED`, or for the transient reasons above, runs again up to four times.
+The DuckLake Trino conversion job refuses a hoglake team.
+
 ## Jobs and Sensors
 
 ### Events Backfill

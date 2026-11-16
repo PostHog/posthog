@@ -1203,6 +1203,18 @@ describe('CI workflow run plans', () => {
     })
 
     it.each([
+        ['ready PR', pullRequest(), false],
+        ['merge queue', mergeQueue(), false],
+        ['hourly schedule', schedule(), true],
+        ['manual dispatch', workflowDispatch(), true],
+    ] as const)('the persons-on-events legacy-mode leg on %s', (_name, github, runs) => {
+        const depot = workflow(DEPOT_BACKEND)
+        const step = depot.jobs.build_django_matrix?.steps?.find((step) => step.id === 'build')
+        const functions = planFunctions({ dependenciesSucceeded: true, dependenciesFailed: false, cancelled: false })
+        expect(evaluateValue(step?.env?.RUN_LEGACY_MODE_LEG, { github }, functions)).toBe(runs)
+    })
+
+    it.each([
         ['unrelated PR', pullRequest(), 'false', false],
         ['schema PR', pullRequest(), 'true', true],
         ['missing filter output', pullRequest(), '', true],
@@ -1245,8 +1257,8 @@ describe('CI workflow run plans', () => {
     it.each([
         ['PR', pullRequest(), false, true],
         ['merge queue', mergeQueue(), false, true],
-        ['push', push(), false, true],
         ['manual full rebuild', workflowDispatch(), false, false],
+        ['hourly full rebuild', schedule(), false, false],
         ['all-crate change', pullRequest(), true, false],
     ] as const)('Rust change resolver on %s', (name, github, allCrates, runs) => {
         const wf = workflow('ci-rust.yml')
@@ -1260,6 +1272,35 @@ describe('CI workflow run plans', () => {
         })
         expect(plan.errors).toEqual([])
         expect(plan.jobs.affected?.steps.find((step) => step.name === 'Resolve the changed files')?.runs).toBe(runs)
+    })
+
+    it.each([
+        ['PR', pullRequest(), 'success'],
+        ['merge queue', mergeQueue(), 'success'],
+        ['master push', push(), 'skipped'],
+        ['hourly schedule', schedule(), 'success'],
+    ] as const)('Rust suite on %s', (name, github, result) => {
+        const wf = workflow('ci-rust.yml')
+        const plan = planWorkflow(wf, {
+            name,
+            github,
+            steps: {
+                ...allFiltersChanged(wf),
+                affected: { shards: { outputs: { matrix: '{"include":[{"packages":"common-types"}]}' } } },
+            },
+        })
+        expect(plan.errors).toEqual([])
+        for (const job of ['affected', 'build', 'test', 'linting']) {
+            expect(plan.jobs[job]?.result).toBe(result)
+        }
+        expect(plan.jobs.rust_tests?.result).toBe('success')
+    })
+
+    it('a PR branch named scheduled does not share the hourly Rust concurrency group', () => {
+        const group = workflow('ci-rust.yml').concurrency?.group
+        const functions = planFunctions({ dependenciesSucceeded: true, dependenciesFailed: false, cancelled: false })
+        const groupFor = (github: Scenario['github']): unknown => evaluateValue(group, { github }, functions)
+        expect(groupFor(pullRequest({ headRef: 'scheduled' }))).not.toBe(groupFor(schedule()))
     })
 
     it.each([

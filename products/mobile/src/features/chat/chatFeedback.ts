@@ -1,4 +1,10 @@
-import type { SessionAssistantItem, SessionPhase, SessionThreadItem, SessionTurnEndItem } from './session/types'
+import type {
+    SessionAssistantItem,
+    SessionPhase,
+    SessionThreadItem,
+    SessionTurnEndItem,
+    SessionVisualizationItem,
+} from './session/types'
 
 export interface ChatFeedbackContext {
     sessionId: string
@@ -22,10 +28,10 @@ export function chatReplyActions(
 ): Map<string, ChatReplyActions> {
     const actions = new Map<string, ChatReplyActions>()
     let turnIndex = -1
-    let answer: SessionAssistantItem | undefined
+    let answer: SessionAssistantItem | SessionVisualizationItem | undefined
 
     const finishReply = (end?: SessionTurnEndItem): void => {
-        if (answer?.complete) {
+        if (answer && (answer.kind === 'visualization' || answer.complete)) {
             let feedback: ChatFeedbackTarget | undefined
             if (context?.runtime === 'langgraph' && answer.traceId) {
                 feedback = { ...context, traceId: answer.traceId }
@@ -41,7 +47,7 @@ export function chatReplyActions(
         if (item.kind === 'user') {
             finishReply()
             turnIndex += 1
-        } else if (item.kind === 'assistant' && item.text.trim()) {
+        } else if ((item.kind === 'assistant' && item.text.trim()) || item.kind === 'visualization') {
             answer = item
         } else if (item.kind === 'turn_end') {
             finishReply(item)

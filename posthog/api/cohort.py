@@ -108,7 +108,7 @@ from posthog.permissions import get_authenticator_scopes
 from posthog.personhog_client.caller_tag import personhog_caller_tag
 from posthog.ph_client import feature_enabled_or_false
 from posthog.renderers import SafeJSONRenderer
-from posthog.scopes import scopes_not_covered
+from posthog.scopes.checks import scopes_not_covered
 from posthog.taxonomy.hidden_events import EVENTS_HIDDEN_IN_QUERY_BUILDERS, HIDDEN_EVENT_REASON
 from posthog.utils import format_query_params_absolute_url, safe_int, str_to_bool
 
