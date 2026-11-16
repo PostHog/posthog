@@ -14,12 +14,14 @@
     'nodenv',
     'nvm',
   ],
-  dependencyDashboardTitle: 'Renovate: Dependency Status',
-  dependencyDashboardLabels: [
-    'dependencies',
-  ],
-  dependencyDashboardOSVVulnerabilitySummary: 'all',
-  dependencyDashboardReportAbandonment: false,
+  dependencyDashboard: {
+    title: 'Renovate: Dependency Status',
+    labels: [
+      'dependencies',
+    ],
+    osvVulnerabilitySummary: 'all',
+    reportAbandonment: false,
+  },
   prConcurrentLimit: 5,
   gitIgnoredAuthors: [
     '206114724+posthog[bot]@users.noreply.github.com',
@@ -35,7 +37,9 @@
     {
       customType: 'regex',
       description: 'Update pinned chrome-headless-shell version in recording-rasterizer Dockerfile',
-      managerFilePatterns: ['/Dockerfile\\.recording-rasterizer$/'],
+      managerFilePatterns: [
+        '/Dockerfile\\.recording-rasterizer$/',
+      ],
       matchStrings: [
         'chrome-headless-shell@(?<currentValue>\\d+\\.\\d+\\.\\d+\\.\\d+)',
       ],
@@ -46,8 +50,12 @@
     {
       customType: 'regex',
       description: 'Update the Renovate version pinned in the dashboard digest workflow',
-      managerFilePatterns: ['/^\\.github/workflows/renovate-dashboard-digest\\.yml$/'],
-      matchStrings: ['renovate@(?<currentValue>\\d+\\.\\d+\\.\\d+)'],
+      managerFilePatterns: [
+        '/^\\.github/workflows/renovate-dashboard-digest\\.yml$/',
+      ],
+      matchStrings: [
+        'renovate@(?<currentValue>\\d+\\.\\d+\\.\\d+)',
+      ],
       depNameTemplate: 'renovate',
       datasourceTemplate: 'npm',
     },
@@ -58,7 +66,9 @@
         '/^products/tasks/backend/sandbox/images/Dockerfile\\.sandbox-(base|notebook|slim)$/',
         '/^products/tasks/backend/logic/services/modal_sandbox\\.py$/',
       ],
-      matchStrings: ['(?<currentValue>\\d+\\.\\d+\\.\\d+-\\d+nodesource\\d+)'],
+      matchStrings: [
+        '(?<currentValue>\\d+\\.\\d+\\.\\d+-\\d+nodesource\\d+)',
+      ],
       depNameTemplate: 'nodejs',
       datasourceTemplate: 'deb',
       versioningTemplate: 'deb',
@@ -73,7 +83,9 @@
         '/^\\.github/workflows/ci-ml-mirror-image-scrub-container\\.yml$/',
         '/^docs/published/handbook/engineering/manual-dev-setup\\.md$/',
       ],
-      matchStrings: ['corepack@(?<currentValue>\\d+\\.\\d+\\.\\d+)'],
+      matchStrings: [
+        'corepack@(?<currentValue>\\d+\\.\\d+\\.\\d+)',
+      ],
       depNameTemplate: 'corepack',
       datasourceTemplate: 'npm',
     },
@@ -86,7 +98,6 @@
       ],
     },
   },
-  // Use one branch per package across catalogs and overrides; preset family rules take precedence.
   npm: {
     minor: {
       groupName: 'npm non-major {{packageName}}',
@@ -104,15 +115,23 @@
     },
   },
   packageRules: [
-    // Matches the cooldowns in pnpm-workspace.yaml and pyproject.toml
     {
-      matchDatasources: ['npm', 'pypi', 'crate'],
-      matchUpdateTypes: ['major', 'minor', 'patch'],
+      matchDatasources: [
+        'npm',
+        'pypi',
+        'crate',
+      ],
+      matchUpdateTypes: [
+        'major',
+        'minor',
+        'patch',
+      ],
       minimumReleaseAge: '7 days',
     },
-    // Keep in sync with minimumReleaseAgeExclude in pnpm-workspace.yaml
     {
-      matchDatasources: ['npm'],
+      matchDatasources: [
+        'npm',
+      ],
       matchPackageNames: [
         'posthog-js',
         'posthog-js-lite',
@@ -130,9 +149,10 @@
       ],
       minimumReleaseAge: null,
     },
-    // Keep in sync with exclude-newer-package in pyproject.toml
     {
-      matchDatasources: ['pypi'],
+      matchDatasources: [
+        'pypi',
+      ],
       matchPackageNames: [
         'brotli',
         'certifi',
@@ -150,95 +170,166 @@
       minimumReleaseAge: null,
     },
     {
-      matchManagers: ['cargo'],
-      matchUpdateTypes: ['minor', 'patch'],
+      matchManagers: [
+        'cargo',
+      ],
+      matchUpdateTypes: [
+        'minor',
+        'patch',
+      ],
       groupName: 'cargo non-major',
     },
-    // Directories with their own lock file
     {
-      matchManagers: ['cargo', 'gomod'],
-      matchUpdateTypes: ['minor', 'patch'],
-      matchFileNames: ['**/go.mod', 'cli/**', 'funnel-udf/**', 'rust/common/hogvm/node/Cargo.toml'],
+      matchManagers: [
+        'cargo',
+        'gomod',
+      ],
+      matchUpdateTypes: [
+        'minor',
+        'patch',
+      ],
+      matchFileNames: [
+        '**/go.mod',
+        'cli/**',
+        'funnel-udf/**',
+        'rust/common/hogvm/node/Cargo.toml',
+      ],
       groupName: '{{manager}} non-major in {{packageFileDir}}',
     },
     {
-      matchManagers: ['npm', 'pep621', 'cargo', 'gomod'],
-      matchUpdateTypes: ['minor'],
+      matchManagers: [
+        'npm',
+        'pep621',
+        'cargo',
+        'gomod',
+      ],
+      matchUpdateTypes: [
+        'minor',
+      ],
       matchCurrentVersion: '/^v?0\\./',
       groupName: null,
     },
-    // Each package in these groups requires an exact version of another package in the group, so
-    // they must update together. The rules come after the 0.x rule because some Dagster libraries
-    // are 0.x and must stay in the group on a minor update
     {
-      matchManagers: ['pep621'],
-      matchUpdateTypes: ['minor', 'patch'],
-      matchPackageNames: ['dagster*'],
+      matchManagers: [
+        'pep621',
+      ],
+      matchUpdateTypes: [
+        'minor',
+        'patch',
+      ],
+      matchPackageNames: [
+        'dagster*',
+      ],
       groupName: 'python dagster non-major',
     },
     {
-      matchManagers: ['npm'],
-      matchUpdateTypes: ['minor', 'patch'],
-      matchPackageNames: ['@connectrpc/connect', '@connectrpc/connect-node'],
+      matchManagers: [
+        'npm',
+      ],
+      matchUpdateTypes: [
+        'minor',
+        'patch',
+      ],
+      matchPackageNames: [
+        '@connectrpc/connect',
+        '@connectrpc/connect-node',
+      ],
       groupName: 'npm connectrpc non-major',
     },
     {
-      matchManagers: ['npm'],
-      matchUpdateTypes: ['minor', 'patch'],
-      matchPackageNames: ['@bufbuild/protobuf', '@bufbuild/protoc-gen-es'],
+      matchManagers: [
+        'npm',
+      ],
+      matchUpdateTypes: [
+        'minor',
+        'patch',
+      ],
+      matchPackageNames: [
+        '@bufbuild/protobuf',
+        '@bufbuild/protoc-gen-es',
+      ],
       groupName: 'npm protobuf-es non-major',
     },
     {
-      matchManagers: ['npm'],
-      matchUpdateTypes: ['minor', 'patch'],
-      matchPackageNames: ['@earendil-works/pi-*'],
+      matchManagers: [
+        'npm',
+      ],
+      matchUpdateTypes: [
+        'minor',
+        'patch',
+      ],
+      matchPackageNames: [
+        '@earendil-works/pi-*',
+      ],
       groupName: 'npm pi non-major',
     },
     {
-      matchDepTypes: ['requires-python', 'packageManager'],
+      matchDepTypes: [
+        'requires-python',
+        'packageManager',
+      ],
       groupName: null,
     },
     {
-      matchDepNames: ['chrome-headless-shell'],
-      matchUpdateTypes: ['minor', 'patch'],
-      schedule: ['every 2 weeks on Monday'],
+      matchDepNames: [
+        'chrome-headless-shell',
+      ],
+      matchUpdateTypes: [
+        'minor',
+        'patch',
+      ],
+      schedule: [
+        'every 2 weeks on Monday',
+      ],
       commitMessageExtra: '(chrome-headless-shell)',
-      labels: ['dependencies', 'recording-rasterizer'],
+      labels: [
+        'dependencies',
+        'recording-rasterizer',
+      ],
     },
-    // Split github-actions updates out of the default `renovate/pin-dependencies`
-    // bundle so they can be approved on the dashboard independently
     {
-      matchManagers: ['github-actions'],
+      matchManagers: [
+        'github-actions',
+      ],
       groupName: 'github-actions',
     },
-    // Renovate cannot regenerate `.github/workflows/actions.lock`, so an action bump in a locked workflow fails Lint workflows.
-    // Action bumps are manual. Image digests in `container:` and `services:` still update
     {
-      matchManagers: ['github-actions'],
-      matchDepTypes: ['action'],
+      matchManagers: [
+        'github-actions',
+      ],
+      matchDepTypes: [
+        'action',
+      ],
       enabled: false,
     },
-    // The sandbox images and the Modal slim image rebuild only when this pin changes,
-    // so skip the dashboard approval and open the PR as soon as nodesource ships a release
     {
-      matchDatasources: ['deb'],
-      matchDepNames: ['nodejs'],
+      matchDatasources: [
+        'deb',
+      ],
+      matchDepNames: [
+        'nodejs',
+      ],
       dependencyDashboardApproval: false,
       groupName: 'sandbox nodejs',
     },
-    // A stale Node pin keeps known vulnerabilities in CI, so skip the dashboard approval
-    // for `.node-version` and `.nvmrc` updates. A major bump still waits for approval
     {
-      matchManagers: ['nodenv', 'nvm'],
-      matchUpdateTypes: ['minor', 'patch'],
+      matchManagers: [
+        'nodenv',
+        'nvm',
+      ],
+      matchUpdateTypes: [
+        'minor',
+        'patch',
+      ],
       dependencyDashboardApproval: false,
     },
-    // When `[tool.uv.sources]` routes a package to a PyTorch wheel index, Renovate looks it up there.
-    // That index lists local versions like `+cpu`, and Renovate cannot write those into a `~=` specifier.
-    // It also has no release dates, which `minimumReleaseAge` needs. PyPI has the same releases with dates
     {
-      matchRegistryUrls: ['https://download.pytorch.org/whl/**'],
-      registryUrls: ['https://pypi.org/pypi/'],
+      matchRegistryUrls: [
+        'https://download.pytorch.org/whl/**',
+      ],
+      registryUrls: [
+        'https://pypi.org/pypi/',
+      ],
     },
   ],
 }
