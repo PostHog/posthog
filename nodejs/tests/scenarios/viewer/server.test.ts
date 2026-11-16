@@ -7,6 +7,8 @@ import path from 'path'
 import { parseJSON } from '~/common/utils/json-parse'
 import { internalFetch } from '~/common/utils/request'
 
+import { waitForExpect } from '../../helpers/expectations'
+import type { MetricSample } from '../judge/measurements'
 import { LIVE_FILE, openLiveLog } from '../runner/live'
 import { createViewerServer } from './server'
 
@@ -17,7 +19,7 @@ const DRIVE_START = Date.parse('2026-01-05T10:00:00.000Z')
 const at = (seconds: number): number => DRIVE_START + seconds * 1000
 const iso = (seconds: number): string => new Date(at(seconds)).toISOString()
 
-const sample = (seconds: number, cpuSeconds: number, processed: number, startedAt = at(-60) / 1000): object => ({
+const sample = (seconds: number, cpuSeconds: number, processed: number, startedAt = at(-60) / 1000): MetricSample => ({
     role: 'cdp-cyclotron-worker-email',
     replica: 0,
     at: at(seconds),
@@ -27,6 +29,7 @@ const sample = (seconds: number, cpuSeconds: number, processed: number, startedA
     processed: { email: processed },
     pgClientErrors: 0,
     consumerLoopErrors: 0,
+    janitorStalled: 0,
     lateness: {},
 })
 
@@ -285,11 +288,18 @@ describe('scenario viewer', () => {
         live.write({ type: 'phase', at: at(0), phase: 'drive', driveForMs: 30_000 })
         live.follow({
             timeline: () => timeline,
-            samples: () => [sample(0, 10, 100), sample(5, 12, 150)] as any,
+            samples: () => [sample(0, 10, 100), sample(5, 12, 150)],
             queue: () => [{ at: at(5), due: 7, running: 2, oldestDueSeconds: 1.5, inserted: 10 }],
             writer: () => [],
             journal: () => [
-                { unitId: 'u-9', kind: 'event', teamId: 1, offeredAt: at(1), answer: { accepted: true } } as any,
+                {
+                    unitId: 'u-9',
+                    kind: 'event',
+                    teamId: 1,
+                    offeredAt: at(1),
+                    answer: { accepted: true },
+                    expect: { deliveries: ['webhook'] },
+                },
             ],
             edgeUrl: `http://127.0.0.1:${(edge.address() as AddressInfo).port}`,
         })
@@ -317,24 +327,45 @@ describe('scenario viewer', () => {
         ])
     })
 
-    it('shows a run as in progress only while the runner still writes its live log', async () => {
+    it('keeps a run live while its runner beats, even through a phase that writes nothing, and drops it once the beat stops', async () => {
         const ownStateDir = mkdtempSync(path.join(os.tmpdir(), 'scenario-viewer-live-'))
         const ownServer = createViewerServer({ stateDir: ownStateDir })
         await new Promise<void>((resolve) => ownServer.listen(0, '127.0.0.1', resolve))
         const own = `http://127.0.0.1:${(ownServer.address() as AddressInfo).port}`
         const live = async (): Promise<any> => parseJSON(await (await internalFetch(`${own}/api/live`)).text())
-        const log = openLiveLog(path.join(ownStateDir, LIVE_RUN_ID))
-        log.write({ type: 'start', at: Date.now(), runId: LIVE_RUN_ID, cardId: 'smoke' })
-        log.write({ type: 'phase', at: Date.now(), phase: 'drive', driveForMs: 30_000 })
-
-        const writing = await live()
+        const runDir = path.join(ownStateDir, LIVE_RUN_ID)
+        const file = path.join(runDir, LIVE_FILE)
         const minuteAgo = new Date(Date.now() - 60_000)
-        utimesSync(path.join(ownStateDir, LIVE_RUN_ID, LIVE_FILE), minuteAgo, minuteAgo)
-        const quiet = await live()
+        const log = openLiveLog(runDir, 10)
+        log.write({ type: 'start', at: Date.now(), runId: LIVE_RUN_ID, cardId: 'smoke' })
+        log.write({ type: 'phase', at: Date.now(), phase: 'seed' })
+
+        utimesSync(file, minuteAgo, minuteAgo)
+        const seeding = await waitForExpect(
+            async () => {
+                const view = await live()
+                expect(view.inProgress).toBe(true)
+                return view
+            },
+            2000,
+            20
+        )
+        log.write({ type: 'end', at: Date.now(), status: 'passed', statusReason: 'every invariant held' })
+        const killedDir = path.join(ownStateDir, UNFINISHED_RUN_ID)
+        mkdirSync(killedDir)
+        writeFileSync(
+            path.join(killedDir, LIVE_FILE),
+            `${JSON.stringify({ type: 'start', at: Date.now(), runId: UNFINISHED_RUN_ID, cardId: 'smoke' })}\n`
+        )
+        const halfMinuteAgo = new Date(Date.now() - 30_000)
+        utimesSync(path.join(killedDir, LIVE_FILE), halfMinuteAgo, halfMinuteAgo)
+        utimesSync(file, minuteAgo, minuteAgo)
+        await new Promise((resolve) => setTimeout(resolve, 50))
+        const killed = await live()
         await new Promise((resolve) => ownServer.close(resolve))
         rmSync(ownStateDir, { recursive: true, force: true })
 
-        expect(writing).toMatchObject({ runId: LIVE_RUN_ID, inProgress: true, ended: null })
-        expect(quiet).toMatchObject({ runId: LIVE_RUN_ID, inProgress: false, ended: null })
+        expect(seeding).toMatchObject({ runId: LIVE_RUN_ID, phase: 'seed', inProgress: true, ended: null })
+        expect(killed).toMatchObject({ runId: UNFINISHED_RUN_ID, inProgress: false, ended: null })
     })
 })

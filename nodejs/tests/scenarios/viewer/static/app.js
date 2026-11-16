@@ -142,8 +142,6 @@ const hideTooltip = () => {
 const NODE_W = 182
 const NODE_H = 82
 
-// Each system carries what it does as its name, for readers who don't know the stack, and its
-// component name underneath.
 const NODES = [
     { id: 'generator', name: 'Load generator', role: 'scenario runner', x: 10, y: 170 },
     { id: 'kafka', name: 'Event stream', role: 'Kafka, events topic', x: 232, y: 50 },
@@ -796,7 +794,15 @@ async function cardsPage() {
         )
     )
     const showLive = async () => {
-        const live = await getJson('/api/live').catch(() => null)
+        let live
+        try {
+            live = await getJson('/api/live')
+        } catch (error) {
+            running.replaceChildren(
+                h('span', { class: 'muted' }, `The viewer cannot read the live run: ${error.message}`)
+            )
+            return
+        }
         const now = live?.inProgress ? live : null
         document.querySelectorAll('.live-badge').forEach((badge) => (badge.hidden = badge.dataset.card !== now?.cardId))
         running.replaceChildren(
@@ -828,10 +834,12 @@ async function cardsPage() {
             if (!last || !slot) {
                 return
             }
-            const detail = await getJson(`/api/runs/${last.runId}`).catch(() => null)
-            slot.replaceChildren(
-                ...(detail ? findingOf(detail).map((line) => h('div', {}, line)) : [h('span', { class: 'muted' }, '-')])
-            )
+            try {
+                const detail = await getJson(`/api/runs/${last.runId}`)
+                slot.replaceChildren(...findingOf(detail).map((line) => h('div', {}, line)))
+            } catch (error) {
+                slot.replaceChildren(h('span', { class: 'muted' }, `Its last run did not load: ${error.message}`))
+            }
         })
     )
 }
@@ -1286,6 +1294,18 @@ function runCharts(detail, windows, from, to) {
     return charts
 }
 
+const happeningsOf = (windows, roles) =>
+    windows
+        .flatMap((w) => [
+            w.from !== null ? { at: w.from, text: `Valve on: ${valvePlain(w).toLowerCase()} (${w.valve})` } : null,
+            w.releasedAt && w.valve !== 'role.kill'
+                ? { at: Date.parse(w.releasedAt), text: `Valve off: the ${plainOf(w.target)} is back to normal` }
+                : null,
+        ])
+        .concat(roles.flatMap((r) => r.restarts.map((at) => ({ at, text: `The ${plainOf(r.role)} restarted` }))))
+        .filter(Boolean)
+        .sort((a, b) => a.at - b.at)
+
 async function runPage(runId, startAtSeconds = 0) {
     stopReplay()
     const [detail, all] = await Promise.all([getJson(`/api/runs/${runId}`), cards()])
@@ -1309,20 +1329,7 @@ async function runPage(runId, startAtSeconds = 0) {
         {},
         [5, 10, 20, 50].map((x) => h('option', { value: x, selected: x === 10 ? 'selected' : null }, `${x}x`))
     )
-    const happenings = windows
-        .flatMap((w) => [
-            w.from !== null ? { at: w.from, text: `Valve on: ${valvePlain(w).toLowerCase()} (${w.valve})` } : null,
-            w.releasedAt && w.valve !== 'role.kill'
-                ? { at: Date.parse(w.releasedAt), text: `Valve off: the ${plainOf(w.target)} is back to normal` }
-                : null,
-        ])
-        .concat(
-            detail.series.roles.flatMap((r) =>
-                r.restarts.map((at) => ({ at, text: `The ${plainOf(r.role)} restarted` }))
-            )
-        )
-        .filter(Boolean)
-        .sort((a, b) => a.at - b.at)
+    const happenings = happeningsOf(windows, detail.series.roles)
     const show = (t) => {
         diagram.paint(viewAt(detail, windows, t))
         const phase = detail.drive && t > detail.drive.endedAt ? 'converging' : 'driving'
@@ -1419,8 +1426,6 @@ async function runPage(runId, startAtSeconds = 0) {
     show(start)
 }
 
-// ---------- live ----------
-
 const LIVE_POLL_MS = 1000
 const PHASES = [
     ['reset', 'Reset'],
@@ -1444,8 +1449,8 @@ async function livePage() {
     const diagram = deliveryPath()
     const header = h('div')
     const clock = h('span', { class: 'clock' })
-    const phases = h('div', { class: 'phases' })
-    const events = h('div', { class: 'events' })
+    const phases = h('div', { class: 'phases', 'aria-live': 'polite' })
+    const events = h('div', { class: 'events', 'aria-live': 'polite' })
     const chartsEl = h('div', { class: 'charts' })
     const empty = h('div', { class: 'panel empty' })
     const showIdle = (last) =>
@@ -1499,8 +1504,6 @@ async function livePage() {
             if (live?.inProgress) {
                 watched = live.runId
             }
-            // A run that ended while this page watched it stays on screen with its verdict. Anything
-            // else is not live, so the page says so instead of passing an old run off as live.
             if (!live || (!live.inProgress && watched !== live.runId)) {
                 showIdle(live)
                 empty.hidden = false
@@ -1510,6 +1513,8 @@ async function livePage() {
             }
             empty.hidden = true
             body.hidden = false
+            const lost = !live.inProgress && !live.ended
+            const lastSeen = lost ? live.updatedAt : live.now
             const detail = liveDetail(live)
             const cardView = all.find((c) => c.id === live.cardId)
             const windows = valveWindows(detail, cardView)
@@ -1521,21 +1526,20 @@ async function livePage() {
                 ...live.series.flow.map((p) => p.at + live.series.bucketMs),
                 ...live.series.roles.flatMap((r) => r.points.map((p) => p.at))
             )
-            // A finished run stays on its last sample. A running one trails the clock by one bucket,
-            // because a bucket fills over five seconds.
-            const t = live.ended ? lastData : live.now - live.series.bucketMs
+            const t = live.ended ? lastData : lastSeen - live.series.bucketMs
             const to = live.ended ? Math.max(lastData, from + 1000) : Math.max(planned, t, from + 1000)
-            if (shownRun !== `${live.runId}/${live.phase}/${live.hasScorecard}`) {
-                shownRun = `${live.runId}/${live.phase}/${live.hasScorecard}`
+            const shown = `${live.runId}/${live.phase}/${live.hasScorecard}/${live.inProgress}`
+            if (shownRun !== shown) {
+                shownRun = shown
                 header.replaceChildren(
                     ...[
                         h(
                             'h1',
                             {},
-                            live.ended ? 'Just ended: ' : 'Live: ',
+                            live.ended ? 'Just ended: ' : lost ? 'Stopped: ' : 'Live: ',
                             h('a', { href: `#/cards/${live.cardId}` }, live.cardId),
                             ' ',
-                            statusPill(live.ended ? live.ended.status : 'running')
+                            statusPill(live.ended ? live.ended.status : lost ? 'stopped' : 'running')
                         ),
                         h('p', { class: 'sub mono' }, `run ${live.runId}, started ${fmtTime(live.startedAt)}`),
                         live.ended
@@ -1547,7 +1551,13 @@ async function livePage() {
                                       ? h('a', { href: `#/runs/${live.runId}`, class: 'open' }, ' Open the scorecard →')
                                       : null
                               )
-                            : null,
+                            : lost
+                              ? h(
+                                    'div',
+                                    { class: 'reason invalid' },
+                                    `The runner stopped writing ${ago(new Date(live.updatedAt).toISOString())} without a verdict, so this run has no scorecard. Its process most likely died.`
+                                )
+                              : null,
                     ].filter(Boolean)
                 )
                 const reached = new Set(live.phases.map((p) => p.phase).concat(live.ended ? ['end'] : []))
@@ -1555,7 +1565,10 @@ async function livePage() {
                     ...PHASES.map(([id, label]) =>
                         h(
                             'span',
-                            { class: `phase${reached.has(id) ? ' done' : ''}${live.phase === id ? ' now' : ''}` },
+                            {
+                                class: `phase${reached.has(id) ? ' done' : ''}${live.phase === id ? ' now' : ''}`,
+                                'aria-current': live.phase === id ? 'step' : null,
+                            },
                             label
                         )
                     )
@@ -1563,32 +1576,15 @@ async function livePage() {
             }
             diagram.paint(viewAt(detail, windows, t))
             clock.textContent = live.drive
-                ? `t+${fmtDuration(Math.max(0, (live.ended ? lastData : live.now) - from))}${live.drive.forMs ? ` of ${fmtDuration(live.drive.forMs)} drive` : ''}`
+                ? `t+${fmtDuration(Math.max(0, (live.ended ? lastData : lastSeen) - from))}${live.drive.forMs ? ` of ${fmtDuration(live.drive.forMs)} drive` : ''}`
                 : `started ${ago(live.startedAt)}`
-            const happenings = windows
-                .flatMap((w) => [
-                    w.from !== null
-                        ? { at: w.from, text: `Valve on: ${valvePlain(w).toLowerCase()} (${w.valve})` }
-                        : null,
-                    w.releasedAt && w.valve !== 'role.kill'
-                        ? {
-                              at: Date.parse(w.releasedAt),
-                              text: `Valve off: the ${plainOf(w.target)} is back to normal`,
-                          }
-                        : null,
-                ])
-                .concat(
-                    live.series.roles.flatMap((r) =>
-                        r.restarts.map((at) => ({ at, text: `The ${plainOf(r.role)} restarted` }))
-                    )
-                )
+            const happenings = happeningsOf(windows, live.series.roles)
                 .concat(
                     live.phases.map((p) => ({
                         at: p.at,
                         text: PHASE_PLAIN[p.phase] ? `Started ${PHASE_PLAIN[p.phase]}` : `${p.phase} started`,
                     }))
                 )
-                .filter(Boolean)
                 .sort((a, b) => a.at - b.at)
             events.replaceChildren(
                 ...happenings
@@ -1596,7 +1592,7 @@ async function livePage() {
                     .map((e) =>
                         h(
                             'div',
-                            { class: `e${live.now - e.at < 5000 ? ' now' : ''}` },
+                            { class: `e${lastSeen - e.at < 5000 ? ' now' : ''}` },
                             `${e.at < from ? 'before drive' : `t+${fmtDuration(e.at - from)}`}  ${e.text}`
                         )
                     )
@@ -1605,6 +1601,9 @@ async function livePage() {
             charts.forEach((chart) => chart.cursor(t))
             chartsEl.replaceChildren(...charts.map((chart) => chart.el))
         } catch (error) {
+            body.hidden = true
+            shownRun = undefined
+            header.replaceChildren(h('h1', {}, 'Live'))
             empty.hidden = false
             empty.textContent = `The viewer lost the live run: ${error.message}`
         } finally {
