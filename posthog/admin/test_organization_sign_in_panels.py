@@ -2,6 +2,7 @@ from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
 from django.contrib.admin.models import LogEntry
+from django.contrib.auth.models import Group
 from django.test import Client, SimpleTestCase
 from django.utils import timezone
 
@@ -9,7 +10,7 @@ from parameterized import parameterized
 from social_django.models import UserSocialAuth
 
 from posthog.admin.console.member_email_migration import RequestedEmailChange
-from posthog.admin.console.organization_sign_in_panels import ChangeMemberEmailsForm
+from posthog.admin.console.organization_sign_in_panels import PLATFORM_FEATURES, ChangeMemberEmailsForm
 from posthog.models import Organization, OrganizationDomain, User
 from posthog.models.id_jag_identity import IdJagIdentity
 from posthog.models.identity_provider_config import IdentityProviderConfig
@@ -70,6 +71,7 @@ class TestChangeMemberEmails(BaseTest):
         self.user.is_staff = True
         self.user.save()
         self.client.force_login(self.user)
+        Group.objects.get_or_create(name=PLATFORM_FEATURES.staff_group)[0].user_set.add(self.user)
         for domain in ("old.example.com", "new.example.com"):
             OrganizationDomain.objects.create(organization=self.organization, domain=domain, verified_at=timezone.now())
         self.member = self._create_user("ada@old.example.com", first_name="Ada")
@@ -276,6 +278,17 @@ class TestChangeMemberEmails(BaseTest):
         assert ("confirm_token" in response.context) == (status == 200)
         if error_field is not None:
             assert error_field in response.context["form"].errors
+
+    def test_staff_outside_the_owning_group_cannot_run_it(self, _send: MagicMock) -> None:
+        self.user.groups.clear()
+
+        response = self.client.post(
+            self.url, {"members": "ada@old.example.com", "new_domain": "new.example.com", "reason": "IdP migration"}
+        )
+
+        assert response.status_code == 403
+        self.member.refresh_from_db()
+        assert self.member.email == "ada@old.example.com"
 
     def test_is_not_offered_without_a_verified_domain(self, _send: MagicMock) -> None:
         OrganizationDomain.objects.filter(organization=self.organization).update(verified_at=None)

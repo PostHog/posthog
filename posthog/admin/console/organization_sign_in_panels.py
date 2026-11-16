@@ -7,15 +7,16 @@ from django.forms.forms import DeclarativeFieldsMetaclass
 from django.http import HttpRequest, HttpResponse
 
 from posthog.admin.console.member_email_migration import MemberEmailChange, MemberEmailMigration, RequestedEmailChange
-from posthog.admin.console.panels import MAX_FACTS_PER_PANEL, Fact, Operation, Panel, Tone
+from posthog.admin.console.panels import MAX_FACTS_PER_PANEL, Fact, Gate, Operation, Owner, Panel, Tone
 from posthog.admin.console.records import RECORD_TYPES
 from posthog.admin.console.registry import console
-from posthog.admin.console.team_panels import DEV_EXPERIENCE
 from posthog.admin.console.tools import Cell, Notice, Page, Row, Table
 from posthog.helpers.email_utils import email_domain
 from posthog.models.organization import Organization
 from posthog.models.user import User
 from posthog.utils import pluralize
+
+PLATFORM_FEATURES = Owner(name="Platform features", crest="platform-features", staff_group="Platform Features Team")
 
 
 class ChangeMemberEmailsForm(forms.Form):
@@ -208,7 +209,7 @@ class OrganizationSignInPanel(Panel):
     record = "organization"
     key = "sign-in"
     title = "Sign-in"
-    owner = DEV_EXPERIENCE
+    owner = PLATFORM_FEATURES
     order = 25
 
     def facts(self, obj: Model) -> list[Fact]:
@@ -250,6 +251,8 @@ class OrganizationSignInPanel(Panel):
                     handler=change_member_emails,
                     preview=preview_member_email_changes,
                     danger=True,
+                    # The change removes SSO links and has no undo, so only the owning team's staff run it.
+                    gate=Gate.owner(),
                     description=description,
                     form_class=ChangeMemberEmailsForm.for_domains([other for other in domains if other != domain]),
                     form_initial={"members": "\n".join(emails)},
