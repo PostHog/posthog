@@ -50,6 +50,7 @@ import { DATA_WAREHOUSE_APP_SOURCE } from 'products/data_warehouse/frontend/shar
 import {
     SchemaEditorAction,
     SourceEditorAction,
+    useSchemaEditorAccess,
 } from 'products/data_warehouse/frontend/shared/components/SourceEditorAction'
 import { WarehouseTableAccessControlModal } from 'products/data_warehouse/frontend/shared/components/WarehouseTableAccessControlModal'
 import { confirmPendingSelfManagedSync } from 'products/data_warehouse/frontend/shared/confirmPendingSelfManagedSync'
@@ -500,6 +501,7 @@ function ManagedSchemaTable({
     return (
         <LemonTable
             dataSource={schemas}
+            rowKey="id"
             loading={initialLoad}
             disableTableWhileLoading={false}
             pagination={{ pageSize: 100, hideOnSinglePage: true }}
@@ -1079,7 +1081,7 @@ function SchemaBulkActions({
     )
 }
 
-function SchemaRowMore({
+export function SchemaRowMore({
     source,
     schema,
     reloadSchema,
@@ -1098,173 +1100,161 @@ function SchemaRowMore({
     onOpenAccessControl?: (schema: ExternalDataSourceSchema) => void
     onReplaceFile?: (schema: ExternalDataSourceSchema) => void
 }): JSX.Element {
-    const { pausePolling, resumePolling } = useActions(sourceSettingsLogic)
+    const { disabledReason } = useSchemaEditorAccess(schema)
     // An uploaded file has no outside system whose data stays untouched.
     const externalSourceType = isFileUploadSource(source) ? null : source?.source_type
 
     return (
-        <SchemaEditorAction schema={schema}>
-            {({ disabledReason }) => (
-                <More
-                    disabledReason={disabledReason}
-                    // Pause the 5s source refresh while the menu is open — a poll re-renders the
-                    // table and dismisses the menu out from under the user.
-                    dropdown={{
-                        onVisibilityChange: (visible) => (visible ? pausePolling() : resumePolling()),
-                    }}
-                    overlay={
-                        <>
-                            {onOpenAccessControl && schema.table && (
-                                <LemonButton
-                                    type="tertiary"
-                                    size="xsmall"
-                                    fullWidth
-                                    onClick={() => onOpenAccessControl(schema)}
-                                >
-                                    Access control
-                                </LemonButton>
-                            )}
-                            {onReplaceFile ? (
-                                <LemonButton
-                                    type="tertiary"
-                                    size="xsmall"
-                                    fullWidth
-                                    onClick={() => onReplaceFile(schema)}
-                                    disabledReason={replaceFileDisabledReason(schema)}
-                                    data-attr="schema-row-replace-file"
-                                >
-                                    Replace file
-                                </LemonButton>
-                            ) : (
-                                <Tooltip
-                                    title={
-                                        schema.sync_type === 'cdc'
-                                            ? 'Trigger a CDC extraction run now.'
-                                            : schema.incremental
-                                              ? 'Sync incremental data since the last run.'
-                                              : 'Sync all data.'
-                                    }
-                                >
-                                    <LemonButton
-                                        type="tertiary"
-                                        size="xsmall"
-                                        fullWidth
-                                        onClick={() => reloadSchema(schema)}
-                                        disabledReason={
-                                            !schema.sync_type
-                                                ? 'Set up the sync method first'
-                                                : schema.status === 'Running'
-                                                  ? 'A sync is already running'
-                                                  : undefined
-                                        }
-                                    >
-                                        {schema.sync_type === 'cdc' ? 'Sync CDC now' : 'Sync now'}
-                                    </LemonButton>
-                                </Tooltip>
-                            )}
-                            {schema.status === 'Running' && (
-                                <LemonButton
-                                    type="tertiary"
-                                    size="xsmall"
-                                    fullWidth
-                                    status="danger"
-                                    onClick={() => cancelSchema(schema)}
-                                >
-                                    Cancel sync
-                                </LemonButton>
-                            )}
-                            {schema.sync_type === 'cdc' && (
-                                <Tooltip title="Re-snapshot the full table and replay all CDC changes on top. Use this to recover from a corrupted or out-of-sync table.">
-                                    <LemonButton
-                                        type="tertiary"
-                                        size="xsmall"
-                                        fullWidth
-                                        status="danger"
-                                        onClick={() => {
-                                            LemonDialog.open({
-                                                title: 'Full resync — all existing data will be replaced',
-                                                content: (
-                                                    <div className="text-sm text-secondary space-y-2">
-                                                        <p>
-                                                            This will re-snapshot the entire table from the source
-                                                            database. All rows currently in the{' '}
-                                                            <strong>{schema.table?.name ?? schema.name}</strong> table
-                                                            will be replaced with the new snapshot.
-                                                        </p>
-                                                        {schema.history_table_name && (
-                                                            <p>
-                                                                The <strong>{schema.history_table_name}</strong> history
-                                                                table will also be reset — all change history will be
-                                                                lost and replaced with the new snapshot as the starting
-                                                                point.
-                                                            </p>
-                                                        )}
-                                                    </div>
-                                                ),
-                                                primaryButton: {
-                                                    children: 'Full resync',
-                                                    status: 'danger',
-                                                    onClick: () => resyncSchema(schema),
-                                                },
-                                                secondaryButton: { children: 'Cancel', type: 'tertiary' },
-                                            })
-                                        }}
-                                    >
-                                        Full resync
-                                    </LemonButton>
-                                </Tooltip>
-                            )}
-                            {(schema.incremental || schema.sync_type === 'webhook') && (
-                                <Tooltip title="Completely resync data by deleting the existing table and re-importing. Only recommended if there is an issue with data quality in previously imported data.">
-                                    <LemonButton
-                                        type="tertiary"
-                                        size="xsmall"
-                                        fullWidth
-                                        status="danger"
-                                        onClick={() => resyncSchema(schema)}
-                                    >
-                                        Delete table and resync
-                                    </LemonButton>
-                                </Tooltip>
-                            )}
-                            {schema.table && (
-                                <Tooltip
-                                    title={`Delete this table from PostHog. ${
-                                        externalSourceType
-                                            ? `This will not delete the data in ${externalSourceType}`
-                                            : ''
-                                    }`}
-                                >
-                                    <LemonButton
-                                        type="tertiary"
-                                        size="xsmall"
-                                        fullWidth
-                                        status="danger"
-                                        onClick={() => {
-                                            LemonDialog.open({
-                                                title: `Delete ${schema.table?.name ?? schema.name} from PostHog?`,
-                                                description: `This also turns off syncing for the table.${
-                                                    externalSourceType
-                                                        ? ` The data in ${externalSourceType} will not be touched.`
-                                                        : ''
-                                                }`,
-                                                primaryButton: {
-                                                    children: 'Delete',
-                                                    status: 'danger',
-                                                    onClick: () => deleteTable(schema),
-                                                },
-                                                secondaryButton: { children: 'Cancel', type: 'tertiary' },
-                                            })
-                                        }}
-                                    >
-                                        Delete table from PostHog
-                                    </LemonButton>
-                                </Tooltip>
-                            )}
-                        </>
-                    }
-                />
-            )}
-        </SchemaEditorAction>
+        <More
+            disabledReason={disabledReason}
+            overlay={
+                <>
+                    {onOpenAccessControl && schema.table && (
+                        <LemonButton
+                            type="tertiary"
+                            size="xsmall"
+                            fullWidth
+                            onClick={() => onOpenAccessControl(schema)}
+                        >
+                            Access control
+                        </LemonButton>
+                    )}
+                    {onReplaceFile ? (
+                        <LemonButton
+                            type="tertiary"
+                            size="xsmall"
+                            fullWidth
+                            onClick={() => onReplaceFile(schema)}
+                            disabledReason={replaceFileDisabledReason(schema)}
+                            data-attr="schema-row-replace-file"
+                        >
+                            Replace file
+                        </LemonButton>
+                    ) : (
+                        <Tooltip
+                            title={
+                                schema.sync_type === 'cdc'
+                                    ? 'Trigger a CDC extraction run now.'
+                                    : schema.incremental
+                                      ? 'Sync incremental data since the last run.'
+                                      : 'Sync all data.'
+                            }
+                        >
+                            <LemonButton
+                                type="tertiary"
+                                size="xsmall"
+                                fullWidth
+                                onClick={() => reloadSchema(schema)}
+                                disabledReason={
+                                    !schema.sync_type
+                                        ? 'Set up the sync method first'
+                                        : schema.status === 'Running'
+                                          ? 'A sync is already running'
+                                          : undefined
+                                }
+                            >
+                                {schema.sync_type === 'cdc' ? 'Sync CDC now' : 'Sync now'}
+                            </LemonButton>
+                        </Tooltip>
+                    )}
+                    {schema.status === 'Running' && (
+                        <LemonButton
+                            type="tertiary"
+                            size="xsmall"
+                            fullWidth
+                            status="danger"
+                            onClick={() => cancelSchema(schema)}
+                        >
+                            Cancel sync
+                        </LemonButton>
+                    )}
+                    {schema.sync_type === 'cdc' && (
+                        <Tooltip title="Re-snapshot the full table and replay all CDC changes on top. Use this to recover from a corrupted or out-of-sync table.">
+                            <LemonButton
+                                type="tertiary"
+                                size="xsmall"
+                                fullWidth
+                                status="danger"
+                                onClick={() => {
+                                    LemonDialog.open({
+                                        title: 'Full resync — all existing data will be replaced',
+                                        content: (
+                                            <div className="text-sm text-secondary space-y-2">
+                                                <p>
+                                                    This will re-snapshot the entire table from the source database. All
+                                                    rows currently in the{' '}
+                                                    <strong>{schema.table?.name ?? schema.name}</strong> table will be
+                                                    replaced with the new snapshot.
+                                                </p>
+                                                {schema.history_table_name && (
+                                                    <p>
+                                                        The <strong>{schema.history_table_name}</strong> history table
+                                                        will also be reset — all change history will be lost and
+                                                        replaced with the new snapshot as the starting point.
+                                                    </p>
+                                                )}
+                                            </div>
+                                        ),
+                                        primaryButton: {
+                                            children: 'Full resync',
+                                            status: 'danger',
+                                            onClick: () => resyncSchema(schema),
+                                        },
+                                        secondaryButton: { children: 'Cancel', type: 'tertiary' },
+                                    })
+                                }}
+                            >
+                                Full resync
+                            </LemonButton>
+                        </Tooltip>
+                    )}
+                    {(schema.incremental || schema.sync_type === 'webhook') && (
+                        <Tooltip title="Completely resync data by deleting the existing table and re-importing. Only recommended if there is an issue with data quality in previously imported data.">
+                            <LemonButton
+                                type="tertiary"
+                                size="xsmall"
+                                fullWidth
+                                status="danger"
+                                onClick={() => resyncSchema(schema)}
+                            >
+                                Delete table and resync
+                            </LemonButton>
+                        </Tooltip>
+                    )}
+                    {schema.table && (
+                        <Tooltip
+                            title={`Delete this table from PostHog. ${
+                                externalSourceType ? `This will not delete the data in ${externalSourceType}` : ''
+                            }`}
+                        >
+                            <LemonButton
+                                type="tertiary"
+                                size="xsmall"
+                                fullWidth
+                                status="danger"
+                                onClick={() => {
+                                    LemonDialog.open({
+                                        title: `Delete ${schema.table?.name ?? schema.name} from PostHog?`,
+                                        description: `This also turns off syncing for the table.${
+                                            externalSourceType
+                                                ? ` The data in ${externalSourceType} will not be touched.`
+                                                : ''
+                                        }`,
+                                        primaryButton: {
+                                            children: 'Delete',
+                                            status: 'danger',
+                                            onClick: () => deleteTable(schema),
+                                        },
+                                        secondaryButton: { children: 'Cancel', type: 'tertiary' },
+                                    })
+                                }}
+                            >
+                                Delete table from PostHog
+                            </LemonButton>
+                        </Tooltip>
+                    )}
+                </>
+            }
+        />
     )
 }
