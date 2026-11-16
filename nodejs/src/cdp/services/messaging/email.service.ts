@@ -897,6 +897,7 @@ export class EmailService {
                 if (claim.granted === 0) {
                     workflowEmailRateLimitedTotal.inc()
                     result.finished = false
+                    result.parkedByRateLimit = true
                     // Re-attach the email payload before rescheduling. createInvocationResult cleared
                     // queueParameters, so without this the rescheduled dequeue has no 'email' params to
                     // re-enter the send path — the retry would resume the Hog VM instead and drop the
@@ -930,6 +931,7 @@ export class EmailService {
             const capDelay = teamBudget.delay
             if (capDelay) {
                 result.finished = false
+                result.parkedByRateLimit = true
                 // Re-attach the email payload before rescheduling, for the same reason as the
                 // per-workflow limit above: createInvocationResult cleared queueParameters, and
                 // without them the rescheduled dequeue resumes the Hog VM and drops the send.

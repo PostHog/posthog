@@ -419,6 +419,7 @@ describe('CyclotronJobQueuePostgresV2 on Cyclotron Postgres', () => {
 
         expect(again).toMatchObject({ id, queueMetadata: { attachmentDeferrals: 1, attachmentDueAt: firstDueAt } })
         expect(new Date((await jobRow(id)).scheduled)).toEqual(scheduledAt)
+        await queue.queueInvocationResults([finished(again)])
         expect(await lateness(queueName, 'scheduled')).toMatchObject({ count: 1 })
         const late = await lateness(queueName, 'deferred')
         expect(late.count).toBe(1)

@@ -3088,6 +3088,33 @@ describe('Workflows E2E (email queue)', () => {
         return result.rows
     }
 
+    async function bulkEmailPickupsByOutcome(): Promise<Record<string, number>> {
+        const metric = register.getSingleMetric('cdp_cyclotron_job_lateness_seconds')
+        const samples = metric ? (await metric.get()).values : []
+        const pickups: Record<string, number> = {}
+        for (const sample of samples) {
+            if (
+                'metricName' in sample &&
+                sample.metricName === 'cdp_cyclotron_job_lateness_seconds_count' &&
+                sample.labels.queue === 'email' &&
+                sample.labels.priority === '1'
+            ) {
+                const outcome = String(sample.labels.outcome)
+                pickups[outcome] = (pickups[outcome] ?? 0) + sample.value
+            }
+        }
+        return pickups
+    }
+
+    async function bulkEmailPickupsSince(before: Record<string, number>): Promise<Record<string, number>> {
+        const now = await bulkEmailPickupsByOutcome()
+        return Object.fromEntries(
+            Object.entries(now)
+                .map(([outcome, count]) => [outcome, count - (before[outcome] ?? 0)])
+                .filter(([, count]) => count !== 0)
+        )
+    }
+
     function createGlobals(
         overrides: Partial<HogFunctionInvocationGlobals['event']> = {}
     ): HogFunctionInvocationGlobals {
@@ -3972,6 +3999,7 @@ describe('Workflows E2E (email queue)', () => {
             'set-email-sending-rate-limit'
         )
 
+        const pickupsBefore = await bulkEmailPickupsByOutcome()
         const events = [
             ...Array.from({ length: 8 }, (_, i) =>
                 createGlobals({ event: 'signup_a', uuid: new UUIDT().toString(), distinct_id: `person_a_${i}` } as any)
@@ -4016,6 +4044,7 @@ describe('Workflows E2E (email queue)', () => {
         for (const job of parkedA) {
             expect(job.transition_count).toBeLessThanOrEqual(4)
         }
+        expect(await bulkEmailPickupsSince(pickupsBefore)).toEqual({ processed: 4, rate_limited: 7 })
     })
 
     it("a team over its tier cap does not hold up another team's emails", async () => {
@@ -4124,6 +4153,8 @@ describe('Workflows E2E (email queue)', () => {
                     timestamp: '2024-09-03T09:00:00Z',
                 } as any,
             })
+
+        const pickupsBefore = await bulkEmailPickupsByOutcome()
         const events = [
             ...Array.from({ length: 6 }, (_, i) =>
                 createGlobals({
@@ -4163,6 +4194,7 @@ describe('Workflows E2E (email queue)', () => {
             expect(new Date(job.scheduled).getTime()).toBeGreaterThan(Date.now() + 25 * 60 * 1000)
             expect(job.transition_count).toBeLessThanOrEqual(4)
         }
+        expect(await bulkEmailPickupsSince(pickupsBefore)).toEqual({ processed: 5, rate_limited: 4 })
     })
 
     it('rate-limited variant processes emails end-to-end through the dedicated bucket', async () => {

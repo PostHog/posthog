@@ -38,10 +38,14 @@ const resultWriteFailuresCounter = new Counter({
 
 const jobLatenessHistogram = new Histogram({
     name: 'cdp_cyclotron_job_lateness_seconds',
-    help: 'Seconds between a postgres-v2 job becoming due and a worker dequeuing it',
-    labelNames: ['queue', 'wait'],
-    buckets: [0.1, 0.25, 0.5, 1, 2.5, 5, 10, 30, 60, 300, 900],
+    help: 'Seconds between a postgres-v2 job becoming due and a worker dequeuing it, counted once the worker releases it, so the outcome is known',
+    labelNames: ['queue', 'wait', 'priority', 'outcome'],
+    buckets: [0.1, 0.25, 0.5, 1, 2.5, 5, 10, 30, 60, 120, 180, 300, 900],
 })
+
+type PickupOutcome = 'processed' | 'rate_limited'
+
+type Pickup = { queue: string; wait: 'deferred' | 'scheduled'; priority: string; latenessSeconds: number }
 
 export const CONSUMER_STOP_DEADLINE_MS = 25_000
 
@@ -74,6 +78,7 @@ export class CyclotronJobQueuePostgresV2 implements IdempotentJobQueue {
     private manager?: CyclotronV2Manager
     private worker?: CyclotronV2Worker
     private pendingJobs = new Map<string, CyclotronV2DequeuedJob>()
+    private pickups = new WeakMap<CyclotronV2DequeuedJob, Pickup>()
     private consumerQueue?: string
     private resultWrites = new PromiseScheduler()
     private stopDeadline?: number
@@ -158,7 +163,12 @@ export class CyclotronJobQueuePostgresV2 implements IdempotentJobQueue {
                 const invocation = v2JobToInvocation(job)
                 invocations.push(invocation)
                 const { wait, dueAt } = dueTimeOf(job, invocation)
-                jobLatenessHistogram.labels({ queue, wait }).observe(Math.max(0, now - dueAt) / 1000)
+                this.pickups.set(job, {
+                    queue,
+                    wait,
+                    priority: String(job.priority),
+                    latenessSeconds: Math.max(0, now - dueAt) / 1000,
+                })
             }
 
             pendingJobsGauge.set(this.pendingJobs.size)
@@ -211,9 +221,15 @@ export class CyclotronJobQueuePostgresV2 implements IdempotentJobQueue {
         return !invocation.queueLockId || job?.lockId === invocation.queueLockId ? job : undefined
     }
 
-    private forgetPendingJob(job: CyclotronV2DequeuedJob): void {
+    private forgetPendingJob(job: CyclotronV2DequeuedJob, outcome: PickupOutcome = 'processed'): void {
         if (this.pendingJobs.get(job.id) === job) {
             this.pendingJobs.delete(job.id)
+        }
+        const pickup = this.pickups.get(job)
+        if (pickup) {
+            this.pickups.delete(job)
+            const { latenessSeconds, ...labels } = pickup
+            jobLatenessHistogram.labels({ ...labels, outcome }).observe(latenessSeconds)
         }
     }
 
@@ -339,7 +355,7 @@ export class CyclotronJobQueuePostgresV2 implements IdempotentJobQueue {
                 try {
                     await this.resultWrites.schedule(this.writeResult(job, result))
                 } finally {
-                    this.forgetPendingJob(job)
+                    this.forgetPendingJob(job, result.parkedByRateLimit ? 'rate_limited' : 'processed')
                 }
             })
         )
