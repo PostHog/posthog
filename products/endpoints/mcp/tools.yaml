@@ -121,8 +121,8 @@ tools:
             Execute an endpoint's query and return results. Uses materialized results when available, otherwise runs
             inline. For HogQL endpoints, variable keys must match code_name values. For insight endpoints with
             breakdowns, use the breakdown property name as the key. Code outside the MCP calls POST
-            /api/environments/{project_id}/endpoints/{name}/run with the same variables body. HogQL endpoints page
-            with limit and offset in that body. Insight endpoints reject limit and offset.
+            /api/environments/{project_id}/endpoints/{name}/run with the same variables body. HogQL endpoints page with
+            limit and offset in that body. Insight endpoints reject limit and offset.
         include_params:
             - variables
             - limit
