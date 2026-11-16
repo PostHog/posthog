@@ -138,7 +138,7 @@ class TestIssueTagRuleAPI(APIBaseTest):
         first, second = self._create(), self._create("Checkout", CHECKOUT_PAGE)
 
         reorder = self.client.patch(
-            f"{self._url()}reorder/", data={"orders": {first["id"]: 1, second["id"]: 0}}, format="json"
+            self._url("reorder"), data={"orders": {first["id"]: 1, second["id"]: 0}}, format="json"
         )
 
         assert reorder.status_code == status.HTTP_204_NO_CONTENT
@@ -172,7 +172,7 @@ class TestIssueTagRuleAPI(APIBaseTest):
         rule = ErrorTrackingIssueTagRule.objects.for_team(self.team.id).create(
             team=self.team, label="Enterprise", filters=ENTERPRISE_PLAN, bytecode=[], order_key=0
         )
-        url = {None: self._url(), "rule": self._url(str(rule.id)), "reorder": f"{self._url()}reorder/"}[target]
+        url = {None: self._url(), "rule": self._url(str(rule.id)), "reorder": self._url("reorder")}[target]
 
         with (
             patch.object(team_flags, "feature_enabled_or_false", return_value=False),

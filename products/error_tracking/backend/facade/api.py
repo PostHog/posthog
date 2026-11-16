@@ -26,8 +26,8 @@ from .. import logic, weekly_digest, weekly_digest_delivery
 from ..indexed_embedding import DOCUMENT_EMBEDDINGS_BUFFER_SHARDED_TABLE, EMBEDDING_TABLES
 from ..logic import built_in_filters, external_references, github_external_references, rules
 from ..logic.issue_tags import (
-    correction as issue_tag_correction,
     enabled as issue_tag_enabled,
+    gate as issue_tag_gate,
     reader as issue_tag_reader,
     rules as issue_tag_rules,
 )
@@ -51,7 +51,7 @@ ReleaseHashInUseError = logic.ErrorTrackingReleaseHashInUseError
 InvalidBytecodeError = rules.ErrorTrackingInvalidBytecodeError
 SeverityRuleLimitError = rules.ErrorTrackingSeverityRuleLimitError
 IssueTagRuleFiltersError = issue_tag_rules.IssueTagRuleFiltersError
-IssueTagsDisabledError = issue_tag_correction.IssueTagsDisabledError
+IssueTagsDisabledError = issue_tag_gate.IssueTagsDisabledError
 UnknownBuiltInFilterError = built_in_filters.UnknownBuiltInFilterError
 
 SOURCE_MAPS_DOCS_URL = contracts.SOURCE_MAPS_DOCS_URL

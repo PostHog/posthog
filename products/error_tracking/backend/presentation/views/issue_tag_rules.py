@@ -1,25 +1,20 @@
-import structlog
-import posthoganalytics
+from typing import cast
+
 from drf_spectacular.utils import OpenApiResponse, extend_schema, extend_schema_field, extend_schema_serializer
-from pydantic import (
-    BaseModel,
-    ConfigDict,
-    ValidationError as PydanticValidationError,
-)
+from pydantic import BaseModel, ConfigDict
 from rest_framework import serializers, status, viewsets
 from rest_framework.exceptions import NotFound, ValidationError
 from rest_framework.response import Response
 
-from posthog.schema import EventPropertyFilter, FilterLogicalOperator, PropertyGroupFilterValue
+from posthog.schema import EventPropertyFilter, FilterLogicalOperator
 
 from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
-from posthog.event_usage import get_request_analytics_properties, groups
+from posthog.event_usage import report_user_action
+from posthog.models.user import User
 
 from products.error_tracking.backend.facade import api as error_tracking_api
-
-logger = structlog.get_logger(__name__)
 
 ISSUE_TAGS_OFF = "Issue tags are off for this project."
 
@@ -50,16 +45,7 @@ class ErrorTrackingIssueTagRuleFilters(BaseModel):
 # Generated clients cannot express a model that refers to itself, so the schema does not describe deeper nesting.
 @extend_schema_field(ErrorTrackingIssueTagRuleFilters)  # type: ignore[arg-type]
 class ErrorTrackingIssueTagRuleFiltersField(serializers.JSONField):
-    def to_internal_value(self, data):
-        value = super().to_internal_value(data)
-        if not isinstance(value, dict):
-            raise serializers.ValidationError("Expected a JSON object.")
-        try:
-            PropertyGroupFilterValue(**value)
-        except (PydanticValidationError, TypeError) as err:
-            logger.warning("Invalid issue tag rule filters payload", exc_info=err)
-            raise serializers.ValidationError("Invalid filters payload.") from err
-        return value
+    pass
 
 
 @extend_schema_field(
@@ -219,9 +205,6 @@ class ErrorTrackingIssueTagRuleViewSet(TeamAndOrgViewSetMixin, viewsets.GenericV
         return Response(status=status.HTTP_204_NO_CONTENT)
 
     def _report(self, event: str, request) -> None:
-        posthoganalytics.capture(
-            event,
-            distinct_id=request.user.pk,
-            properties={**get_request_analytics_properties(request)},
-            groups=groups(self.team.organization, self.team),
+        report_user_action(
+            cast(User, request.user), event, team=self.team, organization=self.team.organization, request=request
         )

@@ -7,8 +7,7 @@ from posthog.schema import EmptyPropertyFilter, EventPropertyFilter, PropertyGro
 
 from posthog.hogql.errors import BaseHogQLError
 
-from products.error_tracking.backend.logic.issue_tags.correction import IssueTagsDisabledError
-from products.error_tracking.backend.logic.issue_tags.gate import issue_tags_enabled
+from products.error_tracking.backend.logic.issue_tags.gate import require_issue_tags
 from products.error_tracking.backend.logic.rules import (
     MAX_SEVERITY_RULE_BYTECODE_OPS,
     ErrorTrackingInvalidBytecodeError,
@@ -24,12 +23,13 @@ class IssueTagRuleFiltersError(Exception):
 
 
 def list_issue_tag_rules(team_id: int) -> list[ErrorTrackingIssueTagRule]:
-    _require_issue_tags(team_id)
-    return list(ErrorTrackingIssueTagRule.objects.for_team(team_id).order_by("order_key", "created_at", "id"))
+    require_issue_tags(team_id)
+    rules = ErrorTrackingIssueTagRule.objects.for_team(team_id).defer("bytecode")
+    return list(rules.order_by("order_key", "created_at", "id"))
 
 
 def get_issue_tag_rule(team_id: int, rule_id: str) -> ErrorTrackingIssueTagRule | None:
-    _require_issue_tags(team_id)
+    require_issue_tags(team_id)
     parsed_id = _parse_rule_id(rule_id)
     if parsed_id is None:
         return None
@@ -39,7 +39,7 @@ def get_issue_tag_rule(team_id: int, rule_id: str) -> ErrorTrackingIssueTagRule 
 def create_issue_tag_rule(
     team_id: int, *, label: str, description: str, filters: dict, order_key: int = 0
 ) -> ErrorTrackingIssueTagRule:
-    _require_issue_tags(team_id)
+    require_issue_tags(team_id)
     return ErrorTrackingIssueTagRule.objects.for_team(team_id).create(
         team_id=team_id,
         label=label,
@@ -107,13 +107,8 @@ def delete_issue_tag_rule(team_id: int, rule_id: str) -> bool:
 
 
 def reorder_issue_tag_rules(team_id: int, orders: dict[str, int]) -> None:
-    _require_issue_tags(team_id)
+    require_issue_tags(team_id)
     _reorder_rules(ErrorTrackingIssueTagRule.objects.for_team(team_id), orders)
-
-
-def _require_issue_tags(team_id: int) -> None:
-    if not issue_tags_enabled(team_id):
-        raise IssueTagsDisabledError
 
 
 def _compile(team_id: int, filters: dict) -> list[Any]:
