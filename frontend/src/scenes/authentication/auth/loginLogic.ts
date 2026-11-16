@@ -429,7 +429,6 @@ export const loginLogic = kea<loginLogicType>([
                 exitCodeVerification: () => false,
             },
         ],
-        // When the latest code went out, so the code step can count down to the next allowed resend
         codeSentAt: [
             null as number | null,
             {
