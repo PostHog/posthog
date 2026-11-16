@@ -16,9 +16,10 @@ from posthog.models.integration import Integration
 from products.cdp.backend.api.test.test_hog_function_templates import MOCK_NODE_TEMPLATES
 from products.cdp.backend.templates.hog_function_template import sync_template_to_db
 from products.messaging.backend.facade.testing import create_message_template_for_test
-from products.workflows.backend.facade.testing import sandbox_sender_flag_for_test
+from products.workflows.backend.facade.testing import sandbox_sender_flag_for_test as _flag
 from products.workflows.backend.models import SandboxSenderOrganizationBlock
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
+from products.workflows.backend.tests.fakes.posthog_api import FakePostHogApi, boolean_flag
 
 from common.hogvm.python.execute import execute_bytecode
 
@@ -28,10 +29,6 @@ OWN_EMAIL_STEP_ID = "action_function_email_1"
 
 def _runtime(enabled: bool):
     return override_settings(WORKFLOWS_SANDBOX_EMAIL_RUNTIME_ENABLED=enabled)
-
-
-def _flag(enabled: bool):
-    return sandbox_sender_flag_for_test(True if enabled else None)
 
 
 def _trigger() -> dict[str, Any]:
@@ -145,12 +142,11 @@ class TestSandboxEmailSteps(APIBaseTest):
     def test_a_new_sandbox_step_needs_the_adoption_flag(
         self, _name: str, enabled: bool, runtime: bool, status: str, expected: int
     ) -> None:
-        with _flag(enabled) as flag, _runtime(runtime):
+        with FakePostHogApi(*([boolean_flag()] if enabled else [])).installed() as posthog, _runtime(runtime):
             response = self.client.post(self._url(), _flow(_sandbox_step(), status=status), format="json")
 
         assert response.status_code == expected, response.json()
-        assert flag.call_args_list, "validation evaluates the flag"
-        assert not any(call.kwargs["send_feature_flag_events"] for call in flag.call_args_list)
+        assert posthog.exposures() == []
         if enabled:
             flow = HogFlow.objects.get(id=response.json()["id"])
             assert flow.status == status
@@ -504,14 +500,14 @@ class TestSandboxEmailStepsOverTheApi(APIBaseTest):
         if verified:
             self._verified_sender()
 
-        with _flag(enabled) as flag:
+        with FakePostHogApi(*([boolean_flag()] if enabled else [])).installed() as posthog:
             response = self.client.post(
                 f"/api/projects/{self.team.id}/hog_flows", _flow(_own_email_step(None)), format="json", **headers
             )
 
         assert response.status_code == 201, response.json()
         offered = bool(headers) and not verified
-        assert any(call.kwargs["send_feature_flag_events"] for call in flag.call_args_list) == offered
+        assert [exposure.flag for exposure in posthog.exposures()] == (["workflows-sandbox-sender"] if offered else [])
         assert HogFlow.objects.get(id=response.json()["id"]).actions[1]["type"] == expected_type
         assert self._sandbox_sender_is_set_up() == (expected_type == "email_sandbox")
 
