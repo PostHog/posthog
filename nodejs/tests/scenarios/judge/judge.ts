@@ -38,11 +38,13 @@ export type InvariantResult = {
     unitIds: string[]
 }
 
+export type RunEvidence = { janitorResets: number }
+
 export interface Judge {
     open(seed: Pick<SeedState, 'teamIds'>): Promise<void>
     record(unit: JournalEntry): void
     converge(withinMs: number, signal: AbortSignal): Promise<Convergence>
-    check(invariants: Named[], gates: Record<string, number>): Promise<InvariantResult[]>
+    check(invariants: Named[], gates: Record<string, number>, run?: RunEvidence): Promise<InvariantResult[]>
     evidence(): { journal: JournalEntry[]; truth: TruthRecord[]; fetchRetries: number }
 }
 
@@ -133,7 +135,7 @@ export function createJudge({
             }
         },
 
-        async check(invariants, gates) {
+        async check(invariants, gates, run) {
             await pullTruth()
             const resident = invariants.some(({ name }) => name === residentBacklogIntact.name)
                 ? await residentBacklog?.()
@@ -143,7 +145,7 @@ export function createJudge({
                 if (!definition) {
                     throw new Error(`No invariant ${name}`)
                 }
-                const evidence = { journal, truth, fetchRetries, resident }
+                const evidence = { journal, truth, fetchRetries, resident, ...run }
                 return { name, gate: gates[name], ...definition.check(evidence, gates[name]) }
             })
         },

@@ -13,6 +13,7 @@ export type JudgeEvidence = {
     truth: readonly TruthRecord[]
     fetchRetries: number
     resident?: ResidentBacklog
+    janitorResets?: number
 }
 
 export type InvariantDefinition = Definition & {
@@ -89,10 +90,12 @@ const withinGate = (observed: number, gate: number | undefined): boolean => obse
 
 const firstUnitIds = (unitIds: string[]): string[] => [...new Set(unitIds)].slice(0, EVIDENCE_UNIT_IDS)
 
+const plural = (count: number, noun: string): string => `${count} ${noun}${count === 1 ? '' : 's'}`
+
 export const duplicateSends: InvariantDefinition = {
     name: 'duplicate_sends',
     params: z.object({}).strict(),
-    check: ({ truth }, gate) => {
+    check: ({ truth, janitorResets = 0 }, gate) => {
         const duplicated = [...recordsByDelivery(truth).values()]
             .map((records) => ({
                 record: records[0],
@@ -100,11 +103,18 @@ export const duplicateSends: InvariantDefinition = {
             }))
             .filter(({ extra }) => extra > 0)
         const observed = duplicated.reduce((sum, { extra }) => sum + extra, 0)
-        const [first] = duplicated
+        const bound = janitorResets + (gate ?? 0)
+        const resentTwice = duplicated.find(({ extra }) => extra > 1)
+        const first = resentTwice ?? duplicated[0]
+        const why = resentTwice
+            ? 'more than the one resend a janitor reset allows'
+            : `${plural(observed, 'duplicate')} against ${plural(janitorResets, 'job')} the janitor reset`
         return {
-            passed: withinGate(observed, gate),
+            passed: resentTwice === undefined && observed <= bound,
             observed,
-            violation: first && `${first.record.unitId} ${first.record.actionId}: accepted ${first.extra + 1} times`,
+            gate: bound,
+            violation:
+                first && `${first.record.unitId} ${first.record.actionId}: accepted ${first.extra + 1} times, ${why}`,
             unitIds: firstUnitIds(duplicated.map(({ record }) => record.unitId)),
         }
     },

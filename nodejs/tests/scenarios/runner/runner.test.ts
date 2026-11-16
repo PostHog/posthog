@@ -78,11 +78,17 @@ const withSettings = (settings: Record<string, string>): LoadedCard => ({
 })
 
 let processMetrics: { url: string; server: http.Server }
+let janitor: { scrapes: number; resetsAfterFirstScrape: number }
 
 beforeAll(async () => {
     const registry = new Registry()
     collectDefaultMetrics({ register: registry })
-    const server = http.createServer(async (_req, res) => res.end(await registry.metrics()))
+    const server = http.createServer(async (req, res) => {
+        const resets = req.url?.includes('role=cdp-cyclotron-v2-janitor')
+            ? [`cdp_cyclotron_v2_janitor_stalled ${janitor.scrapes++ === 0 ? 0 : janitor.resetsAfterFirstScrape}`]
+            : []
+        res.end([await registry.metrics(), ...resets].join('\n'))
+    })
     await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
     processMetrics = { url: `http://127.0.0.1:${(server.address() as AddressInfo).port}/_metrics`, server }
 })
@@ -673,7 +679,7 @@ describe('runner through seed, drive and judge', () => {
                 name: role,
                 replica,
                 url: roleUrl,
-                metricsUrl: `${processMetrics.url}?replica=${replica}`,
+                metricsUrl: `${processMetrics.url}?replica=${replica}&role=${role}`,
             })),
         actuate(action) {
             exits.push(...(action.kind === 'kill' ? killExits(action.role) : []))
@@ -788,6 +794,7 @@ describe('runner through seed, drive and judge', () => {
         results = []
         exits = []
         killExits = exitOfTheKill
+        janitor = { scrapes: 0, resetsAfterFirstScrape: 0 }
         await withPostgres((client) => client.query('DELETE FROM cyclotron_jobs'), cyclotronUrl)
     })
 
@@ -945,6 +952,17 @@ describe('runner through seed, drive and judge', () => {
         },
         30_000
     )
+    it('bounds duplicate sends by the jobs the janitor reset while the run was sampled', async () => {
+        janitor.resetsAfterFirstScrape = 3
+
+        const result = await run('all')
+
+        expect(result.invariants).toContainEqual(
+            expect.objectContaining({ name: 'duplicate_sends', passed: true, observed: 0, gate: 3 })
+        )
+        expect(api.captured[0]?.properties).toMatchObject({ inv_duplicate_sends_gate: 3 })
+    }, 30_000)
+
     it('fails a run whose intake role refused every unit, rather than calling it invalid', async () => {
         const result = await createRunner(environmentOf('none'), env).run(
             shortSmoke([], 'transactional_email'),

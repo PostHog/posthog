@@ -24,6 +24,7 @@ export type MetricSample = {
     processed: Record<string, number>
     pgClientErrors: number
     consumerLoopErrors: number
+    janitorStalled: number
     lateness: Record<string, Record<string, number>>
 }
 
@@ -85,6 +86,16 @@ const increaseOf = (ofReplica: readonly MetricSample[], read: Counter, since: nu
 
 const cpuSecondsOf = (ofReplica: readonly MetricSample[], sampledFrom: number): number =>
     increaseOf(ofReplica, ({ cpuSeconds }) => cpuSeconds, sampledFrom)
+
+const JANITOR = 'cdp-cyclotron-v2-janitor'
+
+export function janitorResetsOf({ samples, sampledFrom }: Pick<Sampled, 'samples'> & { sampledFrom: number }): number {
+    const ofJanitor = byRole(samples).get(JANITOR) ?? []
+    return [...Map.groupBy(ofJanitor, ({ replica }) => replica).values()].reduce(
+        (sum, ofReplica) => sum + increaseOf(ofReplica, ({ janitorStalled }) => janitorStalled, sampledFrom),
+        0
+    )
+}
 
 export const roleCpuSeconds: MeasurementDefinition = {
     name: 'role_cpu_seconds',
@@ -546,6 +557,7 @@ export function sampleOf({ role, replica }: Target, at: number, text: string): M
               processed: processedOf(text),
               pgClientErrors: totalOf(text, 'cdp_cyclotron_v2_pg_client_errors_total'),
               consumerLoopErrors: totalOf(text, 'cdp_cyclotron_v2_consumer_loop_errors_total'),
+              janitorStalled: totalOf(text, 'cdp_cyclotron_v2_janitor_stalled'),
               lateness: latenessOf(text),
           }
 }

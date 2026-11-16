@@ -46,6 +46,7 @@ import {
     Sampled,
     Sampler,
     baselineOf,
+    janitorResetsOf,
     measure,
     startSampler,
 } from '../judge/measurements'
@@ -436,7 +437,9 @@ export function createRunner(
                 probed = await probes.stop()
                 sampled = await sampler.stop()
                 const down = await stopHealth()
-                const invariants = await judge.check(card.invariants, card.gates)
+                const invariants = await judge.check(card.invariants, card.gates, {
+                    janitorResets: janitorResetsOf({ ...sampled, sampledFrom: sampler.sampledFrom }),
+                })
                 const evidence = {
                     ...judge.evidence(),
                     ...sampled,

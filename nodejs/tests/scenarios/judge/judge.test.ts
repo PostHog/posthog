@@ -273,8 +273,13 @@ describe('judge', () => {
         expect(result.passed).toBe(passed)
     })
 
-    it.each<[string, () => Promise<unknown>, number | undefined, object]>([
-        ['delivered once', () => deliver(UNIT), undefined, { passed: true, observed: 0, unitIds: [] }],
+    const deliverTwice = async (unitId: string): Promise<void> => {
+        await deliver(unitId)
+        await deliver(unitId)
+    }
+
+    it.each<[string, () => Promise<unknown>, number, number | undefined, object]>([
+        ['delivered once', () => deliver(UNIT), 0, undefined, { passed: true, observed: 0, gate: 0, unitIds: [] }],
         [
             'accepted only on a retry',
             async () => {
@@ -282,34 +287,75 @@ describe('judge', () => {
                 await deliver(UNIT)
                 await deliver(UNIT)
             },
+            0,
             undefined,
             { passed: true, observed: 0 },
         ],
         [
-            'accepted twice',
-            async () => {
-                await deliver(UNIT)
-                await deliver(UNIT)
-            },
+            'accepted twice with no job reset',
+            () => deliverTwice(UNIT),
+            0,
             undefined,
-            { passed: false, observed: 1, violation: `${UNIT} email: accepted 2 times`, unitIds: [UNIT] },
+            {
+                passed: false,
+                observed: 1,
+                gate: 0,
+                violation: `${UNIT} email: accepted 2 times, 1 duplicate against 0 jobs the janitor reset`,
+                unitIds: [UNIT],
+            },
+        ],
+        ['accepted twice under a gate of one', () => deliverTwice(UNIT), 0, 1, { passed: true, observed: 1, gate: 1 }],
+        [
+            'accepted twice, as two others were, with three jobs reset',
+            async () => {
+                await deliverTwice(UNIT)
+                await deliverTwice('run-a-2')
+                await deliverTwice('run-a-3')
+            },
+            3,
+            undefined,
+            { passed: true, observed: 3, gate: 3 },
         ],
         [
-            'accepted twice under a gate of one',
+            'accepted twice, as two others were, with two jobs reset',
             async () => {
-                await deliver(UNIT)
+                await deliverTwice(UNIT)
+                await deliverTwice('run-a-2')
+                await deliverTwice('run-a-3')
+            },
+            2,
+            undefined,
+            {
+                passed: false,
+                observed: 3,
+                gate: 2,
+                violation: `${UNIT} email: accepted 2 times, 3 duplicates against 2 jobs the janitor reset`,
+            },
+        ],
+        [
+            'accepted three times with two jobs reset',
+            async () => {
+                await deliverTwice(UNIT)
                 await deliver(UNIT)
             },
-            1,
-            { passed: true, observed: 1, gate: 1 },
+            2,
+            undefined,
+            {
+                passed: false,
+                observed: 2,
+                gate: 2,
+                violation: `${UNIT} email: accepted 3 times, more than the one resend a janitor reset allows`,
+                unitIds: [UNIT],
+            },
         ],
-    ])('duplicate_sends for a unit %s', async (_story, act, gate, expected) => {
+    ])('duplicate_sends for a unit %s', async (_story, act, janitorResets, gate, expected) => {
         judge.record(offered())
         await act()
 
         const [result] = await judge.check(
             [{ name: 'duplicate_sends', params: {} }],
-            gate === undefined ? {} : { duplicate_sends: gate }
+            gate === undefined ? {} : { duplicate_sends: gate },
+            { janitorResets }
         )
 
         expect(result).toMatchObject({ name: 'duplicate_sends', ...expected })
