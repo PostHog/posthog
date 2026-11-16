@@ -32,7 +32,7 @@ export function AnnotationEditor(): JSX.Element {
 
     if (!isModalOpen) {
         return (
-            <SidePanelContentContainer>
+            <SidePanelContentContainer contentClassName="p-2">
                 <SidePanelPaneHeader title="Annotations" />
                 <LemonButton type="primary" data-attr="create-annotation" onClick={() => openModalToCreateAnnotation()}>
                     New annotation
@@ -96,7 +96,7 @@ export function AnnotationEditor(): JSX.Element {
     ]
 
     return (
-        <SidePanelContentContainer>
+        <SidePanelContentContainer contentClassName="p-2">
             <SidePanelPaneHeader title={existingModalAnnotation ? 'Edit annotation' : 'New annotation'} />
             <div className="flex flex-wrap items-center justify-between gap-2 mb-4">
                 <div className="flex items-center gap-2">
