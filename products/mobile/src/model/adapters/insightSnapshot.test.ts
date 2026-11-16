@@ -1,15 +1,22 @@
 import type { InsightApi } from '@/api/insights'
+import { DEMO_SQL_INSIGHTS } from '@/demo/sqlCharts'
+import { splitTilesByEligibility } from '@/features/views/list/tileEligibility'
 import { pointActorsInput } from '@/features/views/pointSheet/pointActorsInput'
 import {
     insightDisplay,
     insightRenderState,
     noDataText,
     pinRangeLabel,
+    queryDisplay,
     snapshotBarLayout,
     snapshotChartSeries,
     snapshotFormatter,
 } from '@/features/views/snapshotChart'
+import { chartAxes } from '@/ui/chart/chartAxes'
+import { chartGeometry } from '@/ui/chart/chartGeometry'
+import { rangeContent, tooltipContent, tooltipPoint } from '@/ui/chart/chartSeries'
 import { themes } from '@/ui/theme'
+import { dashboardView } from './dashboardView'
 
 import { insightSnapshot, numberParts, usesOwnRange } from './insightSnapshot'
 
@@ -78,6 +85,102 @@ const SQL_PLANS: [string, string][] = [
 ]
 
 describe('insightSnapshot', () => {
+    test.each(
+        ['ActionsLineGraph', 'ActionsBar', 'ActionsBarValue', 'ActionsTable', 'ActionsPie'].flatMap((display) =>
+            ['current', 'legacy'].map((response) => ({ display, response }))
+        )
+    )(
+        'uses saved series names in $display with $response responses, including tooltip and comparison labels',
+        ({ display, response }) => {
+            const result = ['Completed checkouts', 'Abandoned checkouts'].flatMap((name, order) =>
+                ['current', 'previous'].map((compare_label) => ({
+                    label: 'checkout',
+                    ...(response === 'current'
+                        ? { custom_name: name, order }
+                        : { action: { name: 'checkout', custom_name: name, order } }),
+                    compare_label,
+                    days: DAYS,
+                    data: [10, 20, 30, 40],
+                    aggregated_value: order === 0 ? 100 : 50,
+                }))
+            )
+            const snapshot = insightSnapshot(insight({ query: trends(undefined, display), result }), undefined, CONTEXT)
+            const series = snapshotChartSeries(snapshot, themes.light.chartPalette)
+
+            expect(series.map((s) => s.label)).toEqual([
+                'Completed checkouts',
+                'Abandoned checkouts',
+                'Completed checkouts, previous period',
+                'Abandoned checkouts, previous period',
+            ])
+            expect(tooltipPoint(series, [], 0, 'day')?.rows.map((row) => row.label)).toEqual([
+                'Completed checkouts',
+                'Abandoned checkouts',
+            ])
+            if (snapshot.ranking) {
+                expect(snapshot.ranking.rows.map((row) => row.label)).toEqual([
+                    'Completed checkouts',
+                    'Abandoned checkouts',
+                ])
+            }
+        }
+    )
+
+    test.each<[Record<string, unknown>, string]>([
+        [{ label: 'checkout', custom_name: 'Completed checkouts' }, 'Completed checkouts'],
+        [
+            { label: 'checkout', custom_name: 'Completed checkouts', action: { custom_name: 'Legacy name' } },
+            'Completed checkouts',
+        ],
+        [{ label: 'checkout', custom_name: '   ' }, 'checkout'],
+        [{ label: '   ', order: 2 }, 'Series 3'],
+        [{ label: 'checkout', action: { custom_name: '', name: 'checkout' } }, 'checkout'],
+        [{ label: 'checkout', action: { custom_name: '   ', name: 'checkout' } }, 'checkout'],
+        [{ label: '', action: { custom_name: 'Completed checkouts' } }, 'Completed checkouts'],
+        [{ label: '', action: { name: 'checkout' } }, 'checkout'],
+        [{ action: { id: 42 } }, '42'],
+        [{ label: '   ', action: { order: 2 } }, 'Series 3'],
+        [{ label: 'Conversion rate', action: null }, 'Conversion rate'],
+        [
+            {
+                label: 'Chrome',
+                custom_name: 'Completed checkouts',
+                breakdown_value: 'Chrome',
+            },
+            'Completed checkouts · Chrome',
+        ],
+        [
+            {
+                label: 'checkout - Chrome',
+                action: { custom_name: 'Completed checkouts' },
+                breakdown_value: 'Chrome',
+            },
+            'Completed checkouts · Chrome',
+        ],
+        [
+            {
+                label: '$$_posthog_breakdown_other_$$',
+                action: { custom_name: 'Completed checkouts' },
+                breakdown_value: '$$_posthog_breakdown_other_$$',
+            },
+            'Completed checkouts · Other',
+        ],
+        [{ label: 'Chrome', breakdown_value: 'Chrome' }, 'Chrome'],
+        [{ breakdown_value: 'Chrome' }, 'Chrome'],
+    ])('resolves labels without losing fallbacks or breakdowns: %j', (entry, expected) => {
+        const snapshot = insightSnapshot(
+            insight({
+                query: trends(undefined, 'ActionsBarValue'),
+                result: [{ ...entry, days: DAYS, data: [1, 2, 3, 4], aggregated_value: 10 }],
+            }),
+            undefined,
+            CONTEXT
+        )
+
+        expect(snapshotChartSeries(snapshot, themes.light.chartPalette)[0]?.label).toBe(expected)
+        expect(snapshot.ranking?.rows[0]?.label).toBe(expected)
+    })
+
     test.each<[string, Record<string, unknown>, number, string]>([
         ['prefix and suffix', { prefix: '£', suffix: 'M', decimalPlaces: 2 }, 42.7, '£42.70M'],
         ['percent', { style: 'percent', decimalPlaces: 2 }, 0.12375, '12.38%'],
@@ -461,7 +564,7 @@ describe('insightSnapshot', () => {
         [
             'a bar chart over plans',
             sqlInsight({ display: 'ActionsBar' }, SQL_PLANS, [['Teams', 9]]),
-            'bars',
+            'chart',
             'ready',
             'Bar',
         ],
@@ -509,5 +612,182 @@ describe('insightSnapshot', () => {
             { ...CONTEXT, usesOwnRange: own }
         )
         expect(pinRangeLabel(snapshot)).toBe(label)
+    })
+})
+
+describe('SQL charts across dashboard tiles and native charts', () => {
+    const fixture = DEMO_SQL_INSIGHTS[0]
+    if (!fixture) {
+        throw new Error('Expected a SQL chart fixture')
+    }
+    const response = (): InsightApi =>
+        insight({
+            query: fixture.query,
+            columns: fixture.sqlData.columns,
+            types: fixture.sqlData.columns.map((name) => [name, name === 'month' ? 'String' : 'Nullable(Float64)']),
+            result: fixture.sqlData.rows,
+        })
+
+    test.each(['String', 'Date'])('keeps unformatted SQL counts neutral with a %s axis', (type) => {
+        const api = response()
+        api.types = api.columns?.map((name) => [name, name === 'month' ? type : 'Float64'])
+        api.result = [['2026-02-01', 2400, 300, null, 34]]
+        api.query = {
+            ...fixture.query,
+            chartSettings: {
+                xAxis: fixture.query.chartSettings.xAxis,
+                yAxis: [
+                    fixture.query.chartSettings.yAxis[0],
+                    { column: 'orders', settings: { display: { yAxisPosition: 'right' } } },
+                ],
+            },
+        }
+        const snapshot = insightSnapshot(api, undefined, CONTEXT)
+        const series = snapshotChartSeries(snapshot, themes.light.chartPalette)
+        const axes = chartAxes(series, 'bar', 'grouped', snapshotFormatter(snapshot))
+        expect(axes.left.formatValue(2400)).toBe('$2,400')
+        expect(axes.right?.formatValue(34)).toBe('34')
+        expect(tooltipPoint(series, [], 0, 'day')?.rows.map((row) => row.formattedValue)).toEqual(['$2,400', '34'])
+    })
+
+    test.each(['String', 'Date'])('resolves automatic SQL series from the saved chart with a %s axis', (type) => {
+        const api = response()
+        api.types = api.columns?.map((name) => [name, name === 'month' ? type : 'Float64'])
+        api.result = [['2026-02-01', 2400, 300, null, 34]]
+        api.query = {
+            ...fixture.query,
+            display: 'ActionsLineGraph',
+            chartSettings: {
+                xAxis: fixture.query.chartSettings.xAxis,
+                yAxis: [
+                    fixture.query.chartSettings.yAxis[0],
+                    { column: 'orders', settings: { display: { displayType: 'auto' } } },
+                ],
+            },
+        }
+        const snapshot = insightSnapshot(api, undefined, CONTEXT)
+        expect(snapshot.chartKind).toBe('bar')
+        expect(snapshotChartSeries(snapshot, themes.light.chartPalette).map((series) => series.kind)).toEqual([
+            'bar',
+            'line',
+        ])
+    })
+
+    test('preserves saved labels, columns, mixed series, separate scales, percentage units and null gaps', () => {
+        const api = response()
+        const snapshot = insightSnapshot(api, undefined, CONTEXT)
+        const series = snapshotChartSeries(snapshot, themes.light.chartPalette)
+        const axes = chartAxes(series, 'bar', 'stacked', snapshotFormatter(snapshot))
+        const geometry = chartGeometry({
+            width: 350,
+            height: 180,
+            kind: 'bar',
+            variant: 'inline',
+            count: 6,
+            values: axes.left.values,
+            dates: [0, 1, 2, 3, 4, 5],
+            labels: series[0]?.points.map((p) => p.label),
+            interval: 'day',
+            formatValue: String,
+            uses24hourClock: false,
+            primaryAxis: axes.left,
+            rightAxis: axes.right,
+        })
+        expect(snapshot.capabilities).toMatchObject({ chart: true, number: false, people: false })
+        expect(queryDisplay(api.query)).toBe('chart')
+        expect(snapshot.value).toBeNull()
+        expect(series.map((s) => [s.label, s.kind, s.axis])).toEqual([
+            ['Sales', 'bar', 'left'],
+            ['Renewals', 'bar', 'left'],
+            ['Growth', 'line', 'right'],
+        ])
+        expect(series[0]?.points[5]).toEqual({ at: 5, label: 'Jul 2026 (est.)', value: 3900 })
+        expect(series[2]?.points[0]?.value).toBeNaN()
+        expect(series[2]?.points[1]?.value).toBe(0.2)
+        expect(Math.max(...axes.left.values.filter(Number.isFinite))).toBe(4550)
+        expect(Math.max(...(axes.right?.values.filter(Number.isFinite) ?? []))).toBe(0.2)
+        expect(geometry.yTicks.some((tick) => tick.text?.startsWith('$'))).toBe(true)
+        expect(geometry.rightYTicks?.every((tick) => tick.text?.endsWith('%'))).toBe(true)
+        expect(geometry.xLabels.at(-1)?.text).toBe('Jul 2026 (est.)')
+        const point = tooltipPoint(series, [], 1, 'day')
+        if (!point) {
+            throw new Error('Expected a tooltip for the SQL chart')
+        }
+        expect(tooltipContent(point, { formatValue: String, compact: true, maxRows: 4 }).header).toBe('Mar 2026')
+        expect(point.rows.map((row) => row.formattedValue)).toEqual(['$2,800', '$450', '20.0%'])
+        expect(rangeContent(series, [], 1, 2, 'day', String)?.rows[2]?.values).toBe('20.0% → 9.0%')
+        const view = dashboardView({ id: 99, name: 'Example', tiles: [{ id: 1, insight: api }] })
+        expect(splitTilesByEligibility(view.tiles, 'chart').usable.map((tile) => tile.tileId)).toEqual([1])
+    })
+
+    test('maps by returned column name and does not turn missing values into zeros unless requested', () => {
+        const api = response()
+        api.columns = ['growth', 'renewals', 'month', 'sales']
+        api.types = api.columns.map((name) => [name, name === 'month' ? 'String' : 'Nullable(Float64)'])
+        api.result = [
+            ['0.125', null, 'Later', '123.45'],
+            [null, 2, 'Earlier', 0],
+        ]
+        const snapshot = insightSnapshot(api, undefined, CONTEXT)
+        expect(snapshot.allSeries[0]?.points.map((p) => [p.label, p.value])).toEqual([
+            ['Later', 123.45],
+            ['Earlier', 0],
+        ])
+        expect(snapshot.allSeries[1]?.points[0]?.value).toBeNaN()
+        expect(snapshot.allSeries[2]?.points[0]?.value).toBe(0.125)
+        api.query = { ...fixture.query, chartSettings: { ...fixture.query.chartSettings, showNullsAsZero: true } }
+        expect(insightSnapshot(api, undefined, CONTEXT).allSeries[1]?.points[0]?.value).toBe(0)
+    })
+
+    test.each([
+        ['Metric', {}, 'SQL metric cards are not supported on mobile yet'],
+        ['ActionsTable', {}, 'This SQL visualization cannot be pinned as a chart yet'],
+        ['BoldNumber', {}, 'Saved as a big number'],
+        [
+            'ActionsBar',
+            { seriesBreakdownColumn: 'region' },
+            'SQL category breakdown charts are not supported on mobile yet',
+        ],
+        ['ActionsStackedBar', { stackBars100: true }, '100% stacked SQL charts are not supported on mobile yet'],
+        [
+            'ActionsBar',
+            { rightYAxisSettings: { scale: 'logarithmic' } },
+            'Logarithmic SQL axes are not supported on mobile yet',
+        ],
+    ])(
+        'explains unsupported %s settings instead of claiming the data is not over time',
+        (display, settings, reason) => {
+            const api = response()
+            api.query = {
+                ...fixture.query,
+                display,
+                chartSettings: { ...fixture.query.chartSettings, ...(settings as object) },
+            }
+            const snapshot = insightSnapshot(api, undefined, CONTEXT)
+            expect(snapshot.capabilities).toMatchObject({ chart: false, chartReason: reason })
+            const view = dashboardView({ id: 99, name: 'Example', tiles: [{ id: 1, insight: api }] })
+            expect(splitTilesByEligibility(view.tiles, 'chart').unusable[0]?.reason).toBe(reason)
+        }
+    )
+
+    test('keeps category labels when a saved SQL chart requests cumulative values', () => {
+        const api = response()
+        api.query = { ...fixture.query, display: 'ActionsLineGraphCumulative' }
+        const snapshot = insightSnapshot(api, undefined, CONTEXT)
+        expect(snapshot.allSeries[0]?.points.slice(0, 2)).toEqual([
+            { at: '0', label: 'Feb 2026', value: 2400 },
+            { at: '1', label: 'Mar 2026', value: 5200 },
+        ])
+    })
+
+    test('missing saved result columns fall back to the web while empty valid results remain an empty chart', () => {
+        const api = response()
+        api.columns = ['month', 'different_value']
+        const invalid = insightSnapshot(api, undefined, CONTEXT)
+        expect(invalid.capabilities.chartReason).toBe('Saved chart columns are unavailable')
+        expect(insightDisplay(invalid)).toBe('web')
+        api.columns = fixture.sqlData.columns
+        api.result = []
+        expect(insightRenderState(insightSnapshot(api, undefined, CONTEXT))).toBe('empty')
     })
 })

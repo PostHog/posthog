@@ -28,7 +28,6 @@ import {
     ScenePanelInfoSection,
 } from '~/layout/scenes/SceneLayout'
 import { notebooksModel } from '~/models/notebooksModel'
-import { tagsModel } from '~/models/tagsModel'
 import { AccessControlLevel, AccessControlResourceType, DashboardMode, ExporterFormat } from '~/types'
 
 import { dashboardInsightColorsModalLogic } from './dashboardInsightColorsModalLogic'
@@ -57,7 +56,6 @@ export function DashboardScenePanel(): JSX.Element | null {
     const { showDeleteDashboardModal } = useActions(deleteDashboardLogic)
 
     const { user } = useValues(userLogic)
-    const { tags } = useValues(tagsModel)
     const { canCopyToProject } = useValues(interProjectCopyLogic)
     const hasDashboardColors = useFeatureFlag('PRODUCT_ANALYTICS_DASHBOARD_COLORS')
 
@@ -70,7 +68,6 @@ export function DashboardScenePanel(): JSX.Element | null {
                     onSave={(tags) => updateDashboardTags(tags)}
                     canEdit={canEditDashboard}
                     tags={dashboard?.tags}
-                    tagsAvailable={tags.filter((tag) => !dashboard?.tags?.includes(tag))}
                     dataAttrKey={RESOURCE_TYPE}
                     loading={isSavingTags}
                 />

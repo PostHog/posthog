@@ -70,6 +70,17 @@ class GoogleAnalyticsQuotaExceededError(Exception):
     """
 
 
+class GoogleAnalyticsServerError(Exception):
+    """Raised when runReport's own 5xx or 409 response never clears within the in-line retry budget.
+
+    Deliberately NOT matched by `get_non_retryable_errors`, so Temporal retries the activity
+    later and the resumable source picks up from the last saved chunk — the right recovery for
+    a transient outage on Google's side, not a PostHog or customer defect. Tagged `(retryable)`
+    so `GoogleAnalyticsSource.get_retryable_errors` keeps this self-recovering failure out of
+    error tracking, the same way `GoogleSearchConsoleServerError` classifies the same shape.
+    """
+
+
 @dataclasses.dataclass
 class GoogleAnalyticsResumeConfig:
     chunk_start: str  # ISO date of the chunk currently being fetched
@@ -160,9 +171,10 @@ def _is_quota_error(response: requests.Response) -> bool:
 
 
 def _is_retryable_server_error(response: requests.Response) -> bool:
-    """5xx responses (e.g. 503 Service Unavailable) are transient backend errors —
-    back off and retry inline rather than failing the chunk."""
-    return 500 <= response.status_code < 600
+    """5xx responses (e.g. 503 Service Unavailable) are transient backend errors, and 409 is
+    Google's ABORTED code for a concurrency conflict on their end rather than a problem with our
+    request — both clear on their own, so back off and retry inline rather than failing the chunk."""
+    return response.status_code == 409 or 500 <= response.status_code < 600
 
 
 def _runreport_backoff_seconds(response: requests.Response, attempt: int) -> float:
@@ -285,8 +297,12 @@ def _run_report(
                     "initially' value on the source, or remove high-cardinality dimensions from your custom "
                     "reports (retryable)"
                 )
-            # A transient 5xx that never cleared — surface the HTTPError so Temporal retries the activity.
-            response.raise_for_status()
+            # A transient 5xx or 409 that never cleared — raise a retryable error so Temporal
+            # retries the activity without paging error tracking for an outage on Google's side.
+            raise GoogleAnalyticsServerError(
+                f"Google Analytics Data API returned {response.status_code} for property '{pid}' "
+                "after retries. PostHog will retry automatically (retryable)"
+            )
 
         wait = _runreport_backoff_seconds(response, attempt)
         logger.warning("GA4 runReport failed, backing off", property_id=pid, attempt=attempt, wait_seconds=wait)
@@ -357,11 +373,15 @@ def _watermark_date(db_incremental_field_last_value: Any) -> dt.date | None:
 
 
 def _resolve_window(
-    today: dt.date, db_incremental_field_last_value: Any, history_days: int | None = None
+    today: dt.date,
+    db_incremental_field_last_value: Any,
+    history_days: int | None = None,
+    include_today: bool = False,
 ) -> _SyncWindow:
-    # End at yesterday: today's aggregates are still accruing and would land as
-    # permanently stale rows for schemas whose primary key is just `date`.
-    end_date = today - dt.timedelta(days=1)
+    # Today's aggregates are still accruing. An incremental or append sync ends at yesterday,
+    # because a partial row it writes for today can stay stale if a later run does not re-read it.
+    # A full refresh replaces the whole table on each run, so it can include today's partial data.
+    end_date = today if include_today else today - dt.timedelta(days=1)
     last = _watermark_date(db_incremental_field_last_value)
     if last is None:
         return _SyncWindow(start=_initial_start_date(today, history_days), end=end_date)
@@ -403,6 +423,7 @@ def google_analytics_source(
             today,
             db_incremental_field_last_value if should_use_incremental_field else None,
             config.history_days,
+            include_today=not should_use_incremental_field,
         )
         start_date = window.start
         end_date = window.end

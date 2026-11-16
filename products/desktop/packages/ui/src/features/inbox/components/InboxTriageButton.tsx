@@ -4,7 +4,6 @@ import {
   TooltipContent,
   TooltipTrigger,
 } from "@posthog/quill";
-import { useTriageFocusEnabled } from "@posthog/ui/features/feature-flags/useTriageFocusEnabled";
 import {
   INBOX_TRIAGE_ROUTE,
   isInboxTriagePath,
@@ -18,11 +17,10 @@ export function InboxTriageButton({
 }: {
   triageReportCount: number;
 }): ReactElement | null {
-  const enabled = useTriageFocusEnabled();
   const inTriage = useRouterState({
     select: (state) => isInboxTriagePath(state.location.pathname),
   });
-  if (!enabled || inTriage || triageReportCount === 0) return null;
+  if (inTriage || triageReportCount === 0) return null;
 
   return (
     <Tooltip>

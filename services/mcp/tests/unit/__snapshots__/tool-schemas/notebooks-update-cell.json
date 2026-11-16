@@ -1,0 +1,252 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "additionalProperties": false,
+    "properties": {
+        "code": {
+            "description": "New SQL or Python source. Omitting code and visualization still re-runs the cell as-is, but prefer notebooks-run-cell for that.",
+            "type": "string"
+        },
+        "markdown": {
+            "description": "New markdown for a markdown cell: prose, a heading, a table, or a fenced block. Use this instead of `code` when notebooks-get reports the cell as cell_type \"markdown\". Pass the replacement only; the surrounding cells are untouched.",
+            "type": "string"
+        },
+        "node_id": {
+            "description": "The cell to update, as returned by notebooks-add-cell.",
+            "type": "string"
+        },
+        "notebook_id": {
+            "description": "The notebook's short_id, the short alphanumeric id in its URL (e.g. `aBcD1234`) that `notebooks-list` returns; not the notebook's UUID `id`.",
+            "type": "string"
+        },
+        "visualization": {
+            "anyOf": [
+                {
+                    "additionalProperties": false,
+                    "properties": {
+                        "chartSettings": {
+                            "description": "Axes and chart options. Omit an axis to let the chart pick it: the first date column for X, and every numeric column for Y. Every column named here must be a column the query returns, and a Y column must be numeric.",
+                            "properties": {
+                                "seriesBreakdownColumn": {
+                                    "anyOf": [
+                                        {
+                                            "type": "string"
+                                        },
+                                        {
+                                            "type": "null"
+                                        }
+                                    ],
+                                    "description": "Column that splits a single Y metric into multiple colored series."
+                                },
+                                "showLegend": {
+                                    "type": "boolean"
+                                },
+                                "showNullsAsZero": {
+                                    "type": "boolean"
+                                },
+                                "stackBars100": {
+                                    "type": "boolean"
+                                },
+                                "xAxis": {
+                                    "description": "Column used as the X axis, usually a time bucket or category.",
+                                    "properties": {
+                                        "column": {
+                                            "description": "Name of a column returned by the SQL query.",
+                                            "type": "string"
+                                        },
+                                        "settings": {
+                                            "properties": {
+                                                "display": {
+                                                    "properties": {
+                                                        "displayType": {
+                                                            "enum": ["auto", "line", "bar", "area"],
+                                                            "type": "string"
+                                                        },
+                                                        "label": {
+                                                            "type": "string"
+                                                        },
+                                                        "yAxisPosition": {
+                                                            "enum": ["left", "right"],
+                                                            "type": "string"
+                                                        }
+                                                    },
+                                                    "type": "object"
+                                                },
+                                                "formatting": {
+                                                    "description": "Display formatting for this axis, such as percent, decimals, prefix, or suffix.",
+                                                    "properties": {
+                                                        "decimalPlaces": {
+                                                            "type": "number"
+                                                        },
+                                                        "prefix": {
+                                                            "type": "string"
+                                                        },
+                                                        "style": {
+                                                            "enum": ["none", "number", "short", "percent"],
+                                                            "type": "string"
+                                                        },
+                                                        "suffix": {
+                                                            "type": "string"
+                                                        }
+                                                    },
+                                                    "type": "object"
+                                                }
+                                            },
+                                            "type": "object"
+                                        }
+                                    },
+                                    "required": ["column"],
+                                    "type": "object"
+                                },
+                                "yAxis": {
+                                    "description": "Numeric columns plotted as Y series. Include only final metrics the user cares about, not helper columns such as numerators or denominators.",
+                                    "items": {
+                                        "properties": {
+                                            "column": {
+                                                "description": "Name of a column returned by the SQL query.",
+                                                "type": "string"
+                                            },
+                                            "settings": {
+                                                "properties": {
+                                                    "display": {
+                                                        "properties": {
+                                                            "displayType": {
+                                                                "enum": ["auto", "line", "bar", "area"],
+                                                                "type": "string"
+                                                            },
+                                                            "label": {
+                                                                "type": "string"
+                                                            },
+                                                            "yAxisPosition": {
+                                                                "enum": ["left", "right"],
+                                                                "type": "string"
+                                                            }
+                                                        },
+                                                        "type": "object"
+                                                    },
+                                                    "formatting": {
+                                                        "description": "Display formatting for this axis, such as percent, decimals, prefix, or suffix.",
+                                                        "properties": {
+                                                            "decimalPlaces": {
+                                                                "type": "number"
+                                                            },
+                                                            "prefix": {
+                                                                "type": "string"
+                                                            },
+                                                            "style": {
+                                                                "enum": ["none", "number", "short", "percent"],
+                                                                "type": "string"
+                                                            },
+                                                            "suffix": {
+                                                                "type": "string"
+                                                            }
+                                                        },
+                                                        "type": "object"
+                                                    }
+                                                },
+                                                "type": "object"
+                                            }
+                                        },
+                                        "required": ["column"],
+                                        "type": "object"
+                                    },
+                                    "type": "array"
+                                }
+                            },
+                            "type": "object"
+                        },
+                        "display": {
+                            "description": "Chart type. Use ActionsLineGraph or ActionsAreaGraph for a time series, ActionsBar for categories, ActionsPie for shares of a total, BoldNumber for one headline value, and ActionsTable for a formatted table.",
+                            "enum": [
+                                "ActionsLineGraph",
+                                "ActionsTable",
+                                "ActionsPie",
+                                "ActionsBar",
+                                "ActionsStackedBar",
+                                "ActionsAreaGraph",
+                                "ActionsBarValue",
+                                "BoldNumber"
+                            ],
+                            "type": "string"
+                        },
+                        "tableSettings": {
+                            "properties": {
+                                "columns": {
+                                    "description": "Columns to display and their order.",
+                                    "items": {
+                                        "properties": {
+                                            "column": {
+                                                "description": "Name of a column returned by the SQL query.",
+                                                "type": "string"
+                                            },
+                                            "settings": {
+                                                "properties": {
+                                                    "display": {
+                                                        "properties": {
+                                                            "displayType": {
+                                                                "enum": ["auto", "line", "bar", "area"],
+                                                                "type": "string"
+                                                            },
+                                                            "label": {
+                                                                "type": "string"
+                                                            },
+                                                            "yAxisPosition": {
+                                                                "enum": ["left", "right"],
+                                                                "type": "string"
+                                                            }
+                                                        },
+                                                        "type": "object"
+                                                    },
+                                                    "formatting": {
+                                                        "description": "Display formatting for this axis, such as percent, decimals, prefix, or suffix.",
+                                                        "properties": {
+                                                            "decimalPlaces": {
+                                                                "type": "number"
+                                                            },
+                                                            "prefix": {
+                                                                "type": "string"
+                                                            },
+                                                            "style": {
+                                                                "enum": ["none", "number", "short", "percent"],
+                                                                "type": "string"
+                                                            },
+                                                            "suffix": {
+                                                                "type": "string"
+                                                            }
+                                                        },
+                                                        "type": "object"
+                                                    }
+                                                },
+                                                "type": "object"
+                                            }
+                                        },
+                                        "required": ["column"],
+                                        "type": "object"
+                                    },
+                                    "type": "array"
+                                },
+                                "pinnedColumns": {
+                                    "items": {
+                                        "type": "string"
+                                    },
+                                    "type": "array"
+                                },
+                                "transpose": {
+                                    "type": "boolean"
+                                }
+                            },
+                            "type": "object"
+                        }
+                    },
+                    "required": ["display"],
+                    "type": "object"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "SQL cells only: show the result as a chart instead of the table, like the Visualization tab in the editor. The chart draws from the rows the run returns, so aggregate in SQL to the points you want plotted. Pass null to show the results table again. Without code, the chart changes and the cell does not re-run."
+        }
+    },
+    "required": ["notebook_id", "node_id"],
+    "type": "object"
+}

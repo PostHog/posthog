@@ -167,12 +167,15 @@ describe('HogFlowActionRunnerWaitUntilTimeWindow', () => {
             )
         })
 
-        it('should handle single specific day', () => {
-            action.config.day = ['monday']
-            jest.setSystemTime(new Date('2025-01-01T17:00:00.000Z')) // Wednesday
+        it.each([
+            ['monday', 5],
+            ['wednesday', 7],
+        ] as const)('schedules the next %s, %i days away', (day, days) => {
+            action.config.day = [day]
+            jest.setSystemTime(new Date('2025-01-01T17:00:00.000Z')) // Wednesday, after the window
             const result = getWaitUntilTime(action)
             expect(result).toEqual(
-                DateTime.utc().plus({ days: 5 }).set({ hour: 14, minute: 0, second: 0, millisecond: 0 })
+                DateTime.utc().plus({ days }).set({ hour: 14, minute: 0, second: 0, millisecond: 0 })
             )
         })
 
@@ -206,6 +209,31 @@ describe('HogFlowActionRunnerWaitUntilTimeWindow', () => {
                 `"2025-07-01T08:00:00.000-04:00"`
             )
             expect(result!.toISO()).toMatchInlineSnapshot(`"2025-07-01T14:00:00.000-04:00"`)
+        })
+
+        it.each([
+            [
+                'a Saturday 23:30 a week before a late-evening spring-forward',
+                'America/Nuuk',
+                '2027-03-21T01:30:00.000Z',
+                'saturday',
+                ['14:00', '16:00'],
+                '2027-03-27T14:00:00.000-02:00',
+            ],
+            [
+                'noon on a day whose midnight the clocks skipped',
+                'America/Santiago',
+                '2026-09-06T15:00:00.000Z',
+                'monday',
+                'any',
+                '2026-09-07T00:00:00.000-03:00',
+            ],
+        ] as const)('starts the next valid day at midnight from %s', (_, timezone, now, day, time, expected) => {
+            action.config.timezone = timezone
+            action.config.day = [day]
+            action.config.time = time === 'any' ? 'any' : [...time]
+            jest.setSystemTime(new Date(now))
+            expect(getWaitUntilTime(action)!.toISO()).toBe(expected)
         })
 
         it('should handle timezone with negative offset', () => {

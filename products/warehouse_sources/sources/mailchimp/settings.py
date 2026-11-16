@@ -26,6 +26,8 @@ class MailchimpParentConfig:
     data_selector: str
     id_field: str = "id"
     inject_as: str = "id"
+    extra_params: dict[str, str] = field(default_factory=dict)
+    """Extra query params for this hop's own fetch, such as filtering out a parent type a later hop can't walk."""
 
 
 @dataclass(frozen=True)
@@ -228,7 +230,14 @@ MAILCHIMP_ENDPOINTS: dict[str, MailchimpEndpointConfig] = {
         data_selector="members",
         parents=(
             _LISTS_PARENT,
-            MailchimpParentConfig(path="/lists/{list_id}/segments", data_selector="segments", inject_as="segment_id"),
+            # A "fuzzy" segment ("similar subscribers") is computed on demand and has no stored
+            # membership, so Mailchimp 400s on its members sub-resource. Exclude it from the walk.
+            MailchimpParentConfig(
+                path="/lists/{list_id}/segments",
+                data_selector="segments",
+                inject_as="segment_id",
+                extra_params={"exclude_type": "fuzzy"},
+            ),
         ),
         incremental_fields=[],
         primary_keys=["list_id", "segment_id", "id"],

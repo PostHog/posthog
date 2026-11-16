@@ -15,8 +15,10 @@ from parameterized import parameterized
 
 from posthog.models import FileSystemViewLog, User
 
+from products.customer_analytics.backend.facade.contracts import KeyMetric
 from products.dashboards.backend.facade.api import DashboardInsights, DashboardInsightTile
 from products.product_analytics.backend.facade.contracts import (
+    AgentInsightRead,
     InsightDashboardContext,
     InsightSeries,
     InsightSeriesNotReady,
@@ -35,6 +37,15 @@ TODAY = date(2026, 10, 13)
 def days(values: list[float]) -> list[tuple[date, float]]:
     start = TODAY - timedelta(days=len(values))
     return [(start + timedelta(days=i), v) for i, v in enumerate(values)]
+
+
+def key_metrics(weeks: list[float] | None) -> list[KeyMetric] | None:
+    if weeks is None:
+        return None
+    return [
+        KeyMetric(key=f"metric{i}", name="Sign-ups", people=False, daily=[], this_week=w, last_week=w, node={})
+        for i, w in enumerate(weeks)
+    ]
 
 
 def insight(series: dict[str, list[tuple[date, float]]], **fields: Any) -> InsightSeries:
@@ -393,8 +404,51 @@ class TestRoutineInsights(BaseTest):
 
         self.assertEqual([m.key for m in pulse], ["insight:habit"])
 
+    @parameterized.expand(
+        [
+            (
+                "nothing_hidden",
+                frozenset(),
+                ["b1", "b2", "b3", "b4"],
+                [],
+                ["habit", "alerted", "subscribed", "b1", "b2", "b3"],
+            ),
+            (
+                "insights_agents_read_on_two_days_follow_the_habits",
+                frozenset(),
+                ["b1", "b2", "b3", "b4"],
+                [
+                    AgentInsightRead("asked", (TODAY - timedelta(days=1), TODAY - timedelta(days=6))),
+                    AgentInsightRead("asked_once", (TODAY - timedelta(days=1),)),
+                    AgentInsightRead("asked_long_ago", (TODAY - timedelta(days=16), TODAY - timedelta(days=20))),
+                ],
+                ["habit", "asked", "alerted", "subscribed", "b1", "b2"],
+            ),
+            (
+                "a_hidden_insight_leaves_no_gap",
+                frozenset({"insight:alerted"}),
+                ["b1", "b2", "b3", "b4"],
+                [],
+                ["habit", "subscribed", "b1", "b2", "b3", "b4"],
+            ),
+            (
+                "hidden_insights_do_not_use_up_the_candidate_limit",
+                frozenset(f"insight:b{index}" for index in range(1, 13)),
+                [f"b{index}" for index in range(1, 15)],
+                [],
+                ["habit", "alerted", "subscribed", "b13", "b14"],
+            ),
+        ]
+    )
     @time_machine.travel("2026-10-13T12:00:00Z", tick=False)
-    def test_the_pulse_mixes_repeated_watched_and_built_insights_without_popular_ones(self) -> None:
+    def test_the_pulse_mixes_repeated_watched_and_built_insights_without_popular_ones(
+        self,
+        _name: str,
+        hidden: frozenset[str],
+        built: list[str],
+        asked: list[AgentInsightRead],
+        expected: list[str],
+    ) -> None:
         other = User.objects.create_and_join(self.organization, "viewer@example.com", None)
         for user, ref, ages in ((self.user, "habit", [1, 5, 9]), (self.user, "once", [1]), (other, "shared", [1])):
             FileSystemViewLog.objects.create(
@@ -415,21 +469,97 @@ class TestRoutineInsights(BaseTest):
             ),
             patch.object(routine, "insight_short_ids_watched_by", return_value=["alerted", "habit"]),
             patch.object(routine, "insight_short_ids_subscribed_by", return_value=["subscribed"]),
-            patch.object(routine, "insight_short_ids_built_by", return_value=["b1", "b2", "b3"]),
+            patch.object(routine, "insight_short_ids_built_by", side_effect=lambda **kwargs: built[: kwargs["limit"]]),
+            patch.object(routine, "insight_reads_by_agents", return_value=asked),
         ):
-            pulse = routine.find(Context(self.team, self.user, TODAY)).pulse
+            pulse = routine.find(Context(self.team, self.user, TODAY, hidden=hidden)).pulse
 
+        reasons = {"habit": "routine", "alerted": "watched", "subscribed": "watched", "asked": "agent"}
         self.assertEqual(
             [(m.key, m.reason) for m in pulse],
-            [
-                ("insight:habit", "routine"),
-                ("insight:alerted", "watched"),
-                ("insight:subscribed", "watched"),
-                ("insight:b1", "built"),
-                ("insight:b2", "built"),
-                ("insight:b3", "built"),
-            ],
+            [(f"insight:{ref}", reasons.get(ref, "built")) for ref in expected],
         )
+
+    @parameterized.expand(
+        [
+            ("a person without habits", [], [], ["team_fav", "runner_up", "third"]),
+            ("a habit that is already popular", ["team_fav"], [], ["runner_up", "third"]),
+            ("habits that fill the row", ["h1", "h2", "h3", "h4"], [], []),
+            ("a dashboard habit takes one place", ["dashboard:7"], [], ["team_fav", "runner_up", "third"]),
+            ("a habit without data frees its place", ["h1", "h2", "broken"], [], ["team_fav", "runner_up"]),
+            ("key metrics keep no place beside habits", ["h1", "h2"], [5.0, 5.0], ["team_fav", "runner_up"]),
+            ("active key metrics keep places without habits", [], [5.0, 5.0], ["team_fav", "runner_up"]),
+            ("a key metric without activity keeps no place", [], [0.0], ["team_fav", "runner_up", "third"]),
+            ("key metrics still computing keep their places", [], None, ["team_fav", "runner_up"]),
+        ]
+    )
+    @time_machine.travel("2026-10-13T12:00:00Z", tick=False)
+    def test_popular_insights_fill_only_the_places_a_persons_own_habits_leave(
+        self, _name: str, habits: list[str], key_metric_weeks: list[float] | None, expected: list[str]
+    ) -> None:
+        viewers = [User.objects.create_and_join(self.organization, f"viewer{i}@example.com", None) for i in range(3)]
+        seen = {
+            "team_fav": viewers,
+            "broken": viewers,
+            "runner_up": viewers[:2],
+            "third": viewers[:2],
+            "solo": viewers[:1],
+            "ignored": viewers,
+        }
+        for ref, people in seen.items():
+            for person in people:
+                FileSystemViewLog.objects.create(
+                    team=self.team,
+                    user=person,
+                    type="insight",
+                    ref=ref,
+                    viewed_at=datetime.combine(TODAY - timedelta(days=2), time(12), tzinfo=UTC),
+                )
+        for habit in habits:
+            kind, _, ref = habit.rpartition(":")
+            FileSystemViewLog.objects.create(
+                team=self.team,
+                user=self.user,
+                type=kind or "insight",
+                ref=ref,
+                view_days=[TODAY - timedelta(days=age) for age in (1, 5, 9)],
+                viewed_at=datetime.combine(TODAY - timedelta(days=1), time(12), tzinfo=UTC),
+            )
+        growth = DashboardInsights(
+            dashboard_id=7,
+            name="Growth",
+            filters={},
+            variables=None,
+            tiles=tuple(DashboardInsightTile(insight_short_id=f"g{i}", filters_overrides=None) for i in range(4)),
+        )
+        points = [(TODAY - timedelta(days=d), 2.0) for d in range(14, 0, -1)]
+
+        def series(**kwargs: Any) -> InsightSeries | None:
+            if kwargs["short_id"] == "broken":
+                return None
+            return insight({"opened": points}, short_id=kwargs["short_id"], name="Opened")
+
+        with (
+            patch.object(routine, "get_insight_series", side_effect=series),
+            patch.object(routine, "dashboard_insights", return_value=growth),
+            patch.object(routine, "get_key_metrics", return_value=key_metrics(key_metric_weeks)),
+            patch.object(
+                routine, "get_key_metric_names", return_value={"metric0": "Sign-ups", "metric1": "Active users"}
+            ),
+        ):
+            pulse = routine.find(Context(self.team, self.user, TODAY, hidden=frozenset({"insight:ignored"}))).pulse
+
+        self.assertEqual([m.key for m in pulse if m.reason == "popular"], [f"insight:{ref}" for ref in expected])
+
+    @time_machine.travel("2026-10-13T12:00:00Z", tick=False)
+    def test_popular_insights_are_not_looked_up_when_key_metrics_fill_the_row(self) -> None:
+        with (
+            patch.object(routine, "get_key_metrics", return_value=key_metrics([5.0] * 4)),
+            patch.object(routine, "_popular_refs", return_value=["team_fav"]) as popular_refs,
+        ):
+            routine.find(Context(self.team, self.user, TODAY))
+
+        popular_refs.assert_not_called()
 
 
 class TestProgressiveInsights(SimpleTestCase):
@@ -468,7 +598,6 @@ class TestProgressiveInsights(SimpleTestCase):
             ),
         )
         with (
-            patch.object(routine, "_own_candidates", return_value=views),
             patch.object(routine, "viewable_insight_definitions", return_value=definitions),
             patch.object(routine, "get_insight_series", side_effect=series),
             patch.object(
@@ -477,7 +606,7 @@ class TestProgressiveInsights(SimpleTestCase):
             patch.object(routine, "monotonic", side_effect=lambda: clock[0]),
             patch.object(routine, "sleep", side_effect=advance),
         ):
-            found = routine._progressive_metrics(context, frozenset(), 4)
+            found = routine.progressive_metrics(context, frozenset(), 4, views)
 
         self.assertEqual(published[0][0], 0)
         self.assertEqual([slot.key for slot in published[0][2]], [f"insight:{ref}" for ref in list(ready_at)[:4]])
@@ -542,13 +671,12 @@ class TestProgressiveInsights(SimpleTestCase):
             ),
         )
         with (
-            patch.object(routine, "_own_candidates", return_value=views),
             patch.object(routine, "dashboard_insights", return_value=dashboard),
             patch.object(routine, "viewable_insight_definitions", return_value=definitions),
             patch.object(routine, "get_insight_series", side_effect=series),
             patch.object(routine, "capture_exception"),
         ):
-            found = routine._progressive_metrics(context, frozenset(), 2)
+            found = routine.progressive_metrics(context, frozenset(), 2, views)
 
         self.assertEqual(
             [(metric.key, metric.dashboard_id) for metric in found], [("insight:a", 7), ("insight:b", None)]
@@ -596,14 +724,13 @@ class TestProgressiveInsights(SimpleTestCase):
             ),
         )
         with (
-            patch.object(routine, "_own_candidates", return_value=[viewed]),
             patch.object(routine, "dashboard_insights", return_value=dashboard),
             patch.object(routine, "viewable_insight_definitions", return_value=definitions),
             patch.object(
                 routine, "get_insight_series", return_value=insight({"opened": days([10.0] * 56)}, short_id="chart")
             ) as query,
         ):
-            found = routine._progressive_metrics(context, frozenset(), 6)
+            found = routine.progressive_metrics(context, frozenset(), 6, [viewed])
         self.assertEqual([slot.key for slot in published[0]], ["insight:chart"])
         self.assertEqual([metric.key for metric in found], ["insight:chart"])
         query.assert_called_once()

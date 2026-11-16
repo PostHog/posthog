@@ -205,6 +205,13 @@ class TestSlotSetupErrorMessage:
         error = _slot_setup_error_message(RuntimeError("connection reset"))
         assert error == "Failed to create replication slot: connection reset"
 
+    def test_undefined_table_points_at_renamed_or_dropped_table(self) -> None:
+        # ALTER PUBLICATION ADD TABLE raises this when the table no longer exists on the
+        # source database, e.g. it was renamed or dropped after PostHog last synced the schema.
+        error = _slot_setup_error_message(psycopg.errors.UndefinedTable('relation "public.orders" does not exist'))
+        assert 'relation "public.orders" does not exist' in error
+        assert "doesn't exist on your database" in error
+
 
 class TestRecreateStream:
     @patch(f"{_ADAPTER}.create_slot_and_publication")
@@ -461,6 +468,24 @@ class TestValidatePrerequisites:
 
         assert mock_validate.call_args.kwargs["slot_name"] is None
         assert mock_validate.call_args.kwargs["publication_name"] == "customer_pub"
+
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.prerequisite_validator.validate_cdc_prerequisites",
+        return_value=[],
+    )
+    @patch(f"{_ADAPTER}.cdc_pg_connection", new_callable=_fake_conn)
+    def test_resolves_the_default_publication_for_posthog_managed_mode(self, _conn, mock_validate) -> None:
+        source = _source()
+
+        PostgresCDCAdapter().validate_prerequisites(
+            source,
+            management_mode="posthog",
+            tables=[],
+            schema="public",
+            setup={"cdc_slot_name": "", "cdc_publication_name": None},
+        )
+
+        assert mock_validate.call_args.kwargs["publication_name"] == f"posthog_pub_{source.id.hex[:12]}"
 
 
 class TestIsConnectionError:

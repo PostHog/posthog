@@ -19,7 +19,7 @@
   },
   "dependencies": {
     "@agentclientprotocol/sdk": "0.22.1",
-    "@anthropic-ai/claude-agent-sdk": "0.3.280",
+    "@anthropic-ai/claude-agent-sdk": "0.3.314",
     "@earendil-works/pi-coding-agent": "catalog:",
     "@hono/node-server": "catalog:",
     "@hono/trpc-server": "catalog:",
@@ -48,7 +48,7 @@
   "devDependencies": {
     "@inversifyjs/strongly-typed": "2.2.0",
     "@posthog/tsconfig": "workspace:*",
-    "@types/better-sqlite3": "^7.6.13",
+    "@types/better-sqlite3": "^9.6.0",
     "@types/node": "catalog:",
     "drizzle-kit": "^0.31.9",
     "memfs": "^4.57.3",

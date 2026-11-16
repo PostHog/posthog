@@ -15,9 +15,9 @@ import {
   contextSelectionResponseSchema,
 } from "./context-selection/schemas";
 import type { PostHogAPIConfig, StoredEntry, Task, TaskRun } from "./types";
-import { getGatewayUsageUrl, getLlmGatewayUrl } from "./utils/gateway";
+import { getLlmGatewayUrl } from "./utils/gateway";
 
-export { getGatewayUsageUrl, getLlmGatewayUrl };
+export { getLlmGatewayUrl };
 export { API_TRANSFER_TIMEOUT_MS, type TaskRunUpdate };
 
 const DEFAULT_USER_AGENT = `posthog/agent.hog.dev; version: ${packageJson.version}`;
@@ -110,13 +110,14 @@ export class PostHogAPIClient {
     prompt: string;
     history: string;
     runtime_version: string;
+    exclude: string[];
   }): Promise<ContextSelectionResponse> {
     const response = await this.apiRequest<unknown>(
       `/api/projects/${this.getTeamId()}/context_layer/selection/prepare/`,
       {
         method: "POST",
         body: JSON.stringify(input),
-        signal: AbortSignal.timeout(5_000),
+        signal: AbortSignal.timeout(9_000),
       },
     );
     return contextSelectionResponseSchema.parse(response);
