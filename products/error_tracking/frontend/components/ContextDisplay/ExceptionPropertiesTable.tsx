@@ -1,5 +1,4 @@
-import { IconChevronDown, IconChevronRight } from '@posthog/icons'
-import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
+import { LemonDivider } from '@posthog/lemon-ui'
 
 import { PropertiesTable } from '../PropertiesTable'
 import type { PropertyTableRow } from '../PropertiesTable'
@@ -8,11 +7,6 @@ export interface ExceptionPropertySection {
     id: string
     title: string
     entries: ([string, unknown] | PropertyTableRow)[]
-    collapse?: {
-        collapsed: boolean
-        onToggle: () => void
-        dataAttr: string
-    }
 }
 
 export interface ExceptionPropertiesTableProps {
@@ -47,30 +41,16 @@ export function ExceptionPropertiesTable({
                             id={section.id}
                             className="m-0 shrink-0 text-xs font-semibold uppercase tracking-wide text-secondary"
                         >
-                            {section.collapse ? (
-                                <LemonButton
-                                    size="xsmall"
-                                    onClick={section.collapse.onToggle}
-                                    icon={section.collapse.collapsed ? <IconChevronRight /> : <IconChevronDown />}
-                                    aria-expanded={!section.collapse.collapsed}
-                                    data-attr={section.collapse.dataAttr}
-                                >
-                                    {`${section.title} (${section.entries.length})`}
-                                </LemonButton>
-                            ) : (
-                                section.title
-                            )}
+                            {section.title}
                         </h3>
                         <LemonDivider className="my-0 flex-1" />
                     </div>
-                    {!section.collapse?.collapsed && (
-                        <PropertiesTable
-                            entries={section.entries}
-                            firstColumnWidth="12rem"
-                            tableLayout="fixed"
-                            onFilterValue={onFilterValue}
-                        />
-                    )}
+                    <PropertiesTable
+                        entries={section.entries}
+                        firstColumnWidth="12rem"
+                        tableLayout="fixed"
+                        onFilterValue={onFilterValue}
+                    />
                 </section>
             ))}
         </div>
