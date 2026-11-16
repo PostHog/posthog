@@ -47,6 +47,7 @@ import type {
     ProjectApi,
     SharingConfigurationApi,
     TeamFeatureFlagPolicyConfigApi,
+    TeamRealtimeCohortsApi,
 } from '~/generated/core/api.schemas'
 import { RootAssistantMessage } from '~/queries/schema/schema-assistant-messages'
 import type {
@@ -92,7 +93,7 @@ import { QueryContext } from '~/queries/types'
 import type { ScopeObjectEnumApi } from 'products/access_control/frontend/generated/api.schemas'
 import { AlertType } from 'products/alerts/frontend/types'
 import type { BatchExportApi } from 'products/batch_exports/frontend/generated/api.schemas'
-import type { CohortRealtimeReadinessApi } from 'products/cohorts/frontend/generated/api.schemas'
+import type { CohortApi, CohortRealtimeReadinessApi } from 'products/cohorts/frontend/generated/api.schemas'
 import type { DashboardTileGroupApi } from 'products/dashboards/frontend/generated/api.schemas'
 import {
     type LineageIssueApi,
@@ -113,6 +114,7 @@ import type { InsightFilterOverrideContextApi } from 'products/product_analytics
 import type { AIPromptConfigApi, DeliveryConfigApi } from 'products/subscriptions/frontend/generated/api.schemas'
 import type { TaskRuntimeEnumApi } from 'products/tasks/frontend/generated/api.schemas'
 import type {
+    ExternalDataSchemaApi,
     ExternalDataSchemaApiAvailableColumnsItem,
     ExternalDataSchemaApiAvailableColumnsItemSensitivity,
     IncrementalSyncBlockedReasonEnumApi,
@@ -767,8 +769,9 @@ export interface TeamBasicType extends WithAccessControl {
     organization: string // Organization ID
     project_id: number
     api_token: string
-    secret_api_token: string
-    secret_api_token_backup: string
+    // Null in every response except rotate_secret_token, which returns the newly minted token once. The fields drop with the column retirement (#66179).
+    secret_api_token: string | null
+    secret_api_token_backup: string | null
     name: string
     completed_snippet_onboarding: boolean
     has_completed_onboarding_for?: Record<string, boolean>
@@ -945,6 +948,8 @@ export interface TeamType extends TeamBasicType {
     base_currency: CurrencyCode
     managed_viewsets: Record<DataWarehouseManagedViewsetKind, boolean>
     flag_evaluations_mode: FlagEvaluationsModeEnumApi
+    // Optional so cached team objects from before this field shipped still typecheck.
+    realtime_cohorts?: TeamRealtimeCohortsApi
     receive_org_level_activity_logs: boolean | null
     customer_analytics_config: CustomerAnalyticsConfig
     workflows_config: WorkflowsConfig
@@ -1934,6 +1939,7 @@ export interface CohortType {
     /** How many of those IDs matched no person, and so were left out of the cohort. */
     last_import_unmatched_count?: number | null
     is_static?: boolean
+    cohort_type?: CohortApi['cohort_type']
     name?: string
     csv?: File
     groups: CohortGroupType[] // To be deprecated once `filter` takes over
@@ -1946,6 +1952,7 @@ export interface CohortType {
     /** Whether feature flags can target this cohort, and the progress of the history build that
      * gets it there. Null on projects the realtime pipeline does not cover. */
     realtime?: CohortRealtimeReadinessApi | null
+    realtime_enabled?: boolean
     _create_in_folder?: string | null
     _create_static_person_ids?: string[]
 }
@@ -6757,6 +6764,8 @@ export interface ExternalDataSourceSchema extends SimpleExternalDataSourceSchema
     api_version_deprecation?: ExternalDataSourceApiVersionDeprecation | null
     /** The requesting user's effective access level for this table (inherits the source). */
     user_access_level?: AccessControlLevel
+    live_query_enabled?: ExternalDataSchemaApi['live_query_enabled']
+    live_query_unavailable_reason?: ExternalDataSchemaApi['live_query_unavailable_reason']
 }
 
 /** Lightweight parent-source summary embedded in the single-schema retrieve endpoint. */
@@ -6764,6 +6773,7 @@ export interface ExternalDataSchemaSourceSummary {
     id: string
     source_type: ExternalDataSourceType
     access_method?: ExternalDataSource['access_method']
+    direct_query_enabled?: boolean
     supports_column_selection?: boolean
     supports_row_filters?: boolean
     requires_exact_column_metadata?: boolean
@@ -7549,6 +7559,7 @@ export type HogFunctionConfigurationContextId =
     | 'billing-alerts'
     | 'replay-vision-alerts'
     | 'replay-vision-requests'
+    | 'signals-reports'
 
 export type HogFunctionSubTemplateIdType =
     | 'early-access-feature-enrollment'
@@ -7571,6 +7582,7 @@ export type HogFunctionSubTemplateIdType =
     | 'health-check-resolved'
     | 'batch-export-run-failed'
     | 'replay-vision-request-completed'
+    | 'signals-report-ready'
 
 export type HogFunctionConfigurationType = Omit<
     HogFunctionType,
@@ -8012,15 +8024,20 @@ export type OAuthMcpConsentContext = {
     scopes?: string[]
 }
 
+export type OAuthGrantAccess = {
+    scoped_teams: number[]
+    scoped_organizations: string[]
+}
+
 export type OAuthScopeResolution = {
     /** What `/authorize` resolved the request to: clamped to the app ceiling, and defaulted to it when the client sent no usable scope. */
     scopes: string[]
     /** Whether the client sent no usable `scope` (omitted, or cut off mid-token), so the server picked the set. */
     was_defaulted: boolean
-    /** Scopes of `scopes` the user granted this app before, which a step-up keeps. Shown as granted and not removable. */
+    /** Scopes of `scopes` the user granted this app before for `earlier_access`, which a step-up there keeps. Shown as granted and not removable. */
     already_granted_scopes?: string[]
     /** Where the newest earlier grant applies. A step-up pre-selects it, so the token keeps its projects. Both lists empty means all of them. */
-    earlier_access?: { scoped_teams: number[]; scoped_organizations: string[] }
+    earlier_access?: OAuthGrantAccess
 }
 
 export type OAuthApplicationPublicMetadata = {

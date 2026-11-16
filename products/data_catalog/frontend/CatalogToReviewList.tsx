@@ -1,18 +1,8 @@
 import { useValues } from 'kea'
 import { combineUrl } from 'kea-router'
 
-import { IconLightBulb } from '@posthog/icons'
-import {
-    Button,
-    Heading,
-    Item,
-    ItemActions,
-    ItemContent,
-    ItemDescription,
-    ItemGroup,
-    ItemMedia,
-    ItemTitle,
-} from '@posthog/quill'
+import { IconChevronRight } from '@posthog/icons'
+import { Button, Heading, Item, ItemActions, ItemContent, ItemGroup, Text } from '@posthog/quill'
 
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { pluralize } from 'lib/utils/strings'
@@ -25,50 +15,48 @@ import { relationshipsLogic } from './relationshipsLogic'
 
 const HEADING_ID = 'data-catalog-to-review-heading'
 
-export interface ReviewItem {
+interface ProposalLink {
     key: string
     count: number
     title: string
-    description: string
-    href?: string
-    onReview?: () => void
+    href: string
 }
 
 export interface CatalogToReviewListProps {
-    suggestionsItem?: ReviewItem
+    suggestionsBanner?: JSX.Element
 }
 
-export function CatalogToReviewList({ suggestionsItem }: CatalogToReviewListProps): JSX.Element | null {
+function proposedUrl(tab: 'tables' | 'relationships' | 'metrics'): string {
+    return combineUrl(urls.dataCatalog(tab), { [TABLES_FILTER_PARAM]: PROPOSED_TABLES_FILTER }).url
+}
+
+export function CatalogToReviewList({ suggestionsBanner }: CatalogToReviewListProps): JSX.Element | null {
     const { proposedCount: proposedMetrics } = useValues(metricsLogic)
     const { proposedCount: proposedCertifications } = useValues(certificationsLogic)
     const { pendingCount: proposedJoins } = useValues(relationshipsLogic)
 
-    const items: ReviewItem[] = [
+    const proposals: ProposalLink[] = [
         {
             key: 'certifications',
             count: proposedCertifications,
-            title: pluralize(proposedCertifications, 'proposed certification'),
-            description: 'Tables and views waiting for someone to mark them as trusted.',
-            href: combineUrl(urls.dataCatalog('tables'), { [TABLES_FILTER_PARAM]: PROPOSED_TABLES_FILTER }).url,
+            title: pluralize(proposedCertifications, 'certification'),
+            href: proposedUrl('tables'),
         },
-        ...(suggestionsItem ? [suggestionsItem] : []),
         {
             key: 'relationships',
             count: proposedJoins,
-            title: pluralize(proposedJoins, 'proposed join'),
-            description: 'Joins between tables waiting for someone to accept or reject them.',
-            href: combineUrl(urls.dataCatalog('relationships'), { [TABLES_FILTER_PARAM]: PROPOSED_TABLES_FILTER }).url,
+            title: pluralize(proposedJoins, 'join'),
+            href: proposedUrl('relationships'),
         },
         {
             key: 'metrics',
             count: proposedMetrics,
-            title: pluralize(proposedMetrics, 'proposed metric'),
-            description: 'Metric definitions waiting for approval.',
-            href: combineUrl(urls.dataCatalog('metrics'), { [TABLES_FILTER_PARAM]: PROPOSED_TABLES_FILTER }).url,
+            title: pluralize(proposedMetrics, 'metric'),
+            href: proposedUrl('metrics'),
         },
     ].filter(({ count }) => count > 0)
 
-    if (items.length === 0) {
+    if (!suggestionsBanner && proposals.length === 0) {
         return null
     }
 
@@ -77,29 +65,31 @@ export function CatalogToReviewList({ suggestionsItem }: CatalogToReviewListProp
             <Heading size="base" render={<h3 id={HEADING_ID} className="m-0" />}>
                 To review
             </Heading>
-            <ItemGroup className="grid gap-2 @min-[48rem]/main-content:grid-cols-3">
-                {items.map(({ key, title, description, href, onReview }) => (
-                    <Item key={key} variant="outline" size="sm" render={<div role="listitem" />}>
-                        <ItemMedia variant="icon">
-                            <IconLightBulb />
-                        </ItemMedia>
+            <ItemGroup combined role={undefined}>
+                {suggestionsBanner}
+                {proposals.length > 0 && (
+                    <Item variant="outline" size="sm" className="flex-wrap">
                         <ItemContent>
-                            <ItemTitle>{title}</ItemTitle>
-                            <ItemDescription>{description}</ItemDescription>
+                            <Text size="sm" className="text-secondary">
+                                Waiting for approval
+                            </Text>
                         </ItemContent>
-                        <ItemActions>
-                            <Button
-                                variant="outline"
-                                size="sm"
-                                render={href ? <LinkPrimitive to={href} /> : undefined}
-                                onClick={onReview}
-                                data-attr={`data-catalog-review-${key}`}
-                            >
-                                Review
-                            </Button>
+                        <ItemActions className="flex-wrap">
+                            {proposals.map(({ key, title, href }) => (
+                                <Button
+                                    key={key}
+                                    variant="outline"
+                                    size="sm"
+                                    render={<LinkPrimitive to={href} />}
+                                    data-attr={`data-catalog-review-${key}`}
+                                >
+                                    {title}
+                                    <IconChevronRight />
+                                </Button>
+                            ))}
                         </ItemActions>
                     </Item>
-                ))}
+                )}
             </ItemGroup>
         </section>
     )
