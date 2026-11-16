@@ -15,6 +15,7 @@ from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.utils.breakdowns import BREAKDOWN_NULL_STRING_LABEL, BREAKDOWN_OTHER_STRING_LABEL
 
 from products.experiments.backend.facade.contracts import (
+    ExperimentHealthCheckKey,
     ExperimentHealthFinding,
     ExperimentHealthFindingActionKind,
     ExperimentHealthFindingCode,
@@ -47,6 +48,7 @@ from products.experiments.backend.health.skips import (
     not_applicable,
 )
 from products.experiments.backend.health.split_changes import format_change_time
+from products.experiments.backend.health.variant_moves import VariantMove, differs_across_change, last_variant_move
 from products.experiments.backend.hogql_queries.experiment_exposure_query_builder import ExposureSegmentDimension
 from products.feature_flags.backend.facade.edits import SplitChange
 
@@ -66,8 +68,9 @@ NAMED_SEGMENTS = 2
 # expected count comes from the split, so on a 90/10 split a segment at 95% control doesn't count as filled by control.
 BARELY_EXPOSED_SHARE = 0.1
 
-# pinned: the subcode is sent as `finding_subcode` on the health finding events, so insights group on it.
+# pinned: the subcodes are sent as `finding_subcode` on the health finding events, so insights group on them.
 SPLIT_CHANGED = "split_changed"
+RELEASE_CONDITIONS_CHANGED = "release_conditions_changed"
 
 
 class SrmReason(StrEnum):
@@ -124,6 +127,9 @@ def reads_segments(ctx: HealthContext) -> bool:
         return False
     outcome = srm(ctx)
     if not isinstance(outcome, ExperimentHealthFinding):
+        return False
+    # The users first exposed after the change match the split, so no segment can locate the mismatch among them.
+    if outcome.subcode == RELEASE_CONDITIONS_CHANGED:
         return False
     # A variant override can explain a mismatch, but a segment that locates it names the cause more precisely.
     if outcome.subcode != SPLIT_CHANGED:
@@ -193,6 +199,9 @@ def srm(ctx: HealthContext) -> CheckOutcome:
         if not _skew_predates_the_change(ctx, exposures, split_changes):
             return _after_split_change(ctx, exposures, split_changes, p_value, share_off_split)
         ruled_out = True
+    conditions_change = _conditions_change_cause(ctx, exposures)
+    if conditions_change is not None:
+        return _after_conditions_change(ctx, exposures, conditions_change, p_value, share_off_split)
     cause = _segment_cause(exposures, exposures.unit)
     pinned = _pinned_cause(ctx, exposures)
     if pinned and not cause.locates_the_mismatch:
@@ -266,6 +275,12 @@ def _after_split_change(
         evidence=evidence,
         actions=(ExperimentHealthFindingActionKind.MOVE_START_DATE,) if start_at is not None else (),
         diagnostic_ref="A2",
+        # Only the split check's warning carries the steps that fix the mismatch, and only before the end.
+        caused_by=(
+            ExperimentHealthCheckKey.SPLIT_CHANGED_MID_RUN
+            if split_changes.warning_title is not None and not ctx.has_ended
+            else None
+        ),
     )
 
 
@@ -525,6 +540,7 @@ def _pinned_mismatch(
         },
         actions=(),
         diagnostic_ref="A2",
+        caused_by=ExperimentHealthCheckKey.FORCED_VARIANT_RELEASE_CONDITION,
     )
 
 
@@ -568,6 +584,84 @@ def _mismatch(
         },
         actions=(),
         diagnostic_ref="A2",
+    )
+
+
+@frozen
+class _ConditionsChangeCause:
+    move: VariantMove
+    # The sample ratio test of the users first exposed after the day of the change.
+    p_value_after: float
+
+
+def _conditions_change_cause(ctx: HealthContext, exposures: ExposureTotals) -> _ConditionsChangeCause | None:
+    """The last release-condition change that gave exposed users another variant, when it explains the mismatch: the
+    users first exposed after its day match the split, and the users first exposed before it are split differently."""
+    events = ctx.exposure_events
+    # With an activation, the exposure query dates a user by the activation, but the flag call before it assigned the
+    # variant, so a user dated after the change can carry a variant from before it.
+    if events is None or events.activation is not None:
+        return None
+    move = last_variant_move(
+        ctx.flag_history, checks=(ExperimentHealthCheckKey.RELEASE_CONDITIONS_CHANGED_MID_RUN,), ended_at=ctx.ended_at
+    )
+    if move is None:
+        return None
+    weights = exposures.sample_ratio_expected
+    before = {variant: move.before(exposures.daily_exposures.get(variant, {})) for variant in weights}
+    after = {variant: move.after(exposures.daily_exposures.get(variant, {})) for variant in weights}
+    retest = sample_ratio_test(after, weights)
+    if retest is None or retest.p_value < SAMPLE_RATIO_MISMATCH_P_VALUE or not differs_across_change(before, after):
+        return None
+    return _ConditionsChangeCause(move=move, p_value_after=retest.p_value)
+
+
+def _after_conditions_change(
+    ctx: HealthContext,
+    exposures: ExposureTotals,
+    cause: _ConditionsChangeCause,
+    p_value: float,
+    share_off_split: float,
+) -> ExperimentHealthFinding:
+    unit = exposures.unit
+    move = cause.move
+    start_at = suggested_start_at(move.changed_at)
+    start = format_change_time(start_at, move.team_timezone)
+    return ExperimentHealthFinding(
+        code=ExperimentHealthFindingCode.SRM,
+        subcode=RELEASE_CONDITIONS_CHANGED,
+        reason=None,
+        severity=_severity(share_off_split),
+        title=f"{unit.capitalize()}s are not split as configured after a release condition change",
+        detail=" ".join(
+            [
+                f"The distribution of {unit}s across variants doesn't match your current rollout percentages "
+                f"(p < {SAMPLE_RATIO_MISMATCH_P_VALUE}).",
+                *_small_mismatch(share_off_split, unit),
+                f"The release conditions changed on {format_change_time(move.changed_at, move.team_timezone)}, "
+                f"for example with a variant override set or removed, so some {unit}s exposed before the change got "
+                "another variant after it.",
+                f"The {unit}s first exposed after the day of the change match the current split "
+                f"(p = {cause.p_value_after:.2g}), and those exposed before it are split differently, so the change "
+                "explains the mismatch.",
+                *(
+                    [f"Move the start date to {start}."]
+                    if ctx.has_ended
+                    else [f"Move the start date to {start}, or reset the experiment.", RESET_EFFECT]
+                ),
+            ]
+        ),
+        evidence={
+            "p_value": p_value,
+            "share_off_split": round(share_off_split, 4),
+            "p_value_after_release_conditions_change": cause.p_value_after,
+            "release_conditions_changed_at": move.changed_at.astimezone(UTC).isoformat(),
+            # pinned: the start date that MOVE_START_DATE sets, in UTC.
+            "suggested_start_date": start_at.astimezone(UTC).isoformat(),
+        },
+        actions=(ExperimentHealthFindingActionKind.MOVE_START_DATE,),
+        diagnostic_ref="A2",
+        caused_by=ExperimentHealthCheckKey.RELEASE_CONDITIONS_CHANGED_MID_RUN,
     )
 
 

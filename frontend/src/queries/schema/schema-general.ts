@@ -7059,7 +7059,16 @@ export interface ExperimentExposureHealthFinding {
     diagnostic_ref: string | null
     /** The key of the check in `health_checks` that reported the finding. Missing on an answer cached before the field existed. */
     check?: ExperimentExposureHealthCheckKey
+    /** The key of the check whose finding names the cause of this finding, so that fixing that finding fixes this one too. Most are checks of the experiment's `health`, not of this answer. Null when the finding names its own cause, or no cause. Missing on an answer cached before the field existed. */
+    caused_by?: ExperimentExposureHealthCauseKey | null
 }
+
+/** The checks whose findings can name the cause of an exposure finding. */
+export type ExperimentExposureHealthCauseKey =
+    | 'split_changed_mid_run'
+    | 'bucketing_changed_mid_run'
+    | 'release_conditions_changed_mid_run'
+    | 'forced_variant_release_condition'
 
 export type ExperimentExposureHealthCheckKey =
     | 'zero_exposures'

@@ -643,7 +643,7 @@ class TestForcedVariantReleaseCondition(TestCase):
             (
                 "one_list",
                 [{**STAFF, "variant": "test"}, {**EVERYONE, "rollout_percentage": 0}],
-                "Only users who match Set 1 get a variant",
+                'Users get only "test", so the experiment is not comparing variants',
                 "Set 1 is the only release condition that includes users. It matches only some users and sets the "
                 'variant override "test", so only those users enter the experiment, and they all get "test". Everyone '
                 "else gets no variant. With no other variant to compare against, the results can't show whether "
@@ -688,6 +688,31 @@ class TestForcedVariantReleaseCondition(TestCase):
 
         assert isinstance(finding, ExperimentHealthFinding)
         self.assertEqual((finding.title, finding.detail), (title, detail))
+
+    @parameterized.expand(
+        [
+            (
+                "launched_one_variant_for_everyone",
+                _context([{**EVERYONE, "variant": "control"}]),
+                'Users get only "control", so the experiment is not comparing variants',
+            ),
+            (
+                "draft_one_variant_for_everyone",
+                _context([{**EVERYONE, "variant": "control"}], status=DRAFT),
+                'After launch, users will get only "control", so the experiment won\'t compare variants',
+            ),
+            (
+                "draft_one_list",
+                _context([{**STAFF, "variant": "test"}, {**EVERYONE, "rollout_percentage": 0}], status=DRAFT),
+                'After launch, users will get only "test", so the experiment won\'t compare variants',
+            ),
+        ]
+    )
+    def test_one_variant_title_names_the_consequence(self, _name: str, ctx: HealthContext, title: str) -> None:
+        finding = forced_variant_release_condition(ctx)
+
+        assert isinstance(finding, ExperimentHealthFinding)
+        self.assertEqual(finding.title, title)
 
     def test_reads_the_share_forced_in_each_variant(self) -> None:
         # Set 1 forces 10 people into test. Set 2 splits the other 990 evenly, so test has 505 people.

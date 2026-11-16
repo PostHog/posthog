@@ -14,6 +14,7 @@ const PAUSED: ExperimentHealthFindingApi = {
     actions: ['open_feature_flag'],
     diagnostic_ref: 'A5',
     check: 'flag_state',
+    caused_by: null,
 }
 
 const input = (overrides: Partial<HealthDebugInput>): HealthDebugInput => ({

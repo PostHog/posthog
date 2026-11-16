@@ -131,6 +131,7 @@ from posthog.schema_enums import (
     ExecutionTarget as ExecutionTarget,
     ExperimentApiBreakdownAttributionType as ExperimentApiBreakdownAttributionType,
     ExperimentApiPropertyBreakdownType as ExperimentApiPropertyBreakdownType,
+    ExperimentExposureHealthCauseKey as ExperimentExposureHealthCauseKey,
     ExperimentExposureHealthCheckKey as ExperimentExposureHealthCheckKey,
     ExperimentExposureHealthCheckStatus as ExperimentExposureHealthCheckStatus,
     ExperimentExposureHealthFindingActionKind as ExperimentExposureHealthFindingActionKind,
@@ -6192,6 +6193,16 @@ class ExperimentExposureHealthFinding(BaseModel):
     )
     actions: list[ExperimentExposureHealthFindingActionKind] = Field(
         ..., description="The actions that fix the problem, in order of preference."
+    )
+    caused_by: ExperimentExposureHealthCauseKey | None = Field(
+        default=None,
+        description=(
+            "The key of the check whose finding names the cause of this finding, so"
+            " that fixing that finding fixes this one too. Most are checks of the"
+            " experiment's `health`, not of this answer. Null when the finding names"
+            " its own cause, or no cause. Missing on an answer cached before the field"
+            " existed."
+        ),
     )
     check: ExperimentExposureHealthCheckKey | None = Field(
         default=None,

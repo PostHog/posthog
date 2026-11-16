@@ -137,6 +137,14 @@ describe('healthPanelChecks', () => {
             expected: { kind: 'issues', count: 2, hasCritical: true },
         },
         { name: 'no chip for notes alone', findings: [finding('info')], expected: { kind: 'hidden' } },
+        {
+            name: 'a cause and the findings it causes are one issue',
+            findings: [
+                { ...finding('warning'), code: 'split_changed_mid_run', check: 'split_changed_mid_run' },
+                { ...finding('warning'), code: 'srm', check: 'srm', caused_by: 'split_changed_mid_run' },
+            ],
+            expected: { kind: 'issues', count: 1, hasCritical: false },
+        },
     ])('$name', ({ findings, expected }) => {
         expect(healthChipState(findings)).toEqual(expected)
     })

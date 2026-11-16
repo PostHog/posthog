@@ -9,6 +9,7 @@ from parameterized import parameterized
 from posthog.schema import MultipleVariantHandling
 
 from products.experiments.backend.facade.contracts import (
+    ExperimentHealthCheckKey,
     ExperimentHealthFinding,
     ExperimentHealthFindingActionKind,
     ExperimentHealthFindingCode,
@@ -659,9 +660,9 @@ class TestSplitChangedMidRun(TestCase):
         self.assertEqual(
             shipped.detail,
             f'Variant "test" is rolled out to 100% of users. It has been at 100% since {rolled_out_at}, and the '
-            f"split was {split_before} before. The experiment is not comparing variants. End the experiment "
-            "with a conclusion, or adjust the variant distribution of the linked feature flag to resume proper A/B "
-            "testing.",
+            f"split was {split_before} before. The experiment is not comparing variants. If you meant to roll it "
+            "out, end the experiment with a conclusion. Ending leaves the feature flag as it is. Otherwise change the "
+            "variant split back, and users exposed since the rollout can then switch variants.",
         )
 
 
@@ -1006,10 +1007,14 @@ class TestSrmAfterSplitChange(TestCase):
         )
         names_start_date = "Move the start date" in next_step
         self.assertEqual(
-            (outcome.actions, outcome.evidence.get("suggested_start_date")),
-            ((ExperimentHealthFindingActionKind.MOVE_START_DATE,), "2026-09-12T13:04:00+00:00")
+            (outcome.actions, outcome.evidence.get("suggested_start_date"), outcome.caused_by),
+            ((ExperimentHealthFindingActionKind.MOVE_START_DATE,), "2026-09-12T13:04:00+00:00", None)
             if names_start_date
-            else ((), None),
+            else (
+                (),
+                None,
+                ExperimentHealthCheckKey.SPLIT_CHANGED_MID_RUN if "Follow the steps" in next_step else None,
+            ),
         )
 
     def test_leaves_out_a_split_that_changed_after_the_end(self) -> None:

@@ -153,14 +153,18 @@ def flag_state(ctx: HealthContext) -> CheckOutcome:
             return _finding(
                 code=ExperimentHealthFindingCode.VARIANT_SHIPPED_WHILE_RUNNING,
                 subcode=RUNNING_BUT_SINGLE_VARIANT_SHIPPED,
-                title="The experiment is running, but all users see a single variant",
+                title=one_variant_title(variant_key, is_draft=False),
                 detail=(
                     f"{shipped} rolled out to 100% of users. {_rollout_since(ctx)}"
-                    "The experiment is not comparing variants. "
-                    "End the experiment with a conclusion, or adjust the variant distribution of the linked "
-                    "feature flag to resume proper A/B testing."
+                    "The experiment is not comparing variants. If you meant to roll it out, end the experiment with "
+                    "a conclusion. Ending leaves the feature flag as it is. Otherwise change the variant split back, "
+                    "and users exposed since the rollout can then switch variants."
                 ),
                 evidence={"variant_key": variant_key},
+                actions=(
+                    ExperimentHealthFindingActionKind.END_EXPERIMENT,
+                    ExperimentHealthFindingActionKind.ADJUST_DISTRIBUTION,
+                ),
             )
     elif ctx.has_ended:
         if (
@@ -409,6 +413,7 @@ def _finding(
     detail: str,
     evidence: dict[str, str | int | float | None] | None = None,
     severity: ExperimentHealthFindingSeverity = ExperimentHealthFindingSeverity.WARNING,
+    actions: tuple[ExperimentHealthFindingActionKind, ...] = (ExperimentHealthFindingActionKind.OPEN_FEATURE_FLAG,),
 ) -> ExperimentHealthFinding:
     return ExperimentHealthFinding(
         code=code,
@@ -417,9 +422,18 @@ def _finding(
         title=title,
         detail=detail,
         evidence=evidence or {},
-        actions=(ExperimentHealthFindingActionKind.OPEN_FEATURE_FLAG,),
+        actions=actions,
         diagnostic_ref="A5",
     )
+
+
+def one_variant_title(variant_key: str | None, *, is_draft: bool) -> str:
+    """The title of a finding whose flag gives every user in the experiment the same variant. It names the consequence,
+    because a reader who sees only the title must still learn that the results compare nothing."""
+    variant = f'"{variant_key}"' if variant_key else "one variant"
+    if is_draft:
+        return f"After launch, users will get only {variant}, so the experiment won't compare variants"
+    return f"Users get only {variant}, so the experiment is not comparing variants"
 
 
 def _rollout_since(ctx: HealthContext) -> str:

@@ -65,6 +65,7 @@ describe('ExperimentWarningBanner', () => {
                     title: '',
                     detail: '',
                     check: 'flag_state',
+                    caused_by: null,
                     evidence: { variant_key: variantKey },
                     actions: [],
                     diagnostic_ref: null,

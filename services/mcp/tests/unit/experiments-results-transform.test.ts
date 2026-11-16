@@ -328,7 +328,13 @@ describe('transformExperimentResults', () => {
                 check: 'multiple_variants_share' as const,
                 severity: 'info' as const,
             },
-            { ...findingText, code: 'srm' as const, check: 'srm' as const, severity: 'critical' as const },
+            {
+                ...findingText,
+                code: 'srm' as const,
+                check: 'srm' as const,
+                severity: 'critical' as const,
+                caused_by: 'split_changed_mid_run' as const,
+            },
         ]
         const exposureChecks = [
             {
@@ -385,7 +391,7 @@ describe('transformExperimentResults', () => {
             'Findings: 1 critical, 1 warning, 1 info. Checks: 2 finding, 1 not_applicable.'
         )
         expect(result.health.findings).toEqual([
-            { severity: 'critical', code: 'srm', title: 'title' },
+            { severity: 'critical', code: 'srm', title: 'title', caused_by: 'split_changed_mid_run' },
             { severity: 'warning', code: 'split_changed_mid_run', title: 'title' },
             { severity: 'info', code: 'multiple_variants_share', title: 'title' },
         ])

@@ -11,6 +11,7 @@ from posthog.schema import (
     BiasRisk,
     CachedExperimentExposureQueryResponse,
     DateRange,
+    ExperimentExposureHealthCauseKey,
     ExperimentExposureHealthCheck,
     ExperimentExposureHealthCheckKey,
     ExperimentExposureHealthCheckRule,
@@ -58,6 +59,7 @@ from products.experiments.backend.facade.contracts import (
 )
 from products.experiments.backend.health.checks.bias_risk import evaluate_bias_risk
 from products.experiments.backend.health.checks.filtered_exposures import reads_share_kept_by_test_account_filter
+from products.experiments.backend.health.checks.multiple_variants import reads_flag_changes
 from products.experiments.backend.health.checks.srm import (
     TOP_SEGMENT_VALUES,
     reads_flag_history,
@@ -72,7 +74,7 @@ from products.experiments.backend.health.context import (
     flag_calls_readable,
     load_health_context,
 )
-from products.experiments.backend.health.exposure_gate import load_split_history
+from products.experiments.backend.health.exposure_gate import load_flag_changes, load_split_history
 from products.experiments.backend.health.registry import (
     EXPOSURE_HEALTH_CHECKS,
     evaluate as evaluate_health,
@@ -432,8 +434,13 @@ class ExperimentExposuresQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
             can_read_flag_history=self._can_read_flag_history(),
             can_read_flag_calls=reader_access is not None and flag_calls_readable(reader_access),
         )
-        if reads_flag_history(context) and reader_access is not None:
-            context = replace(context, flag_history=load_split_history(self.experiment, reader_access=reader_access))
+        if reader_access is not None:
+            if reads_flag_history(context):
+                context = replace(
+                    context, flag_history=load_split_history(self.experiment, reader_access=reader_access)
+                )
+            elif reads_flag_changes(context):
+                context = replace(context, flag_history=load_flag_changes(self.experiment, reader_access=reader_access))
         # These queries run for every reader, a userless run included. The findings depend on them, and the cache key
         # doesn't say who computed the answer, so every reader with the same key shares it.
         if reads_segments(context):
@@ -544,6 +551,7 @@ class ExperimentExposuresQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
                 actions=[ExperimentExposureHealthFindingActionKind(action.value) for action in finding.actions],
                 diagnostic_ref=finding.diagnostic_ref,
                 check=ExperimentExposureHealthCheckKey(finding.check.value) if finding.check else None,
+                caused_by=ExperimentExposureHealthCauseKey(finding.caused_by.value) if finding.caused_by else None,
             )
             for finding in health.findings
         ]

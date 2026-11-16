@@ -19,6 +19,7 @@ from posthog.schema import (
     ActionsNode,
     ExperimentEventExposureConfig,
     ExperimentExposureCriteria,
+    ExperimentExposureHealthCauseKey,
     ExperimentExposureHealthCheckKey,
     ExperimentExposureHealthFindingActionKind,
     ExperimentExposureHealthFindingCode,
@@ -1666,15 +1667,21 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
 
     @parameterized.expand(
         [
-            ("reader_of_the_flag", True, None, "split_changed"),
-            ("userless_run", False, None, None),
-            ("reader_after_the_end", True, datetime(2024, 1, 6, 12, tzinfo=UTC), "split_changed"),
-            ("exposure_action", True, None, "split_changed", True),
+            ("reader_of_the_flag", True, None, "split_changed", ExperimentExposureHealthCauseKey.SPLIT_CHANGED_MID_RUN),
+            ("userless_run", False, None, None, None),
+            ("reader_after_the_end", True, datetime(2024, 1, 6, 12, tzinfo=UTC), "split_changed", None),
+            ("exposure_action", True, None, "split_changed", None, True),
         ]
     )
     @time_machine.travel("2024-01-07T12:00:00Z", tick=False)
     def test_srm_names_a_split_change_for_a_reader_of_the_flag_history(
-        self, _name: str, as_user: bool, end_date: datetime | None, subcode: str | None, exposure_action: bool = False
+        self,
+        _name: str,
+        as_user: bool,
+        end_date: datetime | None,
+        subcode: str | None,
+        caused_by: ExperimentExposureHealthCauseKey | None,
+        exposure_action: bool = False,
     ) -> None:
         ff_property = f"$feature/{self.feature_flag.key}"
         # 90/10 before the change on 2024-01-03, and the current 50/50 split after it.
@@ -1716,14 +1723,69 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
         ).calculate()
 
         self.assertEqual(
-            [(finding.code, finding.subcode, finding.actions) for finding in response.health_findings or []],
+            [
+                (finding.code, finding.subcode, finding.actions, finding.caused_by)
+                for finding in response.health_findings or []
+            ],
             [
                 (
                     ExperimentExposureHealthFindingCode.SRM,
                     subcode,
                     [ExperimentExposureHealthFindingActionKind.MOVE_START_DATE] if exposure_action else [],
+                    caused_by,
                 )
             ],
+        )
+
+    @parameterized.expand(
+        [
+            ("reader_of_the_flag", True, ExperimentExposureHealthCauseKey.SPLIT_CHANGED_MID_RUN),
+            ("userless_run", False, None),
+        ]
+    )
+    @time_machine.travel("2024-01-07T12:00:00Z", tick=False)
+    def test_multiple_variants_names_a_flag_change_for_a_reader_of_the_flag_history(
+        self, _name: str, as_user: bool, caused_by: ExperimentExposureHealthCauseKey | None
+    ) -> None:
+        ff_property = f"$feature/{self.feature_flag.key}"
+        # Before the change on 2024-01-03, 40 users saw both variants. After it, each user saw one.
+        journeys_for(
+            {
+                f"user_{day}_{'_'.join(variants)}_{i}": [
+                    {
+                        "event": "$feature_flag_called",
+                        "timestamp": day,
+                        "properties": {
+                            "$feature_flag_response": variant,
+                            ff_property: variant,
+                            "$feature_flag": self.feature_flag.key,
+                        },
+                    }
+                    for variant in variants
+                ]
+                for day, groups in (
+                    ("2024-01-02", ((("control", "test"), 40), (("control",), 60), (("test",), 60))),
+                    ("2024-01-04", ((("control",), 60), (("test",), 60))),
+                )
+                for variants, count in groups
+                for i in range(count)
+            },
+            self.team,
+        )
+        flush_persons_and_events()
+        self._log_split_change_from_90_10_on_2024_01_03()
+
+        response = ExperimentExposuresQueryRunner(
+            team=self.team, query=self._running_exposure_query(), user=self.user if as_user else None
+        ).calculate()
+
+        self.assertEqual(
+            [
+                finding.caused_by
+                for finding in response.health_findings or []
+                if finding.code == ExperimentExposureHealthFindingCode.MULTIPLE_VARIANTS_SHARE
+            ],
+            [caused_by],
         )
 
     @time_machine.travel("2024-01-07T12:00:00Z", tick=False)

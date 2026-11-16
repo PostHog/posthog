@@ -14,6 +14,7 @@ import { initKeaTests } from '~/test/init'
 import { Experiment, ExperimentStatus } from '~/types'
 
 import { NEW_EXPERIMENT } from 'products/experiments/frontend/constants'
+import type { ExperimentHealthApi } from 'products/experiments/frontend/generated/api.schemas'
 import { ExperimentHealthChip } from 'products/experiments/frontend/health/ExperimentHealthChip'
 import { ExperimentHealthTab } from 'products/experiments/frontend/health/ExperimentHealthTab'
 
@@ -101,7 +102,8 @@ describe('health finding reporting', () => {
     // The same experiment for a person with the health findings flag: the server sends the flag-state finding.
     const renderHealth = (
         exposures: Record<string, unknown>,
-        Surface: () => JSX.Element | null = ExperimentHealthTab
+        Surface: () => JSX.Element | null = ExperimentHealthTab,
+        otherFindings: Record<string, unknown>[] = []
     ): void => {
         logic.actions.setExperiment({
             ...NEW_EXPERIMENT,
@@ -123,8 +125,10 @@ describe('health finding reporting', () => {
                     actions: ['open_feature_flag'],
                     diagnostic_ref: 'A5',
                     check: 'flag_state',
+                    caused_by: null,
                 },
-            ],
+                ...otherFindings,
+            ] as unknown as ExperimentHealthApi['findings'],
             checks: [
                 {
                     key: 'no_metric',
@@ -327,6 +331,65 @@ describe('health finding reporting', () => {
             }
         }
     )
+
+    it('reports a finding shown under its cause with the check of the cause, as shown and as opened', async () => {
+        const splitChanged = {
+            ...exposureFinding('split_changed_mid_run', 'The variant split changed after launch', []),
+            subcode: 'rebalanced',
+            check: 'split_changed_mid_run',
+            caused_by: null,
+        }
+        renderHealth(
+            {
+                ...UNEVEN_EXPOSURES,
+                health_findings: [
+                    {
+                        ...exposureFinding('srm', 'Users are not split as configured after a split change', []),
+                        subcode: 'split_changed',
+                        check: 'srm',
+                        caused_by: 'split_changed_mid_run',
+                    },
+                    {
+                        ...exposureFinding('bias_risk_multiple_excluded', 'The uneven split may bias the results', [
+                            'use_first_seen_variant',
+                        ]),
+                        check: 'bias_risk_multiple_excluded',
+                        caused_by: 'split_changed_mid_run',
+                    },
+                ],
+            },
+            ExperimentHealthTab,
+            [splitChanged]
+        )
+        const findingEventsWithCause = (): (string | null)[][] =>
+            captureSpy.mock.calls
+                .filter(([event]) => String(event).startsWith('experiment health finding'))
+                .map(([event, properties]) => [event, properties.finding_code, properties.finding_caused_by])
+
+        expect(findingEventsWithCause()).toEqual(
+            expect.arrayContaining([
+                ['experiment health finding shown', 'split_changed_mid_run', null],
+                ['experiment health finding shown', 'srm', 'split_changed_mid_run'],
+            ])
+        )
+        captureSpy.mockClear()
+
+        await pickFromList('The variant split changed after launch')
+
+        expect(findingEventsWithCause()).toEqual([
+            ['experiment health finding opened', 'split_changed_mid_run', null],
+            ['experiment health finding opened', 'srm', 'split_changed_mid_run'],
+            ['experiment health finding opened', 'bias_risk_multiple_excluded', 'split_changed_mid_run'],
+        ])
+        captureSpy.mockClear()
+
+        // The cause offers no fix, so the finding under it keeps its own.
+        await userEvent.click(screen.getByText('Use first seen variant'))
+
+        expect(findingEventsWithCause()).toEqual([
+            ['experiment health finding acted on', 'bias_risk_multiple_excluded', 'split_changed_mid_run'],
+        ])
+    })
 
     it('reports zero exposures only from the open panel, as shown and then as opened', async () => {
         renderWarnings(NO_EXPOSURES)

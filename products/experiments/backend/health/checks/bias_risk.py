@@ -25,6 +25,8 @@ from products.experiments.backend.health.skips import (
     fewer_than_two_in_split,
     not_applicable,
 )
+from products.experiments.backend.health.split_changes import format_change_time
+from products.experiments.backend.health.variant_moves import multiple_variant_cause
 from products.experiments.backend.hogql_queries import MULTIPLE_VARIANT_KEY
 from products.feature_flags.backend.facade.edits import FlagVariant
 
@@ -133,16 +135,30 @@ def bias_risk_multiple_excluded(ctx: HealthContext) -> CheckOutcome:
         return share
     if share <= MULTIPLE_VARIANT_BIAS_THRESHOLD or _too_few_to_warn(ctx.exposures.total_exposures):
         return None
+    cause = multiple_variant_cause(ctx, threshold=MULTIPLE_VARIANT_BIAS_THRESHOLD)
     return ExperimentHealthFinding(
         code=ExperimentHealthFindingCode.BIAS_RISK_MULTIPLE_EXCLUDED,
         subcode=None,
         severity=ExperimentHealthFindingSeverity.WARNING,
         title="The uneven split may bias the results",
-        detail=(
-            f"{share:.1f}% of users were exposed to multiple variants. "
-            "With an uneven variant split and the Exclude handling, these users were dropped more often "
-            "from the smaller variant, so its metrics can be biased. Use an even split and control "
-            "exposure with the overall rollout, or switch the handling to First seen."
+        detail=" ".join(
+            [
+                f"{share:.1f}% of users were exposed to multiple variants.",
+                "With an uneven variant split and the Exclude handling, these users were dropped more often from the "
+                "smaller variant, so its metrics can be biased.",
+                *(
+                    [
+                        f"At least {cause.multiple_before:,} of them were first exposed before the flag changed on "
+                        f"{format_change_time(cause.move.changed_at, cause.move.team_timezone)}, and among the users "
+                        f"first exposed after the day of the change, {cause.share_after:.1f}% were. Moving the start "
+                        "date past the change leaves most of them out.",
+                    ]
+                    if cause is not None
+                    else []
+                ),
+                "Use an even split and control exposure with the overall rollout, or switch the handling to First "
+                "seen.",
+            ]
         ),
         evidence={"multiple_variant_percentage": share},
         actions=(
@@ -150,4 +166,5 @@ def bias_risk_multiple_excluded(ctx: HealthContext) -> CheckOutcome:
             ExperimentHealthFindingActionKind.USE_FIRST_SEEN_VARIANT,
         ),
         diagnostic_ref="A1",
+        caused_by=cause.move.check if cause is not None else None,
     )

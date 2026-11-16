@@ -47804,6 +47804,34 @@ export namespace Schemas {
        * * `bias_risk_multiple_excluded` - Bias Risk Multiple Excluded
        * * `multiple_variants_share` - Multiple Variants Share */
       check: ExperimentHealthCheckKeyEnum;
+      /** The key of the check whose finding names the cause of this finding, so that fixing that finding fixes this one too. Null when the finding names its own cause, or no cause.
+       *
+       * * `flag_state` - Flag State
+       * * `flag_shared` - Flag Shared
+       * * `flag_history` - Flag History
+       * * `split_changed_mid_run` - Split Changed Mid Run
+       * * `bucketing_changed_mid_run` - Bucketing Changed Mid Run
+       * * `release_conditions_changed_mid_run` - Release Conditions Changed Mid Run
+       * * `flag_variants_mismatch` - Flag Variants Mismatch
+       * * `forced_variant_release_condition` - Forced Variant Release Condition
+       * * `new_flag_no_traffic` - New Flag No Traffic
+       * * `no_metric` - No Metric
+       * * `metric_event_not_ingested` - Metric Event Not Ingested
+       * * `metric_cannot_compile` - Metric Cannot Compile
+       * * `metric_calculation_failed` - Metric Calculation Failed
+       * * `metric_all_zero` - Metric All Zero
+       * * `exposure_criteria_cannot_match` - Exposure Criteria Cannot Match
+       * * `exposure_filters` - Exposure Filters
+       * * `early_significance` - Early Significance
+       * * `metrics_not_matured` - Metrics Not Matured
+       * * `stale_experiment` - Stale Experiment
+       * * `zero_exposures` - Zero Exposures
+       * * `test_account_filter_removes_exposures` - Test Account Filter Removes Exposures
+       * * `srm` - Srm
+       * * `unserved_variant_exposures` - Unserved Variant Exposures
+       * * `bias_risk_multiple_excluded` - Bias Risk Multiple Excluded
+       * * `multiple_variants_share` - Multiple Variants Share */
+      caused_by: ExperimentHealthCheckKeyEnum | null;
     }
 
     /**
@@ -48474,6 +48502,16 @@ export namespace Schemas {
       multiple_variant_handling?: MultipleVariantHandling | null;
     }
 
+    export type ExperimentExposureHealthCauseKey = typeof ExperimentExposureHealthCauseKey[keyof typeof ExperimentExposureHealthCauseKey];
+
+
+    export const ExperimentExposureHealthCauseKey = {
+      SplitChangedMidRun: 'split_changed_mid_run',
+      BucketingChangedMidRun: 'bucketing_changed_mid_run',
+      ReleaseConditionsChangedMidRun: 'release_conditions_changed_mid_run',
+      ForcedVariantReleaseCondition: 'forced_variant_release_condition',
+    } as const;
+
     /**
      * What the check read on the experiment, for every status. The suffix of a key gives the unit: _count is a count, _percentage is on the 0-100 scale, _hours is hours. A key without a suffix is a setting. Missing on an answer cached before the field existed.
      */
@@ -48603,6 +48641,8 @@ export namespace Schemas {
     export interface ExperimentExposureHealthFinding {
       /** The actions that fix the problem, in order of preference. */
       actions: ExperimentExposureHealthFindingActionKind[];
+      /** The key of the check whose finding names the cause of this finding, so that fixing that finding fixes this one too. Most are checks of the experiment's `health`, not of this answer. Null when the finding names its own cause, or no cause. Missing on an answer cached before the field existed. */
+      caused_by?: ExperimentExposureHealthCauseKey | null;
       /** The key of the check in `health_checks` that reported the finding. Missing on an answer cached before the field existed. */
       check?: ExperimentExposureHealthCheckKey | null;
       /** Stable identifier of the problem. Each code has one meaning across every surface that reports it. */

@@ -19,7 +19,7 @@ import { HealthFindingDetail } from './HealthFindingDetail'
 import { HealthFindingListItem } from './HealthFindingListItem'
 import { HealthOverviewDetail } from './HealthOverviewDetail'
 import { type HealthPanelCheck, listedHealthChecks } from './healthPanelChecks'
-import { type HealthPanelFinding, healthIssues } from './healthPanelFindings'
+import { type HealthPanelFinding, healthFindingGroups } from './healthPanelFindings'
 import { type HealthPanelSelection, healthFindingKey, resolveHealthPanelSelection } from './healthPanelSelection'
 
 export function HealthChecksPanel({
@@ -48,11 +48,19 @@ export function HealthChecksPanel({
     const { aggregationLabel } = useValues(groupsModel)
     const { reportHealthCheckExpanded, reportHealthOverviewOpened } = useActions(experimentLogic)
     const listedChecks = listedHealthChecks(checks)
-    const findingGroups = [
-        { label: 'Issues', findings: healthIssues(findings) },
-        { label: 'Notes', findings: findings.filter(({ severity }) => severity === 'info') },
-    ].filter((group) => group.findings.length > 0)
-    const selection = resolveHealthPanelSelection(pickedSelection, findings, listedChecks)
+    const groups = healthFindingGroups(findings)
+    const sections = [
+        { label: 'Issues', groups: groups.filter(({ severity }) => severity !== 'info') },
+        { label: 'Notes', groups: groups.filter(({ severity }) => severity === 'info') },
+    ].filter((section) => section.groups.length > 0)
+    // A finding that shows under its cause has no card of its own, so only the causes can be picked.
+    const selection = resolveHealthPanelSelection(
+        pickedSelection,
+        groups.map((group) => group.finding),
+        listedChecks
+    )
+    const selectedGroup =
+        selection.kind === 'finding' ? groups.find((group) => group.finding === selection.finding) : null
     const units = aggregationLabel(experiment.feature_flag?.filters?.aggregation_group_type_index, true).plural
     const exposureCheckKeys = new Set<string>(exposures?.health_checks?.map(({ key }) => key))
     const exposureCheckedAt = exposureAnswerComputedAt(exposures)
@@ -107,21 +115,21 @@ export function HealthChecksPanel({
                                 </span>
                             </LemonButton>
                         </div>
-                        {findingGroups.length > 0 && (
+                        {sections.length > 0 && (
                             // A note mounts, and so reports as shown, only when the reader opens the health tab. An issue
                             // reports once per load, from the header chip or from here, whichever shows it first.
                             <div className="flex flex-col gap-5 border-t px-4 py-3">
-                                {findingGroups.map((group) => (
-                                    <div key={group.label} className="flex flex-col gap-1.5">
-                                        <span className="text-xs font-semibold text-secondary">{group.label}</span>
+                                {sections.map((section) => (
+                                    <div key={section.label} className="flex flex-col gap-1.5">
+                                        <span className="text-xs font-semibold text-secondary">{section.label}</span>
                                         <ul className="-mx-2 m-0 p-0 list-none flex flex-col gap-1">
-                                            {group.findings.map((finding) => {
-                                                const key = healthFindingKey(finding)
+                                            {section.groups.map((group) => {
+                                                const key = healthFindingKey(group.finding)
                                                 const isSelected = selection.kind === 'finding' && selection.key === key
                                                 return (
                                                     <HealthFindingListItem
                                                         key={key}
-                                                        finding={finding}
+                                                        group={group}
                                                         isSelected={isSelected}
                                                         onSelect={() => select({ kind: 'finding', key }, isSelected)}
                                                     />
@@ -169,6 +177,7 @@ export function HealthChecksPanel({
                     {selection.kind === 'finding' ? (
                         <HealthFindingDetail
                             finding={selection.finding}
+                            effects={selectedGroup?.effects ?? []}
                             check={checks.find(({ key }) => key === selection.finding.check) ?? null}
                             units={units}
                             exposures={exposures}

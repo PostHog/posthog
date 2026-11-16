@@ -1486,6 +1486,13 @@ class ManualMetricType(StrEnum):
     MEAN_SUM_OR_AVG = "mean_sum_or_avg"
 
 
+class ExperimentExposureHealthCauseKey(StrEnum):
+    SPLIT_CHANGED_MID_RUN = "split_changed_mid_run"
+    BUCKETING_CHANGED_MID_RUN = "bucketing_changed_mid_run"
+    RELEASE_CONDITIONS_CHANGED_MID_RUN = "release_conditions_changed_mid_run"
+    FORCED_VARIANT_RELEASE_CONDITION = "forced_variant_release_condition"
+
+
 class ExperimentExposureHealthCheckKey(StrEnum):
     ZERO_EXPOSURES = "zero_exposures"
     SRM = "srm"

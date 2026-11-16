@@ -178,6 +178,22 @@ def load_split_history(
         return None
 
 
+def load_flag_changes(
+    experiment: Experiment, *, reader_access: ExperimentHealthReaderAccess
+) -> FlagHistory | FlagHistoryNotChecked | None:
+    """
+    The flag history as `load_flag_history` returns it, without any exposure question, so it costs no query of the
+    exposures. The checks of the users in more than one variant compare the times of the changes with the exposure
+    answer's counts by day. It loads after the end too, and those checks leave out the changes after the end. Never
+    raises.
+    """
+    try:
+        return _load_flag_history(experiment, reader_access, asked=frozenset(), after_the_end=True)
+    except Exception as error:
+        capture_exception(error)
+        return None
+
+
 def cache_failed_scan(cache_key: str, error: Exception) -> None:
     """Caches the answer of a failed scan as UNKNOWN, and reports an error that is not expected."""
     # The page calls the endpoint on every load, so a scan that fails must not run again on every load.

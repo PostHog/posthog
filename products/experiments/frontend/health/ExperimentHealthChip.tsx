@@ -9,7 +9,7 @@ import { experimentLogic } from 'scenes/experiments/experimentLogic'
 import { experimentSceneLogic } from 'scenes/experiments/experimentSceneLogic'
 
 import { healthChipState } from './healthPanelChecks'
-import { healthIssues } from './healthPanelFindings'
+import { healthIssueGroups, reportedHealthFinding } from './healthPanelFindings'
 
 export function ExperimentHealthChip(): JSX.Element | null {
     const { healthFindings, experimentLoadCount } = useValues(experimentLogic)
@@ -17,11 +17,15 @@ export function ExperimentHealthChip(): JSX.Element | null {
     const { setActiveTabKey } = useActions(experimentSceneLogic)
     const state = healthChipState(healthFindings)
 
-    // The chip is the sign of an issue on every tab, so it reports the issues as shown on load. The logic reports each
-    // finding once per load, so the health tab does not report them again.
+    // The chip is the sign of an issue on every tab, so it reports the issues as shown on load, each finding of an
+    // issue with the cause it shows under. The logic reports each finding once per load, so the health tab does not
+    // report them again.
     useEffect(() => {
-        for (const { code, subcode, severity, reason } of healthIssues(healthFindings)) {
-            reportHealthFindingShown({ code, subcode: subcode ?? undefined, severity, reason: reason ?? undefined })
+        for (const { finding, effects } of healthIssueGroups(healthFindings)) {
+            reportHealthFindingShown(reportedHealthFinding(finding))
+            for (const effect of effects) {
+                reportHealthFindingShown(reportedHealthFinding(effect, finding))
+            }
         }
     }, [healthFindings, experimentLoadCount, reportHealthFindingShown])
 

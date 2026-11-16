@@ -29434,6 +29434,16 @@
             "required": ["conversionRateInputType"],
             "type": "object"
         },
+        "ExperimentExposureHealthCauseKey": {
+            "description": "The checks whose findings can name the cause of an exposure finding.",
+            "enum": [
+                "split_changed_mid_run",
+                "bucketing_changed_mid_run",
+                "release_conditions_changed_mid_run",
+                "forced_variant_release_condition"
+            ],
+            "type": "string"
+        },
         "ExperimentExposureHealthCheck": {
             "additionalProperties": false,
             "description": "What one health check concluded on the exposure answer. Same shape as the experiment's `health.checks`.",
@@ -29547,6 +29557,17 @@
                         "$ref": "#/definitions/ExperimentExposureHealthFindingActionKind"
                     },
                     "type": "array"
+                },
+                "caused_by": {
+                    "anyOf": [
+                        {
+                            "$ref": "#/definitions/ExperimentExposureHealthCauseKey"
+                        },
+                        {
+                            "type": "null"
+                        }
+                    ],
+                    "description": "The key of the check whose finding names the cause of this finding, so that fixing that finding fixes this one too. Most are checks of the experiment's `health`, not of this answer. Null when the finding names its own cause, or no cause. Missing on an answer cached before the field existed."
                 },
                 "check": {
                     "$ref": "#/definitions/ExperimentExposureHealthCheckKey",
