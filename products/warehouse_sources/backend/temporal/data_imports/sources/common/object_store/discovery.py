@@ -18,6 +18,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.obj
     csv_column_types_from_metadata,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store.errors import (
+    NO_IMPORTABLE_FILES_ERROR,
     NO_TABLE_FILES_ERROR,
     TOO_MANY_FILES_ERROR,
     ObjectStorageError,
@@ -370,6 +371,41 @@ def group_tables(
             logger.warning("Reached the object storage table limit; later tables are ignored", max_tables=max_tables)
         tables = tables[:max_tables]
     return tables
+
+
+def explain_no_tables(objects: Iterable[StoredObject], options: DiscoveryOptions, pattern: str | None = None) -> str:
+    """Why `group_tables` found no table in this listing, as a next step the user can take."""
+    files = [stored for stored in objects if stored.path.rsplit("/", 1)[-1]]
+    if not files:
+        return (
+            f"{NO_IMPORTABLE_FILES_ERROR} because the folder in your files URL is empty or doesn't exist. "
+            "Check the bucket and folder path in the URL."
+        )
+    if options.file_format == "delta":
+        return (
+            f"{NO_IMPORTABLE_FILES_ERROR} because no folder here holds a Delta table's {DELTA_LOG_DIRECTORY} folder. "
+            "Choose the format your files use under File format."
+        )
+    visible = [stored for stored in files if not _is_hidden(stored.path)]
+    if pattern and visible:
+        glob = compile_clickhouse_glob(pattern)
+        visible = [stored for stored in visible if glob.matches(stored.path)]
+        if not visible:
+            return (
+                f"{NO_IMPORTABLE_FILES_ERROR} because no file matches the wildcards in your files URL. "
+                "Fix the pattern, or remove it to import the whole folder."
+            )
+    if visible and options.file_format == "infer" and all(infer_file_format(s.path) is None for s in visible):
+        *others, last = EXTENSION_FORMATS
+        extensions = f"{', '.join(others)} or {last}"
+        return (
+            f"{NO_IMPORTABLE_FILES_ERROR} because no file name ends in {extensions}. "
+            "Choose the format your files use under File format."
+        )
+    return (
+        f"{NO_IMPORTABLE_FILES_ERROR} at your files URL, though PostHog can read the bucket. "
+        "Check the URL and the file format."
+    )
 
 
 def resolve_table_files(
