@@ -1,15 +1,15 @@
 import { logger } from '~/common/utils/logger'
 import { IngestionWarningType } from '~/ingestion/common/ingestion-warnings'
 import { invalidTimestampCounter } from '~/ingestion/common/metrics'
+import { toPipelineResults } from '~/ingestion/common/service-response'
 import { parseEventTimestamp } from '~/ingestion/common/timestamps'
 import { ChunkProcessingStep } from '~/ingestion/framework/base-chunk-pipeline'
 import { PipelineWarning } from '~/ingestion/framework/pipeline.interface'
-import { PipelineResult, drop, ok } from '~/ingestion/framework/results'
+import { PipelineResult, ok } from '~/ingestion/framework/results'
 import { PluginEvent } from '~/plugin-scaffold'
 import { ISOTimestamp, Team } from '~/types'
 
 import { CymbalClient } from './cymbal/client'
-import { CymbalResponse } from './cymbal/types'
 
 export interface CymbalProcessingInput {
     event: PluginEvent
@@ -34,31 +34,6 @@ function validateEventTimestamp(event: PluginEvent): { timestamp: ISOTimestamp; 
         timestamp: parsedTimestamp.toISO() as ISOTimestamp,
         warnings,
     }
-}
-
-/**
- * Extracts ingestion warnings from Cymbal's response.
- *
- * When Cymbal encounters processing errors (e.g., missing sourcemaps, invalid properties,
- * empty exception list), it attaches them to $cymbal_errors and still returns the event.
- * We convert these to ingestion warnings so users can see them in the PostHog UI.
- */
-function getCymbalProcessingWarnings(response: CymbalResponse, eventUuid: string): PipelineWarning[] {
-    const cymbalErrors = response.properties.$cymbal_errors
-    if (!Array.isArray(cymbalErrors) || cymbalErrors.length === 0) {
-        return []
-    }
-
-    return [
-        {
-            type: 'error_tracking_exception_processing_errors',
-            details: {
-                eventUuid,
-                errors: cymbalErrors,
-            },
-            key: eventUuid, // Debounce by event UUID
-        },
-    ]
 }
 
 /**
@@ -106,31 +81,14 @@ export function createCymbalProcessingStep<T extends CymbalProcessingInput>(
         }))
 
         try {
-            const responses = await cymbalClient.processExceptions(items)
+            const results = await cymbalClient.processExceptions(items)
 
-            // Map responses back to results, maintaining 1:1 correspondence
-            return responses.map((response, index) => {
+            return toPipelineResults('cymbal', results, (response, index, cymbalWarnings) => {
                 const { input, warnings: timestampWarnings } = validatedInputs[index]
-
-                // Null response means the event should be dropped (suppressed)
-                if (!response) {
-                    logger.debug('🔇', 'cymbal_event_suppressed', {
-                        eventUuid: input.event.uuid,
-                        teamId: input.team.id,
-                    })
-                    return drop('suppressed')
-                }
-
-                // Replace event properties with Cymbal's processed properties.
                 // Cymbal returns the full properties object with $exception_list, $exception_fingerprint, etc.
                 // We mutate the event directly since it's not used after this step.
                 input.event.properties = response.properties
-
-                // Combine timestamp validation warnings with Cymbal processing warnings
-                const cymbalWarnings = getCymbalProcessingWarnings(response, input.event.uuid)
-                const warnings = [...timestampWarnings, ...cymbalWarnings]
-
-                return ok({ ...input, event: input.event }, [], warnings)
+                return ok({ ...input, event: input.event }, [], [...timestampWarnings, ...cymbalWarnings])
             })
         } catch (error) {
             logger.error('❌', 'cymbal_batch_processing_error', {
