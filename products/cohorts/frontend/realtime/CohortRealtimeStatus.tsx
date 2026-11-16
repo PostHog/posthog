@@ -6,6 +6,8 @@ import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
 
 import { CohortHistoryBuildPhaseEnumApi, CohortRealtimeReadinessApi } from '../generated/api.schemas'
+import { RealtimeCohortsUsage } from './RealtimeCohortsUsage'
+import { RealtimePlanLimitsLink } from './RealtimePlanLimitsLink'
 
 // Partial, so the fallback below stays reachable for a phase this bundle predates.
 const PHASE_DETAIL: Partial<Record<CohortHistoryBuildPhaseEnumApi, string>> = {
@@ -86,6 +88,21 @@ function rowContent(realtime: CohortRealtimeReadinessApi): RowContent | null {
                 ),
             }
         case 'off':
+            if (realtime.reason === 'history_over_limit' && realtime.history_limit_days !== null) {
+                return {
+                    label: (
+                        <span className="flex items-center gap-x-2 flex-wrap">
+                            <span className="text-secondary">Off</span>
+                            <RealtimePlanLimitsLink limit="history_days" location="cohort_page" />
+                        </span>
+                    ),
+                    tooltip: (
+                        <div>
+                            {`Realtime is off for this cohort, so feature flags can't target it. Realtime cohorts on your plan can look back at most ${realtime.history_limit_days} days, and its criteria look back further. Shorten the time range in its criteria to turn realtime on.`}
+                        </div>
+                    ),
+                }
+            }
             return {
                 label: <span className="text-secondary">Off</span>,
                 tooltip: (
@@ -101,7 +118,7 @@ function rowContent(realtime: CohortRealtimeReadinessApi): RowContent | null {
                 tooltip: (
                     <div>
                         {realtime.reason === 'history_over_limit' && realtime.history_limit_days !== null
-                            ? `Feature flags can't target this cohort. Realtime cohorts can look back at most ${realtime.history_limit_days} days, and its criteria look back further. Its members come from the once-a-day calculation, which feature flags can't read.`
+                            ? `Feature flags can't target this cohort. Realtime cohorts on your plan can look back at most ${realtime.history_limit_days} days, and its criteria look back further. Its members come from the once-a-day calculation, which feature flags can't read.`
                             : "Feature flags can't target this cohort. Its criteria are matched in the once-a-day calculation, which feature flags can't read."}
                     </div>
                 ),
@@ -192,6 +209,7 @@ export function CohortRealtimeStatus({
                     </LemonButton>
                 )}
             </div>
+            {switchAction !== null && <RealtimeCohortsUsage location="cohort_page" />}
             {percent !== null && (
                 <LemonProgress
                     percent={percent}

@@ -1,7 +1,7 @@
 import json
 from collections.abc import Callable
 from datetime import UTC, datetime, timedelta
-from typing import Any, Optional
+from typing import Any, Literal, Optional
 from uuid import uuid4
 
 import time_machine
@@ -40,7 +40,7 @@ from posthog.clickhouse.client.execute import sync_execute
 from posthog.constants import AvailableFeature
 from posthog.models import User
 from posthog.models.activity_logging.activity_log import ActivityLog
-from posthog.models.async_deletion.async_deletion import AsyncDeletion
+from posthog.models.async_deletion.async_deletion import AsyncDeletion, DeletionType
 from posthog.models.event.new_events_schema import use_new_events_schema
 from posthog.models.file_system.file_system import FileSystem
 from posthog.models.person.util import get_person_by_id
@@ -9030,6 +9030,7 @@ _REALTIME_PERSON_LEAF = {
 }
 
 
+@override_settings(REALTIME_COHORT_DEFAULT_MAX_COHORTS=3, REALTIME_COHORT_DEFAULT_MAX_HISTORY_DAYS=14)
 class TestCohortRealtimeSwitch(APIBaseTest):
     def setUp(self) -> None:
         super().setUp()
@@ -9176,11 +9177,18 @@ class TestCohortRealtimeSwitch(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("realtime_criteria", "performed_event", True),
-            ("daily_criteria", "performed_event_first_time", False),
+            ("realtime_criteria", "performed_event", 0, True),
+            ("daily_criteria", "performed_event_first_time", 0, False),
+            # Every slot of the default limit is taken, so the cohort is saved with realtime off.
+            ("no_slot_left", "performed_event", 3, False),
         ]
     )
-    def test_creating_a_cohort_with_realtime_on(self, _name: str, behavioral_value: str, turned_on: bool) -> None:
+    @patch("posthog.api.cohort.report_user_action")
+    def test_creating_a_cohort_with_realtime_on(
+        self, _name: str, behavioral_value: str, already_on: int, turned_on: bool, report_user_action: MagicMock
+    ) -> None:
+        for _ in range(already_on):
+            self._cohort(_REALTIME_PAGEVIEW_LEAF, enabled=True)
         leaf = {
             "type": "behavioral",
             "key": "$pageview",
@@ -9203,6 +9211,9 @@ class TestCohortRealtimeSwitch(APIBaseTest):
         assert response.status_code == 201, response.json()
         assert response.json()["realtime_enabled"] is turned_on
         assert Cohort.objects.get(id=response.json()["id"]).realtime_enabled is turned_on
+        assert self._limit_events(report_user_action) == (
+            [{"limit": "cohorts", "allowed": 3, "used": 3, "source": "create"}] if already_on else []
+        )
 
     @parameterized.expand(
         [
@@ -9236,25 +9247,214 @@ class TestCohortRealtimeSwitch(APIBaseTest):
             organization_member=self.organization_membership,
         )
 
+    def _limit_events(self, report_user_action: MagicMock) -> list[dict]:
+        return [
+            {key: call.args[2][key] for key in ("limit", "allowed", "used", "source")}
+            for call in report_user_action.call_args_list
+            if call.args[1] == "cohort realtime limit reached"
+        ]
+
     @parameterized.expand(
         [
-            ("included_cohort_not_editable", "realtime_refused"),
+            ("included_cohort_not_editable", "realtime_refused", None),
             # A load-test team runs the pipeline, but its users must not turn realtime on.
-            ("team_processing", "realtime_unavailable"),
+            ("team_processing", "realtime_unavailable", None),
+            # The cohort and the one it includes need a slot each, and the default limit leaves one.
+            (
+                "one_slot_left_for_two_cohorts",
+                "realtime_limit_reached",
+                {"limit": "cohorts", "allowed": 3, "used": 2, "source": "switch"},
+            ),
         ]
     )
-    def test_turning_on_is_refused_before_anything_is_written(self, name: str, code: str) -> None:
+    @patch("posthog.api.cohort.report_user_action")
+    def test_turning_on_is_refused_before_anything_is_written(
+        self, name: str, code: str, limit_event: dict | None, report_user_action: MagicMock
+    ) -> None:
         included = self._cohort(_REALTIME_PAGEVIEW_LEAF)
         cohort = self._cohort(_REALTIME_PAGEVIEW_LEAF, {"type": "cohort", "key": "id", "value": included.id})
         if name == "team_processing":
             RealtimeCohortTeamAccess.objects.filter(team=self.team).update(level=RealtimeCohortLevel.PROCESSING)
-        else:
+        elif name == "included_cohort_not_editable":
             self._restrict(included, "viewer")
+        else:
+            for _ in range(2):
+                self._cohort(_REALTIME_PAGEVIEW_LEAF, enabled=True)
+        enabled = Cohort.objects.filter(team=self.team, realtime_enabled_at__isnull=False)
+        enabled_before = set(enabled.values_list("id", flat=True))
 
         response = self._switch(cohort, True)
 
         assert (response.status_code, response.json()["code"]) == (400, code)
-        assert not Cohort.objects.filter(team=self.team, realtime_enabled_at__isnull=False).exists()
+        assert set(enabled.values_list("id", flat=True)) == enabled_before
+        assert self._limit_events(report_user_action) == ([limit_event] if limit_event else [])
+
+    @parameterized.expand(
+        [
+            param(
+                "window_past_the_plan",
+                window_days=15,
+                limit_event={"limit": "history_days", "allowed": 14, "used": None, "source": "edit"},
+            ),
+            # The editor resends unchanged criteria with every save, and a date is not judged again as it ages.
+            param("rename_of_a_cohort_whose_start_date_aged_past_the_plan", start_days_ago=60),
+            param(
+                "includes_a_cohort_that_is_off_with_no_slot_left",
+                others_on=2,
+                includes="off",
+                limit_event={"limit": "cohorts", "allowed": 3, "used": 3, "source": "edit"},
+            ),
+            param(
+                "includes_a_cohort_that_is_off_past_the_plan",
+                includes="off",
+                included_days=15,
+                limit_event={"limit": "history_days", "allowed": 14, "used": None, "source": "edit"},
+            ),
+            param("includes_a_cohort_that_is_on_with_no_slot_left", others_on=1, includes="on"),
+            # The turn-on after the save refuses a cohort the editor can't edit, and a refusal here would name it.
+            param(
+                "includes_a_cohort_past_the_plan_that_the_editor_cannot_view",
+                includes="off",
+                included_days=15,
+                included_access="none",
+            ),
+            param("window_past_the_plan_of_a_cohort_that_is_off", enabled=False, window_days=15),
+            # Migration 0023 turned on the cohorts of teams whose users don't see realtime cohorts.
+            param("window_past_the_plan_outside_the_realtime_gate", inside_gate=False, window_days=15),
+        ]
+    )
+    @patch("posthog.api.cohort.report_user_action")
+    def test_an_edit_of_a_cohort_that_is_on_has_to_fit_the_plan(
+        self,
+        _name: str,
+        report_user_action: MagicMock,
+        *,
+        enabled: bool = True,
+        inside_gate: bool = True,
+        start_days_ago: int | None = None,
+        window_days: int = 7,
+        others_on: int = 0,
+        includes: Literal["off", "on"] | None = None,
+        included_days: int = 7,
+        included_access: str | None = None,
+        limit_event: dict | None = None,
+    ) -> None:
+        leaf = {
+            key: value for key, value in _REALTIME_PAGEVIEW_LEAF.items() if key not in ("bytecode", "conditionHash")
+        }
+        if start_days_ago is not None:
+            leaf["explicit_datetime"] = (timezone.now() - timedelta(days=start_days_ago)).date().isoformat()
+        cohort = self._cohort(leaf, enabled=enabled)
+        if not inside_gate:
+            RealtimeCohortTeamAccess.objects.filter(team=self.team).update(level=RealtimeCohortLevel.PROCESSING)
+        for _ in range(others_on):
+            self._cohort(_REALTIME_PAGEVIEW_LEAF, enabled=True)
+        edited = [{**leaf, "time_value": window_days}]
+        if includes is not None:
+            included = self._cohort({**leaf, "time_value": included_days}, enabled=includes == "on")
+            if included_access is not None:
+                self._restrict(included, included_access)
+            edited.append({"type": "cohort", "key": "id", "value": included.id})
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/cohorts/{cohort.id}/",
+            {"name": "Renamed", "filters": {"properties": {"type": "AND", "values": edited}}},
+            format="json",
+        )
+
+        cohort.refresh_from_db()
+        assert (response.status_code, response.json().get("code")) == (
+            (400, "realtime_limit_reached") if limit_event else (200, None)
+        ), response.json()
+        assert cohort.name == ("Realtime" if limit_event else "Renamed")
+        assert self._limit_events(report_user_action) == ([limit_event] if limit_event else [])
+
+    @parameterized.expand(
+        [
+            param(
+                "made_realtime_again",
+                state={
+                    "cohort_type": None,
+                    "filters": {
+                        "properties": {
+                            "type": "AND",
+                            "values": [{**_REALTIME_PAGEVIEW_LEAF, "value": "performed_event_first_time"}],
+                        }
+                    },
+                },
+                edit={"filters": {"properties": {"type": "AND", "values": [_REALTIME_PAGEVIEW_LEAF]}}},
+                limit_event={"limit": "cohorts", "allowed": 3, "used": 3, "source": "edit"},
+            ),
+            param(
+                "made_dynamic_again",
+                state={"is_static": True},
+                edit={"is_static": False},
+                limit_event={"limit": "cohorts", "allowed": 3, "used": 3, "source": "edit"},
+            ),
+            param(
+                "restored",
+                state={"deleted": True},
+                edit={"deleted": False},
+                limit_event={"limit": "cohorts", "allowed": 3, "used": 3, "source": "edit"},
+            ),
+            # The check and the save hold the lock turn-ons take, so a slot taken while the restore ran counts.
+            param(
+                "restored_while_a_turn_on_takes_the_last_slot",
+                state={"deleted": True},
+                edit={"deleted": False},
+                others_on=2,
+                turned_on_during_the_edit=True,
+                limit_event={"limit": "cohorts", "allowed": 3, "used": 3, "source": "edit"},
+            ),
+            # An edit saved while the cohort was deleted held no slot, so nothing judged its criteria until now.
+            param(
+                "restored_with_criteria_past_the_plan",
+                state={
+                    "deleted": True,
+                    "filters": {
+                        "properties": {"type": "AND", "values": [{**_REALTIME_PAGEVIEW_LEAF, "time_value": 15}]}
+                    },
+                },
+                edit={"deleted": False},
+                others_on=0,
+                limit_event={"limit": "history_days", "allowed": 14, "used": None, "source": "edit"},
+            ),
+        ]
+    )
+    @patch("posthog.api.cohort.report_user_action")
+    def test_an_edit_that_brings_back_a_cohort_that_is_on_is_judged_like_a_turn_on(
+        self,
+        _name: str,
+        report_user_action: MagicMock,
+        *,
+        state: dict,
+        edit: dict,
+        limit_event: dict,
+        others_on: int = 3,
+        turned_on_during_the_edit: bool = False,
+    ) -> None:
+        cohort = self._cohort(_REALTIME_PAGEVIEW_LEAF, enabled=True)
+        Cohort.objects.filter(id=cohort.id).update(**state)
+        if state.get("deleted"):
+            AsyncDeletion.objects.create(
+                deletion_type=DeletionType.Cohort_full, team_id=self.team.id, key=f"{cohort.pk}_{cohort.version}"
+            )
+        for _ in range(others_on):
+            self._cohort(_REALTIME_PAGEVIEW_LEAF, enabled=True)
+
+        def turn_on_during_the_edit(_cohort: Cohort) -> bool:
+            if turned_on_during_the_edit:
+                self._cohort(_REALTIME_PAGEVIEW_LEAF, enabled=True)
+            return False
+
+        with patch("posthog.api.cohort.will_create_loops", side_effect=turn_on_during_the_edit):
+            response = self.client.patch(f"/api/projects/{self.team.id}/cohorts/{cohort.id}/", edit, format="json")
+
+        assert (response.status_code, response.json().get("code")) == (400, "realtime_limit_reached"), response.json()
+        assert self._limit_events(report_user_action) == [limit_event]
+        assert AsyncDeletion.objects.filter(key=f"{cohort.pk}_{cohort.version}").count() == (
+            1 if state.get("deleted") else 0
+        )
 
     def test_turning_off_hides_names_of_parents_the_member_cannot_view(self) -> None:
         cohort = self._cohort(_REALTIME_PAGEVIEW_LEAF, enabled=True)
@@ -9270,9 +9470,14 @@ class TestCohortRealtimeSwitch(APIBaseTest):
         assert "2 cohort(s) that include this cohort as criteria: Realtime and 1 more." in response.json()["detail"]
         assert "Hidden parent" not in response.json()["detail"]
 
-    def test_the_project_says_whether_realtime_cohorts_are_served(self) -> None:
+    def test_the_project_says_whether_realtime_cohorts_are_served_and_the_slot_limit(self) -> None:
+        self._cohort(_REALTIME_PAGEVIEW_LEAF, enabled=True)
+        self._cohort(_REALTIME_PAGEVIEW_LEAF)
         served = self.client.get(f"/api/projects/{self.team.id}/").json()["realtime_cohorts"]
         RealtimeCohortTeamAccess.objects.filter(team=self.team).update(level=RealtimeCohortLevel.PROCESSING)
         not_served = self.client.get(f"/api/projects/{self.team.id}/").json()["realtime_cohorts"]
 
-        assert (served, not_served) == ({"access": "serving"}, {"access": "off"})
+        assert (served, not_served) == (
+            {"access": "serving", "cohorts_used": 1, "max_cohorts": 3},
+            {"access": "off", "cohorts_used": None, "max_cohorts": None},
+        )
