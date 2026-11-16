@@ -2143,8 +2143,18 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
             QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY,
         )
 
-    def test_cache_key_follows_the_billing_limit(self) -> None:
+    @parameterized.expand(
+        [
+            ("running", None, (True, False, False)),
+            ("ended", datetime(2024, 1, 7, tzinfo=UTC), (True, True, True)),
+        ]
+    )
+    def test_cache_key_follows_the_billing_limit(
+        self, _name: str, end_date: datetime | None, expected: tuple[bool, bool, bool]
+    ) -> None:
         query = self._running_exposure_query()
+        self.experiment.end_date = end_date
+        self.experiment.save()
 
         def cache_key() -> str:
             return ExperimentExposuresQueryRunner(team=self.team, query=query).get_cache_key()
@@ -2156,7 +2166,7 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
         limited = cache_key()
         self._limit_events(days=2)
 
-        self.assertEqual((unreadable == before, limited == before, cache_key() == limited), (True, False, False))
+        self.assertEqual((unreadable == before, limited == before, cache_key() == limited), expected)
 
     def test_billing_limit_names_the_cause_of_zero_exposures(self) -> None:
         query = self._running_exposure_query()

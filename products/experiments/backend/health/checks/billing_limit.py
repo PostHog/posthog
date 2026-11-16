@@ -63,7 +63,7 @@ def billing_limit(ctx: HealthContext) -> CheckOutcome:
             "variant loses events alike, so the results aren't biased. To count events sooner, raise the limit or "
             "subscribe on the billing page. PostHog doesn't keep the events it drops, so they can't be counted later."
         ),
-        evidence={"limit_ends_at": limit.ends_at.astimezone(UTC).isoformat()},
+        evidence={"billing_limit_ends_at": limit.ends_at.astimezone(UTC).isoformat()},
         actions=(),
         diagnostic_ref=None,
     )
