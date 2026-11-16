@@ -1,3 +1,4 @@
+from collections.abc import Sequence
 from datetime import UTC
 
 from django import forms
@@ -28,7 +29,7 @@ class HtmlTable:
     """A plain table for a read-only display field, so the admin needs no template for it."""
 
     @staticmethod
-    def render(headers: list[str], rows: list[tuple[object, ...]]) -> SafeString:
+    def render(headers: list[str], rows: Sequence[tuple[object, ...]]) -> SafeString:
         head = format_html_join("", '<th style="padding: 6px; text-align: left;">{}</th>', ((h,) for h in headers))
         body = format_html_join(
             "",
@@ -253,8 +254,7 @@ class OrganizationAdmin(admin.ModelAdmin):
                 "todays_usage": f"{int(data.get('todays_usage', 0)):,}"
                 if data.get("todays_usage") is not None
                 else "-",
-                "usage_raw": data.get("usage"),
-                "limit_raw": data.get("limit"),
+                "percent_used": self._percent_used(data.get("usage"), limit),
             }
 
         rows = [
@@ -263,7 +263,7 @@ class OrganizationAdmin(admin.ModelAdmin):
                 data["usage"],
                 data["limit"] or HtmlTable.colored("Unlimited", "#28a745"),
                 data["todays_usage"],
-                self._percent_used(data["usage_raw"], data["limit_raw"]),
+                data["percent_used"],
             )
             for product, data in formatted_data.items()
         ]
@@ -279,10 +279,10 @@ class OrganizationAdmin(admin.ModelAdmin):
         return format_html("{}{}", period, table)
 
     @staticmethod
-    def _percent_used(usage: object, limit: object) -> str | SafeString:
+    def _percent_used(usage: int | float | None, limit: int | float | None) -> str | SafeString:
         if not limit or usage is None:
             return "-"
-        percentage = round(int(usage) / int(limit) * 100)
+        percentage = round(usage / limit * 100)
         if percentage >= 90:
             color = "#dc3545"
         elif percentage >= 75:
