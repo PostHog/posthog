@@ -36,6 +36,7 @@ from . import contracts
 
 if TYPE_CHECKING:
     from products.endpoints.backend.insight_transformers import transform_materialized_insight_response
+    from products.endpoints.backend.logic.cohort_membership_rewrite import rewrite_cohort_membership_queries
     from products.endpoints.backend.logic.crud import EndpointCrudService
     from products.endpoints.backend.logic.execution import EndpointExecutionService
     from products.endpoints.backend.logic.materialization import (
@@ -59,6 +60,7 @@ _LAZY = {
     "validate_bucket_overrides": "logic.validation",
     "validate_endpoint_request": "logic.validation",
     "validate_update_request": "logic.validation",
+    "rewrite_cohort_membership_queries": "logic.cohort_membership_rewrite",
     "generate_openapi_spec": "openapi",
     # The insight-conversion seam. Product analytics owns the runners these two reach through
     # core's dispatcher, so its tests hold the cases that prove the conversion still works.
@@ -164,6 +166,7 @@ __all__ = [
     "generate_openapi_spec",
     "get_endpoint",
     "get_endpoint_version",
+    "rewrite_cohort_membership_queries",
     "get_last_execution_times",
     "is_materialization_ready",
     "is_materialized_request",
