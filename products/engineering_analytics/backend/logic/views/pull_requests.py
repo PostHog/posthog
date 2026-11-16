@@ -4,8 +4,9 @@ It drops the pull requests a merge queue opens for its gate branches (see ``logi
 Bots and drafts stay in, because bot-impact analysis reads them.
 """
 
+from products.engineering_analytics.backend.logic.agent_context import has_agent_context_expr
 from products.engineering_analytics.backend.logic.merge_queue import merge_queue_branch_expr
-from products.engineering_analytics.backend.logic.reverts import revert_title_expr
+from products.engineering_analytics.backend.logic.reverts import revert_title_expr, reverted_pr_number_expr
 
 # Bots whose handle does not carry GitHub's automatic ``[bot]`` suffix.
 KNOWN_BOT_HANDLES: frozenset[str] = frozenset(
@@ -23,7 +24,15 @@ def _bot_handle_in_list() -> str:
     return ", ".join(f"'{handle}'" for handle in sorted(KNOWN_BOT_HANDLES))
 
 
-def build_query(table_name: str) -> str:
+def bot_handle_expr(handle_column: str) -> str:
+    return f"({handle_column} LIKE '%[bot]' OR {handle_column} IN ({_bot_handle_in_list()}))"
+
+
+def build_query(table_name: str, *, has_body: bool = False) -> str:
+    body = "body" if has_body else "nullIf('', '')"
+    reverted_pr_number = reverted_pr_number_expr(
+        title_column="title", body_column="body_text", repo_full_name_column="repo_full_name"
+    )
     return f"""
         SELECT
             id,
@@ -31,8 +40,10 @@ def build_query(table_name: str) -> str:
             title,
             author_handle,
             author_avatar_url,
-            (author_handle LIKE '%[bot]' OR author_handle IN ({_bot_handle_in_list()})) AS is_bot,
+            {bot_handle_expr("author_handle")} AS is_bot,
             {revert_title_expr("title")} AS is_revert,
+            {reverted_pr_number} AS reverted_pr_number,
+            {has_agent_context_expr("body_text")} AS has_agent_context,
             arrayElement(repo_parts, 1) AS repo_owner,
             arrayElement(repo_parts, 2) AS repo_name,
             arrayMap(label -> JSONExtractString(label, 'name'), JSONExtractArrayRaw(labels_json)) AS labels,
@@ -53,6 +64,8 @@ def build_query(table_name: str) -> str:
                 id,
                 number,
                 title,
+                {body} AS body_text,
+                ifNull(JSONExtractString(base, 'repo', 'full_name'), '') AS repo_full_name,
                 state AS raw_state,
                 coalesce(draft, false) AS is_draft,
                 -- user is Nullable and NULL for a PR by a deleted GitHub account; JSONExtractString
