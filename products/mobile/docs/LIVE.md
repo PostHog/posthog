@@ -115,7 +115,7 @@ Loading shows the skeleton (`live-loading`). Empty cards say "No activity in the
 On reopening Live, the last successful aggregate values appear from the account-scoped device cache, separately for All, Web and Mobile.
 An Updating indicator appears while fresh data loads, and successful reads replace the saved values.
 A failed refresh keeps the previous values and follows the reconnecting behavior below.
-The cache uses the existing size and age limits and clears on sign-out or loss of Views access; individual event details are not persisted.
+The cache uses the existing size and age limits and clears on sign-out, project access denial or loss of Views access; individual event details are not persisted.
 
 ## No web traffic
 

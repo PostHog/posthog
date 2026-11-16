@@ -12,14 +12,17 @@ import {
     liveWindow,
 } from '@/api/live'
 import { queryClient } from '@/api/queryClient'
+import { deniedRead } from '@/api/readCache'
+import { READ_CACHE_TTL_MS } from '@/api/readCacheStore'
 import type { ProjectScope } from '@/api/reports'
-import { addSessionEndTask } from '@/auth/authStore'
+import { addSessionEndTask, useAuthStore } from '@/auth/authStore'
 import { sessionGeneration } from '@/auth/tokens'
 import { useProjectScope } from '@/auth/useProjectScope'
 import { type DataMode, useDataMode } from '@/demo/demoMode'
 import { LIVE_DEMO_READ_MS, liveDemo, liveDemoState } from '@/demo/live'
 import { useAppActive } from '@/features/handoff/useTaskRun'
 import { reportScopeError } from '@/features/views/useViewsAccess'
+import { useItemErrors } from '@/features/views/viewsCache'
 import { sleep } from '@/lib/sleep'
 import { useDelayedReconnecting } from '@/lib/useDelayedReconnecting'
 import { liveProjectState, liveUsersOnlineFromQuery, liveUsersOnlineFromStats } from '@/model/adapters/live'
@@ -50,8 +53,8 @@ import {
 } from './liveController'
 import { useLivePreference } from './livePreference'
 import { type LiveQueryRunner, liveMobileMetrics, readLiveSnapshot, readLiveWorld } from './liveRead'
-import { readSlowLiveQuery } from './liveSlowQuery'
-import { useLiveWorldShare } from './liveWorldStore'
+import { clearSlowLiveQuery, readSlowLiveQuery } from './liveSlowQuery'
+import { clearLiveWorldShare, useLiveWorldShare } from './liveWorldStore'
 
 /** The web's HogQL reload interval. */
 const READ_INTERVAL_MS = 30_000
@@ -98,8 +101,28 @@ function projectInfoFrom(project: LiveProjectApi): LiveProjectInfo {
     }
 }
 
+function liveCacheKeys(scope: ProjectScope): readonly (readonly unknown[])[] {
+    return ['all', 'web', 'mobile'].map((preference) => ['views', scope.host, scope.projectId, 'live', preference])
+}
+
+function denyLiveRead(scope: ProjectScope, error: unknown, generation: number, signal?: AbortSignal): boolean {
+    if (generation !== sessionGeneration() || signal?.aborted || !deniedRead(error)) return false
+    for (const key of liveCacheKeys(scope)) {
+        useItemErrors.getState().set(JSON.stringify(key), 'no_access')
+        queryClient
+            .getQueryCache()
+            .find({ queryKey: key, exact: true })
+            ?.setState({ data: undefined, dataUpdatedAt: 0 })
+    }
+    clearSlowLiveQuery(`${sessionGeneration()}|${scope.host}|${scope.projectId}`)
+    const active = useAuthStore.getState()
+    if (active.host === scope.host && active.projectId === scope.projectId) clearLiveWorldShare()
+    return true
+}
+
 function projectInfo(scope: ProjectScope, maxAgeMs = Number.POSITIVE_INFINITY): Promise<LiveProjectInfo | null> {
-    const key = `${sessionGeneration()}|${scope.host}|${scope.projectId}`
+    const generation = sessionGeneration()
+    const key = `${generation}|${scope.host}|${scope.projectId}`
     const cached = projects.get(key)
     if (cached && Date.now() - cached.at < maxAgeMs) {
         return cached.pending
@@ -107,7 +130,11 @@ function projectInfo(scope: ProjectScope, maxAgeMs = Number.POSITIVE_INFINITY): 
     const kept = cached?.pending
     const read: ProjectRead = {
         at: Date.now(),
-        pending: fetchLiveProject(undefined, scope).then(projectInfoFrom, () => {
+        pending: fetchLiveProject(undefined, scope).then(projectInfoFrom, (error) => {
+            if (denyLiveRead(scope, error, generation)) {
+                projects.delete(key)
+                return null
+            }
             // A failed first read is not kept, so the next visit asks again. A failed read after a good one keeps
             // the good answer with this read's start time, so a project that keeps failing is read at most once a
             // `maxAgeMs`.
@@ -153,16 +180,20 @@ function sourceFor(
     if (mode !== 'live' || !scope) {
         return null
     }
+    const generation = sessionGeneration()
     return {
         run: async (_key, query, signal) => {
             try {
                 if (_key === 'mobileMetrics') {
-                    const key = `${sessionGeneration()}|${scope.host}|${scope.projectId}`
+                    const key = `${generation}|${scope.host}|${scope.projectId}`
                     return await readSlowLiveQuery(key, Date.now(), () => fetchLiveQuery(query, signal, scope))
                 }
                 return await fetchLiveQuery(query, signal, scope)
             } catch (error) {
-                reportScopeError(error, 'views')
+                if (generation === sessionGeneration() && !signal.aborted) {
+                    denyLiveRead(scope, error, generation, signal)
+                    reportScopeError(error, 'views')
+                }
                 throw error
             }
         },
@@ -329,7 +360,10 @@ export function useLiveUsersOnline(): { count: number | null; reconnecting: bool
     const scope = useProjectScope()
     const source = useMemo(() => sourceFor(mode, scope), [mode, scope])
     const project = useLiveProject(source)
-    const stats = useStatsUsersOnline(source, CHIP_INTERVAL_MS, project.info)
+    const denied = useItemErrors((state) =>
+        scope ? liveCacheKeys(scope).some((key) => state.errors[JSON.stringify(key)] === 'no_access') : false
+    )
+    const stats = useStatsUsersOnline(source, CHIP_INTERVAL_MS, project.info, !denied, !denied)
     const readCount = useCallback(
         async (signal: AbortSignal): Promise<LiveReadResult<number | null>> => {
             if (!source) {
@@ -343,7 +377,7 @@ export function useLiveUsersOnline(): { count: number | null; reconnecting: bool
         [source]
     )
     const counted = usePoller<number | null>({
-        enabled: stats.fallback,
+        enabled: stats.fallback && !denied,
         read: readCount,
         intervalMs: CHIP_INTERVAL_MS,
     })
@@ -361,7 +395,7 @@ export function useLiveUsersOnline(): { count: number | null; reconnecting: bool
         if (count !== null) setLastCount({ source, count })
     }, [source, count])
     return {
-        count: reconnecting ? null : (count ?? (lastCount?.source === source ? lastCount.count : null)),
+        count: denied || reconnecting ? null : (count ?? (lastCount?.source === source ? lastCount.count : null)),
         reconnecting,
         screenActive: counted.screenActive,
     }
@@ -437,7 +471,11 @@ export function useLiveFeed(onError: (kind: LiveErrorKind) => void): LiveFeed {
         ],
         [mode, scope, preference]
     )
-    const { data: saved } = useQuery<SavedLive>({ queryKey: cacheKey, queryFn: skipToken }, queryClient)
+    const denied = useItemErrors((state) => state.errors[JSON.stringify(cacheKey)] === 'no_access')
+    const { data: saved } = useQuery<SavedLive>(
+        { queryKey: cacheKey, queryFn: skipToken, gcTime: READ_CACHE_TTL_MS },
+        queryClient
+    )
     const source = useMemo(() => sourceFor(mode, scope), [mode, scope])
     const project = useLiveProject(source)
     const notSetUp = project.info?.ingestedEvent === false
@@ -461,7 +499,7 @@ export function useLiveFeed(onError: (kind: LiveErrorKind) => void): LiveFeed {
             const result = await readLiveSnapshot({
                 profile,
                 run: mode === 'demo' ? (sourceFor(mode, scope, preference)?.run ?? source.run) : source.run,
-                previous:
+                previous: () =>
                     previous?.preference === preference
                         ? previous
                         : (queryClient.getQueryData<SavedLive>(cacheKey)?.snapshot ?? EMPTY_LIVE_SNAPSHOT),
@@ -471,6 +509,9 @@ export function useLiveFeed(onError: (kind: LiveErrorKind) => void): LiveFeed {
                 now: Date.now(),
                 signal,
             })
+            if (signal.aborted || useItemErrors.getState().errors[JSON.stringify(cacheKey)] === 'no_access') {
+                throw new Error('The live read was denied or cancelled.')
+            }
             completedPreference.current = preference
             return { ...result, data: { ...result.data, preference } }
         },
@@ -484,18 +525,18 @@ export function useLiveFeed(onError: (kind: LiveErrorKind) => void): LiveFeed {
         }
     }, [])
     const main = usePoller<LiveSnapshot>({
-        enabled: source !== null && project.info !== undefined && !notSetUp,
+        enabled: source !== null && project.info !== undefined && !notSetUp && !denied,
         read,
         intervalMs: READ_INTERVAL_MS,
         slowdown: READ_SLOWDOWN,
         onEvent,
     })
-    const slowEnabled = source !== null && project.info !== undefined && !notSetUp && preference !== 'web'
+    const slowEnabled = source !== null && project.info !== undefined && !notSetUp && !denied && preference !== 'web'
     const slow = useMobileMetrics(source, slowEnabled)
     const preferredKind = preference === 'all' ? 'mixed' : preference
     const mismatch = main.state.data !== null && main.state.data.preference !== preference
-    const fastSnapshot = (!mismatch ? main.state.data : null) ??
-        saved?.snapshot ?? {
+    const fastSnapshot = (!denied && !mismatch ? main.state.data : null) ??
+        (!denied ? saved?.snapshot : null) ?? {
             ...EMPTY_LIVE_SNAPSHOT,
             profile: {
                 kind: preferredKind as 'web' | 'mobile' | 'mixed' | 'unknown',
@@ -536,12 +577,12 @@ export function useLiveFeed(onError: (kind: LiveErrorKind) => void): LiveFeed {
         STATS_INTERVAL_MS,
         project.info,
         !notSetUp && state !== 'quiet',
-        preference === 'all'
+        preference === 'all' && !denied
     )
     statsActive.current = stats.active
 
     useEffect(() => {
-        if (!main.state.data || mismatch || !main.state.updatedAt) return
+        if (!main.state.data || mismatch || !main.state.updatedAt || denied) return
         queryClient.setQueryData<SavedLive>(cacheKey, {
             snapshot: {
                 ...main.state.data,
@@ -553,7 +594,7 @@ export function useLiveFeed(onError: (kind: LiveErrorKind) => void): LiveFeed {
             },
             dataReadAt: main.state.updatedAt,
         })
-    }, [cacheKey, main.state.data, main.state.updatedAt, mismatch, slowEnabled, slow.state.data, stats.count])
+    }, [cacheKey, main.state.data, main.state.updatedAt, mismatch, slowEnabled, slow.state.data, stats.count, denied])
 
     const paused = main.state.paused
     useEffect(() => {
@@ -627,9 +668,14 @@ export function useLiveFeed(onError: (kind: LiveErrorKind) => void): LiveFeed {
         void main.controller?.resume()
     }, [main.controller])
     const retry = useCallback(() => {
+        if (denied && scope) {
+            for (const key of liveCacheKeys(scope)) useItemErrors.getState().clear(JSON.stringify(key))
+            void recheck(0)
+            return
+        }
         void main.controller?.refresh()
         void slow.controller?.refresh()
-    }, [main.controller, slow.controller])
+    }, [main.controller, slow.controller, denied, scope, recheck])
 
     let status: LiveStatus = source ? liveStatus(main.state) : 'loading'
     if (status === 'reconnecting' && !reconnecting) status = hasData ? 'live' : 'loading'
@@ -639,11 +685,11 @@ export function useLiveFeed(onError: (kind: LiveErrorKind) => void): LiveFeed {
         snapshot,
         state,
         status,
-        updatedAt: (mismatch ? null : main.state.updatedAt) ?? saved?.dataReadAt ?? null,
-        usersOnline: stats.count ?? snapshot.usersOnline,
+        updatedAt: denied ? null : ((mismatch ? null : main.state.updatedAt) ?? saved?.dataReadAt ?? null),
+        usersOnline: denied ? null : (stats.count ?? snapshot.usersOnline),
         paused,
-        reading: !paused && (project.info === undefined || main.state.reading || slow.state.reading),
-        loadFailed: mainFailing && !hasData,
+        reading: !denied && !paused && (project.info === undefined || main.state.reading || slow.state.reading),
+        loadFailed: denied || (mainFailing && !hasData),
         pulling,
         pull,
         pause,
@@ -672,6 +718,9 @@ export function useLiveWorld(): LiveWorldFeed {
     const scope = useProjectScope()
     const source = useMemo(() => sourceFor(mode, scope, preference), [mode, scope, preference])
     const shared = useLiveWorldShare()
+    const denied = useItemErrors((state) =>
+        scope ? liveCacheKeys(scope).some((key) => state.errors[JSON.stringify(key)] === 'no_access') : false
+    )
     const read = useCallback(
         async (signal: AbortSignal): Promise<LiveReadResult<LiveWorld>> => {
             if (!source) {
@@ -688,22 +737,26 @@ export function useLiveWorld(): LiveWorldFeed {
         [source, shared.mobileOnly, shared.webOnly]
     )
     const poller = usePoller<LiveWorld>({
-        enabled: source !== null && !shared.paused,
+        enabled: source !== null && !shared.paused && !denied,
         read,
         intervalMs: READ_INTERVAL_MS,
         slowdown: READ_SLOWDOWN,
     })
-    const world = poller.state.data ?? shared.world
+    const world = denied ? null : (poller.state.data ?? shared.world)
     const { controller } = poller
     const retry = useCallback((): void => {
+        if (denied && scope) {
+            for (const key of liveCacheKeys(scope)) useItemErrors.getState().clear(JSON.stringify(key))
+            return
+        }
         void controller?.refresh()
-    }, [controller])
+    }, [controller, denied, scope])
     return {
         world,
         status: liveStatus({ ...poller.state, data: world, paused: shared.paused }),
         screenActive: poller.screenActive,
-        loadFailed: poller.state.failures > 0 && world === null,
-        reading: poller.state.reading,
+        loadFailed: denied || (poller.state.failures > 0 && world === null),
+        reading: !denied && poller.state.reading,
         retry,
     }
 }
