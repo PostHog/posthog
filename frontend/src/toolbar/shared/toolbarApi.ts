@@ -144,7 +144,6 @@ type ToolbarRoute = string | ScopedRoute
 
 const projectRoute = (path: string): ScopedRoute => ({ scope: 'project', path })
 const teamRoute = (path: string): ScopedRoute => ({ scope: 'team', path })
-const environmentRoute = (path: string): ScopedRoute => ({ scope: 'environment', path })
 
 async function request<T>(
     method: ToolbarApiMethod,
@@ -340,7 +339,7 @@ export const toolbarApi = {
 
     webVitals: {
         get: <T = unknown>(params: { pathname: string }, options: ToolbarApiOptions): Promise<ToolbarApiResult<T>> =>
-            apiGet<T>(environmentRoute(`web_vitals${encodeParams(params, '?')}`), options),
+            apiGet<T>(teamRoute(`web_vitals${encodeParams(params, '?')}`), options),
     },
 
     eventDefinitions: {
