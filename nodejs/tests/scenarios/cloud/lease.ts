@@ -21,6 +21,7 @@ export type Manifest = {
     stackName: string
     schedules: string[]
     inputs: Record<string, string>
+    card: string
 }
 
 const HOUR_MS = 60 * 60 * 1000
@@ -114,7 +115,7 @@ async function register(controller: Controller, schedulerRole: string, manifest:
 
 export async function lease(
     controller: Controller,
-    { profile, inputs }: RunInputs,
+    { profile, inputs, card }: RunInputs,
     { owner, commit }: Admitted
 ): Promise<Manifest> {
     const runId = randomUUID()
@@ -131,6 +132,7 @@ export async function lease(
         stackName,
         schedules: schedulesOf(runId),
         inputs: Object.fromEntries(inputs.map(({ file, sha256 }) => [file, sha256])),
+        card: card.id,
     }
     const bucket = evidenceOf(controller.aws, profile.baseline.evidenceBucket)
     const body = JSON.stringify(manifest, null, 2)

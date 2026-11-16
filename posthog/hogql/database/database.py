@@ -1212,7 +1212,16 @@ class Database(BaseModel):
         # is noise, and on a direct connection the same name can exist in the broader
         # catalog without being available on the source we actually queried.
         lowered = name.casefold()
-        candidates = {c for c in candidates if c.casefold() != lowered}
+        candidates = {c for c in candidates if c.casefold() != lowered and self.has_table(c)}
+        if "." not in name:
+            qualified_name = f"posthog.{name}"
+            try:
+                qualified_node = self.get_table_node(qualified_name)
+            except ResolutionError:
+                pass
+            else:
+                if qualified_node.table is not None and not qualified_node.hidden:
+                    return [qualified_name]
         prefix, dot, _ = name.rpartition(".")
         if dot:
             schema = prefix.casefold()

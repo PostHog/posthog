@@ -105,10 +105,10 @@ def _discover(
     return load_discovered_traces(team, start=start, end=end, read=read, per_mille=per_mille, limit=limit)
 
 
-def _has_tool_call(value: Any) -> bool:
+def has_tool_call(value: Any) -> bool:
     """Whether a parsed output holds a tool call, the same shapes the checks' `collect_calls` reads."""
     if isinstance(value, list):
-        return any(_has_tool_call(child) for child in value)
+        return any(has_tool_call(child) for child in value)
     if not isinstance(value, dict):
         return False
     function = value.get("function")
@@ -117,7 +117,7 @@ def _has_tool_call(value: Any) -> bool:
     kind = value.get("type")
     if isinstance(kind, str) and kind in TOOL_CALL_TYPES and (value.get("toolName") or value.get("name")) is not None:
         return True
-    return any(_has_tool_call(child) for child in value.values())
+    return any(has_tool_call(child) for child in value.values())
 
 
 def _calls_tools(generation: LLMTraceEvent) -> bool:
@@ -128,7 +128,7 @@ def _calls_tools(generation: LLMTraceEvent) -> bool:
             output = json.loads(output)
         except ValueError:
             return False
-    return _has_tool_call(output)
+    return has_tool_call(output)
 
 
 def _rendered_text(event: LLMTraceEvent, side: str) -> str:
