@@ -373,7 +373,7 @@ sequenceDiagram
     else a bar failed at a ramp step
         J-->>R: breaking point: step, offered rate, value
         Note over R: failed
-    else only a valve was never observed, or a bar could not be read
+    else only a valve was never observed, or a bar could not be read or its step was over the host CPU ceiling
         V-->>R: requested, not observed
         Note over R: invalid
     end
@@ -420,6 +420,10 @@ A card without a ramp drives at 1x throughout.
 
 The first step where a bar fails is the bar's breaking point, and the run fails. A bar that cannot be read in a step makes the run `invalid`.
 A ramped card is admitted on its first step, at the profile's own rates.
+When the profile sets `host.cpuCeiling`, each step is also checked against it before its bars are read.
+A step whose run host was busy at or over the ceiling is not judged, and neither is any later step, because a saturated run host starves the roles it runs.
+A step with no host CPU sample to cover it is not judged either.
+A breaking point from an earlier step still stands.
 
 ```yaml
 id: email-worker-killed

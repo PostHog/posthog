@@ -339,6 +339,14 @@ function scrapedSeconds(samples: readonly MetricSample[], phase: Phase): number 
     return spans.length === 0 ? 0 : Math.min(...spans)
 }
 
+export function hostBusyShareOf(host: readonly HostSample[], phase: Phase): number | undefined {
+    const span = spanning(byTime(host), phase)
+    const [first, last] = [span.at(0), span.at(-1)]
+    return first !== undefined && last !== undefined && last.totalTicks > first.totalTicks
+        ? (last.busyTicks - first.busyTicks) / (last.totalTicks - first.totalTicks)
+        : undefined
+}
+
 export type Baseline = {
     seconds: number
     scrapedSeconds: number
@@ -360,8 +368,7 @@ export function baselineOf({ samples, queue, host, drive, timeline }: MeasureEvi
         queues.map((name) => [name, phaseRate(samples, ({ processed }) => processed[name] ?? 0, baseline)])
     )
     const inserted = spanning(counted(queue), baseline)
-    const hostSpan = spanning(byTime(host), baseline)
-    const [firstHost, lastHost] = [hostSpan.at(0), hostSpan.at(-1)]
+    const hostBusyShare = hostBusyShareOf(host, baseline)
     return {
         seconds: length,
         scrapedSeconds: scraped,
@@ -373,12 +380,7 @@ export function baselineOf({ samples, queue, host, drive, timeline }: MeasureEvi
                       seconds(inserted.at(-1)!.at - inserted[0].at),
               }
             : {}),
-        ...(firstHost !== undefined && lastHost !== undefined && lastHost.totalTicks > firstHost.totalTicks
-            ? {
-                  hostBusyShare:
-                      (lastHost.busyTicks - firstHost.busyTicks) / (lastHost.totalTicks - firstHost.totalTicks),
-              }
-            : {}),
+        ...(hostBusyShare === undefined ? {} : { hostBusyShare }),
     }
 }
 

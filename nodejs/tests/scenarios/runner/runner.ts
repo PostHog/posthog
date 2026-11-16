@@ -454,6 +454,7 @@ export function createRunner(
                 const bars = judgeBars(card.bars, {
                     ...evidence,
                     steps,
+                    hostCpuCeiling: profile.host?.cpuCeiling,
                     writerCpu: await writerCpuFor(card.bars, driveWindow, signal),
                 })
                 const verdict = statusOf({
