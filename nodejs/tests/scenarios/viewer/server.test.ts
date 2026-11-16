@@ -320,6 +320,7 @@ describe('scenario viewer', () => {
                 file: path.join(cardsDir, 'broken.yaml'),
                 problems: expect.arrayContaining(['version: Invalid input: expected number, received string']),
             },
+            expect.objectContaining({ ok: true, id: 'failover', bars: [], runHostOnly: true }),
             expect.objectContaining({
                 ok: true,
                 id: 'frozen-worker',
@@ -343,7 +344,6 @@ describe('scenario viewer', () => {
                 bars: [],
                 runHostOnly: false,
             }),
-            expect.objectContaining({ ok: true, id: 'failover', bars: [], runHostOnly: true }),
             expect.objectContaining({
                 ok: true,
                 id: 'ramp',
