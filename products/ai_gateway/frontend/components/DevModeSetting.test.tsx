@@ -62,9 +62,10 @@ describe('<DevModeSetting />', () => {
         ['the picked cap has cents', '0.00', 19.99, true],
         ['the picked cap has fractions of a cent', '0.00', 19.995, false],
         ['the picked cap is above the maximum', '0.00', 1000.01, false],
-        ['the picked cap is exactly a float-unfriendly remainder', '24.99', 25.01, true],
-    ])('allows minting when %s', (_name, usedUsd, pickedCap, canMint) => {
-        devModeLogic.actions.loadUsageSuccess({ ...USAGE, daily_cap_usd: '50.00', used_usd: usedUsd })
+        // 1000 - 974.99 is 25.00999999999999 in floating point, so a raw comparison refuses $25.01.
+        ['the picked cap is exactly a float-unfriendly remainder', '974.99', 25.01, true, '1000.00'],
+    ])('allows minting when %s', (_name, usedUsd, pickedCap, canMint, dailyCap = '50.00') => {
+        devModeLogic.actions.loadUsageSuccess({ ...USAGE, daily_cap_usd: dailyCap, used_usd: usedUsd })
         if (pickedCap !== null) {
             devModeLogic.actions.setCapUsd(pickedCap)
         }

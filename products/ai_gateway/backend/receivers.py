@@ -10,7 +10,11 @@ from typing import Any
 from django.db import transaction
 from django.db.models.signals import post_save, pre_delete, pre_save
 
+import structlog
+
 from posthog.models.user import User
+
+logger = structlog.get_logger(__name__)
 
 _LOST_ELIGIBILITY = "_ai_gateway_lost_eligibility"
 
@@ -44,10 +48,15 @@ def _revoke_after_save(sender: type[User], instance: User, created: bool, **kwar
 
 
 def _revoke_before_delete(sender: type[User], instance: User, **kwargs: Any) -> None:
-    # The token rows are deleted with the user, so the hashes are collected now.
+    # The token rows are deleted with the user, so the hashes are collected now. A failure here must
+    # not abort the delete.
     from .logic import live_token_hashes  # noqa: PLC0415 — keeps logic's imports off Django setup
 
-    token_hashes = live_token_hashes(instance.pk)
+    try:
+        token_hashes = live_token_hashes(instance.pk)
+    except Exception:
+        logger.exception("ai_gateway_dev_delete_hashes_failed", user_id=instance.pk)
+        return
     if not token_hashes:
         return
     from .tasks.tasks import revoke_dev_token_hashes  # noqa: PLC0415 — keeps Celery off setup

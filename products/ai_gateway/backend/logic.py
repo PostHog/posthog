@@ -592,6 +592,9 @@ def revoke_for_ineligible_owner(user_id: int) -> int:
 
 
 def live_token_hashes(user_id: int) -> list[str]:
+    # Unconfigured instances have no paying team to scope to, and every user delete calls this.
+    if not configured():
+        return []
     with team_scope(settings.DEV_GATEWAY_TEAM_ID):
         return [
             token_hash
@@ -642,6 +645,8 @@ def sweep_ineligible_owners() -> int:
 
 def revoke(user: User, token_id: str | None, *, by_system: bool = False) -> int:
     """Returns the gateway's revoked count. Rows are marked revoked only after the gateway confirms."""
+    if not configured():
+        raise DevTokenRefused("unconfigured", "Developer mode is not configured on this instance.", 503)
     with team_scope(settings.DEV_GATEWAY_TEAM_ID):
         rows = DevGatewayToken.objects.filter(
             user_id=user.pk, token_hash__isnull=False, revoked_at__isnull=True, expires_at__gt=timezone.now()

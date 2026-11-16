@@ -704,6 +704,31 @@ class TestDevTokens(_DevGatewaySettings):
         assert self._rows(pk=moved_row.pk).get().revoked_at is not None
         assert self._rows(pk=kept_row.pk).get().revoked_at is None
 
+    @override_settings(DEV_GATEWAY_URL="", DEV_GATEWAY_MINT_KEY="", DEV_GATEWAY_TEAM_ID=0)
+    def test_deleting_a_user_on_an_unconfigured_instance_still_works(self):
+        user_id = self.user.pk
+
+        with patch(_POST) as post, self.captureOnCommitCallbacks(execute=True):
+            self.user.delete()
+
+        assert not User.objects.filter(pk=user_id).exists()
+        post.assert_not_called()
+
+    def test_a_broker_failure_does_not_fail_the_deactivation(self):
+        self._live_token()
+
+        with (
+            patch(
+                "products.ai_gateway.backend.tasks.tasks.revoke_dev_tokens_for_ineligible_owner.delay",
+                side_effect=ConnectionError("broker down"),
+            ),
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            self.user.is_active = False
+            self.user.save()
+
+        assert User.objects.filter(pk=self.user.pk, is_active=False).exists()
+
     def test_saves_that_keep_eligibility_or_were_never_eligible_revoke_nothing(self):
         self._live_token()
         customer = User.objects.create_and_join(self.organization, "someone@example.com", None)
