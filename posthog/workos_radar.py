@@ -2,12 +2,17 @@
 WorkOS Radar integration for bot/fraud detection during authentication flows.
 
 This module provides a client for the WorkOS Radar Attempts API to evaluate
-signup attempts for potential fraud or bot activity. When Radar returns a
-BLOCK verdict, the attempt is rejected with a SuspiciousAttemptBlocked
-exception unless a security access rule exempts that address from the
-signup risk check.
+signup and password login attempts for potential fraud or bot activity. When
+Radar returns a BLOCK verdict, the attempt is rejected with a
+SuspiciousAttemptBlocked exception unless a security access rule exempts that
+address from the signup risk check.
+
+Signup always acts on the verdict. Password login follows the
+WORKOS_RADAR_LOGIN_MODE instance setting, so the verdicts can be recorded
+before any login is refused.
 """
 
+import re
 import time
 import hashlib
 from enum import StrEnum
@@ -21,6 +26,7 @@ import structlog
 import posthoganalytics
 from rest_framework.exceptions import APIException
 
+from posthog.models.instance_setting import get_instance_setting
 from posthog.turnstile import create_challenge_nonce, validate_and_consume_nonce, verify_turnstile_token
 from posthog.utils import get_ip_address, get_short_user_agent
 
@@ -30,6 +36,8 @@ logger = structlog.get_logger(__name__)
 
 WORKOS_RADAR_API_URL = "https://api.workos.com/radar/attempts"
 WORKOS_RADAR_TIMEOUT = 5.0
+# A person waits on every login, so a slow Radar costs less time there than at signup
+WORKOS_RADAR_LOGIN_TIMEOUT = 2.0
 
 
 class SuspiciousAttemptBlocked(APIException):
@@ -72,9 +80,78 @@ class RadarVerdict(StrEnum):
     DISABLED = "disabled"
 
 
+class RadarMode(StrEnum):
+    OFF = "off"
+    SHADOW = "shadow"
+    ENFORCE = "enforce"
+
+
+# The browser script's token goes to WorkOS as is, so anything outside this shape is dropped
+# rather than sent.
+_SIGNALS_ID_PATTERN = re.compile(r"[A-Za-z0-9_.:-]{1,512}")
+
+
 def _hash_email(email: str) -> str:
     """Hash email for logging purposes to avoid PII in logs."""
     return hashlib.sha256(email.lower().encode()).hexdigest()[:16]
+
+
+def _is_radar_configured() -> bool:
+    return bool(settings.WORKOS_RADAR_ENABLED and settings.WORKOS_RADAR_API_KEY)
+
+
+def get_radar_login_mode() -> RadarMode:
+    value = str(get_instance_setting("WORKOS_RADAR_LOGIN_MODE") or "").strip().lower()
+    try:
+        return RadarMode(value)
+    except ValueError:
+        return RadarMode.OFF
+
+
+def _is_sampled_for_login(email: str) -> bool:
+    # The bucket comes from the address, not from chance, so a sampled account sends Radar every
+    # login. Radar needs that whole history to recognise the account's devices and locations.
+    percent = int(get_instance_setting("WORKOS_RADAR_LOGIN_SAMPLE_PERCENT"))
+    if percent >= 100:
+        return True
+    if percent <= 0:
+        return False
+    bucket = int(hashlib.sha256(email.strip().lower().encode()).hexdigest()[:8], 16) % 100
+    return bucket < percent
+
+
+def _login_mode_for(email: str) -> RadarMode:
+    """Radar mode for a password login with this address. A settings error turns Radar off."""
+    try:
+        mode = get_radar_login_mode()
+        if mode == RadarMode.OFF or not _is_sampled_for_login(email):
+            return RadarMode.OFF
+        return mode
+    except Exception:
+        logger.exception("workos_radar_login_mode_read_failed")
+        return RadarMode.OFF
+
+
+def _radar_mode_for(action: RadarAction, auth_method: RadarAuthMethod, email: str) -> RadarMode:
+    if action == RadarAction.SIGNUP:
+        return RadarMode.ENFORCE
+    # Credential stuffing tries leaked passwords, so a passkey login gains nothing from the check
+    if action == RadarAction.SIGNIN and auth_method == RadarAuthMethod.PASSWORD:
+        return _login_mode_for(email)
+    return RadarMode.OFF
+
+
+def radar_client_id_for_login(email: str) -> str:
+    """WorkOS client ID for the login page's Radar browser script, or "" when Radar skips this address."""
+    if not settings.WORKOS_RADAR_CLIENT_ID or not _is_radar_configured():
+        return ""
+    if _login_mode_for(email) == RadarMode.OFF:
+        return ""
+    return settings.WORKOS_RADAR_CLIENT_ID
+
+
+def _clean_signals_id(value: str) -> str:
+    return value if _SIGNALS_ID_PATTERN.fullmatch(value) else ""
 
 
 def _get_raw_user_agent(request: HttpRequest) -> str:
@@ -92,28 +169,38 @@ def evaluate_auth_attempt(
     challenge_nonce: str = "",
     challenge_allowed: bool = True,
     call_site: Optional[str] = None,
+    signals_id: str = "",
 ) -> Optional[RadarVerdict]:
     """
     Evaluate an authentication attempt using the WorkOS Radar Attempts API.
 
-    ``challenge_allowed=False`` is for a caller with no browser to solve a Turnstile
-    challenge, such as a partner server. A CHALLENGE verdict then lets the attempt
-    through, so that only a BLOCK verdict refuses it.
+    ``challenge_allowed=False`` is for a caller with no way to show a Turnstile
+    challenge, such as a partner server or the login form. A CHALLENGE verdict then
+    lets the attempt through, so that only a BLOCK verdict refuses it.
+
+    A password login runs only when WORKOS_RADAR_LOGIN_MODE is not "off" and the
+    address is in the sample. In "shadow" mode the verdict is recorded and never
+    refuses the login.
+
+    ``signals_id`` is the token from the WorkOS Radar browser script. It links the
+    device signals that the browser collected to this attempt.
 
     Raises:
-        SuspiciousAttemptBlocked: When verdict is BLOCK and no access rule
-            exempts the address from the signup risk check.
-        ChallengeRequired: When verdict is CHALLENGE, ``challenge_allowed`` is
-            True, and no valid Turnstile token was provided.
+        SuspiciousAttemptBlocked: When verdict is BLOCK, the mode enforces it, and
+            no access rule exempts the address from the signup risk check.
+        ChallengeRequired: When verdict is CHALLENGE, the mode enforces it,
+            ``challenge_allowed`` is True, and no valid Turnstile token was provided.
     """
-    if not settings.WORKOS_RADAR_ENABLED or not settings.WORKOS_RADAR_API_KEY:
+    if not _is_radar_configured():
         return None
 
-    if action != RadarAction.SIGNUP:
+    mode = _radar_mode_for(action, auth_method, email)
+    if mode == RadarMode.OFF:
         return None
 
     ip_address = get_ip_address(request)
     short_user_agent = get_short_user_agent(request)
+    signals_id = _clean_signals_id(signals_id)
 
     verdict, duration_ms = _evaluate_verdict(
         email=email,
@@ -123,10 +210,14 @@ def evaluate_auth_attempt(
         auth_method=auth_method,
         turnstile_token=turnstile_token,
         challenge_nonce=challenge_nonce,
+        signals_id=signals_id,
+        timeout=WORKOS_RADAR_LOGIN_TIMEOUT if action == RadarAction.SIGNIN else WORKOS_RADAR_TIMEOUT,
     )
 
     outcome = _decide_outcome(verdict, email, turnstile_token, challenge_nonce, ip_address)
     if outcome == "challenge" and not challenge_allowed:
+        outcome = "allow"
+    if mode == RadarMode.SHADOW and outcome in ("block", "challenge"):
         outcome = "allow"
 
     _log_radar_event(
@@ -146,6 +237,8 @@ def evaluate_auth_attempt(
         was_challenged=outcome == "challenge",
         was_challenge_completed=outcome == "completed",
         call_site=call_site,
+        mode=mode,
+        signals_sent=bool(signals_id),
     )
 
     if outcome == "block":
@@ -175,6 +268,8 @@ def _evaluate_verdict(
     auth_method: RadarAuthMethod,
     turnstile_token: str,
     challenge_nonce: str,
+    signals_id: str = "",
+    timeout: float = WORKOS_RADAR_TIMEOUT,
 ) -> tuple[RadarVerdict, float]:
     """Return (verdict, api_duration_ms). Skip the Radar API call on challenge resubmits."""
     if turnstile_token and challenge_nonce:
@@ -187,6 +282,8 @@ def _evaluate_verdict(
         user_agent=user_agent,
         action=action,
         auth_method=auth_method,
+        signals_id=signals_id,
+        timeout=timeout,
     )
     return verdict, (time.perf_counter() - start_time) * 1000
 
@@ -216,32 +313,52 @@ def _decide_outcome(
     return "allow"
 
 
+def _post_attempt(payload: dict[str, str], timeout: float) -> requests.Response:
+    return requests.post(
+        WORKOS_RADAR_API_URL,
+        headers={
+            "Authorization": f"Bearer {settings.WORKOS_RADAR_API_KEY}",
+            "Content-Type": "application/json",
+        },
+        json=payload,
+        timeout=timeout,
+    )
+
+
 def _call_radar_api(
     email: str,
     ip_address: str,
     user_agent: str,
     action: RadarAction,
     auth_method: RadarAuthMethod,
+    signals_id: str = "",
+    timeout: float = WORKOS_RADAR_TIMEOUT,
 ) -> RadarVerdict:
     """
     Make the actual API call to WorkOS Radar.
     """
     try:
-        response = requests.post(
-            WORKOS_RADAR_API_URL,
-            headers={
-                "Authorization": f"Bearer {settings.WORKOS_RADAR_API_KEY}",
-                "Content-Type": "application/json",
-            },
-            json={
-                "email": email,
-                "ip_address": ip_address,
-                "user_agent": user_agent,
-                "action": action.value,
-                "auth_method": auth_method.value,
-            },
-            timeout=WORKOS_RADAR_TIMEOUT,
-        )
+        payload: dict[str, str] = {
+            "email": email,
+            "ip_address": ip_address,
+            "user_agent": user_agent,
+            "action": action.value,
+            "auth_method": auth_method.value,
+        }
+        if signals_id:
+            payload["signals_id"] = signals_id
+        response = _post_attempt(payload, timeout)
+
+        # The browser sends the signals token, so a caller can send one that WorkOS refuses. An
+        # API error lets the attempt through, so the check runs again without the token rather
+        # than letting a bad token skip Radar.
+        if signals_id and 400 <= response.status_code < 500 and response.status_code != 429:
+            logger.warning(
+                "workos_radar_signals_rejected",
+                status_code=response.status_code,
+                email_hash=_hash_email(email),
+            )
+            response = _post_attempt({key: value for key, value in payload.items() if key != "signals_id"}, timeout)
 
         if response.status_code == 200:
             data = response.json()
@@ -299,6 +416,8 @@ def _log_radar_event(
     was_challenged: bool = False,
     was_challenge_completed: bool = False,
     call_site: Optional[str] = None,
+    mode: RadarMode = RadarMode.ENFORCE,
+    signals_sent: bool = False,
 ) -> None:
     """
     Log the Radar decision as a PostHog event for analysis.
@@ -322,6 +441,8 @@ def _log_radar_event(
         "email_domain": email.split("@")[-1] if "@" in email else "",
         "radar_api_duration_ms": round(duration_ms, 2),
         "call_site": call_site,
+        "mode": mode.value,
+        "signals_sent": signals_sent,
     }
 
     posthoganalytics.capture(
@@ -338,4 +459,6 @@ def _log_radar_event(
         bypass_source=bypass_source,
         email_hash=_hash_email(email),
         duration_ms=round(duration_ms, 2),
+        mode=mode.value,
+        signals_sent=signals_sent,
     )

@@ -72,7 +72,7 @@ from posthog.jwt import PosthogJwtAudience, encode_jwt
 from posthog.middleware import KnownLoginDeviceCookieMiddleware
 from posthog.models import User
 from posthog.models.activity_logging.signal_handlers import post_login
-from posthog.models.instance_setting import set_instance_setting
+from posthog.models.instance_setting import override_instance_config, set_instance_setting
 from posthog.models.integration import Integration
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.models.organization import Organization, OrganizationMembership
@@ -83,6 +83,7 @@ from posthog.models.project_secret_api_key import ProjectSecretAPIKey
 from posthog.models.team.team import Team
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.test.authentication_checks import covers_authentication
+from posthog.workos_radar import RadarVerdict
 
 from products.exports.backend.models.exported_asset import ExportedAsset
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
@@ -787,6 +788,68 @@ class TestLoginAPI(APIBaseTest):
             )
             # Second IP is not locked, so can attempt login
             self.assertNotEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+
+@override_settings(WORKOS_RADAR_ENABLED=True, WORKOS_RADAR_API_KEY="test_key", WORKOS_RADAR_CLIENT_ID="client_123")
+class TestLoginRadar(APIBaseTest):
+    CONFIG_AUTO_LOGIN = False
+
+    def setUp(self):
+        super().setUp()
+        self.user.is_email_verified = True
+        self.user.save()
+
+    @patch("posthog.workos_radar._call_radar_api", return_value=RadarVerdict.BLOCK)
+    def test_enforced_block_refuses_the_login_with_the_browser_signals(self, mock_call_api):
+        with override_instance_config("WORKOS_RADAR_LOGIN_MODE", "enforce"):
+            response = self.client.post(
+                "/api/login",
+                {"email": self.CONFIG_EMAIL, "password": self.CONFIG_PASSWORD, "radar_signals_id": "signals_abc"},
+            )
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert response.json()["code"] == "suspicious_attempt_blocked"
+        assert mock_call_api.call_args[1]["signals_id"] == "signals_abc"
+        assert self.client.get("/api/users/@me/").status_code == status.HTTP_401_UNAUTHORIZED
+
+    @patch("posthog.workos_radar._call_radar_api", return_value=RadarVerdict.BLOCK)
+    def test_reauth_from_a_signed_in_session_skips_radar(self, mock_call_api):
+        self.client.force_login(self.user)
+
+        with override_instance_config("WORKOS_RADAR_LOGIN_MODE", "enforce"):
+            response = self.client.post("/api/login", {"email": self.CONFIG_EMAIL, "password": self.CONFIG_PASSWORD})
+
+        assert response.status_code == status.HTTP_200_OK
+        mock_call_api.assert_not_called()
+
+    def test_a_signals_token_that_is_not_a_string_does_not_fail_the_login(self):
+        response = self.client.post(
+            "/api/login",
+            {"email": self.CONFIG_EMAIL, "password": self.CONFIG_PASSWORD, "radar_signals_id": {"id": 1}},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+
+    @parameterized.expand(
+        [
+            ("off", "off", 100, None),
+            ("shadow", "shadow", 100, "client_123"),
+            ("shadow_outside_sample", "shadow", 0, None),
+        ]
+    )
+    def test_precheck_names_the_radar_client_only_while_radar_checks_the_address(
+        self, _name, mode, sample_percent, expected
+    ):
+        with (
+            override_instance_config("WORKOS_RADAR_LOGIN_MODE", mode),
+            override_instance_config("WORKOS_RADAR_LOGIN_SAMPLE_PERCENT", sample_percent),
+        ):
+            existing = self.client.post("/api/login/precheck", {"email": self.CONFIG_EMAIL}).json()
+            unknown = self.client.post("/api/login/precheck", {"email": "nobody@example.com"}).json()
+
+        assert existing.get("radar_client_id") == expected
+        assert unknown.get("radar_client_id") == expected
 
 
 class TestDevLoginAPI(APIBaseTest):

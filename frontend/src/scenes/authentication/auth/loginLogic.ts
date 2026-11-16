@@ -68,6 +68,8 @@ export interface PrecheckResponseType {
      * rest of the page session.
      */
     precheckFailed?: boolean
+    // WorkOS client ID for the Radar browser script. Present only when Radar checks this address's password logins.
+    radar_client_id?: string
 }
 
 // Precheck result to fall back to when the request fails (e.g. rate limited). Without this the form
@@ -85,6 +87,30 @@ function precheckFallback(email: string): PrecheckResponseType {
 
 // Matches the backend's CodeBasedVerificationResendThrottle (1/minute), which also counts the first send
 export const CODE_RESEND_COOLDOWN_MS = 60_000
+
+// The signals module and its package load only when the server asks for them, so the login page
+// downloads nothing extra while Radar is off.
+function startRadarSignalsFor(precheckResponse: PrecheckResponseType): void {
+    const clientId = precheckResponse.radar_client_id
+    if (!clientId) {
+        return
+    }
+    void import('scenes/authentication/shared/radarSignals')
+        .then(({ startRadarSignals }) => startRadarSignals(clientId))
+        .catch(() => undefined)
+}
+
+async function radarSignalsIdFor(precheckResponse: PrecheckResponseType): Promise<string> {
+    if (!precheckResponse.radar_client_id) {
+        return ''
+    }
+    try {
+        const { getRadarSignalsId } = await import('scenes/authentication/shared/radarSignals')
+        return await getRadarSignalsId()
+    } catch {
+        return ''
+    }
+}
 
 function resendFailureMessage(code: string | undefined, detail: string | undefined): string {
     if (detail) {
@@ -578,8 +604,13 @@ export const loginLogic = kea<loginLogicType>([
                 // Clear any previous passkey errors when submitting with password
                 actions.clearGeneralError()
                 try {
+                    const radarSignalsId = await radarSignalsIdFor(values.precheckResponse)
                     // nosemgrep: prefer-codegen-api -- Legacy raw API call with a hand-written URL and an unchecked response type. No generated function covers this endpoint yet. Find out why the generated client skips it (no schema, no product tag, or excluded from the spec) and fix that first.
-                    return await api.create<any>('api/login', { email, password })
+                    return await api.create<any>('api/login', {
+                        email,
+                        password,
+                        ...(radarSignalsId ? { radar_signals_id: radarSignalsId } : {}),
+                    })
                 } catch (e) {
                     const { code, detail } = e as Record<string, any>
                     if (code === '2fa_required') {
@@ -765,6 +796,7 @@ export const loginLogic = kea<loginLogicType>([
         },
         precheckSuccess: async ({ payload }, breakpoint) => {
             const { precheckResponse } = values
+            startRadarSignalsFor(precheckResponse)
             // Auto-trigger the modal passkey prompt if the user has passkeys and SSO isn't enforced.
             // Skip on WebKit, it freezes Safari when triggered without a user gesture.
             if (

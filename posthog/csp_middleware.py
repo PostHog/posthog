@@ -347,7 +347,12 @@ class CSPMiddleware:
                 # matched against the URL path alone, so the `?2` the library appends does not
                 # defeat it. The cost is that a version bump which moves the file needs this line
                 # updated, or the editor stops loading.
-                f"script-src 'self' 'nonce-{nonce}' 'wasm-unsafe-eval'{report_sample} {resource_url} https://*.i.posthog.com https://js.stripe.com https://challenges.cloudflare.com https://editor.unlayer.com/embed.js",
+                #
+                # The login page loads the WorkOS Radar device-signals script from js.workos.com, and
+                # that script posts its signals to api.workos.com from our page, so connect-src names
+                # that host too. WorkOS serves the script itself, because the collector changes
+                # without a package release.
+                f"script-src 'self' 'nonce-{nonce}' 'wasm-unsafe-eval'{report_sample} {resource_url} https://*.i.posthog.com https://js.stripe.com https://challenges.cloudflare.com https://editor.unlayer.com/embed.js https://js.workos.com/radar/",
                 # A data: font cannot execute script, and this directive governs font loading only,
                 # so the token widens nothing else. It also carries nothing out: a data: URL makes
                 # no request, which is what the CSS-injection attacks on this directive need. The
@@ -394,7 +399,7 @@ class CSPMiddleware:
                 # SQL editor all render blob URLs, so they lose their images without it.
                 f"img-src 'self' data: blob: https: {resource_url} https://posthog.com https://www.gravatar.com https://res.cloudinary.com https://platform.slack-edge.com https://raw.githubusercontent.com",
                 frame_ancestors,
-                f"connect-src 'self' https://www.posthogstatus.com {resource_url} {connect_debug_url} https://raw.githubusercontent.com/PostHog/terminal-assets/ {object_storage_source}",
+                f"connect-src 'self' https://www.posthogstatus.com {resource_url} {connect_debug_url} https://raw.githubusercontent.com/PostHog/terminal-assets/ {object_storage_source} https://api.workos.com",
                 # https: lets heatmaps frame a customer's site. 'self' is for the replay player
                 # frame, whose document is same-origin: an http origin does not match https:.
                 "frame-src 'self' https:",
