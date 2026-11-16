@@ -1,5 +1,5 @@
 import { BindLogic, useActions, useValues } from 'kea'
-import { useCallback, useEffect, useRef } from 'react'
+import { useCallback, useEffect, useRef, useState } from 'react'
 
 import { LemonCollapse, LemonDivider } from '@posthog/lemon-ui'
 
@@ -146,6 +146,7 @@ function LogsViewerContent({
         togglePrettifyLog,
     } = useActions(logsViewerLogic)
     const mobileLayout = useApmMobileLayout()
+    const [mobileSparklineCollapsed, setMobileSparklineCollapsed] = useState(true)
     const { orderBy, sparklineCollapsed, facetRailCollapsed, viewMode } = useValues(logsViewerConfigLogic)
     const { isOpen: isTraceDialogOpen } = useValues(traceDialogOpenLogic)
     const { setOrderBy, toggleSparklineCollapsed } = useActions(logsViewerConfigLogic)
@@ -345,8 +346,12 @@ function LogsViewerContent({
                 onRetry={() => fetchSparkline()}
                 onDateRangeChange={setDateRange}
                 displayTimezone={timezone}
-                collapsed={sparklineCollapsed}
-                onToggleCollapse={toggleSparklineCollapsed}
+                collapsed={mobileLayout ? mobileSparklineCollapsed : sparklineCollapsed}
+                onToggleCollapse={
+                    mobileLayout
+                        ? () => setMobileSparklineCollapsed((collapsed) => !collapsed)
+                        : toggleSparklineCollapsed
+                }
                 incompleteBarIndices={sparklineIncompleteBarIndices}
             />
             {/* A plain divider: the viewer also renders in panes that have no scene padding to bleed into. */}

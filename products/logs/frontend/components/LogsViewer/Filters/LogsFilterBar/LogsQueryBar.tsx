@@ -36,7 +36,12 @@ export const LogsQueryBar = ({
         <LogsFilterGroup>
             <div className="flex flex-col gap-2 w-full">
                 <div className="flex gap-2 flex-wrap w-full justify-between">
-                    <div className={cn('flex gap-1.5', mobileLayout ? 'min-w-0 w-full' : 'shrink-0 flex-1')}>
+                    <div
+                        className={cn(
+                            'flex gap-1.5',
+                            mobileLayout ? 'min-w-0 w-full sm:w-auto sm:flex-1 sm:min-w-[220px]' : 'shrink-0 flex-1'
+                        )}
+                    >
                         <div className={cn('flex-1', mobileLayout ? 'min-w-0' : 'min-w-[300px]')}>
                             <LogsFilterSearch autoFocus={autoFocusSearch && !mobileLayout} />
                         </div>
