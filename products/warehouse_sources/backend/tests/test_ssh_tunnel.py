@@ -169,12 +169,12 @@ def test_is_auth_valid_wrong_passphrase_suggests_passphrase():
 
 def _host_key_line(key_type: str) -> str:
     if key_type == "ssh-rsa":
-        key = RSAKey.generate(2048)
-        return f"{key.get_name()} {key.get_base64()}"
+        rsa_key = RSAKey.generate(2048)
+        return f"{rsa_key.get_name()} {rsa_key.get_base64()}"
 
     if key_type == "ecdsa-sha2-nistp256":
-        key = ECDSAKey.generate(bits=256)
-        return f"{key.get_name()} {key.get_base64()}"
+        ecdsa_key = ECDSAKey.generate(bits=256)
+        return f"{ecdsa_key.get_name()} {ecdsa_key.get_base64()}"
 
     public_key = ed25519.Ed25519PrivateKey.generate().public_key()
     return public_key.public_bytes(serialization.Encoding.OpenSSH, serialization.PublicFormat.OpenSSH).decode()
