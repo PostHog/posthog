@@ -1049,10 +1049,16 @@ class TestWorkflowFolders(APIBaseTest):
         self.assertEqual(filed.json()["attr"], "_create_in_folder")
 
     def test_disabled_files_hide_by_type_and_leave_their_unfiled_folders(self) -> None:
-        self.client.post(
+        created = self.client.post(
             f"/api/projects/{self.team.id}/messaging_templates/",
             {"name": "Synthetic email", "type": "email"},
             format="json",
+        )
+        self.assertEqual(created.status_code, 201, created.content)
+        self.assertTrue(
+            FileSystem.objects.filter(
+                team=self.team, type="message_template", path="Unfiled/Email templates/Synthetic email"
+            ).exists()
         )
         for path in ("Unfiled", "Unfiled/Email templates"):
             FileSystem.objects.create(team=self.team, path=path, depth=len(path.split("/")), type="folder")
