@@ -50,6 +50,11 @@ about billing usage and those tools are not available, do not continue with this
 workflow. Briefly say that billing usage investigation is not enabled for this
 organization or MCP session.
 
+Self-host and build-your-own questions are the exception. If the billing tools are
+not available or return a permission error, still follow
+`references/self-host-or-build.md` with the volumes and spend the user gives you,
+and say the numbers are theirs, not measured.
+
 If a billing tool returns a permission error, read the error detail before
 deciding what to do. Stop only when it says the user does not have billing
 access. Say the current PostHog user does not have billing access for this

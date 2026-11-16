@@ -63,11 +63,16 @@ How to read the result:
 
 - Zero or negative: infrastructure alone costs more than the bill.
   Say plainly that the alternative cannot win on cost, and stop the cost comparison there.
-- Below the ownership floor in "Staffing": the alternative cannot win on cost in practice.
-- Above the staffing default for their volume: the alternative can win on cost.
-  Say so, then check the one-off build cost and "Other things to weigh" before the verdict.
-- In between: the answer depends on their team.
-  Ask who would own it and how much of their week it would take.
+- The user gave their own staffing estimate: compare it with the break-even headcount directly.
+  If their estimate is below the break-even headcount, the alternative can win on cost.
+  Do not apply the ownership floor or the staffing defaults to their estimate.
+- Otherwise, compare the break-even headcount with the staffing defaults:
+  - Below the ownership floor in "Staffing": the alternative cannot win on cost in practice.
+  - Above the staffing default for their volume: the alternative can win on cost.
+  - In between: the answer depends on their team.
+    Ask who would own it and how much of their week it would take.
+
+When the alternative can win on cost, say so, then check the one-off build cost and "Other things to weigh" before the verdict.
 
 Show the working, so the user can change any input and see the result move.
 
@@ -91,7 +96,7 @@ Tell the user that, and use them to check the break-even headcount, not to repla
 
 - **Ownership floor.**
   A system people rely on for decisions needs at least two engineers who know it, so one can be away.
-  Use 0.2 FTE in total (two engineers at about 10% each) as the lowest figure at any volume.
+  Use 0.2 FTE in total (two engineers at about 10% each) as the lowest default at any volume.
   At 10M events the pipeline itself is small; the floor is the cost, not the volume.
 - Between rows, headcount roughly doubles for every 10x in volume.
 - Building needs about twice the self-host headcount.
