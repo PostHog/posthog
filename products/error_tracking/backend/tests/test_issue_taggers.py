@@ -138,14 +138,14 @@ class TestJevTagger(SimpleTestCase):
             ),
         }
         assert (request.state, request.privacy_mode, request.model) == (
-            "TypeError: cart is undefined",
+            "TypeError: cart is undefined\nsubmitOrder in src/checkout/cart.ts line 42\nLevel: error",
             True,
             SEVERITY_INFERENCE_MODEL,
         )
         assert list(answers) == ["blocks_checkout"]
 
     def _context(self) -> TagContext:
-        return TagContext(issue=ErrorTrackingIssue(team_id=1), state="TypeError: cart is undefined")
+        return TagContext(issue=ErrorTrackingIssue(team_id=1), event_properties=EVENT_PROPERTIES)
 
 
 @patch.object(team_flags, "feature_enabled_or_false", new=_flags_on(ISSUE_TAGS_FLAG, JEV_ISSUE_TAGS_FLAG))

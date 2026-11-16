@@ -4,11 +4,10 @@ from posthog.models.user import User
 
 from products.error_tracking.backend.facade import contracts
 from products.error_tracking.backend.logic import ErrorTrackingIssueNotFoundError
+from products.error_tracking.backend.logic.issue_tags.enabled import get_issue_tag_definition
 from products.error_tracking.backend.logic.issue_tags.gate import issue_tags_enabled
-from products.error_tracking.backend.logic.issue_tags.registry import get_issue_tag_definition
 from products.error_tracking.backend.logic.issue_tags.taggers.base import TagAnswer
 from products.error_tracking.backend.logic.issue_tags.writer import set_issue_tag
-from products.error_tracking.backend.logic.team_flags import team_flag_enabled
 from products.error_tracking.backend.models import ErrorTrackingIssue, ErrorTrackingIssueTag
 
 
@@ -27,10 +26,8 @@ def correct_issue_tag(
     if not issue_tags_enabled(team_id):
         raise IssueTagsDisabledError
     try:
-        definition = get_issue_tag_definition(key)
+        definition = get_issue_tag_definition(team_id, key)
     except ValueError:
-        raise UnknownIssueTagError(key)
-    if not team_flag_enabled(definition.enabled_flag, team_id):
         raise UnknownIssueTagError(key)
 
     source = ErrorTrackingIssueTag.Source.MANUAL

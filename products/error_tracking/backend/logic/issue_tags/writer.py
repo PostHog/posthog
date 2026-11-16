@@ -10,8 +10,8 @@ from django.utils import timezone
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 from posthog.models.user import User
 
+from products.error_tracking.backend.logic.issue_tags.enabled import get_issue_tag_definition
 from products.error_tracking.backend.logic.issue_tags.gate import issue_tags_enabled
-from products.error_tracking.backend.logic.issue_tags.registry import get_issue_tag_definition
 from products.error_tracking.backend.logic.issue_tags.sync import sync_issue_tag_to_clickhouse
 from products.error_tracking.backend.logic.issue_tags.taggers.base import TagAnswer
 from products.error_tracking.backend.models import ErrorTrackingIssue, ErrorTrackingIssueTag
@@ -32,7 +32,7 @@ def set_issue_tag(
     """
     if not issue_tags_enabled(team_id):
         return False
-    sources_above = get_issue_tag_definition(key).sources_ranked_above(source)
+    sources_above = get_issue_tag_definition(team_id, key).sources_ranked_above(source)
     fields = {
         "source": source,
         "value": answer.value,

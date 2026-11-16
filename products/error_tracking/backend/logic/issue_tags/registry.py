@@ -1,4 +1,5 @@
-from typing import ClassVar, Protocol
+from typing import Any, ClassVar, Protocol
+from uuid import UUID
 
 from posthog.dataclasses import frozen
 
@@ -22,6 +23,14 @@ class JevTaggerConfig:
     def __post_init__(self) -> None:
         if not 0 <= self.no_at < self.yes_at <= 1:
             raise ValueError(f"expected 0 <= no_at < yes_at <= 1, got no_at={self.no_at} yes_at={self.yes_at}")
+
+
+@frozen
+class RuleTaggerConfig:
+    source: ClassVar[ErrorTrackingIssueTag.Source] = ErrorTrackingIssueTag.Source.RULE
+
+    rule_id: UUID
+    bytecode: list[Any]
 
 
 @frozen
@@ -62,10 +71,3 @@ ISSUE_TAG_DEFINITIONS: tuple[IssueTagDefinition, ...] = (
         ),
     ),
 )
-
-
-def get_issue_tag_definition(key: str) -> IssueTagDefinition:
-    for definition in ISSUE_TAG_DEFINITIONS:
-        if definition.key == key:
-            return definition
-    raise ValueError(f"unknown issue tag {key!r}")
