@@ -18,6 +18,8 @@ const DEFAULT_LIMIT = 100
 const MAX_LIMIT = 500
 const POOL_SIZE = 5
 const STATEMENT_TIMEOUT_MS = 25_000
+const CONNECT_TIMEOUT_MS = 5_000
+const QUERY_TIMEOUT_MS = STATEMENT_TIMEOUT_MS + 5_000
 
 const gunzipAsync = promisify(gunzip)
 
@@ -185,7 +187,13 @@ export async function startStore({
     if (token === '') {
         throw new Error('the store needs a run token to check reports against')
     }
-    const pool = new Pool({ connectionString: databaseUrl, max: POOL_SIZE, statement_timeout: STATEMENT_TIMEOUT_MS })
+    const pool = new Pool({
+        connectionString: databaseUrl,
+        max: POOL_SIZE,
+        statement_timeout: STATEMENT_TIMEOUT_MS,
+        connectionTimeoutMillis: CONNECT_TIMEOUT_MS,
+        query_timeout: QUERY_TIMEOUT_MS,
+    })
     pool.on('error', () => undefined)
     const store = new RunStore(pool)
     const expected = digest(token)

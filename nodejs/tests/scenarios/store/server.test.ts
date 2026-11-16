@@ -1,5 +1,6 @@
 import { randomUUID } from 'crypto'
 import { request as httpRequest } from 'http'
+import { AddressInfo, Socket, createServer as createTcpServer } from 'net'
 import { gzipSync } from 'zlib'
 
 import { defaultConfig } from '~/common/config/config'
@@ -350,4 +351,19 @@ describe('run store', () => {
         store = await startStore({ databaseUrl: schema.url, token: TOKEN, port: 0 })
         expect(await read(`${RUNS_PATH}/${runId}`)).toMatchObject({ status: 200 })
     })
+
+    it('stops starting when the database takes connections and never answers', async () => {
+        const held: Socket[] = []
+        const silent = createTcpServer((socket) => held.push(socket))
+        await new Promise<void>((resolve) => silent.listen(0, '127.0.0.1', resolve))
+        const { port } = silent.address() as AddressInfo
+        try {
+            await expect(
+                startStore({ databaseUrl: `postgres://user:secret@127.0.0.1:${port}/runs`, token: TOKEN, port: 0 })
+            ).rejects.toThrow(/timeout/i)
+        } finally {
+            held.forEach((socket) => socket.destroy())
+            await new Promise((resolve) => silent.close(resolve))
+        }
+    }, 15_000)
 })
