@@ -81,7 +81,10 @@ export function getContextColumn(
     }
 }
 
-export function getPersonForDeleteColumn(record: any[], query: DataTableNode): PersonType | null {
+export function getPersonForDeleteColumn(
+    record: any[],
+    query: DataTableNode
+): (PersonType & { display_name?: string }) | null {
     const select = isActorsQuery(query.source) ? query.source.select : undefined
     if (!select?.length) {
         return record[0] as PersonType
@@ -420,8 +423,7 @@ export function renderColumn(
             console.error('Expected record to be an array for person.$delete column')
             return ''
         }
-        const personRecord = getPersonForDeleteColumn(record, query)
-        return personRecord ? <DeletePersonButton person={personRecord} /> : ''
+        return <DeletePersonButton person={getPersonForDeleteColumn(record, query)} />
     } else if (key === 'properties.$geoip_country_code') {
         if (typeof value === 'string') {
             return `${countryCodeToFlag(value)} ${COUNTRY_CODE_TO_LONG_NAME[value] || value}`

@@ -178,13 +178,12 @@ export function CohortEdit({ id, attachTo }: CohortEditProps): JSX.Element {
             return <></>
         }
         const person = isDataTableNode(query) ? getPersonForDeleteColumn(record, query) : null
-        if (!person?.id) {
-            return <></>
-        }
         // Only the person_display_name column carries a display name, so the other person columns build one
-        const displayName = 'display_name' in person ? String(person.display_name) : asDisplay(person)
+        const cohortPerson = person?.id
+            ? { id: person.id, display_name: person.display_name ?? asDisplay(person) }
+            : null
 
-        return <RemovePersonFromCohortButton person={{ id: person.id, display_name: displayName }} />
+        return <RemovePersonFromCohortButton person={cohortPerson} />
     }
 
     const logic = cohortEditLogic(logicProps)
