@@ -19,7 +19,7 @@ from posthog.schema_enums import InCohortVia, InlineCohortCalculation, PersonsOn
 
 from products.access_control.backend.models.property_access_control import PropertyAccessControl
 from products.access_control.backend.property_access_control import PropertyAccessLevel
-from products.actions.backend.models.action import Action
+from products.actions.backend.facade.testing import create_action
 from products.cohorts.backend.models.cohort import Cohort
 
 
@@ -52,7 +52,7 @@ class TestTrinoSemantics(APIBaseTest):
         )
 
     def test_action_semantics_expand_before_trino_printing(self) -> None:
-        action = Action.objects.create(
+        action = create_action(
             team=self.team,
             name="completed checkout",
             steps_json=[{"event": "checkout completed"}],
@@ -61,7 +61,7 @@ class TestTrinoSemantics(APIBaseTest):
 
         sql, node = prepare_and_print_ast(
             parse_select(
-                f"SELECT event, count() AS total FROM events WHERE matchesAction({action.pk}) "
+                f"SELECT event, count() AS total FROM events WHERE matchesAction({action.id}) "
                 "GROUP BY event ORDER BY total DESC LIMIT 1 BY event"
             ),
             context,

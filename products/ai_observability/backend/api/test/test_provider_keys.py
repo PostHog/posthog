@@ -1,5 +1,4 @@
 import json
-from ipaddress import ip_address
 from uuid import uuid4
 
 from posthog.test.base import APIBaseTest
@@ -15,6 +14,7 @@ from rest_framework import serializers, status
 
 from posthog.constants import AvailableFeature
 from posthog.models import Organization, OrganizationMembership, Project, Team, User
+from posthog.test.anti_ssrf import mock_anti_ssrf_dns_lookup
 
 from products.access_control.backend.models.access_control import AccessControl
 from products.ai_observability.backend.api.provider_keys import LLMProviderKeySerializer
@@ -250,7 +250,7 @@ class TestLLMProviderKeyViewSet(APIBaseTest):
         )
         mock_validate.assert_called_once_with(provider, "sk-test-key-12345", team_id=self.team.id, **expected_config)
 
-    @patch("posthog.security.url_validation.resolve_host_ips", return_value={ip_address("8.8.8.8")})
+    @mock_anti_ssrf_dns_lookup(resolves_to=["8.8.8.8"])
     @patch("httpx.AsyncHTTPTransport.handle_async_request")
     def test_custom_system_one_connection_round_trip(self, request: Mock, _dns: Mock) -> None:
         body = json.dumps(

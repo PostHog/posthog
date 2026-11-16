@@ -75,6 +75,8 @@ export const getIconForItem = (item: SearchItem): ReactNode => {
         itemType = 'persons'
     } else if (itemType === 'hog_flow') {
         itemType = 'workflows'
+    } else if (itemType === 'alert') {
+        itemType = 'inbox'
     }
     if (itemType) {
         // Handle iconColor which may be a single-element array or tuple

@@ -30,6 +30,7 @@ from posthog.schema import (
     ExperimentMeanMetric,
     ExperimentRatioMetric,
     ExperimentRetentionMetric,
+    ExperimentWarehouseNativeNode,
     HogQLQueryModifiers,
 )
 
@@ -173,7 +174,9 @@ class MetricScanResult:
     dropped_metric_uuids: set[str]
 
 
-def node_signature(node: MetricSourceNode | ExperimentDataWarehouseNode | ExperimentExposureNode) -> str:
+def node_signature(
+    node: MetricSourceNode | ExperimentDataWarehouseNode | ExperimentWarehouseNativeNode | ExperimentExposureNode,
+) -> str:
     """A stable identity for a source node. Two nodes with the same signature match the same events
     and share one aggregate in the scan, so they can only ever render identical hits."""
     return node.model_dump_json(exclude_none=True)
@@ -181,7 +184,12 @@ def node_signature(node: MetricSourceNode | ExperimentDataWarehouseNode | Experi
 
 def _metric_sources(
     metric: ExperimentMetric,
-) -> list[tuple[MetricSourceRole, MetricSourceNode | ExperimentDataWarehouseNode | ExperimentExposureNode]]:
+) -> list[
+    tuple[
+        MetricSourceRole,
+        MetricSourceNode | ExperimentDataWarehouseNode | ExperimentWarehouseNativeNode | ExperimentExposureNode,
+    ]
+]:
     if isinstance(metric, ExperimentMeanMetric):
         return [(MetricSourceRole.SOURCE, metric.source)]
     if isinstance(metric, ExperimentFunnelMetric):
@@ -197,15 +205,20 @@ def _metric_sources(
     # the start's: a duplicate chip implying a return the scan can't distinguish from the entry. A
     # distinct completion event (or the same event narrowed by different properties) is a separate
     # signal worth showing, whichever window it opens in.
-    sources: list[tuple[MetricSourceRole, MetricSourceNode | ExperimentDataWarehouseNode | ExperimentExposureNode]] = [
-        (MetricSourceRole.RETENTION_START, metric.start_event)
-    ]
+    sources: list[
+        tuple[
+            MetricSourceRole,
+            MetricSourceNode | ExperimentDataWarehouseNode | ExperimentWarehouseNativeNode | ExperimentExposureNode,
+        ]
+    ] = [(MetricSourceRole.RETENTION_START, metric.start_event)]
     if node_signature(metric.completion_event) != node_signature(metric.start_event):
         sources.append((MetricSourceRole.RETENTION_COMPLETION, metric.completion_event))
     return sources
 
 
-def _source_title(node: MetricSourceNode | ExperimentDataWarehouseNode | ExperimentExposureNode) -> str | None:
+def _source_title(
+    node: MetricSourceNode | ExperimentDataWarehouseNode | ExperimentWarehouseNativeNode | ExperimentExposureNode,
+) -> str | None:
     """Display name for one metric source node, mirroring the frontend `getDefaultName`."""
     if isinstance(node, EventsNode):
         return node.name or node.event
@@ -213,6 +226,8 @@ def _source_title(node: MetricSourceNode | ExperimentDataWarehouseNode | Experim
         return node.name or f"Action {node.id}"
     if isinstance(node, ExperimentDataWarehouseNode):
         return node.table_name
+    if isinstance(node, ExperimentWarehouseNativeNode):
+        return node.custom_name or "Warehouse-native query"
     if isinstance(node, ExperimentExposureNode):
         return "Exposure"
 

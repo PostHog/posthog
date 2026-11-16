@@ -10,13 +10,17 @@ import { TaxonomicStringPopover } from 'lib/components/TaxonomicPopover/Taxonomi
 import { LemonSegmentedButton } from 'lib/lemon-ui/LemonSegmentedButton'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 
+import {
+    STEP_SOURCE_PRESETS,
+    StepSourcePreset,
+    presetForStepSources,
+} from '~/queries/nodes/InsightQuery/stepSourcePresets'
 import { EditorFilterProps } from '~/types'
 
 import { EventName } from 'products/actions/frontend/components/EventName'
 
 import { MAX_STEP_SOURCES } from './editorBounds'
 import { journeysDataLogic } from './journeysDataLogic'
-import { STEP_SOURCE_PRESETS, StepSourcePreset, presetForStepSources } from './stepSourcePresets'
 
 const PRESET_OPTIONS = Object.values(STEP_SOURCE_PRESETS).map(({ key, label }) => ({
     value: key,

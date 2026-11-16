@@ -70,3 +70,18 @@ class GroupUsageMetric(UUIDModel, BytecodeModelMixin):
         from products.cdp.backend.filters import hog_function_filters_to_expr
 
         return hog_function_filters_to_expr(self.filters, self.team, {})
+
+    def get_cohort_filter_errors(self) -> list[str]:
+        """Return why the test account cohorts can't be inlined into the metric's real-time filter."""
+        from posthog.hogql.errors import BaseHogQLError
+
+        from products.cdp.backend.filters import CohortInlineError
+
+        try:
+            self.get_expr()
+        except CohortInlineError as e:
+            return e.reasons
+        except BaseHogQLError:
+            # save() stores these as bytecode_error, so they don't block the save.
+            pass
+        return []

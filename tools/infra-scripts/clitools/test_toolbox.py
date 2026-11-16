@@ -653,6 +653,26 @@ class TestToolbox(unittest.TestCase):
         self.assertNotIn("--resource-version=42", annotate_args)
 
     @patch("subprocess.run")
+    def test_claim_pod_keeps_the_warpstream_client_label(self, mock_run):
+        """The claim orphans the pod but keeps the label that lets it produce to WarpStream."""
+        mock_get_response = MagicMock()
+        mock_get_response.stdout = json.dumps(
+            {
+                "app.kubernetes.io/name": "posthog-toolbox-django",
+                "app.kubernetes.io/component": "app",
+                "pod-template-hash": "abc123",
+                "posthog.com/warpstream-client": "true",
+            }
+        )
+        mock_run.side_effect = [mock_get_response, *(MagicMock() for _ in range(4))]
+
+        claim_pod("toolbox-pod-1", {"toolbox-claimed": "u_at_posthog.com"}, 1234567890, namespace="posthog")
+
+        strip_args = mock_run.call_args_list[1][0][0]
+        self.assertEqual(strip_args[-2:], ["app.kubernetes.io/component-", "pod-template-hash-"])
+        self.assertFalse(any(arg.startswith("posthog.com/warpstream-client") for arg in strip_args))
+
+    @patch("subprocess.run")
     def test_claim_pod_raises_claim_race_error_on_conflict(self, mock_run):
         """A 409 Conflict on the first mutation surfaces as ClaimRaceError so the caller can retry."""
         mock_get_response = MagicMock()

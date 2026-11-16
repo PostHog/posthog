@@ -1,7 +1,9 @@
 from django.contrib import admin
+from django.db.models import QuerySet
+from django.http import HttpRequest
 from django.utils.html import format_html
 
-from posthog.models.integration import Integration
+from posthog.models.integration import ANY, Integration
 from posthog.models.organization_integration import OrganizationIntegration
 from posthog.models.user_integration import UserIntegration
 
@@ -9,7 +11,7 @@ from posthog.models.user_integration import UserIntegration
 @admin.register(Integration)
 class IntegrationAdmin(admin.ModelAdmin):
     list_select_related = ("team", "created_by")
-    list_display = ("id", "kind", "integration_id", "team_link", "created_by", "created_at")
+    list_display = ("id", "kind", "auth_type", "integration_id", "team_link", "created_by", "created_at")
     list_display_links = ("id",)
     list_filter = (
         "kind",
@@ -33,6 +35,12 @@ class IntegrationAdmin(admin.ModelAdmin):
             },
         ),
     ]
+
+    def get_queryset(self, request: HttpRequest) -> QuerySet[Integration]:
+        # The default manager holds only rows with the default auth type of their kind.
+        queryset = Integration.objects._with_auth(ANY)
+        ordering = self.get_ordering(request)
+        return queryset.order_by(*ordering) if ordering else queryset
 
     @admin.display(description="Team")
     def team_link(self, obj: Integration) -> str:

@@ -42,6 +42,9 @@ from .enums import (
 # Each clause runs its own ClickHouse query on the shared logs cluster, so
 # the clause count per request is hard-capped.
 MAX_CLAUSES_PER_QUERY = 10
+DEFAULT_QUERY_COUNT_DAYS = 30
+MAX_QUERY_COUNT_DAYS = 90
+MAX_PROMQL_LENGTH = 8192
 MAX_SPARKLINE_BATCH_SIZE = 20
 
 
@@ -410,6 +413,21 @@ class MetricsOverview:
     services: tuple[MetricsServiceOverview, ...]
 
 
+@dataclass(frozen=True, slots=True)
+class MetricQueryCount:
+    """How often queries read one metric of a team inside a window of days.
+
+    A query counts once for each metric that it selects, whatever the number of clauses or selectors that name it.
+    Builder, heatmap and PromQL queries count, from the app, alerts and the Prometheus API.
+    SQL mode queries do not count.
+    A PromQL selector that names no metric, such as `{__name__=~"http_.*"}`, counts nothing.
+    """
+
+    metric_name: str
+    query_count: int
+    last_queried_at: dt.datetime
+
+
 class DashboardImportError(ValueError):
     """A dashboard import cannot start or continue. The message is safe to show to the user."""
 
@@ -548,3 +566,14 @@ class SuggestedDashboardError(Exception):
 
 class SuggestedDashboardNotFound(SuggestedDashboardError):
     pass
+
+
+class PromQLQueryError(ValueError):
+    """A PromQL query that Snuffle rejected or could not run. The message is safe to show.
+
+    `transient` says the backend failed rather than the query, so the same query can succeed later.
+    """
+
+    def __init__(self, message: str, *, transient: bool = False) -> None:
+        super().__init__(message)
+        self.transient = transient

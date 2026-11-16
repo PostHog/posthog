@@ -432,6 +432,13 @@ export const AccountsRelationshipsCreateBody = /* @__PURE__ */ zod
     })
     .describe('Input for assigning a user to an account relationship.')
 
+/**
+ * Run an account-user table query. Requires query, account, and person read scopes.
+ */
+export const AccountsPersonsQueryCreateBody = /* @__PURE__ */ zod
+    .record(zod.string(), zod.unknown())
+    .describe('Deep\/recursive schema (opaque in Zod — use TypeScript types for full shape)')
+
 export const accountsUpdateBodyNameMax = 400
 
 export const accountsUpdateBodyExternalIdMax = 400

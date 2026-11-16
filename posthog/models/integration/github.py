@@ -16,6 +16,7 @@ import structlog
 from posthog.egress.github.transport import GitHubRateLimitError, github_request
 from posthog.egress.limiter.policies import Priority
 from posthog.egress.transport.transport import EgressBudgetExhausted
+from posthog.integrations.contracts import IntegrationRecord
 from posthog.models.github_integration_base import (
     GitHubIntegrationBase,
     GitHubIntegrationError,
@@ -368,10 +369,10 @@ class GitHubIntegration(GitHubIntegrationBase):
             raise exhausted
         return None
 
-    def __init__(self, integration: model.Integration, *, source: str, priority: Priority) -> None:
+    def __init__(self, integration: IntegrationRecord, *, source: str, priority: Priority) -> None:
         if integration.kind != "github":
             raise Exception("GitHubIntegration init called with Integration with wrong 'kind'")
-        self.integration = integration
+        self.integration = model.integration_model(integration)
         self.source = source
         self.priority = priority
 
@@ -1064,7 +1065,14 @@ class GitHubIntegration(GitHubIntegrationBase):
         return {"content": content, "sha": entry["sha"]}
 
     def create_pull_request(
-        self, repository: str, title: str, body: str, head_branch: str, base_branch: str | None = None
+        self,
+        repository: str,
+        title: str,
+        body: str,
+        head_branch: str,
+        base_branch: str | None = None,
+        *,
+        draft: bool = False,
     ) -> dict[str, Any]:
         """Create a pull request."""
         org = self.organization()
@@ -1081,6 +1089,7 @@ class GitHubIntegration(GitHubIntegrationBase):
                 "body": body,
                 "head": head_branch,
                 "base": base_branch,
+                "draft": draft,
             },
         )
 

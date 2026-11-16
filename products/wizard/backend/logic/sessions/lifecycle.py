@@ -10,6 +10,9 @@ from django.db import IntegrityError, transaction
 import structlog
 from kombu.exceptions import OperationalError
 
+from posthog.paging import Page, PageRequest
+from posthog.queryset_paging import select_page
+
 from products.wizard.backend.facade.contracts import UpsertWizardSessionInput, WizardSessionDTO
 from products.wizard.backend.facade.enums import WizardSessionRunPhase
 from products.wizard.backend.facade.errors import WizardSessionOwnershipError
@@ -157,15 +160,9 @@ def list_sessions(
     workflow_id: str | None = None,
     skill_id: str | None = None,
     *,
-    offset: int = 0,
-    limit: int | None = None,
-) -> list[WizardSessionDTO]:
-    """List sessions for a team, ordered by `started_at` desc.
-
-    `offset`/`limit` are applied at the SQL layer (LIMIT/OFFSET) so the read
-    cost stays bounded regardless of how many sessions the team has. The view
-    layer should always pass a `limit`.
-    """
+    page: PageRequest,
+) -> Page[WizardSessionDTO]:
+    """One page of a team's sessions, ordered by `started_at` desc and paged in SQL."""
     qs = WizardSession.objects.select_related("created_by").filter(team_id=team_id)
     if workflow_id:
         qs = qs.filter(workflow_id=workflow_id)
@@ -173,8 +170,4 @@ def list_sessions(
         qs = qs.filter(skill_id=skill_id)
     # created_at breaks ties on equal (client-supplied, second-granularity) started_at
     qs = qs.order_by("-started_at", "-created_at")
-    if limit is not None:
-        qs = qs[offset : offset + limit]
-    elif offset:
-        qs = qs[offset:]
-    return [to_session_dto(instance) for instance in qs]
+    return select_page(qs, page).map(to_session_dto)

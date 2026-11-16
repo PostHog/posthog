@@ -2,6 +2,7 @@ import { useActions, useValues } from 'kea'
 
 import { LemonBanner, LemonInput, LemonTable, LemonTag, LemonTagType, Link, Tooltip } from '@posthog/lemon-ui'
 
+import { dayjs } from 'lib/dayjs'
 import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
 import { humanFriendlyNumber, percentage } from 'lib/utils/numbers'
 import { urls } from 'scenes/urls'
@@ -15,6 +16,7 @@ import type {
     WorkflowEmailSendingRatesApi,
 } from 'products/workflows/frontend/generated/api.schemas'
 
+import { EmailMetricsIncidentBanner } from '../../EmailMetricsIncidentBanner'
 import { RATE_LEVEL_TAG, RATE_THRESHOLDS, classifyRate, minimumVolumeToClassify } from './emailRateLevels'
 import { workflowsReputationLogic } from './workflowsReputationLogic'
 
@@ -377,7 +379,6 @@ function TeamRatesCard({
 function SendingAllowanceCard({ allowance }: { allowance: EmailSendingAllowanceApi }): JSX.Element {
     const { canRequestSendingTierIncrease } = useValues(workflowsReputationLogic)
     const { requestSendingTierIncrease } = useActions(workflowsReputationLogic)
-    const hourlyPercent = Math.min(100, (allowance.emails_sent_last_hour / allowance.emails_per_hour) * 100)
     const dailyPercent = Math.min(100, (allowance.emails_sent_last_day / allowance.emails_per_day) * 100)
     return (
         <div className="border rounded p-4 bg-surface-primary" data-attr="workflows-sending-allowance">
@@ -406,17 +407,6 @@ function SendingAllowanceCard({ allowance }: { allowance: EmailSendingAllowanceA
                 )}
             </p>
             <div className="flex flex-wrap gap-8 mt-3">
-                <div className="min-w-48">
-                    <MetricLabel
-                        label="Emails this hour"
-                        tooltip="Emails your workflows sent in the last hour, against what this tier allows per hour."
-                    />
-                    <div className="text-lg font-semibold">
-                        {humanFriendlyNumber(allowance.emails_sent_last_hour)} of{' '}
-                        {humanFriendlyNumber(allowance.emails_per_hour)}
-                    </div>
-                    <LemonProgress percent={hourlyPercent} className="mt-1" />
-                </div>
                 <div className="min-w-48">
                     <MetricLabel
                         label="Emails today"
@@ -467,6 +457,8 @@ export function WorkflowsReputation(): JSX.Element {
                 Sending health is shown for transparency: high bounce or spam complaint rates hurt email deliverability.
                 We judge and enforce reputation per project.
             </LemonBanner>
+            {/* Rates cover a rolling 30 days that ends now. */}
+            <EmailMetricsIncidentBanner dateFrom={dayjs().subtract(30, 'day')} />
             {sendingAllowance?.enforced && <SendingAllowanceCard allowance={sendingAllowance} />}
             {teamReputation || awsReputation || ispSendingHealth.length > 0 || ispWithheldDomains.length > 0 ? (
                 <TeamRatesCard

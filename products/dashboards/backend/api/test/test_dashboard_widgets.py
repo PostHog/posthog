@@ -1381,6 +1381,16 @@ class TestDashboardWidgets(APIBaseTest):
         assert shared_widget["config"]["limit"] == 10
         assert "search" not in shared_widget["config"]
 
+        assert tile.widget_id is not None
+        DashboardWidget.objects.for_team(self.team.id).filter(id=tile.widget_id).update(
+            widget_type="metrics", config={"query": {"kind": "MetricsQuery", "sql": "select secret"}}
+        )
+        tile.refresh_from_db()
+        retired_widget = DashboardTileSerializer(tile, context=shared_context).data["widget"]
+        assert retired_widget is not None
+        assert retired_widget["widget_type"] == "metrics"
+        assert retired_widget["config"] == {}
+
 
 class TestDashboardWidgetsBatchUpdate(APIBaseTest):
     def setUp(self) -> None:

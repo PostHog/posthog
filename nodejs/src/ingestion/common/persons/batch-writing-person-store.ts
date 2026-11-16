@@ -80,6 +80,7 @@ type MethodName =
     | 'releaseLifecycleMarks'
     | 'isPersonLive'
     | 'readMergeRows'
+    | 'readPerson'
     | 'addDistinctId'
     | 'moveDistinctIds'
     | 'moveDistinctIdsFromPersons'
@@ -1330,6 +1331,19 @@ export class BatchWritingPersonsStore implements PersonsStore, BatchWritingStore
     ): Promise<InternalPerson[]> {
         this.incrementDatabaseOperation('readMergeRows', distinctId)
         return await tx.readMergeRows(teamId, targetId, sourceIds)
+    }
+
+    /**
+     * Reads on the caller's transaction and leaves the batch caches untouched, so a caller that
+     * commits on the result must not assume it carries this pod's pending changes.
+     */
+    async readPerson(
+        teamId: number,
+        distinctId: string,
+        tx: PersonRepositoryTransaction
+    ): Promise<InternalPerson | undefined> {
+        this.incrementDatabaseOperation('readPerson', distinctId)
+        return await tx.readPerson(teamId, distinctId)
     }
 
     pendingChanges(teamId: number, personId: string): PendingPersonChanges | null {

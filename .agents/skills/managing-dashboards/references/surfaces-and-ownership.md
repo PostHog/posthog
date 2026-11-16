@@ -31,7 +31,7 @@ Also check product-created unlisted dashboards. `Dashboard.CreationMode.UNLISTED
 | Templates endpoint  | `products/dashboards/backend/api/dashboard_templates.py`                                         |
 | Product routes      | `products/dashboards/backend/routes.py`                                                          |
 | Scene state         | `frontend/src/scenes/dashboard/dashboardLogic.tsx`                                               |
-| Main layout         | `frontend/src/scenes/dashboard/DashboardItems.tsx`, `tileLayouts.ts`                             |
+| Main layout         | `products/dashboards/frontend/DashboardItems.tsx`, `tileLayouts.ts`                              |
 | Shared/export host  | `frontend/src/exporter/scenes/ExporterDashboardScene.tsx`, `frontend/src/exporter/Exporter.tsx`  |
 
 ## API contract changes

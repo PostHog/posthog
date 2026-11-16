@@ -11,6 +11,7 @@ import {
     scopeGroupLevel,
     scopeGroupTooltip,
     scopeMatchesSearch,
+    summarizeScopesByGroup,
 } from 'lib/scopes'
 
 import { ScopeObjectEnumApi } from 'products/access_control/frontend/generated/api.schemas'
@@ -231,4 +232,25 @@ describe('API_KEY_SCOPE_PRESETS', () => {
             expect(unrenderable).toEqual([])
         }
     )
+})
+
+describe('summarizeScopesByGroup', () => {
+    it('counts each object once at its highest level, grouped in picker order', () => {
+        expect(
+            summarizeScopesByGroup([
+                'feature_flag:read',
+                'feature_flag:write',
+                'session_recording:read',
+                'insight:write',
+                'insight:read',
+                'dashboard:read',
+                'not_a_real_object:read',
+            ])
+        ).toEqual([
+            { label: 'Product analytics', write: 1, read: 1 },
+            { label: 'Session replay', write: 0, read: 1 },
+            { label: 'Feature flags, experiments & surveys', write: 1, read: 0 },
+            { label: 'Other', write: 0, read: 1 },
+        ])
+    })
 })

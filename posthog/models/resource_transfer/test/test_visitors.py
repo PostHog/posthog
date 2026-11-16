@@ -5,6 +5,7 @@ from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
+from posthog.models.resource_transfer.registered_models import registered_model
 from posthog.models.resource_transfer.visitors import CohortVisitor, InsightVisitor
 from posthog.models.resource_transfer.visitors.experiment import ExperimentVisitor
 from posthog.models.resource_transfer.visitors.experiment_holdout import ExperimentHoldoutVisitor
@@ -20,7 +21,6 @@ from posthog.models.resource_transfer.visitors.feature_flag_filters import (
 )
 from posthog.models.resource_transfer.visitors.survey import SurveyVisitor
 
-from products.actions.backend.models.action import Action
 from products.cohorts.backend.models.cohort import Cohort
 from products.experiments.backend.models.experiment import ExperimentHoldout
 
@@ -1194,7 +1194,7 @@ class TestFeatureFlagVisitorDynamicEdges(SimpleTestCase):
 
         by_model_pk = {(e.target_model, e.target_primary_key) for e in edges}
         assert (Cohort, 7) in by_model_pk
-        assert (Action, 11) in by_model_pk
+        assert (registered_model("Action"), 11) in by_model_pk
         assert (ExperimentHoldout, 3) in by_model_pk
 
         names = {e.name for e in edges}
@@ -1259,7 +1259,7 @@ class TestExperimentVisitorDynamicEdges(SimpleTestCase):
         )
         edges = ExperimentVisitor.get_dynamic_edges(exp)
         by_model_pk = {(e.target_model, e.target_primary_key) for e in edges}
-        assert (Action, 777) in by_model_pk
+        assert (registered_model("Action"), 777) in by_model_pk
         assert any(e.name == "json_action:777" for e in edges)
 
 
@@ -1293,7 +1293,7 @@ class TestExperimentSavedMetricVisitorDynamicEdges(SimpleTestCase):
         )
         edges = ExperimentSavedMetricVisitor.get_dynamic_edges(metric)
         by_model_pk = {(e.target_model, e.target_primary_key) for e in edges}
-        assert (Action, 888) in by_model_pk
+        assert (registered_model("Action"), 888) in by_model_pk
         assert (Cohort, 999) in by_model_pk
 
     def test_non_dict_query_returns_no_edges(self) -> None:

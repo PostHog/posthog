@@ -147,6 +147,18 @@ class ComputeBillingLimitError(ProcessTaskError, ComputeBillingLimitExceeded):
         )
 
 
+class ActiveSessionCapError(ProcessTaskError):
+    def __init__(self, context: dict[str, Any], scope: str, message: str):
+        self.scope = scope
+        super().__init__(
+            message,
+            {**context, "scope": scope},
+            None,
+            capture=False,
+            non_retryable=True,
+        )
+
+
 class SandboxNetworkPolicyError(ProcessTaskFatalError):
     pass
 

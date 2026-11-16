@@ -8,7 +8,7 @@ from zoneinfo import ZoneInfo
 
 from django.conf import settings
 from django.db import transaction
-from django.db.models import Case, IntegerField, Q, QuerySet, Subquery, Value, When
+from django.db.models import Case, Exists, IntegerField, OuterRef, Q, QuerySet, Value, When
 from django.db.models.fields.json import KeyTextTransform, KeyTransform
 from django.db.models.functions import Cast
 from django.http.response import HttpResponseBase
@@ -46,7 +46,14 @@ from posthog.session_recordings.models.session_recording import SessionRecording
 from products.exports.backend.facade.api import get_export_asset_content_response
 from products.exports.backend.models.exported_asset import ExportedAsset
 from products.replay_vision.backend.api.errors import ReplayVisionErrorSerializer
-from products.replay_vision.backend.api.filters import MultiChoiceFilter, OrderByFilter, ordering_enum, split_csv
+from products.replay_vision.backend.api.filters import (
+    MultiChoiceFilter,
+    OrderByFilter,
+    ordering_enum,
+    split_csv,
+    validate_csv_choices,
+    validate_date_bound,
+)
 from products.replay_vision.backend.api.observation_progress import stream_observation_progress
 from products.replay_vision.backend.api.observation_stats import compute_observation_stats
 from products.replay_vision.backend.consent import AI_CONSENT_REQUIRED_CODE, is_ai_data_processing_approved
@@ -60,7 +67,6 @@ from products.replay_vision.backend.models.replay_observation import (
     annotate_output_number,
     hydrate_for_serialization,
     jsonb_typeof,
-    watch_group_root,
 )
 from products.replay_vision.backend.models.replay_observation_feed_dismissal import (
     FeedDismissalReason,
@@ -76,11 +82,13 @@ from products.replay_vision.backend.models.replay_scanner import (
     ScannerType,
 )
 from products.replay_vision.backend.observation_formatting import summarize_observation
+from products.replay_vision.backend.observation_ranks import CATEGORY_CODES
 from products.replay_vision.backend.prompt_questions import question_for_snapshot, valence_for_snapshot
 from products.replay_vision.backend.scanner_access import (
     accessible_observations,
     can_read_targeted_experiment,
     readable_observation_scanner_ids,
+    readable_scanner_ids_in_scope,
     scanner_for_reading_observations,
 )
 from products.replay_vision.backend.scanning import RetryOutcome, retry_observation
@@ -96,17 +104,12 @@ from products.replay_vision.backend.search import (
     search_observations,
     warm_query_vectors,
 )
-from products.replay_vision.backend.search_suggestions import (
-    MAX_SUGGESTED_QUERIES,
-    cross_scanner_suggestions,
-    merge_suggestions,
-    scope_sources,
-    stamp_search_viewed,
-)
+from products.replay_vision.backend.semantic_clusters import ClusterKind, cluster_members
 from products.replay_vision.backend.temporal.constants import VISION_SIGNALS_SOURCE_PRODUCT, VISION_SIGNALS_SOURCE_TYPE
 from products.replay_vision.backend.temporal.scanners.monitor import MonitorVerdict
 from products.replay_vision.backend.temporal.types import ScannerResult, ScannerSnapshot
-from products.replay_vision.backend.watch_rank import ANCHOR_VERSION, ISSUE_CATEGORIES
+from products.replay_vision.backend.watch_rank import ISSUE_CATEGORIES, current_ranks
+from products.replay_vision.backend.watch_themes import MAX_SUGGESTED_QUERIES, theme_suggestions
 from products.signals.backend.facade.api import get_reports_for_signal_source_slice
 from products.tasks.backend.facade import api as tasks_facade
 
@@ -204,7 +207,7 @@ class ReplayObservationLabelSerializer(serializers.Serializer):
 
 
 class ObservationFeedDismissalSerializer(serializers.Serializer):
-    """Why the calling user marked an observation not useful in What to watch."""
+    """Why the calling user marked an observation not useful in the Highlights feed."""
 
     reason = serializers.ChoiceField(
         choices=FeedDismissalReason.choices,
@@ -782,9 +785,35 @@ class ReplayObservationFilter(django_filters.FilterSet):
     watch_group = django_filters.UUIDFilter(
         method="_filter_watch_group",
         help_text=(
-            "Only observations the watch feed groups with this observation as near duplicates, including itself. "
+            "Only observations the highlight feed groups with this observation as near duplicates, including itself. "
             "Pair it with the feed's `date_from` to list the sessions a feed card counts."
         ),
+    )
+    watch_category = django_filters.CharFilter(
+        method="_filter_watch_category",
+        help_text=(
+            "Only observations the watch feed ranks under any of these kinds (comma-separated: "
+            "failure, struggle, revenue). Pair it with `watch_group` and the feed's `categories`."
+        ),
+    )
+    theme = django_filters.UUIDFilter(
+        method="_filter_theme",
+        help_text=(
+            "Only issue observations in this search theme, an `id` from the themes list. "
+            "Pair it with the same `date_from` and `date_to` to list the observations the theme counted."
+        ),
+    )
+    group = django_filters.UUIDFilter(
+        method="_filter_group",
+        help_text=(
+            "Only issue observations in this group of near duplicates, an `id` from the groups list. "
+            "Pair it with the same `date_from`, `date_to`, `include_routine` and `variant` to list the observations "
+            "the group counted."
+        ),
+    )
+    include_routine = django_filters.BooleanFilter(
+        method="_filter_include_routine",
+        help_text="With `group`, also list the group's routine observations, as the groups list does with the same flag.",
     )
     date_from = django_filters.CharFilter(
         method="_filter_date_from",
@@ -836,9 +865,13 @@ class ReplayObservationFilter(django_filters.FilterSet):
         return [
             OpenApiParameter(
                 name,
-                # Numeric filters must not surface as strings, or the generated clients type them
+                # Numeric and boolean filters must not surface as strings, or the generated clients type them
                 # differently here than on the list endpoint drf-spectacular discovers on its own.
-                float if isinstance(field, django_filters.NumberFilter) else str,
+                float
+                if isinstance(field, django_filters.NumberFilter)
+                else bool
+                if isinstance(field, django_filters.BooleanFilter)
+                else str,
                 OpenApiParameter.QUERY,
                 required=False,
                 description=str(field.extra.get("help_text", "")),
@@ -901,27 +934,55 @@ class ReplayObservationFilter(django_filters.FilterSet):
             q |= Q(scanner_result__model_output__tags_freeform__contains=[tag])
         return queryset.filter(q)
 
+    def _filter_theme(
+        self, queryset: QuerySet[ReplayObservation], _name: str, value: uuid.UUID
+    ) -> QuerySet[ReplayObservation]:
+        if self._team is None:
+            return queryset.none()
+        return cluster_members(queryset, self._team.id, ClusterKind.THEME, value)
+
+    def _filter_group(
+        self, queryset: QuerySet[ReplayObservation], _name: str, value: uuid.UUID
+    ) -> QuerySet[ReplayObservation]:
+        include_routine = self.form.cleaned_data.get("include_routine") is True
+        if self._team is None:
+            return queryset.none()
+        return cluster_members(queryset, self._team.id, ClusterKind.GROUP, value, include_routine=include_routine)
+
+    def _filter_include_routine(
+        self, queryset: QuerySet[ReplayObservation], _name: str, _value: bool | None
+    ) -> QuerySet[ReplayObservation]:
+        # Read by `_filter_group`; on its own it narrows nothing.
+        return queryset
+
     def _filter_watch_group(
         self, queryset: QuerySet[ReplayObservation], _name: str, value: uuid.UUID
     ) -> QuerySet[ReplayObservation]:
         if self._team is None:
             return queryset.none()
-        root = watch_group_root()
-        current = Q(
-            status=ObservationStatus.SUCCEEDED, watch_rank__isnull=False, watch_rank__anchor_version=ANCHOR_VERSION
-        )
-        # The asked row's root comes from a subquery, so the filter adds no statement of its own.
-        asked_root = Subquery(
-            ReplayObservation.objects.filter(current, id=value, team_id=self._team.id)
-            .annotate(_root=root)
-            .values("_root")[:1]
-        )
+        ranks = current_ranks(self._team.id)
+        asked = ranks.filter(observation_id=value).values("feed_group_id").first()
+        if asked is None:
+            return queryset.none()
+        # A row without a group stands for itself, as in the feed's builds.
+        root = asked["feed_group_id"] or value
         # Matches the rows the feed counts for a card, which leaves out routine rows.
-        return (
-            queryset.alias(_watch_group_root=root, _watch_category=KeyTextTransform("category", "watch_rank"))
-            .filter(current, _watch_category__in=ISSUE_CATEGORIES)
-            .filter(_watch_group_root=asked_root)
+        members = ranks.filter(category__in=[CATEGORY_CODES[category] for category in ISSUE_CATEGORIES]).filter(
+            Q(feed_group_id=root) | Q(observation_id=root, feed_group_id__isnull=True)
         )
+        return queryset.filter(id__in=members.values("observation_id"))
+
+    def _filter_watch_category(
+        self, queryset: QuerySet[ReplayObservation], _name: str, value: str
+    ) -> QuerySet[ReplayObservation]:
+        categories = validate_csv_choices(value, frozenset(ISSUE_CATEGORIES), "watch_category")
+        if not categories:
+            return queryset
+        if self._team is None:
+            return queryset.none()
+        codes = [CATEGORY_CODES[category] for category in categories]
+        ranked = current_ranks(self._team.id).filter(observation_id=OuterRef("id"), category__in=codes)
+        return queryset.filter(Exists(ranked))
 
     def _filter_variant(
         self, queryset: QuerySet[ReplayObservation], _name: str, value: str
@@ -1237,7 +1298,7 @@ class ReplayObservationViewSet(
         methods=["get"],
         url_path="signal_reports",
         pagination_class=None,
-        required_scopes=["replay_scanner:read", "session_recording:read", "task:read"],
+        required_scopes=["replay_scanner:read", "session_recording:read", "inbox:read"],
     )
     def signal_reports(self, request: Request, **kwargs: Any) -> Response:
         """The inbox reports this observation's emitted signals were grouped into, newest first."""
@@ -1266,7 +1327,7 @@ class ReplayObservationViewSet(
         """Record that the calling user opened this observation. Idempotent."""
         observation = self.get_object()
         ReplayObservationView.objects.get_or_create(
-            team_id=observation.team_id, observation=observation, user=request.user
+            team_id=observation.team_id, observation=observation, user=cast(User, request.user)
         )
         return Response(status=status.HTTP_204_NO_CONTENT)
 
@@ -1275,7 +1336,7 @@ class ReplayObservationViewSet(
         request=ObservationFeedDismissalSerializer,
         responses={204: None},
         description=(
-            "Mark this observation not useful for the calling user, with an optional reason. What to watch stops "
+            "Mark this observation not useful for the calling user, with an optional reason. The Highlights feed stops "
             "showing it to that user. Sending it again replaces the reason."
         ),
     )
@@ -1283,7 +1344,7 @@ class ReplayObservationViewSet(
         methods=["DELETE"],
         request=None,
         responses={204: None},
-        description="Undo the calling user's not-useful mark, so What to watch can show the observation again.",
+        description="Undo the calling user's not-useful mark, so the Highlights feed can show the observation again.",
     )
     @action(
         detail=True,
@@ -1526,14 +1587,6 @@ class ReplayObservationViewSet(
         return Response(ReplayObservationLabelSerializer(label).data)
 
 
-def _validate_date_bound(value: str) -> str:
-    try:
-        parse_date_bound(value, None, end_of_range=False)
-    except ValueError as e:
-        raise serializers.ValidationError(str(e))
-    return value
-
-
 class ObservationSearchQuerySerializer(serializers.Serializer):
     q = serializers.CharField(
         max_length=2000,
@@ -1582,10 +1635,10 @@ class ObservationSearchQuerySerializer(serializers.Serializer):
     )
 
     def validate_date_from(self, value: str) -> str:
-        return _validate_date_bound(value)
+        return validate_date_bound(value)
 
     def validate_date_to(self, value: str) -> str:
-        return _validate_date_bound(value)
+        return validate_date_bound(value)
 
     def validate_verdict(self, value: str) -> str:
         # Same contract as the list endpoint's verdict filter: an unknown verdict is a 400, not a silent empty result.
@@ -1651,8 +1704,8 @@ class SearchSuggestionsQuerySerializer(serializers.Serializer):
 class SearchSuggestionsResponseSerializer(serializers.Serializer):
     queries = serializers.ListField(
         child=serializers.CharField(),
-        help_text=f"Up to {MAX_SUGGESTED_QUERIES} example searches naming themes in recent observations. Empty "
-        "until a scheduled refresh has run for a scanner someone viewed.",
+        help_text=f"Up to {MAX_SUGGESTED_QUERIES} example searches naming the largest active themes in recent "
+        "issue observations. Empty until a scanner has a named theme.",
     )
 
 
@@ -1728,7 +1781,7 @@ class SessionReplayObservationViewSet(ReplayObservationViewSet):
         params.is_valid(raise_exception=True)
         validated = params.validated_data
 
-        scanner_ids = self._searchable_scanner_ids(validated.get("scanner_id"))
+        scanner_ids = readable_scanner_ids_in_scope(self.user_access_control, self.team_id, validated.get("scanner_id"))
         if not scanner_ids:
             return self._search_response([])
         # Gate before the embedding call so an opted-out org gets an actionable 400, not an opaque failure.
@@ -1778,13 +1831,14 @@ class SessionReplayObservationViewSet(ReplayObservationViewSet):
         throttle_classes=[ReplayVisionSearchBurstRateThrottle, ReplayVisionSearchSustainedRateThrottle],
     )
     def search_suggestions(self, request: Request, **kwargs: Any) -> Response:
-        """Example searches drawn from recent observations, for the Search tab's empty state. Reads what the
-        scheduled refresher stored; `search_viewed` records the view separately so this GET has no side effect."""
+        """Example searches for the Search tab's empty state: the labels of the largest active themes the
+        embedding consumer named from recent issue observations. Reads only, with no side effect."""
         params = SearchSuggestionsQuerySerializer(data=request.query_params)
         params.is_valid(raise_exception=True)
-        scanner_id = params.validated_data.get("scanner_id")
-        scanner_ids = self._searchable_scanner_ids(scanner_id)
-        queries = self._displayed_suggestions(scanner_id, scanner_ids, scope_sources(self.team_id, scanner_ids))
+        scanner_ids = readable_scanner_ids_in_scope(
+            self.user_access_control, self.team_id, params.validated_data.get("scanner_id")
+        )
+        queries = theme_suggestions(self.team_id, scanner_ids, now())
         return Response(SearchSuggestionsResponseSerializer({"queries": queries}).data)
 
     @extend_schema(request=SearchSuggestionsQuerySerializer, responses={204: None})
@@ -1795,28 +1849,17 @@ class SessionReplayObservationViewSet(ReplayObservationViewSet):
         throttle_classes=[ReplayVisionSearchBurstRateThrottle, ReplayVisionSearchSustainedRateThrottle],
     )
     def search_viewed(self, request: Request, **kwargs: Any) -> Response:
-        """Record that the Search tab showed suggestions for this scope. The scheduled refresher serves viewed
-        scanners first, so the stamp lives on a CSRF-protected POST rather than the read."""
+        """Warm the query vectors for the suggestions the Search tab showed, so a click on one searches at once.
+        It embeds text, so it is a POST rather than part of the read."""
         params = SearchSuggestionsQuerySerializer(data=request.data)
         params.is_valid(raise_exception=True)
-        scanner_id = params.validated_data.get("scanner_id")
-        scanner_ids = self._searchable_scanner_ids(scanner_id)
-        sources = scope_sources(self.team_id, scanner_ids)
-        # The same rows that a view shows are the ones it marks as wanted.
-        stamp_search_viewed(self.team_id, [scanner_id for scanner_id, _ in sources])
-        # A suggestion is a likely next search, so its vector is cached before anyone clicks it. The phrases
-        # derive from recordings, so they reach the embedding service only with AI data processing on.
+        scanner_ids = readable_scanner_ids_in_scope(
+            self.user_access_control, self.team_id, params.validated_data.get("scanner_id")
+        )
+        # The phrases derive from recordings, so they reach the embedding service only with AI data processing on.
         if is_ai_data_processing_approved(self.team.id):
-            warm_query_vectors(self.team, self._displayed_suggestions(scanner_id, scanner_ids, sources))
+            warm_query_vectors(self.team, theme_suggestions(self.team_id, scanner_ids, now()))
         return Response(status=status.HTTP_204_NO_CONTENT)
-
-    def _displayed_suggestions(
-        self, scanner_id: uuid.UUID | None, scanner_ids: list[str], sources: list[tuple[str, list[str]]]
-    ) -> list[str]:
-        """The phrases this viewer sees: the team's own set for the all-scanners view when they can read every
-        scanner it drew on, otherwise the per-scanner merge."""
-        team_phrases = cross_scanner_suggestions(self.team_id, scanner_ids) if scanner_id is None else None
-        return team_phrases or merge_suggestions([stored for _, stored in sources])
 
     def _search_response(
         self, results: list[ObservationSearchResult], truncated: bool = False, reranked: bool = False
@@ -1825,22 +1868,6 @@ class SessionReplayObservationViewSet(ReplayObservationViewSet):
             {"results": results, "truncated": truncated, "reranked": reranked}, context=self.get_serializer_context()
         )
         return Response(serializer.data)
-
-    def _searchable_scanner_ids(self, scanner_id: uuid.UUID | None) -> list[str]:
-        # Observations expose recording-derived output, so searching them requires session_recording read.
-        if not self.user_access_control.check_access_level_for_resource("session_recording", required_level="viewer"):
-            raise PermissionDenied("Searching replay observations requires session_recording read access.")
-        if scanner_id is not None:
-            scanner = scanner_for_reading_observations(self.team_id, scanner_id)
-            # Not-found doubles as no-access so the response never leaks the scanner or its experiment.
-            if (
-                scanner is None
-                or not self.user_access_control.check_access_level_for_object(scanner, "viewer")
-                or not can_read_targeted_experiment(self.user_access_control, self.team_id, scanner)
-            ):
-                raise NotFound("Scanner not found.")
-            return [str(scanner.id)]
-        return [str(sid) for sid in readable_observation_scanner_ids(self.user_access_control, self.team_id)]
 
     @extend_schema(exclude=True)
     @action(detail=True, methods=["GET"], url_path="progress", renderer_classes=[ServerSentEventRenderer])

@@ -14,8 +14,8 @@ import { getDisplayNameFromEntityNode } from 'scenes/insights/utils'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
+import { isFunnelsQuery, isInsightVizNode, isTrendsQuery } from '~/queries/schema/node-guards'
 import { AlertCalculationInterval, AlertConditionType, InsightThresholdType } from '~/queries/schema/schema-general'
-import { isFunnelsQuery, isInsightVizNode, isTrendsQuery } from '~/queries/utils'
 import { FunnelVizType, InsightLogicProps, InsightShortId, InsightModel } from '~/types'
 
 import { AlertAdvancedOptionsSection } from 'products/alerts/frontend/components/AlertAdvancedOptionsSection'

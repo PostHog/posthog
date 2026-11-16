@@ -3,9 +3,8 @@ import clsx from 'clsx'
 import { ProportionBar } from '@posthog/quill-charts'
 import type { ProportionBarConfig } from '@posthog/quill-charts'
 
+import { makeChartErrorHandler } from 'lib/charts/chartErrorHandler'
 import { useChartConfig } from 'lib/charts/hooks'
-
-import { makeChartErrorHandler } from 'products/product_analytics/frontend/insights/trends/shared/chartErrorHandler'
 
 import { SqlChartProps } from './SqlChart'
 import { useSqlPartOfWholeChart } from './useSqlPartOfWholeChart'

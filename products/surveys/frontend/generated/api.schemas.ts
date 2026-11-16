@@ -2359,7 +2359,20 @@ export interface SurveyResponseRowApi {
     extra: SurveyResponseExtraApi
 }
 
+/**
+ * Declares the `next` and `previous` links of a page response that the view fills with `page_link`.
+ */
 export interface SurveyResponsesListApi {
+    /**
+     * URL of the next page, or null on the last page.
+     * @nullable
+     */
+    readonly next: string | null
+    /**
+     * URL of the previous page, or null on the first page and on lists that page forward only.
+     * @nullable
+     */
+    readonly previous: string | null
     /** Survey response rows for the requested page. */
     results: SurveyResponseRowApi[]
     /** True if more rows exist beyond the current page — fetch the next page with offset + limit. */
@@ -2542,11 +2555,11 @@ export type SurveysResponsesListParams = {
 
 export type SurveysStatsRetrieveParams = {
     /**
-     * Optional ISO timestamp for start date (e.g. 2024-01-01T00:00:00Z)
+     * Optional start date: an ISO 8601 timestamp (e.g. 2024-01-01T00:00:00Z) or a relative date such as -7d, -24h or -1m
      */
     date_from?: string
     /**
-     * Optional ISO timestamp for end date (e.g. 2024-01-31T23:59:59Z)
+     * Optional end date: an ISO 8601 timestamp (e.g. 2024-01-31T23:59:59Z) or a relative date such as -1d
      */
     date_to?: string
     /**
@@ -2568,11 +2581,11 @@ export type SurveysSummarizeResponsesCreateParams = {
 
 export type SurveysGlobalStatsRetrieveParams = {
     /**
-     * Optional ISO timestamp for start date (e.g. 2024-01-01T00:00:00Z)
+     * Optional start date: an ISO 8601 timestamp (e.g. 2024-01-01T00:00:00Z) or a relative date such as -7d, -24h or -1m
      */
     date_from?: string
     /**
-     * Optional ISO timestamp for end date (e.g. 2024-01-31T23:59:59Z)
+     * Optional end date: an ISO 8601 timestamp (e.g. 2024-01-31T23:59:59Z) or a relative date such as -1d
      */
     date_to?: string
 }

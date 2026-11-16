@@ -1,6 +1,7 @@
 import {
     KAFKA_APP_METRICS_2,
     KAFKA_CDP_EVENTS_DLQ,
+    KAFKA_EMAIL_STATUS,
     KAFKA_EVENTS_JSON,
     KAFKA_HOG_INVOCATION_RESULTS,
     KAFKA_LOG_ENTRIES,
@@ -66,6 +67,8 @@ export type CdpConfig = ClickhouseConfig & {
     CDP_CYCLOTRON_COMPRESS_KAFKA_DATA: boolean
     // Off until Django emits `$workflow_step_resume`, or parked steps never wake.
     CDP_HOGFLOW_AWAITED_STEPS_ENABLED: boolean
+    // Comma-separated log sources, such as `hog_flow`, that also send their logs to the logs product. Empty sends none.
+    CDP_INTERNAL_LOGS_SOURCES: string
     // Django produces cdp_internal_events to the cyclotron cluster; empty inherits the consumer default.
     CDP_INTERNAL_EVENTS_CONSUMER_METADATA_BROKER_LIST: string
     CDP_REDIS_HOST: string
@@ -133,7 +136,14 @@ export type CdpConfig = ClickhouseConfig & {
     // "Assets" tab.
     MESSAGE_ASSETS_TOPIC: string
     MESSAGE_ASSETS_PRODUCER: CdpProducerName
+    // One row per status change of a transactional email, for the email_status ClickHouse table.
+    EMAIL_STATUS_TOPIC: string
+    EMAIL_STATUS_PRODUCER: CdpProducerName
+    EMAIL_STATUS_ENABLED: boolean
     HOG_INVOCATION_RERUN_MAX_COUNT: number
+    // Comma-separated team ids, or "*", whose new rerun jobs page by run start. Enable it only once every
+    // cdp-rerun-worker runs a release that reads the job's paging mode.
+    CDP_RERUN_RUN_START_PAGING_TEAMS: string
     // How many rerun wrapper jobs the worker dequeues per cyclotron-v2 poll.
     // Kept small by default — each job runs a full ClickHouse query per page.
     CDP_RERUN_WORKER_BATCH_SIZE: number
@@ -173,17 +183,22 @@ export type CdpConfig = ClickhouseConfig & {
     // Consecutive soft bounces before an address is auto-suppressed. Tunable without a deploy.
     EMAIL_SUPPRESSION_TRANSIENT_BOUNCE_THRESHOLD: number
 
+    // When false, the global hard-bounce list only counts the sends it would block.
+    EMAIL_SUPPRESSION_GLOBAL_HARD_BOUNCE_ENFORCE: boolean
+
     // Trust-tiered per-team workflow email caps ("team warming"). A team's tier, stored by the
-    // Django side, picks an hourly and a daily cap from these tables. See
-    // WORKFLOWS_EMAIL_TIER_* in posthog/settings/web.py, which must stay in step with them.
+    // Django side, picks a daily cap from this table. See WORKFLOWS_EMAIL_TIER_* in
+    // posthog/settings/web.py, which must stay in step with it.
     //   "off"     - the caps are not consulted.
     //   "shadow"  - the caps are evaluated and every send they would delay is logged and counted,
     //               but nothing is delayed.
     //   "enforce" - a reached cap reschedules the send.
     EMAIL_TEAM_SENDING_CAP_MODE: string
-    // Comma-separated caps indexed by tier. Both lists must be the same length.
-    EMAIL_TEAM_SENDING_CAP_HOURLY_BY_TIER: string
+    // Comma-separated caps indexed by tier.
     EMAIL_TEAM_SENDING_CAP_DAILY_BY_TIER: string
+    // Comma-separated team ids, or "*", whose UTM link tagging runs the scanner in helpers/utm.ts.
+    // Every other team runs the previous scanner in helpers/utm-legacy.ts.
+    CDP_EMAIL_UTM_LINK_SCANNER_TEAMS: string
 
     // Destination migration diffing
     DESTINATION_MIGRATION_DIFFING_ENABLED: boolean
@@ -314,6 +329,7 @@ export function getDefaultCdpConfig(): CdpConfig {
         CDP_CYCLOTRON_USE_BULK_COPY_JOB: isProdEnv() ? false : true,
         CDP_CYCLOTRON_COMPRESS_KAFKA_DATA: true,
         CDP_HOGFLOW_AWAITED_STEPS_ENABLED: isProdEnv() ? false : true,
+        CDP_INTERNAL_LOGS_SOURCES: '',
         CDP_INTERNAL_EVENTS_CONSUMER_METADATA_BROKER_LIST: '',
         CDP_REDIS_HOST: '127.0.0.1',
         CDP_REDIS_PORT: 6379,
@@ -374,9 +390,15 @@ export function getDefaultCdpConfig(): CdpConfig {
         // Same cyclotron Warpstream cluster as hog_invocation_results — ClickHouse
         // consumes message_assets from the warpstream_cyclotron named collection.
         MESSAGE_ASSETS_PRODUCER: WARPSTREAM_CYCLOTRON_PRODUCER,
+        EMAIL_STATUS_TOPIC: KAFKA_EMAIL_STATUS,
+        // ClickHouse consumes email_status from the warpstream_cyclotron named collection.
+        EMAIL_STATUS_PRODUCER: WARPSTREAM_CYCLOTRON_PRODUCER,
+        // Off by default in production, so that writes start only once the email_status table exists.
+        EMAIL_STATUS_ENABLED: isDevEnv() || isTestEnv(),
         // Hard cap on rows a single rerun wrapper job will drain. Mirrors the
         // Django serializer's HOG_INVOCATION_RERUN_MAX_COUNT (same env var).
         HOG_INVOCATION_RERUN_MAX_COUNT: 10000,
+        CDP_RERUN_RUN_START_PAGING_TEAMS: '',
         // Small by default — rerun jobs are heavy (a full ClickHouse query per
         // page), so a replica drains one wrapper job at a time unless tuned up.
         CDP_RERUN_WORKER_BATCH_SIZE: 1,
@@ -409,12 +431,13 @@ export function getDefaultCdpConfig(): CdpConfig {
         SES_UNTRACKED_CONFIGURATION_SET: '',
         SES_ALLOWED_SNS_TOPIC_ARNS: '',
         EMAIL_SUPPRESSION_TRANSIENT_BOUNCE_THRESHOLD: 5,
+        EMAIL_SUPPRESSION_GLOBAL_HARD_BOUNCE_ENFORCE: false,
 
         // Ships dark: tiers are computed and stored first, then observed in shadow mode, and only
         // then enforced. Match the defaults in posthog/settings/web.py.
         EMAIL_TEAM_SENDING_CAP_MODE: 'off',
-        EMAIL_TEAM_SENDING_CAP_HOURLY_BY_TIER: '50,200,600,2000,6000,20000,60000,200000',
         EMAIL_TEAM_SENDING_CAP_DAILY_BY_TIER: '100,1000,3000,10000,30000,100000,300000,1000000',
+        CDP_EMAIL_UTM_LINK_SCANNER_TEAMS: '',
 
         // Destination migration diffing
         DESTINATION_MIGRATION_DIFFING_ENABLED: false,

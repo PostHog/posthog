@@ -17,7 +17,8 @@ from django.db import IntegrityError, transaction
 
 from posthog.dataclasses import frozen
 from posthog.egress.limiter.policies import Priority
-from posthog.models.integration import GitHubIntegration, Integration
+from posthog.integrations import IntegrationManager, IntegrationRecord
+from posthog.models.integration import GitHubIntegration
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team import Team
 from posthog.models.user import User
@@ -96,12 +97,10 @@ class ProjectRepositories:
     def _project(self, team_id: int) -> ProjectRef:
         return load_project_ref(team_id, viewer_organization_id=self.team.organization_id)
 
-    def integrations(self) -> list[Integration]:
-        return list(
-            Integration.objects.filter(team_id=self.team_id, kind="github").select_related("created_by").order_by("id")
-        )
+    def integrations(self) -> list[IntegrationRecord]:
+        return IntegrationManager.github.oauth.list(self.team_id)
 
-    def integration_for(self, installation_id: str) -> Integration:
+    def integration_for(self, installation_id: str) -> IntegrationRecord:
         integration = next((row for row in self.integrations() if row.integration_id == installation_id), None)
         if integration is None:
             raise RepositorySettingsError("This project has no GitHub connection for that installation.")
@@ -199,7 +198,9 @@ class ProjectRepositories:
     def installations(self) -> list[InstallationSummary]:
         claims = {claim.installation_id: claim for claim in ReviewInstallationClaim.objects.for_team(self.team_id)}
         summaries: list[InstallationSummary] = []
-        for integration in self.integrations():
+        integrations = self.integrations()
+        creators = User.objects.in_bulk({row.created_by_id for row in integrations if row.created_by_id})
+        for integration in integrations:
             installation_id = integration.integration_id or ""
             all_claim = RepositoryOwnership.all_claim(installation_id)
             account = (integration.config or {}).get("account") or {}
@@ -207,7 +208,7 @@ class ProjectRepositories:
                 InstallationSummary(
                     installation_id=installation_id,
                     account_name=account.get("name") or installation_id,
-                    connected_by=integration.created_by,
+                    connected_by=creators.get(integration.created_by_id) if integration.created_by_id else None,
                     claim=claims.get(installation_id),
                     all_taken_by=(
                         self._project(all_claim.team_id)
@@ -279,8 +280,12 @@ class ProjectRepositories:
         *,
         selected: bool | None = None,
         flash_for: str | None | Unset = UNSET,
+        review_drafts: bool | None = None,
     ) -> RepositoryWriteResult:
-        """Include or remove a repository, or set or clear its exception. Omitted fields keep their value."""
+        """Include or remove a repository, set or clear its exception, or turn its draft reviews on or off.
+
+        Omitted fields keep their value.
+        """
         ref = self.verified_ref(ref)
         with transaction.atomic():
             row = find_matching_row(ref, RepositoryOwnership.rows_for(ref))
@@ -295,13 +300,19 @@ class ProjectRepositories:
                 new_flash_for = row.flash_for if row is not None else None
             else:
                 new_flash_for = flash_for
+            new_review_drafts = review_drafts if review_drafts is not None else row is not None and row.review_drafts
 
             if not new_selected and not takes_all:
                 if isinstance(flash_for, str):
                     raise RepositorySettingsError("Include the repository in this project before you add an exception.")
-                # The repository leaves the project, so its exception goes too.
+                if review_drafts:
+                    raise RepositorySettingsError(
+                        "Include the repository in this project before you turn on draft reviews."
+                    )
+                # The repository leaves the project, so its exception and its draft setting go too.
                 new_flash_for = None
-            if not new_selected and new_flash_for is None:
+                new_review_drafts = False
+            if not new_selected and new_flash_for is None and not new_review_drafts:
                 if row is not None:
                     row.delete()
                 return RepositoryWriteResult(repository=None, taken_from=None)
@@ -331,6 +342,7 @@ class ProjectRepositories:
             row.installation_id = ref.installation_id
             row.selected = new_selected
             row.flash_for = new_flash_for
+            row.review_drafts = new_review_drafts
             try:
                 with transaction.atomic():
                     row.save()
@@ -479,12 +491,14 @@ class RepositoryOverview:
 
     @staticmethod
     def follows_project(entry: OverviewEntry) -> bool:
-        """No exception and no own choice, so the entry gets exactly what every other such entry gets."""
+        """No exception, no draft reviews and no own choice, so the entry gets what every other such entry gets."""
         has_exception = entry.repository is not None and entry.repository.flash_for is not None
+        reviews_drafts = entry.repository is not None and entry.repository.review_drafts
         return (
             entry.owner == RepositoryOwnerKind.THIS_PROJECT
             and entry.in_project
             and not has_exception
+            and not reviews_drafts
             and entry.my_choice is None
         )
 

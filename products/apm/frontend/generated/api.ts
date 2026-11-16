@@ -8,7 +8,74 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  * PostHog API - generated
  * OpenAPI spec version: 1.0.0
  */
-import type { ApmServicesListParams, ServicesHealthResponseApi } from './api.schemas'
+import type {
+    ApmEndpointsListParams,
+    ApmServiceMapListParams,
+    ApmServicesListParams,
+    EndpointsHealthResponseApi,
+    ServiceMapResponseApi,
+    ServicesHealthResponseApi,
+} from './api.schemas'
+
+export const getApmEndpointsListUrl = (projectId: string, params?: ApmEndpointsListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/apm/endpoints/?${stringifiedParams}`
+        : `/api/projects/${projectId}/apm/endpoints/`
+}
+
+/**
+ * One health row per service and entry span name, worst first. Same gate and window as services.
+ */
+export const apmEndpointsList = async (
+    projectId: string,
+    params?: ApmEndpointsListParams,
+    options?: RequestInit
+): Promise<EndpointsHealthResponseApi> => {
+    return apiMutator<EndpointsHealthResponseApi>(getApmEndpointsListUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getApmServiceMapListUrl = (projectId: string, params?: ApmServiceMapListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/apm/service_map/?${stringifiedParams}`
+        : `/api/projects/${projectId}/apm/service_map/`
+}
+
+/**
+ * Service-to-service call edges in an environment and window. Same gate and window as services.
+ */
+export const apmServiceMapList = async (
+    projectId: string,
+    params?: ApmServiceMapListParams,
+    options?: RequestInit
+): Promise<ServiceMapResponseApi> => {
+    return apiMutator<ServiceMapResponseApi>(getApmServiceMapListUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
 
 export const getApmServicesListUrl = (projectId: string, params?: ApmServicesListParams) => {
     const normalizedParams = new URLSearchParams()

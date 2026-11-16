@@ -4,6 +4,12 @@ on:
     pull_request:
         types:
             - closed
+    workflow_dispatch:
+        inputs:
+            merged_pr_number:
+                description: Merged pull request to rerun the fork contributor thanks for
+                required: true
+                type: number
 
 permissions:
     contents: read
@@ -130,9 +136,10 @@ jobs:
         runs-on: ubuntu-24.04
         timeout-minutes: 5
         if: >
+            github.event_name == 'workflow_dispatch' || (
             github.event.pull_request.head.repo.full_name == github.repository &&
             github.event.pull_request.merged == true &&
-            contains(github.event.pull_request.body, '<!-- fork-pr: ')
+            contains(github.event.pull_request.body, '<!-- fork-pr: '))
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
@@ -145,17 +152,20 @@ jobs:
               with:
                   client-id: ${{ vars.GH_APP_POSTHOG_SCHEDULED_ACTIONS_APP_ID }}
                   private-key: ${{ secrets.GH_APP_POSTHOG_SCHEDULED_ACTIONS_PRIVATE_KEY }}
-                  permission-issues: write
+                  permission-contents: read
                   permission-pull-requests: write
 
             - name: Thank the contributor on the fork PR
               uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8.0.0
+              env:
+                  MERGED_PR_NUMBER: ${{ inputs.merged_pr_number || github.event.pull_request.number }}
               with:
                   github-token: ${{ steps.app-token.outputs.token }}
                   retries: 3
                   script: |
                       const thankForkContributor = require('./.github/scripts/thank-fork-contributor.js')
-                      await thankForkContributor({ github, context, core })
+                      const mergedPrNumber = Number(process.env.MERGED_PR_NUMBER)
+                      await thankForkContributor({ github, context, core, mergedPrNumber })
 
     report-pr-age:
         name: Report age of PR

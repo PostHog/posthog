@@ -1,6 +1,6 @@
 from datetime import timedelta
 
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
 
 from django.utils import timezone
 
@@ -170,6 +170,41 @@ class TestResources(StripeProvisioningTestBase):
             "id": str(self.team.id),
             "error": {"code": "requires_payment_credentials", "message": "Billing activation failed"},
         }
+
+    def test_rate_limited_spt_activation_logs_a_warning_instead_of_an_error(self) -> None:
+        token = self._get_bearer_token()
+        billing_response = requests.Response()
+        billing_response.status_code = 429
+        billing_response.headers["Retry-After"] = "30"
+        billing_response.raw = MagicMock()
+
+        with (
+            patch(
+                "ee.partners.stripe.api.provisioning.billing.get_cached_instance_license",
+                return_value=License(key="12345::67890"),
+            ),
+            patch("ee.partners.stripe.api.provisioning.billing._team_has_active_billing", return_value=False),
+            patch("ee.billing.billing_manager.http_session.post", return_value=billing_response),
+            patch("ee.partners.stripe.api.provisioning.billing.capture_exception") as capture,
+            patch("ee.partners.stripe.api.provisioning.billing.logger") as logger,
+        ):
+            res = self._post_signed_with_bearer(
+                RESOURCES_URL,
+                data={
+                    "service_id": "analytics",
+                    "payment_credentials": {"type": "stripe_payment_token", "stripe_payment_token": "spt_1"},
+                },
+                token=token,
+            )
+
+        assert res.status_code == 400
+        assert res.json()["error"]["message"] == "Billing activation failed"
+        capture.assert_not_called()
+        logger.warning.assert_called_once_with(
+            "stripe_provisioning.spt_billing_rate_limited",
+            team_id=self.team.id,
+            org_id=str(self.team.organization_id),
+        )
 
     @parameterized.expand(
         [

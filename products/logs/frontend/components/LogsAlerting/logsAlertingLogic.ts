@@ -27,6 +27,7 @@ const ALERT_POLL_INTERVAL_MS = 30_000
 export interface logsAlertingLogicValues {
     currentTeamId: number | null // teamLogic
     alerts: LogsAlertConfigurationApi[]
+    alertsLoaded: boolean
     alertsLoading: boolean
     createdByFilter: string | null
     editingAlert: LogsAlertConfigurationApi | null
@@ -143,6 +144,14 @@ export const logsAlertingLogic = kea<logsAlertingLogicType>([
     }),
 
     reducers({
+        // An empty list only means the team has no alerts once a load for the current filter succeeds.
+        alertsLoaded: [
+            false,
+            {
+                setCreatedByFilter: () => false,
+                loadAlertsSuccess: () => true,
+            },
+        ],
         createdByFilter: [
             null as string | null,
             {

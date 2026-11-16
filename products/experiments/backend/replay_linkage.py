@@ -82,6 +82,7 @@ from products.experiments.backend.hogql_queries.precompute_policy import (
     experiment_has_min_runtime_for_precomputation,
     experiment_precompute_ttl_schedule,
     has_uncalculated_cohorts,
+    precompute_person_resolution_enabled,
 )
 from products.experiments.backend.models.experiment import Experiment
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
@@ -437,6 +438,7 @@ def resolve_exposure_linkage(
         breakdowns=(),
         only_count_matured_users=False,
         cuped_config=CupedQueryConfig(),
+        resolve_precomputed_persons=precompute_person_resolution_enabled(team),
         activation_config=exposure_params.activation_config,
     )
     read = _resolve_exposure_read(team, experiment, context)

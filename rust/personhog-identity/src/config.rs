@@ -148,6 +148,16 @@ pub struct Config {
     #[envconfig(default = "0")]
     pub max_concurrent_requests: usize,
 
+    /// How long a request at a full pod waits for an admission slot before
+    /// it is shed (ms). 0 = shed immediately.
+    #[envconfig(default = "0")]
+    pub load_shed_wait_ms: u64,
+
+    /// Requests allowed to wait for a slot at once; beyond this the pod
+    /// sheds immediately. 0 = max_concurrent_requests.
+    #[envconfig(default = "0")]
+    pub load_shed_max_waiters: usize,
+
     /// Leader property writes in flight per get-or-create batch (0 acts as 1).
     #[envconfig(default = "8")]
     pub property_write_concurrency: usize,
@@ -490,6 +500,10 @@ impl Config {
             self.grpc_initial_stream_window_bytes,
             self.grpc_initial_connection_window_bytes,
         )
+    }
+
+    pub fn load_shed_wait(&self) -> Duration {
+        Duration::from_millis(self.load_shed_wait_ms)
     }
 
     pub fn grpc_max_connection_age(&self) -> Option<Duration> {

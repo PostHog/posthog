@@ -40,7 +40,7 @@ export function TodayPaneOption({
                     nativeButton={false}
                     render={<LinkPrimitive to={to} />}
                     className={cn(
-                        'w-full min-w-0 font-semibold [&>span]:w-full',
+                        'w-full min-w-0 font-semibold [&>span]:w-full [&>span]:overflow-visible',
                         variant === 'default' && 'text-foreground',
                         'data-highlighted:border-transparent data-highlighted:ring-0',
                         active
