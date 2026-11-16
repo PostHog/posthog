@@ -370,7 +370,7 @@ def test_a_finished_writer_run_opens_one_linked_docs_pull_request_and_a_same_sec
     with patch(CREATE_PULL_REQUEST) as create_after_failed_compare:
         _finish_run(started.task_id, django_capture_on_commit_callbacks, compare_status_code=500)
     create_after_failed_compare.assert_not_called()
-    for changed_files, refusal in (
+    refused_changes: tuple[tuple[tuple[str | dict, ...], str], ...] = (
         ((DOCS_PAGE_PATH, WORKFLOW_PATH), "changed_paths_outside_docs"),
         (({"filename": DOCS_PAGE_PATH, "previous_filename": WORKFLOW_PATH},), "changed_paths_outside_docs"),
         ((SIBLING_OF_DOCS_PATH,), "changed_paths_outside_docs"),
@@ -462,7 +462,8 @@ def test_a_finished_writer_run_opens_one_linked_docs_pull_request_and_a_same_sec
             ),
             "changed_paths_outside_docs",
         ),
-    ):
+    )
+    for changed_files, refusal in refused_changes:
         with patch(CREATE_PULL_REQUEST) as create_for_refused_files:
             requested = _finish_run(started.task_id, django_capture_on_commit_callbacks, changed_files=changed_files)
         create_for_refused_files.assert_not_called()
