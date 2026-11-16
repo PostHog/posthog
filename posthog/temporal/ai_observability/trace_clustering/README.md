@@ -331,6 +331,9 @@ Scheduled runs require at least 10 prepared items. Enabling clustering saves the
 starting an immediate run. Existing schedules retain their overlap policies. Embedding reads
 require the job's current filter and analysis-level scope. Paid work and emission recheck project
 eligibility and whether the job is still enabled with the same scope.
+Execution guards cache the operational skip list for 30 seconds per process. Project enablement,
+AI data processing consent, and job scope are checked against the database on every guard call.
+Jobs belong to their project (`team_id`) and do not depend on their creator's continued access.
 
 ## Configuration
 
