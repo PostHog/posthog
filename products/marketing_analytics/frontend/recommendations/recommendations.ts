@@ -5,6 +5,7 @@ import {
     MarketingAnalyticsRecommendation,
     MarketingAnalyticsRecommendationResolution,
     MarketingAnalyticsRecommendationCpaBenchmarkSource,
+    MarketingAnalyticsRecommendationDetectedChange,
     MarketingAnalyticsRecommendationRule,
     MarketingAnalyticsRecommendationsSource,
 } from '~/queries/schema/schema-general'
@@ -175,8 +176,16 @@ export function reconcileResolutionOverrides(
     )
 }
 
+export const DETECTED_CHANGE_DESCRIPTIONS: Record<MarketingAnalyticsRecommendationDetectedChange, string> = {
+    negative_keyword: 'Google Ads lists this search as a negative keyword.',
+}
+
+export function isResolved(recommendation: MarketingAnalyticsRecommendation): boolean {
+    return !!recommendation.resolution || !!recommendation.detectedChange
+}
+
 export function unresolved(recommendations: MarketingAnalyticsRecommendation[]): MarketingAnalyticsRecommendation[] {
-    return recommendations.filter((recommendation) => !recommendation.resolution)
+    return recommendations.filter((recommendation) => !isResolved(recommendation))
 }
 
 export interface RecommendationsLoadStatus {

@@ -110,6 +110,7 @@ MAX_BRAND_MISSPELLINGS = 5
 DOMAIN_PARTS = tldextract.TLDExtract(suffix_list_urls=(), include_psl_private_domains=True)
 
 Direction = Literal["save", "gain", "invest", "keep"]
+DetectedChange = Literal["negative_keyword"]
 # Google Ads KeywordMatchType values, for tables that stored the enum number.
 MATCH_TYPES = {"2": "EXACT", "3": "PHRASE", "4": "BROAD"}
 # Google Ads pages for the whole account. A link cannot open one campaign, because that needs an
@@ -235,6 +236,7 @@ class _Term:
     cost: float
     conversions: float
     status: str
+    excluded_everywhere: bool
     top_campaign_id: str
     ad_group_ids: frozenset[str]
     organic: OrganicQueryStats | None
@@ -311,6 +313,11 @@ def _word_stems(text: str) -> frozenset[str]:
     )
 
 
+def _is_excluded(status: str) -> bool:
+    # Google reports ADDED_EXCLUDED for a search that is both a keyword and a negative.
+    return "EXCLUDED" in status
+
+
 def _similarity(brand: str, compact_term: str) -> float:
     return SequenceMatcher(None, brand, compact_term).ratio()
 
@@ -369,8 +376,8 @@ def apply_resolutions(
 
     Account-agnostic rules have no ad account, so their candidates from every account share one cap and the
     highest-impact ones fill it. `resolutions` maps a recommendation key to its resolution. Resolved
-    recommendations take no slot, so resolving the top ones lets the next ones surface. With `include_resolved`,
-    they follow the unresolved ones of their run.
+    recommendations, and those with a detected change, take no slot, so resolving the top ones lets the next
+    ones surface. With `include_resolved`, they follow the unresolved ones of their run.
     """
     shown: dict[tuple[str, str], int] = defaultdict(int)
     applied: list[MarketingAnalyticsRecommendation] = []
@@ -382,6 +389,9 @@ def apply_resolutions(
             if resolution is not None:
                 if include_resolved:
                     resolved.append(recommendation.model_copy(update={"resolution": resolution}))
+            elif recommendation.detectedChange is not None:
+                if include_resolved:
+                    resolved.append(recommendation)
             elif rule not in SEARCH_TERM_RULES or shown[(rule, customer_id)] < PER_RULE_LIMIT:
                 shown[(rule, customer_id)] += 1
                 applied.append(recommendation)
@@ -836,7 +846,7 @@ class _Recommender:
             spend[row.term][1] += row.conversions
             if row.status not in ("NONE", ""):
                 targeted_or_excluded.add(row.term)
-            if "EXCLUDED" in row.status:
+            if _is_excluded(row.status):
                 excluded.add(row.term)
         competitors = self._competitor_names()
         draining = sorted(
@@ -955,13 +965,14 @@ class _Recommender:
                 "save",
                 "measured",
                 steps=advice.steps,
+                detected_change="negative_keyword" if term.excluded_everywhere else None,
             )
             for term in terms
             if (benchmark := benchmarks.get(term.term))
             and term.term not in self.brand_terms
             and term.conversions == 0
             and term.cost >= 2 * benchmark.cpa
-            and term.status in ("NONE", "")
+            and (term.status in ("NONE", "") or term.excluded_everywhere)
             and self._serving(term)
             for advice in (self._no_conversion_advice(term, competitors),)
         ]
@@ -995,7 +1006,10 @@ class _Recommender:
             MarketingAnalyticsRecommendationRule.SPEND_WITHOUT_CONVERSIONS,
             MarketingAnalyticsRecommendationRule.STRIKING_DISTANCE,
         ):
-            top = sorted(rules.get(rule, []), key=lambda rec: -(rec.impact or 0))[:CANDIDATES_PER_RULE]
+            # Applied ones go last, so they never take a slot from one that still needs doing.
+            top = sorted(rules.get(rule, []), key=lambda rec: (rec.detectedChange is not None, -(rec.impact or 0)))[
+                :CANDIDATES_PER_RULE
+            ]
             # Searches unrelated to the ads that showed on them are the safest negatives, so they come first among the
             # costliest ones that show, without pushing a bigger waste out of the list.
             if rule == MarketingAnalyticsRecommendationRule.SPEND_WITHOUT_CONVERSIONS:
@@ -1237,6 +1251,7 @@ class _Recommender:
     def _aggregate_terms(self) -> dict[str, _Term]:
         totals: dict[str, list[float]] = defaultdict(lambda: [0.0, 0.0, 0.0, 0.0])
         statuses: dict[str, str] = {}
+        excluded_everywhere: dict[str, bool] = {}
         cost_by_campaign: dict[str, dict[str, float]] = defaultdict(lambda: defaultdict(float))
         ad_groups: dict[str, set[str]] = defaultdict(set)
         top_impressions: dict[str, list[float]] = defaultdict(lambda: [0.0, 0.0])
@@ -1247,6 +1262,7 @@ class _Recommender:
             total[2] += row.conversions
             total[3] += row.impressions
             statuses.setdefault(row.term, row.status)
+            excluded_everywhere[row.term] = excluded_everywhere.get(row.term, True) and _is_excluded(row.status)
             cost_by_campaign[row.term][row.campaign_id] += row.cost
             ad_groups[row.term].update(row.ad_group_ids)
             if row.absolute_top_percentage is not None and row.impressions:
@@ -1260,6 +1276,7 @@ class _Recommender:
                 cost=cost,
                 conversions=conversions,
                 status=statuses[term],
+                excluded_everywhere=excluded_everywhere[term],
                 top_campaign_id=max(cost_by_campaign[term], key=lambda campaign: cost_by_campaign[term][campaign]),
                 ad_group_ids=frozenset(ad_groups[term]),
                 organic=self.organic.get(term),
@@ -1285,7 +1302,8 @@ class _Recommender:
             # An added term is a keyword the advertiser bids on, maybe on purpose; an excluded one is blocked already.
             if (
                 row.campaign_id not in campaign_ids
-                or row.status in ("ADDED", "EXCLUDED")
+                or row.status == "ADDED"
+                or _is_excluded(row.status)
                 or row.term not in self.brand_terms
             ):
                 continue
@@ -1491,6 +1509,7 @@ class _Recommender:
         direction: Direction,
         impact_type: Literal["measured", "estimated"],
         steps: tuple[Step, ...] = (),
+        detected_change: DetectedChange | None = None,
     ) -> MarketingAnalyticsRecommendation:
         return self._recommendation(
             rule,
@@ -1505,6 +1524,7 @@ class _Recommender:
             self._campaign_name(term),
             steps=steps,
             cpa=self._cpa(term.cost / term.conversions if term.conversions else None, benchmark) if benchmark else None,
+            detected_change=detected_change,
         )
 
     def _campaign_recommendation(
@@ -1548,6 +1568,7 @@ class _Recommender:
         campaign: str | None = None,
         steps: tuple[Step, ...] = (),
         cpa: MarketingAnalyticsRecommendationCpa | None = None,
+        detected_change: DetectedChange | None = None,
     ) -> MarketingAnalyticsRecommendation:
         return MarketingAnalyticsRecommendation(
             rule=rule,
@@ -1564,6 +1585,7 @@ class _Recommender:
             currency=self.inputs.currency,
             steps=list(steps),
             cpa=cpa,
+            detectedChange=detected_change,
         )
 
     def _nonbrand_cpa(self, campaign: CampaignStats) -> float | None:

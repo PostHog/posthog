@@ -26,6 +26,7 @@ export function RecommendationsSection(): JSX.Element {
         activeRecommendations,
         activeGroups,
         resolvedCount,
+        detectedCount,
         firstRule,
         shownState,
     } = useValues(recommendationsLogic)
@@ -60,7 +61,9 @@ export function RecommendationsSection(): JSX.Element {
             has_invest_impact: directions.has('invest'),
             source_types: [...new Set(sources.map((source) => source.sourceType))],
             data_gap_count: dataGaps.length,
-            resolved_count: showGroups ? resolvedCount : 0,
+            // Manual dismissals and applied marks only. Detected ones have their own property.
+            resolved_count: showGroups ? resolvedCount - detectedCount : 0,
+            detected_applied_count: showGroups ? detectedCount : 0,
             intro_shown: showGroups && !introSeen,
         })
         // One event per state the viewer sees, so reloads and new date ranges with the same state do not add views.

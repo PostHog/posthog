@@ -274,7 +274,8 @@ class TestMarketingAnalyticsRecommendationsQueryRunner(ClickhouseTestMixin, Base
             "dentist crm,1,11,2026-01-15,10,100,250000000,0,NONE\n"
             "analytics pricing,1,11,2026-01-15,10,100,400000000,0,NONE\n"
             "product analytics,1,11,2026-01-15,10,100,350000000,10,NONE\n"
-            "patient records,1,11,2026-01-15,10,100,300000000,0,NONE\n",
+            "patient records,1,11,2026-01-14,5,50,150000000,0,NONE\n"
+            "patient records,1,11,2026-01-15,5,50,150000000,0,EXCLUDED\n",
         )
         ad_columns = {
             "ad_group_id": "Int64",
@@ -311,7 +312,11 @@ class TestMarketingAnalyticsRecommendationsQueryRunner(ClickhouseTestMixin, Base
         ).calculate()
 
         wasted = [rec for rec in response.results if rec.rule == "spend_without_conversions"]
-        assert [rec.subject for rec in wasted] == ["dentist crm", "analytics pricing", "patient records"]
+        assert [(rec.subject, rec.detectedChange) for rec in wasted] == [
+            ("dentist crm", None),
+            ("analytics pricing", None),
+            ("patient records", "negative_keyword"),
+        ]
         assert wasted[0].reason.endswith("None of the main words in this search appear in the ads that showed on it.")
 
     @parameterized.expand(

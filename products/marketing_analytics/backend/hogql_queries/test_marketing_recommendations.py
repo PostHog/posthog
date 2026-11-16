@@ -874,19 +874,39 @@ class TestMarketingRecommendations(SimpleTestCase):
         assert len(recs) == PER_RULE_LIMIT
         assert recs[-1] == "analytics pricing"
 
-    @parameterized.expand([("serving", "ELIGIBLE", 1), ("paused", "PAUSED", 0), ("removed", "REMOVED", 0)])
-    def test_spend_without_conversions_skips_campaigns_that_do_not_serve(
-        self, _name: str, status: str, expected: int
+    @parameterized.expand(
+        [
+            ("serving", "ELIGIBLE", ("NONE",), [None], 1),
+            ("paused", "PAUSED", ("NONE",), [], 0),
+            ("removed", "REMOVED", ("NONE",), [], 0),
+            ("already_a_keyword", "ELIGIBLE", ("ADDED",), [], 0),
+            ("now_a_negative", "ELIGIBLE", ("EXCLUDED",), ["negative_keyword"], 0),
+            ("keyword_and_negative", "ELIGIBLE", ("ADDED_EXCLUDED",), ["negative_keyword"], 0),
+            ("negative_in_one_of_two_campaigns", "ELIGIBLE", ("EXCLUDED", "NONE"), [], 0),
+        ]
+    )
+    def test_spend_without_conversions_needs_a_serving_campaign_and_detects_negatives(
+        self,
+        _name: str,
+        campaign_status: str,
+        term_statuses: tuple[str, ...],
+        expected_changes: list[str | None],
+        expected_unresolved: int,
     ) -> None:
-        campaigns = (_campaign(primary_status=status), _campaign(id="c2", name="Other"))
+        campaigns = (_campaign(primary_status=campaign_status), _campaign(id="c2", name="Other"))
         terms = (
-            _term("free analytics template", "c1", cost=500, conversions=0),
+            *(
+                replace(_term("free analytics template", campaign_id, cost=500, conversions=0), status=status)
+                for campaign_id, status in zip(("c1", "c2"), term_statuses)
+            ),
             _term("product analytics", "c2", cost=500, conversions=10),
         )
 
         rows = [rec for rec in recommend(_inputs(campaigns, terms)) if rec.rule == "spend_without_conversions"]
 
-        assert len(rows) == expected
+        assert [rec.detectedChange for rec in rows] == expected_changes
+        assert len(apply_resolutions(rows, {}, include_resolved=False)) == expected_unresolved
+        assert apply_resolutions(rows, {}, include_resolved=True) == rows
 
     def test_category_words_are_not_treated_as_competitors(self) -> None:
         terms = (

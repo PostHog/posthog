@@ -28,6 +28,7 @@ import { RecommendationResolutionButtons } from './RecommendationResolutionButto
 import {
     IMPACT_DIRECTION_DESCRIPTIONS,
     IMPACT_DIRECTION_LABELS,
+    isResolved,
     RECOMMENDATION_CATEGORY_LABELS,
     RECOMMENDATION_RULE_DESCRIPTIONS,
     RECOMMENDATION_RULE_LABELS,
@@ -95,7 +96,7 @@ function RecommendationRows({ rows }: { rows: MarketingAnalyticsRecommendation[]
             dataSource={rows}
             rowKey={(row) => row.key}
             // Dims the content but not the last cell, so Restore still reads as a live button.
-            rowClassName={(row) => (row.resolution ? '[&>td:not(:last-child)]:text-tertiary' : null)}
+            rowClassName={(row) => (isResolved(row) ? '[&>td:not(:last-child)]:text-tertiary' : null)}
             expandable={{
                 expandedRowRender: (row) => <RecommendationSteps steps={row.steps ?? []} rule={row.rule} />,
                 rowExpandable: (row) => (row.steps?.length ? 1 : 0),
@@ -331,7 +332,7 @@ export function RecommendationsModal(): JSX.Element {
                                 <RecommendationRows rows={selectedGroup.recommendations} />
                             ) : (
                                 <p className="mb-0 text-secondary">
-                                    Every recommendation in this rule is dismissed or applied. Review them to restore
+                                    Every recommendation in this rule is dismissed or applied. Review them to see each
                                     one.
                                 </p>
                             )}
@@ -339,7 +340,7 @@ export function RecommendationsModal(): JSX.Element {
                     ) : (
                         <p className="mb-0 text-secondary">
                             {resolvedCount > 0
-                                ? 'Every recommendation for these sources and dates is dismissed or applied. Review them to restore one.'
+                                ? 'Every recommendation for these sources and dates is dismissed or applied. Review them to see each one.'
                                 : 'No recommendations for the selected sources and dates.'}
                         </p>
                     )}

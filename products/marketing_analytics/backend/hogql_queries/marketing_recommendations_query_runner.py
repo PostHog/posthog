@@ -524,10 +524,12 @@ class MarketingAnalyticsRecommendationsQueryRunner(
             )
             # Performance Max search terms have no ad groups.
             ad_groups = "groupUniqArray(toString(ad_group_id))" if self._has_field(table, "ad_group_id") else "NULL"
+            # Days synced before a search became a negative or a keyword keep their old status, so the latest day decides.
+            # On that day an ad group that still serves the search outranks one that excludes it.
             rows = self._select(
                 f"""
                 SELECT lower(trim({{term}})) AS term, toString(campaign_id), sum(metrics_clicks), sum(metrics_impressions),
-                    sum(toFloat(metrics_cost_micros)) / 1000000, {conversions}, any(toString({{status}})),
+                    sum(toFloat(metrics_cost_micros)) / 1000000, {conversions}, argMax(toString({{status}}), tuple(segments_date, toString({{status}}) NOT LIKE '%EXCLUDED%')),
                     sumIf(toFloat({{absolute_top}}) * metrics_impressions, {{absolute_top}} IS NOT NULL)
                         / nullIf(sumIf(metrics_impressions, {{absolute_top}} IS NOT NULL), 0),
                     {ad_groups}
