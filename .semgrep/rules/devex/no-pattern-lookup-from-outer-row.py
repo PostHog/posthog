@@ -118,3 +118,24 @@ FileSystem.objects.filter(path__startswith=Concat(*[OuterRef("path"), Value("/")
 
 # ok: no-pattern-lookup-from-outer-row
 Task.objects.filter(**{"team_id": team_id, "labels__contains": [OuterRef("label")]})
+
+# ok: no-pattern-lookup-from-outer-row
+Task.objects.filter(labels__contains=(OuterRef("label"),))
+
+# ok: no-pattern-lookup-from-outer-row
+Task.objects.filter(**{"team_id": team_id, "labels__contains": (OuterRef("label"), OuterRef("tag"))})
+
+# ruleid: no-pattern-lookup-from-outer-row
+FileSystem.objects.filter(path__startswith=(Concat(OuterRef("path"), Value("/"))))
+
+# ruleid: no-pattern-lookup-from-outer-row
+FileSystem.objects.filter(StartsWith(lhs=F("path"), rhs=OuterRef("path")))
+
+# ruleid: no-pattern-lookup-from-outer-row
+FileSystem.objects.filter(StartsWith(F("path"), rhs=Concat(OuterRef("path"), Value("/"))))
+
+# ruleid: no-pattern-lookup-from-outer-row
+Task.objects.filter(labels__contains=[OuterRef("label")], path__startswith=OuterRef("path"))
+
+# ruleid: no-pattern-lookup-from-outer-row
+Task.objects.filter(**{"labels__contains": (OuterRef("label"),), "path__startswith": OuterRef("path")})

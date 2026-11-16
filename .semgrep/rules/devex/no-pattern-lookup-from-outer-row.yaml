@@ -9,7 +9,7 @@ rules:
           It stays fast on small test data and times out on large projects.
 
           A JSON or array `__contains` compares values (`@>`) instead of matching a pattern, so a
-          `JSONArray`, `JSONObject` or list value does not count.
+          `JSONArray`, `JSONObject`, list or tuple value does not count.
 
           Match against constant values instead: loop over the known prefixes and build one
           uncorrelated `Exists` per prefix, as `_visible_files` in
@@ -28,24 +28,24 @@ rules:
       pattern-sinks:
           - patterns:
                 - pattern: $CALL(..., $LOOKUP=$VALUE, ...)
+                - pattern-not: $CALL(..., $LOOKUP=[...], ...)
+                - pattern-not: $CALL(..., $LOOKUP=($ITEM, ...), ...)
                 - metavariable-regex:
                       metavariable: $LOOKUP
                       regex: ^\w+__i?(contains|startswith|endswith|regex)$
-                - metavariable-regex:
-                      metavariable: $VALUE
-                      regex: ^[^\[]
                 - focus-metavariable: $VALUE
           - patterns:
                 - pattern: '$CALL(..., **{..., $KEY: $VALUE, ...}, ...)'
+                - pattern-not: '$CALL(..., **{..., $KEY: [...], ...}, ...)'
+                - pattern-not: '$CALL(..., **{..., $KEY: ($ITEM, ...), ...}, ...)'
                 - metavariable-regex:
                       metavariable: $KEY
                       regex: ^["']\w+__i?(contains|startswith|endswith|regex)["']$
-                - metavariable-regex:
-                      metavariable: $VALUE
-                      regex: ^[^\[]
                 - focus-metavariable: $VALUE
           - patterns:
-                - pattern: $LOOKUPCLASS($LHS, $VALUE)
+                - pattern-either:
+                      - pattern: $LOOKUPCLASS($LHS, $VALUE)
+                      - pattern: $LOOKUPCLASS(..., rhs=$VALUE, ...)
                 - metavariable-regex:
                       metavariable: $LOOKUPCLASS
                       regex: ^(lookups\.)?I?(Contains|StartsWith|EndsWith|Regex)$
