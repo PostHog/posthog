@@ -4,7 +4,7 @@ Producer: Django signal handlers in products/feature_flags/backend/flags_cache.p
 Consumer: rust/feature-flags flags-cache-builder.
 
 The fixtures under rust/feature-flags/tests/fixtures/ (flags_cache_invalidation_v1.json
-and its _shadow and _refresh variants) are the contract. The Python side round-trips
+and its _shadow, _refresh and _cohort variants) are the contract. The Python side round-trips
 against them in products/feature_flags/backend/test/test_flags_cache_messages.py. The
 Rust consumer round-trips against the same files so schema drift fails the build on
 either side. Bumping `version` requires running both producers (old + new) and both
@@ -31,7 +31,7 @@ That contract cuts one way only. A consumer that predates the field rejects a
 message carrying ``source`` through ``deny_unknown_fields``. It counts the
 message as a parse error and drops it. The DLQ holds build failures, not parse
 failures, so nothing is kept and nothing can be replayed: the team stays stale
-until the verifier repairs it. Nothing may produce ``refresh`` in a region until
+until the verifier repairs it. Nothing may produce a ``source`` value in a region until
 the builder deployed there understands it.
 """
 
@@ -53,7 +53,7 @@ class FlagsCacheInvalidation(BaseModel):
     # consumer rejects a non-bool `shadow`. Both sides must reject the same
     # payloads, because this field decides whether a build writes the cache.
     shadow: StrictBool = False
-    source: Literal["edit", "refresh"] = "edit"
+    source: Literal["edit", "cohort", "refresh"] = "edit"
 
     @model_serializer(mode="wrap")
     def _omit_wire_defaults(self, handler: SerializerFunctionWrapHandler) -> dict[str, Any]:
