@@ -90,16 +90,15 @@ class TestFindColumnPatterns(SimpleTestCase):
         assert [pattern.kind for pattern in find_column_patterns(sql)] == expected_kinds
 
 
-def _files_with_a_child() -> QuerySet:
-    children = FileSystem.objects.filter(path__startswith=Concat(OuterRef("path"), Value("/")))
-    return FileSystem.objects.filter(Exists(children))
-
-
 class TestFailOnOuterRowPatterns(TestCase):
+    def _files_with_a_child(self) -> QuerySet:
+        children = FileSystem.objects.filter(path__startswith=Concat(OuterRef("path"), Value("/")))
+        return FileSystem.objects.filter(Exists(children))
+
     def test_correlated_pattern_fails_with_its_source_and_fix(self) -> None:
         with self.assertRaises(OuterRowPatternError) as raised:
             with fail_on_outer_row_patterns():
-                list(_files_with_a_child())
+                list(self._files_with_a_child())
 
         message = str(raised.exception)
         assert "kind:    correlated" in message
@@ -108,4 +107,4 @@ class TestFailOnOuterRowPatterns(TestCase):
 
     def test_allowed_pattern_passes(self) -> None:
         with fail_on_outer_row_patterns(), allow_outer_row_pattern(reason="the table holds one row per project"):
-            assert list(_files_with_a_child()) == []
+            assert list(self._files_with_a_child()) == []

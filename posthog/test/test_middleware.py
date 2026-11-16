@@ -37,7 +37,7 @@ from structlog.testing import capture_logs
 
 from posthog.api.test.test_organization import create_organization
 from posthog.api.test.test_team import create_team
-from posthog.clickhouse.query_tagging import get_query_tags
+from posthog.clickhouse.query_tagging import QueryCounter, get_query_tags
 from posthog.client_build_middleware import ClientBuildSkewMiddleware
 from posthog.constants import AvailableFeature
 from posthog.ip_restrictions import enforce_ip_restrictions, get_ip_restriction_denial
@@ -3505,7 +3505,7 @@ def test_query_time_counting_middleware_should_instrument(path, expected) -> Non
 
 
 def _insight_detail(request: HttpRequest, project_id: int, pk: int) -> HttpResponse:
-    assert len(connection.execute_wrappers) == 1
+    assert sum(isinstance(wrapper, QueryCounter) for wrapper in connection.execute_wrappers) == 1
     return HttpResponse()
 
 
