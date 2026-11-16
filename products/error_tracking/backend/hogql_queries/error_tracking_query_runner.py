@@ -25,12 +25,15 @@ from posthog.hogql.query import execute_hogql_query
 
 from posthog.hogql_queries.paginators import HogQLHasMorePaginator
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
+from posthog.hogql_queries.validation.validation import QueryValidationRule
 from posthog.utils import relative_date_parse
 
+from products.error_tracking.backend.facade.query_utils import trend_volume_resolution
 from products.error_tracking.backend.hogql_queries.access import ErrorTrackingQueryRunnerAccessMixin
 from products.error_tracking.backend.hogql_queries.applied_issue_tags import applied_issue_tags_query
 from products.error_tracking.backend.hogql_queries.error_tracking_query_builder import ErrorTrackingQueryBuilder
 from products.error_tracking.backend.hogql_queries.error_tracking_query_runner_utils import validate_uuid_param
+from products.error_tracking.backend.hogql_queries.error_tracking_query_validation_rules import ValidateVolumeResolution
 from products.error_tracking.backend.hogql_queries.issue_state_overlay import (
     RECENT_ISSUE_STATE_OVERLAY_UNAVAILABLE,
     RecentIssueState,
@@ -54,7 +57,11 @@ class ErrorTrackingQueryRunner(ErrorTrackingQueryRunnerAccessMixin, AnalyticsQue
 
     CACHE_VERSION = 4
 
-    def __init__(self, *args, **kwargs):
+    def validators(self) -> tuple[QueryValidationRule[ErrorTrackingQuery], ...]:
+        return (ValidateVolumeResolution(),)
+
+    def __init__(self, *args, align_volume_buckets_to_midpoint: bool = False, **kwargs) -> None:
+        self.align_volume_buckets_to_midpoint = align_volume_buckets_to_midpoint
         super().__init__(*args, **kwargs)
         self.query.issueId = validate_uuid_param(self.query.issueId, "issueId")
         self.query.personId = validate_uuid_param(self.query.personId, "personId")
@@ -87,8 +94,12 @@ class ErrorTrackingQueryRunner(ErrorTrackingQueryRunnerAccessMixin, AnalyticsQue
         return self._make_builder(include_recent_issue_state=False)
 
     def _make_builder(self, *, include_recent_issue_state: bool) -> ErrorTrackingQueryBuilder:
+        query = self.query
+        if self.align_volume_buckets_to_midpoint:
+            # Internal trend buckets can exceed the public limit; validation still checks the original query.
+            query = query.model_copy(update={"volumeResolution": trend_volume_resolution(query.volumeResolution)})
         return ErrorTrackingQueryBuilder(
-            self.query,
+            query,
             self.team,
             self.date_from,
             self.date_to,
@@ -110,6 +121,8 @@ class ErrorTrackingQueryRunner(ErrorTrackingQueryRunnerAccessMixin, AnalyticsQue
     def get_cache_payload(self) -> dict:
         payload = super().get_cache_payload()
         payload["error_tracking_cache_version"] = self.CACHE_VERSION
+        if self.align_volume_buckets_to_midpoint:
+            payload["align_volume_buckets_to_midpoint"] = True
         # Use a stable marker when the primary read fails so an existing cached result can still load.
         try:
             watermark = latest_issue_state_watermark(self.team.pk)

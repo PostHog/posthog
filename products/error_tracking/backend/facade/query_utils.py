@@ -5,6 +5,10 @@ from datetime import datetime, timedelta
 from typing import cast
 from zoneinfo import ZoneInfo
 
+from annotated_types import Interval
+
+from posthog.schema import ErrorTrackingQuery
+
 from posthog.hogql.escape_sql import escape_hogql_string
 
 from posthog.dataclasses import frozen
@@ -47,6 +51,11 @@ LIST_ISSUE_FIELDS = [
 
 # Keep in sync with ERROR_TRACKING_LISTING_RESOLUTION in products/error_tracking/frontend/utils.ts
 ERROR_TRACKING_LISTING_VOLUME_RESOLUTION = 20
+VOLUME_RESOLUTION_MAX = next(
+    bound.le
+    for bound in ErrorTrackingQuery.model_fields["volumeResolution"].metadata
+    if isinstance(bound, Interval) and isinstance(bound.le, int)
+)
 
 
 def normalize_volume_resolution(volume_resolution: int) -> int:
