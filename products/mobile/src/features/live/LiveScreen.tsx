@@ -1,6 +1,14 @@
 import { useFocusEffect } from 'expo-router'
 import { type ReactElement, useCallback, useEffect, useRef, useState } from 'react'
-import { Linking, RefreshControl, ScrollView, type ScrollViewInstance, Text, View } from 'react-native'
+import {
+    ActivityIndicator,
+    Linking,
+    RefreshControl,
+    ScrollView,
+    type ScrollViewInstance,
+    Text,
+    View,
+} from 'react-native'
 
 import type { ProjectScope } from '@/api/reports'
 import type { NavChrome } from '@/features/tabs/navPinStore'
@@ -373,6 +381,7 @@ function LiveBody({ chrome, scope, scrollTitle, toasts }: LiveBodyProps): ReactE
                 {tab ? null : (
                     <LiveTitle
                         status={feed.status}
+                        refreshing={feed.reading && feed.screenActive}
                         state={state}
                         screenActive={feed.screenActive}
                         updatedAt={feed.updatedAt}
@@ -397,6 +406,7 @@ function LiveBody({ chrome, scope, scrollTitle, toasts }: LiveBodyProps): ReactE
 interface LiveTitleProps {
     audience: 'web' | 'mobile' | 'mixed' | 'unknown'
     status: LiveStatus
+    refreshing: boolean
     state: LiveProjectState | null
     screenActive: boolean
     updatedAt: number | null
@@ -404,7 +414,16 @@ interface LiveTitleProps {
 }
 
 /** The pushed screen's title block. */
-function LiveTitle({ audience, status, state, screenActive, updatedAt, onTitleLayout }: LiveTitleProps): ReactElement {
+function LiveTitle({
+    audience,
+    status,
+    refreshing,
+    state,
+    screenActive,
+    updatedAt,
+    onTitleLayout,
+}: LiveTitleProps): ReactElement {
+    const colors = useColors()
     const styles = useStyles()
     const on = status === 'live' && state !== 'quiet' && state !== 'not_set_up'
     return (
@@ -426,6 +445,15 @@ function LiveTitle({ audience, status, state, screenActive, updatedAt, onTitleLa
                         </Text>
                         <LiveDot on={on} animate={screenActive} />
                     </View>
+                    {refreshing ? (
+                        <ActivityIndicator
+                            size="small"
+                            color={colors.tertiary}
+                            accessibilityRole="progressbar"
+                            accessibilityLabel="Loading live data"
+                            testID="live-refreshing"
+                        />
+                    ) : null}
                 </View>
             </View>
             <LiveStatusLine status={status} state={state} screenActive={screenActive} updatedAt={updatedAt} />

@@ -114,6 +114,7 @@ Many pulls to refresh in a row can still empty the minute bucket. Reads then fai
 Loading shows the skeleton (`live-loading`). Empty cards say "No activity in the last 30 minutes", "No pageviews recorded in the last 30 minutes", "No screen views recorded in the last 30 minutes", "No referrer data in the last 30 minutes", "No device data", "No browser data", "No country data" or "Waiting for events…". A card or headline metric whose job has not answered yet shows a loading indicator.
 On reopening Live, the last successful aggregate values appear from the account-scoped device cache, separately for All, Web and Mobile.
 The PostHog icon in the Home header animates while fresh data loads, and successful reads replace the saved values.
+Live opened from Web analytics shows a loading spinner beside its title during reads.
 A failed refresh keeps the previous values and follows the reconnecting behavior below.
 The cache uses the existing size and age limits and clears on sign-out, project access denial or loss of Views access; individual event details are not persisted.
 
