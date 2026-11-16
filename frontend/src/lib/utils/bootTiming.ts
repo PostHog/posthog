@@ -77,8 +77,6 @@ async function sendBootTiming(): Promise<void> {
         ...context,
         ...getNavigationProperties(),
         page_was_hidden: pageWasHidden,
-        // Which build the server booted this page on (see app_build_for_request in posthog/vite_app.py).
-        frontend_build: document.documentElement.dataset.frontendBuild ?? null,
         sample_rate: SAMPLE_RATE,
     })
 }

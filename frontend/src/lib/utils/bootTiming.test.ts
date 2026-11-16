@@ -42,7 +42,6 @@ describe('bootTiming', () => {
     const flushSend = (): Promise<void> => new Promise((resolve) => setTimeout(resolve, 0))
 
     it('sends one event on the first scene render, with times since navigation start', async () => {
-        document.documentElement.dataset.frontendBuild = 'vite'
         markAt(50.4, 'entry')
         markAt(400, 'app_modules_loaded')
         markAt(620, 'scene_loaded', { scene: 'Insight' })
@@ -67,7 +66,6 @@ describe('bootTiming', () => {
                 scene: 'Insight',
                 logged_in: true,
                 page_was_hidden: false,
-                frontend_build: 'vite',
                 sample_rate: 0.05,
             })
         )
