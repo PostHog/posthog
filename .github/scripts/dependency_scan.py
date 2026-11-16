@@ -1,6 +1,6 @@
 # /// script
 # requires-python = "==3.12.*"
-# dependencies = ["guarddog==3.2.0"]
+# dependencies = ["guarddog==3.2.0", "pyyaml==6.0.3"]
 # ///
 from __future__ import annotations
 
@@ -15,6 +15,8 @@ import subprocess
 from collections.abc import Callable, Iterable
 from concurrent.futures import ThreadPoolExecutor
 from dataclasses import dataclass
+
+import yaml
 
 GUARDDOG = [sys.executable, "-m", "guarddog"]
 SCAN_TIMEOUT_SECONDS = 180
@@ -33,9 +35,9 @@ GO_VERSION = re.compile(r"v[0-9][0-9A-Za-z.+-]*")
 NAME_PATTERNS = {"npm": NPM_NAME, "pypi": PLAIN_NAME, "crates": PLAIN_NAME, "go": GO_MODULE}
 VERSION_PATTERNS = {"npm": VERSION, "pypi": VERSION, "crates": VERSION, "go": GO_VERSION}
 GO_REQUIREMENT = re.compile(r"^\s*(?:require\s+)?(\S+)\s+(v\S+)\s*(?://.*)?$")
-PNPM_PACKAGE_KEY = re.compile(r"^\s+'?([^'\s]+)@([^@'\s]+)'?:\s*$")
 PYPI_REGISTRY = "https://pypi.org/simple"
 CRATES_REGISTRY = "registry+https://github.com/rust-lang/crates.io-index"
+YAML_LOADER = getattr(yaml, "CSafeLoader", yaml.SafeLoader)
 
 EXCLUDED_RULES: dict[str, tuple[str, ...]] = {
     "npm": ("bundled_binary", "metadata_mismatch", "potentially_compromised_email_domain"),
@@ -83,14 +85,21 @@ class Location:
     line: int
 
 
+# The dependency proof compares lockfiles as parsed YAML, so this reader parses them too. A reader
+# that matched lines would see a different file than the proof, for example when a comment
+# follows `packages:`, and every package it misses would pass the gate unscanned.
 def pnpm_packages(lockfile: str) -> set[Package]:
+    if not lockfile:
+        return set()
+    document = yaml.load(lockfile, Loader=YAML_LOADER)
+    entries = document.get("packages") if isinstance(document, dict) else None
+    if not isinstance(entries, dict | None):
+        raise ValueError("pnpm-lock.yaml has a `packages` entry that is not a mapping")
     packages: set[Package] = set()
-    in_packages = False
-    for line in lockfile.splitlines():
-        if line and not line[0].isspace():
-            in_packages = line.rstrip() == "packages:"
-        elif in_packages and (match := PNPM_PACKAGE_KEY.match(line)):
-            packages.add(Package("npm", match[1], match[2]))
+    for key in entries or {}:
+        name, _, version = str(key).rpartition("@")
+        if name and version:
+            packages.add(Package("npm", name, version))
     return packages
 
 
@@ -173,6 +182,9 @@ def scan(package: Package) -> Finding:
     try:
         stdout, _ = process.communicate(timeout=SCAN_TIMEOUT_SECONDS)
         report = json.loads(stdout)
+        # GuardDog scores only the rules that ran, so a rule that failed can hide what it would find.
+        if report["errors"]:
+            return Finding(package, NOT_SCANNED, 0.0, ())
         risk = report["risk_score"]
         rules = tuple(
             sorted(rule for rule, hits in report["results"].items() if hits and not rule.startswith("capability"))

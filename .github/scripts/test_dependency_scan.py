@@ -117,19 +117,18 @@ GO_HEAD = (
 )
 
 
+PNPM_ADDED = {
+    ("npm", "@scope/added", "2.0.0-beta.1"),
+    ("npm", "left-pad", "1.3.1"),
+    ("npm", "tarball-dep", "https://example.com/tarball-dep.tgz"),
+}
+
+
 @pytest.mark.parametrize(
     "filename,base,head,expected",
     [
-        (
-            "pnpm-lock.yaml",
-            PNPM_BASE,
-            PNPM_HEAD,
-            {
-                ("npm", "@scope/added", "2.0.0-beta.1"),
-                ("npm", "left-pad", "1.3.1"),
-                ("npm", "tarball-dep", "https://example.com/tarball-dep.tgz"),
-            },
-        ),
+        ("pnpm-lock.yaml", PNPM_BASE, PNPM_HEAD, PNPM_ADDED),
+        ("pnpm-lock.yaml", PNPM_BASE, PNPM_HEAD.replace("\npackages:\n", "\npackages: # comment\n"), PNPM_ADDED),
         ("pnpm-lock.yaml", "", PNPM_BASE, {("npm", "@scope/kept", "1.0.0"), ("npm", "left-pad", "1.3.0")}),
         ("uv.lock", UV_BASE, UV_HEAD, {("pypi", "bumped", "2.1.0")}),
         ("Cargo.lock", CARGO_BASE, CARGO_HEAD, {("crates", "added", "0.4.2")}),
@@ -203,3 +202,19 @@ def test_code_scanning_gets_one_result_per_rule_of_a_high_risk_package():
 )
 def test_only_a_registry_name_and_version_reach_the_scanner(ecosystem, name, version, scannable):
     assert scanner.Package(ecosystem, name, version).scannable is scannable
+
+
+@pytest.mark.parametrize(
+    "errors,label",
+    [
+        ({}, "no_risks_detected"),
+        ({"npm-install-script": "rule failed to run"}, "not_scanned"),
+    ],
+)
+def test_a_package_that_makes_a_rule_fail_is_not_scanned(monkeypatch, errors, label):
+    report = {"errors": errors, "results": {}, "risk_score": {"label": "no_risks_detected", "score": 0.0}}
+    monkeypatch.setattr(scanner, "GUARDDOG", [sys.executable, "-c", f"print({json.dumps(report)!r})"])
+
+    finding = scanner.scan(scanner.Package("npm", "left-pad", "1.3.1"))
+
+    assert finding.label == label

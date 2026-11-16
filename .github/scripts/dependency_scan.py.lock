@@ -23,7 +23,10 @@ pydantic = false
 pydantic-core = false
 
 [manifest]
-requirements = [{ name = "guarddog", specifier = "==3.2.0" }]
+requirements = [
+    { name = "guarddog", specifier = "==3.2.0" },
+    { name = "pyyaml", specifier = "==6.0.3" },
+]
 
 [[manifest.dependency-metadata]]
 name = "django-prometheus"
