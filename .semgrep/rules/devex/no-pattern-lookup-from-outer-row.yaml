@@ -51,7 +51,19 @@ rules:
                 - pattern-inside: |
                       $PATTERN = <... OuterRef(...) ...>
                       ...
+                - pattern-not-inside: |
+                      $PATTERN = JSONArray(...)
+                      ...
+                - pattern-not-inside: |
+                      $PATTERN = JSONObject(...)
+                      ...
+                - pattern-not-inside: |
+                      $PATTERN = [...]
+                      ...
                 - pattern: $CALL(..., $LOOKUP=<... $PATTERN ...>, ...)
+                - pattern-not: $CALL(..., $LOOKUP=JSONArray(...), ...)
+                - pattern-not: $CALL(..., $LOOKUP=JSONObject(...), ...)
+                - pattern-not: $CALL(..., $LOOKUP=[...], ...)
                 - metavariable-regex:
                       metavariable: $LOOKUP
                       regex: ^\w+__i?(contains|startswith|endswith|regex)$

@@ -66,3 +66,21 @@ Task.objects.filter(state__contains=JSONObject(url=OuterRef("url")))
 
 # ok: no-pattern-lookup-from-outer-row
 Task.objects.filter(labels__contains=[OuterRef("label")])
+
+
+def containment_value_held_in_a_variable(queryset):
+    urls = JSONArray(OuterRef("url"))
+    # ok: no-pattern-lookup-from-outer-row
+    return queryset.filter(state__verified_urls__contains=urls)
+
+
+def containment_wrapping_a_variable(queryset):
+    url = OuterRef("url")
+    # ok: no-pattern-lookup-from-outer-row
+    return queryset.filter(state__verified_urls__contains=JSONArray(url))
+
+
+def suffix_held_in_a_variable(queryset):
+    suffix = Concat(Value("/"), OuterRef("basename"))
+    # ruleid: no-pattern-lookup-from-outer-row
+    return queryset.filter(path__endswith=suffix)
