@@ -1,3 +1,4 @@
+import json
 from collections.abc import Callable, Iterable, Mapping
 from datetime import UTC, timedelta
 from typing import Any, TypedDict, cast
@@ -3151,3 +3152,129 @@ class TestFileSystemInsightType(SimpleTestCase):
     )
     def test_insight_type(self, query_kind: str | None, legacy_type: str | None, expected: str) -> None:
         self.assertEqual(get_file_system_insight_type(query_kind, legacy_type), expected)
+
+
+TREE_READ_PATHS: list[tuple[str, str, dict[str, str]]] = [
+    ("list", "", {"limit": "10"}),
+    ("list_in_folder", "", {"parent": "Unfiled", "depth": "2", "limit": "10"}),
+    ("list_search", "", {"search": "Unfiled", "limit": "10"}),
+    ("typed_list", "", {"type": "dashboard", "limit": "10"}),
+    ("typed_list_by_created_at", "", {"type": "dashboard", "order_by": "-created_at", "limit": "10"}),
+    ("typed_list_by_last_viewed", "", {"type": "notebook", "order_by": "-last_viewed_at", "limit": "10"}),
+    ("recents", "", {"order_by": "-last_viewed_at", "limit": "10"}),
+    ("recents_search", "", {"order_by": "-last_viewed_at", "search": "welcome", "limit": "10"}),
+    ("search", "search/", {"search": "welcome"}),
+    ("unfiled", "unfiled/", {}),
+    ("frequent", "frequent/", {}),
+]
+
+KNOWN_PER_ROW_TREE_SUBQUERIES = {
+    # Runs only for the objects that the NOT EXISTS anti-join kept, so once per object with no file row yet.
+    "unfiled_already_saved_annotation": 'AS "already_saved"',
+}
+
+
+def _scans_file_system(node: Mapping[str, Any]) -> bool:
+    return node.get("Relation Name") == "posthog_filesystem" or any(
+        _scans_file_system(child) for child in node.get("Plans", [])
+    )
+
+
+def _per_row_file_system_subplans(node: Mapping[str, Any]) -> Iterable[Mapping[str, Any]]:
+    # Postgres runs a SubPlan once per outer row unless it can hash it. An InitPlan runs once per statement.
+    is_per_row = node.get("Parent Relationship") == "SubPlan" and "hashed" not in node.get("Subplan Name", "")
+    if is_per_row and _scans_file_system(node):
+        yield node
+    for child in node.get("Plans", []):
+        yield from _per_row_file_system_subplans(child)
+
+
+class TestFileSystemReadPlans(APIBaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        self.organization.available_product_features = [
+            {"key": "access_control", "name": "access_control"},
+            {"key": "role_based_access", "name": "role_based_access"},
+        ]
+        self.organization.save()
+        Dashboard.objects.create(team=self.team, name="Welcome dashboard", created_by=self.user)
+        flow_ref = "0f1e2d3c-4b5a-4987-a6b5-c4d3e2f1a0b9"
+        template_ref = "1a2b3c4d-5e6f-4a1b-8c2d-3e4f5a6b7c8d"
+        files = [
+            ("Docs", "folder", None),
+            ("Docs/Reports", "folder", None),
+            ("Docs/Reports/Welcome report", "notebook", "welcome-notebook"),
+            ("Unfiled", "folder", None),
+            ("Unfiled/Insights", "folder", None),
+            ("Unfiled/Insights/Welcome insight", "insight", "welcome-insight"),
+            ("Unfiled/Workflows", "folder", None),
+            ("Unfiled/Workflows/Welcome flow", "hog_flow", flow_ref),
+            ("Unfiled/Email templates", "folder", None),
+            ("Unfiled/Email templates/Welcome email", "message_template", template_ref),
+        ]
+        for path, file_type, ref in files:
+            FileSystem.objects.create(
+                team=self.team, path=path, depth=path.count("/") + 1, type=file_type, ref=ref, created_by=self.user
+            )
+        now = timezone.now()
+        for file_type, ref in [
+            ("notebook", "welcome-notebook"),
+            ("insight", "welcome-insight"),
+            ("hog_flow", flow_ref),
+            ("message_template", template_ref),
+        ]:
+            FileSystemViewLog.objects.create(
+                team=self.team,
+                user=self.user,
+                type=file_type,
+                ref=ref,
+                viewed_at=now,
+                view_days=[now.date(), (now - timedelta(days=1)).date()],
+            )
+
+    @parameterized.expand(
+        [
+            (f"{name}_flag_{'on' if flag_enabled else 'off'}", flag_enabled, action, params)
+            for name, action, params in TREE_READ_PATHS
+            for flag_enabled in (False, True)
+        ]
+    )
+    def test_tree_reads_run_no_per_row_subquery_over_the_tree(
+        self, _name: str, flag_enabled: bool, action: str, params: dict[str, str]
+    ) -> None:
+        # CaptureQueriesContext keeps only the interpolated SQL, and EXPLAIN needs the statement with its typed params.
+        statements: list[tuple[str, Any]] = []
+
+        def capture(execute: Callable[..., Any], sql: str, sql_params: Any, many: bool, context: Any) -> Any:
+            if not many:
+                statements.append((sql, sql_params))
+            return execute(sql, sql_params, many, context)
+
+        with (
+            patch("posthoganalytics.feature_enabled", return_value=flag_enabled),
+            connection.execute_wrapper(capture),
+        ):
+            response = self.client.get(f"/api/projects/{self.team.id}/file_system/{action}", params)
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+
+        tree_reads = [
+            (sql, sql_params)
+            for sql, sql_params in statements
+            if sql.lstrip().upper().startswith("SELECT")
+            and '"posthog_filesystem"' in sql
+            and not any(marker in sql for marker in KNOWN_PER_ROW_TREE_SUBQUERIES.values())
+        ]
+        self.assertNotEqual(tree_reads, [])
+        offenders: list[str] = []
+        with connection.cursor() as cursor:
+            for sql, sql_params in tree_reads:
+                cursor.execute(f"EXPLAIN (FORMAT JSON) {sql}", sql_params)
+                row = cursor.fetchone()
+                assert row is not None
+                plan = row[0][0]["Plan"]
+                offenders.extend(
+                    f"{sql}\n{sql_params}\n{json.dumps(node, indent=2)}" for node in _per_row_file_system_subplans(plan)
+                )
+        if offenders:
+            flag_state = "on" if flag_enabled else "off"
+            self.fail(f"{action or 'list'} {params} with the flag {flag_state}:\n\n" + "\n\n".join(offenders))
