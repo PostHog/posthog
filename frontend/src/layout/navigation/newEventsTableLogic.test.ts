@@ -36,36 +36,60 @@ describe('newEventsTableLogic', () => {
         { session: 'a staff user', user: { is_staff: true, is_impersonated: false }, acts: true },
         { session: 'an impersonated session', user: { is_staff: false, is_impersonated: true }, acts: true },
         { session: 'a regular user', user: { is_staff: false, is_impersonated: false }, acts: false },
-    ])('a link that turns the new table on, opened by $session', ({ user, acts }) => {
-        router.actions.push('/insights', { ph_new_events_schema: '1', other: 'kept' })
+    ])('a page that asks for the new table, opened by $session', ({ user, acts }) => {
+        router.actions.push('/insights', { ph_new_events_schema: '1' })
 
         const logic = mountAs(user)
 
-        expect(document.cookie.includes('ph_new_events_schema=1')).toBe(acts)
-        expect(reload).toHaveBeenCalledTimes(acts ? 1 : 0)
-        expect(Object.keys(router.values.searchParams)).toEqual(acts ? ['other'] : ['ph_new_events_schema', 'other'])
         expect(logic.values.newEventsTableActive).toBe(acts)
-    })
-
-    it('a link that matches the cookie strips the parameter without a reload', () => {
-        document.cookie = 'ph_new_events_schema=1; path=/'
-        router.actions.push('/insights', { ph_new_events_schema: '1' })
-
-        mountAs({ is_staff: true })
-
+        expect(document.cookie).not.toContain('ph_new_events_schema')
         expect(reload).not.toHaveBeenCalled()
-        expect(router.values.searchParams).toEqual({})
     })
 
-    it('switching back clears the cookie and reloads', () => {
-        document.cookie = 'ph_new_events_schema=1; path=/'
+    it.each([
+        { cookie: false, page: '1', enabled: true },
+        { cookie: true, page: '0', enabled: false },
+    ])('a page asking for table $page beats a browser cookie of $cookie', ({ cookie, page, enabled }) => {
+        if (cookie) {
+            document.cookie = 'ph_new_events_schema=1; path=/'
+        }
+        router.actions.push('/insights', { ph_new_events_schema: page })
+
         const logic = mountAs({ is_staff: true })
-        expect(logic.values.newEventsTableActive).toBe(true)
+
+        expect(logic.values.newEventsTableEnabled).toBe(enabled)
+    })
+
+    it("switching back clears the cookie and the page's choice, and reloads", () => {
+        document.cookie = 'ph_new_events_schema=1; path=/'
+        router.actions.push('/insights', { ph_new_events_schema: '1', other: 'kept' })
+        const logic = mountAs({ is_staff: true })
 
         logic.actions.setNewEventsTable(false)
 
         expect(document.cookie).not.toContain('ph_new_events_schema')
+        expect(router.values.searchParams).toEqual({ other: 'kept' })
+        expect(logic.values.newEventsTableActive).toBe(false)
         expect(reload).toHaveBeenCalledTimes(1)
+    })
+
+    it.each([
+        { enabled: true, value: '1' },
+        { enabled: false, value: '0' },
+    ])('opens the same page in a new tab on table $value', ({ enabled, value }) => {
+        const open = jest.spyOn(window, 'open').mockReturnValue(null)
+        router.actions.push('/dashboard/1', { date_from: '-7d' })
+        const logic = mountAs({ is_staff: true })
+
+        logic.actions.openEventsTableTab(enabled)
+
+        expect(open).toHaveBeenCalledWith(
+            `${router.values.location.pathname}?date_from=-7d&ph_new_events_schema=${value}`,
+            '_blank',
+            'noopener'
+        )
+        expect(router.values.location.pathname).toMatch(/\/dashboard\/1$/)
+        open.mockRestore()
     })
 
     it('dismissing the bar keeps the table on, and switching again shows the bar again', () => {

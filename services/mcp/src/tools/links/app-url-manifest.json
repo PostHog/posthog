@@ -364,6 +364,11 @@
         "params": ["id"],
         "scope": "project"
     },
+    "businessKnowledgeUsage": {
+        "template": "/business-knowledge/usage",
+        "params": [],
+        "scope": "project"
+    },
     "canvas": {
         "template": "/canvas",
         "params": [],
@@ -1517,6 +1522,11 @@
     "release": {
         "template": "/releases/{id}",
         "params": ["id"],
+        "scope": "project"
+    },
+    "releaseCalendar": {
+        "template": "/releases/calendar",
+        "params": [],
         "scope": "project"
     },
     "releaseList": {

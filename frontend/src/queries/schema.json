@@ -27578,7 +27578,9 @@
                     "type": "number"
                 },
                 "volumeResolution": {
-                    "$ref": "#/definitions/integer"
+                    "maximum": 200,
+                    "minimum": 0,
+                    "type": "integer"
                 },
                 "withAggregations": {
                     "type": "boolean"
@@ -33086,6 +33088,9 @@
                 "xAxisLabel": {
                     "type": "string"
                 },
+                "xAxisSortOrder": {
+                    "$ref": "#/definitions/HeatmapSortOrder"
+                },
                 "yAxisColumn": {
                     "type": "string"
                 },
@@ -35217,6 +35222,7 @@
                 "aws-redshift",
                 "s3-compatible",
                 "snowflake",
+                "motherduck",
                 "youtube-analytics",
                 "twitter-ads"
             ],

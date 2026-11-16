@@ -14,8 +14,8 @@ from rest_framework.viewsets import ViewSet
 
 from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.auth import ProjectSecretAPIKeyAuthentication
 from posthog.permissions import APIScopePermission, PostHogFeatureFlagPermission
-from posthog.rate_limit import BurstRateThrottle, SustainedRateThrottle
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 
@@ -39,6 +39,7 @@ from .library_serializers import (
     KnowledgeLibraryUpdateSerializer,
 )
 from .settings import CanonicalTeamTokenPermission, canonical_user_access_control
+from .throttles import KNOWLEDGE_THROTTLES
 
 _READ_ACTIONS = frozenset({"list", "retrieve"})
 _WRITE_ACTIONS = frozenset({"create", "partial_update", "destroy"})
@@ -49,6 +50,8 @@ class KnowledgeLibraryViewSet(TeamAndOrgViewSetMixin, ViewSet):
     # A library is project-wide, not an access-controlled object. Without this flag, editor
     # access to one source passes the list check for a member whose resource-level access is "none".
     requires_resource_level_access = True
+    authentication_classes = [ProjectSecretAPIKeyAuthentication]
+    psak_allowed_actions = ["list", "retrieve"]
     permission_classes = [
         IsAuthenticated,
         APIScopePermission,
@@ -56,7 +59,7 @@ class KnowledgeLibraryViewSet(TeamAndOrgViewSetMixin, ViewSet):
         CanonicalTeamTokenPermission,
     ]
     posthog_feature_flag = "product-business-knowledge"
-    throttle_classes = [BurstRateThrottle, SustainedRateThrottle]
+    throttle_classes = KNOWLEDGE_THROTTLES
     pagination_class = None
 
     @cached_property
