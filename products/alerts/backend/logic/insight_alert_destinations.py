@@ -24,6 +24,7 @@ from products.alerts.backend.logic.destination_configs import (
 from products.alerts_platform.backend.facade.contracts import (
     AlertDestinationConfig,
     AlertDestinationData,
+    AlertDestinationValidationError,
     DestinationType,
     EventKindSpec,
     IncidentAction,
@@ -269,6 +270,9 @@ def build_insight_alert_url_config(
     else:
         label = f"Webhook {url_hostname(url)}"
         inputs = {"url": {"value": url}, "body": {"value": _WEBHOOK_BODY}}
+        # An added header usually holds a credential, which the template's secret input encrypts and masks.
+        if headers := data.get("webhook_headers"):
+            inputs["secret_headers"] = {"value": headers}
     spec = DESTINATION_SPECS[destination_type]
     return AlertDestinationConfig(
         payload={
@@ -277,13 +281,13 @@ def build_insight_alert_url_config(
             "filters": destination_filter(alert_id, LEGACY_INSIGHT_ALERT_EVENT),
             "name": clip_hog_function_name(f"{alert_name or 'Alert'}: {label}"),
             "template_id": spec.template_id,
-            "inputs_schema": _with_secret_inputs(spec.template_id, spec.address_input_keys),
+            "inputs_schema": with_secret_inputs(spec.template_id, spec.address_input_keys),
             "inputs": inputs,
         },
     )
 
 
-def _with_secret_inputs(template_id: str, keys: frozenset[str]) -> list[dict[str, Any]]:
+def with_secret_inputs(template_id: str, keys: frozenset[str]) -> list[dict[str, Any]]:
     """The template's inputs with the URL marked secret, so the HogFunction stores it encrypted and the
     HogFunction API masks it. The URL's path is the channel's credential."""
     template = (
@@ -335,3 +339,17 @@ def build_insight_alert_pagerduty_configs(
         )
         for spec in INSIGHT_INCIDENT_EVENT_KINDS
     ]
+
+
+def build_insight_alert_destination_configs(
+    *, alert_id: str, alert_name: str | None, data: AlertDestinationData
+) -> list[AlertDestinationConfig]:
+    """What the insight destination route for `data`'s type creates."""
+    destination_type = DestinationType(data["type"])
+    if destination_type == DestinationType.SLACK:
+        return [build_insight_alert_slack_config(alert_id=alert_id, alert_name=alert_name, data=data)]
+    if destination_type in (DestinationType.WEBHOOK, DestinationType.DISCORD, DestinationType.TEAMS):
+        return [build_insight_alert_url_config(alert_id=alert_id, alert_name=alert_name, data=data)]
+    if destination_type == DestinationType.PAGERDUTY:
+        return build_insight_alert_pagerduty_configs(alert_id=alert_id, alert_name=alert_name, data=data)
+    raise AlertDestinationValidationError(f"Insight alerts have no {destination_type} destination.", field="type")
