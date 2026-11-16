@@ -738,6 +738,20 @@ class TestReadTable:
         with pytest.raises(ObjectStorageError, match=f"{FILE_PARSE_ERROR} '{path}' as Parquet: Brotli"):
             list(iter_file_tables(io.BytesIO(content), stored(path), "parquet", CsvOptions()))
 
+    @parameterized.expand(
+        [
+            ("snappy", "row_group_missing_a_column_chunk.parquet", "Trying to read column index 1"),
+            ("brotli", "row_group_missing_a_column_chunk_brotli.parquet", "Brotli"),
+        ]
+    )
+    def test_a_row_group_with_fewer_column_chunks_than_the_schema_is_a_parse_error(
+        self, _name: str, fixture: str, reason: str
+    ) -> None:
+        content = (Path(__file__).parent / "fixtures" / fixture).read_bytes()
+
+        with pytest.raises(ObjectStorageError, match=f"{FILE_PARSE_ERROR} 'orders.parquet' as Parquet: {reason}"):
+            list(iter_file_tables(io.BytesIO(content), stored("orders.parquet"), "parquet", CsvOptions()))
+
     def test_a_corrupt_parquet_block_is_a_parse_error(self) -> None:
         buffer = io.BytesIO()
         pq.write_table(pa.table({"id": ["1", "2"]}), buffer)
