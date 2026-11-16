@@ -92,13 +92,14 @@ export function openLiveLog(evidenceDir: string, beatMs = TICK_MS): LiveLog {
             const now = new Date()
             utimesSync(file, now, now)
         } catch {
-            clearInterval(beat)
+            stopBeat()
         }
     }, beatMs)
     beat.unref()
+    const stopBeat = (): void => clearInterval(beat)
     const write = (record: LiveRecord): void => {
         if (record.type === 'end') {
-            clearInterval(beat)
+            stopBeat()
         }
         if (broken) {
             return
@@ -108,7 +109,7 @@ export function openLiveLog(evidenceDir: string, beatMs = TICK_MS): LiveLog {
             appendFileSync(file, `${JSON.stringify(record)}\n`)
         } catch {
             broken = true
-            clearInterval(beat)
+            stopBeat()
         }
     }
     const stopped = new AbortController()
@@ -131,8 +132,9 @@ export function openLiveLog(evidenceDir: string, beatMs = TICK_MS): LiveLog {
                     const truth = await truthAfter(sources.edgeUrl, seen.truth).catch(() => [])
                     seen.truth = truth.at(-1)?.seq ?? seen.truth
                     const valves = sources.timeline()
-                    const changed = JSON.stringify(valves) !== timeline
-                    timeline = JSON.stringify(valves)
+                    const serialized = JSON.stringify(valves)
+                    const changed = serialized !== timeline
+                    timeline = serialized
                     write({
                         type: 'tick',
                         at: Date.now(),
@@ -155,6 +157,7 @@ export function openLiveLog(evidenceDir: string, beatMs = TICK_MS): LiveLog {
             })()
         },
         async stop() {
+            stopBeat()
             stopped.abort()
             await following
         },
