@@ -478,7 +478,10 @@ class TestDevTokens(_DevGatewaySettings):
         assert response.status_code == 403
         post.assert_not_called()
 
-    def _old_token(self, *, days_ago: int, expires_in_days: float, revoked: bool, cap: str = "40") -> DevGatewayToken:
+    def _old_token(
+        self, *, days_ago: int, expires_in_days: float, spent: str | None, cap: str = "40"
+    ) -> DevGatewayToken:
+        """`spent` set means the token was revoked after spending that much."""
         row = self._rows().create(
             team=self.team,
             user=self.user,
@@ -486,36 +489,38 @@ class TestDevTokens(_DevGatewaySettings):
             cap_usd=Decimal(cap),
             token_hash="d" * 64,
             expires_at=timezone.now() + timedelta(days=expires_in_days),
-            revoked_at=timezone.now() if revoked else None,
-            spent_usd=Decimal("1") if revoked else None,
+            revoked_at=timezone.now() if spent is not None else None,
+            spent_usd=Decimal(spent) if spent is not None else None,
         )
         self._rows(pk=row.pk).update(created_at=timezone.now() - timedelta(days=days_ago))
         return self._rows(pk=row.pk).get()
 
     @parameterized.expand(
         [
-            ("live_past_the_24h_window", False, -1, True),
-            ("expired", False, None, False),
-            ("revoked", True, -1, False),
+            ("live", None, 5, "40.00"),
+            ("revoked_before_expiry", "30", 5, "30.00"),
+            ("expired", None, -1, None),
+            ("revoked_and_expired", "30", -1, None),
         ]
     )
-    def test_token_older_than_a_day_counts_and_lists_only_while_live(self, _name, revoked, expiry_offset, counts):
-        expires_in_days = 5 if expiry_offset == -1 else -1
-        row = self._old_token(days_ago=2, expires_in_days=expires_in_days, revoked=revoked)
+    def test_token_older_than_a_day_counts_until_it_expires(self, _name, spent, expires_in_days, used):
+        row = self._old_token(days_ago=2, expires_in_days=expires_in_days, spent=spent)
 
         with patch(_POST, return_value=_response(200, {"tokens": []})):
             body = self.client.get(f"{URL}usage/").json()
         with patch(_POST) as post:
             refused = self.client.post(URL, {"cap_usd": "25"})
 
+        counts = used is not None
         assert ([t["id"] for t in body["tokens"]] == [str(row.id)]) is counts
-        assert body["used_usd"] == ("40.00" if counts else "0.00")
+        assert body["used_usd"] == (used or "0.00")
         assert (refused.status_code == 429) is counts
         if counts:
             post.assert_not_called()
 
-    def test_refusal_frees_budget_when_an_old_live_token_expires(self):
-        row = self._old_token(days_ago=2, expires_in_days=5, revoked=False, cap="50")
+    @parameterized.expand([("live", None), ("revoked", "50")])
+    def test_refusal_frees_budget_when_an_old_token_expires(self, _name, spent):
+        row = self._old_token(days_ago=2, expires_in_days=5, spent=spent, cap="50")
 
         with patch(_POST) as post:
             response = self.client.post(URL)
@@ -524,7 +529,7 @@ class TestDevTokens(_DevGatewaySettings):
         post.assert_not_called()
         detail = response.json()["detail"]
         assert f"{row.expires_at:%Y-%m-%d %H:%M} UTC" in detail
-        assert "Revoke a live token" in detail
+        assert ("Revoke a live token" in detail) is (spent is None)
 
     @override_settings(DEV_GATEWAY_DAILY_CAP_USD="1000")
     def test_mint_sends_the_cap_and_lifetime_the_user_picked(self):

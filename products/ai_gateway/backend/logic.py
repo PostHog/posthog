@@ -128,8 +128,9 @@ def eligibility_refusal(user: User) -> DevTokenRefused | None:
 
 
 def _counted_q(now: datetime) -> Q:
-    # A token can outlive the 24h window, so a live one keeps counting until it expires or is revoked.
-    return Q(created_at__gte=now - timedelta(days=1)) | Q(revoked_at__isnull=True, expires_at__gt=now)
+    # A token outliving the 24h window counts until it expires, even once revoked, so a revoke returns only
+    # what the token did not spend.
+    return Q(created_at__gte=now - timedelta(days=1)) | Q(expires_at__gt=now)
 
 
 def _counted_tokens(user_id: int) -> QuerySet[DevGatewayToken]:
@@ -138,7 +139,7 @@ def _counted_tokens(user_id: int) -> QuerySet[DevGatewayToken]:
 
 def _frees_at(row: DevGatewayToken) -> datetime:
     day_after_mint = row.created_at + timedelta(days=1)
-    if row.revoked_at is None and row.expires_at is not None and row.expires_at > day_after_mint:
+    if row.expires_at is not None and row.expires_at > day_after_mint:
         return row.expires_at
     return day_after_mint
 
@@ -197,7 +198,7 @@ def _daily_limit_refusal(user_id: int, used: Decimal, left: Decimal) -> DevToken
     return DevTokenRefused(
         "daily_limit",
         f"You've used ${_cents_up(used):.2f} of your ${daily_cap_usd():.2f} limit, which counts tokens from the "
-        f"last 24 hours and older tokens that are still live, and a new token needs ${TOKEN_CAP_MIN_USD:.2f} left. "
+        f"last 24 hours and older tokens that have not expired, and a new token needs ${TOKEN_CAP_MIN_USD:.2f} left. "
         f"{next_step} another token at {available_at:%Y-%m-%d %H:%M} UTC.",
         429,
     )
@@ -511,7 +512,7 @@ def team_usage(viewer: User) -> DevTeamUsage:
                     (
                         _counted_usd(row)
                         for row in mine
-                        if row.created_at >= day_ago or (not row.revoked_at and row.expires_at and row.expires_at > now)
+                        if row.created_at >= day_ago or (row.expires_at and row.expires_at > now)
                     ),
                     Decimal("0"),
                 ),

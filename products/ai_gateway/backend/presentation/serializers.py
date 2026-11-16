@@ -34,13 +34,13 @@ class DevTokenUsageSerializer(serializers.Serializer):
     daily_cap_usd = serializers.DecimalField(
         max_digits=10,
         decimal_places=2,
-        help_text="Most budget one user can hold, in USD, counting tokens minted in the last 24 hours and older live ones.",
+        help_text="Most budget one user can hold, in USD, counting tokens minted in the last 24 hours and older unexpired ones.",
     )
     used_usd = serializers.DecimalField(
         max_digits=10,
         decimal_places=2,
         help_text=(
-            "Budget used, in USD, by tokens minted in the last 24 hours and older tokens still live: "
+            "Budget used, in USD, by tokens minted in the last 24 hours and older tokens not yet expired: "
             "spend for revoked tokens, the full cap otherwise."
         ),
     )
@@ -62,7 +62,7 @@ class DevTokenUsageSerializer(serializers.Serializer):
         many=True,
         help_text=(
             "Tokens the user minted in the last 24 hours, including revoked and expired ones, "
-            "plus older tokens still live, newest first."
+            "plus older tokens not yet expired, newest first."
         ),
     )
 
@@ -82,7 +82,7 @@ class DevUserUsageSerializer(serializers.Serializer):
     reserved_usd_24h = serializers.DecimalField(
         max_digits=10,
         decimal_places=2,
-        help_text="Budget counted against the user's limit, in USD: tokens minted in the last 24 hours and older live ones.",
+        help_text="Budget counted against the user's limit, in USD: tokens minted in the last 24 hours and older unexpired ones.",
     )
     spend_usd_24h = serializers.DecimalField(
         max_digits=12, decimal_places=6, help_text="Settled gateway spend in the last 24 hours, in USD."
