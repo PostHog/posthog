@@ -2724,6 +2724,7 @@ describe('CDP API', () => {
                     event: { distinct_id: 'distinct_A_1', properties: { to: 'user@example.com' } },
                     variables: { reset_link: 'https://example.com/reset' },
                     triggerMetricPending: true,
+                    acceptedAt: expect.stringMatching(/^\d{4}-\d{2}-\d{2}T\d{2}:\d{2}:\d{2}\.\d{3}Z$/),
                 },
             })
             // The email worker counts the run as triggered, so a count here would count it twice.
@@ -3181,12 +3182,32 @@ describe('CDP API', () => {
                     expect(await jobsOfFlow()).toEqual([])
                 })
 
-                it('queues one job for two first requests with the same key that both pass Valkey', async () => {
-                    // Both reservations find the key absent, so only the claim can stop a second job.
-                    const useClient = valkey().useClient.bind(valkey())
-                    jest.spyOn(valkey(), 'useClient').mockImplementation((options, callback) =>
-                        options.name === 'idempotency-reserve' ? Promise.resolve(null) : useClient(options, callback)
-                    )
+                it.each([
+                    [
+                        'both pass Valkey',
+                        () => {
+                            // Both reservations find the key absent.
+                            const useClient = valkey().useClient.bind(valkey())
+                            jest.spyOn(valkey(), 'useClient').mockImplementation((options, callback) =>
+                                options.name === 'idempotency-reserve'
+                                    ? Promise.resolve(null)
+                                    : useClient(options, callback)
+                            )
+                        },
+                    ],
+                    [
+                        'Valkey is switched off',
+                        () => {
+                            const keys = new IdempotencyKeys(valkey(), 'transactional-email', false)
+                            jest.replaceProperty(
+                                api as unknown as { transactionalEmailIdempotencyKeys: IdempotencyKeys },
+                                'transactionalEmailIdempotencyKeys',
+                                keys
+                            )
+                        },
+                    ],
+                ])('queues one job for two first requests with the same key when %s', async (_, setUp) => {
+                    setUp()
 
                     const responses = await Promise.all([sendKeyed(), sendKeyed()])
 
@@ -3911,15 +3932,19 @@ describe('CDP API', () => {
             )
 
             it.each([
-                ['the same files', () => [reference(invoice)], 202],
-                ['other files', () => [reference(receipt)], 422],
+                ['the same files', () => [reference(invoice)], 202, true],
+                ['other files', () => [reference(receipt)], 422, true],
+                ['the same files while Valkey is switched off', () => [reference(invoice)], 202, false],
             ])(
                 'answers a retry of a keyed send with files that names %s from its first send, and queues one job',
-                async (_name, retryFiles, status) => {
+                async (_name, retryFiles, status, valkeyEnabled) => {
+                    const app = valkeyEnabled
+                        ? filesApp
+                        : await servedForOneTest({ CDP_IDEMPOTENCY_VALKEY_ENABLED: false })
                     const key = newKey()
-                    const sent = await sendWithFiles(key, [reference(invoice)])
+                    const sent = await sendWithFiles(key, [reference(invoice)], { app })
 
-                    const retried = await sendWithFiles(key, retryFiles())
+                    const retried = await sendWithFiles(key, retryFiles(), { app })
 
                     expect(sent.status).toBe(202)
                     expect(retried.status).toBe(status)

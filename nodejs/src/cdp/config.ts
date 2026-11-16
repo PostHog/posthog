@@ -158,6 +158,7 @@ export type CdpConfig = ClickhouseConfig & {
     CDP_IDEMPOTENCY_VALKEY_PORT: number
     CDP_IDEMPOTENCY_VALKEY_PASSWORD: string
     CDP_IDEMPOTENCY_VALKEY_TLS: boolean
+    CDP_IDEMPOTENCY_VALKEY_ENABLED: boolean
 
     CDP_SES_RATE_LIMIT_REFILL_PER_SECOND: number
     CDP_SES_RATE_LIMIT_CAPACITY: number
@@ -461,6 +462,7 @@ export function getDefaultCdpConfig(): CdpConfig {
         CDP_IDEMPOTENCY_VALKEY_PORT: isTestEnv() || isDevEnv() ? 6390 : 6379,
         CDP_IDEMPOTENCY_VALKEY_PASSWORD: '',
         CDP_IDEMPOTENCY_VALKEY_TLS: false,
+        CDP_IDEMPOTENCY_VALKEY_ENABLED: true,
 
         CDP_SES_RATE_LIMIT_REFILL_PER_SECOND: 100,
         CDP_SES_RATE_LIMIT_CAPACITY: 50,
