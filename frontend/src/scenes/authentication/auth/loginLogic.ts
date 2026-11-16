@@ -689,6 +689,14 @@ export const loginLogic = kea<loginLogicType>([
         ],
     })),
     listeners(({ values, actions }) => ({
+        // The password login and a passkey prompt can't both finish: the login drops the passkey
+        // challenge. So close any open prompt, and don't auto-open one for this email after it.
+        submitLoginRequest: async ({ login }) => {
+            actions.markPasskeyPrompted(login.email)
+            // Dynamic import to avoid circular dependency
+            const { passkeyLogic } = await import('scenes/authentication/shared/passkeyLogic')
+            passkeyLogic.findMounted()?.actions.cancelPasskeyLogin()
+        },
         submitLoginSuccess: () => {
             // A logged-in session reads the address from the user, so drop the stored one
             clearPendingVerificationEmail()
@@ -738,6 +746,10 @@ export const loginLogic = kea<loginLogicType>([
                 // Dynamic import to avoid circular dependency
                 const { passkeyLogic } = await import('scenes/authentication/shared/passkeyLogic')
                 breakpoint()
+                // A password login submitted during the import marks the email, so check it again
+                if (values.passkeyPromptedForEmail === promptEmail) {
+                    return
+                }
                 // Mark only after the last breakpoint. A newer run that starts during the import cancels
                 // this one, so the email must still be unmarked when the newer run checks it.
                 actions.markPasskeyPrompted(promptEmail)
