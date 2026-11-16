@@ -2,12 +2,9 @@ import { useActions, useValues } from 'kea'
 
 import { LemonBanner } from '@posthog/lemon-ui'
 
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
-
 import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneSection } from '~/layout/scenes/components/SceneSection'
 
-import { templatePageUrl, transactionalEmailStatsRowUrl } from '../transactionalEmailUrl'
 import { TransactionalEmailMetricsDateRange } from './TransactionalEmailMetricsDateRange'
 import { transactionalEmailMetricsLogic } from './transactionalEmailMetricsLogic'
 import { TransactionalEmailMetricTiles } from './TransactionalEmailMetricTiles'
@@ -15,10 +12,9 @@ import { TransactionalEmailResults } from './TransactionalEmailResults'
 import { TransactionalEmailStatsTable } from './TransactionalEmailStatsTable'
 
 export function TransactionalEmailMetrics(): JSX.Element {
-    const { templateStats, templateStatsLoading, domainStats, domainStatsLoading, statsFailed } =
+    const { templateStats, templateStatsLinks, templateStatsLoading, domainStats, domainStatsLoading, statsFailed } =
         useValues(transactionalEmailMetricsLogic)
     const { loadTemplateStats, loadDomainStats, loadStatsOverTime } = useActions(transactionalEmailMetricsLogic)
-    const sendLinks = useFeatureFlag('WORKFLOWS_EMAIL_SEND_LINKS')
     const emptyState = statsFailed ? "The numbers couldn't load" : 'No transactional emails were sent in this period'
 
     return (
@@ -52,9 +48,7 @@ export function TransactionalEmailMetrics(): JSX.Element {
                     rows={templateStats}
                     loading={templateStatsLoading}
                     groupTitle="Email"
-                    linkFor={
-                        sendLinks ? transactionalEmailStatsRowUrl : (row) => templatePageUrl(row.label ? row.key : null)
-                    }
+                    linkFor={(row) => templateStatsLinks[row.key] ?? null}
                     emptyState={emptyState}
                     dataAttr="transactional-email-metrics-by-email"
                 />

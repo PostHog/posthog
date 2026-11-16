@@ -15,7 +15,6 @@ interface EmailPage {
 type StatsRow = Pick<TransactionalEmailStatsRowApi, 'key' | 'label'> &
     Partial<Pick<TransactionalEmailStatsRowApi, 'code_email_id' | 'template_id'>>
 
-// Without the `workflows-email-send-links` flag, a send and a Metrics row link only to a template's page.
 export function templatePageUrl(templateId: string | null | undefined): string | null {
     return templateId ? urls.transactionalTemplate(templateId) : null
 }
