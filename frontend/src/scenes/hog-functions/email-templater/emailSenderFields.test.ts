@@ -2,6 +2,7 @@ import {
     addressFromLocalPart,
     addressLocalPart,
     fromWithSenders,
+    fromRowError,
     senderAddressError,
     sendingStoppedWarning,
 } from './emailSenderFields'
@@ -127,5 +128,15 @@ describe('emailSenderFields', () => {
 
         expect(sendingStoppedWarning([withDomain, otherDomain])).toBeNull()
         expect(sendingStoppedWarning([withDomain, stopped])).toContain('Sending stopped for example.org')
+    })
+
+    test('shows the sending stopped warning next to an address error instead of hiding it', () => {
+        const stopped = { ...otherDomain, config: { ...otherDomain.config, ses_sending_status: 'failed' } }
+        const addressError = senderAddressError('hello@example.com', [stopped])
+
+        expect(addressError).not.toBeNull()
+        expect(fromRowError(addressError, [stopped])).toEqual(`${sendingStoppedWarning([stopped])} ${addressError}`)
+        expect(fromRowError(addressError, [otherDomain])).toEqual(addressError)
+        expect(fromRowError(null, [otherDomain])).toBeNull()
     })
 })

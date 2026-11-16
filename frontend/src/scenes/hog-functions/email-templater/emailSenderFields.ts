@@ -30,6 +30,10 @@ export function sendingStoppedWarning(senders: EmailSender[]): string | null {
     return `Sending stopped for ${domains.join(', ')}: the DNS records can no longer be verified, so every email fails. Fix the records with your DNS provider, then verify the domain again in Channels.`
 }
 
+export function fromRowError(error: string | null | undefined, senders: EmailSender[]): string | null {
+    return [sendingStoppedWarning(senders), error].filter(Boolean).join(' ') || null
+}
+
 export function isSendingStopped(sender: EmailSender): boolean {
     return sender.config?.ses_sending_status === 'failed'
 }

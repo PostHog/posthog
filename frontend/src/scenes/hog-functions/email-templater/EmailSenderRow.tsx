@@ -11,7 +11,7 @@ import { objectsEqual } from 'lib/utils/objects'
 import { urls } from 'scenes/urls'
 
 import { EmailHeaderRow } from './EmailHeaderRow'
-import { selectedSenders, senderAddressError, senderFrom, sendingStoppedWarning } from './emailSenderFields'
+import { fromRowError, selectedSenders, senderAddressError, senderFrom } from './emailSenderFields'
 import { EmailSenderForm } from './EmailSenderForm'
 import { EmailSenderPicker } from './EmailSenderPicker'
 import { emailTemplaterLogic } from './emailTemplaterLogic'
@@ -97,7 +97,7 @@ export function EmailSenderRow(): JSX.Element {
     return (
         <EmailHeaderRow
             label="From"
-            error={logicProps.fieldErrors?.from || addressError || sendingStoppedWarning(selected)}
+            error={fromRowError(logicProps.fieldErrors?.from || addressError, selected)}
             className="py-1"
         >
             <div className="flex-1 min-w-0">
