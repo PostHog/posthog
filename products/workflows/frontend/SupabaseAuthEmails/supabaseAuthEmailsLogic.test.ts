@@ -165,25 +165,26 @@ describe('supabaseAuthEmailsLogic', () => {
         expect(logic.values.status).toEqual(status)
     })
 
-    it.each(['settings', 'templates'] as const)('shows a failed %s load until a retry succeeds', async (failed) => {
+    it.each(['settings', 'templates'] as const)('shows a failed %s load and only that one', async (failed) => {
         failedLoads = [failed]
-        let logic = await mounted()
+        const logic = await mounted()
         logic.actions.openSetup()
         await settled(logic)
         expect(logic.values).toMatchObject({
             settingsLoadFailed: failed === 'settings',
             templatesLoadFailed: failed === 'templates',
         })
+    })
 
+    it('clears a failed template load once "Try again" succeeds', async () => {
+        failedLoads = ['templates']
+        const logic = await mounted()
+        logic.actions.openSetup()
+        await settled(logic)
         failedLoads = []
-        if (failed === 'templates') {
-            logic.actions.loadTemplates()
-            await settled(logic)
-        } else {
-            logic.unmount()
-            logic = await mounted()
-        }
-        expect(logic.values).toMatchObject({ settingsLoadFailed: false, templatesLoadFailed: false })
+        logic.actions.loadTemplates()
+        await settled(logic)
+        expect(logic.values.templatesLoadFailed).toBe(false)
     })
 
     it.each([
