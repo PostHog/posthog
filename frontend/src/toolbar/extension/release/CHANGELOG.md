@@ -1,5 +1,11 @@
 # @posthog/toolbar-extension
 
+## 0.5.2
+
+### Patch changes
+
+- [086428b2249](https://github.com/PostHog/posthog/commit/086428b224903d8d3fa476e7da046cc01e82d331) Links from the toolbar to PostHog now open the project you signed in to.
+
 ## 0.5.1
 
 ### Patch changes
