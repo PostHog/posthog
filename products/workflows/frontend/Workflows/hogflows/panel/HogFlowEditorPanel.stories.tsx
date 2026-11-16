@@ -4,7 +4,6 @@ import { ReactFlowProvider } from '@xyflow/react'
 import { BindLogic, useActions, useValues } from 'kea'
 import { useEffect } from 'react'
 
-import { FEATURE_FLAGS } from 'lib/constants'
 
 import { mswDecorator, useStorybookMocks } from '~/mocks/browser'
 import _hogFunctionTemplatesDestinations from '~/mocks/fixtures/_hogFunctionTemplatesDestinations.json'
@@ -358,9 +357,6 @@ export const EmailHeader: StoryFn<PanelStoryProps> = (args) => {
     return <PanelStory {...args} />
 }
 EmailHeader.args = { mode: 'build', selectedNodeId: 'email', workflow: SENDER_WORKFLOW }
-EmailHeader.parameters = {
-    featureFlags: [FEATURE_FLAGS.WORKFLOWS_EMAIL_HEADER],
-}
 
 export const ConditionalBranch: StoryFn<PanelStoryProps> = Template.bind({})
 ConditionalBranch.args = { mode: 'build', selectedNodeId: 'conditional' }
