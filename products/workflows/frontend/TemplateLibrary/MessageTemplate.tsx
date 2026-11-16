@@ -175,7 +175,6 @@ export function MessageTemplate(props: MessageTemplateSceneLogicProps): JSX.Elem
 
     const tabs = (
         <LemonTabs
-            // Without the flag, the run logs keep their Sends label, and a `tab=sends` link opens them.
             activeKey={!sendLinks && transactionalTab === 'sends' ? 'runs' : transactionalTab}
             onChange={setTransactionalTab}
             className="flex flex-col grow [&>div]:flex [&>div]:flex-col [&>div]:grow"

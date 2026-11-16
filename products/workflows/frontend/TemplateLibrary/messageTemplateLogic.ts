@@ -780,7 +780,6 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
             const { tab: _shownTab, ...searchParams } = router.values.searchParams
             const kept = tab === 'sends' ? withoutRunLogFilters(searchParams) : searchParams
             const next = tab === 'design' ? kept : { ...kept, tab }
-            // kea-router builds searchParams without a prototype, and objectsEqual never matches that to a plain object.
             if (!objectsEqual(next, { ...router.values.searchParams })) {
                 router.actions.replace(router.values.location.pathname, next, router.values.hashParams)
             }
@@ -1110,8 +1109,6 @@ export const messageTemplateLogic = kea<messageTemplateLogicType>([
             }
         }
         return {
-            // The escape hatch from the AI composer changes only the search params, so this logic sees no remount.
-            // It comes first because the template page routes match `new` as an id.
             [urls.workflowsLibraryTemplateNew()]: (_, searchParams) => {
                 if (props.id === 'new' && !props.messageId && searchParams[EDITOR_MODE_PARAM] === EDITOR_MODE_VALUE) {
                     actions.setTemplatePickerOpen(true)

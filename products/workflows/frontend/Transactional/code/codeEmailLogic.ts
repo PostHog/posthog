@@ -416,14 +416,11 @@ export const codeEmailLogic = kea<codeEmailLogicType>([
                 const { tab: _shownTab, ...searchParams } = router.values.searchParams
                 const kept = tab === 'sends' ? withoutRunLogFilters(searchParams) : searchParams
                 const next = tab === 'metrics' ? kept : { ...kept, tab }
-                // kea-router builds searchParams without a prototype, and objectsEqual never matches that to a plain object.
-                // Without the copy, the mount replaces the URL while the scene mounts this logic, which re-enters setScene.
                 if (!objectsEqual(next, { ...router.values.searchParams })) {
                     router.actions.replace(router.values.location.pathname, next, router.values.hashParams)
                 }
             },
             showRuns: ({ searchParams }) => {
-                // The Run logs tab reads its filters from the URL, so the drilldown stays on this page.
                 router.actions.replace(
                     router.values.location.pathname,
                     { ...searchParams, tab: 'runs' },

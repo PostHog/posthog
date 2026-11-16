@@ -19,7 +19,6 @@ export const LOG_RETENTION_DAYS = 30
 
 // pinned: URL search params of the Log tab and of an email's Sends tab - renaming breaks shared links
 const URL_PARAMS = ['search', 'status', 'email', 'date_from', 'date_to', 'page'] as const
-/** The pages with an email's own Sends tab. A template opens from the transactional, workflows or broadcasts library. */
 const EMAIL_PAGE_ROUTES = [
     '/transactional/code-emails/:id',
     '/transactional/library/templates/:id',
