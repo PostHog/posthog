@@ -251,7 +251,13 @@ export const signalsAnomaliesSearchRetrieveQueryGroupByDefault = `series`
 export const signalsAnomaliesSearchRetrieveQueryLimitDefault = 25
 export const signalsAnomaliesSearchRetrieveQueryLimitMax = 100
 
+export const signalsAnomaliesSearchRetrieveQueryOffsetDefault = 0
+export const signalsAnomaliesSearchRetrieveQueryOffsetMin = 0
+export const signalsAnomaliesSearchRetrieveQueryOffsetMax = 10000
+
 export const signalsAnomaliesSearchRetrieveQueryOnlyFlaggedDefault = true
+export const signalsAnomaliesSearchRetrieveQueryOrderDefault = `unusual`
+export const signalsAnomaliesSearchRetrieveQuerySearchMax = 200
 
 export const SignalsAnomaliesSearchRetrieveQueryParams = () => zod.object({
     dashboard_id: zod.number().optional().describe('Only the series of the insights on this dashboard, by numeric id.'),
@@ -284,12 +290,31 @@ export const SignalsAnomaliesSearchRetrieveQueryParams = () => zod.object({
         .max(signalsAnomaliesSearchRetrieveQueryLimitMax)
         .default(signalsAnomaliesSearchRetrieveQueryLimitDefault)
         .describe('The most rows to return.'),
+    offset: zod
+        .number()
+        .min(signalsAnomaliesSearchRetrieveQueryOffsetMin)
+        .max(signalsAnomaliesSearchRetrieveQueryOffsetMax)
+        .default(signalsAnomaliesSearchRetrieveQueryOffsetDefault)
+        .describe(
+            'Rows to skip in the sorted result. Pass the previous `offset` plus `limit` when `has_more` is true.'
+        ),
     only_flagged: zod
         .boolean()
         .default(signalsAnomaliesSearchRetrieveQueryOnlyFlaggedDefault)
         .describe(
             'Only series, or insights, with at least one flagged bucket in the range. Set false to also list quiet ones.'
         ),
+    order: zod
+        .enum(['unusual', 'recent'])
+        .default(signalsAnomaliesSearchRetrieveQueryOrderDefault)
+        .describe(
+            '`unusual` puts the series that flagged most above its usual rate first. `recent` puts the newest flagged bucket first, then sorts as `unusual`. With `group_by: insight`, each insight sorts by its first series.\n\n\* `unusual` - Unusual\n\* `recent` - Recent'
+        ),
+    search: zod
+        .string()
+        .max(signalsAnomaliesSearchRetrieveQuerySearchMax)
+        .optional()
+        .describe('Only insights whose name contains this text, ignoring case.'),
 })
 
 /**

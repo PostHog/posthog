@@ -623,6 +623,17 @@ export const AnomalyGroupByEnumApi = {
     Insight: 'insight',
 } as const
 
+/**
+ * * `unusual` - Unusual
+ * * `recent` - Recent
+ */
+export type AnomalyOrderEnumApi = (typeof AnomalyOrderEnumApi)[keyof typeof AnomalyOrderEnumApi]
+
+export const AnomalyOrderEnumApi = {
+    Unusual: 'unusual',
+    Recent: 'recent',
+} as const
+
 export interface AnomalyFlaggedPointApi {
     /** The start of the flagged bucket, in the project timezone. */
     bucket_start: string
@@ -764,7 +775,7 @@ export interface AnomalyInsightRowApi {
      * @nullable
      */
     last_flagged_bucket: string | null
-    /** Up to 3 flagged series, most anomalous first. */
+    /** Up to 3 flagged series, in the requested `order`. */
     top_series: AnomalyTopSeriesApi[]
 }
 
@@ -788,10 +799,17 @@ export interface AnomalySearchResponseApi {
      * * `series` - Series
      * * `insight` - Insight */
     group_by: AnomalyGroupByEnumApi
-    /** One row per series, most anomalous first. Empty unless `group_by` is `series`. */
+    /** The applied order.
+     *
+     * * `unusual` - Unusual
+     * * `recent` - Recent */
+    order: AnomalyOrderEnumApi
+    /** One row per series, in the requested `order`. Empty unless `group_by` is `series`. */
     series: AnomalySeriesApi[]
-    /** One row per insight, most anomalous first. Empty unless `group_by` is `insight`. */
+    /** One row per insight, in the requested `order`. Empty unless `group_by` is `insight`. */
     insights: AnomalyInsightRowApi[]
+    /** True when rows exist after this page. Read them with `offset` set to `offset + limit`. */
+    has_more: boolean
     /** True when `limit` or a read cap left rows out. */
     truncated: boolean
     /**
@@ -12605,9 +12623,28 @@ export type SignalsAnomaliesSearchRetrieveParams = {
      */
     limit?: number
     /**
+     * Rows to skip in the sorted result. Pass the previous `offset` plus `limit` when `has_more` is true.
+     * @minimum 0
+     * @maximum 10000
+     */
+    offset?: number
+    /**
      * Only series, or insights, with at least one flagged bucket in the range. Set false to also list quiet ones.
      */
     only_flagged?: boolean
+    /**
+     * `unusual` puts the series that flagged most above its usual rate first. `recent` puts the newest flagged bucket first, then sorts as `unusual`. With `group_by: insight`, each insight sorts by its first series.
+     *
+     * * `unusual` - Unusual
+     * * `recent` - Recent
+     * @minLength 1
+     */
+    order?: SignalsAnomaliesSearchRetrieveOrder
+    /**
+     * Only insights whose name contains this text, ignoring case.
+     * @maxLength 200
+     */
+    search?: string
 }
 
 export type SignalsAnomaliesSearchRetrieveGroupBy =
@@ -12626,6 +12663,14 @@ export const SignalsAnomaliesSearchRetrieveInterval = {
     Day: 'day',
     Week: 'week',
     Month: 'month',
+} as const
+
+export type SignalsAnomaliesSearchRetrieveOrder =
+    (typeof SignalsAnomaliesSearchRetrieveOrder)[keyof typeof SignalsAnomaliesSearchRetrieveOrder]
+
+export const SignalsAnomaliesSearchRetrieveOrder = {
+    Unusual: 'unusual',
+    Recent: 'recent',
 } as const
 
 export type SignalsProcessingListParams = {
