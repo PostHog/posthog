@@ -19,6 +19,7 @@ from typing import TYPE_CHECKING
 from django.conf import settings
 from django.db import transaction
 from django.db.models import QuerySet
+from django.utils import timezone
 
 import structlog
 from asgiref.sync import async_to_sync
@@ -63,6 +64,7 @@ from products.data_modeling.backend.logic.freshness import (
 from products.data_modeling.backend.logic.node_frequency import (
     FrequencyGraph,
     build_frequency_graph,
+    drop_plan_floor_clamp,
     get_declared_pin,
     get_declared_target,
     nodes_declared_finer_than,
@@ -73,6 +75,7 @@ from products.data_modeling.backend.logic.node_frequency import (
     set_declared_pin,
     set_declared_target,
     stage_declared_target,
+    stage_plan_floor_clamp,
 )
 from products.data_modeling.backend.logic.refresh_floor import read_plan_refresh_floor
 from products.data_modeling.backend.models.dag import DAG
@@ -271,6 +274,8 @@ def apply_saved_query_frequency_target(
                             pinned=graph.pinned,
                             names=visible_names or {},
                         )
+                if node_target != get_declared_target(node):
+                    drop_plan_floor_clamp(node)
                 set_declared_target(node, node_target)
                 if pinned is not None:
                     set_declared_pin(node, pinned)
@@ -438,7 +443,8 @@ def _clamp_dag_targets_to_plan_floor(dag: DAG) -> int:
             previous = get_declared_target(node)
             if previous is None or previous != graph.declared_targets.get(str(node.id)):
                 continue
-            set_declared_target(node, floor)
+            stage_plan_floor_clamp(node, plan_floor=floor, at=timezone.now())
+            node.save(update_fields=["properties"])
             rewritten.append((node, previous))
         maybe_reconcile_dag(dag)
     capture = ph_background_capture()

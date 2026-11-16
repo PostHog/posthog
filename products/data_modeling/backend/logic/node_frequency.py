@@ -60,6 +60,7 @@ _FREQUENCY_KEY = "frequency"
 _TARGET_SECONDS_KEY = "target_seconds"
 _ANCHOR_MINUTES_KEY = "anchor_minutes"
 _PINNED_KEY = "pinned"
+_PLAN_CLAMP_KEY = "plan_clamp"
 
 # `resolve_dependency_to_node` stamps this on source (TABLE) nodes at creation.
 _ORIGIN_KEY = "origin"
@@ -183,9 +184,36 @@ def stage_declared_target(node: Node, target: timedelta | None) -> None:
     if target is None:
         frequency.pop(_TARGET_SECONDS_KEY, None)
         frequency.pop(_PINNED_KEY, None)
+        frequency.pop(_PLAN_CLAMP_KEY, None)
     else:
         frequency[_TARGET_SECONDS_KEY] = int(target.total_seconds())
     node.properties = properties
+
+
+def stage_plan_floor_clamp(node: Node, *, plan_floor: timedelta, at: datetime) -> None:
+    """Set the target to the plan floor and record the cadence it replaced, so the rewrite can be undone.
+
+    A node rewritten again keeps the first cadence it replaced, which is the one a person chose.
+    """
+    previous = target_before_plan_floor_clamp(node) or get_declared_target(node)
+    stage_declared_target(node, plan_floor)
+    frequency = node.properties[_SYSTEM_KEY][_FREQUENCY_KEY]
+    frequency[_PLAN_CLAMP_KEY] = {
+        "previous_target_seconds": int(previous.total_seconds()) if previous is not None else None,
+        "plan_floor_seconds": int(plan_floor.total_seconds()),
+        "at": at.isoformat(),
+    }
+
+
+def drop_plan_floor_clamp(node: Node) -> None:
+    (node.properties or {}).get(_SYSTEM_KEY, {}).get(_FREQUENCY_KEY, {}).pop(_PLAN_CLAMP_KEY, None)
+
+
+def target_before_plan_floor_clamp(node: Node) -> timedelta | None:
+    """The cadence a plan floor rewrite replaced, or None when the node's target was not rewritten."""
+    clamp = (node.properties or {}).get(_SYSTEM_KEY, {}).get(_FREQUENCY_KEY, {}).get(_PLAN_CLAMP_KEY) or {}
+    seconds = clamp.get("previous_target_seconds")
+    return timedelta(seconds=seconds) if seconds is not None else None
 
 
 def set_declared_pin(node: Node, pinned: bool) -> None:

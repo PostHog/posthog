@@ -22,6 +22,7 @@ from products.data_modeling.backend.logic.node_frequency import (
     set_declared_anchor,
     set_declared_pin,
     set_declared_target,
+    target_before_plan_floor_clamp,
 )
 from products.data_modeling.backend.logic.saved_query_dag_sync import promote_dag_view_nodes_to_matview
 from products.data_modeling.backend.logic.schedule_reconcile import (
@@ -564,6 +565,32 @@ class TestMaybeReconcileDag(BaseTest):
         node.refresh_from_db()
         self.assertEqual(get_declared_target(node), M15)
 
+    @parameterized.expand(
+        [
+            ("resaving_the_floor_keeps_it", H6, M15),
+            ("a_new_cadence_drops_it", DAY, None),
+            ("clearing_the_cadence_drops_it", None, None),
+        ]
+    )
+    def test_the_plan_floor_clamp_record_lasts_until_a_new_cadence_is_saved(self, _name, saved, expected):
+        _grant_refresh_interval(self.organization, 360)
+        dag = DAG.get_or_create_default(self.team)
+        node = _saved_query_node(self.team, dag, "mv", NodeType.MAT_VIEW)
+        set_declared_target(node, M15)
+        assert node.saved_query is not None
+
+        with (
+            mock.patch(FLOOR_FLAG, return_value=True),
+            mock.patch(f"{RECONCILE}.reconcile_dag_schedules"),
+            mock.patch(f"{RECONCILE}.maybe_reconcile_dag"),
+            mock.patch(f"{RECONCILE}.ph_background_capture"),
+        ):
+            clamp_dag_targets_to_plan_floor(self.team.pk, str(dag.id))
+            apply_saved_query_frequency_target(node.saved_query, saved)
+
+        node.refresh_from_db()
+        self.assertEqual(target_before_plan_floor_clamp(node), expected)
+
     def test_a_pin_on_its_own_keeps_the_stored_target(self):
         node = _saved_query_node(self.team, DAG.get_or_create_default(self.team), "mv", NodeType.MAT_VIEW)
         set_declared_target(node, H6)
@@ -618,6 +645,7 @@ class TestMaybeReconcileDag(BaseTest):
         capture = background_capture.return_value
         node.refresh_from_db()
         self.assertEqual((get_declared_target(node), get_declared_pin(node)), (expected, True))
+        self.assertEqual(target_before_plan_floor_clamp(node), saved if expected != saved else None)
         self.assertEqual((rewritten, reconcile.call_count), (1, 1) if expected != saved else (0, 0))
         if expected != saved:
             self.assertEqual(reconcile.call_args.kwargs["graph"].declared_targets[str(node.id)], expected)

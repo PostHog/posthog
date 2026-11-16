@@ -44,12 +44,16 @@ An organization without the feature, or with a feature that has no `limit`, has 
 A `limit` that is not a cadence rounds up to the next one, and the minimum stops at seven days, the coarsest cadence an endpoint can use.
 
 The proposed limits are `60` for free organizations, `30` for paid organizations without a package, and `15` for Teams, Boost, Scale, and Enterprise.
+A billing feature override only replaces a plan's `limit` when the new value is higher or `null`, so an override can make the minimum stricter or remove it, but can't lower it to `30`.
+Because `15` minutes is the fastest cadence, an override of `null` gives the same cadences as the `15` plans.
 
 The `data-modeling-refresh-floor` flag rolls the minimum out, and no minimum applies while the flag is off for an organization or can't be read.
 The minimum refuses new and faster cadences.
 Each DAG run first rewrites every cadence in that DAG saved faster than the minimum to the minimum and reconciles its schedules, so a flag or plan change reaches a view or endpoint on its next run.
 The rewrite is permanent: an upgrade or turning the flag off does not restore the old cadence, and the person picks a faster one again.
-Each rewrite sends a `data modeling refresh clamped to plan floor` event that holds the previous cadence.
+Each rewrite records the previous cadence, the minimum, and the time on the node under `properties.system.frequency.plan_clamp`, and sends a `data modeling refresh clamped to plan floor` event.
+Saving a different cadence, or clearing it, removes the record.
+Un-materializing a rewritten endpoint uses the previous cadence as its cache duration.
 Managed views keep the cadence their provider declares.
 When an endpoint's query changes while its cadence is still faster than the minimum, the new version is created but not materialized.
 Picking a cadence at or above the minimum materializes it.

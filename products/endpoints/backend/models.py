@@ -22,7 +22,11 @@ from posthog.models.user import User
 from posthog.models.utils import CreatedMetaFields, DeletedMetaFields, UpdatedMetaFields, UUIDTModel
 from posthog.schema_enums import ProductKey
 
-from products.data_modeling.backend.facade.api import declared_targets_by_saved_query, get_declared_target
+from products.data_modeling.backend.facade.api import (
+    declared_targets_by_saved_query,
+    get_declared_target,
+    target_before_plan_floor_clamp,
+)
 
 logger = logging.getLogger(__name__)
 
@@ -322,11 +326,24 @@ class EndpointVersion(UpdatedMetaFields, models.Model):
             return int(target.total_seconds())
         return self.cache_ttl_seconds
 
+    def _target_seconds_before_plan_floor_clamp(self) -> int | None:
+        from products.data_modeling.backend.facade.models import Node
+
+        for node in Node.objects.filter(team_id=self.saved_query.team_id, saved_query_id=self.saved_query_id).only(
+            "properties"
+        ):
+            previous = target_before_plan_floor_clamp(node)
+            if previous is not None:
+                return int(previous.total_seconds())
+        return None
+
     def disable_materialization(self, *, cache_ttl_seconds: int | None = None) -> None:
         """Disable materialization: revert and soft-delete the saved query, clear version fields."""
         if not self.saved_query:
             return
-        self.cache_ttl_seconds = self.data_freshness_seconds if cache_ttl_seconds is None else cache_ttl_seconds
+        if cache_ttl_seconds is None:
+            cache_ttl_seconds = self._target_seconds_before_plan_floor_clamp() or self.data_freshness_seconds
+        self.cache_ttl_seconds = cache_ttl_seconds
         self.saved_query.revert_materialization()
         self.saved_query.soft_delete()
         self.saved_query = None
