@@ -487,7 +487,20 @@ describe('dataQualityOverviewLogic', () => {
 
         expect(logic.values.isRunning).toBe(false)
         expect((dataQualityChecksList as jest.Mock).mock.calls.length).toBeGreaterThan(loadsBeforeRun)
-        expect(lemonToast.warning).toHaveBeenCalledWith('2 passed, 1 failed')
+        expect(lemonToast.warning).toHaveBeenCalledWith('1 data quality check failed', expect.anything())
+    })
+
+    it('points the toast at the failing checks when several checks failed', async () => {
+        await mountLogic()
+
+        logic.actions.finishSuiteRun(buildSuiteRun({ status: 'completed', checks_passed: 1, checks_failed: 2 }))
+        await expectLogic(logic).toFinishAllListeners()
+
+        const [message, { button }] = (lemonToast.warning as jest.Mock).mock.calls.at(-1)
+        expect(message).toBe('2 data quality checks failed')
+        expect(button.label).toBe('Show failing')
+        button.action()
+        expect(logic.values.filters.status).toBe('failing')
     })
 
     it('refreshes the run history cached under expanded rows when a run finishes', async () => {
