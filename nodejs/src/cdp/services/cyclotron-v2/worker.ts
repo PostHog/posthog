@@ -529,8 +529,17 @@ export class CyclotronV2Worker {
                     error: String(error),
                 })
                 const retried = { queue: row.queue_name, operation: method }
+                const retry = attempt()
+                retry.catch(() => undefined)
+                let budgetTimer: ReturnType<typeof setTimeout> | undefined
+                const budgetSpent = new Promise<never>((_, reject) => {
+                    budgetTimer = setTimeout(
+                        () => reject(new Error(`Release write retry for job ${row.id} outlived the heartbeat limit`)),
+                        releaseWriteHeartbeatLimitMs - (Date.now() - (releaseStartedAt ?? Date.now()))
+                    )
+                })
                 try {
-                    const result = await attempt()
+                    const result = await Promise.race([retry, budgetSpent])
                     releaseWriteRetriesCounter
                         .labels({ ...retried, outcome: result.rowCount === 0 ? 'no_row' : 'written' })
                         .inc()
@@ -538,6 +547,8 @@ export class CyclotronV2Worker {
                 } catch (retryError) {
                     releaseWriteRetriesCounter.labels({ ...retried, outcome: 'failed' }).inc()
                     throw retryError
+                } finally {
+                    clearTimeout(budgetTimer)
                 }
             }
         }

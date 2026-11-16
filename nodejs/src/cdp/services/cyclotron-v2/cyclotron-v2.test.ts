@@ -5216,6 +5216,22 @@ describe('Cyclotron V2', () => {
                 expect({ status: row.status, lock_id: row.lock_id }).toEqual({ status: 'available', lock_id: null })
             })
 
+            it('gives up a retry that stalls past the heartbeat limit', async () => {
+                const id = await manager.createJob({ teamId: 1, queueName: QUEUE })
+                const job = await dequeueOnDropTestPool({ releaseWriteRetry: true, releaseWriteHeartbeatLimitMs: 500 })
+                let ack!: Promise<void>
+
+                const outcome = await interruptReleaseWrite(() => (ack = job.ack()), {
+                    lock: jobRow(id),
+                    beforeRetry: async (holder) => {
+                        await ack.catch(() => undefined)
+                        await holder.query('ROLLBACK')
+                    },
+                })
+
+                expect(outcome).toBe('rejected')
+            }, 10_000)
+
             const OTHER_WORKER_LOCK = '01a1e3aa-0000-7000-8000-000000000001'
 
             it.each([
