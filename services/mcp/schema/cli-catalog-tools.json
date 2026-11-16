@@ -24842,6 +24842,11 @@
                     "csv": false
                 },
                 {
+                    "param": "tags",
+                    "key": "tags",
+                    "csv": false
+                },
+                {
                     "param": "type",
                     "key": "type",
                     "csv": false
