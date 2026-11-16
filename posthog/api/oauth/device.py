@@ -61,7 +61,8 @@ from posthog.models import Team, User
 from posthog.models.oauth import OAuthApplication, OAuthDeviceGrant, live_oauth_access_tokens, live_oauth_refresh_tokens
 from posthog.models.organization_domain import OrganizationDomain
 from posthog.rate_limit import IPThrottle
-from posthog.scopes import clamp_scopes_to_ceiling, resolve_requested_scopes, scopes_not_covered
+from posthog.scopes.ceilings import clamp_scopes_to_ceiling, resolve_requested_scopes
+from posthog.scopes.checks import scopes_not_covered
 
 logger = structlog.get_logger(__name__)
 

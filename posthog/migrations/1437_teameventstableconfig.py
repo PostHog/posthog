@@ -3,7 +3,7 @@ from django.db import migrations, models
 
 
 class Migration(migrations.Migration):
-    dependencies = [("posthog", "1435_ema_issuer_management")]
+    dependencies = [("posthog", "1436_identityproviderconfig_scim_token_digest")]
 
     operations = [
         migrations.CreateModel(
