@@ -764,7 +764,7 @@ class TrinoPrinter(PostgresPrinter):
             if self._is_numeric(node.args[-1]) or self._is_dynamic_property(node.args[-1]):
                 lowered = clone_expr(node, clear_types=False)
                 lowered.args[-1] = ast.TypeCast(expr=lowered.args[-1], type_name="boolean")
-                return super().visit_call(lowered)
+                return self.visit_call(lowered)
         if (
             name in {"coalesce", "ifnull", "nullif"}
             and any(isinstance(self._resolve_type(arg), ast.BooleanType) for arg in node.args)
@@ -1673,6 +1673,7 @@ class TrinoPrinter(PostgresPrinter):
                 return array_type.item_type
         value_type = node.type
         merged_type: ast.ConstantType | None = None
+        via_set_query = False
         seen: set[int] = set()
         while value_type is not None and id(value_type) not in seen:
             seen.add(id(value_type))
@@ -1683,8 +1684,10 @@ class TrinoPrinter(PostgresPrinter):
                 table_type = value_type.table_type
                 if isinstance(table_type, ast.CTETableAliasType):
                     table_type = table_type.cte_table_type
-                if isinstance(table_type, ast.SelectViewType) and table_type.select_query_type.has_child(
-                    value_type.name, self.context
+                if (
+                    not via_set_query
+                    and isinstance(table_type, ast.SelectViewType)
+                    and table_type.select_query_type.has_child(value_type.name, self.context)
                 ):
                     # An inlined view prints its body. ClickHouse types a comparison or AND there as UInt8, so the
                     # view's saved columns record an integer, but Trino types the same expression as boolean.
@@ -1698,6 +1701,7 @@ class TrinoPrinter(PostgresPrinter):
                     select_type = table_type.select_query_type
                 elif isinstance(table_type, (ast.SelectQueryType, ast.SelectSetQueryType)):
                     select_type = table_type
+                column_scope = select_type
                 while isinstance(select_type, ast.SelectSetQueryType) and select_type.types:
                     if merged_type is None and value_type.name in select_type.columns:
                         merged_type = select_type.columns[value_type.name].resolve_constant_type(self.context)
@@ -1706,10 +1710,14 @@ class TrinoPrinter(PostgresPrinter):
                     column_type = select_type.columns.get(value_type.name)
                     if column_type is not None:
                         column_constant_type = column_type.resolve_constant_type(self.context)
-                        if isinstance(column_constant_type, ast.IntegerType) and self._is_boolean_column(
-                            select_type, value_type.name
+                        if (
+                            isinstance(column_constant_type, ast.IntegerType)
+                            and isinstance(column_scope, (ast.SelectQueryType, ast.SelectSetQueryType))
+                            and self._is_boolean_column(column_scope, value_type.name)
                         ):
                             return ast.BooleanType(nullable=column_constant_type.nullable)
+                        # The first branch's column stands for the set query only when all branches agree with it.
+                        via_set_query = via_set_query or isinstance(column_scope, ast.SelectSetQueryType)
                         value_type = column_type
                         continue
                 if isinstance(table_type, ast.ColumnAliasedTableType):
@@ -1743,8 +1751,11 @@ class TrinoPrinter(PostgresPrinter):
     def _is_boolean_column(self, select_type: ast.SelectQueryType | ast.SelectSetQueryType, name: str) -> bool:
         # Column types record the resolver's view of an expression, which reads a view column as its saved integer
         # type. The printer types the projected expression itself, so a boolean behind a view keeps its type here.
-        while isinstance(select_type, ast.SelectSetQueryType) and select_type.types:
-            select_type = select_type.types[0]
+        if isinstance(select_type, ast.SelectSetQueryType):
+            # A set query promotes its branch types, so the column is boolean only when every branch is.
+            return bool(select_type.types) and all(
+                self._is_boolean_column(branch, name) for branch in select_type.types
+            )
         if not isinstance(select_type, ast.SelectQueryType) or not self.stack:
             return False
         root = self.stack[0]

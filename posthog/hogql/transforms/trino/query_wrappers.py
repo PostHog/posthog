@@ -60,12 +60,18 @@ class TrinoQueryWrapperLowerer(CloningVisitor):
     def _orders_distinct_by_unselected_expression(self, node: ast.SelectQuery) -> bool:
         if not node.distinct or not node.order_by or node.limit_by is not None:
             return False
-        projections = {expression_key(self._input_expression(expr, node.select)) for expr in node.select}
+        # A literal in the select list is a value here, not an ordinal.
+        projections = {expression_key(self._unwrap_alias(expr)) for expr in node.select}
         return any(
             positional_index(order.expr) is None
             and expression_key(self._input_expression(order.expr, node.select)) not in projections
             for order in node.order_by
         )
+
+    def _unwrap_alias(self, expr: ast.Expr) -> ast.Expr:
+        while isinstance(expr, ast.Alias):
+            expr = expr.expr
+        return expr
 
     def _lower_limit_percent(self, node: ast.SelectQuery) -> ast.SelectQuery:
         if (

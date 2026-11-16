@@ -580,6 +580,10 @@ def test_prints_core_trino_expression_mappings(expression: str, expected: str) -
         ("SELECT x = 1 FROM (SELECT argMax(is_active, id) AS x FROM flagged)", '(CAST("x" AS INTEGER) = 1)'),
         ("WITH c AS (SELECT min(is_active) AS x FROM flagged) SELECT x = 1 FROM c", '(CAST("c"."x" AS INTEGER) = 1)'),
         ("SELECT max(score) = 1 FROM flagged", '(max("flagged"."score") = 1)'),
+        (
+            "SELECT x FROM (SELECT is_active AS x FROM flagged UNION ALL SELECT 2 AS x) WHERE x",
+            'WHERE CAST("x" AS BOOLEAN)',
+        ),
     ],
 )
 def test_derived_column_types_reach_type_dependent_lowerings(query: str, expected: str) -> None:
@@ -888,6 +892,16 @@ def test_regex_character_classes_keep_clickhouse_meaning(pattern: str, expected:
             '"x" -> ("x" > avg(',
         ),
         # Trino has no sum() or avg() over varchar, so property and text values are summed as numbers.
+        (
+            "SELECT sumIf(user_id, 1) FROM users",
+            'sum(TRY_CAST("users"."user_id" AS DOUBLE)) FILTER (WHERE CAST(1 AS BOOLEAN))',
+            'sum("users"."user_id")',
+        ),
+        (
+            "SELECT avgIf(properties.amount, id) FROM users",
+            'avg(CAST(json_extract_scalar("users"."properties", \'$["amount"]\') AS DOUBLE)) FILTER',
+            "avg(json_extract_scalar(",
+        ),
         (
             "SELECT sumIf(properties.amount, id > 0) FROM users",
             'sum(CAST(json_extract_scalar("users"."properties", \'$["amount"]\') AS DOUBLE)) FILTER',
@@ -1869,6 +1883,11 @@ def test_lowers_unpivot_to_single_scan(include_nulls: bool) -> None:
         ("SELECT * FROM users PIVOT(sum(id) FOR user_id IN ('a', 'a'))", "TRINO_PIVOT_OUTPUT_COLLISION"),
         ("SELECT * FROM users UNPIVOT(value FOR key IN (id, user_id))", "TRINO_UNPIVOT_TYPE_UNSUPPORTED"),
         (
+            "SELECT l.properties.plan FROM users l LEFT ASOF JOIN users r "
+            "ON l.id = r.id AND l.created_at >= r.created_at",
+            "TRINO_ASOF_OUTPUT_UNSUPPORTED",
+        ),
+        (
             "SELECT user_id FROM users QUALIFY row_number() OVER (ORDER BY id) > 0 ORDER BY id WITH FILL LIMIT 1 BY user_id",
             "TRINO_WITH_FILL_UNSUPPORTED",
         ),
@@ -1995,6 +2014,30 @@ def test_percentage_limit_rounds_up(percentage: int, offset: int, expected: list
             "SELECT DISTINCT name, row_number() OVER (ORDER BY id) AS position FROM rows QUALIFY position > 1 "
             "ORDER BY id DESC",
             [("b", 3), ("a", 2)],
+        ),
+        (
+            "WITH rows AS (SELECT 1 AS id, 'a' AS name UNION ALL SELECT 2, 'a') "
+            "SELECT DISTINCT 0, name FROM rows ORDER BY name",
+            [(0, "a")],
+        ),
+        (
+            "WITH l AS (SELECT 1 AS k UNION ALL SELECT 2), "
+            "r AS (SELECT 1 AS k, 10 AS v, 1 AS live UNION ALL SELECT 1, 20, 2 UNION ALL SELECT 2, 30, 0) "
+            "SELECT l.k, count(r.v) AS matches FROM l LEFT ANY JOIN r ON l.k = r.k AND r.live "
+            "GROUP BY l.k ORDER BY l.k",
+            [(1, 1), (2, 0)],
+        ),
+        (
+            "WITH l AS (SELECT 1 AS k UNION ALL SELECT 2 UNION ALL SELECT 3), "
+            "r AS (SELECT 1 AS k, 1 AS live UNION ALL SELECT 2, 0) "
+            "SELECT l.k FROM l LEFT SEMI JOIN r ON l.k = r.k AND r.live = 1 ORDER BY l.k",
+            [(1,)],
+        ),
+        (
+            "WITH l AS (SELECT 1 AS k UNION ALL SELECT 2 UNION ALL SELECT 3), "
+            "r AS (SELECT 1 AS k, 1 AS live UNION ALL SELECT 2, 0) "
+            "SELECT l.k FROM l LEFT ANTI JOIN r ON l.k = r.k AND r.live = 1 ORDER BY l.k",
+            [(2,), (3,)],
         ),
         # ANY JOIN ON terms that read one side only filter the match; they don't need to be equality keys.
         (
@@ -3222,6 +3265,7 @@ def test_left_any_join_against_an_unaliased_cte_keeps_one_match() -> None:
     [
         ("FULL ANY JOIN", "users.user_id = other.user_id", "TRINO_ANY_JOIN_MODE_UNSUPPORTED"),
         ("LEFT ANY JOIN", "users.user_id < other.user_id", "TRINO_ANY_JOIN_EQUI_KEYS_REQUIRED"),
+        ("LEFT ANY JOIN", "users.user_id = other.properties.key", "TRINO_ANY_JOIN_EQUI_KEYS_REQUIRED"),
     ],
 )
 def test_rejects_unsafe_any_join_shapes(join: str, constraint: str, feature_code: str) -> None:

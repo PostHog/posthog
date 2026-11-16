@@ -623,7 +623,7 @@ The compiler rewrites these forms before it prints Trino SQL:
 - Equi-key `SEMI` joins use a distinct right-key relation. `ANTI` joins use a left
   join to that relation and test an equality key for null. Both preserve duplicate
   left rows. Right-side output references and computed right keys remain blocked.
-- `ANY INNER` and `LEFT ANY` joins deduplicate the right relation on every right-side key: each equality, and each ON term that reads only right-side columns. Terms that read only left-side columns stay in `ON`. Keys may be saved view fields, property reads, or `equals()` and `and()` calls. A persons join with an `id` key already has one row per id.
+- `ANY INNER` and `LEFT ANY` joins deduplicate the right relation on every right-side equality key. Other ON terms over right-side columns only filter the right relation first, as ClickHouse does, and terms over left-side columns stay in `ON`. Keys may be saved view fields or `equals()` and `and()` calls. A property of the right side is refused, except for persons joined by `id`, which already has one row per id. `SEMI`, `ANTI` and `ASOF` joins keep the stricter rules above.
 - Two-table `RIGHT ANY`, `RIGHT SEMI`, and `RIGHT ANTI` joins reverse their inputs
   before the existing left-side rewrite. Longer right-join chains remain blocked.
 - Two-table `INNER ASOF` and `LEFT ASOF` forms use a join followed by ranking.
