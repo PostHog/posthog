@@ -56,7 +56,7 @@ export class CdpIntakeConsumer extends CdpConsumerBase {
         this.cyclotron = new CyclotronV2Manager({
             pool: {
                 dbUrl: config.CYCLOTRON_NODE_DATABASE_URL,
-                statementTimeoutMs: ATTEMPT_TIMEOUT_MS,
+                // No statement_timeout: pgbouncer refuses it as a startup parameter, so the pod could never connect.
                 connectionTimeoutMs: ATTEMPT_TIMEOUT_MS,
             },
             depthLimit: config.CYCLOTRON_SHARD_DEPTH_LIMIT,
