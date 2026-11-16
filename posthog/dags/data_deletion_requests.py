@@ -976,6 +976,15 @@ def load_property_removal_request(
     from django.utils import timezone
 
     with transaction.atomic():
+        # Every load locks all of a team's property removals in the same order, so two loads for one team
+        # run one after the other and see each other's marker.
+        team_id = DataDeletionRequest.objects.filter(pk=config.request_id).values_list("team_id", flat=True).first()
+        list(
+            DataDeletionRequest.objects.select_for_update()
+            .filter(team_id=team_id, request_type=RequestType.PROPERTY_REMOVAL)
+            .order_by("pk")
+            .values_list("pk", flat=True)
+        )
         request = (
             DataDeletionRequest.objects.select_for_update()
             .filter(
@@ -995,6 +1004,27 @@ def load_property_removal_request(
         if not request.properties and not person_properties:
             raise dagster.Failure(
                 f"Request {config.request_id} has no properties or person_properties specified.",
+            )
+
+        # A removal that started and did not complete may hold the team's rows only in its staged files, or
+        # may restore a staged copy of them. Another removal that rewrites those rows in between would lose
+        # its change when that copy comes back.
+        unfinished = [
+            str(pk)
+            for pk in DataDeletionRequest.objects.filter(
+                team_id=request.team_id,
+                request_type=RequestType.PROPERTY_REMOVAL,
+                property_removal_marker__isnull=False,
+            )
+            .exclude(pk=request.pk)
+            .exclude(status=RequestStatus.COMPLETED)
+            .order_by("created_at")
+            .values_list("pk", flat=True)
+        ]
+        if unfinished:
+            raise dagster.Failure(
+                f"Request {config.request_id} cannot start while property removal {', '.join(unfinished)} on team "
+                f"{request.team_id} is unfinished. Retry that request until it completes, then retry this one.",
             )
 
         _record_execution_attempt(request, context.run_id)
@@ -1374,30 +1404,40 @@ def _cleaned_select_list(
 _CLEANED_TIMESTAMP = "toDateTime(toDateTime64(%(marker)s, 6, 'UTC')) + 1"
 
 
-# The columns that tell one event from another that shares its uuid. The copy leaves them unchanged.
-_ROW_IDENTITY = "uuid, event, distinct_id, timestamp"
+def _row_identity(client: Client, target: PropertyRemovalTarget) -> str:
+    """The columns that keep two rows of the table apart: the sorting key columns, uuid and timestamp.
+
+    A ReplacingMergeTree keeps two rows apart only when their sorting keys differ. The staged files leave
+    out MATERIALIZED columns, so a sorting key that used one would fail the lookup rather than mismatch.
+    """
+    rows = client.execute(
+        "SELECT name FROM system.columns WHERE database = %(db)s AND table = %(table)s "
+        "AND (is_in_sorting_key OR name IN ('uuid', 'timestamp')) ORDER BY position",
+        {"db": django_settings.CLICKHOUSE_DATABASE, "table": target.table},
+    )
+    return ", ".join(f"`{name}`" for (name,) in rows)
 
 
-def _staged_rows(staging: _ShardStaging, months: list[str]) -> str:
+def _staged_rows(staging: _ShardStaging, months: list[str], identity: str) -> str:
     """A filter for the cleaned rows that the staged files of ``months`` hold.
 
     A cleaned row has a ``_timestamp`` one second past the marker and an ``inserted_at`` no later than the
     marker. An original that shares its uuid either arrived before the marker, so its Kafka time in
     ``_timestamp`` is earlier, or arrived after it, so its ``inserted_at`` is later. A producer clock that
-    runs ahead can still give an original the cleaned rows' ``_timestamp``. The event, distinct_id and
-    timestamp then tell it apart from the staged row. ``ifNull`` lets a legacy row with no ``inserted_at``
+    runs ahead can still give an original the cleaned rows' ``_timestamp``. The row identity then tells it
+    apart from the staged row. ``ifNull`` lets a legacy row with no ``inserted_at``
     match, because ``IN`` never matches a NULL. The constant ``_timestamp`` comparison drops most rows
     before the set lookup. The caller passes ``marker``.
     """
     if not months:
         return "0"
-    columns = f"{_ROW_IDENTITY}, _timestamp, ifNull(inserted_at, toDateTime64(0, 6, 'UTC'))"
+    columns = f"{identity}, _timestamp, ifNull(inserted_at, toDateTime64(0, 6, 'UTC'))"
     return (
         f"_timestamp = {_CLEANED_TIMESTAMP} AND ({columns}) IN (SELECT {columns} FROM s3({staging.data_args(months)}))"
     )
 
 
-def _restored_rows(staging: _ShardStaging, month: str) -> str:
+def _restored_rows(staging: _ShardStaging, month: str, identity: str) -> str:
     """A filter for the cleaned rows of ``month`` that holds one 8-byte hash per staged row in memory.
 
     The constant comparisons exclude an original as ``_staged_rows`` does: an original that shares a uuid
@@ -1409,7 +1449,7 @@ def _restored_rows(staging: _ShardStaging, month: str) -> str:
     return (
         f"_timestamp = {_CLEANED_TIMESTAMP} "
         "AND (inserted_at IS NULL OR inserted_at <= toDateTime64(%(marker)s, 6, 'UTC')) "
-        f"AND cityHash64({_ROW_IDENTITY}) IN (SELECT cityHash64({_ROW_IDENTITY}) FROM s3({staging.data_args([month])}))"
+        f"AND cityHash64({identity}) IN (SELECT cityHash64({identity}) FROM s3({staging.data_args([month])}))"
     )
 
 
@@ -1579,14 +1619,9 @@ def _copy_property_removal_target(
 
     _sync_replica(client, target, log)
     predicate = _shard_predicate(client, deletion_request, target.deletion_target, marker_str, hogql_compiled, log)
-    inserted_at_sql = (
-        f"SELECT maxOrNull(inserted_at), toUnixTimestamp(max(_timestamp)) FROM {db}.{target.table} "
-        f"WHERE {predicate.sql}"
-    )
+    inserted_at_sql = f"SELECT maxOrNull(inserted_at) FROM {db}.{target.table} WHERE {predicate.sql}"
     log("max-inserted-at", inserted_at_sql)
-    [[inserted_at_max, timestamp_max]] = client.execute(
-        inserted_at_sql, predicate.params, settings=_LONG_QUERY_SETTINGS
-    )
+    [[inserted_at_max]] = client.execute(inserted_at_sql, predicate.params, settings=_LONG_QUERY_SETTINGS)
     copied_inserted_at_max = _datetime64_str(inserted_at_max) if inserted_at_max is not None else None
     predicate = _with_copied_inserted_at_bound(predicate, copied_inserted_at_max)
     cleaned = _cleaned_select_list(client, deletion_request, target, predicate.mat_cols, marker_str)
@@ -1631,9 +1666,6 @@ def _copy_property_removal_target(
         "months": months,
         "columns": cleaned.columns,
         "inserted_at_max": copied_inserted_at_max,
-        # Another property removal that rewrites an original after this copy moves its _timestamp past
-        # this value. The delete then rebuilds the copy rather than restore a stale one.
-        "timestamp_max": timestamp_max,
     }
     staging.finish_step(client, _COPIED, payload)
     return payload
@@ -1705,39 +1737,22 @@ def delete_property_removal_shard(
         _sync_replica(client, target, log)
         predicate = _shard_predicate(client, deletion_request, target.deletion_target, marker_str, hogql_compiled, log)
         predicate = _with_copied_inserted_at_bound(predicate, copied["inserted_at_max"])
-        # A copy that a previous version of this job wrote has no timestamp_max. The format check below
-        # rebuilds that copy.
-        timestamp_max = copied.get("timestamp_max")
-        rewritten_sql = "0" if timestamp_max is None else "countIf(_timestamp > toDateTime(%(copied_timestamp_max)s))"
         count_sql = (
-            f"SELECT toString(toYYYYMM(timestamp)) AS month, uniqExact(uuid), {rewritten_sql} "
+            f"SELECT toString(toYYYYMM(timestamp)) AS month, uniqExact(uuid) "
             f"FROM {db}.{target.table} WHERE {predicate.sql} GROUP BY month"
         )
         log("count-originals", count_sql)
-        counts = client.execute(
-            count_sql,
-            {**predicate.params, "copied_timestamp_max": timestamp_max},
-            settings=_LONG_QUERY_SETTINGS,
-        )
-        source = {month: count for month, count, _ in counts}
-        rewritten = sum(changed for _, _, changed in counts)
+        source = dict(client.execute(count_sql, predicate.params, settings=_LONG_QUERY_SETTINGS))
         originals = sum(source.values())
         previous_version = _count_rows_staged_by_previous_version(client, staging, sorted(copied["months"]), marker_str)
-        if _DELETE_STARTED not in steps and (source != staged or rewritten or previous_version):
+        if _DELETE_STARTED not in steps and (source != staged or previous_version):
             # Nothing is deleted yet, so copying again is safe. Discarding the copy's progress file
-            # lets a re-execution of this delete step rebuild it from the current source.
+            # lets the next run of the job copy again from the current source.
             staging.discard_step(client, _COPIED)
             raise dagster.Failure(
                 description=f"[{target.mapping_key}] the originals differ from the staged copy "
-                f"(source={source}, staged={staged}, {rewritten} originals rewritten since the copy, "
-                f"{previous_version} rows staged by a previous version of this job). Nothing was deleted. "
-                "Re-execute this step to rebuild the copy and retry."
-            )
-        if rewritten:
-            raise dagster.Failure(
-                description=f"[{target.mapping_key}] {rewritten} originals changed after the copy, and an earlier "
-                "attempt already started deleting. Restoring the staged copy would undo that change. The staged "
-                "copy is kept. Investigate before re-running."
+                f"(source={source}, staged={staged}, {previous_version} rows staged by a previous version of "
+                "this job). Nothing was deleted. Retry the request to copy the originals again."
             )
         if source != staged:
             # An earlier attempt started the delete and may have removed some originals, so the staged
@@ -1825,6 +1840,7 @@ def reingest_property_removal_shard(
         _sync_replica(client, target, log)
         pending = sorted(month for month in copied["months"] if f"{_REINGESTED}_{month}" not in steps)
         _refuse_unmatchable_staged_rows(client, staging, target, pending, params)
+        identity = _row_identity(client, target)
         for month, expected in sorted(copied["months"].items()):
             if f"{_REINGESTED}_{month}" in steps:
                 continue
@@ -1833,7 +1849,7 @@ def reingest_property_removal_shard(
             # in the file, so the insert below brings back every row it removes.
             partial_rows = (
                 "team_id = %(team_id)s AND timestamp >= %(start_time)s AND timestamp < %(end_time)s "
-                f"AND toYYYYMM(timestamp) = %(month)s AND {_staged_rows(staging, [month])}"
+                f"AND toYYYYMM(timestamp) = %(month)s AND {_staged_rows(staging, [month], identity)}"
             )
             leftovers = client.execute(
                 f"SELECT count() FROM {db}.{target.table} WHERE {partial_rows}",
@@ -1934,13 +1950,14 @@ def verify_property_removal_shard(
         presence = _target_presence_clause(deletion_request, target, predicate.mat_cols)
         unexpired_sql, unexpired_params = _unexpired_rows(client, target.deletion_target)
         expected_months = staging.unexpired_uuids(client, copied["months"], unexpired_sql, unexpired_params)
+        identity = _row_identity(client, target)
         cleaned_months: dict[str, int] = {}
         still_present = 0
         # One month at a time, so each IN set holds the uuids of one staged file.
         for month in sorted(copied["months"]):
             [[count, present]] = client.execute(
                 f"SELECT uniqExactIf(uuid, {unexpired_sql}), countIf({presence}) FROM {db}.{target.table} "
-                f"WHERE {in_scope} AND toYYYYMM(timestamp) = %(month)s AND {_restored_rows(staging, month)}",
+                f"WHERE {in_scope} AND toYYYYMM(timestamp) = %(month)s AND {_restored_rows(staging, month, identity)}",
                 {**cleaned_params, **unexpired_params, "month": int(month)},
                 settings=_LONG_QUERY_SETTINGS,
             )

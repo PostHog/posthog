@@ -274,7 +274,8 @@ The reingest bumps `_timestamp` past the original's on both tables, so a merge t
 A request that removes `$feature_flag` empties `flag_key`, which is in the sort key.
 That cleaned row therefore never collapses with an original.
 A table created before the switch to `ReplacingMergeTree` keeps every duplicate.
-The job still bumps its `_timestamp`, because the reingest and the shard verify find cleaned rows by `uuid`, `_timestamp` and `inserted_at` in the staged files.
+The job still bumps its `_timestamp`, because the reingest and the shard verify find cleaned rows in the staged files by the table's sorting key columns, `uuid`, `timestamp`, `_timestamp` and `inserted_at`.
+A property removal does not start while another property removal on the same team has started and not completed, because restoring that removal's staged copy would undo a rewrite made in between.
 
 #### Rows past the TTL
 
