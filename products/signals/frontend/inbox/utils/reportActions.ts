@@ -45,6 +45,7 @@ export function canResolveReport(report: SignalReport): boolean {
         report.status === SignalReportStatus.READY ||
         report.status === SignalReportStatus.PENDING_INPUT ||
         report.status === SignalReportStatus.FAILED ||
+        report.status === SignalReportStatus.CLOSED ||
         report.status === SignalReportStatus.MONITORING
     )
 }
@@ -54,6 +55,7 @@ export function canMonitorReport(report: SignalReport, hasFollowUpChecks: boolea
         hasFollowUpChecks &&
         'monitoring_started_at' in report &&
         canResolveReport(report) &&
+        report.status !== SignalReportStatus.CLOSED &&
         report.status !== SignalReportStatus.MONITORING
     )
 }

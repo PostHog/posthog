@@ -1,4 +1,4 @@
-from collections.abc import Iterable
+from collections.abc import Iterable, Sequence
 from dataclasses import field
 from typing import Literal, TypedDict
 
@@ -7,7 +7,7 @@ from django.db.models import Q
 import structlog
 
 from posthog.dataclasses import frozen
-from posthog.models.integration import Integration
+from posthog.integrations import IntegrationManager
 from posthog.models.user import User
 from posthog.slack.formatting import escape_slack_mrkdwn
 from posthog.user_permissions import UserPermissions
@@ -18,8 +18,11 @@ from products.slack_app.backend.helpers import local_dev_slack_email
 from products.slack_app.backend.models import SlackSettings, SlackThreadTaskMapping
 from products.slack_app.backend.services.slack_fork_context import get_pending_fork
 from products.slack_app.backend.services.slack_scopes import bot_is_ready
+from products.slack_app.backend.services.workspace_integrations import WorkspaceIntegration, workspace_integrations
 
 logger = structlog.get_logger(__name__)
+
+SLACK_INTEGRATION_KIND = "slack"
 
 ResolutionSource = Literal[
     "thread",
@@ -90,7 +93,9 @@ def user_resolution_failure_reply(
     return None
 
 
-def _resolved_or_oldest(integration: Integration | None, candidates: list[Integration]) -> Integration | None:
+def _resolved_or_oldest(
+    integration: WorkspaceIntegration | None, candidates: Sequence[WorkspaceIntegration]
+) -> WorkspaceIntegration | None:
     """The resolved integration, falling back to the oldest install in `candidates`.
 
     Surfaces that must act on *some* integration rather than prompt for one share this
@@ -106,16 +111,16 @@ def _resolved_or_oldest(integration: Integration | None, candidates: list[Integr
 
 @frozen
 class ResolutionResult:
-    integration: Integration | None
+    integration: WorkspaceIntegration | None
     source: ResolutionSource
-    candidates: list[Integration] = field(default_factory=list)
+    candidates: Sequence[WorkspaceIntegration] = field(default_factory=list)
 
-    def resolved_or_first(self) -> Integration | None:
+    def resolved_or_first(self) -> WorkspaceIntegration | None:
         """The resolved integration, falling back to the workspace's oldest install."""
         return _resolved_or_oldest(self.integration, self.candidates)
 
 
-def project_label(integration: Integration) -> str:
+def project_label(integration: WorkspaceIntegration) -> str:
     """One project named the way every Slack surface names it.
 
     Shared so a prompt that lists candidates and names a default in prose cannot spell
@@ -124,7 +129,9 @@ def project_label(integration: Integration) -> str:
     return f"{integration.team.organization.name} · {integration.team.name}"
 
 
-def format_project_candidate_list(candidates: list[Integration], *, first: Integration | None = None) -> str:
+def format_project_candidate_list(
+    candidates: Sequence[WorkspaceIntegration], *, first: WorkspaceIntegration | None = None
+) -> str:
     """One line per project, ``first`` at the head of the list.
 
     The order is otherwise ``check_integrations_auth_and_filter``'s, which sorts by
@@ -145,7 +152,7 @@ def format_project_candidate_list(candidates: list[Integration], *, first: Integ
 
 def pick_a_project_message(
     intro: str,
-    candidates: list[Integration],
+    candidates: Sequence[WorkspaceIntegration],
     *,
     set_command: str,
     home_tab_url: str | None,
@@ -173,7 +180,7 @@ def pick_a_project_message(
 
 
 def resolve_from_candidates(
-    candidates: list[Integration],
+    candidates: Sequence[WorkspaceIntegration],
     *,
     slack_team_id: str,
     slack_user_id: str = "",
@@ -216,7 +223,7 @@ def resolve_from_candidates(
             # route through the canonical candidate for the same team in this
             # workspace so the mapping's ``task_run`` linkage stays intact.
             mapped = thread_match.integration
-            target: Integration | None = (
+            target: WorkspaceIntegration | None = (
                 mapped if mapped.id in candidate_ids else candidates_by_team_id.get(mapped.team_id)
             )
             # Access check on the resolved target so a user whose access was
@@ -288,11 +295,7 @@ def load_integrations(
     """
     from products.slack_app.backend.services.slack_auth import check_integrations_auth_and_filter
 
-    candidates = list(
-        Integration.objects.filter(kind__in=kinds, integration_id=slack_team_id)
-        .select_related("team", "team__organization", "created_by")
-        .order_by("id")
-    )
+    candidates = workspace_integrations(slack_team_id) if SLACK_INTEGRATION_KIND in kinds else []
     candidates = check_integrations_auth_and_filter(candidates, slack_user_id=slack_user_id or None)
     return resolve_from_candidates(
         candidates,
@@ -304,7 +307,7 @@ def load_integrations(
     )
 
 
-def accessible_candidates(candidates: Iterable[Integration], *, user: User) -> list[Integration]:
+def accessible_candidates(candidates: Iterable[WorkspaceIntegration], *, user: User) -> list[WorkspaceIntegration]:
     """The candidates whose project this user is a member of.
 
     Per-team ``effective_membership_level`` rather than ``user.teams``: the latter keys
@@ -323,16 +326,13 @@ def multiple_accessible_projects(*, slack_team_id: str, user: User) -> bool:
     there is anything to tell apart should not pay an ``auth.test`` per candidate.
     ``routable_projects`` asks the stricter question of where a run may actually be sent.
     """
-    installs = Integration.objects.filter(kind="slack", integration_id=slack_team_id)
-    # Accessible is a subset of installed, so one install settles it without the
-    # membership scan — on a count, which reads an index rather than hydrating and
-    # decrypting every row.
-    if installs.count() < 2:
+    # Accessible is a subset of installed, so one install settles it without loading any row.
+    if IntegrationManager.slack.oauth.count_by_external_id(slack_team_id) < 2:
         return False
-    return len(accessible_candidates(installs.select_related("team"), user=user)) > 1
+    return len(accessible_candidates(workspace_integrations(slack_team_id), user=user)) > 1
 
 
-def routable_projects(*, slack_team_id: str, slack_user_id: str, user: User) -> list[Integration]:
+def routable_projects(*, slack_team_id: str, slack_user_id: str, user: User) -> list[WorkspaceIntegration]:
     """The projects a message from this user may route itself to, in this workspace.
 
     Empty when there is nothing to choose between, which is the common answer. Installs
@@ -368,13 +368,13 @@ class UserAndIntegrationsResolution:
     """
 
     user: User | None = None
-    integration: Integration | None = None
-    candidates: list[Integration] = field(default_factory=list)
+    integration: WorkspaceIntegration | None = None
+    candidates: Sequence[WorkspaceIntegration] = field(default_factory=list)
     source: ResolutionSource = "needs_picker"
     failure_reason: UserResolutionFailure | None = None
     slack_email: str | None = None
 
-    def resolved_or_first(self) -> Integration | None:
+    def resolved_or_first(self) -> WorkspaceIntegration | None:
         """The integration this resolution picked, falling back to the oldest one the user can reach."""
         return _resolved_or_oldest(self.integration, self.candidates)
 
@@ -397,7 +397,7 @@ class UnresolvedUserProperties(TypedDict):
 
 
 def unresolved_user_properties(
-    resolution: UserAndIntegrationsResolution, probe: Integration
+    resolution: UserAndIntegrationsResolution, probe: WorkspaceIntegration
 ) -> UnresolvedUserProperties:
     """Analytics properties that tell apart the reasons a Slack user was not identified."""
     return {

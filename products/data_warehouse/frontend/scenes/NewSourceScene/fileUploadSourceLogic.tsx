@@ -113,7 +113,7 @@ export function fileUploadFormErrors({
         files: !file
             ? 'Please choose a file to upload.'
             : file.size > MAX_FILE_UPLOAD_SIZE_BYTES
-              ? 'This file is larger than 50MB. For bigger files, connect the bucket they live in as a self-managed source instead.'
+              ? 'This file is larger than 50MB. For bigger files, connect the bucket they live in with the Amazon S3, Google Cloud Storage, Azure Blob Storage or Cloudflare R2 source instead.'
               : file_format
                 ? fileFormatMismatchError(file.name, file_format)
                 : undefined,
@@ -263,7 +263,7 @@ export const fileUploadSourceLogic = kea<fileUploadSourceLogicType>([
                 table_name: '',
                 file_format: parseFileUploadFormat(router.values.searchParams.format) ?? 'csv',
             } as FileUploadForm,
-            errors: fileUploadFormErrors,
+            errors: (form) => fileUploadFormErrors(form),
             submit: async ({ files, table_name, file_format }) => {
                 const file = files[0]
                 // The form's `errors` already block submission, but a stale/oversized file can only

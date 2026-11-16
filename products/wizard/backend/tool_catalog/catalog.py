@@ -15,6 +15,7 @@ from products.warehouse_sources.backend.facade.codebase_detection import Detecti
 from products.warehouse_sources.backend.facade.source_management import SourceRegistry, load_all_sources_or_raise
 from products.wizard.backend.tool_catalog.posthog_alternatives import POSTHOG_ALTERNATIVES_WITHOUT_SOURCE
 from products.wizard.backend.tool_catalog.types import Tool, ToolClassification
+from products.wizard.backend.tool_catalog.warehouse_destinations import warehouse_destination_type
 
 # Bump when the JSON shape changes in a way an older wizard cannot read.
 CATALOG_SCHEMA_VERSION = 1
@@ -29,13 +30,21 @@ def get_tool_catalog() -> tuple[Tool, ...]:
             label=source.get_source_config.label or source_type.value,
             warehouse_source_type=source_type,
             detection=source.codebase_detection,
+            warehouse_destination_type=warehouse_destination_type(source_type.value),
             setup_requires_ui=source.setup_requires_ui or fields_require_ui(source.get_source_config.fields),
         )
         for source_type, source in SourceRegistry.get_all_sources().items()
         if isinstance(source.codebase_detection, Detection)
     ]
     tools += [
-        Tool(kind=kind, label=kind, warehouse_source_type=None, detection=detection, setup_requires_ui=None)
+        Tool(
+            kind=kind,
+            label=kind,
+            warehouse_source_type=None,
+            detection=detection,
+            warehouse_destination_type=None,
+            setup_requires_ui=None,
+        )
         for kind, detection in POSTHOG_ALTERNATIVES_WITHOUT_SOURCE.items()
     ]
     return tuple(sorted(tools, key=lambda tool: tool.kind))
@@ -47,6 +56,7 @@ def build_catalog_document() -> dict[str, Any]:
             "kind": tool.kind,
             "label": tool.label,
             "warehouse_source_type": tool.warehouse_source_type.value if tool.warehouse_source_type else None,
+            "warehouse_destination_type": tool.warehouse_destination_type,
             "wizard_setup_mode": None
             if tool.setup_requires_ui is None
             else ("deep-link" if tool.setup_requires_ui else "in-cli"),

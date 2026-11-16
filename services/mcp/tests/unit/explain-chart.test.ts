@@ -131,19 +131,38 @@ describe('explain-chart', () => {
         })
     })
 
-    it('keeps a chart only for evidence that query-trends can draw again', async () => {
+    it('draws each piece of evidence from the query behind it', async () => {
         const series = [{ kind: 'EventsNode', event: 'signed_up' }]
-        const drawable = {
-            kind: 'TrendsQuery',
-            series,
-            breakdownFilter: { breakdowns: [{ property: '$browser', type: 'event' }] },
-        }
-        const linkOnly = {
-            kind: 'TrendsQuery',
-            series,
-            breakdownFilter: { breakdown: '$browser', breakdown_type: 'event' },
+        const sqlResults: Record<string, { columns: string[]; results: unknown[][] }> = {
+            by_hour: {
+                columns: ['hour', 'browser', 'failures'],
+                results: [
+                    ['2026-10-02 23:00:00', 'Safari', 4],
+                    ['2026-10-03 00:00:00', 'Safari', 9],
+                    ['2026-10-03 00:00:00', 'Chrome', 1],
+                ],
+            },
+            by_browser: { columns: ['browser', 'failures'], results: [['Safari', 13]] },
+            no_numbers: { columns: ['browser', 'version'], results: [['Safari', '17']] },
+            two_metrics: {
+                columns: ['hour', 'browser', 'failures', 'requests'],
+                results: [['2026-10-02 23:00:00', 'Safari', 4, 10]],
+            },
         }
         const context = createContext({ kind: 'InsightVizNode', source: { kind: 'TrendsQuery', series: [] } })
+        vi.mocked(context.api.query({ projectId: '1' }).runQuery).mockImplementation(
+            async ({ query }: { query: Record<string, unknown> }) => {
+                if (query.kind !== 'HogQLQuery') {
+                    return { results: [{ label: 'signed_up', data: [5, 50, 6, 5, 4], days: DAYS }] }
+                }
+                const result = sqlResults[query.query as string]
+                if (!result) {
+                    throw new Error('Unknown column "oops"')
+                }
+                return result
+            }
+        )
+        const sql = (query: string): Record<string, unknown> => ({ kind: 'HogQLQuery', query })
 
         const result = await explainChartHandler(context, {
             insightId: 'abc12345',
@@ -154,17 +173,77 @@ describe('explain-chart', () => {
                     title: 'A spike on October 2',
                     start: '2026-10-02',
                     evidence: [
-                        { text: 'Chrome sent most of it.', query: drawable },
-                        { text: 'Safari stayed flat.', query: linkOnly },
+                        {
+                            text: 'Chrome sent most of it.',
+                            query: {
+                                kind: 'TrendsQuery',
+                                series,
+                                breakdownFilter: { breakdowns: [{ property: '$browser', type: 'event' }] },
+                            },
+                        },
+                        {
+                            text: 'Safari stayed flat.',
+                            query: {
+                                kind: 'TrendsQuery',
+                                series,
+                                breakdownFilter: { breakdown: '$browser', breakdown_type: 'event' },
+                            },
+                        },
+                        { text: 'Failures by hour.', query: sql('by_hour') },
+                        { text: 'Failures by browser.', query: sql('by_browser') },
+                        { text: 'Versions.', query: sql('no_numbers') },
+                        { text: 'Two metrics.', query: sql('two_metrics') },
+                        { text: 'No kind.', query: { series } },
+                        { text: 'A broken query.', query: sql('oops') },
+                        { text: 'An unknown kind.', query: { kind: '__proto__' } },
                     ],
                 },
             ],
         })
 
-        expect(result.chapters[0]!.evidence.map((item) => [item.query !== null, item.url !== null])).toEqual([
-            [true, true],
-            [false, true],
+        expect(result.chapters[0]!.evidence.map((item) => [item.queryTool, item.chart, item.url !== null])).toEqual([
+            ['query-trends', null, true],
+            [null, null, true],
+            [
+                null,
+                {
+                    type: 'line',
+                    labels: ['Oct 2 23:00', 'Oct 3 00:00'],
+                    ticks: ['Oct 2 23:00', 'Oct 3 00:00'],
+                    series: [
+                        { name: 'Safari', values: [4, 9] },
+                        { name: 'Chrome', values: [null, 1] },
+                    ],
+                    yAxisLabel: 'failures',
+                },
+                true,
+            ],
+            [
+                null,
+                {
+                    type: 'bar',
+                    labels: ['Safari'],
+                    ticks: ['Safari'],
+                    series: [{ name: 'failures', values: [13] }],
+                    yAxisLabel: 'failures',
+                },
+                true,
+            ],
+            [null, null, true],
+            [null, null, true],
+            ['query-trends', null, true],
+            [null, null, true],
+            [null, null, true],
         ])
+        expect(context.api.query({ projectId: '1' }).runQuery).toHaveBeenCalledWith({
+            query: sql('by_hour'),
+            signal: expect.any(AbortSignal),
+        })
+        expect(result[POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY]).toContain('"Versions." returned nothing to draw')
+        expect(result[POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY]).toContain('"Two metrics." returned nothing to draw')
+        expect(result[POSTHOG_FORMATTED_RESULTS_OVERRIDE_KEY]).toContain(
+            '"A broken query." failed, so it shows as a link only: Unknown column "oops"'
+        )
     })
 
     it.each([

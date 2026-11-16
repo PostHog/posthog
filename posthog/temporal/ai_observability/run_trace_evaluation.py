@@ -63,6 +63,7 @@ from posthog.temporal.ai_observability.evaluation_workflow_activities import (
     emit_internal_telemetry_activity,
     fetch_evaluation_activity,
 )
+from posthog.temporal.ai_observability.judge_attachments import build_attachment_prompt
 from posthog.temporal.ai_observability.message_utils import extract_text_from_messages
 from posthog.temporal.ai_observability.metrics import increment_emit_event_outcome, increment_errors
 from posthog.temporal.ai_observability.run_evaluation import (
@@ -81,10 +82,6 @@ from posthog.temporal.ai_observability.team_capture import (
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.utils import close_db_connections
 
-from products.access_control.backend.facade.api import (
-    get_restricted_properties_with_group_type_index_for_team,
-    split_restricted_property_names,
-)
 from products.ai_observability.backend.models.evaluation_configs import (
     EVALUATION_TEST_LOOKBACK_DAYS,
     TRACE_EVAL_DEFAULT_WINDOW_SECONDS,
@@ -96,6 +93,7 @@ from products.ai_observability.backend.text_repr.formatters import (
     format_trace_text_repr,
     llm_trace_to_formatter_format,
 )
+from products.ai_observability.backend.text_repr.formatters.media_blocks import MediaMarker
 from products.ai_observability.backend.text_repr.formatters.message_formatter import has_message_content
 
 if TYPE_CHECKING:
@@ -144,10 +142,6 @@ HAVING event_count > 0
 
 
 _SKIP_REASONING = {
-    "property_access_restricted": (
-        "Default project permissions hide event properties, so this trace was not evaluated. "
-        "Review the project's property access rules before running this evaluation."
-    ),
     "trace_not_found": "No trace events were found within the evaluation window; evaluation skipped.",
     "trace_too_large": (
         f"Trace exceeds {MAX_TRACE_EVAL_EVENTS} events — likely a shared or runaway trace id; evaluation skipped."
@@ -224,6 +218,7 @@ def _count_trace_events(
         team=team,
         user=user,
         query_type="TraceEvaluationEventCount",
+        bypass_property_access_control=user is None,
         posthog_tables_only=True,
         fall_back_to_events=True,
     )
@@ -255,6 +250,7 @@ def _sum_trace_payload_bytes(
         team=team,
         user=user,
         query_type="TraceEvaluationPayloadBytes",
+        bypass_property_access_control=user is None,
         posthog_tables_only=True,
         fall_back_to_events=False,
     )
@@ -322,6 +318,7 @@ def _fetch_trace(
         # early events of the trace, which live runs do grade.
         bound_events_to_date_range=bound_to_date_to,
         posthog_tables_only=True,
+        bypass_property_access_control=user is None,
     )
     response = runner.calculate()
     if not response.results:
@@ -339,11 +336,6 @@ def fetch_trace_for_evaluation(
 ) -> TraceFetchOutcome:
     """Fetch the full trace for an online evaluation run, looking back from the workflow start."""
     team = Team.objects.get(id=team_id)
-    # Hog evaluations can read any event property, so masking can change the verdict even outside input/output.
-    if split_restricted_property_names(
-        get_restricted_properties_with_group_type_index_for_team(user=None, team_id=team_id)
-    ).event:
-        return TraceFetchOutcome(trace=None, skip_reason="property_access_restricted", event_count=0)
     date_from = window_start - TRACE_EVENTS_LOOKBACK
     date_to = window_end or datetime.now(UTC)
     return _fetch_trace(team, trace_id, date_from, date_to, bound_to_date_to=window_end is not None)
@@ -559,7 +551,7 @@ def build_trace_system_prompt(
 {config.instructions}"""
 
 
-def format_trace_for_judge(trace: LLMTrace) -> str:
+def format_trace_for_judge(trace: LLMTrace, media_marker: MediaMarker | None = None) -> str:
     """Serialize a trace into the canonical text representation for the LLM judge.
 
     Preserve complete generation outputs before truncating them so the judge does not grade
@@ -575,6 +567,8 @@ def format_trace_for_judge(trace: LLMTrace) -> str:
         "max_length": None,
         "max_render_length": JUDGE_TRACE_MAX_CHARS,
     }
+    if media_marker is not None:
+        options["media_marker"] = media_marker
     for truncated in (False, True):
         options["truncated"] = truncated
         try:
@@ -704,14 +698,19 @@ def execute_trace_llm_judge_activity(inputs: ExecuteTraceEvaluationInputs) -> Ev
     if not _has_judge_transcript(outcome.trace):
         return _build_trace_skip_result(allows_na, "trace_not_found", output_type=output_type)
 
+    trace = outcome.trace
+    user_prompt = format_trace_for_judge(trace)
     return call_llm_judge(
         evaluation=evaluation,
         system_prompt=build_trace_system_prompt(
             prompt, allows_na, output_type=output_type, output_config=output_config
         ),
-        user_prompt=format_trace_for_judge(outcome.trace),
+        user_prompt=user_prompt,
         allows_na=allows_na,
         backfill=inputs.backfill_id is not None,
+        attachment_prompt=build_attachment_prompt(
+            evaluation, user_prompt, lambda media_marker: format_trace_for_judge(trace, media_marker)
+        ),
     )
 
 

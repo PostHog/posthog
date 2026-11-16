@@ -2,6 +2,10 @@ import { ActivityScope, ProductManifest } from '../../frontend/src/types'
 
 export const manifest: ProductManifest = {
     name: 'Persons',
+    activityDescribers: {
+        [ActivityScope.PERSON]: () =>
+            import('./frontend/activityDescriptions').then((module) => module.personActivityDescriber),
+    },
     scenes: {
         Person: {
             projectBased: true,

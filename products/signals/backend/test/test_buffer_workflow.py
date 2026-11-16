@@ -3,6 +3,7 @@ import asyncio
 from contextlib import suppress
 
 import pytest
+import time_machine
 from unittest.mock import patch
 
 from temporalio import activity
@@ -10,6 +11,8 @@ from temporalio.exceptions import ApplicationError
 from temporalio.service import RPCError
 from temporalio.testing import ActivityEnvironment, WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
+
+from posthog.models import Organization
 
 from products.signals.backend.daily_limit import DailyReportLimitGate
 from products.signals.backend.temporal.buffer import (
@@ -22,6 +25,8 @@ from products.signals.backend.temporal.buffer import (
 )
 from products.signals.backend.temporal.safety_filter import SafetyFilterInput, SafetyFilterOutput
 from products.signals.backend.temporal.types import BufferSignalsInput, EmitSignalInputs
+
+from ee.billing.quota_limiting import QuotaResource
 
 TASK_QUEUE = "test-buffer-queue"
 BUFFER_MODULE = "products.signals.backend.temporal.buffer"
@@ -38,9 +43,11 @@ def _signal(team_id: int) -> EmitSignalInputs:
 
 
 class _Recorder:
-    def __init__(self, over_quota: bool, safety_failures: int = 0) -> None:
+    def __init__(self, over_quota: bool, safety_failures: int = 0, mixed_batch: bool = False) -> None:
         self.over_quota = over_quota
         self.safety_failures = safety_failures
+        self.mixed_batch = mixed_batch
+        self.safety_sources: list[str | None] = []
         self.quota_checks = 0
         self.safety_checks = 0
         self.flushes = 0
@@ -61,6 +68,9 @@ async def _drive(recorder: _Recorder) -> None:
     @activity.defn(name="safety_filter_activity")
     async def fake_safety(_input: SafetyFilterInput) -> SafetyFilterOutput:
         recorder.safety_checks += 1
+        recorder.safety_sources.append(_input.source_id)
+        if _input.source_id == "unsafe":
+            return SafetyFilterOutput(safe=False, threat_type="test", explanation=None)
         if recorder.safety_failures > 0:
             recorder.safety_failures -= 1
             raise ApplicationError("safety provider unavailable", non_retryable=True)
@@ -84,13 +94,16 @@ async def _drive(recorder: _Recorder) -> None:
             activities=[fake_quota, fake_safety, fake_flush, fake_grouping],
             workflow_runner=UnsandboxedWorkflowRunner(),
         ):
+            unsafe = _signal(1)
+            unsafe.source_id = "unsafe"
             handle = await env.client.start_workflow(
                 BufferSignalsWorkflow.run,
-                BufferSignalsInput(team_id=1),
+                BufferSignalsInput(team_id=1, pending_signals=[unsafe, _signal(1)] if recorder.mixed_batch else []),
                 id=f"buffer-{uuid.uuid4()}",
                 task_queue=TASK_QUEUE,
             )
-            await handle.signal(BufferSignalsWorkflow.submit_signal, _signal(1))
+            if not recorder.mixed_batch:
+                await handle.signal(BufferSignalsWorkflow.submit_signal, _signal(1))
             terminal = recorder.gate_reached if recorder.over_quota else recorder.flow_done
             await asyncio.wait_for(terminal.wait(), timeout=30)
             with suppress(RPCError):
@@ -119,10 +132,12 @@ async def test_under_quota_batch_flows_through():
 
 
 @pytest.mark.asyncio
-async def test_safety_failure_requeues_the_drained_batch():
-    recorder = _Recorder(over_quota=False, safety_failures=1)
+@pytest.mark.parametrize("mixed_batch", [False, True])
+async def test_safety_failure_requeues_only_failed_signals(mixed_batch: bool):
+    recorder = _Recorder(over_quota=False, safety_failures=1, mixed_batch=mixed_batch)
     await _drive(recorder)
-    assert recorder.safety_checks == 2
+    assert recorder.safety_checks == 2 + int(mixed_batch)
+    assert recorder.safety_sources.count("unsafe") == int(mixed_batch)
     assert recorder.flushes == 1
     assert recorder.grouping_starts == 1
 
@@ -134,6 +149,8 @@ async def test_safety_failure_requeues_the_drained_batch():
 
 @pytest.mark.asyncio
 @pytest.mark.django_db
+@time_machine.travel("2026-06-10", tick=False)
+@pytest.mark.parametrize("spend_billing", [False, True])
 @pytest.mark.parametrize(
     ("billing_limited", "daily_limited", "expected", "expected_reason"),
     [
@@ -144,10 +161,14 @@ async def test_safety_failure_requeues_the_drained_batch():
     ],
 )
 async def test_check_activity_attributes_drop_to_the_limit_that_fired(
-    ateam, billing_limited, daily_limited, expected, expected_reason
+    ateam, billing_limited, daily_limited, expected, expected_reason, spend_billing
 ):
+    if spend_billing:
+        await Organization.objects.filter(id=ateam.organization_id).aupdate(
+            usage={"signals_spend_credits": {"billing_start_date": "2026-06-10"}}
+        )
     with (
-        patch(f"{BUFFER_MODULE}.is_team_signals_quota_limited", return_value=billing_limited),
+        patch(f"{BUFFER_MODULE}.is_team_signals_quota_limited", return_value=billing_limited) as quota_check,
         patch(
             f"{BUFFER_MODULE}.daily_report_limit_gate",
             return_value=DailyReportLimitGate(limited=daily_limited, limit=2, reports_today=2),
@@ -163,6 +184,9 @@ async def test_check_activity_attributes_drop_to_the_limit_that_fired(
         )
 
     assert result is expected
+    quota_check.assert_called_once_with(
+        ateam.api_token, QuotaResource.SIGNALS_SPEND_CREDITS if spend_billing else QuotaResource.SIGNALS_CREDITS
+    )
     dropped_events = [c.kwargs for c in analytics_capture.call_args_list if c.kwargs["event"] == "signal_dropped"]
     if expected_reason is None:
         dropped.assert_not_called()

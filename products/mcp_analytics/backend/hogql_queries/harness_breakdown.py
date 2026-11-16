@@ -13,13 +13,14 @@ from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
-from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 
 from products.mcp_analytics.backend import mcp_harness
 from products.mcp_analytics.backend.constants import MCP_TOOL_CALL_EVENT
+from products.mcp_analytics.backend.custom_harnesses import custom_harness_rules
 from products.mcp_analytics.backend.hogql_queries.base import (
     CONVERSATION_ID_SQL,
+    HarnessLabelQueryRunner,
     effective_tool_expr,
     mcp_query_date_range,
     mcp_source_expr,
@@ -31,7 +32,7 @@ if TYPE_CHECKING:
     from posthog.models.user import User
 
 
-class MCPHarnessBreakdownQueryRunner(AnalyticsQueryRunner[MCPHarnessBreakdownQueryResponse]):
+class MCPHarnessBreakdownQueryRunner(HarnessLabelQueryRunner[MCPHarnessBreakdownQueryResponse]):
     """MCP tool-call activity grouped by the resolved client harness.
 
     Powers the dashboard's harness tile and the `query-mcp-harness-breakdown` MCP
@@ -105,7 +106,7 @@ class MCPHarnessBreakdownQueryRunner(AnalyticsQueryRunner[MCPHarnessBreakdownQue
                 ORDER BY total_calls DESC
                 """,
                 placeholders={
-                    "label": parse_expr(mcp_harness.harness_label_sql("h")),
+                    "label": parse_expr(mcp_harness.harness_label_sql("h", custom_harness_rules(self.team))),
                     "token": parse_expr(mcp_harness.HARNESS_TOKEN_SQL),
                     "is_tool": effective_tool_expr(self.query.toolName),
                     "conversation_id": parse_expr(CONVERSATION_ID_SQL),
@@ -132,7 +133,7 @@ class MCPHarnessBreakdownQueryRunner(AnalyticsQueryRunner[MCPHarnessBreakdownQue
             ORDER BY total_calls DESC
             """,
             placeholders={
-                "label": parse_expr(mcp_harness.harness_label_sql("h")),
+                "label": parse_expr(mcp_harness.harness_label_sql("h", custom_harness_rules(self.team))),
                 "token": parse_expr(mcp_harness.HARNESS_TOKEN_SQL),
                 "conversation_id": parse_expr(CONVERSATION_ID_SQL),
                 "where": self._where(),

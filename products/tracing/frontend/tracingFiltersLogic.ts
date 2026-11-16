@@ -35,7 +35,7 @@ export const DEFAULT_TIMEZONE: string = 'UTC'
 export const DEFAULT_SERVICE_NAMES: string[] = []
 export const DEFAULT_ORDER_BY = 'timestamp' as const
 export const DEFAULT_ORDER_DIRECTION = 'DESC' as const
-export const DEFAULT_VIEW_MODE = 'traces' as const
+export const DEFAULT_VIEW_MODE = 'spans' as const
 export const DEFAULT_CHART_TYPE = 'activity' as const
 
 // Column the list is ordered by, and its direction. timestamp+DESC is "latest" (keyset paginated via

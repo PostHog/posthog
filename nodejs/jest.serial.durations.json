@@ -1,0 +1,21 @@
+{
+    "src/cdp/cdp-api.serial.test.ts": 32,
+    "src/cdp/cdp-dlq-replay-e2e.serial.test.ts": 39,
+    "src/cdp/cdp-e2e.serial.test.ts": 16,
+    "src/cdp/rerun/rerun-e2e.serial.test.ts": 9,
+    "src/cdp/services/cohort-membership/sweeper.service.serial.test.ts": 1,
+    "src/cdp/services/hogflows/realtime-cohort-audience.service.serial.test.ts": 0,
+    "src/cdp/workflows-e2e.serial.test.ts": 96,
+    "src/common/kafka/consumer/consumer-v2.rebalance.integration.serial.test.ts": 28,
+    "src/ingestion/ingestion-consumer.serial.test.ts": 16,
+    "src/logs/logs-ingestion-thread-relief.serial.test.ts": 2,
+    "src/logs/transformations/benchmarks/hogvm-log-bench.serial.test.ts": 1,
+    "src/logs/transformations/benchmarks/transformer-log-bench.serial.test.ts": 1,
+    "tests/ingestion-general-server.serial.test.ts": 5,
+    "tests/ingestion-logs-server.serial.test.ts": 2,
+    "tests/ingestion-session-replay-server.serial.test.ts": 2,
+    "tests/ingestion-traces-server.serial.test.ts": 2,
+    "tests/ingestion/person-state-batch.serial.test.ts": 15,
+    "tests/server.serial.test.ts": 3,
+    "tests/session-replay/recording-api/recording-api.integration.serial.test.ts": 2
+}

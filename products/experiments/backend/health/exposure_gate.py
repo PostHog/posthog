@@ -30,7 +30,7 @@ from django.utils import timezone
 
 import pydantic
 
-from posthog.schema import ActionsNode
+from posthog.schema import ActionsNode, ExperimentEventExposureConfig
 
 from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings
@@ -583,7 +583,7 @@ def _not_checked_reason(
     config = criteria.exposure_config if criteria else None
     if isinstance(config, ActionsNode):
         return FlagHistoryNotCheckedReason.EXPOSURE_ACTION
-    if config is not None and config.properties:
+    if isinstance(config, ExperimentEventExposureConfig) and config.properties:
         return FlagHistoryNotCheckedReason.EXPOSURE_FILTERS
     if not reader_access.can_query_events:
         return FlagHistoryNotCheckedReason.NO_QUERY_ACCESS

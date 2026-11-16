@@ -8,7 +8,12 @@ import { Scene } from 'scenes/sceneTypes'
 import { ActorsQuery, NodeKind, ProductKey } from '~/queries/schema/schema-general'
 import { AnyPersonScopeFilter, AnyPropertyFilter } from '~/types'
 
-import { BroadcastEmailValue, BroadcastWizardLogicProps, broadcastWizardLogic } from './broadcastWizardLogic'
+import {
+    BroadcastEmailValue,
+    BroadcastPushValue,
+    BroadcastWizardLogicProps,
+    broadcastWizardLogic,
+} from './broadcastWizardLogic'
 import { EmailPreviewPerson, renderEmailPreview } from './emailPreview'
 
 const PREVIEW_PERSON_LIMIT = 25
@@ -46,11 +51,14 @@ function parsePerson(row: any[]): BroadcastPreviewPerson {
 export interface broadcastPreviewLogicValues {
     audienceProperties: AnyPropertyFilter[] // broadcastWizardLogic
     email: BroadcastEmailValue // broadcastWizardLogic
+    push: BroadcastPushValue // broadcastWizardLogic
     persons: BroadcastPreviewPerson[]
     personsFailed: boolean
     personsLoading: boolean
     previewHtml: string
     previewPerson: BroadcastPreviewPerson | null
+    previewPushBody: string
+    previewPushTitle: string
     previewSubject: string
     previewText: string
     previewTo: string
@@ -90,6 +98,8 @@ export interface broadcastPreviewLogicMeta {
         previewSubject: (email: BroadcastEmailValue, previewPerson: BroadcastPreviewPerson | null) => string
         previewHtml: (email: BroadcastEmailValue, previewPerson: BroadcastPreviewPerson | null) => string
         previewText: (email: BroadcastEmailValue, previewPerson: BroadcastPreviewPerson | null) => string
+        previewPushTitle: (push: BroadcastPushValue, previewPerson: BroadcastPreviewPerson | null) => string
+        previewPushBody: (push: BroadcastPushValue, previewPerson: BroadcastPreviewPerson | null) => string
         previewTo: (email: BroadcastEmailValue, previewPerson: BroadcastPreviewPerson | null) => string
     }
 }
@@ -107,7 +117,7 @@ export const broadcastPreviewLogic = kea<broadcastPreviewLogicType>([
     key((props) => props.id),
 
     connect((props: BroadcastWizardLogicProps) => ({
-        values: [broadcastWizardLogic(props), ['audienceProperties', 'email']],
+        values: [broadcastWizardLogic(props), ['audienceProperties', 'email', 'push']],
     })),
 
     actions({
@@ -187,6 +197,16 @@ export const broadcastPreviewLogic = kea<broadcastPreviewLogicType>([
             (s) => [s.email, s.previewPerson],
             (email: BroadcastEmailValue, previewPerson: BroadcastPreviewPerson | null): string =>
                 renderEmailPreview(email.text, previewPerson),
+        ],
+        previewPushTitle: [
+            (s) => [s.push, s.previewPerson],
+            (push: BroadcastPushValue, previewPerson: BroadcastPreviewPerson | null): string =>
+                renderEmailPreview(push.title, previewPerson),
+        ],
+        previewPushBody: [
+            (s) => [s.push, s.previewPerson],
+            (push: BroadcastPushValue, previewPerson: BroadcastPreviewPerson | null): string =>
+                renderEmailPreview(push.body, previewPerson),
         ],
         previewTo: [
             (s) => [s.email, s.previewPerson],

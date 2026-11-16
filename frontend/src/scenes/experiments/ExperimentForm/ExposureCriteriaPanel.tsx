@@ -11,9 +11,11 @@ import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFil
 import { teamLogic } from 'scenes/teamLogic'
 
 import { ExperimentEventExposureConfig, ExperimentExposureCriteria, NodeKind } from '~/queries/schema/schema-general'
-import { ChartDisplayCategory, type Experiment } from '~/types'
+import { ChartDisplayCategory, type Experiment, type FeatureFlagBasicType } from '~/types'
 
+import { NegatedEventFilterNote } from 'products/experiments/frontend/components/NegatedEventFilterNote'
 import { SelectableCard } from 'products/experiments/frontend/components/SelectableCard'
+import { isLaunched } from 'products/experiments/frontend/experimentStatus'
 
 import {
     EXPERIMENT_EXPOSURE_EVENT,
@@ -40,82 +42,106 @@ const DEFAULT_ACTIVATION_CONFIG: ExperimentEventExposureConfig = {
 
 type ExposureCriteriaPanelProps = {
     experiment: Experiment
+    /** The flag the experiment runs on. A wizard draft keeps a linked flag outside `experiment`. */
+    featureFlag: Pick<FeatureFlagBasicType, 'filters'> | null
     onChange: (exposureCriteria: ExperimentExposureCriteria) => void
     compact?: boolean
 }
 
 function InclusionActionFilter({
     experiment,
+    groupTypeIndex,
     onChange,
 }: {
     experiment: Experiment
+    groupTypeIndex: number | null | undefined
     onChange: ExposureCriteriaPanelProps['onChange']
 }): JSX.Element {
     return (
-        <SeriesActionFilter
-            bordered
-            series={exposureConfigToSeries(experiment.exposure_criteria?.exposure_config || DEFAULT_EXPOSURE_CONFIG)}
-            trendsDisplayCategory={ChartDisplayCategory.TimeSeries}
-            onChange={(series) => {
-                const exposureConfig = seriesToExposureConfig(series)
-                if (exposureConfig) {
-                    onChange({ exposure_config: exposureConfig })
-                }
-            }}
-            typeKey="experiment-exposure-config"
-            buttonCopy="Add exposure event"
-            showSeriesIndicator={false}
-            hideRename={true}
-            entitiesLimit={1}
-            mathAvailability={MathAvailability.None}
-            showNumericalPropsOnly={false}
-            {...commonActionFilterProps}
-            actionsTaxonomicGroupTypes={[TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.Actions]}
-        />
+        <div>
+            <SeriesActionFilter
+                bordered
+                series={exposureConfigToSeries(
+                    experiment.exposure_criteria?.exposure_config || DEFAULT_EXPOSURE_CONFIG
+                )}
+                trendsDisplayCategory={ChartDisplayCategory.TimeSeries}
+                onChange={(series) => {
+                    const exposureConfig = seriesToExposureConfig(series)
+                    if (exposureConfig) {
+                        onChange({ exposure_config: exposureConfig })
+                    }
+                }}
+                typeKey="experiment-exposure-config"
+                buttonCopy="Add exposure event"
+                showSeriesIndicator={false}
+                hideRename={true}
+                entitiesLimit={1}
+                mathAvailability={MathAvailability.None}
+                showNumericalPropsOnly={false}
+                {...commonActionFilterProps}
+                actionsTaxonomicGroupTypes={[TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.Actions]}
+            />
+            <NegatedEventFilterNote
+                config={experiment.exposure_criteria?.exposure_config}
+                launched={isLaunched(experiment)}
+                groupTypeIndex={groupTypeIndex}
+            />
+        </div>
     )
 }
 
 function ActivationActionFilter({
     experiment,
+    groupTypeIndex,
     onChange,
 }: {
     experiment: Experiment
+    groupTypeIndex: number | null | undefined
     onChange: ExposureCriteriaPanelProps['onChange']
 }): JSX.Element {
     return (
-        <SeriesActionFilter
-            bordered
-            series={exposureConfigToSeries(
-                experiment.exposure_criteria?.activation_config || DEFAULT_ACTIVATION_CONFIG
-            )}
-            trendsDisplayCategory={ChartDisplayCategory.TimeSeries}
-            onChange={(series) => {
-                const activationConfig = seriesToExposureConfig(series)
-                if (activationConfig) {
-                    onChange({ activation_config: activationConfig })
-                }
-            }}
-            typeKey="experiment-activation-config"
-            buttonCopy="Add activation event"
-            showSeriesIndicator={false}
-            hideRename={true}
-            entitiesLimit={1}
-            mathAvailability={MathAvailability.None}
-            showNumericalPropsOnly={false}
-            {...commonActionFilterProps}
-            actionsTaxonomicGroupTypes={[TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.Actions]}
-        />
+        <div>
+            <SeriesActionFilter
+                bordered
+                series={exposureConfigToSeries(
+                    experiment.exposure_criteria?.activation_config || DEFAULT_ACTIVATION_CONFIG
+                )}
+                trendsDisplayCategory={ChartDisplayCategory.TimeSeries}
+                onChange={(series) => {
+                    const activationConfig = seriesToExposureConfig(series)
+                    if (activationConfig) {
+                        onChange({ activation_config: activationConfig })
+                    }
+                }}
+                typeKey="experiment-activation-config"
+                buttonCopy="Add activation event"
+                showSeriesIndicator={false}
+                hideRename={true}
+                entitiesLimit={1}
+                mathAvailability={MathAvailability.None}
+                showNumericalPropsOnly={false}
+                {...commonActionFilterProps}
+                actionsTaxonomicGroupTypes={[TaxonomicFilterGroupType.Events, TaxonomicFilterGroupType.Actions]}
+            />
+            <NegatedEventFilterNote
+                config={experiment.exposure_criteria?.activation_config}
+                launched={isLaunched(experiment)}
+                groupTypeIndex={groupTypeIndex}
+            />
+        </div>
     )
 }
 
 function ExposureCriteriaFields({
     experiment,
+    groupTypeIndex,
     onChange,
     hasFilters,
     defaultExposureEvent,
     showActivationOption,
 }: {
     experiment: Experiment
+    groupTypeIndex: number | null | undefined
     onChange: ExposureCriteriaPanelProps['onChange']
     hasFilters: boolean
     defaultExposureEvent: string
@@ -169,7 +195,7 @@ function ExposureCriteriaFields({
                     description={
                         <>
                             Select a custom event to signal that users reached the part of your app where the experiment
-                            runs. You can also filter out users you would like to exclude.
+                            runs. You can also filter which events count as exposure.
                         </>
                     }
                     selected={isCustom}
@@ -188,12 +214,20 @@ function ExposureCriteriaFields({
 
             {isCustom && (
                 <div className="mb-4">
-                    <InclusionActionFilter experiment={experiment} onChange={onChange} />
+                    <InclusionActionFilter
+                        experiment={experiment}
+                        groupTypeIndex={groupTypeIndex}
+                        onChange={onChange}
+                    />
                 </div>
             )}
             {isActivation && (
                 <div className="mb-4">
-                    <ActivationActionFilter experiment={experiment} onChange={onChange} />
+                    <ActivationActionFilter
+                        experiment={experiment}
+                        groupTypeIndex={groupTypeIndex}
+                        onChange={onChange}
+                    />
                 </div>
             )}
 
@@ -244,7 +278,13 @@ function ExposureCriteriaFields({
     )
 }
 
-export function ExposureCriteriaPanel({ experiment, onChange, compact }: ExposureCriteriaPanelProps): JSX.Element {
+export function ExposureCriteriaPanel({
+    experiment,
+    featureFlag,
+    onChange,
+    compact,
+}: ExposureCriteriaPanelProps): JSX.Element {
+    const groupTypeIndex = featureFlag?.filters?.aggregation_group_type_index
     // getActivationConfig, not a raw field check: a stored default-sentinel exposure_config
     // still composes with activation, and the editor must classify it the way the backend does
     const isActivation = !!getActivationConfig(experiment.exposure_criteria)
@@ -348,8 +388,20 @@ export function ExposureCriteriaPanel({ experiment, onChange, compact }: Exposur
                             ]}
                         />
                     </div>
-                    {isCustom && <InclusionActionFilter experiment={experiment} onChange={onChange} />}
-                    {isActivation && <ActivationActionFilter experiment={experiment} onChange={onChange} />}
+                    {isCustom && (
+                        <InclusionActionFilter
+                            experiment={experiment}
+                            groupTypeIndex={groupTypeIndex}
+                            onChange={onChange}
+                        />
+                    )}
+                    {isActivation && (
+                        <ActivationActionFilter
+                            experiment={experiment}
+                            groupTypeIndex={groupTypeIndex}
+                            onChange={onChange}
+                        />
+                    )}
                 </div>
 
                 <div className="flex flex-wrap items-center justify-between gap-2">
@@ -446,6 +498,7 @@ export function ExposureCriteriaPanel({ experiment, onChange, compact }: Exposur
                             <div className="p-3">
                                 <ExposureCriteriaFields
                                     experiment={experiment}
+                                    groupTypeIndex={groupTypeIndex}
                                     onChange={onChange}
                                     hasFilters={hasFilters}
                                     defaultExposureEvent={defaultExposureEvent}

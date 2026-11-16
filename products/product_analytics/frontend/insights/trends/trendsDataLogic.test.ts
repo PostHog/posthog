@@ -7,7 +7,14 @@ import { getTrendResultCustomizationKey } from 'scenes/insights/utils'
 
 import { ExportType } from '~/exporter/types'
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
-import { DataNode, LifecycleQuery, NodeKind, ResultCustomizationBy, TrendsQuery } from '~/queries/schema/schema-general'
+import {
+    DataNode,
+    LifecycleQuery,
+    NodeKind,
+    ResultCustomizationBy,
+    TrendsQuery,
+    TrendsQueryResponse,
+} from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 import { ChartDisplayType, InsightLogicProps, InsightModel } from '~/types'
 
@@ -89,6 +96,19 @@ describe('trendsDataLogic', () => {
                     builtDataNodeLogic.actions.loadDataSuccess(insight)
                 }).toMatchValues({
                     results: trendResult.result,
+                })
+            })
+        })
+
+        describe('actionNames', () => {
+            it('for a response that names its action series', async () => {
+                await expectLogic(logic, () => {
+                    builtDataNodeLogic.actions.loadDataSuccess({
+                        results: trendResult.result,
+                        action_names: { '7': 'Signed up' },
+                    } as TrendsQueryResponse)
+                }).toMatchValues({
+                    actionNames: { '7': 'Signed up' },
                 })
             })
         })

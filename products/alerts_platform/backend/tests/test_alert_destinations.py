@@ -21,6 +21,7 @@ from products.alerts_platform.backend.facade.contracts import (
     NewAlertDestination,
     SourceKind,
 )
+from products.alerts_platform.backend.facade.enums import PlatformAlertOwner
 from products.alerts_platform.backend.models import PlatformAlertConfiguration
 
 WEBHOOK_URL = "https://example.com/hooks/secret-path"
@@ -33,9 +34,13 @@ class TestAlertDestinations(BaseTest):
         super().setUp()
         self.configuration = self._configuration()
 
-    def _configuration(self) -> PlatformAlertConfiguration:
+    def _configuration(self, destinations_owner: str = PlatformAlertOwner.PLATFORM) -> PlatformAlertConfiguration:
         return PlatformAlertConfiguration.objects.for_team(self.team.id).create(
-            team=self.team, name="API errors", source_kind=SourceKind.LOGS, check_interval_minutes=5
+            team=self.team,
+            name="API errors",
+            source_kind=SourceKind.LOGS,
+            check_interval_minutes=5,
+            destinations_owner=destinations_owner,
         )
 
     def _create(self, *destinations: NewAlertDestination, configuration: Any = None) -> Any:
@@ -99,6 +104,14 @@ class TestAlertDestinations(BaseTest):
 
         assert error.value.field == field
         assert list_alert_destinations(team_id=self.team.id, configuration_id=self.configuration.id) == ()
+
+    def test_an_alert_whose_product_holds_its_destinations_takes_none_here(self) -> None:
+        configuration = self._configuration(destinations_owner=PlatformAlertOwner.SOURCE)
+
+        with pytest.raises(AlertDestinationValidationError):
+            self._create(NewAlertDestination(data=WEBHOOK, event_kinds=FIRING), configuration=configuration)
+
+        assert list_alert_destinations(team_id=self.team.id, configuration_id=configuration.id) == ()
 
     @parameterized.expand(
         [

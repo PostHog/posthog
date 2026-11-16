@@ -38,6 +38,13 @@ _SCORERS: dict[str, dict[str, OfflineScorer]] = {
         ),
         "project_route_match": OfflineScorer(kind="boolean", version=UUID("01a1557d-37df-756c-a5fb-73edde0b1561")),
     },
+    "repo_selection_routing": {
+        "exit_code_zero": OfflineScorer(kind="boolean", version=UUID("01a1a29b-30cf-7fef-907b-69efc56159bb")),
+        "routing_stage_correct": OfflineScorer(kind="boolean", version=UUID("01a1a29b-32a3-7dfc-b5b7-33931ddc73ac")),
+        "routing_repository_correct": OfflineScorer(
+            kind="boolean", version=UUID("01a1a29b-3447-794a-afcb-83778635c273")
+        ),
+    },
     "reply_suggestions": {
         "exit_code_zero": OfflineScorer(kind="boolean", version=UUID("01a1557d-49a7-7417-aa9f-4dbe00ec7b47")),
         "no_unasked_buttons": OfflineScorer(kind="boolean", version=UUID("01a1557d-5b16-755e-ab88-b824e5103a97")),

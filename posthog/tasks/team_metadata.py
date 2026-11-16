@@ -18,6 +18,7 @@ from posthog.storage.team_metadata_cache import (
     cleanup_stale_expiry_tracking,
     get_cache_stats,
     refresh_expiring_caches,
+    team_metadata_hypercache,
     update_team_metadata_cache,
 )
 from posthog.tasks.utils import CeleryQueue
@@ -83,6 +84,25 @@ def update_related_teams_metadata_cache_task(organization_id: int | None = None,
             error=str(e),
         )
         raise
+
+
+# The task retries because no rebuild repairs an entry whose token no longer belongs to a team.
+@shared_task(
+    ignore_result=True,
+    queue=CeleryQueue.DEFAULT.value,
+    autoretry_for=(Exception,),
+    retry_backoff=True,
+    retry_backoff_max=900,
+    max_retries=10,
+)
+@skip_team_scope_audit
+def clear_team_metadata_cache_for_token_task(api_token: str) -> None:
+    """Clear the metadata cache entry for a token that no longer belongs to a team, from Redis and S3.
+
+    The task takes the token because the Team row may be gone, and then no query can find the token from a team id.
+    """
+    # strict_mirror raises on a failed delete of the shared Redis copy too, so the task retries it.
+    team_metadata_hypercache.delete_cache_entry(api_token, strict_mirror=True)
 
 
 @shared_task(ignore_result=True, queue=CeleryQueue.DEFAULT.value)

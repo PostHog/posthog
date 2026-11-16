@@ -13,6 +13,7 @@ import type {
 import {
     ExperimentDataWarehouseNode,
     ExperimentExposureNode,
+    ExperimentWarehouseNativeNode,
     ExperimentMetricType,
     ExperimentStatsValidationFailure,
     NodeKind,
@@ -34,7 +35,12 @@ export const getMetricTag = (metric: ExperimentMetric | ExperimentTrendsQuery | 
     return 'Trend'
 }
 
-type MetricSource = EventsNode | ActionsNode | ExperimentDataWarehouseNode | ExperimentExposureNode
+type MetricSource =
+    | EventsNode
+    | ActionsNode
+    | ExperimentDataWarehouseNode
+    | ExperimentWarehouseNativeNode
+    | ExperimentExposureNode
 
 const getDefaultName = (source: MetricSource): string | null | undefined => {
     switch (source.kind) {
@@ -44,6 +50,8 @@ const getDefaultName = (source: MetricSource): string | null | undefined => {
             return source.name || `Action ${source.id}`
         case NodeKind.ExperimentDataWarehouseNode:
             return source.table_name
+        case NodeKind.ExperimentWarehouseNativeNode:
+            return source.custom_name || 'Warehouse-native query'
         case NodeKind.ExperimentExposureNode:
             return 'Exposure'
     }

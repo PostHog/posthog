@@ -61,8 +61,13 @@ def mcp_advertised_scopes() -> list[str]:
     return [scope for scope in get_oauth_scopes_supported() if ":" not in scope or scope in required]
 
 
-def build_oauth_mcp_consent_context(resource_url: str | None) -> OAuthMcpConsentContext | None:
+def build_oauth_mcp_consent_context(
+    resource_url: str | None, scopes: list[str] | None = None
+) -> OAuthMcpConsentContext | None:
+    """`scopes` replaces the advertised set when the server already resolved what the screen lists."""
     if not resource_url or not is_trusted_posthog_mcp_resource(resource_url):
         return None
 
-    return OAuthMcpConsentContext(is_mcp_resource=True, scopes=mcp_advertised_scopes())
+    return OAuthMcpConsentContext(
+        is_mcp_resource=True, scopes=scopes if scopes is not None else mcp_advertised_scopes()
+    )

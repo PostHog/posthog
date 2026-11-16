@@ -28,11 +28,14 @@ from posthog.schema import LogEntryPropertyFilter, RecordingsQuery
 
 from posthog.hogql.errors import QueryError
 
+from posthog.clickhouse.client import sync_execute
+from posthog.clickhouse.log_entries import INSERT_LOG_ENTRY_SQL
 from posthog.errors import wrap_clickhouse_query_error
 from posthog.exceptions import ClickHouseAtCapacity, ClickHouseQueryMemoryLimitExceeded
-from posthog.models import Organization, SessionRecording, User
+from posthog.models import Organization, PersonalAPIKey, SessionRecording, User
+from posthog.models.event.util import format_clickhouse_timestamp
 from posthog.models.team import Team
-from posthog.models.utils import uuid7
+from posthog.models.utils import generate_random_token_personal, hash_key_value, uuid7
 from posthog.session_recordings.models.session_recording_event import SessionRecordingViewed
 from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
 from posthog.session_recordings.session_recording_api import RecordingsListingResult
@@ -894,6 +897,127 @@ class TestSessionRecordings(APIBaseTest, ClickhouseTestMixin, QueryMatchingTest)
             "viewed": True,
             "other_viewers": 0,
         }
+
+    def _insert_console_log(self, session_id: str, timestamp: datetime, level: str, message: str, team_id=None):
+        sync_execute(
+            INSERT_LOG_ENTRY_SQL,
+            {
+                "team_id": team_id or self.team.pk,
+                "log_source": "session_replay",
+                "log_source_id": session_id,
+                "instance_id": "",
+                "timestamp": format_clickhouse_timestamp(timestamp),
+                "level": level,
+                "message": message,
+            },
+        )
+
+    @parameterized.expand(
+        [
+            ("all_levels", {}, None, ["first", "second", "third", "fourth"], False),
+            ("level_filter", {"level": "error"}, None, ["second", "fourth"], False),
+            ("first_page", {"limit": 2}, None, ["first", "second"], True),
+            ("last_page", {"limit": 2, "offset": 2}, None, ["third", "fourth"], False),
+            ("after_offset", {}, {"after": 15}, ["third", "fourth"], False),
+            ("before_offset", {}, {"before": 15}, ["first", "second"], False),
+            ("after_past_recording_end", {}, {"after": 3600}, [], False),
+        ]
+    )
+    def test_console_logs(
+        self,
+        _name: str,
+        params: dict,
+        offsets_seconds: dict[str, int] | None,
+        expected_messages: list[str],
+        expected_has_more: bool,
+    ):
+        session_id = str(uuid7())
+        base_time = (now() - relativedelta(days=1)).replace(microsecond=0)
+        produce_replay_summary(
+            session_id=session_id,
+            team_id=self.team.pk,
+            first_timestamp=base_time,
+            last_timestamp=base_time + relativedelta(seconds=30),
+            distinct_id="d1",
+            ensure_analytics_event_in_session=False,
+            retention_period_days=30,
+        )
+        self._insert_console_log(session_id, base_time + relativedelta(seconds=20), "info", "third")
+        self._insert_console_log(session_id, base_time + relativedelta(seconds=1), "info", "first")
+        self._insert_console_log(session_id, base_time + relativedelta(seconds=10), "error", "second")
+        self._insert_console_log(session_id, base_time + relativedelta(seconds=25), "error", "fourth")
+        self._insert_console_log("other-session", base_time + relativedelta(seconds=5), "error", "other session")
+        other_team = Team.objects.create(organization=self.organization)
+        self._insert_console_log(session_id, base_time + relativedelta(seconds=5), "error", "other team", other_team.pk)
+        self._insert_console_log(session_id, base_time - relativedelta(hours=2), "error", "outside recording")
+
+        for key, seconds in (offsets_seconds or {}).items():
+            params = {**params, key: (base_time + relativedelta(seconds=seconds)).isoformat()}
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/session_recordings/{session_id}/console_logs?{urlencode(params)}"
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        body = response.json()
+        assert [entry["message"] for entry in body["results"]] == expected_messages
+        assert body["has_more"] is expected_has_more
+        assert body["logs_expired"] is False
+
+    def test_console_logs_truncates_long_messages(self):
+        session_id = str(uuid7())
+        base_time = (now() - relativedelta(days=1)).replace(microsecond=0)
+        produce_replay_summary(
+            session_id=session_id,
+            team_id=self.team.pk,
+            first_timestamp=base_time,
+            last_timestamp=base_time + relativedelta(seconds=30),
+            distinct_id="d1",
+            ensure_analytics_event_in_session=False,
+            retention_period_days=30,
+        )
+        self._insert_console_log(session_id, base_time + relativedelta(seconds=1), "info", "é" * 3000)
+        self._insert_console_log(session_id, base_time + relativedelta(seconds=2), "info", "é" * 3001)
+
+        response = self.client.get(f"/api/projects/{self.team.id}/session_recordings/{session_id}/console_logs")
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert [(entry["message"], entry["truncated"]) for entry in response.json()["results"]] == [
+            ("é" * 3000, False),
+            ("é" * 3000, True),
+        ]
+
+    def test_console_logs_404s_for_missing_recording(self):
+        response = self.client.get(f"/api/projects/{self.team.id}/session_recordings/{uuid7()}/console_logs")
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+
+    def test_console_logs_accepts_read_scoped_personal_api_key(self):
+        session_id = str(uuid7())
+        base_time = (now() - relativedelta(days=1)).replace(microsecond=0)
+        produce_replay_summary(
+            session_id=session_id,
+            team_id=self.team.pk,
+            first_timestamp=base_time,
+            last_timestamp=base_time + relativedelta(seconds=30),
+            distinct_id="d1",
+            ensure_analytics_event_in_session=False,
+            retention_period_days=30,
+        )
+        personal_api_key = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="Test Key",
+            user=self.user,
+            secure_value=hash_key_value(personal_api_key),
+            scopes=["session_recording:read"],
+            scoped_teams=[self.team.pk],
+        )
+        self.client.logout()
+
+        response = self.client.get(
+            f"/api/projects/{self.team.id}/session_recordings/{session_id}/console_logs",
+            HTTP_AUTHORIZATION=f"Bearer {personal_api_key}",
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
 
     def test_capture_diagnostics_degrades_gracefully_on_clickhouse_error(self):
         session_recording_id = "session_1"

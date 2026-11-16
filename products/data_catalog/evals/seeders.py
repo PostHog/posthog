@@ -68,6 +68,8 @@ from products.data_catalog.evals.constants import (
     DRIFTED_INSIGHT_ORIGINAL_QUERY,
     DRIFTED_METRIC_DESCRIPTION,
     DRIFTED_METRIC_NAME,
+    DRIFTED_MISMATCHED_INSIGHT_MUTATED_QUERY,
+    DRIFTED_MISMATCHED_INSIGHT_ORIGINAL_QUERY,
     FAILING_TOP_CUSTOMERS_METRIC_DEFINITION,
     FEEDBACK_BY_SURVEY_METRIC_DEFINITION,
     FEEDBACK_BY_SURVEY_METRIC_DESCRIPTION,
@@ -102,6 +104,10 @@ from products.data_catalog.evals.constants import (
     PROPOSED_METRIC_DEFINITION,
     PROPOSED_METRIC_DESCRIPTION,
     PROPOSED_METRIC_NAME,
+    PROPOSED_UPLOADERS_METRIC_DEFINITION,
+    PROPOSED_UPLOADERS_METRIC_DESCRIPTION,
+    PROPOSED_UPLOADERS_METRIC_NAME,
+    PROPOSED_UPLOADERS_MISMATCHED_DEFINITION,
     RELATIONSHIP_DECOY_TARGET_NAME,
     RELATIONSHIP_SOURCE_KEY,
     RELATIONSHIP_SOURCE_NAME,
@@ -177,8 +183,10 @@ __all__ = [
     "seed_instruction_like_relationship_context",
     "seed_metric_listing_catalog",
     "seed_mcp_tool_call_fail_pct_metric",
+    "seed_mismatched_drifted_metric",
+    "seed_mismatched_proposed_uploaders_metric",
     "seed_operational_metric",
-    "seed_proposed_metric",
+    "seed_proposed_uploaders_metric",
     "seed_subscription_snapshot_tables",
     "seed_synced_invoices_table",
     "seed_synced_time_off_table",
@@ -511,22 +519,38 @@ def seed_proposed_growth_with_approved_mrr(context: CustomPromptSandboxContext) 
     }
 
 
-def seed_proposed_metric(context: CustomPromptSandboxContext) -> dict[str, Any]:
+def _seed_proposed_uploaders_metric(context: CustomPromptSandboxContext, definition: dict) -> dict[str, Any]:
     team, user = _team_and_user(context)
     upsert_metric(
         team=team,
         user=user,
-        name=PROPOSED_METRIC_NAME,
-        description=PROPOSED_METRIC_DESCRIPTION,
-        definition=PROPOSED_METRIC_DEFINITION,
+        name=PROPOSED_UPLOADERS_METRIC_NAME,
+        description=PROPOSED_UPLOADERS_METRIC_DESCRIPTION,
+        definition=definition,
         overwrite=True,
     )
-    return {"metric": {"name": PROPOSED_METRIC_NAME, "status": "proposed"}}
+    return {
+        "metric": {
+            "name": PROPOSED_UPLOADERS_METRIC_NAME,
+            "status": "proposed",
+            "definition_query": definition["query"],
+        }
+    }
 
 
-def seed_drifted_metric(context: CustomPromptSandboxContext) -> dict[str, Any]:
+def seed_proposed_uploaders_metric(context: CustomPromptSandboxContext) -> dict[str, Any]:
+    return _seed_proposed_uploaders_metric(context, PROPOSED_UPLOADERS_METRIC_DEFINITION)
+
+
+def seed_mismatched_proposed_uploaders_metric(context: CustomPromptSandboxContext) -> dict[str, Any]:
+    return _seed_proposed_uploaders_metric(context, PROPOSED_UPLOADERS_MISMATCHED_DEFINITION)
+
+
+def _seed_drifted_metric(
+    context: CustomPromptSandboxContext, original_query: dict, mutated_query: dict
+) -> dict[str, Any]:
     team, user = _team_and_user(context)
-    insight = Insight.objects.create(team=team, created_by=user, query=DRIFTED_INSIGHT_ORIGINAL_QUERY)
+    insight = Insight.objects.create(team=team, created_by=user, query=original_query)
     metric = upsert_metric(
         team=team,
         user=user,
@@ -537,8 +561,25 @@ def seed_drifted_metric(context: CustomPromptSandboxContext) -> dict[str, Any]:
     )
     approve_metric(metric, user)
     # Mutating the source insight after approval is what makes the metric read as drifted.
-    Insight.objects.filter(pk=insight.pk).update(query=DRIFTED_INSIGHT_MUTATED_QUERY)
-    return {"metric": {"name": DRIFTED_METRIC_NAME, "status": "approved", "is_drifted": True}}
+    Insight.objects.filter(pk=insight.pk).update(query=mutated_query)
+    return {
+        "metric": {
+            "name": DRIFTED_METRIC_NAME,
+            "status": "approved",
+            "is_drifted": True,
+            "definition_query": original_query["query"],
+        }
+    }
+
+
+def seed_drifted_metric(context: CustomPromptSandboxContext) -> dict[str, Any]:
+    return _seed_drifted_metric(context, DRIFTED_INSIGHT_ORIGINAL_QUERY, DRIFTED_INSIGHT_MUTATED_QUERY)
+
+
+def seed_mismatched_drifted_metric(context: CustomPromptSandboxContext) -> dict[str, Any]:
+    return _seed_drifted_metric(
+        context, DRIFTED_MISMATCHED_INSIGHT_ORIGINAL_QUERY, DRIFTED_MISMATCHED_INSIGHT_MUTATED_QUERY
+    )
 
 
 def seed_definition_insight(context: CustomPromptSandboxContext) -> dict[str, Any]:

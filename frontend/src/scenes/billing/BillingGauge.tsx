@@ -4,15 +4,11 @@ import clsx from 'clsx'
 import { useMemo } from 'react'
 
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
+import { isUsageAtOrOverLimit } from 'lib/logic/billing/usageLimits'
 
 import { BillingProductV2AddonType, BillingProductV2Type } from '~/types'
 
-import {
-    createProductValueFormatter,
-    formatDisplayUsage,
-    hasDisplayFormatting,
-    isUsageAtOrOverLimit,
-} from './billing-utils'
+import { createProductValueFormatter, formatDisplayUsage, hasDisplayFormatting } from './billing-utils'
 import { BillingGaugeItemType } from './types'
 
 /*

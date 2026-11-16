@@ -33,7 +33,7 @@ class TestSendQuarantineNotice:
                 "products.visual_review.backend.logic.owners.resolve_path_owners",
                 return_value=PathOwnership(team_by_path={_SOURCE_PATH: "team-devex"}, registry={}, resolved=True),
             ) as owners,
-            patch(f"{channels}.Integration") as integration,
+            patch(f"{channels}.IntegrationManager") as manager,
             patch(f"{channels}.SlackIntegration") as slack,
             patch(
                 f"{channels}.fetch_channel_map",
@@ -41,7 +41,7 @@ class TestSendQuarantineNotice:
             ) as channel_map,
             patch(f"{channels}.post_with_join", return_value="1700000000.1") as post,
         ):
-            integration.objects.filter.return_value.first.return_value = MagicMock()
+            manager.slack.oauth.find.return_value = MagicMock()
             slack.return_value.client.conversations_info.return_value = {"channel": {"is_shared": False}}
             post.slack = slack
             post.owners = owners

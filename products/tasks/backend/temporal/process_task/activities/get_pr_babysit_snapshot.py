@@ -5,6 +5,7 @@ from django.core.exceptions import ObjectDoesNotExist
 from temporalio import activity
 
 from posthog.egress.github.transport import GitHubEgressBudgetExhausted, GitHubRateLimitError
+from posthog.integrations import IntegrationNotFound
 from posthog.models.integration import GitHubIntegration
 from posthog.models.user_integration import UserGitHubIntegration
 from posthog.temporal.common.utils import close_db_connections
@@ -52,10 +53,10 @@ def get_pr_babysit_snapshot(input: GetPrBabysitSnapshotInput) -> PRSnapshot | No
         try:
             github_integration: GitHubIntegration | UserGitHubIntegration
             if ctx.github_integration_id:
-                github_integration = get_github_integration(ctx.github_integration_id)
+                github_integration = get_github_integration(ctx.team_id, ctx.github_integration_id)
             else:
                 github_integration = get_user_github_integration(str(ctx.github_user_integration_id))
-        except ObjectDoesNotExist:
+        except (ObjectDoesNotExist, IntegrationNotFound):
             activity.logger.warning(
                 "get_pr_babysit_snapshot_github_integration_not_found",
                 extra={

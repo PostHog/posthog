@@ -2,7 +2,6 @@ import { Meta, StoryObj } from '@storybook/react'
 import { within } from '@testing-library/dom'
 import userEvent from '@testing-library/user-event'
 
-import { FEATURE_FLAGS } from 'lib/constants'
 import { App } from 'scenes/App'
 import { urls } from 'scenes/urls'
 
@@ -105,6 +104,12 @@ const HELPFULNESS = passRateResult(uuid(1), 'Helpfulness', 91.4, 92.0, 140)
 const GROUNDEDNESS = passRateResult(uuid(2), 'Answer is grounded in context', 78.2, 86.5, 90, 4)
 const TONE = passRateResult(uuid(3), 'Polite tone', 97.1, 96.4, 60, 1)
 const NEW_CHECK = passRateResult(uuid(4), 'Refuses off-topic requests', 70, null, 1)
+// Names that only differ at the end, which a plain truncation hides.
+const SIMILAR_NAMES = [
+    passRateResult(uuid(21), 'Answer is grounded in the retrieved tool results', 61.5, 63.0, 80, 3),
+    passRateResult(uuid(22), 'Answer is grounded in the retrieved tool results (fast model)', 82.4, 81.0, 70, 2),
+    passRateResult(uuid(23), 'Answer is grounded in the retrieved tool results (decision model)', 90.2, 89.5, 60, 2),
+]
 
 const SENTIMENT_VALUES = wave(14, 3, 1)
 const SENTIMENT = result({
@@ -371,7 +376,6 @@ const meta: Meta = {
         viewMode: 'story',
         mockDate: '2026-10-20',
         pageUrl: urls.aiObservabilityEvaluations(),
-        featureFlags: [FEATURE_FLAGS.AI_OBSERVABILITY_EVALUATIONS_OVERVIEW],
         testOptions: { waitForLoadersToDisappear: true },
     },
 }
@@ -429,3 +433,5 @@ export const RateLimited: Story = { decorators: [scene(MANY, { rateLimited: true
 export const TwoEvaluations: Story = { decorators: [scene([GROUNDEDNESS, TONE])] }
 
 export const NothingGraded: Story = { decorators: [scene([SILENT, PAUSED])] }
+
+export const SimilarNames: Story = { decorators: [scene(SIMILAR_NAMES)] }

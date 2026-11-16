@@ -1,6 +1,8 @@
 import { useActions, useValues } from 'kea'
 import { useCallback, useMemo } from 'react'
 
+import 'lib/components/Cards/InsightCard/InsightCard.scss'
+
 import { InsightVizNode, NodeKind, ProductKey, TrendsQuery } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
 import {

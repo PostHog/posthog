@@ -8,15 +8,13 @@ pattern in ``intent_generation.py``.
 import re
 from enum import StrEnum
 
-from django.conf import settings
-
 import openai
 import structlog
-import posthoganalytics
-from posthoganalytics.ai.openai import OpenAI
+from openai import OpenAI
 from pydantic import BaseModel, ValidationError
 
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
+from posthog.llm.gateway_client import build_openai_client, resolve_ai_gateway_config
 from posthog.models.team.team import Team
 
 logger = structlog.get_logger(__name__)
@@ -160,7 +158,6 @@ def _build_batch_prompt(messages: list[str]) -> str:
 def _call_llm(client: OpenAI, messages: list[str], team: Team) -> ClassificationBatch:
     response = client.chat.completions.create(
         model=FAILURE_CLASS_MODEL,
-        temperature=0,
         timeout=30,
         messages=[
             {"role": "system", "content": SYSTEM_PROMPT},
@@ -168,7 +165,6 @@ def _call_llm(client: OpenAI, messages: list[str], team: Team) -> Classification
         ],
         response_format={"type": "json_object"},
         user=f"team/{team.id}/mcp-analytics-failure-classifier",
-        posthog_properties={"ai_product": "mcp_analytics", "ai_feature": "failure-classification"},
     )
     content = response.choices[0].message.content if response.choices else None
     if not content:
@@ -216,7 +212,14 @@ def classify_fingerprints(messages_by_fingerprint: dict[str, str], team: Team) -
     if not team.organization.is_ai_data_processing_approved:
         raise FailureClassificationUnavailable("AI data processing is not approved for this organization")
 
-    client = OpenAI(posthog_client=posthoganalytics.default_client, base_url=settings.OPENAI_BASE_URL)
+    if resolve_ai_gateway_config() is None:
+        raise FailureClassificationUnavailable("AI gateway is not configured")
+    client = build_openai_client(
+        "django",
+        ai_product="mcp_analytics",
+        properties={"ai_feature": "failure-classification"},
+        distinct_id=f"team/{team.id}/mcp-analytics-failure-classifier",
+    )
     items = list(messages_by_fingerprint.items())
     result: dict[str, str] = {}
     with tags_context(
