@@ -3,6 +3,7 @@ import { forms } from 'kea-forms'
 import type { DeepPartialMap, ValidationErrorType } from 'kea-forms'
 import type { DeepPartial, FieldName } from 'kea-forms'
 
+import { ApiError } from 'lib/api-error'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
@@ -335,6 +336,17 @@ export const destinationModalLogic = kea<destinationModalLogicType>([
                 },
                 secondaryButton: { children: 'Cancel' },
             })
+        },
+        // The server tests a new destination's connection before it saves. kea-forms swallows a
+        // rejected submit, so the reason has to be shown here or the modal gives no feedback.
+        submitDestinationFormFailure: ({ error }: { error: Error }) => {
+            // A client-side validation failure lands here too, and its fields already show the errors.
+            if (!(error instanceof ApiError)) {
+                return
+            }
+            lemonToast.error(
+                error.detail ?? "Couldn't save this destination. Check the connection details, then try again."
+            )
         },
         openForCreate: () => {
             actions.loadIntegrations()

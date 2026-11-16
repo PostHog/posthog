@@ -1,5 +1,9 @@
+import { execFileSync } from 'child_process'
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'fs'
 import http from 'http'
 import { AddressInfo } from 'net'
+import os from 'os'
+import path from 'path'
 
 import { githubOrigin } from './origin'
 
@@ -43,5 +47,39 @@ describe('githubOrigin', () => {
         ['0'.repeat(40), 'GitHub does not know', false],
     ])('answers whether commit %s, which %s, is on master', async (commit, _, onMaster) => {
         await expect(githubOrigin(api).onMaster(commit)).resolves.toBe(onMaster)
+    })
+
+    it('reads a card as the commit holds it, never as the working tree holds it', () => {
+        const repo = mkdtempSync(path.join(os.tmpdir(), 'scenario-origin-'))
+        const cards = path.join(repo, 'nodejs', 'tests', 'scenarios', 'cards')
+        const git = (...args: string[]): string => execFileSync('git', args, { cwd: repo, encoding: 'utf8' }).trim()
+        try {
+            mkdirSync(cards, { recursive: true })
+            git('init', '-q')
+            writeFileSync(path.join(cards, 'committed.yaml'), 'id: committed\n')
+            git('add', '.')
+            git(
+                '-c',
+                'user.name=Scenario',
+                '-c',
+                'user.email=scenario@example.com',
+                '-c',
+                'commit.gpgsign=false',
+                'commit',
+                '-q',
+                '-m',
+                'card'
+            )
+            const head = git('rev-parse', 'HEAD')
+            writeFileSync(path.join(cards, 'committed.yaml'), 'id: edited\n')
+            writeFileSync(path.join(cards, 'untracked.yaml'), 'id: untracked\n')
+            const origin = githubOrigin(api, repo)
+
+            expect(origin.head()).toBe(head)
+            expect(origin.cardAt(head, 'committed')).toBe('id: committed\n')
+            expect(() => origin.cardAt(head, 'untracked')).toThrow(/untracked\.yaml/)
+        } finally {
+            rmSync(repo, { recursive: true, force: true })
+        }
     })
 })

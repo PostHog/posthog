@@ -5,6 +5,10 @@ import path from 'path'
 import { Client } from 'pg'
 import { stringify } from 'yaml'
 
+import { residentBacklogOf } from '../backlog/backlog'
+import { defaultStateDir } from '../environment/environment'
+import { residentBacklogIntact } from '../judge/invariants'
+
 const SCRIPT = path.join(__dirname, 'host-prepare.sh')
 const REPO = path.resolve(__dirname, '../../../..')
 const RUN_ID = '00000000-0000-4000-8000-000000000001'
@@ -92,7 +96,6 @@ describe('host-prepare.sh', () => {
                 SCENARIO_RUN_ID: RUN_ID,
                 SCENARIO_EVIDENCE_BUCKET: BUCKET,
                 SCENARIO_HOST_ROOT: path.join(dir, 'host'),
-                XDG_CACHE_HOME: path.join(dir, 'cache'),
                 FAKE_S3: path.join(dir, 's3'),
                 REAL_SQLX: realSqlx,
                 REAL_PNPM: realPnpm,
@@ -126,8 +129,21 @@ describe('host-prepare.sh', () => {
         await onPostgres(ADMIN_URL, (client) => client.query(`DROP DATABASE IF EXISTS ${database} WITH (FORCE)`))
     })
 
-    it('migrates and seeds the run cluster with its encoded credentials', async () => {
+    it('migrates and seeds the run cluster with its encoded credentials, recording the backlog where the card reads it', async () => {
         expect(prepareHost({})).toBe(0)
+
+        const cardStateDir = defaultStateDir({ XDG_CACHE_HOME: path.join(dir, 'host', 'cache') })
+        const resident = await residentBacklogOf(
+            { name: 'resident', backlog: BACKLOG },
+            cardStateDir,
+            `postgres://posthog:posthog@localhost:5432/${database}`
+        )
+        expect(
+            residentBacklogIntact.check(
+                { journal: [], truth: [], fetchRetries: 0, resident, janitorResets: 0 },
+                undefined
+            )
+        ).toMatchObject({ passed: true })
 
         const { applied, seeded } = await onPostgres(
             `postgres://posthog:posthog@localhost:5432/${database}`,

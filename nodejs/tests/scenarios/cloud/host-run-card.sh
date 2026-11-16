@@ -1,7 +1,6 @@
 #!/usr/bin/env bash
 set -uo pipefail
 
-CARD=cyclotron-failover-under-load
 INVALID=2
 
 export HOME="${HOME:-/root}"
@@ -51,7 +50,10 @@ mkdir -p "$evidence"
 trap stop TERM INT
 trap finish EXIT
 mark started "{\"at\":\"$(now)\"}" || exit
-(cd "$repo/nodejs" && exec node --import tsx tests/scenarios/main.ts run "$CARD" --profile "$input/runner-profile.yaml") >"$evidence/card.log" 2>&1 &
+card_id=$(jq -r '.card // empty' "$SCENARIO_RUN_MANIFEST") && [[ $card_id =~ ^[a-z0-9]+(-[a-z0-9]+)*$ ]] || exit
+SCENARIO_POOLER_URLS=$(cat "$root/pooler/urls") || exit
+export SCENARIO_POOLER_URLS
+(cd "$repo/nodejs" && exec node --import tsx tests/scenarios/main.ts run "$card_id" --profile "$input/runner-profile.yaml") >"$evidence/card.log" 2>&1 &
 card=$!
 while kill -0 "$card" 2>/dev/null; do
     wait "$card"

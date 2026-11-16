@@ -478,3 +478,16 @@ export function liveDemoState(): LiveDemoState {
     const value = __DEV__ ? process.env.EXPO_PUBLIC_DEMO_LIVE_STATE : undefined
     return value === 'app_only' || value === 'mixed' || value === 'quiet' || value === 'not_set_up' ? value : 'web'
 }
+
+export function demoLiveEventProperties(event: { event: string }): Record<string, unknown> {
+    if (event.event.startsWith('$')) {
+        return { plan: 'pro', signed_in: true }
+    }
+    return {
+        file_type: 'pdf',
+        file_size_bytes: 245760,
+        plan: 'pro',
+        shared: false,
+        tags: ['design', 'review'],
+    }
+}
