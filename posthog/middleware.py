@@ -630,6 +630,36 @@ def request_route(request: HttpRequest) -> str:
     return route_template(match.route)
 
 
+_ENVOY_STAMP = re.compile(r"t=(\d+(?:\.\d+)?)")
+# No proxy in front of Django holds a request for this long, so an older stamp is not from Envoy.
+_MAX_REQUEST_QUEUE_SECONDS = 3600
+
+
+def request_queue_seconds(request_start: str | None, now: float) -> float | None:
+    """Seconds between Envoy receiving a request and Django starting to handle it.
+
+    `request_start` is the `X-Request-Start` header. Contour makes Envoy add it to every request
+    as `t=<epoch seconds>`. Returns None when no proxy stamped the request.
+    """
+    stamps = _ENVOY_STAMP.findall(request_start or "")
+    if not stamps:
+        return None
+    # Envoy appends its stamp after any value the client sent, so only the last stamp is trusted.
+    elapsed = now - float(stamps[-1])
+    # The lower bound allows for a small clock difference between the Envoy host and this host.
+    if not -1 <= elapsed <= _MAX_REQUEST_QUEUE_SECONDS:
+        return None
+    return max(elapsed, 0.0)
+
+
+REQUEST_QUEUE_TIME_SECONDS = Histogram(
+    "posthog_request_queue_time_seconds",
+    "Time a request waited between Envoy and Django, labelled to expose API key vs browser traffic.",
+    labelnames=["access_method"],
+    buckets=(0.01, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0, 20.0, 30.0, 60.0, 120.0, 300.0, float("inf")),
+)
+
+
 API_REQUESTS_LATENCY_SECONDS = Histogram(
     "posthog_api_requests_latency_seconds",
     "Latency of api/ requests, labelled to expose agent vs browser traffic.",
@@ -670,6 +700,7 @@ class CHQueries:
         If monkey-patch has not been run in for this process (assuming multiple preforked processes),
         then do it now.
         """
+        queue_seconds = request_queue_seconds(request.headers.get("x-request-start"), time.time())
         is_api_request = "api/" in request.path and "capture" not in request.path
 
         user = cast(User, request.user)
@@ -681,6 +712,7 @@ class CHQueries:
 
         tag_queries(
             http_request_id=http_request_id,
+            request_queue_ms=None if queue_seconds is None else round(queue_seconds * 1000),
             user_id=user.pk,
             kind="request",
             id=request.path,
@@ -729,6 +761,10 @@ class CHQueries:
                     status_class=status_class,
                 ).observe(time.perf_counter() - start)
                 record_current_alias_use(request, route=request_route(request), status_class=status_class)
+            if queue_seconds is not None:
+                REQUEST_QUEUE_TIME_SECONDS.labels(access_method=get_query_tag_value("access_method") or "").observe(
+                    queue_seconds
+                )
             reset_query_tags()
 
     def process_view(
