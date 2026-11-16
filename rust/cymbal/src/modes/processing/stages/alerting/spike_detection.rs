@@ -359,7 +359,6 @@ fn get_bucket_timestamps(now: DateTime<Utc>) -> Vec<String> {
         .collect()
 }
 
-/// Number of buckets before the current one, starting with the bucket the issue was created in.
 fn buckets_since_issue_creation(
     issue_created_at: DateTime<Utc>,
     current_bucket_start: DateTime<Utc>,
@@ -908,10 +907,6 @@ mod tests {
         assert_eq!(result[0].current_bucket_value, 600);
     }
 
-    // The issue has existed for longer than the bucket window and was quiet until the previous bucket.
-    // ISSUE BUCKETS (most recent first): 2000, 330
-    // The 10 missing buckets count as zero, so issue baseline = 330/11 = 30
-    // Current = 2000, spike threshold = 300, so SPIKING
     #[tokio::test]
     async fn test_quiet_existing_issue_ramp_spikes() {
         let mut ctx = TestContext::new();
@@ -934,7 +929,6 @@ mod tests {
         let mut two_active = one_active.clone();
         two_active[1] = Some(270);
 
-        // (historical buckets, buckets since creation, expected baseline)
         let cases = [
             (&one_active, 500, 30.0),
             (&one_active, 11, 30.0),
