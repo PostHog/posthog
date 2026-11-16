@@ -103,8 +103,11 @@ class RepartitionOutcome:
         return self.refusal is None
 
 
-class _Busy(Exception):
-    pass
+class _Refused(Exception):
+    def __init__(self, refusal: RepartitionRefusal, message: str) -> None:
+        super().__init__(message)
+        self.refusal = refusal
+        self.message = message
 
 
 def build_repartition_target(
@@ -136,6 +139,10 @@ def build_repartition_target(
         unknown = _unknown_columns(schema, keys)
         if unknown:
             return f"Unknown partitioning key(s): {', '.join(unknown)}. Choose columns of the synced table."
+        masked = {str(column).lower() for column in schema.masked_columns or []}
+        masked_keys = [key for key in keys if key.lower() in masked]
+        if masked_keys:
+            return f"Masked columns can't be partitioning keys: {', '.join(masked_keys)}."
 
     if new_mode == "datetime":
         if keys:
@@ -168,6 +175,10 @@ def build_repartition_target(
             return "partition_size is required."
         if request.partition_size < 1:
             return "partition_size must be at least 1."
+        if trigger_reason == "user":
+            min_size = _min_user_partition_size(schema)
+            if request.partition_size < min_size:
+                return f"partition_size must be at least {min_size:,} for this table."
         staged["partition_size_override"] = request.partition_size
         label_bits.append(f"partition_size={request.partition_size}")
     elif new_mode == "md5":
@@ -206,6 +217,13 @@ def build_repartition_target(
             "attempts": 0,
         },
     )
+
+
+def _min_user_partition_size(schema: ExternalDataSchema) -> int:
+    # Keeps a dense integer key to about MAX_USER_PARTITION_COUNT buckets.
+    table = schema.table
+    row_count = table.row_count if table is not None else None
+    return max(1, math.ceil((row_count or 0) / MAX_USER_PARTITION_COUNT))
 
 
 def _unknown_columns(schema: ExternalDataSchema, keys: list[str]) -> list[str]:
@@ -338,9 +356,19 @@ def _limits_refusal(schema: ExternalDataSchema) -> tuple[RepartitionRefusal, str
         return RepartitionRefusal.UNSUPPORTED, "Tables synced with change data capture can't be repartitioned."
     if not schema.should_sync:
         return RepartitionRefusal.UNSUPPORTED, "Turn on syncing for this table first."
-    if _is_busy(schema.sync_type_config or {}):
+    # A run started while another sync holds the table's lock exits without a job, so nothing would resume the
+    # schedule this request pauses.
+    if ExternalDataJob.objects.filter(
+        team_id=schema.team_id, schema_id=schema.id, status=ExternalDataJob.Status.RUNNING
+    ).exists():
+        return RepartitionRefusal.BUSY, "A sync is running for this table. Try again when it finishes."
+    return _config_refusal(schema.sync_type_config or {})
+
+
+def _config_refusal(config: dict[str, Any]) -> tuple[RepartitionRefusal, str] | None:
+    if _is_busy(config):
         return RepartitionRefusal.BUSY, "A repartition is already queued or running for this table."
-    remaining = cooldown_seconds_remaining(schema)
+    remaining = cooldown_seconds_remaining(ExternalDataSchema(sync_type_config=config))
     if remaining > 0:
         hours = math.ceil(remaining / 3600)
         return (
@@ -447,9 +475,11 @@ def _pause_save_and_resync(
     previous_marker = (schema.sync_type_config or {}).get("admin_unpause_schedule_after_run")
 
     def stage(config: dict[str, Any]) -> None:
-        # Under the row lock, so two requests cannot both stage a target.
-        if is_user and _is_busy(config):
-            raise _Busy
+        # Under the row lock, so two requests cannot both stage a target, and a rewrite that finished since the
+        # first check still starts the cooldown.
+        refusal = _config_refusal(config) if is_user else None
+        if refusal is not None:
+            raise _Refused(*refusal)
         config["repartition_pending"] = staged.target
         # Read by `resume_schedule_after_ad_hoc_run` when the run completes.
         if paused_now or previous_marker:
@@ -457,12 +487,10 @@ def _pause_save_and_resync(
 
     try:
         schema.sync_type_config = update_sync_type_config_keys(schema.id, schema.team_id, mutate=stage)
-    except _Busy:
+    except _Refused as refused:
         if paused_now:
             _unpause_quietly(schema)
-        return RepartitionOutcome(
-            refusal=RepartitionRefusal.BUSY, message="A repartition is already queued or running for this table."
-        )
+        return RepartitionOutcome(refusal=refused.refusal, message=refused.message)
 
     # Before the run starts, so the worker's first transition finds this row and its requester.
     on_staged()

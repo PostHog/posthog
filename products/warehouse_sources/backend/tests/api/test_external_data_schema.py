@@ -7184,6 +7184,45 @@ class TestExternalDataSchemaPartitioning(APIBaseTest):
         assert known.status_code == 202, known.json()
         start.assert_called_once()
 
+    def test_repartition_refuses_masked_keys_and_too_fine_numerical_sizes(self) -> None:
+        schema = self._schema()
+        schema.masked_columns = ["email"]
+        schema.table = DataWarehouseTable.objects.create(
+            team=self.team, columns={"id": {"clickhouse": "Int64"}, "email": {"clickhouse": "String"}}, row_count=10_240
+        )
+        schema.save(update_fields=["masked_columns", "table"])
+        numerical = {"partition_mode": "numerical", "partitioning_keys": ["id"]}
+
+        with self._flag(), self._repartition_boundaries(None) as start:
+            masked = self.client.post(
+                self._url(schema, "repartition/"),
+                data={"partition_count": 8, "partitioning_keys": ["email"]},
+                format="json",
+            )
+            too_fine = self.client.post(
+                self._url(schema, "repartition/"), data={**numerical, "partition_size": 9}, format="json"
+            )
+            fine = self.client.post(
+                self._url(schema, "repartition/"), data={**numerical, "partition_size": 10}, format="json"
+            )
+
+        assert (masked.status_code, masked.json()["code"]) == (400, "invalid_scheme")
+        assert (too_fine.status_code, too_fine.json()["code"]) == (400, "invalid_scheme")
+        assert fine.status_code == 202, fine.json()
+        start.assert_called_once()
+
+    def test_repartition_is_refused_while_a_sync_is_running(self) -> None:
+        schema = self._schema()
+        ExternalDataJob.objects.create(
+            team=self.team, pipeline=schema.source, schema=schema, status=ExternalDataJob.Status.RUNNING, rows_synced=0
+        )
+
+        with self._flag(), self._repartition_boundaries({"0": 100}) as start:
+            response = self.client.post(self._url(schema, "repartition/"), data={"partition_count": 8}, format="json")
+
+        assert (response.status_code, response.json()["code"]) == (409, "busy")
+        start.assert_not_called()
+
     def test_repartition_is_refused_while_the_team_is_over_its_billing_limit(self) -> None:
         schema = self._schema()
 
