@@ -10599,9 +10599,9 @@ snapshots:
     scenes-app-analytics--list-filtered--light:
         hash: v1.k794b7964.b7b34bae3c8f34b44cb250ac977a25983fe1dfc64f3e302425797956dbc43e97.-FcxE-cRtDa0h-mFUmFBJbrTJ3Nn8F31_zv1FZeeYOI
     scenes-app-analytics--list-new-insight-dialog--dark:
-        hash: v1.k794b7964.474bc53cb5631c269b9ec01c1e81f0bd80749e47a50e1cb3018501ee27a55c31.-y9HwsuMDjeHvmdgGVSxyAN2Nx9r8LDfci9SXU4Ao08
+        hash: v1.k794b7964.fd8446ef28d7cf6b1b8ded3826a3bb303dd451686f24466b9d31d96515357884.VjliNuA3MOv_ncm315y3omD51varpFvK6AkPRJkDGF8
     scenes-app-analytics--list-new-insight-dialog--light:
-        hash: v1.k794b7964.f9846ec5f4973297d1692b5bcc48798136113f3fe8dc3970f4f97ec1f9c00331.a1NwK4kfKTPsED9WYyOk-IcMegORB13XuJhSRGtAPbA
+        hash: v1.k794b7964.a1c6fd833459792185db81879e118c815bf6353a3c7a1dd23fb3f9cc39511759.WXiPPVhf4lM6BqSw2HbkmGRBi2wiLQBueTvxUUVrNCQ
     scenes-app-analytics--list-no-matches--dark:
         hash: v1.k794b7964.21e9d81b7258aabdb254e00405434be8cd6bd7d743f27ae647bc60ce1d18ce6c.Y-a2M9J7kX1SKPF8XvIU9ZQHJYp_SEEcmJkzXMBa0lE
     scenes-app-analytics--list-no-matches--light:
@@ -11527,21 +11527,21 @@ snapshots:
     scenes-app-data-warehouse-sql-editor--customer-images--light:
         hash: v1.k794b7964.688f6ae78c80b6129283cf1ddd18c3e5dd81865ff591dbedd7692cd092d9b14c.e1KeUIeZQ8LUTlG_Z66pO_9smq5jei3yjlZcWQW5H6E
     scenes-app-data-warehouse-sql-editor--edited-insight--dark:
-        hash: v1.k794b7964.2fc7ade30339fb8c6206e4fe6fc97a3785581fb9902b460b33c926512ca98eed.JMgb4caOndC9O8YeM2-gQCr_EgLRdJWDfj5hlQD4IRg
+        hash: v1.k794b7964.830f8d33641c75dbfeaede4bd29c0edc58f40cdd916677f0baac85ef593ea194.qMsZ5-qJcWXPxpWgXzritzZko4lZ0ep9US04_k4nT0s
     scenes-app-data-warehouse-sql-editor--edited-insight--light:
-        hash: v1.k794b7964.4d82d9cdfe87cff9433e16065df0ac1c7cfbf51388d337bd24b13a04865880f6.VGun-U0ZZYvjeWi568gNuYLIHD11weOqChXy4Kp0shU
+        hash: v1.k794b7964.52d8d9f10372af496b6f127a057cb3f1e80ba3d19e16de9269348be20c207511.AnbKMhD6dlUGObYwkXctGBn_fENXWGG9a1S88DZmDZw
     scenes-app-data-warehouse-sql-editor--edited-insight-legacy-save-menu--dark:
-        hash: v1.k794b7964.283d2701e0828866afe1195ca9d5316a8ec310aa921cf4764a1651bb22ddf080.4kqn_ty62FPSA3EzcoKqmOJuOlcC7iQ4m01pm9MFgGw
+        hash: v1.k794b7964.b56e98a8ec630eca91d2fc02c160571ef7a219be7fdf6c0cbcc0baffd265adcb.E3eATREShWa9P36wCnjS3A4aAQyJkL-4m7u0HF6b1_o
     scenes-app-data-warehouse-sql-editor--edited-insight-legacy-save-menu--light:
-        hash: v1.k794b7964.9727727afc6c13ae2772ef78be62a9c486bfea84e38b25432ad5e24ea64c16cb.jqum7eQzUBe0zMfbQQ98c2OV8KMVeG1Eocz6h868Yn8
+        hash: v1.k794b7964.8ff532e73fb8ff73543271a6aef7d7b7492fe074a493ab6fe003e60fba1655a3.VdktXyLo1gZQGUjcvbyp4m5iBjV5dRHbm6b-q_ckSCI
     scenes-app-data-warehouse-sql-editor--edited-insight-legacy-save-menu-quill--dark:
         hash: v1.k794b7964.566dcc7f78ecf95f5265f35b949a3ac62eeede55f4b3dc9c45d22a4177a9b243.4bS_k0wQk9myMJCJBQ2X9T5taWcWlmAaE987qe172RA
     scenes-app-data-warehouse-sql-editor--edited-insight-legacy-save-menu-quill--light:
         hash: v1.k794b7964.0198aa45ad62ad0f724cbfc05a27a5a7adac7fd2808de53c6e739f5c215ce157.wErzYdH-_Qpi5M4_dR-JRXiz0VJqYfPCJnUt6CUaWYg
     scenes-app-data-warehouse-sql-editor--edited-insight-save-as-flow--dark:
-        hash: v1.k794b7964.330a40979d8c3347c1761f4bbf2a18d703783019c8696bfaa19e54e547ae8851.7SSyMsA6xW47IhKWDtuxRkiV0ttmLd7qRuqemioUlr4
+        hash: v1.k794b7964.9ac93b26e3c39520e9b5fc891d3925c5b774360d51e54a28702bf406537bcbbb.Le9JFcSt4NCOGE-Kyol5Fmw5QXvb3AqthSp0yfbEMco
     scenes-app-data-warehouse-sql-editor--edited-insight-save-as-flow--light:
-        hash: v1.k794b7964.8947d947fbfc434f55108afb4dd16db13a07647c6a8793a535566dd6435303f1.nWb8OvFpjAB-yjZNSFSzSZeFl5JDwhWTZc6Ues0wTXc
+        hash: v1.k794b7964.3b3fdb28bd48e47d3200b25a78d41be5e2e6c5d4bc7e5de46f7e40441026a426.Clv1RGifmRruz0iftDiU3sguBj2nh2gSMxVSiKL-Glo
     scenes-app-data-warehouse-sql-editor--edited-insight-save-as-flow-quill--dark:
         hash: v1.k794b7964.da7a54077bdace8a9409bf9932c63acbb4491b0a137b5967082904bf388ef9be.Jp79UXxOBsgkB4IMKpBwRS9BpqtUthNgEPoh9KiuZg8
     scenes-app-data-warehouse-sql-editor--edited-insight-save-as-flow-quill--light:
@@ -11555,21 +11555,21 @@ snapshots:
     scenes-app-data-warehouse-sql-editor--harness-logo-in-results--light:
         hash: v1.k794b7964.5ef1dafc4e1bb5af07136c0f4c262173e9ddfdc6d55da2280338eac4197b67c7.5KTGGDP2lKMk93ViENw3z6YnR5H0SLxEYyyBGAYTQ98
     scenes-app-data-warehouse-sql-editor--hosted-trino--dark:
-        hash: v1.k794b7964.ed1e698c1e589fef66b1788f5ce8144a60e3dd45d2f4f75b5ba4035379eb90ed.CQYsVP8IhyvD6ayH0_G6E-lbEDtJL15sNlk9tr3X94Q
+        hash: v1.k794b7964.4e589c562f39bbe9e7bd731d95f77eff6143879d22ce6cb1cf788da9868b40fb.ylM3zhkOnSCXcyYM_UbVNiUTtng-1Qx2mTj-6KQjo1o
     scenes-app-data-warehouse-sql-editor--hosted-trino--light:
-        hash: v1.k794b7964.647221a6ff5285e22a729959258f9080f822b8b637fb9e356d64858ffc810297.xDMwpQ08PB4xYTX3ilprjooK9Q-2nzPa1Kv2Sx9V4sg
+        hash: v1.k794b7964.9524e9e4248bdf315817db490d7eea12433899100c1c14f92b8423d974e225e9.moRx0VqgtQ7zZDEIzdRHqnPAtOUDtsuNbY2AK3hJw-Q
     scenes-app-data-warehouse-sql-editor--lazy-schema--dark:
-        hash: v1.k794b7964.183adbbe028e98fcea5e9178ae26fcac9fb15d7a151cf0ef63c60b2de09cd7a9.Pd09tfmXU1nN4C8FvE0QkjC7dCv2qoelqyz7CMtEPy8
+        hash: v1.k794b7964.1de6eb4fba72db83db2f1a683bed45c23b8a594a8cb05b00fc9336c5b435aac7.AV7bITJ-kJOTWpWbMaVW1HdxyrONcsaEWbHIICiLkfY
     scenes-app-data-warehouse-sql-editor--lazy-schema--light:
-        hash: v1.k794b7964.09b241f2cd52673b034101f7d69dad53def23fe7330dc9d38a831fed9c42d4f2.g80q-xBDa3gpn6AMi2U4EvWX3OKYphzISVQLxLo1TOk
+        hash: v1.k794b7964.ef3d629603b8a495eff920b9d8ce97bd57937bc7bffdcff0b4d1b720c4655eb4.hVT1FS1hUBgfgY07UEyHNdLT6elO5hmtqB1ytIVJP-8
     scenes-app-data-warehouse-sql-editor--loading-insight--dark:
-        hash: v1.k794b7964.33c627462b0d22066df77ddb112d6c86d47948313204a7609d1ce9b00d150aa9.dm2y1PmtgpqBR0_F4GfLA9ewox0ZTEHO6xlibbHJjoA
+        hash: v1.k794b7964.0e9bcb181e83f25863ea38a533a042493a8d984148b02d77775130d80b9c0d04.tNWLsqKO7vUdzHlQa5O5oXpSrOpPj2SKAawQjJ04864
     scenes-app-data-warehouse-sql-editor--loading-insight--light:
-        hash: v1.k794b7964.6a175f2accf01fa19efa4e00e60538aa949e8c6a4ca12825550d5e04e59f0642.GQ54viuqyqZOVk3QxI7nKITxj3wwWxlNtAurktC1FUs
+        hash: v1.k794b7964.ade14ffd4610b9982de22edb584851d92430a4f96ee2a5e81dec853d92d9b57a.0JMkB4hZEtSOjqmWICk2nbFlFRtvrjLH5sgimYzOma4
     scenes-app-data-warehouse-sql-editor--managed-warehouse-connection--dark:
-        hash: v1.k794b7964.a214e35f699dae99e7aa4f0beca162d35c0095df90f2b0da43cf78114de5470e.ZG5dRjculzef5ATiURJhJ3M35ZFy6Jf3EG0m2LHnzcg
+        hash: v1.k794b7964.fec25d07b909ee0b4dbd5a2bb247c1d64f0a3e4c5389d41cca0284b0a4e1d443.0fFxdsfscyUuo0bBz7bO7G_oMZ0ZiqAZZlGZ4PcXmeI
     scenes-app-data-warehouse-sql-editor--managed-warehouse-connection--light:
-        hash: v1.k794b7964.484a062565c6c6cc5df4aaed73b74b3d76f632e941a05d55cd8f239d4ba86bf0.u3XeIxjSiLkMxX8yeyziaTMF-1xlrEV-oLR859Moxew
+        hash: v1.k794b7964.aa1b56501a546f9894a3de9b8309d6e6a060464546b87249708f56551c0bc10a._LewTOIRp5Q6ZfJCSlFpjazUgsCZx6_AyWk-1u-u9K8
     scenes-app-data-warehouse-sql-editor--materialization-settings--dark:
         hash: v1.k794b7964.10ccff73d67e6f4d5aad149c0f730982cc4911e89fec03bf05de09b0f52f0c8d.mkYOiFsECj8Tq6ukVR9JjW41SKL0dy-Dqfbc5pDqaVY
     scenes-app-data-warehouse-sql-editor--materialization-settings--light:
@@ -11583,9 +11583,9 @@ snapshots:
     scenes-app-data-warehouse-sql-editor--sidebar-materialization-status--light:
         hash: v1.k794b7964.c1ac1fa87885b4bd6cce68a5ce7625c3784aeb16cf9d6d9f8803a4d26530ee54.24LVdb4504LIW0nXnfcWB8mxD3GFHHgDx5QJw_4ddkw
     scenes-app-data-warehouse-sql-editor--top-tools-per-server--dark:
-        hash: v1.k794b7964.086bd9bfadf0b7475bf78bdce3fe0669526cb84dff71535797ea45443020ad94.Ueu17JcKwrRz-y1P0C3egpr6rN-iTMbldFo5N_VoEWE
+        hash: v1.k794b7964.8a04751c4704e3b12aa42aa55cf8b1e6db1f002f3e65cb673db1be4375eebd64.9pZI2OZwZ4kQfrSePu-xQ_7C4_YX3snUcr7SsJT4_-4
     scenes-app-data-warehouse-sql-editor--top-tools-per-server--light:
-        hash: v1.k794b7964.2a368172e76cd4dc368f15e8f21374965bcb0dd0f8b3ee7c02ff0023701ba749.kZKMxF8IsPF8udDM-J8EZUSqJXVQwE9qJyNV-wM8xyI
+        hash: v1.k794b7964.36e9353a61ce004450b9c31d0fa6957fe7a39d456ff36ac014928d29626ba57d.gR1hMdckU7Lf05sqdp5E73lkgNqHYfJORF9by9AHdvg
     scenes-app-discussions--replying-to-thread--dark:
         hash: v1.k794b7964.c2c9d9beff1e3fa0fc6a314aa073610d674eb9cd4af235b31a81e09462b5b58e.-fbBmBjOrnXiwY_8KrKftI-k7wWP9L77S8rFDSiiI3U
     scenes-app-discussions--replying-to-thread--light:

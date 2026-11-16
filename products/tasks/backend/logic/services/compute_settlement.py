@@ -32,6 +32,7 @@ from products.tasks.backend.logic.services.sandbox_pricing import (
 from products.tasks.backend.logic.services.sandbox_usage import (
     close_sandbox_session,
     get_billable_sandbox_compute_usage_by_team,
+    iter_sandbox_sessions,
 )
 from products.tasks.backend.metrics import (
     ComputeSettlementOutcome,
@@ -594,10 +595,10 @@ def reconcile_compute_settlement(since: datetime, until: datetime, wallet_team: 
 
     priced_usd: dict[str, Decimal] = {}
     priced_rows: dict[str, int] = {}
-    for session in (
-        SandboxSession.objects.unscoped()
-        .filter(user_attributed_at__isnull=False, ended_at__gte=since, ended_at__lt=until)
-        .iterator()
+    for session in iter_sandbox_sessions(
+        SandboxSession.objects.unscoped().filter(
+            user_attributed_at__isnull=False, ended_at__gte=since, ended_at__lt=until
+        )
     ):
         cost = session_compute_cost(session)
         key = str(session.team_id)
@@ -610,11 +611,10 @@ def reconcile_compute_settlement(since: datetime, until: datetime, wallet_team: 
     prorated_usd: dict[str, Decimal] = {}
     prorated_rows: dict[str, int] = {}
     calculated_at = timezone.now()
-    for session in (
+    for session in iter_sandbox_sessions(
         SandboxSession.objects.unscoped()
         .filter(compute_settled_usd__isnull=False, user_attributed_at__lt=until, ended_at__gt=since)
         .exclude(compute_ledger_entry_id="")
-        .iterator()
     ):
         if not is_billable_sandbox_session(session):
             continue
