@@ -626,7 +626,7 @@ describe('CDP hog invocation rerun e2e', () => {
             .withStatus('active')
             .withWorkflow({
                 actions: {
-                    trigger: { type: 'trigger', config: { type: 'batch', filters: {} } },
+                    trigger: { type: 'trigger', config: { type: 'batch', filters: { properties: [] } } },
                     exit: { type: 'exit', config: {} },
                 },
                 edges: [{ from: 'trigger', to: 'exit', type: 'continue' }],
