@@ -1,4 +1,6 @@
-import type { ASTNode } from '@posthog/hogql-parser'
+import type { ASTNode, HogQLParser } from '@posthog/hogql-parser'
+
+import { programCanFinishWithoutReturn } from 'scenes/hog-functions/configuration/hogCodeReturnPaths'
 
 import {
     type AstRange,
@@ -16,17 +18,20 @@ export type HogqlParserQuestion =
     | { op: 'innermostSelect'; query: string; localOffset: number }
     | { op: 'tablesAndColumns'; query: string }
     | { op: 'compareSelects'; query: string; other: string }
+    | { op: 'programCanFinishWithoutReturn'; code: string }
 
 export type HogqlParserRequest = HogqlParserQuestion & { id: number }
 
 export type HogqlParserResponse =
     | { type: 'ready' }
-    | { id: number; result: AstRange | null | Record<string, Record<string, boolean>> | SelectComparison }
+    | { id: number; result: AstRange | null | Record<string, Record<string, boolean>> | SelectComparison | boolean }
     | { id: number; error: string }
 
-let parserPromise: Promise<{ parseSelect: (input: string, isInternal?: boolean) => string }> | null = null
+type WorkerParser = Pick<HogQLParser, 'parseSelect' | 'parseProgram'>
 
-function getParser(): Promise<{ parseSelect: (input: string, isInternal?: boolean) => string }> {
+let parserPromise: Promise<WorkerParser> | null = null
+
+function getParser(): Promise<WorkerParser> {
     if (!parserPromise) {
         parserPromise = import('@posthog/hogql-parser')
             .then((mod) => mod.default())
@@ -35,7 +40,7 @@ function getParser(): Promise<{ parseSelect: (input: string, isInternal?: boolea
                 throw error
             })
     }
-    return parserPromise as Promise<{ parseSelect: (input: string, isInternal?: boolean) => string }>
+    return parserPromise
 }
 
 // The two ops are driven by different debounces over the same text, and a cursor move re-asks for
@@ -70,6 +75,12 @@ self.onmessage = async (event: MessageEvent<HogqlParserRequest>): Promise<void> 
                 parser.parseSelect(request.query, true),
                 parser.parseSelect(request.other, true)
             )
+            self.postMessage({ id: request.id, result } satisfies HogqlParserResponse)
+            return
+        }
+        if (request.op === 'programCanFinishWithoutReturn') {
+            const parser = await getParser()
+            const result = programCanFinishWithoutReturn(parser.parseProgram(request.code, true))
             self.postMessage({ id: request.id, result } satisfies HogqlParserResponse)
             return
         }

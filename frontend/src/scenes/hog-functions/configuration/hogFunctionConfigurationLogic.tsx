@@ -36,6 +36,7 @@ import { uuid } from 'lib/utils/dom'
 import { isEmptyObject } from 'lib/utils/guards'
 import { escapePropertyAsHogQLIdentifier } from 'lib/utils/hogql'
 import { addProductIntent } from 'lib/utils/product-intents'
+import { retryImport } from 'lib/utils/retryImport'
 import { FEATURE_FLAG_CALLED_EVENT } from 'scenes/feature-flags/flagEvaluationsTable'
 import { projectLogic } from 'scenes/projectLogic'
 import { buildSurveyExampleInvocationGlobals } from 'scenes/surveys/utils'
@@ -101,7 +102,6 @@ import {
 import { MatchingFiltersInput, matchingFiltersToPropertyGroup } from '../filters/matchingFilters'
 import { performWideEventsQueryInTwoPhases } from '../sampleEventsQuery'
 import { eventToHogFunctionContextId } from '../sub-templates/sub-templates'
-import { canFinishWithoutReturn } from './hogCodeReturnPaths'
 import { SAMPLE_GLOBALS_CONTEXTS } from './sampleGlobalsContexts'
 
 export interface HogFunctionConfigurationLogicProps {
@@ -2101,7 +2101,10 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                 return
             }
             await breakpoint(300)
-            const canFinish = await canFinishWithoutReturn(hogCode)
+            const { hogProgramCanFinishWithoutReturn } = await retryImport(
+                () => import('scenes/data-warehouse/editor/hogqlParserWorkerClient')
+            )
+            const canFinish = await hogProgramCanFinishWithoutReturn(hogCode)
             breakpoint()
             actions.setHogCodeCanFinishWithoutReturn(canFinish)
         },

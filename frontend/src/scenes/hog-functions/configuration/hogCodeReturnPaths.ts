@@ -1,7 +1,5 @@
 import type { ASTNode, ParseResult } from '@posthog/hogql-parser'
 
-import { parseProgram } from 'scenes/data-warehouse/editor/hogqlParserSingleton'
-
 function isConstantTrue(node: ASTNode | null | undefined): boolean {
     return node?.node === 'Constant' && node.value === true
 }
@@ -46,10 +44,10 @@ function alwaysExits(node: ASTNode | null | undefined): boolean {
 }
 
 // A transformation that reaches the end of its code returns null, so the event is dropped.
-export async function canFinishWithoutReturn(code: string): Promise<boolean> {
+export function programCanFinishWithoutReturn(programJson: string): boolean {
     let program: ParseResult
     try {
-        program = JSON.parse(await parseProgram(code, true))
+        program = JSON.parse(programJson)
     } catch {
         return false
     }

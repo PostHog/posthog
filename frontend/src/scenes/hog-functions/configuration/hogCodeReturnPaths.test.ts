@@ -1,6 +1,13 @@
-import { canFinishWithoutReturn } from './hogCodeReturnPaths'
+import { parseProgram } from 'scenes/data-warehouse/editor/hogqlParserSingleton'
+import { hogProgramCanFinishWithoutReturn } from 'scenes/data-warehouse/editor/hogqlParserWorkerClient'
 
-describe('canFinishWithoutReturn', () => {
+import { programCanFinishWithoutReturn } from './hogCodeReturnPaths'
+
+async function canFinishWithoutReturn(code: string): Promise<boolean> {
+    return programCanFinishWithoutReturn(await parseProgram(code, true))
+}
+
+describe('programCanFinishWithoutReturn', () => {
     test.each([
         ['no return at all', `event.properties.tagged := true`],
         [
@@ -33,5 +40,9 @@ describe('canFinishWithoutReturn', () => {
         ['code that does not parse', `if (`],
     ])('is false for %s', async (_, code) => {
         expect(await canFinishWithoutReturn(code)).toBe(false)
+    })
+
+    test('is false without the parser worker, because the main thread must not parse Hog', async () => {
+        expect(await hogProgramCanFinishWithoutReturn(`event.properties.tagged := true`)).toBe(false)
     })
 })

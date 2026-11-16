@@ -54,6 +54,16 @@ jest.mock('../sampleEventsQuery', () => ({
     performWideEventsQueryInTwoPhases: jest.fn(),
 }))
 
+// jsdom has no Worker, so answer for the parser worker with the same parse and walk it runs.
+jest.mock('scenes/data-warehouse/editor/hogqlParserWorkerClient', () => ({
+    ...jest.requireActual('scenes/data-warehouse/editor/hogqlParserWorkerClient'),
+    hogProgramCanFinishWithoutReturn: async (code: string): Promise<boolean> => {
+        const { parseProgram } = jest.requireActual('scenes/data-warehouse/editor/hogqlParserSingleton')
+        const { programCanFinishWithoutReturn } = jest.requireActual('./hogCodeReturnPaths')
+        return programCanFinishWithoutReturn(await parseProgram(code, true))
+    },
+}))
+
 // the mock api object
 
 const mockApi = api.hogFunctions as jest.Mocked<typeof api.hogFunctions>
