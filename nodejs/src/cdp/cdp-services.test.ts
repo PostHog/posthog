@@ -141,8 +141,8 @@ describe('createCdpReaderRedisPool', () => {
         const reader = createCdpReaderRedisPool(config, mockWriterPool, 'test-redis')
         expect(connectionsTo(READER)).toBe(2)
 
-        await Promise.all([readSource(reader), readSource(reader), readSource(reader)])
-        expect(connectionsTo(READER)).toBe(3)
+        await Promise.all(Array.from({ length: config.REDIS_POOL_MAX_SIZE + 1 }, () => readSource(reader)))
+        expect(connectionsTo(READER)).toBe(config.REDIS_POOL_MAX_SIZE)
     })
 
     it('names the reader pool in the deadline error when the reader does not answer', async () => {
