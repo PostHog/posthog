@@ -18,6 +18,9 @@ jest.mock('@/auth/useProjectScope', () => ({ useProjectScope: () => ({ host: 'ht
 jest.mock('@/demo/demoMode', () => ({
     useDemoMode: (selector: (s: unknown) => unknown) => selector({ enabled: false, snooze: jest.fn() }),
 }))
+jest.mock('@/api/notificationPreferences', () => ({
+    getNotificationPreferences: jest.fn(async () => ({ mobile_push_enabled: true, mobile_push_snooze_enabled: true })),
+}))
 jest.mock('@/lib/analytics', () => ({ track: jest.fn() }))
 jest.mock('expo-notifications', () => ({
     getPermissionsAsync: jest.fn(async () => ({ granted: true })),
