@@ -9,6 +9,7 @@ these at module level.
 """
 
 import json
+import dataclasses
 from collections import deque
 from collections.abc import Callable, Collection, Hashable, Mapping, Sequence
 from datetime import datetime
@@ -185,12 +186,20 @@ class ReleaseCondition:
 
 ReleaseConditions = tuple[ReleaseCondition, ...]
 
+# The release conditions of a save as the flag stores them: the `groups` and the `aggregation_group_type_index` of
+# its filters.
+SavedReleaseConditions = Mapping[str, object]
+
 
 @frozen
 class ConditionsChange:
     changed_at: datetime
     before: ReleaseConditions
     after: ReleaseConditions
+    # The conditions as saved, for a reader that needs the values and operators that the parsed sides drop. They
+    # take no part in eq and hash, so that the change stays hashable while it holds dicts.
+    before_filters: SavedReleaseConditions | None = dataclasses.field(default=None, compare=False)
+    after_filters: SavedReleaseConditions | None = dataclasses.field(default=None, compare=False)
 
 
 _MAX_LOOK_ALIKES = 100

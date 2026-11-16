@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import { useState } from 'react'
 
 import { LemonButton, LemonInput } from '@posthog/lemon-ui'
 
@@ -11,8 +12,13 @@ import { ScopeGroupSummary } from 'scenes/settings/user/scopes/ScopeGroupSummary
 
 import type { OrganizationPersonalAPIKeyApi } from 'products/platform_features/frontend/generated/api.schemas'
 
-import { openRevokeKeyDialog, openRollKeyDialog } from './organizationPersonalAPIKeyDialogs'
-import { organizationPersonalAPIKeysLogic } from './organizationPersonalAPIKeysLogic'
+import {
+    openRevokeAllKeysDialog,
+    openRevokeKeyDialog,
+    openRollAllKeysDialog,
+    openRollKeyDialog,
+} from './organizationPersonalAPIKeyDialogs'
+import { ALL_KEYS, KeyAction, organizationPersonalAPIKeysLogic } from './organizationPersonalAPIKeysLogic'
 
 function AccessScope({ accessScope }: { accessScope: OrganizationPersonalAPIKeyApi['access_scope'] }): JSX.Element {
     if (accessScope.type === 'all') {
@@ -29,12 +35,28 @@ function ownerLabel(owner: OrganizationPersonalAPIKeyApi['owner']): string {
 }
 
 export function OrganizationPersonalAPIKeysTable(): JSX.Element {
-    const { filteredKeys, keysLoading, search, keyActionInFlight } = useValues(organizationPersonalAPIKeysLogic)
-    const { setSearch, rollKey, revokeKey } = useActions(organizationPersonalAPIKeysLogic)
+    const { filteredKeys, keysLoading, search, keyActionInFlight, bulkSummary, rollAllRetrySince } = useValues(
+        organizationPersonalAPIKeysLogic
+    )
+    const { setSearch, rollKey, revokeKey, rollAllKeys, revokeAllKeys } = useActions(organizationPersonalAPIKeysLogic)
+    // The in-flight marker names the target ('all' for a bulk action) but not the action, so this records the bulk
+    // action to put the spinner on the right button. It never needs a reset, because a spinner also needs the marker.
+    const [confirmedBulkAction, setConfirmedBulkAction] = useState<KeyAction | null>(null)
+
+    const runBulkAction = (action: KeyAction, dispatch: () => void): void => {
+        setConfirmedBulkAction(action)
+        dispatch()
+    }
+    const isBulkRunning = (action: KeyAction): boolean =>
+        keyActionInFlight === ALL_KEYS && confirmedBulkAction === action
     // A finished action clears its in-flight marker before its reload of the list ends. The loading check keeps the
     // buttons disabled on the stale list until the reload ends.
     const actionDisabledReason =
         keyActionInFlight !== null ? 'Wait for the current action to finish' : keysLoading ? 'Loading keys' : null
+    const bulkDisabledReason =
+        actionDisabledReason ??
+        (bulkSummary.total === 0 ? 'No personal API keys have access to this organization' : null)
+
     const columns: LemonTableColumns<OrganizationPersonalAPIKeyApi> = [
         {
             title: 'Owner',
@@ -124,6 +146,32 @@ export function OrganizationPersonalAPIKeysTable(): JSX.Element {
                     onChange={setSearch}
                     className="grow min-w-60 max-w-80"
                 />
+                <div className="flex flex-wrap gap-2 ml-auto">
+                    <LemonButton
+                        type="secondary"
+                        loading={isBulkRunning('roll')}
+                        disabledReason={isBulkRunning('roll') ? null : bulkDisabledReason}
+                        onClick={() =>
+                            openRollAllKeysDialog(bulkSummary, search, rollAllRetrySince, () =>
+                                runBulkAction('roll', rollAllKeys)
+                            )
+                        }
+                        data-attr="organization-personal-api-keys-roll-all"
+                    >
+                        Roll all keys
+                    </LemonButton>
+                    <LemonButton
+                        type="secondary"
+                        loading={isBulkRunning('revoke')}
+                        disabledReason={isBulkRunning('revoke') ? null : bulkDisabledReason}
+                        onClick={() =>
+                            openRevokeAllKeysDialog(bulkSummary, search, () => runBulkAction('revoke', revokeAllKeys))
+                        }
+                        data-attr="organization-personal-api-keys-revoke-all"
+                    >
+                        Revoke all keys
+                    </LemonButton>
+                </div>
             </div>
             <LemonTable
                 dataSource={filteredKeys}
