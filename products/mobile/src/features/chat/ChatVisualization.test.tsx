@@ -95,7 +95,7 @@ test.each([false, true])(
                 next_allowed_client_refresh: null,
             } as InsightApi
         })
-        const screen = view({ shortId: 'saved' })
+        const screen = view({ shortId: 'saved', query: { kind: 'PathsQuery' } })
         if (supported) await waitFor(() => expect(screen.getByLabelText('Saved visits chart')).toBeTruthy())
         else await waitFor(() => expect(screen.getByText('Open this chart on the web to view it.')).toBeTruthy())
         expect(modes).toEqual(supported ? ['force_cache', 'blocking'] : ['force_cache'])
@@ -196,36 +196,28 @@ test.each([undefined, null, {}, { results: 'invalid' }])(
     }
 )
 
-test('renders the proposed query and keeps a saved insight as its web destination', async () => {
+test('reads the saved chart despite a query hint and keeps its web destination', async () => {
     const open = jest.spyOn(Linking, 'openURL').mockResolvedValue(undefined)
-    jest.mocked(runQuery).mockResolvedValue({
-        columns: ['status'],
-        types: [['status', 'String']],
-        results: [['Proposed result']],
+    jest.mocked(readInsight).mockResolvedValue({
+        id: 9,
+        short_id: 'saved',
+        name: 'Saved visits',
+        derived_name: null,
+        query: { kind: 'InsightVizNode', source: trendQuery },
+        result: trendResult,
+        last_refresh: '2026-10-03T00:00:00Z',
+        cache_target_age: new Date(Date.now() + 600_000).toISOString(),
+        next_allowed_client_refresh: null,
     })
     const screen = view({
         shortId: 'saved',
-        query: { kind: 'HogQLQuery', query: "SELECT 'Proposed result' AS status" },
+        query: { kind: 'HogQLQuery', query: "SELECT 'Query hint' AS status" },
     })
-    await waitFor(() => expect(screen.getByText('Proposed result')).toBeTruthy())
-    expect(readInsight).not.toHaveBeenCalled()
+    await waitFor(() => expect(screen.getByLabelText('Saved visits chart')).toBeTruthy())
+    expect(readInsight).toHaveBeenCalledWith({ shortId: 'saved' }, expect.objectContaining({ refresh: 'force_cache' }))
+    expect(runQuery).not.toHaveBeenCalled()
     fireEvent.press(screen.getByText('Open insight'))
     expect(open).toHaveBeenCalledWith('https://example.com/project/42/insights/saved')
-    jest.mocked(runQuery).mockResolvedValue({
-        columns: ['status'],
-        types: [['status', 'String']],
-        results: [['Revised result']],
-    })
-    screen.rerender(
-        <QueryClientProvider client={client}>
-            <ChatVisualization
-                shortId="saved"
-                query={{ kind: 'HogQLQuery', query: "SELECT 'Revised result' AS status" }}
-            />
-        </QueryClientProvider>
-    )
-    await waitFor(() => expect(screen.getByText('Revised result')).toBeTruthy())
-    expect(screen.queryByText('Proposed result')).toBeNull()
 })
 
 test('reads saved metadata when only a result and saved insight reference were supplied', async () => {
