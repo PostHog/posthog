@@ -13,7 +13,6 @@ SKIPPED_PARTS = {"test", "tests", "migrations", "__snapshots__"}
 
 LEGACY_MODELS = {"AlertConfiguration", "LogsAlertConfiguration"}
 MANAGERS = {"objects", "_default_manager", "_base_manager"}
-# Calls that take the class without loading a row.
 TYPE_ONLY_CALLS = {"isinstance", "issubclass", "cast"}
 # Reverse accessors and the foreign key from AlertCheck, AlertSubscription and investigations.
 RELATED_ATTRIBUTES = {"alertconfiguration_set", "alert_configurations", "alert_configuration"}
@@ -32,13 +31,11 @@ SCOPE_NODES = (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)
 # build from the copy, E1-E5 creates and edits stop writing rows, G1-G3 history moves and rows and
 # models are deleted, H3 subscribers move to platform destination rows.
 READERS: dict[str, str] = {
-    # The models, their admin, and models that point at a row.
     "products/alerts/backend/models/alert.py": "the AlertConfiguration model and its subscription and check rows (G3)",
     "products/logs/backend/models.py": "the LogsAlertConfiguration model and its check and event rows (G3)",
     "products/alerts/backend/models/investigation.py": "investigation rows keep a foreign key to the row (G3)",
     "products/pulse/backend/models.py": "Pulse links keep a foreign key to the row (G3)",
     "products/alerts/backend/admin.py": "Django admin for the model (G3)",
-    # Ownership, cutover, rollback, backfills and the drift report.
     "products/alerts/backend/platform_ownership.py": "ownership layer: create, mirror and owner checks (E1, E2)",
     "products/logs/backend/platform_ownership.py": "ownership layer: create and mirror (E1, E2)",
     "products/logs/backend/facade/platform_ownership.py": "ownership facade for the platform API (E2)",
@@ -87,7 +84,6 @@ READERS: dict[str, str] = {
         "firing chart draws the rows the insight stack owns, then the copies (plan: stays until D1, D2)"
     ),
     "products/logs/backend/temporal/activities.py": "legacy logs evaluator",
-    # Writes that end when creates go to the platform only and edits stop mirroring.
     "products/logs/backend/alert_creation.py": "alert limit counts rows (A6-A8)",
     "products/alerts/backend/llm_detector_limits.py": "AI detector cap counts rows (A6-A8)",
     "products/logs/backend/alert_deletion.py": "deletes the row with its copy (G2)",
@@ -132,7 +128,6 @@ READERS: dict[str, str] = {
     "products/alerts/backend/logic/organization_offboarding.py": "offboarding lists a member's rows",
     "products/pulse/backend/generation/persist.py": "Pulse links an alert evidence id to its row",
     "products/signals/backend/scout_harness/profile/builders.py": "scout profile counts rows",
-    # The thresholds endpoint.
     "products/alerts/backend/presentation/views/alert.py::ThresholdViewSet": "thresholds endpoint (B6)",
     "products/alerts/backend/presentation/views/alert.py::ThresholdWithAlertSerializer": "thresholds endpoint (B6)",
     "products/alerts/backend/presentation/views/alert.py::_ThresholdsSerializer": "thresholds endpoint (B6)",
@@ -166,7 +161,6 @@ class _Reader:
 
     def _model_is_read(self, node: ast.AST, parent: ast.AST | None) -> bool:
         if isinstance(parent, ast.Attribute) and parent.value is node:
-            # A class constant such as `State` or `DoesNotExist` loads no row.
             return parent.attr in MANAGERS
         if isinstance(parent, ast.Call) and node in parent.args:
             func = parent.func
