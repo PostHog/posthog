@@ -1,5 +1,6 @@
 from collections.abc import Callable
 from contextlib import nullcontext
+from datetime import datetime, timedelta
 from typing import Optional
 
 import time_machine
@@ -54,6 +55,7 @@ from products.cohorts.backend.models.calculation_history import CohortCalculatio
 from products.cohorts.backend.models.cohort import Cohort, CohortType
 from products.cohorts.backend.models.util import (
     CohortErrorCode,
+    StaticCohortReadBackIncomplete,
     count_cohort_members,
     get_friendly_error_message,
     insert_static_cohort,
@@ -80,6 +82,7 @@ BACKFILL_TASK_SETTINGS = {
     "BEHAVIORAL_BACKFILL_PERSON_TTL_ATTESTED": True,
     "BEHAVIORAL_BACKFILL_PERSON_SIZING_ATTESTED": True,
     "BEHAVIORAL_BACKFILL_PERSON_TOPIC_BYTES_BUDGET": 1_000_000,
+    "BEHAVIORAL_BACKFILL_MAX_SCAN_EVENTS_PER_DAY": 0,
 }
 
 
@@ -1539,6 +1542,13 @@ class TestCohortCalculationTasks(APIBaseTest):
                 PG_SYNC_PATH,
                 lambda: SoftTimeLimitExceeded(),
             ),
+            (
+                "query_read_back_incomplete",
+                insert_cohort_from_query,
+                QUERY_CH_INSERT_PATH,
+                PG_SYNC_PATH,
+                lambda: StaticCohortReadBackIncomplete("Read 0 of 1 rows"),
+            ),
         ]
     )
     def test_static_population_retries_a_transient_failure(
@@ -1676,19 +1686,29 @@ class TestCohortCalculationTasks(APIBaseTest):
         cohort = Cohort.objects.create(team=self.team, name="static cohort", is_static=True)
         task.push_request(retries=0, called_directly=False, is_eager=True)
         try:
-            with (
-                patch(ch_insert_path),
-                patch(PG_SYNC_PATH, side_effect=_rpc_error(grpc.StatusCode.UNAVAILABLE)),
-                self.assertRaises(Retry) as scheduled,
-            ):
-                task.run(cohort.id, self.team.pk)
+            with time_machine.travel(datetime(2026, 3, 1, 12, 0, 0), tick=False) as traveller:
 
-            with patch(ch_insert_path) as mock_insert_ch, patch(PG_SYNC_PATH):
+                def slow_insert(*_args: object, **_kwargs: object) -> int:
+                    traveller.shift(timedelta(hours=1))
+                    return 7
+
+                with (
+                    patch(ch_insert_path, side_effect=slow_insert),
+                    patch(PG_SYNC_PATH, side_effect=_rpc_error(grpc.StatusCode.UNAVAILABLE)),
+                    self.assertRaises(Retry) as scheduled,
+                ):
+                    task.run(cohort.id, self.team.pk)
+
+            with patch(ch_insert_path) as mock_insert_ch, patch(PG_SYNC_PATH) as mock_sync:
                 task.run(cohort.id, self.team.pk, **scheduled.exception.sig.kwargs)
         finally:
             task.pop_request()
 
         mock_insert_ch.assert_not_called()
+        # The retry still has to wait for the rows the first attempt wrote, or a lagging replica reads as empty.
+        self.assertEqual(mock_sync.call_args.kwargs["min_rows"], 7)
+        self.assertEqual(scheduled.exception.sig.kwargs["written_since"], "2026-03-01 12:00:00")
+        self.assertEqual(mock_sync.call_args.kwargs["written_since"], "2026-03-01 12:00:00")
 
     @parameterized.expand(
         [

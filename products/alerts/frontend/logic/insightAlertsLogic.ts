@@ -26,7 +26,7 @@ import { FunnelVizType, InsightLogicProps } from '~/types'
 import type { Node } from '../../../../frontend/src/queries/schema/schema-general'
 import type { InsightModel } from '../../../../frontend/src/types'
 import { AlertType, AnomalyPoint, isTrendsAlertConfig } from '../types'
-import { buildAlertFilterConfig } from './alertNotifications'
+import { buildAlertDestinationCountFilterGroups } from './alertNotifications'
 
 export interface InsightAlertsLogicProps {
     insightId: number
@@ -280,6 +280,10 @@ export const insightAlertsLogic = kea<insightAlertsLogicType>([
         alerts: {
             __default: [] as AlertType[],
             loadAlerts: async () => {
+                // Without an insight ID, the API returns every alert in the project.
+                if (!props.insightId) {
+                    return []
+                }
                 const response = await api.alerts.list(props.insightId)
                 return response.results
             },
@@ -294,7 +298,7 @@ export const insightAlertsLogic = kea<insightAlertsLogicType>([
                     const alertIds = new Set(alerts.map((alert) => alert.id))
                     const response = await api.hogFunctions.list({
                         types: ['internal_destination'],
-                        filter_groups: alerts.map((alert) => buildAlertFilterConfig(alert.id)),
+                        filter_groups: alerts.flatMap((alert) => buildAlertDestinationCountFilterGroups(alert.id)),
                         full: true,
                         limit: 500,
                     })

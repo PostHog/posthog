@@ -6,8 +6,7 @@ from django.utils import timezone
 from posthog.models.scoping import team_scope
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
-from products.dashboards.backend.models.dashboard import Dashboard
-from products.dashboards.backend.models.dashboard_tile import DashboardTile
+from products.dashboards.backend.facade.testing import create_dashboard, create_insight_tile
 from products.product_analytics.backend.facade.models import Insight
 from products.pulse.backend.models import BriefConfig
 from products.pulse.backend.sources.anchored_dashboards import AnchoredDashboardsSource
@@ -34,10 +33,10 @@ class TestAnchoredDashboardsGather(BaseTest):
     @patch("products.pulse.backend.sources.strategy.calculate_for_query_based_insight")
     def test_dashboard_anchored_gather(self, mock_calculate: MagicMock) -> None:
         insight = self._insight()
-        dashboard = Dashboard.objects.create(team=self.team, name="Anchor")
-        DashboardTile.objects.create(dashboard=dashboard, insight=insight)
+        dashboard_id = create_dashboard(team_id=self.team.id, name="Anchor")
+        create_insight_tile(dashboard_id=dashboard_id, insight_id=insight.id)
         with team_scope(self.team.pk, canonical=True):
-            config = BriefConfig.objects.create(team=self.team, name="Focus", anchors={"dashboards": [dashboard.id]})
+            config = BriefConfig.objects.create(team=self.team, name="Focus", anchors={"dashboards": [dashboard_id]})
         mock_calculate.return_value = MagicMock(result=_MOVEMENT_RESULT)
 
         items = self._source().gather(self.team, config, 7, self._access())
@@ -48,8 +47,8 @@ class TestAnchoredDashboardsGather(BaseTest):
     @patch("products.pulse.backend.sources.strategy.calculate_for_query_based_insight")
     def test_zero_config_falls_back_to_recent_dashboards(self, mock_calculate: MagicMock) -> None:
         insight = self._insight()
-        dashboard = Dashboard.objects.create(team=self.team, name="Main", last_accessed_at=timezone.now())
-        DashboardTile.objects.create(dashboard=dashboard, insight=insight)
+        dashboard_id = create_dashboard(team_id=self.team.id, name="Main", last_accessed_at=timezone.now())
+        create_insight_tile(dashboard_id=dashboard_id, insight_id=insight.id)
         mock_calculate.return_value = MagicMock(result=_MOVEMENT_RESULT)
 
         items = self._source().gather(self.team, None, 7, self._access())
@@ -75,14 +74,14 @@ class TestAnchoredDashboardsGather(BaseTest):
         # scored movement for one insight — only the source tag and retrieval path differ.
         strategy = MovementScoringStrategy()
         insight = self._insight()
-        dashboard = Dashboard.objects.create(team=self.team, name="D")
-        DashboardTile.objects.create(dashboard=dashboard, insight=insight)
+        dashboard_id = create_dashboard(team_id=self.team.id, name="D")
+        create_insight_tile(dashboard_id=dashboard_id, insight_id=insight.id)
         with team_scope(self.team.pk, canonical=True):
             insight_config = BriefConfig.objects.create(
                 team=self.team, name="I", anchors={"insights": [insight.short_id]}
             )
             dashboard_config = BriefConfig.objects.create(
-                team=self.team, name="D", anchors={"dashboards": [dashboard.id]}
+                team=self.team, name="D", anchors={"dashboards": [dashboard_id]}
             )
         mock_calculate.return_value = MagicMock(result=_MOVEMENT_RESULT)
 

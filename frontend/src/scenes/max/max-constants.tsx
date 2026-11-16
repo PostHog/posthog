@@ -740,7 +740,11 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
         modes: [AgentMode.ErrorTracking],
         displayFormatter: (toolCall) => {
             if (toolCall.status === 'completed') {
-                return 'Found issues'
+                const issues = toolCall.result?.ui_payload?.search_error_tracking_issues?.issues
+                if (!Array.isArray(issues)) {
+                    return 'Searched issues'
+                }
+                return issues.length > 0 ? 'Found issues' : 'No issues found'
             }
             return 'Searching issues...'
         },
@@ -925,6 +929,18 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
                 return 'Rate a result'
             }
             return 'Rate a result...'
+        },
+    },
+    get_replay_vision_observation_stats: {
+        name: 'Count observations',
+        description: "Count observations: a scanner's exact total and its breakdown by status and result",
+        icon: iconForType('session_replay'),
+        modes: [AgentMode.SessionReplay],
+        displayFormatter: (toolCall) => {
+            if (toolCall.status === 'completed') {
+                return 'Counted observations'
+            }
+            return 'Counting observations...'
         },
     },
     analyze_replay_vision_impact: {
@@ -1472,10 +1488,7 @@ export const TOOL_DEFINITIONS: Record<AssistantTool, ToolDefinition> = {
 }
 
 export const MODE_DEFINITIONS: Record<
-    Exclude<
-        AgentMode,
-        AgentMode.Plan | AgentMode.Execution | AgentMode.Research | AgentMode.Sandbox | AgentMode.UserInterview
-    >,
+    Exclude<AgentMode, AgentMode.Plan | AgentMode.Execution | AgentMode.Research | AgentMode.Sandbox>,
     ModeDefinition
 > = {
     [AgentMode.ProductAnalytics]: {

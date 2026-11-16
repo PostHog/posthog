@@ -3,6 +3,8 @@ from datetime import UTC, date, datetime, timedelta
 import pytest
 from unittest import mock
 
+import requests
+
 from products.warehouse_sources.sources.appsflyer._config import AppsFlyerSourceConfig
 from products.warehouse_sources.sources.appsflyer.appsflyer import (
     CHUNK_SIZE,
@@ -134,6 +136,13 @@ class TestValidateCredentials:
             ("token secret-token is not allowed", "AppsFlyer said: token [redacted] is not allowed"),
             ("<html><body>Forbidden</body></html>", None),
             ("Forbidden: <!DOCTYPE html><html><body>Denied</body></html>", None),
+            ('{"error": "Authentication error"}', "AppsFlyer said: Authentication error"),
+            ('{"message": "token secret-token\\nis not allowed"}', "AppsFlyer said: token [redacted] is not allowed"),
+            ('{"detail": "App not found"}', "AppsFlyer said: App not found"),
+            ('{"error": {"code": 403}}', None),
+            ('{"status": "denied"}', None),
+            ('["denied"]', None),
+            ("{not json", None),
         ],
     )
     def test_validate_credentials_surfaces_appsflyer_reason(self, body: str, expected_reason: str | None) -> None:
@@ -146,6 +155,18 @@ class TestValidateCredentials:
         else:
             assert message.endswith(expected_reason)
         assert "secret-token" not in message
+        assert "{" not in message
+
+    @pytest.mark.parametrize("status_code", [403, 429])
+    @pytest.mark.parametrize("body", ["Limit reached for daily-report", "  LIMIT REACHED for geo-report\n"])
+    def test_validate_reports_used_up_quota_instead_of_access_denied(self, status_code: int, body: str) -> None:
+        with scripted_network(always(ScriptedResponse(status=status_code, body=body.encode()))):
+            with pytest.raises(AppsFlyerCredentialsError) as exc:
+                validate_credentials("token", "id123")
+        message = str(exc.value)
+        assert "used up its daily report API quota" in message
+        assert "denied access" not in message
+        assert "AppsFlyer said" not in message
 
     @pytest.mark.parametrize("api_token", [" token ", "Bearer token", "bearer  token"])
     def test_validate_credentials_sends_a_clean_token_and_ios_app_id(self, api_token: str) -> None:
@@ -251,6 +272,20 @@ class TestGetRows:
         assert result.raised is None
         headers = result.session_options[0]["headers"]
         assert headers["Accept"] == "text/csv"
+
+
+class TestUsedUpQuota:
+    @pytest.mark.parametrize("status_code", [403, 429])
+    def test_quota_response_is_retryable(self, status_code: int) -> None:
+        result = _driver().run("daily_report", always(ScriptedResponse(status=status_code, body=b"Limit reached")))
+
+        assert isinstance(result.raised, AppsFlyerRetryableError)
+
+    def test_forbidden_without_quota_body_stays_a_permanent_error(self) -> None:
+        result = _driver().run("daily_report", always(ScriptedResponse(status=403, body=b"Forbidden")))
+
+        assert isinstance(result.raised, requests.HTTPError)
+        assert "403 Client Error" in str(result.raised)
 
 
 class TestRawAndMasterWindows:

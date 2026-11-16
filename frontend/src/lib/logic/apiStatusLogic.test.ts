@@ -31,6 +31,27 @@ const MOCK_IMPERSONATED_USER: UserType = {
 describe('apiStatusLogic', () => {
     let logic: ReturnType<typeof apiStatusLogic.build>
 
+    it('opens the recovery page once when concurrent requests are blocked by IP restrictions', async () => {
+        initKeaTests()
+        logic = apiStatusLogic()
+        logic.mount()
+        const originalLocation = window.location
+        const reload = jest.fn()
+        Object.defineProperty(window, 'location', { configurable: true, value: { ...originalLocation, reload } })
+        const response = (): Response => new Response(JSON.stringify({ code: 'ip_not_allowed' }), { status: 403 })
+
+        try {
+            await expectLogic(logic, () => {
+                logic.actions.onApiResponse(response())
+                logic.actions.onApiResponse(response())
+            }).toFinishAllListeners()
+
+            expect(reload).toHaveBeenCalledTimes(1)
+        } finally {
+            Object.defineProperty(window, 'location', { configurable: true, value: originalLocation })
+        }
+    })
+
     describe('401 handling during impersonation', () => {
         it('skips auto-logout on 401 for impersonated users', async () => {
             useMocks({

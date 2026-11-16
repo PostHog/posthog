@@ -18,7 +18,7 @@ export const getClaudeAgentSDKSteps = (ctx: OnboardingComponentsContext): StepDe
                     <CodeBlock
                         language="bash"
                         code={dedent`
-                            pip install posthog
+                            pip install "posthog<8"
                         `}
                     />
                 </>

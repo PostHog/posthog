@@ -1,8 +1,9 @@
 """The issue summary prompt and response schema.
 
 The generator and the offline quality check both import this module, so the two cannot drift.
-Bump `ISSUE_SUMMARY_PROMPT_VERSION` on any change here: it is part of the input hash, so stored
-summaries regenerate on their next read.
+Bump `ISSUE_SUMMARY_PROMPT_VERSION` on any change here: it is part of the input hash, so summaries
+written by different prompt versions have different hashes. A bump does not regenerate stored
+summaries. Only summaries written after the deploy use the new prompt.
 """
 
 from pydantic import BaseModel, ConfigDict

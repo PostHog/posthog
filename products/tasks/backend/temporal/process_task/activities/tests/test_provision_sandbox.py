@@ -15,12 +15,17 @@ from django.test import override_settings
 
 from asgiref.sync import async_to_sync
 
+from posthog.integrations import RepositoryCache
+from posthog.models.github_integration_base import INSTALLATION_UNAVAILABLE_SINCE_CONFIG_KEY
+from posthog.models.integration import GitLabIntegrationError, Integration
 from posthog.temporal.common.posthog_client import is_expected_activity_failure
 
 from products.tasks.backend.exceptions import (
     ActiveSessionCapError,
     ComputeBillingLimitError,
+    CredentialUnavailableError,
     OrganizationExecutionError,
+    ProcessTaskTransientError,
     RepositoryAccessError,
     RepositoryCloneError,
     SandboxCleanupError,
@@ -91,6 +96,60 @@ def test_private_trial_keeps_the_pinned_model_without_agent_telemetry(mocker, is
 
     assert environment.get("POSTHOG_DISABLE_MODEL_FALLBACK") == ("1" if is_trial else None)
     assert environment.get("POSTHOG_AGENT_OTEL_LOGS_TOKEN") == (None if is_trial else "synthetic-token")
+
+
+@pytest.mark.parametrize(
+    "github_token, gitlab_token, expected",
+    [
+        ("gh-token", "", {"GH_TOKEN": "gh-token", "GITLAB_TOKEN": None, "POSTHOG_GIT_PROVIDER": None}),
+        ("", "gl-token", {"GH_TOKEN": None, "GITLAB_TOKEN": "gl-token", "POSTHOG_GIT_PROVIDER": "gitlab"}),
+    ],
+    ids=["github", "gitlab"],
+)
+def test_environment_variables_name_the_git_provider(mocker, github_token, gitlab_token, expected) -> None:
+    for name in ("run_gateway_env_vars", "mcp_exec_skills_env_vars", "get_git_identity_env_vars"):
+        mocker.patch.object(provision_sandbox_module, name, return_value={})
+    mocker.patch.object(provision_sandbox_module, "get_sandbox_jwt_public_key", return_value="public-key")
+
+    environment = provision_sandbox_module._build_environment_variables(
+        _context_for_desktop_bootstrap(),
+        mocker.Mock(is_scout_experiment=False),
+        github_token,
+        "fake-token",
+        gitlab_token,
+    )
+
+    assert {key: environment.get(key) for key in expected} == expected
+
+
+@pytest.mark.parametrize(
+    "check, expected",
+    [
+        (True, "glpat-synthetic"),
+        (False, CredentialUnavailableError),
+        (GitLabIntegrationError("rate limited", transient=True), ProcessTaskTransientError),
+        (GitLabIntegrationError("revoked"), CredentialUnavailableError),
+    ],
+    ids=["project_token", "broader_token", "gitlab_unavailable", "revoked_token"],
+)
+def test_gitlab_token_reaches_the_sandbox_only_when_bound_to_the_project(mocker, check, expected) -> None:
+    context = _context_for_desktop_bootstrap()
+    context.repository_integration_id = 5
+    mocker.patch.object(provision_sandbox_module.IntegrationManager.gitlab.token, "get", return_value=mocker.Mock())
+    gitlab = mocker.Mock()
+    if isinstance(check, Exception):
+        gitlab.token_reaches_only_connected_project.side_effect = check
+    else:
+        gitlab.token_reaches_only_connected_project.return_value = check
+    gitlab.credentials.access_token.return_value.token = "glpat-synthetic"
+    mocker.patch.object(provision_sandbox_module, "GitLabIntegration", return_value=gitlab)
+
+    if isinstance(expected, str):
+        assert provision_sandbox_module._resolve_sandbox_gitlab_token(context) == expected
+    else:
+        with pytest.raises(expected):
+            provision_sandbox_module._resolve_sandbox_gitlab_token(context)
+        gitlab.credentials.access_token.assert_not_called()
 
 
 class _ShellSandbox:
@@ -470,6 +529,7 @@ def test_clone_repository_uses_saved_branch_only_for_resumes(mocker, activity_en
         shallow=True,
         branch=expected_branch,
         blobless=True,
+        gitlab_token="",
     )
 
 
@@ -521,6 +581,7 @@ def test_resume_clone_falls_back_to_default_branch_when_saved_branch_is_missing(
             shallow=True,
             branch="branch-from-a-sibling-repository",
             blobless=False,
+            gitlab_token="",
         ),
         mocker.call(
             "posthog/posthog",
@@ -528,6 +589,7 @@ def test_resume_clone_falls_back_to_default_branch_when_saved_branch_is_missing(
             shallow=True,
             branch=None,
             blobless=False,
+            gitlab_token="",
         ),
     ]
 
@@ -599,9 +661,9 @@ def test_clone_failure_records_failed_latency_and_captures_command_result(mocker
     [
         (
             "Cloning into 'repo'...\nfatal: could not read Username for 'https://github.com': No such device or address\n",
-            RepositoryAccessError,
+            RepositoryCloneError,
             1,
-            None,
+            1,
         ),
         (
             "Cloning into 'repo'...\nremote: Repository not found.\nfatal: repository 'https://github.com/acme/repo.git/' not found\n",
@@ -611,9 +673,21 @@ def test_clone_failure_records_failed_latency_and_captures_command_result(mocker
         ),
         (
             "fatal: Authentication failed for 'https://github.com/example/repo.git/'\n",
-            RepositoryAccessError,
+            RepositoryCloneError,
             3,
-            None,
+            16,
+        ),
+        (
+            "fatal: unable to access 'https://github.com/acme/repo.git/': The requested URL returned error: 403\n",
+            RepositoryCloneError,
+            1,
+            1,
+        ),
+        (
+            "fatal: unable to access 'https://github.com/acme/repo.git/': The requested URL returned error: 404\n",
+            RepositoryCloneError,
+            1,
+            1,
         ),
         (
             "Cloning into 'repo'...\nfatal: unable to access 'https://github.com/acme/repo.git/': Could not resolve host: github.com\n",
@@ -632,7 +706,7 @@ def test_clone_failure_records_failed_latency_and_captures_command_result(mocker
         ],
     ],
 )
-def test_clone_failure_stops_retries_only_when_github_denies_access(
+def test_clone_failures_without_installation_marker_remain_retryable(
     mocker, activity_environment, stderr, expected_error, attempt, retry_delay
 ):
     activity_environment.info = dataclasses.replace(activity_environment.info, attempt=attempt)
@@ -653,6 +727,7 @@ def test_clone_failure_stops_retries_only_when_github_denies_access(
         "products.tasks.backend.temporal.process_task.activities.provision_sandbox.get_sandbox_class_for_sandbox_id",
         return_value=mocker.Mock(get_by_id=mocker.Mock(return_value=sandbox)),
     )
+    mocker.patch.object(provision_sandbox_module, "_reresolve_sandbox_github_token", return_value="")
     capture_exception = mocker.patch("products.tasks.backend.exceptions.capture_exception")
 
     with pytest.raises(expected_error) as error:
@@ -667,17 +742,16 @@ def test_clone_failure_stops_retries_only_when_github_denies_access(
             ),
         )
 
-    access_denied = expected_error is RepositoryAccessError
-    assert error.value.non_retryable is access_denied
-    assert is_expected_activity_failure(error.value) is access_denied
-    assert capture_exception.called is not access_denied
+    assert error.value.non_retryable is False
+    assert is_expected_activity_failure(error.value) is False
+    assert capture_exception.called
     assert error.value.next_retry_delay == (timedelta(seconds=retry_delay) if retry_delay is not None else None)
 
 
 @pytest.mark.parametrize(
     "failure, expected_error",
     [
-        ("fatal: Authentication failed for", RepositoryAccessError),
+        ("fatal: Authentication failed for", RepositoryCloneError),
         ("remote: Repository not found.", RepositoryCloneError),
     ],
 )
@@ -778,12 +852,12 @@ def _mock_clone_sandbox(mocker, clone_result: ExecutionResult):
 
 
 @pytest.mark.parametrize(
-    "confirmed, expected_error",
+    "installation_unavailable, expected_error",
     [(True, RepositoryAccessError), (False, RepositoryCloneError)],
-    ids=["installation_cannot_read_repo", "installation_can_read_repo"],
+    ids=["installation_unavailable", "installation_state_unknown"],
 )
-def test_denied_clone_with_installation_token_fails_for_good_only_when_github_confirms(
-    mocker, activity_environment, confirmed, expected_error
+def test_denied_clone_is_permanent_only_when_installation_is_marked_unavailable(
+    mocker, activity_environment, installation_unavailable, expected_error
 ):
     stderr = (
         "Cloning into 'repo'...\n"
@@ -792,8 +866,8 @@ def test_denied_clone_with_installation_token_fails_for_good_only_when_github_co
     )
     _mock_clone_sandbox(mocker, ExecutionResult(stdout="", stderr=stderr, exit_code=128, error=None))
     installation = mocker.Mock()
+    installation.installation_unavailable.return_value = installation_unavailable
     mocker.patch.object(provision_sandbox_module, "_installation_behind_sandbox_token", return_value=installation)
-    mocker.patch.object(provision_sandbox_module, "installation_confirms_repository_denied", return_value=confirmed)
     forget = mocker.patch.object(provision_sandbox_module, "forget_cached_github_tokens")
     mocker.patch("products.tasks.backend.exceptions.capture_exception")
 
@@ -802,17 +876,19 @@ def test_denied_clone_with_installation_token_fails_for_good_only_when_github_co
             clone_repository_in_sandbox, _clone_input(_clone_context(), github_token="ghs_secret")
         )
 
-    assert error.value.non_retryable is confirmed
+    assert error.value.non_retryable is installation_unavailable
     assert error.value.context["stderr"] == stderr.replace("ghs_secret", "<redacted>")
     assert "ghs_secret" not in str(error.value)
-    if confirmed:
+    installation.installation_unavailable.assert_called_once_with()
+    if installation_unavailable:
         forget.assert_not_called()
     else:
         forget.assert_called_once_with(installation, ["acme/repo"])
         assert error.value.next_retry_delay == timedelta(seconds=1)
 
 
-def test_denied_clone_without_installation_token_is_not_verified(mocker, activity_environment):
+@pytest.mark.parametrize("github_token", ["", "ghu_user"], ids=["no_token", "unresolved_installation"])
+def test_denied_clone_without_resolved_installation_remains_retryable(mocker, activity_environment, github_token):
     _mock_clone_sandbox(
         mocker,
         ExecutionResult(
@@ -822,28 +898,136 @@ def test_denied_clone_without_installation_token_is_not_verified(mocker, activit
             error=None,
         ),
     )
-    mocker.patch.object(provision_sandbox_module, "_installation_behind_sandbox_token", return_value=None)
-    confirms = mocker.patch.object(provision_sandbox_module, "installation_confirms_repository_denied")
+    installation = mocker.patch.object(
+        provision_sandbox_module, "_installation_behind_sandbox_token", return_value=None
+    )
 
-    with pytest.raises(RepositoryAccessError):
+    with pytest.raises(RepositoryCloneError) as error:
         async_to_sync(activity_environment.run)(
-            clone_repository_in_sandbox, _clone_input(_clone_context(), github_token="ghu_user")
+            clone_repository_in_sandbox, _clone_input(_clone_context(), github_token=github_token)
         )
 
-    confirms.assert_not_called()
+    assert error.value.non_retryable is False
+    assert error.value.next_retry_delay == timedelta(seconds=1)
+    assert installation.called is bool(github_token)
 
 
 @pytest.mark.parametrize(
-    "attempt, lock_acquired, expected_token, credentials_applied",
-    [(1, True, "github-token", False), (2, True, "fresh-token", True), (2, False, "fresh-token", False)],
-    ids=["first_attempt", "retry", "retry_without_credential_lock"],
+    "integrations, expected_error",
+    [
+        ([True], RepositoryAccessError),
+        ([True, False], RepositoryCloneError),
+    ],
+    ids=["unavailable_team_installation", "available_team_installation_wins"],
+)
+def test_denial_classification_resolves_team_installation_state(
+    mocker, activity_environment, integrations, expected_error
+):
+    rows = []
+    for index, unavailable in enumerate(integrations):
+        row = mocker.Mock(spec=Integration)
+        row.kind = "github"
+        config: dict[str, object] = {"account": {"type": "Organization", "name": str(index + 1)}}
+        if unavailable:
+            config[INSTALLATION_UNAVAILABLE_SINCE_CONFIG_KEY] = "2026-01-01T00:00:00Z"
+        row.config = config
+        row.auth_type = "oauth"
+        row.errors = ""
+        row.integration_id = str(index + 1)
+        rows.append(row)
+    mocker.patch("posthog.integrations.IntegrationManager.github.oauth.list", return_value=rows)
+    # The adapter reads the repository list through the SDK, not from the row.
+    mocker.patch(
+        "posthog.integrations.accessors.AuthAccessor.get_repository_cache",
+        return_value=RepositoryCache(repositories=None, updated_at=None),
+    )
+    mocker.patch.object(provision_sandbox_module, "forget_cached_github_tokens")
+    context = _clone_context(state={"github_read_access": True})
+    stderr = "fatal: Authentication failed for 'https://github.com/acme/repo.git/'\n"
+    _mock_clone_sandbox(mocker, ExecutionResult(stdout="", stderr=stderr, exit_code=128, error=None))
+    mocker.patch("products.tasks.backend.exceptions.capture_exception")
+
+    with pytest.raises(expected_error) as error:
+        async_to_sync(activity_environment.run)(
+            clone_repository_in_sandbox,
+            _clone_input(context, github_token="github-token"),
+        )
+
+    assert error.value.non_retryable is (expected_error is RepositoryAccessError)
+
+
+@pytest.mark.parametrize(
+    "stderr, api_status",
+    [
+        ("fatal: could not read Username for 'https://github.com': terminal prompts disabled\n", 403),
+        ("fatal: Authentication failed for 'https://github.com/acme/repo.git/'\n", 404),
+    ],
+    ids=["username_prompt_denial", "stale_installation_token"],
+)
+def test_denied_clone_retries_with_a_refreshed_token(mocker, activity_environment, stderr, api_status):
+    activity_environment.info = dataclasses.replace(activity_environment.info, attempt=1)
+    sandbox = _mock_clone_sandbox(mocker, ExecutionResult(stdout="", stderr="", exit_code=0))
+    sandbox.clone_repository.side_effect = [
+        ExecutionResult(stdout="", stderr=stderr, exit_code=128, error=None),
+        ExecutionResult(stdout="", stderr="", exit_code=0),
+    ]
+    installation = mocker.Mock()
+    installation.installation_unavailable.return_value = False
+    installation.api_request.return_value.status_code = api_status
+    mocker.patch.object(provision_sandbox_module, "_installation_behind_sandbox_token", return_value=installation)
+    forget = mocker.patch.object(provision_sandbox_module, "forget_cached_github_tokens")
+    mocker.patch.object(provision_sandbox_module, "_reresolve_sandbox_github_token", return_value="fresh-token")
+    mocker.patch.object(provision_sandbox_module, "_prepare_posthog_desktop_cloud_task")
+    mocker.patch.object(provision_sandbox_module, "sandbox_credential_lock", return_value=nullcontext(True))
+    apply_credentials = mocker.patch.object(
+        provision_sandbox_module, "apply_github_credentials_to_sandbox", return_value=True
+    )
+    mocker.patch("products.tasks.backend.exceptions.capture_exception")
+    clone_input = _clone_input(_clone_context(), github_token="github-token")
+
+    with pytest.raises(RepositoryCloneError) as error:
+        async_to_sync(activity_environment.run)(clone_repository_in_sandbox, clone_input)
+
+    assert error.value.non_retryable is False
+    assert error.value.next_retry_delay == timedelta(seconds=1)
+    forget.assert_called_once_with(installation, ["acme/repo"])
+    installation.api_request.assert_not_called()
+
+    activity_environment.info = dataclasses.replace(activity_environment.info, attempt=2)
+    async_to_sync(activity_environment.run)(clone_repository_in_sandbox, clone_input)
+
+    assert [call.kwargs["github_token"] for call in sandbox.clone_repository.call_args_list] == [
+        "github-token",
+        "fresh-token",
+    ]
+    apply_credentials.assert_called_once_with(sandbox, ["acme/repo"], "fresh-token")
+
+
+@pytest.mark.parametrize(
+    "attempt, input_token, fresh_token, lock_acquired, expected_token, credentials_applied",
+    [
+        (1, "github-token", "fresh-token", True, "github-token", False),
+        (2, "github-token", "fresh-token", True, "fresh-token", True),
+        (2, "github-token", "fresh-token", False, "fresh-token", False),
+        (2, "", "", True, "", False),
+        (2, "", "fresh-token", True, "fresh-token", True),
+    ],
+    ids=[
+        "first_attempt",
+        "retry",
+        "retry_without_credential_lock",
+        "anonymous_public_retry",
+        "anonymous_retry_with_new_token",
+    ],
 )
 def test_retried_clone_resolves_a_fresh_github_token(
-    mocker, activity_environment, attempt, lock_acquired, expected_token, credentials_applied
+    mocker, activity_environment, attempt, input_token, fresh_token, lock_acquired, expected_token, credentials_applied
 ):
     activity_environment.info = dataclasses.replace(activity_environment.info, attempt=attempt)
     sandbox = _mock_clone_sandbox(mocker, ExecutionResult(stdout="", stderr="", exit_code=0))
-    mocker.patch.object(provision_sandbox_module, "_reresolve_sandbox_github_token", return_value="fresh-token")
+    reresolve = mocker.patch.object(
+        provision_sandbox_module, "_reresolve_sandbox_github_token", return_value=fresh_token
+    )
     mocker.patch.object(provision_sandbox_module, "_prepare_posthog_desktop_cloud_task")
     mocker.patch.object(provision_sandbox_module, "sandbox_credential_lock", return_value=nullcontext(lock_acquired))
     apply_credentials = mocker.patch.object(
@@ -851,10 +1035,11 @@ def test_retried_clone_resolves_a_fresh_github_token(
     )
 
     async_to_sync(activity_environment.run)(
-        clone_repository_in_sandbox, _clone_input(_clone_context(), github_token="github-token")
+        clone_repository_in_sandbox, _clone_input(_clone_context(), github_token=input_token)
     )
 
     assert sandbox.clone_repository.call_args.kwargs["github_token"] == expected_token
+    assert reresolve.called is (attempt > 1)
     if credentials_applied:
         apply_credentials.assert_called_once_with(sandbox, ["acme/repo"], "fresh-token")
     else:

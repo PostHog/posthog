@@ -23,6 +23,8 @@ import { userLogic } from 'scenes/userLogic'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
+import { TodayPeoplePinButton } from '~/layout/today/TodayPeoplePinButton'
+import { useTodayPeopleTitle } from '~/layout/today/todayPeopleRows'
 import { ProductKey } from '~/queries/schema/schema-general'
 import { AccessControlLevel, AccessControlResourceType, Breadcrumb } from '~/types'
 
@@ -55,9 +57,9 @@ import { reportTimelineExtras } from './ThreadReports'
 // (the ticket row carries them through on navigation). Rebuild the list URL from
 // them so the back arrow returns to the view the user came from rather than the
 // unfiltered ticket list.
-export function ticketListBackTo(searchParams: Record<string, any>): Breadcrumb {
+export function ticketListBackTo(searchParams: Record<string, any>, name: string = 'Ticket list'): Breadcrumb {
     return {
-        name: 'Ticket list',
+        name,
         path: combineUrl(urls.supportTickets(), searchParams).url,
         key: 'supportTickets',
     }
@@ -167,6 +169,7 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
 
     const { user } = useValues(userLogic)
     const { featureFlags } = useValues(featureFlagLogic)
+    const ticketsTitle = useTodayPeopleTitle('support')
     const simplifiedReplies = !!featureFlags[FEATURE_FLAGS.PRODUCT_SUPPORT_SIMPLIFIED_REPLIES]
     // Widget tickets stay images only until the widget can render file links.
     const canAttachFiles =
@@ -263,6 +266,7 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
         <SceneContent className="flex-1 min-h-0 pb-4">
             <SupportTicketSceneMenuBar ticketId={ticketId} />
             <SceneTitleSection
+                nameAction={<TodayPeoplePinButton />}
                 name={`Ticket: ${ticket?.ticket_number?.toString() || ticket?.id || ''}`}
                 nameSuffix={
                     ticket && ticket.identity_verified !== true ? (
@@ -270,8 +274,8 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                     ) : undefined
                 }
                 description=""
-                resourceType={{ type: 'conversation' }}
-                forceBackTo={ticketListBackTo(searchParams)}
+                resourceType={ticketsTitle?.resourceType ?? { type: 'conversation' }}
+                forceBackTo={ticketListBackTo(searchParams, ticketsTitle?.name ?? undefined)}
             />
             <LemonModal title="Full email" isOpen={fullEmailMessageId !== null} onClose={closeFullEmail}>
                 {fullEmailContentLoading ? (
@@ -511,6 +515,20 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                                 <div className="flex justify-between items-center">
                                     <span className="text-muted-alt">Zendesk ID</span>
                                     <LemonTag type="highlight">#{ticket.zendesk_ticket_id}</LemonTag>
+                                </div>
+                            )}
+                            {ticket?.intercom_conversation_id && (
+                                <div className="flex justify-between items-center">
+                                    <span className="text-muted-alt">Intercom ID</span>
+                                    <LemonTag type="highlight">#{ticket.intercom_conversation_id}</LemonTag>
+                                </div>
+                            )}
+                            {ticket?.pylon_issue_id && (
+                                <div className="flex justify-between items-center gap-2">
+                                    <span className="text-muted-alt shrink-0">Pylon ID</span>
+                                    <LemonTag type="highlight" className="truncate" title={ticket.pylon_issue_id}>
+                                        {ticket.pylon_issue_id}
+                                    </LemonTag>
                                 </div>
                             )}
                             {ticket?.session_context?.current_url && (

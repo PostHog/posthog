@@ -1,5 +1,5 @@
-import time
 import asyncio
+import threading
 
 import pytest
 from unittest.mock import MagicMock, patch
@@ -40,16 +40,20 @@ class TestRunIngestionAcceptanceTestsTimeout:
         config: Config,
     ) -> None:
         mock_load_config.return_value = config
+        release_run_tests = threading.Event()
 
-        def slow_run_tests(*args, **kwargs):
-            time.sleep(5)
+        def hanging_run_tests(*args, **kwargs):
+            assert release_run_tests.wait(timeout=10), "the test never released run_tests"
 
-        mock_run_tests.side_effect = slow_run_tests
+        mock_run_tests.side_effect = hanging_run_tests
 
         from posthog.temporal.ingestion_acceptance_test.activities import run_ingestion_acceptance_tests
 
-        with pytest.raises(asyncio.TimeoutError):
-            await run_ingestion_acceptance_tests(IngestionAcceptanceTestInput())
+        try:
+            with pytest.raises(asyncio.TimeoutError):
+                await run_ingestion_acceptance_tests(IngestionAcceptanceTestInput())
+        finally:
+            release_run_tests.set()
 
         mock_send_timeout.assert_called_once_with(config, running_tests=[], run_context=None)
         mock_send_slack.assert_not_called()

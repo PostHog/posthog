@@ -2,29 +2,32 @@
 
 Move one email at a time. Pick a low-risk email first, switch it, check a few real sends, then move the next one.
 
-## Map the send call
+## Find where the email lives
 
-A PostHog send takes a template ID, one recipient, the values for the template's placeholders, the recipient's distinct ID, and an idempotency key. The subject, body, sender and reply-to address live on the template, so move them out of the code and into the template.
+Keep the email in the app's code unless the user chose a PostHog template. First find where the email lives today:
 
-| Provider                  | What the code sends today                                                   | In PostHog                                                                                                                |
-| ------------------------- | --------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
-| Customer.io transactional | `transactional_message_id`, `to`, `identifiers`, `message_data`             | Almost the same shape. `templateId` / `template_id`, `to`, `distinctId` / `distinct_id`, `templateData` / `template_data` |
-| Loops                     | `transactionalId`, `email`, `dataVariables`                                 | `templateId`, `to`, `templateData`                                                                                        |
-| Postmark                  | `TemplateAlias` or `TemplateId`, `To`, `TemplateModel`                      | `templateId`, `to`, `templateData`                                                                                        |
-| SendGrid                  | `templateId`, `to`, `dynamicTemplateData`                                   | `templateId`, `to`, `templateData`                                                                                        |
-| Mailgun                   | `template`, `to`, `h:X-Mailgun-Variables`                                   | `templateId`, `to`, `templateData`                                                                                        |
-| Amazon SES                | A template name and template data, or a raw subject and body                | `templateId`, `to`, `templateData`                                                                                        |
-| Resend, Mandrill, Brevo   | Often a subject and an HTML body, or a React Email component, built in code | Build the email as a PostHog template, then send `templateId`, `to`, `templateData`                                       |
-| nodemailer or SMTP        | A subject and a body built in code                                          | Build the email as a PostHog template, then send `templateId`, `to`, `templateData`                                       |
+| Provider                  | What the code sends today                                                   | Where the email lives |
+| ------------------------- | --------------------------------------------------------------------------- | --------------------- |
+| Resend, Mandrill, Brevo   | Often a subject and an HTML body, or a React Email component, built in code | Code                  |
+| nodemailer or SMTP        | A subject and a body built in code                                          | Code                  |
+| Amazon SES                | A template name and template data, or a raw subject and body                | Provider, or code     |
+| SendGrid                  | `templateId`, `to`, `dynamicTemplateData`                                   | Provider              |
+| Postmark                  | `TemplateAlias` or `TemplateId`, `To`, `TemplateModel`                      | Provider              |
+| Mailgun                   | `template`, `to`, `h:X-Mailgun-Variables`                                   | Provider              |
+| Loops                     | `transactionalId`, `email`, `dataVariables`                                 | Provider              |
+| Customer.io transactional | `transactional_message_id`, `to`, `identifiers`, `message_data`             | Provider              |
+
+Every row becomes the same PostHog send. Its fields are in the skill's **Send forms**, under **Send from code**.
 
 ## Move the content
 
-- Recreate the email as a PostHog template with the `designing-email-templates` skill. Start from the email the provider sends today, so it keeps the same logo, colors, and layout. Ask the user for its HTML or a screenshot if you can't read it. For an email built in code, such as a React Email component, render it once and use the result as the starting design.
-- Rename the placeholders to Liquid: a variable `name` becomes `{{ variables.name }}`. The template can't read person properties, so pass every value in `templateData`.
-- Values that the old code computed in the template language, such as loops or conditions, become Liquid tags. Keep the logic that needs backend data in the backend, and pass the result.
+- **An email built in code** stays where it is. Only the send call changes, and it keeps the subject and the HTML and text bodies the old send passed. When the old send passed a React Email component, render it to HTML in the app and pass that as `html`.
+- **An email stored at the provider** becomes code: export its HTML, or ask the user for it or a screenshot if you can't read it, and write it as a function in the repo that takes the values the provider's template variables held. When the app uses React Email, write it as a component. Keep the same logo, colors, and layout.
+- **For a PostHog template** instead, recreate the email with the skill's **Design it in PostHog** steps, starting from the email the provider sends today. Rename the placeholders to Liquid: a variable `name` becomes `{{ variables.name }}`. The template can't read person properties, so pass every value in `templateData`. Values that the old template computed, such as loops or conditions, become Liquid tags, and logic that needs backend data stays in the backend.
 
 ## Check before the switch
 
+- **What the send can't carry:** A PostHog send takes only the fields in the skill's **Send from code** section, for one `to` recipient. If the old send passes anything else, such as a scheduled delivery time, custom headers, or tags, tell the user what the switch would drop before you change the call.
 - **Sender:** The sending domain must be verified in PostHog, even if it already sends with the other provider. The app shows the DNS records to add.
 - **Suppressions:** Addresses that the old provider suppressed after bounces or complaints are not in PostHog's suppression list. Ask the user whether to add them before high-volume emails move.
 - **Errors:** Map the old provider's error handling to PostHog's error codes, such as `recipient_suppressed`, `recipient_unreachable`, and `quota_limited`. A code that means "don't retry" must not go back into a retry loop.
@@ -33,4 +36,4 @@ A PostHog send takes a template ID, one recipient, the values for the template's
 
 ## After the switch
 
-Watch the first sends. Read a few statuses from the user's code, and look at the template's **Sends** and **Metrics** tabs. Remove the old provider's code for that email only when the user is happy with it.
+Watch the first sends. Read a few statuses from the user's code, and, for a PostHog template, look at its **Sends** and **Metrics** tabs. Remove the old provider's code for that email only when the user is happy with it.

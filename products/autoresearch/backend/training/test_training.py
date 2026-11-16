@@ -23,19 +23,14 @@ from products.autoresearch.backend.models import (
     AutoresearchSuggestion,
     AutoresearchTrainingRun,
 )
+from products.autoresearch.backend.task_profiles import REPORT_NOTEBOOK_MCP_SCOPES, TRAINING, TRAINING_MCP_SCOPES
 from products.autoresearch.backend.testing import TeamScopedTestMixin
 from products.autoresearch.backend.training.realized_context import (
     REALIZED_DATES_PER_MODEL,
     RELATED_PIPELINES_LIMIT,
     build_realized_context,
 )
-from products.autoresearch.backend.training.runner import (
-    REPORT_NOTEBOOK_MCP_SCOPES,
-    TRAINING_MCP_SCOPES,
-    UNTRUSTED_DATA_TAG,
-    build_agent_description,
-    run_training,
-)
+from products.autoresearch.backend.training.runner import UNTRUSTED_DATA_TAG, build_agent_description, run_training
 
 _UNSCORABLE = UnscorableChampion(failure_kind="limit_exceeded", onset=date(2026, 9, 2))
 
@@ -372,10 +367,11 @@ class TestRunTraining(TeamScopedTestMixin, BaseTest):
 
         assert flag.call_args.args[0] == self.user
         kwargs = facade.create_and_run_task.call_args.kwargs
-        assert kwargs["posthog_mcp_scopes"] == expected_scopes
+        assert kwargs["profile"] == TRAINING
+        assert kwargs["options"].mcp_scopes == expected_scopes
         assert ("notebooks-create-markdown" in kwargs["description"]) is flag_on
         assert "No realized results yet" in kwargs["description"]
-        assert "user:read" in kwargs["posthog_mcp_scopes"]
+        assert "user:read" in kwargs["options"].mcp_scopes
         assert kwargs["extra_run_state"] == {
             "autoresearch_training_run_id": str(training_run.id),
             "config_snapshot": {"connectors": {"mcp_installation_ids": []}},
@@ -445,8 +441,8 @@ class TestRunTraining(TeamScopedTestMixin, BaseTest):
 
         training_run = run_training(self.pipeline, iteration_budget=5, user_id=self.user.id)
 
-        kwargs = facade.create_and_run_task.call_args.kwargs
-        assert (kwargs["runtime_adapter"], kwargs["model"], kwargs["reasoning_effort"]) == expected
+        options = facade.create_and_run_task.call_args.kwargs["options"]
+        assert (options.adapter, options.model, options.reasoning_effort) == expected
         training_run.refresh_from_db()
         assert (
             training_run.agent_runtime_adapter,

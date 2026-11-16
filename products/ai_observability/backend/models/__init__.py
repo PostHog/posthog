@@ -1,6 +1,7 @@
 from .clustering_config import ClusteringConfig
 from .clustering_job import ClusteringJob
 from .datasets import Dataset, DatasetItem, DatasetItemVersion, DatasetRevision
+from .eval_suggestions import EvalSuggestion, EvalSuggestionRun, EvalSuggestionTeamState
 from .evaluation_backfill import EvaluationBackfill
 from .evaluation_config import EvaluationConfig
 from .evaluation_directories import EvaluationDirectory
@@ -21,7 +22,7 @@ from .offline_evaluations import (
 from .parser_recipe import ParserRecipe
 from .provider_keys import LLMProvider, LLMProviderKey
 from .review_queues import ReviewQueue, ReviewQueueItem
-from .score_definitions import ScoreDefinition, ScoreDefinitionVersion
+from .score_definitions import ScoreDefinition, ScoreDefinitionInput, ScoreDefinitionVersion
 from .taggers import Tagger
 from .trace_reviews import TraceReview, TraceReviewScore
 
@@ -29,6 +30,9 @@ __all__ = [
     "AIObservabilityChecklistItemState",
     "ClusteringConfig",
     "ClusteringJob",
+    "EvalSuggestion",
+    "EvalSuggestionRun",
+    "EvalSuggestionTeamState",
     "Evaluation",
     "EvaluationBackfill",
     "EvaluationConfig",
@@ -56,6 +60,7 @@ __all__ = [
     "ReviewQueue",
     "ReviewQueueItem",
     "ScoreDefinition",
+    "ScoreDefinitionInput",
     "ScoreDefinitionVersion",
     "Tagger",
     "TraceReview",

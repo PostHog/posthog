@@ -51,12 +51,15 @@ _BYTECODE = ["_H", 1, 32, "matched", 32, "event", 1, 1, 11]
 class TestCreateCohortBackfillRunCommand(BaseTest):
     def setUp(self) -> None:
         super().setUp()
-        patcher = mock.patch(
+        self.scan_estimate = mock.Mock(side_effect=self._scan_estimate)
+        # The dry run estimates in the command, and a real run in the creator.
+        for target in (
             "products.cohorts.backend.management.commands.create_cohort_backfill_run.estimate_behavioral_scan_events",
-            side_effect=self._scan_estimate,
-        )
-        self.scan_estimate = patcher.start()
-        self.addCleanup(patcher.stop)
+            "products.cohorts.backend.backfill.runs.estimate_behavioral_scan_events",
+        ):
+            patcher = mock.patch(target, self.scan_estimate)
+            patcher.start()
+            self.addCleanup(patcher.stop)
 
     def _scan_estimate(
         self, team_id: int, event_names: list[str], *, flag_calls_table: FlagCallsTable, max_events_per_day: int

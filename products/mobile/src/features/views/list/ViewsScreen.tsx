@@ -22,7 +22,6 @@ import { useSceneDimensions } from '@/ui/useSceneDimensions'
 import { bottomOffset, topOffset, useScreenInsets, useTabBottomOffset } from '@/ui/useScreenInsets'
 import { NavPinMenu } from '../../tabs/NavPinMenu'
 import { changeNavPin } from '../../tabs/navPinActions'
-import { openNavTarget } from '../../tabs/navPinRoutes'
 import { type NavPin, useNavPinStore } from '../../tabs/navPinStore'
 import { useNavToasts } from '../../tabs/navToasts'
 import { TABS_HEADER_BOTTOM } from '../../tabs/TabsHeader'
@@ -48,7 +47,15 @@ import { ViewsReauthState } from '../ViewsReauthState'
 import { ViewsToast } from '../ViewsToast'
 import { viewHref } from '../viewRoutes'
 import { useSnapshot } from '../viewsCache'
-import { BROWSE_ENTRIES, type BrowseEntry, BrowseEntryRow, browseEntryLabel, browseEntryPin } from './BrowseEntryRow'
+import {
+    BROWSE_ENTRIES,
+    type BrowseEntry,
+    BrowseEntryRow,
+    browseEntryInDemo,
+    browseEntryLabel,
+    browseEntryPin,
+} from './BrowseEntryRow'
+import { openBrowseEntry } from './browseRoutes'
 import { ChooseTileSheet, type ChooseTileTarget } from './ChooseTileSheet'
 import { EditPinsList } from './EditPinsList'
 import { EmptyPins } from './EmptyPins'
@@ -334,21 +341,11 @@ function ViewsBody(): ReactElement {
         }
     }, [])
     const openBrowse = useCallback((entry: BrowseEntry) => {
-        const { router: nav } = latest.current
-        if (entry === 'web') {
-            const href = viewHref({ kind: 'web_analytics', ref: null }, { from: 'browse' })
-            if (href) {
-                nav.push(href)
-            }
-            return
+        // Web analytics sends its own open event with `from`, so the other rows count a Browse open here.
+        if (entry !== 'web') {
+            trackBrowseListOpened({ section: entry, from: latest.current.searching ? 'search' : 'browse' })
         }
-        trackBrowseListOpened({ section: entry, from: latest.current.searching ? 'search' : 'browse' })
-        const pin = browseEntryPin(entry)
-        if (pin) {
-            openNavTarget(nav, pin, isNavPinned(pin))
-            return
-        }
-        nav.push(`/views/browse/${entry}`)
+        openBrowseEntry(latest.current.router, entry, isNavPinned)
     }, [])
     const openBrowseMenu = useCallback((entry: BrowseEntry, anchor: RowAnchor) => {
         const pin = browseEntryPin(entry)
@@ -779,7 +776,7 @@ function ViewsBody(): ReactElement {
                         <BrowseEntryRow
                             entry={item.entry}
                             position={item.position}
-                            enabled={browseEntryPin(item.entry) === null || context.mode === 'live'}
+                            enabled={browseEntryInDemo(item.entry) || context.mode === 'live'}
                             onPress={openBrowse}
                             onMenu={openBrowseMenu}
                         />

@@ -16,7 +16,6 @@ from parameterized import parameterized
 
 from posthog.clickhouse.query_tagging import Feature, Product, get_query_tags
 from posthog.constants import AvailableFeature
-from posthog.models import PropertyDefinition
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 
@@ -50,6 +49,7 @@ from products.error_tracking.backend.tests.api.issue_summary_states import (
     lock_held,
     summary_state,
 )
+from products.event_definitions.backend.models import PropertyDefinition
 
 
 class FakeQueryResponse:
@@ -1023,9 +1023,7 @@ class TestErrorTrackingQueryAPI(ClickhouseTestMixin, APIBaseTest):
         flush_persons_and_events()
 
         with (
-            summary_state(
-                self, self.issue_id, flag=flag, readable=readable, approved=approved, stored=stored
-            ) as publish,
+            summary_state(self, self.issue_id, flag=flag, readable=readable, approved=approved, stored=stored),
             patch("posthog.event_usage.posthoganalytics.capture") as mock_capture,
         ):
             response = self.client.post(
@@ -1043,7 +1041,6 @@ class TestErrorTrackingQueryAPI(ClickhouseTestMixin, APIBaseTest):
             {**STORED_CONTENT, "generated_at": "2026-10-20T12:00:00+00:00"} if expected_status == "ready" else None
         )
         assert body.get("summary") == expected_summary
-        publish.assert_not_called()
         assert not lock_held(self.team.id, self.issue_id)
         [read_event] = [
             call.kwargs["properties"]

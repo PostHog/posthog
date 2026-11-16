@@ -220,6 +220,11 @@ can count unmerged duplicates and is suitable only for an approximate read.
 | `apm-traces` | `apm_traces_bytes`, `apm_traces_spans` | bytes, records | fresh UUIDv7 per flush | traces ingestion server |
 | `session-replay` | `session_replay_recordings`, `mobile_replay_recordings` | recordings | the session ID | session replay consumer |
 | `ingestion` | `enhanced_person_events` | events | `{day}:{sha256 of event, distinct_id, uuid}` | ingestion consumers, ingestion API |
+| `ingestion` | `historical_migration_events`, `historical_migration_enhanced_person_events` | events | `{day}:{sha256 of event, distinct_id, uuid}` | ingestion consumers, ingestion API |
+
+The `historical_migration_*` keys count analytics events sent with the `historical_migration` flag that are at least 48 hours old at capture.
+These imports are free, so billing does not read these keys.
+They replace `events` and `enhanced_person_events` for those events.
 
 Every producer reads the following environment variables. Since every producer
 is its own deployment, the same name rolls out per producer from that service's

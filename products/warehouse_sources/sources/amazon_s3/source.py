@@ -90,7 +90,7 @@ class AmazonS3Source(ObjectStorageSource[AmazonS3SourceConfig]):
             label="Amazon S3",
             caption=source_caption("an S3 bucket"),
             iconPath="/static/services/aws-s3.png",
-            releaseStatus=ReleaseStatus.ALPHA,
+            releaseStatus=ReleaseStatus.GA,
             fields=cast(
                 list[FieldType],
                 [

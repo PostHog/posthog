@@ -1,15 +1,15 @@
 import json
-import asyncio
 from typing import Any
 
 from temporalio import activity
 from temporalio.exceptions import ApplicationError
 
-from posthog.temporal.ai_observability.evaluation_event_io import extract_event_io
 from posthog.temporal.ai_observability.evaluation_types import EvaluationActivityResult, build_skipped_sentiment_result
 from posthog.temporal.ai_observability.sentiment.extraction import extract_sentiment_eval_messages
 from posthog.temporal.ai_observability.sentiment.schema import PendingClassification, SentimentResult
 from posthog.temporal.ai_observability.sentiment.utils import build_generation_result
+
+from products.ai_observability.backend.facade.evaluation_runtime import extract_event_io
 
 
 def _build_sentiment_activity_result(
@@ -90,9 +90,11 @@ async def run_sentiment_eval(evaluation: dict[str, Any], event_data: dict[str, A
 
     texts = [text for _message_index, text in user_messages]
 
-    from posthog.temporal.ai_observability.sentiment.model import classify  # noqa: PLC0415 -- loads ONNX deps lazily
+    from posthog.temporal.ai_observability.sentiment.model import (  # noqa: PLC0415 -- loads ONNX deps lazily
+        classify_in_executor,
+    )
 
-    classification_results = await asyncio.to_thread(classify, texts)
+    classification_results = await classify_in_executor(texts)
     return _build_sentiment_activity_result(event_uuid, trace_id, user_messages, classification_results)
 
 

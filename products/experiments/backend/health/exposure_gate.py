@@ -8,9 +8,13 @@ The answer for a past window does not change, so it is cached per window and sha
 answer is then paid once per change, not on every load of the experiment page. A failed query is cached as
 unknown too, so a scan that is too large for a request runs at most once a day.
 
-Only exposure criteria that name an event are asked about. The answer for a property filter or an action can
-depend on what each reader may read, and can change as the filter matches other events over time, so no cached
-answer for them is safe to share. The changes of those experiments are reported as not checked.
+The questions keep only the exposure filters that compare a property of the exposure event with a fixed value, and
+leave out the filters on persons, cohorts, groups or sessions. The answer for those can depend on what each reader may
+read, and can change as people match them over time. Without them the questions cover more exposures than the results
+count, so "nobody" still holds, and "somebody" can count a change that moved none of the counted users. Any other
+filter, such as a HogQL expression or a virtual property, can read more than the event, or match other events as time
+passes or a team setting changes. The changes of an experiment with such a filter are reported as not checked, as are
+those of an experiment whose exposures come from an action, which can match other events too.
 
 The answers run without the reader and are shared, so a reader denied any event property gets none. Every change
 then counts for that reader, as if every answer were unknown.
@@ -30,11 +34,13 @@ from django.utils import timezone
 
 import pydantic
 
-from posthog.schema import ActionsNode, ExperimentEventExposureConfig
+from posthog.schema import ActionsNode, EventPropertyFilter, ExperimentEventExposureConfig
 
 from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings
+from posthog.hogql.context import HogQLContext
 from posthog.hogql.parser import parse_select
+from posthog.hogql.property_metadata import load_property_metadata
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
@@ -46,9 +52,14 @@ from posthog.exceptions import (
     ClickHouseQueryTimeOut,
 )
 from posthog.exceptions_capture import capture_exception
+from posthog.models.group_type_mapping import get_group_types_for_project
 
 from products.experiments.backend.facade.contracts import ExperimentHealthFlagChangeKind, ExperimentHealthReaderAccess
-from products.experiments.backend.health.bucketing_changes import BucketingChangeShape, bucketing_net_effect
+from products.experiments.backend.health.bucketing_changes import (
+    BucketingChangeShape,
+    GroupTypeNames,
+    bucketing_net_effect,
+)
 from products.experiments.backend.health.condition_changes import (
     ConditionsChangeShape,
     conditions_change_from_activity,
@@ -64,11 +75,14 @@ from products.experiments.backend.health.context import (
     FlagHistoryNotChecked,
     FlagHistoryNotCheckedReason,
     changes_of_kind,
+    split_changed_after_the_end,
 )
 from products.experiments.backend.health.split_changes import split_change_from_activity
 from products.experiments.backend.hogql_queries.exposure_query_logic import (
     aggregates_by_group,
     build_exposure_event_conditions,
+    exposure_criteria_on_the_event,
+    exposure_filters_off_the_event_narrow_who,
     get_entity_key,
     get_exposure_event_and_property,
     normalize_to_exposure_criteria,
@@ -143,10 +157,14 @@ def load_split_history(
 ) -> FlagHistory | FlagHistoryNotChecked | None:
     """
     The flag history as `load_flag_history` returns it, with the exposure questions of the split changes only. The
-    questions that only the other kinds read are absent. Never raises.
+    questions that only the other kinds read are absent. It loads after the end too, because `srm` tests the run against
+    the flag's current split then and needs to know whether that split changed. When it changed after the end, `srm`
+    doesn't test the run, so the history carries the changes without asking any exposure question. Never raises.
     """
     try:
-        return _load_flag_history(experiment, reader_access, asked=frozenset({ExperimentHealthFlagChangeKind.SPLIT}))
+        return _load_flag_history(
+            experiment, reader_access, asked=frozenset({ExperimentHealthFlagChangeKind.SPLIT}), after_the_end=True
+        )
     except Exception as error:
         capture_exception(error)
         return None
@@ -174,8 +192,9 @@ def query_any_exposure(
 ) -> bool:
     """Whether anyone was exposed to one of the variant keys of the flag key in `[window_start, window_end)`."""
     team = experiment.team
+    criteria = exposure_criteria_on_the_event(experiment.exposure_criteria)
     _, variant_property = get_exposure_event_and_property(
-        flag_key, experiment.exposure_criteria, default_exposure_event=default_exposure_event
+        flag_key, criteria, default_exposure_event=default_exposure_event
     )
     # No test-account filter, as in the exposure freeze: the question is whether the flag served anyone.
     query = parse_select(
@@ -189,7 +208,7 @@ def query_any_exposure(
             "window_end": ast.Constant(value=window_end),
             "exposure": ast.And(
                 exprs=build_exposure_event_conditions(
-                    experiment.exposure_criteria, team, flag_key, default_exposure_event=default_exposure_event
+                    criteria, team, flag_key, default_exposure_event=default_exposure_event
                 )
             ),
             "variant": ast.Field(chain=["properties", variant_property]),
@@ -216,16 +235,17 @@ def query_exposed_units(
     # `person_id` joins an aggregation of the team's person overrides, which runs in full whatever the LIMIT. The raw
     # id on the event needs no join. A person merged after an exposure can then count twice, which only keeps a warning.
     unit = get_entity_key(group_type_index) if aggregates_by_group(group_type_index) else "event_person_id"
+    criteria = exposure_criteria_on_the_event(experiment.exposure_criteria)
     conditions: list[ast.Expr] = []
     for flag_key, variant_keys in served:
         _, variant_property = get_exposure_event_and_property(
-            flag_key, experiment.exposure_criteria, default_exposure_event=default_exposure_event
+            flag_key, criteria, default_exposure_event=default_exposure_event
         )
         conditions.append(
             ast.And(
                 exprs=[
                     *build_exposure_event_conditions(
-                        experiment.exposure_criteria, team, flag_key, default_exposure_event=default_exposure_event
+                        criteria, team, flag_key, default_exposure_event=default_exposure_event
                     ),
                     ast.CompareOperation(
                         op=ast.CompareOperationOp.In,
@@ -306,17 +326,18 @@ class _ExposureGate:
     def __init__(
         self,
         experiment: Experiment,
-        launched_at: datetime,
+        start_date: datetime,
         *,
         group_type_index: int | None,
         denied_event_properties: frozenset[str],
         prefetch: Sequence[_Window | _UnitsWindow],
     ) -> None:
         self._experiment = experiment
-        self._launched_at = launched_at
+        self._start_date = start_date
         self._group_type_index = group_type_index
         self._denied_event_properties = denied_event_properties
-        self._default_exposure_event = resolve_default_exposure_event(experiment.team, launched_at)
+        self._default_exposure_event = resolve_default_exposure_event(experiment.team, start_date)
+        self._filter_settings = _settings_the_filters_compile_with(experiment)
         # One cache read for all windows of the walk and the counts, so a flag with many changes costs one round trip.
         self._prefetched_keys = (
             set()
@@ -435,12 +456,51 @@ class _ExposureGate:
         # Every input of the query. The resolved exposure event is one, because the exposure event rollout
         # can move an experiment to another event.
         inputs = json.dumps(
-            [self._launched_at.isoformat(), *window_inputs, experiment.exposure_criteria, self._default_exposure_event],
+            [
+                self._start_date.isoformat(),
+                *window_inputs,
+                experiment.exposure_criteria,
+                self._default_exposure_event,
+                self._filter_settings,
+            ],
             sort_keys=True,
             default=str,
         )
         digest = hashlib.sha256(inputs.encode()).hexdigest()
         return f"{prefix}:{experiment.team_id}:{experiment.id}:{digest}"
+
+
+def _settings_the_filters_compile_with(experiment: Experiment) -> list[object]:
+    """
+    The team settings that the kept exposure filters compile with: the timezone, and the type of each filtered
+    property. A change to one of them can change which events a filter matches, so it asks the questions again.
+    """
+    criteria = exposure_criteria_on_the_event(experiment.exposure_criteria)
+    config = criteria.exposure_config if criteria else None
+    if not isinstance(config, ExperimentEventExposureConfig) or not config.properties:
+        return []
+    team = experiment.team
+    names = {prop.key for prop in config.properties if isinstance(prop, EventPropertyFilter)}
+    metadata = load_property_metadata(
+        HogQLContext(team_id=team.pk, team=team),
+        event_property_names=names,
+        person_property_names=set(),
+        group_property_names={},
+    )
+    return [team.timezone, sorted((name, metadata.event_properties.get(name, {}).get("type")) for name in names)]
+
+
+def _group_type_names(project_id: int, changes: tuple[FlagChange, ...]) -> GroupTypeNames:
+    # Only the words of a "Match by" change that names a group type read the names, so the lookup runs only then.
+    if not any(
+        change.setting == BucketingSetting.AGGREGATION and (change.before is not None or change.after is not None)
+        for change in changes_of_kind(changes, BucketingChange)
+    ):
+        return {}
+    return {
+        group_type["group_type_index"]: group_type["name_plural"] or group_type["group_type"]
+        for group_type in get_group_types_for_project(project_id, caller_tag="experiment_health")
+    }
 
 
 class _ConditionAggregationMismatch(Exception):
@@ -452,11 +512,13 @@ def _load_flag_history(
     reader_access: ExperimentHealthReaderAccess,
     *,
     asked: frozenset[ExperimentHealthFlagChangeKind] = frozenset(_KINDS),
+    after_the_end: bool = False,
 ) -> FlagHistory | FlagHistoryNotChecked | None:
-    launched_at = experiment.start_date
+    start_date = experiment.start_date
     # django-stubs types the id as int, but an unsaved instance can carry None.
     feature_flag_id: int | None = experiment.feature_flag_id
-    if launched_at is None or experiment.end_date is not None or experiment.archived or feature_flag_id is None:
+    ended = experiment.end_date is not None and not after_the_end
+    if start_date is None or ended or experiment.archived or feature_flag_id is None:
         return None
     if experiment.feature_flag.deleted:
         return None
@@ -464,17 +526,20 @@ def _load_flag_history(
     if not reader_access.can_read_flag_history:
         return FlagHistoryNotChecked(
             reason=FlagHistoryNotCheckedReason.NO_HISTORY_ACCESS,
-            launched_at=launched_at,
+            start_date=start_date,
             team_timezone=team_timezone,
             changes=(),
+            group_type_names={},
         )
 
     edits = flag_edits_since(
-        team_id=experiment.team_id, feature_flag_id=feature_flag_id, since=launched_at, limit=MAX_FLAG_SAVES + 1
+        team_id=experiment.team_id, feature_flag_id=feature_flag_id, since=start_date, limit=MAX_FLAG_SAVES + 1
     )
     too_large = _too_large(edits)
     if too_large is not None:
-        return FlagHistoryNotChecked(reason=too_large, launched_at=launched_at, team_timezone=team_timezone, changes=())
+        return FlagHistoryNotChecked(
+            reason=too_large, start_date=start_date, team_timezone=team_timezone, changes=(), group_type_names={}
+        )
     read = _flag_changes(edits, feature_flag_id=feature_flag_id)
     flag = experiment.feature_flag
     trust_flag_aggregation = conditions_follow_flag_aggregation(flag.aggregation_group_type_index, flag.conditions)
@@ -501,10 +566,12 @@ def _load_flag_history(
     merged: list[FlagChange] = [change for change in read if not isinstance(change, BucketingChange)]
     merged.extend(applied)
     changes = tuple(sorted(merged, key=lambda change: change.changed_at))
+    group_type_names = _group_type_names(experiment.team.project_id, changes)
     history = FlagHistory(
-        launched_at=launched_at,
+        start_date=start_date,
         team_timezone=team_timezone,
         changes=changes,
+        group_type_names=group_type_names,
         counted_since=None,
         exposed_before_first=False,
         exposed_between={},
@@ -523,26 +590,32 @@ def _load_flag_history(
     reason = _not_checked_reason(experiment, reader_access)
     if reason is not None:
         return FlagHistoryNotChecked(
-            reason=reason, launched_at=launched_at, team_timezone=team_timezone, changes=changes
+            reason=reason,
+            start_date=start_date,
+            team_timezone=team_timezone,
+            changes=changes,
+            group_type_names=group_type_names,
         )
+    if after_the_end and split_changed_after_the_end(changes, experiment.end_date):
+        return history
 
     timeline = _Timeline(
         changes,
         current_key=experiment.get_feature_flag_key(),
         current_split=parse_variants(experiment.feature_flag.variants),
     )
-    starts = (launched_at, *times[:-1])
+    starts = (start_date, *times[:-1])
     walk = [timeline.window(start=start, end=end) for start, end in zip(starts, times)]
     # The last change of a kind is its last counted change whenever the kind has one, so these windows are known
     # before the walk and share its cache read.
     units_windows = {
-        kind: timeline.units_window(start=launched_at, end=of_kind[-1].changed_at)
+        kind: timeline.units_window(start=start_date, end=of_kind[-1].changed_at)
         for kind, change_type in _KINDS.items()
         if kind in asked and (of_kind := changes_of_kind(changes, change_type))
     }
     gate = _ExposureGate(
         experiment,
-        launched_at,
+        start_date,
         group_type_index=flag.aggregation_group_type_index,
         denied_event_properties=reader_access.denied_event_properties,
         prefetch=[*walk, *(window for window in units_windows.values() if window is not None)],
@@ -583,7 +656,7 @@ def _not_checked_reason(
     config = criteria.exposure_config if criteria else None
     if isinstance(config, ActionsNode):
         return FlagHistoryNotCheckedReason.EXPOSURE_ACTION
-    if isinstance(config, ExperimentEventExposureConfig) and config.properties:
+    if not exposure_filters_off_the_event_narrow_who(criteria):
         return FlagHistoryNotCheckedReason.EXPOSURE_FILTERS
     if not reader_access.can_query_events:
         return FlagHistoryNotCheckedReason.NO_QUERY_ACCESS
