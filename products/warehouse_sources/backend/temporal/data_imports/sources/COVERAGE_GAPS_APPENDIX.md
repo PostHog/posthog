@@ -13651,7 +13651,7 @@ Today (3): `custom_object_fields`, `custom_object_records`, `custom_objects`
 
 Diffed against: <https://developer.zendesk.com/api-reference/custom-data/custom-objects-api/object_events/>
 
-- [ ] `object_events (GET /api/sunshine/objects/events)` — the create/update/delete event stream for custom object records - the only source of change history for records we already sync (high)
+- ~~`object_events (GET /api/sunshine/objects/events)` — the create/update/delete event stream for custom object records - the only source of change history for records we already sync (high)~~ — skipped: the endpoint is part of the legacy `/api/sunshine/` API (`v1`), which Zendesk removed on July 27, 2026, and its reference page says it was open only to accounts from an ended EAP. The `v2` replacement, `GET /api/v2/custom_objects/{custom_object_key}/records/{custom_object_record_id}/events`, is a per-record call, so a table would need one request per synced record on every sync.
 
 Note: Coverage of the /api/sunshine surface is essentially complete: object_types, object_records, object_type_policies (= permissions), relationship_types, relationship_records and limits map 1:1 to the documented resources. The source also discovers object types dynamically at sync time (it pages /api/sunshine/objects/types then builds a per-type POST objects/query resource), so the static table list understates what it syncs. Remaining uncovered paths are jobs (async plumbing) and search. Separately, Zendesk has superseded Sunshine with a /api/v2/custom_objects family (custom_object_fields, custom_object_record_events, object_triggers) - a different API surface worth tracking, not a gap in this connector.
 
