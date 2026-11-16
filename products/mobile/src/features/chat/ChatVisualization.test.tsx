@@ -164,8 +164,8 @@ test.each([503, 429, 403, 404, 'rate_limited', 'network'] as const)(
                     ...cached,
                     cache_target_age: new Date(Date.now() + 600_000).toISOString(),
                 })
-                await waitFor(() => expect(screen.getByRole('button', { name: 'Try again' })).toBeEnabled())
-                await act(async () => fireEvent.press(screen.getByRole('button', { name: 'Try again' })))
+                await waitFor(() => expect(screen.getByText('Try again')).toBeEnabled())
+                await act(async () => fireEvent.press(screen.getByText('Try again')))
                 await waitFor(() =>
                     expect(screen.queryByText('Could not refresh chart. Showing cached data.')).toBeNull()
                 )
