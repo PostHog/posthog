@@ -326,6 +326,7 @@ def record_source_destination(
     event_kinds: Collection[AlertEventKind],
     hog_function_ids: Collection[UUID],
     hog_function_groups: Sequence[AlertDestinationGroup],
+    enabled: bool = True,
 ) -> StoredAlertDestination | None:
     """Adds the row for a destination its source has just written as `hog_function_ids`, so the
     destination outlives them. None when the platform has no alert under `public_id`, or when it keeps
@@ -344,7 +345,10 @@ def record_source_destination(
         configuration_id=configuration_id,
         destinations=(
             NewAlertDestination(
-                data=_own_fields(data), event_kinds=tuple(event_kinds), legacy_hog_function_ids=tuple(hog_function_ids)
+                data=_own_fields(data),
+                event_kinds=tuple(event_kinds),
+                enabled=enabled,
+                legacy_hog_function_ids=tuple(hog_function_ids),
             ),
         ),
         hog_function_groups=hog_function_groups,
