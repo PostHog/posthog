@@ -1,0 +1,226 @@
+{
+    "rows": [
+        {
+            "modules": [
+                {
+                    "id": "a-pub",
+                    "name": "Foreign harness",
+                    "note": "2nd way in: publish a scorecard (personhog gate, duckgres)",
+                    "external": true,
+                    "seam": [],
+                    "q": "Q2"
+                },
+                {
+                    "id": "a-reader",
+                    "name": "Viewer reader",
+                    "note": "Michael, Workflows, later other teams",
+                    "external": true,
+                    "seam": []
+                }
+            ]
+        },
+        {
+            "modules": [
+                {
+                    "id": "cli",
+                    "name": "scenarios CLI",
+                    "note": "main.ts today",
+                    "flex": 1,
+                    "seam": [
+                        "run <cards>",
+                        {
+                            "name": "publish <file>",
+                            "change": "added",
+                            "q": "Q2"
+                        },
+                        {
+                            "name": "seed-backlog",
+                            "change": "removed"
+                        }
+                    ]
+                },
+                {
+                    "id": "viewer",
+                    "name": "Viewer",
+                    "note": "#354; reads the run store",
+                    "change": "changed",
+                    "flex": 1,
+                    "seam": ["map", "scenarios", "run", "live"],
+                    "q": "Q6"
+                },
+                {
+                    "id": "a-card",
+                    "name": "Card author",
+                    "note": "1st way in: a card on an existing adapter",
+                    "external": true,
+                    "seam": []
+                },
+                {
+                    "id": "a-adapter",
+                    "name": "Adapter author",
+                    "note": "3rd way in: a TypeScript adapter",
+                    "external": true,
+                    "seam": []
+                }
+            ]
+        },
+        {
+            "modules": [
+                {
+                    "id": "core",
+                    "name": "Scenario core",
+                    "note": "imports no product code",
+                    "change": "added",
+                    "flex": 1.6,
+                    "seam": ["loadCard(path, adapters)", "run(card)", "checkTopology", "publish(payload)"],
+                    "q": "Q1"
+                },
+                {
+                    "id": "wf",
+                    "name": "Workflows adapter",
+                    "note": "adapters/workflows: the runner's CDP code",
+                    "change": "added",
+                    "flex": 1.4,
+                    "seam": ["manifest", "boot\u00b7reset\u00b7quiet", "drive\u00b7break\u00b7check", "cards/"],
+                    "q": "Q1"
+                },
+                {
+                    "id": "pc",
+                    "name": "Persons + cohorts",
+                    "note": "second sample, sketched only",
+                    "change": "added",
+                    "followUp": true,
+                    "flex": 1,
+                    "seam": ["manifest", "drive\u00b7check"],
+                    "q": "Q1"
+                }
+            ]
+        },
+        {
+            "modules": [
+                {
+                    "id": "svc",
+                    "name": "Services under test",
+                    "note": "CDP roles (Node); capture, cohorts (Rust)",
+                    "external": true,
+                    "seam": []
+                },
+                {
+                    "id": "event",
+                    "name": "Scenario runs project",
+                    "note": "scorecard event: the durable record",
+                    "external": true,
+                    "seam": []
+                },
+                {
+                    "id": "store",
+                    "name": "Run store",
+                    "note": "#356 on HostHog: runs, series, topology",
+                    "external": true,
+                    "seam": []
+                },
+                {
+                    "id": "aws",
+                    "name": "Dev AWS account",
+                    "note": "cloud slice #310, #334: Workflows-only",
+                    "external": true,
+                    "seam": [],
+                    "q": "Q5"
+                }
+            ]
+        }
+    ],
+    "wires": [
+        {
+            "from": "a-pub",
+            "to": "cli-seam",
+            "q": "Q2",
+            "change": "added",
+            "label": "publishes"
+        },
+        {
+            "from": "a-reader",
+            "to": "viewer-seam"
+        },
+        {
+            "from": "a-card",
+            "to": "wf-seam",
+            "label": "cards"
+        },
+        {
+            "from": "a-adapter",
+            "to": "pc-seam",
+            "label": "adapter"
+        },
+        {
+            "from": "cli",
+            "to": "core-seam",
+            "fromAt": 0.4,
+            "toAt": 0.25,
+            "label": "runs"
+        },
+        {
+            "from": "viewer",
+            "to": "wf",
+            "kind": "leak",
+            "label": "9 tables, 2 files",
+            "change": "removed",
+            "fromAt": 0.6,
+            "toAt": 0.2,
+            "labelAt": 0.6,
+            "crossAt": 0.2
+        },
+        {
+            "from": "core",
+            "to": "wf",
+            "fromSide": "right",
+            "toSide": "left",
+            "fromAt": 0.75,
+            "toAt": 0.75
+        },
+        {
+            "from": "core",
+            "to": "svc",
+            "kind": "leak",
+            "label": "16 symbols, 8 files",
+            "change": "removed",
+            "fromAt": 0.12,
+            "toAt": 0.3,
+            "labelAt": 0.6,
+            "crossAt": 0.2
+        },
+        {
+            "from": "wf",
+            "to": "svc",
+            "fromAt": 0.1,
+            "toAt": 0.8,
+            "label": "boots, breaks",
+            "labelAt": 0.92
+        },
+        {
+            "from": "core",
+            "to": "event",
+            "fromAt": 0.6,
+            "toAt": 0.4,
+            "q": "Q4",
+            "label": "v2",
+            "labelAt": 0.3
+        },
+        {
+            "from": "core",
+            "to": "store",
+            "fromAt": 0.9,
+            "toAt": 0.2,
+            "label": "same payload",
+            "labelAt": 0.6
+        },
+        {
+            "from": "wf",
+            "to": "aws",
+            "fromAt": 0.85,
+            "toAt": 0.3,
+            "label": "cloud cards",
+            "labelAt": 0.6
+        }
+    ]
+}
