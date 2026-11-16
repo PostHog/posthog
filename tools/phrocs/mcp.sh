@@ -10,10 +10,11 @@ phrocs_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 cd "$phrocs_dir/../.."
 
 # Rebuild like the flox hook does, so a checkout that moved since the last
-# activation still gets the mcp subcommand. A failed build falls back to the
-# binary that is already there.
+# activation still gets the mcp subcommand. GOPROXY=off keeps the network out
+# of MCP startup: a missing module fails the build fast, and the binary that is
+# already there runs instead.
 if command -v go >/dev/null 2>&1; then
-    make -s -C "$phrocs_dir" build >&2 || echo "phrocs: build failed, using the existing binary" >&2
+    GOPROXY=off make -s -C "$phrocs_dir" build >&2 || echo "phrocs: build failed, using the existing binary" >&2
 fi
 
 if [[ -x "$phrocs_dir/dist/phrocs" ]]; then
