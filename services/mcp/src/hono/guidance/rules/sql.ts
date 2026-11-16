@@ -1,4 +1,4 @@
-import type { GuidanceRule } from './types'
+import type { GuidanceRule } from '../rule-schema'
 
 export const MCP_GUIDANCE_REPLAY_VISION_FLAG = 'mcp-guidance-replay-vision'
 export const MCP_GUIDANCE_SQL_SCHEMA_FLAG = 'mcp-guidance-sql-schema'
@@ -31,7 +31,7 @@ const SIMPLE_EVENTS_AGGREGATE = new RegExp(
     String.raw`^(?![\s\S]*(${SQL_ONLY_CONSTRUCTS.join('|')}))(?=[\s\S]*\bFROM\s+events\b)(?=[\s\S]*\b(count|uniq)\w*\s*\()`,
     'i'
 )
-export const SQL_RULES: GuidanceRule[] = [
+const rules: GuidanceRule[] = [
     {
         id: 'replay-sql-to-vision',
         flag: MCP_GUIDANCE_REPLAY_VISION_FLAG,
@@ -110,3 +110,5 @@ export const SQL_RULES: GuidanceRule[] = [
         ].join(' '),
     },
 ]
+
+export default rules

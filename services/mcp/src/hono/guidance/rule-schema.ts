@@ -2,8 +2,8 @@ import { z } from 'zod'
 
 import { MCP_SCOPE_PRESET, type McpScopePreset } from '@/lib/scope-preset'
 
-import type { GuidanceCall } from '../engine'
-import type { GuidanceProductState } from '../product-state'
+import type { GuidanceCall } from './engine'
+import type { GuidanceProductState } from './product-state'
 
 const scopePresets = Object.values(MCP_SCOPE_PRESET) as [McpScopePreset, ...McpScopePreset[]]
 

@@ -1,3 +1,4 @@
+import { readdirSync } from 'node:fs'
 import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { ApiClient } from '@/api/client'
@@ -469,6 +470,20 @@ describe('GuidanceEngine', () => {
     ])('the sql-aggregate-to-typed-runner rule skips %s', (_label, args) => {
         const rule = GUIDANCE_RULES.find((r) => r.id === 'sql-aggregate-to-typed-runner')!
         expect(triggerMatches(rule, { toolName: 'execute-sql', args, isError: false })).toBe(false)
+    })
+
+    it('registers the rules of every file in the rules folder', async () => {
+        const folder = new URL('../../src/hono/guidance/rules/', import.meta.url)
+        const files = readdirSync(folder).filter((file) => file !== 'index.ts')
+        const registered = new Set(GUIDANCE_RULES.map((r) => r.id))
+        for (const file of files) {
+            const rules: GuidanceRule[] = (await import(new URL(file, folder).href)).default
+            expect(
+                rules.filter((r) => !registered.has(r.id)).map((r) => r.id),
+                file
+            ).toEqual([])
+        }
+        expect(files.length).toBeGreaterThan(0)
     })
 
     it('ships every rule with a distinct id and flag', () => {

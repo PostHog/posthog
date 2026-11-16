@@ -1,6 +1,6 @@
+import { emptyResultRule, hasArg } from '../empty-result-rule'
 import type { GuidanceCall } from '../engine'
-import { emptyResultRule, hasArg } from './empty-result'
-import type { GuidanceRule } from './types'
+import type { GuidanceRule } from '../rule-schema'
 
 export const MCP_GUIDANCE_ERROR_TRACKING_EMPTY_SETUP_FLAG = 'mcp-guidance-error-tracking-empty-setup'
 export const MCP_GUIDANCE_ERROR_TRACKING_EMPTY_FILTERS_FLAG = 'mcp-guidance-error-tracking-empty-filters'
@@ -27,7 +27,7 @@ function errorTrackingFiltersIn(call: GuidanceCall): string[] {
     return ERROR_TRACKING_NARROWING_FILTERS.filter((filter) => hasArg(call, filter))
 }
 
-export const ERROR_TRACKING_RULES: GuidanceRule[] = [
+const rules: GuidanceRule[] = [
     emptyResultRule({
         id: 'error-tracking-empty-to-setup',
         flag: MCP_GUIDANCE_ERROR_TRACKING_EMPTY_SETUP_FLAG,
@@ -70,3 +70,5 @@ export const ERROR_TRACKING_RULES: GuidanceRule[] = [
         ].join(' '),
     }),
 ]
+
+export default rules

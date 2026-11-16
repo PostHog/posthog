@@ -1,5 +1,5 @@
-import type { GuidanceCall } from '../engine'
-import type { GuidanceCondition, GuidanceRule } from './types'
+import type { GuidanceCall } from './engine'
+import type { GuidanceCondition, GuidanceRule } from './rule-schema'
 
 export function hasArg(call: GuidanceCall, name: string): boolean {
     const value = call.args?.[name]
