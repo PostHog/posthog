@@ -1,5 +1,6 @@
 from datetime import UTC, datetime, timedelta
 from typing import Any
+from zoneinfo import ZoneInfo
 
 from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
 
@@ -65,6 +66,21 @@ class TestErrorBaseline(ClickhouseTestMixin, BaseTest):
                 BaselineHour(start=START + timedelta(hours=1), weeks=(_errors(1, 1), NONE, NONE, _errors(1, 1))),
             ]
         }
+
+    def test_a_range_in_a_local_timezone_counts_whole_weeks_across_a_daylight_saving_change(self) -> None:
+        # US daylight saving time ends on 2026-11-01, between the window and its earlier weeks.
+        start = datetime(2026, 11, 8, 12, 30, tzinfo=ZoneInfo("America/New_York"))
+        start_in_utc = start.astimezone(UTC)
+        self._send(
+            [
+                ("person-1", "$exception", start_in_utc - WEEK + timedelta(minutes=10), {}),
+                ("person-2", "$pageview", start_in_utc - 4 * WEEK + timedelta(minutes=10), {}),
+            ]
+        )
+
+        baseline = error_baseline(self.team, [None], start, start + timedelta(hours=1))
+
+        assert baseline == {None: [BaselineHour(start=start, weeks=(_errors(1, 1), NONE, NONE, _errors(1, 0)))]}
 
     def test_a_group_flag_counts_the_groups_on_the_events_next_to_the_persons(self) -> None:
         hour_a_week_earlier = START - WEEK + timedelta(minutes=10)

@@ -15,7 +15,7 @@ type.
 
 import math
 from collections.abc import Sequence
-from datetime import datetime, timedelta
+from datetime import UTC, datetime, timedelta
 
 from posthog.hogql import ast
 from posthog.hogql.constants import MAX_SELECT_RETURNED_ROWS
@@ -59,6 +59,11 @@ def error_baseline(
     hours start at `start`, and the last one is a full hour even when `end` cuts it."""
     if weeks < 1:
         raise ValueError(f"The baseline needs at least one earlier week, got {weeks}")
+    if start.tzinfo is None or end.tzinfo is None:
+        raise ValueError(f"The range needs timezone-aware times, got {start} to {end}")
+    # Arithmetic on two times in the same local timezone uses wall time, so a week across a daylight saving change
+    # would be 167 or 169 hours, and events would land in the wrong hour.
+    start, end = start.astimezone(UTC), end.astimezone(UTC)
     if end <= start:
         raise ValueError(f"The range must end after it starts, got {start} to {end}")
     # Each earlier week must leave the range before the next week's copy of it starts, or one event would count twice.
@@ -74,21 +79,22 @@ def error_baseline(
 
     origin = start - weeks * WEEK
     counts = {
-        actor: [[HourErrors(active=0, with_errors=0) for _ in range(weeks)] for _ in range(hours)]
-        for actor in actor_kinds
+        actor_kind: [[HourErrors(active=0, with_errors=0) for _ in range(weeks)] for _ in range(hours)]
+        for actor_kind in actor_kinds
     }
     for row in run_window_query(team, _query(actor_kinds, origin, hours, weeks), "flag_error_baseline_by_hour"):
         week_from_origin, hour = divmod(int(row[0]), HOURS_PER_WEEK)
         values = iter(row[1:])
-        for actor in actor_kinds:
-            counts[actor][hour][weeks - week_from_origin - 1] = HourErrors(
+        for actor_kind in actor_kinds:
+            counts[actor_kind][hour][weeks - week_from_origin - 1] = HourErrors(
                 active=int(next(values)), with_errors=int(next(values))
             )
     return {
-        actor: [
-            BaselineHour(start=start + hour * HOUR, weeks=tuple(by_week)) for hour, by_week in enumerate(counts[actor])
+        actor_kind: [
+            BaselineHour(start=start + hour * HOUR, weeks=tuple(by_week))
+            for hour, by_week in enumerate(counts[actor_kind])
         ]
-        for actor in actor_kinds
+        for actor_kind in actor_kinds
     }
 
 
