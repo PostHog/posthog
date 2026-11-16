@@ -59,7 +59,7 @@ pnpm --dir nodejs exec tsx tests/scenarios/viewer/main.ts --port 8787
 ```
 
 - It reads the cards from `tests/scenarios/cards`, and the runs from the evidence directory or from `--state-dir <dir>`.
-- Its landing page is a map of the delivery path, drawn from the topology the newest run recorded, with each scenario pinned to the part it breaks.
+- Its landing page is a map of the delivery path, drawn from the topology the newest run recorded, with each scenario pinned to the part it breaks. Hovering a part dims the scenarios whose traffic or faults do not touch it.
 - The Scenarios page lists every card with its runs and what each run found. A run page also shows the load the generator planned against the load it offered, and when each valve was on.
 - A card page shows what the card breaks on the topology its newest run recorded, its load, and the invariants and bars that judge it.
 - A run page replays the run on the delivery path, with its valve timeline, invariants, measurements and charts.

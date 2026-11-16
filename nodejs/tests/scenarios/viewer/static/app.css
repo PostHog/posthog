@@ -875,6 +875,21 @@ select {
     border-radius: 8px;
 }
 
+.scenarios.narrowed .scenario:not(.touches) {
+    opacity: 0.3;
+}
+
+.scenarios.narrowed .scenario.touches,
+.map .part:hover .body,
+.map .part:focus .body {
+    border-color: var(--series-1);
+    stroke: var(--series-1);
+}
+
+.map .part:focus {
+    outline: none;
+}
+
 .scenario:hover,
 .scenario:focus {
     text-decoration: none;

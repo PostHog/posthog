@@ -822,6 +822,14 @@ const partOfTarget = (target) =>
           ? `role:${target}`
           : `host:${target}`
 
+const partsOf = (card) => {
+    const parts = new Set(card.traffic.flatMap(({ name }) => TRAFFIC_PATH[name] ?? []))
+    for (const valve of card.valves ?? []) {
+        parts.add(partOfTarget(valve.target))
+    }
+    return parts
+}
+
 function graphOf(topology) {
     const nodes = new Map()
     const add = (id, extra = {}) => {
@@ -1001,7 +1009,7 @@ function shapeOf(node, { x, y, w, h }) {
     return g
 }
 
-function mapOf(topology) {
+function mapOf(topology, { onPart } = {}) {
     const graph = graphOf(topology)
     const { placed, height } = layoutOf(graph)
     const svg = s('svg', {
@@ -1048,16 +1056,21 @@ function mapOf(topology) {
     const partEls = {}
     for (const node of graph.nodes) {
         partEls[node.id] = shapeOf(node, placed[node.id])
+        if (onPart) {
+            partEls[node.id].setAttribute('tabindex', 0)
+            partEls[node.id].setAttribute('aria-label', node.name)
+            partEls[node.id].addEventListener('mouseenter', () => onPart(node))
+            partEls[node.id].addEventListener('focus', () => onPart(node))
+            partEls[node.id].addEventListener('mouseleave', () => onPart(null))
+            partEls[node.id].addEventListener('blur', () => onPart(null))
+        }
         svg.append(partEls[node.id])
     }
     const pins = s('g', { class: 'pins' })
     svg.append(pins)
     const focus = (card) => {
         pins.replaceChildren()
-        const active = new Set(card ? card.traffic.flatMap(({ name }) => TRAFFIC_PATH[name] ?? []) : [])
-        for (const valve of card?.valves ?? []) {
-            active.add(partOfTarget(valve.target))
-        }
+        const active = card ? partsOf(card) : new Set()
         svg.classList.toggle('focused', Boolean(card))
         for (const [id, el] of Object.entries(partEls)) {
             el.classList.toggle('on', active.has(id))
@@ -1173,19 +1186,35 @@ const foundLines = (found) =>
           ? [h('span', { class: 'muted' }, `The viewer cannot read its last run: ${found.problem}`)]
           : found.lines.map((line) => h('span', {}, line))
 
+const touchText = (count, node) =>
+    `${count === 0 ? 'No scenario touches' : count === 1 ? '1 scenario touches' : `${count} scenarios touch`} the ${node.name.toLowerCase()}.`
+
 async function mapPage(render) {
     const [all, runs, wiring] = await Promise.all([cards(), getJson('/api/runs'), readTopology()])
     const loaded = all.filter((card) => card.ok)
-    const map = mapOf(wiring.recorded?.topology ?? DECLARED_TOPOLOGY)
-    map.setCards(loaded)
-    const running = h('div', { class: 'panel running-now' }, h('span', { class: 'muted' }, 'Checking for a run…'))
-    const findings = {}
+    const tiles = new Map()
     const resting = h(
         'span',
         { class: 'muted' },
-        'Hover a scenario below to light the parts its traffic passes through and pin what it breaks.'
+        'Hover a scenario to light the parts its traffic passes through and pin what it breaks, or hover a part to find the scenarios that touch it.',
+        wiring.problem ? ` ${wiringText(wiring)}` : ''
     )
     const strip = h('div', { class: 'focus' }, resting)
+    const showTouching = (node) => {
+        const touching = node ? loaded.filter((card) => partsOf(card).has(node.id)) : []
+        list.classList.toggle('narrowed', Boolean(node))
+        for (const [id, tile] of tiles) {
+            tile.classList.toggle(
+                'touches',
+                touching.some((card) => card.id === id)
+            )
+        }
+        strip.replaceChildren(node ? h('span', {}, touchText(touching.length, node)) : resting)
+    }
+    const map = mapOf(wiring.recorded?.topology ?? DECLARED_TOPOLOGY, { onPart: showTouching })
+    map.setCards(loaded)
+    const running = h('div', { class: 'panel running-now', hidden: 'hidden' })
+    const findings = {}
     let selected = null
     const showSelected = () => {
         const card = selected?.card
@@ -1219,7 +1248,7 @@ async function mapPage(render) {
             const meta = last
                 ? `${ofCard.length} ${ofCard.length === 1 ? 'run' : 'runs'}, last ${ago(last.startedAt)}, ${last.where}${p95 !== null ? `, 95% arrived within ${fmtNumber(p95 / 1000)} s` : ''}`
                 : 'no runs on this box'
-            return h(
+            const tile = h(
                 'a',
                 {
                     class: 'scenario',
@@ -1243,36 +1272,22 @@ async function mapPage(render) {
                 h('div', { class: 'line' }, scenarioLine(card)),
                 h('div', { class: 'meta muted' }, meta)
             )
+            tiles.set(card.id, tile)
+            return tile
         })
     )
     const painted = render(
-        h('h1', {}, 'Workflows delivery path'),
-        h(
-            'p',
-            { class: 'sub' },
-            'Each scenario breaks one part of this path on purpose while synthetic load runs through it, then checks that every message still arrived. ',
-            h('span', { class: 'muted' }, wiringText(wiring))
-        ),
         running,
         h('div', { class: 'panel map-panel' }, strip, map.svg),
         h('h2', {}, 'Scenarios'),
-        list,
-        h(
-            'div',
-            { class: 'panel note' },
-            h('h3', {}, 'What a run here says about production'),
-            h(
-                'p',
-                {},
-                'A run on this box shows behaviour: whether messages were lost, sent twice, or recovered after the fault. It does not show capacity, since one machine runs every service. Capacity against production traffic comes from the cloud slice, where the cyclotron-scale card ramps from 1x to 10x of the mean rate. Every run says where it ran: local or cloud.'
-            )
-        )
+        list
     )
     const showLive = async () => {
         let live
         try {
             live = await getJson('/api/live')
         } catch (error) {
+            running.hidden = false
             running.replaceChildren(
                 h('span', { class: 'muted' }, `The viewer cannot read the live run: ${error.message}`)
             )
@@ -1280,6 +1295,7 @@ async function mapPage(render) {
         }
         const now = live?.inProgress ? live : null
         document.querySelectorAll('.live-badge').forEach((badge) => (badge.hidden = badge.dataset.card !== now?.cardId))
+        running.hidden = !now
         running.replaceChildren(
             ...(now
                 ? [
@@ -1287,16 +1303,7 @@ async function mapPage(render) {
                       h('span', {}, ` ${now.cardId}, ${PHASE_PLAIN[now.phase] ?? now.phase}`),
                       h('a', { href: '#/live', class: 'open' }, 'Watch it live →'),
                   ]
-                : [
-                      h('span', { class: 'muted' }, 'Nothing running now.'),
-                      runs[0]
-                          ? h(
-                                'span',
-                                { class: 'muted' },
-                                ` Last run: ${runs[0].cardId}, ${runs[0].status}, ${ago(runs[0].startedAt)}.`
-                            )
-                          : null,
-                  ].filter(Boolean))
+                : [])
         )
     }
     if (!painted) {
