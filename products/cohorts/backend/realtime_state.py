@@ -55,6 +55,7 @@ class CohortRealtimeState(models.TextChoices):
     STATIC = "static", "Static"
     PERSON_PROPERTIES = "person_properties", "Person properties"
     DAILY = "daily", "Daily"
+    OFF = "off", "Off"
     BUILDING = "building", "Building"
     REBUILDING = "rebuilding", "Rebuilding"
     READY = "ready", "Ready"
@@ -115,7 +116,7 @@ class CohortRealtimeReadiness:
     history_limit_days: int | None = None
 
 
-def _has_event_criteria(cohort: Cohort) -> bool:
+def has_event_criteria(cohort: Cohort) -> bool:
     """Whether the cohort matches on events, counting the ones that store that in ``groups``.
 
     ``_has_filter_type`` walks the ``filters`` JSON alone, and a legacy cohort keeps its condition
@@ -140,12 +141,14 @@ def _settled_state(cohort: Cohort) -> str | None:
     """The state a cohort has without consulting a run row, or None when a run decides it."""
     if cohort.is_static:
         return CohortRealtimeState.STATIC
-    if not _has_event_criteria(cohort):
+    if not has_event_criteria(cohort):
         # Flags evaluate person properties off the person record as they run, so they can target
         # this cohort whatever the pipeline is doing. Only an event-based leaf waits on a backfill.
         return CohortRealtimeState.PERSON_PROPERTIES
     if cohort.cohort_type != CohortType.REALTIME:
         return CohortRealtimeState.DAILY
+    if not cohort.realtime_enabled:
+        return CohortRealtimeState.OFF
     if cohort.is_flag_compatible:
         return CohortRealtimeState.READY
     return None
@@ -460,7 +463,7 @@ def cohorts_with_realtime_state(cohorts: Sequence[Cohort]) -> list[Cohort]:
     return [
         cohort
         for cohort in saved
-        if cohort.team_id in serving_teams and (_has_event_criteria(cohort) or _has_person_criteria(cohort))
+        if cohort.team_id in serving_teams and (has_event_criteria(cohort) or _has_person_criteria(cohort))
     ]
 
 

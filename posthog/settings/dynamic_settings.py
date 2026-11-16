@@ -222,16 +222,6 @@ CONSTANCE_CONFIG = {
         "Used to validate Slack events for example when unfurling links",
         str,
     ),
-    "SLACK_DEV_APP_CLIENT_ID": (
-        get_from_env("SLACK_DEV_APP_CLIENT_ID", default=""),
-        "OAuth client ID for the project-restricted Slack MCP connection",
-        str,
-    ),
-    "SLACK_DEV_APP_CLIENT_SECRET": (
-        get_from_env("SLACK_DEV_APP_CLIENT_SECRET", default=""),
-        "OAuth client secret for the project-restricted Slack MCP connection",
-        str,
-    ),
     "SUPPORT_SLACK_APP_CLIENT_ID": (
         get_from_env("SUPPORT_SLACK_APP_CLIENT_ID", default=""),
         "Used to enable the 'Add to Slack' button for the SupportHog Slack app.",
@@ -371,6 +361,16 @@ CONSTANCE_CONFIG = {
         "tab charts and the 90-day notes.",
         bool,
     ),
+    "FLAG_EVALUATIONS_UNION_DISABLED": (
+        get_from_env("FLAG_EVALUATIONS_UNION_DISABLED", False, type_cast=str_to_bool),
+        "When on, HogQL stops reading flag calls from events and flag_evaluations together for every organization. "
+        "A query that reads $feature_flag_called with other events, such as a funnel with other steps, a retention "
+        "query, a mixed action or SQL, then reads events only. On flag_evaluations mode 2, and for a project that "
+        "reads the native JSON events table, events holds no new flag calls, so those queries return no new flag "
+        "calls. Queries that read only flag calls keep reading flag_evaluations. Use it when the combined reads "
+        "time out or overload ClickHouse. Takes up to two minutes to apply.",
+        bool,
+    ),
     "REDIRECT_APP_TO_US": (
         get_from_env("REDIRECT_APP_TO_US", False, type_cast=str_to_bool),
         "Temporary option to redirect all app traffic from app.posthog.com to us.posthog.com.",
@@ -475,8 +475,6 @@ SETTINGS_ALLOWING_API_OVERRIDE = (
     "SLACK_APP_CLIENT_ID",
     "SLACK_APP_CLIENT_SECRET",
     "SLACK_APP_SIGNING_SECRET",
-    "SLACK_DEV_APP_CLIENT_ID",
-    "SLACK_DEV_APP_CLIENT_SECRET",
     "SUPPORT_SLACK_APP_CLIENT_ID",
     "SUPPORT_SLACK_APP_CLIENT_SECRET",
     "SUPPORT_SLACK_SIGNING_SECRET",
@@ -495,6 +493,7 @@ SETTINGS_ALLOWING_API_OVERRIDE = (
     "RATE_LIMITING_ALLOW_LIST_TEAMS",
     "FLAGS_LOG_BODIES_TEAMS",
     "FLAG_EVALUATIONS_READS_FORCE_EVENTS",
+    "FLAG_EVALUATIONS_UNION_DISABLED",
     "CLICKHOUSE_KILL_SWITCH",
     "CLICKHOUSE_KILL_SWITCH_LIGHT_TEAMS",
     "CLICKHOUSE_KILL_SWITCH_FULL_TEAMS",
@@ -513,7 +512,6 @@ SETTINGS_ALLOWING_API_OVERRIDE = (
 SECRET_SETTINGS = [
     "EMAIL_HOST_PASSWORD",
     "SLACK_APP_CLIENT_SECRET",
-    "SLACK_DEV_APP_CLIENT_SECRET",
     "SLACK_APP_SIGNING_SECRET",
     "SUPPORT_SLACK_SIGNING_SECRET",
     "SUPPORT_SLACK_APP_CLIENT_SECRET",

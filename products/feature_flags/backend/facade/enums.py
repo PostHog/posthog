@@ -28,6 +28,8 @@ class FlagEvaluationsMode(LabeledIntEnum):
     # READ_FLAG_EVALUATIONS for every organization. Because events holds no new flag calls:
     # - The HogQL swap drops its date and `$feature_flag` conditions. A HogQL read of only flag calls that cannot
     #   swap raises a QueryError instead of reading events.
+    # - HogQL reads the flag calls of a query that mixes them with other events from events and flag_evaluations
+    #   together. FLAG_EVALUATIONS_UNION_DISABLED makes those queries read events only.
     # - The cohorts API also refuses a new flag-call criterion on a realtime cohort.
     # - Flags keep no `last_called_at` unless FEATURE_FLAG_LAST_CALLED_AT_SYNC_SOURCE is "flag_evaluations".
     FLAG_EVALUATIONS_ONLY = 2, "Flag evaluations only"

@@ -25,7 +25,7 @@ FLAG_EVALUATIONS_MODES_HELP = (
     "that the batch calculation would read from events. 2 also stops ingestion writing $feature_flag_called to "
     "events for the teams it copies to flag_evaluations, which on PostHog Cloud is every team outside "
     "INGESTION_FLAG_EVALUATIONS_EXCLUDED_TEAMS. On 2, a HogQL query reads flag_evaluations for any date range and "
-    "fails when it can't, realtime cohorts refuse new flag-call criteria, and flags keep no last called time unless "
+    "fails when it can't, a query that mixes flag calls with other events reads both tables, realtime cohorts refuse new flag-call criteria, and flags keep no last called time unless "
     "it syncs from flag_evaluations. On PostHog Cloud the table is available in SQL on every mode. Self-hosted, it "
     "is available on 1 and 2."
 )

@@ -131,6 +131,8 @@ from posthog.models.integration import (
     JiraIntegration,
     LinearIntegration,
     LinkedInAdsIntegration,
+    MotherDuckIntegration,
+    MotherDuckIntegrationError,
     OauthIntegration,
     PostgreSQLIntegration,
     ReconnectRequired,
@@ -166,7 +168,7 @@ from products.access_control.backend.facade.contracts import ObjectAccessRef
 from products.slack_app.backend.services.slack_auth import SLACK_AUTH_FAILURE_CODES
 from products.tasks.backend.facade.api import get_in_progress_runs_for_github_integration
 from products.tasks.backend.facade.contracts import InProgressGithubRunsDTO
-from products.workflows.backend.facade.api import lookup_existing_email_tools
+from products.workflows.backend.facade.api import lookup_existing_email_tools, lookup_existing_email_tools_when_answered
 from products.workflows.backend.facade.contracts import EmailProviderUnavailableError
 from products.workflows.backend.facade.enums import EmailDomainSetupMethod
 
@@ -1238,6 +1240,19 @@ class IntegrationSerializer(serializers.Serializer):
                     created_by=request.user,
                 )
             except SnowflakeIntegrationError as e:
+                raise ValidationError(str(e))
+            return instance
+
+        elif validated_data["kind"] == "motherduck":
+            config = validated_data.get("config", {})
+            try:
+                instance = MotherDuckIntegration.integration_from_config(
+                    team_id=team_id,
+                    name=config.get("name"),
+                    access_token=config.get("access_token"),
+                    created_by=request.user,
+                )
+            except MotherDuckIntegrationError as e:
                 raise ValidationError(str(e))
             return instance
 
@@ -3106,9 +3121,21 @@ class IntegrationViewSet(
             {
                 "method": self._email_domain_setup_method(request, instance),
                 "seconds_since_created": int((timezone.now() - instance.created_at).total_seconds()),
+                "previous_email_providers": self._previous_email_providers(instance),
             },
             team=self.team,
         )
+
+    # The domain is already verified when this runs, so a failed lookup must not fail the request.
+    @staticmethod
+    def _previous_email_providers(instance: IntegrationRecord) -> list[str] | None:
+        try:
+            return lookup_existing_email_tools_when_answered(
+                extract_root_domain_and_host(instance.config["domain"]).root_domain
+            )
+        except Exception as e:
+            capture_exception(e)
+            return None
 
     @staticmethod
     def _email_domain_setup_method(request: Request, instance: IntegrationRecord) -> str:
