@@ -2910,6 +2910,24 @@ export const terminalNetplaySignalCreate = async (
     })
 }
 
+export const getToolbarEntitlementsRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/toolbar/entitlements/`
+}
+
+/**
+ * Returns which paid toolbar tools the organization that owns this project can use. Requires toolbar access to the project.
+ * @summary Get toolbar plan entitlements for a project
+ */
+export const toolbarEntitlementsRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<ToolbarEntitlementsApi> => {
+    return apiMutator<ToolbarEntitlementsApi>(getToolbarEntitlementsRetrieveUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
 export const getUploadedMediaListUrl = (projectId: string, params: UploadedMediaListParams) => {
     const normalizedParams = new URLSearchParams()
 

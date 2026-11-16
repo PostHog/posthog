@@ -2149,7 +2149,7 @@ def _toolbar_entitlements(organization: Organization) -> dict[str, bool]:
 class ToolbarEntitlementsSerializer(serializers.Serializer):
     entitlements = serializers.DictField(
         child=serializers.BooleanField(),
-        help_text="Whether the current organization has each toolbar plan entitlement, keyed by feature name.",
+        help_text="Whether the organization that owns the project has each toolbar plan entitlement, keyed by feature name.",
     )
 
 

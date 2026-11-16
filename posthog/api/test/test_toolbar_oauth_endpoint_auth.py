@@ -83,6 +83,7 @@ class TestToolbarEndpointOAuthAuth(APIBaseTest):
         ("web_vitals_list", "/api/environments/{team_id}/web_vitals/?pathname=/", "get", "query"),
         ("heatmaps_list", "/api/environments/{team_id}/heatmaps/", "get", "heatmap"),
         ("elements_stats", "/api/environments/{team_id}/elements/stats/", "get", "element"),
+        ("toolbar_entitlements", "/api/projects/{team_id}/toolbar/entitlements/", "get", "user"),
     ]
 
     def _url(self, template: str) -> str:

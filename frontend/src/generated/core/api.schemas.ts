@@ -5815,6 +5815,16 @@ export interface TerminalNetplaySignalApi {
     description: TerminalNetplayDescriptionApi
 }
 
+/**
+ * Whether the organization that owns the project has each toolbar plan entitlement, keyed by feature name.
+ */
+export type ToolbarEntitlementsApiEntitlements = { [key: string]: boolean }
+
+export interface ToolbarEntitlementsApi {
+    /** Whether the organization that owns the project has each toolbar plan entitlement, keyed by feature name. */
+    entitlements: ToolbarEntitlementsApiEntitlements
+}
+
 export interface UploadedMediaApi {
     readonly id: string
     /** The file's original name. */
@@ -6291,16 +6301,6 @@ export interface LeakedKeyReportResponseApi {
      * * `oauth_access_token` - oauth_access_token
      * * `oauth_refresh_token` - oauth_refresh_token */
     type: LeakedKeyReportResponseTypeEnumApi | null
-}
-
-/**
- * Whether the current organization has each toolbar plan entitlement, keyed by feature name.
- */
-export type ToolbarEntitlementsApiEntitlements = { [key: string]: boolean }
-
-export interface ToolbarEntitlementsApi {
-    /** Whether the current organization has each toolbar plan entitlement, keyed by feature name. */
-    entitlements: ToolbarEntitlementsApiEntitlements
 }
 
 export interface ToolbarEntitlementsErrorApi {

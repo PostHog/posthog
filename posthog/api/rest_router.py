@@ -69,6 +69,7 @@ from . import (
     search,
     sharing,
     tagged_item,
+    toolbar_entitlements,
     uploaded_media,
     user,
     user_facet_settings,
@@ -567,6 +568,8 @@ projects_router.register(
     "project_web_vitals",
     ["team_id"],
 )
+
+projects_router.register(r"toolbar", toolbar_entitlements.ToolbarEntitlementsViewSet, "project_toolbar", ["team_id"])
 
 router.register(r"wizard", wizard.SetupWizardViewSet, "wizard")
 
