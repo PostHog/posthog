@@ -5,6 +5,7 @@ import { router, urlToAction } from 'kea-router'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { FeatureFlagsSet, featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import posthog from 'lib/posthog-typed'
 import { userHasAccess } from 'lib/utils/accessControlUtils'
 import { projectLogic } from 'scenes/projectLogic'
 import { urls } from 'scenes/urls'
@@ -159,8 +160,9 @@ interface ReleaseLogicActions {
     updateRelease: (
         id: string,
         changes: PatchedUpdateReleaseApi,
-        successMessage?: string
-    ) => { id: string; changes: PatchedUpdateReleaseApi; successMessage?: string }
+        successMessage?: string,
+        usageEvent?: ReleaseUsageEvent
+    ) => { id: string; changes: PatchedUpdateReleaseApi; successMessage?: string; usageEvent?: ReleaseUsageEvent }
     linkFlag: (id: string, flagId: number) => { id: string; flagId: number }
     unlinkFlag: (id: string, flagId: number) => { id: string; flagId: number }
     linkBroadcast: (id: string, broadcastId: string) => { id: string; broadcastId: string }
@@ -181,6 +183,17 @@ interface ReleaseLogicActions {
 }
 
 type releaseLogicType = MakeLogicType<ReleaseLogicValues, ReleaseLogicActions>
+
+export interface ReleaseUsageEvent {
+    event: 'release item linked' | 'release item unlinked' | 'release broadcasts auto linked'
+    properties: Record<string, string | number>
+}
+
+function captureUsage(usageEvent: ReleaseUsageEvent | undefined): void {
+    if (usageEvent) {
+        posthog.capture(usageEvent.event, usageEvent.properties)
+    }
+}
 
 const PAGE_SIZE = 500
 const RELOAD_WINDOW_MS = 2000
@@ -308,10 +321,16 @@ export const releaseLogic = kea<releaseLogicType>([
         closeSchedule: true,
         createRelease: (name: string, description: string) => ({ name, description }),
         createReleaseDone: true,
-        updateRelease: (id: string, changes: PatchedUpdateReleaseApi, successMessage?: string) => ({
+        updateRelease: (
+            id: string,
+            changes: PatchedUpdateReleaseApi,
+            successMessage?: string,
+            usageEvent?: ReleaseUsageEvent
+        ) => ({
             id,
             changes,
             successMessage,
+            usageEvent,
         }),
         linkFlag: (id: string, flagId: number) => ({ id, flagId }),
         unlinkFlag: (id: string, flagId: number) => ({ id, flagId }),
@@ -340,6 +359,8 @@ export const releaseLogic = kea<releaseLogicType>([
                                   description: changes.description ?? release.description,
                                   feature_flag_ids: changes.feature_flag_ids ?? release.feature_flag_ids,
                                   broadcast_ids: changes.broadcast_ids ?? release.broadcast_ids,
+                                  survey_ids: changes.survey_ids ?? release.survey_ids,
+                                  insight_ids: changes.insight_ids ?? release.insight_ids,
                                   broadcasts:
                                       broadcasts ??
                                       release.broadcasts.filter(
@@ -836,7 +857,7 @@ export const releaseLogic = kea<releaseLogicType>([
                 actions.createReleaseDone()
             }
         },
-        updateRelease: async ({ id, changes, successMessage }) => {
+        updateRelease: async ({ id, changes, successMessage, usageEvent }) => {
             actions.setReleaseLocally({ id, changes })
             cache.pendingSaves = (cache.pendingSaves ?? 0) + 1
             cache.pendingById = { ...cache.pendingById, [id]: (cache.pendingById?.[id] ?? 0) + 1 }
@@ -844,6 +865,7 @@ export const releaseLogic = kea<releaseLogicType>([
             cache.saving = previous.then(async () => {
                 try {
                     const saved = await releasesPartialUpdate(String(values.currentProjectId), id, changes)
+                    captureUsage(usageEvent)
                     if (cache.pendingById[id] === 1) {
                         actions.setReleaseLocally({
                             id,
@@ -852,6 +874,8 @@ export const releaseLogic = kea<releaseLogicType>([
                                 description: saved.description,
                                 feature_flag_ids: saved.feature_flag_ids,
                                 broadcast_ids: saved.broadcast_ids,
+                                survey_ids: saved.survey_ids,
+                                insight_ids: saved.insight_ids,
                             },
                             broadcasts: [...saved.broadcasts],
                         })
@@ -900,16 +924,20 @@ export const releaseLogic = kea<releaseLogicType>([
                 actions.updateRelease(
                     id,
                     { feature_flag_ids: [...release.feature_flag_ids, flagId] },
-                    'Flag linked to the release'
+                    'Flag linked to the release',
+                    { event: 'release item linked', properties: { release_id: id, kind: 'flag' } }
                 )
             }
         },
         unlinkFlag: ({ id, flagId }) => {
             const release = values.releases.find((item) => item.id === id)
             if (release) {
-                actions.updateRelease(id, {
-                    feature_flag_ids: release.feature_flag_ids.filter((item) => item !== flagId),
-                })
+                actions.updateRelease(
+                    id,
+                    { feature_flag_ids: release.feature_flag_ids.filter((item) => item !== flagId) },
+                    undefined,
+                    { event: 'release item unlinked', properties: { release_id: id, kind: 'flag' } }
+                )
             }
         },
         linkBroadcast: ({ id, broadcastId }) => {
@@ -918,7 +946,8 @@ export const releaseLogic = kea<releaseLogicType>([
                 actions.updateRelease(
                     id,
                     { broadcast_ids: [...release.broadcast_ids, broadcastId] },
-                    'Broadcast linked to the release'
+                    'Broadcast linked to the release',
+                    { event: 'release item linked', properties: { release_id: id, kind: 'broadcast' } }
                 )
             }
         },
@@ -961,16 +990,20 @@ export const releaseLogic = kea<releaseLogicType>([
                     { broadcast_ids: [...release.broadcast_ids, ...missing] },
                     missing.length === 1
                         ? 'Linked the broadcast you started here'
-                        : 'Linked the broadcasts you started here'
+                        : 'Linked the broadcasts you started here',
+                    { event: 'release broadcasts auto linked', properties: { release_id: id, count: missing.length } }
                 )
             }
         },
         unlinkBroadcast: ({ id, broadcastId }) => {
             const release = values.releases.find((item) => item.id === id)
             if (release) {
-                actions.updateRelease(id, {
-                    broadcast_ids: release.broadcast_ids.filter((item) => item !== broadcastId),
-                })
+                actions.updateRelease(
+                    id,
+                    { broadcast_ids: release.broadcast_ids.filter((item) => item !== broadcastId) },
+                    undefined,
+                    { event: 'release item unlinked', properties: { release_id: id, kind: 'broadcast' } }
+                )
             }
         },
         addLink: ({ id, candidate }) => {
@@ -990,16 +1023,40 @@ export const releaseLogic = kea<releaseLogicType>([
             actions.loadScheduledChanges()
             actions.loadBroadcastSends()
         },
+        openSchedule: () => {
+            posthog.capture('release schedule dialog opened')
+        },
         closeSchedule: () => {
             actions.loadScheduledChanges()
             actions.loadFlags()
         },
     })),
-    urlToAction(({ actions }) => ({
-        [urls.releases()]: () => actions.reload(),
-        [urls.releaseList()]: () => actions.reload(),
-        [urls.release(':id')]: () => actions.reload(),
-    })),
+    urlToAction(({ actions }) => {
+        const openedPage = (
+            payload: { pathname: string; initial?: boolean },
+            previousLocation: { pathname: string }
+        ): boolean => !!payload.initial || payload.pathname !== previousLocation.pathname
+        return {
+            [urls.releases()]: (_, __, ___, payload, previousLocation) => {
+                if (openedPage(payload, previousLocation)) {
+                    posthog.capture('release calendar opened')
+                }
+                actions.reload()
+            },
+            [urls.releaseList()]: (_, __, ___, payload, previousLocation) => {
+                if (openedPage(payload, previousLocation)) {
+                    posthog.capture('release list opened')
+                }
+                actions.reload()
+            },
+            [urls.release(':id')]: ({ id }, __, ___, payload, previousLocation) => {
+                if (openedPage(payload, previousLocation)) {
+                    posthog.capture('release page opened', { release_id: id })
+                }
+                actions.reload()
+            },
+        }
+    }),
     afterMount(({ actions }) => {
         actions.reload()
     }),

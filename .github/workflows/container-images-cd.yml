@@ -448,8 +448,8 @@ jobs:
             # The deploy hook in the charts repository copies every file with overwrite before the pods
             # roll, which corrects both. That hook must stay until every published name comes from its
             # final bytes and the publish checks each skipped object against the local file.
-            # The build marker is written last: a pod-start gate reads it as proof that every file above
-            # is in the bucket.
+            # The build marker is written last, so that a reader can take it as proof that every file
+            # above is in the bucket. No deploy step reads it, so the pods do not wait for it.
             #
             # Each environment publishes only once its role variable is set, so the publish rolls out one
             # bucket at a time and a missing variable skips the bucket instead of blocking every deploy.
@@ -462,12 +462,23 @@ jobs:
                   aws-region: us-east-1
             - name: Publish frontend assets to dev
               if: vars.AWS_STATIC_ASSETS_DEV_UPLOAD_IAM_ROLE != ''
-              timeout-minutes: 5
+              timeout-minutes: 10
               env:
                   BUCKET: posthog-cloud-dev-us-east-1-static-assets
               run: |
                   set -euo pipefail
-                  aws s3 cp --recursive --no-overwrite --cache-control "public, max-age=604800, immutable" "$RUNNER_TEMP/frontend-dist-immutable" "s3://$BUCKET/static/"
+                  # One failed object fails the whole copy and skips every deploy of this commit. A
+                  # retry uploads only the objects still missing, because the copy never overwrites.
+                  for attempt in 1 2 3; do
+                    if aws s3 cp --recursive --no-overwrite --cache-control "public, max-age=604800, immutable" "$RUNNER_TEMP/frontend-dist-immutable" "s3://$BUCKET/static/"; then
+                      break
+                    fi
+                    if [ "$attempt" -eq 3 ]; then
+                      exit 1
+                    fi
+                    echo "::warning::Frontend asset upload to $BUCKET failed on attempt $attempt. Retrying."
+                    sleep 10
+                  done
                   aws s3api put-object --bucket "$BUCKET" --key "static/builds/$GITHUB_SHA" --cache-control "no-cache"
 
             - name: Assume the prod-us static-assets role
@@ -478,12 +489,23 @@ jobs:
                   aws-region: us-east-1
             - name: Publish frontend assets to prod-us
               if: vars.AWS_STATIC_ASSETS_PROD_US_UPLOAD_IAM_ROLE != ''
-              timeout-minutes: 5
+              timeout-minutes: 10
               env:
                   BUCKET: posthog-cloud-prod-us-east-1-static-assets
               run: |
                   set -euo pipefail
-                  aws s3 cp --recursive --no-overwrite --cache-control "public, max-age=604800, immutable" "$RUNNER_TEMP/frontend-dist-immutable" "s3://$BUCKET/static/"
+                  # One failed object fails the whole copy and skips every deploy of this commit. A
+                  # retry uploads only the objects still missing, because the copy never overwrites.
+                  for attempt in 1 2 3; do
+                    if aws s3 cp --recursive --no-overwrite --cache-control "public, max-age=604800, immutable" "$RUNNER_TEMP/frontend-dist-immutable" "s3://$BUCKET/static/"; then
+                      break
+                    fi
+                    if [ "$attempt" -eq 3 ]; then
+                      exit 1
+                    fi
+                    echo "::warning::Frontend asset upload to $BUCKET failed on attempt $attempt. Retrying."
+                    sleep 10
+                  done
                   aws s3api put-object --bucket "$BUCKET" --key "static/builds/$GITHUB_SHA" --cache-control "no-cache"
 
             - name: Assume the prod-eu static-assets role
@@ -494,12 +516,23 @@ jobs:
                   aws-region: eu-central-1
             - name: Publish frontend assets to prod-eu
               if: vars.AWS_STATIC_ASSETS_PROD_EU_UPLOAD_IAM_ROLE != ''
-              timeout-minutes: 5
+              timeout-minutes: 10
               env:
                   BUCKET: posthog-cloud-prod-eu-central-1-static-assets
               run: |
                   set -euo pipefail
-                  aws s3 cp --recursive --no-overwrite --cache-control "public, max-age=604800, immutable" "$RUNNER_TEMP/frontend-dist-immutable" "s3://$BUCKET/static/"
+                  # One failed object fails the whole copy and skips every deploy of this commit. A
+                  # retry uploads only the objects still missing, because the copy never overwrites.
+                  for attempt in 1 2 3; do
+                    if aws s3 cp --recursive --no-overwrite --cache-control "public, max-age=604800, immutable" "$RUNNER_TEMP/frontend-dist-immutable" "s3://$BUCKET/static/"; then
+                      break
+                    fi
+                    if [ "$attempt" -eq 3 ]; then
+                      exit 1
+                    fi
+                    echo "::warning::Frontend asset upload to $BUCKET failed on attempt $attempt. Retrying."
+                    sleep 10
+                  done
                   aws s3api put-object --bucket "$BUCKET" --key "static/builds/$GITHUB_SHA" --cache-control "no-cache"
 
             # The role action exports its session keys to the job environment, where they stay until the
@@ -588,6 +621,7 @@ jobs:
                         - 'posthog/temporal/ai_observability/**'
                         - 'posthog/temporal/llm_analytics/**'
                         - 'products/product_analytics/backend/temporal/**'
+                        - 'products/experiments/backend/temporal/timeseries/**'
                         - 'posthog/temporal/delete_persons/**'
                         - 'posthog/temporal/delete_teams/**'
                         - 'posthog/temporal/ingestion_acceptance_test/**'

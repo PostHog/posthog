@@ -16,7 +16,12 @@ from posthog.models.integration import GitHubIntegration
 from posthog.models.user import User
 from posthog.models.user_integration import UserGitHubIntegration, UserIntegration
 
-from products.mcp_store.backend.facade.contracts import ActiveInstallation, SandboxInstallations
+from products.mcp_store.backend.facade.contracts import (
+    ActiveInstallation,
+    SandboxInstallations,
+    UnmountedInstallation,
+    UnmountedInstallationReason,
+)
 from products.tasks.backend.constants import DEFAULT_SANDBOX_WORKING_DIR, RESUME_SNAPSHOT_KIND
 from products.tasks.backend.exceptions import CredentialUnavailableError, ProcessTaskFatalError
 from products.tasks.backend.facade.profiles import TaskProfile, get_task_profile
@@ -56,6 +61,7 @@ from products.tasks.backend.temporal.process_task.utils import (
     parse_run_state,
     resolve_user_github_integration_for_task,
     sanitize_mcp_exclude_tools,
+    unmounted_mcp_installations_notice,
     upgrade_run_to_user_authorship,
 )
 
@@ -510,6 +516,33 @@ class TestMcpServerConfigToDict(SimpleTestCase):
             "url": "https://mcp.example.com/mcp",
             "headers": [{"name": "Authorization", "value": "Bearer token"}],
         }
+
+
+class TestUnmountedMcpInstallationsNotice(SimpleTestCase):
+    @parameterized.expand(
+        [
+            (
+                "needs_reconnect",
+                "1 MCP Store connection was not added to this run: Linear (reconnect it in the MCP Store).",
+            ),
+            (
+                "teammate_needs_reconnect",
+                "1 MCP Store connection was not added to this run: Linear (the teammate who shared it needs to reconnect it).",
+            ),
+            (
+                "not_shared",
+                "1 MCP Store connection was not added to this run: Linear (share it with this agent in the MCP Store).",
+            ),
+            ("not_selected", None),
+            ("replaced_by_personal", None),
+        ]
+    )
+    def test_names_the_fix_for_each_reported_reason(
+        self, reason: UnmountedInstallationReason, expected: str | None
+    ) -> None:
+        unmounted = [UnmountedInstallation(id="srv-1", name="Linear", scope="team", reason=reason)]
+
+        assert unmounted_mcp_installations_notice(unmounted) == expected
 
 
 class TestFetchUserMcpServerConfigs(SimpleTestCase):
@@ -2005,6 +2038,11 @@ class TestUpgradeRunToUserAuthorship(_AuthorshipFixture):
         self.task.profile = "business_knowledge"
         self.task.save(update_fields=["profile"])
 
+    def _gitlab_task(self) -> None:
+        self.connect_personal_github()
+        self.task.repository_integration_id = 5
+        self.task.save(update_fields=["repository_integration_id"])
+
     def _set_state(self, state: dict) -> None:
         self.task_run.state = state
         self.task_run.save(update_fields=["state"])
@@ -2019,6 +2057,7 @@ class TestUpgradeRunToUserAuthorship(_AuthorshipFixture):
             ("signal_report_origin",),
             ("profile_without_user_authorable_prs",),
             ("a_different_actor_than_the_creator",),
+            ("gitlab_task",),
         ]
     )
     def test_nothing_is_promoted(self, case: str) -> None:

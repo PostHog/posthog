@@ -1,11 +1,13 @@
 from datetime import timedelta
 
+import time_machine
 from posthog.test.base import BaseTest
 
 from django.utils import timezone
 
 from parameterized import param, parameterized
 
+from posthog.constants import AvailableFeature
 from posthog.models import Organization, OrganizationMembership, Team, User
 from posthog.models.personal_api_key import (
     PersonalAPIKey,
@@ -94,6 +96,12 @@ class TestGetOrganizationPersonalAPIKeys(BaseTest):
                 level=OrganizationMembership.Level.ADMIN,
                 expected_listed=True,
             ),
+            param(
+                "member_key_when_org_lacks_security_settings",
+                members_can_use_keys=False,
+                has_security_settings=False,
+                expected_listed=True,
+            ),
         ]
     )
     def test_lists_only_keys_that_can_authenticate(
@@ -104,9 +112,15 @@ class TestGetOrganizationPersonalAPIKeys(BaseTest):
         expires_in=None,
         owner_is_active=True,
         members_can_use_keys=True,
+        has_security_settings=True,
         level=OrganizationMembership.Level.MEMBER,
         admin_elsewhere=False,
     ):
+        self.organization.available_product_features = (
+            [{"key": AvailableFeature.ORGANIZATION_SECURITY_SETTINGS, "name": "organization_security_settings"}]
+            if has_security_settings
+            else []
+        )
         self.organization.members_can_use_personal_api_keys = members_can_use_keys
         self.organization.save()
         OrganizationMembership.objects.filter(user=self.member, organization=self.organization).update(level=level)
@@ -114,11 +128,12 @@ class TestGetOrganizationPersonalAPIKeys(BaseTest):
             self.member.join(organization=self.other_org, level=OrganizationMembership.Level.ADMIN)
         self.member.is_active = owner_is_active
         self.member.save()
-        key = self._create_key(
-            scopes=scopes, expires_at=timezone.now() + expires_in if expires_in is not None else None
-        )
+        with time_machine.travel("2026-11-01T00:00:00Z", tick=False):
+            key = self._create_key(
+                scopes=scopes, expires_at=timezone.now() + expires_in if expires_in is not None else None
+            )
 
-        assert (key.id in self._listed_ids()) == expected_listed
+            assert (key.id in self._listed_ids()) == expected_listed
 
     def test_excludes_keys_of_non_members(self):
         outsider = User.objects.create(email="outsider@x.com")

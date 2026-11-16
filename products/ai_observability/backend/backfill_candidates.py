@@ -315,7 +315,9 @@ def _scan_start(*, window_start: datetime, cursor_timestamp: datetime | None, se
     return max(window_start, cursor_timestamp - max(settle_horizon, MIN_SCAN_LOOKBACK))
 
 
-def _run(query: ast.SelectQuery, *, team: Team, query_type: str) -> list[tuple[Any, ...]]:
+def _run(
+    query: ast.SelectQuery, *, team: Team, query_type: str, max_execution_time: int = MAX_EXECUTION_TIME_SECONDS
+) -> list[tuple[Any, ...]]:
     # Tagged here so both callers (the API estimate and the Temporal walk) attribute the same way.
     with tags_context(product=Product.LLM_ANALYTICS, feature=Feature.BACKFILL, team_id=team.pk):
         response = execute_hogql_query(
@@ -323,13 +325,18 @@ def _run(query: ast.SelectQuery, *, team: Team, query_type: str) -> list[tuple[A
             team=team,
             query_type=query_type,
             workload=Workload.OFFLINE,
-            settings=HogQLGlobalSettings(max_execution_time=MAX_EXECUTION_TIME_SECONDS),
+            settings=HogQLGlobalSettings(max_execution_time=max_execution_time),
         )
     return list(response.results or [])
 
 
 def _run_on_ai_events(
-    query: ast.SelectQuery, placeholders: dict[str, ast.Expr], *, team: Team, query_type: str
+    query: ast.SelectQuery,
+    placeholders: dict[str, ast.Expr],
+    *,
+    team: Team,
+    query_type: str,
+    max_execution_time: int = MAX_EXECUTION_TIME_SECONDS,
 ) -> list[tuple[Any, ...]]:
     """Runs through the ai_events resolver, which rewrites a heavy property read onto its column.
 
@@ -345,7 +352,7 @@ def _run_on_ai_events(
                 query_type=query_type,
                 fall_back_to_events=False,
                 workload=Workload.OFFLINE,
-                settings=HogQLGlobalSettings(max_execution_time=MAX_EXECUTION_TIME_SECONDS),
+                settings=HogQLGlobalSettings(max_execution_time=max_execution_time),
             )
         except (AIEventsNotFoundError, AIEventsExpiredError):
             return []
@@ -430,6 +437,7 @@ def count_backfill_candidates(
     window_start: datetime,
     window_end: datetime,
     rerun_existing: bool,
+    max_execution_time: int = MAX_EXECUTION_TIME_SECONDS,
 ) -> BackfillScope:
     # The scan is the expensive half, so both numbers come out of one pass: the dedupe moves from
     # the filter into a pair of conditional counts over the same units.
@@ -462,7 +470,8 @@ def count_backfill_candidates(
     counts: list[ast.Expr] = [ast.Call(name="count", args=[]), ast.Call(name="countIf", args=[judged])]
     if not reads_heavy_properties(conditions):
         query = ast.SelectQuery(select=counts, select_from=ast.JoinExpr(table=units))
-        return _scope_from_counts(_run(query, team=team, query_type=COUNT_QUERY_TYPE), rerun_existing)
+        rows = _run(query, team=team, query_type=COUNT_QUERY_TYPE, max_execution_time=max_execution_time)
+        return _scope_from_counts(rows, rerun_existing)
 
     # `events` cannot judge a heavy filter, and the traces to ask ai_events about are exactly what
     # is being counted, so the count asks ai_events for all of it and comes back with one number.
@@ -483,6 +492,7 @@ def count_backfill_candidates(
         },
         team=team,
         query_type=COUNT_QUERY_TYPE,
+        max_execution_time=max_execution_time,
     )
     return _scope_from_counts(rows, rerun_existing)
 

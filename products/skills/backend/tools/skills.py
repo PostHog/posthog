@@ -11,7 +11,7 @@ from posthog.scopes import APIScopeObject
 from posthog.sync import database_sync_to_async
 
 from products.access_control.backend.facade.user_access_control import AccessControlLevel
-from products.skills.backend.api.archive_guards import SkillArchiveRefused
+from products.skills.backend.api.archive_guards import SkillArchiveRefused, SkillPublishRefused
 from products.skills.backend.api.skill_serializers import RESERVED_SKILL_NAMES, SPEC_DESCRIPTION_MAX_LENGTH
 from products.skills.backend.api.skill_services import (
     LLMSkillDescriptionTooLongError,
@@ -489,6 +489,8 @@ class UpdateLLMSkillTool(MaxTool):
             raise MaxToolRetryableError(_publish_error_message(err, skill_name))
         except (LLMSkillNotFoundError, LLMSkillVersionLimitError, LLMSkillFileLimitError) as err:
             raise MaxToolFatalError(_publish_error_message(err, skill_name))
+        except SkillPublishRefused as err:
+            raise MaxToolFatalError(str(err))
 
         return f"Updated skill '{skill.name}' — new version v{skill.version}.", None
 

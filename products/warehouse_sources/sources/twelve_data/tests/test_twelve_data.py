@@ -128,6 +128,93 @@ class TestPerSymbolEndpoints:
 
         assert result.items == [[{"symbol": "AAPL", "close": "326.47"}]]
 
+    @parameterized.expand(
+        [
+            (
+                "statistics_single_object",
+                "statistics",
+                {
+                    "meta": {"symbol": "AAPL", "currency": "USD", "exchange": "NASDAQ"},
+                    "statistics": {"valuations_metrics": {"trailing_pe": 39.5}, "financials": {"gross_margin": 0.5}},
+                },
+                {},
+                [
+                    {
+                        "symbol": "AAPL",
+                        "currency": "USD",
+                        "valuations_metrics": {"trailing_pe": 39.5},
+                        "financials": {"gross_margin": 0.5},
+                    }
+                ],
+            ),
+            (
+                "balance_sheet_history",
+                "balance_sheets",
+                {
+                    "meta": {"symbol": "AAPL", "currency": "USD", "period": "Quarterly"},
+                    "balance_sheet": [
+                        {"fiscal_date": "2026-06-30", "quarter": 3, "assets": {"total_assets": 1}},
+                        {"fiscal_date": "2026-03-31", "quarter": 2, "assets": {"total_assets": 2}},
+                    ],
+                },
+                {"period": "quarterly", "outputsize": "1000"},
+                [
+                    {
+                        "symbol": "AAPL",
+                        "currency": "USD",
+                        "period": "Quarterly",
+                        "fiscal_date": "2026-06-30",
+                        "quarter": 3,
+                        "assets": {"total_assets": 1},
+                    },
+                    {
+                        "symbol": "AAPL",
+                        "currency": "USD",
+                        "period": "Quarterly",
+                        "fiscal_date": "2026-03-31",
+                        "quarter": 2,
+                        "assets": {"total_assets": 2},
+                    },
+                ],
+            ),
+            (
+                "cash_flow_history",
+                "cash_flows",
+                {
+                    "meta": {"symbol": "AAPL", "currency": "USD", "period": "Quarterly"},
+                    "cash_flow": [{"fiscal_date": "2026-06-30", "quarter": 3, "free_cash_flow": 5}],
+                },
+                {"period": "quarterly", "outputsize": "1000"},
+                [
+                    {
+                        "symbol": "AAPL",
+                        "currency": "USD",
+                        "period": "Quarterly",
+                        "fiscal_date": "2026-06-30",
+                        "quarter": 3,
+                        "free_cash_flow": 5,
+                    }
+                ],
+            ),
+        ]
+    )
+    def test_fundamentals_rows_carry_meta_and_full_history_params(
+        self,
+        _name: str,
+        endpoint: str,
+        body: dict[str, Any],
+        expected_params: dict[str, str],
+        expected_rows: list[dict[str, Any]],
+    ) -> None:
+        result = _run(endpoint, [_json(body)])
+
+        assert result.raised is None
+        assert result.rows == expected_rows
+        for key, value in expected_params.items():
+            assert result.params(key) == [value]
+        assert result.response is not None and result.response.primary_keys
+        assert all(key in row for row in result.rows for key in result.response.primary_keys)
+
     def test_sync_rejects_too_many_symbols(self) -> None:
         # The cap must hold at sync time too, so a stored config can't bypass validation.
         symbols = ",".join(f"S{i}" for i in range(twelve_data.MAX_SYMBOLS + 1))

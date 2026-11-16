@@ -27,6 +27,16 @@ if TYPE_CHECKING:
     from posthog.schema import PersonPropertyFilter
 
 
+class PersonAccount(TypedDict):
+    id: str
+    name: str
+
+
+class PersonAccounts(TypedDict):
+    person_id: str
+    accounts: list[PersonAccount]
+
+
 class AccountPersonsPropertyAccessError(Exception):
     pass
 

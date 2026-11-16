@@ -16,6 +16,8 @@ import hashlib
 from collections.abc import Collection, Sequence
 from dataclasses import field, fields
 from datetime import UTC, datetime
+from enum import StrEnum
+from time import sleep
 from typing import Any, Final
 from uuid import UUID
 
@@ -203,17 +205,37 @@ LIMIT 1 BY grouping_key
 _ANNOUNCEMENT_COLUMNS = """grouping_key, kind, episode_started_at, value, labels, condition_snapshot,
        source_config_snapshot, error_message, occurred_at, source_detail, alert_name, consecutive_failures"""
 
-_ANNOUNCEMENT_SQL = f"SELECT {_ANNOUNCEMENT_COLUMNS} {_ANNOUNCED_ROWS}"
-
-# Deals the announced groups out by their position in key order, so the parts of one evaluation
-# cover every group exactly once, and each part decodes only its own rows.
-_ANNOUNCEMENT_PART_SQL = f"""
-SELECT {_ANNOUNCEMENT_COLUMNS}
+# Reads every row of the evaluation, `CHECK` included, in one query, so whether the evaluation was
+# recorded and what it announced come from the same snapshot. Two reads could each land on a
+# different replica, and a firing the first missed would come back as a quiet evaluation.
+#
+# `announced` marks the rows `announcement` sends: not a `CHECK`, unless the group is in
+# `incident_grouping_keys`. Ordering on it before `occurred_at` keeps a group's newest announced
+# row over a silent one, as filtering before `LIMIT 1 BY` would. The announced groups are dealt
+# out by their position in key order, so the parts of one evaluation cover every group exactly
+# once. The evaluation's first row always comes back too, with `deliver` false unless this part
+# owns it, so a recorded evaluation is never read as an absent one.
+_ANNOUNCEMENT_SQL = f"""
+SELECT {_ANNOUNCEMENT_COLUMNS}, deliver
 FROM (
-    SELECT *, row_number() OVER (ORDER BY grouping_key) - 1 AS position
-    FROM ({_ANNOUNCEMENT_SQL})
+    SELECT *,
+           announced AND modulo(position, %(parts)s) = %(part)s AS deliver,
+           row_number() OVER (ORDER BY grouping_key) = 1 AS first_row
+    FROM (
+        SELECT *, row_number() OVER (PARTITION BY announced ORDER BY grouping_key) - 1 AS position
+        FROM (
+            SELECT {_ANNOUNCEMENT_COLUMNS},
+                   kind != %(check_kind)s OR has(%(incident_grouping_keys)s, grouping_key) AS announced
+            FROM {PLATFORM_ALERT_EVENTS_TABLE}
+            WHERE team_id = %(team_id)s
+              AND configuration_id = %(configuration_id)s
+              AND evaluation_key = %(evaluation_key)s
+            ORDER BY grouping_key, announced DESC, occurred_at DESC
+            LIMIT 1 BY grouping_key
+        )
+    )
 )
-WHERE modulo(position, %(parts)s) = %(part)s
+WHERE deliver OR first_row
 ORDER BY grouping_key
 """
 
@@ -243,20 +265,47 @@ def announcement(
 
     With `parts` above one, only the groups of that `part` come back, and None when it has none.
     """
+    return _read_evaluation(
+        team_id,
+        configuration_id,
+        evaluation_key,
+        source=source,
+        incident_grouping_keys=incident_grouping_keys,
+        part=part,
+        parts=parts,
+    ).announcement
+
+
+def _read_evaluation(
+    team_id: int,
+    configuration_id: str,
+    evaluation_key: str,
+    *,
+    source: SourceKind,
+    incident_grouping_keys: Collection[str],
+    part: int,
+    parts: int,
+) -> "AnnouncementRead":
+    """One read of `_ANNOUNCEMENT_SQL`: `MISSING` when the evaluation has no row at all."""
     tag_queries(product=Product.PLATFORM_AND_SUPPORT, feature=Feature.ALERTING)
-    parameters: dict[str, Any] = {
-        "team_id": team_id,
-        "configuration_id": configuration_id,
-        "evaluation_key": evaluation_key,
-        "check_kind": AlertEventKind.CHECK.value,
-        "incident_grouping_keys": list(incident_grouping_keys),
-    }
-    if parts > 1:
-        rows = _execute(_ANNOUNCEMENT_PART_SQL, {**parameters, "part": part, "parts": parts}, team_id=team_id)
-    else:
-        rows = _execute(_ANNOUNCEMENT_SQL, parameters, team_id=team_id)
+    rows = _execute(
+        _ANNOUNCEMENT_SQL,
+        {
+            "team_id": team_id,
+            "configuration_id": configuration_id,
+            "evaluation_key": evaluation_key,
+            "check_kind": AlertEventKind.CHECK.value,
+            "incident_grouping_keys": list(incident_grouping_keys),
+            "part": part,
+            "parts": parts,
+        },
+        team_id=team_id,
+    )
     if not rows:
-        return None
+        return AnnouncementRead(status=AnnouncementStatus.MISSING)
+    delivered = [row[:-1] for row in rows if row[-1]]
+    if not delivered:
+        return AnnouncementRead(status=AnnouncementStatus.EMPTY)
 
     transitions = tuple(
         AnnouncedTransition(
@@ -273,17 +322,76 @@ def announcement(
             source_detail=_snapshot(source_detail),
             configuration_id=configuration_id,
         )
-        for grouping_key, kind, episode_started_at, value, labels, condition_snapshot, source_config_snapshot, error_message, occurred_at, source_detail, _, _ in rows
+        for grouping_key, kind, episode_started_at, value, labels, condition_snapshot, source_config_snapshot, error_message, occurred_at, source_detail, _, _ in delivered
     )
     # Evaluation-level, and the same on every row of one evaluation, so the first row carries it.
-    *_, alert_name, consecutive_failures = rows[0]
-    return EvaluationAnnouncement(
-        configuration_id=configuration_id,
-        source=source,
-        alert_name=alert_name,
-        consecutive_failures=consecutive_failures,
-        transitions=transitions,
+    *_, alert_name, consecutive_failures = delivered[0]
+    return AnnouncementRead(
+        status=AnnouncementStatus.FOUND,
+        announcement=EvaluationAnnouncement(
+            configuration_id=configuration_id,
+            source=source,
+            alert_name=alert_name,
+            consecutive_failures=consecutive_failures,
+            transitions=transitions,
+        ),
     )
+
+
+_ANNOUNCEMENT_RETRY_DELAYS_SECONDS: Final = (1, 2)
+
+
+class AnnouncementStatus(StrEnum):
+    FOUND = "found"
+    """This part has transitions to announce."""
+    EMPTY = "empty"
+    """The evaluation is recorded and this part has nothing to announce, as when a mute held it."""
+    MISSING = "missing"
+    """No record of the evaluation was found."""
+
+
+@frozen
+class AnnouncementRead:
+    status: AnnouncementStatus
+    announcement: EvaluationAnnouncement | None = None
+    """Set only when `status` is `FOUND`."""
+
+
+def read_announcement(
+    team_id: int,
+    configuration_id: str,
+    evaluation_key: str,
+    *,
+    source: SourceKind,
+    incident_grouping_keys: Collection[str] = (),
+    part: int = 0,
+    parts: int = 1,
+) -> AnnouncementRead:
+    """`announcement` for a delivery, which must tell a quiet evaluation from one whose record it
+    cannot see.
+
+    A recorded evaluation with nothing to announce comes back `EMPTY` at once. One with no row at
+    all is read again after each delay in `_ANNOUNCEMENT_RETRY_DELAYS_SECONDS`, and comes back
+    `MISSING` if it is still not there. The waits total 3s, which `DELIVERY_START_TO_CLOSE` budgets
+    for. That is enough for a lagging replica or an asynchronous Distributed insert, though no
+    retry brings back a failed insert. The reads use no consistency setting: without
+    `insert_quorum` on the write, none would help.
+    """
+    for delay in (0, *_ANNOUNCEMENT_RETRY_DELAYS_SECONDS):
+        if delay:
+            sleep(delay)
+        read = _read_evaluation(
+            team_id,
+            configuration_id,
+            evaluation_key,
+            source=source,
+            incident_grouping_keys=incident_grouping_keys,
+            part=part,
+            parts=parts,
+        )
+        if read.status is not AnnouncementStatus.MISSING:
+            return read
+    return AnnouncementRead(status=AnnouncementStatus.MISSING)
 
 
 def announced_kinds(

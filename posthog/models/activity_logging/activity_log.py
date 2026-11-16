@@ -155,6 +155,7 @@ ActivityScope = Literal[
     "ReviewRepository",
     "ReviewProjectSettings",
     "ReviewInstallationClaim",
+    "RecommendationResolution",
 ]
 ChangeAction = Literal[
     "changed", "created", "deleted", "merged", "split", "exported", "revoked", "logged_in", "logged_out", "copied"
@@ -504,6 +505,7 @@ field_name_overrides: dict[AuditableScope, dict[str, str]] = {
     },
     "ExternalDataSchema": {
         "should_sync": "enabled",
+        "live_query_enabled": "live queries",
         "masked_columns": "masked columns",
         "full_refresh_interval_days": "full refresh interval (days)",
         "full_refresh_time_of_day": "full refresh time (UTC)",
@@ -574,6 +576,10 @@ replay_scanner_machine_fields = [
     "sweep_read_bytes_by_hour",
     "fast_read_bytes_by_hour",
     "deep_read_bytes_by_hour",
+    "sweep_throttle_factor",
+    "last_found_candidates_at",
+    "sweep_paused_until",
+    "sweep_pause_reason",
     "estimated_monthly_observations",
     "estimated_at",
     "estimate_attempted_at",
@@ -782,6 +788,8 @@ activity_visibility_restrictions: list[dict[str, Any]] = [
 
 field_exclusions: dict[AuditableScope, list[str]] = {
     "AccountView": ["version"],
+    # These fields copy warehouse data, and the activity log does not check warehouse access.
+    "RecommendationResolution": ["subject", "subject_hash", "customer_id", "campaign_id", "resolved_at"],
     "TicketMacro": ["usage_count", "last_used_at"],
     # Tiles are edited through their own endpoint, so diffing the reverse relation only reads every tile row.
     "CrossProjectDashboard": ["tiles", "organization"],
@@ -795,8 +803,15 @@ field_exclusions: dict[AuditableScope, list[str]] = {
         "alerts",
     ],
     "VisionAlertConfiguration": [*vision_alert_machine_fields, "events", "matches"],
-    # The reverse relations hold runtime state per group and per notification thread.
-    "PlatformAlertConfiguration": [*platform_alert_runtime_fields, "alerts", "threads", "delivery_paths"],
+    # The reverse relations read through team-scoped managers, which fail a save outside a request.
+    "PlatformAlertConfiguration": [
+        *platform_alert_runtime_fields,
+        "alerts",
+        "threads",
+        "delivery_paths",
+        "delivery_holds",
+        "destinations",
+    ],
     "DataQualityCheckSchedule": ["subject_type", "subject_uuid", "next_run_at", "last_run_at", "last_suite_run"],
     # The pointer names the tagged object, which a row never changes, and content_type and team
     # are model objects the diff cannot serialize.

@@ -61,6 +61,10 @@ export type LogsIngestionConsumerConfig = {
     LOGS_METRICS_RULES_KILLSWITCH: boolean
     /** Comma-separated team IDs, or `*` for all teams, that also get the built-in default metric rules. Independent of `LOGS_METRICS_RULES_ENABLED_TEAMS`. */
     LOGS_DEFAULT_METRIC_RULES_ENABLED_TEAMS: string
+    /** Comma-separated team IDs, or `*` for all teams, whose metric-rule points are summed per series over `LOGS_METRICS_RULES_WINDOW_MS` instead of sent once per batch. */
+    LOGS_METRICS_RULES_WINDOW_TEAMS: string
+    /** Window for `LOGS_METRICS_RULES_WINDOW_TEAMS`, rounded to whole 10 s steps. */
+    LOGS_METRICS_RULES_WINDOW_MS: number
     /** capture-logs OTLP metrics endpoint (e.g. `http://capture-logs:3308/i/v1/metrics`); empty disables emission. */
     LOGS_METRICS_RULES_EXPORT_URL: string
     /** Comma-separated team IDs, or `*` for all teams, or empty to disable per-row retention rule evaluation entirely. */
@@ -137,6 +141,8 @@ export function getDefaultLogsIngestionConsumerConfig(): LogsIngestionConsumerCo
         LOGS_METRICS_RULES_KILLSWITCH: false,
         LOGS_METRICS_RULES_EXPORT_URL: '',
         LOGS_DEFAULT_METRIC_RULES_ENABLED_TEAMS: '',
+        LOGS_METRICS_RULES_WINDOW_TEAMS: '',
+        LOGS_METRICS_RULES_WINDOW_MS: 60_000,
         // Off in prod until per-team rollout; on in dev for local end-to-end testing.
         LOGS_RETENTION_ENABLED_TEAMS: isProdEnv() ? '' : '*',
         LOGS_BACKFILL_ENABLED_TEAMS: isProdEnv() ? '' : '*',

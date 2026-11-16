@@ -785,6 +785,17 @@ class AEOKeywordSuggestionsSustainedRateThrottle(_TeamBucketRateThrottle):
     rate = "30/hour"
 
 
+# AEO setup runs a prompt and a keyword suggestion call in one job, so it gets tighter limits of its own.
+class AEOSetupBurstRateThrottle(_TeamBucketRateThrottle):
+    scope = "aeo_setup_burst"
+    rate = "3/minute"
+
+
+class AEOSetupSustainedRateThrottle(_TeamBucketRateThrottle):
+    scope = "aeo_setup_sustained"
+    rate = "10/hour"
+
+
 # The AEO keyword report and modifiers recompute their numbers from every answered check in the window
 # on each request, matching each keyword against each answer text in Postgres or scanning every search in
 # Python. The project-global Burst/Sustained pair never throttles the session-authenticated UI, so this
@@ -1948,7 +1959,7 @@ class AlertTestDeliveryThrottle(PersonalApiKeyOrUserRateThrottle):
 
 
 def _is_llm_alert_simulation(request) -> bool:
-    """Whether an alert simulation request would make a billable model call.
+    """Whether an alert simulation request would make a billable model call: the AI and forecast detectors do.
 
     Reads the same field the simulate serializer parses. A form-encoded body carries
     ``detector_config`` as a JSON string that the serializer's JSONField decodes later, so
@@ -1963,11 +1974,11 @@ def _is_llm_alert_simulation(request) -> bool:
             detector_config = json.loads(detector_config)
         except ValueError:
             return False
-    return isinstance(detector_config, dict) and detector_config.get("type") == "llm"
+    return isinstance(detector_config, dict) and detector_config.get("type") in ("llm", "forecast")
 
 
 class _AlertLLMSimulationThrottle(PersonalApiKeyOrUserRateThrottle):
-    """Per-team cap on billable AI alert simulations.
+    """Per-team cap on billable AI and forecast alert simulations.
 
     Keyed per team so extra API keys or members do not multiply it, and applied to every
     authenticated caller: the generic burst and sustained throttles skip session users, so
@@ -2097,6 +2108,19 @@ class PushTokenImportThrottle(PersonalApiKeyOrUserRateThrottle):
         team_id = self.safely_get_team_id_from_view(view)
         if team_id:
             return self.cache_format % {"scope": self.scope, "ident": f"team_{team_id}"}
+        return super().get_cache_key(request, view)
+
+
+class EmailSenderCreateThrottle(PersonalApiKeyOrUserRateThrottle):
+    # A new sender domain creates an identity at the email provider, which caps identities per region for
+    # all customers together. Keyed per organization, so new projects or keys do not add to the budget.
+    scope = "email_sender_create"
+    rate = "20/hour"
+
+    def get_cache_key(self, request, view):
+        organization_id = self.safely_get_organization_id_from_view(view)
+        if organization_id:
+            return self.cache_format % {"scope": self.scope, "ident": f"organization_{organization_id}"}
         return super().get_cache_key(request, view)
 
 

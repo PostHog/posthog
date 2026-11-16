@@ -322,7 +322,7 @@ LOGIN_REDIRECT_URL = "/"
 APPEND_SLASH = False
 CORS_URLS_REGEX = r"^(/site_app/|/array/|/static/|/oauth/token/?|/toolbar_oauth/check|/api/(?!early_access_features|surveys|web_experiments).*$)"
 CORS_ALLOW_HEADERS = default_headers + CORS_ALLOWED_TRACING_HEADERS + ("x-posthog-client-provenance",)
-CORS_EXPOSE_HEADERS = ["X-PostHog-Events-Default-After"]
+CORS_EXPOSE_HEADERS = ["X-PostHog-Events-Default-After", "X-Request-ID"]
 X_FRAME_OPTIONS = "SAMEORIGIN"
 
 SOCIAL_AUTH_JSONFIELD_ENABLED = True
@@ -465,7 +465,13 @@ TWO_FACTOR_REMEMBER_COOKIE_AGE = 60 * 60 * 24 * 30
 AUTH_PASSWORD_VALIDATORS = [
     {"NAME": "django.contrib.auth.password_validation.MinimumLengthValidator"},
     {"NAME": "posthog.auth.ZxcvbnValidator"},
+    {"NAME": "posthog.breached_password_validator.BreachedPasswordValidator"},
 ]
+
+# The breached-password check calls api.pwnedpasswords.com, so an instance without outbound access turns it off.
+PWNED_PASSWORDS_CHECK_ENABLED = get_from_env("PWNED_PASSWORDS_CHECK_ENABLED", not TEST, type_cast=str_to_bool)
+# pwned-passwords-django reads this. A short timeout stops a slow API from holding up signup.
+PWNED_PASSWORDS = {"API_TIMEOUT": 1.0}
 
 if TEST:
     # PBKDF2 is deliberately slow (~150ms per hash), which adds up because every
@@ -1205,6 +1211,13 @@ WORKFLOWS_EMAIL_TIER_BATCH_AUDIENCE_CAPS: list[int] = [
         get_from_env("WORKFLOWS_EMAIL_TIER_BATCH_AUDIENCE_CAPS", "100,1000,3000,10000,30000,100000,300000,1000000")
     )
 ]
+# A batch email with a sending rate limit may go to more people than its tier's batch cap, because the
+# rate limit spreads the send over several days. The rate may use at most this share of the daily cap,
+# so the project's other workflows keep the rest of it, and the send may last at most this many days.
+WORKFLOWS_RATE_LIMITED_BATCH_MAX_DAILY_SHARE = float(get_from_env("WORKFLOWS_RATE_LIMITED_BATCH_MAX_DAILY_SHARE", 0.5))
+if not 0 <= WORKFLOWS_RATE_LIMITED_BATCH_MAX_DAILY_SHARE <= 1:
+    raise ImproperlyConfigured("WORKFLOWS_RATE_LIMITED_BATCH_MAX_DAILY_SHARE must be between 0 and 1")
+WORKFLOWS_RATE_LIMITED_BATCH_MAX_DAYS = int(get_from_env("WORKFLOWS_RATE_LIMITED_BATCH_MAX_DAYS", 7))
 
 # Promotion bar. A team must sit at its tier for this long, actually use the tier, and keep its
 # rates under the thresholds below before it moves up one step. Indexed by the tier the team is
