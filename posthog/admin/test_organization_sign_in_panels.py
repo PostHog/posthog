@@ -228,16 +228,14 @@ class TestChangeMemberEmails(BaseTest):
         assert self.member.email == "i@new.example.com"
         assert grace.email == "grace@old.example.com"
 
-    @parameterized.expand([("provisioning_on", True), ("provisioning_off", False)])
-    def test_preview_warns_when_the_old_domain_provisions_accounts_automatically(
-        self, _send: MagicMock, _name: str, provisioning: bool
-    ) -> None:
-        OrganizationDomain.objects.filter(domain="old.example.com").update(jit_provisioning_enabled=provisioning)
+    def test_refuses_members_on_a_domain_that_provisions_accounts_automatically(self, _send: MagicMock) -> None:
+        OrganizationDomain.objects.filter(domain="old.example.com").update(jit_provisioning_enabled=True)
 
         response = self._preview("ada@old.example.com")
 
-        assert response.status_code == 200
-        assert ("Automatic provisioning is on for old.example.com" in response.content.decode()) == provisioning
+        assert response.status_code == 400
+        assert "Automatic provisioning is on for old.example.com" in response.content.decode()
+        assert "confirm_token" not in response.context
 
     def test_an_email_that_differs_only_by_case_is_not_a_change(self, _send: MagicMock) -> None:
         grace = self._create_user("grace@new.example.com")
