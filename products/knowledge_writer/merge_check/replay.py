@@ -14,7 +14,8 @@ from anthropic import APIError
 from posthog.egress.limiter.policies import Priority
 
 from ..backend.facade.contracts import MergeCheckReport
-from ..backend.settings import DocsSource, docs_source_for
+from ..backend.logic.pull_requests import WriterPullRequestFailed, publication_refusal
+from ..backend.settings import DEFAULT_DOCS_PATHS, DocsSource, docs_source_for
 from .check import merge_reports_by_variant, run_merge_check
 from .judge import Variant, judge_client
 from .sources import (
@@ -24,6 +25,7 @@ from .sources import (
     UnexpectedGitHubResponse,
     landed_change,
     read_closed_pull_requests,
+    read_github,
 )
 
 MAX_RECENT_MERGES = 100
@@ -45,6 +47,8 @@ UNSCORED_TRUTH_VALUES = frozenset({"not_applicable"})
 def replay_command(arguments: argparse.Namespace) -> int:
     if arguments.eval:
         return eval_command(arguments)
+    if arguments.publish_eval:
+        return publish_eval_command(arguments.publish_eval)
     flagged = 0
     github = environment_github()
     source = docs_source_for(arguments.docs_repository)
@@ -309,6 +313,66 @@ def criterion_text(value: object) -> str | None:
     return str(value)
 
 
+def publish_eval_command(labelled_commits_path: Path) -> int:
+    github = CachedGitHub(environment_github(), GITHUB_CACHE_DIRECTORY)
+    docs_folders = (DEFAULT_DOCS_PATHS.strip("/"),)
+    wrong_commits_by_kind: dict[str, list[str]] = {"false_publish": [], "false_refuse": []}
+    labelled_commits = [json.loads(line) for line in labelled_commits_path.read_text().splitlines() if line.strip()]
+    failed_commits: list[str] = []
+    for labelled_commit in labelled_commits:
+        repository, commit_sha = labelled_commit["repository"], labelled_commit["commit_sha"]
+        try:
+            refusal = publication_refusal(
+                parent_comparison(github, repository, commit_sha), docs_folders, github, repository, commit_sha
+            )
+        except (*EVAL_ROW_ERRORS, WriterPullRequestFailed) as error:
+            failed_commits.append(commit_sha)
+            error_line = {
+                "commit_sha": commit_sha,
+                "error": type(error).__name__,
+                "status_code": error_status_code(error),
+                "message": str(error)[:ERROR_MESSAGE_LIMIT],
+            }
+            print(json.dumps(error_line), flush=True)  # noqa: T201 — eval row
+            continue
+        publishes = refusal is None
+        print(  # noqa: T201 — one eval row per labelled commit
+            json.dumps(
+                {
+                    "commit_sha": commit_sha,
+                    "truth": labelled_commit["truth"],
+                    "publishes": publishes,
+                    "refusal": refusal,
+                }
+            ),
+            flush=True,
+        )
+        if publishes and labelled_commit["truth"] == "refuse":
+            wrong_commits_by_kind["false_publish"].append(commit_sha)
+        if not publishes and labelled_commit["truth"] == "publish":
+            wrong_commits_by_kind["false_refuse"].append(commit_sha)
+    summary = {
+        "commits": len(labelled_commits),
+        "failed": len(failed_commits),
+        **{kind: len(shas) for kind, shas in wrong_commits_by_kind.items()},
+    }
+    print(json.dumps({**summary, "wrong_commits": wrong_commits_by_kind, "failed_commits": failed_commits}))  # noqa: T201 — eval summary
+    return 0
+
+
+def parent_comparison(github: GitHubReader, repository: str, commit_sha: str) -> dict:
+    commit = read_github(
+        github, f"/repos/{repository}/commits/{commit_sha}", endpoint="/repos/{owner}/{repo}/commits/{ref}"
+    )
+    parent_sha = commit.json()["parents"][0]["sha"]
+    comparison = read_github(
+        github,
+        f"/repos/{repository}/compare/{parent_sha}...{commit_sha}",
+        endpoint="/repos/{owner}/{repo}/compare/{basehead}",
+    )
+    return comparison.json()
+
+
 def read_merges(merges_path: Path) -> list[dict]:
     merges = [json.loads(line) for line in merges_path.read_text().splitlines() if line.strip()]
     if any(not isinstance(merge.get("pull_request_number"), int) for merge in merges):
@@ -344,6 +408,11 @@ def main(argv: list[str] | None = None) -> int:
     )
     merge_source.add_argument(
         "--recent", type=recent_merge_count, help="replay the merged pull requests among the last N closed ones"
+    )
+    merge_source.add_argument(
+        "--publish-eval",
+        type=Path,
+        help="score the publish check against docs commits labelled publish or refuse, such as evals/publish_check.jsonl",
     )
     replay.add_argument("--repository", default="PostHog/posthog", help="owner/name of the merged repository")
     replay.add_argument(
