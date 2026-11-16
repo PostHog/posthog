@@ -23,6 +23,7 @@ export function useUpdateEditingView(): UpdateEditingView {
         queryInput,
         sourceQuery,
         isSourceQueryLastRun,
+        viewUpdateInProgress,
     } = useValues(sqlEditorLogic)
     const { updateEditingView } = useActions(sqlEditorLogic)
     const { updatingDataWarehouseSavedQuery } = useValues(dataWarehouseViewsLogic)
@@ -32,6 +33,10 @@ export function useUpdateEditingView(): UpdateEditingView {
     const isMaterializedView = editingView?.is_materialized === true
 
     const { disabledReason, loading } = useMemo((): { disabledReason: string | undefined; loading: boolean } => {
+        if (viewUpdateInProgress) {
+            return { disabledReason: 'Checking downstream views…', loading: true }
+        }
+
         if (updatingDataWarehouseSavedQuery) {
             return { disabledReason: 'Saving...', loading: true }
         }
@@ -67,6 +72,7 @@ export function useUpdateEditingView(): UpdateEditingView {
 
         return { disabledReason: undefined, loading: false }
     }, [
+        viewUpdateInProgress,
         updatingDataWarehouseSavedQuery,
         hasEditorChanges,
         isMultiQuery,

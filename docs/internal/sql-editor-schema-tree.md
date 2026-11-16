@@ -77,7 +77,9 @@ An update that makes a downstream view fail to resolve returns `breaking_column_
 The check follows the full downstream lineage. A view that uses `SELECT *` and still resolves does not require confirmation, but a later view that explicitly uses a removed column does.
 The response names the removed columns and up to three affected views that the caller can access.
 Send the same update with `acknowledge_breaking_changes=true` to confirm the change.
-The SQL editor shows this response in a confirmation dialog and retries only after confirmation.
+The SQL editor makes the query read-only and shows "Checking downstream views…" while an update is in progress.
+It shows this response in a confirmation dialog and retries only after confirmation.
+Canceling the dialog leaves the view unchanged and shows "View was not saved."
 
 `deleted` is read-only.
 Use DELETE to remove a saved query so DAG cleanup, join cleanup, materialization cleanup, and name release run together.
