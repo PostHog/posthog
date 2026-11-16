@@ -31,6 +31,7 @@ pub struct PeerSet {
     /// endpoint (e.g. during startup, or while failing readiness probes).
     pub self_index: Option<usize>,
     /// Where this pod sorts among the ready peers, counting itself while it is not ready.
+    /// `None` until the first peer list arrives.
     pub position: Option<PeerPosition>,
 }
 

@@ -1,7 +1,9 @@
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::sync::Arc;
 use std::time::Duration;
 
 use anyhow::{Context, Result};
+use axum::http::StatusCode;
 use axum::response::IntoResponse;
 use axum::routing::get;
 use axum::Router;
@@ -240,7 +242,7 @@ async fn async_main(config: Config) -> Result<()> {
     // Peer awareness: track this consumer's own ready replicas via its
     // Service's EndpointSlices, giving every pod a stable agreed index among
     // its peers (the basis for deterministic aperture routing). Fails open:
-    // misconfiguration disables peer awareness rather than blocking startup.
+    // a missing POD_IP disables peer awareness rather than blocking startup.
     let discovery_token = CancellationToken::new();
     let peer_tracker: Option<Arc<k8s_awareness::PeerTracker>> =
         if config.peer_service_name.is_empty() {
@@ -314,7 +316,13 @@ async fn async_main(config: Config) -> Result<()> {
     // Select the worker discovery provider and start it (static applies the
     // configured list immediately; endpointslice watches and keeps in sync).
     let discovery: Box<dyn WorkerDiscovery> = match config.worker_discovery_mode {
-        DiscoveryMode::Static => Box::new(StaticDiscovery::new(config.worker_urls())),
+        DiscoveryMode::Static => {
+            let urls = config.worker_urls();
+            if urls.is_empty() {
+                anyhow::bail!("No worker addresses configured");
+            }
+            Box::new(StaticDiscovery::new(urls))
+        }
         DiscoveryMode::EndpointSlice => {
             if config.worker_service_name.is_empty() {
                 anyhow::bail!("WORKER_SERVICE_NAME is required for endpointslice discovery");
@@ -332,6 +340,12 @@ async fn async_main(config: Config) -> Result<()> {
     };
     let _discovery_handle = discovery.start(Arc::clone(&registry), discovery_token.clone());
 
+    // Readiness is 503 until the consumer starts, so a rollout stops at a pod
+    // that cannot load its workers or peers. It does not return to 503 when they
+    // change, because a consumer that leaves its own Service moves every peer's
+    // ring slice.
+    let started = Arc::new(AtomicBool::new(false));
+
     // Build and serve the health/metrics HTTP server BEFORE gating on worker
     // discovery. Otherwise /_readiness and /_liveness stay unbound while we wait
     // for the first workers, so kubelet sees "connection refused" instead of a
@@ -343,9 +357,17 @@ async fn async_main(config: Config) -> Result<()> {
             "/_readiness",
             get({
                 let r = readiness.clone();
+                let started = Arc::clone(&started);
                 move || {
                     let r = r.clone();
-                    async move { r.check().await }
+                    let started = Arc::clone(&started);
+                    async move {
+                        if started.load(Ordering::Acquire) {
+                            r.check().await
+                        } else {
+                            StatusCode::SERVICE_UNAVAILABLE
+                        }
+                    }
                 }
             }),
         )
@@ -522,15 +544,14 @@ async fn async_main(config: Config) -> Result<()> {
         metrics_handle.work_completed();
     });
 
-    // For dynamic discovery, wait for the first workers before consuming so the
-    // first batch has somewhere to route. Readiness stays 503 until the consumer
-    // starts; the server above keeps the probes answering during the wait.
-    if config.worker_discovery_mode == DiscoveryMode::EndpointSlice {
-        info!("Waiting for the first workers from EndpointSlice discovery");
-        while registry.worker_count() == 0 {
+    // Wait for this pod's ring slice as well as the first workers, so the first
+    // batch does not go to the whole pool.
+    if !pool_source.ready_to_start() {
+        info!("Waiting for the first workers and peers");
+        while !pool_source.ready_to_start() {
             tokio::select! {
                 _ = consumer_handle.shutdown_recv() => {
-                    info!("Shutdown received while waiting for worker discovery");
+                    info!("Shutdown received while waiting for workers and peers");
                     break;
                 }
                 _ = tokio::time::sleep(Duration::from_millis(250)) => {}
@@ -577,6 +598,7 @@ async fn async_main(config: Config) -> Result<()> {
         debug_recorder,
     )
     .context("Failed to create Kafka consumer")?;
+    started.store(true, Ordering::Release);
 
     tokio::spawn(async move {
         consumer.process().await;

@@ -27,6 +27,7 @@ use futures::StreamExt;
 use k8s_openapi::api::discovery::v1::EndpointSlice;
 use kube::api::Api;
 use kube::runtime::watcher::{self, Config as WatcherConfig, Event};
+use kube::runtime::WatchStreamExt;
 use kube::Client;
 use metrics::counter;
 use tokio::sync::watch;
@@ -44,6 +45,7 @@ const WATCHER_RESTART_BACKOFF: Duration = Duration::from_secs(1);
 /// The receiver's initial value is the empty set, meaning "not yet known":
 /// subscribers driven by `changed()` only observe real publishes, so they
 /// never act on the placeholder.
+/// Every finished list publishes, also an unchanged or empty one.
 pub fn watch_service_members(
     client: Client,
     namespace: String,
@@ -83,7 +85,7 @@ async fn run(
     // rather than leaving the membership frozen until the pod restarts.
     loop {
         let config = WatcherConfig::default().labels(&label_selector);
-        let stream = watcher::watcher(api.clone(), config);
+        let stream = watcher::watcher(api.clone(), config).default_backoff();
         tokio::pin!(stream);
 
         loop {
@@ -94,19 +96,7 @@ async fn run(
                 }
                 item = stream.next() => {
                     match item {
-                        Some(Ok(event)) => {
-                            if let Some(desired) = apply_event(event, &mut slices) {
-                                // Don't wake subscribers for no-op reconciles.
-                                tx.send_if_modified(|current| {
-                                    if *current == desired {
-                                        false
-                                    } else {
-                                        *current = desired;
-                                        true
-                                    }
-                                });
-                            }
-                        }
+                        Some(Ok(event)) => apply_event(event, &mut slices, &tx),
                         Some(Err(e)) => {
                             warn!(error = %e, service = %service_name, "EndpointSlice watcher error, stream will retry");
                             counter!(
@@ -169,28 +159,37 @@ fn slice_key(slice: &EndpointSlice) -> String {
         .unwrap_or_else(|| "unknown".to_string())
 }
 
-/// Apply a watch event to the per-slice state, returning the desired member
-/// set to publish — or `None` when no update is due (the `Init` re-list start,
-/// where the last published set keeps serving until `InitDone`).
 fn apply_event(
     event: Event<EndpointSlice>,
     slices: &mut HashMap<String, HashSet<IpAddr>>,
-) -> Option<HashSet<IpAddr>> {
-    match event {
-        Event::Apply(slice) | Event::InitApply(slice) => {
+    tx: &watch::Sender<HashSet<IpAddr>>,
+) {
+    let list_done = match event {
+        Event::Apply(slice) => {
             slices.insert(slice_key(&slice), extract_ready_ips(&slice));
+            false
         }
         Event::Delete(slice) => {
             slices.remove(&slice_key(&slice));
+            false
         }
         Event::Init => {
             slices.clear();
-            return None;
+            return;
         }
-        Event::InitDone => {}
-    }
+        Event::InitApply(slice) => {
+            slices.insert(slice_key(&slice), extract_ready_ips(&slice));
+            return;
+        }
+        Event::InitDone => true,
+    };
 
-    Some(slices.values().flatten().copied().collect())
+    let desired: HashSet<IpAddr> = slices.values().flatten().copied().collect();
+    tx.send_if_modified(|current| {
+        let changed = *current != desired;
+        *current = desired;
+        changed || list_done
+    });
 }
 
 #[cfg(test)]
@@ -255,45 +254,68 @@ mod tests {
     #[test]
     fn test_apply_event_aggregates_across_slices() {
         let mut slices = HashMap::new();
+        let (tx, rx) = watch::channel(HashSet::new());
 
-        let desired = apply_event(
+        apply_event(
             Event::Apply(slice("s1", vec![endpoint(&["10.0.0.1"], Some(true))])),
             &mut slices,
-        )
-        .unwrap();
-        assert_eq!(desired, HashSet::from([ip("10.0.0.1")]));
+            &tx,
+        );
+        assert_eq!(*rx.borrow(), HashSet::from([ip("10.0.0.1")]));
 
-        let desired = apply_event(
+        apply_event(
             Event::Apply(slice("s2", vec![endpoint(&["10.0.0.2"], Some(true))])),
             &mut slices,
-        )
-        .unwrap();
-        assert_eq!(desired, HashSet::from([ip("10.0.0.1"), ip("10.0.0.2")]));
+            &tx,
+        );
+        assert_eq!(
+            *rx.borrow(),
+            HashSet::from([ip("10.0.0.1"), ip("10.0.0.2")])
+        );
 
         // Deleting one slice must not clobber the other slice's addresses.
-        let desired = apply_event(Event::Delete(slice("s1", vec![])), &mut slices).unwrap();
-        assert_eq!(desired, HashSet::from([ip("10.0.0.2")]));
+        apply_event(Event::Delete(slice("s1", vec![])), &mut slices, &tx);
+        assert_eq!(*rx.borrow(), HashSet::from([ip("10.0.0.2")]));
     }
 
     #[test]
     fn test_apply_event_relist_keeps_serving_until_init_done() {
         let mut slices = HashMap::new();
+        let (tx, rx) = watch::channel(HashSet::new());
         apply_event(
             Event::Apply(slice("s1", vec![endpoint(&["10.0.0.1"], Some(true))])),
             &mut slices,
+            &tx,
         );
 
-        // Init returns None — the last published set keeps serving through the
-        // re-list, so subscribers never observe a transient empty set.
-        assert!(apply_event(Event::Init, &mut slices).is_none());
-        assert!(slices.is_empty());
-
-        // Re-list finds a different pod; InitDone applies the new set.
+        apply_event(Event::Init, &mut slices, &tx);
         apply_event(
             Event::InitApply(slice("s1", vec![endpoint(&["10.0.0.9"], Some(true))])),
             &mut slices,
+            &tx,
         );
-        let desired = apply_event(Event::InitDone, &mut slices).unwrap();
-        assert_eq!(desired, HashSet::from([ip("10.0.0.9")]));
+        apply_event(
+            Event::InitApply(slice("s2", vec![endpoint(&["10.0.0.8"], Some(true))])),
+            &mut slices,
+            &tx,
+        );
+        assert_eq!(*rx.borrow(), HashSet::from([ip("10.0.0.1")]));
+
+        apply_event(Event::InitDone, &mut slices, &tx);
+        assert_eq!(
+            *rx.borrow(),
+            HashSet::from([ip("10.0.0.8"), ip("10.0.0.9")])
+        );
+    }
+
+    #[test]
+    fn test_apply_event_publishes_a_done_list_of_a_service_with_no_ready_endpoints() {
+        let mut slices = HashMap::new();
+        let (tx, rx) = watch::channel(HashSet::new());
+
+        apply_event(Event::Init, &mut slices, &tx);
+        apply_event(Event::InitDone, &mut slices, &tx);
+
+        assert!(rx.has_changed().unwrap());
     }
 }

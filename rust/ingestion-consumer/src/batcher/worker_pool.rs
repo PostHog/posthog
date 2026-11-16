@@ -59,6 +59,13 @@ impl WorkerPoolSource {
         aperture::ring_slice(ring, healthy, Some(position.index), position.count, *width)
     }
 
+    pub fn ready_to_start(&self) -> bool {
+        let placed = self
+            .active_aperture()
+            .is_none_or(|(tracker, _)| tracker.snapshot().position.is_some());
+        self.registry.worker_count() > 0 && placed
+    }
+
     pub fn pool(&self) -> WorkerPool {
         let healthy = self.registry.healthy_workers();
         let candidates = self
@@ -97,6 +104,7 @@ fn uniform(workers: impl Iterator<Item = WorkerId>) -> Vec<Candidate> {
 
 #[cfg(test)]
 mod tests {
+    use std::collections::HashSet;
     use std::time::Duration;
 
     use rstest::rstest;
@@ -108,8 +116,8 @@ mod tests {
         format!("http://10.1.0.{n}:6738")
     }
 
-    fn six_workers() -> WorkerRegistry {
-        let urls: Vec<String> = (1..=6).map(worker_url).collect();
+    fn workers(count: usize) -> WorkerRegistry {
+        let urls: Vec<String> = (1..=count).map(worker_url).collect();
         WorkerRegistry::new(
             &urls,
             WorkerRegistryConfig {
@@ -132,12 +140,33 @@ mod tests {
     fn a_consumer_gets_the_slice_of_its_place_among_its_peers(#[case] ready_peers: &[&str]) {
         let tracker = PeerTracker::new("10.0.0.2".parse().unwrap());
         tracker.set_peers(&ready_peers.iter().map(|ip| ip.parse().unwrap()).collect());
-        let mut source = WorkerPoolSource::new(Arc::new(six_workers()), RoutingStrategy::Aperture);
+        let mut source = WorkerPoolSource::new(Arc::new(workers(6)), RoutingStrategy::Aperture);
         source.set_aperture(tracker, 1);
 
         let slice: Vec<WorkerId> = source.candidates().into_iter().map(|c| c.worker).collect();
 
         let second_third = [worker_url(3), worker_url(4)].map(|url| WorkerId::from(url.as_str()));
         assert_eq!(slice, second_third);
+    }
+
+    #[rstest]
+    #[case::before_the_first_workers(RoutingStrategy::Aperture, 0, true, false)]
+    #[case::before_the_first_peer_list(RoutingStrategy::Aperture, 6, false, false)]
+    #[case::alone_in_an_empty_peer_list(RoutingStrategy::Aperture, 6, true, true)]
+    #[case::p2c_needs_no_peer_list(RoutingStrategy::P2c, 6, false, true)]
+    fn a_consumer_is_ready_to_start_once_it_has_workers_and_a_place_on_the_ring(
+        #[case] strategy: RoutingStrategy,
+        #[case] worker_count: usize,
+        #[case] peers_listed: bool,
+        #[case] ready: bool,
+    ) {
+        let tracker = PeerTracker::new("10.0.0.2".parse().unwrap());
+        if peers_listed {
+            tracker.set_peers(&HashSet::new());
+        }
+        let mut source = WorkerPoolSource::new(Arc::new(workers(worker_count)), strategy);
+        source.set_aperture(tracker, 1);
+
+        assert_eq!(source.ready_to_start(), ready);
     }
 }
