@@ -65,7 +65,17 @@ export const WIZARD_STEPS: Record<WorkflowsOnboardingPath, readonly WizardStepKe
 export function wizardSteps(
     path: WorkflowsOnboardingPath,
     pushEnabled: boolean,
-    reachChannels: readonly ReachChannel[] | null = null
+    reachChannels: readonly ReachChannel[] | null = null,
+    journeyFirst: boolean = false
+): readonly WizardStepKey[] {
+    const steps = setupFirstSteps(path, pushEnabled, reachChannels)
+    return journeyFirst ? [steps[steps.length - 1], ...steps.slice(0, -1)] : steps
+}
+
+function setupFirstSteps(
+    path: WorkflowsOnboardingPath,
+    pushEnabled: boolean,
+    reachChannels: readonly ReachChannel[] | null
 ): readonly WizardStepKey[] {
     const steps = WIZARD_STEPS[path]
     if (path !== 'messaging' || !pushEnabled) {
@@ -163,6 +173,46 @@ export const WIZARD_STEP_COPY: Record<WizardStepKey, WizardStepCopy> = {
     },
 }
 
+type StepTitleCopy = Pick<WizardStepCopy, 'title' | 'description'>
+
+const JOURNEY_FIRST_STEP_COPY: Record<
+    Exclude<WorkflowsOnboardingPath, 'automation'>,
+    Partial<Record<WizardStepKey, StepTitleCopy>>
+> = {
+    messaging: {
+        journey: {
+            title: 'Pick your first journey',
+            description:
+                'Start from a template or from scratch. Next, you set up how it reaches people. Then it opens in the editor as a draft, and nothing sends until you launch it.',
+        },
+    },
+    broadcast: {
+        broadcast: {
+            title: 'Write your first broadcast',
+            description:
+                'Next, you set up the email it sends from. Then the broadcast editor opens for the steps below. Nothing sends until you confirm.',
+        },
+        channel: {
+            title: 'Connect the address your broadcast sends from',
+            description: 'Your broadcast sends from your own domain. Add the address that people see in their inbox.',
+        },
+        domain: {
+            title: 'Verify the domain your broadcast sends from',
+            description:
+                'Add a few DNS records, so mailbox providers trust the email your broadcast sends. Verification can take up to an hour, so you can continue and come back later.',
+        },
+    },
+}
+
+export function wizardStepCopy(
+    step: WizardStepKey,
+    path: WorkflowsOnboardingPath,
+    journeyFirst: boolean
+): WizardStepCopy {
+    const journeyFirstCopy = journeyFirst && path !== 'automation' ? JOURNEY_FIRST_STEP_COPY[path][step] : undefined
+    return { ...WIZARD_STEP_COPY[step], ...journeyFirstCopy }
+}
+
 export interface FrequencyCap {
     maxMessages: number | null
     windowDays: number | null
@@ -204,8 +254,9 @@ export function customFrequencyCapError(cap: FrequencyCap): string | null {
 
 /** What the sending rules step saves when the person continues, or null when nothing changes. */
 export function sendingRulesToSave(
-    saved: FrequencyCap & { engagementEvents: boolean },
+    saved: FrequencyCap & { holdHours: number | null; engagementEvents: boolean },
     cap: FrequencyCap,
+    holdHours: number | null,
     engagementEvents: boolean,
     canEdit: boolean
 ): WorkflowsConfig | null {
@@ -214,7 +265,9 @@ export function sendingRulesToSave(
         return null
     }
     const setCap = !sameFrequencyCap(saved, cap)
-    if (!setCap && engagementEvents === saved.engagementEvents) {
+    // The hold field is hidden while the cap is off, so a value left in it is not a choice to save.
+    const setHold = cap.maxMessages !== null && holdHours !== saved.holdHours
+    if (!setCap && !setHold && engagementEvents === saved.engagementEvents) {
         return null
     }
     return {
@@ -225,6 +278,7 @@ export function sendingRulesToSave(
                   marketing_frequency_cap_window_days: cap.windowDays,
               }
             : {}),
+        ...(setHold ? { marketing_frequency_cap_hold_hours: holdHours } : {}),
     }
 }
 

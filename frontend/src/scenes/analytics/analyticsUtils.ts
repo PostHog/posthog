@@ -5,12 +5,11 @@ import type { FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 import { isFileSystemImportShown } from 'lib/utils/fileSystemImportFlags'
 import { urls } from 'scenes/urls'
 
+import { getNavProductPages } from '~/layout/panel-layout/navbar/tabs/navProductItems'
 import { splitPath } from '~/layout/panel-layout/ProjectTree/utils'
-import { fileSystemTypes, getTreeItemsProducts } from '~/products'
+import { fileSystemTypes } from '~/products'
 import { FileSystemEntry, FileSystemImport } from '~/queries/schema/schema-general'
 import type { UserBasicType } from '~/types'
-
-import type { CanvasApi } from 'products/canvas/frontend/generated/api.schemas'
 
 // pinned: these values are the `type` property of the `views new picked` and `views list filtered` events.
 export type AnalyticsType = 'canvas' | 'notebook' | 'dashboard' | 'insight'
@@ -55,6 +54,13 @@ export const ANALYTICS_TYPES: AnalyticsTypeInfo[] = [
     },
 ]
 
+/** The types the web app creates. Canvases are made with the PostHog MCP server, so they are left out. */
+export type CreatableAnalyticsType = Exclude<AnalyticsType, 'canvas'>
+
+export const CREATABLE_ANALYTICS_TYPES = ANALYTICS_TYPES.filter(
+    (info): info is AnalyticsTypeInfo & { type: CreatableAnalyticsType } => info.type !== 'canvas'
+)
+
 export const ANALYTICS_TYPE_INFO = Object.fromEntries(ANALYTICS_TYPES.map((info) => [info.type, info])) as Record<
     AnalyticsType,
     AnalyticsTypeInfo
@@ -85,6 +91,12 @@ export interface AnalyticsItem {
     spaceName: string | null
     /** The file system row behind the item, which a drag hands to the project tree's move. */
     entry?: FileSystemEntry
+}
+
+export function analyticsItemTarget(
+    item: AnalyticsItem
+): Pick<AnalyticsItem, 'type' | 'name' | 'href' | 'tags'> & { ref: string } {
+    return { type: item.type, ref: item.id, name: item.name, href: item.href, tags: item.tags }
 }
 
 export const ANALYTICS_BACK_NAME = 'Analytics'
@@ -183,8 +195,19 @@ export function fileSystemEntryToAnalytics(
     }
 }
 
-// pinned: sidebar `iconType` values from the product manifests, in the order the sidebar lists them.
+// pinned: sidebar `iconType` values from the product manifests. These ready-made analytics open from the Analytics
+// pane only, so the Products list leaves them out.
 export const FROM_POSTHOG_ICON_TYPES = ['web_analytics', 'marketing_analytics', 'mcp_analytics'] as const
+
+// The order By PostHog lists its pages in, after Product analytics. Each is a page of the Products tab.
+const BY_POSTHOG_ICON_TYPES = [
+    'web_analytics',
+    'marketing_analytics',
+    'mcp_analytics',
+    'session_replay',
+    'activity',
+    'heatmap',
+] as const
 
 export interface FromPostHogItem {
     key: string
@@ -198,7 +221,7 @@ export function isFromPostHogItem(item: Pick<FileSystemImport, 'iconType'>): boo
 }
 
 export function fromPostHogProducts(): FromPostHogItem[] {
-    const products = getTreeItemsProducts()
+    const products = getNavProductPages()
     // Product analytics has no page of its own in the manifest; its ready-made analysis is the home dashboard.
     const productAnalytics = products.find((product) => product.type === 'insight' && product.href === urls.insights())
     const home: FromPostHogItem[] = productAnalytics
@@ -218,7 +241,7 @@ export function fromPostHogProducts(): FromPostHogItem[] {
         : []
     return [
         ...home,
-        ...FROM_POSTHOG_ICON_TYPES.flatMap((iconType) => {
+        ...BY_POSTHOG_ICON_TYPES.flatMap((iconType) => {
             const item = products.find((product) => product.iconType === iconType)
             return item?.href ? [{ key: iconType, label: fileSystemEntryName(item), href: item.href, item }] : []
         }),
@@ -229,21 +252,8 @@ export function fromPostHogItems(featureFlags: FeatureFlagsSet): FromPostHogItem
     return fromPostHogProducts().filter(({ item }) => isFileSystemImportShown(item, featureFlags))
 }
 
-/**
- * The space a new canvas defaults to from the page the person is on: the open space, or the open
- * canvas's space. Null when the page names no space, so the start page falls back to the personal space.
- */
-export function newCanvasSpaceIdForPath(
-    path: string,
-    openCanvas: Pick<CanvasApi, 'id' | 'channel'> | null
-): string | null {
-    const space = /^\/spaces\/([^/]+)/.exec(path)
-    if (space) {
-        return space[1]
-    }
-    const canvas = /^\/canvases\/([^/]+)$/.exec(path)
-    return canvas && openCanvas?.id === canvas[1] ? openCanvas.channel : null
-}
-
 /** Scopes the Analytics list's drag ids and drop targets apart from the project tree's own. */
 export const ANALYTICS_DRAG_SCOPE = 'analytics-list'
+
+export const ROW_HOVER_REVEAL =
+    'opacity-0 transition-opacity motion-reduce:transition-none group-hover/row:opacity-100 focus-visible:opacity-100'

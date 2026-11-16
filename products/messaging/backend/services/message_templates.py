@@ -10,6 +10,9 @@ from django.utils import timezone
 
 from posthog.api.tagged_item import current_tag_names, replace_tags_on_object, set_tags_on_object
 from posthog.models import TaggedItem
+from posthog.models.file_system.constants import DEFAULT_SURFACE, surface_q
+from posthog.models.file_system.file_system import FileSystem
+from posthog.models.file_system.refs import file_refs_q
 from posthog.models.tag import tagify
 from posthog.models.utils import strict_fetch
 
@@ -100,6 +103,28 @@ def team_basic_templates(team_id: int, *, transactional: bool | None = None) -> 
 
 def team_template(team_id: int, template_id: UUID | str) -> MessageTemplate:
     return MessageTemplate.objects.get(team_id=team_id, deleted=False, pk=template_id)
+
+
+def team_template_id(team_id: int, template_id: UUID | str) -> UUID:
+    return (
+        MessageTemplate.objects.filter(team_id=team_id, deleted=False, pk=template_id)
+        .values_list("id", flat=True)
+        .get()
+    )
+
+
+def file_path(team_id: int, template_id: UUID) -> str | None:
+    return (
+        FileSystem.objects.filter(
+            surface_q(DEFAULT_SURFACE),
+            file_refs_q("message_template", [str(template_id)]),
+            team_id=team_id,
+            type="message_template",
+        )
+        .exclude(shortcut=True)
+        .values_list("path", flat=True)
+        .first()
+    )
 
 
 def category_id_for_team(team_id: int, category_id: Any) -> UUID:

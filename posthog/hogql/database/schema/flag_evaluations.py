@@ -126,6 +126,7 @@ class FlagEvaluationsTable(EventsRetentionTable):
         "A project that is not sending flag-evaluation telemetry yet sees an empty table."
     )
     events_retention_field: str = "timestamp"
+    person_id_pushdown_default: bool = True
     fields: dict[str, FieldOrTable] = {
         "uuid": UUIDDatabaseField(name="uuid", nullable=False, description="Unique identifier of this row."),
         "event": StringDatabaseField(

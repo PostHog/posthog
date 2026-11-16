@@ -1,6 +1,8 @@
 from datetime import UTC, date, datetime
 from typing import Any
 
+import pytest
+import time_machine
 from unittest.mock import MagicMock
 
 import requests
@@ -10,12 +12,14 @@ from products.warehouse_sources.sources.sdk import TrackedHTTPAdapter
 from products.warehouse_sources.sources.veracode.settings import VERACODE_ENDPOINTS
 from products.warehouse_sources.sources.veracode.veracode import (
     VeracodeHMACAuth,
+    VeracodeReportError,
     VeracodeResumeConfig,
     VeracodeRetryableError,
     _calculate_signature,
     _fetch_page_once,
     _make_session,
     _modified_after,
+    _report_start_date,
     _strip_region_prefix,
     get_rows,
     resolve_host,
@@ -214,6 +218,137 @@ class TestGetRowsFanOut:
         rows = [row for batch in batches for row in batch]
         assert rows == [{"issue_id": 1, "application_guid": "app-ok"}]
 
+    def test_summary_report_yields_one_row_per_application(self) -> None:
+        session = MagicMock()
+        session.get.side_effect = [
+            _mock_response(200, _page([{"guid": "app-1"}, {"guid": "app-2"}], "applications", total_pages=1)),
+            _mock_response(200, {"app_name": "one", "total_flaws": 3}),
+            _mock_response(200, {"app_name": "two", "total_flaws": 0}),
+        ]
+        manager = MagicMock()
+        manager.can_resume.return_value = False
+
+        with _patched_session(session):
+            batches = list(get_rows("id", "secret", "com", "summary_report", MagicMock(), manager))
+
+        assert batches == [
+            [{"app_name": "one", "total_flaws": 3, "application_guid": "app-1"}],
+            [{"app_name": "two", "total_flaws": 0, "application_guid": "app-2"}],
+        ]
+        assert (
+            session.get.call_args_list[1]
+            .args[0]
+            .startswith("https://api.veracode.com/appsec/v2/applications/app-1/summary_report?")
+        )
+
+
+def _report(status: str, scans: list[dict] | None = None, total_pages: int = 0) -> dict:
+    return {
+        "_embedded": {
+            "id": "report-1",
+            "status": status,
+            "scans": scans or [],
+            "page_metadata": {"total_pages": total_pages},
+        }
+    }
+
+
+class TestReportStartDate:
+    @parameterized.expand(
+        [
+            ("full_refresh_uses_max_lookback", False, None, "2026-05-18"),
+            ("recent_watermark_with_day_lookback", True, date(2026, 11, 10), "2026-11-09"),
+            ("old_watermark_clamped_to_max_lookback", True, date(2025, 1, 1), "2026-05-18"),
+            ("incremental_without_watermark", True, None, "2026-05-18"),
+        ]
+    )
+    def test_report_start_date(self, _name: str, use_incremental: bool, last_value: Any, expected: str) -> None:
+        # The Reporting API rejects a start date more than six months back.
+        assert _report_start_date(use_incremental, last_value, date(2026, 11, 14)) == expected
+
+
+class TestGetRowsScansReport:
+    @time_machine.travel(datetime(2026, 11, 14, 12, 0, tzinfo=UTC), tick=False)
+    def test_submits_polls_and_pages_through_report(self) -> None:
+        session = MagicMock()
+        session.post.return_value = _mock_response(200, _report("SUBMITTED"))
+        session.get.side_effect = [
+            _mock_response(200, _report("PROCESSING")),
+            _mock_response(200, _report("COMPLETED", [{"scan_id": "1"}], total_pages=2)),
+            _mock_response(200, _report("COMPLETED", [{"scan_id": "2"}], total_pages=2)),
+        ]
+        manager = MagicMock()
+        manager.can_resume.return_value = False
+
+        with _patched_session(session):
+            batches = list(
+                get_rows(
+                    "id",
+                    "secret",
+                    "eu",
+                    "scans",
+                    MagicMock(),
+                    manager,
+                    should_use_incremental_field=True,
+                    db_incremental_field_last_value=date(2026, 11, 1),
+                )
+            )
+
+        assert [row["scan_id"] for batch in batches for row in batch] == ["1", "2"]
+        assert session.post.call_args.args[0] == "https://api.veracode.eu/analytics/scans/report"
+        assert session.post.call_args.kwargs["json"] == {"last_updated_start_date": "2026-10-31"}
+        assert [call.args[0] for call in session.get.call_args_list] == [
+            "https://api.veracode.eu/analytics/scans/report/report-1?page=0",
+            "https://api.veracode.eu/analytics/scans/report/report-1?page=0",
+            "https://api.veracode.eu/analytics/scans/report/report-1?page=1",
+        ]
+        assert [call.args[0] for call in manager.save_state.call_args_list] == [
+            VeracodeResumeConfig(page=0, report_id="report-1"),
+            VeracodeResumeConfig(page=1, report_id="report-1"),
+        ]
+
+    def test_resume_reads_saved_page_of_saved_report(self) -> None:
+        session = MagicMock()
+        session.get.return_value = _mock_response(200, _report("COMPLETED", [{"scan_id": "3"}], total_pages=3))
+        manager = MagicMock()
+        manager.can_resume.return_value = True
+        manager.load_state.return_value = VeracodeResumeConfig(page=2, report_id="report-1")
+
+        with _patched_session(session):
+            batches = list(get_rows("id", "secret", "com", "scans", MagicMock(), manager))
+
+        assert batches == [[{"scan_id": "3"}]]
+        session.post.assert_not_called()
+        assert session.get.call_args.args[0] == "https://api.veracode.com/analytics/scans/report/report-1?page=2"
+
+    def test_resume_requests_new_report_when_saved_one_is_gone(self) -> None:
+        session = MagicMock()
+        session.post.return_value = _mock_response(200, {"_embedded": {"id": "report-2", "status": "SUBMITTED"}})
+        session.get.side_effect = [
+            _mock_response(404),
+            _mock_response(200, _report("COMPLETED", [{"scan_id": "1"}], total_pages=1)),
+        ]
+        manager = MagicMock()
+        manager.can_resume.return_value = True
+        manager.load_state.return_value = VeracodeResumeConfig(page=4, report_id="expired")
+
+        with _patched_session(session):
+            batches = list(get_rows("id", "secret", "com", "scans", MagicMock(), manager))
+
+        assert batches == [[{"scan_id": "1"}]]
+        assert session.get.call_args.args[0] == "https://api.veracode.com/analytics/scans/report/report-2?page=0"
+
+    @parameterized.expand([("failed", "FAILED"), ("unknown_status", None)])
+    def test_report_that_does_not_complete_raises(self, _name: str, status: str | None) -> None:
+        session = MagicMock()
+        session.post.return_value = _mock_response(200, _report("SUBMITTED"))
+        session.get.return_value = _mock_response(200, {"_embedded": {"status": status}})
+        manager = MagicMock()
+        manager.can_resume.return_value = False
+
+        with _patched_session(session), pytest.raises(VeracodeReportError):
+            list(get_rows("id", "secret", "com", "scans", MagicMock(), manager))
+
 
 class TestVeracodeSourceResponse:
     @parameterized.expand(list(VERACODE_ENDPOINTS.keys()))
@@ -223,7 +358,8 @@ class TestVeracodeSourceResponse:
 
         assert response.name == endpoint
         assert response.primary_keys == config.primary_keys
-        assert response.sort_mode == "asc"
+        # The scans report order is undocumented, so only the applications read promises ascending order.
+        assert response.sort_mode == (None if endpoint == "scans" else "asc")
         if config.partition_key:
             assert response.partition_keys == [config.partition_key]
             assert response.partition_mode == "datetime"

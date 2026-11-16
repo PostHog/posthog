@@ -26,7 +26,7 @@ from products.managed_warehouse.backend.temporal.ducklake_register_data_imports_
     staging_table_minted_at,
 )
 
-# Prefix of the folders that hold a Trino registration's copy of the files, below the DuckLake data path.
+# Name of the folder that holds a registration's copies of the prepared files, below the catalog's data path.
 LANDING_ROOT = "_ph_imports"
 MANIFEST_FOLDER = "_ph_add_files"
 # Only executions that write manifests carry the `m` prefix. A folder without it came from code that wrote none.

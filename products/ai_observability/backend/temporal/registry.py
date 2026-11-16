@@ -1,4 +1,4 @@
-from ..eval_suggestions.temporal import (
+from .eval_suggestions import (
     ACTIVITIES as EVAL_SUGGESTIONS_ACTIVITIES,
     WORKFLOWS as EVAL_SUGGESTIONS_WORKFLOWS,
 )

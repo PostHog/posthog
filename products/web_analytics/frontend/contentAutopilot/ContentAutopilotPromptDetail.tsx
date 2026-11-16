@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 
 import { IconEllipsis } from '@posthog/icons'
-import { LemonBanner, LemonButton, LemonMenu, LemonSkeleton, LemonTabs, LemonTag } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonMenu, LemonTabs, LemonTag } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
@@ -16,6 +16,7 @@ import { ContentAutopilotPromptAnswer } from './ContentAutopilotPromptAnswer'
 import { ContentAutopilotPromptArchiveBanner } from './ContentAutopilotPromptArchiveBanner'
 import { ContentAutopilotPromptChecks } from './ContentAutopilotPromptChecks'
 import { contentAutopilotPromptDetailLogic } from './contentAutopilotPromptDetailLogic'
+import { ContentAutopilotPromptDetailSkeleton } from './ContentAutopilotPromptDetailSkeleton'
 import { ContentAutopilotPromptEditModal } from './ContentAutopilotPromptEditModal'
 import { ContentAutopilotPromptOverview } from './ContentAutopilotPromptOverview'
 import { ContentAutopilotPromptQueryTile } from './ContentAutopilotPromptQueryTile'
@@ -168,11 +169,7 @@ export const ContentAutopilotPromptDetail = (): JSX.Element | null => {
                     Couldn't load this prompt. Try again, and if it keeps happening contact support.
                 </LemonBanner>
             ) : !reportReady ? (
-                <div className="flex flex-col gap-3">
-                    <LemonSkeleton className="h-6 w-1/2" />
-                    <LemonSkeleton className="h-20 w-full" />
-                    <LemonSkeleton className="h-72 w-full" />
-                </div>
+                <ContentAutopilotPromptDetailSkeleton />
             ) : (
                 <div className="@container/prompt-report flex flex-col gap-4">
                     <div className="flex flex-wrap items-center gap-x-4 gap-y-2 text-sm">

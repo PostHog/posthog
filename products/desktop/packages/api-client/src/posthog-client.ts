@@ -2436,6 +2436,21 @@ export class PostHogAPIClient {
     });
   }
 
+  async getGitlabProjects(
+    integrationId: number,
+    search?: string,
+  ): Promise<Schemas.GitLabProjectsResponse> {
+    const teamId = await this.getTeamId();
+    const trimmedSearch = search?.trim();
+    return await this.api.get(
+      "/api/projects/{project_id}/integrations/{id}/gitlab_projects/",
+      {
+        path: { project_id: teamId.toString(), id: integrationId },
+        query: trimmedSearch ? { search: trimmedSearch } : {},
+      },
+    );
+  }
+
   /** Emails the project's admins asking them to connect an integration; members only. */
   async requestIntegrationAccess(
     projectId: number,
@@ -3568,6 +3583,7 @@ export class PostHogAPIClient {
       > & {
         github_integration?: number | null;
         github_user_integration?: string | null;
+        repository_integration?: number | null;
         signal_report_task_relationship?: string;
         signal_report_discussion_question?: string;
         branch?: string | null;
@@ -3580,7 +3596,7 @@ export class PostHogAPIClient {
         initial_permission_mode?: ExecutionMode;
         auto_publish?: boolean;
         naming_source?: string;
-      },
+      } & Pick<Schemas.TaskCreate, "warm_run_id">,
   ): Promise<Task> {
     const teamId = await this.getTeamId();
     const { origin_product: originProduct, ...taskOptions } = options;
@@ -4609,7 +4625,7 @@ export class PostHogAPIClient {
     fast_mode?: boolean | null;
     sandbox_environment_id?: string | null;
     custom_image_id?: string | null;
-  }): Promise<{ task_id: string; run_id: string } | null> {
+  }): Promise<Schemas.WarmTaskResponse | null> {
     const teamId = await this.getTeamId();
     const urlPath = `/api/projects/${teamId}/tasks/warm/`;
     const url = new URL(`${this.api.baseUrl}${urlPath}`);
@@ -4651,7 +4667,7 @@ export class PostHogAPIClient {
     if (!text) {
       return null;
     }
-    return JSON.parse(text) as { task_id: string; run_id: string };
+    return JSON.parse(text) as Schemas.WarmTaskResponse;
   }
 
   async prepareTaskStagedArtifactUploads(

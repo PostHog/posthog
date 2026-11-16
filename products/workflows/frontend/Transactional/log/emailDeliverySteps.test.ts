@@ -20,6 +20,7 @@ function email(
         workflow_id: 'workflow',
         template_id: 'template',
         template_name: 'Welcome email',
+        code_email_id: null,
         sending_domain: 'example.com',
         opened: kinds.includes('opened'),
         clicked: kinds.includes('clicked'),

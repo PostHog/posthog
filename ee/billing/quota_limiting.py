@@ -1649,6 +1649,11 @@ class _FinishedYesterday:
             self._redis.set(self._key, 1, ex=YESTERDAY_FINISHED_TTL)
 
 
+def _get_ai_overage_mb_by_team(service: UsageCounterService, period: DayRange) -> dict[int, int]:
+    rows = service.get_legacy(UsageCounter.AI_OVERAGE_BYTES, period.start, period.end, caller="quota_limiting")
+    return {team_id: int(overage_bytes // 1_000_000) for team_id, overage_bytes in rows}
+
+
 def update_all_orgs_billing_quotas(
     dry_run: bool = False,
     progress_callback: Callable[[str, str, str], None] | None = None,
@@ -2006,6 +2011,9 @@ def update_all_orgs_billing_quotas(
         if recordings_transitioned_team_ids:
             dispatch_recordings_remote_config_sync(recordings_transitioned_team_ids)
 
+    # No quota reads AI overage yet, so it runs after every decision is written and cannot delay them.
+    ai_overage_mb = _timed_query("ai_overage_mb", _get_ai_overage_mb_by_team, service, period)
+
     total_duration_s = time() - total_start
     logger.info(
         "quota_limiting_run",
@@ -2026,6 +2034,8 @@ def update_all_orgs_billing_quotas(
             "orgs_processed": orgs_processed,
             "orgs_limited": orgs_limited_count,
             "orgs_suspended": orgs_suspended_count,
+            "ai_overage_teams": len(ai_overage_mb),
+            "ai_overage_mb": sum(ai_overage_mb.values()),
         },
     )
 

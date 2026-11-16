@@ -19,8 +19,16 @@ rules:
       owners: team-web-analytics
     - match: '/hogql/'
       owners: team-data-tools
+    - match:
+          - '/inbox_providers.py'
+          - '/test/test_inbox_providers.py'
+      owners: team-growth
     - match: '/integrations/'
       owners: team-warehouse-sources
+    - match:
+          - '/llm/forecast_client.py'
+          - '/llm/test_forecast_client.py'
+      owners: team-apm
     - match: '/management/migration_analysis/'
       owners: team-devex
     # Each line acknowledges a risky migration, so one added line lets that migration skip the check.
@@ -71,6 +79,7 @@ rules:
           - '/scheduling/test/test_*.py'
           - '/slo/test/test_*.py'
           - '/test/repo_invariants/test_*.py'
+          - '/test/test_cascade_delete.py'
       owners: team-devex
     - match:
           - '/security/test/test_*.py'
@@ -84,6 +93,7 @@ rules:
       owners: team-ingestion
     - match:
           - '/session/test/test_*.py'
+          - '/test/test_breached_password_validator.py'
       owners: team-platform-features
     - match:
           - '/resource_limits/test/test_*.py'

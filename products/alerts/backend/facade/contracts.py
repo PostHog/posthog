@@ -7,6 +7,7 @@ an insight alert means, and the hooks other sources use to reach this product's 
 
 from __future__ import annotations
 
+from collections.abc import Mapping
 from datetime import datetime
 from enum import StrEnum
 from typing import Any, Final
@@ -44,6 +45,12 @@ INSIGHT_ALERT_DESTINATION_EVENT_IDS: Final[tuple[str, ...]] = (
 # Slack only, because `alert:write` is grantable to a sandboxed agent. A connected workspace is a
 # destination an admin chose, while every other transport takes a URL the caller supplies.
 INSIGHT_ALERT_DESTINATION_TYPES: Final[tuple[DestinationType, ...]] = (DestinationType.SLACK,)
+# The types whose address is a URL the caller supplies, so their route also asks for `hog_function:write`.
+INSIGHT_ALERT_URL_DESTINATION_TYPES: Final[tuple[DestinationType, ...]] = (
+    DestinationType.DISCORD,
+    DestinationType.TEAMS,
+    DestinationType.WEBHOOK,
+)
 
 
 class DestinationHoldBack(StrEnum):
@@ -152,6 +159,16 @@ class EnabledAlert:
 
 
 @frozen
+class ErroredAlert:
+    id: UUID
+    name: str
+    insight_name: str | None
+    insight_short_id: str
+    # None for an alert the platform owns, whose checks it keeps in ClickHouse.
+    last_checked_at: datetime | None
+
+
+@frozen
 class AlertInternalEvent:
     """One internal event that makes an alert's HogFunction destinations fire."""
 
@@ -189,6 +206,9 @@ class MovedAlertStatus:
     runtime: MovedAlertRuntime | None
     # None when the alert has no recent check, or the platform's history could not be read.
     last_check: MovedAlertLastCheck | None
+    # The platform's history could not be read, so the alert's last check is unknown. Its row's last
+    # check predates the move and is not shown in its place.
+    history_unavailable: bool = False
 
 
 @frozen
@@ -221,6 +241,20 @@ class MovedAlertCheckPage:
     # How many checks the requested window holds, past this page too.
     total: int
     checks: tuple[MovedAlertCheck, ...]
+
+
+class MovedAlertHistoryUnavailable(Exception):
+    """The platform's check history of an alert it owns could not be read."""
+
+
+@frozen
+class MovedAlertSettings:
+    """A moved alert's settings as its platform copy holds them."""
+
+    # By the insight row field each one replaces.
+    fields: Mapping[str, Any]
+    threshold: dict[str, Any] | None
+    schedule_start_time: str | None
 
 
 class PlatformCannotOwn(ValueError):

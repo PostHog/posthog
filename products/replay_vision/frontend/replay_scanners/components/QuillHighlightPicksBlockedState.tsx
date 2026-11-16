@@ -62,7 +62,8 @@ export function QuillHighlightPicksBlockedState({
                             <div className="min-w-0">
                                 <div className="truncate text-xs font-semibold text-foreground">{scanner.name}</div>
                                 <div className="text-xs text-muted-foreground">
-                                    Off since <TZLabel time={scanner.updated_at} showPopover={false} noStyles />
+                                    {scanner.disabled_reason === 'free_credits_used' ? 'Out of free credits' : 'Off'}{' '}
+                                    since <TZLabel time={scanner.updated_at} showPopover={false} noStyles />
                                 </div>
                             </div>
                             <Switch

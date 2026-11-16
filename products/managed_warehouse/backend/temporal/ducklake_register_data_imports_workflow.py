@@ -35,7 +35,13 @@ from posthog.temporal.common.logger import get_logger
 from posthog.temporal.common.metrics import ExecutionTimeRecorder
 
 from products.data_warehouse.backend.facade.api import get_s3_client
-from products.managed_warehouse.backend.backfill_trino import data_imports_through_trino, data_imports_trino_flag
+from products.managed_warehouse.backend.backfill_trino import (
+    data_imports_through_hoglake,
+    data_imports_through_trino,
+    data_imports_trino_flag,
+    hoglake_schema,
+    trino_backend_for,
+)
 from products.managed_warehouse.backend.client import make_duckgres_conninfo
 from products.managed_warehouse.backend.common import (
     _get_org_id_for_team,
@@ -46,8 +52,13 @@ from products.managed_warehouse.backend.common import (
     get_duckgres_server_for_organization,
     is_dev_mode,
 )
+from products.managed_warehouse.backend.duckgres_availability import (
+    DuckgresOrganizationStatus,
+    probe_duckgres_organization,
+)
 from products.managed_warehouse.backend.facade.api import get_control_plane_data_path
 from products.managed_warehouse.backend.facade.contracts import (
+    CPUnavailableError,
     ManagedWarehouseSourceJobStatus,
     ManagedWarehouseSourceJobUpdate,
     ManagedWarehouseSourceJobWorkflow,
@@ -66,6 +77,11 @@ from products.managed_warehouse.backend.temporal.ducklake_register_trino_landing
     new_execution_folder_name,
     sweep_unregistered_landing_files,
     write_batch_manifest,
+)
+from products.managed_warehouse.backend.temporal.hoglake_register_data_imports import (
+    cleanup_hoglake_registration_tables,
+    hoglake_import_table_name,
+    register_prepared_files_in_hoglake,
 )
 from products.managed_warehouse.backend.temporal.metrics import (
     get_ducklake_register_data_imports_bytes_metric,
@@ -115,6 +131,7 @@ _SOURCE_JOB_STATE_PATCH_ID = "ducklake-register-source-job-state-2026-08"
 _CLEANUP_FINALIZER_PATCH_ID = "ducklake-register-cleanup-finalizer-2026-08"
 ENGINE_DUCKGRES = "duckgres"
 ENGINE_TRINO = "trino"
+ENGINE_HOGLAKE = "hoglake"
 _TRINO_LANDING_SWEEP_PATCH_ID = "ducklake-register-trino-landing-sweep-2026-11"
 _SHADOW_TABLE_PREFIX = "__ph_register_"
 
@@ -269,6 +286,8 @@ class DuckLakeRegisterCleanupInputs:
     table_names: list[str]
     engine: str = ENGINE_DUCKGRES
     trino_canary: bool = False
+    # The live table, which a hoglake cleanup restores when a swap stopped between its renames.
+    table_name: str | None = None
 
 
 @frozen
@@ -325,49 +344,78 @@ async def ducklake_register_data_imports_gate_activity(inputs: DuckLakeRegisterD
     if not flag_enabled:
         return False
 
+    if await asyncio.to_thread(_registers_in_hoglake, organization_id):
+        # A hoglake catalog takes no DuckLake statements, so neither the Trino flag nor duckgres applies.
+        return await _trino_target_ready(inputs.team_id, organization_id, logger)
+
     trino_flag: bool | None
     if inputs.register_through_trino is not None:
         trino_flag = inputs.register_through_trino
     else:
         trino_flag = await asyncio.to_thread(data_imports_trino_flag, organization_id)
-    if trino_flag is True:
-        readiness = await asyncio.to_thread(get_trino_target_readiness, organization_id)
-        if readiness.lookup_failed:
-            raise ApplicationError(
-                f"The Trino target readiness check failed for team {inputs.team_id}", non_retryable=False
+    register_through_trino = trino_flag is True
+    if not register_through_trino:
+        # The flag alone is not sufficient: registration resolves the team's schema through
+        # the duckgres control plane, which only knows orgs with a provisioned server, so a
+        # flag-enabled team in an unprovisioned org would fail the prepare activity with a
+        # spurious "control plane unreachable" error. Dev mode has no DuckgresServer rows
+        # (connections come from env vars), so the check applies only to real deployments.
+        if is_dev_mode():
+            return True
+
+        server = await database_sync_to_async(get_duckgres_server_by_team_org)(inputs.team_id)
+        if server is None:
+            if trino_flag is None:
+                # Trino is the only engine this organization can use, and the flag may enable it, so the gate retries
+                # instead of skipping a run the flag would allow.
+                raise ApplicationError(
+                    f"The Trino registration flag gave no answer for team {inputs.team_id}, "
+                    "and its organization has no duckgres server",
+                    non_retryable=False,
+                )
+            await logger.ainfo(
+                "No DuckgresServer provisioned for team's organization; skipping DuckLake data imports registration"
             )
-        # A warehouse on the Trino path may have no duckgres, so a Trino target that is not ready skips the run
-        # instead of falling back to duckgres. The next completed sync starts registration again.
-        if readiness.catalog_name is None:
-            await logger.ainfo("Trino target is not ready; skipping DuckLake data imports registration through Trino")
-            get_ducklake_register_data_imports_skipped_metric(team_id=inputs.team_id, reason="trino_not_ready").add(1)
             return False
-        return True
 
-    # The flag alone is not sufficient: registration resolves the team's schema through
-    # the duckgres control plane, which only knows orgs with a provisioned server, so a
-    # flag-enabled team in an unprovisioned org would fail the prepare activity with a
-    # spurious "control plane unreachable" error. Dev mode has no DuckgresServer rows
-    # (connections come from env vars), so the check applies only to real deployments.
-    if is_dev_mode():
-        return True
+        # An organization that duckgres refuses registers through Trino, because PostHog provisions every warehouse
+        # with Trino. An unanswered probe keeps duckgres, which fails the run visibly if it is wrong. An explicit
+        # duckgres override skips the probe, because the engine choice honors the override.
+        if inputs.register_through_trino is not None:
+            return True
+        status = await asyncio.to_thread(probe_duckgres_organization, server)
+        if status is not DuckgresOrganizationStatus.REFUSED:
+            return True
+        await logger.ainfo("duckgres refuses the organization; registering DuckLake data imports through Trino")
 
-    server = await database_sync_to_async(get_duckgres_server_by_team_org)(inputs.team_id)
-    if server is None:
-        if trino_flag is None:
-            # Trino is the only engine this organization can use, and the flag may enable it, so the gate retries
-            # instead of skipping a run the flag would allow.
-            raise ApplicationError(
-                f"The Trino registration flag gave no answer for team {inputs.team_id}, "
-                "and its organization has no duckgres server",
-                non_retryable=False,
-            )
-        await logger.ainfo(
-            "No DuckgresServer provisioned for team's organization; skipping DuckLake data imports registration"
-        )
+    return await _trino_target_ready(inputs.team_id, organization_id, logger)
+
+
+async def _trino_target_ready(team_id: int, organization_id: str, logger: typing.Any) -> bool:
+    readiness = await asyncio.to_thread(get_trino_target_readiness, organization_id)
+    if readiness.lookup_failed:
+        raise ApplicationError(f"The Trino target readiness check failed for team {team_id}", non_retryable=False)
+    # A warehouse on the Trino path may have no duckgres, so a Trino target that is not ready skips the run
+    # instead of falling back to duckgres. The next completed sync starts registration again.
+    if readiness.catalog_name is None:
+        await logger.ainfo("Trino target is not ready; skipping data imports registration through Trino")
+        get_ducklake_register_data_imports_skipped_metric(team_id=team_id, reason="trino_not_ready").add(1)
         return False
-
     return True
+
+
+def _registers_in_hoglake(organization_id: str) -> bool:
+    """Whether the organization's data imports register in its hoglake catalog.
+
+    Only an organization with the hoglake flag asks the control plane for its backend, so every other organization
+    keeps its path without an extra request.
+    """
+    if not data_imports_through_hoglake(organization_id):
+        return False
+    try:
+        return trino_backend_for(organization_id, use_cache=True) == "hoglake"
+    except CPUnavailableError as error:
+        raise ApplicationError(str(error), non_retryable=False) from error
 
 
 @activity.defn
@@ -401,17 +449,40 @@ async def prepare_ducklake_data_imports_registration_activity(
             return None
 
         prepared_source_uri = f"{settings.BUCKET_URL}/{schema.folder_path()}/{inputs.prepared_queryable_folder}"
-        ducklake_schema_name = await database_sync_to_async(duckgres_data_imports_schema)(inputs.team_id)
-        ducklake_table_name = await database_sync_to_async(duckgres_data_imports_table_name)(schema)
         # Database lookups use the shared database thread, and network calls run in their own threads, so a slow
         # flags service or control plane cannot block other activities' database calls.
         organization_id = str(await database_sync_to_async(_get_org_id_for_team)(inputs.team_id))
-        engine = await _registration_engine_for_team(inputs.team_id, organization_id, inputs.register_through_trino)
+        if await asyncio.to_thread(_registers_in_hoglake, organization_id):
+            hoglake_table_name = hoglake_import_table_name(schema.table.name)
+            await logger.ainfo("Registering the data import in the team's hoglake namespace", table=hoglake_table_name)
+            return DuckLakeRegisterDataImportsMetadata(
+                source_schema_id=str(schema.id),
+                prepared_queryable_folder=inputs.prepared_queryable_folder,
+                prepared_source_uri=prepared_source_uri,
+                landing_uri=_hoglake_landing_uri(
+                    await asyncio.to_thread(get_control_plane_data_path, organization_id),
+                    team_id=inputs.team_id,
+                    table_name=hoglake_table_name,
+                    source_schema_id=str(inputs.schema_id),
+                    job_id=inputs.job_id,
+                    prepared_queryable_folder=inputs.prepared_queryable_folder,
+                ),
+                ducklake_schema_name=hoglake_schema(inputs.team_id),
+                ducklake_table_name=hoglake_table_name,
+                engine=ENGINE_HOGLAKE,
+                trino_canary=inputs.use_trino_canary,
+            )
+        ducklake_schema_name = await database_sync_to_async(duckgres_data_imports_schema)(inputs.team_id)
+        ducklake_table_name = await database_sync_to_async(duckgres_data_imports_table_name)(schema)
+        engine_choice = await _registration_engine_for_team(
+            inputs.team_id, organization_id, inputs.register_through_trino
+        )
+        engine = engine_choice.engine
         trino_canary = inputs.use_trino_canary and engine == ENGINE_TRINO
         await logger.ainfo(
             "Chose the DuckLake data imports registration engine",
             engine=engine,
-            engine_source="override" if inputs.register_through_trino is not None else "flag",
+            engine_source=engine_choice.source,
             trino_canary=trino_canary,
         )
         if engine == ENGINE_TRINO:
@@ -461,6 +532,14 @@ def copy_and_register_ducklake_data_imports_activity(inputs: DuckLakeRegisterDat
         details=("ducklake_register_data_imports", inputs.metadata.source_schema_id),
         logger=logger,
     )
+    if inputs.metadata.engine == ENGINE_HOGLAKE:
+        return _copy_and_register_in_hoglake(
+            inputs,
+            heartbeater=heartbeater,
+            logger=logger,
+            schema_id=schema_id,
+            activity_started_monotonic=activity_started_monotonic,
+        )
     if inputs.metadata.engine == ENGINE_TRINO:
         return _copy_and_register_through_trino(
             inputs,
@@ -525,19 +604,35 @@ def _record_registration_metrics(
     get_ducklake_register_data_imports_bytes_metric(team_id=team_id, schema_id=schema_id).record(float(copied_bytes))
 
 
-async def _registration_engine_for_team(team_id: int, organization_id: str, register_through_trino: bool | None) -> str:
+@frozen
+class _RegistrationEngineChoice:
+    engine: str
+    source: typing.Literal["override", "flag", "duckgres_refusal", "default"]
+
+
+async def _registration_engine_for_team(
+    team_id: int, organization_id: str, register_through_trino: bool | None
+) -> _RegistrationEngineChoice:
     if register_through_trino is not None:
-        return ENGINE_TRINO if register_through_trino else ENGINE_DUCKGRES
+        return _RegistrationEngineChoice(
+            engine=ENGINE_TRINO if register_through_trino else ENGINE_DUCKGRES, source="override"
+        )
     if await asyncio.to_thread(data_imports_through_trino, organization_id):
-        return ENGINE_TRINO
+        return _RegistrationEngineChoice(engine=ENGINE_TRINO, source="flag")
+    if is_dev_mode():
+        return _RegistrationEngineChoice(engine=ENGINE_DUCKGRES, source="default")
     # data_imports_through_trino returns False when the flag evaluation fails, so an org without a duckgres server
     # must retry instead of falling back to an engine it cannot use.
-    if not is_dev_mode() and await database_sync_to_async(get_duckgres_server_by_team_org)(team_id) is None:
+    server = await database_sync_to_async(get_duckgres_server_by_team_org)(team_id)
+    if server is None:
         raise ApplicationError(
             f"The Trino engine could not be confirmed for team {team_id} and its organization has no duckgres server",
             non_retryable=False,
         )
-    return ENGINE_DUCKGRES
+    # The copy activity copies files before it connects to duckgres, so the engine is decided here, not at connect time.
+    if await asyncio.to_thread(probe_duckgres_organization, server) is DuckgresOrganizationStatus.REFUSED:
+        return _RegistrationEngineChoice(engine=ENGINE_TRINO, source="duckgres_refusal")
+    return _RegistrationEngineChoice(engine=ENGINE_DUCKGRES, source="default")
 
 
 def _trino_landing_uri(
@@ -567,6 +662,103 @@ def _trino_attempt_uri(landing_uri: str, *, job_id: str, prepared_queryable_fold
         landing_uri, job_id=job_id, prepared_queryable_folder=prepared_queryable_folder
     )
     return f"{generation_uri}/{attempt_token}"
+
+
+def _hoglake_landing_uri(
+    data_path: str | None,
+    *,
+    team_id: int,
+    table_name: str,
+    source_schema_id: str,
+    job_id: str,
+    prepared_queryable_folder: str,
+) -> str:
+    if not data_path:
+        raise ApplicationError(f"No hoglake data path available for team {team_id}", non_retryable=False)
+    safe_job_id = re.sub(r"[^A-Za-z0-9_-]", "_", str(job_id))
+    generation_token = _generation_token(prepared_queryable_folder, job_id)
+    # The catalog accepts files only under its data path, and the team's files under `data/team_<id>/`.
+    return (
+        f"{data_path}data/{hoglake_schema(team_id)}/{LANDING_ROOT}/{table_name}/"
+        f"{source_schema_id}/{safe_job_id}/{generation_token}"
+    )
+
+
+def _copy_and_register_in_hoglake(
+    inputs: DuckLakeRegisterDataImportsActivityInputs,
+    *,
+    heartbeater: HeartbeaterSync,
+    logger: typing.Any,
+    schema_id: str,
+    activity_started_monotonic: float,
+) -> bool:
+    metadata = inputs.metadata
+    registration_names = inputs.registration_table_names or _new_registration_table_names()
+    # The workflow mints the names and records them in its history, so the token, which is the add_files import id,
+    # stays the same for this registration. add_files then treats a repeat of a commit whose response was lost as a
+    # no-op.
+    attempt_token = registration_names.shadow_name.removeprefix(_SHADOW_TABLE_PREFIX)
+    generation_uri = _generation_scoped_landing_uri(
+        metadata.landing_uri,
+        job_id=inputs.job_id,
+        prepared_queryable_folder=metadata.prepared_queryable_folder,
+    )
+    landing_uri = f"{generation_uri}/{attempt_token}/{uuid.uuid4().hex[:16]}"
+    organization_id = str(_get_org_id_for_team(inputs.team_id))
+
+    add_files_started = False
+
+    def mark_add_files_started() -> None:
+        nonlocal add_files_started
+        add_files_started = True
+
+    with heartbeater:
+        try:
+            with _stage_timer(stage="copy", team_id=inputs.team_id, schema_id=schema_id):
+                landing_paths, copied_bytes = _copy_prepared_parquet_files(metadata.prepared_source_uri, landing_uri)
+            cancel_delay = _duckgres_cancel_delay(activity_started_monotonic)
+            with _stage_timer(stage="register", team_id=inputs.team_id, schema_id=schema_id):
+                result = register_prepared_files_in_hoglake(
+                    organization_id=organization_id,
+                    team_id=inputs.team_id,
+                    schema_id=uuid.UUID(schema_id),
+                    table_name=metadata.ducklake_table_name,
+                    staging_name=registration_names.shadow_name,
+                    previous_name=registration_names.previous_name,
+                    attempt_token=attempt_token,
+                    landing_uri=landing_uri,
+                    landing_paths=landing_paths,
+                    hive_partition_columns=_hive_partition_columns(landing_uri, landing_paths),
+                    filesystem=get_s3_client(),
+                    should_publish=lambda: _should_publish_prepared_generation(inputs),
+                    before_add_files=mark_add_files_started,
+                    deadline_monotonic=None if cancel_delay is None else time.monotonic() + cancel_delay,
+                    canary=metadata.trino_canary,
+                )
+        except Exception:
+            # No table references this execution's files before add_files, and no other execution writes here.
+            if not add_files_started:
+                _delete_trino_landing_files(landing_uri, logger=logger)
+            raise
+        if not result.published:
+            _delete_trino_landing_files(landing_uri, logger=logger)
+            _record_stale_generation_skip(team_id=inputs.team_id, schema_id=schema_id, logger=logger)
+            return False
+
+        _record_registration_metrics(
+            team_id=inputs.team_id,
+            schema_id=schema_id,
+            file_count=len(landing_paths),
+            row_count=result.row_count,
+            copied_bytes=copied_bytes,
+        )
+        logger.info(
+            "Copied and registered prepared Parquet files in hoglake",
+            hoglake_table=f"{metadata.ducklake_schema_name}.{metadata.ducklake_table_name}",
+            file_count=len(landing_paths),
+            landing_uri=landing_uri,
+        )
+        return True
 
 
 def _copy_and_register_through_trino(
@@ -1238,6 +1430,24 @@ def cleanup_ducklake_registration_tables_activity(inputs: DuckLakeRegisterCleanu
     if not settings.TEST:
         close_old_connections()
 
+    if inputs.engine == ENGINE_HOGLAKE:
+        if inputs.table_name is None or len(inputs.table_names) != 2:
+            raise ApplicationError(
+                "A hoglake cleanup needs the live, staging and previous table names", non_retryable=True
+            )
+        staging_name, previous_name = inputs.table_names
+        cleanup_hoglake_registration_tables(
+            organization_id=str(_get_org_id_for_team(inputs.team_id)),
+            team_id=inputs.team_id,
+            schema_name=inputs.schema_name,
+            table_name=inputs.table_name,
+            staging_name=staging_name,
+            previous_name=previous_name,
+            cancel_after_seconds=_duckgres_cancel_delay(activity_started_monotonic),
+            canary=inputs.trino_canary,
+        )
+        return
+
     if inputs.engine == ENGINE_TRINO:
         cleanup_trino_registration_tables(
             organization_id=str(_get_org_id_for_team(inputs.team_id)),
@@ -1448,6 +1658,7 @@ class DuckLakeRegisterDataImportsWorkflow(PostHogWorkflow):
                                 ],
                                 engine=metadata.engine,
                                 trino_canary=metadata.trino_canary,
+                                table_name=metadata.ducklake_table_name,
                             ),
                             start_to_close_timeout=dt.timedelta(minutes=2),
                             # Patient on purpose: the drops are idempotent and a leaked

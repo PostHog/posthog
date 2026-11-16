@@ -2,7 +2,7 @@ import { ApiError } from 'lib/api-error'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
-import { PropertyFilterType, PropertyOperator } from '~/types'
+import { AnyPropertyFilter, PropertyFilterType, PropertyOperator } from '~/types'
 
 import { cohortsRetrieve } from 'products/cohorts/frontend/generated/api'
 
@@ -64,6 +64,34 @@ describe('broadcastAudienceCohortsLogic', () => {
             expect(cohortsRetrieve).toHaveBeenCalledTimes(3)
             expect(logic.values.audienceCohorts[42]).toMatchObject({ isCalculating: false, count: 2 })
             expect(audienceSizeRequests).toBeGreaterThan(requestsWhileMatching)
+        } finally {
+            jest.useRealTimers()
+        }
+    })
+
+    it('shows an excluded cohort as a condition rather than a recipient card, and still blocks launch while it matches', async () => {
+        jest.useFakeTimers()
+        try {
+            jest.mocked(cohortsRetrieve).mockResolvedValue(cohort(true))
+            const excluded: AnyPropertyFilter = {
+                type: PropertyFilterType.Cohort,
+                key: 'id',
+                value: 42,
+                operator: PropertyOperator.NotIn,
+            }
+
+            const wizard = broadcastWizardLogic({ id: 'new' })
+            wizard.mount()
+            wizard.actions.setAudienceProperties([excluded])
+            const logic = broadcastAudienceCohortsLogic({ id: 'new' })
+            logic.mount()
+
+            await jest.advanceTimersByTimeAsync(1000)
+            expect(logic.values.includedCohortIds).toEqual([])
+            expect(logic.values.nonCohortAudience).toEqual([excluded])
+            expect(wizard.values.audienceCohortLaunchErrors).toEqual([
+                { cohortId: 42, message: expect.stringContaining('still matching people') },
+            ])
         } finally {
             jest.useRealTimers()
         }
