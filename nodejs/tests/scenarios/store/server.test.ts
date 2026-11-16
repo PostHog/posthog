@@ -134,8 +134,9 @@ describe('run store', () => {
 
         const { body } = await read(`${RUNS_PATH}?card_id=example-card`)
         expect(body.runs.filter((run: { runId: string }) => run.runId === runId)).toEqual([
-            expect.objectContaining({ status: 'failed', scorecard: failed }),
+            expect.objectContaining({ status: 'failed' }),
         ])
+        expect((await read(`${RUNS_PATH}/${runId}`)).body).toMatchObject({ scorecard: failed })
     })
 
     it.each([
@@ -293,6 +294,7 @@ describe('run store', () => {
 
         expect(await runIdsOf(`${RUNS_PATH}?card_id=list-card`)).toEqual([newer, older, oldest])
         expect(await runIdsOf(`${RUNS_PATH}?card_id=list-card&limit=2`)).toEqual([newer, older])
+        expect((await read(`${RUNS_PATH}?card_id=list-card&limit=1`)).body.runs[0]).not.toHaveProperty('scorecard')
     })
 
     it('treats an empty card_id as no filter', async () => {

@@ -54,10 +54,14 @@ type RunSummary = {
     evidenceDir: string | null
     receivedAt: string
     updatedAt: string
-    scorecard: Record<string, unknown>
 }
 
-export type Run = RunSummary & { series: z.infer<typeof NamedSeries>[] | null; topology: unknown; manifest: unknown }
+export type Run = RunSummary & {
+    scorecard: Record<string, unknown>
+    series: z.infer<typeof NamedSeries>[] | null
+    topology: unknown
+    manifest: unknown
+}
 
 const SUMMARY_COLUMNS = `
     run_id AS "runId",
@@ -73,8 +77,7 @@ const SUMMARY_COLUMNS = `
     to_char(ended_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS "endedAt",
     evidence_dir AS "evidenceDir",
     to_char(received_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS "receivedAt",
-    to_char(updated_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS "updatedAt",
-    scorecard`
+    to_char(updated_at AT TIME ZONE 'UTC', 'YYYY-MM-DD"T"HH24:MI:SS.MS"Z"') AS "updatedAt"`
 
 const jsonOrNull = (value: unknown): string | null => (value == null ? null : JSON.stringify(value))
 
@@ -148,7 +151,7 @@ export class RunStore {
 
     async get(runId: string): Promise<Run | undefined> {
         const { rows } = await this.pool.query<Run>(
-            `SELECT ${SUMMARY_COLUMNS}, series, topology, manifest FROM runs WHERE run_id = $1`,
+            `SELECT ${SUMMARY_COLUMNS}, scorecard, series, topology, manifest FROM runs WHERE run_id = $1`,
             [runId]
         )
         return rows[0]
