@@ -5126,29 +5126,57 @@ describe('Cyclotron V2', () => {
                 return (await queryJob(id)).janitor_touch_count
             }
 
-            async function dequeueOnDropTestPool(overrides: Record<string, unknown>): Promise<CyclotronV2DequeuedJob> {
-                const worker = createWorker(QUEUE, { pool: { dbUrl: DROP_DB_URL }, ...overrides })
+            async function dequeueOnDropTestPool(
+                overrides: Record<string, unknown>,
+                queueName = QUEUE
+            ): Promise<CyclotronV2DequeuedJob> {
+                const worker = createWorker(queueName, { pool: { dbUrl: DROP_DB_URL }, ...overrides })
                 stops.push(() => worker.disconnect())
                 const [job] = await dequeueOneBatch(worker)
                 return job
             }
 
             it.each([
-                ['ack', 'completed', (job: CyclotronV2DequeuedJob) => job.ack()],
-                ['fail', 'failed', (job: CyclotronV2DequeuedJob) => job.fail()],
-                ['cancel', 'canceled', (job: CyclotronV2DequeuedJob) => job.cancel()],
-                ['reschedule', 'available', (job: CyclotronV2DequeuedJob) => job.reschedule()],
-                ['defer', 'available', (job: CyclotronV2DequeuedJob) => job.defer({ scheduledAt: new Date() })],
+                ['ack', QUEUE, 'completed', false, (job: CyclotronV2DequeuedJob) => job.ack()],
+                ['fail', QUEUE, 'failed', false, (job: CyclotronV2DequeuedJob) => job.fail()],
+                ['cancel', QUEUE, 'canceled', false, (job: CyclotronV2DequeuedJob) => job.cancel()],
+                ['reschedule', QUEUE, 'available', false, (job: CyclotronV2DequeuedJob) => job.reschedule()],
+                [
+                    'defer',
+                    QUEUE,
+                    'available',
+                    false,
+                    (job: CyclotronV2DequeuedJob) => job.defer({ scheduledAt: new Date() }),
+                ],
+                [
+                    'defer on the email queue',
+                    'email',
+                    'available',
+                    true,
+                    (job: CyclotronV2DequeuedJob) => job.defer({ scheduledAt: new Date() }),
+                ],
+                [
+                    'reschedule into the email queue',
+                    QUEUE,
+                    'available',
+                    true,
+                    (job: CyclotronV2DequeuedJob) => job.reschedule({ queueName: 'email' }),
+                ],
             ])(
                 'retries %s once on a fresh connection, so the job ends released and the janitor never resets it',
-                async (_operation, status, release) => {
-                    const id = await manager.createJob({ teamId: 1, queueName: QUEUE })
-                    const job = await dequeueOnDropTestPool({ releaseWriteRetry: true })
+                async (_operation, queueName, status, newDequeueSeq, release) => {
+                    const id = await manager.createJob({ teamId: 1, queueName })
+                    const before = await queryJob(id)
+                    const job = await dequeueOnDropTestPool({ releaseWriteRetry: true }, queueName)
 
                     expect(await interruptReleaseWrite(id, () => release(job), 'pg_terminate_backend')).toBe('released')
 
                     const row = await queryJob(id)
-                    expect({ status: row.status, lock_id: row.lock_id }).toEqual({ status, lock_id: null })
+                    expect({
+                        status: row.status,
+                        lock_id: row.lock_id,
+                        newDequeueSeq: row.dequeue_seq !== null && row.dequeue_seq !== before.dequeue_seq,
+                    }).toEqual({ status, lock_id: null, newDequeueSeq })
                     expect(await janitorResets(id)).toBe(0)
                 }
             )
