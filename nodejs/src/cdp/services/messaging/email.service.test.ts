@@ -3648,6 +3648,22 @@ describe('EmailService', () => {
             })
         })
 
+        it("sends the caller's unsubscribe headers in place of generated ones", async () => {
+            invocation.hogFunction.metadata = { message_category_type: 'marketing' }
+            const caller = {
+                'List-Unsubscribe': '<https://example.com/unsubscribe>',
+                'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click',
+            }
+            invocation.queueParameters = createEmailParams({ from: { integrationId: 1 }, headers: caller })
+            const result = await service.executeSendEmail(invocation)
+            expect(result.error).toBeUndefined()
+            expect(ses.sent[0].headers).toEqual({
+                ...caller,
+                'X-PostHog-Tracking-Code': expect.any(String),
+                'Auto-Submitted': 'auto-generated',
+            })
+        })
+
         it('should not include unsubscribe headers for transactional emails (but tracking-code header is still set)', async () => {
             invocation.hogFunction.metadata = { message_category_type: 'transactional' }
             const result = await service.executeSendEmail(invocation)

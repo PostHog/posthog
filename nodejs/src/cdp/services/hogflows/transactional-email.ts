@@ -200,6 +200,18 @@ export const AcceptedSendSchema = z
             .max(MAX_EMAIL_ATTACHMENTS)
             .readonly()
             .optional(),
+        headers: z
+            .object({
+                // Printable ASCII without spaces or angle brackets inside, so one URL fits in one SES header value.
+                'List-Unsubscribe': z
+                    .string()
+                    .max(870)
+                    .regex(/^<https:\/\/[!-;=?-~]+>$/, { message: 'List-Unsubscribe needs one <https://...> URL' }),
+                'List-Unsubscribe-Post': z.literal('List-Unsubscribe=One-Click').optional(),
+            })
+            .strict()
+            .readonly()
+            .optional(),
     })
     .strict()
     .readonly()
@@ -222,6 +234,7 @@ export const acceptedSendEmailFields = (
     ...(send?.cc && { cc: send.cc.join(', ') }),
     ...(send?.bcc && { bcc: send.bcc.join(', ') }),
     ...(send?.attachments && { attachments: send.attachments.map((file) => ({ ...file })) }),
+    ...(send?.headers && { headers: { ...send.headers } }),
 })
 
 const ScheduledAtSchema = z.string().datetime({ offset: true })

@@ -3829,6 +3829,10 @@ describe('CDP API', () => {
             const filenameReason = `filename can be at most ${ATTACHMENT_FILENAME_MAX_LENGTH} characters`
             const contentTypeReason = `content_type needs 1 to ${ATTACHMENT_CONTENT_TYPE_MAX_LENGTH} characters`
             const contentIdReason = `content_id needs 1 to ${ATTACHMENT_CONTENT_ID_MAX_LENGTH} characters`
+            const unsubscribe = {
+                'List-Unsubscribe': '<https://example.com/unsubscribe>',
+                'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click',
+            }
 
             it.each<[string, () => object, () => object, string]>([
                 [
@@ -3874,6 +3878,33 @@ describe('CDP API', () => {
                     '"integrationId"',
                 ],
                 ['no tracking choice', () => ({ content: codeSend.content }), () => codeSend, '"tracking"'],
+                [
+                    'a header the send does not take',
+                    () => ({ ...codeSend, headers: { ...unsubscribe, 'Reply-To': 'ops@example.com' } }),
+                    () => ({ ...codeSend, headers: unsubscribe }),
+                    '"Reply-To"',
+                ],
+                [
+                    'an unsubscribe link that is not https',
+                    () => ({ ...codeSend, headers: { 'List-Unsubscribe': '<http://example.com/unsubscribe>' } }),
+                    () => ({ ...codeSend, headers: unsubscribe }),
+                    'List-Unsubscribe needs one <https://...> URL',
+                ],
+                [
+                    'an unsubscribe link that starts a new header line',
+                    () => ({
+                        ...codeSend,
+                        headers: { 'List-Unsubscribe': '<https://example.com/u>\r\nBcc: someone@example.com' },
+                    }),
+                    () => ({ ...codeSend, headers: unsubscribe }),
+                    'List-Unsubscribe needs one <https://...> URL',
+                ],
+                [
+                    'one-click without an unsubscribe link',
+                    () => ({ ...codeSend, headers: { 'List-Unsubscribe-Post': 'List-Unsubscribe=One-Click' } }),
+                    () => ({ ...codeSend, headers: unsubscribe }),
+                    '"List-Unsubscribe"',
+                ],
                 [
                     'more than 10 cc addresses',
                     () => ({ ...codeSend, cc: Array.from({ length: 11 }, (_, i) => `copy-${i}@example.com`) }),

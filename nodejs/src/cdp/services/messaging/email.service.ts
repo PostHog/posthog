@@ -1495,7 +1495,7 @@ export class EmailService {
             to: toNodemailerAddress(params.to.name, params.to.email),
             subject: sanitizeEmailSubject(params.subject),
             ...(params.text ? { text: params.text } : {}),
-            headers: { [AUTO_SUBMITTED_HEADER.Name!]: AUTO_SUBMITTED_HEADER.Value! },
+            headers: { ...params.headers, [AUTO_SUBMITTED_HEADER.Name!]: AUTO_SUBMITTED_HEADER.Value! },
             ...(params.html
                 ? {
                       html: trackingEnabled
@@ -1658,12 +1658,14 @@ export class EmailService {
 
         const isTransactionalEmail = result.invocation.hogFunction?.metadata?.message_category_type === 'transactional'
         if (sendEmailParams.Content?.Simple) {
-            const unsubscribeHeaders = !isTransactionalEmail
-                ? this.generateUnsubscribeHeaders(
-                      { team_id: result.invocation.teamId, identifier: unquoteMailbox(params.to.email) },
-                      preferencesTokenSourceForInvocation(result.invocation)
-                  )
-                : []
+            const unsubscribeHeaders = params.headers
+                ? Object.entries(params.headers).map(([Name, Value]) => ({ Name, Value }))
+                : !isTransactionalEmail
+                  ? this.generateUnsubscribeHeaders(
+                        { team_id: result.invocation.teamId, identifier: unquoteMailbox(params.to.email) },
+                        preferencesTokenSourceForInvocation(result.invocation)
+                    )
+                  : []
             sendEmailParams.Content.Simple.Headers = [
                 ...unsubscribeHeaders,
                 trackingHeader,

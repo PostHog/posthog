@@ -32,8 +32,8 @@ export function senderOfCodeSend(
     if (integration.team_id !== teamId) {
         return { kind: 'refused', refusal: 'sandbox_sender_unavailable' }
     }
-    const { cc, bcc, replyTo, from, attachments } = send
-    if (cc?.length || bcc?.length || replyTo?.length || attachments?.length || from?.email || from?.name) {
+    const { cc, bcc, replyTo, from, attachments, headers } = send
+    if (cc?.length || bcc?.length || replyTo?.length || attachments?.length || from?.email || from?.name || headers) {
         return { kind: 'refused', refusal: 'sandbox_fields_unsupported' }
     }
     return { kind: 'email_sandbox' }

@@ -684,6 +684,7 @@ describe('a transactional email sent from code on the sandbox sender', () => {
                 attachments: [{ sha256: 'a'.repeat(64), filename: 'invoice.pdf', content_type: 'application/pdf' }],
             }),
         ],
+        ['unsubscribe headers', () => ({ headers: { 'List-Unsubscribe': '<https://example.com/unsubscribe>' } })],
     ])('refuses a send with %s instead of dropping it', async (_desc, fields) => {
         const res = await sendFromCode(request(sandboxSend(fields(sandboxSenderId))))
 
