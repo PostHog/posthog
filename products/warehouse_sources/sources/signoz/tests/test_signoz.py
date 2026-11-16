@@ -263,7 +263,8 @@ class TestGetRows:
         assert result.params("sort") == ["created_at", "created_at"]
         assert result.params("order") == ["asc", "asc"]
         assert result.response is not None
-        assert all(row[result.response.primary_keys[0]] for row in result.rows)
+        assert result.response.primary_keys == ["id"]
+        assert all(row["id"] for row in result.rows)
         assert result.response.partition_keys == ["createdAt"]
         assert all(row["createdAt"] == "2026-01-01T00:00:00Z" for row in result.rows)
 
