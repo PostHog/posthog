@@ -100,7 +100,7 @@ from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.paging import Page, PageRequest
 from posthog.permissions import get_authenticator_scoped_team_ids, scopes_caller_lacks
-from posthog.scopes import APIScopeObject
+from posthog.scopes.catalog import APIScopeObject
 from posthog.settings import EE_AVAILABLE
 from posthog.utils import str_to_bool
 
