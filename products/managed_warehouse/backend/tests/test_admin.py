@@ -415,3 +415,32 @@ class TestManagedWarehouseConsolePanel(BaseTest):
         )
 
         assert response.status_code == 404
+
+
+class TestTrinoCompileCheckPanel(BaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        self.user.is_staff = True
+        self.user.save()
+        self.client.force_login(self.user)
+
+    @parameterized.expand(
+        [
+            ("explain_with_limit", {"explain": "on", "limit": "5"}, 302, (True, 5)),
+            ("compile_only", {"limit": ""}, 302, (False, None)),
+            ("limit_not_positive", {"limit": "0"}, 400, None),
+        ]
+    )
+    def test_trino_compile_check_enqueues_a_run_for_the_team(
+        self, _name: str, data: dict[str, str], expected_status: int, expected_run: tuple[bool, int | None] | None
+    ) -> None:
+        with patch("products.managed_warehouse.backend.tasks.run_trino_compile_check_task.delay") as delay:
+            response = self.client.post(f"/admin/console/teams/{self.team.pk}/trino-compile-check/start/", data)
+
+        assert response.status_code == expected_status
+        if expected_run is None:
+            delay.assert_not_called()
+            return
+        kwargs = delay.call_args.kwargs
+        assert (kwargs["team_id"], kwargs["explain"], kwargs["limit"]) == (self.team.pk, *expected_run)
+        assert any(kwargs["run_id"] in str(message) for message in get_messages(response.wsgi_request))

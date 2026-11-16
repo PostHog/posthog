@@ -52,6 +52,7 @@ _MODEL_BACKED_SCOPED_SYSTEM_TABLES: dict[str, PostgresTable] = {
 # from the viewset. Declared by db_table so product internals stay unimported here.
 _FACADE_OBJECT_GRANT_TABLES: dict[str, str] = {
     "customer_analytics_account": "account",
+    "posthog_action": "action",
     "customer_analytics_customertask": "customer_task",
 }
 

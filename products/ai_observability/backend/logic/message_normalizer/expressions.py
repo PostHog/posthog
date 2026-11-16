@@ -5,7 +5,7 @@ from typing import Final
 from posthog.dataclasses import frozen
 
 from .predicates import Pattern
-from .run_limits import charge_output, check_time_limit
+from .run_limits import MAX_PARSE_CHARS, charge_output, check_time_limit
 from .scope import Scope
 from .values import (
     MISSING,
@@ -210,7 +210,7 @@ def _empty_fallback(result: list[Value], if_empty: Expr | None, scope: Scope) ->
 
 def _parse_structured_content(content: str) -> Value:
     # Checked before trimming, so text that cannot be structured content is never copied or parsed.
-    if not _BLOCK_ARRAY_START.match(content):
+    if len(content) > MAX_PARSE_CHARS or not _BLOCK_ARRAY_START.match(content):
         return content
     try:
         parsed = parse_json_text(content.strip())

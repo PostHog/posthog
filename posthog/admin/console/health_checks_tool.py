@@ -276,3 +276,16 @@ class HealthChecksTool(ConsoleTool):
                 },
             )
         ]
+
+
+console.register_moved_page(old_path="admin/health-checks/", title="Health checks", url=TOOL_URL)
+console.register_moved_page(
+    old_path="admin/health-checks/<str:kind>/",
+    title="Health checks",
+    url=f"{TOOL_URL}?check={{kind}}",
+)
+console.register_moved_page(
+    old_path="admin/health-checks/<str:kind>/runs/",
+    title="Health checks",
+    url=f"{TOOL_URL}?check={{kind}}",
+)

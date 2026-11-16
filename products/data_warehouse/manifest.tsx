@@ -192,7 +192,7 @@ export const manifest: ProductManifest = {
             category: ProductItemCategory.DATA,
             type: 'sql',
             iconType: 'sql_editor',
-            iconColor: ['var(--color-product-data-warehouse-light)'],
+            iconColor: ['var(--color-product-data-warehouse-light)', 'var(--color-product-data-warehouse-dark)'],
             href: urls.sqlEditor(),
             searchKeywords: ['sql', 'hogql', 'hogsql', 'query editor'],
             sceneKey: 'SQLEditor',
@@ -209,7 +209,7 @@ export const manifest: ProductManifest = {
             flag: FEATURE_FLAGS.DATA_WAREHOUSE_SCENE,
             alternativeFlags: [FEATURE_FLAGS.MANAGED_TRINO_QUERY],
             iconType: 'data_warehouse',
-            iconColor: ['var(--color-product-data-warehouse-light)'],
+            iconColor: ['var(--color-product-data-warehouse-light)', 'var(--color-product-data-warehouse-dark)'],
             sceneKey: 'DataOps',
             // Covers the data modeling scene keys too, so these rows stay highlighted on /models.
             // The generated list otherwise follows product membership and leaves them out.

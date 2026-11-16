@@ -4,7 +4,7 @@
 
 use crate::v4_image_refs::{parse, Parsed, Ref, RefKind};
 
-use crate::envelope::{seal_frame, Codec, Context, EnvelopeError, Version};
+use crate::envelope::{Codec, Context, EnvelopeError, UnsealedFrame, Version};
 use crate::refs::{public_font_url_ref, reference_hash, UrlAsset};
 use crate::seal::image_url_key;
 use crate::url_policy::canonicalize;
@@ -57,13 +57,17 @@ pub fn fetched_image_context(reference: &str) -> Option<Context> {
     })
 }
 
+pub fn fetched_image_frame(reference: &str, image: &[u8]) -> Result<UnsealedFrame, SealError> {
+    let context = fetched_image_context(reference).ok_or(SealError::NotATeamUrlReference)?;
+    Ok(UnsealedFrame::new(Version::V4, &context, image)?)
+}
+
 pub fn seal_fetched_image(
     team_month_key: &[u8; 32],
     reference: &str,
     image: &[u8],
 ) -> Result<Vec<u8>, SealError> {
-    let context = fetched_image_context(reference).ok_or(SealError::NotATeamUrlReference)?;
-    Ok(seal_frame(team_month_key, Version::V4, &context, image)?)
+    Ok(fetched_image_frame(reference, image)?.seal(team_month_key)?)
 }
 
 pub fn image_url_hash(team_month_key: &[u8; 32], url: &str) -> String {

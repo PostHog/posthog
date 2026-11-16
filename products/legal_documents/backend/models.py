@@ -9,7 +9,7 @@ class LegalDocument(ModelActivityMixin, CreatedMetaFields, UpdatedMetaFields, UU
         BAA = "BAA", "Business Associate Agreement"
         DPA = "DPA", "Data Processing Agreement"
 
-        # MSA can only be created by staff via Django admin (uploads a counter-signed
+        # MSA can only be created by staff in PostHog Admin (uploads a counter-signed
         # PDF directly). The public API serializer does not list MSA as a valid choice.
         MSA = "MSA", "Master Service Agreement"
 

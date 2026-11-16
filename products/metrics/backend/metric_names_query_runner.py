@@ -8,10 +8,14 @@ from typing import Any
 
 from django.core.cache import cache
 
+import re2
+
 from posthog.hogql import ast
 from posthog.hogql.constants import HogQLGlobalSettings
 from posthog.hogql.database.schema.metrics import HOGQL_MAX_BYTES_TO_READ_FOR_METRICS_USER_QUERIES
-from posthog.hogql.parser import parse_expr, parse_select
+from posthog.hogql.errors import QueryError
+from posthog.hogql.parser import parse_expr, parse_order_expr, parse_select
+from posthog.hogql.property import validate_regex
 from posthog.hogql.query import execute_hogql_query
 from posthog.hogql.visitor import clone_expr
 
@@ -19,9 +23,10 @@ from posthog.clickhouse.client.connection import Workload
 from posthog.models import Team
 
 from products.metrics.backend.facade.contracts import MAX_SPARKLINE_BATCH_SIZE
+from products.metrics.backend.facade.enums import MetricNameMatchMode
 from products.metrics.backend.metric_query_runner import points_query
 from products.metrics.backend.metrics4_samples import reads_metrics4_only
-from products.metrics.backend.search import ilike_pattern
+from products.metrics.backend.search import ilike_pattern, ilike_prefix_pattern
 
 # Autocomplete tolerates partial results, so reads break at the budget instead of erroring.
 _QUERY_SETTINGS = HogQLGlobalSettings(
@@ -39,6 +44,9 @@ MAX_PICKER_SERVICES = 50
 
 SPARKLINE_WINDOW = dt.timedelta(hours=6)
 SPARKLINE_MAX_POINTS = 24
+
+# Prometheus classic histograms export one histogram as these three names.
+_CLASSIC_HISTOGRAM_SUFFIXES = ("_bucket", "_sum", "_count")
 
 
 def _isoformat(value: Any) -> str | None:
@@ -58,7 +66,11 @@ class MetricNamesQueryRunner:
         services: Sequence[str] = (),
         include_sparklines: bool = True,
         names: Sequence[str] = (),
+        match: str = "substring",
+        include_first_seen: bool = False,
     ) -> None:
+        if match not in MetricNameMatchMode.values:
+            raise ValueError(f"match must be one of {', '.join(MetricNameMatchMode.values)}")
         if limit <= 0 or limit > 1000:
             raise ValueError("limit must be in [1, 1000]")
         if lookback <= dt.timedelta(0):
@@ -76,6 +88,13 @@ class MetricNamesQueryRunner:
         self.services = tuple(sorted(set(services)))
         self.include_sparklines = include_sparklines
         self.names = tuple(sorted(set(names)))
+        self.match = match
+        self.include_first_seen = include_first_seen
+        if self.search and self.match == "regex":
+            try:
+                validate_regex(self.search)
+            except QueryError as exc:
+                raise ValueError(str(exc)) from exc
 
     def _lookback_start(self) -> ast.Expr:
         # Hour-aligned to match `metric_names.time_bucket`, so both queries cover the same window.
@@ -90,6 +109,27 @@ class MetricNamesQueryRunner:
             left=ast.Field(chain=["service_name"]),
             right=ast.Tuple(exprs=[ast.Constant(value=service) for service in self.services]),
         )
+
+    def _search_filter(self) -> ast.Expr:
+        search = ast.Constant(value=self.search)
+        if self.match == "regex":
+            # ClickHouse match() is RE2, the engine `validate_regex` checked the pattern with.
+            return parse_expr("match(metric_name, {search})", placeholders={"search": search})
+        pattern = ilike_prefix_pattern(self.search) if self.match == "prefix" else ilike_pattern(self.search)
+        return parse_expr("metric_name ILIKE {pattern}", placeholders={"pattern": ast.Constant(value=pattern)})
+
+    def _search_rank(self) -> list[ast.OrderExpr]:
+        """Sort keys that float the closest matches above the activity order."""
+        if self.match == "regex":
+            return []
+        placeholders: dict[str, ast.Expr] = {"search": ast.Constant(value=self.search)}
+        keys = ["lower(metric_name) = lower({search}) DESC"]
+        if self.match == "substring":
+            keys += [
+                "startsWith(lower(metric_name), lower({search})) DESC",
+                "endsWith(lower(metric_name), lower({search})) DESC",
+            ]
+        return [parse_order_expr(key, placeholders=placeholders) for key in keys]
 
     def _names_query(self) -> ast.SelectQuery:
         if not self.search:
@@ -121,23 +161,21 @@ class MetricNamesQueryRunner:
                         anyIf(metric_type, metric_type != '') AS name_metric_type
                     FROM posthog.metric_names
                     WHERE time_bucket >= {lookback_start}
-                      AND metric_name ILIKE {search_pattern}
+                      AND {search_filter}
                     GROUP BY metric_name
                     ORDER BY
-                        lower(metric_name) = lower({search}) DESC,
-                        startsWith(lower(metric_name), lower({search})) DESC,
-                        endsWith(lower(metric_name), lower({search})) DESC,
                         matching_services DESC,
                         metric_name ASC
                     LIMIT {limit}
                 """,
                 placeholders={
                     "lookback_start": self._lookback_start(),
-                    "search_pattern": ast.Constant(value=ilike_pattern(self.search)),
-                    "search": ast.Constant(value=self.search),
+                    "search_filter": self._search_filter(),
                     "limit": ast.Constant(value=self.limit),
                 },
             )
+            assert isinstance(query, ast.SelectQuery)
+            query.order_by = [*self._search_rank(), *(query.order_by or [])]
 
         assert isinstance(query, ast.SelectQuery)
         assert query.where is not None
@@ -226,17 +264,54 @@ class MetricNamesQueryRunner:
 
         names = [row[0] for row in response.results]
         sparklines = self._sparklines(names) if self.include_sparklines else {}
+        first_seen = self._first_seen(names) if self.include_first_seen else None
 
-        return [
-            {
+        rows: list[dict[str, Any]] = []
+        for name, metric_type, unit, last_seen in response.results:
+            row: dict[str, Any] = {
                 "name": name,
                 "metric_type": metric_type or "",
                 "unit": unit or "",
                 "last_seen": _isoformat(last_seen),
                 "sparkline": sparklines.get(name, []),
             }
-            for name, metric_type, unit, last_seen in response.results
-        ]
+            if first_seen is not None:
+                row["first_seen"] = _isoformat(first_seen.get(name))
+            rows.append(row)
+        return rows
+
+    def _first_seen(self, names: Sequence[str]) -> dict[str, Any]:
+        """The earliest hour each name arrived in, over the series table's whole retention.
+
+        It ignores the lookback on purpose: the point is to tell a metric that only started
+        arriving inside the window from one that was there all along.
+        """
+        if not names:
+            return {}
+        # metric_series is sorted by metric_name first, so this reads only these names' ranges.
+        # The names table is sorted by hour first, so the same lookup there reads all retention.
+        query = parse_select(
+            """
+                SELECT metric_name, min(time_bucket) AS first_seen
+                FROM posthog.metric_series
+                WHERE metric_name IN {names}
+                GROUP BY metric_name
+            """,
+            placeholders={"names": ast.Tuple(exprs=[ast.Constant(value=name) for name in names])},
+        )
+        assert isinstance(query, ast.SelectQuery)
+        assert query.where is not None
+        if self.services:
+            query.where = ast.And(exprs=[query.where, self._services_expr()])
+        query.limit = ast.Constant(value=len(names))
+        response = execute_hogql_query(
+            query_type="MetricNamesFirstSeenQuery",
+            query=query,
+            team=self.team,
+            workload=Workload.METRICS,
+            settings=_SPARKLINE_QUERY_SETTINGS,
+        )
+        return dict(response.results)
 
     def _sparklines(self, names: Sequence[str]) -> dict[str, list[float]]:
         if not names:
@@ -318,17 +393,84 @@ class MetricNamesQueryRunner:
         return subquery
 
 
+def name_matches(name: str, search: str, match: str = "substring") -> bool:
+    """The runner's name filter, in Python, for names that never reach the names table."""
+    search = search.strip()
+    if not search:
+        return True
+    if match == "regex":
+        return re2.search(search, name) is not None
+    if match == "prefix":
+        return name.lower().startswith(search.lower())
+    return search.lower() in name.lower()
+
+
+def fold_classic_histograms(rows: Sequence[dict[str, Any]]) -> list[dict[str, Any]]:
+    """Fold each Prometheus classic histogram's `_bucket`, `_sum` and `_count` rows into its `_bucket` row.
+
+    Only a complete triple of `sum` rows folds, and only when all three are in `rows`. The folded row keeps
+    the `_bucket` name, which is the one PromQL's `histogram_quantile` reads, and lists the three
+    underlying names under `classic_histogram`. Its `last_seen` is the newest and its
+    `first_seen` the oldest of the three.
+    """
+    by_name = {row["name"]: row for row in rows}
+    folded: dict[str, dict[str, Any]] = {}
+    for name in by_name:
+        if not name.endswith("_bucket"):
+            continue
+        base = name.removesuffix("_bucket")
+        triple = [f"{base}{suffix}" for suffix in _CLASSIC_HISTOGRAM_SUFFIXES]
+        # Ingestion only treats `sum` rows as histogram components, so gauges that share the suffixes stay apart.
+        if base and all(by_name.get(member, {}).get("metric_type") == "sum" for member in triple):
+            folded[name] = {"base_name": base, "bucket": triple[0], "sum": triple[1], "count": triple[2]}
+
+    absorbed = {members[key] for members in folded.values() for key in ("sum", "count")}
+    result: list[dict[str, Any]] = []
+    for row in rows:
+        if row["name"] in absorbed:
+            continue
+        members = folded.get(row["name"])
+        if members is None:
+            result.append(row)
+            continue
+        triple_rows = [by_name[members[key]] for key in ("bucket", "sum", "count")]
+        merged = {**row, "classic_histogram": members}
+        last_seen = [r["last_seen"] for r in triple_rows if r.get("last_seen")]
+        merged["last_seen"] = max(last_seen) if last_seen else row.get("last_seen")
+        if "first_seen" in row:
+            first_seen = [r["first_seen"] for r in triple_rows if r.get("first_seen")]
+            merged["first_seen"] = min(first_seen) if first_seen else None
+        result.append(merged)
+    return result
+
+
 def cached_metric_names(
-    team: Team, *, search: str = "", limit: int = 100, services: Sequence[str] = ()
+    team: Team,
+    *,
+    search: str = "",
+    limit: int = 100,
+    services: Sequence[str] = (),
+    match: str = "substring",
+    include_sparklines: bool = True,
+    include_first_seen: bool = False,
 ) -> list[dict[str, Any]]:
     """Metric names for the picker. Only non-empty, unsearched lists are cached."""
-    runner = MetricNamesQueryRunner(team=team, search=search, limit=limit, services=services)
+    runner = MetricNamesQueryRunner(
+        team=team,
+        search=search,
+        limit=limit,
+        services=services,
+        match=match,
+        include_sparklines=include_sparklines,
+        include_first_seen=include_first_seen,
+    )
     if runner.search:
         return runner.run()
 
     # Hashed: service names can hold characters that a memcached key cannot.
     scope = sha256(repr(runner.services).encode()).hexdigest()[:16] if runner.services else "all"
-    cache_key = f"metrics:{team.id}:metric_names:v3:{limit}:{scope}"
+    shape = f"{int(include_sparklines)}{int(include_first_seen)}"
+    cache_key = f"metrics:{team.id}:metric_names:v4:{limit}:{shape}:{scope}"
     cached = cache.get(cache_key)
     if cached is not None:
         return cached

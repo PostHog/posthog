@@ -9,7 +9,10 @@ import { BatchingContext, BatchingPipeline } from '~/ingestion/framework/batchin
 import { newBatchingPipeline, perElement } from '~/ingestion/framework/builders'
 import { aggregateKafkaDebugContexts, createBatch } from '~/ingestion/framework/helpers'
 import { PipelineConfig } from '~/ingestion/framework/result-handling-pipeline'
+import type { UnknownTokenRecorder } from '~/logs/services/unknown-token-recorder'
+import { ValueMatcher } from '~/types'
 
+import { createAggregateMetricsStep } from './aggregate-metrics-step'
 import { MetricsUsageAccumulator, MetricsUsageBatchContext } from './metrics-usage'
 import { createKeepMetricsUsageStep, createMetricsUsageBeforeBatchStep } from './metrics-usage-steps'
 import { MetricsOutput } from './outputs/outputs'
@@ -27,6 +30,8 @@ export interface MetricsIngestionPipelineConfig {
     teamManager: Pick<TeamManager, 'getTeam' | 'getTeamByToken'>
     quotaLimiting: Pick<QuotaLimiting, 'isTeamTokenQuotaLimited'>
     rateLimiter: Pick<MetricsRateLimiterService, 'filterMessages'>
+    isAggregationEnabled: ValueMatcher<number>
+    unknownTokens?: Pick<UnknownTokenRecorder, 'record'>
 }
 
 export type MetricsIngestionPipeline = BatchingPipeline<
@@ -39,7 +44,8 @@ export type MetricsIngestionPipeline = BatchingPipeline<
 >
 
 export function createMetricsIngestionPipeline(config: MetricsIngestionPipelineConfig): MetricsIngestionPipeline {
-    const { outputs, promiseScheduler, teamManager, quotaLimiting, rateLimiter } = config
+    const { outputs, promiseScheduler, teamManager, quotaLimiting, rateLimiter, isAggregationEnabled, unknownTokens } =
+        config
 
     const pipelineConfig: PipelineConfig = { outputs, promiseScheduler, rejectOnDlqFailure: true }
     const sideEffects = { await: false }
@@ -57,8 +63,11 @@ export function createMetricsIngestionPipeline(config: MetricsIngestionPipelineC
             batch
                 .messageAware((b) =>
                     b
-                        .pipeChunk(perElement(createPrepareMetricsMessageStep(teamManager, quotaLimiting)))
+                        .pipeChunk(
+                            perElement(createPrepareMetricsMessageStep(teamManager, quotaLimiting, unknownTokens))
+                        )
                         .pipeChunk(createRateLimitMetricsStep(rateLimiter))
+                        .pipeChunk(createAggregateMetricsStep(isAggregationEnabled))
                         .pipeChunk(perElement(createProduceMetricsStep(outputs)))
                 )
                 .handleResults(pipelineConfig)

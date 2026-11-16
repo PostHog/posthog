@@ -23,6 +23,7 @@ _LAZY = {
     "cdc_engine": "cdc.adapters",
     "get_cdc_adapter": "cdc.adapters",
     "source_type_supports_cdc": "cdc.adapters",
+    "cdc_supported_source_types": "cdc.adapters",
     "CDCRepairError": "cdc.repair",
     "CDCRepairInProgress": "cdc.repair",
     "repair_cdc_source": "cdc.repair",

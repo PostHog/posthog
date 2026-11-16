@@ -1,3 +1,5 @@
+import uuid
+from datetime import datetime
 from typing import Any, cast
 
 from posthog.test.base import BaseTest, _create_event, _create_person, flush_persons_and_events
@@ -30,7 +32,7 @@ from posthog.exceptions import (
 )
 from posthog.models.event.new_events_schema import events_read_settings
 from posthog.models.instance_setting import override_instance_config
-from posthog.models.person.sql import PERSON_STATIC_COHORT_TABLE
+from posthog.models.person.sql import INSERT_PERSON_STATIC_COHORT, PERSON_STATIC_COHORT_TABLE
 from posthog.settings import CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA
 
 from products.cohorts.backend.models.calculation_history import CohortCalculationHistory
@@ -39,6 +41,7 @@ from products.cohorts.backend.models.util import (
     COHORT_QUERY_TIMEOUT_SECONDS,
     COHORT_STATS_COLLECTION_DELAY_SECONDS,
     ERROR_CODE_MESSAGES,
+    STATIC_COHORT_READ_BACK_WAITS_SECONDS,
     CohortErrorCode,
     StaticCohortReadBackIncomplete,
     _recalculate_cohortpeople_for_team,
@@ -565,7 +568,8 @@ class TestCohortUtils(BaseTest):
             query={"kind": "ActorsQuery", "search": "example.com"},
         )
 
-        insert_cohort_query_actors_into_ch(cohort, team=self.team)
+        self.assertEqual(insert_cohort_query_actors_into_ch(cohort, team=self.team), 1)
+        self.assertEqual(insert_cohort_query_actors_into_ch(cohort, team=self.team), 0)
 
         rows = sync_execute(
             f"SELECT count() FROM {PERSON_STATIC_COHORT_TABLE} WHERE team_id = %(team_id)s AND cohort_id = %(cohort_id)s",
@@ -575,14 +579,14 @@ class TestCohortUtils(BaseTest):
 
     def test_copy_to_postgres_rereads_until_it_has_seen_the_rows_it_wrote(self):
         cohort = _create_cohort(team=self.team, name="test_cohort", groups=[], is_static=True)
-        person = _create_person(team_id=self.team.id, distinct_ids=["person"])
+        person = _create_person(team_id=self.team.id, distinct_ids=["person"], uuid=uuid.uuid4())
         flush_persons_and_events()
 
-        # The first read lands on a replica without the write, as does the second page's read of the next pass.
+        # The first pass reads an empty replica. The second pass reads the row, then the empty page that ends it.
         with (
             patch(
                 "products.cohorts.backend.models.util.sync_execute",
-                side_effect=[[], [(str(person.uuid),)], []],
+                side_effect=[[], [(str(person.uuid), 1)], []],
             ),
             patch("products.cohorts.backend.models.util.time.sleep"),
         ):
@@ -596,10 +600,40 @@ class TestCohortUtils(BaseTest):
 
         with (
             patch("products.cohorts.backend.models.util.sync_execute", return_value=[]),
-            patch("products.cohorts.backend.models.util.time.sleep"),
+            patch("products.cohorts.backend.models.util.time.sleep") as mock_sleep,
             self.assertRaises(StaticCohortReadBackIncomplete),
         ):
             insert_cohort_people_into_pg(cohort, team_id=self.team.id, min_rows=1)
+
+        self.assertEqual([c.args[0] for c in mock_sleep.call_args_list], list(STATIC_COHORT_READ_BACK_WAITS_SECONDS))
+
+    def test_copy_to_postgres_does_not_count_existing_members_as_the_rows_it_wrote(self):
+        cohort = _create_cohort(team=self.team, name="test_cohort", groups=[], is_static=True)
+        existing = _create_person(team_id=self.team.id, distinct_ids=["existing"], uuid=uuid.uuid4())
+        added = _create_person(team_id=self.team.id, distinct_ids=["added"], uuid=uuid.uuid4())
+        flush_persons_and_events()
+        sync_execute(
+            INSERT_PERSON_STATIC_COHORT,
+            [(uuid.uuid4(), existing.uuid, cohort.pk, self.team.id, datetime(2026, 1, 1))],
+        )
+
+        with (
+            patch("products.cohorts.backend.models.util.time.sleep"),
+            self.assertRaises(StaticCohortReadBackIncomplete),
+        ):
+            insert_cohort_people_into_pg(cohort, team_id=self.team.id, min_rows=1, written_since="2026-06-01 00:00:00")
+
+        # A retry queued before written_since existed counts every row.
+        insert_cohort_people_into_pg(cohort, team_id=self.team.id, min_rows=1)
+        self.assertEqual(count_cohort_members(team_id=self.team.id, cohort_id=cohort.id, consistency="strong"), 1)
+
+        sync_execute(
+            INSERT_PERSON_STATIC_COHORT,
+            [(uuid.uuid4(), added.uuid, cohort.pk, self.team.id, datetime(2026, 6, 1))],
+        )
+        insert_cohort_people_into_pg(cohort, team_id=self.team.id, min_rows=1, written_since="2026-06-01 00:00:00")
+
+        self.assertEqual(count_cohort_members(team_id=self.team.id, cohort_id=cohort.id, consistency="strong"), 2)
 
     def test_get_static_cohort_size_with_strong_consistency(self):
         cohort = _create_cohort(team=self.team, name="test_cohort", groups=[], is_static=True)
@@ -1129,15 +1163,18 @@ class TestCohortUtils(BaseTest):
     def test_print_cohort_hogql_query_supports_multi_column_aliased_and_aggregating_queries(
         self, _name: str, hogql_query: str
     ):
+        # Person rows outlive each test in ClickHouse, so a fixed uuid could pick up another test's properties.
         p_with_domain = _create_person(
             team_id=self.team.pk,
             distinct_ids=[f"p_domain_{_name}"],
             properties={"email": f"with_{_name}@example.com", "domain": "example.com"},
+            uuid=uuid.uuid4(),
         )
-        _create_person(
+        p_without_domain = _create_person(
             team_id=self.team.pk,
             distinct_ids=[f"p_nodomain_{_name}"],
             properties={"email": f"without_{_name}@example.com"},
+            uuid=uuid.uuid4(),
         )
         flush_persons_and_events()
 
@@ -1161,7 +1198,9 @@ class TestCohortUtils(BaseTest):
                 f"SELECT person_id FROM {PERSON_STATIC_COHORT_TABLE} WHERE team_id = %(team_id)s AND cohort_id = %(cohort_id)s",
                 {"team_id": self.team.id, "cohort_id": cohort.id},
             )
-            self.assertEqual([str(r[0]) for r in rows], [str(p_with_domain.uuid)])
+            member_ids = {str(r[0]) for r in rows}
+            self.assertIn(str(p_with_domain.uuid), member_ids)
+            self.assertNotIn(str(p_without_domain.uuid), member_ids)
 
     def test_print_cohort_hogql_query_with_multi_column_distinct_id_query(self):
         from posthog.hogql import ast

@@ -94,7 +94,6 @@ export function QuillDataCatalogMetricScene({ name }: DataCatalogMetricSceneLogi
         metric,
         mutating,
         running: runResultLoading,
-        biModeEnabled: !!featureFlags[FEATURE_FLAGS.SQL_EDITOR_BI_MODE],
         isMaxAvailable,
         handlers: {
             approve: approveMetric,

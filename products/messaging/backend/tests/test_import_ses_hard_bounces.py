@@ -46,24 +46,29 @@ class FakeSesSuppressionList:
 
 class TestImportSesHardBounces(BaseTest):
     @patch("products.workflows.backend.providers.ses.boto3.client")
-    def test_imports_every_page_and_keeps_existing_entries(self, client_factory: MagicMock) -> None:
-        bounced_at = timezone.now() - timedelta(days=3)
+    def test_imports_every_page_and_renews_lapsed_entries(self, client_factory: MagicMock) -> None:
+        lapsed_at = timezone.now() - timedelta(days=3)
+        EmailHardBounce.objects.create(email="known@example.com", first_bounced_at=lapsed_at, last_bounced_at=lapsed_at)
+        long_bouncing_since = timezone.now() - timedelta(days=60)
         EmailHardBounce.objects.create(
-            email="known@example.com", first_bounced_at=bounced_at, last_bounced_at=bounced_at
+            email="old@example.com", first_bounced_at=long_bouncing_since, last_bounced_at=lapsed_at
         )
         client_factory.return_value = FakeSesSuppressionList(
             [
                 ("First@Example.com", "BOUNCE"),
                 ("complained@example.com", "COMPLAINT"),
                 ("known@example.com", "BOUNCE"),
+                ("old@example.com", "BOUNCE"),
                 ("second@example.com", "BOUNCE"),
             ]
         )
 
         call_command("import_ses_hard_bounces")
 
-        rows = {row.email: row.first_bounced_at for row in EmailHardBounce.objects.all()}
-        assert sorted(rows) == ["first@example.com", "known@example.com", "second@example.com"]
-        assert rows["known@example.com"] == bounced_at
-        imported = EmailHardBounce.objects.get(email="first@example.com")
-        assert imported.last_bounced_at - imported.first_bounced_at == GLOBAL_HARD_BOUNCE_MAX_HOLD
+        rows = {row.email: row for row in EmailHardBounce.objects.all()}
+        assert sorted(rows) == ["first@example.com", "known@example.com", "old@example.com", "second@example.com"]
+        for email in ("first@example.com", "known@example.com"):
+            assert rows[email].last_bounced_at > lapsed_at
+            assert rows[email].last_bounced_at - rows[email].first_bounced_at == GLOBAL_HARD_BOUNCE_MAX_HOLD
+        assert rows["old@example.com"].first_bounced_at == long_bouncing_since
+        assert rows["old@example.com"].last_bounced_at > lapsed_at

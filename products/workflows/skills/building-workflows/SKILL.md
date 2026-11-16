@@ -28,7 +28,7 @@ Work the workflow through these stages. Don't jump straight to enabling it.
 5. **Edit, then re-test.** Patch the graph with `workflows-patch-graph` (see [Editing a draft](#editing-a-draft)). **Every edit invalidates your earlier test** — re-run the affected path before moving on. On a draft workflow, edits apply directly; on an active one they stage a draft (see [Changing a live workflow](#changing-a-live-workflow)).
 6. **Enable (needs the user's explicit sign-off).** `workflows-enable` flips it to `active` and an **event/webhook/manual** trigger starts firing on matching activity. From then on it runs on real people, and every change goes through the draft → test → publish cycle before taking effect — so finish testing, then get the user's explicit go before enabling. Don't enable on your own initiative.
 7. **Dispatch (batch/schedule only).** A `batch` or `schedule` workflow does **not** fire on enable alone. Send a one-off broadcast with `workflows-run-batch`, or attach a recurring schedule with `workflows-schedule-create`. A `batch` trigger fans out to a person audience, so scheduling it needs the `workflows-blast-radius` preview and its confirm token; a `schedule` trigger runs once per occurrence with no audience, so schedule it directly. Confirm with `workflows-get` that `status=='active'` _and_ its read-only `schedules` field has an active entry.
-8. **Monitor.** Drill down: `workflows-global-stats` (which workflows are failing) to `workflows-stats` (one workflow's trend) to `workflows-list-invocations` (who it failed for) to `workflows-get-invocation` (the triggering payload) to `workflows-logs` (the failing step).
+8. **Monitor.** Drill down: `workflows-global-stats` (which workflows are failing) to `workflows-stats` (one workflow's trend) to `workflows-list-invocations` (who it failed for) to `workflows-get-invocation` (the triggering payload) to `workflows-logs` (the failing step). For how an email performs (opens, clicks, links, versions, what recipients did next), use the **`measuring-email-performance`** skill.
 
 Full tool catalog, grouped by job: [references/lifecycle-and-debugging.md](references/lifecycle-and-debugging.md).
 
@@ -48,7 +48,7 @@ Compose and edit email designs with the **`designing-email-templates`** skill.
 
 ## Changing a live workflow
 
-Editing an active workflow stages a **draft** instead of changing what's running: nothing reaches real people until you publish. Work the cycle:
+Editing an active workflow stages a **draft** instead of changing what's running: nothing reaches real people until you publish. Disabling an active workflow with `workflows-disable` stops new runs and returns it to `draft`; content edits after disabling also stage a draft. Work the cycle:
 
 1. **Edit.** `workflows-patch-graph` (or `workflows-update` for content fields) on the active workflow writes to its draft — the first edit copies the live graph into the draft, later edits compose onto it. `workflows-get` shows the staged draft in `draft`; the live config stays in `actions`/`edges`. Metadata (name, description) applies live immediately.
 2. **Test the draft.** `workflows-test-run` with `use_draft=true` executes the staged draft instead of the live config. Re-test every path you changed.

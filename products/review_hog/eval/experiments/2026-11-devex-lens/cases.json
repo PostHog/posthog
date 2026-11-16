@@ -1,0 +1,177 @@
+{
+    "pilot": [
+        {
+            "pr": 131831,
+            "head_sha": "b586b40b5a6e66f9e733f2a11b699c9cb7488a34",
+            "split": "tune",
+            "issues": [
+                {
+                    "id": "131831-G1",
+                    "claim": "posthog/admin/admins/user_admin.py:201:the link drops the ticket parameter, and the console operation redirects drop it too, losing the ticket used to prefill the impersonation reason; the ticket-preservation test was deleted."
+                },
+                {
+                    "id": "131831-G2",
+                    "claim": "posthog/admin/console/user_panels.py:154:these handlers ignore form_nonce, which the console requires for message sends; retrying a POST can send another email or rotate a key again."
+                }
+            ]
+        },
+        {
+            "pr": 130482,
+            "head_sha": "88fea27cb97f0eac2b80a0c2c6de5128a0f8a637",
+            "split": "tune",
+            "issues": [
+                {
+                    "id": "130482-G1",
+                    "claim": ".github/workflows/release-toolbar-extension.yml:619:publishing is not serialized by store item; an older retry and a newer release can overwrite the shared draft."
+                },
+                {
+                    "id": "130482-G2",
+                    "claim": ".github/workflows/release-toolbar-extension.yml:684:if upload succeeds but submission fails, a retry uploads the same version again and fails; submission cannot be resumed without another upload."
+                },
+                {
+                    "id": "130482-G3",
+                    "claim": ".github/workflows/release-toolbar-extension.yml:290:the pinned action pulls a mutable container tag while holding the release app's write token; the image is not pinned by digest."
+                }
+            ]
+        },
+        {
+            "pr": 127655,
+            "head_sha": "55bb872e4bb1567d2052a759cd497ea87986c52d",
+            "split": "tune",
+            "issues": [
+                {
+                    "id": "127655-G1",
+                    "claim": "Dockerfile.recording-rasterizer:84-88 keeps Debian Bookworm's glibc 2.36, but the new uWebSockets binary loaded by ultimate-express at startup needs glibc 2.38, so the rasterizer crashes at startup."
+                }
+            ]
+        },
+        {
+            "pr": 123435,
+            "head_sha": "00dab459357ce4aa7c6435f4edeaa4385e33a30f",
+            "split": "tune",
+            "issues": [
+                {
+                    "id": "123435-G1",
+                    "claim": "Automatic production publishing stops: private master pushes and schedules skip the image publishers (MCP, Node, sandbox, rasterizer, replay-anonymizer), and public runs cannot replace them because publishing needs CD_DEPLOY_ENABLED (.github/workflows/cd-mcp-image.yml:37)."
+                },
+                {
+                    "id": "123435-G2",
+                    "claim": "Rust builds expand: skipping the affected job leaves an empty filter while build-images survives through !cancelled(), and empty means all images (.github/workflows/rust-docker-build.yml:42)."
+                },
+                {
+                    "id": "123435-G3",
+                    "claim": "Desktop-only pushes trigger backend builds and deployments: skipping the changes job leaves an empty verdict that passes posthog_build's != 'false' condition (.github/workflows/container-images-cd.yml:68)."
+                }
+            ]
+        },
+        {
+            "pr": 123102,
+            "head_sha": "665a6d682ebfa347fbdd7092d4144933a52c52e3",
+            "split": "tune",
+            "issues": [
+                {
+                    "id": "123102-G1",
+                    "claim": "The new GitLab project and merge request methods do not use _json(), so malformed responses do not consistently raise GitLabIntegrationError."
+                },
+                {
+                    "id": "123102-G2",
+                    "claim": "The transport test does not assert the recorded counter and scope; it passes with recording disabled and zero metrics."
+                },
+                {
+                    "id": "123102-G3",
+                    "claim": "The README claims callers honor Retry-After, but the implementation does not."
+                }
+            ]
+        },
+        {
+            "pr": 122350,
+            "head_sha": "03319b43f661b3b86106c0adf9e017817c263cac",
+            "split": "holdout",
+            "issues": [
+                {
+                    "id": "122350-G1",
+                    "claim": "Devbox sync can run a Git hook from the branch already on the devbox, giving that code access to the forwarded SSH agent; hooks are not disabled during fetch."
+                },
+                {
+                    "id": "122350-G2",
+                    "claim": "Two worktrees can claim the same devbox while it is being created; cleaning either worktree can then delete the other's box."
+                },
+                {
+                    "id": "122350-G3",
+                    "claim": "Git can reuse the same path after a worktree is removed and recreated; cleanup mistakes the new worktree for the old one and can delete the old devbox (identity relies on paths)."
+                }
+            ]
+        },
+        {
+            "pr": 110690,
+            "head_sha": "7b300f710fc2b078b06ae22da9806641a1ff81da",
+            "split": "holdout",
+            "issues": [
+                {
+                    "id": "110690-G1",
+                    "claim": "The interface checker silently misses aliases and mutated registries (for example `Handed = Plain`, `WORKFLOWS.append(Plain)`)."
+                },
+                {
+                    "id": "110690-G2",
+                    "claim": "The ledger ignores consumer identity, so deleting one dependency permits a new, unrelated dependency."
+                }
+            ]
+        },
+        {
+            "pr": 102568,
+            "head_sha": "826a98397bd712a371937a7772a0a80922834a7b",
+            "split": "holdout",
+            "issues": [
+                {
+                    "id": "102568-G1",
+                    "claim": "posthog/test/repo_invariants/test_serializer_timestamp_guard.py:274:_serializer_choices() assigns every serializer the view mentions to every write route, so a read-only serializer is reported as a writable-route violation."
+                },
+                {
+                    "id": "102568-G2",
+                    "claim": "posthog/test/repo_invariants/test_serializer_timestamp_guard.py:218:an unresolved serializer factory call (ast.Call) resolves to nothing and the unresolved error is suppressed, so the route passes unchecked."
+                }
+            ]
+        },
+        {
+            "pr": 111704,
+            "head_sha": "ba540066c9cdc006355cf5357c4b4f2d921eb496",
+            "split": "holdout",
+            "issues": [
+                {
+                    "id": "111704-G1",
+                    "claim": "The tool recomputes the automatic index name hash from current table/column names instead of resolving the existing index from the catalog; named Meta indexes and ambiguity are not handled."
+                },
+                {
+                    "id": "111704-G2",
+                    "claim": "The FK guard rejects a partial btree index with WHERE fk_id IS NOT NULL, although it covers parent-delete lookups without a redundant full index."
+                }
+            ]
+        }
+    ],
+    "clean": [
+        {
+            "pr": 126832,
+            "head_sha": "dce9b2bf312ff769371327f0a0bb56e9170e76d6"
+        },
+        {
+            "pr": 126718,
+            "head_sha": "445ae272de9da4bcc7c720200a5f7249d772712a"
+        },
+        {
+            "pr": 126087,
+            "head_sha": "89ae6d4712a7fc92b5de874a3aa5f040cb63cc36"
+        },
+        {
+            "pr": 125318,
+            "head_sha": "83cb71b2fd81a62f42f664a59178c4846307b348"
+        },
+        {
+            "pr": 123678,
+            "head_sha": "2325d9dc71efd0280e7e305acb05e66f11be9e3b"
+        },
+        {
+            "pr": 122452,
+            "head_sha": "cf09657c2eda674189c25e9d53fc4db16d833f84"
+        }
+    ]
+}

@@ -15,21 +15,31 @@ from products.experiments.backend.facade.contracts import (
     ExperimentHealthFinding,
     ExperimentHealthFindingCode,
     ExperimentHealthFindingSeverity,
+    ExperimentHealthValueKey,
 )
-from products.experiments.backend.health.context import HealthContext
-from products.experiments.backend.health.skips import CheckOutcome, CheckSkip, flag_to_check
+from products.experiments.backend.health.context import ExperimentOnFlag, HealthContext
+from products.experiments.backend.health.skips import CheckOutcome, CheckSkip, CheckValues, flag_to_check
 
 RUNNING_FLAG_SHARED_WITH_RUNNING = "running_flag_shared_with_running"
 RUNNING_FLAG_SHARED_WITH_DRAFT = "running_flag_shared_with_draft"
 DRAFT_FLAG_SHARED_WITH_RUNNING = "draft_flag_shared_with_running"
 
 
+def flag_shared_values(ctx: HealthContext) -> CheckValues:
+    if isinstance(flag_to_check(ctx, before_launch=True), CheckSkip):
+        return {}
+    others = _other_experiments(ctx)
+    return {
+        ExperimentHealthValueKey.OTHER_RUNNING_EXPERIMENT_COUNT: sum(1 for other in others if other.is_running),
+        ExperimentHealthValueKey.OTHER_DRAFT_EXPERIMENT_COUNT: sum(1 for other in others if other.is_draft),
+    }
+
+
 def flag_shared(ctx: HealthContext) -> CheckOutcome:
     flag = flag_to_check(ctx, before_launch=True)
     if isinstance(flag, CheckSkip):
         return flag
-    # An archived experiment is ended, or a draft that nobody is going to launch.
-    others = [other for other in ctx.other_experiments_on_flag if not other.archived]
+    others = _other_experiments(ctx)
     running = sum(1 for other in others if other.is_running)
     drafts = sum(1 for other in others if other.is_draft)
     if not ctx.is_launched:
@@ -39,6 +49,11 @@ def flag_shared(ctx: HealthContext) -> CheckOutcome:
     if drafts:
         return _running_shares_with_draft(drafts)
     return None
+
+
+def _other_experiments(ctx: HealthContext) -> list[ExperimentOnFlag]:
+    # An archived experiment is ended, or a draft that nobody is going to launch.
+    return [other for other in ctx.other_experiments_on_flag if not other.archived]
 
 
 def _running_shares_with_running(others: int) -> ExperimentHealthFinding:

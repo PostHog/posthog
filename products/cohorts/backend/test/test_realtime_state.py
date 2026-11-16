@@ -14,6 +14,7 @@ from products.cohorts.backend.models.backfill import (
     CohortBackfillChunk,
     CohortBackfillChunkStatus,
     CohortBackfillKind,
+    CohortBackfillRefusal,
     CohortBackfillRun,
     CohortBackfillRunCohort,
     CohortBackfillRunStatus,
@@ -106,6 +107,25 @@ class TestRealtimeReadiness(BaseTest):
         # The whole point of deriving from a run row: a refused, lost, or never-triggered backfill
         # must not read as work in progress, or the progress bar never ends.
         assert self._state(self._cohort()) == CohortRealtimeState.NEEDS_ATTENTION
+
+    @parameterized.expand(
+        [
+            ("current_definition", {}, CohortRealtimeUnavailableReason.TOO_LARGE_TO_BUILD),
+            ("criteria_edited_since", {"behavioral_filters_shape_hash": "edited0000000000"}, None),
+        ]
+    )
+    def test_a_stored_scan_refusal_says_why_nothing_is_building(
+        self, _name: str, edit: dict[str, str], reason: CohortRealtimeUnavailableReason | None
+    ) -> None:
+        cohort = self._cohort()
+        CohortBackfillRefusal.objects.for_team(self.team.id).create(
+            team_id=self.team.id, cohort=cohort, shape_hash=cohort.behavioral_filters_shape_hash or "", message=""
+        )
+        Cohort.objects.filter(id=cohort.id).update(**edit)
+        cohort.refresh_from_db()
+
+        readiness = resolve_realtime_readiness([cohort])[cohort.id]
+        assert (readiness.state, readiness.reason) == (CohortRealtimeState.NEEDS_ATTENTION, reason)
 
     @parameterized.expand(
         [

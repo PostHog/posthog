@@ -7,6 +7,7 @@ use crate::{
     error::EventError,
     metric_consts::EXCEPTION_PROCESSING_PIPELINE,
     stages::{
+        adaptive_ingestion::AdaptiveIngestionStage,
         alerting::AlertingStage,
         grouping::GroupingStage,
         linking::LinkingStage,
@@ -67,6 +68,8 @@ impl Stage for ExceptionEventPipeline {
             // Drop rate-limited events as soon as issue_id is known — before
             // alerting/enrichment, so spike detection never counts them.
             .apply_stage(RateLimitingStage::from(&self.app_context))
+            .await?
+            .apply_stage(AdaptiveIngestionStage::from(&self.app_context))
             .await?
             // Send internal events for alerting
             .apply_stage(AlertingStage::from(&self.app_context))

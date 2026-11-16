@@ -1,4 +1,5 @@
 import json
+import dataclasses
 from datetime import datetime, timedelta
 from typing import Any
 
@@ -51,6 +52,7 @@ _VIEWS = "products.stamphog.backend.presentation.views"
 # The repo enumeration moved behind the facade with the sync logic; the rest is still looked up in views.
 _GITHUB_FACADE = "products.stamphog.backend.facade.github"
 _CLIENT = "products.stamphog.backend.logic.github_client.StamphogGitHubClient"
+_SWITCH_ON = {"review_on_clean_external_review": True}
 
 
 def _install_state(team_id: int, user_id: int) -> str:
@@ -662,6 +664,38 @@ class TestStamphogRepoConfigSerializerValidation(SimpleTestCase):
 
     @parameterized.expand(
         [
+            ("create_in_all_mode", None, {"repository": "PostHog/posthog", "review_mode": "all", **_SWITCH_ON}, None),
+            ("switch_on_in_stored_all_mode", ReviewMode.ALL, _SWITCH_ON, None),
+            ("all_mode_and_switch_in_one_save", ReviewMode.LABEL, {"review_mode": "all", **_SWITCH_ON}, None),
+            # The mode dropdown sends only review_mode, so the save must take the switch with it.
+            ("all_mode_turns_the_switch_off", ReviewMode.LABEL, {"review_mode": "all"}, False),
+            ("switch_on_in_label_mode", ReviewMode.LABEL, _SWITCH_ON, True),
+        ]
+    )
+    def test_the_clean_review_switch_needs_label_mode(
+        self, _name: str, stored_mode: ReviewMode | None, data: dict, expected_switch: bool | None
+    ) -> None:
+        # In all mode the switch only makes fallback routing wait for a silent review that never starts.
+        current = None
+        if stored_mode is not None:
+            current = dataclasses.replace(
+                _repo_config_dto(enabled=True, digest_enabled=False),
+                review_mode=stored_mode,
+                review_on_clean_external_review=True,
+            )
+        serializer = StamphogRepoConfigWriteSerializer(
+            data=data, partial=current is not None, partial_update=current is not None, current=current
+        )
+
+        if expected_switch is None:
+            assert not serializer.is_valid()
+            assert "review_on_clean_external_review" in serializer.errors
+        else:
+            assert serializer.is_valid(), serializer.errors
+            assert serializer.validated_data["review_on_clean_external_review"] is expected_switch
+
+    @parameterized.expand(
+        [
             ("person_key", {"@alice": "area: alice"}, False),
             ("blank_label", {"team-alpha": "  "}, False),
             ("label_too_long_for_github", {"team-alpha": "x" * 51}, False),
@@ -763,6 +797,12 @@ class TestReviewRunAPI(StamphogTeamScopedTestMixin, APIBaseTest):
             ("self_driving_beats_all_mode", ReviewMode.ALL, {"inbox_review": {"trigger": "inbox"}}, "self_driving"),
             ("self_driving_beats_label_mode", ReviewMode.LABEL, {"inbox_review": {"trigger": "inbox"}}, "self_driving"),
             ("manual_beats_label_mode", ReviewMode.LABEL, {"manual_review": {"acting_user_id": 1}}, "manual"),
+            (
+                "bot_admission_beats_label_mode",
+                ReviewMode.LABEL,
+                {"bot_admission": {"login": "renovate[bot]"}},
+                "bot_admission",
+            ),
             (
                 "manual_beats_silent",
                 ReviewMode.LABEL,

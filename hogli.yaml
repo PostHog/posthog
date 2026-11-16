@@ -901,6 +901,9 @@ quality:
     lint:complexity:
         click: hogli_commands.complexity_lint:cmd_lint_complexity
         description: Check cyclomatic complexity of changed Python/TypeScript files (warn-only; test files get a relaxed limit)
+    lint:test-owners:
+        click: hogli_commands.ownership_lint:cmd_lint_test_owners
+        description: Fail when the branch leaves a test file with no team owner in owners.yaml
     lint:size:
         click: hogli_commands.size_lint:cmd_lint_size
         description: Check the size of changed Python/TypeScript files (warn-only, crossing 1000 lines)
@@ -1151,7 +1154,7 @@ owners:
         description: Emit a CODEOWNERS projection of test-file ownership for tools that only read CODEOWNERS (-o writes a file)
     owners:unowned:
         click: owners_yaml.cli:cmd_unowned
-        description: List unowned tracked files, respecting owners:null exemptions (optional PREFIX)
+        description: List unowned tracked files, respecting owners:null exemptions (optional PREFIX; --against REF lists only what the branch leaves unowned)
     owners:lint:
         click: owners_yaml.cli:cmd_lint
         description: Validate owners.yaml schema, product.yaml conflicts, dead globs, coverage (--live checks the GitHub org)

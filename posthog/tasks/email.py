@@ -1,3 +1,4 @@
+import html
 import uuid
 import hashlib
 import datetime
@@ -32,12 +33,7 @@ from posthog.email import (
 )
 from posthog.event_usage import groups
 from posthog.geoip import get_geoip_properties
-from posthog.helpers.email_utils import (
-    ESPSuppressionReason,
-    check_esp_suppression,
-    sanitize_display_name,
-    sanitize_message_body,
-)
+from posthog.helpers.email_utils import sanitize_display_name, sanitize_email_string, sanitize_message_body
 from posthog.helpers.two_factor_session import CODE_TTL_SECONDS
 from posthog.models import (
     Organization,
@@ -438,16 +434,9 @@ def should_send_pipeline_error_notification(
     return failure_rate > threshold
 
 
-@shared_task(ignore_result=True)
-@skip_team_scope_audit
-def check_invite_email_suppression(invite_id: str) -> None:
-    invite = OrganizationInvite.objects.select_related("created_by").filter(id=invite_id).first()
-    if invite is None or not invite.target_email or not is_http_email_service_available():
-        return
-    # Only a confirmed suppression counts. The MFA flow treats an API failure as suppressed, but here that would flag healthy addresses.
-    if check_esp_suppression(invite.target_email).reason != ESPSuppressionReason.SUPPRESSED:
-        return
-    OrganizationInvite.objects.filter(id=invite_id).update(email_suppressed=True)
+def _mark_invite_email_suppressed(invite: OrganizationInvite) -> None:
+    invite_id = str(invite.id)
+    OrganizationInvite.objects.filter(id=invite.id).update(email_suppressed=True)
     with ph_scoped_capture() as capture:
         capture(
             distinct_id=str(invite.created_by.distinct_id) if invite.created_by else f"invite_{invite_id}",
@@ -551,7 +540,7 @@ def send_invite(invite_id: str) -> None:
         already_delivered = MessagingRecord.objects.filter(
             campaign_key=campaign_key, email_hash__in=target_email_hashes, sent_at__isnull=False
         ).exists()
-        message.send(send_async=False)
+        undeliverable = message.send(send_async=False)
         delivered = MessagingRecord.objects.filter(
             campaign_key=campaign_key, email_hash__in=target_email_hashes, sent_at__isnull=False
         ).exists()
@@ -571,11 +560,18 @@ def send_invite(invite_id: str) -> None:
                 organization_id=str(invite.organization_id),
                 campaign_key=campaign_key,
             )
+    elif is_http_email_service_available():
+        # Only a synchronous Workflows send reports a refused address. SMTP keeps the queued send and its spaced retries.
+        undeliverable = message.send(send_async=False)
+        OrganizationInvite.objects.filter(pk=invite_id).update(emailing_attempt_made=True)
     else:
         message.send()
         OrganizationInvite.objects.filter(pk=invite_id).update(emailing_attempt_made=True)
-    # The lookup can take seconds, so it runs in its own task rather than delaying the invite email.
-    check_invite_email_suppression.delay(str(invite_id))
+        return
+    # The send ran eagerly in this worker, so it captured through the global client, which a recycled worker does not flush.
+    posthoganalytics.flush()
+    if undeliverable:
+        _mark_invite_email_suppressed(invite)
 
 
 @shared_task(**EMAIL_TASK_KWARGS)
@@ -2299,6 +2295,19 @@ def send_hog_functions_digest_email(digest_data: dict, test_email_override: str 
     logger.info(f"Sent HogFunctions digest email to {emails_sent} members for team {team_id}")
 
 
+# On a quiet day, a few transient failures in a few dozen runs give a failure rate far above the user's
+# threshold, so the digest skips a function unless one of these minimums makes its failure rate meaningful.
+HOG_FUNCTIONS_DIGEST_MIN_TOTAL_RUNS = 100
+HOG_FUNCTIONS_DIGEST_MIN_FAILURES = 10
+
+
+def _has_enough_runs_for_hog_functions_digest(succeeded: int, failed: int) -> bool:
+    # A function with no successful run in the window is fully broken, not noisy, so it alerts at any volume.
+    if succeeded == 0:
+        return failed > 0
+    return succeeded + failed >= HOG_FUNCTIONS_DIGEST_MIN_TOTAL_RUNS or failed >= HOG_FUNCTIONS_DIGEST_MIN_FAILURES
+
+
 @shared_task(ignore_result=True)
 def send_hog_functions_daily_digest() -> None:
     """
@@ -2478,8 +2487,9 @@ def send_team_hog_functions_digest(team_id: int, hog_function_ids: list[str] | N
             last_editors[hog_function_id] = None
             last_edit_dates[hog_function_id] = None
 
-    # Build function metrics. Only include functions with at least one failure; per-user threshold
-    # (data_pipeline_error_threshold) then filters which functions each user sees in send_hog_functions_digest_email.
+    # Build function metrics. Only include functions with at least one failure and enough runs for a meaningful
+    # failure rate; per-user threshold (data_pipeline_error_threshold) then filters which functions each user sees
+    # in send_hog_functions_digest_email.
     function_metrics = []
     for hog_function in hog_functions:
         hog_function_id = str(hog_function["id"])
@@ -2488,6 +2498,9 @@ def send_team_hog_functions_digest(team_id: int, hog_function_ids: list[str] | N
 
         metrics = metrics_by_function[hog_function_id]
         if metrics["failed"] <= 0:
+            continue
+
+        if not _has_enough_runs_for_hog_functions_digest(metrics["succeeded"], metrics["failed"]):
             continue
 
         total_runs = metrics["succeeded"] + metrics["failed"]
@@ -2542,6 +2555,60 @@ def send_personal_api_key_exposed(user_id: int, personal_api_key_id: str, old_ma
             "label": personal_api_key.label,
             "more_info": more_info,
             "mask_value": old_mask_value,
+            "url": f"{settings.SITE_URL}/settings/user-api-keys",
+        },
+    )
+    message.add_user_recipient(user)
+    message.send()
+
+
+@shared_task(**EMAIL_TASK_KWARGS)
+@skip_team_scope_audit
+def send_personal_api_keys_changed_by_org_admin(
+    user_id: int, organization_id: str, changes: list[dict[str, str]]
+) -> None:
+    if not is_email_available(with_absolute_urls=True):
+        return
+
+    user = User.objects.filter(pk=user_id).first()
+    if user is None:
+        return
+    organization = Organization.objects.filter(id=organization_id).first()
+    # The organization name is text that an admin controls, in an email to another user. A name that
+    # looks like a link gets a placeholder.
+    organization_name = sanitize_display_name(
+        organization.name if organization else None,
+        fallback="your organization",
+        context={
+            "task": "send_personal_api_keys_changed_by_org_admin",
+            "field": "organization_name",
+            "organization_id": organization_id,
+        },
+    )
+    # The SMTP template autoescapes HTML but does not defang domains like the HTTP transport does.
+    organization_name = html.unescape(sanitize_email_string(organization_name))
+    rolled_keys = [change for change in changes if change["outcome"] == "rolled"]
+    revoked_keys = [change for change in changes if change["outcome"] == "deleted"]
+    if rolled_keys and not revoked_keys:
+        heading = "Your personal API key was rolled" if len(rolled_keys) == 1 else "Your personal API keys were rolled"
+    elif revoked_keys and not rolled_keys:
+        heading = (
+            "Your personal API key was revoked" if len(revoked_keys) == 1 else "Your personal API keys were revoked"
+        )
+    else:
+        heading = "Your personal API keys changed"
+    message = EmailMessage(
+        use_http=True,
+        campaign_key=f"personal-api-keys-changed-by-org-admin-{user.uuid}-{timezone.now().timestamp()}",
+        subject=heading,
+        template_name="personal_api_key_changed_by_org_admin",
+        template_context={
+            "preheader": "Review the changes and how to reconnect your integrations.",
+            "heading": heading,
+            "organization_name": organization_name,
+            "changes": changes,
+            "rolled_keys": rolled_keys,
+            "revoked_keys": revoked_keys,
             "url": f"{settings.SITE_URL}/settings/user-api-keys",
         },
     )
@@ -2980,7 +3047,7 @@ def send_error_tracking_weekly_digest_for_org(self: Task, org_id: str) -> None:
             "disabled_project_names": disabled_team_names,
             "excluded_project_count": excluded_project_count,
             "settings_url": f"{settings.SITE_URL}/settings/user-notifications?highlight=et-weekly-digest",
-            "feedback_survey_url": f"https://us.posthog.com/external_surveys/019c7fd6-7cfa-0000-2b03-a8e5d4c03743?distinct_id={distinct_id}",
+            "feedback_survey_url": f"https://posthogsurveys.com/019c7fd6-7cfa-0000-2b03-a8e5d4c03743?distinct_id={distinct_id}",
         }
 
         campaign_key = f"error_tracking_weekly_digest_{org_id}_{user.uuid}_{date_suffix}"

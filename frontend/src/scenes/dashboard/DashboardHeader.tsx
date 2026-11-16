@@ -3,6 +3,7 @@ import { useActions, useValues } from 'kea'
 import { FullScreen } from 'lib/components/FullScreen'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
+import { AnalyticsScenePinButton } from 'scenes/analytics/AnalyticsScenePinButton'
 import { sceneConfigurations } from 'scenes/scenes'
 import { Scene } from 'scenes/sceneTypes'
 
@@ -83,6 +84,7 @@ export function DashboardHeader({
 
             <SceneTitleSection
                 name={dashboard?.name}
+                nameAction={<AnalyticsScenePinButton dataAttrKey="dashboard" />}
                 description={dashboard?.description}
                 resourceType={{
                     type: sceneConfigurations[Scene.Dashboard].iconType || 'default_icon_type',

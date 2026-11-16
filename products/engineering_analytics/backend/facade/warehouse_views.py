@@ -1,11 +1,3 @@
-"""The warehouse views this product exposes, for data_modeling's managed-viewset sync.
-
-data_modeling calls ``get_expected_warehouse_views(team)`` and adapts the returned frozen
-contracts into its own ``ExpectedView`` rows. Kept behind the
-facade so data_modeling never imports this product's read layer directly — it depends only on the
-provider-neutral ``ExpectedWarehouseView`` contract.
-"""
-
 from typing import Any
 
 from posthog.hogql.database.models import FieldOrTable
@@ -26,10 +18,8 @@ from products.warehouse_sources.backend.facade.types import DataWarehouseManaged
 
 
 def get_expected_warehouse_views(team: Team) -> list[ExpectedWarehouseView]:
-    """The team's exposed warehouse views. Empty when the team has no GitHub source with both the
-    workflow_runs and workflow_jobs endpoints synced, so they appear together or not at all. The
-    materialized views spend the team's warehouse compute, so they exist only for organizations the
-    flag targets.
+    """Empty when no non-materialized view can be built for the team. The materialized views spend
+    the team's warehouse compute, so they exist only for organizations the flag targets.
     """
     views: list[ExpectedWarehouseView] = []
     for module in (job_costs, ci_job_history, ci_failures):
@@ -76,10 +66,10 @@ def _enabled_materialized_views(team: Team) -> set[str]:
     names = {pr_friction.VIEW_NAME, ci_rows.RUNS_VIEW_NAME, ci_rows.JOBS_VIEW_NAME}
     enabled = materialized_views_enabled(team)
     if enabled is None:
-        # No answer (the flag service failed, or the flag does not exist). The sync deletes every view it
-        # does not expect, so keep the views the team has rather than drop a materialized table on an outage.
+        # The flag service gave no answer. The sync deletes every view it does not expect, so keep
+        # the views the team has to avoid dropping a materialized table during an outage.
         return set(
-            # Only this product's managed view counts: a user's own saved query can carry the same name.
+            # A user's own saved query can carry the same name, so filter on this product's viewset.
             DataWarehouseSavedQuery.objects.filter(
                 team_id=team.id,
                 name__in=names,
