@@ -1478,7 +1478,8 @@ def _compact_during_rebuild(
     report_phase("compact_during_rebuild")
     with timer.step("compact_during_rebuild"):
         outcome = async_to_sync(DeltaMaintenance(delta_table_ref).compact_during_rebuild)(
-            settings.DATA_WAREHOUSE_REBUILD_COMPACT_MIN_REMOVABLE_FILES
+            settings.DATA_WAREHOUSE_REBUILD_COMPACT_MIN_REMOVABLE_FILES,
+            settings.DATA_WAREHOUSE_REBUILD_COMPACT_MAX_PARTITIONS,
         )
     DELTA_COMPACT_DURING_REBUILD_TOTAL.labels(outcome=outcome).inc()
 

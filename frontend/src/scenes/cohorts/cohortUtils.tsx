@@ -170,6 +170,9 @@ export function createCohortFormData(
         description: cohort.description ?? '',
         ...(cohort.csv ? { csv: cohort.csv } : {}),
         ...(cohort.is_static ? { is_static: cohort.is_static } : {}),
+        ...(cohort.id === 'new' && cohort.realtime_enabled && hasEventCriteria(cohort)
+            ? { realtime_enabled: true }
+            : {}),
         ...(typeof cohort._create_in_folder === 'string' ? { _create_in_folder: cohort._create_in_folder } : {}),
         filters: JSON.stringify(
             cohort.is_static && !preserveStaticFilters
@@ -771,6 +774,11 @@ function hasBehavioralCriteria(group: CohortCriteriaGroupFilter | AnyCohortCrite
     return group.type === BehavioralFilterKey.Behavioral
 }
 
+/** Whether a dynamic cohort matches on events. Only such a cohort is offered realtime when it is created. */
+export function hasEventCriteria(cohort: CohortType): boolean {
+    return !cohort.is_static && !!cohort.filters?.properties && hasBehavioralCriteria(cohort.filters.properties)
+}
+
 /** Why a broadcast can't send to this cohort, mirroring the batch audience check on the server. */
 export function cohortBroadcastDisabledReason(cohort: CohortType): string | null {
     if (typeof cohort.id !== 'number') {
@@ -779,7 +787,7 @@ export function cohortBroadcastDisabledReason(cohort: CohortType): string | null
     if (cohort.deleted) {
         return 'Restore the cohort first'
     }
-    if (!cohort.is_static && cohort.filters?.properties && hasBehavioralCriteria(cohort.filters.properties)) {
+    if (hasEventCriteria(cohort)) {
         return "Broadcasts can't send to cohorts with event conditions. Use a static or property-based cohort."
     }
     return null

@@ -227,6 +227,9 @@ export class HogFunctionHandler implements ActionHandler {
         if (functionResult.emailSendResult) {
             result.emailSendResult = functionResult.emailSendResult
         }
+        if (functionResult.parked) {
+            result.parked = true
+        }
 
         // Add all logs
         functionResult.logs.forEach((log: MinimalLogEntry) => {
