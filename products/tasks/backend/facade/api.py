@@ -96,6 +96,7 @@ from products.tasks.backend.constants import (
     RESERVED_SANDBOX_ENVIRONMENT_VARIABLE_KEYS,
     SANDBOX_REPOSITORIES_ROOT,
     SERVER_OWNED_RESUME_STATE_KEYS,
+    STOPPED_BEFORE_TURN_CLOSED_STATE_KEY,
     SUBSCRIPTION_PLAN_NAMES,
     TASK_ANALYSIS_ACTIVITIES_STATE_KEY,
     TASK_ANALYSIS_FEATURE_FLAG,
@@ -3311,6 +3312,7 @@ _PROTECTED_RUN_STATE_KEYS = frozenset(
         "timed_out_inactivity",
         "timed_out_wall_clock",
         "sandbox_gone",
+        STOPPED_BEFORE_TURN_CLOSED_STATE_KEY,
         TASK_ANALYSIS_ACTIVITIES_STATE_KEY,
         ANALYSIS_TARGET_TASK_ID_STATE_KEY,
         ANALYSIS_TARGET_RUN_ID_STATE_KEY,
@@ -3368,6 +3370,9 @@ _PROTECTED_RUN_STATE_KEYS = frozenset(
         "interaction_origin",
         "slack_actor_user_id",
         "slack_actor_slack_user_id",
+        # The Slack app edits and deletes this message without checking which thread it is in, so a
+        # forged ts would let a caller rewrite or remove any bot message in the channel.
+        "slack_progress_message_ts",
         # Names the autoresearch training run this TaskRun finalizes when it ends (training.ingestion).
         "autoresearch_training_run_id",
         # Set only when the agent's `finish` call saves its report. A forged marker would stop the

@@ -284,6 +284,7 @@ rules:
                               |KnowledgeLibrary
                               |KnowledgeLibraryRepository
                               |KnowledgeLibrarySource
+                              |KnowledgeRunCitation
                               |KnowledgeSource
                               |KnowledgeUsageRecord
                               |PlaygroundChat
@@ -294,6 +295,7 @@ rules:
                               |LogsExclusionRule
                               |LogsMetricRule
                               |LogsRetentionRule
+                              |LogsSigningSecret
                               |LogsView
                               |Loop
                               |LoopFire
@@ -833,6 +835,7 @@ rules:
                         |KnowledgeLibrary
                         |KnowledgeLibraryRepository
                         |KnowledgeLibrarySource
+                        |KnowledgeRunCitation
                         |KnowledgeSource
                         |KnowledgeUsageRecord
                         |PlaygroundChat
@@ -1293,6 +1296,7 @@ rules:
                         |LogsAlertConfiguration
                         |LogsExclusionRule
                         |LogsRetentionRule
+                        |LogsSigningSecret
                         |LogsView
                         |MarketingAnalyticsGoalMapping
                         |MaterializedColumnSlot

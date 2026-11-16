@@ -201,9 +201,8 @@ def in_flight_headroom(scanner_in_flight: int, team_in_flight: int) -> int:
     """Scheduled-dispatch headroom for a sweep or backfill tick: the tighter of the per-scanner and
     per-team caps, minus the slots reserved for on-demand admission.
 
-    The sweep workflow throttles on this and the count activity records the throttled
-    metric from it, so the decision and the metric can't drift apart. Pure, so it is safe
-    inside deterministic workflow code.
+    The sweep tick throttles on this and the count activity records the throttled metric from
+    it, so the decision and the metric can't drift apart.
     """
     return min(
         MAX_IN_FLIGHT_APPLIES_PER_SCANNER - ON_DEMAND_RESERVED_SCANNER_SLOTS - scanner_in_flight,

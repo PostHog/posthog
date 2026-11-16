@@ -77,7 +77,12 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
         "description": "Publisher-side AppLovin monetization: revenue, impressions and clicks earned by your apps, broken down by day, app, placement and geography.",
         "docs_url": _REPORT_DOCS_URL,
         "columns": {
-            **_APP_DIMENSIONS,
+            "day": _APP_DIMENSIONS["day"],
+            "package_name": _APP_DIMENSIONS["package_name"],
+            "store_id": _APP_DIMENSIONS["store_id"],
+            "platform": _APP_DIMENSIONS["platform"],
+            "country": _APP_DIMENSIONS["country"],
+            "device_type": _APP_DIMENSIONS["device_type"],
             "ad_type": "Ad type served: APPOPEN, GRAPHIC, MRAID, PLAY, REWARD or VIDEO.",
             "placement_type": "Placement type: APP_OPEN, BANNER, INTER, LEADER, MREC, NATIVE or REWARDED_INTER.",
             "size": "Ad size: BANNER, INTER, LEADER, MREC or NATIVE.",

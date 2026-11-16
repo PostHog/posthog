@@ -17,6 +17,7 @@ from django.db import DatabaseError, connection
 from django.test import override_settings
 from django.utils import timezone
 
+import requests
 from parameterized import parameterized
 from rest_framework import status
 
@@ -70,6 +71,7 @@ from products.workflows.backend.facade.writes import update_workflow
 from products.workflows.backend.models.hog_flow.hog_flow import SUPPORTED_ACTION_TYPES, HogFlow
 from products.workflows.backend.models.hog_flow_batch_job.hog_flow_batch_job import HogFlowBatchJob
 from products.workflows.backend.models.hog_flow_schedule import HogFlowSchedule
+from products.workflows.backend.models.team_workflows_config import TeamWorkflowsConfig
 from products.workflows.backend.presentation.views.hog_flow import (
     HogFlowActionSerializer,
     _should_validate_strictly,
@@ -183,6 +185,14 @@ def _email_step(step_id: str, name: str, **email_value: Any) -> dict[str, Any]:
         "type": "function_email",
         "config": {"template_id": "template-email", "inputs": {"email": {"value": email_value}}},
     }
+
+
+def _fail_run_then_time_out(flow_id: str):
+    def side_effect():
+        HogFlowBatchJob.objects.filter(hog_flow_id=flow_id).update(status="failed")
+        raise requests.ReadTimeout("read timed out")
+
+    return side_effect
 
 
 class TestHogFlowAPI(APIBaseTest):
@@ -356,6 +366,81 @@ class TestHogFlowAPI(APIBaseTest):
             {"email_sending_rate_limit": value},
         )
         assert response.status_code == 400, response.json()
+
+    @override_settings(
+        WORKFLOWS_EMAIL_TIER_MODE="enforce",
+        WORKFLOWS_EMAIL_TIER_DAILY_CAPS=[100, 1000, 3000],
+        WORKFLOWS_EMAIL_TIER_BATCH_AUDIENCE_CAPS=[100, 1000, 3000],
+        WORKFLOWS_RATE_LIMITED_BATCH_MAX_DAILY_SHARE=0.5,
+        WORKFLOWS_RATE_LIMITED_BATCH_MAX_DAYS=7,
+        HOGFLOW_BATCH_TRIGGER_ELEVATED_TEAM_IDS=set(),
+    )
+    @patch("products.workflows.backend.services.batch_jobs.get_hog_flow_in_flight_count")
+    @patch(
+        "products.workflows.backend.models.hog_flow_batch_job.hog_flow_batch_job.create_batch_hog_flow_job_invocation"
+    )
+    def test_email_sending_rate_limit_is_locked_while_a_raised_batch_may_be_sending(
+        self, _mock_dispatch, mock_in_flight_count
+    ):
+        mock_in_flight_count.return_value = MagicMock(status_code=200, json=lambda: {"count": 3})
+        TeamWorkflowsConfig.objects.update_or_create(team=self.team, defaults={"email_sending_tier": 2})
+        flow_id = self._create_simple_flow()
+        flow = HogFlow.objects.get(id=flow_id)
+        actions_without_email = flow.actions
+        flow.actions = [*flow.actions, {**flow.actions[-1], "id": "email", "type": "function_email"}]
+        flow.email_sending_rate_limit = {"count": 60, "period": "hour"}
+        flow.save()
+
+        def update_after_concurrent_launch(**kwargs):
+            HogFlowBatchJob.objects.create(team=self.team, hog_flow=flow)
+            return update_workflow(**kwargs)
+
+        with patch(
+            "products.workflows.backend.presentation.views.hog_flow.update_workflow",
+            side_effect=update_after_concurrent_launch,
+        ):
+            response = self.client.patch(
+                f"/api/projects/{self.team.id}/hog_flows/{flow_id}", {"email_sending_rate_limit": None}, format="json"
+            )
+        assert response.status_code == 409, response.json()
+        batch_job = HogFlowBatchJob.objects.get(hog_flow_id=flow_id)
+
+        for value in (None, {"count": 500, "period": "hour"}, {"count": 30, "period": "hour"}):
+            response = self.client.patch(
+                f"/api/projects/{self.team.id}/hog_flows/{flow_id}", {"email_sending_rate_limit": value}, format="json"
+            )
+            assert response.status_code == 400, response.json()
+            assert response.json()["attr"] == "email_sending_rate_limit"
+
+        # Removing the email step first must not unlock the rate in a second edit.
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}", {"actions": actions_without_email}, format="json"
+        )
+        assert response.status_code == 200, response.json()
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}", {"email_sending_rate_limit": None}, format="json"
+        )
+        assert response.status_code == 400, response.json()
+
+        # A tier demotion makes the stored rate stop qualifying, but the dispatched cap still needs it.
+        TeamWorkflowsConfig.objects.filter(team=self.team).update(email_sending_tier=1)
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}", {"email_sending_rate_limit": None}, format="json"
+        )
+        assert response.status_code == 400, response.json()
+
+        # Sends parked behind a long delay keep the lock past any fixed window.
+        HogFlowBatchJob.objects.filter(id=batch_job.id).update(created_at=batch_job.created_at - timedelta(days=30))
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}", {"email_sending_rate_limit": None}, format="json"
+        )
+        assert response.status_code == 400, response.json()
+
+        mock_in_flight_count.return_value = MagicMock(status_code=200, json=lambda: {"count": 0})
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}", {"email_sending_rate_limit": None}, format="json"
+        )
+        assert response.status_code == 200, response.json()
 
     @parameterized.expand(
         [
@@ -1070,6 +1155,138 @@ class TestHogFlowAPI(APIBaseTest):
         )
 
         assert response.status_code == 200, response.json()
+
+    def _email_sender(self, *, verified: bool) -> Integration:
+        return Integration.objects.create(
+            team=self.team,
+            kind="email",
+            config={"email": "sender@posthog.com", "name": "Sender", "domain": "posthog.com", "verified": verified},
+        )
+
+    def _email_flow(self, sender_from: dict, step_type: str = "function_email") -> dict:
+        sync_template_to_db(_email_function_template())
+        inputs = _valid_email_inputs()
+        inputs["email"]["value"]["from"] = sender_from
+        hog_flow, action = self._create_hog_flow_with_action({"template_id": "template-email", "inputs": inputs})
+        action["type"] = step_type
+        action["name"] = "Welcome email"
+        return hog_flow
+
+    @parameterized.expand(
+        [
+            ("unverified_sender", "unverified", "function_email", "isn't verified yet"),
+            ("deleted_sender", "deleted", "function_email", "can't be found"),
+            ("unverified_sender_in_rotation", "rotation", "function_email", "isn't verified yet"),
+            ("malformed_sender_id", "malformed", "function_email", "can't be found"),
+            ("verified_sender_id_stored_as_text", "text_id", "function_email", "can't be found"),
+            ("generic_step_running_the_email_template", "unverified", "function", "isn't verified yet"),
+        ]
+    )
+    def test_going_live_refuses_an_email_sender_that_cannot_send(self, _name, case, step_type, fragment):
+        verified = self._email_sender(verified=True)
+        unverified = self._email_sender(verified=False)
+        senders: dict[str, dict[str, Any]] = {
+            "unverified": {"integrationId": unverified.id},
+            "deleted": {"integrationId": unverified.id + 1000},
+            "rotation": {"integrationId": verified.id, "integrationIds": [unverified.id]},
+            "malformed": {"integrationId": {"id": unverified.id}},
+            "text_id": {"integrationId": str(verified.id)},
+        }
+        hog_flow = self._email_flow(senders[case], step_type)
+
+        created_live = self.client.post(f"/api/projects/{self.team.id}/hog_flows", {**hog_flow, "status": "active"})
+        draft = self.client.post(f"/api/projects/{self.team.id}/hog_flows", {**hog_flow, "status": "draft"})
+        assert draft.status_code == 201, draft.json()
+        enabled = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_flows/{draft.json()['id']}", {"status": "active"}
+        )
+
+        for response in (created_live, enabled):
+            assert response.status_code == 400, response.json()
+            assert '"Welcome email" step' in response.json()["detail"]
+            assert fragment in response.json()["detail"]
+        assert HogFlow.objects.get(pk=draft.json()["id"]).status == HogFlow.State.DRAFT
+
+    @parameterized.expand(
+        [
+            ("rotation_replaces_an_unverified_single_sender", "rotation"),
+            ("verified_sender_id_as_integral_float", "integral_float"),
+        ]
+    )
+    def test_going_live_accepts_a_sender_that_can_send(self, _name, case):
+        verified = self._email_sender(verified=True)
+        unverified = self._email_sender(verified=False)
+        senders: dict[str, dict[str, Any]] = {
+            "rotation": {"integrationId": unverified.id, "integrationIds": [verified.id]},
+            "integral_float": {"integrationId": float(verified.id)},
+        }
+        hog_flow = self._email_flow(senders[case])
+
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", {**hog_flow, "status": "active"})
+
+        assert response.status_code == 201, response.json()
+
+    def test_publishing_a_live_workflow_refuses_a_sender_that_cannot_send(self):
+        sender = self._email_sender(verified=False)
+        hog_flow = self._email_flow({"integrationId": sender.id})
+        live = HogFlow.objects.create(
+            team=self.team, name="Live flow", actions=hog_flow["actions"], status=HogFlow.State.ACTIVE
+        )
+        hog_flow["actions"][1]["config"]["inputs"]["email"]["value"]["subject"] = "New subject"
+        staged = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_flows/{live.id}", {"actions": hog_flow["actions"], "stage_draft": True}
+        )
+        assert staged.status_code == 200, staged.json()
+        mcp_staged = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_flows/{live.id}/graph",
+            {"operations": [{"op": "update_action", "id": live.actions[1]["id"], "patch": {"name": "Welcome"}}]},
+            HTTP_X_POSTHOG_CLIENT="mcp",
+        )
+        assert mcp_staged.status_code == 200, mcp_staged.json()
+        graph_edit = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_flows/{live.id}/graph",
+            {
+                "operations": [
+                    {
+                        "op": "update_action",
+                        "id": live.actions[1]["id"],
+                        "patch": {
+                            "config": {
+                                "inputs": {
+                                    "email": {
+                                        "value": {"from": {"integrationId": sender.id}, "subject": "Graph subject"}
+                                    }
+                                }
+                            }
+                        },
+                    }
+                ],
+                "stage_draft": True,
+            },
+        )
+        assert graph_edit.status_code == 400, graph_edit.json()
+        assert "isn't verified yet" in graph_edit.json()["detail"]
+
+        with patch(
+            "products.workflows.backend.presentation.views.hog_flow.get_hog_flow_in_flight_count",
+            side_effect=Exception("down"),
+        ):
+            token = self.client.post(f"/api/projects/{self.team.id}/hog_flows/{live.id}/publish", {}).json()[
+                "confirm_token"
+            ]
+        for extra in ({}, {"stage_draft": True}):
+            published = self.client.post(
+                f"/api/projects/{self.team.id}/hog_flows/{live.id}/publish",
+                {"confirm": True, "confirm_token": token, **extra},
+            )
+
+            assert published.status_code == 400, (extra, published.json())
+            assert "isn't verified yet" in published.json()["detail"]
+        live.refresh_from_db()
+        assert live.actions[1]["config"]["inputs"]["email"]["value"]["subject"] == "Hello"
+        assert live.draft is not None
+        paused = self.client.patch(f"/api/projects/{self.team.id}/hog_flows/{live.id}", {"status": "draft"})
+        assert paused.status_code == 200, paused.json()
 
     def test_fixed_template_id_is_inferred_from_step_type(self):
         # template_id on fixed-template steps is a constant of the step type; omitting the
@@ -5252,6 +5469,32 @@ class TestHogFlowAPI(APIBaseTest):
         assert response.status_code == 200, response.json()
         assert response.json()["limit"] == 5000
 
+    @override_settings(
+        WORKFLOWS_EMAIL_TIER_MODE="enforce",
+        WORKFLOWS_EMAIL_TIER_DAILY_CAPS=[100, 1000, 3000],
+        WORKFLOWS_EMAIL_TIER_BATCH_AUDIENCE_CAPS=[100, 1000, 3000],
+        WORKFLOWS_RATE_LIMITED_BATCH_MAX_DAILY_SHARE=0.5,
+        WORKFLOWS_RATE_LIMITED_BATCH_MAX_DAYS=7,
+        HOGFLOW_BATCH_TRIGGER_ELEVATED_TEAM_IDS=set(),
+    )
+    def test_hog_flow_user_blast_radius_raises_the_limit_for_a_qualifying_rate_limit(self):
+        TeamWorkflowsConfig.objects.update_or_create(team=self.team, defaults={"email_sending_tier": 2})
+        with patch(
+            "products.workflows.backend.services.blast_radius.get_person_audience_count_v2"
+        ) as mock_get_person_audience_count:
+            from products.feature_flags.backend.user_blast_radius import BlastRadiusResult  # noqa: PLC0415
+
+            mock_get_person_audience_count.return_value = BlastRadiusResult(affected=0, total=0)
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/hog_flows/user_blast_radius",
+                {"filters": {"properties": []}, "email_sending_rate_limit": {"count": 60, "period": "hour"}},
+                format="json",
+            )
+
+        assert response.status_code == 200, response.json()
+        assert response.json()["limit"] == 60 * 24 * 7
+        assert response.json()["rate_limited"] == {"max_emails_per_hour": 62, "max_days": 7, "limit": 62 * 24 * 7}
+
     def test_hog_flow_user_blast_radius_returns_elevated_limit_for_listed_team(self):
         with (
             override_settings(
@@ -6133,6 +6376,39 @@ class TestHogFlowAPI(APIBaseTest):
         mock_create_invocation.assert_called_once()
         # The per-team audience cap must ride on the invocation so the consumer enforces the team's limit.
         assert mock_create_invocation.call_args.kwargs["max_audience_size"] == 5000
+        entry = ActivityLog.objects.get(scope="HogFlow", item_id=flow_id, activity="batch_run_started")
+        assert entry.user == self.user
+        assert entry.detail is not None
+        assert entry.detail["context"] == {
+            "batch_job_id": response.json()["id"],
+            "filters": response.json()["filters"],
+        }
+
+    @parameterized.expand(
+        [
+            ("no_response", lambda _flow_id: requests.ReadTimeout("read timed out"), True),
+            ("no_response_after_the_worker_failed_the_run", lambda flow_id: _fail_run_then_time_out(flow_id), True),
+            ("rejected", lambda _flow_id: requests.HTTPError("400", response=MagicMock(status_code=400)), False),
+            ("never_connected", lambda _flow_id: requests.ConnectTimeout("connect timed out"), False),
+        ]
+    )
+    @patch(
+        "products.workflows.backend.models.hog_flow_batch_job.hog_flow_batch_job.create_batch_hog_flow_job_invocation"
+    )
+    def test_post_hog_flow_batch_jobs_logs_the_start_only_when_a_failed_dispatch_may_still_send(
+        self, _name, dispatch_error, start_logged, mock_create_invocation
+    ):
+        flow_id = self._create_active_hog_flow()
+        mock_create_invocation.return_value.raise_for_status.side_effect = dispatch_error(flow_id)
+
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flows/{flow_id}/batch_jobs", {"variables": []})
+
+        assert response.status_code == 500
+        batch_job = HogFlowBatchJob.objects.get(hog_flow_id=flow_id)
+        entries = ActivityLog.objects.filter(scope="HogFlow", item_id=flow_id, activity="batch_run_started")
+        assert [entry.detail["context"]["batch_job_id"] for entry in entries if entry.detail] == (
+            [str(batch_job.id)] if start_logged else []
+        )
 
     @parameterized.expand([("on_realtime_pipeline", "all", 200), ("off_realtime_pipeline", "none", 400)])
     @patch(
