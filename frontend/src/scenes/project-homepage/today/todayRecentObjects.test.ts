@@ -59,8 +59,42 @@ describe('recentObjectsForHome', () => {
             type: 'dashboard',
             ref: id,
         })
-        expect(jumpBackObjectsForHome(recentIds.map(entry), frequentIds.map(entry), 8).map((item) => item.id)).toEqual(
-            expected
-        )
+        expect(
+            jumpBackObjectsForHome(recentIds.map(entry), frequentIds.map(entry), 8, null).map((item) => item.id)
+        ).toEqual(expected)
+    })
+
+    it.each([
+        { case: 'no recents', recentIds: [], frequentIds: [], expected: ['primary:home'] },
+        {
+            case: 'a recent copy of it',
+            recentIds: ['a', 'home', 'b'],
+            frequentIds: [],
+            expected: ['primary:home', 'recent:a', 'recent:b'],
+        },
+        {
+            case: 'a frequent copy of it',
+            recentIds: ['a', 'b', 'c'],
+            frequentIds: ['home', 'd'],
+            expected: ['primary:home', 'recent:a', 'recent:b', 'frequent:d'],
+        },
+        {
+            case: 'more items than the limit',
+            recentIds: ['a', 'b', 'c', 'd', 'e'],
+            frequentIds: [],
+            expected: ['primary:home', 'recent:a', 'recent:b', 'recent:c'],
+        },
+    ])('puts the primary dashboard first, once, with $case', ({ recentIds, frequentIds, expected }) => {
+        const entry = (id: string): { id: string; path: string; type: string; ref: string } => ({
+            id,
+            path: `Dashboards/${id}`,
+            type: 'dashboard',
+            ref: id,
+        })
+        expect(
+            jumpBackObjectsForHome(recentIds.map(entry), frequentIds.map(entry), 4, entry('home')).map(
+                (item) => `${item.jumpBackReason}:${item.id}`
+            )
+        ).toEqual(expected)
     })
 })

@@ -33,9 +33,29 @@ export function recentObjectsForHome(recents: FileSystemEntry[], limit: number):
         .slice(0, limit)
 }
 
-export type JumpBackObject = FileSystemEntry & { jumpBackReason: 'recent' | 'frequent' }
+export type JumpBackReason = 'primary' | 'recent' | 'frequent'
 
+export type JumpBackObject = FileSystemEntry & { jumpBackReason: JumpBackReason }
+
+/** The project's primary dashboard leads, so people with a dashboard home can get back to it from Today in one click. */
 export function jumpBackObjectsForHome(
+    recents: FileSystemEntry[],
+    frequent: FileSystemEntry[],
+    limit: number,
+    primaryDashboard: FileSystemEntry | null
+): JumpBackObject[] {
+    if (!primaryDashboard || libraryObjectHref(primaryDashboard) === null) {
+        return mixRecentAndFrequent(recents, frequent, limit)
+    }
+    const primaryKey = objectKey(primaryDashboard)
+    const isNotPrimary = (entry: FileSystemEntry): boolean => objectKey(entry) !== primaryKey
+    return [
+        { ...primaryDashboard, jumpBackReason: 'primary' as const },
+        ...mixRecentAndFrequent(recents.filter(isNotPrimary), frequent.filter(isNotPrimary), limit - 1),
+    ].slice(0, limit)
+}
+
+function mixRecentAndFrequent(
     recents: FileSystemEntry[],
     frequent: FileSystemEntry[],
     limit: number

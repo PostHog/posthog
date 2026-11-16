@@ -14,20 +14,12 @@ import { TodayPreviewCardProvider } from '~/layout/today/TodayPreviewCardProvide
 import { objectPreview } from '~/layout/today/todayPreviewCards'
 import { TodayPreviewTrigger } from '~/layout/today/TodayPreviewTrigger'
 import { todayShellLogic } from '~/layout/today/todayShellLogic'
-import { FileSystemEntry } from '~/queries/schema/schema-general'
 
 import { TodayHomeHeading } from './TodayHomeHeading'
 import { RECENT_OBJECT_COUNT, todayLogic } from './todayLogic'
+import { JumpBackObject } from './todayRecentObjects'
 
-function RecentObjectRow({
-    entry,
-    position,
-    frequent,
-}: {
-    entry: FileSystemEntry
-    position: number
-    frequent: boolean
-}): JSX.Element {
+function RecentObjectRow({ entry, position }: { entry: JumpBackObject; position: number }): JSX.Element {
     const preview = useMemo(() => objectPreview(entry, 'jump_back'), [entry])
     const { jumpBackOpened } = useActions(todayLogic)
     return (
@@ -38,12 +30,14 @@ function RecentObjectRow({
                     to={preview.href ?? undefined}
                     className="TodayJumpRow__link"
                     data-attr="today-home-recent-object"
-                    onClick={() => jumpBackOpened(entry, position, frequent)}
+                    onClick={() => jumpBackOpened(entry, position, entry.jumpBackReason)}
                 >
                     {preview.name}
                 </LinkPrimitive>
                 <span className="TodayJumpRow__meta">
-                    {entry.last_viewed_at ? (
+                    {entry.jumpBackReason === 'primary' ? (
+                        <span>Primary dashboard</span>
+                    ) : entry.last_viewed_at ? (
                         <time dateTime={entry.last_viewed_at} title={`Last opened: ${entry.last_viewed_at}`}>
                             <span className="sr-only">Last opened </span>
                             <TZLabel time={entry.last_viewed_at} showPopover={false} noStyles />
@@ -59,7 +53,8 @@ function RecentObjectRow({
 
 export function TodayRecents(): JSX.Element {
     useMountedLogic(todayObjectGlanceLogic)
-    const { recentObjects, frequentObjectsLoading, recentsHasLoaded, listExpanded } = useValues(todayLogic)
+    const { recentObjects, frequentObjectsLoading, primaryDashboardLoading, recentsHasLoaded, listExpanded } =
+        useValues(todayLogic)
     const { setListExpanded } = useActions(todayLogic)
     const { pickPane } = useActions(todayShellLogic)
     const titleId = useId()
@@ -84,7 +79,7 @@ export function TodayRecents(): JSX.Element {
                     </Collapsible.Trigger>
                 )}
             </div>
-            {!recentsHasLoaded || frequentObjectsLoading ? (
+            {!recentsHasLoaded || frequentObjectsLoading || primaryDashboardLoading ? (
                 <p className="TodayHome__note">Finding your items…</p>
             ) : recentObjects.length === 0 ? (
                 <p className="TodayHome__note">
@@ -106,12 +101,7 @@ export function TodayRecents(): JSX.Element {
                 <TodayPreviewCardProvider>
                     <ul className="TodayJumpList">
                         {shown.map((entry, index) => (
-                            <RecentObjectRow
-                                key={entry.id}
-                                entry={entry}
-                                position={index + 1}
-                                frequent={entry.jumpBackReason === 'frequent'}
-                            />
+                            <RecentObjectRow key={entry.id} entry={entry} position={index + 1} />
                         ))}
                     </ul>
                     {more.length > 0 && (
@@ -122,7 +112,6 @@ export function TodayRecents(): JSX.Element {
                                         key={entry.id}
                                         entry={entry}
                                         position={RECENT_OBJECT_COUNT + index + 1}
-                                        frequent={entry.jumpBackReason === 'frequent'}
                                     />
                                 ))}
                             </ul>
