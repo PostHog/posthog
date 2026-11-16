@@ -34,16 +34,15 @@ describe('productEventFilterOptions', () => {
         expect(getProductEventPropertyValues(contextId, propertyKey)).toEqual(expected)
     })
 
-    it('offers signals report triggers the text copies of list properties, not the lists', () => {
+    it('offers signals report triggers the text copy of the list property, not the list', () => {
         const options =
             getProductEventPropertyTaxonomicOptions('signals-reports')?.[
                 TaxonomicFilterGroupType.InternalEventProperties
             ]
         const names = options?.map((option) => option.name)
 
-        expect(names).toEqual(expect.arrayContaining(['source_products_text', 'suggested_reviewers_text']))
+        expect(names).toEqual(expect.arrayContaining(['source_products_text']))
         expect(names).not.toEqual(expect.arrayContaining(['source_products']))
-        expect(names).not.toEqual(expect.arrayContaining(['suggested_reviewers']))
         expect(getProductEventPropertyTaxonomicOptions('activity-log')).toBeUndefined()
     })
 })

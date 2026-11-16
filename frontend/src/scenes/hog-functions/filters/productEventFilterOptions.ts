@@ -1,7 +1,7 @@
 import { TaxonomicFilterGroupType, TaxonomicFilterProps } from 'lib/components/TaxonomicFilter/types'
 
 import { PropValue } from '~/models/propertyDefinitionsModel'
-import { HogFunctionConfigurationContextId, PropertyFilterType } from '~/types'
+import { HogFunctionConfigurationContextId } from '~/types'
 
 import { ActivityLogListScope } from 'products/platform_features/frontend/generated/api.schemas'
 
@@ -159,15 +159,8 @@ export const getProductEventPropertyFilterOptions = (contextId: HogFunctionConfi
                 '$exception_handled',
             ]
         case 'signals-reports':
-            // The list properties compare as whole arrays, so filters use their comma-joined text copies.
-            return [
-                'priority',
-                'actionability',
-                'source_products_text',
-                'repo_slug',
-                'suggested_reviewers_text',
-                'title',
-            ]
+            // The list property compares as a whole array, so filters use its comma-joined text copy.
+            return ['priority', 'actionability', 'source_products_text']
     }
 
     return []
@@ -184,7 +177,7 @@ export const getProductEventPropertyTaxonomicOptions = (
     }
     return {
         [TaxonomicFilterGroupType.InternalEventProperties]: getProductEventPropertyFilterOptions(contextId).map(
-            (name) => ({ name, propertyFilterType: PropertyFilterType.Event })
+            (name) => ({ name, group: TaxonomicFilterGroupType.EventProperties })
         ),
     }
 }
