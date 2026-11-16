@@ -5,9 +5,8 @@ import path from 'path'
 export const SCENARIOS_DIR = path.join(__dirname, '..')
 const GENERATOR_DIR = 'generator'
 const VALVES_DIR = 'valves'
-// The generator and the valves carry their own versions. The run store only records runs, so an edit to it must not
-// move runner_version and reset every card's baseline.
-const UNVERSIONED_DIRS = [GENERATOR_DIR, VALVES_DIR, 'store']
+const STORE_DIR = 'store'
+const UNVERSIONED_DIRS = [GENERATOR_DIR, VALVES_DIR, STORE_DIR]
 const DATA_DIRS = ['cards', 'profiles']
 const DATA_FILE = /\.yaml$/
 const EMPTY_TREE = '4b825dc642cb6eb9a060e54bf8d69288fbee4904'
