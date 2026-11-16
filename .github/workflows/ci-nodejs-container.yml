@@ -303,6 +303,10 @@ jobs:
         steps:
             - name: Check out
               uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  # Unshallowing a shallow checkout with --filter crashes git (pack-objects BUG), so fetch the history up front.
+                  fetch-depth: 0
+                  filter: blob:none
 
             - name: Compute ordered release tag
               id: ordered-release
