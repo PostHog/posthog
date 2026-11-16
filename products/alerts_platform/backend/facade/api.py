@@ -25,6 +25,7 @@ from products.alerts_platform.backend.facade.contracts import (
     DestinationType,
     EnabledNativeConfiguration,
     HandbackRefusal,
+    HeldAlertSearchMatch,
     HeldDeliveryAddress,
     NativeConfigurationMatch,
     NewAlertDestination,
@@ -297,6 +298,17 @@ def native_configuration_matches(
         source_config_contains=source_config_contains,
         created_by_id=created_by_id,
     )
+
+
+def search_held_configurations(
+    *, team_ids: Collection[int], source_kind: SourceKind, query: str | None
+) -> tuple[HeldAlertSearchMatch, ...]:
+    """The alerts of a kind whose settings the platform holds in these teams, for a source's search
+    beside its own rows: every alert with no source row, and every copy the platform owns. Ranked by
+    how well the name matches `query` on core search's scale, or in name order without one. Every
+    match comes back, so the source can apply its own read gates before it pages. Runtime state stays
+    out: read it for the page with `runtime_by_public_id`."""
+    return platform_reads.search_held_configurations(team_ids=team_ids, source_kind=source_kind.value, query=query)
 
 
 def held_configuration_ids(*, team_id: int, source_kind: SourceKind) -> list[UUID]:
