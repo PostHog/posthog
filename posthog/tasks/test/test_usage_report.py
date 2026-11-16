@@ -5481,17 +5481,7 @@ class TestAIEventsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhouse
         [
             ("billable", {"$ai_billable": True}, 400),
             ("non_billable", {"$ai_billable": False}, None),
-            ("estimated_without_tokens", {"$ai_billable": True, "$ai_cost_estimated": True}, None),
-            (
-                "estimated_with_null_tokens",
-                {"$ai_billable": True, "$ai_cost_estimated": True, "$ai_input_tokens": None},
-                None,
-            ),
-            (
-                "estimated_with_tokens",
-                {"$ai_billable": True, "$ai_cost_estimated": True, "$ai_input_tokens": 150000},
-                400,
-            ),
+            ("estimated_without_tokens", {"$ai_billable": True, "$ai_cost_estimated": True}, 400),
         ]
     )
     @patch("posthog.tasks.usage_report.get_instance_region")
@@ -5534,6 +5524,50 @@ class TestAIEventsUsageReport(ClickhouseDestroyTablesMixin, TestCase, Clickhouse
 
         expected = [(self.org_1_team_1.id, expected_credits)] if expected_credits is not None else []
         self.assertEqual(result, expected)
+
+    @patch("posthog.tasks.usage_report.get_instance_region")
+    def test_posthog_code_credits_cap_tokenless_cost_estimates(self, mock_region: MagicMock) -> None:
+        from posthog.tasks.usage_report import get_teams_with_posthog_code_credits_used_in_period
+
+        mock_region.return_value = "US"
+        self._setup_teams()
+        analytics_org = Organization.objects.create(name="PostHog Analytics")
+        analytics_team = Team.objects.create(pk=2, organization=analytics_org, name="Analytics")
+        self._setup_instance_group_mapping(analytics_team)
+        other_team = Team.objects.create(pk=4, organization=self.org_1, name="Team 2 org 1")
+
+        period = get_previous_day(at=now() + relativedelta(days=1))
+
+        generations: list[tuple[Team, float, dict[str, object]]] = [
+            (self.org_1_team_1, 0.3, {"$ai_input_tokens": 1000, "$ai_output_tokens": 200}),
+            (self.org_1_team_1, 2.0, {"$ai_cost_estimated": True, "$ai_input_tokens": 150000}),
+            (self.org_1_team_1, 4.0, {"$ai_cost_estimated": True}),
+            (self.org_1_team_1, 3.0, {"$ai_cost_estimated": True, "$ai_input_tokens": None}),
+            (other_team, 4.0, {"$ai_cost_estimated": True}),
+        ]
+        for index, (customer_team, cost, cost_properties) in enumerate(generations):
+            _create_event(
+                event="$ai_generation",
+                team=analytics_team,
+                distinct_id="user_posthog_code",
+                timestamp=period.start + relativedelta(hours=1, minutes=index),
+                properties={
+                    "team_id": customer_team.id,
+                    "$ai_trace_id": f"trace_posthog_code_{index}",
+                    "$ai_total_cost_usd": cost,
+                    "$ai_billable": True,
+                    "ai_product": "posthog_code",
+                    "$group_1": "https://us.posthog.com",
+                    **cost_properties,
+                },
+            )
+
+        flush_persons_and_events()
+
+        result = get_teams_with_posthog_code_credits_used_in_period(period.start, period.end)
+
+        # Team 1: 0.3 + 2.0 + min(4.0, 2.0) + min(3.0, 2.0) = 6.3 USD. Team 2 has no measured call, so its estimate bills in full.
+        self.assertEqual(sorted(result), [(self.org_1_team_1.id, 630), (other_team.id, 400)])
 
 
 class TestTaskSandboxUsageReport(APIBaseTest):

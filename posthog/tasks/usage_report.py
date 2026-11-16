@@ -2044,7 +2044,7 @@ def _get_teams_with_ai_credits_for_products(
 
     Conversion logic:
     1. Extract $ai_total_cost_usd from billable $ai_generation events
-    2. Filter out gateway cost estimates that have no input or output token counts
+    2. Cap gateway cost estimates without token counts at the team's most expensive measured call
     3. Filter out negative or zero costs (defensive)
     4. Exclude generations from traces with only excluded tool calls
     5. Convert to cents (multiply by 100)
@@ -2181,7 +2181,22 @@ def _get_teams_with_ai_credits_for_products(
                 SELECT
                     customer_team_id,
                     trace_id,
-                    cost_usd
+                    -- The gateway estimates a cost for a call that ended before the provider
+                    -- reported usage, such as a client abort. Without token counts that estimate
+                    -- can be many times the real cost. Cap it at the team's most expensive measured
+                    -- call in the period, and bill it in full when there is none, so that aborting a
+                    -- call is not a way to avoid paying for it.
+                    if(
+                        is_cost_guess,
+                        least(
+                            cost_usd,
+                            ifNull(
+                                max(if(is_cost_guess, NULL, cost_usd)) OVER (PARTITION BY customer_team_id),
+                                cost_usd
+                            )
+                        ),
+                        cost_usd
+                    ) AS billed_cost_usd
                 FROM (
                     SELECT
                         toInt64OrZero({customer_team_id_expr}) AS customer_team_id,
@@ -2211,17 +2226,13 @@ def _get_teams_with_ai_credits_for_products(
                 )
                 WHERE
                     ai_billable = 1
-                    -- The gateway estimates a cost for a call that ended before the provider
-                    -- reported usage, such as a client abort. Without token counts that estimate
-                    -- can be many times the real cost, so we do not charge the customer for it.
-                    AND NOT is_cost_guess
                     AND cost_usd > 0
             )
             SELECT
                 c.customer_team_id AS team,
                 toInt64(
                     roundBankers(
-                        sum(c.cost_usd * 100 * %(markup_multiplier)s)
+                        sum(c.billed_cost_usd * 100 * %(markup_multiplier)s)
                     )
                 ) AS ai_credits
             FROM costs c
