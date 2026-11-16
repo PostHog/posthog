@@ -7,7 +7,7 @@ objects stay inside the product.
 
 from __future__ import annotations
 
-from collections.abc import Collection, Iterable, Iterator, Mapping, Sequence
+from collections.abc import Callable, Collection, Iterable, Iterator, Mapping, Sequence
 from dataclasses import asdict
 from datetime import datetime
 from typing import Any, Final, Literal
@@ -168,13 +168,42 @@ def create_alert_destination_hog_functions(
     configs: list[AlertDestinationConfig],
     *,
     team_id: int,
-    created_by_id: int,
+    created_by_id: int | None,
     alert_id: str,
     allowed_event_ids: Collection[str],
 ) -> tuple[UUID, ...]:
     """Persist the configs as destinations for one alert and return the new ids."""
     return destinations.create_alert_destination_hog_functions(
         configs, team_id=team_id, created_by_id=created_by_id, alert_id=alert_id, allowed_event_ids=allowed_event_ids
+    )
+
+
+def rebuild_source_destination_hog_functions(
+    *,
+    team_id: int,
+    alert_id: UUID,
+    created_by_id: int | None,
+    allowed_event_ids: Collection[str],
+    build_configs: Callable[[AlertDestinationData], Sequence[AlertDestinationConfig]],
+) -> tuple[UUID, ...]:
+    """Recreates, with `build_configs`, the HogFunctions of every `AlertDestination` row of the alert that no
+    live HogFunction stands behind, and links each row to its new ones so delivery skips it. A source calls it
+    before it takes an alert back from the platform, in the same transaction, because its stack sends only
+    through HogFunctions. Raises `AlertDestinationValidationError` when a row cannot be recreated."""
+    return destinations.rebuild_source_destination_hog_functions(
+        team_id=team_id,
+        alert_id=alert_id,
+        created_by_id=created_by_id,
+        allowed_event_ids=allowed_event_ids,
+        build_configs=build_configs,
+    )
+
+
+def build_insight_alert_destination_configs(
+    *, alert_id: str, alert_name: str | None, data: AlertDestinationData
+) -> list[AlertDestinationConfig]:
+    return insight_alert_destinations.build_insight_alert_destination_configs(
+        alert_id=alert_id, alert_name=alert_name, data=data
     )
 
 
