@@ -4,12 +4,14 @@ rules:
           This pattern lookup builds its pattern from the outer row (`OuterRef`), so the subquery
           becomes a `LIKE` or regex whose pattern changes on every outer row.
 
-          Postgres can use an index for `LIKE` only when the pattern is a constant. With a pattern
-          built from the outer row, the subquery reads every row in its scope once per outer row.
-          It stays fast on small test data and times out on large projects.
+          Postgres can use a btree index for `LIKE` only when the pattern is a constant. With a
+          pattern built from the outer row, the subquery reads every row in its scope once per
+          outer row. It stays fast on small test data and times out on large projects.
 
           A JSON or array `__contains` compares values (`@>`) instead of matching a pattern, so a
-          `JSONArray`, `JSONObject`, list or tuple value does not count.
+          `JSONArray`, `JSONObject`, list or tuple value does not count. The rule can't see the
+          column type, so it also flags a bare `OuterRef` compared to a JSON or array column, and
+          a pattern served by a trigram index. Suppress those with the reason.
 
           Match against constant values instead: loop over the known prefixes and build one
           uncorrelated `Exists` per prefix, as `_visible_files` in
@@ -22,6 +24,7 @@ rules:
       pattern-sources:
           - pattern: OuterRef(...)
           - pattern: models.OuterRef(...)
+          - pattern: django.db.models.OuterRef(...)
       pattern-sanitizers:
           - pattern: JSONArray(...)
           - pattern: JSONObject(...)

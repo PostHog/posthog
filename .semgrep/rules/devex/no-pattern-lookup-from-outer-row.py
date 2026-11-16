@@ -139,3 +139,17 @@ Task.objects.filter(labels__contains=[OuterRef("label")], path__startswith=Outer
 
 # ruleid: no-pattern-lookup-from-outer-row
 Task.objects.filter(**{"labels__contains": (OuterRef("label"),), "path__startswith": OuterRef("path")})
+
+
+def aliased_models_import(queryset):
+    from django.db import models as db_models
+
+    # ruleid: no-pattern-lookup-from-outer-row
+    return queryset.filter(path__startswith=db_models.OuterRef("path"))
+
+
+FileSystem.objects.filter(
+    team_id=team_id,
+    # nosemgrep: no-pattern-lookup-from-outer-row -- the outer query is one row, fetched by id
+    path__startswith=OuterRef("path"),
+)
