@@ -1746,6 +1746,7 @@ export const SETTINGS_MAP: SettingSection[] = [
                 description:
                     'Let your own AI agent search this business knowledge through the PostHog MCP server. The agent signs in with a project secret API key, so it works without a user.',
                 component: <ConnectAgentSetting />,
+                flag: 'BUSINESS_KNOWLEDGE_MCP',
                 keywords: ['business', 'knowledge', 'agent', 'mcp', 'api key', 'secret', 'search'],
             },
         ],

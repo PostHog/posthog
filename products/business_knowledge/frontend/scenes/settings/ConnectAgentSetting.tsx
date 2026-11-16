@@ -33,7 +33,6 @@ export function ConnectAgentSetting(): JSX.Element {
                 <li>
                     <Link
                         to={urls.settings('environment-secret-api-keys')}
-                        // data-attr is a frozen autocapture / Playwright key. Do not rename.
                         data-attr="business-knowledge-connect-agent-create-key"
                     >
                         Create a project secret API key
