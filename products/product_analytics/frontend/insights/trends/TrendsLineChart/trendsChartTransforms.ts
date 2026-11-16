@@ -230,6 +230,8 @@ export function buildTrendsLineTimeSeriesConfig<R extends TrendsResultLike>(
     opts: BuildTrendsLineTimeSeriesConfigOpts<R>
 ): TimeSeriesLineChartConfig {
     const yAxis = buildTrendsYAxisConfig(opts.trendsFilter, opts.isPercentStackView, opts.baseCurrency, {
+        label: opts.yAxisLabel,
+        hide: opts.hideAxes,
         yAxisScaleType: opts.yAxisScaleType,
         showGrid: true,
         startAtZero: opts.yAxisStartAtZero,
@@ -258,14 +260,7 @@ export function buildTrendsLineTimeSeriesConfig<R extends TrendsResultLike>(
             tickFormatter: opts.xAxisTickFormatter,
             hide: opts.hideAxes,
         },
-        yAxis: applyTrendsYAxisPositions(
-            {
-                ...yAxis,
-                label: normalizeAxisLabel(opts.yAxisLabel),
-                hide: opts.hideAxes,
-            },
-            opts.yAxisPositions
-        ),
+        yAxis: applyTrendsYAxisPositions(yAxis, opts.yAxisPositions),
         valueLabels: opts.valueLabels,
         goalLines: goalLineConfigs,
         ...derivedConfigs,

@@ -1,5 +1,5 @@
 import type { YAxisConfig, YFormatterConfig } from '@posthog/quill-charts'
-import { DEFAULT_Y_AXIS_ID } from '@posthog/quill-charts'
+import { DEFAULT_Y_AXIS_ID, normalizeAxisLabel } from '@posthog/quill-charts'
 
 import { computeMagnitudeAxisIds } from './magnitudeAxisIds'
 import type { YFormatterFields } from './trendsChartDisplayOptions'
@@ -88,6 +88,8 @@ export function buildTrendsYAxisConfig(
     isPercentStackView: boolean,
     baseCurrency: string | undefined,
     extras: {
+        label?: string | null
+        hide?: boolean
         yAxisScaleType?: string | null
         showGrid?: boolean
         startAtZero?: boolean | null
@@ -97,6 +99,8 @@ export function buildTrendsYAxisConfig(
 ): YAxisConfig {
     return {
         ...trendsFilterToYFormatterConfig(trendsFilter, isPercentStackView, baseCurrency),
+        label: normalizeAxisLabel(extras.label),
+        hide: extras.hide,
         scale: extras.yAxisScaleType === 'log10' ? 'log' : 'linear',
         showGrid: extras.showGrid,
         ...resolveTrendsYAxisRange({ ...extras, isPercentStackView }),

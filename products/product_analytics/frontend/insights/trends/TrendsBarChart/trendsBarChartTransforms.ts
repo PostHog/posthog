@@ -120,6 +120,8 @@ export function buildTrendsBarTimeSeriesConfig(
     // No range extras: bar length encodes magnitude from zero, so a bound carried over from another
     // display type is dropped rather than silently truncating bars with no control left to clear it.
     const yAxis = buildTrendsYAxisConfig(opts.trendsFilter, opts.isPercentStackView, opts.baseCurrency, {
+        label: opts.yAxisLabel,
+        hide: opts.hideAxes,
         yAxisScaleType: opts.yAxisScaleType,
         showGrid: true,
     })
@@ -134,11 +136,7 @@ export function buildTrendsBarTimeSeriesConfig(
             hide: opts.hideAxes,
         },
         yAxis: applyTrendsYAxisPositions(
-            {
-                ...yAxis,
-                label: normalizeAxisLabel(opts.yAxisLabel),
-                hide: opts.hideAxes,
-            },
+            yAxis,
             opts.isGrouped && !opts.isPercentStackView ? opts.yAxisPositions : undefined
         ),
         valueLabels: opts.valueLabels,
