@@ -10633,6 +10633,7 @@ export namespace Schemas {
       AwsRedshift: 'aws-redshift',
       S3Compatible: 's3-compatible',
       Snowflake: 'snowflake',
+      Motherduck: 'motherduck',
       YoutubeAnalytics: 'youtube-analytics',
       TwitterAds: 'twitter-ads',
     } as const;
@@ -39124,6 +39125,9 @@ export namespace Schemas {
     /**
      * * `not_useful` - Not useful
      * * `not_now` - Not now
+     * * `wrong_estimate` - Wrong estimate
+     * * `already_handled` - Already handled
+     * * `not_owner` - Someone else decides
      * * `other` - Other
      */
     export type WarehouseSuggestionDismissalReasonEnum = typeof WarehouseSuggestionDismissalReasonEnum[keyof typeof WarehouseSuggestionDismissalReasonEnum];
@@ -39132,6 +39136,9 @@ export namespace Schemas {
     export const WarehouseSuggestionDismissalReasonEnum = {
       NotUseful: 'not_useful',
       NotNow: 'not_now',
+      WrongEstimate: 'wrong_estimate',
+      AlreadyHandled: 'already_handled',
+      NotOwner: 'not_owner',
       Other: 'other',
     } as const;
 
@@ -39140,6 +39147,9 @@ export namespace Schemas {
        *
        * * `not_useful` - Not useful
        * * `not_now` - Not now
+       * * `wrong_estimate` - Wrong estimate
+       * * `already_handled` - Already handled
+       * * `not_owner` - Someone else decides
        * * `other` - Other */
       reason: WarehouseSuggestionDismissalReasonEnum;
       /**
@@ -51937,6 +51947,7 @@ export namespace Schemas {
      * * `Databricks` - Databricks
      * * `AzureBlob` - Azure Blob
      * * `S3` - S3
+     * * `MotherDuck` - MotherDuck
      */
     export type ExternalDataDestinationTypeEnum = typeof ExternalDataDestinationTypeEnum[keyof typeof ExternalDataDestinationTypeEnum];
 
@@ -51950,6 +51961,7 @@ export namespace Schemas {
       Databricks: 'Databricks',
       AzureBlob: 'AzureBlob',
       S3: 'S3',
+      MotherDuck: 'MotherDuck',
     } as const;
 
     /**
@@ -51977,7 +51989,8 @@ export namespace Schemas {
        * * `Postgres` - Postgres
        * * `Databricks` - Databricks
        * * `AzureBlob` - Azure Blob
-       * * `S3` - S3 */
+       * * `S3` - S3
+       * * `MotherDuck` - MotherDuck */
       type: ExternalDataDestinationTypeEnum;
       /**
          * Human-readable name shown when picking destinations for a source or table.
@@ -64999,6 +65012,7 @@ export namespace Schemas {
      * * `linear` - Linear
      * * `linkedin-ads` - Linkedin Ads
      * * `meta-ads` - Meta Ads
+     * * `motherduck` - Motherduck
      * * `pardot` - Pardot
      * * `pinterest-ads` - Pinterest Ads
      * * `postgresql` - Postgresql
@@ -65055,6 +65069,7 @@ export namespace Schemas {
       Linear: 'linear',
       LinkedinAds: 'linkedin-ads',
       MetaAds: 'meta-ads',
+      Motherduck: 'motherduck',
       Pardot: 'pardot',
       PinterestAds: 'pinterest-ads',
       Postgresql: 'postgresql',
@@ -65111,6 +65126,7 @@ export namespace Schemas {
        * * `linear` - Linear
        * * `linkedin-ads` - Linkedin Ads
        * * `meta-ads` - Meta Ads
+       * * `motherduck` - Motherduck
        * * `pardot` - Pardot
        * * `pinterest-ads` - Pinterest Ads
        * * `postgresql` - Postgresql
@@ -65278,6 +65294,7 @@ export namespace Schemas {
        * * `linear` - Linear
        * * `linkedin-ads` - Linkedin Ads
        * * `meta-ads` - Meta Ads
+       * * `motherduck` - Motherduck
        * * `pardot` - Pardot
        * * `pinterest-ads` - Pinterest Ads
        * * `postgresql` - Postgresql
@@ -85730,6 +85747,9 @@ export namespace Schemas {
        *
        * * `not_useful` - Not useful
        * * `not_now` - Not now
+       * * `wrong_estimate` - Wrong estimate
+       * * `already_handled` - Already handled
+       * * `not_owner` - Someone else decides
        * * `other` - Other */
       dismissal_reason: WarehouseSuggestionDismissalReasonEnum | null;
       /** What happened to the asset an accepted suggestion created.
@@ -89770,7 +89790,8 @@ export namespace Schemas {
        * * `Postgres` - Postgres
        * * `Databricks` - Databricks
        * * `AzureBlob` - Azure Blob
-       * * `S3` - S3 */
+       * * `S3` - S3
+       * * `MotherDuck` - MotherDuck */
       type?: ExternalDataDestinationTypeEnum;
       /**
          * Human-readable name shown when picking destinations for a source or table.
@@ -124673,6 +124694,7 @@ export namespace Schemas {
      * * `Databricks` - Databricks
      * * `AzureBlob` - Azure Blob
      * * `S3` - S3
+     * * `MotherDuck` - MotherDuck
      */
     export type UserCreatableDestinationTypeEnum = typeof UserCreatableDestinationTypeEnum[keyof typeof UserCreatableDestinationTypeEnum];
 
@@ -124685,6 +124707,7 @@ export namespace Schemas {
       Databricks: 'Databricks',
       AzureBlob: 'AzureBlob',
       S3: 'S3',
+      MotherDuck: 'MotherDuck',
     } as const;
 
     export interface UserCustomerAnalyticsConfig {
@@ -126679,7 +126702,8 @@ export namespace Schemas {
        * * `Postgres` - Postgres
        * * `Databricks` - Databricks
        * * `AzureBlob` - Azure Blob
-       * * `S3` - S3 */
+       * * `S3` - S3
+       * * `MotherDuck` - MotherDuck */
       warehouse_destination_type: UserCreatableDestinationTypeEnum | null;
       /** How the wizard sets up the source: in the terminal or in the app. Null for a tool with no warehouse source.
        *
@@ -131132,7 +131156,7 @@ export namespace Schemas {
      */
     detail_filters?: string;
     /**
-     * Upper bound on `created_at` (inclusive), ISO-8601.
+     * Upper bound on `created_at` (inclusive), as an ISO 8601 timestamp with a UTC offset, such as `2026-01-15T11:30:00Z`.
      */
     end_date?: string;
     /**
@@ -131195,7 +131219,7 @@ export namespace Schemas {
      */
     search_text?: string;
     /**
-     * Lower bound on `created_at` (inclusive), ISO-8601.
+     * Lower bound on `created_at` (inclusive), as an ISO 8601 timestamp with a UTC offset, such as `2026-01-15T10:30:00Z`.
      */
     start_date?: string;
     /**
@@ -132833,7 +132857,7 @@ export namespace Schemas {
      */
     detail_filters?: string;
     /**
-     * Upper bound on `created_at` (inclusive), ISO-8601.
+     * Upper bound on `created_at` (inclusive), as an ISO 8601 timestamp with a UTC offset, such as `2026-01-15T11:30:00Z`.
      */
     end_date?: string;
     /**
@@ -132896,7 +132920,7 @@ export namespace Schemas {
      */
     search_text?: string;
     /**
-     * Lower bound on `created_at` (inclusive), ISO-8601.
+     * Lower bound on `created_at` (inclusive), as an ISO 8601 timestamp with a UTC offset, such as `2026-01-15T10:30:00Z`.
      */
     start_date?: string;
     /**
@@ -138964,6 +138988,7 @@ export namespace Schemas {
      * * `Databricks` - Databricks
      * * `AzureBlob` - Azure Blob
      * * `S3` - S3
+     * * `MotherDuck` - MotherDuck
      * @minLength 1
      */
     destination_type: ExternalDataDestinationsConnectLinkRetrieveDestinationType;
@@ -138989,6 +139014,7 @@ export namespace Schemas {
       Databricks: 'Databricks',
       AzureBlob: 'AzureBlob',
       S3: 'S3',
+      MotherDuck: 'MotherDuck',
     } as const;
 
     export type ExternalDataDestinationsConnectLinkStatusRetrieveParams = {
@@ -141424,6 +141450,7 @@ export namespace Schemas {
      * * `linear` - Linear
      * * `linkedin-ads` - Linkedin Ads
      * * `meta-ads` - Meta Ads
+     * * `motherduck` - Motherduck
      * * `pardot` - Pardot
      * * `pinterest-ads` - Pinterest Ads
      * * `postgresql` - Postgresql
@@ -141491,6 +141518,7 @@ export namespace Schemas {
       Linear: 'linear',
       LinkedinAds: 'linkedin-ads',
       MetaAds: 'meta-ads',
+      Motherduck: 'motherduck',
       Pardot: 'pardot',
       PinterestAds: 'pinterest-ads',
       Postgresql: 'postgresql',
@@ -148628,6 +148656,10 @@ export namespace Schemas {
 
     export type WarehouseSuggestionsAcceptCreateParams = {
     /**
+     * Whether the decision was part of one action on several selected suggestions. Only recorded on the analytics event.
+     */
+    bulk?: boolean;
+    /**
      * Page the decision was made on. Only recorded on the analytics event.
      *
      * * `models` - Models
@@ -148646,6 +148678,10 @@ export namespace Schemas {
     } as const;
 
     export type WarehouseSuggestionsDismissCreateParams = {
+    /**
+     * Whether the decision was part of one action on several selected suggestions. Only recorded on the analytics event.
+     */
+    bulk?: boolean;
     /**
      * Page the decision was made on. Only recorded on the analytics event.
      *

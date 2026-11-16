@@ -1,17 +1,24 @@
 import uuid
 import asyncio
+from collections.abc import Awaitable, Callable
 from contextlib import suppress
+from typing import TYPE_CHECKING
 
 import pytest
 from unittest.mock import patch
 
 from temporalio import activity
+from temporalio.client import WorkflowContinuedAsNewError
 from temporalio.exceptions import ApplicationError
 from temporalio.service import RPCError
 from temporalio.testing import ActivityEnvironment, WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
+from posthog.exceptions import QuotaLimitExceeded
+from posthog.sync import database_sync_to_async
+
 from products.signals.backend.daily_limit import DailyReportLimitGate
+from products.signals.backend.spend import begin_signal_spend, finalized_signal_ids
 from products.signals.backend.temporal.buffer import (
     BufferSignalsWorkflow,
     CheckSignalsQuotaInput,
@@ -20,8 +27,16 @@ from products.signals.backend.temporal.buffer import (
     SignalWithStartGroupingV2Input,
     check_signals_quota_limited_activity,
 )
-from products.signals.backend.temporal.safety_filter import SafetyFilterInput, SafetyFilterOutput
+from products.signals.backend.temporal.safety_filter import (
+    SafetyFilterInput,
+    SafetyFilterOutput,
+    safety_filter_activity,
+)
 from products.signals.backend.temporal.types import BufferSignalsInput, EmitSignalInputs
+from products.signals.backend.trial.policy import TrialRefused
+
+if TYPE_CHECKING:
+    from posthog.models import Team
 
 TASK_QUEUE = "test-buffer-queue"
 BUFFER_MODULE = "products.signals.backend.temporal.buffer"
@@ -46,24 +61,22 @@ class _Recorder:
         self.quota_checks = 0
         self.safety_checks = 0
         self.flushes = 0
+        self.flushed_sources: list[str] = []
         self.grouping_starts = 0
-        # The drop path ends at the quota check; the pass-through path ends at grouping. Each path's
-        # terminal activity sets its event so the test knows the batch finished processing.
-        self.gate_reached = asyncio.Event()
-        self.flow_done = asyncio.Event()
 
 
-async def _drive(recorder: _Recorder) -> None:
+async def _drive(recorder: _Recorder, pending_signals: list[EmitSignalInputs] | None = None) -> int:
     @activity.defn(name="check_signals_quota_limited_activity")
     async def fake_quota(_input: CheckSignalsQuotaInput) -> bool:
         recorder.quota_checks += 1
-        recorder.gate_reached.set()
         return recorder.over_quota
 
     @activity.defn(name="safety_filter_activity")
     async def fake_safety(_input: SafetyFilterInput) -> SafetyFilterOutput:
         recorder.safety_checks += 1
         recorder.safety_sources.append(_input.source_id)
+        if _input.source_id == "refused":
+            return await safety_filter_activity(_input)
         if _input.source_id == "unsafe":
             return SafetyFilterOutput(safe=False, threat_type="test", explanation=None)
         if recorder.safety_failures > 0:
@@ -74,23 +87,21 @@ async def _drive(recorder: _Recorder) -> None:
     @activity.defn(name="flush_signals_to_s3_activity")
     async def fake_flush(input: FlushBufferInput) -> FlushBufferOutput:
         recorder.flushes += 1
+        recorder.flushed_sources.extend(signal.source_id for signal in input.signals)
         return FlushBufferOutput(object_key="signals/batch/test", signal_count=len(input.signals))
 
     @activity.defn(name="signal_with_start_grouping_v2_activity")
     async def fake_grouping(_input: SignalWithStartGroupingV2Input) -> None:
         recorder.grouping_starts += 1
-        recorder.flow_done.set()
 
-    # The test waits on its own events rather than on the workflow result, so the time-skipping
-    # server never skips the workflow's timers and they would run on the wall clock.
-    with (
-        patch(f"{BUFFER_MODULE}.BUFFER_FLUSH_TIMEOUT_SECONDS", 0.1),
-        patch(f"{BUFFER_MODULE}.SAFETY_FILTER_RETRY_DELAY_SECONDS", 0.1),
-    ):
-        await _run_buffer_workflow(recorder, [fake_quota, fake_safety, fake_flush, fake_grouping])
+    return await _run_buffer_workflow(recorder, [fake_quota, fake_safety, fake_flush, fake_grouping], pending_signals)
 
 
-async def _run_buffer_workflow(recorder: _Recorder, activities: list) -> None:
+async def _run_buffer_workflow(
+    recorder: _Recorder,
+    activities: list[Callable[..., Awaitable[object]]],
+    pending_signals: list[EmitSignalInputs] | None = None,
+) -> int:
     async with await WorkflowEnvironment.start_time_skipping() as env:
         async with Worker(
             env.client,
@@ -99,20 +110,40 @@ async def _run_buffer_workflow(recorder: _Recorder, activities: list) -> None:
             activities=activities,
             workflow_runner=UnsandboxedWorkflowRunner(),
         ):
-            unsafe = _signal(1)
-            unsafe.source_id = "unsafe"
+            signals = list(pending_signals or [])
+            if pending_signals is None and recorder.mixed_batch:
+                unsafe = _signal(1)
+                unsafe.source_id = "unsafe"
+                signals = [unsafe, _signal(1)]
             handle = await env.client.start_workflow(
                 BufferSignalsWorkflow.run,
-                BufferSignalsInput(team_id=1, pending_signals=[unsafe, _signal(1)] if recorder.mixed_batch else []),
+                BufferSignalsInput(
+                    team_id=pending_signals[0].team_id if pending_signals else 1,
+                    pending_signals=signals,
+                ),
                 id=f"buffer-{uuid.uuid4()}",
                 task_queue=TASK_QUEUE,
             )
-            if not recorder.mixed_batch:
+            if pending_signals is None and not recorder.mixed_batch:
                 await handle.signal(BufferSignalsWorkflow.submit_signal, _signal(1))
-            terminal = recorder.gate_reached if recorder.over_quota else recorder.flow_done
-            await asyncio.wait_for(terminal.wait(), timeout=30)
-            with suppress(RPCError):
-                await env.client.get_workflow_handle(handle.id).terminate()
+            try:
+                run_id = handle.first_execution_run_id
+                async with asyncio.timeout(30):
+                    while True:
+                        completed = env.client.get_workflow_handle(handle.id, run_id=run_id)
+                        with pytest.raises(WorkflowContinuedAsNewError):
+                            await completed.result(follow_runs=False)
+                        history = await completed.fetch_history()
+                        continued = history.events[-1].workflow_execution_continued_as_new_event_attributes
+                        [next_input] = await env.client.data_converter.decode(
+                            continued.input.payloads, [BufferSignalsInput]
+                        )
+                        if recorder.over_quota or recorder.grouping_starts:
+                            return len(next_input.pending_signals)
+                        run_id = continued.new_execution_run_id
+            finally:
+                with suppress(RPCError):
+                    await env.client.get_workflow_handle(handle.id).terminate()
 
 
 @pytest.mark.asyncio
@@ -145,6 +176,36 @@ async def test_safety_failure_requeues_only_failed_signals(mixed_batch: bool):
     assert recorder.safety_sources.count("unsafe") == int(mixed_batch)
     assert recorder.flushes == 1
     assert recorder.grouping_starts == 1
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db(transaction=True)
+@pytest.mark.parametrize("refusal", [QuotaLimitExceeded(), TrialRefused("trial_expired")])
+async def test_safety_admission_refusal_drops_signal_without_requeueing(ateam: "Team", refusal: Exception) -> None:
+    refused = _signal(ateam.id)
+    refused.source_id = "refused"
+    refused.signal_id = str(uuid.uuid4())
+    healthy = _signal(ateam.id)
+    await database_sync_to_async(begin_signal_spend)(team_id=ateam.id, signal_id=refused.signal_id)
+    recorder = _Recorder(over_quota=False)
+
+    with (
+        patch("products.signals.backend.temporal.safety_filter.call_llm", side_effect=refusal),
+        patch("posthoganalytics.get_feature_flag", return_value=None),
+        patch("posthoganalytics.capture_exception") as capture_exception,
+        patch("posthoganalytics.capture") as capture,
+    ):
+        remaining = await _drive(recorder, pending_signals=[refused, healthy])
+
+    assert await database_sync_to_async(finalized_signal_ids)(team_id=ateam.id, signal_ids=[refused.signal_id]) == {
+        refused.signal_id
+    }
+    assert remaining == 0
+    assert recorder.safety_checks == 2
+    assert recorder.flushed_sources == [healthy.source_id]
+    assert recorder.grouping_starts == 1
+    capture_exception.assert_not_called()
+    assert "signal_blocked_by_safety_filter" not in [call.kwargs.get("event") for call in capture.call_args_list]
 
 
 # ---------------------------------------------------------------------------
