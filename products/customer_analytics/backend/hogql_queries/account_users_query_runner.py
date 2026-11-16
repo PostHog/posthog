@@ -71,9 +71,9 @@ class AccountUsersPersonsTable(PersonsTable):
         query.settings = (query.settings or HogQLQuerySettings()).model_copy(
             update={"optimize_aggregation_in_order": False}
         )
-        if self.filter is not None and query.where is not None:
-            query.prewhere = query.where
-            query.where = None
+        # Do not move the account filter into PREWHERE. ClickHouse runs an IN subquery in PREWHERE on a
+        # distributed table as a separate remote query before the person read, which adds a hop and reads
+        # person twice. In WHERE, the replica that reads person runs the subquery itself.
         return query
 
 
@@ -157,8 +157,12 @@ class AccountUsersQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
         return access_key
 
     def to_query(self) -> ast.SelectQuery:
+        reader = self.get_reader()
+        return self._get_source_query(reader, reader.get_membership_query())
+
+    def _get_source_query(self, reader: AccountPersonsReader, membership: ast.Expr) -> ast.SelectQuery:
         self.modifiers.personsArgMaxVersion = PersonsArgMaxVersion.V2
-        return self.get_reader().get_source_query()
+        return reader.get_source_query(membership)
 
     def to_actors_query(self) -> ast.SelectQuery:
         if not settings.HOGQL_MATERIALIZED_CTE_SUPPORTED:
@@ -176,10 +180,18 @@ class AccountUsersQueryRunner(AnalyticsQueryRunner[HogQLQueryResponse]):
         if not settings.HOGQL_MATERIALIZED_CTE_SUPPORTED:
             return query
         AccountUsersMembershipReferences(source_query).visit(query)
+        reader = self.get_reader()
+        account_members = self._get_source_query(reader, ast.Field(chain=["__account_membership"]))
         query.ctes = {
             **(query.ctes or {}),
+            "__account_membership": ast.CTE(
+                name="__account_membership",
+                expr=reader.get_membership_query(),
+                cte_type="subquery",
+                materialized=True,
+            ),
             "__account_members": ast.CTE(
-                name="__account_members", expr=self.to_query(), cte_type="subquery", materialized=True
+                name="__account_members", expr=account_members, cte_type="subquery", materialized=True
             ),
         }
         return query

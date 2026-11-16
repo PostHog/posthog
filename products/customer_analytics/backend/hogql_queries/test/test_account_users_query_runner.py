@@ -214,7 +214,9 @@ class TestMembershipSchema(QueryMatchingTest, SimpleTestCase):
             restricted_properties=set(),
             use_new_events_schema=False,
         )
-        sql, _ = prepare_and_print_ast(reader.get_source_query(), context=context, dialect="clickhouse")
+        sql, _ = prepare_and_print_ast(
+            reader.get_source_query(reader.get_membership_query()), context=context, dialect="clickhouse"
+        )
         self.assertQueryMatchesSnapshot(sql)
         assert group_key not in sql
         assert group_key in context.values.values()
