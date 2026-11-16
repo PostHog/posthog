@@ -3349,7 +3349,7 @@ class TestOAuthLoginNotification(APIBaseTest):
 
         # test SMTP email notification
         set_instance_setting("EMAIL_HOST", "localhost")
-        with self.settings(CELERY_TASK_ALWAYS_EAGER=True, CUSTOMER_IO_API_KEY=None):
+        with self.settings(CELERY_TASK_ALWAYS_EAGER=True, POSTHOG_TRANSACTIONAL_EMAIL_API_KEY=""):
             social_login_notification(self._build_strategy(rf, ua1, ip1), Backend(), user)
             assert len(mail.outbox) == 1
 
@@ -3361,7 +3361,7 @@ class TestOAuthLoginNotification(APIBaseTest):
 
         # test SMTP email notification
         set_instance_setting("EMAIL_HOST", "localhost")
-        with self.settings(CELERY_TASK_ALWAYS_EAGER=True, CUSTOMER_IO_API_KEY=None):
+        with self.settings(CELERY_TASK_ALWAYS_EAGER=True, POSTHOG_TRANSACTIONAL_EMAIL_API_KEY=""):
             social_login_notification(self._build_strategy(rf, ua1, ip1), Backend(), user)
             assert len(mail.outbox) == 1
             social_login_notification(self._build_strategy(rf, ua1, ip1), Backend(), user)
@@ -3376,7 +3376,7 @@ class TestOAuthLoginNotification(APIBaseTest):
 
         # test SMTP email notification
         set_instance_setting("EMAIL_HOST", "localhost")
-        with self.settings(CELERY_TASK_ALWAYS_EAGER=True, CUSTOMER_IO_API_KEY=None):
+        with self.settings(CELERY_TASK_ALWAYS_EAGER=True, POSTHOG_TRANSACTIONAL_EMAIL_API_KEY=""):
             social_login_notification(self._build_strategy(rf, ua1, ip1), Backend(), user)
             assert len(mail.outbox) == 1
             social_login_notification(self._build_strategy(rf, ua2, ip2), Backend(), user)
@@ -3390,7 +3390,7 @@ class TestOAuthLoginNotification(APIBaseTest):
         ua2, ip2 = "BrowserB/100.0 (Macintosh; Intel Mac OS X)", "2.2.2.2"
 
         set_instance_setting("EMAIL_HOST", "localhost")
-        with self.settings(CELERY_TASK_ALWAYS_EAGER=True, CUSTOMER_IO_API_KEY=None):
+        with self.settings(CELERY_TASK_ALWAYS_EAGER=True, POSTHOG_TRANSACTIONAL_EMAIL_API_KEY=""):
             # First login from device 1 — notification sent
             social_login_notification(self._build_strategy(rf, ua1, ip1), Backend(), user)
             assert len(mail.outbox) == 1
@@ -3411,7 +3411,7 @@ class TestOAuthLoginNotification(APIBaseTest):
         ua1, ip1 = "BrowserA/99.0 (X11; Linux x86_64)", "1.1.1.1"
 
         set_instance_setting("EMAIL_HOST", "localhost")
-        with self.settings(CELERY_TASK_ALWAYS_EAGER=True, CUSTOMER_IO_API_KEY=None):
+        with self.settings(CELERY_TASK_ALWAYS_EAGER=True, POSTHOG_TRANSACTIONAL_EMAIL_API_KEY=""):
             # Attacker-forged cookie without a valid signature should not suppress the notification
             social_login_notification(
                 self._build_strategy(rf, ua1, ip1, cookies={KNOWN_DEVICE_COOKIE.format(user_id=user.id): "1"}),
@@ -3428,7 +3428,7 @@ class TestOAuthLoginNotification(APIBaseTest):
 
         # test SMTP email notification
         set_instance_setting("EMAIL_HOST", "localhost")
-        with self.settings(CELERY_TASK_ALWAYS_EAGER=True, CUSTOMER_IO_API_KEY=None):
+        with self.settings(CELERY_TASK_ALWAYS_EAGER=True, POSTHOG_TRANSACTIONAL_EMAIL_API_KEY=""):
             # simulating signup with post_login signal
             req_signup = rf.get("/", HTTP_USER_AGENT=ua1, REMOTE_ADDR=ip1)
             middleware = SessionMiddleware(lambda r: r)
@@ -3483,7 +3483,7 @@ class TestKnownLoginDeviceCookieMiddleware(APIBaseTest):
     def test_known_cookie_suppresses_notification(self):
         set_instance_setting("EMAIL_HOST", "localhost")
         new_device_subject = "A new device logged into your account"
-        with self.settings(CELERY_TASK_ALWAYS_EAGER=True, CUSTOMER_IO_API_KEY=None):
+        with self.settings(CELERY_TASK_ALWAYS_EAGER=True, POSTHOG_TRANSACTIONAL_EMAIL_API_KEY=""):
             # First login - sets cookie and sends new-device notification
             self.client.post("/api/login/", {"email": self.CONFIG_EMAIL, "password": self.CONFIG_PASSWORD})
             initial_count = sum(1 for m in mail.outbox if m.subject == new_device_subject)

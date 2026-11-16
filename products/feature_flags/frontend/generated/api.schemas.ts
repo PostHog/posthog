@@ -1733,6 +1733,7 @@ export interface CohortConditionTypeFlagsApi {
  * * `static` - Static
  * * `person_properties` - Person properties
  * * `daily` - Daily
+ * * `off` - Off
  * * `building` - Building
  * * `rebuilding` - Rebuilding
  * * `ready` - Ready
@@ -1744,6 +1745,7 @@ export const CohortRealtimeStateEnumApi = {
     Static: 'static',
     PersonProperties: 'person_properties',
     Daily: 'daily',
+    Off: 'off',
     Building: 'building',
     Rebuilding: 'rebuilding',
     Ready: 'ready',
@@ -1785,20 +1787,23 @@ export interface CohortHistoryBuildApi {
 
 /**
  * * `history_over_limit` - History over limit
+ * * `too_large_to_build` - Too large to build
  */
 export type CohortRealtimeUnavailableReasonEnumApi =
     (typeof CohortRealtimeUnavailableReasonEnumApi)[keyof typeof CohortRealtimeUnavailableReasonEnumApi]
 
 export const CohortRealtimeUnavailableReasonEnumApi = {
     HistoryOverLimit: 'history_over_limit',
+    TooLargeToBuild: 'too_large_to_build',
 } as const
 
 export interface CohortRealtimeReadinessApi {
-    /** Whether feature flags can target this cohort now. `ready`: they can, and they see membership changes within about a minute. `building` / `rebuilding`: PostHog is preparing the cohort from past events, and flags cannot target it yet. `needs_attention`: the cohort qualifies but nothing is preparing it. `daily`: its criteria are not supported in realtime, so its membership only comes from the once-a-day calculation. `person_properties`: it matches on person properties, which flags read directly, so they can always target it. `static`: it is a fixed list of people.
+    /** Whether feature flags can target this cohort now. `ready`: they can, and they see membership changes within about a minute. `building` / `rebuilding`: PostHog is preparing the cohort from past events, and flags cannot target it yet. `needs_attention`: the cohort qualifies but nothing is preparing it. `off`: the cohort qualifies and realtime is off for it, so feature flags cannot target it until it is turned on. `daily`: its criteria are not supported in realtime, so its membership only comes from the once-a-day calculation. `person_properties`: it matches on person properties, which flags read directly, so they can always target it. `static`: it is a fixed list of people.
      *
      * * `static` - Static
      * * `person_properties` - Person properties
      * * `daily` - Daily
+     * * `off` - Off
      * * `building` - Building
      * * `rebuilding` - Rebuilding
      * * `ready` - Ready
@@ -1811,9 +1816,10 @@ export interface CohortRealtimeReadinessApi {
     ready_at: string | null
     /** The build preparing the cohort. Null unless the state is `building` or `rebuilding`. */
     build: CohortHistoryBuildApi | null
-    /** A realtime limit that a `daily` cohort's criteria break. `history_over_limit`: they look back further than `history_limit_days`. Other criteria can keep the cohort off realtime too. Null for every other state, and for a `daily` cohort that breaks no limit.
+    /** Why feature flags can't target the cohort. `history_over_limit`, on a `daily` cohort: its criteria look back further than `history_limit_days`. `too_large_to_build`, on a `needs_attention` cohort: the events in its criteria happen too often for PostHog to prepare it automatically. Null in every other case, including a `daily` cohort that other criteria keep off realtime.
      *
-     * * `history_over_limit` - History over limit */
+     * * `history_over_limit` - History over limit
+     * * `too_large_to_build` - Too large to build */
     reason: CohortRealtimeUnavailableReasonEnumApi | null
     /**
      * The most days realtime cohort criteria can look back. Null unless the reason is `history_over_limit`.
@@ -1882,6 +1888,8 @@ export interface CohortApi {
     readonly condition_type: CohortConditionTypeFlagsApi | null
     /** Whether feature flags can target this cohort, and the progress of the build that gets it there. Null outside the realtime cohort flag targeting rollout, on projects the realtime pipeline does not cover, and for cohorts that match on neither events nor person properties, which nothing in the flag API decides on. */
     readonly realtime: CohortRealtimeReadinessApi | null
+    /** Whether realtime is on for this cohort, so PostHog keeps its membership current for feature flags and workflows. Send true when you create a cohort to turn realtime on for it. It stays false when the project has no realtime cohorts or the cohort's criteria can't be realtime. For an existing cohort, use the `realtime` endpoint to turn it on or off. */
+    realtime_enabled?: boolean
     readonly experiment_set: readonly number[]
     /** How this row matched the `search` query parameter: `exact` (the term is a case-insensitive substring of a searched field) or `similar` (a fuzzy trigram match, returned only when no exact match exists). Null when the list is not filtered by `search`. */
     readonly search_match_type: SearchMatchTypeEnumApi | null

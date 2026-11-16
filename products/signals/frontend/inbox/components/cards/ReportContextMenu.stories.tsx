@@ -1,6 +1,8 @@
 import type { Meta, StoryObj } from '@storybook/react'
 import { fireEvent, waitFor, within } from '@testing-library/dom'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+
 import { mswDecorator } from '~/mocks/browser'
 
 import { makeReport, mockReviewers } from '../../__mocks__/inboxMocks'
@@ -44,6 +46,7 @@ const meta: Meta<typeof ReportRowWithMenu> = {
     title: 'Scenes-App/Inbox/ReportContextMenu',
     component: ReportRowWithMenu,
     parameters: {
+        featureFlags: [FEATURE_FLAGS.PHAI_SANDBOX_MODE],
         mockDate: '2026-06-11',
         testOptions: { snapshotTargetSelector: '.primitive-menu-content', waitForLoadersToDisappear: false },
     },

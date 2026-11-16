@@ -14,6 +14,7 @@ use crate::{
     core::config::build_pg_pool,
     error::UnhandledError,
     modes::processing::config::{init_global_state, ProcessingConfig},
+    stages::adaptive_ingestion::AdaptiveIngestionRuntime,
     stages::rate_limiting::RedisRateLimiter,
     stages::resolution::event_release::ReleaseCache,
     stages::resolution::remote::{
@@ -49,6 +50,7 @@ pub struct AppContext {
     // Error-tracking rate limiter. `None` when disabled (the default), in which
     // case `RateLimitingStage` is a pass-through no-op.
     pub rate_limiter: Option<Arc<RedisRateLimiter>>,
+    pub adaptive_ingestion: Option<Arc<AdaptiveIngestionRuntime>>,
     // Team allowlist for the rate limiter: `None` = all teams, `Some(set)` = only
     // these. Parsed from ERROR_TRACKING_RATE_LIMITER_ENABLED_TEAM_IDS.
     pub rate_limiter_enabled_team_ids: Option<HashSet<i32>>,
@@ -179,6 +181,7 @@ impl AppContext {
             build_remote_resolution(config).await?;
 
         let rate_limiter = build_rate_limiter(config).await?;
+        let adaptive_ingestion = AdaptiveIngestionRuntime::from_config(config).await?;
         let rate_limiter_enabled_team_ids =
             parse_team_id_allowlist(&config.error_tracking_rate_limiter_enabled_team_ids);
         let drop_code_variables_team_ids = Arc::new(parse_strict_team_id_list(
@@ -197,6 +200,7 @@ impl AppContext {
             issue_buckets_redis_client,
             issue_buckets_heal_gate: HealGate::new(),
             rate_limiter,
+            adaptive_ingestion,
             rate_limiter_enabled_team_ids,
             drop_code_variables_team_ids,
             issue_cache,

@@ -67,4 +67,19 @@ describe('newEventsTableLogic', () => {
         expect(document.cookie).not.toContain('ph_new_events_schema')
         expect(reload).toHaveBeenCalledTimes(1)
     })
+
+    it('dismissing the bar keeps the table on, and switching again shows the bar again', () => {
+        document.cookie = 'ph_new_events_schema=1; path=/'
+        const logic = mountAs({ is_staff: true })
+
+        logic.actions.dismissNewEventsTableBar()
+
+        expect(logic.values.newEventsTableBarDismissed).toBe(true)
+        expect(logic.values.newEventsTableActive).toBe(true)
+        expect(reload).not.toHaveBeenCalled()
+
+        logic.actions.setNewEventsTable(true)
+
+        expect(logic.values.newEventsTableBarDismissed).toBe(false)
+    })
 })

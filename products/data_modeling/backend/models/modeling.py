@@ -1,25 +1,24 @@
 import time
 from typing import ClassVar
 
-from django.db import models
-
 from prometheus_client import Counter, Histogram
 
 from posthog.hogql import ast
 from posthog.hogql.constants import HogQLDialect
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
-from posthog.hogql.errors import BoundedResolverError, ResolutionDepthExceededError
+from posthog.hogql.database.models import SavedQuery as HogQLSavedQuery
+from posthog.hogql.errors import BoundedResolverError, ResolutionDepthExceededError, ResolutionError
 from posthog.hogql.resolver import Resolver, ResolverFactory
 from posthog.hogql.visitor import TraversingVisitor
 
 from posthog.models.team import Team
 
+# Migrations of this product name the field by this module path.
+from posthog.models.utils import LabelTreeField  # noqa: F401
+
 from products.data_modeling.backend.facade.system_tables import DATA_MODELING_ALLOWED_SYSTEM_TABLES
 from products.data_modeling.backend.logic.incremental_filter import parse_model_query
-
-LabelPath = list[str]
-
 
 DEFAULT_RESOLUTION_MAX_VIEW_DEPTH = 100
 DEFAULT_RESOLUTION_DEADLINE_SECONDS = 60.0
@@ -220,37 +219,6 @@ def bounded_resolver_factory_for_view(
     return factory
 
 
-class LabelTreeField(models.Field):
-    """A Django model field for a PostgreSQL label tree.
-
-    We represent label trees in Python as a list of strings, each item
-    in the list being one of the labels of the underlying ltree.
-    """
-
-    description = "A PostgreSQL label tree field provided by the ltree extension"
-
-    def db_type(self, connection):
-        return "ltree"
-
-    def from_db_value(self, value, expression, connection) -> None | LabelPath:
-        if value is None:
-            return value
-
-        return value.split(".")
-
-    def to_python(self, value) -> None | LabelPath:
-        if value is None:
-            return value
-
-        if isinstance(value, list):
-            return value
-
-        return value.split(".")
-
-    def get_prep_value(self, value: LabelPath) -> str:
-        return ".".join(value)
-
-
 # enclosing WITH clauses, innermost first — a name resolves against the closest one
 CteScope = tuple[dict[str, ast.CTE], ...]
 
@@ -340,6 +308,22 @@ def _subqueries_outside_from(query: ast.SelectQuery) -> list[ast.SelectQuery | a
     return collector.selects
 
 
+def _name_that_reads_view(database: Database, view_name: str) -> str:
+    """The name a view is recorded under as a parent: `models.<stored name>` when that path reads it.
+
+    A warehouse table can take a model's bare name, and then only the `models.` path still reads the
+    model. A view with no such path, like a managed view or an endpoint, keeps its stored name.
+    """
+    qualified_name = f"models.{view_name}"
+    try:
+        table = database.get_table_node(qualified_name).table
+    except ResolutionError:
+        return view_name
+    if isinstance(table, HogQLSavedQuery) and table.name == view_name:
+        return qualified_name
+    return view_name
+
+
 def get_parents_from_model_query(
     team: Team, model_name: str, model_query: str, database: Database | None = None
 ) -> set[str]:
@@ -376,6 +360,7 @@ def get_parents_from_model_query(
             bypass_warehouse_access_control=True,
             allowed_system_tables=DATA_MODELING_ALLOWED_SYSTEM_TABLES,
         )
+    lineage_database = context.database
 
     resolver = BoundedResolver(
         context=context, dialect="hogql", initial_view_name=model_name, source=RESOLUTION_SOURCE_LINEAGE
@@ -410,7 +395,7 @@ def get_parents_from_model_query(
             view_name = resolver.union_view_name_by_id.get(id(select))
 
         if view_name is not None:
-            parents.add(view_name)
+            parents.add(_name_that_reads_view(lineage_database, view_name))
         else:
             queries.extend(_select_queries_with_scope(select, scope))
 

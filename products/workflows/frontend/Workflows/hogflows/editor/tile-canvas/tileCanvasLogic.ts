@@ -35,7 +35,7 @@ import {
     HogFlowEditorMode,
     hogFlowEditorLogic,
 } from '../../hogFlowEditorLogic'
-import type { DropzoneNode, HogFlow, HogFlowActionNode, HogFlowEdge } from '../../types'
+import type { DropzoneNode, HogFlow, HogFlowAction, HogFlowActionNode, HogFlowEdge } from '../../types'
 import { destinationSteps, workflowStepSections } from '../../workflowStepCatalog'
 import {
     CanvasLayout,
@@ -53,6 +53,7 @@ import {
     computePathGroups,
     computeVisibleGraph,
     countableStepMetrics,
+    hasStepMenu,
     PaletteSection,
     PathGroup,
     PathPlace,
@@ -68,6 +69,7 @@ export type TileCanvasPanelMode = HogFlowEditorMode | 'history'
 
 export type StepAddSource = 'palette' | 'command bar' | 'quick add' | 'drag'
 export type StepMoveSource = 'menu' | 'drag'
+export type StepMenuChoice = 'copy' | 'move' | 'delete'
 export type StepDragOutcome = 'moved' | 'no_matching_spot' | 'let_go_elsewhere'
 
 interface StepDrag {
@@ -77,6 +79,7 @@ interface StepDrag {
 
 export type StepCountOf = (actionId: string) => number | undefined
 export type TemplateNameOf = (templateId: string) => string | undefined
+export type StepHasMenu = (action: Pick<HogFlowAction, 'type'>) => boolean
 
 const PATH_LEAVE_MS = 260
 const PATH_MOTION_MS = 1100
@@ -195,6 +198,7 @@ export interface tileCanvasLogicValues {
     hasUnsavedChanges: boolean // workflowLogic
     hogFunctionTemplatesById: Record<string, HogFunctionTemplateType> // workflowLogic
     isRowScopedTrigger: boolean // workflowLogic
+    isViewOnly: boolean // workflowLogic
     originalWorkflow: HogFlow | null // workflowLogic
     workflow: HogFlow // workflowLogic
     allPathsCollapsed: boolean
@@ -229,6 +233,7 @@ export interface tileCanvasLogicValues {
     selectedStepId: string | null
     stepCounts: Record<string, HogFlowEditorActionMetrics> | null
     stepCountsLoading: boolean
+    stepHasMenu: StepHasMenu
     stepMenuActionId: string | null
     stepMenuFromKeyboard: boolean
     stepMetrics: Record<string, HogFlowEditorActionMetrics> | null
@@ -299,6 +304,9 @@ export interface tileCanvasLogicActions {
     }
     cancel: () => {
         value: true
+    }
+    chooseStepMenuItem: (choice: StepMenuChoice) => {
+        choice: StepMenuChoice
     }
     closeCommandPalette: () => {
         value: true
@@ -456,6 +464,7 @@ export interface tileCanvasLogicMeta {
         drawnGraph: (visibleGraph: VisibleGraph, laidOutGraph: VisibleGraph | null) => VisibleGraph
         allPathsCollapsed: (pathGroups: PathGroup[], openPathIds: string[]) => boolean
         isSavedWorkflow: (workflow: HogFlow) => boolean
+        stepHasMenu: (isViewOnly: boolean) => StepHasMenu
         panelMode: (
             isPanelOpen: boolean,
             isHistoryOpen: boolean,
@@ -482,7 +491,8 @@ export interface tileCanvasLogicMeta {
             featureFlags: FeatureFlagsSet,
             currentTeam: TeamPublicType | TeamType | null,
             isRowScopedTrigger: boolean,
-            hogFunctionTemplatesById: Record<string, HogFunctionTemplateType>
+            hogFunctionTemplatesById: Record<string, HogFunctionTemplateType>,
+            isViewOnly: boolean
         ) => PaletteSection[]
     }
 }
@@ -501,7 +511,14 @@ export const tileCanvasLogic = kea<tileCanvasLogicType>([
     connect(() => ({
         values: [
             workflowLogic,
-            ['workflow', 'originalWorkflow', 'hasUnsavedChanges', 'isRowScopedTrigger', 'hogFunctionTemplatesById'],
+            [
+                'workflow',
+                'originalWorkflow',
+                'hasUnsavedChanges',
+                'isRowScopedTrigger',
+                'hogFunctionTemplatesById',
+                'isViewOnly',
+            ],
             hogFlowEditorLogic,
             [
                 'nodeToBeAdded',
@@ -560,6 +577,7 @@ export const tileCanvasLogic = kea<tileCanvasLogicType>([
         closeQuickAdd: true,
         openStepMenu: (actionId: string, fromKeyboard = false) => ({ actionId, fromKeyboard }),
         closeStepMenu: true,
+        chooseStepMenuItem: (choice: StepMenuChoice) => ({ choice }),
         startPlacing: (step: CreateActionType) => ({ step }),
         addStepAt: (step: CreateActionType, edge: HogFlowEdge) => ({ step, edge }),
         placeAt: (edge: HogFlowEdge) => ({ edge }),
@@ -747,6 +765,12 @@ export const tileCanvasLogic = kea<tileCanvasLogicType>([
                 groups.length > 0 && groups.every((group) => !openPathIds.includes(group.id)),
         ],
         isSavedWorkflow: [(s) => [s.workflow], (workflow: HogFlow): boolean => !!workflow.id && workflow.id !== 'new'],
+        stepHasMenu: [
+            (s) => [s.isViewOnly],
+            (isViewOnly: boolean): StepHasMenu =>
+                (action) =>
+                    !isViewOnly && hasStepMenu(action),
+        ],
         panelMode: [
             (s) => [s.isPanelOpen, s.isHistoryOpen, s.mode],
             (isPanelOpen: boolean, isHistoryOpen: boolean, mode: HogFlowEditorMode): TileCanvasPanelMode | null =>
@@ -788,13 +812,17 @@ export const tileCanvasLogic = kea<tileCanvasLogicType>([
             },
         ],
         paletteSections: [
-            (s) => [s.featureFlags, s.currentTeam, s.isRowScopedTrigger, s.hogFunctionTemplatesById],
+            (s) => [s.featureFlags, s.currentTeam, s.isRowScopedTrigger, s.hogFunctionTemplatesById, s.isViewOnly],
             (
                 featureFlags: FeatureFlagsSet,
                 currentTeam: TeamPublicType | TeamType | null,
                 isRowScopedTrigger: boolean,
-                hogFunctionTemplatesById: Record<string, HogFunctionTemplateType>
+                hogFunctionTemplatesById: Record<string, HogFunctionTemplateType>,
+                isViewOnly: boolean
             ): PaletteSection[] => {
+                if (isViewOnly) {
+                    return []
+                }
                 const destinations = destinationSteps(Object.values(hogFunctionTemplatesById))
                 return [
                     ...workflowStepSections({ featureFlags, currentTeam, isRowScopedTrigger }),
@@ -922,10 +950,16 @@ export const tileCanvasLogic = kea<tileCanvasLogicType>([
             },
             revealStep: ({ actionId }) => revealContainingPaths(actionId),
             startPlacing: ({ step }) => {
+                if (values.isViewOnly) {
+                    return
+                }
                 dropPendingMoveOrCopy()
                 actions.setNodeToBeAdded(step)
             },
             addStepAt: ({ step, edge }) => {
+                if (values.isViewOnly) {
+                    return
+                }
                 dropPendingMoveOrCopy()
                 actions.setNodeToBeAdded(step)
                 actions.onDrop(undefined, edge)
@@ -933,7 +967,7 @@ export const tileCanvasLogic = kea<tileCanvasLogicType>([
             },
             startDraggingStep: ({ actionId }) => {
                 const node = values.nodesById[actionId]
-                if (!node || !canMoveStep(values.workflow, actionId)) {
+                if (values.isViewOnly || !node || !canMoveStep(values.workflow, actionId)) {
                     return
                 }
                 actions.closeStepMenu()
@@ -956,6 +990,9 @@ export const tileCanvasLogic = kea<tileCanvasLogicType>([
                 cache.stepDrag = null
             },
             startDraggingNewStep: ({ step }) => {
+                if (values.isViewOnly) {
+                    return
+                }
                 dropPendingMoveOrCopy()
                 actions.setNodeToBeAdded(step)
                 posthog.capture('workflows tile canvas step drag started', { kind: 'add', step_type: step.type })
@@ -970,6 +1007,9 @@ export const tileCanvasLogic = kea<tileCanvasLogicType>([
                 }
             },
             dropAt: ({ edge, snapped }) => {
+                if (values.isViewOnly) {
+                    return
+                }
                 const step = values.nodeToBeAdded
                 if (values.isMovingNode) {
                     placeExistingStep(edge, 'drag', snapped)
@@ -983,6 +1023,9 @@ export const tileCanvasLogic = kea<tileCanvasLogicType>([
                 }
             },
             placeAt: ({ edge }) => {
+                if (values.isViewOnly) {
+                    return
+                }
                 if (values.isMovingNode || values.isCopyingNode) {
                     placeExistingStep(edge, 'menu')
                 } else if (values.nodeToBeAdded) {
@@ -992,6 +1035,20 @@ export const tileCanvasLogic = kea<tileCanvasLogicType>([
             openStepMenu: ({ actionId }) => {
                 // The copy, move and delete rules read the selected step, so the step under the menu must be the selected one.
                 actions.setSelectedNodeId(actionId)
+            },
+            chooseStepMenuItem: ({ choice }) => {
+                const node = values.selectedNode
+                if (values.isViewOnly || !node) {
+                    return
+                }
+                posthog.capture('workflows tile canvas step menu used', { choice })
+                if (choice === 'copy') {
+                    actions.startCopyingNode(node)
+                } else if (choice === 'move') {
+                    actions.startMovingNode(node)
+                } else {
+                    actions.onNodesDelete([node])
+                }
             },
             closeStepMenu: () => {
                 // The menu picked the step only for its own rules, so the next panel must not open scoped to it.
@@ -1097,7 +1154,12 @@ export const tileCanvasLogic = kea<tileCanvasLogicType>([
                 }
                 if (event.key === 'Escape') {
                     actions.cancel()
-                } else if (isPrintableKey(event) && isTypedOnCanvas(event) && values.commandPaletteQuery === null) {
+                } else if (
+                    !values.isViewOnly &&
+                    isPrintableKey(event) &&
+                    isTypedOnCanvas(event) &&
+                    values.commandPaletteQuery === null
+                ) {
                     event.preventDefault()
                     actions.openCommandPalette(event.key)
                 }

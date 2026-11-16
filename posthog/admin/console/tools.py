@@ -4,10 +4,11 @@ from typing import TYPE_CHECKING, ClassVar, Protocol
 
 from django import forms
 
-from posthog.admin.console.panels import Gate, Owner, Tone, check_danger
+from posthog.admin.console.panels import Gate, Owner, Tone, check_danger, is_internal_path
 from posthog.dataclasses import frozen
 
 if TYPE_CHECKING:
+    from django.forms.boundfield import BoundField
     from django.http import HttpRequest, HttpResponse
 
 
@@ -18,6 +19,7 @@ class Cell:
     tone: Tone | None = None
     mono: bool = False
     muted: bool = False
+    detail: str = ""
 
 
 @frozen
@@ -40,18 +42,25 @@ class Table:
     columns: tuple[str, ...]
     rows: tuple[Row | GroupRow, ...]
     empty_text: str = "Nothing to show."
+    title: str = ""
+    numeric_columns: tuple[int, ...] = ()
+    # For a long table above something staff must reach. It scrolls inside its card instead of growing the page.
+    scrolls: bool = False
 
 
 @frozen
 class Notice:
+    """Plain text under the title. With a tone it becomes a callout, for something staff must not miss."""
+
     kind: ClassVar[str] = "notice"
     text: str
+    tone: Tone | None = None
     # An optional link after the text, for example back to the list a sub-page came from.
     link_text: str = ""
     href: str | None = None
 
     def __post_init__(self) -> None:
-        if self.href is not None and (not self.href.startswith("/") or self.href.startswith("//")):
+        if self.href is not None and not is_internal_path(self.href):
             raise ValueError(f"Notice links to {self.href!r}. Link to a PostHog path that starts with /.")
 
 
@@ -74,6 +83,71 @@ class Paging:
 
 
 @frozen
+class Stat:
+    label: str
+    value: str
+    tone: Tone | None = None
+
+
+@frozen
+class Stats:
+    """The few numbers staff read first, as a row of cards."""
+
+    kind: ClassVar[str] = "stats"
+    items: tuple[Stat, ...]
+
+
+@frozen
+class Link:
+    label: str
+    href: str
+    primary: bool = False
+    pending_label: str = ""
+
+    def __post_init__(self) -> None:
+        if not is_internal_path(self.href):
+            raise ValueError(f"Link {self.label!r} links to {self.href!r}. Link to a PostHog path that starts with /.")
+
+
+@frozen
+class Links:
+    """Navigation buttons. A link only reads, so anything that changes state is a `ToolOperation`."""
+
+    kind: ClassVar[str] = "links"
+    items: tuple[Link, ...]
+
+
+@frozen
+class FieldGroup:
+    title: str
+    field_names: tuple[str, ...]
+
+
+@frozen
+class Filters:
+    """A form that submits by GET, so the page it opens can be reloaded and shared.
+
+    Bind the form to `request.GET` when the query holds its values, so the page shows what staff typed.
+    """
+
+    kind: ClassVar[str] = "filters"
+    form: forms.Form
+    groups: tuple[FieldGroup, ...]
+    submit_label: str
+    pending_label: str = ""
+
+    def __post_init__(self) -> None:
+        grouped = [name for group in self.groups for name in group.field_names]
+        expected = [field.name for field in self.form.visible_fields()]
+        # _filters.html renders only the fields a group names, so a missing one would vanish without an error.
+        if sorted(grouped) != sorted(expected):
+            raise ValueError(f"Filter groups must name each form field once. Fields: {expected}, groups: {grouped}")
+
+    def bound_groups(self) -> list[tuple[str, list["BoundField"]]]:
+        return [(group.title, [self.form[name] for name in group.field_names]) for group in self.groups]
+
+
+@frozen
 class Live:
     """A block that the page refreshes from the server while `refresh_seconds` is set, for example the runs of a
     job that is still going. Set it to None when nothing is running, and the page stops asking.
@@ -85,12 +159,17 @@ class Live:
     kind: ClassVar[str] = "live"
     # Stable across requests: the page asks for the block by this key, not by its position.
     key: str
-    block: "Notice | Table | Output"
+    block: "Notice | Table | Output | Stats"
     refresh_seconds: int | None = None
 
     def __post_init__(self) -> None:
         if not re.fullmatch(r"[a-z0-9]+(?:-[a-z0-9]+)*", self.key):
             raise ValueError(f"Live block key {self.key!r} must be lowercase and dash-separated, like a URL slug")
+        # The live endpoint renders this block on every refresh, so a Secret here would be shown again and again.
+        if not isinstance(self.block, INNER_BLOCKS):
+            raise ValueError(
+                f"Live block {self.key!r} holds a {type(self.block).__name__}, not a table, notice, output or stats"
+            )
 
 
 @frozen
@@ -107,8 +186,8 @@ class Secret:
     note: str = "Copy it now. It is not shown again."
 
 
-Block = Notice | Table | Paging | Output | Live | Secret
-INNER_BLOCKS = Notice | Table | Output
+Block = Notice | Table | Paging | Output | Stats | Links | Filters | Live | Secret
+INNER_BLOCKS = Notice | Table | Output | Stats
 
 
 def _check_table(table: Table) -> None:
@@ -124,12 +203,8 @@ class Page:
     def __post_init__(self) -> None:
         # tool.html renders only the block kinds it knows, so an unknown block would vanish without an error.
         for block in self.blocks:
-            if not isinstance(block, Notice | Table | Paging | Output | Live | Secret):
+            if not isinstance(block, Block):
                 raise ValueError(f"{type(block).__name__} is not a console block. Add new blocks to the shell.")
-            if isinstance(block, Live) and not isinstance(block.block, INNER_BLOCKS):
-                raise ValueError(
-                    f"Live block {block.key!r} holds a {type(block.block).__name__}, not a table, notice or output"
-                )
             inner = block.block if isinstance(block, Live) else block
             if isinstance(inner, Table):
                 _check_table(inner)
@@ -190,6 +265,8 @@ class ToolOperation:
     gate: Gate | None = None
     # Staff confirm on a page that shows what will change. For actions on many records, such as a bulk change.
     preview: PreviewHandler | None = None
+    # The run button shows this until the next page loads, for an operation that takes a while.
+    pending_label: str = ""
 
     def __post_init__(self) -> None:
         check_danger(self.key, self.danger, self.form_class, self.undo_hint)

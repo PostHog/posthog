@@ -37,6 +37,7 @@ from products.cohorts.backend.models.backfill import (
     READINESS_CHUNKS,
     CohortBackfillChunk,
     CohortBackfillChunkStatus,
+    CohortBackfillRefusal,
     CohortBackfillRun,
     CohortBackfillRunCohort,
     CohortBackfillRunStatus,
@@ -54,6 +55,7 @@ class CohortRealtimeState(models.TextChoices):
     STATIC = "static", "Static"
     PERSON_PROPERTIES = "person_properties", "Person properties"
     DAILY = "daily", "Daily"
+    OFF = "off", "Off"
     BUILDING = "building", "Building"
     REBUILDING = "rebuilding", "Rebuilding"
     READY = "ready", "Ready"
@@ -62,6 +64,7 @@ class CohortRealtimeState(models.TextChoices):
 
 class CohortRealtimeUnavailableReason(models.TextChoices):
     HISTORY_OVER_LIMIT = "history_over_limit", "History over limit"
+    TOO_LARGE_TO_BUILD = "too_large_to_build", "Too large to build"
 
 
 class CohortHistoryBuildPhase(models.TextChoices):
@@ -113,7 +116,7 @@ class CohortRealtimeReadiness:
     history_limit_days: int | None = None
 
 
-def _has_event_criteria(cohort: Cohort) -> bool:
+def has_event_criteria(cohort: Cohort) -> bool:
     """Whether the cohort matches on events, counting the ones that store that in ``groups``.
 
     ``_has_filter_type`` walks the ``filters`` JSON alone, and a legacy cohort keeps its condition
@@ -138,12 +141,14 @@ def _settled_state(cohort: Cohort) -> str | None:
     """The state a cohort has without consulting a run row, or None when a run decides it."""
     if cohort.is_static:
         return CohortRealtimeState.STATIC
-    if not _has_event_criteria(cohort):
+    if not has_event_criteria(cohort):
         # Flags evaluate person properties off the person record as they run, so they can target
         # this cohort whatever the pipeline is doing. Only an event-based leaf waits on a backfill.
         return CohortRealtimeState.PERSON_PROPERTIES
     if cohort.cohort_type != CohortType.REALTIME:
         return CohortRealtimeState.DAILY
+    if not cohort.realtime_enabled:
+        return CohortRealtimeState.OFF
     if cohort.is_flag_compatible:
         return CohortRealtimeState.READY
     return None
@@ -311,6 +316,19 @@ def _cohort_progress(
     return progress or None
 
 
+def _too_large_to_build(team_id: int, cohorts: Sequence[Cohort]) -> set[int]:
+    """The cohorts whose run a creator refused as too large, on their current behavioral definition."""
+    if not cohorts:
+        return set()
+    current_hash = {cohort.id: cohort.behavioral_filters_shape_hash or "" for cohort in cohorts}
+    refusals = (
+        CohortBackfillRefusal.objects.for_team(team_id, canonical=True)
+        .filter(cohort_id__in=current_hash)
+        .values_list("cohort_id", "shape_hash")
+    )
+    return {cohort_id for cohort_id, shape_hash in refusals if shape_hash == current_hash[cohort_id]}
+
+
 def _resolve_for_team(team_id: int, cohorts: Sequence[Cohort]) -> dict[int, CohortRealtimeReadiness]:
     readiness: dict[int, CohortRealtimeReadiness] = {}
     pending: list[Cohort] = []
@@ -360,6 +378,7 @@ def _resolve_for_team(team_id: int, cohorts: Sequence[Cohort]) -> dict[int, Coho
     queued = _queued_triggers([(cohort.id, kind) for cohort in pending for kind in sorted(unresolved[cohort.id])])
 
     progress_by_cohort: dict[int, list[_KindProgress]] = {}
+    needs_attention: list[Cohort] = []
     for cohort in pending:
         if queued is None and unresolved[cohort.id]:
             # The lookup that would say whether a build is queued is unavailable, so this cohort
@@ -367,11 +386,18 @@ def _resolve_for_team(team_id: int, cohorts: Sequence[Cohort]) -> dict[int, Coho
             continue
         progress = _cohort_progress(cohort.id, required_kinds[cohort.id], live_runs[cohort.id], queued or {})
         if progress is None:
-            readiness[cohort.id] = CohortRealtimeReadiness(
-                state=CohortRealtimeState.NEEDS_ATTENTION, ready_at=None, build=None
-            )
+            needs_attention.append(cohort)
             continue
         progress_by_cohort[cohort.id] = progress
+
+    too_large = _too_large_to_build(team_id, needs_attention)
+    for cohort in needs_attention:
+        readiness[cohort.id] = CohortRealtimeReadiness(
+            state=CohortRealtimeState.NEEDS_ATTENTION,
+            ready_at=None,
+            build=None,
+            reason=CohortRealtimeUnavailableReason.TOO_LARGE_TO_BUILD if cohort.id in too_large else None,
+        )
 
     # A cohort is only as far along as its least advanced kind, and that is the only run a reader
     # is shown, so it is the only one whose chunks are tallied.
@@ -437,7 +463,7 @@ def cohorts_with_realtime_state(cohorts: Sequence[Cohort]) -> list[Cohort]:
     return [
         cohort
         for cohort in saved
-        if cohort.team_id in serving_teams and (_has_event_criteria(cohort) or _has_person_criteria(cohort))
+        if cohort.team_id in serving_teams and (has_event_criteria(cohort) or _has_person_criteria(cohort))
     ]
 
 

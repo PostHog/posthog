@@ -160,6 +160,16 @@ def _stripe_rejected_the_refresh(res: requests.Response) -> bool:
     return res.status_code in _STRIPE_SAVED_REJECTION_STATUS_CODES
 
 
+def _stripe_refresh_log_fields(kind: str, res: requests.Response | None) -> dict[str, Any]:
+    """Stripe's request ID, to look up in Stripe's request logs, and whether Stripe replayed a saved answer."""
+    if kind != "stripe" or res is None:
+        return {}
+    return {
+        "stripe_request_id": res.headers.get("Request-Id"),
+        "stripe_idempotent_replayed": res.headers.get("Idempotent-Replayed") == "true",
+    }
+
+
 def _raise_oauth_validation_error(kind: str, res: requests.Response) -> NoReturn:
     """Raise a ValidationError describing a failed OAuth token exchange.
 
@@ -1861,7 +1871,9 @@ class OauthIntegration:
 
         if res is None or res.status_code != 200 or not config.get("access_token"):
             logger.warning(
-                f"Failed to refresh token for {self}", response=res.text if res is not None else "network error"
+                f"Failed to refresh token for {self}",
+                response=res.text if res is not None else "network error",
+                **_stripe_refresh_log_fields(self.integration.kind, res),
             )
             reason = (
                 refresh_tracking.oauth_refresh_failure_reason(res.status_code, config, kind=self.integration.kind)
@@ -1879,7 +1891,7 @@ class OauthIntegration:
             # decrypted, and saving re-encrypts it, permanently adding a layer to the stored value.
             return replace(failure, errors=common.ERROR_TOKEN_REFRESH_FAILED)
 
-        logger.info(f"Refreshed access token for {self}")
+        logger.info(f"Refreshed access token for {self}", **_stripe_refresh_log_fields(self.integration.kind, res))
         tokens: dict[str, object] = {"access_token": config["access_token"]}
         # Some providers (e.g. Atlassian/Jira) rotate refresh tokens — each
         # refresh response includes a new refresh_token and the old one is

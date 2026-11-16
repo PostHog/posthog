@@ -2,8 +2,8 @@
 
 The staff back office at `/admin/console/`.
 It replaces custom Django admin views and templates for staff workflows.
-The semgrep rules in `.semgrep/rules/devex/no-new-custom-admin-views.yaml` block new ones (admin views, URLs under `/admin/`, templates, save hooks and workflow actions), and the program ends when their findings reach zero.
-The Django admin stays for plain CRUD on models.
+The semgrep rules in `.semgrep/rules/devex/no-new-custom-admin-views.yaml` and `no-new-custom-admin-templates.yaml` block new ones (admin views, URLs under `/admin/`, save hooks, workflow actions, admin templates and scripts, and any file under `templates/admin/` or `static/admin/`), and the program ends when their findings reach zero.
+The Django admin stays for plain CRUD on models, with the Python tweaks that the "Django admin" section of [`.agents/architecture.md`](../../../.agents/architecture.md) allows. Read it when you decide whether a change stays in the admin.
 Before you add or change a panel, operation or tool, invoke `/extending-the-admin-console`. It holds the judgment calls: where a change goes, copy, how to classify an operation, and the checks before done.
 
 ## Invariants
@@ -28,7 +28,7 @@ Before you add or change a panel, operation or tool, invoke `/extending-the-admi
 A tool is a page that is not about one record, for example a report across all teams.
 
 1. In `products/<product>/backend/console.py`, subclass `ConsoleTool` and decorate it with `@console.register_tool`. Set `key`, `title`, `owner` and `group`; the group is the navigation heading. `posthog/admin/console/events_retention_tool.py` is the reference.
-2. `page(request)` returns a `Page` of blocks (`Notice`, `Table` with `Row` and `GroupRow`, `Paging`, `Output`, `Live`). It only reads; the console serves it for GET and HEAD only. The console renders the blocks, so a tool needs no template. When a tool needs a block that does not exist, add it to `tools.py` and `tool.html` in the shell, not a template in the product.
+2. `page(request)` returns a `Page` of blocks (`Notice`, `Stats`, `Table` with `Row` and `GroupRow`, `Paging`, `Output`, `Links`, `Filters`, `Live`). It only reads; the console serves it for GET and HEAD only. Inputs that choose what the page shows go in a `Filters` block, which submits by GET, so a reload or a shared link changes nothing. The console renders the blocks, so a tool needs no template. When a tool needs a block that does not exist, add it to `tools.py` and `_block.html` in the shell, not a template in the product.
 3. For an action that is not about one record, return a `ToolOperation` from `operations(request)`. It works like a record `Operation` without the record: `handler(request, form)`. Its handler returns `None` (back to the tool with its messages), or a `Page` that the console shows once as the result. The console redirects to the result, so a reload never runs the operation again. `products/cohorts/backend/console.py` is the reference.
 4. A credential that staff must copy now, such as a password the control plane returns only once, goes in a `Secret` block on a result `Page`, from a tool or a record operation. The console keeps the result for one read, so the value never reaches the audit log, a confirm token, a URL or a message. A tool page or a preview refuses it. `products/managed_warehouse/backend/console.py` is the reference.
 5. An operation that changes many records at once sets `preview`. The console shows the preview `Page` and a confirm button, and the confirm runs exactly the previewed input from a signed token. The handler still re-checks the current state, because records can change between preview and confirm. The token is readable, so a form with a preview holds no secrets. `posthog/admin/console/organization_tools.py` is the reference.

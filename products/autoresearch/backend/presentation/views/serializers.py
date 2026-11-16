@@ -42,6 +42,7 @@ POPULATION_KINDS = api.POPULATION_KINDS
 PIPELINE_STATUS_CHOICES = api.PIPELINE_STATUS_CHOICES
 TEMPLATE_KEY_CHOICES = api.TEMPLATE_KEY_CHOICES
 VALIDATION_WARNING_CODES = api.VALIDATION_WARNING_CODES
+VALIDATION_ERROR_CODE_CHOICES = api.VALIDATION_ERROR_CODE_CHOICES
 MODEL_ROLE_CHOICES = api.MODEL_ROLE_CHOICES
 RUN_STATUS_CHOICES = api.RUN_STATUS_CHOICES
 RUN_TYPE_CHOICES = api.RUN_TYPE_CHOICES
@@ -2023,6 +2024,17 @@ class ValidatePipelineResponseSerializer(serializers.Serializer):
         help_text=(
             "Why validation did not run, or null when it did. A query error in the definition itself "
             "is passed through; any other failure is a generic message and the detail is logged."
+        ),
+    )
+    error_code = serializers.ChoiceField(
+        choices=VALIDATION_ERROR_CODE_CHOICES,
+        allow_null=True,
+        help_text=(
+            "Why validation did not run, or null when it did. 'invalid_definition': a query error in the "
+            "definition, so fix it before retrying. 'too_expensive': the counts ran out of time or memory on this "
+            "project's data, so a retry fails the same way; narrow the population, for example to people who "
+            "performed a specific event, or shorten training_lookback_days. 'unavailable': anything else, worth "
+            "a retry."
         ),
     )
 
