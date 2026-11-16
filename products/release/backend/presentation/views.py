@@ -320,14 +320,17 @@ class ReleaseViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     def catalog_releases(self, request: ValidatedRequest, **kwargs) -> Response:
         """List the project's releases, newest first, with only the fields a list shows."""
         query = request.validated_query_data
-        releases, has_more = api.list_catalog_page(
-            self.team_id,
-            self._flag_visibility,
-            search=query.get("search", "").strip(),
-            limit=query["limit"],
-            offset=query["offset"],
-        )
-        return Response(CatalogReleasesResponseSerializer({"results": releases, "has_more": has_more}).data)
+        try:
+            releases, next_cursor = api.list_catalog_page(
+                self.team_id,
+                self._flag_visibility,
+                search=query.get("search", "").strip(),
+                limit=query["limit"],
+                cursor=query["cursor"],
+            )
+        except api.InvalidCatalogCursorError:
+            raise ValidationError({"cursor": "This cursor is not valid."})
+        return Response(CatalogReleasesResponseSerializer({"results": releases, "next_cursor": next_cursor}).data)
 
     @extend_schema(request=None, responses={201: ImportAllResponseSerializer})
     @action(detail=False, methods=["post"], pagination_class=None)

@@ -52,8 +52,8 @@ class CatalogReleasesQuerySerializer(serializers.Serializer):
     limit = serializers.IntegerField(
         required=False, default=50, min_value=1, max_value=100, help_text="How many releases to return, at most 100."
     )
-    offset = serializers.IntegerField(
-        required=False, default=0, min_value=0, help_text="How many releases to skip, newest first."
+    cursor = serializers.CharField(
+        required=False, default="", allow_blank=True, max_length=100, help_text="next_cursor of the previous page."
     )
 
 
@@ -65,7 +65,9 @@ class CatalogReleaseSerializer(serializers.Serializer):
 
 class CatalogReleasesResponseSerializer(serializers.Serializer):
     results = CatalogReleaseSerializer(many=True, help_text="Releases of the project, newest first.")
-    has_more = serializers.BooleanField(help_text="True when more releases follow this page.")
+    next_cursor = serializers.CharField(
+        allow_null=True, help_text="Pass as cursor to fetch the next page. Null when no more releases follow."
+    )
 
 
 class BroadcastOptionSerializer(serializers.Serializer):

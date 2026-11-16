@@ -3,10 +3,11 @@
 from __future__ import annotations
 
 from collections.abc import Callable
+from datetime import datetime
 from uuid import UUID
 
 from django.db import transaction
-from django.db.models import QuerySet
+from django.db.models import Q, QuerySet
 
 from posthog.models.utils import strict_fetch
 
@@ -18,8 +19,11 @@ def list_releases(team_id: int) -> QuerySet[Release]:
     return strict_fetch(Release.objects.filter(team_id=team_id).select_related("owner").order_by("created_at", "id"))
 
 
-def list_catalog_releases(team_id: int, search: str) -> QuerySet[Release]:
+def list_catalog_releases(team_id: int, search: str, before: tuple[datetime, UUID] | None) -> QuerySet[Release]:
     releases = Release.objects.filter(team_id=team_id)
+    if before:
+        created_at, release_id = before
+        releases = releases.filter(Q(created_at__lt=created_at) | Q(created_at=created_at, id__lt=release_id))
     if search:
         releases = releases.filter(name__icontains=search)
     return releases.only("id", "name", "created_at", "auto_named", "feature_flag_ids").order_by("-created_at", "-id")

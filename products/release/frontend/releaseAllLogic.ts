@@ -43,19 +43,29 @@ interface SourcePage {
     rows: ReleaseAllRow[]
     hasMore: boolean
     tail: string | null
+    cursor?: string | null
 }
 
 interface SourceState {
     rows: ReleaseAllRow[]
     tail: string | null
     offset: number
+    cursor: string | null
     hasMore: boolean
     loading: boolean
     failed: boolean
 }
 
 const ALL_TYPES: ReleaseAllType[] = ['release', 'feature_flag', 'experiment', 'early_access_feature']
-const EMPTY_SOURCE: SourceState = { rows: [], tail: null, offset: 0, hasMore: true, loading: false, failed: false }
+const EMPTY_SOURCE: SourceState = {
+    rows: [],
+    tail: null,
+    offset: 0,
+    cursor: null,
+    hasMore: true,
+    loading: false,
+    failed: false,
+}
 
 function emptySources(): Record<string, SourceState> {
     return Object.fromEntries(ALL_TYPES.map((type) => [type, EMPTY_SOURCE]))
@@ -65,12 +75,22 @@ function capitalize(text: string): string {
     return text.charAt(0).toUpperCase() + text.slice(1).replace(/[-_]/g, ' ')
 }
 
-async function fetchPage(type: ReleaseAllType, projectId: string, search: string, offset: number): Promise<SourcePage> {
+async function fetchPage(
+    type: ReleaseAllType,
+    projectId: string,
+    search: string,
+    { offset, cursor }: SourceState
+): Promise<SourcePage> {
     const query = search || undefined
     if (type === 'release') {
-        const page = await releasesCatalogReleasesRetrieve(projectId, { search: query, limit: ALL_PAGE_SIZE, offset })
+        const page = await releasesCatalogReleasesRetrieve(projectId, {
+            search: query,
+            limit: ALL_PAGE_SIZE,
+            cursor: cursor ?? undefined,
+        })
         return {
-            hasMore: page.has_more,
+            hasMore: !!page.next_cursor,
+            cursor: page.next_cursor,
             tail: page.results.at(-1)?.created_at ?? null,
             rows: page.results.map((release) => ({
                 key: `release-${release.id}`,
@@ -225,8 +245,8 @@ export interface releaseAllLogicMeta {
         loading: (sources: Record<string, SourceState>, activeTypes: ReleaseAllType[]) => boolean
         firstLoad: (sources: Record<string, SourceState>, activeTypes: ReleaseAllType[]) => boolean
         displayRows: (firstLoad: boolean, keptRows: ReleaseAllRow[], visibleRows: ReleaseAllRow[]) => ReleaseAllRow[]
-        renderedRows: (displayRows: ReleaseAllRow[], renderLimit: 100) => ReleaseAllRow[]
-        canShowMore: (displayRows: ReleaseAllRow[], renderLimit: 100, hasMore: boolean) => boolean
+        renderedRows: (displayRows: ReleaseAllRow[], renderLimit: number) => ReleaseAllRow[]
+        canShowMore: (displayRows: ReleaseAllRow[], renderLimit: number, hasMore: boolean) => boolean
         showSkeleton: (firstLoad: boolean, displayRows: ReleaseAllRow[]) => boolean
         failedTypes: (sources: Record<string, SourceState>, activeTypes: ReleaseAllType[]) => ReleaseAllType[]
     }
@@ -286,6 +306,7 @@ export const releaseAllLogic = kea<releaseAllLogicType>([
                         rows: [...state[type].rows, ...page.rows],
                         tail: page.tail ?? state[type].tail,
                         offset: state[type].offset + ALL_PAGE_SIZE,
+                        cursor: page.cursor ?? null,
                         hasMore: page.hasMore,
                         loading: false,
                         failed: false,
@@ -420,7 +441,7 @@ export const releaseAllLogic = kea<releaseAllLogicType>([
                     type,
                     String(values.currentProjectId),
                     values.appliedSearch,
-                    values.sources[type].offset
+                    values.sources[type]
                 )
                 if (generation === requestGeneration) {
                     actions.sourceLoaded(type, page)

@@ -353,7 +353,7 @@ class TestReleaseAPI(APIBaseTest):
 
         response = self.client.get(self._url("catalog_releases/?search=secret&limit=1"))
 
-        assert response.json() == {"results": [], "has_more": False}
+        assert response.json() == {"results": [], "next_cursor": None}
 
     def test_merge_moves_every_link_into_the_kept_release_and_deletes_the_others(self) -> None:
         flags = [self._flag(key) for key in ("checkout-button", "checkout-copy", "checkout-form")]
@@ -431,8 +431,8 @@ class TestReleaseAPI(APIBaseTest):
         deleted = self._flag("checkout-deleted")
         self.client.patch(f"/api/projects/{self.team.id}/feature_flags/{deleted}/", {"deleted": True}, format="json")
 
-        first = self.client.get(self._url("catalog_flags/"), {"search": "checkout", "limit": 1}).json()
-        second = self.client.get(self._url("catalog_flags/"), {"search": "checkout", "limit": 1, "offset": 1}).json()
+        first = self.client.get(self._url("catalog_flags/?search=checkout&limit=1")).json()
+        second = self.client.get(self._url("catalog_flags/?search=checkout&limit=1&offset=1")).json()
 
         assert [flag["id"] for flag in first["results"]] == [newer]
         assert first["has_more"] is True
@@ -444,12 +444,14 @@ class TestReleaseAPI(APIBaseTest):
             Release.objects.unscoped().create(team=self.team, name=name)
 
         first = self.client.get(self._url("catalog_releases/?search=checkout&limit=1")).json()
-        second = self.client.get(self._url("catalog_releases/?search=checkout&limit=1&offset=1")).json()
+        second = self.client.get(
+            self._url("catalog_releases/"), {"search": "checkout", "limit": "1", "cursor": first["next_cursor"]}
+        ).json()
 
         assert [release["name"] for release in first["results"]] == ["Checkout newer"]
-        assert first["has_more"] is True
         assert [release["name"] for release in second["results"]] == ["Checkout older"]
-        assert second["has_more"] is False
+        assert second["next_cursor"] is None
+        assert self.client.get(self._url("catalog_releases/?cursor=bad")).status_code == status.HTTP_400_BAD_REQUEST
 
     def test_catalog_flags_hides_flags_the_caller_cannot_see(self) -> None:
         visible = self._flag("checkout-visible")

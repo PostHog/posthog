@@ -56,7 +56,7 @@ describe('releaseAllLogic', () => {
         jest.mocked(earlyAccessFeatureList).mockResolvedValue(EMPTY_PAGE as never)
         jest.mocked(releasesCatalogReleasesRetrieve).mockResolvedValue({
             results: [{ id: 'r1', name: 'Release 1', created_at: '2026-11-07T00:00:00Z' }],
-            has_more: false,
+            next_cursor: null,
         } as never)
         jest.mocked(experimentsList).mockImplementation(
             async (_project, params) =>

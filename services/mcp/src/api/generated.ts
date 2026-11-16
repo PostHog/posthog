@@ -26770,8 +26770,11 @@ export namespace Schemas {
     export interface CatalogReleasesResponse {
       /** Releases of the project, newest first. */
       results: CatalogRelease[];
-      /** True when more releases follow this page. */
-      has_more: boolean;
+      /**
+         * Pass as cursor to fetch the next page. Null when no more releases follow.
+         * @nullable
+         */
+      next_cursor: string | null;
     }
 
     export interface CatalogueEntry {
@@ -143956,16 +143959,16 @@ export namespace Schemas {
 
     export type ReleasesCatalogReleasesRetrieveParams = {
     /**
+     * next_cursor of the previous page.
+     * @maxLength 100
+     */
+    cursor?: string;
+    /**
      * How many releases to return, at most 100.
      * @minimum 1
      * @maximum 100
      */
     limit?: number;
-    /**
-     * How many releases to skip, newest first.
-     * @minimum 0
-     */
-    offset?: number;
     /**
      * Part of the release name to match.
      * @maxLength 200
