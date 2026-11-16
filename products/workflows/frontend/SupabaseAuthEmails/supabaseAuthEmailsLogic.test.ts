@@ -28,7 +28,7 @@ describe('supabaseAuthEmailsLogic', () => {
     let messageTemplates: Record<string, unknown>[]
     let patches: Record<string, unknown>[]
     let failure: [number, Record<string, string>?] | null
-    let failedLoads: string[]
+    let failedLoads: ('settings' | 'templates')[]
     let templatesListed: Promise<void>
 
     const settingsResponse = (): Record<string, unknown> => ({
