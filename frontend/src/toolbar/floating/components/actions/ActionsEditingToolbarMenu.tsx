@@ -21,6 +21,7 @@ export const ActionsEditingToolbarMenu = (): JSX.Element => {
         elementsChainBeingEdited,
         editingSelectorValue,
         actionForm,
+        isActionFormSubmitting,
     } = useValues(actionsTabLogic)
     const { setActionFormValue, selectAction, inspectForElementWithIndex, setElementSelector, editSelectorWithIndex } =
         useActions(actionsTabLogic)
@@ -129,7 +130,7 @@ export const ActionsEditingToolbarMenu = (): JSX.Element => {
                     <LemonButton type="secondary" size="small" onClick={() => selectAction(null)}>
                         Cancel
                     </LemonButton>
-                    <LemonButton type="primary" htmlType="submit" size="small">
+                    <LemonButton type="primary" htmlType="submit" size="small" loading={isActionFormSubmitting}>
                         {selectedActionId === 'new' ? 'Create ' : 'Save '}
                         action
                     </LemonButton>
