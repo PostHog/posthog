@@ -283,11 +283,13 @@ class RetentionSweep:
             if self._out_of_time():
                 break
             with transaction.atomic(using=WRITER_DB):
-                # A quarantine can name the run after the candidate query read it.
-                # Its insert takes a key-share lock on the run row, so locking the
-                # row first makes the check and the delete see the same quarantines.
+                # A quarantine or an approval can name the run after the candidate query
+                # read it. A quarantine insert takes a key-share lock on the run row, and
+                # finalize locks the row before it writes approvals, so locking the row
+                # first makes the check and the delete see the same rows.
                 list(self._runs().select_for_update().filter(id=run_id).values_list("id", flat=True))
-                if self._runs().filter(self._source_of_active_quarantine(), id=run_id).exists():
+                keep = self._source_of_active_quarantine() | self._verdict_open_to_approvals()
+                if self._runs().filter(keep, id=run_id).exists():
                     continue
                 self._splice_out_of_chain(run_id)
                 _total, per_model = self._runs().filter(id=run_id).delete()

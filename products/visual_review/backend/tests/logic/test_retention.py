@@ -4,6 +4,7 @@ from datetime import UTC, date, datetime, timedelta
 
 import pytest
 
+from django.db.models import Q
 from django.utils import timezone
 
 from products.visual_review.backend.facade.enums import (
@@ -206,6 +207,18 @@ class TestRetentionSweep:
         retention.sweep_repo_runs(repo, now=now)
 
         assert Run.objects.filter(id=quiet.id).exists() is survives
+
+    def test_delete_keeps_a_run_approved_after_the_candidate_query(self, repo, now):
+        quiet = self._run(repo, now, age_days=31)
+        self._run(repo, now, age_days=1, branch="feature/y", pr_number=8)
+        sweep = retention.RetentionSweep(repo, now=now)
+        candidates = sweep._quiet_branch_run_ids(10, quiet_days=30, branches=Q(branch="feature/x"))
+        assert candidates == [quiet.id]
+
+        _approval(repo, now, BaselineApprovalState.OPEN, {"content_hash": "h1"}, pr_number=7)
+
+        assert sweep._delete_runs(candidates) == 0
+        assert Run.objects.filter(id=quiet.id).exists()
 
     def test_quiet_branch_group_goes_in_one_sweep(self, repo, now):
         latest = self._run(repo, now, age_days=31)
