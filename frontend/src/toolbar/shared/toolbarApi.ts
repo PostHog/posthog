@@ -2,11 +2,11 @@ import { encodeParams } from 'kea-router'
 
 import type { PaginatedResponse } from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import type { ToolbarRouteScope } from 'lib/toolbar/toolbarProject'
 
 import { toolbarConfigLogic } from '~/toolbar/shared/toolbarConfigLogic'
 import { toolbarApiPath, toolbarFetch } from '~/toolbar/shared/toolbarFetch'
 import { toolbarLogger } from '~/toolbar/shared/toolbarLogger'
-import type { ToolbarRouteScope } from '~/toolbar/shared/toolbarProject'
 import type { ElementsEventType, WebExperiment } from '~/toolbar/shared/types'
 import type { ActionType, CombinedFeatureFlagAndValueType, EventDefinition, ProductTour } from '~/types'
 
