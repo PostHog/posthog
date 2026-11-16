@@ -185,6 +185,7 @@ describe('supabaseAuthEmailsLogic', () => {
         logic.actions.loadTemplates()
         await settled(logic)
         expect(logic.values.templatesLoadFailed).toBe(false)
+        expect(logic.values.transactionalTemplates?.map((template) => template.id)).toEqual([SENDABLE])
     })
 
     it.each([
@@ -237,7 +238,6 @@ describe('supabaseAuthEmailsLogic', () => {
         const logic = await mounted()
         logic.actions.setSupabaseUrl(url)
         logic.actions.setHookSecret(secret)
-
         expect(logic.values.connectionChanged).toBe(changed)
     })
 
