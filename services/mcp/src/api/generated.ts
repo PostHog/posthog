@@ -123059,12 +123059,12 @@ export namespace Schemas {
     }
 
     /**
-     * Whether the current organization has each toolbar plan entitlement, keyed by feature name.
+     * Whether the organization that owns the project has each toolbar plan entitlement, keyed by feature name.
      */
     export type ToolbarEntitlementsEntitlements = {[key: string]: boolean};
 
     export interface ToolbarEntitlements {
-      /** Whether the current organization has each toolbar plan entitlement, keyed by feature name. */
+      /** Whether the organization that owns the project has each toolbar plan entitlement, keyed by feature name. */
       entitlements: ToolbarEntitlementsEntitlements;
     }
 
