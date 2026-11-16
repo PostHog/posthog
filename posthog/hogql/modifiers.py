@@ -66,7 +66,8 @@ def create_default_modifiers_for_team(
             # A modifier removed from the schema can stay stored on a project, and the model rejects unknown fields.
             if key not in HogQLQueryModifiers.model_fields:
                 continue
-            # Applied after this loop, below the overrides that outrank a project's own choice.
+            # A project's early opt-in. It is applied after this loop, because a query's modifier, an enclosing
+            # query and a staff switch outrank it.
             if key == "useNewEventsSchema":
                 continue
             if getattr(modifiers, key, None) is None:

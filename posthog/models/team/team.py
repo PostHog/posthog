@@ -769,7 +769,7 @@ class Team(UUIDTClassicModel):
 
         modifiers = HogQLQueryModifiers()
         set_default_modifier_values(modifiers, self)
-        # The table PostHog put the project on, which project settings shows in place of the early opt-in.
+        # Whether PostHog moved the project. Project settings hides the early opt-in switch once it is true.
         modifiers.useNewEventsSchema = project_moved_to_new_events_table(self.pk)
         return modifiers.model_dump()
 

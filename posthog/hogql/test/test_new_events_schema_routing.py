@@ -61,8 +61,8 @@ class TestEventsTableSwitch(SimpleTestCase):
         ):
             yield feature_enabled
         for flag_call in feature_enabled.call_args_list:
-            self.assertEqual(flag_call.kwargs["groups"], {"project": "44"})
-            self.assertEqual(flag_call.kwargs["group_properties"], {"project": {"id": "44"}})
+            self.assertEqual(flag_call.kwargs["groups"], {"project": str(self.team.pk)})
+            self.assertEqual(flag_call.kwargs["group_properties"], {"project": {"id": str(self.team.pk)}})
 
     @parameterized.expand(
         [
