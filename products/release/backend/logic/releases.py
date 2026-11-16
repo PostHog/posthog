@@ -9,7 +9,7 @@ from django.db.models import QuerySet
 
 from posthog.models.utils import strict_fetch
 
-from ..facade.contracts import ReleaseNotFoundError
+from ..facade.contracts import MAX_LINKED, InvalidMergeError, ReleaseNotFoundError
 from ..models import Release
 
 
@@ -57,7 +57,13 @@ def update_release(team_id: int, release_id: UUID, changes: dict) -> Release:
     return get_release(team_id, release_id)
 
 
-LINKED_FIELDS = ("feature_flag_ids", "broadcast_ids", "survey_ids", "insight_ids")
+LINKED_NOUNS = {
+    "feature_flag_ids": "flags",
+    "broadcast_ids": "broadcasts",
+    "survey_ids": "surveys",
+    "insight_ids": "insights",
+}
+LINKED_FIELDS = tuple(LINKED_NOUNS)
 
 
 def releases_by_id(team_id: int, release_ids: list[UUID]) -> dict[UUID, Release]:
@@ -76,8 +82,16 @@ def merge_releases(team_id: int, target_id: UUID, source_ids: list[UUID], name: 
         target = found[target_id]
         sources = [found[release_id] for release_id in source_ids]
         for field in LINKED_FIELDS:
-            merged = [*getattr(target, field), *(item for source in sources for item in getattr(source, field))]
-            setattr(target, field, list(dict.fromkeys(merged)))
+            merged = list(
+                dict.fromkeys(
+                    [*getattr(target, field), *(item for source in sources for item in getattr(source, field))]
+                )
+            )
+            if len(merged) > MAX_LINKED:
+                raise InvalidMergeError(
+                    f"The merged release would link {len(merged)} {LINKED_NOUNS[field]}, more than the {MAX_LINKED} a release can hold."
+                )
+            setattr(target, field, merged)
         target.owner_id = target.owner_id or next((source.owner_id for source in sources if source.owner_id), None)
         target.description = target.description or next(
             (source.description for source in sources if source.description), ""

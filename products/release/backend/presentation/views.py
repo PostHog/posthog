@@ -55,7 +55,7 @@ class ReleaseViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     scope_object = "feature_flag"
     requires_resource_level_access = True
     scope_object_read_actions = ["list", "retrieve", "broadcast_search"]
-    scope_object_write_actions = ["create", "update", "partial_update", "destroy", "import_all"]
+    scope_object_write_actions = ["create", "update", "partial_update", "destroy", "import_all", "merge"]
     serializer_class = ReleaseSerializer
     pagination_class = FacadeLimitOffsetPagination
     path_parameters = {"pk": UUID}

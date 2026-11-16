@@ -11,6 +11,8 @@ from uuid import UUID
 
 from pydantic.dataclasses import dataclass
 
+MAX_LINKED = 100
+
 
 class ReleaseNotFoundError(Exception):
     pass

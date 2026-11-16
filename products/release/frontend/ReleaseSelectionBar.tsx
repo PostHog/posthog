@@ -2,6 +2,7 @@ import { useActions, useValues } from 'kea'
 
 import { Button, Text } from '@posthog/quill'
 
+import { MERGE_LIMIT_REASON, MERGE_SOURCE_LIMIT } from './releaseMerge'
 import { releaseMergeLogic } from './releaseMergeLogic'
 
 export function ReleaseSelectionBar(): JSX.Element | null {
@@ -17,7 +18,13 @@ export function ReleaseSelectionBar(): JSX.Element | null {
             <Button
                 size="sm"
                 variant="outline"
-                disabledReason={candidates.length < 2 ? 'Select at least two releases to merge' : undefined}
+                disabledReason={
+                    candidates.length < 2
+                        ? 'Select at least two releases to merge'
+                        : candidates.length - 1 > MERGE_SOURCE_LIMIT
+                          ? MERGE_LIMIT_REASON
+                          : undefined
+                }
                 onClick={() => setMergeOpen(true)}
                 data-attr="release-merge-open"
             >

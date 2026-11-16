@@ -1,6 +1,9 @@
 import type { ReleaseDTOApi } from './generated/api.schemas'
 import { ReleaseRow } from './releaseUtils'
 
+export const MERGE_SOURCE_LIMIT = 100
+export const MERGE_LIMIT_REASON = `Merge at most ${MERGE_SOURCE_LIMIT} releases into one at a time`
+
 export interface MergeCandidate {
     id: string
     name: string

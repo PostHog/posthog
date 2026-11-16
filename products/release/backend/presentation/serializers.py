@@ -5,9 +5,14 @@ from rest_framework_dataclasses.serializers import DataclassSerializer
 
 from posthog.models import OrganizationMembership
 
-from ..facade.contracts import LinkedBroadcastDTO, LinkedInsightDTO, LinkedSendDTO, LinkedSurveyDTO, ReleaseDTO
-
-MAX_LINKED = 100
+from ..facade.contracts import (
+    MAX_LINKED,
+    LinkedBroadcastDTO,
+    LinkedInsightDTO,
+    LinkedSendDTO,
+    LinkedSurveyDTO,
+    ReleaseDTO,
+)
 
 
 class BroadcastSearchQuerySerializer(serializers.Serializer):

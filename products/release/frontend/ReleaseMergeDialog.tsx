@@ -19,6 +19,7 @@ import {
     RadioGroupItem,
 } from '@posthog/quill'
 
+import { MERGE_LIMIT_REASON, MERGE_SOURCE_LIMIT } from './releaseMerge'
 import { releaseMergeLogic } from './releaseMergeLogic'
 import { ReleaseMergeWarning } from './ReleaseMergeWarning'
 
@@ -83,9 +84,11 @@ export function ReleaseMergeDialog(): JSX.Element {
                         disabledReason={
                             !kept
                                 ? 'Pick the release to keep'
-                                : !mergeName.trim()
-                                  ? 'Give the release a name'
-                                  : undefined
+                                : candidates.length - 1 > MERGE_SOURCE_LIMIT
+                                  ? MERGE_LIMIT_REASON
+                                  : !mergeName.trim()
+                                    ? 'Give the release a name'
+                                    : undefined
                         }
                         data-attr="release-merge-confirm"
                         onClick={() => kept && mergeReleases(kept.id)}

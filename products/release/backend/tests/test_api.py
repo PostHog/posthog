@@ -375,6 +375,7 @@ class TestReleaseAPI(APIBaseTest):
             ("unknown_release", "unknown", status.HTTP_400_BAD_REQUEST),
             ("hidden_flag", "hidden", status.HTTP_400_BAD_REQUEST),
             ("missing_target", "missing_target", status.HTTP_404_NOT_FOUND),
+            ("too_many_links", "too_many", status.HTTP_400_BAD_REQUEST),
         ]
     )
     def test_merge_rejects_what_it_cannot_combine(self, _name: str, case: str, expected: int) -> None:
@@ -388,6 +389,9 @@ class TestReleaseAPI(APIBaseTest):
             source_id = "00000000-0000-0000-0000-000000000001"
         elif case == "missing_target":
             target_id = "00000000-0000-0000-0000-000000000002"
+        elif case == "too_many":
+            Release.objects.unscoped().filter(id=kept.id).update(insight_ids=list(range(1, 61)))
+            Release.objects.unscoped().filter(id=other.id).update(insight_ids=list(range(50, 102)))
         elif case == "hidden":
             self._restrict_as_admin(f"feature_flags/{flag_id}")
             self.client.force_login(self._create_user("member@example.com"))
@@ -500,21 +504,24 @@ class TestReleaseAPI(APIBaseTest):
         [
             ("import_all", "post", "feature_flag:write", status.HTTP_201_CREATED),
             ("import_all", "post", "feature_flag:read", status.HTTP_403_FORBIDDEN),
+            ("merge", "post", "feature_flag:write", status.HTTP_200_OK),
+            ("merge", "post", "feature_flag:read", status.HTTP_403_FORBIDDEN),
         ]
     )
-    def test_import_actions_follow_feature_flag_scopes(
+    def test_write_actions_follow_feature_flag_scopes(
         self, action: str, method: str, scope: str, expected: int
     ) -> None:
         self._flag("checkout-v2")
+        url, data = self._url(f"{action}/"), {}
+        if action == "merge":
+            kept = Release.objects.unscoped().create(team=self.team, name="Checkout")
+            other = Release.objects.unscoped().create(team=self.team, name="Checkout copy")
+            url, data = self._url(f"{kept.id}/merge/"), {"release_ids": [str(other.id)]}
         token = generate_random_token_personal()
         PersonalAPIKey.objects.create(label="test", user=self.user, secure_value=hash_key_value(token), scopes=[scope])
         self.client.logout()
 
-        response = getattr(self.client, method)(
-            self._url(f"{action}/"),
-            format="json",
-            HTTP_AUTHORIZATION=f"Bearer {token}",
-        )
+        response = getattr(self.client, method)(url, data, format="json", HTTP_AUTHORIZATION=f"Bearer {token}")
 
         assert response.status_code == expected, response.json()
 
