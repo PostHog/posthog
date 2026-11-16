@@ -8,7 +8,7 @@ import {
     createShortcut,
     deleteShortcut,
     type FileSystemShortcutApi,
-    fetchShortcuts,
+    isCompleteShortcutPage,
     SHORTCUT_PAGE_SIZE,
 } from '@/api/shortcuts'
 import { useAuthStore } from '@/auth/authStore'
@@ -40,7 +40,7 @@ import {
 } from './analytics'
 import { cacheTargetPassed, hasGoodValue, isDue, READ_FLOOR_MS } from './freshness'
 import { type InsightTarget, insightItem, insightItemKey, insightQueryKey, pinTarget } from './items'
-import { listRead, retryListRead } from './listReads'
+import { listRead, readShortcuts, retryListRead } from './listReads'
 import { movedOrder, usePinPrefs, useProjectPinPrefs } from './pinPrefsStore'
 import { useDeviceRecent } from './recentStore'
 import { viewsQueue } from './refreshQueue'
@@ -57,13 +57,6 @@ type ShortcutPage = PaginatedApi<FileSystemShortcutApi>
 
 const EMPTY_ROWS: FileSystemShortcutApi[] = []
 const EMPTY_RECENT: DeviceRecentEntry[] = []
-
-function readShortcuts(signal?: AbortSignal, beforeRead?: () => void): Promise<ShortcutPage> {
-    return listRead('dashboards', signal, () => {
-        beforeRead?.()
-        return fetchShortcuts(signal)
-    })
-}
 
 function projectKey(scope: ProjectScope): string {
     return `${scope.host}|${scope.projectId}`
@@ -83,9 +76,16 @@ export interface PinsState {
  * into one pin. A complete list read forgets the order and mode of pins that are gone.
  *
  * Only the Views list passes `refetchOnMount`. Pin buttons and error states on view screens read the cached list, so
- * opening a view sends no pin list request; the list's refresh rules own the re-reads.
+ * opening a view sends no pin list request; the list's refresh rules own the re-reads. Live's Meanwhile passes
+ * `refetchOnReconnect: false`, so it reads the list only when nothing has.
  */
-export function usePins({ refetchOnMount = false }: { refetchOnMount?: boolean } = {}): PinsState {
+export function usePins({
+    refetchOnMount = false,
+    refetchOnReconnect = true,
+}: {
+    refetchOnMount?: boolean
+    refetchOnReconnect?: boolean
+} = {}): PinsState {
     const context = useViewsContext()
     const demo = context.mode === 'demo'
     const queryKey = viewsKeys.shortcuts(context.scope)
@@ -95,6 +95,7 @@ export function usePins({ refetchOnMount = false }: { refetchOnMount?: boolean }
         enabled: context.ready && !demo,
         staleTime: READ_FLOOR_MS,
         refetchOnMount,
+        refetchOnReconnect,
         retry: retryListRead,
     })
     const prefsKey = context.scope ? projectKey(context.scope) : null
@@ -111,11 +112,10 @@ export function usePins({ refetchOnMount = false }: { refetchOnMount?: boolean }
         if (!page || demo || !prefsKey) {
             return
         }
-        const complete = !page.next && page.results.length < SHORTCUT_PAGE_SIZE
         usePinPrefs.getState().prune(
             prefsKey,
             page.results.map((row) => row.id),
-            complete
+            isCompleteShortcutPage(page)
         )
     }, [page, demo, prefsKey])
 

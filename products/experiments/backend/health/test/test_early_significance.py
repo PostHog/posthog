@@ -17,9 +17,16 @@ from products.experiments.backend.facade.contracts import (
     ExperimentHealthFindingCode,
     ExperimentHealthFindingSeverity,
     ExperimentHealthReaderAccess,
+    ExperimentHealthValueKey,
 )
-from products.experiments.backend.health.checks.early_significance import BELOW_DETECTABLE_EFFECT, early_significance
+from products.experiments.backend.health.checks.early_significance import (
+    BELOW_DETECTABLE_EFFECT,
+    early_significance,
+    early_significance_rows,
+    early_significance_values,
+)
 from products.experiments.backend.health.context import HealthContext, PrimaryMetric
+from products.experiments.backend.health.primary_metric import load_primary_metric
 from products.experiments.backend.health.skips import CheckSkip
 from products.experiments.backend.health.test.factories import ENDED, RUNNING_CONTEXT
 from products.experiments.backend.logic.result_stats import BaselineStats, Interval, MetricResultStats, VariantStats
@@ -36,7 +43,10 @@ from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 Status = ExperimentHealthCheckStatus
 NO_QUERIES = ExperimentHealthReaderAccess(
-    can_read_flag_history=False, can_query_events=False, denied_event_properties=frozenset()
+    can_read_flag_history=False,
+    can_query_events=False,
+    denied_event_properties=frozenset(),
+    restricted_properties=frozenset(),
 )
 FUNNEL = {"kind": "ExperimentMetric", "metric_type": "funnel", "series": [{"kind": "EventsNode", "event": "purchase"}]}
 
@@ -180,6 +190,42 @@ class TestEarlySignificance(TestCase):
 
         self.assertEqual(outcome.status if isinstance(outcome, CheckSkip) else outcome, expected)
 
+    @parameterized.expand(
+        [
+            (
+                "a_significant_variant",
+                _context([("test", 1000, 0.2, True), ("test-2", 1000, 0.05, False)]),
+                {
+                    ExperimentHealthValueKey.METRIC_NAME: "Checkout",
+                    ExperimentHealthValueKey.SAMPLE_COUNT: 3000,
+                    ExperimentHealthValueKey.PLANNED_SAMPLE_COUNT: 3201,
+                },
+                [("test", 20.0, True), ("test-2", 5.0, False)],
+            ),
+            # The running time estimate shows the progress, so nothing significant leaves nothing to explain.
+            ("no_significant_variant", _context([("test", 1000, 0.2, False)]), {}, []),
+        ]
+    )
+    def test_reads_every_variant_once_one_is_significant(
+        self, _name: str, ctx: HealthContext, values: dict[ExperimentHealthValueKey, Any], rows: list[tuple]
+    ) -> None:
+        read_rows = early_significance_rows(ctx)
+
+        self.assertEqual(
+            (
+                dict(early_significance_values(ctx)),
+                [
+                    (
+                        row[ExperimentHealthValueKey.VARIANT],
+                        row[ExperimentHealthValueKey.DIFFERENCE_PERCENTAGE],
+                        row[ExperimentHealthValueKey.SIGNIFICANT],
+                    )
+                    for row in read_rows
+                ],
+            ),
+            (values, rows),
+        )
+
 
 class TestEarlySignificanceFromStoredResults(BaseTest):
     @parameterized.expand(
@@ -296,3 +342,5 @@ class TestEarlySignificanceFromStoredResults(BaseTest):
         )
         if finding:
             self.assertIn('"Checkout funnel"' if shared else '"purchase conversion"', finding.detail)
+        primary = load_primary_metric(experiment)
+        self.assertEqual(primary.exposures if primary else None, 2000 if under_current_key else None)

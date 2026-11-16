@@ -51,6 +51,8 @@ export interface TimeSeriesLineChartConfig {
     percentStackView?: boolean
     /** Show a vertical crosshair line that follows the cursor. */
     showCrosshair?: boolean
+    /** Join the shared crosshair of an enclosing `ChartHoverSync`. Defaults to true. */
+    syncHover?: boolean
     /** Horizontal grid lines, aligned to the primary y-axis ticks. `showGrid` on the primary
      *  `yAxis` config, when set, wins. */
     showGrid?: boolean
@@ -121,6 +123,7 @@ export function TimeSeriesLineChart<Meta = unknown>({
         comparisonOf,
         percentStackView,
         showCrosshair,
+        syncHover = true,
         showGrid,
         showAxisLines,
         showTickMarks,
@@ -141,7 +144,13 @@ export function TimeSeriesLineChart<Meta = unknown>({
         valueLabelFormatter,
         primaryYAxis,
         yAxes,
-    } = useTimeSeries(series, labels, theme, { xAxis, yAxis, valueLabels, legend })
+    } = useTimeSeries(series, labels, theme, {
+        xAxis,
+        yAxis,
+        valueLabels,
+        legend,
+        isPercent: !!percentStackView,
+    })
     const timeSeriesTooltipConfig = useTimeSeriesTooltipConfig(tooltipConfig, xAxis, labels)
 
     const timeXs = useMemo(() => (timeScale ? labels.map(timeScale.parse) : undefined), [timeScale, labels])
@@ -185,6 +194,7 @@ export function TimeSeriesLineChart<Meta = unknown>({
         connectNulls,
         percentStackView,
         showCrosshair,
+        syncHover,
         tooltip: timeSeriesTooltipConfig,
         valueDomain,
         floatBaseline,

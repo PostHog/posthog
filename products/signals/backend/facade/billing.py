@@ -6,7 +6,7 @@ from datetime import datetime
 
 from posthog.dataclasses import frozen
 
-from products.signals.backend import billing
+from products.signals.backend import billing, spend_billing
 
 
 @frozen
@@ -35,3 +35,23 @@ def signals_billing_credits_by_team(
 def credited_refund_credits_for_org(organization_id: str | uuid.UUID, begin: datetime, end: datetime) -> int:
     """Credits that credited-path refunds returned for the org's pull request runs created in ``[begin, end)``."""
     return billing.credited_refund_credits_for_org(organization_id, begin, end)
+
+
+def signals_spend_billing_credits_by_team(
+    begin: datetime,
+    end: datetime,
+    *,
+    organization_id: str | uuid.UUID | None = None,
+    organization_ids: Collection[str | uuid.UUID] | None = None,
+) -> list[TeamSignalsCredits]:
+    rows = spend_billing.get_signals_spend_billing_credits_by_team(
+        begin, end, organization_id=organization_id, organization_ids=organization_ids
+    )
+    return [TeamSignalsCredits(team_id=team_id, credits=credits) for team_id, credits in rows]
+
+
+def signals_spend_quota_credits_by_team(
+    begin: datetime, end: datetime, *, organization_id: str | uuid.UUID | None = None
+) -> list[TeamSignalsCredits]:
+    rows = spend_billing.get_signals_spend_quota_credits_by_team(begin, end, organization_id=organization_id)
+    return [TeamSignalsCredits(team_id=team_id, credits=credits) for team_id, credits in rows]

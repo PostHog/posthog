@@ -12,6 +12,32 @@
             "**{person.name}** triggered event: '{event.event}'"
         ]
     },
+    "template-pagerduty": {
+        "custom_details": [
+            {
+                "Breaches": "{event.properties.breaches}",
+                "Insight": "{event.properties.insight_name}"
+            },
+            {
+                "Insight": "{event.properties.insight_name}"
+            }
+        ],
+        "dedup_key": ["posthog-alert-{event.properties.alert_id}"],
+        "event_action": ["trigger", "resolve"],
+        "links": [
+            [
+                {
+                    "href": "{project.url}/insights/{event.properties.insight_id}/alerts?alert_id={event.properties.alert_id}",
+                    "text": "View alert"
+                }
+            ]
+        ],
+        "source": ["{project.name}"],
+        "summary": [
+            "Insight alert '{event.properties.alert_name}' is firing: {event.properties.breaches}",
+            "Insight alert '{event.properties.alert_name}' stopped firing: {event.properties.insight_name}"
+        ]
+    },
     "template-slack": {
         "blocks": [
             [

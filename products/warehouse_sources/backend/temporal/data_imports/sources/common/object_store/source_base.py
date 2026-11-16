@@ -25,6 +25,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.obj
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store.discovery import (
     TableDefinition,
+    explain_no_tables,
     group_tables,
     resolve_file_format,
     resolve_table_files,
@@ -35,7 +36,6 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.obj
     DELTA_UNSUPPORTED_ERROR,
     FILE_PARSE_ERROR,
     INVALID_CONFIG_ERROR,
-    NO_IMPORTABLE_FILES_ERROR,
     NO_SUCH_BUCKET_ERROR,
     NO_TABLE_FILES_ERROR,
     TOO_MANY_FILES_ERROR,
@@ -115,6 +115,8 @@ class ObjectStorageSource(SimpleSource[ConfigType], CursorSource[ObjectStorageDe
     so deletes, updates, merges and compactions reach the table.
     """
 
+    supports_incremental_history = False
+
     @abstractmethod
     def object_store_config(self, config: ConfigType) -> StoreConfig: ...
 
@@ -123,6 +125,10 @@ class ObjectStorageSource(SimpleSource[ConfigType], CursorSource[ObjectStorageDe
 
     # The service whose self-managed warehouse tables this source can take over.
     self_managed_service: ClassVar[StorageService]
+
+    # Replaces the generic access-denied text, in the wizard and on a failed sync, for a provider
+    # where the user fixes the denial somewhere specific.
+    access_denied_message: ClassVar[str | None] = None
 
     @abstractmethod
     def self_managed_connection_inputs(
@@ -162,7 +168,8 @@ class ObjectStorageSource(SimpleSource[ConfigType], CursorSource[ObjectStorageDe
         return {
             INVALID_CONFIG_ERROR: None,
             BLOCKED_LOCATION_ERROR: None,
-            ACCESS_DENIED_ERROR: (
+            ACCESS_DENIED_ERROR: self.access_denied_message
+            or (
                 "The storage provider rejected these credentials. Check the access key and secret, and that "
                 "the key can list and read the bucket, then reconnect the source."
             ),
@@ -183,12 +190,26 @@ class ObjectStorageSource(SimpleSource[ConfigType], CursorSource[ObjectStorageDe
         self, store: ObjectStore, config: ConfigType, logger: FilteringBoundLogger | None = None
     ) -> list[TableDefinition]:
         store_config = self.object_store_config(config)
+        return self._group(self._list_objects(store, store_config, logger), store_config, config, logger)
+
+    def _list_objects(
+        self, store: ObjectStore, store_config: StoreConfig, logger: FilteringBoundLogger | None = None
+    ) -> list[StoredObject]:
         try:
             objects = store.list_objects(store_config.listing_prefix, MAX_DISCOVERY_OBJECTS)
         except Exception as e:
             _raise_translated(e, store_config.display_location)
         if len(objects) >= MAX_DISCOVERY_OBJECTS and logger is not None:
             logger.warning("Reached the object storage listing limit; later objects are ignored")
+        return objects
+
+    def _group(
+        self,
+        objects: list[StoredObject],
+        store_config: StoreConfig,
+        config: ConfigType,
+        logger: FilteringBoundLogger | None = None,
+    ) -> list[TableDefinition]:
         root_name = store_config.prefix.rsplit("/", 1)[-1] if store_config.prefix else store_config.root_name
         return group_tables(
             objects,
@@ -199,6 +220,11 @@ class ObjectStorageSource(SimpleSource[ConfigType], CursorSource[ObjectStorageDe
             logger=logger,
         )
 
+    def _validation_message(self, message: str) -> str:
+        if self.access_denied_message and message.startswith(ACCESS_DENIED_ERROR):
+            return self.access_denied_message
+        return message
+
     def validate_credentials(
         self,
         config: ConfigType,
@@ -208,23 +234,22 @@ class ObjectStorageSource(SimpleSource[ConfigType], CursorSource[ObjectStorageDe
     ) -> tuple[bool, str | None]:
         try:
             store_config = self.object_store_config(config)
-            tables = self._discover(self.open_store(store_config), config)
+            objects = self._list_objects(self.open_store(store_config), store_config)
+            tables = self._group(objects, store_config, config)
         except ObjectStorageError as e:
-            return False, str(e)
+            return False, self._validation_message(str(e))
         except OSError as e:
             # s3fs turns an S3 answer without a known error code, such as a bare 401 or a 500, into a plain OSError.
             status = _http_status(e)
             if status in (401, 403):
-                return False, str(translate_storage_error(PermissionError(), store_config.display_location))
+                denied = translate_storage_error(PermissionError(), store_config.display_location)
+                return False, self._validation_message(str(denied))
             message = probe_status_message(self.get_source_config.label or "The storage provider", status)
             if message is None:
                 raise
             return False, message
         if not tables:
-            return False, (
-                f"{NO_IMPORTABLE_FILES_ERROR} in '{store_config.display_location}'. PostHog can read the bucket but "
-                "found nothing to import there. Check the URL and the file format."
-            )
+            return False, explain_no_tables(objects, self.discovery_options(config), store_config.pattern)
         return True, None
 
     def get_schemas(

@@ -7,11 +7,13 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { AutoresearchPipelineLogicProps, autoresearchPipelineLogic } from './autoresearchPipelineLogic'
-import { autoresearchAgentModelsRetrieve, autoresearchPartialUpdate } from './generated/api'
+import { autoresearchAgentModelsRetrieve, autoresearchLimitsRetrieve, autoresearchPartialUpdate } from './generated/api'
 import type {
     AgentModelOptionsApi,
     AgentReasoningEffortOptionApi,
     AutoresearchPipelineApi,
+    AutoresearchTrainingRunApi,
+    ProjectLimitsApi,
     ResearchIntervalDaysEnumApi,
 } from './generated/api.schemas'
 
@@ -26,8 +28,49 @@ export interface TrainingScheduleDraft {
     agent_reasoning_effort: string | null
 }
 
-/** One line on what training does next, from the saved schedule. */
-export function trainingScheduleStatus(pipeline: AutoresearchPipelineApi, now: dayjs.Dayjs = dayjs()): string {
+/** Why no training run can start now because of the project's daily limit, or undefined while one can. */
+function dailyTrainingLimitReason(limits: ProjectLimitsApi | null): string | undefined {
+    if (!limits) {
+        return undefined
+    }
+    if (limits.max_training_runs_per_day === 0) {
+        return 'Training is turned off for this project. Contact support to turn it on.'
+    }
+    if (!limits.next_slot_at) {
+        return undefined
+    }
+    return `This project is at its daily limit of ${limits.max_training_runs_per_day} training runs. The next run can start at ${dayjs(limits.next_slot_at).format('MMM D, h:mm A')}.`
+}
+
+/** Why a draft cannot start its first training run because of the project's active model limit. */
+function liveModelLimitReason(
+    pipeline: AutoresearchPipelineApi | null,
+    limits: ProjectLimitsApi | null
+): string | undefined {
+    if (!pipeline || !limits || pipeline.status !== 'draft' || limits.live_pipelines < limits.max_live_pipelines) {
+        return undefined
+    }
+    return `This project has reached its limit of ${limits.max_live_pipelines} active models. Pause or delete one to train this model.`
+}
+
+/** Why the project's limits stop this model from training now, or undefined when they do not. */
+export function trainingDisabledByLimitReason(
+    pipeline: AutoresearchPipelineApi | null,
+    limits: ProjectLimitsApi | null
+): string | undefined {
+    return liveModelLimitReason(pipeline, limits) ?? dailyTrainingLimitReason(limits)
+}
+
+/** One line on what training does next, from the saved schedule and the project's daily limit. */
+export function trainingScheduleStatus(
+    pipeline: AutoresearchPipelineApi,
+    limits: ProjectLimitsApi | null = null,
+    now: dayjs.Dayjs = dayjs()
+): string {
+    const limitReason = dailyTrainingLimitReason(limits)
+    if (limitReason) {
+        return limitReason
+    }
     if (pipeline.research_interval_days === null || !pipeline.next_research_at) {
         return 'Training starts only when you ask for it.'
     }
@@ -41,6 +84,18 @@ export function trainingScheduleStatus(pipeline: AutoresearchPipelineApi, now: d
     return `Next research run on ${next.format('MMM D')}.`
 }
 
+/** Why the model has no live version after its best model failed the final check, or null. */
+export function notLiveExplanation(pipeline: AutoresearchPipelineApi): string | null {
+    if (!pipeline.not_promoted_reason || pipeline.live_training_run) {
+        return null
+    }
+    const next =
+        pipeline.research_interval_days === null
+            ? 'Start a training run to try again.'
+            : 'The next research run tries again.'
+    return `The best model from the last training run couldn't go live, so nothing is scored yet. ${next}`
+}
+
 export interface trainingScheduleLogicValues {
     currentTeamId: number | null
     pipeline: AutoresearchPipelineApi | null
@@ -51,6 +106,9 @@ export interface trainingScheduleLogicValues {
     agentModelOptions: AgentModelOptionsApi | null
     agentModelOptionsLoading: boolean
     effortOptions: AgentReasoningEffortOptionApi[]
+    projectLimits: ProjectLimitsApi | null
+    projectLimitsLoading: boolean
+    trainDisabledByLimitReason: string | undefined
 }
 
 export interface trainingScheduleLogicActions {
@@ -70,6 +128,21 @@ export interface trainingScheduleLogicActions {
         payload?: any
     }
     loadAgentModelOptionsFailure: (error: string) => { error: string }
+    loadProjectLimits: () => { value: true }
+    loadProjectLimitsSuccess: (projectLimits: ProjectLimitsApi | null) => {
+        projectLimits: ProjectLimitsApi | null
+        payload?: any
+    }
+    loadProjectLimitsFailure: (error: string) => { error: string }
+    startTrainingSuccess: (
+        startTrainingResult: AutoresearchTrainingRunApi | null,
+        payload?: any
+    ) => { startTrainingResult: AutoresearchTrainingRunApi | null; payload?: any }
+    startTrainingFailure: (error: string, errorObject?: any) => { error: string; errorObject?: any }
+    resumePipelineSuccess: (
+        pipeline: AutoresearchPipelineApi | null,
+        payload?: any
+    ) => { pipeline: AutoresearchPipelineApi | null; payload?: any }
     resetDraft: () => { value: true }
     saveSchedule: () => { value: true }
     saveScheduleFinished: () => { value: true }
@@ -87,7 +160,10 @@ export const trainingScheduleLogic = kea<trainingScheduleLogicType>([
     path((key) => ['products', 'autoresearch', 'frontend', 'trainingScheduleLogic', key]),
     connect((props: AutoresearchPipelineLogicProps) => ({
         values: [teamLogic, ['currentTeamId'], autoresearchPipelineLogic(props), ['pipeline']],
-        actions: [autoresearchPipelineLogic(props), ['loadPipelineSuccess']],
+        actions: [
+            autoresearchPipelineLogic(props),
+            ['loadPipelineSuccess', 'startTrainingSuccess', 'startTrainingFailure', 'resumePipelineSuccess'],
+        ],
     })),
     actions({
         setResearchIntervalDays: (days: ResearchIntervalDaysEnumApi | null) => ({ days }),
@@ -128,6 +204,17 @@ export const trainingScheduleLogic = kea<trainingScheduleLogicType>([
                         return null
                     }
                     return autoresearchAgentModelsRetrieve(String(values.currentTeamId))
+                },
+            },
+        ],
+        projectLimits: [
+            null as ProjectLimitsApi | null,
+            {
+                loadProjectLimits: async () => {
+                    if (!values.currentTeamId) {
+                        return null
+                    }
+                    return autoresearchLimitsRetrieve(String(values.currentTeamId))
                 },
             },
         ],
@@ -172,6 +259,11 @@ export const trainingScheduleLogic = kea<trainingScheduleLogicType>([
                 return undefined
             },
         ],
+        trainDisabledByLimitReason: [
+            (s) => [s.pipeline, s.projectLimits],
+            (pipeline: AutoresearchPipelineApi | null, projectLimits: ProjectLimitsApi | null): string | undefined =>
+                trainingDisabledByLimitReason(pipeline, projectLimits),
+        ],
         effortOptions: [
             (s) => [s.agentModelOptions, s.schedule],
             (
@@ -187,6 +279,10 @@ export const trainingScheduleLogic = kea<trainingScheduleLogicType>([
         ],
     }),
     listeners(({ actions, values, props }) => ({
+        // Each changes the project's usage, and a refused start means the shown limits were stale.
+        startTrainingSuccess: () => actions.loadProjectLimits(),
+        startTrainingFailure: () => actions.loadProjectLimits(),
+        resumePipelineSuccess: () => actions.loadProjectLimits(),
         saveSchedule: async () => {
             const { schedule, currentTeamId } = values
             if (!schedule || schedule.iterations_per_run === undefined || !currentTeamId) {
@@ -240,6 +336,7 @@ export const trainingScheduleLogic = kea<trainingScheduleLogicType>([
     })),
     afterMount(({ actions }) => {
         actions.loadAgentModelOptions()
+        actions.loadProjectLimits()
     }),
 ])
 

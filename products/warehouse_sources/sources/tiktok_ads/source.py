@@ -26,7 +26,12 @@ from products.warehouse_sources.sources.sdk import (
     detect,
 )
 from products.warehouse_sources.sources.tiktok_ads._config import TikTokAdsSourceConfig
-from products.warehouse_sources.sources.tiktok_ads.settings import TIKTOK_ADS_CONFIG
+from products.warehouse_sources.sources.tiktok_ads.settings import (
+    TIKTOK_ADS_CONFIG,
+    TIKTOK_API_VERSION_V2,
+    TIKTOK_API_VERSION_V13,
+    WEBSITE_ATTRIBUTION_REPORTS,
+)
 from products.warehouse_sources.sources.tiktok_ads.tiktok_ads import TikTokAdsResumeConfig, tiktok_ads_source
 from products.warehouse_sources.sources.tiktok_ads.utils import (
     TIKTOK_APP_TOKEN_MISMATCH_MESSAGE,
@@ -41,6 +46,10 @@ from products.warehouse_sources.sources.tiktok_ads.utils import (
     TIKTOK_TRANSIENT_ERROR_MESSAGE,
     TikTokAdsAPIError,
     list_advertisers,
+)
+
+WEBSITE_ATTRIBUTION_VERSION_ERROR = (
+    "Website attribution reports require TikTok Ads API v2.0. Change the source API version to v2.0."
 )
 
 
@@ -65,9 +74,9 @@ class TikTokAdsSource(ResumableSource[TikTokAdsSourceConfig, TikTokAdsResumeConf
         swiftpm=("github.com/tiktok/tiktok-business-ios-sdk",),
     )
 
-    supported_versions = ("v1.3",)
-    default_version = "v1.3"
-    api_docs_url = "https://business-api.tiktok.com/portal/docs"
+    supported_versions = (TIKTOK_API_VERSION_V13, TIKTOK_API_VERSION_V2)
+    default_version = TIKTOK_API_VERSION_V2
+    api_docs_url = "https://business-api.tiktok.com/portal/docs/api-reference/v2.0"
 
     lists_tables_without_credentials = True  # static endpoint catalog — safe for public docs
 
@@ -95,6 +104,7 @@ class TikTokAdsSource(ResumableSource[TikTokAdsSourceConfig, TikTokAdsResumeConf
             # prefix; retrying cannot recover, so fail the job fast. The raw message is kept as
             # the user-facing error since it names the specific advertiser and TikTok error code.
             TIKTOK_NON_RETRYABLE_ERROR_PREFIX: None,
+            WEBSITE_ATTRIBUTION_VERSION_ERROR: None,
             # Integration row was deleted/disconnected while a scheduled job still references it.
             # Raised by OAuthMixin.get_oauth_integration as `ValueError("Integration not found: <id>")`;
             # the id is volatile, so match only the stable prefix. Retrying can't recreate the row —
@@ -252,7 +262,8 @@ class TikTokAdsSource(ResumableSource[TikTokAdsSourceConfig, TikTokAdsResumeConf
                 incremental_fields=endpoint_config.incremental_fields or [],
                 should_sync_default=endpoint_config.should_sync_default,
             )
-            for endpoint_config in TIKTOK_ADS_CONFIG.values()
+            for name, endpoint_config in TIKTOK_ADS_CONFIG.items()
+            if name not in WEBSITE_ATTRIBUTION_REPORTS or self.resolve_api_version(api_version) == TIKTOK_API_VERSION_V2
         ]
         if names is not None:
             names_set = set(names)
@@ -268,6 +279,12 @@ class TikTokAdsSource(ResumableSource[TikTokAdsSourceConfig, TikTokAdsResumeConf
         resumable_source_manager: ResumableSourceManager[TikTokAdsResumeConfig],
         inputs: SourceInputs,
     ) -> SourceResponse:
+        if (
+            inputs.schema_name in WEBSITE_ATTRIBUTION_REPORTS
+            and self.resolve_api_version(inputs.api_version) != TIKTOK_API_VERSION_V2
+        ):
+            raise ValueError(WEBSITE_ATTRIBUTION_VERSION_ERROR)
+
         integration = self.get_oauth_integration(config.tiktok_integration_id, inputs.team_id)
 
         if not integration.access_token:

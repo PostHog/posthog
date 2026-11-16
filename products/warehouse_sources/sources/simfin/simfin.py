@@ -5,7 +5,15 @@ from typing import Any, Optional
 import requests
 from structlog.types import FilteringBoundLogger
 
-from products.warehouse_sources.sources.sdk import SourceResponse, make_tracked_session
+from products.warehouse_sources.sources.sdk import (
+    PageNumberPaginator,
+    RESTAPIConfig,
+    ResumableSourceManager,
+    SourceResponse,
+    frozen,
+    make_tracked_session,
+    rest_api_resource,
+)
 from products.warehouse_sources.sources.simfin.settings import SIMFIN_ENDPOINTS, SimFinEndpointConfig
 
 SIMFIN_BASE_URL = "https://backend.simfin.com/api"
@@ -24,6 +32,11 @@ _COMPANY_FIELDS = ("id", "name", "ticker", "currency", "isin")
 
 class SimFinAPIError(Exception):
     pass
+
+
+@frozen
+class SimFinResumeConfig:
+    page: int
 
 
 def _normalize_column_name(name: str) -> str:
@@ -151,6 +164,24 @@ def _parse_weighted_shares(body: Any, ticker: Optional[str]) -> Iterator[dict[st
     yield from _zip_rows(_WEIGHTED_SHARES_COLUMNS, body, normalize=False)
 
 
+def _parse_filings(body: Any, ticker: Optional[str]) -> Iterator[dict[str, Any]]:
+    if not isinstance(body, list) or any(not isinstance(row, dict) for row in body):
+        raise SimFinAPIError("SimFin API error [unexpected_response]: expected a JSON array of filings")
+    yield from body
+
+
+def _parse_changed_companies(body: Any, ticker: Optional[str]) -> Iterator[dict[str, Any]]:
+    if not isinstance(body, list):
+        raise SimFinAPIError("SimFin API error [unexpected_response]: expected a JSON array of changed companies")
+    for company in body:
+        if isinstance(company, dict):
+            yield company
+        elif isinstance(company, int) and not isinstance(company, bool):
+            yield {"id": company}
+        else:
+            raise SimFinAPIError("SimFin API error [unexpected_response]: expected a company object or ID")
+
+
 _PARSERS = {
     "companies": _parse_companies,
     "company_details": _parse_company_details,
@@ -158,6 +189,8 @@ _PARSERS = {
     "prices": _parse_prices,
     "common_shares": _parse_common_shares,
     "weighted_shares": _parse_weighted_shares,
+    "filings": _parse_filings,
+    "changed_companies": _parse_changed_companies,
 }
 
 
@@ -220,6 +253,49 @@ def simfin_source(
         partition_format="month" if config.partition_key else None,
         partition_keys=[config.partition_key] if config.partition_key else None,
     )
+
+
+def change_log_source(
+    api_key: str,
+    api_version: str,
+    team_id: int,
+    job_id: str,
+    resumable_source_manager: ResumableSourceManager[SimFinResumeConfig],
+) -> SourceResponse:
+    endpoint = SIMFIN_ENDPOINTS["data_change_log"]
+    config: RESTAPIConfig = {
+        "client": {
+            "base_url": f"{SIMFIN_BASE_URL}/{api_version}/",
+            "session": _make_session(api_key),
+            "paginator": PageNumberPaginator(base_page=0, page_param="pageNumber"),
+        },
+        "resources": [
+            {
+                "name": endpoint.name,
+                "endpoint": {
+                    "path": endpoint.path,
+                    "params": {"itemsPerPage": 1000},
+                    "data_selector": "contents",
+                    "data_selector_required": True,
+                },
+            }
+        ],
+    }
+    resume = resumable_source_manager.load_state()
+
+    def save_checkpoint(state: Optional[dict[str, Any]]) -> None:
+        if state is not None:
+            resumable_source_manager.save_state(SimFinResumeConfig(page=state["page"]))
+
+    resource = rest_api_resource(
+        config,
+        team_id=team_id,
+        job_id=job_id,
+        db_incremental_field_last_value=None,
+        resume_hook=save_checkpoint,
+        initial_paginator_state={"page": resume.page} if resume else None,
+    )
+    return SourceResponse(name=endpoint.name, items=lambda: resource, primary_keys=endpoint.primary_keys)
 
 
 def validate_credentials(api_key: str, api_version: str) -> bool:

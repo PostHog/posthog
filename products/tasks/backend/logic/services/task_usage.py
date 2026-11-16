@@ -1,5 +1,4 @@
 import hmac
-import json
 import time
 import hashlib
 from collections.abc import Sequence
@@ -12,7 +11,6 @@ from django.conf import settings
 from django.core.cache import cache
 from django.utils import timezone
 
-import requests
 import structlog
 
 from posthog.hogql import ast
@@ -32,7 +30,6 @@ from products.tasks.backend.models import SandboxSession, Task, TaskClientProven
 
 TASK_USAGE_SIGNATURE_HEADER = "X-PostHog-Task-Usage-Signature"
 TASK_USAGE_TIMESTAMP_HEADER = "X-PostHog-Task-Usage-Timestamp"
-TASK_USAGE_CROSS_REGION_TIMEOUT_SECONDS = (3, 15)
 TASK_USAGE_INTERNAL_PATH = "/api/code/internal/task_usage/"
 TASK_TOKEN_COST_CACHE_TIMEOUT_SECONDS = 60
 
@@ -79,47 +76,13 @@ def _get_task_token_cost(*, team_id: int, task_id: UUID, task_created_at: dateti
     if cached is not None:
         return Decimal(str(cached))
 
-    if settings.CLOUD_DEPLOYMENT == "EU":
-        token_cost = _get_cross_region_task_token_cost(
-            team_id=team_id, task_id=task_id, task_created_at=task_created_at
-        )
-    else:
-        token_cost = get_local_task_token_cost(team_id=team_id, task_id=task_id, task_created_at=task_created_at)
+    token_cost = get_local_task_token_cost(team_id=team_id, task_id=task_id, task_created_at=task_created_at)
     cache.set(cache_key, str(token_cost), timeout=TASK_TOKEN_COST_CACHE_TIMEOUT_SECONDS)
     return token_cost
 
 
 def _task_token_cost_cache_key(*, team_id: int, task_id: UUID, task_created_at: datetime) -> str:
     return f"task_token_cost:v2:{team_id}:{task_id}:{task_created_at.isoformat()}"
-
-
-def _get_cross_region_task_token_cost(*, team_id: int, task_id: UUID, task_created_at: datetime) -> Decimal:
-    secret = settings.PERSONAL_SPEND_CROSS_REGION_SECRET
-    if not secret:
-        logger.error("task_usage.cross_region_not_configured")
-        raise TaskTokenUsageUnavailable("Cross-region task usage is not configured")
-
-    body = json.dumps(
-        {"team_id": team_id, "task_id": str(task_id), "task_created_at": task_created_at.isoformat()}
-    ).encode()
-    signed = sign_task_usage_request(body, secret)
-    target = f"{settings.SITE_URL if settings.DEBUG else 'https://us.posthog.com'}{TASK_USAGE_INTERNAL_PATH}"
-    try:
-        response = requests.post(
-            target,
-            data=body,
-            headers={
-                "Content-Type": "application/json",
-                TASK_USAGE_SIGNATURE_HEADER: signed.signature,
-                TASK_USAGE_TIMESTAMP_HEADER: signed.timestamp,
-            },
-            timeout=TASK_USAGE_CROSS_REGION_TIMEOUT_SECONDS,
-        )
-        response.raise_for_status()
-        return Decimal(str(response.json()["token_cost_usd"]))
-    except (requests.RequestException, ValueError, KeyError, TypeError) as error:
-        logger.exception("task_usage.cross_region_request_failed", error_type=type(error).__name__)
-        raise TaskTokenUsageUnavailable("Cross-region task usage is unavailable") from error
 
 
 # The internal project the gateways capture `$ai_generation` into is region-local: each region's

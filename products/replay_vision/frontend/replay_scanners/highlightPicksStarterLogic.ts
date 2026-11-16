@@ -383,6 +383,7 @@ export const highlightPicksStarterLogic: LogicWrapper<highlightPicksStarterLogic
                             free_only: free,
                             credit_limit: free ? FREE_SCANNER_CREDIT_LIMIT : values.budget,
                             creation_method: 'template',
+                            entry_point: 'highlight_picks_starter',
                         })
                     )
                 } catch {

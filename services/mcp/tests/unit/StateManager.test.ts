@@ -3,7 +3,14 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ApiClient } from '@/api/client'
 import { MemoryCache } from '@/lib/cache/MemoryCache'
 import { StateLookupCache } from '@/lib/cache/StateLookupCache'
-import { ErrorCode, PostHogApiError, PostHogTransportError } from '@/lib/errors'
+import {
+    ErrorCode,
+    findPostHogPermissionError,
+    formatPermissionErrorMessage,
+    PostHogApiError,
+    PostHogPermissionError,
+    PostHogTransportError,
+} from '@/lib/errors'
 import { getPostHogClient } from '@/lib/posthog'
 import { StateManager } from '@/lib/StateManager'
 import type { ApiRedactedPersonalApiKey, ApiUser } from '@/schema/api'
@@ -240,14 +247,58 @@ describe('StateManager', () => {
             expect(result).toBe('cached-distinct-id')
         })
 
-        it('should fetch user and cache distinct ID if not in cache', async () => {
+        it.each([
+            {
+                source: 'the key owner',
+                apiKey: { ...mockApiKey, user_distinct_id: 'owner-1' },
+                expected: 'owner-1',
+                userCalls: 0,
+            },
+            { source: '/users/@me on an older backend', apiKey: mockApiKey, expected: 'distinct-123', userCalls: 1 },
+        ])('resolves and caches the distinct ID from $source', async ({ apiKey, expected, userCalls }) => {
+            vi.spyOn(stateManager, 'getApiKey').mockResolvedValue(apiKey)
             const getUserSpy = vi.spyOn(stateManager, 'getUser').mockResolvedValue(mockUser)
 
             const result = await stateManager.getDistinctId()
 
-            expect(result).toBe('distinct-123')
-            expect(await cache.get('distinctId')).toBe('distinct-123')
-            expect(getUserSpy).toHaveBeenCalledOnce()
+            expect(result).toBe(expected)
+            expect(await cache.get('distinctId')).toBe(expected)
+            expect(getUserSpy).toHaveBeenCalledTimes(userCalls)
+        })
+
+        it('refetches a cached key that predates the owner fields when /users/@me is refused', async () => {
+            const current = vi.fn(async () => ({
+                success: true,
+                data: { ...mockApiKey, scopes: ['insight:read'], user_distinct_id: 'owner-1', current_team_id: 7 },
+            }))
+            const manager = new StateManager(cache, {
+                config: { apiToken: 'phx_test' },
+                apiKeys: () => ({ current }),
+            } as unknown as ApiClient)
+            await cache.setMany({ apiKey: { ...mockApiKey, scopes: ['insight:read'] }, apiKeyFetchedAt: Date.now() })
+            vi.spyOn(manager, 'getUser').mockRejectedValue(new Error("Missing PostHog API scope: 'user:read'"))
+
+            expect(await manager.getDistinctId()).toBe('owner-1')
+            expect((await cache.get('apiKey'))?.current_team_id).toBe(7)
+        })
+
+        it('picks the default project from a fresh key response, not the cached one, when /users/@me is refused', async () => {
+            const owner = { user_distinct_id: 'owner-1', current_organization_id: 'org-1' }
+            const current = vi.fn(async () => ({
+                success: true,
+                data: { ...mockApiKey, scopes: ['insight:read'], ...owner, current_team_id: 8 },
+            }))
+            const manager = new StateManager(cache, {
+                config: { apiToken: 'phx_test' },
+                apiKeys: () => ({ current }),
+            } as unknown as ApiClient)
+            await cache.setMany({
+                apiKey: { ...mockApiKey, scopes: ['insight:read'], ...owner, current_team_id: 7 },
+                apiKeyFetchedAt: Date.now(),
+            })
+            vi.spyOn(manager, 'getUser').mockRejectedValue(new Error("Missing PostHog API scope: 'user:read'"))
+
+            expect(await manager.setDefaultOrganizationAndProject()).toEqual({ organizationId: 'org-1', projectId: 8 })
         })
     })
 
@@ -447,6 +498,80 @@ describe('StateManager', () => {
             expect(api.config.oauthClientName).toBe(expected)
             expect(secondApi.config.oauthClientName).toBe(expected)
             expect(await cache.get('clientName')).toBe(expected)
+        })
+
+        describe('with a project secret API key', () => {
+            const pinned: PinnedActiveContext = { pin: { projectId: '42' }, sessionScoped: false, projectId: '42' }
+
+            function secretKeyApi(request: ApiClient['request']): ApiClient {
+                return { config: { apiToken: 'phs_test' }, request } as unknown as ApiClient
+            }
+
+            it('resolves the session from one read of the knowledge route', async () => {
+                const request = vi.fn(async () => ({ results: [] }))
+                const manager = new StateManager(cache, secretKeyApi(request as ApiClient['request']), pinned)
+
+                const apiKey = await manager.getApiKey()
+
+                expect(request).toHaveBeenCalledWith({
+                    method: 'GET',
+                    path: '/api/projects/42/business_knowledge/libraries/',
+                })
+                expect(apiKey.scopes).toEqual(['business_knowledge:read'])
+                expect(apiKey.scoped_teams).toEqual([42])
+                expect(apiKey.mcp_allowed_tools).toContain('business-knowledge-documents-search')
+                expect(await manager.getDistinctId()).toMatch(/^psak-42-/)
+                expect(await manager.getAnalyticsContext()).toEqual({ projectId: '42' })
+                expect(await manager.getAiConsentGiven()).toBeUndefined()
+            })
+
+            it('checks the key again when the same key arrives with another project', async () => {
+                const request = vi.fn(async () => ({ results: [] }))
+                const api = secretKeyApi(request as ApiClient['request'])
+                await new StateManager(cache, api, pinned).getApiKey()
+
+                const other: PinnedActiveContext = { pin: { projectId: '7' }, sessionScoped: false, projectId: '7' }
+                const apiKey = await new StateManager(cache, api, other).getApiKey()
+
+                expect(apiKey.scoped_teams).toEqual([7])
+                expect(apiKey.user_distinct_id).toMatch(/^psak-7-/)
+            })
+
+            it.each([
+                ['an unknown key', new Error(ErrorCode.INVALID_API_KEY), ErrorCode.INVALID_API_KEY],
+                [
+                    'a key without the scope',
+                    new PostHogPermissionError({
+                        detail: "API key missing required scope 'business_knowledge:read'",
+                        missingScope: 'business_knowledge:read',
+                        url: 'http://localhost/api/projects/42/business_knowledge/libraries/',
+                        method: 'GET',
+                    }),
+                    'Project secret API keys',
+                ],
+                [
+                    'a project ID that does not exist',
+                    new PostHogApiError({
+                        status: 404,
+                        statusText: 'Not Found',
+                        body: '{"detail":"Project not found."}',
+                        url: 'http://localhost/api/projects/42/business_knowledge/libraries/',
+                        method: 'GET',
+                    }),
+                    'Project secret API keys',
+                ],
+            ])('rejects %s with a message for that case', async (_, failure, expected) => {
+                const request = vi.fn(async () => {
+                    throw failure
+                })
+                const manager = new StateManager(cache, secretKeyApi(request as ApiClient['request']), pinned)
+
+                const error = await manager.getApiKey().catch((e: Error) => e)
+
+                const permissionError = findPostHogPermissionError(error)
+                const text = permissionError ? formatPermissionErrorMessage(permissionError) : (error as Error).message
+                expect(text).toContain(expected)
+            })
         })
     })
 

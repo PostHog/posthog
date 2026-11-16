@@ -22,6 +22,8 @@ from posthog.dataclasses import frozen
 
 from products.review_hog.backend.reviewer.artefact_content import ReviewIssueFinding, ValidationVerdict
 from products.review_hog.backend.reviewer.constants import (
+    DEVEX_LENS,
+    DEVEX_LENS_NAME,
     FLASH_FIRST_REVIEW_CAP_MULTIPLIER,
     FLASH_FOLLOW_UP_CHANGE_MARGIN_LINES,
     FLASH_LENSES,
@@ -332,6 +334,7 @@ def compose_flash_findings(
 _SESSION_NAMES = {
     SINGLE_AGENT_SOURCE: "main",
     **{lens.source: name.replace("-", "_") for name, lens in FLASH_LENSES.items()},
+    DEVEX_LENS.source: DEVEX_LENS_NAME,
 }
 
 
@@ -366,6 +369,7 @@ def flash_turn_stats(
     *,
     reviewable_lines: int,
     changed_since: "ChangedSinceReview | None" = None,
+    devex_lens: bool = False,
 ) -> FlashTurnStats:
     """Count a turn's findings per session and per drop reason.
 
@@ -373,7 +377,7 @@ def flash_turn_stats(
     session reported. The on and off change split reads the stored priority instead, because it counts
     what the turn posts.
     """
-    per_session = dict.fromkeys(_SESSION_NAMES.values(), 0)
+    per_session = {name: 0 for name in _SESSION_NAMES.values() if devex_lens or name != DEVEX_LENS_NAME}
     must_fix = dict(per_session)
     for issue in candidates:
         session = _SESSION_NAMES.get(issue.source_perspective or "", issue.source_perspective or "unknown")

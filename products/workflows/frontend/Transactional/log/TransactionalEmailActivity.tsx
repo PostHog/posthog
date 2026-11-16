@@ -4,9 +4,18 @@ import { LemonBanner, LemonSkeleton } from '@posthog/lemon-ui'
 
 import type { TransactionalEmailLogDetailApi } from 'products/messaging/frontend/generated/api.schemas'
 
-import { emailSentAt } from './emailActivity'
 import { TransactionalEmailActivityTimeline } from './TransactionalEmailActivityTimeline'
 import { transactionalEmailLogEntryLogic } from './transactionalEmailLogEntryLogic'
+
+function ActivitySkeleton(): JSX.Element {
+    return (
+        <div className="flex flex-col gap-3">
+            {Array.from({ length: 6 }).map((_, index) => (
+                <LemonSkeleton key={index} className="h-5" />
+            ))}
+        </div>
+    )
+}
 
 export function TransactionalEmailActivity({ email }: { email: TransactionalEmailLogDetailApi }): JSX.Element {
     const { person, personLoading, personFailed, activity, activityLoading, activityFailed } = useValues(
@@ -39,6 +48,8 @@ export function TransactionalEmailActivity({ email }: { email: TransactionalEmai
                 The person behind this send couldn't load. Check your connection and try again.
             </LemonBanner>
         )
+    } else if (person === undefined || personLoading) {
+        content = <ActivitySkeleton />
     } else if (person === null) {
         content = (
             <p className="text-sm text-secondary m-0">
@@ -46,27 +57,21 @@ export function TransactionalEmailActivity({ email }: { email: TransactionalEmai
                 the email shows up here.
             </p>
         )
-    } else if (activityFailed && !activityLoading && person) {
+    } else if (activityFailed && !activityLoading) {
         content = (
             <LemonBanner
                 type="error"
                 action={{
                     children: 'Try again',
-                    onClick: () => loadActivity({ personId: person.id, sentAt: emailSentAt(email) }),
+                    onClick: () => loadActivity(),
                     'data-attr': 'transactional-email-activity-retry',
                 }}
             >
                 The activity couldn't load. Check your connection and try again.
             </LemonBanner>
         )
-    } else if (!activity || activityLoading || personLoading) {
-        content = (
-            <div className="flex flex-col gap-3">
-                {Array.from({ length: 6 }).map((_, index) => (
-                    <LemonSkeleton key={index} className="h-5" />
-                ))}
-            </div>
-        )
+    } else if (!activity || activityLoading) {
+        content = <ActivitySkeleton />
     } else {
         content = <TransactionalEmailActivityTimeline email={email} activity={activity} />
     }
@@ -76,7 +81,7 @@ export function TransactionalEmailActivity({ email }: { email: TransactionalEmai
             <div className="flex flex-col gap-0.5">
                 <h3 className="text-base font-semibold m-0">{title}</h3>
                 <p className="text-xs text-secondary m-0">
-                    The person's events in your product, with this email's delivery and engagement in between.
+                    The person's events in your product before and after this email.
                 </p>
             </div>
             {content}

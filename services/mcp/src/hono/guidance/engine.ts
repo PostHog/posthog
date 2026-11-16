@@ -6,7 +6,10 @@ import type { RedisLike } from '../cache/RedisCache'
 import { resolveSessionKey } from '../mcp-context'
 import { guidanceEvaluationErrorsTotal, guidanceNoticesTotal } from '../metrics'
 import type { ResolvedState } from '../request-state-resolver'
-import { GUIDANCE_RULES, type GuidanceRule } from './rules'
+import { GuidanceProductState } from './product-state'
+import type { GuidanceRule } from './rule-schema'
+import { GUIDANCE_RULES } from './rules'
+import { selfDrivingActivationGuidance } from './self-driving-activation'
 
 // A conversation handle outlives any single request, so its counters keep the session store's
 // idle TTL. Without a handle the counters key on the caller and expire like a 30-minute idle
@@ -26,6 +29,7 @@ export interface GuidanceCall {
     execVerb?: string | undefined
     args: Record<string, unknown> | undefined
     isError: boolean
+    resultEmpty?: boolean | undefined
 }
 
 export type GuidanceOutcome = 'shown' | 'flag_off' | 'suppressed' | 'no_consent'
@@ -68,6 +72,9 @@ export function triggerMatches(rule: GuidanceRule, call: GuidanceCall): boolean 
     if (trigger.outcome === 'error' && !call.isError) {
         return false
     }
+    if (trigger.resultEmpty !== undefined && trigger.resultEmpty !== (call.resultEmpty === true)) {
+        return false
+    }
     if (trigger.excludeArgs?.some((path) => isSet(readArgPath(call.args, path)))) {
         return false
     }
@@ -85,7 +92,12 @@ export function triggerMatches(rule: GuidanceRule, call: GuidanceCall): boolean 
 // Server-minted tokens are not excluded here: scouts carry the same internal scopes as sandbox
 // runs, so each rule's `presets` decides which of them it reaches.
 function isGuidanceAudience(state: ResolvedState): boolean {
-    return !(state.isImpersonated || state.suppressAnalytics || state.clientProfile.consumer === 'posthog_ai')
+    return !(
+        state.isImpersonated ||
+        state.suppressAnalytics ||
+        state.clientProfile.consumer === 'posthog_ai' ||
+        state.clientProfile.isArtifactRuntime()
+    )
 }
 
 // The flag and org consent decide only whether the text goes out: an eligible caller with the
@@ -106,6 +118,12 @@ function ruleApplies(rule: GuidanceRule, state: ResolvedState, preset: string): 
 // Mirror mode only records a call that another scope decided, so it never reports a notice itself.
 const RULE_STATE_SCRIPT = `
 local ttl = tonumber(ARGV[1])
+if ARGV[4] == 'touch' then
+    redis.call('EXPIRE', KEYS[1], ttl)
+    redis.call('EXPIRE', KEYS[2], ttl)
+    redis.call('EXPIRE', KEYS[3], ttl)
+    return tonumber(redis.call('GET', KEYS[3]) or 0)
+end
 if ARGV[4] == 'suppress' then
     redis.call('SET', KEYS[2], '1', 'EX', ttl)
     redis.call('EXPIRE', KEYS[1], ttl)
@@ -143,6 +161,8 @@ enum RuleResult {
     Suppressed = 2,
 }
 
+type RuleMode = 'match' | 'suppress' | 'mirror' | 'touch'
+
 export class GuidanceEngine {
     constructor(
         private readonly redis: RedisLike,
@@ -154,22 +174,34 @@ export class GuidanceEngine {
         if (!isGuidanceAudience(state)) {
             return undefined
         }
-        const preset = resolveScopePreset(state.apiKeyScopes)
-        const rules = this.rules.filter((rule) => ruleApplies(rule, state, preset))
-        if (rules.length === 0) {
-            return undefined
-        }
         try {
+            const productState = new GuidanceProductState(this.redis, state)
+            const activation = await selfDrivingActivationGuidance(this.redis, state, call, productState)
+            if (activation) {
+                guidanceNoticesTotal.inc({ rule: activation.ruleId, outcome: activation.outcome })
+            }
+            if (activation?.text) {
+                return activation
+            }
+            // A `flag_off` activation sends no text, so it must not take the slot from the ordinary rules.
+            // The activation stamp is kept below unless another rule actually shows a notice on this call.
+            const preset = resolveScopePreset(state.apiKeyScopes)
+            const rules = this.rules.filter((rule) => ruleApplies(rule, state, preset))
+            if (rules.length === 0) {
+                return activation
+            }
             const scopes = countingScopes(state)
             let winner: GuidanceNotice | undefined
             for (const rule of rules) {
-                const result = await this.touchRule(rule, scopes, call, winner === undefined)
+                const result = await this.touchRule(rule, scopes, call, winner === undefined, productState)
                 if (result === RuleResult.Fired) {
                     const outcome = firedOutcome(rule, state)
                     winner = {
                         ruleId: rule.id,
                         outcome,
-                        ...(outcome === 'shown' ? { text: rule.text } : {}),
+                        ...(outcome === 'shown'
+                            ? { text: typeof rule.text === 'string' ? rule.text : rule.text(call) }
+                            : {}),
                     }
                 } else if (result === RuleResult.Suppressed && !winner) {
                     winner = { ruleId: rule.id, outcome: 'suppressed' }
@@ -178,7 +210,7 @@ export class GuidanceEngine {
             if (winner) {
                 guidanceNoticesTotal.inc({ rule: winner.ruleId, outcome: winner.outcome })
             }
-            return winner
+            return winner?.text ? winner : (activation ?? winner)
         } catch (error) {
             guidanceEvaluationErrorsTotal.inc()
             console.warn('[Guidance] evaluation failed:', error instanceof Error ? error.message : String(error))
@@ -190,38 +222,56 @@ export class GuidanceEngine {
         rule: GuidanceRule,
         scopes: CountingScopes,
         call: GuidanceCall,
-        canFire: boolean
+        canFire: boolean,
+        productState: GuidanceProductState
     ): Promise<RuleResult> {
         const suppressing = rule.suppressIfCalled.some((pattern) => matchesToolPattern(pattern, call.toolName))
         if (!suppressing && !triggerMatches(rule, call)) {
             return RuleResult.None
         }
-        const result = await this.runRuleScript(
-            rule,
-            scopes.primary,
-            scopes.ttl,
-            suppressing ? 'suppress' : 'match',
-            canFire
-        )
-        if (scopes.mirror) {
-            await this.runRuleScript(
-                rule,
-                scopes.mirror,
-                SESSION_TTL_SECONDS,
-                suppressing ? 'suppress' : 'mirror',
-                result !== RuleResult.None
-            )
+        const { condition } = rule
+        if (suppressing || !condition) {
+            const mode = suppressing ? 'suppress' : 'match'
+            const result = await this.runRuleScript(rule, scopes.primary, scopes.ttl, mode, canFire)
+            await this.mirrorRule(rule, scopes, suppressing ? 'suppress' : 'mirror', result !== RuleResult.None)
+            return result as RuleResult
         }
-        return result
+        // `touch` keeps a capped rule's counters alive without the `match` count, so a rejected call
+        // spends no `maxPerSession`. `match` is a separate step so that a gate that outlives the budget
+        // cannot reserve a notice that nobody receives.
+        const admitted = await productState.withinBudget('rule_gate', async () => {
+            const shown = await this.runRuleScript(rule, scopes.primary, scopes.ttl, 'touch', canFire)
+            return shown < rule.maxPerSession && (await condition({ call, productState }))
+        })
+        const result =
+            admitted === true && productState.hasBudgetLeft()
+                ? await productState.withinBudget('rule_match', () =>
+                      this.runRuleScript(rule, scopes.primary, scopes.ttl, 'match', canFire)
+                  )
+                : undefined
+        if (result === undefined) {
+            await productState.withinBudget('rule_mirror', () => this.mirrorRule(rule, scopes, 'touch', false))
+            return RuleResult.None
+        }
+        await productState.withinBudget('rule_mirror', () =>
+            this.mirrorRule(rule, scopes, 'mirror', result !== RuleResult.None)
+        )
+        return result as RuleResult
+    }
+
+    private async mirrorRule(rule: GuidanceRule, scopes: CountingScopes, mode: RuleMode, flag: boolean): Promise<void> {
+        if (scopes.mirror) {
+            await this.runRuleScript(rule, scopes.mirror, SESSION_TTL_SECONDS, mode, flag)
+        }
     }
 
     private async runRuleScript(
         rule: GuidanceRule,
         scope: string,
         ttl: number,
-        mode: 'match' | 'suppress' | 'mirror',
+        mode: RuleMode,
         flag: boolean
-    ): Promise<RuleResult> {
+    ): Promise<number> {
         const key = (suffix: string): string => `${scope}:${rule.id}:${suffix}`
         const fired = await this.redis.eval(
             RULE_STATE_SCRIPT,
@@ -235,7 +285,7 @@ export class GuidanceEngine {
             mode,
             flag ? '1' : '0'
         )
-        return Number(fired) as RuleResult
+        return Number(fired)
     }
 }
 

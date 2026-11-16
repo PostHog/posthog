@@ -1,6 +1,8 @@
 """Batch audience sizing and paging: the preview counts the editor shows, and the pages the Node
 batch resolver walks when it sends."""
 
+from typing import Any
+
 from django.conf import settings
 from django.core.cache import cache
 
@@ -25,7 +27,7 @@ from products.workflows.backend.services.batch_audience_cohorts import (
     realtime_cohort_is_ready,
     realtime_cohort_status,
 )
-from products.workflows.backend.utils.batch_trigger_limit import get_hogflow_batch_trigger_limit
+from products.workflows.backend.utils.batch_trigger_limit import resolve_batch_audience_limit
 
 # An open send screen re-sizes a realtime cohort audience every few seconds while the cohort calculates. The
 # project's person total only gives the count context, so it is counted once per window, not on every check.
@@ -62,8 +64,10 @@ def get_audience_size(
     group_type_index: GroupTypeIndex | None,
     dedupe_key: str | None,
     sends_email: bool,
+    email_rate_limit: dict[str, Any] | None = None,
 ) -> AudienceSize:
     team = Team.objects.get(id=team_id)
+    audience_limit = resolve_batch_audience_limit(team_id, sends_email=sends_email, email_rate_limit=email_rate_limit)
     # Preview matches the actual send: with dedup active, "affected" is the number of
     # sends (unique emails + email-less persons), not the number of matching persons.
     # The applied key is echoed back so the frontend labels the count from the response
@@ -77,9 +81,10 @@ def get_audience_size(
         return AudienceSize(
             affected=realtime_cohort.count or 0,
             total=_realtime_audience_total(team),
-            limit=get_hogflow_batch_trigger_limit(team_id, sends_email=sends_email),
+            limit=audience_limit.limit,
             dedupe_key=None,
             realtime_cohort=realtime_cohort_status(realtime_cohort),
+            rate_limited=audience_limit.rate_limited,
         )
     if group_type_index is not None:
         blast_radius = get_user_blast_radius(team, filters, group_type_index)
@@ -97,8 +102,9 @@ def get_audience_size(
     return AudienceSize(
         affected=blast_radius.affected,
         total=blast_radius.total,
-        limit=get_hogflow_batch_trigger_limit(team_id, sends_email=sends_email),
+        limit=audience_limit.limit,
         dedupe_key=applied_dedupe_key,
+        rate_limited=audience_limit.rate_limited,
         realtime_cohort_with_other_conditions=(
             RealtimeAudienceCohort(
                 id=mixed_realtime_cohort.pk,
@@ -112,13 +118,17 @@ def get_audience_size(
     )
 
 
-def get_account_audience_size(*, team_id: int, filters: dict, sends_email: bool) -> AudienceSize:
+def get_account_audience_size(
+    *, team_id: int, filters: dict, sends_email: bool, email_rate_limit: dict[str, Any] | None = None
+) -> AudienceSize:
     team = Team.objects.get(id=team_id)
+    audience_limit = resolve_batch_audience_limit(team_id, sends_email=sends_email, email_rate_limit=email_rate_limit)
     return AudienceSize(
         affected=get_account_audience_count(team, filters),
         total=get_account_audience_count(team, {"audience_type": "accounts"}),
-        limit=get_hogflow_batch_trigger_limit(team_id, sends_email=sends_email),
+        limit=audience_limit.limit,
         dedupe_key=None,
+        rate_limited=audience_limit.rate_limited,
     )
 
 

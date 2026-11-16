@@ -14,7 +14,7 @@ from posthog.security.url_validation import (
     validate_external_host,
 )
 
-from . import common, model
+from . import common, model, row_writes
 
 
 class Credentials(NamedTuple):
@@ -84,7 +84,7 @@ class PostgreSQLServerIntegration:
         team_id: int,
         created_by: User | None = None,
         **config,
-    ) -> model.Integration:
+    ) -> IntegrationRecord:
         host = common._return_non_empty_str_from_config(config, "host", friendly_name="Host", kind=cls.integration_kind)
         try:
             validate_external_host(host)
@@ -143,39 +143,27 @@ class PostgreSQLServerIntegration:
         integration_id = f"{team_id}-{host}-{port}-{user}"
 
         if name is None:
-            # `update_or_create` replaces the whole config, so a reconnect that omits the name
+            # `upsert` replaces the whole config, so a reconnect that omits the name
             # would otherwise drop the one the user already chose.
-            name = (
-                model.Integration.objects.filter(
-                    team_id=team_id, kind=cls.integration_kind, integration_id=integration_id
-                )
-                .values_list("config__name", flat=True)
-                .first()
-            )
+            existing = row_writes.creator_accessor(cls.integration_kind).find(team_id, external_id=integration_id)
+            name = existing.config.get("name") if existing else None
 
-        integration, _ = model.Integration.objects.update_or_create(
-            team_id=team_id,
-            kind=cls.integration_kind,
-            integration_id=integration_id,
-            defaults={
-                "config": {
-                    "host": host,
-                    "port": port,
-                    "user": user,
-                    "ssl_mode": ssl_mode,
-                    "ssl_root_cert": ssl_root_cert,
-                    **({"name": name} if name else {}),
-                },
-                "sensitive_config": {
-                    "password": password,
-                },
-                "created_by": created_by,
+        integration, _ = row_writes.creator_accessor(cls.integration_kind).upsert(
+            team_id,
+            integration_id,
+            config={
+                "host": host,
+                "port": port,
+                "user": user,
+                "ssl_mode": ssl_mode,
+                "ssl_root_cert": ssl_root_cert,
+                **({"name": name} if name else {}),
             },
+            sensitive_config={
+                "password": password,
+            },
+            created_by_id=created_by.id if created_by else None,
         )
-
-        if integration.errors:
-            integration.errors = ""
-            integration.save()
 
         return integration
 

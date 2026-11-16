@@ -31,7 +31,6 @@ from pydantic import BaseModel, Field
 from temporalio.common import RetryPolicy
 
 from posthog.llm.gateway_client import GatewayNotConfiguredError, resolve_ai_gateway_config
-from posthog.models import PropertyDefinition
 from posthog.models.team import Team
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.base import PostHogWorkflow
@@ -39,6 +38,7 @@ from posthog.temporal.common.base import PostHogWorkflow
 from products.access_control.backend.models.access_control import AccessControl
 from products.access_control.backend.models.property_access_control import PropertyAccessControl
 from products.ai_observability.backend.models.evaluation_reports import EvaluationReportRun
+from products.event_definitions.backend.models import PropertyDefinition
 from products.signals.backend.facade.llm import call_llm
 from products.signals.backend.facade.taxonomy import SignalSourceProduct, SignalSourceType
 

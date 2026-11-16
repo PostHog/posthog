@@ -1,0 +1,15 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "/* service='personhog-replica', operation='delete_groups_batch_for_team' */\n            DELETE FROM posthog_group\n            WHERE id IN (\n                SELECT id FROM posthog_group\n                WHERE team_id = $1\n                LIMIT $2\n                FOR UPDATE SKIP LOCKED\n            )\n            ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Int4",
+        "Int8"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "369b7e53af603e425cde0c5cbbd757a9ec61a5fe3b98cbacc5fcd71198a2c87d"
+}

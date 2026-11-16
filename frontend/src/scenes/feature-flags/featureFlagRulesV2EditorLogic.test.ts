@@ -20,6 +20,7 @@ import {
     FeatureFlagRulesV2DraftExperimentRule,
     FeatureFlagRulesV2DraftRule,
     FeatureFlagType,
+    JsonType,
     PropertyFilterType,
     PropertyOperator,
 } from '~/types'
@@ -291,6 +292,14 @@ describe('featureFlagRulesV2EditorLogic', () => {
             ).toEqual({})
         })
 
+        it('requires a boolean default, which the editor offers no empty choice for', () => {
+            const config = V2_FLAG.filters as FeatureFlagRulesV2Config
+            expect(rulesV2DraftErrors({ ...config, default_value: null })).toEqual({
+                'filters.default_value': 'Must be true or false.',
+            })
+            expect(rulesV2DraftErrors({ ...config, default_value: true })).toEqual({})
+        })
+
         it('adds, moves and removes variants, and distributes their weights to exactly 100', () => {
             const variants = [...EXPERIMENT_RULE.variants, newVariant('string', 3)]
             expect(variants[3]).toEqual({ key: '', weight: 0, value: '' })
@@ -507,6 +516,90 @@ describe('featureFlagRulesV2EditorLogic', () => {
         expect(JSON.stringify(body)).not.toContain('seed')
     })
 
+    it('creates a number flag once every rule has a number in range', async () => {
+        const create = jest.spyOn(api, 'create').mockResolvedValue({ ...STRING_FLAG, id: 12 })
+        const logic = featureFlagRulesV2EditorLogic({ id: 'new' })
+        logic.mount()
+        const setValue = (value: JsonType): void =>
+            logic.actions.updateRule(0, { ...logic.values.draft.config.rules[0], value } as FeatureFlagRulesV2DraftRule)
+
+        logic.actions.setDraft({ key: 'checkout-limit' })
+        logic.actions.setReturnType('number')
+        logic.actions.addRule()
+        logic.actions.addRule('experiment')
+        expect(logic.values.draft.config).toMatchObject({ return_type: 'number', default_value: null })
+        expect(logic.values.saveDisabledReason).toBe('Rule 1: Enter a number.')
+        setValue(2 ** 53)
+        expect(logic.values.saveDisabledReason).toBe(
+            `Rule 1: Must be between -${Number.MAX_SAFE_INTEGER} and ${Number.MAX_SAFE_INTEGER}.`
+        )
+        setValue(2.5)
+        logic.actions.setConfig({ default_value: 0 })
+        expect(logic.values.saveDisabledReason).toBeNull()
+        await expectLogic(logic, () => logic.actions.saveRulesV2Flag())
+            .toDispatchActions(['saveRulesV2FlagSuccess'])
+            .toFinishAllListeners()
+
+        const body = create.mock.calls[0][1] as Record<string, any>
+        expect(body.filters).toMatchObject({
+            return_type: 'number',
+            default_value: 0,
+            rules: [
+                { rule_type: 'targeted_release', value: 2.5 },
+                {
+                    rule_type: 'experiment',
+                    variants: [
+                        { key: 'control', weight: 50, value: 0 },
+                        { key: 'test', weight: 50, value: 1 },
+                    ],
+                },
+            ],
+        })
+    })
+
+    it('creates an object flag and blocks the save while a value is not a JSON object', async () => {
+        const create = jest.spyOn(api, 'create').mockResolvedValue({ ...STRING_FLAG, id: 11 })
+        const logic = featureFlagRulesV2EditorLogic({ id: 'new' })
+        logic.mount()
+        const setTestValue = (value: JsonType): void => {
+            const rule = logic.values.draft.config.rules[0] as FeatureFlagRulesV2DraftExperimentRule
+            logic.actions.updateRule(0, { ...rule, variants: [rule.variants[0], { ...rule.variants[1], value }] })
+        }
+
+        logic.actions.setDraft({ key: 'checkout-config' })
+        logic.actions.setReturnType('object')
+        logic.actions.addRule('experiment')
+        expect(logic.values.draft.config).toMatchObject({ return_type: 'object', default_value: null })
+        expect(logic.values.saveDisabledReason).toBeNull()
+
+        logic.actions.setConfig({ default_value: '{"columns": ' })
+        expect(logic.values.saveDisabledReason).toBe('Default value: Enter a valid JSON object.')
+        logic.actions.setConfig({ default_value: { columns: 1 } })
+        setTestValue(['compact'])
+        expect(logic.values.fieldError('filters.rules[0].variants[1].value')).toBe('Enter a valid JSON object.')
+        expect(logic.values.saveDisabledReason).toBe('Rule 1: Enter a valid JSON object.')
+        setTestValue({ columns: 2, labels: { cta: 'Buy' } })
+        expect(logic.values.saveDisabledReason).toBeNull()
+        await expectLogic(logic, () => logic.actions.saveRulesV2Flag())
+            .toDispatchActions(['saveRulesV2FlagSuccess'])
+            .toFinishAllListeners()
+
+        const body = create.mock.calls[0][1] as Record<string, any>
+        expect(body.filters).toMatchObject({
+            return_type: 'object',
+            default_value: { columns: 1 },
+            rules: [
+                {
+                    rule_type: 'experiment',
+                    variants: [
+                        { key: 'control', weight: 50, value: {} },
+                        { key: 'test', weight: 50, value: { columns: 2, labels: { cta: 'Buy' } } },
+                    ],
+                },
+            ],
+        })
+    })
+
     it.each([
         ['a valid key', urls.featureFlagNew({ format: 'rules_v2', key: 'checkout-layout' }), 'checkout-layout'],
         ['an invalid key', urls.featureFlagNew({ format: 'rules_v2', key: "x' + 1 + '" }), ''],
@@ -633,7 +726,7 @@ describe('featureFlagRulesV2EditorLogic', () => {
             const confirm = jest.spyOn(window, 'confirm').mockReturnValue(false)
             expect(logic.values.hasUnsavedChanges).toBe(false)
 
-            logic.actions.setConfig({ default_value: null })
+            logic.actions.setConfig({ default_value: true })
             router.actions.push(urls.featureFlags())
             expect(confirm).toHaveBeenCalledTimes(1)
 
@@ -649,12 +742,12 @@ describe('featureFlagRulesV2EditorLogic', () => {
             await expectLogic(pageLogic).toDispatchActions(['loadFeatureFlagSuccess']).toFinishAllListeners()
             pageLogic.actions.editFeatureFlag(true)
 
-            logic.actions.setConfig({ default_value: null })
+            logic.actions.setConfig({ default_value: true })
             // The project-prefixed path passes the editor's unload prompt, so only featureFlagLogic's guard keeps the draft.
             await expectLogic(pageLogic, () => router.actions.push(router.values.location.pathname))
                 .toFinishAllListeners()
                 .toMatchValues({ isEditingFlag: true })
-            expect(logic.values.draft.config.default_value).toBeNull()
+            expect(logic.values.draft.config.default_value).toBe(true)
 
             // Cancel leaves the draft dirty, so closing the editor is what lets later pushes reach the page.
             expect(pageLogic.values.rulesV2DraftDirty).toBe(true)
@@ -730,7 +823,7 @@ describe('featureFlagRulesV2EditorLogic', () => {
                 saveError: { message: 'Must be at most 100.' },
             })
 
-            logic.actions.setConfig({ default_value: null })
+            logic.actions.setConfig({ default_value: true })
             expect(logic.values.saveError).toBeNull()
         })
 
@@ -777,6 +870,55 @@ describe('featureFlagRulesV2EditorLogic', () => {
                 .toFinishAllListeners()
             logic = featureFlagRulesV2EditorLogic({ id: 9 })
             logic.mount()
+        })
+
+        it('adds a rule of the chosen type with the starting values of the flag type', () => {
+            logic.actions.addRule('experiment')
+
+            expect(logic.values.draft.config.rules[2]).toEqual({
+                rule_type: 'experiment',
+                targeting: { properties: [] },
+                paused: false,
+                rollout_percentage: 100,
+                on_rollout_miss: 'continue',
+                assignment_algorithm: 'sha1_60_v1',
+                assign_by: 'person',
+                variants: [
+                    { key: 'control', weight: 50, value: 'control' },
+                    { key: 'test', weight: 50, value: 'test' },
+                ],
+            })
+            expect(new Set(logic.values.ruleKeys).size).toBe(3)
+            expect(logic.values.hasUnsavedChanges).toBe(true)
+        })
+
+        it('duplicates a rule below itself without its id or seeds, so the server assigns new ones', async () => {
+            const update = jest.spyOn(api, 'update').mockResolvedValue({ ...STRING_FLAG, version: 6 })
+
+            logic.actions.duplicateRule(1)
+            expect(new Set(logic.values.ruleKeys).size).toBe(3)
+            await expectLogic(logic, () => logic.actions.saveRulesV2Flag())
+                .toDispatchActions(['saveRulesV2FlagSuccess'])
+                .toFinishAllListeners()
+
+            const { id: _id, seed: _seed, holdout, ...copy } = EXPERIMENT_RULE
+            expect((update.mock.calls[0][1] as Record<string, any>).filters.rules).toEqual([
+                STRING_FLAG_RULES[0],
+                EXPERIMENT_RULE,
+                { ...copy, holdout: { exclusion_percentage: holdout.exclusion_percentage } },
+            ])
+        })
+
+        it('inserts a duplicate of the first rule right after it, and the other rules keep their keys', () => {
+            const [firstKey, secondKey] = logic.values.ruleKeys
+
+            logic.actions.duplicateRule(0)
+
+            const { id: _id, ...copy } = STRING_FLAG_RULES[0]
+            expect(logic.values.draft.config.rules).toEqual([STRING_FLAG_RULES[0], copy, EXPERIMENT_RULE])
+            expect(logic.values.ruleKeys[0]).toBe(firstKey)
+            expect(logic.values.ruleKeys[2]).toBe(secondKey)
+            expect(new Set(logic.values.ruleKeys).size).toBe(3)
         })
 
         it('changes another rule and moves the experiment rule without touching any of its fields', async () => {
@@ -889,7 +1031,7 @@ describe('featureFlagRulesV2EditorLogic', () => {
                 error: 'Must be between 0 and 100.',
             },
         ])('flags $check against its field and blocks the save', ({ edit, field, error }) => {
-            expect(logic.values.saveDisabledReason).toBeNull()
+            expect(logic.values.saveDisabledReason).toBe('Nothing to save yet.')
             edit()
             expect(logic.values.fieldError(field)).toBe(error)
             expect(logic.values.saveDisabledReason).toBe(`Rule 2: ${error}`)

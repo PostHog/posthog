@@ -13,9 +13,9 @@ write paths, and the skills product reads them through the signals facade, becau
 scout's skill stops the scout just as surely as deleting its config does.
 """
 
-from collections.abc import Mapping
+from collections.abc import Mapping, Sequence
 
-from django.db.models import Subquery
+from django.db.models import OuterRef, Q, Subquery
 
 import structlog
 from prometheus_client import Counter
@@ -27,7 +27,6 @@ from posthog.models.user import User
 from posthog.user_permissions import UserPermissions
 
 from products.signals.backend.models import SignalScoutConfig
-from products.signals.backend.scout_harness.skill_loader import earliest_member_author_id, resolve_scout_acting_user_id
 from products.skills.backend.models.skills import LLMSkill
 
 logger = structlog.get_logger(__name__)
@@ -94,7 +93,7 @@ def lock_protected_changes(requested: object, *, config: SignalScoutConfig | Non
     return changed if config.lifecycle_locked or "lifecycle_locked" in changed else []
 
 
-def resolve_scout_lifecycle_owner_id(team: Team, skill_name: str, config: SignalScoutConfig) -> int | None:
+def _resolve_scout_lifecycle_owner_ids(team: Team, configs: Mapping[str, SignalScoutConfig]) -> dict[str, int | None]:
     """The person the lock protects: the acting user, also after the skill is archived.
 
     The delete flow archives the skill before it deletes the config. The acting-user lookup reads
@@ -103,14 +102,45 @@ def resolve_scout_lifecycle_owner_id(team: Team, skill_name: str, config: Signal
     stamps one `updated_at` on every version it tombstones, and an older skill that once used the
     name must not give its author the claim.
     """
-    if LLMSkill.objects.filter(team=team, name=skill_name, deleted=False).exists():
-        return resolve_scout_acting_user_id(team, skill_name, config)
-    archived = LLMSkill.objects.filter(team=team, name=skill_name, deleted=True)
-    last_archive = archived.filter(updated_at=Subquery(archived.order_by("-updated_at").values("updated_at")[:1]))
-    archived_author_id = earliest_member_author_id(team, last_archive)
-    if archived_author_id is not None:
-        return archived_author_id
-    return resolve_scout_acting_user_id(team, skill_name, config)
+    versions = LLMSkill.objects.filter(team=team, name__in=configs)
+    live_names = set(versions.filter(deleted=False).values_list("name", flat=True))
+    last_archive = versions.filter(name=OuterRef("name"), deleted=True).order_by("-updated_at").values("updated_at")[:1]
+    owners: dict[str, int | None] = dict(
+        versions.filter(Q(deleted=False) | Q(deleted=True, updated_at=Subquery(last_archive)))
+        .exclude(deleted=True, name__in=live_names)
+        .filter(created_by__in=team.all_users_with_access())
+        .order_by("name", "created_at", "id")
+        .distinct("name")
+        .values_list("name", "created_by_id")
+    )
+    missing = {name: config for name, config in configs.items() if name not in owners}
+    if missing:
+        candidate_ids = {
+            user_id
+            for config in missing.values()
+            for user_id in (config.enabled_by_id, config.created_by_id)
+            if user_id is not None
+        }
+        members = set(team.all_users_with_access().filter(id__in=candidate_ids).values_list("id", flat=True))
+        for name, config in missing.items():
+            owners[name] = next(
+                (user_id for user_id in (config.enabled_by_id, config.created_by_id) if user_id in members), None
+            )
+    return owners
+
+
+def resolve_scout_lifecycle_owner_id(team: Team, skill_name: str, config: SignalScoutConfig) -> int | None:
+    return _resolve_scout_lifecycle_owner_ids(team, {skill_name: config})[skill_name]
+
+
+def user_holds_scout_lifecycle_claims(*, team: Team, configs: Sequence[SignalScoutConfig], user: User) -> bool:
+    if not configs:
+        return True
+    level = UserPermissions(user=user, team=team).current_team.effective_membership_level
+    if level is not None and level >= OrganizationMembership.Level.ADMIN:
+        return True
+    owners = _resolve_scout_lifecycle_owner_ids(team, {config.skill_name: config for config in configs})
+    return all(owner_id == user.pk for owner_id in owners.values())
 
 
 def user_holds_scout_lifecycle_claim(

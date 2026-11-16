@@ -773,6 +773,28 @@ class TestComputeTableStatisticsSync:
         assert stat.computed_for_delta_version == 12
         assert stat.column_type == "Int64"
 
+    def test_truncates_a_column_name_too_long_for_the_db(self) -> None:
+        # A deeply nested source schema can produce a column name longer than the 400-char limit
+        # on WarehouseColumnStatistics.column_name; the whole table's stats write must not fail for it.
+        long_name = "deeply_nested_field_" * 25
+        team = self._team()
+        schema, table, _ = self._schema_table_job(team, columns={long_name: {"clickhouse": "Nullable(Int64)"}})
+        add_actions = pa.table(
+            {
+                "num_records": [10],
+                f"null_count.{long_name}": [1],
+                f"min.{long_name}": [2],
+                f"max.{long_name}": [9],
+            }
+        )
+        with patch(DELTA_HELPER_PATH, return_value=self._mock_delta(add_actions)):
+            result = compute_table_statistics_sync(team.id, schema.id)
+
+        assert result["status"] == "done"
+        stat = WarehouseColumnStatistics.objects.for_team(team.id).get(table_id=table.id)
+        assert len(stat.column_name) == comp.COLUMN_NAME_DB_MAX_LENGTH
+        assert stat.min_value == "2"
+
     @pytest.mark.parametrize(
         "saved_during",
         [

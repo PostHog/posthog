@@ -1,4 +1,3 @@
-import json
 from datetime import UTC, datetime, timedelta
 from decimal import Decimal
 from types import SimpleNamespace
@@ -47,6 +46,7 @@ class TestTaskUsageQueryTagging(SimpleTestCase):
         # A region's generations are captured into the internal project in that same region, and
         # `LLM_ANALYTICS_INTERNAL_TEAM_ID` is 2 in both — reading it in the EU would price every EU
         # run at zero.
+        cache.clear()
         with (
             self.settings(CLOUD_DEPLOYMENT=region, LLM_ANALYTICS_INTERNAL_TEAM_ID=2),
             patch.object(task_usage.Team.objects, "get", return_value=object()) as team_get,
@@ -59,8 +59,13 @@ class TestTaskUsageQueryTagging(SimpleTestCase):
                 generated_after=datetime(2026, 8, 1, tzinfo=UTC),
                 product=Product.SIGNALS,
             )
+            task_usage._get_task_token_cost(
+                team_id=1,
+                task_id=UUID("00000000-0000-0000-0000-000000000002"),
+                task_created_at=datetime(2026, 8, 1, tzinfo=UTC),
+            )
 
-        assert team_get.call_args.kwargs["pk"] == expected_team_id
+        assert [call.kwargs["pk"] for call in team_get.call_args_list] == [expected_team_id, expected_team_id]
 
     def test_costs_are_unavailable_outside_a_billing_region(self) -> None:
         with (
@@ -368,39 +373,6 @@ class TestTaskUsage(ClickhouseTestMixin, APIBaseTest):
 
         assert usage.compute_cost_usd == Decimal(0)
         assert usage.total_cost_usd == Decimal("2.5")
-
-    def test_eu_token_cost_uses_cross_region_source(self) -> None:
-        with (
-            self.settings(
-                CLOUD_DEPLOYMENT="EU",
-                PERSONAL_SPEND_CROSS_REGION_SECRET="secret",
-                DEBUG=False,
-            ),
-            patch.object(task_usage.requests, "post") as post,
-        ):
-            post.return_value.json.return_value = {"token_cost_usd": 1.25}
-            token_cost = task_usage._get_task_token_cost(
-                team_id=self.team.id,
-                task_id=self.task.id,
-                task_created_at=self.task.created_at,
-            )
-
-        assert token_cost == Decimal("1.25")
-        assert post.call_args.args[0] == "https://us.posthog.com/api/code/internal/task_usage/"
-        assert json.loads(post.call_args.kwargs["data"]) == {
-            "team_id": self.team.id,
-            "task_id": str(self.task.id),
-            "task_created_at": self.task.created_at.isoformat(),
-        }
-
-    def test_eu_token_cost_is_unavailable_without_cross_region_secret(self) -> None:
-        with (
-            self.settings(CLOUD_DEPLOYMENT="EU", PERSONAL_SPEND_CROSS_REGION_SECRET=""),
-            self.assertRaises(task_usage.TaskTokenUsageUnavailable),
-        ):
-            task_usage._get_task_token_cost(
-                team_id=self.team.id, task_id=self.task.id, task_created_at=self.task.created_at
-            )
 
     def test_token_cost_is_cached(self) -> None:
         with patch.object(task_usage, "get_local_task_token_cost", return_value=Decimal("1.25")) as get_cost:

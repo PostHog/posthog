@@ -77,7 +77,6 @@ export function EngineeringAnalyticsAuthorScene(): JSX.Element {
     const authorsUrl = withCurrentScope(urls.engineeringAnalyticsAuthors(repo), sourceId)
     const avatarUrl = timelines?.items[0]?.author.avatar_url
     const workflowCostsTotal = workflowCosts.reduce((sum, c) => sum + (c.estimated_cost_usd ?? 0), 0)
-    // Ranked, biggest spend first; the bar length is each workflow's share of the window's total.
     const rankedCosts = [...workflowCosts].sort((a, b) => (b.estimated_cost_usd ?? 0) - (a.estimated_cost_usd ?? 0))
     // Only claim one repo (and link per-workflow into it) when every listed pull request agrees.
     const singleRepo = repoSlugs.length === 1 ? timelines?.items[0]?.repo : null
@@ -112,9 +111,8 @@ export function EngineeringAnalyticsAuthorScene(): JSX.Element {
                             ) : undefined
                         }
                     />
-                    {/* The page explains one author's own friction against the repository and the author's own team. The
-                friction rank orders experiences, never delivery performance (SPEC §2). It reads a fixed window, so it
-                sits outside the panel the date picker governs. */}
+                    {/* The friction rank orders experiences, never delivery performance (SPEC §2). It reads a fixed
+                window, so it sits outside the panel the date picker governs. */}
                     <Section
                         id="author-friction"
                         title="Friction"

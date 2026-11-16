@@ -28,6 +28,7 @@ export interface JobResult {
 }
 
 export interface JobRequest {
+    trackFreshness?: boolean
     /** The freshness key: one cache entry, such as an insight with its dashboard and override. */
     key: string
     family: BudgetFamily
@@ -44,6 +45,7 @@ export interface JobRequest {
 }
 
 interface Job {
+    trackFreshness: boolean
     key: string
     family: BudgetFamily
     mode: RefreshMode
@@ -109,7 +111,7 @@ export class RefreshQueue {
             this.notify()
             return existing.promise
         }
-        const sentAt = this.lastSent.get(request.key)
+        const sentAt = request.trackFreshness === false ? undefined : this.lastSent.get(request.key)
         if (!request.userRetry && sentAt !== undefined && this.now() - sentAt < this.itemFloorMs) {
             return Promise.resolve({ status: 'skipped', computed: false, forced: false, family: request.family })
         }
@@ -118,6 +120,7 @@ export class RefreshQueue {
             resolve = done
         })
         const job: Job = {
+            trackFreshness: request.trackFreshness !== false,
             key: request.key,
             family: request.family,
             mode: request.mode,
@@ -138,14 +141,14 @@ export class RefreshQueue {
     }
 
     /**
-     * Drops the queued jobs that only this screen wanted. A running read goes on: the server finishes a started compute
+     * Drops queued jobs that only this screen wanted, except keys it still needs. A running read goes on: the server finishes a started compute
      * anyway, so the answer still fills the cache, its minute floor holds, and a screen that comes back joins it or
      * finds the result instead of sending the same compute again. It also keeps its in-flight slot, so the app never
      * has more than 2 computes running on the server.
      */
-    leave(group: string): void {
+    leave(group: string, keepKeys?: ReadonlySet<string>): void {
         for (const job of [...this.jobs.values()]) {
-            if (!job.groups.delete(group) || job.groups.size > 0 || job.state === 'running') {
+            if (keepKeys?.has(job.key) || !job.groups.delete(group) || job.groups.size > 0 || job.state === 'running') {
                 continue
             }
             this.finish(job, 'aborted', false)
@@ -286,7 +289,7 @@ export class RefreshQueue {
         job.state = 'running'
         job.controller = new AbortController()
         const controller = job.controller
-        this.lastSent.set(job.key, this.now())
+        if (job.trackFreshness) this.lastSent.set(job.key, this.now())
         let outcome: { status: JobStatus; computed: boolean } | 'retry'
         let timedOut = false
         let deadlineTimer: ReturnType<typeof setTimeout> | null = null

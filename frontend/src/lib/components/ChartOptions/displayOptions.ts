@@ -242,6 +242,7 @@ export const DISPLAY_OPTIONS = [
         max: 9,
         placeholder: String(DEFAULT_DECIMAL_PLACES),
     },
+    { name: 'funnelBinCount', label: 'Bins', group: 'display', control: 'custom' },
     {
         name: 'retentionDashboardDisplay',
         label: 'On dashboards',

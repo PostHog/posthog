@@ -62,7 +62,7 @@ describe('WizardRunSidebarWidgetView', () => {
     beforeEach(() => initKeaTests())
     afterEach(() => cleanup())
 
-    it('dismisses a selection together and keeps the panel open for the remaining run', async () => {
+    it('dismisses runs one at a time and keeps the panel open for the remaining run', async () => {
         const dismiss = jest.fn()
         const click = jest.fn()
         render(<Sidebar onDismiss={dismiss} onStateClick={click} />)
@@ -70,10 +70,9 @@ describe('WizardRunSidebarWidgetView', () => {
         expect(screen.queryByText('Wizard runs (3)')).not.toBeInTheDocument()
         fireEvent.click(screen.getByText('PostHog integration'))
         const panel = await screen.findByRole('dialog')
-        fireEvent.click(within(panel).getByLabelText('Select PostHog integration'))
-        fireEvent.click(within(panel).getByLabelText('Select Analytics audit'))
-        fireEvent.click(within(panel).getByText('Dismiss selected (2)'))
-        expect(dismiss).toHaveBeenLastCalledWith(['run-0', 'run-1'])
+        fireEvent.click(within(panel).getByLabelText('Dismiss PostHog integration'))
+        fireEvent.click(within(panel).getByLabelText('Dismiss Analytics audit'))
+        expect(dismiss).toHaveBeenLastCalledWith(['run-1'])
         expect(within(panel).queryByText('Analytics audit')).not.toBeInTheDocument()
         expect(within(panel).getByText('Error tracking audit')).toBeInTheDocument()
         expect(within(panel).getByText('Error tracking audit').closest('a')).toHaveAttribute(

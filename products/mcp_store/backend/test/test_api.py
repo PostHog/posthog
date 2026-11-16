@@ -24,13 +24,18 @@ from posthog.models import Organization, Team, User
 from posthog.models.instance_setting import override_instance_config
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.models.organization import OrganizationMembership
+from posthog.models.organization_ip_restrictions import OrganizationIPRestrictions
+from posthog.models.user_integration import UserIntegration, user_slack_integration_from_identity
 from posthog.security.url_validation import PinnedUrlVerdict
 from posthog.test.anti_ssrf import mock_anti_ssrf_dns_lookup
 from posthog.test.authentication_checks import covers_authentication
 
 from products.mcp_store.backend.agents import create_gateway_agent_token, sync_built_in_agents
-from products.mcp_store.backend.catalog import MCP_SERVER_CATALOG
-from products.mcp_store.backend.catalog_sync import sync_mcp_catalog
+from products.mcp_store.backend.facade.api import (
+    SLACK_MCP_URL,
+    connect_slack_mcp_from_slack_link,
+    slack_mcp_user_scopes,
+)
 from products.mcp_store.backend.models import (
     MCPAuditEvent,
     MCPGatewayServer,
@@ -52,6 +57,7 @@ from products.mcp_store.backend.presentation.gateway_views import (
     ServiceAccountAccessUpdateSerializer,
 )
 from products.mcp_store.backend.presentation.views import (
+    MCPOAuthRedirectViewSet,
     MCPServerInstallationViewSet,
     _is_valid_posthog_code_callback_url,
 )
@@ -210,37 +216,6 @@ class TestMCPServerAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         # Inactive templates must not be in the listing (check by name not presence of hidden)
         inactive_names = set(MCPServerTemplate.objects.filter(is_active=False).values_list("name", flat=True))
         assert inactive_names.isdisjoint(names)
-
-    @parameterized.expand(
-        [
-            ("allowed_and_flagged", "team", True, True),
-            ("allowed_without_flag", "team", False, False),
-            ("flagged_outside_allowed_project", "none", True, False),
-            ("wildcard_and_flagged", "wildcard", True, True),
-        ]
-    )
-    def test_slack_dev_template_visibility(
-        self, _name: str, allowlist: str, flag_enabled: bool, expected: bool
-    ) -> None:
-        template = self._create_active_template(oauth_credentials_source="slack_dev_app")
-        allowed = allowlist != "none"
-        allowed_team_ids = {"team": [str(self.team.id)], "wildcard": ["*"], "none": []}[allowlist]
-        with (
-            self.settings(MCP_STORE_SLACK_DEV_ALLOWED_TEAM_IDS=allowed_team_ids),
-            patch("posthog.permissions.posthoganalytics.feature_enabled", return_value=flag_enabled) as feature_enabled,
-        ):
-            response = self.client.get(f"/api/environments/{self.team.id}/mcp_servers/")
-        assert response.status_code == status.HTTP_200_OK
-        assert (str(template.id) in {entry["id"] for entry in response.json()["results"]}) is expected
-        if allowed:
-            assert feature_enabled.call_args.kwargs["person_properties"] == {"email": self.user.email}
-            assert feature_enabled.call_args.kwargs["only_evaluate_locally"] is True
-            assert feature_enabled.call_args.kwargs["groups"] == {
-                "organization": str(self.organization.id),
-                "project": str(self.team.id),
-            }
-        else:
-            feature_enabled.assert_not_called()
 
     def test_list_servers_entries_match_serializer_schema(self):
         self._create_active_template()
@@ -407,41 +382,6 @@ class TestMCPGatewayServerAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK
         assert [result["id"] for result in response.json()["results"]] == [str(registered.id)]
         assert not MCPGatewayServer.objects.for_team(self.team.id).filter(url=untouched.url).exists()
-
-    def test_slack_dev_registered_server_follows_ui_flag(self) -> None:
-        self._make_admin()
-        template = self._template("Slack dev")
-        template.oauth_credentials_source = "slack_dev_app"
-        template.save(update_fields=["oauth_credentials_source", "updated_at"])
-        server = MCPGatewayServer.objects.for_team(self.team.id).create(
-            team=self.team,
-            name="Slack via PostHog (dev)",
-            url=template.url,
-            template=template,
-            created_by=self.user,
-        )
-
-        with (
-            self.settings(MCP_STORE_SLACK_DEV_ALLOWED_TEAM_IDS=[str(self.team.id)]),
-            patch("posthog.permissions.posthoganalytics.feature_enabled", return_value=False),
-        ):
-            hidden_response = self.client.get(self._api_url())
-        with (
-            self.settings(MCP_STORE_SLACK_DEV_ALLOWED_TEAM_IDS=[str(self.team.id)]),
-            patch("posthog.permissions.posthoganalytics.feature_enabled", return_value=True),
-        ):
-            visible_response = self.client.get(self._api_url())
-        with (
-            self.settings(MCP_STORE_SLACK_DEV_ALLOWED_TEAM_IDS=[]),
-            patch("posthog.permissions.posthoganalytics.feature_enabled", return_value=True),
-        ):
-            blocked_response = self.client.get(self._api_url())
-
-        assert hidden_response.status_code == status.HTTP_200_OK
-        assert str(server.id) not in {result["id"] for result in hidden_response.json()["results"]}
-        assert str(server.id) in {result["id"] for result in visible_response.json()["results"]}
-        blocked_server = next(result for result in blocked_response.json()["results"] if result["id"] == str(server.id))
-        assert blocked_server["is_team_enabled"] is False
 
     def test_list_exposes_the_auth_type_members_connect_with(self) -> None:
         self._make_admin()
@@ -830,6 +770,7 @@ class TestMCPGatewayServerAPI(APIBaseTest):
 
         assert tools_response.status_code == status.HTTP_200_OK
         assert tools_response.json()["results"][0]["is_destructive"] is True
+        assert tools_response.json()["results"][0]["is_read_only"] is False
         assert tools_response.json()["results"][0]["team_state"] == "do_not_use"
         assert active_response.status_code == status.HTTP_400_BAD_REQUEST
 
@@ -1179,9 +1120,9 @@ class TestMCPGatewayWriteScopeAPI(APIBaseTest):
         membership.level = OrganizationMembership.Level.ADMIN
         membership.save()
 
-    def _read_only_oauth_client(self) -> APIClient:
+    def _oauth_client(self, scope: str = "project:read") -> APIClient:
         application = OAuthApplication.objects.create(
-            name="Read-only MCP gateway",
+            name="Scoped MCP client",
             client_type=OAuthApplication.CLIENT_CONFIDENTIAL,
             authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
             redirect_uris="https://example.com/callback",
@@ -1192,9 +1133,9 @@ class TestMCPGatewayWriteScopeAPI(APIBaseTest):
         access_token = OAuthAccessToken.objects.create(
             user=self.user,
             application=application,
-            token="pha_read_only_mcp_gateway",
+            token=f"pha_mcp_{scope.replace(':', '_').replace(' ', '_')}",
             expires=timezone.now() + timedelta(hours=1),
-            scope="project:read",
+            scope=scope,
             scoped_teams=[self.team.id],
         )
         client = APIClient()
@@ -1230,11 +1171,62 @@ class TestMCPGatewayWriteScopeAPI(APIBaseTest):
             url = f"/api/projects/{self.team.id}/mcp_gateway/service_accounts/{account.id}/access/"
             data = {"gateway_server_id": str(server.id), "enabled": True}
 
-        response = self._read_only_oauth_client().post(url, data=data, format="json")
+        response = self._oauth_client().post(url, data=data, format="json")
 
         assert response.status_code == status.HTTP_403_FORBIDDEN
         assert not MCPToolPolicy.objects.for_team(self.team.id).filter(gateway_server=server).exists()
         assert not MCPServiceAccountServerAccess.objects.for_team(self.team.id).filter(gateway_server=server).exists()
+
+    def _installation_with_tool(self) -> tuple[MCPServerInstallation, MCPServerInstallationTool]:
+        installation = MCPServerInstallation.objects.create(
+            team=self.team,
+            user=self.user,
+            display_name="Scoped server",
+            url="https://mcp.scoped.example.com/mcp",
+            auth_type="api_key",
+            scope="personal",
+        )
+        tool = MCPServerInstallationTool.objects.create(
+            installation=installation, tool_name="search", last_seen_at=timezone.now()
+        )
+        return installation, tool
+
+    @parameterized.expand([("install_custom",), ("update_tool_approval",), ("destroy",)])
+    def test_read_only_oauth_token_cannot_change_installations(self, action_name: str) -> None:
+        installation, tool = self._installation_with_tool()
+        base = f"/api/environments/{self.team.id}/mcp_server_installations/"
+        client = self._oauth_client()
+
+        if action_name == "install_custom":
+            with ALLOW_URL:
+                response = client.post(
+                    f"{base}install_custom/",
+                    data={"name": "Custom", "url": "https://mcp.custom-scope.example.com/mcp", "auth_type": "api_key"},
+                    format="json",
+                )
+        elif action_name == "update_tool_approval":
+            response = client.patch(
+                f"{base}{installation.id}/tools/{tool.tool_name}/", data={"approval_state": "approved"}, format="json"
+            )
+        else:
+            response = client.delete(f"{base}{installation.id}/")
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+        assert "project:write" in response.json()["detail"]
+        assert MCPServerInstallation.objects.filter(team=self.team).count() == 1
+        tool.refresh_from_db()
+        assert tool.approval_state == "needs_approval"
+
+    def test_write_scoped_oauth_token_can_install_custom(self) -> None:
+        with ALLOW_URL:
+            response = self._oauth_client("project:read project:write").post(
+                f"/api/environments/{self.team.id}/mcp_server_installations/install_custom/",
+                data={"name": "Custom", "url": "https://mcp.custom-scope.example.com/mcp", "auth_type": "api_key"},
+                format="json",
+            )
+
+        assert response.status_code == status.HTTP_201_CREATED
+        assert MCPServerInstallation.objects.filter(team=self.team, user=self.user).count() == 1
 
 
 class TestMCPServiceAccountAPI(APIBaseTest):
@@ -2496,41 +2488,6 @@ class TestMCPServiceAccountAPI(APIBaseTest):
         reachable_by_owner = {row["shared_by"]["id"]: row["reachable"] for row in scout["servers"]}
         assert reachable_by_owner == {self.user.id: True, revoked_member.id: False}
 
-    def test_removed_slack_dev_project_serializes_agent_grant_unreachable(self) -> None:
-        account = self._active_scout_account()
-        template = MCPServerTemplate.objects.create(
-            name="Slack via PostHog (dev)",
-            url="https://mcp.slack.com/mcp",
-            oauth_credentials_source="slack_dev_app",
-            is_active=True,
-        )
-        server = MCPGatewayServer.objects.for_team(self.team.id).create(
-            team=self.team,
-            template=template,
-            name=template.name,
-            url=template.url,
-        )
-        MCPServiceAccountServerAccess.objects.for_team(self.team.id).create(
-            team=self.team,
-            user=self.user,
-            service_account=account,
-            gateway_server=server,
-            scope="team",
-            granted_by=self.user,
-        )
-
-        with self.settings(MCP_STORE_SLACK_DEV_ALLOWED_TEAM_IDS=[str(self.team.id)]):
-            allowed_response = self.client.get(self._api_url())
-        with self.settings(MCP_STORE_SLACK_DEV_ALLOWED_TEAM_IDS=[]):
-            removed_response = self.client.get(self._api_url())
-
-        assert allowed_response.status_code == status.HTTP_200_OK
-        assert removed_response.status_code == status.HTTP_200_OK
-        allowed_scout = next(row for row in allowed_response.json()["results"] if row["agent_key"] == "scout")
-        removed_scout = next(row for row in removed_response.json()["results"] if row["agent_key"] == "scout")
-        assert allowed_scout["servers"][0]["reachable"] is True
-        assert removed_scout["servers"][0]["reachable"] is False
-
     def test_agent_catalog_query_count_does_not_grow_with_accessible_servers(self) -> None:
         account = self._active_scout_account()
         client = self._agent_client(account)
@@ -2764,6 +2721,110 @@ class TestMCPServerInstallationAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchi
         response = self.client.delete(f"/api/environments/{self.team.id}/mcp_server_installations/{installation.id}/")
         assert response.status_code == status.HTTP_204_NO_CONTENT
         assert not MCPServerInstallation.objects.filter(id=installation.id).exists()
+
+    def test_a_connection_from_a_slack_link_cannot_be_shared(self):
+        # Sharing would hand the owner's account-link token to every project member.
+        membership = self.user.organization_memberships.get(organization=self.organization)
+        membership.level = OrganizationMembership.Level.ADMIN
+        membership.save()
+        installation = self._slack_mcp_from_a_link()
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/mcp_server_installations/{installation.id}/share/"
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "account link" in response.json()["detail"]
+        assert MCPServerInstallation.objects.get(id=installation.id).scope == "personal"
+
+        # Connecting Slack from the store, as the error suggests, makes the token the member's own and the server shareable.
+        with patch(
+            "products.mcp_store.backend.presentation.views.exchange_oauth_token",
+            return_value={"access_token": "xoxp-own-example"},
+        ):
+            MCPOAuthRedirectViewSet._exchange_and_store_tokens(installation, "code", "verifier")
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/mcp_server_installations/{installation.id}/share/"
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        installation.refresh_from_db()
+        assert installation.scope == "shared" and installation.linked_user_integration_id is None
+
+    def _slack_mcp_from_a_link(self) -> MCPServerInstallation:
+        scopes = ["channels:read", "search:read.public"]
+        template = MCPServerTemplate.objects.create(
+            name="Slack",
+            url=SLACK_MCP_URL,
+            auth_type="oauth",
+            is_active=True,
+            oauth_credentials_source="slack_app",
+            oauth_scope_allowlist=scopes,
+            created_by=self.user,
+        )
+        MCPGatewayServer.objects.for_team(self.team.id).create(
+            team_id=self.team.id, name="Slack", url=SLACK_MCP_URL, template=template, is_team_enabled=True
+        )
+        link = user_slack_integration_from_identity(
+            self.user,
+            slack_user_id="U1",
+            slack_team_id="T1",
+            slack_team_name="Example",
+            slack_email_at_link=None,
+            user_access_token="xoxp-link",
+            user_scopes=" ".join(scopes),
+        )
+        assert connect_slack_mcp_from_slack_link(self.team.id, self.user, slack_link_id=str(link.id))
+        return MCPServerInstallation.objects.get(team=self.team, user=self.user, url=SLACK_MCP_URL)
+
+    @parameterized.expand([("uninstall_then_unlink", False), ("unlink_then_uninstall", True)])
+    def test_uninstalling_the_slack_mcp_from_a_slack_link_keeps_a_relink_from_connecting_it_again(
+        self, _name: str, unlinks_first: bool
+    ):
+        scopes = ["channels:read", "search:read.public"]
+        template = MCPServerTemplate.objects.create(
+            name="Slack",
+            url=SLACK_MCP_URL,
+            auth_type="oauth",
+            is_active=True,
+            oauth_credentials_source="slack_app",
+            oauth_scope_allowlist=scopes,
+            created_by=self.user,
+        )
+        MCPGatewayServer.objects.for_team(self.team.id).create(
+            team_id=self.team.id, name="Slack", url=SLACK_MCP_URL, template=template, is_team_enabled=True
+        )
+
+        def link_slack() -> str:
+            link = user_slack_integration_from_identity(
+                self.user,
+                slack_user_id="U1",
+                slack_team_id="T1",
+                slack_team_name="Example",
+                slack_email_at_link=None,
+                user_access_token="xoxp-link",
+                user_scopes=" ".join(scopes),
+            )
+            return str(link.id)
+
+        def unlink_slack() -> None:
+            UserIntegration.objects.filter(user=self.user, kind=UserIntegration.IntegrationKind.SLACK).delete()
+
+        assert connect_slack_mcp_from_slack_link(self.team.id, self.user, slack_link_id=link_slack())
+        installation = MCPServerInstallation.objects.get(team=self.team, user=self.user, url=SLACK_MCP_URL)
+        # An unlink deletes the link row, and with it the installation's pointer to it. The opt-out does not depend on
+        # that pointer, so the order of the two removals makes no difference.
+        if unlinks_first:
+            unlink_slack()
+
+        response = self.client.delete(f"/api/environments/{self.team.id}/mcp_server_installations/{installation.id}/")
+
+        assert response.status_code == status.HTTP_204_NO_CONTENT
+        if not unlinks_first:
+            unlink_slack()
+        assert slack_mcp_user_scopes(self.team.id, self.user.id) == ()
+        assert not connect_slack_mcp_from_slack_link(self.team.id, self.user, slack_link_id=link_slack())
+        assert not MCPServerInstallation.objects.filter(team=self.team, user=self.user, url=SLACK_MCP_URL).exists()
 
     def test_update_installation(self):
         installation = MCPServerInstallation.objects.create(
@@ -3218,6 +3279,49 @@ class TestOAuthCallback(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
             expires_at=timezone.now() + timedelta(seconds=600),
             created_by=created_by if created_by is not None else self.user,
         )
+
+    @parameterized.expand([(allowed, anonymous) for allowed in (False, True) for anonymous in (False, True)])
+    @patch("products.mcp_store.backend.presentation.views.is_dev_mode")
+    @patch("products.mcp_store.backend.presentation.views.MCPOAuthRedirectViewSet._exchange_and_store_tokens")
+    def test_callback_enforces_installation_policy_before_consuming_state(
+        self, allowed: bool, anonymous: bool, exchange: MagicMock, dev_mode: MagicMock
+    ) -> None:
+        dev_mode.return_value = anonymous
+        installation = self._create_installation()
+        state_token = "installation-policy-example"
+        oauth_state = self._create_oauth_state(
+            installation,
+            state_token,
+            install_source="posthog-code" if anonymous else "posthog",
+            posthog_code_callback_url="posthog-code://oauth/callback" if anonymous else "",
+        )
+        other = Organization.objects.create(name="Open example organization")
+        self.user.join(organization=other)
+        self.user.current_organization = other
+        self.user.current_team = None
+        self.user.save(update_fields=["current_organization", "current_team"])
+        OrganizationIPRestrictions.objects.create(organization=self.organization, ip_restrictions=["203.0.113.0/24"])
+        installation.refresh_from_db()
+        original_credentials = installation.sensitive_configuration
+        if anonymous:
+            self.client.logout()
+
+        response = self.client.get(
+            "/api/mcp_store/oauth_redirect/",
+            {"state": state_token, "code": "example-code"},
+            REMOTE_ADDR="203.0.113.7" if allowed else "198.51.100.7",
+        )
+
+        assert response.status_code == (302 if allowed else 403)
+        oauth_state.refresh_from_db()
+        installation.refresh_from_db()
+        assert (oauth_state.consumed_at is not None) == allowed
+        assert installation.sensitive_configuration == original_credentials
+        if allowed:
+            exchange.assert_called_once()
+        else:
+            exchange.assert_not_called()
+            assert response.json()["code"] == "ip_not_allowed"
 
     def test_oauth_redirect_places_callback_query_before_return_fragment(self):
         installation = self._create_installation()
@@ -4255,38 +4359,6 @@ class TestMCPAuthorizePosthogCodeResponse(APIBaseTest):
 
 
 class TestInstallTemplateAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
-    @parameterized.expand(["slack_app", "slack_dev_app"])
-    def test_catalog_preserves_oauth_app_for_existing_installations(self, source: str) -> None:
-        entry = next(entry for entry in MCP_SERVER_CATALOG if entry.oauth_credentials_source == "slack_app")
-        template = self._template(url=entry.url, oauth_credentials_source=source)
-        installation = MCPServerInstallation.objects.create(
-            team=self.team,
-            user=self.user,
-            template=template,
-            url=template.url,
-            auth_type="oauth",
-            sensitive_configuration={"access_token": "existing-token"},
-        )
-        allowed_teams = [str(self.team.id)] if source == "slack_app" else []
-        with self.settings(MCP_STORE_SLACK_DEV_ALLOWED_TEAM_IDS=allowed_teams):
-            counts = sync_mcp_catalog(entries=[entry])
-        template.refresh_from_db()
-        installation.refresh_from_db()
-        assert template.oauth_credentials_source == source
-        assert installation.sensitive_configuration == {"access_token": "existing-token"}
-        if source == "slack_app":
-            assert counts.failed == 1
-            assert template.is_active
-        else:
-            assert counts.failed == 0
-            assert not template.is_active
-            installation.delete()
-            with self.settings(MCP_STORE_SLACK_DEV_ALLOWED_TEAM_IDS=[]):
-                sync_mcp_catalog(entries=[entry])
-            template.refresh_from_db()
-            assert template.oauth_credentials_source == "slack_app"
-            assert not template.is_active
-
     def _template(self, **overrides) -> MCPServerTemplate:
         import uuid as _uuid
 
@@ -4330,10 +4402,9 @@ class TestInstallTemplateAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest
         installation = MCPServerInstallation.objects.get(url=template.url, user=self.user)
         assert installation.template_id == template.id
 
-    @parameterized.expand([("slack_app", "SLACK_APP"), ("slack_dev_app", "SLACK_DEV_APP")])
-    def test_install_template_oauth_uses_instance_credential_source(self, source: str, prefix: str) -> None:
+    def test_install_template_oauth_uses_instance_credential_source(self) -> None:
         template = self._template(
-            oauth_credentials_source=source,
+            oauth_credentials_source="slack_app",
             oauth_credentials={},
             oauth_metadata={
                 "issuer": "https://mcp.slack.com",
@@ -4344,9 +4415,8 @@ class TestInstallTemplateAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest
         )
 
         with (
-            self.settings(MCP_STORE_SLACK_DEV_ALLOWED_TEAM_IDS=[str(self.team.id)]),
-            override_instance_config(f"{prefix}_CLIENT_ID", "slack-client"),
-            override_instance_config(f"{prefix}_CLIENT_SECRET", "slack-secret"),
+            override_instance_config("SLACK_APP_CLIENT_ID", "slack-client"),
+            override_instance_config("SLACK_APP_CLIENT_SECRET", "slack-secret"),
         ):
             response = self.client.post(
                 f"/api/environments/{self.team.id}/mcp_server_installations/install_template/",
@@ -4358,30 +4428,6 @@ class TestInstallTemplateAPI(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest
         params = parse_qs(urlparse(response.json()["redirect_url"]).query)
         assert params["client_id"] == ["slack-client"]
         assert MCPServerInstallation.objects.filter(url=template.url, user=self.user).exists()
-
-    @parameterized.expand(["install", "authorize", "gateway"])
-    def test_slack_dev_template_cannot_be_used_by_another_project(self, action: str) -> None:
-        template = self._template(oauth_credentials_source="slack_dev_app")
-        with self.settings(MCP_STORE_SLACK_DEV_ALLOWED_TEAM_IDS=[str(self.team.id + 1)]):
-            if action == "install":
-                response = self.client.post(
-                    f"/api/environments/{self.team.id}/mcp_server_installations/install_template/",
-                    data={"template_id": str(template.id)},
-                    format="json",
-                )
-            elif action == "authorize":
-                response = self.client.get(
-                    f"/api/environments/{self.team.id}/mcp_server_installations/authorize/",
-                    data={"template_id": str(template.id)},
-                )
-            else:
-                response = self.client.post(
-                    f"/api/environments/{self.team.id}/mcp_gateway_servers/set_template_enabled/",
-                    data={"template_id": str(template.id), "enabled": True},
-                    format="json",
-                )
-        assert response.status_code == status.HTTP_404_NOT_FOUND, response.content
-        assert not MCPServerInstallation.objects.filter(template=template).exists()
 
     def test_install_template_oauth_fails_closed_when_instance_credentials_are_missing(self):
         template = self._template(

@@ -42,6 +42,7 @@ export interface SessionAttachment {
 }
 
 export interface SessionUserItem {
+    timestamp?: string
     kind: 'user'
     id: string
     text: string
@@ -49,6 +50,9 @@ export interface SessionUserItem {
 }
 
 export interface SessionAssistantItem {
+    copyText?: string
+    timestamp?: string
+    traceId?: string
     projectUrl?: string
     kind: 'assistant'
     id: string
@@ -61,6 +65,19 @@ export interface SessionThoughtItem {
     id: string
     text: string
     complete: boolean
+    projectUrl?: string
+}
+
+export interface SessionVisualizationItem {
+    copyText?: string
+    kind: 'visualization'
+    id: string
+    query?: unknown
+    shortId?: string
+    title?: string
+    result?: unknown
+    traceId?: string
+    webUrl?: string
 }
 
 export interface SessionToolItem {
@@ -74,6 +91,8 @@ export interface SessionToolItem {
 export interface SessionTurnEndItem {
     kind: 'turn_end'
     id: string
+    traceId?: string
+    runId?: string
 }
 
 export interface SessionErrorItem {
@@ -103,6 +122,7 @@ export interface SessionProgressItem {
 export type SessionThreadItem =
     | SessionUserItem
     | SessionAssistantItem
+    | SessionVisualizationItem
     | SessionThoughtItem
     | SessionToolItem
     | SessionTurnEndItem

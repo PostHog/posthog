@@ -43,6 +43,9 @@ DEFAULT_PRIOR_RATE = 0.05
 SCORED_INTERVALS = frozenset(DEFAULT_PROFILE.intervals)
 # The event scan reaches this far past the range, so a row whose timestamp ingestion moved stays in the scan.
 TIMESTAMP_DRIFT = datetime.timedelta(hours=1)
+# A project's scores are ready to rely on once this many days of the window have a scored daily bucket.
+SCORED_HISTORY_WINDOW = datetime.timedelta(days=28)
+SCORED_HISTORY_READY_DAYS = 14
 
 _LATEST_BUCKETS = """
 SELECT
@@ -100,6 +103,22 @@ FROM ({_LATEST_BUCKETS})
 WHERE bucket_start >= {{date_from}} AND {{keep}}
 ORDER BY bucket_start DESC, series_key
 LIMIT {{limit}}
+"""
+
+
+_SCORED_DAYS_QUERY = """
+SELECT count(DISTINCT toDate(toTimeZone(bucket_start, 'UTC')))
+FROM (
+    SELECT coalesce(toDateTime(properties.$anomaly_bucket_start), timestamp) AS bucket_start
+    FROM events
+    WHERE event = {event}
+        AND properties.$anomaly_source = {source}
+        AND properties.$anomaly_interval = {interval}
+        AND toFloat(properties.$anomaly_score) IS NOT NULL
+        AND timestamp >= {scan_since}
+        AND timestamp <= {scan_until}
+)
+WHERE bucket_start >= {since} AND bucket_start <= {until}
 """
 
 
@@ -186,6 +205,8 @@ class SeriesImportance:
 class _RankKey:
     """Sorts smallest first, field by field, so each measure is negated to put the largest first."""
 
+    # 0 for every series unless the newest flag sorts first.
+    negative_recency: float
     negative_lift: float
     negative_flagged_buckets: int
     negative_last_flagged: float
@@ -351,6 +372,23 @@ def series_summaries(
     return SeriesSummaries(series=series, truncated=len(rows) > MAX_SERIES)
 
 
+def scored_days(team: Team, *, now: datetime.datetime) -> int:
+    """Distinct UTC days with a scored daily bucket of any insight series from ``SCORED_HISTORY_WINDOW`` before ``now``."""
+    tag_queries(product=Product.SIGNALS, feature=Feature.ALERTING)
+    response = execute_hogql_query(
+        _SCORED_DAYS_QUERY,
+        team,
+        query_type="AnomalyScoresScoredDays",
+        placeholders={
+            **_placeholders(since=now - SCORED_HISTORY_WINDOW, until=now, insight_ids=None, series_key=None),
+            "interval": ast.Constant(value=IntervalType.DAY.value),
+        },
+        ch_user=ClickHouseUser.DEFAULT,
+    )
+    rows = cast(list[tuple[Any, ...]], response.results or [])
+    return int(rows[0][0]) if rows else 0
+
+
 def latest_buckets(
     team: Team,
     *,
@@ -444,21 +482,28 @@ def rate_lift(summary: SeriesSummary, prior: float) -> float:
 
 
 def rank_series(
-    series: Sequence[SeriesSummary], *, prior: float, importance: Mapping[int, SeriesImportance]
+    series: Sequence[SeriesSummary],
+    *,
+    prior: float,
+    importance: Mapping[int, SeriesImportance],
+    recent_first: bool = False,
 ) -> list[SeriesSummary]:
     """Most anomalous first, using only measures that compare across series and intervals.
 
     Rate lift first, then flagged buckets, then the newest flag, then the insight's importance.
+    With ``recent_first``, the newest flag sorts first, and a series without a flag sorts last.
     """
     unknown = SeriesImportance(on_dashboard=False, viewers=0)
 
     def key(summary: SeriesSummary) -> _RankKey:
         last_flagged = summary.last_flagged_bucket
+        negative_last_flagged = -last_flagged.timestamp() if last_flagged else math.inf
         insight_importance = importance.get(summary.insight_id, unknown)
         return _RankKey(
+            negative_recency=negative_last_flagged if recent_first else 0.0,
             negative_lift=-rate_lift(summary, prior),
             negative_flagged_buckets=-summary.flagged_buckets,
-            negative_last_flagged=-last_flagged.timestamp() if last_flagged else math.inf,
+            negative_last_flagged=negative_last_flagged,
             off_dashboard=not insight_importance.on_dashboard,
             negative_viewers=-insight_importance.viewers,
             insight_id=summary.insight_id,

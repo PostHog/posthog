@@ -47,7 +47,8 @@ def public_endpoint_dns() -> Iterator[None]:
 
 
 @pytest.mark.parametrize(
-    "status, expected_state", [(200, "ok"), (401, "invalid"), (402, "error"), (403, "invalid"), (500, "error")]
+    "status, expected_state",
+    [(200, "ok"), (401, "invalid"), (402, "error"), (403, "invalid"), (404, "error"), (500, "error")],
 )
 def test_system_one_key_validation(status: int, expected_state: str) -> None:
     response = _response(

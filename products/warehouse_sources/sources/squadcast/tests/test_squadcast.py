@@ -550,6 +550,121 @@ class TestScheduleRotations:
             assert result.items == [[{"id": 20, "scheduleID": 2, "team_id": "t1"}]]
 
 
+class TestAuditLogs:
+    @staticmethod
+    def _page(ids: list[int], total_count: int | None = None) -> ScriptedResponse:
+        body: dict[str, Any] = {"data": [{"id": i, "action": "update"} for i in ids]}
+        if total_count is not None:
+            body["metadata"] = {"totalCount": total_count}
+        return _json(body)
+
+    def _run_recent(self, audit_logs: Handler) -> DriveResult:
+        return _run(
+            "audit_logs",
+            _standard_handler(teams=[], endpoint_responses={"/v3/audit-logs": audit_logs}),
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=datetime.now(UTC) - timedelta(days=2),
+        )
+
+    def test_incremental_window_pages_org_level_until_short_page(self) -> None:
+        last_value = datetime.now(UTC) - timedelta(days=2)
+
+        def audit_logs(request: RecordedRequest) -> ScriptedResponse:
+            page_number = int(_params(request)["pageNumber"])
+            if page_number == 1:
+                return self._page(list(range(PAGE_SIZE)), total_count=PAGE_SIZE + 1)
+            return self._page([PAGE_SIZE], total_count=PAGE_SIZE + 1)
+
+        result = _run(
+            "audit_logs",
+            _standard_handler(teams=[], endpoint_responses={"/v3/audit-logs": audit_logs}),
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=last_value,
+        )
+
+        assert [len(batch) for batch in result.items] == [PAGE_SIZE, 1]
+        assert "team_id" not in result.items[0][0]
+        assert _calls_to(result.requests, "/v3/teams") == []
+        calls = [_params(request) for request in _calls_to(result.requests, "/v3/audit-logs")]
+        assert [call["pageNumber"] for call in calls] == ["1", "2"]
+        assert calls[0] == {
+            "startDate": last_value.date().isoformat(),
+            "endDate": datetime.now(UTC).date().isoformat(),
+            "pageNumber": "1",
+            "pageSize": str(PAGE_SIZE),
+        }
+        # A single window that reaches today has no later window to stage.
+        assert result.saved_states == []
+
+    @pytest.mark.parametrize(
+        "page_zero_ids,expected_ids",
+        [
+            # 0-based API: page 1 was the second page, so page 0 still holds unread rows.
+            ([10, 11], [3, 4, 10, 11]),
+            # 1-based API that clamps page 0 to page 1: nothing is added twice.
+            ([3, 4], [3, 4]),
+        ],
+    )
+    def test_shortfall_against_total_count_reads_page_zero(
+        self, page_zero_ids: list[int], expected_ids: list[int]
+    ) -> None:
+        def audit_logs(request: RecordedRequest) -> ScriptedResponse:
+            page_number = int(_params(request)["pageNumber"])
+            return self._page(page_zero_ids if page_number == 0 else [3, 4], total_count=4)
+
+        result = self._run_recent(audit_logs)
+
+        assert [row["id"] for batch in result.items for row in batch] == expected_ids
+        page_numbers = [_params(request)["pageNumber"] for request in _calls_to(result.requests, "/v3/audit-logs")]
+        assert page_numbers == ["1", "0"]
+
+    @pytest.mark.parametrize("total_count,expected_calls", [(PAGE_SIZE * 2, 2), (None, 3)])
+    def test_full_pages_stop_at_total_count(self, total_count: int | None, expected_calls: int) -> None:
+        def audit_logs(request: RecordedRequest) -> ScriptedResponse:
+            page_number = int(_params(request)["pageNumber"])
+            if page_number <= 2:
+                ids = list(range(page_number * PAGE_SIZE, (page_number + 1) * PAGE_SIZE))
+                return self._page(ids, total_count=total_count)
+            return self._page([], total_count=total_count)
+
+        result = self._run_recent(audit_logs)
+
+        assert len(_calls_to(result.requests, "/v3/audit-logs")) == expected_calls
+        assert sum(len(batch) for batch in result.items) == PAGE_SIZE * 2
+
+    def test_full_refresh_walks_contiguous_windows_and_stages_next_window_before_yield(self) -> None:
+        def audit_logs(request: RecordedRequest) -> ScriptedResponse:
+            params = _params(request)
+            return self._page([1] if params["startDate"] == FULL_REFRESH_START.date().isoformat() else [])
+
+        result = _run("audit_logs", _standard_handler(teams=[], endpoint_responses={"/v3/audit-logs": audit_logs}))
+
+        calls = [_params(request) for request in _calls_to(result.requests, "/v3/audit-logs")]
+        assert len(calls) > 1
+        assert calls[0]["startDate"] == FULL_REFRESH_START.date().isoformat()
+        assert all(later["startDate"] == earlier["endDate"] for earlier, later in zip(calls, calls[1:]))
+        assert calls[-1]["endDate"] == datetime.now(UTC).date().isoformat()
+        assert result.items == [[{"id": 1, "action": "update"}]]
+        assert [(state.team_id, state.cursor) for state in result.saved_states] == [
+            (None, call["endDate"]) for call in calls[:-1]
+        ]
+
+    def test_resume_cursor_overrides_window_start(self) -> None:
+        resume_from = (datetime.now(UTC) - timedelta(days=5)).date().isoformat()
+
+        result = _run(
+            "audit_logs",
+            _standard_handler(teams=[], endpoint_responses={"/v3/audit-logs": lambda request: self._page([])}),
+            resume_state=SquadcastResumeConfig(cursor=resume_from),
+            should_use_incremental_field=True,
+            db_incremental_field_last_value=datetime(2020, 1, 1, tzinfo=UTC),
+        )
+
+        calls = _calls_to(result.requests, "/v3/audit-logs")
+        assert len(calls) == 1
+        assert _params(calls[0])["startDate"] == resume_from
+
+
 class TestSquadcastSourceResponse:
     def test_incidents_partitioned_on_created_at_with_desc_watermark(self) -> None:
         response = _run("incidents", always(_json({"data": []}))).response
@@ -618,14 +733,27 @@ class TestValidateCredentials:
             " ConnectionError('no network')))"
         )
 
-    def test_org_level_schema_probes_its_own_path(self) -> None:
+    @pytest.mark.parametrize(
+        "endpoint,path,needs_window_params",
+        [
+            ("users", "/v3/users", False),
+            # The audit log list rejects a request without its required window and page params.
+            ("audit_logs", "/v3/audit-logs", True),
+        ],
+    )
+    def test_org_level_schema_probes_its_own_path(self, endpoint: str, path: str, needs_window_params: bool) -> None:
         def handler(request: RecordedRequest) -> ScriptedResponse:
             return _json(_auth_body()) if request.path == "/oauth/access-token" else _json({"data": []})
 
         with scripted_network(handler) as network:
-            validate_credentials("tok", "us", endpoint="users")
+            ok, _status, _error = validate_credentials("tok", "us", endpoint=endpoint)
 
-        assert len(_calls_to(network.requests_log, "/v3/users")) == 1
+        assert ok is True
+        today = datetime.now(UTC).date().isoformat()
+        expected_params = (
+            {"startDate": today, "endDate": today, "pageNumber": "1", "pageSize": "1"} if needs_window_params else {}
+        )
+        assert [_params(probe) for probe in _calls_to(network.requests_log, path)] == [expected_params]
 
     def test_team_scoped_schema_probes_teams(self) -> None:
         def handler(request: RecordedRequest) -> ScriptedResponse:

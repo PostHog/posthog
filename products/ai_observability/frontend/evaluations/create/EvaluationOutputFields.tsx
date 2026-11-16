@@ -139,7 +139,7 @@ export function EvaluationOutputFields(): JSX.Element | null {
                     data-attr="llma-evaluation-create-allows-na"
                 />
                 <span className="text-xs text-secondary pl-6">
-                    Runs it can't judge then count as neither a pass nor a fail.
+                    Runs where the check doesn't apply count as neither a pass nor a fail.
                 </span>
             </div>
             <div className="grid grid-cols-1 items-start gap-4 border-t pt-6 @min-[40rem]/evaluation:grid-cols-2">
@@ -154,8 +154,8 @@ export function EvaluationOutputFields(): JSX.Element | null {
                             )}
                         </h4>
                         <p className="mb-0 text-xs text-secondary">
-                            Choose which results pass. The results page charts the share of runs that pass, and reports
-                            tell you when it changes.
+                            The share of runs that pass. The results page charts it, and reports tell you when it
+                            changes.
                         </p>
                     </div>
                     {outputType === 'boolean' && (

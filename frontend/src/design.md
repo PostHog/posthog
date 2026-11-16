@@ -61,7 +61,7 @@ Compose from the listed parts only. Part names are shown without their prefix (e
 - Dialog (Trigger, Content, Header, Title, Description, Body, Footer, Close, Overlay, Portal)
 - Dot
 - Drawer (Trigger, Content, Header, Title, Description, Footer, Close, Handle, Backdrop, Portal)
-- DropdownMenu (Trigger, Content, Item, CheckboxItem, RadioGroup, RadioItem, SelectAll, Label, Separator, Shortcut, Group, Sub, SubTrigger, SubContent, Portal; useDropdownMenuSelectAll)
+- DropdownMenu (Trigger, Content, Item, CheckboxItem, RadioGroup, RadioItem, SelectAll, Label, Separator, Shortcut, Group, Sub, SubTrigger, SubContent, Portal, FilterProvider, Input, Empty, List; useDropdownMenuSelectAll)
 - Empty (Header, Media, Title, Description, Content)
 - IconStack (Item)
 - Field (Label, Description, Error, Group, Set, Legend, Separator, Content, Title)
@@ -111,7 +111,7 @@ Compose from the listed parts only. Part names are shown without their prefix (e
 
 ### Components (`@posthog/quill`)
 
-- DataTable
+- DataTable (`selectable` for the checkbox variant)
 - DatePicker, DateTimePicker (quickRanges, CUSTOM_RANGE)
 - useCalendar
 - Metric → import from `@posthog/quill-components/metric` only (pulls in charts)
@@ -198,6 +198,7 @@ Use via Tailwind utilities (`bg-primary text-primary-foreground`, `border-border
   - Combobox: one or many values from a long or async list, filterable; multi-select shows chips; no free text
   - Actions in a Combobox (settings, "New …") are list items, never footer buttons. See section 8
   - Autocomplete: free text with optional suggestions; search, command pickers
+  - Filterable DropdownMenu (`DropdownMenuFilterProvider`, `DropdownMenuInput`, `DropdownMenuEmpty`, `DropdownMenuList`): search the rows of a menu or submenu that is already open, such as a list's filter menu. Use Combobox instead when the control is a field that holds a value, needs chips, or lists more than about 1,000 options, because a filterable menu keeps every row mounted
 - Picking an action:
   - DropdownMenu: click-triggered list of actions
   - ContextMenu: right-click only; never the only path to an action
@@ -232,6 +233,7 @@ Use via Tailwind utilities (`bg-primary text-primary-foreground`, `border-border
   - Cards may contain an `ItemGroup`; never nest cards; never wrap a whole page section in a card
 - Table vs Item list:
   - Table: rows share columns users compare, sort, or scan vertically (DataTable when sorting/filtering/selection is needed)
+  - Rows the user picks for a bulk action: `DataTable` with `selectable`, never a checkbox column built by hand. It adds the header checkbox and shift-click range selection. Pass `getRowId`, `rowSelection` and `onRowSelectionChange`, keep the selection in the list's logic, and clear it when the filters change.
   - A link in a table cell is a small link Button, never a bare Link: `<Button variant="link-foreground" size="sm" nativeButton={false} render={<LinkPrimitive to={url} />}>`. It keeps the foreground color and, on hover, shows the normal button fill, because a whole column of `primary` links is too loud. Use `link-muted` for a secondary link. The table keeps its text in line with the column header. See the Table `WithLinks` story
   - Item rows: heterogeneous entries (primary/secondary text + actions)
 - Overlays:
@@ -269,6 +271,7 @@ Use via Tailwind utilities (`bg-primary text-primary-foreground`, `border-border
 - Scrolling:
   - Default: a plain scroller with an edge fade, `overflow-y-auto scroll-mask-y-4 scroll-py-4`. This is the pattern quill's menus, Select and Combobox use. The fade is CSS only, while `ScrollArea` runs JavaScript and React state updates on every scroll
   - `scroll-py-4` keeps a keyboard-focused row clear of the fade. The mask fades the content itself, so keep sticky headers and other fixed controls outside the scroller
+  - The mask also fades the scroller's own scrollbar. When the scrollbar shows, use quill's `quill-scroll-fade` class instead: sticky gradients inside the content box, with `--quill-scroll-fade-top-offset` to keep a sticky header solid
   - Use `ScrollArea` only when you need what it adds: custom, always-visible or hidden scrollbars (`alwaysShowScrollbars`, `hideScrollbars`), scroll-to-edge buttons (`showScrollToButton`), or a dialog body (`DialogBody` renders one by default)
   - The fade needs scroll-driven animations (Chrome, Edge, Safari 26 and later). Firefox and reduced-motion users get no fade, and the content still scrolls normally
   - The web app's Tailwind build loads `tailwindcss-scroll-mask` (`common/tailwind/tailwind.css`), so every `scroll-mask-*` utility works in app code
@@ -336,6 +339,7 @@ Use via Tailwind utilities (`bg-primary text-primary-foreground`, `border-border
 - A short quill branch stays inline. A longer one, or one that needs its own hooks, goes in a `Quill<Name>.tsx` file next to the Lemon component
 - Behavior is shared, never copied. A handler, dialog or menu item list that both branches need lives in one function or kea action that both call. Only the view forks
 - A shared Lemon component gets a `Quill<Name>.tsx` sibling, and returns it after its last hook when the flag is on. Flags load after the first render, so a return before a hook changes the hook order and crashes. If the component also renders on surfaces outside the migration, leave it alone and let the migrated caller pick the quill sibling
+- When the shared component sits too many shared layers below the caller to pick, the migrated area can wrap itself in `QuillSurfaceContext.Provider` instead. Components inside a provider read `useQuillSurface()`, not the flag. Only add a provider where a caller cannot pick
 - Keep every `data-attr`, handler and string. `data-attr` values are frozen
 - A product that imports quill declares `"@posthog/quill": "workspace:*"` in its `package.json`, or Vite cannot resolve it
 - Lemon to quill mapping:
@@ -357,6 +361,8 @@ Use via Tailwind utilities (`bg-primary text-primary-foreground`, `border-border
   | `LemonTag`                             | `Badge`                                                                                                      |
   | `LemonSelect`                          | `Select`                                                                                                     |
   | `LemonSegmentedButton`                 | `ToggleGroup`                                                                                                |
+  | `LemonTable`                           | `DataTable`                                                                                                  |
+  | `LemonTable bulkSelection`             | `DataTable selectable`, with `getRowId`, `rowSelection` and `onRowSelectionChange`; shift-click still works  |
   | `AccessControlAction`, `Shortcut`      | keep the wrapper around the quill `Button`, menu item, `Checkbox` or `Switch`; it passes `disabledReason` in |
 
 ### PostHog Desktop

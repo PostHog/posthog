@@ -13,6 +13,7 @@ from products.slack_app.backend.logic.onboarding.step import (
     OnboardingStepKey,
     StepClick,
 )
+from products.slack_app.backend.logic.onboarding.work_focus import start_work_focus
 from products.slack_app.backend.services.slack_messages import section_block
 from products.slack_app.backend.services.slack_welcome_messages import AI_DATA_PROCESSING_TEXT
 
@@ -55,4 +56,6 @@ class AiConsentStep(OnboardingStep):
             return StepClick(message="Only an organization admin can allow AI data processing.", refresh=False)
         approve_ai_data_processing_for_team(ctx.integration.team_id)
         self.record_completed(ctx)
+        # The work focus waits for consent, so the person who allowed it gets theirs now.
+        start_work_focus(ctx.integration, ctx.slack_user_id)
         return StepClick()

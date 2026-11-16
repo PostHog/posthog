@@ -19,15 +19,10 @@ from rest_framework.test import APIClient
 from social_django.models import UserSocialAuth
 
 from posthog.models import Organization, Team, User
+from posthog.models.integration import GitHubIntegration
 from posthog.models.organization import OrganizationMembership
 
-from products.signals.backend.artefact_schemas import (
-    AutostartSkip,
-    Priority,
-    PriorityAssessment,
-    SuggestedReviewers,
-    TaskRunArtefact,
-)
+from products.signals.backend.artefact_schemas import AutostartSkip, SuggestedReviewers, TaskRunArtefact
 from products.signals.backend.auto_start import _evaluate_link_gates, maybe_autostart_from_report_artefacts
 from products.signals.backend.models import (
     MAX_SCOUT_CONTENT_REVISIONS,
@@ -57,7 +52,6 @@ from products.signals.backend.scout_harness.tools.report import (
     _extract_linked_repository,
     _report_classification_props,
     _resolve_report_repository,
-    _wants_repo_selection,
     edit_report_sync,
 )
 from products.signals.backend.scout_harness.tools.report_author import USER_REPORT_DAILY_LIMIT, ScoutRunReportAuthor
@@ -86,6 +80,8 @@ SET_REPOSITORY_PATH = "products.signals.backend.scout_harness.tools.report.set_s
 REVISION_COUNT_PATH = "products.signals.backend.scout_harness.tools.report.get_content_revision_count"
 REFUSAL_COUNTER_PATH = "products.signals.backend.scout_report.judge.increment_scout_report_safety_refusal"
 _CONNECTED_REPOS = ["acme/widgets", "acme/gadgets"]
+_MERGED_PR = {"state": "closed", "merged": True, "merged_at": "2026-01-15T10:00:00Z"}
+_DRAFT_PR = {"state": "open", "draft": True}
 REPORT_TOOLS = ["emit_report", "edit_report"]
 
 
@@ -521,6 +517,43 @@ class TestScoutReportAPI(APIBaseTest):
         run.refresh_from_db()
         assert run.edited_report_ids == [created["report_id"]]
 
+    def test_emit_and_edit_repair_over_escaped_summary_and_return_hints(self) -> None:
+        run = _make_run(self.team)
+        with _safe_judge(), patch(EMBED_PATH), patch(CAPTURE_PATH) as capture:
+            emitted = self.client.post(
+                self._emit_url(str(run.id)),
+                data=self._payload(
+                    title="fix(checkout): p99 regressed", summary="## Problem\\n\\nThe \\`/checkout\\` p99 doubled."
+                ),
+                format="json",
+            ).json()
+            report = SignalReport.objects.get(id=emitted["report_id"])
+            assert report.summary == "## Problem\n\nThe `/checkout` p99 doubled."
+            assert [(h["check_id"], h["severity"]) for h in emitted["quality_hints"]] == [
+                ("literal_newline_escapes", "repair"),
+                ("escaped_backticks", "repair"),
+                ("pr_style_title", "hint"),
+            ]
+            edited = self.client.post(
+                self._edit_url(str(run.id)),
+                data={"report_id": emitted["report_id"], "summary": "Line one\\nLine two"},
+                format="json",
+            ).json()
+        report.refresh_from_db()
+        assert report.summary == "Line one\nLine two"
+        assert [h["check_id"] for h in edited["quality_hints"]] == ["literal_newline_escapes"]
+        hint_events = [
+            c.kwargs["properties"]
+            for c in capture.call_args_list
+            if c.kwargs["event"] == "signals_scout_report_quality_hint"
+        ]
+        assert [(e["tool"], e["check_id"], e["skill_name"]) for e in hint_events] == [
+            ("emit_report", "literal_newline_escapes", run.skill_name),
+            ("emit_report", "escaped_backticks", run.skill_name),
+            ("emit_report", "pr_style_title", run.skill_name),
+            ("edit_report", "literal_newline_escapes", run.skill_name),
+        ]
+
     def test_edit_report_writes_typed_links_and_rejects_a_cycle(self) -> None:
         # A scout that splits one finding into a stack has to be able to record the order, and the
         # cycle guard has to hold on this path too, not only on the REST action.
@@ -638,12 +671,12 @@ class TestScoutReportAPI(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("ready", "immediately_actionable", True),
-            ("pending input", "requires_human_input", False),
+            ("ready", "immediately_actionable"),
+            ("pending input", "requires_human_input"),
         ]
     )
-    def test_source_issues_are_recorded_once_and_start_the_writeback_for_a_ready_report(
-        self, _name: str, actionability: str, writes_back: bool
+    def test_source_issues_are_recorded_once_and_start_the_writeback_for_a_visible_report(
+        self, _name: str, actionability: str
     ) -> None:
         run = _make_run(self.team)
         issue_42 = "https://github.com/Acme/Widgets/issues/42"
@@ -661,7 +694,7 @@ class TestScoutReportAPI(APIBaseTest):
                 )
             assert created.status_code == status.HTTP_200_OK, created.json()
             report_id = created.json()["report_id"]
-            assert writeback.delay.call_count == (1 if writes_back else 0)
+            assert writeback.delay.call_count == 1
 
             # Naming the held issue again writes nothing and comments on nothing; only #43 is new.
             with self.captureOnCommitCallbacks(execute=True):
@@ -672,7 +705,7 @@ class TestScoutReportAPI(APIBaseTest):
                 )
             assert edited.status_code == status.HTTP_200_OK, edited.json()
             assert edited.json()["source_issues_appended"] == 1
-            assert writeback.delay.call_count == (2 if writes_back else 0)
+            assert writeback.delay.call_count == 2
 
         stored = SignalReportArtefact.objects.filter(
             report_id=report_id, type=SignalReportArtefact.ArtefactType.SOURCE_ISSUE
@@ -681,6 +714,236 @@ class TestScoutReportAPI(APIBaseTest):
             "https://github.com/acme/widgets/issues/42",
             "https://github.com/acme/widgets/issues/43",
         ]
+
+    def test_source_issue_authors_who_are_organization_members_become_reviewers(self) -> None:
+        run = _make_run(self.team)
+        members: dict[str, User] = {}
+        for login, github_id in (
+            ("filer", 1001),
+            ("second-filer", 1002),
+            ("given-up-login", 1003),
+            ("researcher", 1004),
+        ):
+            members[login] = User.objects.create(email=f"{login}@example.com")
+            OrganizationMembership.objects.create(user=members[login], organization=self.organization)
+            UserSocialAuth.objects.create(
+                user=members[login], provider="github", uid=str(github_id), extra_data={"login": login}
+            )
+        authors = {
+            42: {"login": "Filer", "id": 1001, "type": "User"},
+            43: {"login": "outside-reporter", "id": 2001, "type": "User"},
+            44: {"login": "dependabot[bot]", "id": 2002, "type": "Bot"},
+            # Another account registered the login a member gave up.
+            45: {"login": "given-up-login", "id": 2003, "type": "User"},
+            46: {"login": "second-filer", "id": 1002, "type": "User"},
+        }
+
+        def read_issue(_method: str, path: str, **_kwargs) -> MagicMock:
+            number = int(path.rsplit("/", 1)[1])
+            response = MagicMock()
+            response.json.return_value = {"number": number, "state": "open", "user": authors[number]}
+            return response
+
+        github = MagicMock()
+        github.api_request.side_effect = read_issue
+        issue = "https://github.com/acme/widgets/issues/{}".format
+        with (
+            _safe_judge(),
+            patch(EMBED_PATH),
+            patch(AUTOSTART_PATH, new=AsyncMock()),
+            patch("products.signals.backend.github_writeback_tasks.post_source_issue_links"),
+            patch.object(GitHubIntegration, "first_for_team_repository", return_value=github),
+        ):
+            created = self.client.post(
+                self._emit_url(str(run.id)),
+                data=self._payload(source_issues=[{"url": issue(number)} for number in (42, 43, 44, 45)]),
+                format="json",
+            )
+            assert created.status_code == status.HTTP_200_OK, created.json()
+            report_id = created.json()["report_id"]
+            assert self._reviewer_logins(report_id) == ["filer"]
+
+            SignalReportArtefact.append_status(
+                team_id=self.team.id,
+                report_id=report_id,
+                content=SuggestedReviewers.model_validate(
+                    [
+                        {"github_login": "filer", "user_uuid": str(members["filer"].uuid)},
+                        {"github_login": None, "user_uuid": str(self.user.uuid), "is_default_owner": True},
+                        {
+                            "github_login": "researcher",
+                            "user_uuid": str(members["researcher"].uuid),
+                            "is_research_selected": True,
+                        },
+                    ]
+                ),
+                attribution=ArtefactAttribution.system(),
+                reevaluate_autostart=False,
+            )
+            # An edit that sets no reviewers adds the new issue's author to the list the report holds.
+            for _ in range(2):
+                edited = self.client.post(
+                    self._edit_url(str(run.id)),
+                    data={"report_id": report_id, "source_issues": [{"url": issue(42)}, {"url": issue(46)}]},
+                    format="json",
+                )
+                assert edited.status_code == status.HTTP_200_OK, edited.json()
+
+        artefact = self._latest_artefact(report_id, SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS)
+        assert artefact is not None
+        assert [
+            (entry["user_uuid"], entry["is_default_owner"], entry["is_research_selected"])
+            for entry in json.loads(artefact.content)
+        ] == [
+            (str(members["filer"].uuid), False, False),
+            (str(self.user.uuid), True, False),
+            (str(members["researcher"].uuid), False, True),
+            (str(members["second-filer"].uuid), False, False),
+        ]
+        # The retried edit names only issues the report holds, so it reads nothing from GitHub.
+        assert github.api_request.call_count == 5
+
+    @parameterized.expand(
+        [
+            ("merged", [_MERGED_PR], "resolved"),
+            ("draft", [_DRAFT_PR, _DRAFT_PR], "ready"),
+            # The pull request merges between the edit's lookup and its commit, so its webhook found no link.
+            ("merged after the lookup", [_DRAFT_PR, _MERGED_PR], "resolved"),
+        ]
+    )
+    def test_edit_report_links_an_existing_pull_request_without_touching_it(
+        self, _name: str, pr_reads: list[dict], expected_status: str
+    ) -> None:
+        run = _make_run(self.team)
+        pr_url = "https://github.com/acme/widgets/pull/7"
+        github = MagicMock()
+        github.get_pull_request.side_effect = [{"success": True, "url": pr_url, **read} for read in pr_reads]
+        with (
+            _safe_judge(),
+            patch(EMBED_PATH),
+            patch.object(GitHubIntegration, "first_for_team_repository", return_value=github),
+            patch("products.signals.backend.tasks.label_implementation_pr.delay") as label,
+            patch("products.signals.backend.tasks.open_implementation_pr_for_review.delay") as ready_for_review,
+            patch("products.signals.backend.tasks.assign_reviewers_on_implementation_pr.delay") as assign_reviewers,
+        ):
+            created = self.client.post(
+                self._emit_url(str(run.id)), data=self._payload(already_addressed=True), format="json"
+            )
+            assert created.status_code == status.HTTP_200_OK, created.json()
+            report_id = created.json()["report_id"]
+
+            # The second call repeats the pull request under another URL form, as a retried edit would.
+            for pull_requests, linked in (([pr_url, f"{pr_url}/files"], 1), ([pr_url], 0)):
+                with self.captureOnCommitCallbacks(execute=True):
+                    edited = self.client.post(
+                        self._edit_url(str(run.id)),
+                        data={"report_id": report_id, "repository": "acme/widgets", "pull_requests": pull_requests},
+                        format="json",
+                    )
+                assert edited.status_code == status.HTTP_200_OK, edited.json()
+                assert edited.json()["pull_requests_linked"] == linked
+
+        assert [read.args for read in github.get_pull_request.call_args_list] == [("acme/widgets", 7)] * len(pr_reads)
+        label.assert_not_called()
+        ready_for_review.assert_not_called()
+        assign_reviewers.assert_not_called()
+        report = SignalReport.objects.get(id=report_id)
+        assert report.status == expected_status
+        links = SignalReportArtefact.objects.filter(report_id=report_id, pull_request__isnull=False)
+        assert list(links.values_list("pull_request__number", "claim_id", "actor_kind")) == [(7, None, "agent")]
+        assert not links.filter(task__isnull=False).exists()
+
+    @parameterized.expand(
+        [
+            ("another repository", "https://github.com/acme/gadgets/pull/7", {"success": True, "state": "open"}, True),
+            ("unreadable on GitHub", "https://github.com/acme/widgets/pull/7", {"success": False}, True),
+            (
+                "closed without merging",
+                "https://github.com/acme/widgets/pull/7",
+                {"success": True, "state": "closed"},
+                True,
+            ),
+            (
+                "inferred repository",
+                "https://github.com/acme/widgets/pull/7",
+                {"success": True, "state": "open"},
+                False,
+            ),
+        ]
+    )
+    def test_edit_report_refuses_a_pull_request_that_cannot_settle_the_report(
+        self, _name: str, pr_url: str, github_pr: dict, names_repository: bool
+    ) -> None:
+        run = _make_run(self.team)
+        github = MagicMock()
+        github.get_pull_request.return_value = {"url": pr_url, **github_pr}
+        with (
+            _safe_judge(),
+            patch(EMBED_PATH),
+            patch.object(GitHubIntegration, "first_for_team_repository", return_value=github),
+        ):
+            created = self.client.post(
+                self._emit_url(str(run.id)), data=self._payload(already_addressed=True), format="json"
+            )
+            assert created.status_code == status.HTTP_200_OK, created.json()
+            report_id = created.json()["report_id"]
+            SignalReportArtefact.append_status(
+                team_id=self.team.id,
+                report_id=report_id,
+                content=RepoSelectionResult(
+                    repository="acme/widgets", reason="Read from the report text.", autostart_eligible=False
+                ),
+                attribution=ArtefactAttribution.system(),
+                reevaluate_autostart=False,
+            )
+            edit: dict = {"report_id": report_id, "pull_requests": [pr_url]}
+            if names_repository:
+                edit["repository"] = "acme/widgets"
+            edited = self.client.post(self._edit_url(str(run.id)), data=edit, format="json")
+
+        assert edited.status_code == status.HTTP_400_BAD_REQUEST, edited.json()
+        assert not SignalReportArtefact.objects.filter(report_id=report_id, pull_request__isnull=False).exists()
+
+    def test_edit_report_refuses_a_pull_request_when_the_report_is_repointed_during_the_lookup(self) -> None:
+        run = _make_run(self.team)
+        pr_url = "https://github.com/acme/widgets/pull/7"
+
+        def repoint_then_read(repository: str, number: int) -> dict:
+            SignalReportArtefact.append_status(
+                team_id=self.team.id,
+                report_id=report_id,
+                content=RepoSelectionResult(repository="acme/gadgets", reason="Another edit repointed it."),
+                attribution=ArtefactAttribution.system(),
+                reevaluate_autostart=False,
+            )
+            return {"success": True, "url": pr_url, **_MERGED_PR}
+
+        github = MagicMock()
+        github.get_pull_request.side_effect = repoint_then_read
+        with (
+            _safe_judge(),
+            patch(EMBED_PATH),
+            patch.object(GitHubIntegration, "first_for_team_repository", return_value=github),
+        ):
+            created = self.client.post(
+                self._emit_url(str(run.id)), data=self._payload(already_addressed=True), format="json"
+            )
+            assert created.status_code == status.HTTP_200_OK, created.json()
+            report_id = created.json()["report_id"]
+            SignalReportArtefact.append_status(
+                team_id=self.team.id,
+                report_id=report_id,
+                content=RepoSelectionResult(repository="acme/widgets", reason="Named by a scout."),
+                attribution=ArtefactAttribution.system(),
+                reevaluate_autostart=False,
+            )
+            edited = self.client.post(
+                self._edit_url(str(run.id)), data={"report_id": report_id, "pull_requests": [pr_url]}, format="json"
+            )
+
+        assert edited.status_code == status.HTTP_400_BAD_REQUEST, edited.json()
+        assert not SignalReportArtefact.objects.filter(report_id=report_id, pull_request__isnull=False).exists()
+        assert SignalReport.objects.get(id=report_id).status != "resolved"
 
     @parameterized.expand(
         [
@@ -1547,9 +1810,25 @@ class TestScoutReportAPI(APIBaseTest):
         assert artefact is not None
         assert json.loads(artefact.content)["repository"] == expected
 
+    def test_emit_with_pr_intent_and_no_repository_keeps_the_linked_target_manual_only(self) -> None:
+        run = _make_run(self.team)
+        payload = self._payload(
+            summary="Traced to https://github.com/acme/widgets/pull/7",
+            priority="P1",
+            priority_explanation="Checkout is broken for every user.",
+            suggested_reviewers=[{"github_login": "octocat", "reason": "Owns checkout"}],
+        )
+        with _safe_judge(), patch(EMBED_PATH), patch(CONNECTED_REPOS_PATH, return_value=_CONNECTED_REPOS):
+            response = self.client.post(self._emit_url(str(run.id)), data=payload, format="json")
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        artefact = self._latest_artefact(response.json()["report_id"], SignalReportArtefact.ArtefactType.REPO_SELECTION)
+        assert artefact is not None
+        content = json.loads(artefact.content)
+        assert (content["repository"], content["autostart_eligible"]) == ("acme/widgets", False)
+
     def test_combined_rewrite_and_reviewer_edit_autostarts_on_the_refreshed_repository(self) -> None:
-        # One edit can both move the report onto a new repository and add the reviewer that lets an
-        # inferred target autostart. Autostart reads the selection as it stands and is idempotent, so
+        # One edit can both move the report onto a new repository and add a reviewer, which re-runs
+        # autostart. Autostart reads the selection as it stands and is idempotent, so
         # refreshing after it would open the implementation task against the repository the same edit
         # just replaced, with no second chance to correct it.
         run = _make_run(self.team)
@@ -3007,38 +3286,6 @@ class TestBuildSuggestedReviewers(APIBaseTest):
         ]
 
 
-_P1 = PriorityAssessment(priority=Priority.P1, explanation="big blast radius")
-_PICKED_REVIEWER = SuggestedReviewers.model_validate([{"github_login": "picked"}])
-# An owner-flagged reviewer only exists because the scout picked an owner, so it carries PR intent
-# like any other pick — `is_skill_owner` governs autostart identity, not intent.
-_OWNER_FLAGGED_REVIEWER = SuggestedReviewers.model_validate([{"github_login": "owner", "is_skill_owner": True}])
-
-
-class TestWantsRepoSelection(SimpleTestCase):
-    """The PR-intent gate for repo selection. The load-bearing case: an owner-flagged reviewer is a
-    scout pick (nothing is injected), so it counts as intent — re-excluding it would skip repo
-    selection for a prioritized report whose scout deliberately routed to an owner."""
-
-    @parameterized.expand(
-        [
-            ("picked_reviewer_with_priority_is_pr_intent", None, _P1, _PICKED_REVIEWER, True),
-            ("owner_flagged_reviewer_with_priority_is_pr_intent", None, _P1, _OWNER_FLAGGED_REVIEWER, True),
-            ("reviewer_without_priority_is_not_pr_intent", None, None, _PICKED_REVIEWER, False),
-            ("explicit_repository_always_selects", "posthog/posthog", None, None, True),
-            ("priority_without_reviewers_is_not_pr_intent", None, _P1, None, False),
-        ]
-    )
-    def test_wants_repo_selection(
-        self,
-        _name: str,
-        repository: str | None,
-        priority: PriorityAssessment | None,
-        reviewers: SuggestedReviewers | None,
-        expected: bool,
-    ) -> None:
-        assert _wants_repo_selection(repository, priority, reviewers) is expected
-
-
 def _evidence(*descriptions: str) -> list[ReportEvidence]:
     return [ReportEvidence(description=d, source_id=f"s{i}") for i, d in enumerate(descriptions)]
 
@@ -3084,19 +3331,18 @@ class TestExtractLinkedRepository(SimpleTestCase):
         assert _extract_linked_repository("", "https://github.com/acme/widgets", _evidence(), []) is None
 
 
-class TestResolveReportRepositoryGateSkipped(SimpleTestCase):
+class TestResolveOmittedReportRepository(SimpleTestCase):
     def _resolve(self, summary: str) -> RepoSelectionResult | None:
         with patch(
             "products.signals.backend.scout_harness.tools.report._connected_repositories",
             return_value=_CONNECTED_REPOS,
         ):
-            return async_to_sync(_resolve_report_repository)(
+            return _resolve_report_repository(
                 team_id=1,
                 repository=None,
                 title="Crash on upload",
                 summary=summary,
                 evidence=_evidence(),
-                wants_full_selection=False,
             )
 
     def test_linked_repo_seeds_a_manual_only_target(self) -> None:

@@ -45,6 +45,15 @@ def post_slack_app_onboarding_message_activity(inputs: SlackAppOnboardingMessage
 
 
 @activity.defn
+def remind_slack_app_onboarding_activity(inputs: SlackAppOnboardingInputs) -> None:
+    from products.slack_app.backend.logic.onboarding.card import remind_onboarding
+
+    integration = _integration(inputs)
+    if integration is not None:
+        remind_onboarding(integration, inputs.slack_user_id)
+
+
+@activity.defn
 def edit_slack_app_onboarding_message_activity(inputs: SlackAppOnboardingMessageInputs) -> None:
     from products.slack_app.backend.logic.onboarding.card import edit_onboarding_message
 

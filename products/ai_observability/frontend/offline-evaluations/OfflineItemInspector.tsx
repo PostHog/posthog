@@ -26,10 +26,10 @@ export function OfflineItemInspector({
 }): JSX.Element {
     const logic = offlineItemInspectorLogic(props)
     const drawerLogic = traceDrawerLogic({ listId: 'offline-experiment' })
-    const { isEnabled, openTraceId } = useValues(drawerLogic)
+    const { openTraceId } = useValues(drawerLogic)
     const { openRow } = useActions(drawerLogic)
     const openTrace = (event: MouseEvent<HTMLElement>, traceId: string): void => {
-        if (isEnabled && opensTraceDrawer(event, 'a', false)) {
+        if (opensTraceDrawer(event, 'a', false)) {
             event.preventDefault()
             openRow({ traceId, timestamp: null, stepId: null })
         }
@@ -63,7 +63,7 @@ export function OfflineItemInspector({
         loadOfflineResultPayload,
     } = useActions(logic)
     return (
-        <LemonModal isOpen={!isEnabled || !openTraceId} onClose={onClose} width="64rem" simple>
+        <LemonModal isOpen={!openTraceId} onClose={onClose} width="64rem" simple>
             <LemonModalHeader>
                 <h3 className="break-words pr-8">
                     {item?.case_key || item?.dataset_item_identifier || 'Experiment item'}
@@ -154,6 +154,28 @@ export function OfflineItemInspector({
                                             )}
                                             {selectedResult.error_code && (
                                                 <LemonBanner type="warning">{`Evaluator error: ${selectedResult.error_code}`}</LemonBanner>
+                                            )}
+                                            {selectedResult.scorer.composition && (
+                                                <details className="text-xs border-t pt-3">
+                                                    <summary className="cursor-pointer font-medium">
+                                                        Composite calculation
+                                                    </summary>
+                                                    <code className="block mt-2 break-words">
+                                                        {selectedResult.scorer.composition.expression}
+                                                    </code>
+                                                    <ul className="mt-2 space-y-1">
+                                                        {selectedResult.scorer.composition.inputs.map(
+                                                            (input, index) => (
+                                                                <li key={input.alias} className="break-all">
+                                                                    <span>{`${input.alias}: scorer version ${input.scorer_version_id}`}</span>
+                                                                    {selectedResult.input_result_ids?.[index] && (
+                                                                        <span className="block text-muted">{`Input result ${selectedResult.input_result_ids[index]}`}</span>
+                                                                    )}
+                                                                </li>
+                                                            )
+                                                        )}
+                                                    </ul>
+                                                </details>
                                             )}
                                             <details className="text-xs border-t pt-3">
                                                 <summary className="cursor-pointer font-medium">

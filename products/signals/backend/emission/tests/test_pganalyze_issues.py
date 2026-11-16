@@ -2,7 +2,7 @@ from datetime import timedelta
 from typing import Any
 
 import pytest
-from posthog.test.base import BaseTest, ClickhouseTestMixin
+from posthog.test.base import ClickhouseTestMixin, NonAtomicBaseTest
 from unittest.mock import AsyncMock, patch
 
 from django.utils import timezone
@@ -152,8 +152,9 @@ class IssuesTable:
         return execute_hogql_query(query=query, **kwargs)
 
 
-@pytest.mark.django_db
-class TestPgAnalyzeIssueRecordFetcher(ClickhouseTestMixin, BaseTest):
+@pytest.mark.django_db(transaction=True)
+class TestPgAnalyzeIssueRecordFetcher(ClickhouseTestMixin, NonAtomicBaseTest):
+    CLASS_DATA_LEVEL_SETUP = False
     context: dict[str, str | None] = {"table_name": "pganalyze.issues", "last_synced_at": "2026-04-20T06:00:00+00:00"}
 
     def _fetch(self, table: IssuesTable, max_records: int = 200) -> list[dict[str, Any]]:
@@ -255,7 +256,12 @@ class TestPgAnalyzeIssueRecordFetcher(ClickhouseTestMixin, BaseTest):
 
         table = IssuesTable(["issue_1"])
         records = self._fetch(table)
-        with patch("products.signals.backend.emission.pipeline.build_async_anthropic_client") as client:
+        with (
+            patch("products.signals.backend.emission.pipeline.build_async_anthropic_client") as client,
+            patch("products.signals.backend.llm_spend.TrialLLMExecution.prepare", return_value=None),
+            patch("products.signals.backend.emission.pipeline.requires_trial_accounting", return_value=False),
+            patch("products.signals.backend.llm_spend.record_llm_spend"),
+        ):
             client.return_value.messages.create = AsyncMock(return_value=_make_llm_response("NOT_ACTIONABLE"))
             result = async_to_sync(run_signal_pipeline)(
                 team=self.team, config=PGANALYZE_ISSUES_CONFIG, records=records, extra={}
