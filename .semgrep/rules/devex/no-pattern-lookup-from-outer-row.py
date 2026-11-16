@@ -225,3 +225,12 @@ FileSystem.objects.annotate(info=JSONObject(has_child=Exists(Task.objects.filter
 
 # ruleid: no-pattern-lookup-from-outer-row
 Task.objects.filter(path__startswith=Cast(JSONArray(OuterRef("path")), TextField()))
+
+# ok: no-pattern-lookup-from-outer-row
+Task.objects.filter(**{"state__verified_urls__contains": JSONArray(OuterRef("url"))})
+
+# ok: no-pattern-lookup-from-outer-row
+Task.objects.filter(**{"state__contains": JSONObject(url=OuterRef("url"))})
+
+# ok: no-pattern-lookup-from-outer-row
+Task.objects.filter(Contains(F("state"), JSONObject(url=OuterRef("url"))))
