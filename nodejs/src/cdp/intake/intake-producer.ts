@@ -47,7 +47,12 @@ export const intakeModeOf = (
     return (teamId) => (isAsync(teamId) ? 'async' : isShadow(teamId) ? 'shadow' : 'off')
 }
 
-export type IntakeRun = { kind: RunKind; invocation: CyclotronJobInvocation; fingerprint?: string }
+export type IntakeRun = {
+    kind: RunKind
+    invocation: CyclotronJobInvocation
+    fingerprint?: string
+    reply?: Record<string, unknown>
+}
 
 export class IntakeProducer {
     constructor(
@@ -55,10 +60,14 @@ export class IntakeProducer {
         private ackDeadlineMs: number = INTAKE_ACK_DEADLINE_MS
     ) {}
 
-    async produce({ kind, invocation, fingerprint }: IntakeRun, mode: IntakeMode): Promise<IntakeProduceOutcome> {
+    async produce(
+        { kind, invocation, fingerprint, reply }: IntakeRun,
+        mode: IntakeMode
+    ): Promise<IntakeProduceOutcome> {
         const encoded = encodeIntakeMessage({
             kind,
             fingerprint,
+            reply,
             shadow: mode === 'shadow',
             job: { ...encodeJob(invocation), id: invocation.id },
         })

@@ -80,7 +80,14 @@ describe('insertIntakeBatch', () => {
         }) as Message
 
     const send = (
-        overrides: { id?: string; fingerprint?: string; to?: string; shadow?: boolean; producedAt?: number } = {}
+        overrides: {
+            id?: string
+            fingerprint?: string
+            reply?: Record<string, unknown>
+            to?: string
+            shadow?: boolean
+            producedAt?: number
+        } = {}
     ): { id: string; message: Message } => {
         const id = overrides.id ?? new UUIDT().toString()
         const state = {
@@ -97,6 +104,7 @@ describe('insertIntakeBatch', () => {
         const encoded = encodeIntakeMessage({
             kind: 'transactional-email',
             fingerprint: overrides.fingerprint ?? 'fingerprint-a',
+            reply: overrides.reply,
             shadow: overrides.shadow,
             job: {
                 id,
@@ -186,6 +194,15 @@ describe('insertIntakeBatch', () => {
         expect(emailStatuses()).toEqual([
             expect.objectContaining({ message_id: id, status: 'queued', created_at: '2026-11-12 10:00:00.000000' }),
         ])
+    })
+
+    it("keeps a keyed send's reply on its claim, so a retry replays its attachment totals", async () => {
+        const reply = { replayFields: { attachment_count: 2, attachment_bytes: 2048 } }
+        const run = send({ reply })
+
+        await insertIntakeBatch([run.message], services, OPTIONS)
+
+        expect(await manager.findIdempotencyKey(run.id)).toEqual({ fingerprint: 'fingerprint-a', reply })
     })
 
     it('writes nothing again when Kafka redelivers a batch that committed', async () => {

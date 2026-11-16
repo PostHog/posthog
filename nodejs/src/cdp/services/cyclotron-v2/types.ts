@@ -51,7 +51,10 @@ export type CyclotronV2JobInit = z.infer<typeof CyclotronV2JobInitSchema>
 export type CyclotronV2IdempotentJobInit = {
     job: CyclotronV2JobInit & { id: string }
     fingerprint: string
+    reply?: Record<string, unknown>
 }
+
+export type CyclotronV2IdempotencyKey = { fingerprint: string; reply: Record<string, unknown> | null }
 
 export type CyclotronV2IdempotentOutcome = 'created' | 'replayed' | 'mismatch'
 

@@ -9,7 +9,7 @@ from unittest.mock import MagicMock, patch
 
 import httpx
 from anthropic import APIConnectionError, APIStatusError, InternalServerError, RateLimitError
-from anthropic.types import ToolUseBlock, Usage
+from anthropic.types import TextBlock, ThinkingBlock, Usage
 from parameterized import parameterized
 
 from products.ai_observability.backend.logic.eval_suggestions import call_review
@@ -89,6 +89,27 @@ SYSTEM = {"role": "system", "content": "Answer refund questions. Never promise a
             '{"status": "sent", "eta_days": 5}',
         ),
         (
+            "structured_output_with_a_content_field",
+            [SYSTEM, {"role": "user", "content": "Where is my refund?"}],
+            {"status": "failed", "content": "Refund sent."},
+            ["user: Where is my refund?"],
+            '{"status": "failed", "content": "Refund sent."}',
+        ),
+        (
+            "openai_refusal_without_content",
+            [SYSTEM, {"role": "user", "content": "Where is my refund?"}],
+            [{"message": {"role": "assistant", "content": None, "refusal": "I can't help with refunds."}}],
+            ["user: Where is my refund?"],
+            "assistant: I can't help with refunds.",
+        ),
+        (
+            "openai_audio_reply",
+            [SYSTEM, {"role": "user", "content": "Where is my refund?"}],
+            [{"message": {"role": "assistant", "content": None, "audio": {"id": "a1", "transcript": "Sent today."}}}],
+            ["user: Where is my refund?"],
+            "assistant: Sent today.",
+        ),
+        (
             "structured_output_with_a_list_type_field",
             [SYSTEM, {"role": "user", "content": "Where is my refund?"}],
             {"type": ["string", "null"]},
@@ -165,9 +186,9 @@ def test_the_rendering_stays_bounded_and_shows_each_system_prompt_once() -> None
     ]
 )
 def test_triage_answer(
-    _name: str, tool_input: dict[str, Any] | None, excluded: bool | None, picked: list[CallTypeRow] | None
+    _name: str, answer: dict[str, Any] | None, excluded: bool | None, picked: list[CallTypeRow] | None
 ) -> None:
-    triage = call_review.parse_triage(tool_input, [SUPPORT, ROUTER])
+    triage = call_review.parse_triage(answer, [SUPPORT, ROUTER])
 
     if excluded is None:
         assert triage is None
@@ -264,11 +285,14 @@ def test_the_review_keeps_at_most_two_cards() -> None:
     assert [card.title for card in cards] == ["Card 0", "Card 1"]
 
 
-def _reply(tool_input: dict[str, Any]) -> MagicMock:
+def _reply(text: str) -> MagicMock:
     return MagicMock(
-        content=[ToolUseBlock(id="toolu_1", name="pick_call_types", input=tool_input, type="tool_use")],
+        content=[
+            ThinkingBlock(thinking="", signature="sig", type="thinking"),
+            TextBlock(text=text, type="text"),
+        ],
         usage=Usage(input_tokens=1000, output_tokens=500),
-        stop_reason="tool_use",
+        stop_reason="end_turn",
     )
 
 
@@ -284,8 +308,13 @@ REQUEST = httpx.Request("POST", "https://gateway.example.com")
             0,
         ),
         (
+            "server_error_may_have_billed",
+            InternalServerError("broken", response=httpx.Response(500, request=REQUEST), body=None),
+            1,
+        ),
+        (
             "overloaded_may_have_billed",
-            InternalServerError("busy", response=httpx.Response(529, request=REQUEST), body=None),
+            APIStatusError("busy", response=httpx.Response(529, request=REQUEST), body=None),
             1,
         ),
         (
@@ -298,14 +327,31 @@ REQUEST = httpx.Request("POST", "https://gateway.example.com")
 def test_a_retried_attempt_keeps_its_spend_unless_refused(_name: str, error: Exception, unsettled_calls: int) -> None:
     request = call_review.triage_request([SUPPORT])
     client = MagicMock()
-    client.messages.create.side_effect = [error, _reply({"exclude": False, "picked": []})]
+    client.messages.create.side_effect = [error, _reply(json.dumps({"exclude": False, "picked": []}))]
 
     with patch.object(call_review, "RETRY_BACKOFF_SECONDS", 0):
         result = call_review.call(client, request)
 
     price = MODEL_PRICES[call_review.TRIAGE_MODEL]
     served = 1000 * price.input_per_token + 500 * price.output_per_token
-    assert result.tool_input == {"exclude": False, "picked": []}
+    assert result.answer == {"exclude": False, "picked": []}
     assert result.cost_usd == pytest.approx(
         served + unsettled_calls * call_review.max_cost_usd(request) / call_review.ATTEMPTS
     )
+
+
+@parameterized.expand(
+    [
+        ("cut_at_max_tokens", '{"exclude": false, "pick'),
+        ("refused_in_prose", "I can't help with that."),
+        ("not_an_object", '["T1"]'),
+    ]
+)
+def test_a_reply_without_the_schema_json_has_no_answer_but_still_bills(_name: str, text: str) -> None:
+    client = MagicMock()
+    client.messages.create.return_value = _reply(text)
+
+    result = call_review.call(client, call_review.triage_request([SUPPORT]))
+
+    assert result.answer is None
+    assert result.cost_usd > 0

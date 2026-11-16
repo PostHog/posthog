@@ -179,6 +179,7 @@ async function claimRuns(runs: IntakeRun[], services: IntakeBatchServices, optio
         runs.map((run) => ({
             job: intakeJobInit(run.message),
             fingerprint: claimFingerprint(run.message.job.id, run.message.fingerprint),
+            reply: run.message.reply,
         })),
         services.cyclotron,
         options

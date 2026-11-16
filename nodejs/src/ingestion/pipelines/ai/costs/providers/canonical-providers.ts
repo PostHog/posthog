@@ -1,5 +1,5 @@
 // Auto-generated from OpenRouter API - Do not edit manually
-// Generated at: 2026-11-13 20:02:35 UTC
+// Generated at: 2026-11-16 10:04:51 UTC
 
 export type CanonicalProvider =
     | 'default'
@@ -77,6 +77,7 @@ export type CanonicalProvider =
     | 'deepinfra-fp32'
     | 'deepinfra-fp4'
     | 'deepinfra-fp4-flex'
+    | 'deepinfra-fp4-priority'
     | 'deepinfra-fp8'
     | 'deepinfra-fp8-flex'
     | 'deepinfra-fp8-priority'
@@ -88,6 +89,8 @@ export type CanonicalProvider =
     | 'dekallm-bf16'
     | 'dekallm-fp8'
     | 'digitalocean'
+    | 'doubleword'
+    | 'featherless'
     | 'featherless-fp4'
     | 'fireworks'
     | 'fireworks-fast'
@@ -191,6 +194,7 @@ export type CanonicalProvider =
     | 'parasail-fp4'
     | 'parasail-fp8'
     | 'parasail-int4'
+    | 'pareto-alpha-us'
     | 'particle-ai-nvfp4'
     | 'particle-ai-us'
     | 'particle-ai-us-flex'

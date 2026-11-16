@@ -393,7 +393,11 @@ export class CdpApi {
             config,
             deps,
             jobQueues,
-            new IdempotencyKeys(deps.idempotencyValkey ?? null, 'workflow-webhook')
+            new IdempotencyKeys(
+                deps.idempotencyValkey ?? null,
+                'workflow-webhook',
+                config.CDP_IDEMPOTENCY_VALKEY_ENABLED
+            )
         )
         this.emailTrackingCodeSigner = new EmailTrackingCodeSigner(
             config.ENCRYPTION_SALT_KEYS,
@@ -449,7 +453,8 @@ export class CdpApi {
         )
         this.transactionalEmailIdempotencyKeys = new IdempotencyKeys(
             deps.idempotencyValkey ?? null,
-            'transactional-email'
+            'transactional-email',
+            config.CDP_IDEMPOTENCY_VALKEY_ENABLED
         )
         this.attachmentUploads = new AttachmentUploads(services.attachmentStore, deps.idempotencyValkey ?? null, {
             teams: config.CDP_EMAIL_ATTACHMENTS_TEAMS,
