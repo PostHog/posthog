@@ -1,6 +1,7 @@
 import { parseArgs } from 'util'
 
 import { defaultStateDir } from '../environment/environment'
+import { CARDS_DIR } from './catalog'
 import { createViewerServer } from './server'
 
 const USAGE =
@@ -20,9 +21,19 @@ export function main(argv: string[], env: NodeJS.ProcessEnv = process.env): void
         process.stdout.write(`${USAGE}\n`)
         return
     }
+    const port = Number(values.port)
+    if (!Number.isInteger(port) || port < 0 || port > 65535) {
+        process.stderr.write(`--port ${values.port} is not a port number\n${USAGE}\n`)
+        process.exitCode = 1
+        return
+    }
     const stateDir = values['state-dir'] ?? defaultStateDir(env)
-    const server = createViewerServer({ stateDir })
-    server.listen(Number(values.port), values.host, () => {
+    const server = createViewerServer({ stateDir, cardsDir: CARDS_DIR })
+    server.on('error', (error) => {
+        process.stderr.write(`The viewer cannot listen on ${values.host}:${port}: ${error.message}\n`)
+        process.exit(1)
+    })
+    server.listen(port, values.host, () => {
         process.stdout.write(`Scenario viewer on http://${values.host}:${values.port}, reading runs from ${stateDir}\n`)
     })
 }

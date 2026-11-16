@@ -4,8 +4,6 @@ const SVG = 'http://www.w3.org/2000/svg'
 
 const SERIES = Array.from({ length: 8 }, (_, i) => `var(--series-${i + 1})`)
 
-// ---------- small helpers ----------
-
 const h = (tag, attrs = {}, ...children) => {
     const el = document.createElement(tag)
     for (const [key, value] of Object.entries(attrs)) {
@@ -51,11 +49,11 @@ const render = (...children) =>
     )
 
 const getJson = async (url) => {
-    // This file runs in the browser, where the Node request util does not exist.
     // oxlint-disable-next-line no-restricted-globals
     const response = await fetch(url)
     if (!response.ok) {
-        throw new Error(`${url} answered ${response.status}`)
+        const body = await response.json().catch(() => null)
+        throw new Error(body?.error ?? `${url} answered ${response.status}`)
     }
     return response.json()
 }
@@ -108,7 +106,7 @@ const ago = (iso) => {
 
 const statusPill = (status) => h('span', { class: `status ${status}` }, status)
 
-const doseText = (valve, dose) => {
+const doseText = (dose) => {
     const parts = Object.entries(dose ?? {}).map(([key, value]) => `${key} ${value}`)
     return parts.length ? parts.join(', ') : ''
 }
@@ -117,8 +115,13 @@ const valveText = (entry) => {
     const when = entry.when
         ? `when ${entry.when.atLeast}+ jobs run on ${entry.when.queue}`
         : `at ${fmtDuration(entry.atMs)}`
-    const dose = doseText(entry.valve, entry.dose)
+    const dose = doseText(entry.dose)
     return `${entry.valve} on ${entry.target}${dose ? ` (${dose})` : ''}, ${when}, for ${fmtDuration(entry.forMs)}`
+}
+
+const barText = ({ name, params, unit }) => {
+    const threshold = Object.values(params).find((value) => typeof value === 'number')
+    return threshold === undefined ? name : `${name} ${threshold}${unit}`
 }
 
 const trafficText = ({ name, ratePerSecond }) =>
@@ -136,8 +139,6 @@ const showTooltip = (event, html) => {
 const hideTooltip = () => {
     tooltip.hidden = true
 }
-
-// ---------- the delivery path ----------
 
 const NODE_W = 182
 const NODE_H = 82
@@ -265,8 +266,6 @@ function deliveryPath() {
     return { svg, paint }
 }
 
-// ---------- state at a moment of a run ----------
-
 const atOrBefore = (points, t) => {
     let found
     for (const point of points) {
@@ -282,7 +281,8 @@ const KILL_SHOWN_MS = 4000
 
 function valveWindows(detail, cardView) {
     const driveEnd = detail.drive?.endedAt ?? Date.parse(detail.endedAt)
-    const cardValves = cardView?.valves ?? []
+    const sameCard = cardView?.ok && cardView.cardHash === detail.scorecard.cardHash
+    const cardValves = sameCard ? cardView.valves : []
     return (detail.scorecard.timeline ?? []).map((entry, i) => {
         const cardEntry = cardValves[i]?.valve === entry.valve ? cardValves[i] : undefined
         const from = entry.appliedAt ? Date.parse(entry.appliedAt) : null
@@ -410,9 +410,31 @@ function viewAt(detail, windows, t) {
     return { nodes, links }
 }
 
-// ---------- charts ----------
+const TICK_STEPS_MS = [
+    10,
+    30,
+    60,
+    120,
+    300,
+    600,
+    1800,
+    3600,
+    3 * 3600,
+    6 * 3600,
+    12 * 3600,
+    86400,
+    2 * 86400,
+    7 * 86400,
+].map((seconds) => seconds * 1000)
 
-function lineChart({ title, unit, series, from, to, bands = [], height = 220 }) {
+const tickStepOf = (span) => TICK_STEPS_MS.find((step) => span / step <= 8) ?? span / 8
+
+const sinceStart = (from) => ({
+    tick: (t) => fmtDuration(t - from),
+    tip: (t) => `t+${fmtDuration(Math.max(t - from, 0))}`,
+})
+
+function lineChart({ title, unit, series, from, to, bands = [], height = 220, xLabels = sinceStart(from) }) {
     const width = 640
     const pad = { l: 48, r: 26, t: 10, b: 26 }
     const all = series.flatMap(({ points }) => points.map(([, v]) => v)).filter((v) => v !== null)
@@ -465,13 +487,13 @@ function lineChart({ title, unit, series, from, to, bands = [], height = 220 }) 
         )
     }
     const span = to - from
-    const step = [10, 30, 60, 120, 300, 600, 1800].map((x) => x * 1000).find((x) => span / x <= 8) ?? 3600_000
+    const step = tickStepOf(span)
     for (let t = 0; t <= span; t += step) {
         svg.append(
             s(
                 'text',
                 { x: x(from + t), y: height - 8, 'text-anchor': 'middle', fill: 'var(--muted)', 'font-size': 11 },
-                fmtDuration(t)
+                xLabels.tick(from + t)
             )
         )
     }
@@ -528,7 +550,7 @@ function lineChart({ title, unit, series, from, to, bands = [], height = 220 }) 
                     : ''
             })
             .join('')
-        showTooltip(event, `<div class="t">t+${fmtDuration(Math.max(t - from, 0))}</div>${rows}`)
+        showTooltip(event, `<div class="t">${xLabels.tip(t)}</div>${rows}`)
     })
     hit.addEventListener('mouseleave', () => {
         hideTooltip()
@@ -558,8 +580,6 @@ function lineChart({ title, unit, series, from, to, bands = [], height = 220 }) 
     }
 }
 
-// ---------- pages ----------
-
 let cardsCache
 const cards = async () => (cardsCache ??= await getJson('/api/cards'))
 
@@ -578,7 +598,7 @@ function cardTile(card, runs) {
             h('span', { style: 'flex:1' }),
             last ? statusPill(last.status) : h('span', { class: 'muted' }, 'never run')
         ),
-        card.problems.length
+        !card.ok
             ? h('div', { class: 'reason failed' }, card.problems.join('; '))
             : [
                   h(
@@ -593,7 +613,7 @@ function cardTile(card, runs) {
                                     h(
                                         'span',
                                         { class: 'chip valve', title: valveText(valve) },
-                                        `${valve.valve} → ${valve.target}${doseText(valve.valve, valve.dose) ? ` (${doseText(valve.valve, valve.dose)})` : ''}`
+                                        `${valve.valve} → ${valve.target}${doseText(valve.dose) ? ` (${doseText(valve.dose)})` : ''}`
                                     )
                                 )
                             )
@@ -633,13 +653,7 @@ function cardTile(card, runs) {
                           card.invariants.map(({ name, gate }) =>
                               h('span', { class: 'chip' }, gate === null ? name : `${name} ≤ ${gate}`)
                           ),
-                          card.bars.map(({ name, params }) =>
-                              h(
-                                  'span',
-                                  { class: 'chip' },
-                                  `${name} ${params.percent ?? params.seconds ?? ''}${params.percent ? '%' : 's'}`
-                              )
-                          )
+                          card.bars.map((bar) => h('span', { class: 'chip' }, barText(bar)))
                       )
                   ),
                   h(
@@ -667,8 +681,11 @@ function cardTile(card, runs) {
     )
 }
 
-async function cardsPage() {
+async function cardsPage(stale) {
     const [all, runs] = await Promise.all([cards(), getJson('/api/runs')])
+    if (stale()) {
+        return
+    }
     render(
         h('h1', {}, 'Cards'),
         h(
@@ -722,7 +739,7 @@ function runsTable(runs) {
                         { class: 'link', onclick: () => (location.hash = `#/runs/${run.runId}`) },
                         h('td', {}, statusPill(run.status)),
                         h('td', {}, run.cardId),
-                        h('td', {}, fmtTime(run.startedAt)),
+                        h('td', {}, h('a', { href: `#/runs/${run.runId}` }, fmtTime(run.startedAt))),
                         h('td', { class: 'num' }, fmtDuration(run.durationS * 1000)),
                         h(
                             'td',
@@ -751,19 +768,42 @@ function runsTable(runs) {
     )
 }
 
-async function runsPage() {
+async function runsPage(stale) {
     const runs = await getJson('/api/runs')
+    if (stale()) {
+        return
+    }
     render(h('h1', {}, 'Runs'), h('p', { class: 'sub' }, 'Every run on this box, newest first.'), runsTable(runs))
 }
 
 const latencyOf = (run, key) =>
     run.measurements.find((m) => m.name === 'delivery_latency_ms' && m.key === key)?.value ?? null
 
-async function cardPage(id) {
+const fmtWhen = (t) =>
+    new Date(t).toLocaleString(undefined, { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })
+
+async function cardPage(id, stale) {
     const [all, runs] = await Promise.all([cards(), getJson('/api/runs')])
+    if (stale()) {
+        return
+    }
     const card = all.find((c) => c.id === id)
     if (!card) {
-        render(h('h1', {}, 'No such card'))
+        render(h('a', { href: '#/cards' }, '← Cards'), h('h1', {}, 'No such card'))
+        return
+    }
+    if (!card.ok) {
+        render(
+            h('a', { href: '#/cards' }, '← Cards'),
+            h('h1', {}, card.id),
+            h('p', { class: 'sub mono' }, card.file),
+            h('div', { class: 'reason failed' }, 'This card does not load:'),
+            h(
+                'ul',
+                {},
+                card.problems.map((problem) => h('li', {}, problem))
+            )
+        )
         return
     }
     const ofCard = runs.filter((run) => run.cardId === id)
@@ -794,6 +834,7 @@ async function cardPage(id) {
         ],
         from: chronological.length ? Date.parse(chronological[0].startedAt) : 0,
         to: chronological.length ? Date.parse(chronological.at(-1).startedAt) : 0,
+        xLabels: { tick: fmtWhen, tip: fmtWhen },
     })
     render(
         h('a', { href: '#/cards' }, '← Cards'),
@@ -849,7 +890,7 @@ async function cardPage(id) {
                           h(
                               'ul',
                               {},
-                              card.bars.map(({ name, params }) => h('li', {}, `${name}: ${JSON.stringify(params)}`))
+                              card.bars.map((bar) => h('li', {}, barText(bar)))
                           ),
                       ]
                     : null,
@@ -1105,7 +1146,7 @@ function runCharts(detail, windows, from, to) {
             series: detail.series.roles.map((role, i) => ({
                 name: role.role.replace(/^cdp-(cyclotron-)?/, ''),
                 color: SERIES[i % SERIES.length],
-                points: role.points.map((p) => [p.at, p.cpuPercent]),
+                points: role.points.map((p) => [at(p), p.cpuPercent]),
             })),
         }),
         lineChart({
@@ -1127,9 +1168,12 @@ function runCharts(detail, windows, from, to) {
     return charts
 }
 
-async function runPage(runId, startAtSeconds = 0) {
+async function runPage(runId, startAtSeconds, stale) {
     stopReplay()
     const [detail, all] = await Promise.all([getJson(`/api/runs/${runId}`), cards()])
+    if (stale()) {
+        return
+    }
     const cardView = all.find((c) => c.id === detail.cardId)
     const windows = valveWindows(detail, cardView)
     const from = detail.drive?.startedAt ?? Date.parse(detail.startedAt)
@@ -1141,13 +1185,20 @@ async function runPage(runId, startAtSeconds = 0) {
     const to = Math.min(Math.max(lastSample, detail.drive?.endedAt ?? 0), Date.parse(detail.endedAt))
     const diagram = deliveryPath()
     const charts = runCharts(detail, windows, from, to)
-    const slider = h('input', { type: 'range', min: from, max: to, step: 250, value: from })
+    const slider = h('input', {
+        type: 'range',
+        min: from,
+        max: to,
+        step: 250,
+        value: from,
+        'aria-label': 'Replay position',
+    })
     const clock = h('span', { class: 'clock' })
     const events = h('div', { class: 'events' })
     const playButton = h('button', {}, 'Play')
     const speedSelect = h(
         'select',
-        {},
+        { 'aria-label': 'Replay speed' },
         [5, 10, 20, 50].map((x) => h('option', { value: x, selected: x === 10 ? 'selected' : null }, `${x}x`))
     )
     const happenings = windows
@@ -1256,9 +1307,11 @@ async function runPage(runId, startAtSeconds = 0) {
     show(start)
 }
 
-// ---------- router ----------
+let navigation = 0
 
 async function route() {
+    const token = ++navigation
+    const stale = () => token !== navigation
     stopReplay()
     hideTooltip()
     const [path, query] = location.hash.split('?')
@@ -1272,18 +1325,23 @@ async function route() {
                 a.dataset.nav === (page || 'cards') || (page === 'cards' && a.dataset.nav === 'cards')
             )
         )
+    const loading = setTimeout(() => stale() || render(h('p', { class: 'muted' }, 'Loading…')), 300)
     try {
         if (page === 'runs' && id) {
-            await runPage(id, startAt)
+            await runPage(id, startAt, stale)
         } else if (page === 'runs') {
-            await runsPage()
+            await runsPage(stale)
         } else if (page === 'cards' && id) {
-            await cardPage(id)
+            await cardPage(id, stale)
         } else {
-            await cardsPage()
+            await cardsPage(stale)
         }
     } catch (error) {
-        render(h('h1', {}, 'Something went wrong'), h('div', { class: 'reason failed' }, error.message))
+        if (!stale()) {
+            render(h('h1', {}, 'Something went wrong'), h('div', { class: 'reason failed' }, error.message))
+        }
+    } finally {
+        clearTimeout(loading)
     }
 }
 

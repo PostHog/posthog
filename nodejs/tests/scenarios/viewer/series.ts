@@ -1,5 +1,5 @@
 import type { JournalEntry } from '../judge/judge'
-import type { MetricSample, QueueSample } from '../judge/measurements'
+import { LatencyEvidence, MetricSample, QueueSample, deliveryLatenciesOf, nearestRank } from '../judge/measurements'
 import type { WriterSample } from '../probe/writer-probe'
 import type { TruthRecord } from '../provider-edge'
 
@@ -37,8 +37,8 @@ export type Evidence = {
     samples: readonly MetricSample[]
     queue: readonly QueueSample[]
     writer: readonly WriterSample[]
-    journal: readonly Pick<JournalEntry, 'unitId' | 'kind' | 'offeredAt' | 'answer'>[]
-    truth: readonly Pick<TruthRecord, 'at' | 'kind' | 'unitId' | 'actionId' | 'status' | 'fault'>[]
+    journal: readonly (Pick<JournalEntry, 'kind'> & LatencyEvidence['journal'][number])[]
+    truth: readonly (Pick<TruthRecord, 'kind' | 'fault'> & LatencyEvidence['truth'][number])[]
 }
 
 const FLOW_BUCKET_MS = 5000
@@ -47,18 +47,52 @@ const isOk = (status: number): boolean => status >= 200 && status < 300
 
 const bucketOf = (at: number, bucketMs: number): number => Math.floor(at / bucketMs) * bucketMs
 
-function percentile(sorted: number[], share: number): number | null {
-    if (sorted.length === 0) {
-        return null
-    }
-    return sorted[Math.min(sorted.length - 1, Math.ceil(share * sorted.length) - 1)]
-}
+const percentileOf = (sorted: number[], share: number): number | null =>
+    sorted.length === 0 ? null : nearestRank(sorted, share)
 
 const processedOf = (sample: MetricSample): number =>
     Object.values(sample.processed).reduce((sum, count) => sum + count, 0)
 
-// Rates come from pairs of scrapes of one process, so a restarted replica, whose counters start
-// again from zero, contributes no rate across its restart.
+type Weighted = { weightMs: number; cpuPercent: number; processedPerSecond: number; rssMb: number }
+
+function replicaBucketsOf(ofReplica: readonly MetricSample[], restarts: number[]): Map<number, RolePoint> {
+    const weighted = new Map<number, Weighted>()
+    for (let i = 1; i < ofReplica.length; i++) {
+        const [before, after] = [ofReplica[i - 1], ofReplica[i]]
+        if (before.startedAt !== after.startedAt) {
+            restarts.push(after.startedAt * 1000)
+            continue
+        }
+        const seconds = (after.at - before.at) / 1000
+        if (seconds <= 0) {
+            continue
+        }
+        const cpuPercent = ((after.cpuSeconds - before.cpuSeconds) / seconds) * 100
+        const processedPerSecond = Math.max(processedOf(after) - processedOf(before), 0) / seconds
+        const rssMb = after.rssBytes / 1024 / 1024
+        for (let at = bucketOf(before.at, FLOW_BUCKET_MS); at < after.at; at += FLOW_BUCKET_MS) {
+            const weightMs = Math.min(after.at, at + FLOW_BUCKET_MS) - Math.max(before.at, at)
+            const sum = weighted.get(at) ?? { weightMs: 0, cpuPercent: 0, processedPerSecond: 0, rssMb: 0 }
+            sum.weightMs += weightMs
+            sum.cpuPercent += cpuPercent * weightMs
+            sum.processedPerSecond += processedPerSecond * weightMs
+            sum.rssMb += rssMb * weightMs
+            weighted.set(at, sum)
+        }
+    }
+    return new Map(
+        [...weighted].map(([at, sum]) => [
+            at,
+            {
+                at,
+                cpuPercent: sum.cpuPercent / sum.weightMs,
+                processedPerSecond: sum.processedPerSecond / sum.weightMs,
+                rssMb: sum.rssMb / sum.weightMs,
+            },
+        ])
+    )
+}
+
 export function roleSeriesOf(samples: readonly MetricSample[]): RoleSeries[] {
     const byReplica = Map.groupBy(
         [...samples].sort((a, b) => a.at - b.at),
@@ -71,23 +105,12 @@ export function roleSeriesOf(samples: readonly MetricSample[]): RoleSeries[] {
         const entry: RoleEntry = byRole.get(role) ?? { replicas: 0, restarts: [], buckets: new Map() }
         byRole.set(role, entry)
         entry.replicas += 1
-        for (let i = 1; i < ofReplica.length; i++) {
-            const [before, after] = [ofReplica[i - 1], ofReplica[i]]
-            if (before.startedAt !== after.startedAt) {
-                // A process reports its start in seconds.
-                entry.restarts.push(after.startedAt * 1000)
-                continue
-            }
-            const seconds = (after.at - before.at) / 1000
-            if (seconds <= 0) {
-                continue
-            }
-            const at = bucketOf(after.at, FLOW_BUCKET_MS)
-            const point = entry.buckets.get(at) ?? { at, cpuPercent: 0, processedPerSecond: 0, rssMb: 0 }
-            point.cpuPercent += ((after.cpuSeconds - before.cpuSeconds) / seconds) * 100
-            point.processedPerSecond += Math.max(processedOf(after) - processedOf(before), 0) / seconds
-            point.rssMb += after.rssBytes / 1024 / 1024
-            entry.buckets.set(at, point)
+        for (const [at, point] of replicaBucketsOf(ofReplica, entry.restarts)) {
+            const sum = entry.buckets.get(at) ?? { at, cpuPercent: 0, processedPerSecond: 0, rssMb: 0 }
+            sum.cpuPercent += point.cpuPercent
+            sum.processedPerSecond += point.processedPerSecond
+            sum.rssMb += point.rssMb
+            entry.buckets.set(at, sum)
         }
     }
     return [...byRole.entries()]
@@ -119,8 +142,6 @@ export function writerSeriesOf(writer: readonly WriterSample[]): WriterPoint[] {
     return writer.map(({ at, latencyMs, ok }) => ({ at, latencyMs, ok }))
 }
 
-// Latency runs from a unit's offer to the edge's first 2xx for each of its deliveries, the same
-// span `delivery_latency_ms` measures, bucketed by when the unit was offered.
 export function flowSeriesOf({ journal, truth }: Pick<Evidence, 'journal' | 'truth'>): FlowPoint[] {
     const buckets = new Map<number, FlowPoint & { latencies: number[] }>()
     const pointAt = (at: number): FlowPoint & { latencies: number[] } => {
@@ -142,7 +163,6 @@ export function flowSeriesOf({ journal, truth }: Pick<Evidence, 'journal' | 'tru
         buckets.set(key, point)
         return point
     }
-    const offeredAt = new Map(journal.map(({ unitId, offeredAt }) => [unitId, offeredAt]))
     for (const { offeredAt: at, kind, answer } of journal) {
         const point = pointAt(at)
         if (kind === 'event') {
@@ -154,7 +174,6 @@ export function flowSeriesOf({ journal, truth }: Pick<Evidence, 'journal' | 'tru
             point.refused += 1
         }
     }
-    const firstOk = new Map<string, number>()
     for (const record of truth) {
         const at = Date.parse(record.at)
         const point = pointAt(at)
@@ -165,23 +184,18 @@ export function flowSeriesOf({ journal, truth }: Pick<Evidence, 'journal' | 'tru
         const email = record.kind === 'ses.send'
         if (isOk(record.status) && record.fault === undefined) {
             point[email ? 'emailOk' : 'webhookOk'] += 1
-            const key = `${record.unitId}/${record.actionId}`
-            if (record.unitId !== undefined && !firstOk.has(key)) {
-                firstOk.set(key, at)
-                const offered = offeredAt.get(record.unitId)
-                if (offered !== undefined) {
-                    pointAt(offered).latencies.push(at - offered)
-                }
-            }
         } else {
             point[email ? 'emailFaulted' : 'webhookFaulted'] += 1
         }
+    }
+    for (const { offeredAt, latencyMs } of deliveryLatenciesOf({ journal, truth })) {
+        pointAt(offeredAt).latencies.push(latencyMs)
     }
     return [...buckets.values()]
         .sort((a, b) => a.at - b.at)
         .map(({ latencies, ...point }) => {
             const sorted = latencies.sort((a, b) => a - b)
-            return { ...point, latencyP50Ms: percentile(sorted, 0.5), latencyP95Ms: percentile(sorted, 0.95) }
+            return { ...point, latencyP50Ms: percentileOf(sorted, 0.5), latencyP95Ms: percentileOf(sorted, 0.95) }
         })
 }
 
