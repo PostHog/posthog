@@ -77,7 +77,10 @@ describe('CodeEmailTabs', () => {
         )
     }
 
-    const renderTabs = ({ sendLinks = true }: { sendLinks?: boolean } = {}): void => {
+    const renderTabs = ({
+        sendLinks = true,
+        quillFilters = false,
+    }: { sendLinks?: boolean; quillFilters?: boolean } = {}): void => {
         sendRequests = []
         sends = [
             {
@@ -89,9 +92,14 @@ describe('CodeEmailTabs', () => {
         ]
         initKeaTests()
         featureFlagLogic.mount()
-        featureFlagLogic.actions.setFeatureFlags(sendLinks ? [FEATURE_FLAGS.WORKFLOWS_EMAIL_SEND_LINKS] : [], {
+        const flags = {
             [FEATURE_FLAGS.WORKFLOWS_EMAIL_SEND_LINKS]: sendLinks,
-        })
+            [FEATURE_FLAGS.TODAY_RAIL_NAV]: quillFilters,
+        }
+        featureFlagLogic.actions.setFeatureFlags(
+            Object.keys(flags).filter((flag) => flags[flag]),
+            flags
+        )
         mountTabs()
     }
 
@@ -158,6 +166,20 @@ describe('CodeEmailTabs', () => {
         expect(recipient.closest('a')?.getAttribute('href')).toMatch(/\/transactional\/log\/msg-1\?status=bounced$/)
     })
 
+    it('narrows the sends to a reason picked from the filter menu, and widens them again for any reason', async () => {
+        useMocks(mocks(() => [200, { id: 'flow-id', actions: [] }]))
+        renderTabs({ quillFilters: true })
+        router.actions.push(urls.transactionalCodeEmail('email-id'), { tab: 'sends', status: 'bounced' })
+        await screen.findByText('ada@example.com')
+
+        fireEvent.click(document.querySelector('[data-attr=transactional-email-log-filter-menu]')!)
+        fireEvent.click(await screen.findByText('Reason'))
+        fireEvent.click(await screen.findByText('Hard bounce'))
+        await waitFor(() => expect(sendRequests.at(-1)).toMatchObject({ status: 'bounced', reason: 'hard' }))
+        fireEvent.click(await screen.findByText('Any reason'))
+        await waitFor(() => expect(sendRequests.at(-1)).not.toHaveProperty('reason'))
+    })
+
     it('tells the reader this email had no sends, not that no sends match a filter, once its status filter is cleared', async () => {
         useMocks(mocks(() => [200, { id: 'flow-id', actions: [] }]))
         renderTabs()
@@ -195,6 +217,14 @@ describe('CodeEmailTabs', () => {
 
         reopenTabs()
         await waitFor(() => expect(reasonFilter()).toHaveTextContent('Soft bounce'))
+
+        fireEvent.click(reasonFilter()!)
+        fireEvent.click(await screen.findByText('Hard bounce'))
+        await waitFor(() => expect(sendRequests.at(-1)).toMatchObject({ status: 'bounced', reason: 'hard' }))
+        fireEvent.click(reasonFilter()!)
+        fireEvent.click(await screen.findByText('Any reason'))
+        await waitFor(() => expect(sendRequests.at(-1)).not.toHaveProperty('reason'))
+        expect(sendRequests.at(-1)).toMatchObject({ status: 'bounced' })
 
         router.actions.push(page, { tab: 'sends', inv_search: 'Permanent bounce' })
         expect(await screen.findByText('Re-run…')).toBeInTheDocument()
