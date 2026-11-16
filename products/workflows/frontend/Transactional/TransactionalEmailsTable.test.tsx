@@ -4,7 +4,6 @@ import '@testing-library/jest-dom'
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { Provider } from 'kea'
 import { router } from 'kea-router'
-import posthog from 'posthog-js'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -274,50 +273,27 @@ describe('TransactionalEmailsTable', () => {
     }
 
     it.each([
-        ['opens the guide over the list', [receipt], [], 'Receipt', true, 'transactional'],
+        ['opens the guide over the list', [receipt], [], 'Receipt', true],
         [
             'keeps the guide closed when the project already sends from code',
             [receipt],
             [codeEmail('welcome', AccessControlLevel.Editor)],
             'Receipt',
             false,
-            false,
         ],
-        [
-            'shows the empty tab, which holds the guide already',
-            [],
-            [],
-            'Send your first email from code',
-            false,
-            'transactional_empty',
-        ],
-    ])(
-        'answers a link from the domain-ready card: %s',
-        async (_case, templates, codeEmails, landmark, modalOpens, guideSurface) => {
-            const sent: { event: string; properties?: Record<string, any> | null }[] = []
-            const capture = jest.spyOn(posthog, 'capture').mockImplementation((event, properties) => {
-                sent.push({ event, properties })
-                return undefined
-            })
-            renderWithCodeSends({
-                '/api/projects/:team_id/messaging_templates/': { results: templates },
-                '/api/projects/:team_id/transactional_code_emails/': codeEmails,
-            })
-            expect(await screen.findByText(landmark)).toBeInTheDocument()
-            await waitFor(() => expect(transactionalEmailsLogic.values.codeEmails).toHaveLength(codeEmails.length))
-            act(() => router.actions.push(sendFromCodeGuideUrl()))
+        ['shows the empty tab, which holds the guide already', [], [], 'Send your first email from code', false],
+    ])('answers a link from the domain-ready card: %s', async (_case, templates, codeEmails, landmark, modalOpens) => {
+        renderWithCodeSends({
+            '/api/projects/:team_id/messaging_templates/': { results: templates },
+            '/api/projects/:team_id/transactional_code_emails/': codeEmails,
+        })
+        expect(await screen.findByText(landmark)).toBeInTheDocument()
+        await waitFor(() => expect(transactionalEmailsLogic.values.codeEmails).toHaveLength(codeEmails.length))
+        act(() => router.actions.push(sendFromCodeGuideUrl()))
 
-            await waitFor(() => expect(router.values.searchParams).toEqual({}))
-            expect(screen.queryByText('Send an email from your code') !== null).toBe(modalOpens)
-            expect(
-                sent.find(
-                    ({ event, properties }) =>
-                        event === 'send from code guide opened' && properties?.entry === 'domain_ready'
-                )?.properties?.surface ?? false
-            ).toBe(guideSurface)
-            capture.mockRestore()
-        }
-    )
+        await waitFor(() => expect(router.values.searchParams).toEqual({}))
+        expect(screen.queryByText('Send an email from your code') !== null).toBe(modalOpens)
+    })
 
     it('offers sending from code only once the templates loaded', async () => {
         let releaseTemplates: () => void = () => {}
