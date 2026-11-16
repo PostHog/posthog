@@ -5708,6 +5708,7 @@ export const INTEGRATION_KINDS = [
     'aws-redshift',
     's3-compatible',
     'snowflake',
+    'motherduck',
     'youtube-analytics',
     'twitter-ads',
 ] as const

@@ -381,7 +381,6 @@ wordpress/wordpress.py::get_rows
 writesonic/writesonic.py::_iter_daily
 youtube_analytics/youtube_analytics.py::get_rows
 zendesk_sunshine/zendesk_sunshine.py::_object_records_incremental
-zenduty/zenduty.py::_paginate_fan_out
 zenduty/zenduty.py::_paginate_top_level
 zep/zep.py::_fan_out_message_rows
 zep/zep.py::_page_based_rows
