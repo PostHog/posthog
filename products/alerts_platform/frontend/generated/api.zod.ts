@@ -135,6 +135,19 @@ export const PlatformAlertRoutesPartialUpdateBody = /* @__PURE__ */ zod.object({
     enabled: zod.boolean().optional().describe('Whether this route sends. Defaults to true.'),
 })
 
+/**
+ * List the routes, and their receivers, that an alert with these labels sends through, in the order delivery reads them. Changes nothing.
+ */
+export const PlatformAlertRoutesMatchingCreateBody = /* @__PURE__ */ zod.object({
+    labels: zod
+        .record(zod.string(), zod.string())
+        .describe('The alert\'s labels, by name, such as {\"team\": \"checkout\"}. Unsaved labels work too.'),
+})
+
+/**
+ * Create an alert on the platform. The request body depends on source_kind, which picks the source product and the shape of source_config. The alert notifies nobody until a destination is added.
+ * @summary Create an alert
+ */
 export const platformAlertsCreateBodyOneNameDefault = `Untitled alert`
 export const platformAlertsCreateBodyOneNameMax = 255
 
@@ -539,6 +552,13 @@ export const PlatformAlertsCreateBody = /* @__PURE__ */ zod.union([
                 .optional()
                 .describe(
                     'Context for whoever responds, such as {\"runbook_url\": \"https:\/\/...\"}. Values can use {{ $labels.<name> }} for a grouping key or label of the alert, and {{ $value }}. An annotation whose name ends in _url must start with https:\/\/.'
+                ),
+            check_interval_minutes: zod
+                .number()
+                .min(1)
+                .optional()
+                .describe(
+                    'Minutes between scheduled checks. One of: 1, 2, 3, 4, 5, 6, 10, 12, 15, 20, 30, 60. Defaults to 1 on a create. An edit that leaves it out keeps the stored value.'
                 ),
         })
         .describe('The settings of a new alert. Every one but source_config has a default, which is stored.'),
@@ -983,6 +1003,10 @@ export const PlatformAlertsCreateBody = /* @__PURE__ */ zod.union([
         .describe('The settings of a new alert. Every one but source_config has a default, which is stored.'),
 ])
 
+/**
+ * Replace every setting of an alert the platform owns. source_kind must match the stored value.
+ * @summary Replace an alert's settings
+ */
 export const platformAlertsUpdateBodyOneNameMax = 255
 
 export const platformAlertsUpdateBodyOneSourceConfigOneSkipWeekendDefault = false
@@ -1551,6 +1575,13 @@ export const PlatformAlertsUpdateBody = /* @__PURE__ */ zod.union([
                 .describe(
                     'Context for whoever responds, such as {\"runbook_url\": \"https:\/\/...\"}. Values can use {{ $labels.<name> }} for a grouping key or label of the alert, and {{ $value }}. An annotation whose name ends in _url must start with https:\/\/.'
                 ),
+            check_interval_minutes: zod
+                .number()
+                .min(1)
+                .optional()
+                .describe(
+                    'Minutes between scheduled checks. One of: 1, 2, 3, 4, 5, 6, 10, 12, 15, 20, 30, 60. Defaults to 1 on a create. An edit that leaves it out keeps the stored value.'
+                ),
         })
         .describe('The settings an edit can change. Each source kind subclasses it with a typed `source_config`.'),
     zod
@@ -1964,6 +1995,10 @@ export const PlatformAlertsUpdateBody = /* @__PURE__ */ zod.union([
         .describe('The settings an edit can change. Each source kind subclasses it with a typed `source_config`.'),
 ])
 
+/**
+ * Change some settings of an alert the platform owns. Settings left out keep their stored value. A source_kind that is sent must match the stored value.
+ * @summary Change an alert
+ */
 export const platformAlertsPartialUpdateBodyOneNameMax = 255
 
 export const platformAlertsPartialUpdateBodyOneSourceConfigOneSkipWeekendDefault = false
@@ -2565,6 +2600,13 @@ export const PlatformAlertsPartialUpdateBody = /* @__PURE__ */ zod.union([
                 .optional()
                 .describe(
                     'Context for whoever responds, such as {\"runbook_url\": \"https:\/\/...\"}. Values can use {{ $labels.<name> }} for a grouping key or label of the alert, and {{ $value }}. An annotation whose name ends in _url must start with https:\/\/.'
+                ),
+            check_interval_minutes: zod
+                .number()
+                .min(1)
+                .optional()
+                .describe(
+                    'Minutes between scheduled checks. One of: 1, 2, 3, 4, 5, 6, 10, 12, 15, 20, 30, 60. Defaults to 1 on a create. An edit that leaves it out keeps the stored value.'
                 ),
         })
         .describe('The settings an edit can change. Each source kind subclasses it with a typed `source_config`.'),

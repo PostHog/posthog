@@ -24,6 +24,8 @@ import type {
     LogsAnomalyScanRequestApi,
     LogsAnomalyScanResponseApi,
     LogsAttributesRetrieveParams,
+    LogsContextRequestApi,
+    LogsContextResponseApi,
     LogsExportCreate201,
     LogsHasLogsRetrieve200,
     LogsMetricRuleApi,
@@ -43,6 +45,7 @@ import type {
     LogsSamplingRulesReorderCreateParams,
     LogsSeriesBandsRequestApi,
     LogsSeriesBandsResponseApi,
+    LogsSigningSecretApi,
     LogsValuesRetrieveParams,
     LogsViewApi,
     LogsViewsListParams,
@@ -283,7 +286,7 @@ export const getLogsAlertsDestinationsDeleteCreateUrl = (projectId: string, id: 
 export const logsAlertsDestinationsDeleteCreate = async (
     projectId: string,
     id: string,
-    logsAlertDeleteDestinationApi: LogsAlertDeleteDestinationApi,
+    logsAlertDeleteDestinationApi?: LogsAlertDeleteDestinationApi,
     options?: RequestInit
 ): Promise<void> => {
     return apiMutator<void>(getLogsAlertsDestinationsDeleteCreateUrl(projectId, id), {
@@ -464,6 +467,23 @@ export const logsAttributesRetrieve = async (
     return apiMutator<_LogsAttributesResponseApi>(getLogsAttributesRetrieveUrl(projectId, params), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getLogsContextCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/logs/context/`
+}
+
+export const logsContextCreate = async (
+    projectId: string,
+    logsContextRequestApi: LogsContextRequestApi,
+    options?: RequestInit
+): Promise<LogsContextResponseApi> => {
+    return apiMutator<LogsContextResponseApi>(getLogsContextCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(logsContextRequestApi),
     })
 }
 
@@ -1158,6 +1178,57 @@ export const logsServicesCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(_logsServicesRequestApi),
+    })
+}
+
+export const getLogsSigningSecretRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/logs/signing_secret/`
+}
+
+/**
+ * The secret that servers use to sign log requests for this project.
+ */
+export const logsSigningSecretRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<LogsSigningSecretApi> => {
+    return apiMutator<LogsSigningSecretApi>(getLogsSigningSecretRetrieveUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getLogsSigningSecretExpirePreviousCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/logs/signing_secret/expire_previous/`
+}
+
+/**
+ * End the grace period now, so the previous secret stops being valid immediately. Use it when the replaced secret may be compromised, or once every server uses the new one.
+ */
+export const logsSigningSecretExpirePreviousCreate = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<LogsSigningSecretApi> => {
+    return apiMutator<LogsSigningSecretApi>(getLogsSigningSecretExpirePreviousCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+    })
+}
+
+export const getLogsSigningSecretRotateCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/logs/signing_secret/rotate/`
+}
+
+/**
+ * Generate a new signing secret. The previous secret stays valid for 48 hours, then expires.
+ */
+export const logsSigningSecretRotateCreate = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<LogsSigningSecretApi> => {
+    return apiMutator<LogsSigningSecretApi>(getLogsSigningSecretRotateCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
     })
 }
 

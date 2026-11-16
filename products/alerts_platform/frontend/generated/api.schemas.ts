@@ -163,6 +163,23 @@ export interface PatchedAlertRouteWriteApi {
 }
 
 /**
+ * The alert's labels, by name, such as {"team": "checkout"}. Unsaved labels work too.
+ */
+export type AlertRouteMatchingRequestApiLabels = { [key: string]: string }
+
+export interface AlertRouteMatchingRequestApi {
+    /** The alert's labels, by name, such as {"team": "checkout"}. Unsaved labels work too. */
+    labels: AlertRouteMatchingRequestApiLabels
+}
+
+export interface AlertRouteMatchApi {
+    /** A route these labels match. */
+    route: AlertRouteApi
+    /** The receiver the route sends to. */
+    receiver: AlertReceiverApi
+}
+
+/**
  * * `logs` - Logs
  * * `insight` - Insight
  * * `warehouse_source` - Warehouse source
@@ -1142,6 +1159,11 @@ export interface MetricsPlatformAlertConfigurationCreateApi {
     labels?: MetricsPlatformAlertConfigurationCreateApiLabels
     /** Context for whoever responds, such as {"runbook_url": "https://..."}. Values can use {{ $labels.<name> }} for a grouping key or label of the alert, and {{ $value }}. An annotation whose name ends in _url must start with https://. */
     annotations?: MetricsPlatformAlertConfigurationCreateApiAnnotations
+    /**
+     * Minutes between scheduled checks. One of: 1, 2, 3, 4, 5, 6, 10, 12, 15, 20, 30, 60. Defaults to 1 on a create. An edit that leaves it out keeps the stored value.
+     * @minimum 1
+     */
+    check_interval_minutes?: number
 }
 
 /**
@@ -1704,6 +1726,11 @@ export interface MetricsPlatformAlertConfigurationEditApi {
     labels?: MetricsPlatformAlertConfigurationEditApiLabels
     /** Context for whoever responds, such as {"runbook_url": "https://..."}. Values can use {{ $labels.<name> }} for a grouping key or label of the alert, and {{ $value }}. An annotation whose name ends in _url must start with https://. */
     annotations?: MetricsPlatformAlertConfigurationEditApiAnnotations
+    /**
+     * Minutes between scheduled checks. One of: 1, 2, 3, 4, 5, 6, 10, 12, 15, 20, 30, 60. Defaults to 1 on a create. An edit that leaves it out keeps the stored value.
+     * @minimum 1
+     */
+    check_interval_minutes?: number
 }
 
 /**
@@ -2090,6 +2117,11 @@ export interface PatchedMetricsPlatformAlertConfigurationEditApi {
     labels?: PatchedMetricsPlatformAlertConfigurationEditApiLabels
     /** Context for whoever responds, such as {"runbook_url": "https://..."}. Values can use {{ $labels.<name> }} for a grouping key or label of the alert, and {{ $value }}. An annotation whose name ends in _url must start with https://. */
     annotations?: PatchedMetricsPlatformAlertConfigurationEditApiAnnotations
+    /**
+     * Minutes between scheduled checks. One of: 1, 2, 3, 4, 5, 6, 10, 12, 15, 20, 30, 60. Defaults to 1 on a create. An edit that leaves it out keeps the stored value.
+     * @minimum 1
+     */
+    check_interval_minutes?: number
 }
 
 /**

@@ -9,9 +9,24 @@ import (
 	"time"
 )
 
-// Service-to-service secrets that each get their own random value, so a leak from one
-// container cannot yield POSTHOG_SECRET, which is Django's SECRET_KEY.
-var dedicatedSecretKeys = []string{"INTERNAL_REQUEST_TOKEN", "BROWSERLESS_SECRET", "RECORDING_API_JWT_SECRET"}
+// Secrets that each get their own random value. A leak of a service-to-service secret from
+// one container cannot yield POSTHOG_SECRET, which is Django's SECRET_KEY. The object storage
+// keys sign requests that Caddy forwards from the internet to objectstorage, so every install
+// needs keys of its own.
+var dedicatedSecretKeys = []string{
+	"INTERNAL_REQUEST_TOKEN",
+	"BROWSERLESS_SECRET",
+	"RECORDING_API_JWT_SECRET",
+	"OBJECT_STORAGE_ACCESS_KEY_ID",
+	"OBJECT_STORAGE_SECRET_ACCESS_KEY",
+}
+
+// The shared object storage keys from the public compose file. An .env edited by hand can
+// still hold them, so an upgrade replaces them like a missing key.
+var sharedObjectStorageValues = map[string]string{
+	"OBJECT_STORAGE_ACCESS_KEY_ID":     "object_storage_root_user",
+	"OBJECT_STORAGE_SECRET_ACCESS_KEY": "object_storage_root_password",
+}
 
 type EnvConfig struct {
 	PosthogSecret        string
@@ -156,6 +171,12 @@ func UpdateEnvValue(key, value string) error {
 }
 
 func UpdateEnvForUpgrade(version string) error {
+	// bin/deploy-hobby wrote .env world-readable before it restricted the file itself, and
+	// os.WriteFile keeps the mode of a file that exists. Restrict it before adding secrets.
+	if err := os.Chmod(".env", 0600); err != nil {
+		return fmt.Errorf("failed to restrict .env to its owner: %w", err)
+	}
+
 	existing := LoadExistingEnv()
 
 	if existing["ENCRYPTION_SALT_KEYS"] == "" {
@@ -169,14 +190,14 @@ func UpdateEnvForUpgrade(version string) error {
 	}
 
 	for _, key := range dedicatedSecretKeys {
-		if existing[key] != "" {
+		if current := existing[key]; current != "" && current != sharedObjectStorageValues[key] {
 			continue
 		}
 		value, err := GenerateSecret()
 		if err != nil {
 			return err
 		}
-		if err := AppendToEnv(key, value); err != nil {
+		if err := UpdateEnvValue(key, value); err != nil {
 			return err
 		}
 	}

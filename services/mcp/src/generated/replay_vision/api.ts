@@ -1100,7 +1100,7 @@ export const VisionScannersCreateBody = () => zod
             .boolean()
             .optional()
             .describe(
-                'Run only while the organization has free credits left this billing period, so the scanner never adds spend.'
+                'Run only while the organization has free credits left this billing period, so the scanner never adds spend. When they run out it turns off with `disabled_reason` `free_credits_used`.'
             ),
         provider: zod
             .enum(['google'])
@@ -1279,7 +1279,7 @@ export const VisionScannersPartialUpdateBody = () => zod
             .boolean()
             .optional()
             .describe(
-                'Run only while the organization has free credits left this billing period, so the scanner never adds spend.'
+                'Run only while the organization has free credits left this billing period, so the scanner never adds spend. When they run out it turns off with `disabled_reason` `free_credits_used`.'
             ),
         provider: zod
             .enum(['google'])
@@ -2379,7 +2379,7 @@ export const VisionScannersDraftCreateBody = () => zod
             .boolean()
             .default(visionScannersDraftCreateBodyFreeOnlyDefault)
             .describe(
-                "Draft a scanner that runs only on the organization's free monthly credits, so it never adds to the bill and pauses when they run out. The draft is sized to those free credits and comes back with `free_only` true and no `credit_limit`. Use instead of `monthly_credit_budget`."
+                "Draft a scanner that runs only on the organization's free monthly credits, so it never adds to the bill and stops when they run out. The draft is sized to those free credits and comes back with `free_only` true and no `credit_limit`. Use instead of `monthly_credit_budget`."
             ),
         experiment_id: zod
             .number()

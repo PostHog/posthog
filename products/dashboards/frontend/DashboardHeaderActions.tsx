@@ -26,6 +26,7 @@ import {
 } from './dashboardAddTileOptions'
 import { DashboardCustomizeButton } from './DashboardCustomizeButton'
 import { DashboardLayoutUndoButton } from './DashboardLayoutUndoButton'
+import { DashboardShortcuts } from './DashboardShortcuts'
 import { DashboardSubscribeButton } from './DashboardSubscribeButton'
 
 export function getAddTileMenuItems({
@@ -183,6 +184,7 @@ export function DashboardActions(): JSX.Element {
         <>
             <DashboardSubscribeButton />
             <DashboardLayoutUndoButton />
+            <DashboardShortcuts />
             {!dashboardEditing && (tiles.length > 0 || dashboard.is_shared) && (
                 <DashboardShareButton dashboard={dashboard} />
             )}

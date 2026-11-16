@@ -15,6 +15,6 @@ Read the report in this order:
 1. `direction` + `change_ratio` + `anomaly_peak`: how bad is it? (`flat` means the windows don't meaningfully differ — widen the anomaly window or check you have the right metric.)
 2. `onset_time`: when it started. Use this exact timestamp as the pivot for cross-signal correlation.
 3. `top_movers`: which label values changed. One label value moving alone (e.g. a single pod or shard) points at a localized culprit; everything moving together points at a shared cause upstream.
-4. `series`: the full baseline+anomaly time series if you need to eyeball the shape.
+4. `series`: the full baseline+anomaly time series if you need to eyeball the shape. When the window ends inside a bucket (for example at now), that last bucket holds only part of its samples: `partial_bucket_time` names it, it stays in `series`, and every statistic above leaves it out, so a low last point is not a drop.
 
 Then correlate: query logs (`query-logs` with the same service and a window around `onset_time`, severity error first) and traces (APM span tools, same service/window) to find what broke and its blast radius.

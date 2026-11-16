@@ -6,11 +6,8 @@ import structlog
 from posthog.github.installations import installation_id
 
 from ...merge_check.sources import LandedChange, merged_pull_request_change
-from ..adapters.registry import REGISTRY
-from ..logic import intake
 from ..settings import configured_writer_team_id, source_repositories, writer_settings
-from .contracts import DocsCommandRequest, IntakeOutcome
-from .enums import DocsRequestSource
+from .contracts import DocsCommandRequest
 
 logger = structlog.get_logger(__name__)
 
@@ -20,9 +17,10 @@ def writer_team_id() -> int | None:
     return writer.team_id if writer else None
 
 
-def request_docs_for_pull_request(command: DocsCommandRequest, *, team_id: int) -> IntakeOutcome:
-    verdict = REGISTRY[DocsRequestSource.COMMAND_TAG].assess(command)
-    return intake.submit(verdict, team_id=team_id)
+def request_docs_for_pull_request(command: DocsCommandRequest, *, team_id: int, waiter_id: str | None) -> None:
+    from ..temporal.client import start_command_check  # noqa: PLC0415 — keeps temporalio off the facade import path
+
+    start_command_check(command, team_id=team_id, waiter_id=waiter_id)
 
 
 def record_merged_pull_request(payload: Mapping[str, Any]) -> None:

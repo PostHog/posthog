@@ -145,6 +145,9 @@ heuristics.
 End the audit with a clear hand-off:
 
 - "Want me to dig into the Stripe failure?" → hands off to `diagnosing-failed-warehouse-syncs`
+- "Want me to reconnect Stripe? I'll send you a secure link to enter a new key." → for an auth failure or an
+  expired OAuth token, hands off to `diagnosing-failed-warehouse-syncs` scenario B. It reconnects the source through
+  the MCP, so the user doesn't paste secrets into the chat or open the source settings page.
 - "Want me to fix the schema drift on orders?" → hands off to `tuning-incremental-sync-config`
 - "Want to disable the billing-capped schemas?" → one-click via `external-data-schemas-partial-update`
 

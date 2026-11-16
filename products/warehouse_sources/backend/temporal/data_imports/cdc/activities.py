@@ -30,6 +30,7 @@ from posthog.temporal.common.heartbeat_sync import HeartbeaterSync
 from posthog.temporal.common.shutdown import ShutdownMonitor, WorkerShuttingDownError
 from posthog.utils import get_machine_id
 
+from products.data_warehouse.backend.facade import api as data_warehouse_api
 from products.warehouse_sources.backend.logic.source_inputs import SourceInputsStore
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.models.external_data_schema import (
@@ -67,6 +68,7 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.broken import 
     clear_recovered_self_managed_lag,
     clear_slot_loss_markers,
     mark_cdc_broken,
+    restore_missing_extraction_schedule,
 )
 from products.warehouse_sources.backend.temporal.data_imports.cdc.buffer import CDCBufferWriter, purge_buffer_prefix
 from products.warehouse_sources.backend.temporal.data_imports.cdc.errors import (
@@ -527,8 +529,8 @@ class CDCExtractActivity:
 
         self.cdc_schemas = self._get_cdc_schemas()
         if not self.cdc_schemas:
-            self.log.info("no_active_cdc_schemas_deleting_schedule")
-            self._delete_own_schedule()
+            self.log.info("no_active_cdc_schemas_syncing_schedule")
+            self._sync_own_schedule()
             return False
 
         self.schema_by_name = {s.name: s for s in self.cdc_schemas}
@@ -583,6 +585,15 @@ class CDCExtractActivity:
             delete_cdc_extraction_schedule(str(self.inputs.source_id))
         except Exception:
             self.log.exception("failed_to_delete_own_schedule")
+
+    def _sync_own_schedule(self) -> None:
+        # Sync, not delete: it reads the tables again, so a table enabled since this run loaded them
+        # keeps the schedule that its own update just recreated.
+        assert self.source is not None
+        try:
+            data_warehouse_api.sync_cdc_extraction_schedule(self.source)
+        except Exception:
+            self.log.exception("failed_to_sync_own_schedule")
 
     # ------------------------------------------------------------------
     # PK column loading
@@ -1755,6 +1766,25 @@ def cleanup_orphan_slots_activity() -> None:
             if retention_cap_mb is not None:
                 critical_threshold_mb = min(critical_threshold_mb, int(retention_cap_mb * RETENTION_CAP_SAFETY_FACTOR))
 
+            will_auto_drop = (
+                lag_mb >= critical_threshold_mb
+                and cdc_config.management_mode == "posthog"
+                and cdc_config.auto_drop_slot
+                and retention_cap_mb is None
+            )
+            # A missing schedule shows as lag, so only a lagging source pays for the Temporal lookup. A slot
+            # this sweep drops gets no schedule, because its first run would race the drop. Repair recreates it.
+            schedule_restored = False
+            if not will_auto_drop and lag_mb >= min(cdc_config.lag_warning_threshold_mb, critical_threshold_mb):
+                try:
+                    schedule_restored = restore_missing_extraction_schedule(source)
+                    if schedule_restored:
+                        source_log.warning("cdc_extraction_schedule_restored", lag_mb=round(lag_mb, 1))
+                except Exception:
+                    source_log.exception("failed_to_restore_cdc_extraction_schedule")
+                    metrics.get_sweeper_source_errors_metric().add(1)
+                    sources_errored += 1
+
             if lag_mb >= critical_threshold_mb:
                 source_log.error(
                     "slot_lag_critical",
@@ -1763,7 +1793,10 @@ def cleanup_orphan_slots_activity() -> None:
                     retention_cap_mb=retention_cap_mb,
                 )
 
-                if cdc_config.management_mode == "posthog" and cdc_config.auto_drop_slot:
+                # The lag built up while nothing read the slot, so the restored capture run gets one sweep to read it.
+                if schedule_restored:
+                    source_log.info("slot_lag_critical_while_schedule_missing")
+                elif cdc_config.management_mode == "posthog" and cdc_config.auto_drop_slot:
                     source_log.warning("auto_dropping_slot_critical_lag")
                     try:
                         with adapter.management_connection(source, connect_timeout=10) as conn:

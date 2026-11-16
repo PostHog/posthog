@@ -21,7 +21,7 @@ import { WatchPanelSectionsWithObservations } from './WatchPanelSectionsWithObse
 export const WATCH_PANEL_COLLAPSED_SIZE = '2.5rem'
 
 export function WatchPanel(): JSX.Element | null {
-    const { sessionRecordingId } = useValues(sessionRecordingPlayerLogic)
+    const { sessionRecordingId, isFullScreen } = useValues(sessionRecordingPlayerLogic)
     const vision = useVisionSurfaceShown()
     const { debugMode, watchDebugDock, watchPanelCollapsed, replayLayout } = useValues(playerSettingsLogic)
     const { setWatchPanelCollapsed } = useActions(playerSettingsLogic)
@@ -29,9 +29,10 @@ export function WatchPanel(): JSX.Element | null {
     if (!sessionRecordingId) {
         return null
     }
-    const debugDocked = debugMode && watchDebugDock === 'bottom'
-    const actions = vision ? <QuillSummarizeRecordingBar /> : undefined
     const feed = isFeedReplayLayout(replayLayout)
+    // The feed layout shows debug in the list column instead, and fullscreen shows it beside the player.
+    const debugDocked = debugMode && watchDebugDock === 'bottom' && !feed && !isFullScreen
+    const actions = vision ? <QuillSummarizeRecordingBar /> : undefined
     const collapseToggle = (
         <Button
             size="icon"

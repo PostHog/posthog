@@ -1,0 +1,16 @@
+{
+  "db_name": "PostgreSQL",
+  "query": "/* service='personhog-replica', operation='release_lifecycle_marks' */\n        DELETE FROM lifecycle_op\n        WHERE op_id = $1 AND team_id = $2 AND op_type = $3\n        ",
+  "describe": {
+    "columns": [],
+    "parameters": {
+      "Left": [
+        "Uuid",
+        "Int4",
+        "Text"
+      ]
+    },
+    "nullable": []
+  },
+  "hash": "d0e81a1130e321ae53503405c53b36cc2178b14912ec032c71e8aab1ad1808a2"
+}

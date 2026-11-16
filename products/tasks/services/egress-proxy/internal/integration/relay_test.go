@@ -60,16 +60,16 @@ func TestRelayRunIdentity(t *testing.T) {
 	verifier, err := identity.New(identity.Config{
 		Issuer: "https://issuer.example.com",
 		Keys:   map[string]*rsa.PublicKey{"test-key": &signer.PublicKey},
-		Lookup: func(_ context.Context, runID string) (identity.Registration, error) {
+		Lookup: func(_ context.Context, lookup identity.LookupRequest) (identity.Registration, error) {
 			mu.Lock()
 			defer mu.Unlock()
 			if lookupError != nil {
 				return identity.Registration{}, lookupError
 			}
-			if runID == registration.RunID {
+			if lookup == (identity.LookupRequest{TeamID: registration.TeamID, RunID: registration.RunID, ExecutionID: registration.ExecutionID}) {
 				return registration, nil
 			}
-			if runID == secondRegistration.RunID {
+			if lookup == (identity.LookupRequest{TeamID: secondRegistration.TeamID, RunID: secondRegistration.RunID, ExecutionID: secondRegistration.ExecutionID}) {
 				return secondRegistration, nil
 			}
 			return identity.Registration{}, identity.ErrUnauthorized

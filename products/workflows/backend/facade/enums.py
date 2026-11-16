@@ -46,6 +46,12 @@ class HogFlowBatchJobState(LabeledStrEnum):
     FAILED = "failed"
 
 
+class HogFlowBatchJobAudienceStatus(LabeledStrEnum):
+    RESOLVING = "resolving"
+    READY = "ready"
+    FAILED = "failed"
+
+
 class HogFlowScheduleStatus(LabeledStrEnum):
     ACTIVE = "active"
     PAUSED = "paused"
@@ -189,6 +195,7 @@ class EmailDomainSetupRecordKind(LabeledStrEnum):
     MAIL_FROM_MX = "mail_from_mx", "MAIL FROM MX"
     MAIL_FROM_SPF = "mail_from_spf", "MAIL FROM SPF"
     DMARC = "dmarc", "DMARC"
+    ORGANIZATION = "organization", "Organization ownership"
 
 
 class EmailDomainSetupRecordType(LabeledStrEnum):

@@ -87,7 +87,12 @@ sequenceDiagram
     Note over You,PH: 2. login
     hog->>PH: Start a device login
     hog-->>Agent: wait, with a link and a code
-    Agent->>You: Open the link, check the code, approve
+    Agent->>You: Open the link, check the code, approve. This is US Cloud, tell me instead if you want the EU
+    opt You want the other region
+        You->>Agent: Use the EU
+        Agent->>hog: hog setup next --region eu
+        hog-->>Agent: wait, with a new link and code
+    end
     Agent->>hog: hog setup next (waits for the approval)
     You->>PH: Log in or sign up, then approve
     PH-->>hog: Token for one project
@@ -115,5 +120,5 @@ sequenceDiagram
     hog->>hog: Check whether the agent has PostHog's MCP server
     hog->>hog: Write the final PostHog section in AGENTS.md
     hog-->>Agent: done, with the event count, the products, the skills and the MCP check
-    Agent->>You: At the end of its turn: what else PostHog can do, hog skills add, and hog mcp add when the server is missing
+    Agent->>You: At the end of its turn: what else PostHog can do, hog skills add, a reverse proxy for a posthog-js app, and hog mcp add when the server is missing
 ```

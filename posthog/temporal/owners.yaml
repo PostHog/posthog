@@ -5,6 +5,8 @@ rules:
       owners: team-ai-observability
     - match: '/alerts/'
       owners: team-product-analytics
+    - match: '/cimd_provisioning_review/'
+      owners: team-growth
     - match: '/data_modeling/'
       owners: team-data-modeling
     - match: '/delete_persons/'
@@ -71,3 +73,8 @@ rules:
     - match:
           - '/tests/data_modeling/test_*.py'
       owners: team-data-modeling
+    - match:
+          - '/workflow_catalog.py'
+          - '/workflow_catalog.json'
+          - '/tests/test_workflow_catalog.py'
+      owners: team-cloud-foundations
