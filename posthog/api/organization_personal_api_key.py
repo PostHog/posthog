@@ -28,6 +28,10 @@ from posthog.permissions import (
     PremiumFeaturePermission,
     TimeSensitiveActionPermission,
 )
+from posthog.rate_limit import (
+    OrganizationPersonalAPIKeyBulkActionBurstThrottle,
+    OrganizationPersonalAPIKeyBulkActionSustainedThrottle,
+)
 
 
 class OrganizationPersonalAPIKeyActionPermission(BasePermission):
@@ -202,6 +206,15 @@ class OrganizationPersonalAPIKeyViewSet(
             context["organization_access_resolver"] = PersonalAPIKeyOrganizationAccessResolver.for_keys(list(args[0]))
         kwargs["context"] = context
         return super().get_serializer(*args, **kwargs)
+
+    def get_throttles(self) -> list[Any]:
+        if self.action in ("roll_all", "revoke_all"):
+            return [
+                *super().get_throttles(),
+                OrganizationPersonalAPIKeyBulkActionBurstThrottle(),
+                OrganizationPersonalAPIKeyBulkActionSustainedThrottle(),
+            ]
+        return super().get_throttles()
 
     def get_serializer_context(self) -> dict[str, Any]:
         context = super().get_serializer_context()

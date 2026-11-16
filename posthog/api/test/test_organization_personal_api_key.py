@@ -5,6 +5,7 @@ from posthog.test.base import APIBaseTest
 from unittest.mock import ANY, MagicMock, patch
 
 from django.conf import settings
+from django.core.cache import cache
 from django.core.signing import TimestampSigner
 from django.test import override_settings
 from django.utils import timezone
@@ -26,6 +27,7 @@ from posthog.tasks.email import send_personal_api_keys_changed_by_org_admin
 class TestOrganizationPersonalAPIKeyAPI(APIBaseTest):
     def setUp(self):
         super().setUp()
+        cache.clear()
         self.organization.available_product_features = [
             {"key": AvailableFeature.ORGANIZATION_SECURITY_SETTINGS, "name": "organization_security_settings"}
         ]
@@ -639,6 +641,23 @@ class TestOrganizationPersonalAPIKeyAPI(APIBaseTest):
         assert response.json() == {**expected_counts, "started_at": ANY}
         assert leaving_key.id in locked_key_ids
         assert PersonalAPIKey.objects.get(pk=leaving_key.pk).secure_value == leaving_key.secure_value
+
+    def test_bulk_actions_share_one_throttle_per_organization(self) -> None:
+        self._set_level(OrganizationMembership.Level.ADMIN)
+        owner = User.objects.create_and_join(self.organization, "throttle-owner@example.com", None)
+        for action in ("roll_all", "revoke_all", "roll_all"):
+            assert self.client.post(self._bulk_action_url(action)).status_code == status.HTTP_200_OK
+        key = self._create_key(owner)
+        other_admin = User.objects.create_and_join(
+            self.organization, "throttle-admin@example.com", None, level=OrganizationMembership.Level.ADMIN
+        )
+        self.client.force_login(other_admin)
+
+        throttled = self.client.post(self._bulk_action_url("roll_all"))
+        single_key = self.client.post(self._action_url(key, "roll"))
+
+        assert throttled.status_code == status.HTTP_429_TOO_MANY_REQUESTS, throttled.content
+        assert single_key.status_code == status.HTTP_200_OK, single_key.content
 
     @patch.object(send_personal_api_keys_changed_by_org_admin, "delay")
     def test_bulk_action_continues_past_a_failing_key(self, mock_delay: MagicMock) -> None:
