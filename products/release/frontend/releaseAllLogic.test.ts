@@ -8,14 +8,18 @@ import { initKeaTests } from '~/test/init'
 import { earlyAccessFeatureList } from 'products/early_access_features/frontend/generated/api'
 import { experimentsList } from 'products/experiments/frontend/generated/api'
 
-import { releasesCatalogFlagsRetrieve, releasesList } from './generated/api'
+import { releasesCatalogFlagsRetrieve, releasesCatalogReleasesRetrieve, releasesList } from './generated/api'
 import { ALL_PAGE_SIZE, releaseAllLogic } from './releaseAllLogic'
 import { releaseLogic } from './releaseLogic'
 
 const EMPTY_PAGE = { results: [], count: 0, next: null }
 
 jest.mock('lib/posthog-typed', () => ({ __esModule: true, default: { capture: jest.fn() } }))
-jest.mock('./generated/api', () => ({ releasesList: jest.fn(), releasesCatalogFlagsRetrieve: jest.fn() }))
+jest.mock('./generated/api', () => ({
+    releasesList: jest.fn(),
+    releasesCatalogFlagsRetrieve: jest.fn(),
+    releasesCatalogReleasesRetrieve: jest.fn(),
+}))
 jest.mock('products/feature_flags/frontend/generated/api', () => ({
     featureFlagsList: jest.fn(async () => EMPTY_PAGE),
     featureFlagsRetrieve: jest.fn(),
@@ -50,6 +54,10 @@ describe('releaseAllLogic', () => {
         initKeaTests()
         jest.mocked(releasesList).mockResolvedValue(EMPTY_PAGE as never)
         jest.mocked(earlyAccessFeatureList).mockResolvedValue(EMPTY_PAGE as never)
+        jest.mocked(releasesCatalogReleasesRetrieve).mockResolvedValue({
+            results: [{ id: 'r1', name: 'Release 1', created_at: '2026-11-07T00:00:00Z' }],
+            has_more: false,
+        } as never)
         jest.mocked(experimentsList).mockImplementation(
             async (_project, params) =>
                 (params?.limit === 1
@@ -80,6 +88,7 @@ describe('releaseAllLogic', () => {
             'flag-1',
             'Experiment 1',
             'flag-2',
+            'Release 1',
             'flag-3',
             'Experiment 2',
             'flag-4',

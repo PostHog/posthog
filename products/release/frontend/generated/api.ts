@@ -11,6 +11,7 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
 import type {
     BroadcastOptionApi,
     CatalogFlagsResponseApi,
+    CatalogReleasesResponseApi,
     ImportAllResponseApi,
     MergeReleasesApi,
     PaginatedReleaseDTOListApi,
@@ -18,6 +19,7 @@ import type {
     ReleaseDTOApi,
     ReleasesBroadcastSearchRetrieveParams,
     ReleasesCatalogFlagsRetrieveParams,
+    ReleasesCatalogReleasesRetrieveParams,
     ReleasesListParams,
     WriteReleaseApi,
 } from './api.schemas'
@@ -186,6 +188,39 @@ export const releasesCatalogFlagsRetrieve = async (
     options?: RequestInit
 ): Promise<CatalogFlagsResponseApi> => {
     return apiMutator<CatalogFlagsResponseApi>(getReleasesCatalogFlagsRetrieveUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getReleasesCatalogReleasesRetrieveUrl = (
+    projectId: string,
+    params?: ReleasesCatalogReleasesRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/releases/catalog_releases/?${stringifiedParams}`
+        : `/api/projects/${projectId}/releases/catalog_releases/`
+}
+
+/**
+ * List the project's releases, newest first, with only the fields a list shows.
+ */
+export const releasesCatalogReleasesRetrieve = async (
+    projectId: string,
+    params?: ReleasesCatalogReleasesRetrieveParams,
+    options?: RequestInit
+): Promise<CatalogReleasesResponseApi> => {
+    return apiMutator<CatalogReleasesResponseApi>(getReleasesCatalogReleasesRetrieveUrl(projectId, params), {
         ...options,
         method: 'GET',
     })

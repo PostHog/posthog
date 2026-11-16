@@ -199,6 +199,22 @@ export interface CatalogFlagsResponseApi {
     has_more: boolean
 }
 
+export interface CatalogReleaseApi {
+    /** ID of the release. */
+    id: string
+    /** Name of the release. */
+    name: string
+    /** When the release was created. */
+    created_at: string
+}
+
+export interface CatalogReleasesResponseApi {
+    /** Releases of the project, newest first. */
+    results: CatalogReleaseApi[]
+    /** True when more releases follow this page. */
+    has_more: boolean
+}
+
 export interface ImportAllResponseApi {
     /** How many releases the import created. */
     created_count: number
@@ -238,6 +254,25 @@ export type ReleasesCatalogFlagsRetrieveParams = {
     offset?: number
     /**
      * Part of the flag key or name to match.
+     * @maxLength 200
+     */
+    search?: string
+}
+
+export type ReleasesCatalogReleasesRetrieveParams = {
+    /**
+     * How many releases to return, at most 100.
+     * @minimum 1
+     * @maximum 100
+     */
+    limit?: number
+    /**
+     * How many releases to skip, newest first.
+     * @minimum 0
+     */
+    offset?: number
+    /**
+     * Part of the release name to match.
      * @maxLength 200
      */
     search?: string

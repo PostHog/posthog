@@ -18,6 +18,13 @@ def list_releases(team_id: int) -> QuerySet[Release]:
     return strict_fetch(Release.objects.filter(team_id=team_id).select_related("owner").order_by("created_at", "id"))
 
 
+def list_catalog_releases(team_id: int, search: str) -> QuerySet[Release]:
+    releases = Release.objects.filter(team_id=team_id)
+    if search:
+        releases = releases.filter(name__icontains=search)
+    return releases.only("id", "name", "created_at", "auto_named", "feature_flag_ids").order_by("-created_at", "-id")
+
+
 def get_release(team_id: int, release_id: UUID) -> Release:
     release = Release.objects.filter(team_id=team_id, id=release_id).select_related("owner").first()
     if release is None:

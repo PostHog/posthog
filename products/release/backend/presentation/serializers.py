@@ -45,6 +45,29 @@ class CatalogFlagsResponseSerializer(serializers.Serializer):
     has_more = serializers.BooleanField(help_text="True when more flags follow this page.")
 
 
+class CatalogReleasesQuerySerializer(serializers.Serializer):
+    search = serializers.CharField(
+        required=False, allow_blank=True, max_length=200, help_text="Part of the release name to match."
+    )
+    limit = serializers.IntegerField(
+        required=False, default=50, min_value=1, max_value=100, help_text="How many releases to return, at most 100."
+    )
+    offset = serializers.IntegerField(
+        required=False, default=0, min_value=0, help_text="How many releases to skip, newest first."
+    )
+
+
+class CatalogReleaseSerializer(serializers.Serializer):
+    id = serializers.UUIDField(help_text="ID of the release.")
+    name = serializers.CharField(help_text="Name of the release.")
+    created_at = serializers.DateTimeField(help_text="When the release was created.")
+
+
+class CatalogReleasesResponseSerializer(serializers.Serializer):
+    results = CatalogReleaseSerializer(many=True, help_text="Releases of the project, newest first.")
+    has_more = serializers.BooleanField(help_text="True when more releases follow this page.")
+
+
 class BroadcastOptionSerializer(serializers.Serializer):
     id = serializers.UUIDField(help_text="ID of the broadcast.")
     name = serializers.CharField(help_text="Name of the broadcast.")

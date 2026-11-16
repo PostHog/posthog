@@ -45,6 +45,8 @@ from .serializers import (
     BroadcastSearchQuerySerializer,
     CatalogFlagsQuerySerializer,
     CatalogFlagsResponseSerializer,
+    CatalogReleasesQuerySerializer,
+    CatalogReleasesResponseSerializer,
     ImportAllResponseSerializer,
     MergeReleasesSerializer,
     ReleaseSerializer,
@@ -58,7 +60,7 @@ BROADCAST_SEARCH_LIMIT = 50
 
 class ReleaseViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     scope_object = "feature_flag"
-    scope_object_read_actions = ["list", "retrieve", "broadcast_search", "catalog_flags"]
+    scope_object_read_actions = ["list", "retrieve", "broadcast_search", "catalog_flags", "catalog_releases"]
     scope_object_write_actions = ["create", "update", "partial_update", "destroy", "import_all", "merge"]
     serializer_class = ReleaseSerializer
     pagination_class = FacadeLimitOffsetPagination
@@ -309,6 +311,23 @@ class ReleaseViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             offset=query["offset"],
         )
         return Response(CatalogFlagsResponseSerializer({"results": flags, "has_more": has_more}).data)
+
+    @validated_request(
+        query_serializer=CatalogReleasesQuerySerializer,
+        responses={200: OpenApiResponse(response=CatalogReleasesResponseSerializer)},
+    )
+    @action(detail=False, methods=["get"], pagination_class=None)
+    def catalog_releases(self, request: ValidatedRequest, **kwargs) -> Response:
+        """List the project's releases, newest first, with only the fields a list shows."""
+        query = request.validated_query_data
+        releases, has_more = api.list_catalog_page(
+            self.team_id,
+            self._flag_visibility,
+            search=query.get("search", "").strip(),
+            limit=query["limit"],
+            offset=query["offset"],
+        )
+        return Response(CatalogReleasesResponseSerializer({"results": releases, "has_more": has_more}).data)
 
     @extend_schema(request=None, responses={201: ImportAllResponseSerializer})
     @action(detail=False, methods=["post"], pagination_class=None)

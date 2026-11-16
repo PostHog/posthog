@@ -26758,6 +26758,22 @@ export namespace Schemas {
       has_more: boolean;
     }
 
+    export interface CatalogRelease {
+      /** ID of the release. */
+      id: string;
+      /** Name of the release. */
+      name: string;
+      /** When the release was created. */
+      created_at: string;
+    }
+
+    export interface CatalogReleasesResponse {
+      /** Releases of the project, newest first. */
+      results: CatalogRelease[];
+      /** True when more releases follow this page. */
+      has_more: boolean;
+    }
+
     export interface CatalogueEntry {
       /** A raw utm_source value seen in the window */
       raw_utm_source: string;
@@ -143933,6 +143949,25 @@ export namespace Schemas {
     offset?: number;
     /**
      * Part of the flag key or name to match.
+     * @maxLength 200
+     */
+    search?: string;
+    };
+
+    export type ReleasesCatalogReleasesRetrieveParams = {
+    /**
+     * How many releases to return, at most 100.
+     * @minimum 1
+     * @maximum 100
+     */
+    limit?: number;
+    /**
+     * How many releases to skip, newest first.
+     * @minimum 0
+     */
+    offset?: number;
+    /**
+     * Part of the release name to match.
      * @maxLength 200
      */
     search?: string;

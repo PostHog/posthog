@@ -339,6 +339,10 @@ class TestReleaseAPI(APIBaseTest):
         self.client.force_login(self._create_user("member@example.com"))
 
         assert self.client.get(self._url()).json()["results"][0]["name"] == expected
+        assert [release["name"] for release in self.client.get(self._url("catalog_releases/")).json()["results"]] == [
+            expected
+        ]
+        assert self.client.get(self._url("catalog_releases/?search=secret")).json()["results"] == []
 
     def test_merge_moves_every_link_into_the_kept_release_and_deletes_the_others(self) -> None:
         flags = [self._flag(key) for key in ("checkout-button", "checkout-copy", "checkout-form")]
@@ -422,6 +426,18 @@ class TestReleaseAPI(APIBaseTest):
         assert [flag["id"] for flag in first["results"]] == [newer]
         assert first["has_more"] is True
         assert [flag["id"] for flag in second["results"]] == [older]
+        assert second["has_more"] is False
+
+    def test_catalog_releases_lists_newest_first_with_search_and_paging(self) -> None:
+        for name in ("Checkout older", "Billing", "Checkout newer"):
+            Release.objects.unscoped().create(team=self.team, name=name)
+
+        first = self.client.get(self._url("catalog_releases/?search=checkout&limit=1")).json()
+        second = self.client.get(self._url("catalog_releases/?search=checkout&limit=1&offset=1")).json()
+
+        assert [release["name"] for release in first["results"]] == ["Checkout newer"]
+        assert first["has_more"] is True
+        assert [release["name"] for release in second["results"]] == ["Checkout older"]
         assert second["has_more"] is False
 
     def test_catalog_flags_hides_flags_the_caller_cannot_see(self) -> None:
