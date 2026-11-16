@@ -171,9 +171,8 @@ def test_the_rendering_fills_its_bound_and_shows_each_system_prompt_once(_name: 
         SUPPORT.key: review_calls // 2,
         ROUTER.key: review_calls // 2,
     }
-    # Each call alone carries its call type's system prompt and the same block the review read.
-    system, block = rendering.calls[1].text.split('\n\n<call number="1" ')
-    assert system.startswith("<system_prompt>\nSYSTEM-MARKER") and f'<call number="1" {block}' in rendering.text
+    # Each call keeps its stored row, so a judge drafted from it reads the whole call.
+    assert rendering.calls[1].row == rows[0]
 
 
 @parameterized.expand(
