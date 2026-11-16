@@ -29,16 +29,16 @@ describe('TransactionalEmailDetails', () => {
 
     it.each([
         [
-            'a code send links to its code email',
+            "a code send links to its code email's sends",
             true,
             { code_email_id: 'code-1', template_id: null },
-            '/transactional/code-emails/code-1',
+            '/transactional/code-emails/code-1\\?tab=sends',
         ],
         [
-            'a template send links to its template',
+            "a template send links to its template's sends",
             true,
             { code_email_id: null, template_id: 'tpl-1' },
-            '/transactional/library/templates/tpl-1',
+            '/transactional/library/templates/tpl-1\\?tab=sends',
         ],
         ['without the flag, a code send links nowhere', false, { code_email_id: 'code-1', template_id: null }, null],
         [
