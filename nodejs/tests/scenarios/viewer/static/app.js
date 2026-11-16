@@ -442,13 +442,23 @@ const sinceStart = (from) => ({
     tip: (t) => `t+${fmtDuration(Math.max(t - from, 0))}`,
 })
 
-function lineChart({ title, unit, series, from, to, bands = [], height = 220, xLabels = sinceStart(from) }) {
+function lineChart({
+    title,
+    unit,
+    series,
+    from,
+    to,
+    bands = [],
+    height = 220,
+    xLabels = sinceStart(from),
+    empty = 'No samples in this run',
+}) {
     const width = 640
     const pad = { l: 48, r: 26, t: 10, b: 26 }
     const all = series.flatMap(({ points }) => points.map(([, v]) => v)).filter((v) => v !== null)
     const container = h('div', { class: 'panel chart' }, h('h3', {}, `${title}${unit ? ` (${unit})` : ''}`))
     if (all.length === 0 || to <= from) {
-        container.append(h('div', { class: 'empty' }, 'No samples in this run'))
+        container.append(h('div', { class: 'empty' }, empty))
         return { el: container, cursor: () => undefined }
     }
     const legend = h('div', { class: 'legend' })
@@ -834,6 +844,7 @@ async function cardPage(id, render) {
         from: chronological.length ? Date.parse(chronological[0].startedAt) : 0,
         to: chronological.length ? Date.parse(chronological.at(-1).startedAt) : 0,
         xLabels: { tick: fmtWhen, tip: fmtWhen },
+        empty: 'No delivery latency recorded in these runs',
     })
     render(
         h('a', { href: '#/cards' }, '← Cards'),
