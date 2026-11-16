@@ -1256,6 +1256,162 @@ async function runPage(runId, startAtSeconds = 0) {
     show(start)
 }
 
+// ---------- live ----------
+
+const LIVE_POLL_MS = 1000
+const PHASES = [
+    ['reset', 'Reset'],
+    ['seed', 'Seed'],
+    ['drive', 'Drive'],
+    ['converge', 'Converge'],
+    ['judge', 'Judge'],
+    ['end', 'Done'],
+]
+
+const liveDetail = (live) => ({
+    ...live,
+    endedAt: new Date(live.now).toISOString(),
+    drive: live.drive && { startedAt: live.drive.startedAt, endedAt: live.drive.endedAt ?? live.now },
+    scorecard: { timeline: live.timeline },
+})
+
+async function livePage() {
+    stopReplay()
+    const all = await cards()
+    const diagram = deliveryPath()
+    const header = h('div')
+    const clock = h('span', { class: 'clock' })
+    const phases = h('div', { class: 'phases' })
+    const events = h('div', { class: 'events' })
+    const chartsEl = h('div', { class: 'charts' })
+    const empty = h(
+        'div',
+        { class: 'panel empty' },
+        'No run yet. Start one on the box, and it shows here within a second: ',
+        h('code', {}, 'pnpm --dir nodejs exec tsx tests/scenarios/main.ts run <card>')
+    )
+    const body = h(
+        'div',
+        {},
+        h(
+            'div',
+            { class: 'panel' },
+            h('h3', {}, 'The delivery path now'),
+            diagram.svg,
+            h('div', { class: 'replay' }, phases, clock),
+            events
+        ),
+        h('h2', {}, 'So far'),
+        chartsEl
+    )
+    render(header, empty, body)
+    body.hidden = true
+    let shownRun
+    let busy = false
+    const poll = async () => {
+        if (busy) {
+            return
+        }
+        busy = true
+        try {
+            const live = await getJson('/api/live')
+            if (!live) {
+                return
+            }
+            empty.hidden = true
+            body.hidden = false
+            const detail = liveDetail(live)
+            const cardView = all.find((c) => c.id === live.cardId)
+            const windows = valveWindows(detail, cardView)
+            const from = live.drive?.startedAt ?? Date.parse(live.startedAt)
+            const planned = live.drive ? live.drive.startedAt + live.drive.forMs : from
+            const lastData = Math.max(
+                from,
+                ...live.series.queue.map((p) => p.at),
+                ...live.series.flow.map((p) => p.at + live.series.bucketMs),
+                ...live.series.roles.flatMap((r) => r.points.map((p) => p.at))
+            )
+            // A finished run stays on its last sample. A running one trails the clock by one bucket,
+            // because a bucket fills over five seconds.
+            const t = live.ended ? lastData : live.now - live.series.bucketMs
+            const to = live.ended ? Math.max(lastData, from + 1000) : Math.max(planned, t, from + 1000)
+            if (shownRun !== `${live.runId}/${live.phase}/${live.hasScorecard}`) {
+                shownRun = `${live.runId}/${live.phase}/${live.hasScorecard}`
+                header.replaceChildren(
+                    ...[
+                        h(
+                            'h1',
+                            {},
+                            live.ended ? 'Last run: ' : 'Live: ',
+                            h('a', { href: `#/cards/${live.cardId}` }, live.cardId),
+                            ' ',
+                            statusPill(live.ended ? live.ended.status : 'running')
+                        ),
+                        h('p', { class: 'sub mono' }, `run ${live.runId}, started ${fmtTime(live.startedAt)}`),
+                        live.ended
+                            ? h(
+                                  'div',
+                                  { class: `reason ${live.ended.status}` },
+                                  live.ended.statusReason,
+                                  live.hasScorecard
+                                      ? h('a', { href: `#/runs/${live.runId}`, class: 'open' }, ' Open the scorecard →')
+                                      : null
+                              )
+                            : null,
+                    ].filter(Boolean)
+                )
+                const reached = new Set(live.phases.map((p) => p.phase).concat(live.ended ? ['end'] : []))
+                phases.replaceChildren(
+                    ...PHASES.map(([id, label]) =>
+                        h(
+                            'span',
+                            { class: `phase${reached.has(id) ? ' done' : ''}${live.phase === id ? ' now' : ''}` },
+                            label
+                        )
+                    )
+                )
+            }
+            diagram.paint(viewAt(detail, windows, t))
+            clock.textContent = live.drive
+                ? `t+${fmtDuration(Math.max(0, (live.ended ? lastData : live.now) - from))}${live.drive.forMs ? ` of ${fmtDuration(live.drive.forMs)} drive` : ''}`
+                : `started ${ago(live.startedAt)}`
+            const happenings = windows
+                .flatMap((w) => [
+                    w.from !== null ? { at: w.from, text: `${w.valve} applied on ${w.target}` } : null,
+                    w.releasedAt && w.valve !== 'role.kill'
+                        ? { at: Date.parse(w.releasedAt), text: `${w.valve} released` }
+                        : null,
+                ])
+                .concat(live.series.roles.flatMap((r) => r.restarts.map((at) => ({ at, text: `${r.role} restarted` }))))
+                .concat(live.phases.map((p) => ({ at: p.at, text: `${p.phase} started` })))
+                .filter(Boolean)
+                .sort((a, b) => a.at - b.at)
+            events.replaceChildren(
+                ...happenings
+                    .slice(-4)
+                    .map((e) =>
+                        h(
+                            'div',
+                            { class: `e${live.now - e.at < 5000 ? ' now' : ''}` },
+                            `${e.at < from ? 'before drive' : `t+${fmtDuration(e.at - from)}`}  ${e.text}`
+                        )
+                    )
+            )
+            const charts = runCharts(detail, windows, from, to)
+            charts.forEach((chart) => chart.cursor(t))
+            chartsEl.replaceChildren(...charts.map((chart) => chart.el))
+        } catch (error) {
+            empty.hidden = false
+            empty.textContent = `The viewer lost the live run: ${error.message}`
+        } finally {
+            busy = false
+        }
+    }
+    const timer = setInterval(() => void poll(), LIVE_POLL_MS)
+    stopReplay = () => clearInterval(timer)
+    await poll()
+}
+
 // ---------- router ----------
 
 async function route() {
@@ -1273,7 +1429,9 @@ async function route() {
             )
         )
     try {
-        if (page === 'runs' && id) {
+        if (page === 'live') {
+            await livePage()
+        } else if (page === 'runs' && id) {
             await runPage(id, startAt)
         } else if (page === 'runs') {
             await runsPage()

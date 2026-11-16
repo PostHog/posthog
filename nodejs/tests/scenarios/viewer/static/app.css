@@ -640,3 +640,30 @@ select {
 .path .node.target .state {
     fill: var(--serious);
 }
+
+.phases {
+    display: flex;
+    gap: 4px;
+}
+
+.phase {
+    padding: 2px 10px;
+    font-size: 12px;
+    color: var(--muted);
+    border: 1px solid var(--border);
+    border-radius: 999px;
+}
+
+.phase.done {
+    color: var(--ink-2);
+}
+
+.phase.now {
+    font-weight: 600;
+    color: var(--ink);
+    border-color: var(--ink-2);
+}
+
+.reason .open {
+    margin-left: 8px;
+}
