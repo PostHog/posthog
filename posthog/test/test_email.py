@@ -35,6 +35,7 @@ from posthog.email import (
     _send_email,
     _send_via_http,
     _send_via_smtp,
+    _workflows_pin_key,
     get_email_team_and_org_context,
     is_email_available,
     sanitize_email_properties,
@@ -914,6 +915,28 @@ class TestEmail(BaseTest):
 
         self.assertEqual([email.to for email in mail.outbox], [["first@posthog.com"]])
         self.assertTrue(was_email_delivered("refused_campaign", "second@posthog.com"))
+
+    @override_settings(POSTHOG_TRANSACTIONAL_EMAIL_API_KEY="phs_test", POSTHOG_HOST="https://us.posthog.com")
+    @patch("requests.adapters.HTTPAdapter.send", autospec=True)
+    def test_a_pin_from_an_overlapping_send_blocks_the_smtp_fallback(self, mock_send: MagicMock) -> None:
+        mock_send.return_value = _workflows_response(429, {"code": "throttled"})
+
+        def overlapping_send_pins_the_recipient(*_args: Any, **_kwargs: Any) -> bool:
+            caches["email_workflows_pins"].set(_workflows_pin_key("overlap_campaign", "test@posthog.com"), True)
+            return True
+
+        with (
+            override_instance_config("EMAIL_HOST", "localhost"),
+            patch("posthog.email.posthoganalytics.feature_enabled", side_effect=overlapping_send_pins_the_recipient),
+        ):
+            message = EmailMessage(
+                campaign_key="overlap_campaign", subject="Subject", template_name="async_migration_error"
+            )
+            message.add_recipient("test@posthog.com")
+            with self.assertRaises(WorkflowsEmailError):
+                message.send(send_async=False, retry=False)
+
+        self.assertEqual(len(mail.outbox), 0)
 
     @parameterized.expand([("pin_read", "get"), ("pin_write", "set")])
     @override_settings(POSTHOG_TRANSACTIONAL_EMAIL_API_KEY="phs_test", POSTHOG_HOST="https://us.posthog.com")
