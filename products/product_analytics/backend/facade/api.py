@@ -406,6 +406,26 @@ def user_can_view_insight(*, team: Team, user: User, insight_id: int) -> bool:
     return access_control.check_access_level_for_object(insight, "viewer")
 
 
+def insight_ids_created_by(*, team_id: int, user_id: int, insight_ids: Collection[int] | None = None) -> set[int]:
+    """The ids of this team's insights the user created, deleted ones included, among ``insight_ids`` when given.
+    Access control exempts a creator from object rules on their own insights."""
+    insights = Insight.objects.filter(team_id=team_id, created_by_id=user_id)
+    if insight_ids is not None:
+        insights = insights.filter(id__in=insight_ids)
+    return set(insights.values_list("id", flat=True))
+
+
+def viewable_insight_ids(*, access_control: UserAccessControl, team_id: int, insight_ids: Collection[int]) -> set[int]:
+    """The ids among ``insight_ids`` of this team's insights the user may view, deleted ones included, as the
+    alert API's read gate narrows them."""
+    if not insight_ids:
+        return set()
+    insights = access_control.filter_queryset_by_access_level(
+        Insight.objects.filter(team_id=team_id, id__in=insight_ids), resource="insight"
+    )
+    return set(insights.values_list("id", flat=True))
+
+
 def viewable_insights(*, team: Team, user: User, insight_ids: Collection[int]) -> list[ViewableInsight]:
     """The live insights of this team among ``insight_ids`` that the user may view, in one query."""
     if not insight_ids:

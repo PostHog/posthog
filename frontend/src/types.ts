@@ -5708,6 +5708,7 @@ export const INTEGRATION_KINDS = [
     'aws-redshift',
     's3-compatible',
     'snowflake',
+    'motherduck',
     'youtube-analytics',
     'twitter-ads',
 ] as const
@@ -7559,6 +7560,7 @@ export type HogFunctionConfigurationContextId =
     | 'billing-alerts'
     | 'replay-vision-alerts'
     | 'replay-vision-requests'
+    | 'signals-reports'
 
 export type HogFunctionSubTemplateIdType =
     | 'early-access-feature-enrollment'
@@ -7581,6 +7583,7 @@ export type HogFunctionSubTemplateIdType =
     | 'health-check-resolved'
     | 'batch-export-run-failed'
     | 'replay-vision-request-completed'
+    | 'signals-report-ready'
 
 export type HogFunctionConfigurationType = Omit<
     HogFunctionType,

@@ -117,6 +117,19 @@ export namespace Schemas {
       aliases?: string[];
     }
 
+    export interface AEOCompetitorCandidate {
+      /** Brand id. Confirm the brand as a competitor or ignore it with aeo_brands_partial_update. */
+      brand_id: string;
+      /** Brand name. Starts as a guess from the domain until someone edits it. */
+      name: string;
+      /** Registrable domain of the brand. */
+      domain: string;
+      /** Answers to non-branded prompts whose text has the brand's name or one of its other names as a whole word. */
+      answers_naming: number;
+      /** Answers to non-branded prompts that cite a page on the brand's domain or one of its subdomains. */
+      answers_citing: number;
+    }
+
     /**
      * * `web_search` - Web search
      * * `no_search` - No search
@@ -10633,6 +10646,7 @@ export namespace Schemas {
       AwsRedshift: 'aws-redshift',
       S3Compatible: 's3-compatible',
       Snowflake: 'snowflake',
+      Motherduck: 'motherduck',
       YoutubeAnalytics: 'youtube-analytics',
       TwitterAds: 'twitter-ads',
     } as const;
@@ -39124,6 +39138,9 @@ export namespace Schemas {
     /**
      * * `not_useful` - Not useful
      * * `not_now` - Not now
+     * * `wrong_estimate` - Wrong estimate
+     * * `already_handled` - Already handled
+     * * `not_owner` - Someone else decides
      * * `other` - Other
      */
     export type WarehouseSuggestionDismissalReasonEnum = typeof WarehouseSuggestionDismissalReasonEnum[keyof typeof WarehouseSuggestionDismissalReasonEnum];
@@ -39132,6 +39149,9 @@ export namespace Schemas {
     export const WarehouseSuggestionDismissalReasonEnum = {
       NotUseful: 'not_useful',
       NotNow: 'not_now',
+      WrongEstimate: 'wrong_estimate',
+      AlreadyHandled: 'already_handled',
+      NotOwner: 'not_owner',
       Other: 'other',
     } as const;
 
@@ -39140,6 +39160,9 @@ export namespace Schemas {
        *
        * * `not_useful` - Not useful
        * * `not_now` - Not now
+       * * `wrong_estimate` - Wrong estimate
+       * * `already_handled` - Already handled
+       * * `not_owner` - Someone else decides
        * * `other` - Other */
       reason: WarehouseSuggestionDismissalReasonEnum;
       /**
@@ -51937,6 +51960,7 @@ export namespace Schemas {
      * * `Databricks` - Databricks
      * * `AzureBlob` - Azure Blob
      * * `S3` - S3
+     * * `MotherDuck` - MotherDuck
      */
     export type ExternalDataDestinationTypeEnum = typeof ExternalDataDestinationTypeEnum[keyof typeof ExternalDataDestinationTypeEnum];
 
@@ -51950,6 +51974,7 @@ export namespace Schemas {
       Databricks: 'Databricks',
       AzureBlob: 'AzureBlob',
       S3: 'S3',
+      MotherDuck: 'MotherDuck',
     } as const;
 
     /**
@@ -51977,7 +52002,8 @@ export namespace Schemas {
        * * `Postgres` - Postgres
        * * `Databricks` - Databricks
        * * `AzureBlob` - Azure Blob
-       * * `S3` - S3 */
+       * * `S3` - S3
+       * * `MotherDuck` - MotherDuck */
       type: ExternalDataDestinationTypeEnum;
       /**
          * Human-readable name shown when picking destinations for a source or table.
@@ -64999,6 +65025,7 @@ export namespace Schemas {
      * * `linear` - Linear
      * * `linkedin-ads` - Linkedin Ads
      * * `meta-ads` - Meta Ads
+     * * `motherduck` - Motherduck
      * * `pardot` - Pardot
      * * `pinterest-ads` - Pinterest Ads
      * * `postgresql` - Postgresql
@@ -65055,6 +65082,7 @@ export namespace Schemas {
       Linear: 'linear',
       LinkedinAds: 'linkedin-ads',
       MetaAds: 'meta-ads',
+      Motherduck: 'motherduck',
       Pardot: 'pardot',
       PinterestAds: 'pinterest-ads',
       Postgresql: 'postgresql',
@@ -65111,6 +65139,7 @@ export namespace Schemas {
        * * `linear` - Linear
        * * `linkedin-ads` - Linkedin Ads
        * * `meta-ads` - Meta Ads
+       * * `motherduck` - Motherduck
        * * `pardot` - Pardot
        * * `pinterest-ads` - Pinterest Ads
        * * `postgresql` - Postgresql
@@ -65278,6 +65307,7 @@ export namespace Schemas {
        * * `linear` - Linear
        * * `linkedin-ads` - Linkedin Ads
        * * `meta-ads` - Meta Ads
+       * * `motherduck` - Motherduck
        * * `pardot` - Pardot
        * * `pinterest-ads` - Pinterest Ads
        * * `postgresql` - Postgresql
@@ -81550,7 +81580,7 @@ export namespace Schemas {
     }
 
     export interface ReportRanking {
-      /** scored: the predictions describe the current text. stale: the title or summary changed after the text the model read, so the predictions describe the old text and the model sorts and filters treat the report as unscored. unscored: the model has not scored the report yet, or skipped it. This does not mean a low score. not_available: you cannot see the ranking model's output, so every other field is empty.
+      /** scored: the predictions describe the current text. stale: the title or summary changed after the text the model read, so the predictions describe the old text. The model sorts and filters still use them. unscored: the model has not scored the report yet, or skipped it. This does not mean a low score. not_available: you cannot see the ranking model's output, so every other field is empty.
        *
        * * `scored` - scored
        * * `stale` - stale
@@ -85730,6 +85760,9 @@ export namespace Schemas {
        *
        * * `not_useful` - Not useful
        * * `not_now` - Not now
+       * * `wrong_estimate` - Wrong estimate
+       * * `already_handled` - Already handled
+       * * `not_owner` - Someone else decides
        * * `other` - Other */
       dismissal_reason: WarehouseSuggestionDismissalReasonEnum | null;
       /** What happened to the asset an accepted suggestion created.
@@ -89770,7 +89803,8 @@ export namespace Schemas {
        * * `Postgres` - Postgres
        * * `Databricks` - Databricks
        * * `AzureBlob` - Azure Blob
-       * * `S3` - S3 */
+       * * `S3` - S3
+       * * `MotherDuck` - MotherDuck */
       type?: ExternalDataDestinationTypeEnum;
       /**
          * Human-readable name shown when picking destinations for a source or table.
@@ -124673,6 +124707,7 @@ export namespace Schemas {
      * * `Databricks` - Databricks
      * * `AzureBlob` - Azure Blob
      * * `S3` - S3
+     * * `MotherDuck` - MotherDuck
      */
     export type UserCreatableDestinationTypeEnum = typeof UserCreatableDestinationTypeEnum[keyof typeof UserCreatableDestinationTypeEnum];
 
@@ -124685,6 +124720,7 @@ export namespace Schemas {
       Databricks: 'Databricks',
       AzureBlob: 'AzureBlob',
       S3: 'S3',
+      MotherDuck: 'MotherDuck',
     } as const;
 
     export interface UserCustomerAnalyticsConfig {
@@ -126679,7 +126715,8 @@ export namespace Schemas {
        * * `Postgres` - Postgres
        * * `Databricks` - Databricks
        * * `AzureBlob` - Azure Blob
-       * * `S3` - S3 */
+       * * `S3` - S3
+       * * `MotherDuck` - MotherDuck */
       warehouse_destination_type: UserCreatableDestinationTypeEnum | null;
       /** How the wizard sets up the source: in the terminal or in the app. Null for a tool with no warehouse source.
        *
@@ -131132,7 +131169,7 @@ export namespace Schemas {
      */
     detail_filters?: string;
     /**
-     * Upper bound on `created_at` (inclusive), ISO-8601.
+     * Upper bound on `created_at` (inclusive), as an ISO 8601 timestamp with a UTC offset, such as `2026-01-15T11:30:00Z`.
      */
     end_date?: string;
     /**
@@ -131195,7 +131232,7 @@ export namespace Schemas {
      */
     search_text?: string;
     /**
-     * Lower bound on `created_at` (inclusive), ISO-8601.
+     * Lower bound on `created_at` (inclusive), as an ISO 8601 timestamp with a UTC offset, such as `2026-01-15T10:30:00Z`.
      */
     start_date?: string;
     /**
@@ -132833,7 +132870,7 @@ export namespace Schemas {
      */
     detail_filters?: string;
     /**
-     * Upper bound on `created_at` (inclusive), ISO-8601.
+     * Upper bound on `created_at` (inclusive), as an ISO 8601 timestamp with a UTC offset, such as `2026-01-15T11:30:00Z`.
      */
     end_date?: string;
     /**
@@ -132896,7 +132933,7 @@ export namespace Schemas {
      */
     search_text?: string;
     /**
-     * Lower bound on `created_at` (inclusive), ISO-8601.
+     * Lower bound on `created_at` (inclusive), as an ISO 8601 timestamp with a UTC offset, such as `2026-01-15T10:30:00Z`.
      */
     start_date?: string;
     /**
@@ -132975,6 +133012,15 @@ export namespace Schemas {
       Confirmed: 'confirmed',
       Ignored: 'ignored',
     } as const;
+
+    export type AeoBrandsCompetitorCandidatesParams = {
+    /**
+     * How many candidates to return, at most 100.
+     * @minimum 1
+     * @maximum 100
+     */
+    limit?: number;
+    };
 
     export type AeoKeywordsModifiersParams = {
     /**
@@ -138964,6 +139010,7 @@ export namespace Schemas {
      * * `Databricks` - Databricks
      * * `AzureBlob` - Azure Blob
      * * `S3` - S3
+     * * `MotherDuck` - MotherDuck
      * @minLength 1
      */
     destination_type: ExternalDataDestinationsConnectLinkRetrieveDestinationType;
@@ -138989,6 +139036,7 @@ export namespace Schemas {
       Databricks: 'Databricks',
       AzureBlob: 'AzureBlob',
       S3: 'S3',
+      MotherDuck: 'MotherDuck',
     } as const;
 
     export type ExternalDataDestinationsConnectLinkStatusRetrieveParams = {
@@ -141424,6 +141472,7 @@ export namespace Schemas {
      * * `linear` - Linear
      * * `linkedin-ads` - Linkedin Ads
      * * `meta-ads` - Meta Ads
+     * * `motherduck` - Motherduck
      * * `pardot` - Pardot
      * * `pinterest-ads` - Pinterest Ads
      * * `postgresql` - Postgresql
@@ -141491,6 +141540,7 @@ export namespace Schemas {
       Linear: 'linear',
       LinkedinAds: 'linkedin-ads',
       MetaAds: 'meta-ads',
+      Motherduck: 'motherduck',
       Pardot: 'pardot',
       PinterestAds: 'pinterest-ads',
       Postgresql: 'postgresql',
@@ -145021,11 +145071,11 @@ export namespace Schemas {
      */
     ranking_id?: string;
     /**
-     * Comma-separated <outcome>:<lift> pairs, e.g. fix:2,open:1.5. Keeps reports whose served ranking lift is at least the value for every named outcome. Outcomes: open, action, fix. Read inbox-ranking-outcomes-list for what each outcome means. Unscored and stale reports never match. Needs staff or the inbox model sort rollout: other users get a 400.
+     * Comma-separated <outcome>:<lift> pairs, e.g. fix:2,open:1.5. Keeps reports whose served ranking lift is at least the value for every named outcome. Outcomes: open, action, fix. Read inbox-ranking-outcomes-list for what each outcome means. A report edited after its last score matches on that score. Unscored reports never match. Needs staff or the inbox model sort rollout: other users get a 400.
      */
     ranking_min_lift?: string;
     /**
-     * Comma-separated <outcome>:<probability> pairs, e.g. fix:0.3. Keeps reports whose served ranking probability is at least the value for every named outcome. Outcomes: open, action, fix. Read inbox-ranking-outcomes-list for what each outcome means. Unscored and stale reports never match. Needs staff or the inbox model sort rollout: other users get a 400.
+     * Comma-separated <outcome>:<probability> pairs, e.g. fix:0.3. Keeps reports whose served ranking probability is at least the value for every named outcome. Outcomes: open, action, fix. Read inbox-ranking-outcomes-list for what each outcome means. A report edited after its last score matches on that score. Unscored reports never match. Needs staff or the inbox model sort rollout: other users get a 400.
      */
     ranking_min_probability?: string;
     /**
@@ -145045,7 +145095,7 @@ export namespace Schemas {
      */
     search?: string;
     /**
-     * Inbox sort preset: priority, recommended, personal, last_updated, newest, or oldest. Ignored when ordering is supplied. recommended resolves per user to a ranker: the priority order, or the open, action or fix outcome of the served ranking model, highest score first, with unscored and stale reports in priority order after the scored ones, or your stored personal ranking, as personal gives it, then the priority order. The response's ranker field names the one used, and its ranking_pill field says whether to show score pills. personal puts the reports of a stored personal ranking first, by rank, then the reports it folded, then every other report in your recommended order. With scope=teammate it reads the teammate's stored ranking, else yours. It only reads the stored ranking and never starts a build. With no stored personal ranking, or a teammate outside the organization, it is the recommended order, or the priority order when recommended gives you the personal ranking.
+     * Inbox sort preset: priority, recommended, personal, last_updated, newest, or oldest. Ignored when ordering is supplied. recommended resolves per user to a ranker: the priority order, or the open, action or fix outcome of the served ranking model, highest score first, with unscored reports in priority order after the scored ones, or your stored personal ranking, as personal gives it, then the priority order. The response's ranker field names the one used, and its ranking_pill field says whether to show score pills. personal puts the reports of a stored personal ranking first, by rank, then the reports it folded, then every other report in your recommended order. With scope=teammate it reads the teammate's stored ranking, else yours. It only reads the stored ranking and never starts a build. With no stored personal ranking, or a teammate outside the organization, it is the recommended order, or the priority order when recommended gives you the personal ranking.
      */
     sort?: string;
     /**
@@ -145305,11 +145355,11 @@ export namespace Schemas {
      */
     priority?: string;
     /**
-     * Comma-separated <outcome>:<lift> pairs, e.g. fix:2,open:1.5. Keeps reports whose served ranking lift is at least the value for every named outcome. Outcomes: open, action, fix. Read inbox-ranking-outcomes-list for what each outcome means. Unscored and stale reports never match. Needs staff or the inbox model sort rollout: other users get a 400.
+     * Comma-separated <outcome>:<lift> pairs, e.g. fix:2,open:1.5. Keeps reports whose served ranking lift is at least the value for every named outcome. Outcomes: open, action, fix. Read inbox-ranking-outcomes-list for what each outcome means. A report edited after its last score matches on that score. Unscored reports never match. Needs staff or the inbox model sort rollout: other users get a 400.
      */
     ranking_min_lift?: string;
     /**
-     * Comma-separated <outcome>:<probability> pairs, e.g. fix:0.3. Keeps reports whose served ranking probability is at least the value for every named outcome. Outcomes: open, action, fix. Read inbox-ranking-outcomes-list for what each outcome means. Unscored and stale reports never match. Needs staff or the inbox model sort rollout: other users get a 400.
+     * Comma-separated <outcome>:<probability> pairs, e.g. fix:0.3. Keeps reports whose served ranking probability is at least the value for every named outcome. Outcomes: open, action, fix. Read inbox-ranking-outcomes-list for what each outcome means. A report edited after its last score matches on that score. Unscored reports never match. Needs staff or the inbox model sort rollout: other users get a 400.
      */
     ranking_min_probability?: string;
     /**
@@ -148628,6 +148678,10 @@ export namespace Schemas {
 
     export type WarehouseSuggestionsAcceptCreateParams = {
     /**
+     * Whether the decision was part of one action on several selected suggestions. Only recorded on the analytics event.
+     */
+    bulk?: boolean;
+    /**
      * Page the decision was made on. Only recorded on the analytics event.
      *
      * * `models` - Models
@@ -148646,6 +148700,10 @@ export namespace Schemas {
     } as const;
 
     export type WarehouseSuggestionsDismissCreateParams = {
+    /**
+     * Whether the decision was part of one action on several selected suggestions. Only recorded on the analytics event.
+     */
+    bulk?: boolean;
     /**
      * Page the decision was made on. Only recorded on the analytics event.
      *

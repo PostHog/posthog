@@ -151,7 +151,11 @@ class TestPagination:
             ("supporters", "2026-03-04T00:00:00Z"),
             ("features", "2026-03-04T00:00:00Z"),
             ("status_updates", "2026-03-04T00:00:00Z"),
+            ("feedback_records", "2026-03-04T00:00:00Z"),
+            ("external_users", "2026-03-04T00:00:00Z"),
+            ("external_accounts", "2026-03-04T00:00:00Z"),
             ("categories", None),
+            ("teams", None),
         ]
     )
     def test_endpoint_reads_its_own_path_and_response_key(self, endpoint: str, expected_filter: str | None) -> None:
@@ -185,17 +189,19 @@ class TestSourceResponse:
             ("tickets", "desc", "created_at"),
             # Full-refresh endpoints don't checkpoint a watermark, so they stay on the default "asc".
             ("labels", "asc", "created_at"),
+            # Teams carry no timestamps, so they must not be partitioned on a column that never exists.
+            ("teams", "asc", None),
         ]
     )
-    def test_sort_mode_and_partitioning(self, endpoint: str, expected_sort: str, partition_key: str) -> None:
+    def test_sort_mode_and_partitioning(self, endpoint: str, expected_sort: str, partition_key: str | None) -> None:
         response = _run([_response(endpoint, [], {})], endpoint=endpoint).response
 
         assert response is not None
         assert response.name == endpoint
         assert response.primary_keys == ["id"]
         assert response.sort_mode == expected_sort
-        assert response.partition_mode == "datetime"
-        assert response.partition_keys == [partition_key]
+        assert response.partition_mode == ("datetime" if partition_key else None)
+        assert response.partition_keys == ([partition_key] if partition_key else None)
 
 
 class TestValidateCredentials:
