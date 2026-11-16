@@ -11,8 +11,7 @@ import { RecordingsQuery } from '~/queries/schema/schema-general'
 
 import { expect } from 'storybook/test'
 
-import type { DraftScannerResponseApi, VisionQuotaApi } from '../generated/api.schemas'
-import { replayScannerLogic } from './replayScannerLogic'
+import { replayScannersStoryConfig } from '../__mocks__/replayScannersStoryConfig'
 import {
     estimate,
     experimentScanner,
@@ -22,8 +21,9 @@ import {
     summarizerScanner,
     variantsDecorator,
     variantsReadout,
-    replayScannersStoryConfig,
-} from './replayScannersStoryFixtures'
+} from '../__mocks__/replayScannersStoryFixtures'
+import type { DraftScannerResponseApi, VisionQuotaApi } from '../generated/api.schemas'
+import { replayScannerLogic } from './replayScannerLogic'
 import type { SamplingMode, ScannerConfig, ScannerType } from './types'
 
 const meta: Meta = {

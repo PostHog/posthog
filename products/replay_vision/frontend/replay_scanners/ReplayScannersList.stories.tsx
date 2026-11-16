@@ -13,7 +13,7 @@ import { mswDecorator } from '~/mocks/browser'
 import { billingJson } from '~/mocks/fixtures/_billing'
 import { StartupProgramLabel } from '~/types'
 
-import type { ScannerStatsResponseApi } from '../generated/api.schemas'
+import { replayScannersStoryConfig } from '../__mocks__/replayScannersStoryConfig'
 import {
     freeCreditsUsedQuota,
     freeOnlyLimitReachedScanner,
@@ -22,8 +22,8 @@ import {
     scannerStats,
     scanners,
     summarizerScanner,
-    replayScannersStoryConfig,
-} from './replayScannersStoryFixtures'
+} from '../__mocks__/replayScannersStoryFixtures'
+import type { ScannerStatsResponseApi } from '../generated/api.schemas'
 
 const meta: Meta = {
     ...replayScannersStoryConfig,

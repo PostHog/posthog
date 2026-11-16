@@ -8,7 +8,7 @@ import { urls } from 'scenes/urls'
 
 import { mswDecorator } from '~/mocks/browser'
 
-import type { ObservationStatsApi, ScannerSelfDrivingStatsApi } from '../generated/api.schemas'
+import { replayScannersStoryConfig } from '../__mocks__/replayScannersStoryConfig'
 import {
     alice,
     bob,
@@ -26,8 +26,8 @@ import {
     scorerOverviewStats,
     summarizerScanner,
     summarizerStats,
-    replayScannersStoryConfig,
-} from './replayScannersStoryFixtures'
+} from '../__mocks__/replayScannersStoryFixtures'
+import type { ObservationStatsApi, ScannerSelfDrivingStatsApi } from '../generated/api.schemas'
 
 const meta: Meta = {
     ...replayScannersStoryConfig,

@@ -10,7 +10,7 @@ import { mswDecorator } from '~/mocks/browser'
 import { expect } from 'storybook/test'
 
 import { LONG, LONG_INACTIVE, summary as timelineSummary } from '../__mocks__/recordingTimelineObservations'
-import type { ObservationStatsApi, ReplayObservationApi, ReplayScannerApi } from '../generated/api.schemas'
+import { replayScannersStoryConfig } from '../__mocks__/replayScannersStoryConfig'
 import {
     classifierOverviewScanner,
     classifierOverviewStats,
@@ -23,8 +23,8 @@ import {
     scorerOverviewScanner,
     scorerOverviewStats,
     summarizerScanner,
-    replayScannersStoryConfig,
-} from './replayScannersStoryFixtures'
+} from '../__mocks__/replayScannersStoryFixtures'
+import type { ObservationStatsApi, ReplayObservationApi, ReplayScannerApi } from '../generated/api.schemas'
 
 const meta: Meta = {
     ...replayScannersStoryConfig,

@@ -6,15 +6,15 @@ import { urls } from 'scenes/urls'
 
 import { mswDecorator } from '~/mocks/browser'
 
-import type { ExperimentVariantsReadoutApi } from '../generated/api.schemas'
+import { replayScannersStoryConfig } from '../__mocks__/replayScannersStoryConfig'
 import {
     digestScoutConfig,
     experimentScanner,
     readyAnalysis,
     variantsDecorator,
     variantsReadout,
-    replayScannersStoryConfig,
-} from './replayScannersStoryFixtures'
+} from '../__mocks__/replayScannersStoryFixtures'
+import type { ExperimentVariantsReadoutApi } from '../generated/api.schemas'
 
 const meta: Meta = {
     ...replayScannersStoryConfig,
