@@ -60,4 +60,21 @@ describe('resolveProxyRegion', () => {
 
         expect(await resolveProxyRegion('pha_test', 'hash', kv as unknown as KVNamespace)).toBe('eu')
     })
+
+    it.each([
+        ['US', OK, UNAUTHORIZED, 'us'],
+        ['EU', UNAUTHORIZED, OK, 'eu'],
+    ])(
+        'routes a project secret API key of a %s project by reading its knowledge route',
+        async (_, us, eu, expected) => {
+            stubRegions(us, eu)
+            const kv = { get: vi.fn(async () => null), put: vi.fn(async () => undefined) }
+
+            expect(await resolveProxyRegion('phs_test', 'hash', kv as unknown as KVNamespace, '42')).toBe(expected)
+            const urls = vi
+                .mocked(fetch)
+                .mock.calls.map(([input]) => (input instanceof Request ? input.url : String(input)))
+            expect(urls.every((url) => url.endsWith('/api/projects/42/business_knowledge/libraries/'))).toBe(true)
+        }
+    )
 })

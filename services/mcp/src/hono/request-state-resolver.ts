@@ -1,3 +1,4 @@
+import { classifyAuthMethod } from '@/lib/auth-method'
 import type { StateLookupCache } from '@/lib/cache/StateLookupCache'
 import { MCPClientProfile } from '@/lib/client-detection'
 import { isCloudApi, isLocalApi, MCP_GATEWAY_FLAG } from '@/lib/constants'
@@ -12,6 +13,7 @@ import {
     type FlagGroups,
     resolveFeatureFlagOverrides,
 } from '@/lib/posthog/flags'
+import { PROJECT_SECRET_KEY_FEATURE_FLAG } from '@/lib/project-secret-key'
 import type { RequestProperties } from '@/lib/request-properties'
 import { filterStaffOnlyTools } from '@/lib/staff-only-tools'
 import type { McpMode } from '@/lib/utils'
@@ -222,8 +224,12 @@ export class RequestStateResolver {
         const flagAnalyticsContext = await reqCtx.safelyGetAnalyticsContext(context)
         const flagGroups = flagAnalyticsContext ? buildMCPAnalyticsGroups(flagAnalyticsContext) : undefined
 
+        const usesProjectSecretKey = classifyAuthMethod(props.apiToken) === 'project_secret_key'
         const [{ flags: allFlags, payloads }, _apiKey, distinctId] = await Promise.all([
-            this.resolveAllFlags(reqCtx, allFlagKeys, flagGroups),
+            // A project secret API key has no person or group to evaluate a flag for.
+            usesProjectSecretKey
+                ? Promise.resolve<FlagEvaluation>({ flags: {}, payloads: {} })
+                : this.resolveAllFlags(reqCtx, allFlagKeys, flagGroups),
             context.stateManager.getApiKey(),
             reqCtx.getDistinctId(),
         ])
@@ -242,7 +248,13 @@ export class RequestStateResolver {
 
         // Dev/test-only overrides win over evaluated values (no-op in production).
         const overrides = resolveFeatureFlagOverrides(props.featureFlagOverrides)
-        const mergedFlags = { ...allFlags, ...overrides }
+        const mergedFlags: EvaluatedFlags = {
+            ...allFlags,
+            // The API gates the key's routes on this flag, and `getApiKey` above succeeded only
+            // because the key passed that gate.
+            ...(usesProjectSecretKey ? { [PROJECT_SECRET_KEY_FEATURE_FLAG]: true } : {}),
+            ...overrides,
+        }
         let recruitmentPayload = payloads[MCP_INTERVIEW_RECRUITMENT_FLAG]
         if (
             recruitmentPayload === undefined &&
@@ -299,7 +311,7 @@ export class RequestStateResolver {
         const renderUiEnabled = clientProfile.isRenderUiHost()
 
         const { mode: resolvedMode, useSingleExec } = resolveMode({
-            mode: requestContext.mode,
+            mode: requestContext.mode ?? (usesProjectSecretKey ? 'tools' : undefined),
             clientProfile,
         })
         requestContext.mode = resolvedMode

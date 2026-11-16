@@ -165,6 +165,7 @@ import { ToolCatalog } from '@/hono/tool-catalog'
 import { StateLookupCache } from '@/lib/cache/StateLookupCache'
 import type { MCPAnalyticsContext } from '@/lib/posthog/analytics'
 import { evaluateFeatureFlags, resolveFeatureFlagOverrides } from '@/lib/posthog/flags'
+import { PROJECT_SECRET_KEY_SCOPES, PROJECT_SECRET_KEY_TOOLS } from '@/lib/project-secret-key'
 import { parseRequestProperties, type RequestProperties } from '@/lib/request-properties'
 import { TASKS_CONTEXT_TOOL_NAMES } from '@/tools/tasksContext'
 import * as toolDefinitions from '@/tools/toolDefinitions'
@@ -1027,6 +1028,21 @@ describe('RequestStateResolver MCP client contexts', () => {
         expect(result.allTools.map((tool) => tool.name)).toEqual(['docs-search'])
         expect(result.scopeGatedTools.map((tool) => tool.name)).toEqual(['dashboards-get-all'])
         expect(result.flagGatedTools).toEqual([])
+    })
+
+    it('gives a project secret API key the knowledge read tools and nothing else', async () => {
+        mockApiKey.scopes = [...PROJECT_SECRET_KEY_SCOPES]
+        mockApiKey.mcp_allowed_tools = [...PROJECT_SECRET_KEY_TOOLS]
+        vi.mocked(evaluateFeatureFlags).mockClear()
+        const catalog = new ToolCatalog()
+        await catalog.warmup()
+        const resolver = new RequestStateResolver(catalog, {} as RedisLike, {} as Env)
+
+        const result = await resolver.resolve(makeProps({ apiToken: 'phs_test', mcpClientName: 'customer-agent' }))
+
+        expect(result.allTools.map((tool) => tool.name).sort()).toEqual([...PROJECT_SECRET_KEY_TOOLS].sort())
+        expect(result.useSingleExec).toBe(false)
+        expect(evaluateFeatureFlags).not.toHaveBeenCalled()
     })
 
     it('merges request excludeTools into catalog filter options', async () => {

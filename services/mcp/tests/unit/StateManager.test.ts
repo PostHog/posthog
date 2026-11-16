@@ -3,7 +3,14 @@ import { beforeEach, describe, expect, it, vi } from 'vitest'
 import type { ApiClient } from '@/api/client'
 import { MemoryCache } from '@/lib/cache/MemoryCache'
 import { StateLookupCache } from '@/lib/cache/StateLookupCache'
-import { ErrorCode, PostHogApiError, PostHogTransportError } from '@/lib/errors'
+import {
+    ErrorCode,
+    findPostHogPermissionError,
+    formatPermissionErrorMessage,
+    PostHogApiError,
+    PostHogPermissionError,
+    PostHogTransportError,
+} from '@/lib/errors'
 import { getPostHogClient } from '@/lib/posthog'
 import { StateManager } from '@/lib/StateManager'
 import type { ApiRedactedPersonalApiKey, ApiUser } from '@/schema/api'
@@ -491,6 +498,84 @@ describe('StateManager', () => {
             expect(api.config.oauthClientName).toBe(expected)
             expect(secondApi.config.oauthClientName).toBe(expected)
             expect(await cache.get('clientName')).toBe(expected)
+        })
+
+        describe('with a project secret API key', () => {
+            const pinned: PinnedActiveContext = { pin: { projectId: '42' }, sessionScoped: false, projectId: '42' }
+
+            // The api has no `users` or `apiKeys`, so a lookup that needs a user throws here.
+            function secretKeyApi(request: ApiClient['request']): ApiClient {
+                return { config: { apiToken: 'phs_test' }, request } as unknown as ApiClient
+            }
+
+            it('resolves the session from one read of the knowledge route', async () => {
+                const request = vi.fn(async () => ({ results: [] }))
+                const manager = new StateManager(cache, secretKeyApi(request as ApiClient['request']), pinned)
+
+                const apiKey = await manager.getApiKey()
+
+                expect(request).toHaveBeenCalledWith({
+                    method: 'GET',
+                    path: '/api/projects/42/business_knowledge/libraries/',
+                })
+                expect(apiKey.scopes).toEqual(['business_knowledge:read'])
+                expect(apiKey.scoped_teams).toEqual([42])
+                expect(apiKey.mcp_allowed_tools).toContain('business-knowledge-documents-search')
+                expect(await manager.getDistinctId()).toMatch(/^psak-42-/)
+                expect(await manager.getAnalyticsContext()).toEqual({ projectId: '42' })
+                expect(await manager.getAiConsentGiven()).toBeUndefined()
+            })
+
+            it('checks the key again when the same key arrives with another project', async () => {
+                const request = vi.fn(async () => ({ results: [] }))
+                const api = secretKeyApi(request as ApiClient['request'])
+                await new StateManager(cache, api, pinned).getApiKey()
+
+                const other: PinnedActiveContext = { pin: { projectId: '7' }, sessionScoped: false, projectId: '7' }
+                const apiKey = await new StateManager(cache, api, other).getApiKey()
+
+                expect(request).toHaveBeenLastCalledWith({
+                    method: 'GET',
+                    path: '/api/projects/7/business_knowledge/libraries/',
+                })
+                expect(apiKey.scoped_teams).toEqual([7])
+            })
+
+            it.each([
+                ['an unknown key', new Error(ErrorCode.INVALID_API_KEY), ErrorCode.INVALID_API_KEY],
+                [
+                    'a key without the scope',
+                    new PostHogPermissionError({
+                        detail: "API key missing required scope 'business_knowledge:read'",
+                        missingScope: 'business_knowledge:read',
+                        url: 'http://localhost/api/projects/42/business_knowledge/libraries/',
+                        method: 'GET',
+                    }),
+                    'Project secret API keys',
+                ],
+                [
+                    'a project ID that does not exist',
+                    new PostHogApiError({
+                        status: 404,
+                        statusText: 'Not Found',
+                        body: '{"detail":"Project not found."}',
+                        url: 'http://localhost/api/projects/42/business_knowledge/libraries/',
+                        method: 'GET',
+                    }),
+                    'Project secret API keys',
+                ],
+            ])('rejects %s with a message for that case', async (_, failure, expected) => {
+                const request = vi.fn(async () => {
+                    throw failure
+                })
+                const manager = new StateManager(cache, secretKeyApi(request as ApiClient['request']), pinned)
+
+                const error = await manager.getApiKey().catch((e: Error) => e)
+
+                const permissionError = findPostHogPermissionError(error)
+                const text = permissionError ? formatPermissionErrorMessage(permissionError) : (error as Error).message
+                expect(text).toContain(expected)
+            })
         })
     })
 
