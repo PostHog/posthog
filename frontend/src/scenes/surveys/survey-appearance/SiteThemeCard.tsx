@@ -18,6 +18,7 @@ import {
     siteSnapshotUrlCondition,
     surveySiteSnapshotLogic,
 } from 'products/surveys/frontend/draftReview/surveySiteSnapshotLogic'
+import type { SiteSnapshotApi } from 'products/surveys/frontend/generated/api.schemas'
 import {
     SiteThemeCardState,
     SiteThemeOutcome,
@@ -30,10 +31,32 @@ import { siteTheme } from './siteTheme'
 
 const SURVEY_TYPES_ON_SITE = [SurveyType.Popover, SurveyType.Widget]
 
+const SLOW_RENDER_SECONDS = 30
+
 const UNSUGGESTED_COPY: Record<Exclude<SiteThemeOutcome, 'suggested'>, string> = {
     no_recording: 'Needs a recent recording of this page',
     unreadable: "Couldn't read your site's colors. Try a preset.",
     gave_up: "Couldn't read your site's colors. Try a preset.",
+}
+
+function readingCopy(siteSnapshot: SiteSnapshotApi | null, elapsedSeconds: number): string {
+    if (!siteSnapshot) {
+        return 'Finding a recent visit to this page'
+    }
+    return elapsedSeconds < SLOW_RENDER_SECONDS ? "Reading your site's colors" : 'Taking longer than usual'
+}
+
+function useElapsedSeconds(running: boolean): number {
+    const [startedAt] = useState(Date.now)
+    const [now, setNow] = useState(startedAt)
+    useEffect(() => {
+        if (!running) {
+            return
+        }
+        const id = setInterval(() => setNow(Date.now()), 1000)
+        return () => clearInterval(id)
+    }, [running])
+    return Math.floor((now - startedAt) / 1000)
 }
 
 function isSaved(survey: Survey | NewSurvey): survey is Survey {
@@ -49,6 +72,7 @@ interface SiteThemeCardProps {
 
 function SiteCard({
     description,
+    elapsedSeconds,
     onClick,
     loading,
     disabled,
@@ -56,6 +80,7 @@ function SiteCard({
     children,
 }: {
     description: string
+    elapsedSeconds?: number
     onClick?: () => void
     loading?: boolean
     disabled?: boolean
@@ -81,8 +106,14 @@ function SiteCard({
                 {loading ? <Spinner /> : <IconBrowser />}
             </div>
             <span className="text-sm font-medium">Match my site</span>
-            <span className="text-xs text-muted" role={onClick ? undefined : 'status'}>
-                {description}
+            <span className="text-xs text-muted">
+                <span role={onClick ? undefined : 'status'}>{description}</span>
+                {elapsedSeconds !== undefined && (
+                    <span aria-hidden className="tabular-nums">
+                        {' '}
+                        · {elapsedSeconds}s
+                    </span>
+                )}
             </span>
             {children}
         </>
@@ -128,6 +159,7 @@ function LoadedSiteThemeCard({
                 : siteSnapshot?.status === 'ready'
                   ? 'unreadable'
                   : null
+    const elapsedSeconds = useElapsedSeconds(outcome === null)
     useEffect(() => {
         if (outcome) {
             reportSiteThemeLoaded(survey.id, outcome)
@@ -138,7 +170,12 @@ function LoadedSiteThemeCard({
         return outcome && outcome !== 'suggested' ? (
             <SiteCard description={UNSUGGESTED_COPY[outcome]} focusOnMount={ownsFocus} />
         ) : (
-            <SiteCard description="Reading your site. This can take a minute." loading focusOnMount={ownsFocus} />
+            <SiteCard
+                description={readingCopy(siteSnapshot, elapsedSeconds)}
+                elapsedSeconds={elapsedSeconds}
+                loading
+                focusOnMount={ownsFocus}
+            />
         )
     }
     const theme = siteTheme(siteSnapshot.site_style)
