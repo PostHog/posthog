@@ -277,6 +277,7 @@ describe('alertFormLogic', () => {
         })
         expect(captureSpy).toHaveBeenCalledWith('alert creation completed', {
             ui_version: 'redesigned',
+            detector_type: null,
         })
         expect(captureSpy).toHaveBeenCalledWith('alert wizard completed', {
             action: 'created',

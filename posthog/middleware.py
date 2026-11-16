@@ -41,7 +41,7 @@ from opentelemetry import trace
 from prometheus_client import Counter, Histogram
 from rest_framework.exceptions import PermissionDenied, ValidationError
 from social_core.backends.utils import load_backends
-from social_core.exceptions import AuthCanceled, AuthException, AuthFailed
+from social_core.exceptions import AuthCanceled, AuthException, AuthFailed, AuthStateForbidden, AuthStateMissing
 from statshog.defaults.django import statsd
 
 from posthog.api.shared import UserBasicSerializer
@@ -697,6 +697,9 @@ class CHQueries:
             status_class = f"{response.status_code // 100}xx"
             if get_query_tag_value("is_scout_experiment") is True:
                 response["X-PostHog-Suppress-Analytics"] = "true"
+            # Lets the frontend put the id on its failure analytics, which then join to this request's logs.
+            if is_api_request and http_request_id and "X-Request-ID" not in response:
+                response["X-Request-ID"] = str(http_request_id)
 
             if is_api_request and (route := request.resolver_match) is not None:
                 statsd.incr(
@@ -1695,6 +1698,11 @@ class SocialAuthExceptionMiddleware:
                 "access_blocked",
             ):
                 return redirect(sso_failure_redirect_url(request, error))
+
+        # The OAuth `state` saved in the session when the flow started is gone or does not match the callback.
+        # The library text gives the person no next step, so the login page shows its own copy for this code.
+        if isinstance(exception, (AuthStateMissing, AuthStateForbidden)):
+            return redirect(sso_failure_redirect_url(request, "oauth_state_invalid"))
 
         # Handle any other social auth exception by passing the error detail to the frontend
         if isinstance(exception, AuthException):
