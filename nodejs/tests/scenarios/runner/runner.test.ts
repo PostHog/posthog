@@ -57,9 +57,13 @@ import { Environment, RoleExit, defaultStateDir } from '../environment/environme
 import { Role, RoleSpec, consumerGroupsOf, roleSpecs, secretsOf } from '../environment/roles'
 import { RESIDENT_TEAMS_FROM, cyclotronUrlOf, scratchSchema, withPostgres } from '../environment/stack'
 import { JournalEntry } from '../judge/judge'
-import { ProviderEdge, TruthRecord, startProviderEdge } from '../provider-edge'
+import { main } from '../main'
+import { ProviderEdge, TruthRecord, WEBHOOK_HOST, startProviderEdge } from '../provider-edge'
 import { FakeProjectApi, startFakeProjectApi } from '../scorecard/fake-project-api'
+import { STORE_URL } from '../store/client'
+import { TestStore, UNREACHABLE_STORE, startTestStore, storeEnvOf } from '../store/test-store'
 import { RunResult, Runner, createRunner } from './runner'
+import { EXIT_CODE, exitCodeOf } from './status'
 
 jest.mock('~/common/utils/request', () => {
     const actual = jest.requireActual('~/common/utils/request')
@@ -71,6 +75,7 @@ const SMOKE = load(SMOKE_CARD)
 const PROCESS_DATABASE_URL = 'postgres://scenario:scenario@127.0.0.1:2/scenario'
 const PROFILE_DATABASE_URL = 'postgres://scenario:scenario@127.0.0.1:1/scenario'
 const NEVER_ABORTED = new AbortController().signal
+const { [STORE_URL]: _developerStore, ...processEnv } = process.env
 
 const withSettings = (settings: Record<string, string>): LoadedCard => ({
     ...SMOKE,
@@ -78,11 +83,17 @@ const withSettings = (settings: Record<string, string>): LoadedCard => ({
 })
 
 let processMetrics: { url: string; server: http.Server }
+let janitor: { scrapes: number; resetsAfterFirstScrape: number }
 
 beforeAll(async () => {
     const registry = new Registry()
     collectDefaultMetrics({ register: registry })
-    const server = http.createServer(async (_req, res) => res.end(await registry.metrics()))
+    const server = http.createServer(async (req, res) => {
+        const resets = req.url?.includes('role=cdp-cyclotron-v2-janitor')
+            ? [`cdp_cyclotron_v2_janitor_stalled ${janitor.scrapes++ === 0 ? 0 : janitor.resetsAfterFirstScrape}`]
+            : []
+        res.end([await registry.metrics(), ...resets].join('\n'))
+    })
     await new Promise<void>((resolve) => server.listen(0, '127.0.0.1', resolve))
     processMetrics = { url: `http://127.0.0.1:${(server.address() as AddressInfo).port}/_metrics`, server }
 })
@@ -122,6 +133,7 @@ describe('runner', () => {
                 metricsUrl: processMetrics.url,
             })),
         actuate: () => Promise.reject(new Error('these runs schedule no valves')),
+        writerCpu: () => Promise.reject(new Error('these runs read no writer CPU')),
         dependencyHealth: () => Promise.resolve({ healthy: true, down: [] }),
         exits: () => [],
         groupLag: () => Promise.resolve(0),
@@ -134,7 +146,7 @@ describe('runner', () => {
         stateDir = path.join(cacheHome, 'posthog-scenarios')
         duringReset = () => undefined
         runner = createRunner(environment, {
-            ...process.env,
+            ...processEnv,
             XDG_CACHE_HOME: cacheHome,
             DATABASE_URL: PROCESS_DATABASE_URL,
             ...api.credentials,
@@ -206,6 +218,37 @@ describe('runner', () => {
         ])
     })
 
+    it('runs one card under the run id of its run manifest', async () => {
+        const runId = '6b0c8f4e-2d1a-4c55-9a7e-1f3b5d7e9a2c'
+        const manifest = path.join(cacheHome, 'manifest.json')
+        writeFileSync(
+            manifest,
+            JSON.stringify({
+                runId,
+                account: '000000000000',
+                stackName: `scn-${runId}`,
+                schedules: [],
+                expiresAt: '2026-01-05T16:00:00.000Z',
+            })
+        )
+        const onHost = createRunner(environment, {
+            ...processEnv,
+            XDG_CACHE_HOME: cacheHome,
+            DATABASE_URL: PROCESS_DATABASE_URL,
+            SCENARIO_RUN_MANIFEST: manifest,
+            ...api.credentials,
+        })
+        const loaded = withSettings({ DATABASE_URL: PROFILE_DATABASE_URL })
+
+        const result = await onHost.run(loaded, NEVER_ABORTED)
+
+        expect(result).toMatchObject({ runId, evidenceDir: path.join(stateDir, runId) })
+        expect(api.captured.map(({ properties }) => properties.run_id)).toEqual([runId])
+        await expect(onHost.run(loaded, NEVER_ABORTED)).rejects.toThrow(
+            `This runner already ran run ${runId} from its run manifest; a run host runs one card per manifest.`
+        )
+    })
+
     it('saves the verdict with the event it publishes once, before publication, and leaves it as written', async () => {
         let onDisk: unknown
         api.onCapture = ({ properties }) => {
@@ -220,12 +263,77 @@ describe('runner', () => {
             recorded: undefined,
             captured: undefined,
             scorecardError: undefined,
+            host: os.hostname(),
             event: api.captured[0].properties,
         })
         expect(parseJSON(readFileSync(path.join(result.evidenceDir, 'scorecard.json'), 'utf8'))).toEqual(onDisk)
         expect(readdirSync(result.evidenceDir).filter((file) => file.startsWith('scorecard'))).toEqual([
             'scorecard.json',
         ])
+    })
+
+    describe('reporting to the run store', () => {
+        let store: TestStore
+
+        const runnerWith = (storeEnv: NodeJS.ProcessEnv): Runner =>
+            createRunner(environment, {
+                ...processEnv,
+                XDG_CACHE_HOME: cacheHome,
+                DATABASE_URL: PROCESS_DATABASE_URL,
+                ...api.credentials,
+                ...storeEnv,
+            })
+
+        beforeAll(async () => {
+            store = await startTestStore('runner')
+        })
+
+        afterAll(() => store.close())
+
+        it('stores the scorecard it publishes, with its adapters and the host it ran on', async () => {
+            const result = await runnerWith(store.envOf(cacheHome)).run(
+                withSettings({ DATABASE_URL: PROFILE_DATABASE_URL }),
+                NEVER_ABORTED
+            )
+
+            expect(result).toMatchObject({ recorded: true, stored: true })
+            expect(await store.read(result.runId)).toMatchObject({
+                scorecard: api.captured[0].properties,
+                adapters: ['workflows'],
+                owners: [],
+                host: os.hostname(),
+            })
+        })
+
+        it('keeps its status when the run store is down, and publish --all stores the run later', async () => {
+            jest.spyOn(process.stdout, 'write').mockReturnValue(true)
+            const loaded = withSettings({ DATABASE_URL: PROFILE_DATABASE_URL })
+            const withoutStore = await runner.run(loaded, NEVER_ABORTED)
+            const result = await runnerWith(storeEnvOf(cacheHome, UNREACHABLE_STORE)).run(loaded, NEVER_ABORTED)
+
+            expect(result).toMatchObject({
+                recorded: true,
+                storeError: expect.stringMatching(/^the run store did not answer/),
+            })
+            expect(result.stored).toBeUndefined()
+            expect({ status: result.status, statusReason: result.statusReason, exitCode: exitCodeOf(result) }).toEqual({
+                status: withoutStore.status,
+                statusReason: withoutStore.statusReason,
+                exitCode: exitCodeOf(withoutStore),
+            })
+
+            const published = await main(['publish', '--all'], {
+                ...processEnv,
+                XDG_CACHE_HOME: cacheHome,
+                ...store.envOf(cacheHome),
+            })
+
+            expect(published).toBe(EXIT_CODE.passed)
+            expect(await store.read(result.runId)).toMatchObject({
+                scorecard: api.captured[1].properties,
+                host: os.hostname(),
+            })
+        })
     })
 
     it.each<[string, boolean, AbortSignal, RegExp]>([
@@ -343,7 +451,7 @@ describe('runner', () => {
                 proxied.port = String((server.address() as AddressInfo).port)
                 const bounded = createRunner(
                     environment,
-                    { ...process.env, XDG_CACHE_HOME: cacheHome, DATABASE_URL: PROCESS_DATABASE_URL },
+                    { ...processEnv, XDG_CACHE_HOME: cacheHome, DATABASE_URL: PROCESS_DATABASE_URL },
                     { seedWithinMs: 2000 }
                 )
 
@@ -641,7 +749,7 @@ describe('runner through seed, drive and judge', () => {
                 name: role,
                 replica,
                 url: roleUrl,
-                metricsUrl: `${processMetrics.url}?replica=${replica}`,
+                metricsUrl: `${processMetrics.url}?replica=${replica}&role=${role}`,
             })),
         actuate(action) {
             exits.push(...(action.kind === 'kill' ? killExits(action.role) : []))
@@ -650,6 +758,7 @@ describe('runner through seed, drive and judge', () => {
         dependencyHealth: () => Promise.resolve({ healthy: true, down: [] }),
         exits: () => [...exits],
         groupLag: () => Promise.resolve(0),
+        writerCpu: () => Promise.reject(new Error('a local run reads no writer CPU')),
         down: async () => {
             await roles?.stop()
             roles = undefined
@@ -666,6 +775,8 @@ describe('runner through seed, drive and judge', () => {
             measures = SMOKE.card.measure,
             load: loadTargets,
             backlog,
+            ramp,
+            bars = [],
         }: {
             replicas?: Profile['replicas']
             parks?: number
@@ -673,6 +784,8 @@ describe('runner through seed, drive and judge', () => {
             measures?: Named[]
             load?: Profile['load']
             backlog?: Backlog
+            ramp?: LoadedCard['card']['drive']['ramp']
+            bars?: Named[]
         } = {}
     ): LoadedCard => {
         const card = path.join(cacheHome, 'card.yaml')
@@ -681,9 +794,10 @@ describe('runner through seed, drive and judge', () => {
             card,
             stringify({
                 ...SMOKE.card,
-                drive: { ...SMOKE.card.drive, for: '2s', minOffered: 0.5, traffic: [{ name: traffic }] },
+                drive: { ...SMOKE.card.drive, for: '2s', minOffered: 0.5, traffic: [{ name: traffic }], ramp },
                 invariants,
                 measure: measures,
+                bars,
                 valves,
                 convergeWithin: valves.length > 0 ? '8s' : '3s',
             })
@@ -730,7 +844,7 @@ describe('runner through seed, drive and judge', () => {
         api = await startFakeProjectApi()
         cacheHome = mkdtempSync(path.join(os.tmpdir(), 'scenario-runner-'))
         env = {
-            ...process.env,
+            ...processEnv,
             XDG_CACHE_HOME: cacheHome,
             DATABASE_URL: defaultConfig.DATABASE_URL,
             CYCLOTRON_NODE_DATABASE_URL: cyclotronUrl,
@@ -750,6 +864,7 @@ describe('runner through seed, drive and judge', () => {
         results = []
         exits = []
         killExits = exitOfTheKill
+        janitor = { scrapes: 0, resetsAfterFirstScrape: 0 }
         await withPostgres((client) => client.query('DELETE FROM cyclotron_jobs'), cyclotronUrl)
     })
 
@@ -891,6 +1006,7 @@ describe('runner through seed, drive and judge', () => {
                 recorded: undefined,
                 captured: undefined,
                 scorecardError: undefined,
+                host: os.hostname(),
                 event: api.captured[0]?.properties,
             })
             expect(api.captured.map(({ properties }) => properties)).toEqual([
@@ -907,6 +1023,36 @@ describe('runner through seed, drive and judge', () => {
         },
         30_000
     )
+    it.each([
+        ['passes a duplicate send the janitor reset accounts for', 1, true],
+        ['fails a duplicate send that no janitor reset accounts for', 0, false],
+    ])(
+        '%s',
+        async (_story, resets, passed) => {
+            janitor.resetsAfterFirstScrape = resets
+            let duplicated = false
+            jest.mocked(fetch).mockImplementation(async (url, options) => {
+                if (!duplicated && String(url).includes(WEBHOOK_HOST)) {
+                    duplicated = true
+                    await _fetch(url, options, throughTheEdge)
+                }
+                return _fetch(url, options, throughTheEdge)
+            })
+
+            const result = await run('all', [], 'event_webhook')
+
+            expect(result).toMatchObject({
+                status: passed ? 'passed' : 'failed',
+                janitorResets: resets,
+                invariants: expect.arrayContaining([
+                    expect.objectContaining({ name: 'duplicate_sends', passed, observed: 1, gate: 0 }),
+                ]),
+            })
+            expect(api.captured[0]?.properties).toMatchObject({ janitor_resets: resets, inv_duplicate_sends_gate: 0 })
+        },
+        30_000
+    )
+
     it('fails a run whose intake role refused every unit, rather than calling it invalid', async () => {
         const result = await createRunner(environmentOf('none'), env).run(
             shortSmoke([], 'transactional_email'),
@@ -1113,6 +1259,36 @@ describe('runner through seed, drive and judge', () => {
         },
         30_000
     )
+
+    it('calls the failover card invalid at its valve on a host without a run manifest', async () => {
+        const [failover] = load(path.join(__dirname, '..', 'cards', 'cyclotron-failover-under-load.yaml')).card.valves
+
+        const result = await run('all', [{ ...failover, at: '1s', for: '500ms' }])
+
+        expect(result).toMatchObject({
+            status: 'invalid',
+            statusReason: 'pg.failover on cyclotron was not observed: pg.failover runs only on a run host',
+            timeline: [{ valve: 'pg.failover', target: 'cyclotron', error: 'pg.failover runs only on a run host' }],
+        })
+    }, 30_000)
+
+    it('calls the scale card invalid at its writer CPU bar on a host without a run manifest', async () => {
+        const { bars } = load(path.join(__dirname, '..', 'cards', 'cyclotron-scale.yaml')).card
+        const ramp = [
+            { scale: 1, for: '1s' },
+            { scale: 2, for: '1s' },
+        ]
+
+        const result = await run('all', [], undefined, { ramp, bars })
+
+        expect(result.status).toBe('invalid')
+        expect(result.bars[0]).toEqual({
+            name: 'writer_cpu_under',
+            unit: '%',
+            passed: false,
+            unjudged: 'no writer CPU reading off a run host in the 1x step',
+        })
+    }, 30_000)
 
     it('leaves a valve due after the drive window unapplied while an intake answer is still pending', async () => {
         const slowIntake = http.createServer((_request, response) => {

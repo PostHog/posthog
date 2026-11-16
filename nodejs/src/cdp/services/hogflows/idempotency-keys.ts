@@ -150,6 +150,8 @@ type StoredKey = {
     replayFields?: ReplayFields
 }
 
+export type QueuedReply = Pick<StoredKey, 'replayFields' | 'scheduledAt' | 'senderKind'>
+
 export const storedFingerprint = (fingerprint: Fingerprint): Pick<StoredKey, 'fingerprint' | 'currentFingerprint'> =>
     typeof fingerprint === 'string'
         ? { fingerprint }
@@ -178,7 +180,8 @@ export class IdempotencyKeys {
 
     constructor(
         private valkey: RedisV2 | null,
-        private scope: string
+        private scope: string,
+        private enabled = true
     ) {}
 
     static fingerprint(request: unknown): string {
@@ -194,6 +197,10 @@ export class IdempotencyKeys {
         fingerprint: Fingerprint,
         leaseToken: string
     ): Promise<IdempotencyReservation> {
+        if (!this.enabled) {
+            this.count('reserve', 'skipped')
+            return { status: 'reserved' }
+        }
         const reservation = await this.reserveInStore(teamId, key, fingerprint, leaseToken)
         this.count('reserve', reservation.status)
         return reservation
@@ -260,6 +267,9 @@ export class IdempotencyKeys {
         latestDueAt?: Date,
         senderKind?: SenderKind
     ): Promise<void> {
+        if (!this.enabled) {
+            return
+        }
         const dueAt = latestDueAt?.getTime() ?? (scheduledAt ? Date.parse(scheduledAt) : 0)
         const completion: PendingCompletion = {
             redisKey: this.redisKey(teamId, key),
@@ -362,6 +372,9 @@ export class IdempotencyKeys {
     }
 
     async release(teamId: number, key: string, leaseToken: string): Promise<void> {
+        if (!this.enabled) {
+            return
+        }
         try {
             const released = await this.timed(
                 'release',
@@ -388,6 +401,9 @@ export class IdempotencyKeys {
         latestDueAt: Date
     ): Promise<boolean> {
         const expiresAt = latestDueAt.getTime() + QUEUED_TTL_SECONDS * 1000
+        if (!this.enabled) {
+            return true
+        }
         if (expiresAt <= Date.now()) {
             this.count('replay_until', 'expired')
             return true
@@ -426,10 +442,10 @@ export class IdempotencyKeys {
     }
 
     // What a queued key holds besides its run, for a retry answered from the cyclotron database, which keeps neither.
-    async queuedReplay(
-        teamId: number,
-        key: string
-    ): Promise<Pick<StoredKey, 'replayFields' | 'scheduledAt' | 'senderKind'> | undefined> {
+    async queuedReplay(teamId: number, key: string): Promise<QueuedReply | undefined> {
+        if (!this.enabled) {
+            return undefined
+        }
         try {
             const stored = await this.timed(
                 'read',

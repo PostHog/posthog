@@ -15,14 +15,18 @@ from django.utils import timezone
 from parameterized import parameterized
 from rest_framework import status
 
-from posthog.api.oauth.ema_issuer import EMA_ISSUER_MANAGE_SCOPE
-from posthog.api.oauth.metadata import authorization_server_metadata, protected_resource_metadata
+from posthog.api.oauth.metadata import (
+    authorization_server_metadata,
+    openid_provider_metadata,
+    protected_resource_metadata,
+)
 from posthog.constants import AvailableFeature
 from posthog.models.identity_provider_config import ConfigScope, DomainScope, IdentityProviderConfig
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication, OAuthApplicationAccessLevel, OAuthRefreshToken
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.organization_domain import OrganizationDomain
 from posthog.models.organization_ip_restrictions import OrganizationIPRestrictions
+from posthog.scopes.oauth import EMA_ISSUER_MANAGE_SCOPE
 
 CLIENT_ID = "ema-test-client"
 CLIENT_SECRET = "ema-test-secret"
@@ -37,13 +41,21 @@ def _code_challenge() -> str:
     return base64.urlsafe_b64encode(digest).decode().rstrip("=")
 
 
-class TestEmaIssuerScopeIsNotAdvertised(SimpleTestCase):
-    def test_scope_is_missing_from_discovery_metadata(self):
-        for document in (
-            authorization_server_metadata("https://posthog.example.com"),
-            protected_resource_metadata("https://posthog.example.com"),
-        ):
-            self.assertNotIn(EMA_ISSUER_MANAGE_SCOPE, cast(list[str], document["scopes_supported"]))
+class TestEmaIssuerScopeDiscovery(SimpleTestCase):
+    def test_only_the_authorization_server_metadata_lists_the_scope(self):
+        base_url = "https://posthog.example.com"
+        documents = {
+            "authorization_server": authorization_server_metadata(base_url),
+            "openid_provider": openid_provider_metadata(base_url),
+            "protected_resource": protected_resource_metadata(base_url),
+        }
+
+        listed = {
+            name: EMA_ISSUER_MANAGE_SCOPE in cast(list[str], document["scopes_supported"])
+            for name, document in documents.items()
+        }
+
+        self.assertEqual(listed, {"authorization_server": True, "openid_provider": False, "protected_resource": False})
 
 
 class TestEmaIssuerSetup(APIBaseTest):
@@ -71,10 +83,10 @@ class TestEmaIssuerSetup(APIBaseTest):
             can_manage_ema_issuer=True,
         )
 
-    def _authorize_url(self, client_id: str = CLIENT_ID) -> str:
+    def _authorize_url(self, client_id: str = CLIENT_ID, scope: str = EMA_ISSUER_MANAGE_SCOPE) -> str:
         return (
             f"/oauth/authorize/?client_id={client_id}&redirect_uri={quote(REDIRECT_URI)}&response_type=code"
-            f"&scope={quote(EMA_ISSUER_MANAGE_SCOPE)}&code_challenge={_code_challenge()}&code_challenge_method=S256"
+            f"&scope={quote(scope)}&code_challenge={_code_challenge()}&code_challenge_method=S256"
         )
 
     def _consent(self, **overrides) -> dict:
@@ -91,6 +103,22 @@ class TestEmaIssuerSetup(APIBaseTest):
             "scoped_teams": [],
             **overrides,
         }
+
+    def _exchange_code(self, approval) -> dict:
+        code = parse_qs(urlparse(approval.json()["redirect_to"]).query)["code"][0]
+        token_response = self.client.post(
+            "/oauth/token/",
+            {
+                "grant_type": "authorization_code",
+                "code": code,
+                "client_id": CLIENT_ID,
+                "client_secret": CLIENT_SECRET,
+                "redirect_uri": REDIRECT_URI,
+                "code_verifier": CODE_VERIFIER,
+            },
+        )
+        self.assertEqual(token_response.status_code, status.HTTP_200_OK, token_response.json())
+        return token_response.json()
 
     def _setup_token(self, *, scope: str = EMA_ISSUER_MANAGE_SCOPE, organization_id=None) -> OAuthAccessToken:
         return OAuthAccessToken.objects.create(
@@ -129,21 +157,8 @@ class TestEmaIssuerSetup(APIBaseTest):
 
         approval = self.client.post("/oauth/authorize/", self._consent(), format="json")
         self.assertEqual(approval.status_code, status.HTTP_200_OK, approval.json())
-        code = parse_qs(urlparse(approval.json()["redirect_to"]).query)["code"][0]
 
-        token_response = self.client.post(
-            "/oauth/token/",
-            {
-                "grant_type": "authorization_code",
-                "code": code,
-                "client_id": CLIENT_ID,
-                "client_secret": CLIENT_SECRET,
-                "redirect_uri": REDIRECT_URI,
-                "code_verifier": CODE_VERIFIER,
-            },
-        )
-        self.assertEqual(token_response.status_code, status.HTTP_200_OK, token_response.json())
-        token_body = token_response.json()
+        token_body = self._exchange_code(approval)
         self.assertEqual(token_body["scope"], EMA_ISSUER_MANAGE_SCOPE)
         self.assertEqual(token_body["expires_in"], 300)
         self.assertNotIn("refresh_token", token_body)
@@ -186,6 +201,26 @@ class TestEmaIssuerSetup(APIBaseTest):
 
         self.assertEqual(response.status_code, status.HTTP_302_FOUND)
         self.assertEqual(parse_qs(urlparse(response["Location"]).query)["error"], ["invalid_scope"])
+
+    @parameterized.expand([("allowed_client", True), ("other_client", False)])
+    def test_scope_mixed_with_resource_scopes_is_dropped_from_an_ordinary_grant(self, _name, may_manage):
+        self.application.can_manage_ema_issuer = may_manage
+        self.application.save()
+        scope = f"openid feature_flag:read {EMA_ISSUER_MANAGE_SCOPE}"
+
+        consent_screen = self.client.get(self._authorize_url(scope=scope))
+
+        self.assertEqual(consent_screen.status_code, status.HTTP_200_OK)
+        app_context = consent_screen.context["posthog_app_context"]
+        self.assertNotIn("oauth_ema_issuer_consent", app_context)
+        self.assertEqual(sorted(app_context["oauth_scope_resolution"]["scopes"]), ["feature_flag:read", "openid"])
+
+        approval = self.client.post("/oauth/authorize/", self._consent(scope=scope), format="json")
+        self.assertEqual(approval.status_code, status.HTTP_200_OK, approval.json())
+
+        token_body = self._exchange_code(approval)
+        self.assertEqual(sorted(token_body["scope"].split()), ["feature_flag:read", "openid"])
+        self.assertNotIn("ema_setup_endpoint", token_body)
 
     @parameterized.expand(
         [

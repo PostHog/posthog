@@ -29,6 +29,7 @@ import IconLinear from 'public/services/linear.png'
 import IconLinkedIn from 'public/services/linkedin.png'
 import IconMailjet from 'public/services/mailjet.png'
 import IconMetaAds from 'public/services/meta-ads.png'
+import IconMotherDuck from 'public/services/motherduck.png'
 import IconPardot from 'public/services/pardot.png'
 import IconPinterest from 'public/services/pinterest_ads.png'
 import IconPostgres from 'public/services/postgres.png'
@@ -138,6 +139,7 @@ export const ICONS: Record<IntegrationKind, any> = {
     'aws-redshift': IconRedshift,
     's3-compatible': IconS3Compatible,
     snowflake: IconSnowflake,
+    motherduck: IconMotherDuck,
     'youtube-analytics': IconYouTubeAnalytics,
 }
 
@@ -202,6 +204,8 @@ export const getIntegrationNameFromKind = (kind: string): string => {
             return 'Redshift'
         case 's3-compatible':
             return 'S3-compatible storage'
+        case 'motherduck':
+            return 'MotherDuck'
         case 'youtube-analytics':
             return 'YouTube Analytics'
         default:

@@ -98,6 +98,23 @@ YOUSIGN_ENDPOINTS: dict[str, YousignEndpointConfig] = {
         ),
         description="Approver details for every signature request, one row per approver.",
     ),
+    "followers": YousignEndpointConfig(
+        name="followers",
+        path="/signature_requests/{signatureRequestId}/followers",
+        data_selector="data",
+        # Followers carry no id; a follower is identified by email within its request.
+        primary_key=["signature_request_id", "email"],
+        paginated=False,
+        fanout=DependentEndpointConfig(
+            parent_name="signature_requests",
+            resolve_param="signatureRequestId",
+            resolve_field="id",
+            include_from_parent=["id"],
+            parent_field_renames={"id": "signature_request_id"},
+            parent_params={"source[in]": SIGNATURE_REQUEST_SOURCES},
+        ),
+        description="Followers kept informed of each signature request's progress, one row per follower.",
+    ),
     "documents": YousignEndpointConfig(
         name="documents",
         path="/signature_requests/{signatureRequestId}/documents",
@@ -145,6 +162,39 @@ YOUSIGN_ENDPOINTS: dict[str, YousignEndpointConfig] = {
         primary_key="id",
         partition_key="created_at",
         description="Labels used to organize signature requests.",
+    ),
+    "templates": YousignEndpointConfig(
+        name="templates",
+        path="/templates",
+        data_selector="data",
+        primary_key="id",
+        # The templates list caps `limit` at 10, unlike the other list endpoints.
+        page_size=10,
+        partition_key="created_at",
+        description="Signature request templates in the organization.",
+    ),
+    "workflow_sessions": YousignEndpointConfig(
+        name="workflow_sessions",
+        path="/workflow_sessions",
+        data_selector="data",
+        primary_key="id",
+        partition_key="created_at",
+        description="Workflow sessions, one row per workflow run with its action groups and status.",
+    ),
+    "workflow_session_applicants": YousignEndpointConfig(
+        name="workflow_session_applicants",
+        path="/workflow_sessions/{workflowSessionId}/applicants",
+        data_selector="data",
+        primary_key=["workflow_session_id", "id"],
+        partition_key="created_at",
+        fanout=DependentEndpointConfig(
+            parent_name="workflow_sessions",
+            resolve_param="workflowSessionId",
+            resolve_field="id",
+            include_from_parent=["id"],
+            parent_field_renames={"id": "workflow_session_id"},
+        ),
+        description="Applicants verified inside each workflow session, one row per applicant.",
     ),
 }
 

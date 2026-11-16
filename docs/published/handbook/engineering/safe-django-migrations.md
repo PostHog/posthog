@@ -1013,17 +1013,20 @@ Before deploying risky migrations:
 Node and Rust services deploy on their own schedule, often before the Django deploy that runs `bin/migrate`, so a merged migration is not yet live when their new image starts.
 Code in those services that reads a new table or column needs the migration applied in production first.
 For Rust, merge the migration in its own PR and wait for it to deploy, or make the reader tolerate the missing column.
-ClickHouse and sqlx migrations also need their own PR, not stacked under the reader.
-CI fails a PR that has ClickHouse migrations and `nodejs/` changes, or sqlx migrations and `nodejs/` or Rust service changes.
-For a Django migration and a Node reader, one PR is fine.
+ClickHouse migrations also need their own PR, not stacked under the reader, and so do sqlx migrations with a Rust reader.
+CI fails a PR that has ClickHouse migrations and `nodejs/` changes, or sqlx migrations and Rust service changes.
+For a Django or sqlx migration and a Node reader, one PR is fine.
 The schema check in `nodejs/src/schema-check/` enforces the order on every Node app that connects to the main Postgres.
 An app without a write role on it opts out explicitly in the charts repo, because the hook reads the primary.
 Each Node image records the Django migrations it needs at build time, and the hook holds the rollout until `django_migrations` has all of them.
 If Django has not applied them when the hook's wait ends, the sync fails and the old pods keep serving until a later sync passes.
-The check only covers Django tables in the main database.
+Besides Django tables in the main database, the check covers the sqlx databases (persons, cyclotron, behavioral cohorts).
 Node Jest CI fails when Node SQL reads a table of an app that `products/db_routing.yaml` sends to a product database, or a table with an app prefix that no migration creates.
 ClickHouse tables are out of scope.
-The sqlx databases (persons, cyclotron, behavioral cohorts) are checked in shadow mode: the hook logs their state but does not hold the rollout yet.
+The hook holds the rollout in the same wait until each sqlx database the app connects to has the sqlx versions the image needs.
+A sqlx database that the app has no URL for is skipped, because the app does not connect to it.
+A failed sqlx migration of a version the image needs also holds the rollout, and someone has to repair it before sqlx-migrate runs again.
+A failed version the image does not need only logs a warning.
 A sqlx version does not count when every table its migration names is one that Node does not read, so a drop of a table Node no longer uses does not hold anything.
 The hook pushes its Django and sqlx results to the Prometheus Pushgateway as `node_schema_check_` metrics, so alerts can fire on a missing migration that the logs alone would hide.
 Column and table drops are the opposite case and stay code-first: remove every reader, deploy, then drop.

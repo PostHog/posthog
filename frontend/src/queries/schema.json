@@ -27578,7 +27578,9 @@
                     "type": "number"
                 },
                 "volumeResolution": {
-                    "$ref": "#/definitions/integer"
+                    "maximum": 200,
+                    "minimum": 0,
+                    "type": "integer"
                 },
                 "withAggregations": {
                     "type": "boolean"
@@ -33086,6 +33088,9 @@
                 "xAxisLabel": {
                     "type": "string"
                 },
+                "xAxisSortOrder": {
+                    "$ref": "#/definitions/HeatmapSortOrder"
+                },
                 "yAxisColumn": {
                     "type": "string"
                 },
@@ -35218,6 +35223,7 @@
                 "aws-redshift",
                 "s3-compatible",
                 "snowflake",
+                "motherduck",
                 "youtube-analytics",
                 "twitter-ads"
             ],
@@ -40873,6 +40879,10 @@
         "MarketingAnalyticsRecommendationsSource": {
             "additionalProperties": false,
             "properties": {
+                "adTable": {
+                    "description": "Google Ads ad table, used to read the ad copy of each ad group.",
+                    "type": "string"
+                },
                 "campaignConversionActionTable": {
                     "description": "Google Ads daily campaign conversions split by conversion action.",
                     "type": "string"
