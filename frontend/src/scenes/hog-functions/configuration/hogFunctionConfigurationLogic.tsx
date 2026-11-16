@@ -23,7 +23,7 @@ import posthog from 'posthog-js'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
-import api from 'lib/api'
+import api, { ApiConfig } from 'lib/api'
 import { ApiError } from 'lib/api-error'
 import {
     CyclotronJobInputsValidation,
@@ -84,6 +84,7 @@ import {
     IntegrationType,
 } from '~/types'
 
+import { hogFunctionTemplatesRetrieve } from 'products/cdp/frontend/generated/api'
 import { asDisplay } from 'products/persons/frontend/person-utils'
 import { destinationWorkflowSuggestionLogic } from 'products/workflows/frontend/DestinationWorkflowSuggestion/destinationWorkflowSuggestionLogic'
 import { workflowEventsFromFilters } from 'products/workflows/frontend/DestinationWorkflowSuggestion/messagingDestinations'
@@ -1055,7 +1056,21 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                         }
                     }
 
-                    const res = await api.hogFunctions.getTemplate(props.templateId)
+                    let res: HogFunctionTemplateType
+                    try {
+                        res = (await hogFunctionTemplatesRetrieve(
+                            String(ApiConfig.getCurrentProjectId()),
+                            props.templateId
+                        )) as HogFunctionTemplateType
+                    } catch (e) {
+                        // A template id that does not exist (a stale or mistyped link) 404s here. Fall back
+                        // to null so the scene renders its not-found state instead of filing the rejection
+                        // in error tracking.
+                        if (e instanceof ApiError && e.status === 404) {
+                            return null
+                        }
+                        throw e
+                    }
 
                     if (!res) {
                         throw new Error('Template not found')

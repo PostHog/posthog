@@ -329,5 +329,36 @@ describe('catalogTablesLogic', () => {
             expect(router.values.searchParams.table).toEqual(table)
             qualityLogic.unmount()
         })
+
+        it('the data quality section narrows by search and by failing checks, and counts each scope', async () => {
+            router.actions.push(urls.dataCatalog(), { tab: 'data-quality' })
+            const qualityLogic = catalogDataQualityLogic()
+            qualityLogic.mount()
+            await waitFor(() => expect(qualityLogic.values.checkedRows).toHaveLength(2))
+
+            qualityLogic.actions.setScope('failing')
+            expect(qualityLogic.values.shownRows.map((row) => row.name)).toEqual(['mrr'])
+
+            qualityLogic.actions.setSearch('CHARGES')
+            expect(qualityLogic.values.scopeCounts).toEqual({ all: 1, failing: 0 })
+            expect(qualityLogic.values.shownRows).toEqual([])
+            qualityLogic.unmount()
+        })
+
+        it('the data quality section ignores search and Failing while a link shows one table', async () => {
+            router.actions.push(urls.dataCatalog(), { tab: 'data-quality' })
+            const qualityLogic = catalogDataQualityLogic()
+            qualityLogic.mount()
+            await waitFor(() => expect(qualityLogic.values.checkedRows).toHaveLength(2))
+            qualityLogic.actions.setSearch('mrr')
+            qualityLogic.actions.setScope('failing')
+
+            router.actions.push(urls.dataCatalog(), { tab: 'data-quality', table: 'stripe.charges' })
+
+            await waitFor(() =>
+                expect(qualityLogic.values.shownRows.map((row) => row.name)).toEqual(['stripe.charges'])
+            )
+            qualityLogic.unmount()
+        })
     })
 })

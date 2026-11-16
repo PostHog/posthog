@@ -2908,9 +2908,40 @@ export interface _LogsQueryBodyApi {
     sessionId?: string
 }
 
+/**
+ * * `initial_load` - initial_load
+ * * `filter_change` - filter_change
+ * * `filters_restored` - filters_restored
+ * * `sort_change` - sort_change
+ * * `column_change` - column_change
+ * * `scope_change` - scope_change
+ * * `refresh` - refresh
+ */
+export type LogsQueryTriggerEnumApi = (typeof LogsQueryTriggerEnumApi)[keyof typeof LogsQueryTriggerEnumApi]
+
+export const LogsQueryTriggerEnumApi = {
+    InitialLoad: 'initial_load',
+    FilterChange: 'filter_change',
+    FiltersRestored: 'filters_restored',
+    SortChange: 'sort_change',
+    ColumnChange: 'column_change',
+    ScopeChange: 'scope_change',
+    Refresh: 'refresh',
+} as const
+
 export interface _LogsQueryRequestApi {
     /** The logs query to execute. */
     query: _LogsQueryBodyApi
+    /** What caused the PostHog app to run this query. Used for usage analytics only, with no effect on results. API clients omit it.
+     *
+     * * `initial_load` - initial_load
+     * * `filter_change` - filter_change
+     * * `filters_restored` - filters_restored
+     * * `sort_change` - sort_change
+     * * `column_change` - column_change
+     * * `scope_change` - scope_change
+     * * `refresh` - refresh */
+    trigger?: LogsQueryTriggerEnumApi
 }
 
 /**
@@ -3434,6 +3465,24 @@ export interface _LogsServicesResponseApi {
     source?: LogsServicesSourceEnumApi
     /** Prefilled follow-up calls for problem services. */
     next?: _LogsNextStepApi[]
+}
+
+export interface LogsSigningSecretApi {
+    /**
+     * Raw secret that a server uses to sign log requests (HMAC). Null until one exists.
+     * @nullable
+     */
+    readonly secret: string | null
+    /**
+     * When the secret last changed, or null when no secret exists yet.
+     * @nullable
+     */
+    readonly updated_at: string | null
+    /**
+     * Until when the previous secret stays valid after a rotation, or null when no grace period is active.
+     * @nullable
+     */
+    readonly previous_secret_valid_until: string | null
 }
 
 /**

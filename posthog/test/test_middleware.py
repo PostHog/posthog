@@ -32,7 +32,7 @@ from prometheus_client import REGISTRY
 from rest_framework import status
 from rest_framework.exceptions import ValidationError
 from social_core.backends.base import BaseAuth
-from social_core.exceptions import AuthCanceled, AuthFailed, AuthMissingParameter
+from social_core.exceptions import AuthCanceled, AuthFailed, AuthMissingParameter, AuthStateForbidden, AuthStateMissing
 from structlog.testing import capture_logs
 
 from posthog.api.test.test_organization import create_organization
@@ -2914,6 +2914,18 @@ class TestSocialAuthExceptionMiddleware(SimpleTestCase):
                 "/login?error_code=access_blocked",
             ),
             (
+                "oauth_state_missing",
+                "/complete/google-oauth2/",
+                AuthStateMissing(_social_auth_backend(), "state"),
+                "/login?error_code=oauth_state_invalid",
+            ),
+            (
+                "oauth_state_mismatch",
+                "/complete/github/",
+                AuthStateForbidden(_social_auth_backend()),
+                "/login?error_code=oauth_state_invalid",
+            ),
+            (
                 "expired_invite",
                 "/complete/google-oauth2/",
                 InviteExpiredException(),
@@ -3184,6 +3196,11 @@ async def test_chqueries_middleware_tags_http_request_id_under_asgi(header_value
     response = await AsyncClient().get("/api/_http_request_id_probe/", headers={"X-Request-ID": header_value})
 
     assert response.content.decode() == expected_tag
+    if expected_tag == "None":
+        assert "X-Request-ID" not in response.headers
+    else:
+        # Any API response, not only query ones, so frontend failure events can join the backend logs.
+        assert response.headers["X-Request-ID"] == expected_tag
 
 
 @override_settings(ROOT_URLCONF=__name__)

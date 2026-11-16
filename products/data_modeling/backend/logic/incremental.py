@@ -86,6 +86,7 @@ def get_incremental_state(saved_query, *, scope: Optional[str] = None) -> Increm
         last_full_refresh_at=raw.get("last_full_refresh_at"),
         last_run_mode=raw.get("last_run_mode"),
         has_incremental_history=raw.get("has_incremental_history") is True,
+        table_uri=raw.get("table_uri"),
     )
 
 
@@ -178,7 +179,13 @@ def window_start(state: IncrementalState, config: IncrementalConfig) -> Any:
 
 
 def set_incremental_state(
-    saved_query, *, watermark: Any, fingerprint: Optional[str], mode: str, scope: Optional[str] = None
+    saved_query,
+    *,
+    watermark: Any,
+    fingerprint: Optional[str],
+    mode: str,
+    scope: Optional[str] = None,
+    table_uri: Optional[str] = None,
 ) -> None:
     """Row-locked read-modify-write of the state blob.
 
@@ -198,6 +205,8 @@ def set_incremental_state(
             target["watermark"] = _serialize_watermark(watermark)
             target["watermark_type"] = _watermark_type(watermark)
         target["definition_fingerprint"] = fingerprint
+        if table_uri is not None:
+            target["table_uri"] = table_uri
         locked.incremental_state = state
         locked.save(update_fields=["incremental_state"])
     saved_query.incremental_state = state

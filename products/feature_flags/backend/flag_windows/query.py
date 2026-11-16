@@ -67,7 +67,7 @@ from posthog.dataclasses import frozen
 from posthog.errors import InternalCHQueryError
 from posthog.models import Team
 
-from products.feature_flags.backend.facade.flags import flag_calls_only_in_flag_evaluations
+from products.feature_flags.backend.facade.flag_calls import FlagCalls
 from products.feature_flags.backend.person_sampling import SPILL_GROUP_BY_AFTER_BYTES
 from products.feature_flags.backend.user_blast_radius import (
     replace_proxy_properties,
@@ -295,44 +295,6 @@ def _matches_condition(team: Team, condition: WatchedCondition, end: datetime) -
     )
 
 
-@frozen
-class _FlagCalls:
-    """Where the reason joins and the last values read the flag calls of a team."""
-
-    table: tuple[str, ...]
-    # Limits the rows to flag calls.
-    only_calls: ast.Expr
-    flag_key: ast.Expr
-    response: ast.Expr
-    # The stored person id. The events read it too, because the query doesn't apply person merges.
-    person_id: ast.Expr
-
-    @classmethod
-    def of(cls, team: Team) -> "_FlagCalls":
-        # Ingestion writes no flag calls to events for some teams of an organization on FLAG_EVALUATIONS_ONLY, and the
-        # native JSON events table holds none. The flag_evaluations swap can't move this scan, because there
-        # `person_id` applies person merges. So the scan reads `flag_evaluations` by name. Otherwise events holds every
-        # flag call, and flag_evaluations only those of the teams that ingestion writes there.
-        if not flag_calls_only_in_flag_evaluations(team):
-            return cls(
-                table=("events",),
-                only_calls=parse_expr("event = '$feature_flag_called'"),
-                flag_key=parse_expr("properties.$feature_flag"),
-                response=parse_expr("toString(properties.$feature_flag_response)"),
-                person_id=ast.Field(chain=["person_id"]),
-            )
-        return cls(
-            table=("posthog", "flag_evaluations"),
-            only_calls=ast.Constant(value=True),
-            flag_key=ast.Field(chain=["flag_key"]),
-            response=ast.Field(chain=["response"]),
-            person_id=ast.Field(chain=["flag_evaluation_person_id"]),
-        )
-
-    def actor_column(self, group_type_index: int | None) -> ast.Expr:
-        return self.person_id if group_type_index is None else _actor(group_type_index).expr
-
-
 def _edits_by_actor(edits: Sequence[WatchedEdit]) -> dict[int | None, list[tuple[int, WatchedEdit]]]:
     """The edits with their position in `edits`, by the group type that their flag aggregates by."""
     by_actor: dict[int | None, list[tuple[int, WatchedEdit]]] = {}
@@ -369,7 +331,7 @@ def _reason_joins(
     }
     if not edits_by_actor:
         return [], {}
-    calls = _FlagCalls.of(team)
+    calls = FlagCalls.of(team)
     joins: list[ast.JoinExpr] = []
     columns: dict[str, ast.Expr] = {}
     for group_type_index, watched in edits_by_actor.items():
@@ -431,7 +393,7 @@ def _watched_reasons(edit: WatchedEdit) -> list[str]:
     return reasons
 
 
-def _called_with_watched_reason(edit: WatchedEdit, calls: _FlagCalls, reasons: Sequence[str]) -> ast.Expr:
+def _called_with_watched_reason(edit: WatchedEdit, calls: FlagCalls, reasons: Sequence[str]) -> ast.Expr:
     return parse_expr(
         """
         max(
@@ -457,7 +419,7 @@ def last_values(
     edits_by_actor = _edits_by_actor(edits)
     if not edits_by_actor:
         return LastValues(joins=(), by_edit={})
-    calls = _FlagCalls.of(team)
+    calls = FlagCalls.of(team)
     joins: list[ast.JoinExpr] = []
     by_edit: dict[str, LastValue] = {}
     for group_type_index, watched in edits_by_actor.items():
@@ -542,7 +504,7 @@ def last_values(
     return LastValues(joins=tuple(joins), by_edit=by_edit)
 
 
-def _call_carries(edit: WatchedEdit, calls: _FlagCalls) -> ast.Expr:
+def _call_carries(edit: WatchedEdit, calls: FlagCalls) -> ast.Expr:
     if {"true", "false"} & set(edit.variants):
         # A flag call's response is text, so a variant named "true" or "false" reads the same as a boolean value.
         return ast.Constant(value=False)

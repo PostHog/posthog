@@ -88,7 +88,9 @@ const PER_SEND_METADATA_KEYS = [
     'teamCapped',
     'suppressionLookupAttempts',
     'attachmentLoadRetries',
+    'ownershipCheckRetries',
     'teamBudgetClaimed',
+    'workflowRateClaimed',
 ] as const
 
 const SEND_WITH_FILES_METADATA_KEYS = ['attachmentDueAt', 'attachmentDeferrals'] as const

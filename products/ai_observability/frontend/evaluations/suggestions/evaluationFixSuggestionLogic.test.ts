@@ -118,6 +118,20 @@ describe('evaluationFixSuggestionLogic', () => {
         evaluationLogic.unmount()
     })
 
+    it('leaves another suggestion open when the user opened it while this fix applied', async () => {
+        router.actions.push(urls.aiObservabilityEvaluation('eval-1'), { suggestion: 'fix-1' })
+        const logic = evaluationFixSuggestionLogic({ suggestionId: 'fix-1', evaluationId: 'eval-1' })
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadSuggestionSuccess'])
+
+        await expectLogic(logic, () => {
+            logic.actions.applyFix()
+            router.actions.push(urls.aiObservabilityEvaluation('eval-2'), { suggestion: 'fix-2' })
+        }).toFinishAllListeners()
+
+        expect(router.values.searchParams.suggestion).toBe('fix-2')
+    })
+
     it('keeps edits made while the fix applies, with the new filter in the form', async () => {
         const evaluationLogic = llmEvaluationLogic({ evaluationId: 'eval-1' })
         evaluationLogic.mount()

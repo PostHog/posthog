@@ -41,6 +41,7 @@ import { CdpEventsConsumer } from '../../consumers/cdp-events.consumer'
 import {
     CdpProducerName,
     WAREHOUSE_PRODUCER,
+    WARPSTREAM_CYCLOTRON_INTAKE_PRODUCER,
     WARPSTREAM_CYCLOTRON_PRODUCER,
     WARPSTREAM_INGESTION_PRODUCER,
 } from '../../outputs/producers'
@@ -590,6 +591,7 @@ describe('CDP batch quarantine against Kafka and Valkey', () => {
             cdpProducerRegistry: new KafkaProducerRegistry<CdpProducerName>({
                 [WARPSTREAM_INGESTION_PRODUCER]: producer,
                 [WARPSTREAM_CYCLOTRON_PRODUCER]: producer,
+                [WARPSTREAM_CYCLOTRON_INTAKE_PRODUCER]: producer,
                 [WAREHOUSE_PRODUCER]: producer,
             }),
             internalCaptureService: new InternalCaptureService(hub),

@@ -15,6 +15,7 @@ from posthog.hogql import ast
 from posthog.hogql.compiler.bytecode import create_bytecode
 from posthog.hogql.compiler.javascript import JavaScriptCompiler
 from posthog.hogql.context import HogQLContext
+from posthog.hogql.errors import SyntaxError as HogQLSyntaxError
 from posthog.hogql.parser import parse_program, parse_string_template
 from posthog.hogql.visitor import TraversingVisitor
 
@@ -1146,6 +1147,16 @@ class InputsItemSerializer(serializers.Serializer):
                         )
                     }
                 )
+            # A brace typed as plain text, such as JSON in an AI prompt, opens an expression that never parses.
+            if isinstance(e, HogQLSyntaxError):
+                raise serializers.ValidationError(
+                    {
+                        "input": (
+                            f"Invalid template: {str(e)}. Curly braces insert a value, like "
+                            "{person.properties.email}. To use a literal brace, type \\{ instead."
+                        )
+                    }
+                )
             raise serializers.ValidationError({"input": f"Invalid template: {str(e)}"})
 
         return attrs
@@ -1517,6 +1528,12 @@ COHORT_NOT_READY_CODE = "cohort_not_ready"
 
 
 def _cohort_not_ready_error(cohort: Cohort) -> serializers.ValidationError:
+    if cohort.cohort_type == CohortType.REALTIME and not cohort.realtime_enabled and has_realtime_state(cohort):
+        return serializers.ValidationError(
+            f"Realtime is off for cohort {cohort.pk}. Turn it on from the cohort's page, and workflows can use the "
+            "cohort once it finishes calculating.",
+            code=COHORT_NOT_READY_CODE,
+        )
     readiness = resolve_realtime_readiness([cohort]).get(cohort.pk)
     if readiness is not None and readiness.state in (CohortRealtimeState.BUILDING, CohortRealtimeState.REBUILDING):
         percent = readiness.build.percent_complete if readiness.build is not None else None
@@ -1554,7 +1571,9 @@ def validate_realtime_cohorts(cohort_ids: Iterable[int], team: Team, *, require_
             )
         if cohort.is_flag_compatible:
             continue
-        can_become_ready = cohort.cohort_type == CohortType.REALTIME and has_realtime_state(cohort)
+        can_become_ready = (
+            cohort.cohort_type == CohortType.REALTIME and cohort.realtime_enabled and has_realtime_state(cohort)
+        )
         if require_ready or not can_become_ready:
             raise _cohort_not_ready_error(cohort)
 

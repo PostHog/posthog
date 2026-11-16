@@ -86,6 +86,7 @@ from posthog.hogql.database.schema.error_tracking_issue_fingerprint_overrides im
     ErrorTrackingIssueFingerprintOverridesTable,
     RawErrorTrackingIssueFingerprintOverridesTable,
 )
+from posthog.hogql.database.schema.error_tracking_issue_tags import RawErrorTrackingIssueTagsTable
 from posthog.hogql.database.schema.error_tracking_recent_issue_state import ErrorTrackingRecentIssueStateTable
 from posthog.hogql.database.schema.events import EventsTable
 from posthog.hogql.database.schema.events_with_flag_calls import EVENTS_WITH_FLAG_CALLS_TABLE, EventsWithFlagCallsTable
@@ -656,6 +657,11 @@ def _construct_database_root_node(*, include_posthog_tables: bool) -> TableNode:
                         table=ErrorTrackingRecentIssueStateTable(),
                         hidden=True,
                     ),
+                    "raw_error_tracking_issue_tags": TableNode(
+                        name="raw_error_tracking_issue_tags",
+                        table=RawErrorTrackingIssueTagsTable(),
+                        hidden=True,
+                    ),
                     "web_overview_preaggregated": TableNode(
                         name="web_overview_preaggregated", table=WebOverviewPreaggregatedTable()
                     ),
@@ -1206,7 +1212,16 @@ class Database(BaseModel):
         # is noise, and on a direct connection the same name can exist in the broader
         # catalog without being available on the source we actually queried.
         lowered = name.casefold()
-        candidates = {c for c in candidates if c.casefold() != lowered}
+        candidates = {c for c in candidates if c.casefold() != lowered and self.has_table(c)}
+        if "." not in name:
+            qualified_name = f"posthog.{name}"
+            try:
+                qualified_node = self.get_table_node(qualified_name)
+            except ResolutionError:
+                pass
+            else:
+                if qualified_node.table is not None and not qualified_node.hidden:
+                    return [qualified_name]
         prefix, dot, _ = name.rpartition(".")
         if dot:
             schema = prefix.casefold()
@@ -1476,6 +1491,22 @@ class Database(BaseModel):
         if table.external_data_source:
             for table_key in _get_warehouse_table_keys(table, direct_query=self._is_direct_query()):
                 self._denied_tables.add(table_key)
+        return True
+
+    def _is_live_only_table_denied(self, schema: ExternalDataSchema) -> bool:
+        """
+        `_is_warehouse_table_denied` for a dual-mode table that is queryable live but has no synced table row.
+        Userless context (no UserAccessControl) fails closed.
+        """
+        from products.warehouse_sources.backend.facade.live_queries import live_only_access_ref  # noqa: PLC0415
+
+        uac = self.user_access_control
+        if uac is not None and (
+            uac.is_organization_admin or uac.check_access_level_for_ref(live_only_access_ref(schema), "viewer")
+        ):
+            return False
+
+        self._denied_tables.add(schema.name)
         return True
 
     def _is_warehouse_view_denied(self, saved_query: Any) -> bool:
@@ -2047,7 +2078,12 @@ class Database(BaseModel):
 
     @staticmethod
     def create_for_posthog_tables(
-        team: Team, *, modifiers: HogQLQueryModifiers | None = None, timings: HogQLTimings | None = None
+        team: Team,
+        *,
+        modifiers: HogQLQueryModifiers | None = None,
+        timings: HogQLTimings | None = None,
+        group_types: Sequence[dict[str, Any]] = (),
+        mcp_custom_harness_rules: Sequence[CustomHarnessRule] = (),
     ) -> Database:
         """PostHog's built-in tables only, wired for the team's modifiers, with no Postgres I/O.
 
@@ -2056,7 +2092,8 @@ class Database(BaseModel):
         user-written HogQL. Every access-controlled or entitlement-gated system table is removed up
         front, so a query that names one fails with TableAccessDeniedError instead of reading rows
         unchecked. create_for runs a dozen Postgres queries and feature-flag checks that such a
-        query never uses; on teams with many warehouse tables that costs more than the query."""
+        query never uses; on teams with many warehouse tables that costs more than the query.
+        A caller that needs group-type fields or MCP harness labels fetches them and passes them in."""
         if timings is None:
             timings = HogQLTimings()
         with timings.measure("modifiers"):
@@ -2079,8 +2116,8 @@ class Database(BaseModel):
             read_flag_calls_from_flag_evaluations=False,
             flag_calls_only_in_flag_evaluations=False,
             flag_calls_union_enabled=False,
-            group_types=[],
-            mcp_custom_harness_rules=(),
+            group_types=list(group_types),
+            mcp_custom_harness_rules=tuple(mcp_custom_harness_rules),
             saved_queries=[],
             endpoint_saved_queries=[],
             revenue_views=[],
@@ -2233,7 +2270,7 @@ class Database(BaseModel):
                         # Dual-mode live queries run under warehouse table-level access control. The
                         # introspected `available_functions` (scalar passthrough, e.g. query_to_xml) and
                         # `available_table_functions` (FROM func() via OpaqueFunctionCallTable) both let a
-                        # user execute arbitrary SQL against the upstream DB, bypassing the should_sync /
+                        # user execute arbitrary SQL against the upstream DB, bypassing the table selection /
                         # row-filter / column / warehouse-object checks enforced when virtual tables are
                         # built. Drop both so only built-in safe functions pass through; DIRECT sources
                         # (full DB access by design) keep introspected passthrough.
@@ -2869,15 +2906,23 @@ class Database(BaseModel):
                 virtual_source = sources.virtual_source
                 with timings.measure("build_virtual_tables", emit_span=True):
                     for schema_row in sources.virtual_schemas:
-                        # Warehouse access control is granted on the synced table row. A schema row
-                        # without one yet (discovered but not synced) has nothing to check permission
-                        # against, so fail closed and deny it rather than let it slip through unchecked.
+                        # A row with a table row uses that table's rules. A table-less row with live queries on
+                        # uses its source's rules. Any other table-less row is denied.
                         if (
                             sources.is_hogql_warehouse_access_control_enabled
                             and not sources.bypass_warehouse_access_control
-                            and (schema_row.table is None or database._is_warehouse_table_denied(schema_row.table))
                         ):
-                            continue
+                            if schema_row.table is not None:
+                                denied = database._is_warehouse_table_denied(schema_row.table)
+                                if denied:
+                                    # The table row's names are the synced copy's, so record the live name too.
+                                    database._denied_tables.add(schema_row.name)
+                            elif schema_row.live_query_enabled:
+                                denied = database._is_live_only_table_denied(schema_row)
+                            else:
+                                denied = True
+                            if denied:
+                                continue
 
                         virtual_table = build_direct_table_for_schema(schema_row, virtual_source)
                         if virtual_table is None:
