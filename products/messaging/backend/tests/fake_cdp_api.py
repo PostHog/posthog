@@ -156,6 +156,16 @@ def _accepted_send(tracking: Check, *, takes_sensitive: bool, takes_attachments:
             "bcc": copies,
             **sensitive,
             **attachments,
+            "headers": _Key(
+                _object(
+                    {
+                        "List-Unsubscribe": _Key(_string(min_length=1, max_length=870)),
+                        "List-Unsubscribe-Post": _Key(_string(min_length=1), optional=True),
+                    },
+                    strict=True,
+                ),
+                optional=True,
+            ),
             "tracking": _Key(tracking),
         },
         strict=True,

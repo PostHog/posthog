@@ -241,6 +241,8 @@ class CodeEmail:
     cc: tuple[str, ...] = ()
     bcc: tuple[str, ...] = ()
     attachments: tuple[EmailAttachment, ...] = ()
+    # (name, value) pairs, only `List-Unsubscribe` and `List-Unsubscribe-Post`.
+    headers: tuple[tuple[str, str], ...] = ()
 
 
 class DeliveryUnavailable(Exception):

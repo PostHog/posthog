@@ -951,6 +951,34 @@ class TestTransactionalEmail(APIBaseTest):
 
     @parameterized.expand(
         [
+            ("omitted", {}, "unset"),
+            (
+                "names_in_any_case",
+                {
+                    "list-unsubscribe": "<https://example.com/unsubscribe>",
+                    "LIST-UNSUBSCRIBE-POST": "List-Unsubscribe=One-Click",
+                },
+                {
+                    "List-Unsubscribe": "<https://example.com/unsubscribe>",
+                    "List-Unsubscribe-Post": "List-Unsubscribe=One-Click",
+                },
+            ),
+        ]
+    )
+    def test_a_code_send_queues_its_unsubscribe_headers_under_their_canonical_names(
+        self, mock_post, _flag, _capture, _name, headers, queued
+    ):
+        fields = {"headers": headers} if headers else {}
+        with FakeCdpApi().serving(mock_post) as cdp:
+            response = self._psak_client(["hog_flow:write"]).post(
+                self.send_email_url, self._code_send(**fields), format="json"
+            )
+
+        assert response.status_code == status.HTTP_202_ACCEPTED, response.json()
+        assert [send.get("headers", "unset") for send in cdp.queued_sends] == [queued]
+
+    @parameterized.expand(
+        [
             ("unmarked_on_a_sensitive_template", "password-reset", True, False, status.HTTP_400_BAD_REQUEST),
             ("marked_on_a_sensitive_template", "password-reset", True, True, status.HTTP_202_ACCEPTED),
             ("unmarked_on_a_template_that_is_not_sensitive", "password-reset", False, False, status.HTTP_202_ACCEPTED),
@@ -1005,6 +1033,52 @@ class TestTransactionalEmail(APIBaseTest):
             ("empty_key_beside_a_field_this_server_lacks", {"": "", "scheduled_at": "2026-11-01T09:00:00Z"}, None),
             ("html_over_5_mib_in_utf8", {"html": "é" * (5 * 1024 * 1024 // 2 + 1)}, "html"),
             ("text_over_5_mib_in_utf8", {"text": "é" * (5 * 1024 * 1024 // 2 + 1)}, "text"),
+            (
+                "header_outside_the_allowlist",
+                {"headers": {"List-Unsubscribe": "<https://example.com/unsubscribe>", "Reply-To": "a@example.com"}},
+                "headers",
+            ),
+            (
+                "the_same_header_in_two_cases",
+                {
+                    "headers": {
+                        "List-Unsubscribe": "<https://example.com/unsubscribe>",
+                        "list-unsubscribe": "<https://example.com/unsubscribe>",
+                    }
+                },
+                "headers",
+            ),
+            (
+                "unsubscribe_link_over_http",
+                {"headers": {"List-Unsubscribe": "<http://example.com/unsubscribe>"}},
+                "headers",
+            ),
+            (
+                "unsubscribe_link_with_a_port",
+                {"headers": {"List-Unsubscribe": "<https://example.com:8443/u>"}},
+                "headers",
+            ),
+            ("unsubscribe_link_without_a_host", {"headers": {"List-Unsubscribe": "<https://?>"}}, "headers"),
+            (
+                "unsubscribe_link_with_a_line_break",
+                {"headers": {"List-Unsubscribe": "<https://example.com/u>\r\nBcc: a@example.com"}},
+                "headers",
+            ),
+            (
+                "unsubscribe_link_over_870_characters",
+                {"headers": {"List-Unsubscribe": "<https://example.com/" + "u" * 850 + ">"}},
+                "headers",
+            ),
+            (
+                "one_click_without_a_link",
+                {"headers": {"List-Unsubscribe-Post": "List-Unsubscribe=One-Click"}},
+                "headers",
+            ),
+            (
+                "one_click_with_another_value",
+                {"headers": {"List-Unsubscribe": "<https://example.com/unsubscribe>", "List-Unsubscribe-Post": "yes"}},
+                "headers",
+            ),
         ]
     )
     def test_refuses_a_code_send_with_an_invalid_field(self, mock_post, _flag, _capture, _name, fields, attr):
@@ -1052,6 +1126,7 @@ class TestTransactionalEmail(APIBaseTest):
             ("cc", "copy@example.com", "invalid_request"),
             ("bcc", ["audit@example.com"], "invalid_request"),
             ("attachments", TWO_FILES[:1], "invalid_request"),
+            ("headers", {"List-Unsubscribe": "<https://example.com/unsubscribe>"}, "validation_error"),
         ]
     )
     def test_refuses_code_fields_on_a_template_send(self, mock_post, _flag, _capture, field, value, error_type):
@@ -1402,6 +1477,7 @@ class TestTransactionalEmail(APIBaseTest):
             ("reply_to", {"reply_to": ["help@example.com"]}),
             ("attachments", {"attachments": TWO_FILES}),
             ("from", {"from": "Example <hello@example.org>"}),
+            ("headers", {"headers": {"List-Unsubscribe": "<https://example.com/unsubscribe>"}}),
         ]
     )
     def test_refuses_what_the_sandbox_sender_cannot_send_before_setting_it_up(

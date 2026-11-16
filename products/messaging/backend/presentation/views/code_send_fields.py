@@ -143,6 +143,69 @@ class EmailTrackingField(serializers.Field):
         return {"opens": value.opens, "clicks": value.clicks, "engagement": value.engagement}
 
 
+LIST_UNSUBSCRIBE = "List-Unsubscribe"
+LIST_UNSUBSCRIBE_POST = "List-Unsubscribe-Post"
+ONE_CLICK = "List-Unsubscribe=One-Click"
+# The CDP service checks the same: one https URL with a host and no port, printable ASCII, no spaces or brackets.
+LIST_UNSUBSCRIBE_PATTERN = re.compile(r"<https://[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*(?:[/?#][!-;=?-~]*)?>", re.ASCII)
+SES_HEADER_VALUE_MAX_LENGTH = 870
+
+
+@extend_schema_field(
+    {
+        "type": "object",
+        "additionalProperties": False,
+        "properties": {
+            LIST_UNSUBSCRIBE: {
+                "type": "string",
+                "maxLength": SES_HEADER_VALUE_MAX_LENGTH,
+                "description": "One https URL in angle brackets, such as `<https://example.com/unsubscribe?u=1>`.",
+            },
+            LIST_UNSUBSCRIBE_POST: {
+                "type": "string",
+                "enum": [ONE_CLICK],
+                "description": "Turns on one-click unsubscribe. Needs `List-Unsubscribe`.",
+            },
+        },
+    }
+)
+class UnsubscribeHeadersField(serializers.Field):
+    default_error_messages = {
+        "not_an_object": "`headers` is an object of header names and values.",
+        "unknown_header": "PostHog only sends the `List-Unsubscribe` and `List-Unsubscribe-Post` headers.",
+        "duplicate_header": "Send each header once, in any case.",
+        "invalid_link": "`List-Unsubscribe` takes one `<https://...>` URL of printable ASCII, at most "
+        f"{SES_HEADER_VALUE_MAX_LENGTH} characters.",
+        "invalid_one_click": f"`List-Unsubscribe-Post` takes only `{ONE_CLICK}`, beside `List-Unsubscribe`.",
+    }
+
+    def to_internal_value(self, data: Any) -> dict[str, str]:
+        if not isinstance(data, Mapping):
+            self.fail("not_an_object")
+        canonical = {name.lower(): name for name in (LIST_UNSUBSCRIBE, LIST_UNSUBSCRIBE_POST)}
+        headers: dict[str, str] = {}
+        for name, value in data.items():
+            header = canonical.get(str(name).lower())
+            if header is None:
+                self.fail("unknown_header")
+            if header in headers:
+                self.fail("duplicate_header")
+            headers[header] = value
+        link = headers.get(LIST_UNSUBSCRIBE)
+        if link is not None and not (
+            isinstance(link, str)
+            and len(link) <= SES_HEADER_VALUE_MAX_LENGTH
+            and LIST_UNSUBSCRIBE_PATTERN.fullmatch(link)
+        ):
+            self.fail("invalid_link")
+        if LIST_UNSUBSCRIBE_POST in headers and (link is None or headers[LIST_UNSUBSCRIBE_POST] != ONE_CLICK):
+            self.fail("invalid_one_click")
+        return headers
+
+    def to_representation(self, value: dict[str, str]) -> dict[str, str]:
+        return value
+
+
 class EmailAttachmentSerializer(serializers.Serializer):
     sha256 = serializers.RegexField(
         SHA256_HEX,

@@ -36,6 +36,8 @@ export const messagingSendEmailCreateBodyDistinctIdMax = 400
 
 export const messagingSendEmailCreateBodyReplyToMax = 10
 
+export const messagingSendEmailCreateBodyHeadersListUnsubscribeMax = 870
+
 export const messagingSendEmailCreateBodyFromMax = 1024
 
 export const MessagingSendEmailCreateBody = () => zod.strictObject({
@@ -68,6 +70,22 @@ export const MessagingSendEmailCreateBody = () => zod.strictObject({
         .max(messagingSendEmailCreateBodyReplyToMax)
         .optional()
         .describe('Addresses replies to the email your code rendered go to.'),
+    headers: zod
+        .strictObject({
+            'List-Unsubscribe': zod
+                .string()
+                .max(messagingSendEmailCreateBodyHeadersListUnsubscribeMax)
+                .optional()
+                .describe('One https URL in angle brackets, such as `<https:\/\/example.com\/unsubscribe?u=1>`.'),
+            'List-Unsubscribe-Post': zod
+                .enum(['List-Unsubscribe=One-Click'])
+                .optional()
+                .describe('Turns on one-click unsubscribe. Needs `List-Unsubscribe`.'),
+        })
+        .optional()
+        .describe(
+            "Unsubscribe headers for the email your code rendered. Takes only `List-Unsubscribe` and `List-Unsubscribe-Post`, in any case, and sends them under those names. Without them, a code send carries no unsubscribe headers. Doesn't apply to a send with `template_id`, which refuses this field."
+        ),
     capture_engagement: zod
         .boolean()
         .optional()

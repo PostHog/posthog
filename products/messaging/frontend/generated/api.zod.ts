@@ -88,6 +88,8 @@ export const messagingSendEmailCreateBodyAttachmentsItemContentIdMax = 78
 
 export const messagingSendEmailCreateBodyAttachmentsMax = 10
 
+export const messagingSendEmailCreateBodyHeadersListUnsubscribeMax = 870
+
 export const messagingSendEmailCreateBodyFromMax = 1024
 
 export const MessagingSendEmailCreateBody = /* @__PURE__ */ zod.object({
@@ -179,6 +181,22 @@ export const MessagingSendEmailCreateBody = /* @__PURE__ */ zod.object({
         .nullish()
         .describe(
             "Files attached to the email your code rendered: up to 10, each uploaded first through `POST \/api\/projects\/{project_id}\/messaging\/attachments\/uploads\/` and named here by its SHA-256. The whole email can be at most 40 MB after Base64 encoding, about 29 MB of files. File types mailbox providers block, such as `.exe`, are refused. Doesn't apply to a send with `template_id`, which refuses any file here."
+        ),
+    headers: zod
+        .object({
+            'List-Unsubscribe': zod
+                .string()
+                .max(messagingSendEmailCreateBodyHeadersListUnsubscribeMax)
+                .optional()
+                .describe('One https URL in angle brackets, such as `<https:\/\/example.com\/unsubscribe?u=1>`.'),
+            'List-Unsubscribe-Post': zod
+                .enum(['List-Unsubscribe=One-Click'])
+                .optional()
+                .describe('Turns on one-click unsubscribe. Needs `List-Unsubscribe`.'),
+        })
+        .optional()
+        .describe(
+            "Unsubscribe headers for the email your code rendered. Takes only `List-Unsubscribe` and `List-Unsubscribe-Post`, in any case, and sends them under those names. Without them, a code send carries no unsubscribe headers. Doesn't apply to a send with `template_id`, which refuses this field."
         ),
     capture_engagement: zod
         .boolean()

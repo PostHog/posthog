@@ -112,6 +112,7 @@ from products.messaging.backend.presentation.views.code_send_fields import (
     AddressListField,
     AttachmentListField,
     EmailTrackingField,
+    UnsubscribeHeadersField,
     attachment_size,
     field_not_accepted_refusal,
     refused_attachment,
@@ -543,6 +544,7 @@ CODE_SEND_FIELDS = (
     "capture_engagement",
     "tracking",
     "sensitive",
+    "headers",
     *CODE_SEND_EXTRA_FIELDS,
 )
 CODE_BODY_MAX_BYTES = 5 * 1024 * 1024
@@ -620,6 +622,12 @@ class SendEmailSerializer(TransactionalEmailMessageSerializer):
         f"`{UPLOAD_ROUTE}` and named here by its SHA-256. The whole email can be at most {MESSAGE_LIMIT}. File "
         "types mailbox providers block, such as `.exe`, are refused. Doesn't apply to a send with `template_id`, "
         "which refuses any file here.",
+    )
+    headers = UnsubscribeHeadersField(
+        required=False,
+        help_text="Unsubscribe headers for the email your code rendered. Takes only `List-Unsubscribe` and "
+        "`List-Unsubscribe-Post`, in any case, and sends them under those names. Without them, a code send carries "
+        "no unsubscribe headers. Doesn't apply to a send with `template_id`, which refuses this field.",
     )
     capture_engagement = OmittableBooleanField(
         required=False,
@@ -1614,6 +1622,7 @@ class MessagingSendViewSet(TransactionalEmailSendMixin, TeamAndOrgViewSetMixin, 
             cc=tuple(data.get("cc") or ()),
             bcc=tuple(data.get("bcc") or ()),
             attachments=tuple(EmailAttachment(**attachment) for attachment in data.get("attachments") or ()),
+            headers=tuple(data.get("headers", {}).items()),
         )
         return self._queue_send(
             request,

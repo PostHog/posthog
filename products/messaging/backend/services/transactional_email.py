@@ -672,6 +672,8 @@ def _accepted_send(team: Team, email: CodeEmail) -> tuple[dict[str, Any], SendWa
         accepted["bcc"] = list(email.bcc)
     if email.attachments:
         accepted["attachments"] = [_accepted_attachment(attachment) for attachment in email.attachments]
+    if email.headers:
+        accepted["headers"] = dict(email.headers)
     return accepted, sandbox_warning
 
 
@@ -725,6 +727,7 @@ def _field_the_sandbox_sender_cannot_send(email: CodeEmail) -> str | None:
         "reply_to": email.reply_to,
         "attachments": email.attachments,
         "from": email.sender,
+        "headers": email.headers,
     }
     return next((field for field, value in fields.items() if value), None)
 

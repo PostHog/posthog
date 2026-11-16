@@ -114528,6 +114528,29 @@ export namespace Schemas {
     export type SendEmailMessageData = {[key: string]: unknown};
 
     /**
+     * Turns on one-click unsubscribe. Needs `List-Unsubscribe`.
+     */
+    export type SendEmailHeadersListUnsubscribePost = typeof SendEmailHeadersListUnsubscribePost[keyof typeof SendEmailHeadersListUnsubscribePost];
+
+
+    export const SendEmailHeadersListUnsubscribePost = {
+      ListUnsubscribeOneClick: 'List-Unsubscribe=One-Click',
+    } as const;
+
+    /**
+     * Unsubscribe headers for the email your code rendered. Takes only `List-Unsubscribe` and `List-Unsubscribe-Post`, in any case, and sends them under those names. Without them, a code send carries no unsubscribe headers. Doesn't apply to a send with `template_id`, which refuses this field.
+     */
+    export type SendEmailHeaders = {
+      /**
+         * One https URL in angle brackets, such as `<https://example.com/unsubscribe?u=1>`.
+         * @maxLength 870
+         */
+      'List-Unsubscribe'?: string;
+      /** Turns on one-click unsubscribe. Needs `List-Unsubscribe`. */
+      'List-Unsubscribe-Post'?: SendEmailHeadersListUnsubscribePost;
+    };
+
+    /**
      * What PostHog tracks for the email your code rendered. `true` tracks opens and clicks and captures engagement events. `false` turns off all of it, now and for any kind of tracking added later. An object sets each kind on its own, and a kind it leaves out keeps its default. Without this field, PostHog tracks opens and captures engagement events, and tracks clicks only when the email isn't sensitive (see `sensitive`). Turn on `clicks` for a sensitive email only when its links are safe to send through a redirect. A link with `data-ph-no-track` keeps its own address either way. Click tracking needs open tracking. A project whose admin turned engagement capture off captures nothing, whatever the send says. The object form needs a JSON body.
      */
     export type SendEmailTracking = boolean | {
@@ -114579,6 +114602,8 @@ export namespace Schemas {
          * @nullable
          */
       attachments?: EmailAttachment[] | null;
+      /** Unsubscribe headers for the email your code rendered. Takes only `List-Unsubscribe` and `List-Unsubscribe-Post`, in any case, and sends them under those names. Without them, a code send carries no unsubscribe headers. Doesn't apply to a send with `template_id`, which refuses this field. */
+      headers?: SendEmailHeaders;
       /**
          * Deprecated: use `tracking.engagement`. Whether the engagement events (sent, delivered, opened, clicked, bounced) of the email your code rendered are captured as analytics events of the recipient. Defaults to true. A send with `tracking` can't also carry this field. A project whose admin turned engagement capture off captures nothing, whatever the send says.
          * @deprecated
