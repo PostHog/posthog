@@ -481,6 +481,7 @@ def assert_no_unsweepable_rows(
     *,
     events: Sequence[str],
     reason: str,
+    counted_without_predicate: bool = False,
     log: logging.Logger | None = None,
 ) -> None:
     """Fail when a target this request cannot sweep actually holds rows matching it.
@@ -488,9 +489,11 @@ def assert_no_unsweepable_rows(
     Pass targets already narrowed by ``resolve_targets``; this does not re-check presence.
 
     ``predicate_for`` returns the criteria to count on a target, or ``NotCounted`` to skip it.
-    The criteria carry no HogQL fragment and no materialized-column arms, so each count is a
-    superset of what the deletion would have removed. A caller may drop a criterion the target
-    cannot hold, and the count is then a superset of the remainder.
+    The criteria carry no materialized-column arms, so each count is a superset of what the
+    deletion would have removed. A caller may drop a criterion the target cannot hold, and the
+    count is then a superset of the remainder.
+    Set ``counted_without_predicate`` when the request has a HogQL predicate that the criteria
+    leave out. The error then says that the counted rows may not match that predicate.
     ``events`` is the request's event filter, empty meaning every event.
     ``log`` gets an info line for each target skipped without a count, with the reason, so a
     completed erasure records which targets went unchecked.
@@ -511,9 +514,13 @@ def assert_no_unsweepable_rows(
 
         count = count_surviving_rows(cluster, target, predicate, params)
         if count:
-            raise UnsweepableRowsError(
-                f"{count} row(s) in {target.read_table} match this request but cannot be deleted: {reason}"
+            matched = (
+                "match this request's team, time range and events. They were counted without the HogQL "
+                "predicate, so some of them may not match it. They"
+                if counted_without_predicate
+                else "match this request but"
             )
+            raise UnsweepableRowsError(f"{count} row(s) in {target.read_table} {matched} cannot be deleted: {reason}")
 
 
 def assert_sweep_complete(

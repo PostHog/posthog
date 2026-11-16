@@ -369,11 +369,17 @@ For `=`, `!=` and `IN`, the `optimized` rewrite also compares a typed property a
 On cloud, events reads some `$` properties from `mat_` or `dmat_string_` columns instead, and those differ on edge values: the column reads an empty string and the string `"null"` as NULL, and a nullable column decodes escapes.
 So with `$browser` materialized, `properties.$browser = ''` excludes a row that stores `""` on events and matches it on `flag_evaluations`.
 The compile therefore refuses a predicate whenever the events compile of it reads a property-group map or a materialized column.
-Every property the compile accepts reads raw JSON on both tables.
+Every other property the compile accepts reads raw JSON on both tables.
+One shape of materialized-column read is allowed, because it selects the same rows on both tables: `=` or `IN` on a non-nullable string column, with only `AND` and `OR` around it, against values that are not empty, are not `'null'`, and have no quote or backslash.
+The two reads differ only for a stored `""`, a stored `"null"`, and a value that starts or ends with an escaped quote, which older column definitions strip differently.
+None of those can equal such a value.
+Under `NOT` the reads still differ, because a missing property is NULL in raw JSON and an empty string in the column, so `NOT IN` is NULL on one table and true on the other.
+So `properties.$host IN ('a.example.com', 'b.example.com')` compiles for `flag_evaluations`, and `properties.$host = ''`, `IS NULL`, `NOT IN` and any read of a nullable or typed column are refused.
 It also refuses one that needs a join, such as `person_id`, because the fragment is spliced into a bare WHERE that has no join.
 `person.properties` and `elements_chain` do not resolve on the table, so those predicates fail to compile.
 
 When the predicate cannot run on the table, the gate counts the rows with no copy in `sharded_events` that match the request's other criteria, shard-locally, and refuses the request when it finds any.
+That count leaves out the predicate, so the refusal says the rows match the request's team, time range and events, and that some of them may not match the predicate.
 Requests without a predicate, immediate or deferred, are swept normally.
 A deferred one reads the table's own uuids into the queue.
 

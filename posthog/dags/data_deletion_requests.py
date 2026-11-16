@@ -588,9 +588,13 @@ def _refuse_unsweepable(
     predicate_for: Callable[[DeletionTarget], tuple[str, dict] | NotCounted],
     *,
     reason: str,
+    predicate_applied: bool = False,
     log: logging.Logger | None = None,
 ) -> None:
-    """Raise a dagster.Failure when the request would strand rows on any of ``targets``."""
+    """Raise a dagster.Failure when the request would strand rows on any of ``targets``.
+
+    Set ``predicate_applied`` when ``predicate_for`` includes the request's compiled HogQL predicate.
+    """
     try:
         assert_no_unsweepable_rows(
             cluster,
@@ -598,6 +602,7 @@ def _refuse_unsweepable(
             predicate_for,
             events=[] if deletion_request.delete_all_events else deletion_request.events,
             reason=reason,
+            counted_without_predicate=bool(deletion_request.hogql_predicate) and not predicate_applied,
             log=log,
         )
     except UnsweepableRowsError as exc:
@@ -775,7 +780,14 @@ def _event_removal_placements(
         if not deferred:
             reason += _IMMEDIATE_HOGQL_RETRY_HINT
         for window in uncopied_predicate.windows(deletion_request, target):
-            _refuse_unsweepable(cluster, [target], deletion_request, _same_criteria(window), reason=reason)
+            _refuse_unsweepable(
+                cluster,
+                [target],
+                deletion_request,
+                _same_criteria(window),
+                reason=reason,
+                predicate_applied=uncopied_predicate.compiled is not None,
+            )
     return EventRemovalPlacements(swept=[p for p in placements if p.target.accepts_hogql_predicate], uncopied=uncopied)
 
 

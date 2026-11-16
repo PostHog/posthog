@@ -183,6 +183,85 @@ def _materialized_columns_read(events_sql: str) -> list[str]:
     return sorted(registered | set(_DYNAMIC_MATERIALIZED_COLUMN.findall(events_sql)))
 
 
+@frozen
+class _PredicateOnly:
+    """The two fields ``compile_hogql_predicate`` reads, to compile a predicate other than the request's own."""
+
+    team_id: int
+    hogql_predicate: str
+
+
+def _reads_alike_on_both_tables(value: object) -> bool:
+    """Whether a string column and the raw JSON read compare equal to ``value`` for the same rows.
+
+    The two reads differ only for a stored ``""`` or ``"null"``, which the column reads as NULL, and for a value
+    that starts or ends with an escaped quote, which older column definitions strip differently. Such a value
+    reads as ``''``, ``'null'``, or text with a backslash, so neither read can equal a literal without them.
+    """
+    return isinstance(value, str) and value not in ("", "null") and '"' not in value and "\\" not in value
+
+
+def _is_exact_match(expr, properties: Collection[str]) -> bool:
+    """Whether ``expr`` is ``properties.P = 'v'`` or ``properties.P IN ('v', ...)``, with P in ``properties``."""
+    from posthog.hogql import ast
+
+    if not (
+        isinstance(expr, ast.CompareOperation)
+        and isinstance(expr.left, ast.Field)
+        and len(expr.left.chain) == 2
+        and expr.left.chain[0] == "properties"
+        and expr.left.chain[1] in properties
+    ):
+        return False
+    if expr.op not in (ast.CompareOperationOp.Eq, ast.CompareOperationOp.In):
+        return False
+    # `IN ('a')` parses as a parenthesized constant, not a one-element tuple.
+    values = expr.right.exprs if isinstance(expr.right, ast.Tuple | ast.Array) else [expr.right]
+    return all(isinstance(value, ast.Constant) and _reads_alike_on_both_tables(value.value) for value in values)
+
+
+def _without_exact_matches(expr, properties: Collection[str]):
+    """``expr`` with each exact match on ``properties`` that only AND and OR enclose replaced by ``true``.
+
+    A match under NOT is kept. A missing property reads as NULL from raw JSON and as an empty string from the
+    column, so ``NOT IN`` is NULL on one table and true on the other.
+    """
+    from posthog.hogql import ast
+
+    if isinstance(expr, ast.And | ast.Or):
+        return type(expr)(exprs=[_without_exact_matches(e, properties) for e in expr.exprs])
+    if _is_exact_match(expr, properties):
+        return ast.Constant(value=True)
+    return expr
+
+
+def _materialized_columns_read_inexactly(obj, events_sql: str) -> list[str]:
+    """The materialized columns that events reads for ``obj``'s predicate, other than through exact matches.
+
+    An exact match on a non-nullable string column selects the same rows as the raw JSON read on
+    ``posthog.flag_evaluations``. A nullable or typed column decodes JSON escapes, so it never counts as exact.
+    """
+    from posthog.hogql.parser import parse_expr
+
+    from posthog.clickhouse.materialized_columns import get_enabled_materialized_columns_by_table
+
+    columns = _materialized_columns_read(events_sql)
+    exact_properties = {
+        property_name
+        for (property_name, table_column), column in get_enabled_materialized_columns_by_table()
+        .get("events", {})
+        .items()
+        if column.name in columns and table_column == "properties" and column.type == "String"
+    }
+    if not exact_properties:
+        return columns
+    remainder = _without_exact_matches(parse_expr(_hogql_predicate_text(obj)), exact_properties)
+    remainder_sql, _ = compile_hogql_predicate(
+        _PredicateOnly(team_id=obj.team_id, hogql_predicate=remainder.to_hogql())
+    )
+    return _materialized_columns_read(remainder_sql)
+
+
 _ELEMENTS_COLUMN = re.compile(r"(?<![\w$])elements_chain\w*")
 
 
@@ -384,7 +463,8 @@ def uncopied_rows_predicate(obj, target: "DeletionTarget") -> UncopiedRowsPredic
     ``propertyGroupsMode`` set to ``optimized``, events also compares a map value as a string for
     ``=``, ``!=`` and ``IN``, where a raw JSON read casts a typed property to its defined type. A
     materialized column reads an empty string and the string ``"null"`` as NULL, and a nullable one
-    decodes JSON escapes. So the two tables could match different rows.
+    decodes JSON escapes. So the two tables could match different rows. A materialized column read only
+    through an exact match (``_is_exact_match``) selects the same rows on both tables, so it is allowed.
     """
     if target.uncopied_rows_hogql_table is None:
         return UncopiedRowsPredicate(compiled=None, error="This table has no HogQL table to compile it against.")
@@ -403,12 +483,13 @@ def uncopied_rows_predicate(obj, target: "DeletionTarget") -> UncopiedRowsPredic
                 f"escapes and compares typed values as strings. {target.uncopied_rows_hogql_table} reads the raw "
                 "JSON, so the two can match different rows.",
             )
-        if materialized_columns := _materialized_columns_read(events_sql):
+        if materialized_columns := _materialized_columns_read_inexactly(obj, events_sql):
             return UncopiedRowsPredicate(
                 compiled=None,
                 error=f"Events reads it from the materialized column {', '.join(materialized_columns)}, which "
                 f"reads an empty string and the string 'null' as NULL. {target.uncopied_rows_hogql_table} reads "
-                "the raw JSON, so the two can match different rows.",
+                "the raw JSON, so the two can match different rows. Only = and IN on that property, outside NOT, "
+                "with values that are not empty, not 'null', and have no quote or backslash, read the same on both.",
             )
         return UncopiedRowsPredicate(
             compiled=compile_hogql_predicate(obj, hogql_table=target.uncopied_rows_hogql_table)
