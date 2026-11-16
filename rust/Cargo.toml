@@ -73,6 +73,7 @@ members = [
   "personhog-parity-monitor",
   "personhog-writer",
   "personhog-proto",
+  "personhog-property-store",
   "prometheus-rw-proto",
   "personhog-replica",
   "personhog-router",
