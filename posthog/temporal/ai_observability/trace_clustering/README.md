@@ -344,7 +344,8 @@ Key constants in `constants.py`:
 | `COORDINATOR_WORKFLOW_NAME`         | llma-trace-clustering-coordinator | Temporal coordinator workflow name                                   |
 | `DEFAULT_LOOKBACK_DAYS`             | 7                                 | Days of trace history to analyze                                     |
 | `DEFAULT_MAX_SAMPLES`               | 1500                              | Maximum traces to sample                                             |
-| `MIN_TRACES_FOR_CLUSTERING`         | 5                                 | Technical minimum for projection and clustering                      |
+| `MIN_TRACES_FOR_CLUSTERING`         | 10                                | Minimum items per level required for workflow                        |
+| `COORDINATOR_EXECUTION_TIMEOUT`     | 20h                               | Coordinator run budget; teams not started by then get no clusters    |
 | `WORKFLOW_EXECUTION_TIMEOUT`        | 45m                               | Per-team workflow execution timeout                                  |
 | `COMPUTE_ACTIVITY_TIMEOUT`          | 300s                              | Per-attempt clustering compute timeout                               |
 | `COMPUTE_SCHEDULE_TO_CLOSE_TIMEOUT` | 720s                              | Total compute timeout including retries, backoff, and queueing       |
