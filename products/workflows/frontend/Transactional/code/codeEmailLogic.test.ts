@@ -104,10 +104,8 @@ describe('codeEmailLogic', () => {
         expect(logic.values.codeEmail).toBeNull()
     })
 
-    it('opens from a send on the tab and filters its link names, with the send page closed cleanly', async () => {
-        let loads = 0
-        useMocks({ get: { [EMAIL_URL]: () => [200, stored({ id: `load-${++loads}` })] } })
-        const errors = jest.spyOn(console, 'error')
+    it('opens from a send on the tab and filters its link names, keeping the URL the reader opened', async () => {
+        useMocks({ get: { [EMAIL_URL]: () => [200, stored()] } })
         sceneLogic({
             scenes: {
                 [Scene.TransactionalEmailLogEntry]: () => ({ scene: sendScene }),
@@ -124,9 +122,9 @@ describe('codeEmailLogic', () => {
         await expectLogic(logic).toFinishAllListeners()
 
         expect(logic.values.tab).toEqual('sends')
+        expect(logic.values.codeEmail?.id).toEqual('email-id')
         expect(router.values.searchParams).toEqual({ tab: 'sends', status: 'bounced' })
-        expect(loads).toEqual(1)
-        expect(errors).not.toHaveBeenCalledWith('Error unmounting previous scene logic:', expect.anything())
+        expect(router.values.lastMethod).toEqual('PUSH')
     })
 
     it('loads the email after a failed load is retried', async () => {
