@@ -1,3 +1,4 @@
+import html
 import uuid
 import hashlib
 import datetime
@@ -32,7 +33,7 @@ from posthog.email import (
 )
 from posthog.event_usage import groups
 from posthog.geoip import get_geoip_properties
-from posthog.helpers.email_utils import sanitize_display_name, sanitize_message_body
+from posthog.helpers.email_utils import sanitize_display_name, sanitize_email_string, sanitize_message_body
 from posthog.helpers.two_factor_session import CODE_TTL_SECONDS
 from posthog.models import (
     Organization,
@@ -2554,6 +2555,60 @@ def send_personal_api_key_exposed(user_id: int, personal_api_key_id: str, old_ma
             "label": personal_api_key.label,
             "more_info": more_info,
             "mask_value": old_mask_value,
+            "url": f"{settings.SITE_URL}/settings/user-api-keys",
+        },
+    )
+    message.add_user_recipient(user)
+    message.send()
+
+
+@shared_task(**EMAIL_TASK_KWARGS)
+@skip_team_scope_audit
+def send_personal_api_keys_changed_by_org_admin(
+    user_id: int, organization_id: str, changes: list[dict[str, str]]
+) -> None:
+    if not is_email_available(with_absolute_urls=True):
+        return
+
+    user = User.objects.filter(pk=user_id).first()
+    if user is None:
+        return
+    organization = Organization.objects.filter(id=organization_id).first()
+    # The organization name is text that an admin controls, in an email to another user. A name that
+    # looks like a link gets a placeholder.
+    organization_name = sanitize_display_name(
+        organization.name if organization else None,
+        fallback="your organization",
+        context={
+            "task": "send_personal_api_keys_changed_by_org_admin",
+            "field": "organization_name",
+            "organization_id": organization_id,
+        },
+    )
+    # The SMTP template autoescapes HTML but does not defang domains like the HTTP transport does.
+    organization_name = html.unescape(sanitize_email_string(organization_name))
+    rolled_keys = [change for change in changes if change["outcome"] == "rolled"]
+    revoked_keys = [change for change in changes if change["outcome"] == "deleted"]
+    if rolled_keys and not revoked_keys:
+        heading = "Your personal API key was rolled" if len(rolled_keys) == 1 else "Your personal API keys were rolled"
+    elif revoked_keys and not rolled_keys:
+        heading = (
+            "Your personal API key was revoked" if len(revoked_keys) == 1 else "Your personal API keys were revoked"
+        )
+    else:
+        heading = "Your personal API keys changed"
+    message = EmailMessage(
+        use_http=True,
+        campaign_key=f"personal-api-keys-changed-by-org-admin-{user.uuid}-{timezone.now().timestamp()}",
+        subject=heading,
+        template_name="personal_api_key_changed_by_org_admin",
+        template_context={
+            "preheader": "Review the changes and how to reconnect your integrations.",
+            "heading": heading,
+            "organization_name": organization_name,
+            "changes": changes,
+            "rolled_keys": rolled_keys,
+            "revoked_keys": revoked_keys,
             "url": f"{settings.SITE_URL}/settings/user-api-keys",
         },
     )

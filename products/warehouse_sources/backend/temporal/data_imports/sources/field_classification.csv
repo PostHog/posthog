@@ -155,6 +155,7 @@ Baseten,api_key,,,,,baseten
 Beacons,,,,,,beacons
 Beamer,api_key,,,,,beamer
 Beehiiv,api_key publication_id,,,,,beehiiv
+BetterAuth,,,,,,better-auth
 BetterStack,api_token,,,,,better-stack
 Bettermode,region client_id client_secret network_id,,,,,bettermode
 Bexio,api_token,,,,,bexio
@@ -174,6 +175,7 @@ Bitrise,api_token,,,,,bitrise
 Bitwarden,,,,,,bitwarden
 BlackbaudRaisersEdgeNxt,,,,,,blackbaud-raisers-edge-nxt
 BlackboardLearn,,,,,,blackboard-learn
+Blacksmith,,,,,,blacksmith
 BlandAI,api_key,,,,,bland-ai
 Bling,,,,,,bling
 Blogger,api_key blog_id,,,,,blogger
@@ -199,6 +201,7 @@ BrowserUse,api_key,,,,,browser-use
 Browserbase,api_key,,,,,browserbase
 Buffer,,,,,,buffer
 Bugherd,api_key,,,,,bugherd
+Bugsink,,,,,,bugsink
 Bugsnag,auth_token,,,,,bugsnag
 BuildBetter,api_key,,,,,build-better
 Buildium,client_id client_secret,,,,,buildium
@@ -438,6 +441,7 @@ Expo,access_token project_id,,,,,expo
 FacebookPages,,,,,,facebook-pages
 Factorial,api_key,,,,,factorial
 Faire,api_key,,,,,faire
+Fapi,,,,,,fapi
 FarosAi,,,,,,faros-ai
 Fastbill,,,,,,fastbill
 Fastly,api_key,,,,,fastly
@@ -1169,6 +1173,7 @@ Smartrecruiters,api_key,,,,,smartrecruiters
 Smartsheet,access_token,,,,,smartsheet
 Smartwaiver,api_key,,,,,smartwaiver
 Smokeball,,,,,,smokeball
+SmsManager,,,,,,sms-manager
 SnapchatAds,,snapchat_integration_id,ad_account_id,,,snapchat
 Snovio,,,,,,snovio
 Snowflake,connection_string account_id database warehouse auth_type role,,,schema,,snowflake
