@@ -16,7 +16,7 @@ import structlog
 from clickhouse_connect import get_client
 from clickhouse_connect.driver import httputil
 from clickhouse_connect.driver.client import Client as ClickHouseClient
-from clickhouse_connect.driver.exceptions import ClickHouseError, ProgrammingError
+from clickhouse_connect.driver.exceptions import ClickHouseError, ProgrammingError, StreamFailureError
 from dlt.common.normalizers.naming.snake_case import NamingConvention
 from structlog.types import FilteringBoundLogger
 from urllib3 import PoolManager
@@ -106,6 +106,11 @@ class ClickHouseConnectionError(Exception):
 # run a query. The endpoint isn't serving the ClickHouse HTTP interface, so a retry
 # replays the identical failure; we surface it as a connection error rather than
 # leaking the cryptic ValueError.
+#
+# The same probe can also fail by running out of response bytes mid-parse (e.g. the body is
+# some other service's JSON, not the ClickHouse native wire format), which clickhouse-connect
+# raises as `StreamFailureError` instead — a bare `Exception` subclass, so it isn't caught by
+# the `ClickHouseError` branch below and needs the same treatment.
 NOT_A_CLICKHOUSE_HTTP_RESPONSE = (
     "The host answered but did not return a valid ClickHouse response, so it isn't serving the "
     "ClickHouse HTTP interface on that host/port. Check the host, port, and HTTPS setting "
@@ -410,7 +415,7 @@ def _get_client(
                 time.sleep(wait)
                 continue
             raise ClickHouseConnectionError(message) from e
-        except ValueError as e:
+        except (ValueError, StreamFailureError) as e:
             # The construction-time server probe got a response it couldn't parse as a
             # ClickHouse handshake (see NOT_A_CLICKHOUSE_HTTP_RESPONSE). Deterministic, so
             # never retryable — don't spend the transient-retry budget on it.

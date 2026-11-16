@@ -16,7 +16,7 @@ from django.conf import settings
 
 import pyarrow as pa
 import clickhouse_connect
-from clickhouse_connect.driver.exceptions import ClickHouseError, OperationalError, ProgrammingError
+from clickhouse_connect.driver.exceptions import ClickHouseError, OperationalError, ProgrammingError, StreamFailureError
 from parameterized import parameterized
 from sshtunnel import BaseSSHTunnelForwarderError
 
@@ -520,11 +520,20 @@ class TestGetClientTransientRetry:
         assert mock_get_client.call_count == 1
         mock_sleep.assert_not_called()
 
-    def test_wraps_non_clickhouse_response_probe_error(self):
-        # clickhouse-connect's construction-time probe unpacks the reply into two values;
-        # a non-ClickHouse 2xx body raises a bare ValueError. We wrap it as a connection
-        # error (deterministic, no retry) instead of leaking the cryptic ValueError.
-        probe_error = ValueError("too many values to unpack (expected 2)")
+    @parameterized.expand(
+        [
+            # clickhouse-connect's construction-time probe unpacks the reply into two values;
+            # a non-ClickHouse 2xx body raises a bare ValueError.
+            ("value_error", ValueError("too many values to unpack (expected 2)")),
+            # The same probe can also run out of response bytes mid-parse (e.g. the body is
+            # some other service's JSON, not the ClickHouse native wire format), which raises
+            # a bare `StreamFailureError` instead of a `ClickHouseError`.
+            ("stream_failure_error", StreamFailureError('{"ok": true, "path": "/?wait_end_of_query=1"}')),
+        ]
+    )
+    def test_wraps_non_clickhouse_response_probe_error(self, _name, probe_error):
+        # Either error is wrapped as a connection error (deterministic, no retry) instead of
+        # leaking the cryptic probe exception.
         with (
             patch.object(ch_module.time, "sleep") as mock_sleep,
             patch.object(ch_module, "get_client", side_effect=probe_error) as mock_get_client,
