@@ -17,7 +17,7 @@ import { initKeaTests } from '~/test/init'
 
 import type { DataSuggestionApi } from '../../generated/api.schemas'
 import { FakeEmailDomainBackend } from './__mocks__/fakeEmailDomainBackend'
-import { EmailDomainScene, scene } from './EmailDomainScene'
+import { EmailDomainScene } from './EmailDomainScene'
 
 const DOMAIN = 'mail.acme.com'
 const SUGGESTED_WORKFLOW: DataSuggestionApi = {
@@ -36,9 +36,9 @@ const POLL_MS = 10_000
 
 /** Renders the scene for whichever sender the URL names, the way the scene router does in the app. */
 function RoutedScene(): JSX.Element {
-    const { location, searchParams, hashParams } = useValues(router)
+    const { location } = useValues(router)
     const id = location.pathname.match(/\/workflows\/channels\/email\/([^/]+)/)?.[1] ?? 'new'
-    return <EmailDomainScene {...scene.paramsToProps!({ params: { id }, searchParams, hashParams })} />
+    return <EmailDomainScene id={id} />
 }
 
 const element = (attr: string): HTMLElement => {

@@ -1,3 +1,6 @@
+import { useValues } from 'kea'
+import { router } from 'kea-router'
+
 import { SceneExport } from 'scenes/sceneTypes'
 
 import { ProductKey } from '~/queries/schema/schema-general'
@@ -18,9 +21,11 @@ export const scene: SceneExport<EmailDomainLogicProps> = {
     productKey: ProductKey.WORKFLOWS,
 }
 
-export function EmailDomainScene({ id, origin }: EmailDomainLogicProps): JSX.Element {
+export function EmailDomainScene({ id }: Pick<EmailDomainLogicProps, 'id'>): JSX.Element {
+    // The app renders a scene with its path params only, so the origin comes from the URL as in paramsToProps.
+    const { searchParams } = useValues(router)
     return (
-        <BindEmailDomainLogics id={id || 'new'} origin={origin}>
+        <BindEmailDomainLogics id={id || 'new'} origin={originFromSearchParams(searchParams)}>
             <EmailDomainSetup />
         </BindEmailDomainLogics>
     )
