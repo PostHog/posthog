@@ -232,7 +232,13 @@ def scan(package: Package, deadline: float) -> Finding:
         env = {name: value for name, value in os.environ.items() if not name.startswith("GITHUB_")}
         env["TMPDIR"] = scratch
         process = subprocess.Popen(
-            command, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True, env=env, start_new_session=True
+            command,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.DEVNULL,
+            text=True,
+            env=env,
+            cwd=scratch,
+            start_new_session=True,
         )
         try:
             stdout, _ = process.communicate(timeout=min(SCAN_TIMEOUT_SECONDS, remaining))
