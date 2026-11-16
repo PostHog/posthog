@@ -67,7 +67,9 @@ GATEWAY_TIMEOUT_SECONDS = 5
 TOKEN_CAP_MIN_USD = Decimal("5")
 TOKEN_TTL_MIN_SECONDS = 60 * 60
 CLI_CODE_TTL_SECONDS = 120
-_CLI_CODE_CACHE_PREFIX = "ai_gateway_dev_cli_code:"
+# Versioned with the grant's shape, so a worker that cannot enforce an approved cap and TTL finds no
+# grant instead of minting its defaults.
+_CLI_CODE_CACHE_PREFIX = "ai_gateway_dev_cli_code:v2:"
 
 
 def configured() -> bool:
@@ -78,16 +80,21 @@ def gateway_base_url() -> str:
     return (settings.DEV_GATEWAY_URL or "").rstrip("/").removesuffix("/v1")
 
 
-def token_cap_usd() -> Decimal:
-    return Decimal(settings.DEV_GATEWAY_TOKEN_CAP_USD)
-
-
 def token_max_cap_usd() -> Decimal:
     return Decimal(settings.DEV_GATEWAY_TOKEN_MAX_CAP_USD)
 
 
 def token_max_ttl_seconds() -> int:
     return int(settings.DEV_GATEWAY_TOKEN_MAX_TTL_SECONDS)
+
+
+# Defaults never exceed the maxima, so lowering a maximum also bounds requests that pick nothing.
+def token_cap_usd() -> Decimal:
+    return min(Decimal(settings.DEV_GATEWAY_TOKEN_CAP_USD), token_max_cap_usd())
+
+
+def token_ttl_seconds() -> int:
+    return min(int(settings.DEV_GATEWAY_TOKEN_TTL_SECONDS), token_max_ttl_seconds())
 
 
 def _validate_request(request: DevTokenRequest) -> None:
@@ -267,16 +274,17 @@ def _call_mint(user: User, cap: Decimal, ttl_seconds: int) -> dict:
     return minted
 
 
-def _log(user: User, row: DevGatewayToken, activity: str, changes: list[Change]) -> None:
+def _log(actor: User | None, owner: User, row: DevGatewayToken, activity: str, changes: list[Change]) -> None:
+    """A None actor is the system, such as an offboarding revoke."""
     log_activity(
         organization_id=Team.objects.only("organization_id").get(pk=row.team_id).organization_id,
         team_id=row.team_id,
-        user=user,
+        user=actor,
         was_impersonated=False,
         item_id=row.id,
         scope="DevGatewayToken",
         activity=activity,
-        detail=Detail(name=f"Developer mode token for {user.email}", changes=changes),
+        detail=Detail(name=f"Developer mode token for {owner.email}", changes=changes),
     )
 
 
@@ -292,7 +300,7 @@ def _never_sent(error: requests.RequestException) -> bool:
 def mint(user: User, client: DevTokenClient, request: DevTokenRequest | None = None) -> MintedDevToken:
     request = request or DevTokenRequest()
     _validate_request(request)
-    ttl_seconds = request.ttl_seconds or settings.DEV_GATEWAY_TOKEN_TTL_SECONDS
+    ttl_seconds = request.ttl_seconds if request.ttl_seconds is not None else token_ttl_seconds()
     with team_scope(settings.DEV_GATEWAY_TEAM_ID):
         row = _reserve(user, client, request.cap_usd)
         try:
@@ -315,6 +323,7 @@ def mint(user: User, client: DevTokenClient, request: DevTokenRequest | None = N
         row.save(update_fields=["token_hash", "expires_at"])
         row.refresh_from_db(fields=["expires_at"])
         _log(
+            user,
             user,
             row,
             "minted",
@@ -380,7 +389,7 @@ def usage(user: User) -> DevTokenUsage:
         token_cap_usd=token_max_cap_usd(),
         token_cap_min_usd=TOKEN_CAP_MIN_USD,
         default_cap_usd=token_cap_usd(),
-        ttl_seconds=settings.DEV_GATEWAY_TOKEN_TTL_SECONDS,
+        ttl_seconds=token_ttl_seconds(),
         ttl_min_seconds=TOKEN_TTL_MIN_SECONDS,
         ttl_max_seconds=token_max_ttl_seconds(),
         tokens=tokens,
@@ -559,7 +568,16 @@ def _spent_usd(row: DevGatewayToken, remaining: dict[str, Decimal]) -> Decimal |
     return max(Decimal("0"), row.cap_usd - left)
 
 
-def revoke(user: User, token_id: str | None) -> int:
+def revoke_for_ineligible_owner(user_id: int) -> int:
+    """Revokes every live token of a user who was deactivated or lost staff, logged as a system action.
+    Raises DevTokenRefused when the gateway fails, so the caller can retry."""
+    user = User.objects.filter(pk=user_id).first()
+    if user is None or not configured() or (user.is_active and user.is_staff):
+        return 0
+    return revoke(user, None, by_system=True)
+
+
+def revoke(user: User, token_id: str | None, *, by_system: bool = False) -> int:
     """Returns the gateway's revoked count. Rows are marked revoked only after the gateway confirms."""
     with team_scope(settings.DEV_GATEWAY_TEAM_ID):
         rows = DevGatewayToken.objects.filter(
@@ -608,6 +626,7 @@ def revoke(user: User, token_id: str | None) -> int:
         # The queryset update skips save(), so each revoke is logged by hand.
         for row in updated_rows:
             _log(
+                None if by_system else user,
                 user,
                 row,
                 "revoked",
@@ -621,7 +640,7 @@ def revoke(user: User, token_id: str | None) -> int:
                     ),
                 ],
             )
-    logger.info("ai_gateway_dev_tokens_revoked", user_id=user.pk, count=len(targets))
+    logger.info("ai_gateway_dev_tokens_revoked", user_id=user.pk, count=len(targets), by_system=by_system)
     return revoked_count
 
 

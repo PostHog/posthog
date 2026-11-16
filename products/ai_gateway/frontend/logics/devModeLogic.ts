@@ -45,7 +45,18 @@ export function formatDuration(seconds: number): string {
     if (preset) {
         return preset.label
     }
-    return seconds % DAY === 0 ? `${seconds / DAY} days` : `${Math.round(seconds / HOUR)} hours`
+    if (seconds % DAY === 0) {
+        return `${seconds / DAY} days`
+    }
+    const plural = (n: number, unit: string): string => `${n} ${unit}${n === 1 ? '' : 's'}`
+    const hours = Math.floor(seconds / HOUR)
+    const minutes = Math.round((seconds % HOUR) / 60)
+    const parts = [hours ? plural(hours, 'hour') : null, minutes ? plural(minutes, 'minute') : null]
+    return parts.filter(Boolean).join(' ') || plural(seconds, 'second')
+}
+
+function cents(usd: number): number {
+    return Math.round(usd * 100)
 }
 
 /** hogli prefills the picker; the staff member can change it before approving. */
@@ -275,7 +286,8 @@ export const devModeLogic = kea<devModeLogicType>([
         remainingUsd: [
             (s) => [s.usage],
             (usage: DevTokenUsageApi | null): number | null =>
-                usage ? Math.max(0, Number(usage.daily_cap_usd) - Number(usage.used_usd)) : null,
+                // In cents: 1000 - 974.99 is 25.00999999999999 in floating point.
+                usage ? Math.max(0, cents(Number(usage.daily_cap_usd)) - cents(Number(usage.used_usd))) / 100 : null,
         ],
         liveTokenCount: [
             (s) => [s.usage],
@@ -294,7 +306,12 @@ export const devModeLogic = kea<devModeLogicType>([
                 remainingUsd: number | null,
                 capUsd: number | null,
                 pickError: string | null
-            ): boolean => !!usage && remainingUsd !== null && capUsd !== null && !pickError && remainingUsd >= capUsd,
+            ): boolean =>
+                !!usage &&
+                remainingUsd !== null &&
+                capUsd !== null &&
+                !pickError &&
+                cents(remainingUsd) >= cents(capUsd),
         ],
     }),
     listeners(({ actions, values }) => ({

@@ -1,4 +1,16 @@
-import { cliCallbackUrl, parseCliPick, parseCliRequest } from './devModeLogic'
+import { cliCallbackUrl, formatDuration, parseCliPick, parseCliRequest } from './devModeLogic'
+
+describe('formatDuration', () => {
+    test.each([
+        [3600, '1 hour'],
+        [5400, '1 hour 30 minutes'],
+        [2 * 3600, '2 hours'],
+        [3 * 86400, '3 days'],
+        [86400 + 3600, '25 hours'],
+    ])('labels %d seconds as %s', (seconds, label) => {
+        expect(formatDuration(seconds)).toBe(label)
+    })
+})
 
 describe('devModeLogic CLI pick', () => {
     test.each([

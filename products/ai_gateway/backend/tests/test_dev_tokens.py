@@ -603,6 +603,57 @@ class TestDevTokens(_DevGatewaySettings):
         assert response.status_code == 400
         assert response.json()["detail"].startswith("ttl_seconds must be between")
 
+    @override_settings(DEV_GATEWAY_TOKEN_MAX_CAP_USD="10", DEV_GATEWAY_TOKEN_MAX_TTL_SECONDS=3600)
+    def test_lowered_maxima_also_bound_requests_that_pick_nothing(self):
+        with patch(_POST, return_value=_minted()) as post:
+            assert self.client.post(URL).status_code == 201
+
+        assert (post.call_args.kwargs["json"]["cap_usd"], post.call_args.kwargs["json"]["ttl_seconds"]) == ("10", 3600)
+
+    def _live_token(self) -> DevGatewayToken:
+        return self._rows().create(
+            team=self.team,
+            user=self.user,
+            client="web",
+            cap_usd=Decimal("25"),
+            token_hash="e" * 64,
+            expires_at=timezone.now() + timedelta(days=3),
+        )
+
+    @parameterized.expand([("deactivated", "is_active"), ("lost_staff", "is_staff")])
+    def test_losing_eligibility_revokes_live_tokens(self, _name, field):
+        row = self._live_token()
+
+        with (
+            self.settings(CELERY_TASK_ALWAYS_EAGER=True),
+            patch(_POST, return_value=_revoked("unused", "20")) as post,
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            setattr(self.user, field, False)
+            self.user.save()
+
+        assert post.call_args.args[0] == "https://ai-gateway.test/v1/tokens/revoke"
+        assert post.call_args.kwargs["json"] == {"token_hashes": [row.token_hash]}
+        assert self._rows(pk=row.pk).get().revoked_at is not None
+        entry = ActivityLog.objects.get(scope="DevGatewayToken", item_id=str(row.id), activity="revoked")
+        assert entry.user_id is None
+
+    def test_saves_that_keep_eligibility_or_were_never_eligible_revoke_nothing(self):
+        self._live_token()
+        customer = User.objects.create_and_join(self.organization, "someone@example.com", None)
+
+        with (
+            self.settings(CELERY_TASK_ALWAYS_EAGER=True),
+            patch(_POST) as post,
+            self.captureOnCommitCallbacks(execute=True),
+        ):
+            self.user.first_name = "Renamed"
+            self.user.save()
+            customer.is_active = False
+            customer.save()
+
+        post.assert_not_called()
+
     def test_cli_authorize_needs_a_session(self):
         self.client.logout()
         response = self.client.post(f"{URL}cli_authorize/", {"code_challenge": CHALLENGE})
