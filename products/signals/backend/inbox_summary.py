@@ -10,6 +10,7 @@ from django.utils.dateparse import parse_datetime
 from posthog.dataclasses import frozen
 from posthog.egress.github.transport import GitHubEgressBudgetExhausted, GitHubRateLimitError
 from posthog.egress.limiter.policies import Priority
+from posthog.integrations import IntegrationManager
 from posthog.models.github_integration_base import GitHubIntegrationBase, GitHubIntegrationError
 from posthog.models.integration import GitHubIntegration
 from posthog.models.organization import OrganizationMembership
@@ -98,7 +99,7 @@ def github_for_generated_pull_request(
             Q(task__runs__state__verified_pr_urls__contains=[verified_url])
             | Q(task__runs__state__verified_pr_urls__contains=[pr_url])
         )
-        .select_related("task__github_integration", "task__github_user_integration", "task__team")
+        .select_related("task__github_user_integration", "task__team")
         .order_by("task_id")
     )
     seen_task_ids: set[str] = set()
@@ -124,8 +125,14 @@ def github_for_generated_pull_request(
                     return personal_github
             except (GitHubEgressBudgetExhausted, GitHubRateLimitError, GitHubIntegrationError) as error:
                 probe_error = probe_error or error
-        integration = task.github_integration
-        if integration is not None and integration.kind == "github" and integration.team_id == team_id:
+        integration = (
+            IntegrationManager.github.any.get_many(team_id, [task.github_integration_id]).get(
+                task.github_integration_id
+            )
+            if task.github_integration_id is not None
+            else None
+        )
+        if integration is not None:
             team_github = GitHubIntegration(integration, source="signals_inbox_summary", priority=Priority.BATCH)
             try:
                 if team_github.installation_can_access_repository(repository, raise_on_transient=True):

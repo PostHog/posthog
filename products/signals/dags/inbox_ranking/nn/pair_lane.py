@@ -383,7 +383,7 @@ def train_pair_candidate(
         if arm is None:
             continue
         rows = examples.table.rows if arm is reference else table.rows
-        missing = [column for column in arm.feature_set.state_columns if column not in rows]
+        missing = [column for column in arm.feature_set.required_state_columns() if column not in rows]
         if missing:
             return _skipped(
                 context,

@@ -3,7 +3,7 @@ from __future__ import annotations
 from typing import Any, Final
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
-from posthog.slack.channels import clip_text
+from posthog.slack.channels import clip_text, image_block
 from posthog.slack.formatting import escape_slack_mrkdwn
 from posthog.utils import absolute_uri
 
@@ -16,6 +16,7 @@ from products.alerts.backend.platform_investigation_message import (
     firing_investigation,
 )
 from products.alerts_platform.backend.facade.contracts import (
+    SLACK_IMAGE_SLOT_BLOCK_ID,
     AnnouncedTransition,
     MessageImage,
     MessageLink,
@@ -97,7 +98,10 @@ def render_insight_slack_message(
     name = clip_text(alert_name, MAX_NAME_CHARS)
     fallback = f"{kind} ‘{name}’ triggered"
     blocks = _slack_blocks(
-        chart={"type": "image", "image_url": image.url, "alt_text": image.alt_text} if image else {"type": "divider"},
+        chart={
+            **(image_block(image.url, image.alt_text) if image else {"type": "divider"}),
+            "block_id": SLACK_IMAGE_SLOT_BLOCK_ID,
+        },
         alert_id=str(alert_id),
         primary_url=notebook_url or alert_url,
         primary_label="🔎 View investigation" if notebook_url else "🔎 View alert",

@@ -147,8 +147,7 @@ def _build_url(path: str, params: dict[str, Any]) -> str:
     return f"{TERRAFORM_CLOUD_BASE_URL}{path}?{urlencode(params)}"
 
 
-def _parse_created_at(row: dict[str, Any]) -> datetime | None:
-    value = row.get("created_at")
+def _parse_timestamp(value: Any) -> datetime | None:
     if not isinstance(value, str):
         return None
     try:
@@ -180,7 +179,7 @@ def _page_predates_cutoff(rows: list[dict[str, Any]], cutoff: datetime | None) -
     is harmless: merge dedupes re-pulled rows on the primary key."""
     if cutoff is None:
         return False
-    parsed = [ts for ts in (_parse_created_at(row) for row in rows) if ts is not None]
+    parsed = [ts for ts in (_parse_timestamp(row.get("created_at")) for row in rows) if ts is not None]
     return bool(parsed) and max(parsed) < cutoff
 
 
@@ -229,6 +228,68 @@ def _get_top_level_rows(
         url = next_url
 
 
+def _related_resource_id(workspace: dict[str, Any], relationship: str) -> str | None:
+    rel = (workspace.get("relationships") or {}).get(relationship)
+    data = rel.get("data") if isinstance(rel, dict) else None
+    if isinstance(data, dict) and isinstance(data.get("id"), str) and data["id"]:
+        return data["id"]
+    return None
+
+
+def _related_resource_url(
+    config: TerraformCloudEndpointConfig, workspace: dict[str, Any], resource_id: str | None, cutoff: datetime | None
+) -> str | None:
+    """URL of the show-only resource the workspace points at, or None when there is nothing new
+    to fetch: the relationship is empty, or the workspace says it last changed before the
+    watermark."""
+    if resource_id is None:
+        return None
+    if cutoff is not None and config.workspace_relationship_updated_at:
+        updated_at = _parse_timestamp((workspace.get("attributes") or {}).get(config.workspace_relationship_updated_at))
+        if updated_at is not None and updated_at < cutoff:
+            return None
+    return f"{TERRAFORM_CLOUD_BASE_URL}{config.path.format(resource_id=quote(resource_id, safe=''))}"
+
+
+def _run_included_rows(data: dict[str, Any], config: TerraformCloudEndpointConfig) -> list[dict[str, Any]]:
+    """Rows for the resource each run points at through `run_included_relationship`, read from the
+    JSON:API `included` array of the runs list page. A run without that resource (for example a
+    plan-only run has no apply) yields no row."""
+    relationship = config.run_included_relationship
+    assert relationship is not None
+    included = {
+        (item.get("type"), item.get("id")): item
+        for item in data.get("included") or []
+        if isinstance(item, dict) and item.get("id")
+    }
+    rows = []
+    for run in _data_items(data):
+        rel = (run.get("relationships") or {}).get(relationship)
+        ref = rel.get("data") if isinstance(rel, dict) else None
+        if not isinstance(ref, dict):
+            continue
+        item = included.get((ref.get("type"), ref.get("id")))
+        if item is None:
+            continue
+        row = _flatten_item(item, config.drop_fields)
+        row["run_id"] = run["id"]
+        row["run_created_at"] = (run.get("attributes") or {}).get("created-at")
+        rows.append(row)
+    return rows
+
+
+def _child_rows(
+    data: dict[str, Any], config: TerraformCloudEndpointConfig, requested_id: str | None
+) -> list[dict[str, Any]]:
+    if config.run_included_relationship:
+        return _run_included_rows(data, config)
+    items = _data_items(data)
+    if requested_id is not None:
+        # A show response always describes the requested resource, so fall back to its id.
+        items = [{"id": requested_id, **item} for item in items]
+    return [_flatten_item(item, config.drop_fields) for item in items]
+
+
 def _first_child_url(
     config: TerraformCloudEndpointConfig, organization: str, workspace_id: str, workspace_name: str
 ) -> str:
@@ -252,8 +313,8 @@ def _get_fan_out_rows(
     """Fan out over every workspace in the organization and page through the child endpoint.
 
     Each row is stamped with `workspace_id`/`workspace_name` so child tables join back to their
-    parent workspace without unpacking relationships. Run and state-version ids are globally
-    unique, so `id` alone stays a valid table-wide primary key.
+    parent workspace without unpacking relationships. Run, plan, apply, assessment-result and
+    state-version ids are globally unique, so `id` alone stays a valid table-wide primary key.
     """
     workspaces = list(_iter_workspaces(session, organization, logger, resumable_source_manager))
 
@@ -277,18 +338,22 @@ def _get_fan_out_rows(
         workspace_id = workspace["id"]
         workspace_name = (workspace.get("attributes") or {}).get("name") or ""
 
-        url: str | None = resume_url or _first_child_url(config, organization, workspace_id, workspace_name)
+        requested_id: str | None = None
+        url: str | None
+        if config.workspace_relationship:
+            requested_id = _related_resource_id(workspace, config.workspace_relationship)
+            url = _related_resource_url(config, workspace, requested_id, cutoff)
+        else:
+            url = resume_url or _first_child_url(config, organization, workspace_id, workspace_name)
         resume_url = None  # only the resumed-into workspace uses the saved URL
 
         try:
             while url:
                 data = _fetch_json(session, url, logger)
-                rows = []
-                for item in _data_items(data):
-                    row = _flatten_item(item, config.drop_fields)
+                rows = _child_rows(data, config, requested_id)
+                for row in rows:
                     row["workspace_id"] = workspace_id
                     row["workspace_name"] = workspace_name
-                    rows.append(row)
                 next_url = _next_url(data)
 
                 if rows:
@@ -298,10 +363,14 @@ def _get_fan_out_rows(
                             TerraformCloudResumeConfig(next_url=next_url, workspace_id=workspace_id)
                         )
 
-                # Both child lists return newest-first with no server-side time filter, so an
-                # incremental sync must terminate at the watermark client-side — otherwise every
-                # sync re-walks each workspace's full history.
-                if _page_predates_cutoff(rows, cutoff):
+                # The runs and state-version lists return newest-first with no server-side time
+                # filter, so an incremental sync must terminate at the watermark client-side —
+                # otherwise every sync re-walks each workspace's full history. Run-included rows
+                # check the runs themselves, so a page of runs without the resource still stops.
+                cutoff_rows = (
+                    [_flatten_item(item) for item in _data_items(data)] if config.run_included_relationship else rows
+                )
+                if _page_predates_cutoff(cutoff_rows, cutoff):
                     break
                 resumable_source_manager.safe_point()
                 url = next_url

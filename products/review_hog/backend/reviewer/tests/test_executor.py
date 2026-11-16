@@ -12,7 +12,7 @@ from products.review_hog.backend.reviewer.sandbox.executor import (
     run_sandbox_review,
     start_sandbox_session,
 )
-from products.tasks.backend.facade.api import TaskOriginProduct
+from products.review_hog.backend.task_profiles import REVIEW
 
 _EXECUTOR_PREFIX = "products.review_hog.backend.reviewer.sandbox.executor"
 
@@ -51,10 +51,9 @@ class TestRunSandboxReview:
         assert "user prompt" in call_kwargs["prompt"]
         assert call_kwargs["branch"] == "test-branch"
         assert call_kwargs["step_name"] == "split"
-        # Spawn attribution: dropping any of these silently reverts ReviewHog's sandbox tasks to
+        # Spawn attribution: dropping the profile silently reverts ReviewHog's sandbox tasks to
         # user-visible "user_created" ones with no per-stage $ai_generation attribution.
-        assert call_kwargs["origin_product"] == TaskOriginProduct.REVIEW_HOG
-        assert call_kwargs["internal"] is True
+        assert call_kwargs["profile"] == REVIEW
         assert call_kwargs["ai_stage"] == "split"
         # Without the retry prompt a prose first turn fails the whole activity and reruns the review.
         assert call_kwargs["json_retry_prompt"] == JSON_RETRY_PROMPT
@@ -142,12 +141,38 @@ class TestRunSandboxReview:
             )
 
         call_kwargs = mock_start.call_args.kwargs
-        assert call_kwargs["origin_product"] == TaskOriginProduct.REVIEW_HOG
-        assert call_kwargs["internal"] is True
+        assert call_kwargs["profile"] == REVIEW
         assert call_kwargs["ai_stage"] == "validation-c3"
         assert call_kwargs["workflow_id_prefix"] == "review-pr:1:o/r:7/validate:validation-c3"
         # The session path builds its own context, so the least-privilege pin must hold here too.
         assert call_kwargs["context"].posthog_mcp_scopes == ["llm_skill:read", "user:read"]
+
+    @parameterized.expand(
+        [
+            ("single_turn", run_sandbox_review, {}, "read"),
+            ("warm_session", start_sandbox_session, {}, "read"),
+            ("warm_session_that_pushes", start_sandbox_session, {"can_push": True}, "push"),
+        ]
+    )
+    @pytest.mark.asyncio
+    async def test_github_access_is_read_only_unless_the_session_pushes(
+        self, _name, entrypoint, extra_kwargs, expected_scope
+    ) -> None:
+        mock_start = AsyncMock(return_value=(AsyncMock(), DummyModel(result="ok")))
+
+        with patch(f"{_EXECUTOR_PREFIX}.MultiTurnSession.start", mock_start):
+            await entrypoint(
+                team_id=1,
+                user_id=2,
+                repository="o/r",
+                branch="b",
+                prompt="p",
+                system_prompt="s",
+                model_to_validate=DummyModel,
+                **extra_kwargs,
+            )
+
+        assert mock_start.call_args.kwargs["context"].github_token_scope == expected_scope
 
     @parameterized.expand(
         [

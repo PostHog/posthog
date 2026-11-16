@@ -11,7 +11,7 @@ from parameterized import parameterized
 from rest_framework import status
 
 from posthog.constants import AvailableFeature
-from posthog.models import PropertyDefinition, Team
+from posthog.models import Team
 
 from products.access_control.backend.facade.api import upsert_property_access_control
 from products.access_control.backend.facade.contracts import PropertyAccessLevel, UpsertPropertyAccessControlInput
@@ -27,6 +27,7 @@ from products.error_tracking.backend.models import (
     ErrorTrackingStackFrame,
     ErrorTrackingSymbolSet,
 )
+from products.event_definitions.backend.models import PropertyDefinition
 
 MOCK_ALERTS_META = {
     "alerts": [

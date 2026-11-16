@@ -20,6 +20,7 @@ from posthog.models.personal_api_key import hash_key_value
 from posthog.models.utils import generate_random_token_secret
 
 from products.access_control.backend.models.access_control import AccessControl
+from products.experiments.backend.facade.testing import hide_experiment_from_access_filter
 from products.replay_vision.backend.models.replay_observation import (
     ObservationStatus,
     ObservationTrigger,
@@ -164,10 +165,7 @@ class TestObservationRequestAPI(APIBaseTest):
             created_by=self.user,
         )
 
-        with patch(
-            "products.access_control.backend.facade.user_access_control.UserAccessControl.filter_queryset_by_access_level",
-            side_effect=lambda qs, **_: qs.exclude(pk=experiment.pk) if qs.model is type(experiment) else qs,
-        ):
+        with hide_experiment_from_access_filter(experiment.id):
             response = self.client.get(f"{self.url}{request.id}/")
 
         self.assertEqual(response.status_code, 200, response.json())

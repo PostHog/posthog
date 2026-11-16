@@ -18,6 +18,7 @@ import type { AIObservabilityConfig } from './ai-observability/config'
 import type { CdpConfig } from './cdp/config'
 import type {
     KafkaWarehouseProducerEnvConfig,
+    KafkaWarpstreamCyclotronIntakeProducerEnvConfig,
     KafkaWarpstreamCyclotronProducerEnvConfig,
     KafkaWarpstreamIngestionProducerEnvConfig,
 } from './cdp/outputs/producers'
@@ -95,6 +96,7 @@ export type PluginServerService = {
     id: string
     onShutdown: () => Promise<any>
     healthcheck: () => HealthCheckResult | Promise<HealthCheckResult>
+    readinessCheck?: () => HealthCheckResult | Promise<HealthCheckResult>
 }
 
 export interface PluginsServerConfig
@@ -106,6 +108,7 @@ export interface PluginsServerConfig
         // Producer envs needed by the CDP producer registry the legacy big server builds.
         KafkaWarpstreamIngestionProducerEnvConfig,
         KafkaWarpstreamCyclotronProducerEnvConfig,
+        KafkaWarpstreamCyclotronIntakeProducerEnvConfig,
         KafkaWarehouseProducerEnvConfig {}
 
 export interface HubServices {
@@ -139,11 +142,13 @@ export interface PluginServerCapabilities {
     cdpDataWarehouseEvents?: boolean
     cdpPersonUpdates?: boolean
     cdpInternalEvents?: boolean
+    cdpSesWebhooks?: boolean
     cdpLegacyOnEvent?: boolean
     cdpCyclotronWorkerBatchResolve?: boolean
     cdpCyclotronWorker?: boolean
     cdpCyclotronWorkerHogFlow?: boolean
     cdpCyclotronWorkerEmail?: boolean
+    cdpCyclotronWorkerEmailSandbox?: boolean
     cdpCohortMembership?: boolean
     cdpCohortMembershipTriggers?: boolean
     cdpApi?: boolean

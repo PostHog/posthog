@@ -17,10 +17,11 @@
                 "backend/presentation/**",
                 "backend/temporal/**",
                 "backend/tasks/**",
-                "backend/logic/sql_editor_trino.py",
-                "backend/managed_ingress.py",
                 "backend/models.py",
-                "backend/migrations/**"
+                "backend/migrations/**",
+                "backend/signals.py",
+                "backend/apps.py",
+                "backend/console.py"
             ],
             "outputs": [],
             "cache": true

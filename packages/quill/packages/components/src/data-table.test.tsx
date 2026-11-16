@@ -3,6 +3,11 @@ import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
 
 import { DataTable } from './data-table'
 
+// Base UI's Checkbox constructs PointerEvents, which jsdom doesn't implement.
+if (typeof window.PointerEvent === 'undefined') {
+    window.PointerEvent = class extends MouseEvent {} as typeof window.PointerEvent
+}
+
 interface TestRow {
     name: string
 }
@@ -10,6 +15,8 @@ interface TestRow {
 const data: TestRow[] = [{ name: 'Ada' }]
 
 describe('DataTable', () => {
+    afterEach(cleanup)
+
     it.each([
         ['label', <label key="label">Toggle</label>],
         ['contenteditable element', <span key="editable" contentEditable />],
@@ -39,6 +46,85 @@ describe('DataTable', () => {
         fireEvent.click(screen.getByText('Ada'))
 
         expect(onRowClick).toHaveBeenCalledWith(data[0])
+    })
+
+    it('shows a selection made from a cell on the row', () => {
+        const columns: ColumnDef<TestRow>[] = [
+            {
+                id: 'select',
+                cell: ({ row }) => (
+                    <input type="checkbox" checked={row.getIsSelected()} onChange={() => row.toggleSelected()} />
+                ),
+            },
+            { accessorKey: 'name', header: 'Name' },
+        ]
+        const { container } = render(<DataTable columns={columns} data={data} />)
+
+        fireEvent.click(screen.getByRole('checkbox'))
+
+        expect(container.querySelector('tbody tr')!.getAttribute('data-state')).toBe('selected')
+        expect((screen.getByRole('checkbox') as HTMLInputElement).checked).toBe(true)
+    })
+
+    it.each([
+        ['selects', [], ['Ada', 'Grace', 'Linus', 'Margaret']],
+        ['clears', ['Ada', 'Grace', 'Linus', 'Margaret', 'Ken'], ['Ken']],
+    ])('shift-click %s the selectable rows between two checkboxes', (_name, initial, expected) => {
+        const people: TestRow[] = ['Ada', 'Grace', 'Barbara', 'Linus', 'Margaret', 'Ken'].map((name) => ({ name }))
+        const onRowSelectionChange = jest.fn()
+        const { container } = render(
+            <DataTable
+                columns={[{ accessorKey: 'name', header: 'Name' }]}
+                data={people}
+                selectable
+                rowSelectionDisabledReason={(row) => (row.name === 'Barbara' ? 'Not selectable' : null)}
+                getRowId={(row) => row.name}
+                rowSelectionLabel={(row) => `Select ${row.name}`}
+                rowSelection={Object.fromEntries(initial.map((name) => [name, true]))}
+                onRowSelectionChange={onRowSelectionChange}
+            />
+        )
+
+        const checkbox = (name: string): Element =>
+            container.querySelector(`[role="checkbox"][aria-label="Select ${name}"]`)!
+        fireEvent.click(checkbox('Ada'))
+        onRowSelectionChange.mockClear()
+        fireEvent.click(checkbox('Margaret'), { shiftKey: true })
+
+        const next = onRowSelectionChange.mock.calls[0][0]
+        expect(Object.keys(next).sort()).toEqual([...expected].sort())
+    })
+
+    it.each([
+        ['disables a row when a reason appears', () => null, () => 'Not selectable', true],
+        ['enables a row again when the reason callback is removed', () => 'Not selectable', undefined, false],
+    ] as const)('%s', (_name, before, after, disabledAfter) => {
+        const columns: ColumnDef<TestRow>[] = [{ accessorKey: 'name', header: 'Name' }]
+        const people: TestRow[] = [{ name: 'Ada' }]
+        const rowSelection = {}
+        const { container, rerender } = render(
+            <DataTable
+                columns={columns}
+                data={people}
+                selectable
+                rowSelectionDisabledReason={before}
+                rowSelection={rowSelection}
+            />
+        )
+        const checkbox = (): Element => container.querySelector('tbody [role="checkbox"]')!
+        expect(checkbox().hasAttribute('data-disabled')).toBe(!disabledAfter)
+
+        rerender(
+            <DataTable
+                columns={columns}
+                data={people}
+                selectable
+                rowSelectionDisabledReason={after}
+                rowSelection={rowSelection}
+            />
+        )
+
+        expect(checkbox().hasAttribute('data-disabled')).toBe(disabledAfter)
     })
 
     it('applies a row class name per row', () => {

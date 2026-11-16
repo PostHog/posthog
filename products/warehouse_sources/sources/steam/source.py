@@ -44,9 +44,10 @@ class SteamSource(SimpleSource[SteamSourceConfig]):
             label="Steam",
             releaseStatus=ReleaseStatus.GA,
             caption=(
-                "Sync the games and playtime of a list of Steam players.\n\n"
+                "Sync the games, playtime, achievements and friends of a list of Steam players.\n\n"
                 "Create a key on the [Steam Web API key page](https://steamcommunity.com/dev/apikey). "
-                "Each player's profile and game details must be public, or Steam returns no games for them.\n\n"
+                "Each player's profile and game details must be public, or Steam returns no games for them. "
+                "The `friends` table needs a public friend list.\n\n"
                 "The tables identify each player by an opaque key. They hold no Steam ID, name, or location.\n\n"
                 "Steam reports playtime totals, not sessions. Sync the `playtime_snapshots` table daily and "
                 "subtract consecutive days to get the time played on each day."

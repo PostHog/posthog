@@ -9,6 +9,7 @@ import { LemonDialog } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import { CodeSnippet } from 'lib/components/CodeSnippet'
+import { clearManualError, showServerFormError } from 'lib/forms/manualFormErrors'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import {
     API_SCOPES,
@@ -344,32 +345,27 @@ export const projectSecretAPIKeysLogic = kea<projectSecretAPIKeysLogicType>([
                     return
                 }
 
-                try {
-                    // Remove preset from payload as it's frontend-only
-                    const { preset, ...apiPayload } = payload
+                // Remove preset from payload as it's frontend-only
+                const { preset, ...apiPayload } = payload
 
-                    const key =
-                        values.editingKeyId === 'new'
-                            ? await api.projectSecretApiKeys.create(apiPayload)
-                            : await api.projectSecretApiKeys.update(values.editingKeyId, apiPayload)
+                const key =
+                    values.editingKeyId === 'new'
+                        ? await api.projectSecretApiKeys.create(apiPayload)
+                        : await api.projectSecretApiKeys.update(values.editingKeyId, apiPayload)
 
-                    breakpoint()
+                breakpoint()
 
-                    if (values.editingKeyId === 'new') {
-                        actions.createKeySuccess(key)
-                    } else {
-                        lemonToast.success('Project secret API key updated')
-                    }
-
-                    actions.loadKeysSuccess([
-                        key,
-                        ...values.keys.filter((k: ProjectSecretAPIKeyApi) => k.id !== values.editingKeyId),
-                    ])
-                    actions.setEditingKeyId(null)
-                } catch (error: any) {
-                    lemonToast.error('Failed to save project secret API key')
-                    throw error
+                if (values.editingKeyId === 'new') {
+                    actions.createKeySuccess(key)
+                } else {
+                    lemonToast.success('Project secret API key updated')
                 }
+
+                actions.loadKeysSuccess([
+                    key,
+                    ...values.keys.filter((k: ProjectSecretAPIKeyApi) => k.id !== values.editingKeyId),
+                ])
+                actions.setEditingKeyId(null)
             },
         },
     })),
@@ -432,8 +428,17 @@ export const projectSecretAPIKeysLogic = kea<projectSecretAPIKeysLogicType>([
     })),
 
     listeners(({ actions, values }) => ({
+        submitEditingKeyFailure: ({ error }) => {
+            showServerFormError(
+                error,
+                values.editingKey,
+                actions.setEditingKeyManualErrors,
+                'Could not save the project secret API key. Try again.'
+            )
+        },
         setEditingKeyValue: async ({ name, value }) => {
             const key = Array.isArray(name) ? name[0] : name
+            clearManualError(key, values.editingKeyManualErrors, actions.setEditingKeyManualErrors)
 
             if (key === 'preset' && value) {
                 const preset = PROJECT_SECRET_API_KEY_SCOPE_PRESETS.find((p) => p.value === value)

@@ -233,6 +233,7 @@ export const emailSetupModalLogic = kea<emailSetupModalLogicType>([
                             kind: 'email',
                             config,
                         })
+                        actions.setEmailSenderValues(getEmailSenderFromIntegration(integration))
                     }
                     actions.loadIntegrations()
                     actions.setSavedIntegration(integration)

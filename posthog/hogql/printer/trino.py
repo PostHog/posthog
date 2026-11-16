@@ -34,6 +34,7 @@ from posthog.hogql.printer.trino_functions import (
     TRINO_VECTOR_REWRITES,
     TRINO_WINDOW_ONLY_FUNCTIONS,
 )
+from posthog.hogql.printer.trino_json import keys_and_values, keys_and_values_path, parse_keys_and_values_type
 from posthog.hogql.printer.types import JoinExprResponse
 from posthog.hogql.transforms.trino.errors import TrinoLoweringError
 from posthog.hogql.transforms.trino.expressions import constant_integer
@@ -1122,7 +1123,7 @@ class TrinoPrinter(PostgresPrinter):
         if name in {"jsonextractkeys", "jsonextractkeysandvaluesraw", "jsonhas", "jsonlength"}:
             return self._visit_json_metadata(node)
         if name == "jsonextractkeysandvalues":
-            return self._visit_json_metadata(node)
+            return self._visit_json_extract_keys_and_values(node)
         if name == "jsontype":
             return self._visit_json_type(node)
         if name == "tojsonstring":
@@ -1602,6 +1603,14 @@ class TrinoPrinter(PostgresPrinter):
                 table_type = value_type.table_type
                 if isinstance(table_type, ast.CTETableAliasType):
                     table_type = table_type.cte_table_type
+                if isinstance(table_type, ast.SelectViewType) and table_type.select_query_type.has_child(
+                    value_type.name, self.context
+                ):
+                    # An inlined view prints its body. ClickHouse types a comparison or AND there as UInt8, so the
+                    # view's saved columns record an integer, but Trino types the same expression as boolean.
+                    body_type = table_type.select_query_type.resolve_column_constant_type(value_type.name, self.context)
+                    if isinstance(body_type, ast.BooleanType):
+                        return body_type
                 select_type: ast.Type | None = None
                 if isinstance(table_type, (ast.CTETableType, ast.SelectQueryAliasType)):
                     select_type = table_type.select_query_type
@@ -2263,27 +2272,6 @@ class TrinoPrinter(PostgresPrinter):
                         path = self._dynamic_json_key_path(key)
                     extracted = f"json_extract({extracted}, {path})"
             return f"({extracted} IS NOT NULL)"
-        target_type: str | None = None
-        if name == "jsonextractkeysandvalues":
-            if not path_args or not isinstance(path_args[-1], ast.Constant) or not isinstance(path_args[-1].value, str):
-                self._invalid_function_arguments(
-                    node, "JSONExtractKeysAndValues requires a constant target type in Trino mode."
-                )
-            target_types = {
-                "bool": "BOOLEAN",
-                "float64": "DOUBLE",
-                "int64": "BIGINT",
-                "string": "VARCHAR",
-                "uint64": "DECIMAL(20, 0)",
-            }
-            target_type = target_types.get(path_args[-1].value.lower())
-            if target_type is None:
-                self._unsupported(
-                    "TRINO_JSON_TARGET_TYPE_UNSUPPORTED",
-                    f"JSONExtractKeysAndValues target type '{path_args[-1].value}' is not supported in Trino mode.",
-                    node,
-                )
-            path_args = path_args[:-1]
         path_members: list[str | int] = []
         for key in path_args:
             if not isinstance(key, ast.Constant) or not isinstance(key.value, (str, int)):
@@ -2307,27 +2295,41 @@ class TrinoPrinter(PostgresPrinter):
             if extracted:
                 return self._json_default(node, f"json_size({extracted}, '$')", "0")
             return self._json_default(node, f"json_size({source}, {path})", "0")
-        if name == "jsonextractkeysandvalues":
-            raw = (
-                f"CAST({extracted} AS MAP(VARCHAR, JSON))"
-                if extracted
-                else f"CAST(json_extract({source}, {path}) AS MAP(VARCHAR, JSON))"
-            )
-            value = "__hogql_json_value"
-            assert target_type is not None
-            converted = self._convert_json_scalar(value, target_type)
-            result = (
-                f"filter(map_entries(transform_values({raw}, (__hogql_json_key, {value}) -> {converted})), "
-                "__hogql_entry -> __hogql_entry[2] IS NOT NULL)"
-            )
-            default = f"CAST(ARRAY[] AS ARRAY(ROW(VARCHAR, {target_type})))"
-            return self._json_default(node, result, default)
         raw = (
             f"CAST({extracted} AS MAP(VARCHAR, JSON))"
             if extracted
             else f"CAST(json_extract({source}, {path}) AS MAP(VARCHAR, JSON))"
         )
         return self._json_default(node, f"map_keys({raw})", "CAST(ARRAY[] AS ARRAY(VARCHAR))")
+
+    def _visit_json_extract_keys_and_values(self, node: ast.Call) -> str:
+        type_arg = node.args[-1] if len(node.args) >= 2 else None
+        if not isinstance(type_arg, ast.Constant) or not isinstance(type_arg.value, str):
+            self._invalid_function_arguments(
+                node, "JSONExtractKeysAndValues requires a constant target type in Trino mode."
+            )
+        value_type = parse_keys_and_values_type(type_arg.value)
+        if value_type is None:
+            self._unsupported(
+                "TRINO_JSON_TARGET_TYPE_UNSUPPORTED",
+                f"JSONExtractKeysAndValues target type '{type_arg.value}' is not supported in Trino mode.",
+                node,
+            )
+        path: list[str | int] = []
+        for key in node.args[1:-1]:
+            if (
+                not isinstance(key, ast.Constant)
+                or isinstance(key.value, bool)
+                or not isinstance(key.value, (str, int))
+            ):
+                self._unsupported(
+                    "TRINO_JSON_DYNAMIC_PATH_UNSUPPORTED",
+                    "JSONExtractKeysAndValues requires a constant key path in Trino mode.",
+                    node,
+                )
+            path.append(key.value)
+        path_sql = escape_trino_string(keys_and_values_path(path))
+        return keys_and_values(self.visit(node.args[0]), path_sql, value_type)
 
     def _visit_json_type(self, node: ast.Call) -> str:
         if not 1 <= len(node.args) <= 6:

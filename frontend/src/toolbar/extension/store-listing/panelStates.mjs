@@ -16,6 +16,9 @@ const base = {
         heatmapFixedPositionMode: 'fixed',
         viewportRange: { min: 1152, max: 1408 },
         rawHeatmapLoading: false,
+        variantFilter: null,
+        variantFlags: [],
+        variantFilterGate: false,
         heatmapsCollection: 'enabled',
         scrollDepthPosthogJsError: null,
         clickmapsEnabled: true,
@@ -104,6 +107,8 @@ const base = {
         mutationPending: false,
         mutationError: null,
         mutationRevision: 0,
+        comparingFlagKey: null,
+        comparisonError: null,
     },
     events: {
         available: true,

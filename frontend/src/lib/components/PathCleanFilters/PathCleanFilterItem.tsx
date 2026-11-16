@@ -5,7 +5,9 @@ import { useState } from 'react'
 
 import { IconArrowCircleRight } from '@posthog/icons'
 import { LemonSnack, Tooltip } from '@posthog/lemon-ui'
+import { Chip, ChipClose, cn } from '@posthog/quill'
 
+import { useQuillSurface } from 'lib/components/QuillSurface/quillSurfaceContext'
 import { isValidRegexp } from 'lib/utils/regexp'
 
 import { PathCleaningFilter } from '~/types'
@@ -21,9 +23,13 @@ interface PathCleanFilterItem {
 export function PathCleanFilterItem({ filter, onChange, onRemove }: PathCleanFilterItem): JSX.Element {
     const [visible, setVisible] = useState(false)
     const { attributes, listeners, setNodeRef, transform, transition } = useSortable({ id: String(filter.alias) })
+    const quillSurface = useQuillSurface()
 
     const regex = filter.regex ?? ''
     const isInvalidRegex = !isValidRegexp(regex)
+    const invalidRegexReason = isInvalidRegex ? 'NOTE: Invalid Regex, will be skipped' : null
+    const title = `${filter.regex} is mapped to ${filter.alias}`
+    const onEdit = onChange ? () => setVisible(!visible) : undefined
 
     return (
         <>
@@ -46,21 +52,43 @@ export function PathCleanFilterItem({ filter, onChange, onRemove }: PathCleanFil
                 // eslint-disable-next-line react/forbid-dom-props
                 style={{ transform: CSS.Translate.toString(transform), transition }}
             >
-                <Tooltip title={isInvalidRegex ? 'NOTE: Invalid Regex, will be skipped' : null}>
-                    <LemonSnack
-                        type="pill"
-                        onClick={onChange ? () => setVisible(!visible) : undefined}
-                        onClose={onRemove}
-                        title={`${filter.regex} is mapped to ${filter.alias}`}
-                        className={clsx({ 'border border-accent': isInvalidRegex })}
+                {quillSurface ? (
+                    <Chip
+                        title={title}
+                        tooltip={invalidRegexReason}
+                        className={cn('max-w-full', isInvalidRegex && 'border-destructive-foreground')}
                     >
-                        <span className="inline-flex items-center">
-                            <span className="font-mono text-accent text-xs">{filter.regex ?? '(Empty)'}</span>
-                            <IconArrowCircleRight className="mx-2" />
-                            <span className="font-mono text-xs">{parseAliasToReadable(filter.alias ?? '(Empty)')}</span>
-                        </span>
-                    </LemonSnack>
-                </Tooltip>
+                        <button
+                            type="button"
+                            className="inline-flex min-w-0 items-center gap-1 font-mono text-xs"
+                            onClick={onEdit}
+                            disabled={!onEdit}
+                        >
+                            <span className="truncate">{filter.regex ?? '(Empty)'}</span>
+                            <IconArrowCircleRight className="shrink-0 text-muted-foreground" />
+                            <span className="truncate">{parseAliasToReadable(filter.alias ?? '(Empty)')}</span>
+                        </button>
+                        {onRemove && <ChipClose onClick={onRemove} aria-label="Remove rule" />}
+                    </Chip>
+                ) : (
+                    <Tooltip title={invalidRegexReason}>
+                        <LemonSnack
+                            type="pill"
+                            onClick={onEdit}
+                            onClose={onRemove}
+                            title={title}
+                            className={clsx({ 'border border-accent': isInvalidRegex })}
+                        >
+                            <span className="inline-flex items-center">
+                                <span className="font-mono text-accent text-xs">{filter.regex ?? '(Empty)'}</span>
+                                <IconArrowCircleRight className="mx-2" />
+                                <span className="font-mono text-xs">
+                                    {parseAliasToReadable(filter.alias ?? '(Empty)')}
+                                </span>
+                            </span>
+                        </LemonSnack>
+                    </Tooltip>
+                )}
             </div>
         </>
     )

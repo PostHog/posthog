@@ -5,7 +5,7 @@ import pytest
 from asgiref.sync import sync_to_async
 from parameterized import parameterized_class
 
-from posthog.models import Project, PropertyDefinition, Team
+from posthog.models import Project, Team
 from posthog.temporal.cleanup_property_definitions.activities import (
     delete_property_definitions_from_clickhouse,
     delete_property_definitions_from_postgres,
@@ -21,6 +21,7 @@ from posthog.temporal.tests.cleanup_property_definitions.conftest import (
     insert_property_definition_to_ch,
 )
 
+from products.event_definitions.backend.models import PropertyDefinition
 from products.event_definitions.backend.models.event_property import EventProperty
 
 

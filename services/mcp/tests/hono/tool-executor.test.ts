@@ -666,7 +666,7 @@ describe('ToolExecutor', () => {
             expect(properties.tool_input!.description).toBeTruthy()
             expect(properties.context!.description).toBeTruthy()
             expect(properties.llm_model!.description).toBeTruthy()
-            expect(renderUiEntry.inputSchema.required).toEqual(['tool_name', 'context', 'llm_model'])
+            expect(renderUiEntry.inputSchema.required).toEqual(['tool_name', 'context'])
             expect(renderUiEntry.annotations).toEqual({
                 destructiveHint: false,
                 idempotentHint: true,
