@@ -14,6 +14,7 @@ from uuid import UUID
 from django.db import models, transaction
 
 from products.alerts_platform.backend.delivery.addresses import refused_destination
+from products.alerts_platform.backend.delivery.destinations import live_hog_function_ids
 from products.alerts_platform.backend.facade.contracts import (
     DESTINATION_EVENT_KINDS,
     AlertDestinationData,
@@ -391,12 +392,45 @@ def list_source_destinations(
     return tuple(listed)
 
 
+def source_destinations_without_hog_functions(*, team_id: int, public_id: UUID) -> tuple[StoredAlertDestination, ...]:
+    """The alert's rows that no live HogFunction stands behind, so they would send nothing once its source
+    owns it again. Delivery's skip rule decides what counts as standing behind: any live HogFunction the
+    row copies, disabled ones included. Subscriber rows are left out, because the source sends to its
+    subscribers from its own record. Call it in a transaction: the rows stay locked until it ends, so a
+    destination deleted meanwhile waits for the rebuild and then takes its new HogFunctions with it."""
+    rows = [
+        row
+        for row in AlertDestination.objects.for_team(team_id)
+        .filter(configuration__in=_configurations_by_public_id(team_id, public_id))
+        .select_for_update(of=("self",))
+        .order_by("created_at", "id")
+        if not _names_subscribers(row)
+    ]
+    live = live_hog_function_ids(
+        team_id=team_id, hog_function_ids={copied for row in rows for copied in row.legacy_hog_function_ids}
+    )
+    return tuple(_stored(row) for row in rows if live.isdisjoint(row.legacy_hog_function_ids))
+
+
+def link_source_destination(*, team_id: int, destination_id: UUID, hog_function_ids: Collection[UUID]) -> None:
+    """Makes the row copy these HogFunctions, so delivery skips it while they exist. The ids replace the
+    old ones, which name HogFunctions that are gone. Raises `AlertDestinationValidationError` when the row is
+    gone, because the HogFunctions would then send for a destination nobody has."""
+    linked = (
+        AlertDestination.objects.for_team(team_id)
+        .filter(id=destination_id)
+        .update(legacy_hog_function_ids=list(hog_function_ids))
+    )
+    if not linked:
+        raise AlertDestinationValidationError("This destination was deleted.")
+
+
 def delete_source_destination_rows(
     *, team_id: int, public_id: UUID, destination_ids: Collection[UUID], hog_function_ids: Collection[UUID]
 ) -> DeletedSourceDestinations:
     """Deletes the alert's rows named by id or that copy any of `hog_function_ids`. The HogFunctions it
     returns are only those copied by rows named by id: a delete by HogFunction ids keeps to the group it
-    names, and a row that copies a group since split into two takes no other."""
+    names, and a row that copies a group since split into two takes no other. Call it in a transaction."""
     if not destination_ids and not hog_function_ids:
         return DeletedSourceDestinations(row_types={}, copied_hog_function_ids=frozenset())
     rows = AlertDestination.objects.for_team(team_id).filter(
@@ -404,7 +438,8 @@ def delete_source_destination_rows(
         configuration__in=_configurations_by_public_id(team_id, public_id),
     )
     named = set(destination_ids)
-    found = list(rows.values_list("id", "type", "legacy_hog_function_ids"))
+    # Locked, so a delete that waits on a rollback's rebuild reads the HogFunctions it linked.
+    found = list(rows.select_for_update(of=("self",)).values_list("id", "type", "legacy_hog_function_ids"))
     rows.delete()
     return DeletedSourceDestinations(
         row_types={row_id: row_type for row_id, row_type, _ in found},

@@ -117,6 +117,17 @@ export namespace Schemas {
       aliases?: string[];
     }
 
+    export interface AEOBrandSentimentSentence {
+      /** Offset of the sentence's first character in 'answer_text', counted in Unicode code points. */
+      start: number;
+      /** Offset just past the sentence's last character, counted in Unicode code points. */
+      end: number;
+      /** Sentiment of this sentence: 'positive', 'neutral' or 'negative'. */
+      label: string;
+      /** Classifier confidence (0-1) in 'label'. */
+      score: number;
+    }
+
     export interface AEOCompetitorCandidate {
       /** Brand id. Confirm the brand as a competitor or ignore it with aeo_brands_partial_update. */
       brand_id: string;
@@ -538,6 +549,8 @@ export namespace Schemas {
     }
 
     export interface AEOPromptCheck {
+      /** The sentences of 'answer_text' that name the brand, each with its own sentiment, in answer order. 'brand_sentiment' is their average. Empty when 'brand_sentiment' is null, and on checks scored before sentences were stored. */
+      brand_sentiment_sentences: AEOBrandSentimentSentence[];
       /** Check id. */
       id: string;
       /** Groups the checks of one daily run across prompts and engines. */
@@ -598,6 +611,8 @@ export namespace Schemas {
     }
 
     export interface AEOPromptCitation {
+      /** The sentences of 'answer_text' that name the brand, each with its own sentiment, in answer order. 'brand_sentiment' is their average. Empty when 'brand_sentiment' is null, and on checks scored before sentences were stored. */
+      brand_sentiment_sentences: AEOBrandSentimentSentence[];
       /** Check id. */
       id: string;
       /** Groups the checks of one daily run across prompts and engines. */
@@ -72653,6 +72668,11 @@ export namespace Schemas {
       Attribute: 'attribute',
       Auto: 'auto',
     } as const;
+
+    export interface MetricAvailability {
+      /** Whether the project has any live metric, counted before per-table access checks. */
+      has_metrics: boolean;
+    }
 
     /**
      * * `precise` - Precise
