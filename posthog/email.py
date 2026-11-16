@@ -5,6 +5,7 @@ import hashlib
 import smtplib
 import datetime
 import dataclasses
+from collections.abc import Callable
 from decimal import Decimal
 from typing import TYPE_CHECKING, Any, Literal, Optional
 
@@ -13,7 +14,7 @@ if TYPE_CHECKING:
 
 from django.conf import settings
 from django.core import exceptions, mail
-from django.core.cache import cache
+from django.core.cache import caches
 from django.core.mail.backends.smtp import EmailBackend
 from django.db import InterfaceError, OperationalError, transaction
 from django.template.loader import get_template
@@ -390,11 +391,18 @@ class _RenderedEmail:
     subject: str
     html: str
     reply_to: str | None
-    pinned: frozenset[str]
 
 
 def _workflows_pin_key(campaign_key: str, raw_email: str) -> str:
     return f"email_workflows_pin:{_workflows_idempotency_key(campaign_key, raw_email)}"
+
+
+def _pin_op(op: Callable[..., Any], *args: Any, **kwargs: Any) -> Any:
+    try:
+        return op(*args, **kwargs)
+    except Exception as err:
+        # Retried, never guessed: a pin read as missing could send an email Workflows queued again over SMTP.
+        raise WorkflowsEmailError(str(err), code="pin_unavailable") from err
 
 
 def _smtp_email_via_workflows(dest: dict[str, str], template_name: str) -> bool:
@@ -420,7 +428,10 @@ def _send_rendered_via_workflows(
 ) -> dict[str, Any] | Literal["smtp"]:
     """Send a Django-rendered email through Workflows, or return "smtp" when Workflows certainly queued nothing."""
     idempotency_key = _workflows_idempotency_key(campaign_key, dest["raw_email"])
-    pinned = dest["raw_email"] in rendered.pinned
+    pin_key = _workflows_pin_key(campaign_key, dest["raw_email"])
+    # Read and written under the recipient's row lock, so an overlapping send sees this one's pin.
+    pinned = bool(_pin_op(caches["email_workflows_pins"].get, pin_key))
+    _pin_op(caches["email_workflows_pins"].set, pin_key, True, timeout=WORKFLOWS_PIN_TTL_SECONDS)
     reply_to = rendered.reply_to or get_instance_setting("EMAIL_REPLY_TO")
     try:
         # Celery owns the retries, and the short timeout keeps the MessagingRecord row lock brief.
@@ -449,6 +460,7 @@ def _send_rendered_via_workflows(
             attr=sdk_err.field,
         )
         if not pinned and _workflows_queued_nothing(err) and not _workflows_undeliverable(err):
+            _pin_op(caches["email_workflows_pins"].delete, pin_key)
             EMAIL_SEND_COUNTER.labels(outcome="failed", transport="http").inc()
             logger.warning("email_workflows_fallback_to_smtp", template_name=template_name, code=err.code)
             _capture_email_event(
@@ -914,30 +926,24 @@ def _send_email_now(
             # The pinned SDK cannot send custom headers yet.
             and not headers
         ):
-            # Cache errors raise here, before any send, because a missed pin could send a queued email again over SMTP.
-            pin_keys = {dest["raw_email"]: _workflows_pin_key(campaign_key, dest["raw_email"]) for dest in to}
-            pinned = frozenset(raw_email for raw_email, key in pin_keys.items() if cache.get(key))
             workflows_to = [
-                dest for dest in to if dest["raw_email"] in pinned or _smtp_email_via_workflows(dest, template_name)
+                dest
+                for dest in to
+                if _pin_op(caches["email_workflows_pins"].get, _workflows_pin_key(campaign_key, dest["raw_email"]))
+                or _smtp_email_via_workflows(dest, template_name)
             ]
             # Sent first, so a Workflows retry never holds back the recipients Workflows does not serve.
             send_over_smtp([dest for dest in to if dest not in workflows_to])
             if not workflows_to:
                 return []
-            # Pinned before the send, so no answer from Workflows can arrive without its pin.
-            cache.set_many(
-                {pin_keys[dest["raw_email"]]: True for dest in workflows_to}, timeout=WORKFLOWS_PIN_TTL_SECONDS
-            )
             undeliverable, fallback_to = _send_via_http(
                 to=workflows_to,
                 campaign_key=campaign_key,
                 template_name=template_name,
                 properties=properties or {},
                 will_retry=_send_will_retry(retry_in_worker),
-                rendered=_RenderedEmail(subject=subject, html=html_body, reply_to=reply_to, pinned=pinned),
+                rendered=_RenderedEmail(subject=subject, html=html_body, reply_to=reply_to),
             )
-            # Unpinned before the SMTP send, so a retry after a transient SMTP error can still fall back.
-            cache.delete_many([pin_keys[dest["raw_email"]] for dest in fallback_to])
             send_over_smtp(fallback_to)
             return undeliverable
     except RETRYABLE_HTTP_SEND_ERRORS as err:

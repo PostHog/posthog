@@ -814,6 +814,13 @@ CACHES["ingress_dedup"] = {
     "LOCATION": REDIS_URL,
 }
 
+# Email transport pins must read what they wrote: a replica that misses a pin would let a retry send an email
+# Workflows may have queued again over SMTP.
+CACHES["email_workflows_pins"] = {
+    **CACHES["default"],
+    "LOCATION": REDIS_URL,
+}
+
 CACHES["task_artifact_preview"] = {
     **CACHES["default"],
     "LOCATION": REDIS_URL,
@@ -947,6 +954,7 @@ if TEST:
     CACHES["ingress_dedup"] = CACHES["default"]
     CACHES["task_artifact_preview"] = CACHES["default"]
     CACHES["cdp_invocation_replay"] = CACHES["default"]
+    CACHES["email_workflows_pins"] = CACHES["default"]
     CACHES["metrics_variable_options"] = CACHES["default"]
     CACHES["warehouse_destination_connect"] = CACHES["default"]
     CACHES["aeo_prompt_suggestions"] = CACHES["default"]

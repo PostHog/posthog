@@ -15,7 +15,7 @@ from unittest.mock import MagicMock, patch
 
 from django.conf import settings
 from django.core import mail
-from django.core.cache import cache
+from django.core.cache import cache, caches
 from django.core.exceptions import ImproperlyConfigured
 from django.db import OperationalError
 from django.test import override_settings
@@ -888,7 +888,34 @@ class TestEmail(BaseTest):
 
         self.assertEqual([email.to for email in mail.outbox], [["off@posthog.com"]])
 
-    @parameterized.expand([("pin_read", "get"), ("pin_write", "set_many")])
+    @override_settings(POSTHOG_TRANSACTIONAL_EMAIL_API_KEY="phs_test", POSTHOG_HOST="https://us.posthog.com")
+    @patch("posthog.email.posthoganalytics.feature_enabled", return_value=True)
+    @patch("requests.adapters.HTTPAdapter.send", autospec=True)
+    def test_a_recipient_that_fell_back_keeps_its_fallback_after_another_recipient_retries(
+        self, mock_send: MagicMock, _mock_flag: MagicMock
+    ) -> None:
+        throttled = _workflows_response(429, {"code": "throttled"})
+        mock_send.side_effect = [
+            throttled,
+            _workflows_response(503, {"code": "delivery_unavailable"}),
+            throttled,
+            _workflows_response(202, {"message_id": "m1"}),
+        ]
+
+        with override_instance_config("EMAIL_HOST", "localhost"):
+            message = EmailMessage(
+                campaign_key="refused_campaign", subject="Subject", template_name="async_migration_error"
+            )
+            message.add_recipient("first@posthog.com")
+            message.add_recipient("second@posthog.com")
+            with self.assertRaises(WorkflowsEmailError):
+                message.send(send_async=False, retry=False)
+            message.send(send_async=False, retry=False)
+
+        self.assertEqual([email.to for email in mail.outbox], [["first@posthog.com"]])
+        self.assertTrue(was_email_delivered("refused_campaign", "second@posthog.com"))
+
+    @parameterized.expand([("pin_read", "get"), ("pin_write", "set")])
     @override_settings(POSTHOG_TRANSACTIONAL_EMAIL_API_KEY="phs_test", POSTHOG_HOST="https://us.posthog.com")
     @patch("posthog.email.posthoganalytics.feature_enabled", return_value=True)
     @patch("requests.adapters.HTTPAdapter.send", autospec=True)
@@ -897,13 +924,13 @@ class TestEmail(BaseTest):
     ) -> None:
         with (
             override_instance_config("EMAIL_HOST", "localhost"),
-            patch(f"posthog.email.cache.{cache_call}", side_effect=ConnectionError("cache down")),
+            patch.object(caches["email_workflows_pins"], cache_call, side_effect=ConnectionError("cache down")),
         ):
             message = EmailMessage(
                 campaign_key="cache_campaign", subject="Subject", template_name="async_migration_error"
             )
             message.add_recipient("test@posthog.com")
-            with self.assertRaises(ConnectionError):
+            with self.assertRaises(WorkflowsEmailError):
                 message.send(send_async=False, retry=False)
 
         mock_send.assert_not_called()
