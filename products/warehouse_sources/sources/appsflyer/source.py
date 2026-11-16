@@ -5,7 +5,7 @@ import requests
 from products.warehouse_sources.sources.appsflyer._config import AppsFlyerSourceConfig
 from products.warehouse_sources.sources.appsflyer.appsflyer import (
     MASTER_API_NOT_IN_PLAN_ERROR,
-    RAW_DATA_NOT_IN_PLAN_ERROR,
+    QUOTA_EXHAUSTED_ERROR,
     AppsFlyerCredentialsError,
     AppsFlyerResumeConfig,
     AppsFlyerRetryableError,
@@ -102,7 +102,6 @@ class AppsFlyerSource(ResumableSource[AppsFlyerSourceConfig, AppsFlyerResumeConf
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         return {
-            RAW_DATA_NOT_IN_PLAN_ERROR: "Your AppsFlyer subscription doesn't include raw data reports, so this table can't sync. Turn off this table, or ask AppsFlyer to add raw data to your subscription.",
             "401 Client Error: Unauthorized for url: https://hq1.appsflyer.com": "AppsFlyer authentication failed. Please check your API token (V2).",
             "403 Client Error: Forbidden for url: https://hq1.appsflyer.com": "AppsFlyer denied access. Please check that your account's subscription includes the report being synced and the app id is correct.",
             MASTER_API_NOT_IN_PLAN_ERROR: "AppsFlyer couldn't return the Master API report. This usually means your AppsFlyer subscription doesn't include the Master API. If it does, check that the app still exists in AppsFlyer, then turn this table back on.",
@@ -118,6 +117,12 @@ class AppsFlyerSource(ResumableSource[AppsFlyerSourceConfig, AppsFlyerResumeConf
             # the aggregate Pull API (e.g. the account isn't authorized for this report or app id). The
             # request shape is fixed, so retrying the identical call can never satisfy it.
             "416 Client Error: Requested Range Not Satisfiable for url: https://hq1.appsflyer.com": "AppsFlyer rejected the report request. Please check that your account's subscription is authorized for this report and that the app id is correct.",
+        }
+
+    def get_retry_exhausted_errors(self) -> dict[str, str]:
+        return {
+            QUOTA_EXHAUSTED_ERROR: "Your AppsFlyer account has used up its daily report API quota. "
+            "The sync runs again on schedule after the quota resets at 00:00 UTC.",
         }
 
     @property
