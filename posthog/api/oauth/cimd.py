@@ -267,6 +267,7 @@ _TUNNEL_HOST_SUFFIXES = frozenset(
         "sharedwithexpose.com",  # Expose
         "localto.net",  # Localtonet
         "tunnelto.dev",
+        "srv.us",
     }
 )
 
@@ -311,8 +312,21 @@ _JSON_AND_PASTE_HOST_SUFFIXES = frozenset(
     }
 )
 
+# Public instances of editors, forges and storage where any visitor can publish a page or a file,
+# so a document there says nothing about who controls the client.
+_PUBLIC_EDITABLE_HOST_SUFFIXES = frozenset(
+    {
+        "etherpad.wikimedia.org",
+        "pad.riseup.net",
+        "pad.systemli.org",
+        "pad.tetaneutral.net",
+        "textdb.online",
+        "git.kaki87.net",
+        "play.min.io",
+    }
+)
 THROWAWAY_HOST_SUFFIXES: frozenset[str] = (
-    _TUNNEL_HOST_SUFFIXES | _REQUEST_BIN_HOST_SUFFIXES | _JSON_AND_PASTE_HOST_SUFFIXES
+    _TUNNEL_HOST_SUFFIXES | _REQUEST_BIN_HOST_SUFFIXES | _JSON_AND_PASTE_HOST_SUFFIXES | _PUBLIC_EDITABLE_HOST_SUFFIXES
 )
 
 THROWAWAY_HOST_MESSAGE = (

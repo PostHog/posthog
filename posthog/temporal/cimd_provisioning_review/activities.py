@@ -80,21 +80,34 @@ def _logged_step[T](application_id: str, step: str, run: Callable[[], T]) -> T:
         raise
 
 
+def _reuses_accepted_domain(review: CIMDProvisioningReview, judgment: PartnerJudgment) -> bool:
+    """Another accepted client on the domain vouches for this one only when Jev also places this
+    document on the client's own site. On a shared host such as a public pad server, every tenant
+    shares the registrable domain, so the domain match alone proves nothing."""
+    return (
+        judgment.own_site is not None
+        and judgment.malicious is not None
+        and judgment.own_site >= SCREEN_THRESHOLDS.accept_own_site_at_least
+        and judgment.malicious <= SCREEN_THRESHOLDS.accept_malicious_at_most
+        and domain_already_accepted(review.domain, excluding_application_id=str(review.application_id))
+    )
+
+
 def _screen(application_id: str) -> StageResult:
     review = _pending_review(application_id)
     if review is None:
         return _ALREADY_SETTLED
-    if domain_already_accepted(review.domain, excluding_application_id=application_id):
-        reason = f"Another client on {review.domain} was accepted"
-        append_run_log(application_id, "screen", reason)
-        return StageResult(
-            outcome=ReviewOutcome.ACCEPT, stage=ProvisioningReviewStage.DOMAIN_ALREADY_ACCEPTED, reason=reason
-        )
 
     judgment = _judge(_registration(review))
     review.screen_judgment = judgment.to_json()
     review.save(update_fields=["screen_judgment"])
     outcome = outcome_for(judgment, SCREEN_THRESHOLDS, unsettled=ReviewOutcome.RESEARCH)
+    if outcome == ReviewOutcome.RESEARCH and _reuses_accepted_domain(review, judgment):
+        reason = f"Another client on {review.domain} was accepted, and Jev places this document on its own site"
+        append_run_log(application_id, "screen", f"Jev: {judgment.describe()}. {reason}")
+        return StageResult(
+            outcome=ReviewOutcome.ACCEPT, stage=ProvisioningReviewStage.DOMAIN_ALREADY_ACCEPTED, reason=reason
+        )
     append_run_log(application_id, "screen", f"Jev: {judgment.describe()}. Next: {outcome.value}")
     logger.info("cimd_provisioning_review_screened", application_id=application_id, outcome=outcome.value)
     return StageResult(outcome=outcome, stage=ProvisioningReviewStage.SCREEN, reason=f"Screen: {judgment.describe()}")
@@ -110,7 +123,9 @@ def _research(application_id: str) -> StageResult:
     evidence = review.research_evidence
     if evidence is None:
         try:
-            found = research_domain(review.domain, homepage_url=registration.homepage_url())
+            found = research_domain(
+                review.domain, homepage_url=registration.homepage_url(), client_name=registration.client_name
+            )
         except FirecrawlNotConfigured as error:
             raise ApplicationError(str(error), non_retryable=True) from error
         evidence = found.to_json()

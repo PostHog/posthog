@@ -1,6 +1,6 @@
 """Collects public web evidence about a partner's domain through Firecrawl, for Jev's second look.
 
-A fixed set of calls rather than an agent: one homepage scrape and two searches per review, so
+A fixed set of calls rather than an agent: one homepage scrape and three searches per review, so
 the cost of a review is known up front and the evidence Jev saw is stored whole on the review.
 """
 
@@ -33,6 +33,7 @@ class Homepage:
 @frozen
 class ResearchEvidence:
     homepage: Homepage
+    about_the_client: FirecrawlSearch
     about_the_domain: FirecrawlSearch
     abuse_reports: FirecrawlSearch
 
@@ -48,6 +49,7 @@ class ResearchEvidence:
                 "description": self.homepage.description,
                 "excerpt": self.homepage.excerpt,
             },
+            "search_results_about_the_client": _results(self.about_the_client),
             "search_results_about_the_domain": _results(self.about_the_domain),
             "search_results_for_abuse_reports": _results(self.abuse_reports),
         }
@@ -58,8 +60,10 @@ def _results(found: FirecrawlSearch) -> list[dict[str, str | None]]:
 
 
 def _is_provider_failure(error: FirecrawlScrapeFailed) -> bool:
-    status = error.status_code
-    return status is not None and (status == 429 or status >= 500)
+    """Only a rate limit. Firecrawl also answers 500 when the target site does not load, so a 5xx
+    from a scrape is a finding about the site. An outage of Firecrawl itself fails the searches too,
+    and those failures make Temporal retry the step."""
+    return error.status_code == 429
 
 
 def _scrape_homepage(url: str, *, domain: str) -> Homepage:
@@ -93,11 +97,14 @@ def _scrape_homepage(url: str, *, domain: str) -> Homepage:
     )
 
 
-def research_domain(domain: str, *, homepage_url: str) -> ResearchEvidence:
+def research_domain(domain: str, *, homepage_url: str, client_name: str) -> ResearchEvidence:
     """Raises ``FirecrawlNotConfigured``, ``FirecrawlEgressBudgetExhausted``, network errors, and
     Firecrawl's own failures; the activity decides which of them to retry."""
     return ResearchEvidence(
         homepage=_scrape_homepage(homepage_url, domain=domain),
+        about_the_client=search(
+            f'"{client_name[:200]}" {domain}', source=EGRESS_SOURCE, limit=SEARCH_RESULTS, priority=Priority.BATCH
+        ),
         about_the_domain=search(f'"{domain}"', source=EGRESS_SOURCE, limit=SEARCH_RESULTS, priority=Priority.BATCH),
         abuse_reports=search(
             f'"{domain}" phishing OR scam OR fraud OR malware',

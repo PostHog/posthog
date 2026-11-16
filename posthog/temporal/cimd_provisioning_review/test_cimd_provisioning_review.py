@@ -46,18 +46,20 @@ from posthog.temporal.cimd_provisioning_review.workflow import CIMDProvisioningR
 class TestOutcomeFor(SimpleTestCase):
     @parameterized.expand(
         [
-            ("clearly_legitimate", 0.95, 0.01, ReviewOutcome.ACCEPT),
-            ("clearly_malicious", 0.1, 0.97, ReviewOutcome.REJECT),
+            ("clearly_legitimate", 0.95, 0.01, 0.9, ReviewOutcome.ACCEPT),
+            ("clearly_malicious", 0.1, 0.97, 0.9, ReviewOutcome.REJECT),
             # A lookalike of a real brand reads as both, and must not get in.
-            ("legitimate_and_malicious", 0.95, 0.97, ReviewOutcome.REJECT),
-            ("unsure", 0.6, 0.3, ReviewOutcome.RESEARCH),
-            ("legitimate_with_some_doubt", 0.95, 0.2, ReviewOutcome.RESEARCH),
-            ("legitimacy_refused", None, 0.01, ReviewOutcome.RESEARCH),
-            ("abuse_refused", 0.95, None, ReviewOutcome.RESEARCH),
+            ("legitimate_and_malicious", 0.95, 0.97, 0.9, ReviewOutcome.REJECT),
+            ("legitimate_on_a_shared_host", 0.95, 0.01, 0.2, ReviewOutcome.RESEARCH),
+            ("unsure", 0.6, 0.3, 0.9, ReviewOutcome.RESEARCH),
+            ("legitimate_with_some_doubt", 0.95, 0.2, 0.9, ReviewOutcome.RESEARCH),
+            ("legitimacy_refused", None, 0.01, 0.9, ReviewOutcome.RESEARCH),
+            ("abuse_refused", 0.95, None, 0.9, ReviewOutcome.RESEARCH),
+            ("own_site_refused", 0.95, 0.01, None, ReviewOutcome.RESEARCH),
         ]
     )
-    def test_thresholds(self, _name, legitimate, malicious, expected):
-        judgment = PartnerJudgment(model="jev", legitimate=legitimate, malicious=malicious)
+    def test_thresholds(self, _name, legitimate, malicious, own_site, expected):
+        judgment = PartnerJudgment(model="jev", legitimate=legitimate, malicious=malicious, own_site=own_site)
 
         assert outcome_for(judgment, SCREEN_THRESHOLDS, unsettled=ReviewOutcome.RESEARCH) == expected
 
@@ -126,6 +128,8 @@ class TestResearchDomain(SimpleTestCase):
                 "stripe.com",
             ),
             ("site_failed_to_load", FirecrawlScrapeFailed("unsuccessful"), False, None, None),
+            # Firecrawl answers 500 when the target site does not resolve.
+            ("site_does_not_exist", FirecrawlScrapeFailed("engines failed", status_code=500), False, None, None),
         ]
     )
     def test_homepage_evidence(self, _name, scraped, reachable, title, redirected_to):
@@ -133,12 +137,14 @@ class TestResearchDomain(SimpleTestCase):
             patch("posthog.temporal.cimd_provisioning_review.research.scrape", side_effect=[scraped]),
             patch("posthog.temporal.cimd_provisioning_review.research.search", side_effect=_search),
         ):
-            homepage = research_domain("example.com", homepage_url="https://example.com/").homepage
+            homepage = research_domain(
+                "example.com", homepage_url="https://example.com/", client_name="Example"
+            ).homepage
 
         assert (homepage.reachable, homepage.title, homepage.redirected_to_domain) == (reachable, title, redirected_to)
 
-    @parameterized.expand([("rate_limited", 429), ("firecrawl_down", 503)])
-    def test_a_firecrawl_outage_is_retried_not_reported_as_a_dead_site(self, _name, status_code):
+    def test_a_firecrawl_rate_limit_is_retried_not_reported_as_a_dead_site(self):
+        status_code = 429
         with (
             patch(
                 "posthog.temporal.cimd_provisioning_review.research.scrape",
@@ -147,7 +153,7 @@ class TestResearchDomain(SimpleTestCase):
             patch("posthog.temporal.cimd_provisioning_review.research.search", side_effect=_search),
             pytest.raises(FirecrawlScrapeFailed),
         ):
-            research_domain("example.com", homepage_url="https://example.com/")
+            research_domain("example.com", homepage_url="https://example.com/", client_name="Example")
 
 
 def _make_app(client_id: str = "https://app.example.com/client.json", **provisioning: bool) -> OAuthApplication:
@@ -215,10 +221,11 @@ class TestSettleReview(APIBaseTest):
 
 
 class _FakeSystemOne:
-    def __init__(self, legitimate: float | None, malicious: float | None) -> None:
+    def __init__(self, legitimate: float | None, malicious: float | None, own_site: float | None = 0.9) -> None:
         self.answers = {
             "legitimate": RefusalAnswer() if legitimate is None else NoulAnswer(probability=legitimate),
             "malicious": RefusalAnswer() if malicious is None else NoulAnswer(probability=malicious),
+            "own_site": RefusalAnswer() if own_site is None else NoulAnswer(probability=own_site),
         }
         self.states: list[Any] = []
 
@@ -233,29 +240,31 @@ class TestReviewStages(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("same_domain", "example.com", False, True),
+            ("same_domain", "example.com", False, 0.9, True),
+            ("same_domain_shared_host", "example.com", False, 0.2, False),
             # Blocking the accepted partner withdraws its vouching for the domain.
-            ("accepted_partner_disabled", "example.com", True, False),
+            ("accepted_partner_disabled", "example.com", True, 0.9, False),
             # IP hosts have no registrable domain, and one accepted IP client must not vouch for the rest.
-            ("no_registrable_domain", "", False, False),
+            ("no_registrable_domain", "", False, 0.9, False),
             # PostHog serves customer-controlled documents under its own domain.
-            ("posthog_domain", "posthog.com", False, False),
+            ("posthog_domain", "posthog.com", False, 0.9, False),
         ]
     )
-    def test_screen_reuses_an_accepted_domain(self, _name, domain, accepted_disabled, expected_shortcut):
+    def test_screen_reuses_an_accepted_domain(self, _name, domain, accepted_disabled, own_site, expected_shortcut):
         accepted = _make_app(client_id="https://app.example.com/client.json", active=True, disabled=accepted_disabled)
         CIMDProvisioningReview.objects.create(
             application=accepted, domain=domain, status=ProvisioningReviewStatus.ACCEPTED
         )
         second = _make_app(client_id="https://staging.example.com/client.json")
         CIMDProvisioningReview.objects.create(application=second, domain=domain)
-        jev = _FakeSystemOne(legitimate=0.6, malicious=0.3)
+        jev = _FakeSystemOne(legitimate=0.5, malicious=0.02, own_site=own_site)
 
         with self._patch_jev(jev):
             result = _screen(str(second.pk))
 
+        expected = ReviewOutcome.ACCEPT if expected_shortcut else ReviewOutcome.RESEARCH
+        assert result.outcome == expected
         assert (result.stage == ProvisioningReviewStage.DOMAIN_ALREADY_ACCEPTED) is expected_shortcut
-        assert (jev.states == []) is expected_shortcut
 
     def test_screen_sends_unsure_registrations_to_research_and_keeps_the_judgment(self):
         app = _make_app()
@@ -268,7 +277,12 @@ class TestReviewStages(APIBaseTest):
         assert result.outcome == ReviewOutcome.RESEARCH
         assert jev.states[0]["client"]["domain"] == "example.com"
         review = CIMDProvisioningReview.objects.get(application=app)
-        assert review.screen_judgment == {"model": "jev-test", "legitimate": 0.6, "malicious": None}
+        assert review.screen_judgment == {
+            "model": "jev-test",
+            "legitimate": 0.6,
+            "malicious": None,
+            "own_site": 0.9,
+        }
 
     def test_research_retry_judges_the_saved_evidence_without_searching_again(self):
         app = _make_app()
