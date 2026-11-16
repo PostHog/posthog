@@ -246,6 +246,11 @@ describe('TransactionalEmailsTable', () => {
             ).toBe(wizardShown)
         })
         expect(screen.queryByText('Or use your own coding agent') !== null).toBe(wizardShown)
+        if (wizardShown) {
+            const wizardBlock = container.querySelector('[data-attr=wizard-command-block]')!
+            const promptButton = container.querySelector('[data-attr=send-from-code-copy-agent-prompt]')!
+            expect(wizardBlock.compareDocumentPosition(promptButton) & Node.DOCUMENT_POSITION_FOLLOWING).toBeTruthy()
+        }
         expect(container.querySelector('[data-attr=send-from-code-snippet]')).not.toBeInTheDocument()
 
         const clipboard = {
