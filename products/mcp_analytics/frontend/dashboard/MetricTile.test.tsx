@@ -1,4 +1,4 @@
-import { render, screen } from '@testing-library/react'
+import { render } from '@testing-library/react'
 
 import { buildTheme } from 'lib/charts/utils/theme'
 
@@ -9,7 +9,7 @@ describe('MetricTile', () => {
         { state: 'loading', loading: true, failed: false },
         { state: 'failed', loading: false, failed: true },
     ])('shows its label while $state', ({ loading, failed }) => {
-        render(
+        const { container } = render(
             <MetricTile
                 label="Tool calls"
                 value={0}
@@ -23,6 +23,6 @@ describe('MetricTile', () => {
             />
         )
 
-        expect(screen.queryByText('Tool calls')).not.toBeNull()
+        expect(container.textContent).toContain('Tool calls')
     })
 })
