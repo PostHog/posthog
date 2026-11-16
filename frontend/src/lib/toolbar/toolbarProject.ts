@@ -6,11 +6,8 @@ export interface ToolbarProject {
     projectId: number
 }
 
-/**
- * Which id a route takes. Routes registered with a `project_id` parent take the project id, routes registered with a
- * `team_id` parent take the team id, and `/api/environments/` routes always take the team id.
- */
-export type ToolbarRouteScope = 'project' | 'team' | 'environment'
+/** Which id a route takes: routes registered with a `project_id` parent take the project id, the rest the team id. */
+export type ToolbarRouteScope = 'project' | 'team'
 
 function asPositiveInteger(value: unknown): number | null {
     const parsed = typeof value === 'string' && /^\d+$/.test(value) ? Number(value) : value
@@ -24,8 +21,5 @@ export function asToolbarProject(teamId: unknown, projectId: unknown): ToolbarPr
 }
 
 export function toolbarScopedPath(project: ToolbarProject, scope: ToolbarRouteScope, path: string): string {
-    if (scope === 'environment') {
-        return `/api/environments/${project.teamId}/${path}`
-    }
     return `/api/projects/${scope === 'project' ? project.projectId : project.teamId}/${path}`
 }
