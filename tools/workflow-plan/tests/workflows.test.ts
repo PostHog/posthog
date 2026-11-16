@@ -593,16 +593,15 @@ const namedJobs = (file: string): Set<string> =>
 
 describe('CI workflow run plans', () => {
     it.each([
-        ['advisory failure', pullRequest(), false, '["frontend/src/example.stories.tsx"]', true, true],
-        ['ready PR', pullRequest(), false, '["frontend/src/example.stories.tsx"]', true, true],
-        ['fork PR', pullRequest({ fork: true }), false, '["frontend/src/example.stories.tsx"]', true, true],
-        ['empty selection', pullRequest(), false, '[]', true, false],
-        ['forced full PR', pullRequest({ labels: ['run-ci-frontend'] }), false, '[]', true, false],
-        ['merge queue', mergeQueue(), false, '[]', false, false],
-        ['master push', push(), false, '[]', false, false],
-        ['nightly', schedule(), false, '[]', false, false],
-        ['cancelled PR', pullRequest(), true, '["frontend/src/example.stories.tsx"]', false, false],
-    ] as const)('Storybook verification phases (%s)', (name, github, cancelled, affected, blocking, advisory) => {
+        ['ready PR', pullRequest(), false, '["frontend/src/example.stories.tsx"]', true],
+        ['fork PR', pullRequest({ fork: true }), false, '["frontend/src/example.stories.tsx"]', true],
+        ['empty selection', pullRequest(), false, '[]', true],
+        ['forced full PR', pullRequest({ labels: ['run-ci-frontend'] }), false, '[]', true],
+        ['merge queue', mergeQueue(), false, '[]', false],
+        ['master push', push(), false, '[]', false],
+        ['nightly', schedule(), false, '[]', false],
+        ['cancelled PR', pullRequest(), true, '["frontend/src/example.stories.tsx"]', false],
+    ] as const)('Storybook changed-story verification (%s)', (name, github, cancelled, affected, blocking) => {
         const file = workflow('ci-storybook.yml')
         const plan = planWorkflow(file, {
             name,
@@ -614,9 +613,6 @@ describe('CI workflow run plans', () => {
                     ...allFiltersChanged(file).changes,
                     filter: { outputs: { frontend: 'true', frontend_count: '2', frontend_generated_count: '0' } },
                     exclude: { outputs: { outside_node_product_workspaces: 'true' } },
-                },
-                'affected-story-flakes': {
-                    'flake-verify': { outcome: name === 'advisory failure' ? 'failure' : 'success' },
                 },
                 'select-stories': {
                     classify: {
@@ -632,13 +628,8 @@ describe('CI workflow run plans', () => {
         })
         expect(plan.errors).toEqual([])
         expect(runningJobs(plan).includes('flake-verification')).toBe(blocking)
-        expect(runningJobs(plan).includes('affected-story-flakes')).toBe(advisory)
-        expect(file.jobs.visual_regression_tests?.needs).not.toContain('affected-story-flakes')
+        expect(file.jobs['flake-verification']?.needs).not.toContain('select-stories')
         expect(file.jobs.visual_regression_tests?.needs).toContain('flake-verification')
-        if (name === 'advisory failure') {
-            expect(plan.jobs['affected-story-flakes']?.outcome).toBe('failure')
-            expect(plan.jobs.visual_regression_tests?.result).toBe('success')
-        }
     })
 
     it.each([

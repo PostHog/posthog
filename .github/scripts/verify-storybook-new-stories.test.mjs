@@ -1,6 +1,6 @@
 import assert from 'node:assert/strict'
 import { spawnSync } from 'node:child_process'
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, writeFileSync } from 'node:fs'
 import os from 'node:os'
 import path from 'node:path'
 import test from 'node:test'
@@ -8,13 +8,13 @@ import { fileURLToPath } from 'node:url'
 
 const verifier = fileURLToPath(new URL('./verify-storybook-new-stories.sh', import.meta.url))
 
-for (const { phase, affected, fail, expectedStatus, changedRuns, affectedRuns } of [
-    { phase: '', affected: false, fail: true, expectedStatus: 1, changedRuns: 4, affectedRuns: 0 },
-    { phase: 'all', affected: true, fail: false, expectedStatus: 0, changedRuns: 4, affectedRuns: 2 },
-    { phase: 'affected', affected: true, fail: false, expectedStatus: 0, changedRuns: 0, affectedRuns: 2 },
-    { phase: 'affected', affected: true, fail: true, expectedStatus: 0, changedRuns: 0, affectedRuns: 1 },
+for (const { changedStory, failureBrowser, expectedStatus, changedRuns } of [
+    { changedStory: true, failureBrowser: '', expectedStatus: 0, changedRuns: 4 },
+    { changedStory: true, failureBrowser: 'chromium', expectedStatus: 1, changedRuns: 4 },
+    { changedStory: true, failureBrowser: 'webkit', expectedStatus: 1, changedRuns: 4 },
+    { changedStory: false, failureBrowser: '', expectedStatus: 0, changedRuns: 0 },
 ]) {
-    test(`${phase} phase, affected=${affected}, runner fails=${fail}`, () => {
+    test(`changed story=${changedStory}, failing browser=${failureBrowser}`, () => {
         const cwd = mkdtempSync(path.join(os.tmpdir(), 'storybook-verifier-'))
         try {
             const bin = path.join(cwd, 'bin')
@@ -43,7 +43,9 @@ for (const { phase, affected, fail, expectedStatus, changedRuns, affectedRuns } 
                 'initial'
             )
             const base = git('rev-parse', 'HEAD')
-            writeFileSync(path.join(cwd, changed), 'after')
+            if (changedStory) {
+                writeFileSync(path.join(cwd, changed), 'after')
+            }
             git('add', '.')
             git(
                 '-c',
@@ -54,14 +56,17 @@ for (const { phase, affected, fail, expectedStatus, changedRuns, affectedRuns } 
                 'user.email=test@example.com',
                 'commit',
                 '-qm',
-                'change'
+                'change',
+                '--allow-empty'
             )
-            writeFileSync(path.join(bin, 'pnpm'), '#!/bin/sh\nprintf "%s\\n" "$*" >> "$CALLS"\nexit "$RUNNER_EXIT"\n', {
-                mode: 0o755,
-            })
-            writeFileSync(path.join(bin, 'timeout'), '#!/bin/sh\nshift 2\nexec "$@"\n', { mode: 0o755 })
+            writeFileSync(
+                path.join(bin, 'pnpm'),
+                '#!/bin/sh\nprintf "%s\\n" "$*" >> "$CALLS"\ncase "$*" in *"--browsers $FAILURE_BROWSER "*) [ -z "$FAILURE_BROWSER" ] || exit 1 ;; esac\nexit 0\n',
+                {
+                    mode: 0o755,
+                }
+            )
             const callsPath = path.join(cwd, 'calls')
-            const summaryPath = path.join(cwd, 'summary')
             const result = spawnSync('bash', [verifier, base, '3'], {
                 cwd,
                 encoding: 'utf8',
@@ -69,24 +74,16 @@ for (const { phase, affected, fail, expectedStatus, changedRuns, affectedRuns } 
                     ...process.env,
                     PATH: `${bin}:${process.env.PATH}`,
                     CALLS: callsPath,
-                    RUNNER_EXIT: fail ? '1' : '0',
-                    STORYBOOK_VERIFY_PHASE: phase,
-                    AFFECTED_FILES_JSON: JSON.stringify(affected ? [changed, unchanged] : []),
-                    GITHUB_STEP_SUMMARY: summaryPath,
+                    FAILURE_BROWSER: failureBrowser,
+                    AFFECTED_FILES_JSON: JSON.stringify([changed, unchanged]),
                 },
             })
             assert.equal(result.status, expectedStatus, result.stdout + result.stderr)
-            const calls = readFileSync(callsPath, 'utf8').trim().split('\n')
+            const calls = existsSync(callsPath) ? readFileSync(callsPath, 'utf8').trim().split('\n') : []
             assert.equal(calls.filter((call) => call.includes('Changed\\.stories')).length, changedRuns)
-            assert.equal(calls.filter((call) => call.includes('Unchanged\\.stories')).length, affectedRuns)
+            assert.equal(calls.filter((call) => call.includes('Unchanged\\.stories')).length, 0)
             if (changedRuns) {
                 assert.equal(calls.filter((call) => call.includes('--browsers webkit')).length, 1)
-            }
-            if (affected) {
-                assert.match(
-                    readFileSync(summaryPath, 'utf8'),
-                    fail ? /did not complete cleanly/ : /passed for 1 files/
-                )
             }
         } finally {
             rmSync(cwd, { recursive: true, force: true })
