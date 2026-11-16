@@ -64,6 +64,7 @@ export interface SessionThoughtItem {
     id: string
     text: string
     complete: boolean
+    projectUrl?: string
 }
 
 export interface SessionVisualizationItem {

@@ -80,7 +80,7 @@ describe('classic conversation events', () => {
                 source === 'history'
                     ? classicHistory(messages, null)
                     : messages.reduce(appendClassicMessage, EMPTY_CLASSIC_STATE)
-            const items = classicThreadItems(state, '')
+            const items = classicThreadItems(state, 'https://app.example.com/project/42')
             expect(items.map((item) => item.kind)).toEqual([
                 'user',
                 'thought',
@@ -94,12 +94,115 @@ describe('classic conversation events', () => {
                 traceId: 'trace-signups',
                 complete: true,
             })
+            expect(items.filter((item) => item.kind === 'thought')).toEqual([
+                expect.objectContaining({ projectUrl: 'https://app.example.com/project/42' }),
+                expect.objectContaining({ projectUrl: 'https://app.example.com/project/42' }),
+                expect.objectContaining({ projectUrl: 'https://app.example.com/project/42' }),
+            ])
             expect(classicToolInvocations(state, false).get('query-signups')).toMatchObject({
                 status: 'completed',
                 detail: 'Compare signup events',
             })
         }
     )
+
+    test.each(['history', 'stream'])(
+        'folds commentary before provider searches while preserving their following answer in %s',
+        (source) => {
+            const messages = [
+                { id: 'question', type: 'human', content: 'Find the event guide.' },
+                { id: 'intro', type: 'ai', content: 'I will search for the event guide.' },
+                {
+                    id: 'first-search',
+                    type: 'ai',
+                    content: 'I will check one more source.',
+                    meta: {
+                        thinking: [
+                            {
+                                type: 'server_tool_use',
+                                id: 'search-one',
+                                name: 'web_search',
+                                input: { query: 'event guide' },
+                            },
+                        ],
+                    },
+                },
+                {
+                    id: 'last-search',
+                    type: 'ai',
+                    content: 'Read the [dashboard](/dashboard/123).',
+                    meta: {
+                        thinking: [
+                            {
+                                type: 'server_tool_use',
+                                id: 'search-two',
+                                name: 'web_search',
+                                input: { query: 'event examples' },
+                            },
+                            { type: 'web_search_tool_result', tool_use_id: 'search-one', content: [] },
+                            { type: 'web_search_tool_result', tool_use_id: 'search-two', content: [] },
+                        ],
+                    },
+                },
+            ]
+            const state =
+                source === 'history'
+                    ? classicHistory(messages, null)
+                    : messages.reduce(appendClassicMessage, EMPTY_CLASSIC_STATE)
+            const items = classicThreadItems(state, 'https://app.example.com/project/42')
+            expect(items.map((item) => item.kind)).toEqual(['user', 'thought', 'tool', 'thought', 'tool', 'assistant'])
+            expect(items.at(-1)).toMatchObject({ kind: 'assistant', text: 'Read the [dashboard](/dashboard/123).' })
+            expect([...classicToolInvocations(state, false).values()].map((call) => call.status)).toEqual([
+                'completed',
+                'completed',
+            ])
+        }
+    )
+
+    test('retains settled activity references while a later turn streams and updates only the affected tool', () => {
+        const projectUrl = 'https://app.example.com/project/42'
+        let state = classicHistory(
+            [
+                { id: 'old-question', type: 'human', content: 'Inspect the event count.' },
+                {
+                    id: 'old-call',
+                    type: 'ai',
+                    content: 'Inspecting the events.',
+                    meta: { thinking: [{ type: 'thinking', thinking: 'Use the selected dates.' }] },
+                    tool_calls: [{ id: 'old-tool', name: 'query_insight', args: {} }],
+                },
+                { id: 'old-result', type: 'tool', content: 'Result received.', tool_call_id: 'old-tool' },
+                { id: 'old-answer', type: 'ai', content: 'The count is steady.' },
+                { id: 'new-question', type: 'human', content: 'Inspect the next event.' },
+                {
+                    id: 'new-call',
+                    type: 'ai',
+                    content: '',
+                    tool_calls: [{ id: 'new-tool', name: 'query_insight', args: {} }],
+                },
+            ],
+            null
+        )
+        const original = classicThreadItems(state, projectUrl, true)
+        const calls = classicToolInvocations(state, true)
+        state = reduceClassicEvent(state, {
+            event: 'update',
+            data: JSON.stringify({ tool_call_id: 'new-tool', content: 'Reading the second count.' }),
+        })
+        state = appendClassicMessage(state, { id: 'temp-answer', type: 'ai', content: 'The second count' })
+        const updated = classicThreadItems(state, projectUrl, true)
+        for (const item of original.filter((item) => item.kind === 'thought' || item.kind === 'tool')) {
+            expect(updated.find((candidate) => candidate.id === item.id)).toBe(item)
+        }
+        const updatedCalls = classicToolInvocations(state, true)
+        expect(updatedCalls.get('old-tool')).toBe(calls.get('old-tool'))
+        expect(updatedCalls.get('new-tool')).not.toBe(calls.get('new-tool'))
+        expect(updatedCalls.get('new-tool')?.detail).toBe('Reading the second count.')
+        const otherProject = classicThreadItems(state, 'https://app.example.com/project/43', true)
+        expect(otherProject.find((item) => item.kind === 'thought')).toMatchObject({
+            projectUrl: 'https://app.example.com/project/43',
+        })
+    })
 
     test('keeps tool results separate without wire message IDs and preserves their latest progress', () => {
         let state = classicHistory(
@@ -125,16 +228,20 @@ describe('classic conversation events', () => {
             event: 'update',
             data: JSON.stringify({ tool_call_id: 'second', content: 'Running the second query.' }),
         })
+        state = reduceClassicEvent(state, {
+            event: 'update',
+            data: JSON.stringify({ tool_call_id: 'second', content: 'Finishing the second query.' }),
+        })
+        expect(state.toolUpdates.second).toBe('Finishing the second query.')
         state = appendClassicMessage(state, { type: 'tool', tool_call_id: 'first', content: 'First result' })
         state = appendClassicMessage(state, {
             type: 'tool',
             tool_call_id: 'second',
             content: 'Query unavailable.',
-            status: 'error',
         })
         expect([...classicToolInvocations(state, false).values()]).toMatchObject([
             { status: 'completed' },
-            { status: 'failed', detail: 'Running the second query.', errorMessage: 'Query unavailable.' },
+            { status: 'completed', detail: 'Finishing the second query.' },
         ])
         expect(state.messages.filter((message) => message.data.type === 'tool')).toHaveLength(2)
     })

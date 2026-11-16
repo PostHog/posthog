@@ -29,7 +29,7 @@ export interface ClassicState {
     approval: ClassicApproval | null
     form: ClassicForm | null
     error: string | null
-    toolUpdates: Record<string, string[]>
+    toolUpdates: Record<string, string>
 }
 
 export const EMPTY_CLASSIC_STATE: ClassicState = {
@@ -42,6 +42,17 @@ export const EMPTY_CLASSIC_STATE: ClassicState = {
     error: null,
     toolUpdates: {},
 }
+
+interface ClassicProjection {
+    projectUrl: string
+    traceId?: string
+    complete: boolean
+    thinkingComplete: boolean
+    intermediate: boolean
+    items: SessionThreadItem[]
+}
+
+const projections = new WeakMap<ClassicMessage, ClassicProjection>()
 
 function approvalFrom(value: unknown): ClassicApproval | null {
     const data = asRecord(value) ?? {}
@@ -169,12 +180,12 @@ export function reduceClassicEvent(state: ClassicState, event: SseEvent): Classi
             return { ...state, title: typeof data.title === 'string' ? data.title : state.title }
         case 'update':
             if (typeof data.tool_call_id === 'string' && typeof data.content === 'string') {
-                const previous = state.toolUpdates?.[data.tool_call_id] ?? []
+                if (state.toolUpdates?.[data.tool_call_id] === data.content) return state
                 return {
                     ...state,
                     toolUpdates: {
                         ...state.toolUpdates,
-                        [data.tool_call_id]: previous.at(-1) === data.content ? previous : [...previous, data.content],
+                        [data.tool_call_id]: data.content,
                     },
                 }
             }
@@ -245,91 +256,122 @@ export function classicThreadItems(state: ClassicState, projectUrl: string, work
         const traceId = typeof data.trace_id === 'string' && data.trace_id ? data.trace_id : undefined
         if (data.type === 'human') currentTraceId = traceId
         const feedback = traceId || currentTraceId ? { traceId: traceId ?? currentTraceId } : {}
-        switch (data.type) {
-            case 'human':
-                return [{ kind: 'user', id: message.id, text }]
-            case 'ai': {
-                const calls = classicToolCalls(data)
-                const complete = !working || index < lastHuman || message.complete
-                const thoughts = classicThinkingItems(
-                    message,
-                    !working || index < state.messages.length - 1 || !!text || calls.length > 0
-                )
-                const content: SessionThreadItem[] = text
-                    ? intermediateIds.has(message.id)
-                        ? [{ kind: 'thought', id: message.id, text, complete }]
-                        : [
+        const calls = data.type === 'ai' ? classicToolCalls(data) : []
+        const complete = !working || index < lastHuman || message.complete
+        const thinkingComplete =
+            !working || index < state.messages.length - 1 || (data.type === 'ai' && (!!text || calls.length > 0))
+        const intermediate = intermediateIds.has(message.id)
+        const cached = projections.get(message)
+        if (
+            cached &&
+            cached.projectUrl === projectUrl &&
+            cached.traceId === feedback.traceId &&
+            cached.complete === complete &&
+            cached.thinkingComplete === thinkingComplete &&
+            cached.intermediate === intermediate
+        ) {
+            return cached.items
+        }
+        const items = ((): SessionThreadItem[] => {
+            switch (data.type) {
+                case 'human':
+                    return [{ kind: 'user', id: message.id, text }]
+                case 'ai': {
+                    const thoughts = classicThinkingItems(message, thinkingComplete, projectUrl)
+                    const content: SessionThreadItem[] = text
+                        ? intermediate
+                            ? [
+                                  {
+                                      kind: 'thought',
+                                      id: message.id,
+                                      text,
+                                      complete,
+                                      ...(projectUrl ? { projectUrl } : {}),
+                                  },
+                              ]
+                            : [
+                                  {
+                                      kind: 'assistant',
+                                      id: message.id,
+                                      text,
+                                      complete,
+                                      projectUrl,
+                                      ...feedback,
+                                  },
+                              ]
+                        : []
+                    return [
+                        ...thoughts,
+                        ...content,
+                        ...calls.map(
+                            (call): SessionThreadItem => ({
+                                kind: 'tool',
+                                id: `${message.id}-tool-${call.id}`,
+                                toolCallId: String(call.id),
+                            })
+                        ),
+                    ]
+                }
+                case 'ai/reasoning':
+                    return text
+                        ? [
                               {
-                                  kind: 'assistant',
+                                  kind: 'thought',
                                   id: message.id,
                                   text,
-                                  complete,
-                                  projectUrl,
-                                  ...feedback,
+                                  complete: thinkingComplete,
+                                  ...(projectUrl ? { projectUrl } : {}),
                               },
                           ]
-                    : []
-                return [
-                    ...thoughts,
-                    ...content,
-                    ...calls.map(
-                        (call): SessionThreadItem => ({
-                            kind: 'tool',
-                            id: `${message.id}-tool-${call.id}`,
-                            toolCallId: String(call.id),
-                        })
-                    ),
-                ]
+                        : []
+                case 'ai/failure':
+                    return [
+                        {
+                            kind: 'error',
+                            id: message.id,
+                            message: text || 'PostHog AI ran into a problem. Try again.',
+                            variant: 'error',
+                        },
+                    ]
+                case 'ai/viz':
+                case 'ai/artifact': {
+                    const link =
+                        asRecord(data.content)?.content_type === 'notebook'
+                            ? notebookText(data, projectUrl)
+                            : visualizationLink(data, projectUrl)
+                    return link
+                        ? [{ kind: 'assistant', id: message.id, text: link, complete: true, projectUrl, ...feedback }]
+                        : []
+                }
+                case 'ai/multi_viz':
+                    return Array.isArray(data.visualizations)
+                        ? data.visualizations.flatMap((viz, index): SessionThreadItem[] => {
+                              const link = visualizationLink(asRecord(viz) ?? {}, projectUrl)
+                              return link
+                                  ? [
+                                        {
+                                            kind: 'assistant',
+                                            id: `${message.id}-${index}`,
+                                            text: link,
+                                            complete: true,
+                                            ...feedback,
+                                        },
+                                    ]
+                                  : []
+                          })
+                        : []
+                default:
+                    return []
             }
-            case 'ai/reasoning':
-                return text
-                    ? [
-                          {
-                              kind: 'thought',
-                              id: message.id,
-                              text,
-                              complete: !working || index < state.messages.length - 1,
-                          },
-                      ]
-                    : []
-            case 'ai/failure':
-                return [
-                    {
-                        kind: 'error',
-                        id: message.id,
-                        message: text || 'PostHog AI ran into a problem. Try again.',
-                        variant: 'error',
-                    },
-                ]
-            case 'ai/viz':
-            case 'ai/artifact': {
-                const link =
-                    asRecord(data.content)?.content_type === 'notebook'
-                        ? notebookText(data, projectUrl)
-                        : visualizationLink(data, projectUrl)
-                return link
-                    ? [{ kind: 'assistant', id: message.id, text: link, complete: true, projectUrl, ...feedback }]
-                    : []
-            }
-            case 'ai/multi_viz':
-                return Array.isArray(data.visualizations)
-                    ? data.visualizations.flatMap((viz, index): SessionThreadItem[] => {
-                          const link = visualizationLink(asRecord(viz) ?? {}, projectUrl)
-                          return link
-                              ? [
-                                    {
-                                        kind: 'assistant',
-                                        id: `${message.id}-${index}`,
-                                        text: link,
-                                        complete: true,
-                                        ...feedback,
-                                    },
-                                ]
-                              : []
-                      })
-                    : []
-            default:
-                return []
-        }
+        })()
+        projections.set(message, {
+            projectUrl,
+            traceId: feedback.traceId,
+            complete,
+            thinkingComplete,
+            intermediate,
+            items,
+        })
+        return items
     })
 }

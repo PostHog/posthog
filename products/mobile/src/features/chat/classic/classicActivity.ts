@@ -3,6 +3,8 @@ import { asRecord, isRecord } from '@/lib/records'
 import type { SessionThreadItem, SessionToolInvocation } from '../session/types'
 import type { ClassicMessage, ClassicState } from './classicMessages'
 
+const toolInvocations = new WeakMap<Record<string, unknown>, SessionToolInvocation>()
+
 export function classicToolCalls(data: Record<string, unknown>): Record<string, unknown>[] {
     return Array.isArray(data.tool_calls)
         ? data.tool_calls.filter(
@@ -16,7 +18,11 @@ function thinkingBlocks(data: Record<string, unknown>): Record<string, unknown>[
     return Array.isArray(thinking) ? thinking.filter(isRecord) : []
 }
 
-export function classicThinkingItems(message: ClassicMessage, complete: boolean): SessionThreadItem[] {
+export function classicThinkingItems(
+    message: ClassicMessage,
+    complete: boolean,
+    projectUrl?: string
+): SessionThreadItem[] {
     return thinkingBlocks(message.data).flatMap((block, index): SessionThreadItem[] => {
         const id = `${message.id}-thinking-${index}`
         if (block.type === 'server_tool_use' && typeof block.id === 'string' && typeof block.name === 'string') {
@@ -32,7 +38,9 @@ export function classicThinkingItems(message: ClassicMessage, complete: boolean)
                         .filter(Boolean)
                         .join('\n\n')
                   : null
-        return typeof text === 'string' && text ? [{ kind: 'thought', id, text, complete }] : []
+        return typeof text === 'string' && text
+            ? [{ kind: 'thought', id, text, complete, ...(projectUrl ? { projectUrl } : {}) }]
+            : []
     })
 }
 
@@ -41,6 +49,15 @@ export function classicIntermediateIds(messages: readonly ClassicMessage[]): Set
     let candidates: string[] = []
     for (const message of messages) {
         if (message.data.type === 'human') candidates = []
+        if (
+            thinkingBlocks(message.data).some(
+                (block) =>
+                    block.type === 'server_tool_use' && typeof block.id === 'string' && typeof block.name === 'string'
+            )
+        ) {
+            for (const id of candidates) ids.add(id)
+            candidates = []
+        }
         if (message.data.type === 'ai') candidates.push(message.id)
         if (classicToolCalls(message.data).length > 0 || message.data.type === 'tool') {
             for (const id of candidates) ids.add(id)
@@ -74,27 +91,30 @@ export function classicToolInvocations(state: ClassicState, working: boolean): M
             const awaitingResponse = state.form?.id === call.id || state.approval?.toolCallId === call.id
             const active = working && index > lastHuman
             const context = asRecord(call.args)?.context
-            const updates = state.toolUpdates?.[call.id]
-            const detail = updates?.at(-1) ?? (typeof context === 'string' ? context : undefined)
-            invocations.set(call.id, {
+            const detail = state.toolUpdates?.[call.id] ?? (typeof context === 'string' ? context : undefined)
+            // Tool results confirm execution ended, but the wire contract has no outcome status.
+            const status =
+                result || searchResults.has(call.id)
+                    ? 'completed'
+                    : awaitingResponse
+                      ? 'pending'
+                      : active
+                        ? 'in_progress'
+                        : 'failed'
+            const previous = toolInvocations.get(call)
+            if (previous?.status === status && previous.detail === detail) {
+                invocations.set(call.id, previous)
+                continue
+            }
+            const invocation: SessionToolInvocation = {
                 toolCallId: call.id,
                 toolName: call.name,
                 title: call.name.replace(/_/g, ' '),
                 detail,
-                status:
-                    result || searchResults.has(call.id)
-                        ? result?.status === 'error'
-                            ? 'failed'
-                            : 'completed'
-                        : awaitingResponse
-                          ? 'pending'
-                          : active
-                            ? 'in_progress'
-                            : 'failed',
-                ...(result?.status === 'error' && typeof result.content === 'string'
-                    ? { errorMessage: result.content }
-                    : {}),
-            })
+                status,
+            }
+            toolInvocations.set(call, invocation)
+            invocations.set(call.id, invocation)
         }
     }
     return invocations

@@ -66,7 +66,7 @@ function ThoughtRow({ item }: { item: SessionThoughtItem }): ReactElement | null
     const styles = useStyles()
     return item.text ? (
         <View style={styles.thought}>
-            <ChatMarkdown tone="thought" text={item.text} streaming={!item.complete} />
+            <ChatMarkdown tone="thought" text={item.text} streaming={!item.complete} projectUrl={item.projectUrl} />
         </View>
     ) : null
 }
