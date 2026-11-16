@@ -3549,6 +3549,10 @@
             "ignored_in_assistant": true,
             "label": "Set person properties"
         },
+        "$signals_report_ready": {
+            "description": "Fires when a self-driving Inbox report becomes ready. Destinations use it to act on a new report.",
+            "label": "Inbox report ready"
+        },
         "$slack_message_received": {
             "description": "Fires when a message is posted in a Slack channel PostHog is connected to.",
             "label": "Slack message received"
