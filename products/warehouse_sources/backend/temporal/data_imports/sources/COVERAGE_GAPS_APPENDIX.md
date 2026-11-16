@@ -13038,14 +13038,14 @@ Note: Spec is Vantage's own OpenAPI at api.vantage.sh/v2/swagger.json (v2.0.0); 
 
 ## Vapi — gaps
 
-Today (10): `assistants`, `calls`, `campaigns`, `chats`, `files`, `phone_numbers`, `sessions`, `simulation_runs`, `squads`, `tools`
+Today (13): `assistants`, `calls`, `campaigns`, `chats`, `eval_runs`, `evals`, `files`, `phone_numbers`, `scorecards`, `sessions`, `simulation_runs`, `squads`, `tools`
 
 Diffed against: <https://api.vapi.ai/api-json>
 
-- [ ] `GET /observability/scorecard` — call quality scorecards — the analytical object for judging agent performance (high)
-- [ ] `GET /eval/run` — evaluation run results per assistant; the regression signal for voice agents (high)
-- [ ] `GET /eval` — eval definitions, the lookup that resolves eval ids on runs (medium)
-- [ ] `GET /call/{id}/call-logs` — per-call turn/system log lines for the calls we already sync (medium)
+- [x] `GET /observability/scorecard` — call quality scorecards — the analytical object for judging agent performance (high)
+- [x] `GET /eval/run` — evaluation run results per assistant; the regression signal for voice agents (high)
+- [x] `GET /eval` — eval definitions, the lookup that resolves eval ids on runs (medium)
+- [ ] `GET /call/{id}/call-logs` — per-call turn/system log lines for the calls we already sync (medium); skipped, it is a file download (a 302 to a short-lived presigned log file URL, no JSON schema), not a list endpoint, and it would take one request per call with no changed-since filter
 - [ ] `POST /analytics` — Vapi's aggregate analytics query API (minutes, spend, call outcomes) — the headline metrics surface (medium)
 - [ ] `GET /structured-output` — lookup for the extraction schemas whose extracted values appear on call records (low)
 - [x] `GET /eval/simulation/run` — simulation run results for assistants and squads, with pass/fail item counts (medium)
@@ -13679,10 +13679,10 @@ Today (3): `properties`, `survey_groups`, `surveys`
 
 Diffed against: <https://docs.zenloop.com/reference>
 
-- [ ] `answers (GET, per survey)` — the actual NPS/CSAT responses with score, comment and recipient properties - the product's core dataset and currently absent entirely (high)
-- [ ] `survey summary (Get Summary of Survey)` — the vendor's headline NPS score and promoter/passive/detractor breakdown per survey (high)
-- [ ] `answers for survey group (Get Answers for Survey Group)` — rolled-up answers across a survey group, matching the survey_groups table we already sync (medium)
-- [ ] `survey group summary (Get Summary of Survey Groups)` — group-level NPS aggregate, the comparison dimension for group reporting (medium)
+- [x] `answers (GET, per survey)` — the actual NPS/CSAT responses with score, comment and recipient properties - the product's core dataset and currently absent entirely (high) → `survey_answers` (full refresh, fan-out over `surveys`)
+- [x] `survey summary (Get Summary of Survey)` — the vendor's headline NPS score and promoter/passive/detractor breakdown per survey (high) → `survey_summaries` (full refresh, fan-out over `surveys`)
+- [x] `answers for survey group (Get Answers for Survey Group)` — rolled-up answers across a survey group, matching the survey_groups table we already sync (medium) → `survey_group_answers` (full refresh, fan-out over `survey_groups`)
+- [x] `survey group summary (Get Summary of Survey Groups)` — group-level NPS aggregate, the comparison dimension for group reporting (medium) → `survey_group_summaries` (full refresh, fan-out over `survey_groups`)
 - [ ] `roles (Get roles)` — lookup for user role assignments (low)
 
 Note: docs.zenloop.com is a ReadMe.io site that aggressively rate-limits and 404s the deep-link URLs recorded in the payload (get-properties, get-survey-groups). The /reference index still serves the embedded page manifest, which lists every endpoint with its HTTP method - that is what I diffed against. Only 8 GET endpoints exist in the whole API; PostHog syncs 3 of them, and the missing `answers` endpoint is the one that carries all the response data, so this connector is effectively metadata-only today.

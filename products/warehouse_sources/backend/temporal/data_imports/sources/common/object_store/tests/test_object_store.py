@@ -51,6 +51,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.obj
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store.discovery import (
     TableDefinition,
+    explain_no_tables,
     group_tables,
     resolve_table_files,
 )
@@ -59,6 +60,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.obj
     BLOCKED_LOCATION_ERROR,
     FILE_PARSE_ERROR,
     INVALID_CONFIG_ERROR,
+    NO_IMPORTABLE_FILES_ERROR,
     NO_SUCH_BUCKET_ERROR,
     NO_TABLE_FILES_ERROR,
     TOO_MANY_FILES_ERROR,
@@ -444,6 +446,47 @@ class TestTableLimit:
 
         assert len(group_tables(objects, DiscoveryOptions(), root_name="root")) == MAX_TABLES
         assert len(group_tables(objects, DiscoveryOptions(), root_name="root", max_tables=None)) == MAX_TABLES + 1
+
+
+class TestExplainNoTables:
+    @parameterized.expand(
+        [
+            ("empty_listing", [], "infer", None, "is empty or doesn't exist"),
+            ("only_folder_markers", ["exports/", "exports/2024/"], "infer", None, "is empty or doesn't exist"),
+            ("delta_without_a_log", ["exports/a.parquet"], "delta", None, "_delta_log"),
+            (
+                "delta_table_outside_the_glob",
+                ["sales/_delta_log/0.json", "sales/p.parquet"],
+                "delta",
+                "*.parquet",
+                "matches the wildcards",
+            ),
+            ("glob_matches_nothing", ["orders/a.csv"], "infer", "orders/*.parquet", "matches the wildcards"),
+            ("unknown_extensions", ["notes.md", "data/rows.txt"], "infer", None, "ends in .csv, .tsv"),
+            ("glob_matches_unknown_extensions", ["orders/a.txt", "x.csv"], "infer", "orders/*", "ends in .csv, .tsv"),
+            ("only_hidden_files", ["_SUCCESS", ".keep"], "infer", None, "though PostHog can read the bucket"),
+        ]
+    )
+    def test_names_why_discovery_found_no_table(
+        self, _name: str, paths: list[str], file_format: str, pattern: str | None, expected: str
+    ) -> None:
+        objects = [stored(path) for path in paths]
+        options = DiscoveryOptions(file_format=cast(Any, file_format))
+        assert group_tables(objects, options, root_name="root", pattern=pattern) == []
+
+        message = explain_no_tables(objects, options, pattern)
+
+        assert message.startswith(NO_IMPORTABLE_FILES_ERROR)
+        assert expected in message
+
+    def test_the_wizard_shows_the_reason(self) -> None:
+        store = MagicMock()
+        store.list_objects.return_value = [stored("exports/notes.md")]
+
+        valid, message = _source_with_store(store).validate_credentials(BUCKET_ROOT_CONFIG, 1)
+
+        assert not valid
+        assert message is not None and "ends in .csv" in message
 
 
 class TestResolveTableFiles:
