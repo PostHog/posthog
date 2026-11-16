@@ -11,7 +11,7 @@ from whitenoise.compress import Compressor
 
 from posthog.openapi.enum_names import ChoicesEnumNameOverrides
 from posthog.run_mode import derive_run_mode
-from posthog.scopes import get_scope_descriptions
+from posthog.scopes.exposure import get_scope_descriptions
 from posthog.settings.base_variables import BASE_DIR, CLOUD_DEPLOYMENT, DEBUG, TEST
 from posthog.settings.utils import generate_rsa_private_key_pem, get_from_env, get_list, str_to_bool
 from posthog.utils_cors import CORS_ALLOWED_TRACING_HEADERS
@@ -740,7 +740,7 @@ SPECTACULAR_SETTINGS = {
             # Authentication classes declare their activity log credential type as a CredentialType
             # literal, so no Choices class carries the set. The list is derived from that literal.
             "ActivityLogCredentialTypeEnum": "posthog.models.activity_logging.utils.CREDENTIAL_TYPE_CHOICES",
-            # Every grantable scope object, from posthog/scopes.py. The frontend's APIScopeObject type
+            # Every grantable scope object, from posthog/scopes/exposure.py. The frontend's APIScopeObject type
             # derives from this enum, so the object list is never copied by hand.
             "ScopeObjectEnum": "products.access_control.backend.facade.enums.SCOPE_OBJECT_CHOICES",
             "AIEventPropertyEnum": "products.access_control.backend.facade.enums.AI_EVENT_PROPERTY_CHOICES",
