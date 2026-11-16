@@ -12,8 +12,8 @@ from products.error_tracking.backend.logic.rules import MAX_SEVERITY_RULE_BYTECO
 from products.error_tracking.backend.models import ErrorTrackingIssueTag, ErrorTrackingIssueTagRule
 
 from common.hogvm.python.execute import execute_bytecode
+from common.hogvm.python.operation import HOGQL_BYTECODE_IDENTIFIER, HOGQL_BYTECODE_IDENTIFIER_V0
 from common.hogvm.python.stl import BLOCKING_FUNCTIONS
-from common.hogvm.python.utils import HogVMRuntimeExceededException
 
 logger = structlog.get_logger(__name__)
 
@@ -42,14 +42,18 @@ class RuleTagger:
     def answer(self, context: TagContext, definitions: Sequence[IssueTagDefinition]) -> dict[str, TagAnswer]:
         """Apply the label of each rule that matches the event. A miss answers nothing.
 
-        A rule that raises, or runs past its own timeout, is disabled and the other rules still run. When the issue's
-        budget runs out, the remaining rules do not run and stay enabled.
+        A rule with broken bytecode is disabled, because it fails on every event. A rule that raises or runs past its
+        timeout on this event counts as a miss and stays enabled, because the event can be the cause. When the issue's
+        budget runs out, the remaining rules do not run.
         """
         rule_input = rule_globals(context.event_properties)
         deadline = time.monotonic() + self.issue_budget.total_seconds()
         answers: dict[str, TagAnswer] = {}
         for index, definition in enumerate(definitions):
             config = definition.tagger_config(RuleTaggerConfig)
+            if (fault := _bytecode_fault(config.bytecode)) is not None:
+                _disable(context, definition, config, fault)
+                continue
             remaining = timedelta(seconds=deadline - time.monotonic())
             if remaining <= timedelta(0):
                 _log_budget_exhausted(context, skipped=len(definitions) - index)
@@ -58,11 +62,13 @@ class RuleTagger:
             try:
                 matched = _matches(config, rule_input, timeout)
             except Exception as error:
-                if isinstance(error, HogVMRuntimeExceededException) and timeout < self.rule_timeout:
-                    # The issue's budget ran out during this rule, so the rule itself is not at fault.
-                    _log_budget_exhausted(context, skipped=len(definitions) - index)
-                    break
-                _disable(context, definition, config, error)
+                logger.warning(
+                    "error_tracking_issue_tag_rule_failed",
+                    team_id=context.issue.team_id,
+                    issue_id=str(context.issue.id),
+                    rule_id=str(config.rule_id),
+                    error=str(error),
+                )
                 continue
             if matched:
                 answers[definition.key] = TagAnswer(
@@ -75,11 +81,19 @@ class RuleTagger:
         return answers
 
 
+def _bytecode_fault(bytecode: object) -> str | None:
+    """Why the bytecode cannot run for any event, or None when it can."""
+    if not isinstance(bytecode, list) or bytecode[:1] not in (
+        [HOGQL_BYTECODE_IDENTIFIER],
+        [HOGQL_BYTECODE_IDENTIFIER_V0],
+    ):
+        return "Rule bytecode is not HogVM bytecode"
+    if len(bytecode) > MAX_SEVERITY_RULE_BYTECODE_OPS:
+        return f"Rule bytecode has {len(bytecode)} operations, maximum is {MAX_SEVERITY_RULE_BYTECODE_OPS}"
+    return None
+
+
 def _matches(config: RuleTaggerConfig, rule_input: dict[str, object], timeout: timedelta) -> bool:
-    if len(config.bytecode) > MAX_SEVERITY_RULE_BYTECODE_OPS:
-        raise ValueError(
-            f"Rule bytecode has {len(config.bytecode)} operations, maximum is {MAX_SEVERITY_RULE_BYTECODE_OPS}"
-        )
     # Rules run on the shared worker, so a blocking call must not hold it.
     result = execute_bytecode(config.bytecode, rule_input, timeout=timeout, disallowed_functions=BLOCKING_FUNCTIONS)
     return result.result is True
@@ -94,17 +108,13 @@ def _log_budget_exhausted(context: TagContext, *, skipped: int) -> None:
     )
 
 
-def _disable(context: TagContext, definition: IssueTagDefinition, config: RuleTaggerConfig, error: Exception) -> None:
-    # The version filter keeps a rule that a person edited during this run enabled, because the error came from
-    # the bytecode before the edit.
+def _disable(context: TagContext, definition: IssueTagDefinition, config: RuleTaggerConfig, fault: str) -> None:
+    # The version filter keeps a rule that a person edited during this run enabled, because the fault is in the
+    # bytecode before the edit.
     ErrorTrackingIssueTagRule.objects.for_team(context.issue.team_id).filter(
         id=config.rule_id, version=definition.question_version
     ).update(
-        disabled_data={
-            "message": str(error),
-            "issue": {"id": str(context.issue.id)},
-            "properties": context.event_properties,
-        },
+        disabled_data={"message": fault},
         updated_at=timezone.now(),
     )
     logger.warning(
@@ -112,5 +122,5 @@ def _disable(context: TagContext, definition: IssueTagDefinition, config: RuleTa
         team_id=context.issue.team_id,
         issue_id=str(context.issue.id),
         rule_id=str(config.rule_id),
-        error=str(error),
+        fault=fault,
     )

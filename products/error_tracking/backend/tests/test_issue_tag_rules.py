@@ -1,3 +1,4 @@
+from collections.abc import Callable
 from datetime import timedelta
 from typing import Any
 
@@ -17,7 +18,7 @@ from products.error_tracking.backend.logic.issue_tags.correction import UnknownI
 from products.error_tracking.backend.logic.issue_tags.enabled import enabled_issue_tag_definitions
 from products.error_tracking.backend.logic.issue_tags.runner import IssueTaggingSkipReason, TaggerRun, run_issue_taggers
 from products.error_tracking.backend.logic.issue_tags.taggers.rule import RuleTagger
-from products.error_tracking.backend.logic.rules import compile_filter_bytecode
+from products.error_tracking.backend.logic.rules import MAX_SEVERITY_RULE_BYTECODE_OPS, compile_filter_bytecode
 from products.error_tracking.backend.models import ErrorTrackingIssue, ErrorTrackingIssueTag, ErrorTrackingIssueTagRule
 from products.event_definitions.backend.models import PropertyDefinition, PropertyType
 
@@ -27,6 +28,10 @@ DECIDE = "products.error_tracking.backend.logic.issue_tags.taggers.jev.ml_infere
 
 # No $exception_list, so the event has no stack trace.
 BIG_UNHANDLED_ORDER: dict[str, object] = {"revenue": 25, "$exception_handled": False, "$lib": "posthog-python"}
+
+
+def _program(source: str) -> list[Any]:
+    return create_bytecode(parse_program(source)).bytecode
 
 
 def _event_filter(key: str, operator: str, value: Any) -> dict[str, Any]:
@@ -104,15 +109,52 @@ class TestIssueTagRules(BaseTest):
 
     @parameterized.expand(
         [
-            ("raises", "return properties.revenue > 'ten'", timedelta(seconds=60), timedelta(seconds=60), True),
-            ("runs_over_its_timeout", "while (true) {}", timedelta(milliseconds=200), timedelta(seconds=60), True),
-            ("runs_out_the_issue_budget", "while (true) {}", timedelta(seconds=60), timedelta(milliseconds=200), False),
+            (
+                "raises_on_this_event",
+                lambda team_id: compile_filter_bytecode(
+                    team_id, _event_filter("signed_up_at", "is_date_before", "2026-01-01")
+                ),
+                timedelta(seconds=60),
+                timedelta(seconds=60),
+                None,
+                True,
+            ),
+            (
+                "runs_past_its_timeout",
+                lambda team_id: _program("while (true) {}"),
+                timedelta(milliseconds=200),
+                timedelta(seconds=60),
+                None,
+                True,
+            ),
+            (
+                "runs_out_the_issue_budget",
+                lambda team_id: _program("while (true) {}"),
+                timedelta(seconds=60),
+                timedelta(milliseconds=200),
+                None,
+                False,
+            ),
+            (
+                "bytecode_over_the_size_limit",
+                lambda team_id: ["_H", 1, *([None] * MAX_SEVERITY_RULE_BYTECODE_OPS)],
+                timedelta(seconds=60),
+                timedelta(seconds=60),
+                f"Rule bytecode has {MAX_SEVERITY_RULE_BYTECODE_OPS + 2} operations, maximum is {MAX_SEVERITY_RULE_BYTECODE_OPS}",
+                True,
+            ),
         ]
     )
-    def test_disables_a_rule_only_when_the_rule_is_at_fault(
-        self, _name: str, program: str, rule_timeout: timedelta, issue_budget: timedelta, at_fault: bool
+    def test_disables_a_rule_only_for_a_fault_in_its_bytecode(
+        self,
+        _name: str,
+        bytecode: Callable[[int], list[Any]],
+        rule_timeout: timedelta,
+        issue_budget: timedelta,
+        disabled_message: str | None,
+        other_rules_run: bool,
     ) -> None:
-        broken = self._rule("Broken", {}, order_key=0, bytecode=create_bytecode(parse_program(program)).bytecode)
+        broken = self._rule("Broken", {}, order_key=0, bytecode=bytecode(self.team.id))
         issue = ErrorTrackingIssue.objects.create(team=self.team)
         tagger = RuleTagger(rule_timeout=rule_timeout, issue_budget=issue_budget)
 
@@ -121,11 +163,12 @@ class TestIssueTagRules(BaseTest):
 
         broken.refresh_from_db()
         applied = ErrorTrackingIssueTag.objects.for_team(self.team.id).filter(issue=issue).values_list("key", flat=True)
+        listed = {definition.key for definition in enabled_issue_tag_definitions(self.team.id)}
         assert result == (TaggerRun(source=Source.RULE),)
-        disabled_with = (broken.disabled_data or {}).get("properties")
-        still_listed = broken.key in {definition.key for definition in enabled_issue_tag_definitions(self.team.id)}
-        assert (disabled_with, set(applied), still_listed) == (
-            (BIG_UNHANDLED_ORDER, {self.big_order.key, self.unhandled.key}, False) if at_fault else (None, set(), True)
+        assert ((broken.disabled_data or {}).get("message"), set(applied), broken.key in listed) == (
+            disabled_message,
+            {self.big_order.key, self.unhandled.key} if other_rules_run else set(),
+            disabled_message is None,
         )
 
     def test_reads_no_rules_while_issue_tags_are_off(self) -> None:
