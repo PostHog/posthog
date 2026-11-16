@@ -110,7 +110,7 @@ from posthog.helpers.two_factor_session import (
     set_two_factor_verified_in_session,
 )
 from posthog.helpers.verified_domain_enforcement import VERIFIED_DOMAIN_REQUIRED_ERROR, resolve_login_organization
-from posthog.ip_restrictions import get_ip_blocked_organization_ids
+from posthog.ip_restrictions import enforce_ip_restrictions, get_ip_blocked_organization_ids
 from posthog.middleware import (
     IMPERSONATION_REASON_SESSION_KEY,
     get_impersonated_session_expires_at,
@@ -132,6 +132,7 @@ from posthog.permissions import (
     APIScopePermission,
     TimeSensitiveActionPermission,
     UserNoOrgMembershipDeletePermission,
+    VerifiedDomainEnforcementPermission,
     credential_admits_organization,
     credential_admits_team,
     get_authenticator_scoped_team_ids,
@@ -2153,6 +2154,21 @@ class ToolbarEntitlementsSerializer(serializers.Serializer):
     )
 
 
+def _team_visible_to_user(user: User, team_id: int) -> Team | None:
+    team = Team.objects.filter(pk=team_id, organization__members=user).select_related("organization").first()
+    if team is None or UserPermissions(user).team(team).effective_membership_level is None:
+        return None
+    return team
+
+
+class ToolbarEntitlementsQuerySerializer(serializers.Serializer):
+    team_id = serializers.IntegerField(
+        required=False,
+        min_value=1,
+        help_text="The project the toolbar session is scoped to. Defaults to the user's current project.",
+    )
+
+
 class ToolbarEntitlementsErrorSerializer(serializers.Serializer):
     error = serializers.CharField(help_text="Why toolbar entitlements could not be retrieved.")
 
@@ -2164,6 +2180,7 @@ class ToolbarEntitlementsView(APIView):
 
     @extend_schema(
         extensions={"x-product": "core"},
+        parameters=[ToolbarEntitlementsQuerySerializer],
         responses={
             200: ToolbarEntitlementsSerializer,
             400: ToolbarEntitlementsErrorSerializer,
@@ -2172,12 +2189,23 @@ class ToolbarEntitlementsView(APIView):
     )
     def get(self, request: Request) -> JsonResponse:
         user = cast(User, request.user)
-        team = user.team
+        query = ToolbarEntitlementsQuerySerializer(data=request.query_params)
+        if not query.is_valid():
+            return JsonResponse({"error": "Invalid team_id"}, status=400)
+
+        team_id = query.validated_data.get("team_id")
+        team = user.team if team_id is None else _team_visible_to_user(user, team_id)
         if not team:
-            return JsonResponse({"error": "No team found"}, status=400)
+            return JsonResponse({"error": "No team found"}, status=400 if team_id is None else 403)
 
         if not _user_can_access_toolbar(user, team):
             return JsonResponse({"error": "Unauthorized"}, status=403)
+
+        if team_id is not None:
+            # The middleware admitted the request for the user's current organization, which the requested team's
+            # organization may not be.
+            enforce_ip_restrictions(request, user, organization_id=str(team.organization_id))
+            VerifiedDomainEnforcementPermission()._admits(request, team.organization)
 
         return JsonResponse({"entitlements": _toolbar_entitlements(team.organization)})
 

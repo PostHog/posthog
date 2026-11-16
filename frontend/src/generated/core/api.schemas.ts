@@ -7872,6 +7872,14 @@ export type WorkloadTrustPolicyRequestsResolveSubjectRetrieveParams = {
     subject_name: string
 }
 
+export type UserToolbarEntitlementsRetrieveParams = {
+    /**
+     * The project the toolbar session is scoped to. Defaults to the user's current project.
+     * @minimum 1
+     */
+    team_id?: number
+}
+
 export type UsersListParams = {
     email?: string
     is_staff?: boolean

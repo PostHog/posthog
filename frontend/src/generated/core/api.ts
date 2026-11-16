@@ -137,6 +137,7 @@ import type {
     UserSlackLinkStartRequestApi,
     UserSlackLinkStartResponseApi,
     UserSlackLinkableWorkspaceListResponseApi,
+    UserToolbarEntitlementsRetrieveParams,
     UsersIntegrationsGithubBranchesRetrieveParams,
     UsersIntegrationsGithubReposRetrieveParams,
     UsersIntegrationsListParams,
@@ -3320,12 +3321,27 @@ export const revokeLeakedKeyCreate = async (
     })
 }
 
-export const getUserToolbarEntitlementsRetrieveUrl = () => {
-    return `/api/user/toolbar_entitlements/`
+export const getUserToolbarEntitlementsRetrieveUrl = (params?: UserToolbarEntitlementsRetrieveParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/user/toolbar_entitlements/?${stringifiedParams}`
+        : `/api/user/toolbar_entitlements/`
 }
 
-export const userToolbarEntitlementsRetrieve = async (options?: RequestInit): Promise<ToolbarEntitlementsApi> => {
-    return apiMutator<ToolbarEntitlementsApi>(getUserToolbarEntitlementsRetrieveUrl(), {
+export const userToolbarEntitlementsRetrieve = async (
+    params?: UserToolbarEntitlementsRetrieveParams,
+    options?: RequestInit
+): Promise<ToolbarEntitlementsApi> => {
+    return apiMutator<ToolbarEntitlementsApi>(getUserToolbarEntitlementsRetrieveUrl(params), {
         ...options,
         method: 'GET',
     })

@@ -20,6 +20,7 @@ describe('toolbarEntitlementsLogic', () => {
     let logic: ReturnType<typeof toolbarEntitlementsLogic.build>
 
     beforeEach(() => {
+        localStorage.clear()
         initKeaTests()
         toolbarPosthogJS.stopSessionRecording = jest.fn()
         toolbarConfigLogic.build({ apiURL: 'http://localhost' }).mount()
@@ -69,6 +70,22 @@ describe('toolbarEntitlementsLogic', () => {
             .toMatchValues({ entitlements: { toolbar_heatmaps: false } })
 
         expect(logic.values.isEntitled(AvailableFeature.TOOLBAR_HEATMAPS)).toBe(false)
+    })
+
+    it('loads the entitlements of the project the session is scoped to', async () => {
+        useMocks({
+            get: {
+                '/api/user/toolbar_entitlements': ({ request }) => ({
+                    entitlements: { toolbar_heatmaps: new URL(request.url).searchParams.get('team_id') === '2' },
+                }),
+            },
+        })
+
+        await expectLogic(logic, () => {
+            toolbarConfigLogic.actions.setOAuthTokens('access', 'refresh', 'client', { teamId: 2, projectId: 1 })
+        }).toDispatchActions(['loadEntitlementsSuccess'])
+
+        expect(logic.values.isEntitled(AvailableFeature.TOOLBAR_HEATMAPS)).toBe(true)
     })
 
     it.each([403, 500])('denies access and reports the failure when the endpoint returns %s', async (status) => {
