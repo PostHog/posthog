@@ -95,8 +95,9 @@ class ChangeMemberEmailsForm(forms.Form):
 
 
 def _operation_key(domain: str) -> str:
-    # The key is part of the URL, which takes letters, digits and hyphens. A domain holds single hyphens only,
-    # so a double hyphen for each dot gives every domain its own key: old.example.com and old-example.com differ.
+    # The key is part of the URL, which takes letters, digits and hyphens. DOMAIN_REGEX in
+    # posthog/api/organization_domain.py refuses a domain with two hyphens in a row, so a double hyphen for
+    # each dot gives every accepted domain its own key: old.example.com and old-example.com differ.
     return f"change-emails-{re.sub(r'[^a-z0-9-]', '-', domain.replace('.', '--'))}"
 
 
