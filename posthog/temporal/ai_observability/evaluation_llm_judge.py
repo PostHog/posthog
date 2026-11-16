@@ -593,11 +593,11 @@ def run_generation_llm_judge(inputs: ExecuteLLMJudgeInputs) -> EvaluationActivit
     tools_data = format_tool_definitions(extract_event_tools(properties))
     system_prompt = build_system_prompt(prompt, allows_na, output_type=output_type, output_config=output_config)
 
-    user_prompt = _build_user_prompt(io.input_raw, io.output_raw, tools_data)
+    user_prompt = build_user_prompt(io.input_raw, io.output_raw, tools_data)
     attachment_prompt = build_attachment_prompt(
         evaluation,
         user_prompt,
-        lambda media_marker: _build_user_prompt(io.input_raw, io.output_raw, tools_data, media_marker=media_marker),
+        lambda media_marker: build_user_prompt(io.input_raw, io.output_raw, tools_data, media_marker=media_marker),
     )
     if user_prompt is None and attachment_prompt is not None:
         # Inline base64 can push the plain text over the limit when the marked text still fits.
@@ -620,7 +620,7 @@ def run_generation_llm_judge(inputs: ExecuteLLMJudgeInputs) -> EvaluationActivit
     )
 
 
-def _build_user_prompt(
+def build_user_prompt(
     input_raw: Any, output_raw: Any, tools_data: str, *, media_marker: MediaMarker | None = None
 ) -> str | None:
     """The judge's user prompt, or None when the output alone exceeds the judge's text limit."""
