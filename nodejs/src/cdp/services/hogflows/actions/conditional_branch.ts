@@ -141,7 +141,6 @@ export class ConditionalBranchHandler implements ActionHandler {
             }
         }
 
-        // A wait re-reads the person above.
         if (action.type === 'conditional_branch') {
             await loadMissingPersonProperties(invocation, result, () =>
                 action.config.conditions.flatMap((condition) =>

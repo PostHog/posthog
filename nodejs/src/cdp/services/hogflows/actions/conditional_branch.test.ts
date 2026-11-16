@@ -376,7 +376,6 @@ describe('action.conditional_branch', () => {
             const nextAction = await execute(() => Promise.resolve(loaded(CHROME)))
 
             expect(nextAction).toEqual(findActionById(invocation.hogFlow, 'condition_1'))
-            // The executor runs the next step from the result, so it needs the loaded person too.
             expect(stepResult.invocation.person).toEqual(CHROME)
         })
 

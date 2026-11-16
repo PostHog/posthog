@@ -49,7 +49,6 @@ export type PersonManagerPersonWithDistinctId = PersonManagerPerson & {
 
 export type PersonLookupOptions = {
     forceFresh?: boolean
-    // Properties the caller is about to read. One that the replica lacks is read from the leader.
     requiredProperties?: string[]
 }
 

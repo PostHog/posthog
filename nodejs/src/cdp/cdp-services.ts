@@ -250,7 +250,6 @@ export interface CdpCoreServicesDeps {
     encryptedFields: EncryptedFields
     teamManager: TeamManager
     personRepository: PersonReadRepository
-    /** Set only when `CDP_PERSON_CONSISTENT_READS_ENABLED` is on. */
     consistentPersonReader?: ConsistentPersonReader
     integrationManager: IntegrationManagerService
     /** Registry of producers backing the CDP outputs (DEFAULT / MSK / Warpstream-ingestion / Warehouse). */

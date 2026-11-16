@@ -8,8 +8,7 @@ const PERSON_PROPERTY_REGEXES = [
     /\bperson\.properties\s*\[\s*['"]([^'"\]]+)['"]\s*\]/g,
 ]
 
-// Operation.STRING and Operation.GET_GLOBAL from @posthog/hogvm, which is a const enum and can't be
-// imported under isolatedModules
+// Operation.STRING and Operation.GET_GLOBAL in @posthog/hogvm, a const enum that isolatedModules cannot import
 const STRING = 32
 const GET_GLOBAL = 1
 
@@ -43,7 +42,6 @@ export function personPropertiesInBytecode(bytecode: unknown): string[] {
     return [...referenced]
 }
 
-/** The dequeue's person comes from the replica, which can lack a property the leader already has. */
 export async function loadMissingPersonProperties(
     invocation: CyclotronJobInvocationHogFlow,
     result: CyclotronJobInvocationResult<CyclotronJobInvocationHogFlow>,
