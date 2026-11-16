@@ -3,7 +3,7 @@ from base64 import b64encode
 from datetime import UTC, datetime, timedelta
 from typing import Any, Literal, Optional
 
-from requests import PreparedRequest, RequestException, Response
+from requests import PreparedRequest, Response
 from requests.auth import AuthBase
 from urllib3.util.retry import Retry
 
@@ -271,23 +271,14 @@ class OAuth2Auth(BearerTokenAuth):
         # the pre-mint runs inline on the API request thread, so it must stay within the same
         # bound as the data probe rather than blocking for the full sync-time read timeout.
         # stream=True so the body isn't buffered until we read it under a cap (see _read_capped_token_payload).
-        try:
-            response = session.post(
-                self.token_url,
-                data=body,
-                auth=basic_auth,
-                headers=self.token_request_headers or None,
-                timeout=timeout or (_TOKEN_CONNECT_TIMEOUT, _TOKEN_READ_TIMEOUT),
-                stream=True,
-            )
-        except RequestException as exc:
-            # A connection-level failure (TLS reset, refused connection, DNS blip) reaching the token
-            # endpoint, as opposed to a response it sent — the same transient class as a 429/5xx, so
-            # never permanent. Without this, callers that only catch OAuth2AuthRequestError (the
-            # preview endpoint's "live fetch failed" contract, validate_credentials' "don't block
-            # creation", refresh_and_persist's persisted error state) let the raw exception escape
-            # uncaught instead.
-            raise OAuth2AuthRequestError(str(exc)) from exc
+        response = session.post(
+            self.token_url,
+            data=body,
+            auth=basic_auth,
+            headers=self.token_request_headers or None,
+            timeout=timeout or (_TOKEN_CONNECT_TIMEOUT, _TOKEN_READ_TIMEOUT),
+            stream=True,
+        )
         payload = _read_capped_token_payload(response)
         if 200 <= response.status_code < 300:
             self._apply_token_response(payload)
