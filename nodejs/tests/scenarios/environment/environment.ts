@@ -1,3 +1,4 @@
+import { once } from 'events'
 import { existsSync, mkdirSync, realpathSync } from 'fs'
 import os from 'os'
 import path from 'path'
@@ -94,6 +95,7 @@ const STOP_GRACE_MS = 10_000
 const PROBE_INTERVAL_MS = 1000
 const KILL_OBSERVED_WITHIN_MS = 10_000
 const FREEZE_OBSERVED_WITHIN_MS = 10_000
+const DROP_SWEEP_EVERY_MS = 100
 
 const portsOf = (specs: RoleSpec[]): { port: number; owner: string }[] =>
     specs.map((spec) => ({ port: spec.port, owner: nameOf(spec) }))
@@ -122,6 +124,49 @@ export type EnvironmentOptions = {
     roleHealthyWithinMs: number
     aws: Aws
     failover: Partial<Pick<FailoverOptions, 'identity' | 'pollMs' | 'observeWithinMs'>>
+}
+
+async function holdConnectionsDropped(sweep: () => Promise<number>): Promise<Actuation> {
+    let terminated = await sweep()
+    let failure: unknown
+    const settled = Promise.withResolvers<void>()
+    if (terminated > 0) {
+        settled.resolve()
+    }
+    const released = new AbortController()
+    const sweeping = (async () => {
+        while (!released.signal.aborted) {
+            await sleep(DROP_SWEEP_EVERY_MS, undefined, { signal: released.signal }).catch(() => undefined)
+            if (released.signal.aborted) {
+                return
+            }
+            try {
+                terminated += await sweep()
+            } catch (error) {
+                failure = error
+                settled.resolve()
+                return
+            }
+            if (terminated > 0) {
+                settled.resolve()
+            }
+        }
+    })()
+    return {
+        async observed(holdEnds) {
+            if (holdEnds !== undefined && !holdEnds.aborted) {
+                await Promise.race([settled.promise, once(holdEnds, 'abort')])
+            }
+            return terminated > 0
+        },
+        async release() {
+            released.abort()
+            await sweeping
+            if (failure !== undefined) {
+                throw failure
+            }
+        },
+    }
 }
 
 export function createEnvironment({
@@ -199,11 +244,14 @@ export function createEnvironment({
                 case 'freeze':
                     return supervisor.freeze({ role: action.role, replica: 0 }, FREEZE_OBSERVED_WITHIN_MS)
                 case 'pg.terminate': {
-                    let terminated = 0
-                    for (const server of postgresServers) {
-                        terminated += await terminateRoleConnections(server, action.share)
-                    }
-                    return { observed: () => Promise.resolve(terminated > 0), release: () => Promise.resolve() }
+                    const servers = postgresServers
+                    return holdConnectionsDropped(async () => {
+                        let terminated = 0
+                        for (const server of servers) {
+                            terminated += await terminateRoleConnections(server, action.share)
+                        }
+                        return terminated
+                    })
                 }
                 case 'edge.fault':
                     return startedEdge('actuate').hold(action.rule)

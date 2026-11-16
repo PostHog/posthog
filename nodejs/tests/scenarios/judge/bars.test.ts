@@ -44,6 +44,7 @@ const scrapedEvery5s = (
             processed: {},
             pgClientErrors: 0,
             consumerLoopErrors: 0,
+            janitorStalled: 0,
             lateness: Object.fromEntries(
                 Object.entries(picksAt(atS))
                     .filter(([picked]) => picked === queue)

@@ -19,6 +19,7 @@ import type {
     BusinessKnowledgeSourcesDocumentsListParams,
     BusinessKnowledgeSourcesListParams,
     BusinessKnowledgeSourcesTextRetrieve200,
+    BusinessKnowledgeSourcesUsageRetrieveParams,
     CreateTextSourceApi,
     GapActionApi,
     GapTopicActionApi,
@@ -30,6 +31,7 @@ import type {
     KnowledgeLibraryCreateApi,
     KnowledgeSearchResultApi,
     KnowledgeSourceApi,
+    KnowledgeUsageApi,
     PaginatedKnowledgeGapSuggestionListApi,
     PaginatedKnowledgeSourceDocumentListApi,
     PaginatedKnowledgeSourceListApi,
@@ -898,6 +900,39 @@ export const businessKnowledgeSourcesAvailabilityRetrieve = async (
     options?: RequestInit
 ): Promise<KnowledgeAvailabilityApi> => {
     return apiMutator<KnowledgeAvailabilityApi>(getBusinessKnowledgeSourcesAvailabilityRetrieveUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getBusinessKnowledgeSourcesUsageRetrieveUrl = (
+    projectId: string,
+    params?: BusinessKnowledgeSourcesUsageRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/business_knowledge/sources/usage/?${stringifiedParams}`
+        : `/api/projects/${projectId}/business_knowledge/sources/usage/`
+}
+
+/**
+ * How much support agent runs cited the project's knowledge sources over a period.
+ */
+export const businessKnowledgeSourcesUsageRetrieve = async (
+    projectId: string,
+    params?: BusinessKnowledgeSourcesUsageRetrieveParams,
+    options?: RequestInit
+): Promise<KnowledgeUsageApi> => {
+    return apiMutator<KnowledgeUsageApi>(getBusinessKnowledgeSourcesUsageRetrieveUrl(projectId, params), {
         ...options,
         method: 'GET',
     })
