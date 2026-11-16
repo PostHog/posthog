@@ -364,6 +364,7 @@ If X rejects a single entity and day, the sync reports that some stats could not
 The sync retries before it is disabled; this error does not mean that the first failure disables it immediately.
 For `429` responses, the client honors `Retry-After`, then X's account-level or user-level reset timestamp, within a 16-minute request budget.
 This covers X's [15-minute analytics rate window](https://docs.x.com/x-ads-api/fundamentals/rate-limiting) without adding another retry layer.
+Each retry prepares a new OAuth1 signature after the wait, so a rate-limit reset does not leave the request with an expired timestamp.
 
 Meta Ads requests `video_play_actions` and `video_thruplay_watched_actions` on its campaign, ad set, ad, and supported breakdown statistics tables.
 Hourly statistics and `ad_stats_by_link_url` exclude both fields because these breakdowns do not support them.

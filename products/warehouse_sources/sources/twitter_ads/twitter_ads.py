@@ -15,9 +15,11 @@ from zoneinfo import ZoneInfo
 import requests
 from requests_oauthlib import OAuth1
 from structlog.types import FilteringBoundLogger
+from urllib3.exceptions import MaxRetryError
 
 from products.warehouse_sources.sources.sdk import (
     DEFAULT_RETRY,
+    NO_RETRY,
     BoundedRetry,
     IntegrationRecord,
     ResumableSourceManager,
@@ -209,23 +211,44 @@ class TwitterAdsClient:
         consumer_secret = consumer["TWITTER_ADS_CONSUMER_SECRET"]
         if not consumer_key or not consumer_secret:
             raise ValueError(MISSING_APP)
+        self._retry = _TwitterAdsRetry(
+            total=DEFAULT_RETRY.total,
+            backoff_factor=DEFAULT_RETRY.backoff_factor,
+            status_forcelist=DEFAULT_RETRY.status_forcelist,
+            allowed_methods=DEFAULT_RETRY.allowed_methods,
+            raise_on_status=False,
+        )
         self.session = make_tracked_session(
-            allow_redirects=False,
-            redact_values=(token, secret, consumer_secret),
-            retry=_TwitterAdsRetry(
-                total=DEFAULT_RETRY.total,
-                backoff_factor=DEFAULT_RETRY.backoff_factor,
-                status_forcelist=DEFAULT_RETRY.status_forcelist,
-                allowed_methods=DEFAULT_RETRY.allowed_methods,
-                raise_on_status=False,
-            ),
+            allow_redirects=False, redact_values=(token, secret, consumer_secret), retry=NO_RETRY
         )
         self.session.auth = OAuth1(consumer_key, consumer_secret, token, secret)
         self.base_url = f"https://ads-api.x.com/{api_version}"
 
-    def get(self, path: str, params: dict[str, str | int] | None = None) -> dict[str, Any]:
+    def _get_response(self, path: str, params: dict[str, str | int] | None) -> requests.Response:
+        url = f"{self.base_url}/{path}"
+        retry: BoundedRetry = self._retry
         with request_deadline(time.monotonic() + _REQUEST_RETRY_BUDGET_SECONDS):
-            response = self.session.get(f"{self.base_url}/{path}", params=params, timeout=60)
+            while True:
+                try:
+                    # OAuth1 must prepare each attempt after waiting; adapter retries reuse a stale signature.
+                    response = self.session.get(url, params=params, timeout=60)
+                except (requests.ConnectionError, requests.Timeout) as error:
+                    try:
+                        retry = retry.increment("GET", url, error=error)
+                    except MaxRetryError:
+                        raise error from None
+                    retry.sleep()
+                    continue
+                if not retry.is_retry("GET", response.status_code, has_retry_after="Retry-After" in response.headers):
+                    return response
+                try:
+                    retry = retry.increment("GET", url, response=response.raw)
+                except MaxRetryError:
+                    return response
+                retry.sleep(response.raw)
+
+    def get(self, path: str, params: dict[str, str | int] | None = None) -> dict[str, Any]:
+        response = self._get_response(path, params)
         try:
             response.raise_for_status()
         except requests.HTTPError as error:

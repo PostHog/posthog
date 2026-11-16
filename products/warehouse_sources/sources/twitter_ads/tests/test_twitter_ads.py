@@ -1,4 +1,5 @@
 import json
+import time
 from collections.abc import Iterable, Iterator
 from datetime import UTC, date, datetime, timedelta
 from typing import Any, cast
@@ -396,9 +397,17 @@ def test_stats_daily_fallback_waits_for_rate_limit_reset(
         for header, value in reset_headers.items()
     }
     limited_attempts: list[datetime] = []
+    seen_nonces: set[str] = set()
 
     def answer(request: RecordedRequest) -> ScriptedResponse:
+        server_now = time.time()
         clock.move_to(now + timedelta(seconds=network.elapsed))
+        auth = requests.utils.parse_dict_header(request.headers["authorization"].removeprefix("OAuth "))
+        timestamp, nonce = auth["oauth_timestamp"], auth["oauth_nonce"]
+        assert timestamp is not None and nonce is not None
+        if abs(float(timestamp) - server_now) > 300 or nonce in seen_nonces:
+            return ScriptedResponse(status=401, json={"errors": [{"code": "UNAUTHORIZED"}]})
+        seen_nonces.add(nonce)
         metadata = stats_metadata(request, timezone)
         if metadata is not None:
             return metadata
