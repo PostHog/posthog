@@ -1,8 +1,10 @@
 import json
+import pickle
+import copyreg
 import logging
 from concurrent.futures import Future
 from contextlib import nullcontext
-from dataclasses import replace
+from dataclasses import fields, replace
 from datetime import UTC, datetime, timedelta
 from functools import partial
 from typing import NoReturn
@@ -1069,6 +1071,26 @@ def test_auto_approve_schedule_launches_a_run_on_tick():
 # ---------------------------------------------------------------------------
 
 PROP_TEAM_ID = 88888
+
+
+def test_deletion_request_context_loads_a_pickle_written_before_it_was_frozen() -> None:
+    expected = DeletionRequestContext(
+        request_id="r",
+        team_id=PROP_TEAM_ID,
+        start_time=datetime(2026, 1, 1, tzinfo=UTC),
+        end_time=datetime(2026, 2, 1, tzinfo=UTC),
+        events=["$pageview"],
+        properties=["secret"],
+    )
+
+    # A plain @dataclass pickles as the class plus its __dict__. The pickle IO manager stores op outputs
+    # that way, and a re-executed run loads them back into the current class.
+    class PlainDataclassPickle:
+        def __reduce_ex__(self, protocol):
+            state = {f.name: getattr(expected, f.name) for f in fields(expected)}
+            return (copyreg._reconstructor, (DeletionRequestContext, object, None), state)
+
+    assert pickle.loads(pickle.dumps(PlainDataclassPickle())) == expected
 
 
 def test_property_removal_cleaned_select_expressions() -> None:

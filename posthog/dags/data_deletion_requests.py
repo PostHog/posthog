@@ -97,7 +97,8 @@ class DataDeletionRequestConfig(dagster.Config):
     request_id: str = pydantic.Field(description="UUID of the DataDeletionRequest to execute.")
 
 
-@frozen
+# Without slots, the class loads the pickled op outputs of a run that started before it was frozen.
+@frozen(slots=False)
 class DeletionRequestContext:
     request_id: str
     team_id: int
