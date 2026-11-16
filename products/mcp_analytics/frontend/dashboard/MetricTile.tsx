@@ -77,7 +77,11 @@ export function MetricTile({
             {failed ? (
                 <div className="grid flex-1 px-3">
                     <div className="invisible col-start-1 row-start-1" aria-hidden>
-                        <MetricTileSkeleton label={label} sparklineHeight={sparklineHeight} />
+                        <MetricTileSkeleton
+                            label={label}
+                            restingSubtitle={restingSubtitle}
+                            sparklineHeight={sparklineHeight}
+                        />
                     </div>
                     <div className="col-start-1 row-start-1 flex flex-col">
                         <MetricTitle>{label}</MetricTitle>
@@ -88,7 +92,11 @@ export function MetricTile({
                 </div>
             ) : loading ? (
                 <div className="px-3">
-                    <MetricTileSkeleton label={label} sparklineHeight={sparklineHeight} />
+                    <MetricTileSkeleton
+                        label={label}
+                        restingSubtitle={restingSubtitle}
+                        sparklineHeight={sparklineHeight}
+                    />
                 </div>
             ) : (
                 <Metric
@@ -129,16 +137,25 @@ const SPARKLINE_PATH = 'M0,72 C12,64 22,68 34,56 S56,50 66,44 S86,34 100,30'
 
 // Mirrors the line boxes of the loaded tile's header, value, subtitle and sparkline, so the tile
 // keeps its height when the data arrives.
-function MetricTileSkeleton({ label, sparklineHeight }: { label: string; sparklineHeight?: number }): JSX.Element {
+function MetricTileSkeleton({
+    label,
+    restingSubtitle,
+    sparklineHeight,
+}: {
+    label: string
+    restingSubtitle: string
+    sparklineHeight?: number
+}): JSX.Element {
     return (
         <div className="flex flex-col">
-            <MetricTitle>{label}</MetricTitle>
+            <MetricHeader>
+                <MetricTitle>{label}</MetricTitle>
+                <Skeleton className="h-4 w-15 shrink-0 rounded-full" />
+            </MetricHeader>
             <div className="mt-2 flex h-10 items-center">
                 <Skeleton className="h-7 w-24" />
             </div>
-            <div className="mt-1 flex h-5 items-center">
-                <Skeleton className="h-3 w-20" />
-            </div>
+            <div className="mt-1 text-sm opacity-60">{restingSubtitle}</div>
             {sparklineHeight != null ? (
                 <svg
                     className="-mx-3 mt-3 w-[calc(100%+1.5rem)] animate-pulse"

@@ -5,7 +5,10 @@ import { buildTheme } from 'lib/charts/utils/theme'
 import { MetricTile } from './MetricTile'
 
 describe('MetricTile', () => {
-    it('shows its label while loading', () => {
+    it.each([
+        { part: 'label', text: 'Tool calls' },
+        { part: 'resting subtitle', text: 'Total' },
+    ])('shows its $part while loading', ({ text }) => {
         const { container } = render(
             <MetricTile
                 label="Tool calls"
@@ -19,6 +22,6 @@ describe('MetricTile', () => {
             />
         )
 
-        expect(container.textContent).toContain('Tool calls')
+        expect(container.textContent).toContain(text)
     })
 })
