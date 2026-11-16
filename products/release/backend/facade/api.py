@@ -203,8 +203,9 @@ def releases_enabled(
 
 
 def get_summary(team_id: int, release_id: UUID) -> contracts.ReleaseSummary:
-    with team_scope(team_id):
-        release = logic.get_release(team_id, release_id)
+    root_id = imports.root_team_id(team_id)
+    with team_scope(root_id):
+        release = logic.get_release(root_id, release_id)
     return contracts.ReleaseSummary(
         id=release.id,
         name=release.name,
@@ -212,9 +213,6 @@ def get_summary(team_id: int, release_id: UUID) -> contracts.ReleaseSummary:
         auto_named=release.auto_named,
         owner_first_name=release.owner.first_name if release.owner else None,
         feature_flag_ids=list(release.feature_flag_ids),
-        survey_count=len(release.survey_ids),
-        insight_count=len(release.insight_ids),
-        broadcast_count=len(release.broadcast_ids),
         updated_at=release.updated_at,
     )
 

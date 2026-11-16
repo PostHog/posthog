@@ -1150,6 +1150,7 @@ class TestHandlePosthogLinkUnfurl(APIBaseTest):
             ("report", "task"),
             ("task", "task"),
             ("task_artifact", "task"),
+            ("release", "feature_flag"),
         ]
     )
     @patch("products.slack_app.backend.api.resolve_slack_user")
@@ -1172,10 +1173,11 @@ class TestHandlePosthogLinkUnfurl(APIBaseTest):
 
         mock_client.chat_unfurl.assert_not_called()
 
+    @parameterized.expand([("live_flag", False), ("deleted_flag", True)])
     @patch("products.slack_app.backend.api.resolve_slack_user")
     @patch("products.slack_app.backend.slack_link_unfurl.SlackIntegration")
     def test_release_card_hides_flags_the_sharer_cannot_view(
-        self, mock_slack_integration_class: MagicMock, mock_resolve: MagicMock
+        self, _name: str, deleted: bool, mock_slack_integration_class: MagicMock, mock_resolve: MagicMock
     ) -> None:
         self.organization.available_product_features = [
             {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
@@ -1188,6 +1190,8 @@ class TestHandlePosthogLinkUnfurl(APIBaseTest):
         AccessControl.objects.create(
             team=self.team, resource="feature_flag", resource_id=str(flag.pk), access_level="none"
         )
+        if deleted:
+            FeatureFlag.objects.filter(pk=flag.pk).update(deleted=True)
         member = User.objects.create_and_join(self.organization, "release-viewer@posthog.com", "password")
         mock_resolve.return_value = MagicMock(user=member)
         mock_client = MagicMock()

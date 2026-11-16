@@ -1116,25 +1116,24 @@ def _release_card(ctx: _UnfurlContext, ref: str, url: str) -> _UnfurlCard | _Ski
     release_id = _uuid(ref)
     if release_id is None:
         return "not_found"
+    if not ctx.uac.check_access_level_for_resource("feature_flag", "viewer"):
+        return "no_access"
     try:
         release = releases_api.get_summary(ctx.team.pk, release_id)
     except releases_api.ReleaseNotFoundError:
         return "not_found"
-    flags = FeatureFlag.objects.filter(team_id=ctx.team.pk, pk__in=release.feature_flag_ids, deleted=False)
-    visible = [flag for flag in flags if ctx.uac.check_access_level_for_object(flag, required_level="viewer")]
-    hidden = len(visible) < len(flags)
-    counts = [
-        (len(visible), "flag"),
-        (release.survey_count, "survey"),
-        (release.insight_count, "insight"),
-        (release.broadcast_count, "broadcast"),
-    ]
+    flags = list(
+        FeatureFlag.objects_including_soft_deleted.filter(team_id=ctx.team.pk, pk__in=release.feature_flag_ids)
+    )
+    viewable = [flag for flag in flags if ctx.uac.check_access_level_for_object(flag, required_level="viewer")]
+    hidden = len(viewable) < len(flags)
+    visible = [flag for flag in viewable if not flag.deleted]
     lines = [f"{flag.key} · {'Active' if flag.active else 'Disabled'}" for flag in visible]
     return _UnfurlCard(
         label="Release",
         title=releases_api.RESTRICTED_NAME if release.auto_named and hidden else release.name,
         details=(
-            *(_count(value, noun) for value, noun in counts if value),
+            *((_count(len(visible), "flag"),) if visible else ()),
             *((f"Owner {release.owner_first_name}",) if release.owner_first_name else ()),
         ),
         chart="\n".join(_capped_lines(lines)) or None,

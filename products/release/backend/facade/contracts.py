@@ -121,9 +121,6 @@ class ReleaseSummary:
     auto_named: bool
     owner_first_name: str | None
     feature_flag_ids: list[int]
-    survey_count: int
-    insight_count: int
-    broadcast_count: int
     updated_at: datetime
 
 
