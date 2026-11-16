@@ -6,17 +6,21 @@ import { BindEmailDomainLogics } from './BindEmailDomainLogics'
 import { emailDomainLogic } from './emailDomainLogic'
 import { EmailDomainLogicProps } from './emailDomainLogicProps'
 import { EmailDomainSetup } from './EmailDomainSetup'
+import { originFromSearchParams } from './emailDomainSetupOrigin'
 
 export const scene: SceneExport<EmailDomainLogicProps> = {
     component: EmailDomainScene,
     logic: emailDomainLogic,
-    paramsToProps: ({ params: { id } }): EmailDomainLogicProps => ({ id: id || 'new' }),
+    paramsToProps: ({ params: { id }, searchParams }): EmailDomainLogicProps => ({
+        id: id || 'new',
+        origin: originFromSearchParams(searchParams),
+    }),
     productKey: ProductKey.WORKFLOWS,
 }
 
-export function EmailDomainScene({ id }: EmailDomainLogicProps): JSX.Element {
+export function EmailDomainScene({ id, origin }: EmailDomainLogicProps): JSX.Element {
     return (
-        <BindEmailDomainLogics id={id || 'new'}>
+        <BindEmailDomainLogics id={id || 'new'} origin={origin}>
             <EmailDomainSetup />
         </BindEmailDomainLogics>
     )

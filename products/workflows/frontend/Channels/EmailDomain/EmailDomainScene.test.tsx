@@ -17,7 +17,7 @@ import { initKeaTests } from '~/test/init'
 
 import type { DataSuggestionApi } from '../../generated/api.schemas'
 import { FakeEmailDomainBackend } from './__mocks__/fakeEmailDomainBackend'
-import { EmailDomainScene } from './EmailDomainScene'
+import { EmailDomainScene, scene } from './EmailDomainScene'
 
 const DOMAIN = 'mail.acme.com'
 const SUGGESTED_WORKFLOW: DataSuggestionApi = {
@@ -36,9 +36,9 @@ const POLL_MS = 10_000
 
 /** Renders the scene for whichever sender the URL names, the way the scene router does in the app. */
 function RoutedScene(): JSX.Element {
-    const { location } = useValues(router)
+    const { location, searchParams, hashParams } = useValues(router)
     const id = location.pathname.match(/\/workflows\/channels\/email\/([^/]+)/)?.[1] ?? 'new'
-    return <EmailDomainScene id={id} />
+    return <EmailDomainScene {...scene.paramsToProps!({ params: { id }, searchParams, hashParams })} />
 }
 
 const element = (attr: string): HTMLElement => {
@@ -377,6 +377,13 @@ describe('EmailDomainScene', () => {
         await open(urls.workflowsEmailDomain(SENDER_ID))
         expectStep('This sending domain no longer exists')
         expect(document.querySelector('[data-attr="email-domain-retry"]')).toBeNull()
+        expectBackToChannels()
+    })
+
+    it('returns to workflows when the link names an origin the setup does not know', async () => {
+        seedSender()
+        await open(`${urls.workflowsEmailDomain(SENDER_ID)}?from=nowhere`)
+        expect(screen.getByText('Add 8 settings at Cloudflare')).toBeInTheDocument()
         expectBackToChannels()
     })
 

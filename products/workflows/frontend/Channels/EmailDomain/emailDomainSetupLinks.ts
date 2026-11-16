@@ -1,22 +1,33 @@
-import { router } from 'kea-router'
+import { combineUrl, router } from 'kea-router'
 import posthog from 'posthog-js'
 
 import { urls } from 'scenes/urls'
 
+import { DEFAULT_EMAIL_DOMAIN_SETUP_ORIGIN, EmailDomainSetupOrigin, originSearchParams } from './emailDomainSetupOrigin'
+
 /** The button a person pressed to start the sending domain setup. */
 export type EmailDomainSetupEntry = 'channels' | 'broadcast' | 'add_sender' | 'transactional' | 'configure'
 
-export const emailDomainSetupPath = (id: number | 'new'): string => urls.workflowsEmailDomain(id)
+export const emailDomainSetupPath = (
+    id: number | 'new',
+    origin: EmailDomainSetupOrigin = DEFAULT_EMAIL_DOMAIN_SETUP_ORIGIN
+): string => combineUrl(urls.workflowsEmailDomain(id), originSearchParams(origin)).url
 
-export const emailDomainSetupPageUrl = (teamId: number, integrationId: number): string =>
-    `${window.location.origin}/project/${teamId}${emailDomainSetupPath(integrationId)}`
+export const emailDomainSetupPageUrl = (
+    teamId: number,
+    integrationId: number,
+    origin: EmailDomainSetupOrigin = DEFAULT_EMAIL_DOMAIN_SETUP_ORIGIN
+): string => `${window.location.origin}/project/${teamId}${emailDomainSetupPath(integrationId, origin)}`
 
 export function captureEmailDomainSetupStarted(entry: EmailDomainSetupEntry): void {
     // pinned: analytics event name
     posthog.capture('email domain setup started', { entry })
 }
 
-export function startEmailDomainSetup(entry: EmailDomainSetupEntry): void {
+export function startEmailDomainSetup(
+    entry: EmailDomainSetupEntry,
+    origin: EmailDomainSetupOrigin = DEFAULT_EMAIL_DOMAIN_SETUP_ORIGIN
+): void {
     captureEmailDomainSetupStarted(entry)
-    router.actions.push(emailDomainSetupPath('new'))
+    router.actions.push(emailDomainSetupPath('new', origin))
 }
