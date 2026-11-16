@@ -268,7 +268,6 @@ class TestOIDCAuthentication(APILicensedTest):
             ).exists()
         )
 
-        # The proof belongs to the account and issuer, so the next login needs no code.
         self.client.logout()
         with enable_code_sending() as mock_send:
             self._complete_oidc_login("member@example.com")
@@ -1582,7 +1581,6 @@ class TestEESAMLAuthenticationAPI(APILicensedTest):
             IdentityProviderEmailVerification.objects.filter(user=user, issuer=config.saml_entity_id).exists()
         )
 
-        # The proof is keyed by the provider's entity ID, so a second assertion from it needs no code.
         self.client.logout()
         with enable_code_sending() as mock_send:
             self.client.post("/complete/saml/", post_data, follow=True, format="multipart")

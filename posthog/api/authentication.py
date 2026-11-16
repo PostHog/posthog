@@ -1269,8 +1269,8 @@ class CodeBasedVerificationViewSet(NonCreatingViewSetMixin, viewsets.GenericView
         sso = request.session.get(CODE_BASED_VERIFICATION_SSO_SESSION_KEY)
         code_based_verifier.clear_pending(request)
         if sso:
-            # The code replaced the identity provider's email claim, so record the proof for that
-            # issuer, and start the session on the provider's backend to keep the SSO exemptions.
+            # Record the proof for that issuer, and start the session on the provider's backend so
+            # the SSO-only exemptions still apply.
             IdentityProviderEmailVerification.objects.get_or_create(user=user, issuer=sso["issuer"])
             login(request, user, backend=sso["backend"])
             _notify_social_login(request, user, str(sso["provider"]))
@@ -1715,8 +1715,8 @@ def social_require_idp_email_verification(
         logger.warning("idp_email_verification_code_undeliverable", user_id=user.pk, backend=backend.name)
         sent = False
     if not sent:
-        # No email configured, or an access rule exempts the address. A refused send must not lock out
-        # every account this provider signs in.
+        # No email configured, or an access rule exempts the address. A refused send must not lock
+        # out every account this provider signs in.
         return None
 
     request.session[CODE_BASED_VERIFICATION_SSO_SESSION_KEY] = {

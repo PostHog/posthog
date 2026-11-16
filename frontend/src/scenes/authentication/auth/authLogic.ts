@@ -274,8 +274,8 @@ export const authLogic = kea<authLogicType>([
                 panel: number,
                 pendingInvite: PendingInvite | null
             ): AuthPageStep => {
-                // A pending login code owns the page, even on a fresh load: the person already left for
-                // their identity provider and came back, so asking for the email again would restart it.
+                // A pending login code owns the page, even on a fresh load: the trip to the provider
+                // already happened.
                 if (codeVerificationRequired) {
                     return 'login_code'
                 }
@@ -419,8 +419,7 @@ export const authLogic = kea<authLogicType>([
             _: Record<string, any>,
             { email, code_verification_pending }: Record<string, any>
         ): void => {
-            // The identity provider round trip returns with a code already emailed; prechecking would
-            // start a second login attempt, and can bounce the person back to that provider.
+            // The IdP round trip returns with a code emailed; a precheck can bounce the person back to it.
             if (code_verification_pending) {
                 return
             }

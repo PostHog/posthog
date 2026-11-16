@@ -288,8 +288,8 @@ def is_backup_code_attempt(token: object) -> bool:
 # (INCR) rather than via a raceable session read-modify-write, which parallel guesses could sidestep.
 CODE_ATTEMPTS_REDIS_KEY_PREFIX = "code_based_verification_attempts"
 
-# The address a code is bound to, when it is not the account address. An identity provider login
-# mails the code to the address the provider asserted, so only that address can verify it.
+# The address a code is bound to when it is not the account address: an IdP login mails the code
+# to the address that provider asserted, so only that address verifies it.
 CODE_BASED_VERIFICATION_TARGET_SESSION_KEY = "code_based_verification_target"
 
 # Set when a login through an identity provider stopped here. The verification endpoint reads it to

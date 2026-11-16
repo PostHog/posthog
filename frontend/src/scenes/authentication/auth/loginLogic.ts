@@ -871,9 +871,7 @@ export const loginLogic = kea<loginLogicType>([
     urlToAction(({ actions }) => ({
         '/login': (_, { error_code, error_detail, message, code_verification_pending, email }) => {
             if (code_verification_pending) {
-                // A login through an identity provider stopped here: the code is already emailed, so
-                // this page continues that login instead of starting one. The redirect carries no
-                // inbox provider, so the code screen shows the plain copy.
+                // The IdP round trip returns here with a code already emailed; continue that login.
                 actions.setCodeVerificationRequired(typeof email === 'string' ? email : '', null)
                 return
             }
