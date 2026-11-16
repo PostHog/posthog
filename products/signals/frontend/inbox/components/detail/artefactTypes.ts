@@ -43,9 +43,7 @@ export interface TaskRunArtefactContent {
     run_id?: string | null
     product: string
     type: string
-    /** What the person asked when they started a discussion from the report. */
     question?: string | null
-    /** The Ask AI action that framed a discussion. Absent for a question the person wrote. */
     intent?: ReportDiscussionIntentEnumApi | null
 }
 

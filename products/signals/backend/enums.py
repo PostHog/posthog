@@ -32,7 +32,6 @@ class ReportTaskActionKind(LabeledStrEnum):
 # pinned: analytics property values. `question_intent` on `Inbox report action` carries them, from the
 # inbox and from the API, so runs from both surfaces read as one series.
 class ReportDiscussionIntent(LabeledStrEnum):
-    # The Ask AI surface that framed a discussion run for one job. A question the person typed has none.
     CHECK_METRICS = "check_metrics", "Check metrics"
     MERGE_PR = "merge_pr", "Get it merged"
     FIX_CI = "fix_ci", "Make it green"

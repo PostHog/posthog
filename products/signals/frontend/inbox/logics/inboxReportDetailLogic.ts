@@ -147,7 +147,6 @@ export interface InboxReportDetailLogicProps {
 /** What a person asked for when they started a discussion task from the report. */
 export interface ReportTaskDiscussion {
     question: string | null
-    /** The Ask AI action that framed the run, or `null` for a question the person wrote. */
     intent: ReportDiscussionIntent | null
     askedBy: Task['created_by']
 }
