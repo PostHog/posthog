@@ -6471,6 +6471,7 @@ export namespace Schemas {
         | "red";
     export type DashboardTileGroup = Partial<{
         title: string;
+        description: string;
         collapsed: boolean;
         color: DashboardTileGroupColorEnum | NullEnum;
     }>;
