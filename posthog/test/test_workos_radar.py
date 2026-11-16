@@ -39,10 +39,15 @@ class TestRadarHelpers(SimpleTestCase):
     def test_hash_email_is_case_insensitive(self):
         assert _hash_email("Test@Example.Com") == _hash_email("test@example.com")
 
-    def test_get_raw_user_agent(self):
-        factory = RequestFactory()
-        request = factory.get("/", HTTP_USER_AGENT="Mozilla/5.0 TestBrowser")
-        assert _get_raw_user_agent(request) == "Mozilla/5.0 TestBrowser"
+    @parameterized.expand(
+        [
+            ("browser", {"HTTP_USER_AGENT": "Mozilla/5.0 TestBrowser"}, "Mozilla/5.0 TestBrowser"),
+            ("missing_header", {}, "unknown"),
+            ("oversized_header", {"HTTP_USER_AGENT": "a" * 5000}, "a" * 1024),
+        ]
+    )
+    def test_get_raw_user_agent(self, _name, headers, expected):
+        assert _get_raw_user_agent(RequestFactory().get("/", **headers)) == expected
 
 
 class TestLoginSample(SimpleTestCase):
@@ -528,6 +533,34 @@ class TestEvaluateAuthAttempt(SimpleTestCase):
 
         assert mock_call_api.call_args[1]["signals_id"] == expected
         assert mock_log_event.call_args[1]["signals_sent"] is bool(expected)
+
+    @patch("posthog.workos_radar._log_radar_event")
+    @patch("posthog.workos_radar._call_radar_api", return_value=RadarVerdict.BLOCK)
+    @patch("posthog.workos_radar.is_signup_risk_exempt", return_value=True)
+    @override_settings(WORKOS_RADAR_ENABLED=True, WORKOS_RADAR_API_KEY="test_key")
+    def test_signup_exemption_does_not_cover_a_login(self, mock_is_exempt, mock_call_api, mock_log_event):
+        request = RequestFactory().post("/api/login", REMOTE_ADDR="1.2.3.4", HTTP_USER_AGENT="TestBrowser")
+        instance_settings = {"WORKOS_RADAR_LOGIN_MODE": "enforce", "WORKOS_RADAR_LOGIN_SAMPLE_PERCENT": 100}
+
+        with patch("posthog.workos_radar.get_instance_setting", side_effect=instance_settings.__getitem__):
+            with pytest.raises(SuspiciousAttemptBlocked):
+                self._evaluate_signin(request, RadarAuthMethod.PASSWORD)
+
+        mock_is_exempt.assert_not_called()
+
+    @patch("posthog.workos_radar._log_radar_event")
+    @patch("posthog.workos_radar._call_radar_api", return_value=RadarVerdict.ALLOW)
+    @override_settings(WORKOS_RADAR_ENABLED=True, WORKOS_RADAR_API_KEY="test_key", USE_X_FORWARDED_HOST=False)
+    def test_a_forwarded_ip_the_deployment_does_not_trust_never_reaches_radar(self, mock_call_api, mock_log_event):
+        request = RequestFactory().post(
+            "/api/signup", REMOTE_ADDR="198.51.100.42", HTTP_X_FORWARDED_FOR="8.8.8.8", HTTP_USER_AGENT="TestBrowser"
+        )
+
+        evaluate_auth_attempt(
+            request=request, email="test@example.com", action=RadarAction.SIGNUP, auth_method=RadarAuthMethod.PASSWORD
+        )
+
+        assert mock_call_api.call_args[1]["ip_address"] == "198.51.100.42"
 
     def _evaluate_signin(self, request, auth_method):
         return evaluate_auth_attempt(

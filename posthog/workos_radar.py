@@ -28,7 +28,7 @@ from rest_framework.exceptions import APIException
 
 from posthog.models.instance_setting import get_instance_setting
 from posthog.turnstile import create_challenge_nonce, validate_and_consume_nonce, verify_turnstile_token
-from posthog.utils import get_ip_address, get_short_user_agent
+from posthog.utils import get_ip_address, get_short_user_agent, get_trusted_client_ip
 
 from products.security.backend.facade.api import is_signup_risk_exempt
 
@@ -164,7 +164,9 @@ def _clean_signals_id(value: str) -> str:
 
 def _get_raw_user_agent(request: HttpRequest) -> str:
     """Extract raw user agent from request for the WorkOS API."""
-    return request.headers.get("user-agent", "")
+    # WorkOS requires the field, and an error lets the attempt through, so a caller cannot skip
+    # Radar by leaving the header out or sending one far longer than any browser does
+    return request.headers.get("user-agent", "")[:1024] or "unknown"
 
 
 def evaluate_auth_attempt(
@@ -208,7 +210,8 @@ def evaluate_auth_attempt(
     if mode == RadarMode.OFF:
         return None
 
-    ip_address = get_ip_address(request)
+    # A deployment that does not trust its proxy chain gets the connecting address, not a forwarded one
+    ip_address = get_trusted_client_ip(request) or get_ip_address(request)
     short_user_agent = get_short_user_agent(request)
     signals_id = _clean_signals_id(signals_id)
 
@@ -224,7 +227,7 @@ def evaluate_auth_attempt(
         timeout=WORKOS_RADAR_LOGIN_TIMEOUT if action == RadarAction.SIGNIN else WORKOS_RADAR_TIMEOUT,
     )
 
-    outcome = _decide_outcome(verdict, email, turnstile_token, challenge_nonce, ip_address)
+    outcome = _decide_outcome(verdict, email, turnstile_token, challenge_nonce, ip_address, action)
     if outcome == "challenge" and not challenge_allowed:
         outcome = "allow"
     if mode == RadarMode.SHADOW and outcome in ("block", "challenge"):
@@ -304,6 +307,7 @@ def _decide_outcome(
     turnstile_token: str,
     challenge_nonce: str,
     ip_address: str,
+    action: RadarAction = RadarAction.SIGNUP,
 ) -> str:
     """Return one of: 'allow', 'block', 'bypass', 'challenge', 'completed'."""
     if turnstile_token and challenge_nonce:
@@ -311,7 +315,12 @@ def _decide_outcome(
         token_valid = nonce_valid and verify_turnstile_token(turnstile_token, ip_address)
         return "completed" if token_valid else "block"
 
-    if verdict in (RadarVerdict.BLOCK, RadarVerdict.CHALLENGE) and is_signup_risk_exempt(email):
+    # The exemption rules cover account creation only, so a login never inherits them
+    if (
+        action == RadarAction.SIGNUP
+        and verdict in (RadarVerdict.BLOCK, RadarVerdict.CHALLENGE)
+        and is_signup_risk_exempt(email)
+    ):
         return "bypass"
 
     if verdict == RadarVerdict.BLOCK:

@@ -595,6 +595,28 @@ class TestAppCspHeaderName(SimpleTestCase):
         # Cloud rebuilds script-src when it narrows the wildcards, so the keyword must be the only difference.
         assert [source for source in exporter if source != "'report-sample'"] == other
 
+    @override_settings(
+        TEST=False,
+        DEBUG=False,
+        E2E_TESTING=False,
+        CLOUD_DEPLOYMENT="US",
+        SITE_URL="https://us.posthog.com",
+        JS_URL=_US_BUNDLE,
+    )
+    def test_only_the_login_document_trusts_the_workos_signals_script(self) -> None:
+        def view(_request: HttpRequest) -> HttpResponse:
+            return HttpResponse("<html><body>page</body></html>", content_type="text/html; charset=utf-8")
+
+        def app_policy(request_path: str) -> dict[str, list[str]]:
+            response = CSPMiddleware(view)(RequestFactory().get(request_path))
+            (policy,) = [p for p in _parse_policies(response.get("Content-Security-Policy", "")) if "default-src" in p]
+            return policy
+
+        login, home = app_policy("/login"), app_policy("/project/1")
+        assert "https://js.workos.com/radar/" in login["script-src"]
+        assert "https://api.workos.com" in login["connect-src"]
+        assert not [s for s in home["script-src"] + home["connect-src"] if "workos" in s]
+
 
 class TestNarrowedAppPolicy(SimpleTestCase):
     def test_swaps_the_wildcards_and_keeps_every_other_source(self) -> None:
