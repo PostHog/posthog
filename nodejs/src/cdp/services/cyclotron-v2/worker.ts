@@ -528,18 +528,23 @@ export class CyclotronV2Worker {
         const retryOnOwnConnection = async (attempt: ReleaseAttempt): Promise<{ rowCount: number | null }> => {
             const remainingMs = Math.max(
                 1,
-                releaseWriteHeartbeatLimitMs - (Date.now() - (releaseStartedAt ?? Date.now()))
+                Math.ceil(releaseWriteHeartbeatLimitMs - (Date.now() - (releaseStartedAt ?? Date.now())))
             )
             const client = new Client({
                 connectionString: dbUrl,
                 connectionTimeoutMillis: remainingMs,
-                statement_timeout: remainingMs,
                 query_timeout: remainingMs,
             })
             client.on('error', () => undefined)
             try {
                 await client.connect()
-                return await attempt(client)
+                // PgBouncer rejects statement_timeout as a startup parameter, and a
+                // session SET would leak to the next client of its server connection.
+                await client.query('BEGIN')
+                await client.query(`SET LOCAL statement_timeout = ${remainingMs}`)
+                const result = await attempt(client)
+                await client.query('COMMIT')
+                return result
             } finally {
                 void client.end().catch(() => undefined)
             }
