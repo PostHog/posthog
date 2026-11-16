@@ -26,6 +26,10 @@ The activity has a five-minute heartbeat timeout and permits up to ten attempts.
 
 **Send raw query** checks statement boundaries and read-only restrictions using the selected connection's SQL dialect. Quoted strings, identifiers, and comments follow that dialect, including backslashes in LIKE and regex patterns. Queries with unfinished quotes or comments are rejected before execution. For PostgreSQL, Redshift, and MySQL, quoting must have the same boundaries with and without session-level backslash escaping; use doubled quotes when embedding a quote in a string.
 
+## Built-in SQL tables
+
+SQL autocomplete includes qualified table names from the visible schema alongside the existing unqualified shortcuts. Typing a namespace such as `posthog.` completes its tables, including when part of the table name is already entered. Unknown unqualified table names suggest the matching visible `posthog.*` table when one exists.
+
 ## Model namespace reservation
 
 The shared PostHog catalog reserves `models.*` for authored data models. New warehouse tables, endpoint saved queries, and managed viewsets cannot claim that namespace. The bare name `models` is reserved for the namespace container; use a name such as `models.revenue` for a model. Names such as `models_v2` remain available. Saved queries with no origin are treated as authored models for compatibility.
@@ -55,6 +59,11 @@ Unmeasured usage is null, including historical jobs with no archive data, and th
 The totals cover measured runs only; missing measurements and days without measurements are not shown as zero.
 The current UTC day is excluded because usage is updated daily.
 These measurements describe query work and are not billing amounts.
+
+## Table definitions in SQL
+
+Hover over a table name in a SQL `FROM` or `JOIN` clause to see whether it is a table or a saved view.
+Saved views also show their SQL and a link to open the definition.
 
 ## SQL table headers
 
@@ -144,6 +153,13 @@ Direct connections group tables by schema. Search matches table and folder names
 **Related tables** exposes existing lazy joins, virtual tables, and configured warehouse joins as expandable nodes. Fields reached through a relation keep the original source and a qualified path, so adding a customer's field to a charges worksheet does not switch tables. PostHog property fields, including `person.properties` under events, expand into searchable, paginated property definitions. Numeric definitions become measures; other definitions become dimensions. Restricted and hidden properties are excluded. Warehouse relationships use the existing join configuration; the worksheet does not create joins or infer arbitrary JSON keys.
 
 **Search fields** also searches property definitions in the selected table and expanded related tables. Search for `$browser`, `$pathname`, or a custom property name to open matching property groups, then drag or double-click a property onto a shelf. Clearing the search restores each group's previous expansion and local search. Searching for a group's name, such as `properties`, shows all its definitions.
+
+## SQL heatmaps
+
+For a 2D heatmap, **X-axis order** in the Series settings sorts columns ascending or descending by their labels, with numeric labels in numeric order.
+Ascending order places numeric labels before text labels; descending order reverses both groups.
+**Query order** keeps the order in which values first appear in the results.
+Clicking a column header sorts rows by that column's values independently of the X-axis order.
 
 ## Calculated measures in BI mode
 
@@ -358,6 +374,10 @@ This changes setup recommendations and diagnostic actions, not report attributio
 4. Hit next and finish the import - `temporal-worker-data-warehouse` will then import the data into your local object storage
 
 ## Validating ad source metric imports
+
+The sync method form shows unavailable methods with an inline explanation, using the capabilities returned for each table.
+For Google Ads and Meta Ads tables that support neither incremental nor append only replication, it recommends full table replication for that table and stats tables such as `ad_stats` or `campaign_stats` for incremental performance data.
+Stats tables contain performance metrics and do not replace the dimension table's data.
 
 Meta Ads requests `video_play_actions` and `video_thruplay_watched_actions` on its campaign, ad set, ad, and supported breakdown statistics tables.
 Hourly statistics and `ad_stats_by_link_url` exclude both fields because these breakdowns do not support them.
