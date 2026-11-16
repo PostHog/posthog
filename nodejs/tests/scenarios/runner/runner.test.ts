@@ -51,10 +51,11 @@ import { _fetch, fetch } from '~/common/utils/request'
 import { createKafkaTestTopicName, deleteKafkaTopics, ensureKafkaTopics } from '~/tests/helpers/kafka'
 import { Hub, PluginsServerConfig, RawClickHouseEvent } from '~/types'
 
-import { LoadedCard, Profile, ValveEntry, load } from '../cards'
+import { seedBacklog } from '../backlog/backlog'
+import { Backlog, CdpRole, LoadedCard, Named, Profile, ValveEntry, load } from '../cards'
 import { Environment, RoleExit, defaultStateDir } from '../environment/environment'
 import { Role, RoleSpec, consumerGroupsOf, roleSpecs, secretsOf } from '../environment/roles'
-import { cyclotronUrlOf, scratchSchema, withPostgres } from '../environment/stack'
+import { RESIDENT_TEAMS_FROM, cyclotronUrlOf, scratchSchema, withPostgres } from '../environment/stack'
 import { JournalEntry } from '../judge/judge'
 import { ProviderEdge, TruthRecord, startProviderEdge } from '../provider-edge'
 import { FakeProjectApi, startFakeProjectApi } from '../scorecard/fake-project-api'
@@ -112,8 +113,16 @@ describe('runner', () => {
         up: () => Promise.resolve(),
         reset: () => Promise.resolve(duringReset()),
         edgeUrl: () => 'http://127.0.0.1:1',
-        role: (name) => ({ name, url: 'http://127.0.0.1:1', metricsUrl: processMetrics.url }),
+        role: (name) => ({ name, replica: 0, url: 'http://127.0.0.1:1', metricsUrl: processMetrics.url }),
+        roles: () =>
+            CdpRole.options.map((name) => ({
+                name,
+                replica: 0,
+                url: 'http://127.0.0.1:1',
+                metricsUrl: processMetrics.url,
+            })),
         actuate: () => Promise.reject(new Error('these runs schedule no valves')),
+        writerCpu: () => Promise.reject(new Error('these runs read no writer CPU')),
         dependencyHealth: () => Promise.resolve({ healthy: true, down: [] }),
         exits: () => [],
         groupLag: () => Promise.resolve(0),
@@ -196,6 +205,37 @@ describe('runner', () => {
         expect(api.captured.map(({ properties }) => properties)).toEqual([
             expect.objectContaining({ run_id: result.runId, status: 'invalid', status_reason: result.statusReason }),
         ])
+    })
+
+    it('runs one card under the run id of its run manifest', async () => {
+        const runId = '6b0c8f4e-2d1a-4c55-9a7e-1f3b5d7e9a2c'
+        const manifest = path.join(cacheHome, 'manifest.json')
+        writeFileSync(
+            manifest,
+            JSON.stringify({
+                runId,
+                account: '000000000000',
+                stackName: `scn-${runId}`,
+                schedules: [],
+                expiresAt: '2026-01-05T16:00:00.000Z',
+            })
+        )
+        const onHost = createRunner(environment, {
+            ...process.env,
+            XDG_CACHE_HOME: cacheHome,
+            DATABASE_URL: PROCESS_DATABASE_URL,
+            SCENARIO_RUN_MANIFEST: manifest,
+            ...api.credentials,
+        })
+        const loaded = withSettings({ DATABASE_URL: PROFILE_DATABASE_URL })
+
+        const result = await onHost.run(loaded, NEVER_ABORTED)
+
+        expect(result).toMatchObject({ runId, evidenceDir: path.join(stateDir, runId) })
+        expect(api.captured.map(({ properties }) => properties.run_id)).toEqual([runId])
+        await expect(onHost.run(loaded, NEVER_ABORTED)).rejects.toThrow(
+            `This runner already ran run ${runId} from its run manifest; a run host runs one card per manifest.`
+        )
     })
 
     it('saves the verdict with the event it publishes once, before publication, and leaves it as written', async () => {
@@ -602,10 +642,11 @@ describe('runner through seed, drive and judge', () => {
     let results: RunResult[]
     let cdp: Cdp
 
+    let handles: RoleSpec[] = []
     let exits: RoleExit[]
     let killExits: (role: Role) => RoleExit[]
     const exitOfTheKill = (role: Role): RoleExit[] => [
-        { role, at: new Date().toISOString(), code: null, signal: 'SIGKILL', byValve: true },
+        { role, replica: 0, at: new Date().toISOString(), code: null, signal: 'SIGKILL', byValve: true },
     ]
 
     const environmentOf = (
@@ -613,7 +654,8 @@ describe('runner through seed, drive and judge', () => {
         roleUrl = 'http://127.0.0.1:1'
     ): Environment => ({
         up: () => Promise.resolve(),
-        async reset(settings: Profile['settings']) {
+        async reset(settings: Profile['settings'], replicas: Profile['replicas'] = {}) {
+            handles = roleSpecs(env, { url: edge.url }, secretsOf(env), defaultStateDir(env), {}, undefined, replicas)
             await roles?.stop()
             roles =
                 delivering === 'none'
@@ -625,7 +667,14 @@ describe('runner through seed, drive and judge', () => {
                       )
         },
         edgeUrl: () => edge.url,
-        role: (name) => ({ name, url: roleUrl, metricsUrl: processMetrics.url }),
+        role: (name) => ({ name, replica: 0, url: roleUrl, metricsUrl: processMetrics.url }),
+        roles: () =>
+            handles.map(({ role, replica }) => ({
+                name: role,
+                replica,
+                url: roleUrl,
+                metricsUrl: `${processMetrics.url}?replica=${replica}`,
+            })),
         actuate(action) {
             exits.push(...(action.kind === 'kill' ? killExits(action.role) : []))
             return Promise.resolve({ observed: () => Promise.resolve(true), release: () => Promise.resolve() })
@@ -633,20 +682,46 @@ describe('runner through seed, drive and judge', () => {
         dependencyHealth: () => Promise.resolve({ healthy: true, down: [] }),
         exits: () => [...exits],
         groupLag: () => Promise.resolve(0),
+        writerCpu: () => Promise.reject(new Error('a local run reads no writer CPU')),
         down: async () => {
             await roles?.stop()
             roles = undefined
         },
     })
 
-    const shortSmoke = (valves: ValveEntry[] = [], traffic = 'event_email'): LoadedCard => {
+    const shortSmoke = (
+        valves: ValveEntry[] = [],
+        traffic = 'event_email',
+        {
+            replicas = {},
+            parks = 0,
+            invariants = SMOKE.card.invariants,
+            measures = SMOKE.card.measure,
+            load: loadTargets,
+            backlog,
+            ramp,
+            bars = [],
+        }: {
+            replicas?: Profile['replicas']
+            parks?: number
+            invariants?: Named[]
+            measures?: Named[]
+            load?: Profile['load']
+            backlog?: Backlog
+            ramp?: LoadedCard['card']['drive']['ramp']
+            bars?: Named[]
+        } = {}
+    ): LoadedCard => {
         const card = path.join(cacheHome, 'card.yaml')
         const profile = path.join(cacheHome, 'profile.yaml')
         writeFileSync(
             card,
             stringify({
                 ...SMOKE.card,
-                drive: { ...SMOKE.card.drive, for: '2s', minOffered: 0.5, traffic: [{ name: traffic }] },
+                drive: { ...SMOKE.card.drive, for: '2s', minOffered: 0.5, traffic: [{ name: traffic }], ramp },
+                invariants,
+                measure: measures,
+                bars,
                 valves,
                 convergeWithin: valves.length > 0 ? '8s' : '3s',
             })
@@ -655,7 +730,10 @@ describe('runner through seed, drive and judge', () => {
             profile,
             stringify({
                 name: SMOKE.profile.name,
-                traffic: { [traffic]: { ratePerSecond: 2 } },
+                traffic: { [traffic]: { ratePerSecond: 2, parks } },
+                replicas,
+                ...(loadTargets ? { load: loadTargets } : {}),
+                ...(backlog ? { backlog } : {}),
                 settings: {
                     CDP_EVENTS_CONSUMER_TOPIC: topic,
                     KAFKA_PRODUCER_METADATA_BROKER_LIST: defaultConfig.KAFKA_HOSTS,
@@ -759,10 +837,11 @@ describe('runner through seed, drive and judge', () => {
     const run = async (
         delivering: Parameters<typeof environmentOf>[0],
         valves: ValveEntry[] = [],
-        traffic?: string
+        traffic?: string,
+        options: Parameters<typeof shortSmoke>[2] = {}
     ): Promise<RunResult> => {
         const result = await createRunner(environmentOf(delivering), env).run(
-            shortSmoke(valves, traffic),
+            shortSmoke(valves, traffic, options),
             NEVER_ABORTED
         )
         results.push(result)
@@ -882,6 +961,116 @@ describe('runner through seed, drive and judge', () => {
         })
     }, 30_000)
 
+    it('samples every replica the profile starts and seeds flows that park as often as it asks', async () => {
+        const result = await createRunner(environmentOf('none'), env).run(
+            shortSmoke([], 'event_email', { replicas: { 'cdp-cyclotron-worker-email': 2 }, parks: 1 }),
+            NEVER_ABORTED
+        )
+        results.push(result)
+
+        const teams = (evidenceOf(result, 'journal.json') as JournalEntry[]).map(({ teamId }) => teamId)
+        const flows = await withPostgres(
+            async (client) =>
+                (
+                    await client.query<{ actions: { type: string }[] }>(
+                        'SELECT actions FROM posthog_hogflow WHERE team_id = ANY($1)',
+                        [teams]
+                    )
+                ).rows,
+            defaultConfig.DATABASE_URL
+        )
+        const { samples } = evidenceOf(result, 'metrics.json') as { samples: { role: string; replica: number }[] }
+        expect({
+            parksPerFlow: [
+                ...new Set(flows.map(({ actions }) => actions.filter(({ type }) => type === 'delay').length)),
+            ],
+            emailReplicas: [
+                ...new Set(
+                    samples.filter(({ role }) => role === 'cdp-cyclotron-worker-email').map(({ replica }) => replica)
+                ),
+            ].sort(),
+        }).toEqual({ parksPerFlow: [1], emailReplicas: [0, 1] })
+    }, 30_000)
+
+    it.each<[string, Parameters<typeof environmentOf>[0], string, string | undefined, string, object]>([
+        [
+            'passes when the roles finish every job of the run beside the resident backlog',
+            'all',
+            SMOKE.profile.name,
+            undefined,
+            'passed',
+            { passed: true, observed: 0 },
+        ],
+        [
+            'fails when a resident job seeded before the run is gone after it',
+            'all',
+            SMOKE.profile.name,
+            'DELETE FROM cyclotron_jobs WHERE id = (SELECT id FROM cyclotron_jobs WHERE team_id = $1 LIMIT 1)',
+            'failed',
+            {
+                passed: false,
+                violation: `team ${RESIDENT_TEAMS_FROM + 1} hogflow available: expected 2 rows, found 1`,
+            },
+        ],
+        [
+            "fails when a resident job's state was cut short after the seed",
+            'all',
+            SMOKE.profile.name,
+            `UPDATE cyclotron_jobs SET state = substring(state FROM 1 FOR 10)
+             WHERE id = (SELECT id FROM cyclotron_jobs WHERE team_id = $1 LIMIT 1)`,
+            'failed',
+            {
+                passed: false,
+                violation: expect.stringMatching(
+                    new RegExp(`^team ${RESIDENT_TEAMS_FROM + 1} hogflow available: the rows changed in place`)
+                ),
+            },
+        ],
+        [
+            'fails when the backlog was seeded for another profile',
+            'all',
+            'another',
+            undefined,
+            'failed',
+            {
+                passed: false,
+                violation: `the resident backlog was seeded for profile another; run seed-backlog with profile ${SMOKE.profile.name} first`,
+            },
+        ],
+    ])(
+        'resident_backlog_intact %s',
+        async (_story, delivering, seededFor, tamper, status, expected) => {
+            const backlog: Backlog = {
+                teams: 2,
+                jobs: { hogflow: 4 },
+                stateBytes: { p50: 100, p90: 200, p99: 300 },
+                compressibility: 0.5,
+                parkFor: '10080m',
+                tolerance: 0,
+            }
+            const seeded = await seedBacklog(seededFor, backlog, cyclotronUrl, defaultStateDir(env))
+            expect(seeded.manifest).toBeDefined()
+            if (tamper !== undefined) {
+                await withPostgres((client) => client.query(tamper, [RESIDENT_TEAMS_FROM + 1]), cyclotronUrl)
+            }
+
+            const result = await createRunner(environmentOf(delivering), env).run(
+                shortSmoke([], 'event_email', {
+                    invariants: [{ name: 'resident_backlog_intact', params: {} }],
+                    backlog,
+                }),
+                NEVER_ABORTED
+            )
+            results.push(result)
+
+            expect(result).toMatchObject({
+                status,
+                invariants: [expect.objectContaining({ name: 'resident_backlog_intact', ...expected })],
+            })
+        },
+        30_000
+    )
+
     const KILL_EMAIL_WORKER: ValveEntry = {
         valve: 'role.kill',
         target: 'cdp-cyclotron-worker-email',
@@ -890,13 +1079,38 @@ describe('runner through seed, drive and judge', () => {
         for: '1s',
     }
 
-    it.each<[string, (role: Role) => RoleExit[], object]>([
-        ['passes a run whose only exit is the kill its card scheduled', exitOfTheKill, { status: 'passed' }],
+    it.each<[string, (role: Role) => RoleExit[], object, Parameters<typeof shortSmoke>[2]]>([
+        ['passes a run whose only exit is the kill its card scheduled', exitOfTheKill, { status: 'passed' }, {}],
+        [
+            'calls a run invalid whose valve left too short a baseline to admit its load, and measures the kill',
+            exitOfTheKill,
+            {
+                status: 'invalid',
+                statusReason: expect.stringMatching(
+                    /^the load admission failed: the baseline was too short to measure: /
+                ),
+                admissions: [
+                    {
+                        name: 'load',
+                        passed: false,
+                        reason: expect.stringMatching(
+                            /^the baseline was too short to measure: [0-9.]+s, under the 30s minimum$/
+                        ),
+                    },
+                ],
+                measurements: [{ name: 'pg_client_errors', unit: 'errors', value: 0 }],
+            },
+            {
+                measures: [{ name: 'pg_client_errors', params: {} }],
+                load: { targets: { claimsPerSecond: { email: 500 } }, tolerance: 0.1 },
+            },
+        ],
         [
             'fails a run in which a role exits that no valve killed',
             () => [
                 {
                     role: 'cdp-cyclotron-worker-hogflow',
+                    replica: 0,
                     at: new Date().toISOString(),
                     code: 1,
                     signal: null,
@@ -907,13 +1121,14 @@ describe('runner through seed, drive and judge', () => {
                 status: 'failed',
                 statusReason: 'cdp-cyclotron-worker-hogflow exited (code 1) without a valve causing it',
             },
+            {},
         ],
     ])(
         '%s, and keeps the valve timeline',
-        async (_story, exitsOfKill, verdict) => {
+        async (_story, exitsOfKill, verdict, options) => {
             killExits = exitsOfKill
 
-            const result = await run('all', [KILL_EMAIL_WORKER])
+            const result = await run('all', [{ ...KILL_EMAIL_WORKER, at: '1s', for: '500ms' }], undefined, options)
 
             expect(result).toMatchObject({
                 ...verdict,
@@ -927,9 +1142,45 @@ describe('runner through seed, drive and judge', () => {
                 ],
             })
             expect(api.captured[0]?.properties.valve_timeline).toEqual(result.timeline)
+            expect(api.captured[0]?.properties.admissions).toEqual(result.admissions)
+            expect(evidenceOf(result, 'probes.json')).toEqual({
+                drive: { startedAt: expect.any(Number), endedAt: expect.any(Number) },
+                writer: expect.arrayContaining([expect.objectContaining({ ok: true, inRecovery: false })]),
+                queue: expect.arrayContaining([expect.objectContaining({ due: expect.any(Number) })]),
+            })
         },
         30_000
     )
+
+    it('calls the failover card invalid at its valve on a host without a run manifest', async () => {
+        const [failover] = load(path.join(__dirname, '..', 'cards', 'cyclotron-failover-under-load.yaml')).card.valves
+
+        const result = await run('all', [{ ...failover, at: '1s', for: '500ms' }])
+
+        expect(result).toMatchObject({
+            status: 'invalid',
+            statusReason: 'pg.failover on cyclotron was not observed: pg.failover runs only on a run host',
+            timeline: [{ valve: 'pg.failover', target: 'cyclotron', error: 'pg.failover runs only on a run host' }],
+        })
+    }, 30_000)
+
+    it('calls the scale card invalid at its writer CPU bar on a host without a run manifest', async () => {
+        const { bars } = load(path.join(__dirname, '..', 'cards', 'cyclotron-scale.yaml')).card
+        const ramp = [
+            { scale: 1, for: '1s' },
+            { scale: 2, for: '1s' },
+        ]
+
+        const result = await run('all', [], undefined, { ramp, bars })
+
+        expect(result.status).toBe('invalid')
+        expect(result.bars[0]).toEqual({
+            name: 'writer_cpu_under',
+            unit: '%',
+            passed: false,
+            unjudged: 'no writer CPU reading off a run host in the 1x step',
+        })
+    }, 30_000)
 
     it('leaves a valve due after the drive window unapplied while an intake answer is still pending', async () => {
         const slowIntake = http.createServer((_request, response) => {

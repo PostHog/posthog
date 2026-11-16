@@ -18,6 +18,7 @@ from products.ai_observability.backend.api.metrics import llma_track_latency
 
 from ..marketplace.packaging import frontmatter_document, render_skill_md
 from ..models.skills import LLMSkill
+from .archive_guards import SkillPublishRefused
 from .skill_analytics import publish_analytics_props, record_skill_event
 from .skill_error_responses import skill_write_error_response, version_conflict_response
 from .skill_manifest import build_skill_manifests
@@ -134,6 +135,7 @@ class SkillVersionActionsMixin(SkillAccessMixin):
             LLMSkillVersionLimitError,
             LLMSkillDescriptionTooLongError,
             LLMSkillEditError,
+            SkillPublishRefused,
         ) as err:
             error_response = skill_write_error_response(
                 err, skill_name, not_found_response=self._skill_not_found_response

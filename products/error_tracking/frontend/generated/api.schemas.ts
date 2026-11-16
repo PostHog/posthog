@@ -1181,6 +1181,29 @@ export interface ErrorTrackingIssueSummaryResponseApi {
     reason: IssueSummaryUnavailableReasonEnumApi | null
 }
 
+export interface PatchedErrorTrackingIssueTagWriteApi {
+    /**
+     * Key of the tag to apply or remove. The tag definitions endpoint lists the tags enabled for the project.
+     * @maxLength 64
+     */
+    key?: string
+    /** True applies the tag. False removes it and stops automatic taggers from applying it again. */
+    applied?: boolean
+}
+
+export interface ErrorTrackingIssueTagCorrectionApi {
+    /** Key of the tag. Pass it as `issueTag.key` to filter the issue list. */
+    key: string
+    /** Short name of the tag. */
+    label: string
+    /** What the tag means, for a tooltip. */
+    description: string
+    /** The tagger that applied the tag: `jev` for AI, `manual` for a person. */
+    source: string
+    /** Whether the tag is applied to the issue after the change. */
+    applied: boolean
+}
+
 /**
  * * `set_status` - set_status
  * * `assign` - assign

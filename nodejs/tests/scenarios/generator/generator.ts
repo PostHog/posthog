@@ -6,7 +6,7 @@ import { insertHogFlow } from '~/cdp/_tests/fixtures-hogflows'
 import { PostgresRouter } from '~/common/utils/db/postgres'
 import { createTestTeamFixture } from '~/tests/helpers/sql'
 
-import type { LoadedCard } from '../cards'
+import { LoadedCard, stepsOf } from '../cards'
 import { durationMs } from '../duration'
 import type { FollowUpAnswer, Judge } from '../judge/judge'
 import { OfferContext, SENDER, TRAFFIC, TrafficKind } from './traffic'
@@ -53,7 +53,11 @@ const pause = (ms: number, signal: AbortSignal): Promise<void> =>
         signal.addEventListener('abort', done, { once: true })
     })
 
-export async function seed({ card }: LoadedCard, postgres: PostgresRouter, signal: AbortSignal): Promise<SeedState> {
+export async function seed(
+    { card, profile }: LoadedCard,
+    postgres: PostgresRouter,
+    signal: AbortSignal
+): Promise<SeedState> {
     const teamIds: number[] = []
     const flowIds: SeedState['flowIds'] = {}
     for (let i = 0; i < card.setup.teams; i++) {
@@ -66,18 +70,33 @@ export async function seed({ card }: LoadedCard, postgres: PostgresRouter, signa
         for (const { name } of card.drive.traffic) {
             signal.throwIfAborted()
             const kind = trafficKind(name)
+            const { parks } = kind.profile.parse(profile.traffic[name])
             const flows = [{ key: name, flow: kind.flow }]
             if (kind.followUp) {
                 flows.push({ key: followUpFlowKey(name), flow: kind.followUp.flow })
             }
             for (const { key, flow } of flows) {
-                const inserted = await insertHogFlow(postgres, await flow(team.id, integration.id))
+                const inserted = await insertHogFlow(postgres, await flow(team.id, integration.id, parks))
                 flowIds[key] = { ...flowIds[key], [team.id]: inserted.id }
             }
         }
         teamIds.push(team.id)
     }
     return { teamIds, flowIds }
+}
+
+function scheduleOf({ card, profile }: Pick<LoadedCard, 'card' | 'profile'>): { kind: TrafficKind; atMs: number }[] {
+    return card.drive.traffic
+        .flatMap(({ name }) => {
+            const kind = trafficKind(name)
+            const { ratePerSecond } = kind.profile.parse(profile.traffic[name])
+            return stepsOf(card.drive).flatMap(({ scale, fromMs, toMs }) => {
+                const rate = ratePerSecond * scale
+                const units = Math.round((rate * (toMs - fromMs)) / 1000)
+                return Array.from({ length: units }, (_, i) => ({ kind, atMs: fromMs + (i * 1000) / rate }))
+            })
+        })
+        .sort((a, b) => a.atMs - b.atMs)
 }
 
 export async function drive(
@@ -88,14 +107,7 @@ export async function drive(
     context: DriveContext
 ): Promise<DriveSummary> {
     const forMs = durationMs(card.drive.for)
-    const schedule = card.drive.traffic
-        .flatMap(({ name }) => {
-            const kind = trafficKind(name)
-            const { ratePerSecond } = kind.profile.parse(profile.traffic[name])
-            const units = Math.round((ratePerSecond * forMs) / 1000)
-            return Array.from({ length: units }, (_, i) => ({ kind, atMs: (i * 1000) / ratePerSecond }))
-        })
-        .sort((a, b) => a.atMs - b.atMs)
+    const schedule = scheduleOf({ card, profile })
     const chance = new Chance(card.seed)
     const start = Date.now()
     const end = start + forMs
