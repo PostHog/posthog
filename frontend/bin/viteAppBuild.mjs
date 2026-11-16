@@ -16,8 +16,7 @@ import { LOGGED_OUT_SCENES, moduleKey, sceneModules } from './loggedOutScenes.mj
  *   then serves the old bytes. Chunks never name each other's files directly, so a rename only
  *   changes the import map.
  * - Writes the chunk map: for each lazy module, every chunk it needs, so the scene loader can
- *   request them all at once and not level by level. The app config turns off Vite's own lists
- *   for this, because they sit inside the scene registries on the boot path.
+ *   request them all at once and not level by level.
  * - Lists the placeholders a logged-out page can reach, so its import map leaves out the rest.
  * - Writes `vite-app-manifest.json`, which is all the backend reads.
  */
