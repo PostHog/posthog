@@ -1088,7 +1088,8 @@ def test_deletion_request_context_loads_a_pickle_written_before_it_was_frozen() 
     class PlainDataclassPickle:
         def __reduce_ex__(self, protocol):
             state = {f.name: getattr(expected, f.name) for f in fields(expected)}
-            return (copyreg._reconstructor, (DeletionRequestContext, object, None), state)
+            # typeshed leaves copyreg._reconstructor out, but every pickle of a plain object uses it.
+            return (copyreg._reconstructor, (DeletionRequestContext, object, None), state)  # type: ignore[attr-defined]
 
     assert pickle.loads(pickle.dumps(PlainDataclassPickle())) == expected
 
