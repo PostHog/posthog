@@ -189,7 +189,7 @@ interface ReleaseLogicActions {
 type releaseLogicType = MakeLogicType<ReleaseLogicValues, ReleaseLogicActions>
 
 export interface ReleaseUsageEvent {
-    event: 'release item linked' | 'release item unlinked' | 'release broadcasts auto linked'
+    event: 'release item linked' | 'release item unlinked' | 'release broadcasts auto linked' | 'release owner changed'
     properties: Record<string, string | number>
 }
 
