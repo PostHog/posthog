@@ -23,6 +23,8 @@ export function emptyResultRule(rule: {
     maxPerSession?: number
     suppressIfCalled?: string[]
     requiresTool?: string[]
+    /** Set to false for data that a project can send without any events, such as logs. */
+    needsEventData?: boolean
 }): GuidanceRule {
     return {
         id: rule.id,
@@ -35,7 +37,7 @@ export function emptyResultRule(rule: {
         // A project with no data at all gets no notice, so a product lookup never runs for it.
         condition: async (input) =>
             !isLaterPage(input.call) &&
-            (await input.productState.hasIngestedData()) === true &&
+            (rule.needsEventData === false || (await input.productState.hasIngestedData()) === true) &&
             (await rule.when(input)),
         text: rule.text,
     }
