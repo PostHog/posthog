@@ -40,12 +40,12 @@ def _ledger_entry(repo, now, hashes: dict[str, str]) -> None:
     )
 
 
-def _approval(repo, now, state: BaselineApprovalState, hashes: dict[str, str]) -> None:
-    BaselineApproval.objects.create(
+def _approval(repo, now, state: BaselineApprovalState, hashes: dict[str, str], pr_number: int = 7) -> BaselineApproval:
+    return BaselineApproval.objects.create(
         repo=repo,
         team_id=repo.team_id,
         run_type=RunType.STORYBOOK,
-        pr_number=7,
+        pr_number=pr_number,
         identifier="Button",
         commit_sha="a" * 40,
         approved_at=now,
@@ -177,6 +177,30 @@ class TestRetentionSweep:
     )
     def test_quiet_branch_window_depends_on_branch(self, branch, age_days, survives, repo, now):
         quiet = self._run(repo, now, age_days=age_days, branch=branch)
+        self._run(repo, now, age_days=1, branch="feature/y", pr_number=8)
+
+        retention.sweep_repo_runs(repo, now=now)
+
+        assert Run.objects.filter(id=quiet.id).exists() is survives
+
+    @pytest.mark.parametrize(
+        ("approval_pr_number", "listed_in_record", "state", "survives"),
+        [
+            (7, False, BaselineApprovalState.OPEN, True),
+            (5, True, BaselineApprovalState.OPEN, True),
+            (5, False, BaselineApprovalState.OPEN, False),
+            (7, False, BaselineApprovalState.PROMOTED, False),
+        ],
+    )
+    def test_quiet_branch_keeps_a_run_whose_verdict_an_open_approval_can_change(
+        self, approval_pr_number, listed_in_record, state, survives, repo, now
+    ):
+        approval = _approval(repo, now, state, {"content_hash": "h1"}, pr_number=approval_pr_number)
+        quiet = self._run(repo, now, age_days=31)
+        if listed_in_record:
+            Run.objects.filter(id=quiet.id).update(
+                metadata={"baseline": {"candidate_approval_ids": [str(approval.id)]}}
+            )
         self._run(repo, now, age_days=1, branch="feature/y", pr_number=8)
 
         retention.sweep_repo_runs(repo, now=now)

@@ -198,6 +198,27 @@ class RetentionSweep:
             .values_list("id", flat=True)[:limit]
         )
 
+    def _open_approvals(self) -> QuerySet[BaselineApproval]:
+        return (
+            BaselineApproval.objects.for_team(self.team_id, canonical=True)
+            .using(WRITER_DB)
+            .filter(repo_id=self.repo.id, state=BaselineApprovalState.OPEN)
+        )
+
+    def _verdict_open_to_approvals(self) -> Q:
+        # A conflicting landing republishes the status from the newest run of each pull request that owns
+        # or applies an open approval. Without that run the status stays green after the approval goes stale.
+        open_approvals = self._open_approvals()
+        keep = Q(Exists(open_approvals.filter(pr_number=OuterRef("pr_number"), run_type=OuterRef("run_type"))))
+        open_approval_ids = [str(approval_id) for approval_id in open_approvals.values_list("id", flat=True)]
+        if open_approval_ids:
+            # A subquery, because a negated JSON key lookup also matches rows without the key.
+            applying_runs = self._runs().filter(
+                metadata__baseline__candidate_approval_ids__has_any_keys=open_approval_ids
+            )
+            keep |= Q(id__in=applying_runs.values("id"))
+        return keep
+
     def _quiet_branch_run_ids(self, limit: int, *, quiet_days: int, branches: Q) -> list[UUID]:
         quiet_cutoff = self.now - timedelta(days=quiet_days)
         recent_run_on_branch = self._runs().filter(branch=OuterRef("branch"), created_at__gte=quiet_cutoff)
@@ -224,6 +245,7 @@ class RetentionSweep:
             .filter(branches, superseded_by__isnull=True, created_at__lt=quiet_cutoff)
             .exclude(_PROTECTED_HISTORY)
             .exclude(self._source_of_active_quarantine())
+            .exclude(self._verdict_open_to_approvals())
             .filter(~Exists(recent_run_on_branch), ~Exists(superseded_run_in_group), Exists(newer_completed_run))
             .order_by("created_at")
             .values_list("id", flat=True)[:limit]
@@ -297,11 +319,7 @@ class RetentionSweep:
         ledger_entries = (
             BaselineEntry.objects.for_team(self.team_id, canonical=True).using(WRITER_DB).filter(repo_id=self.repo.id)
         )
-        open_approvals = (
-            BaselineApproval.objects.for_team(self.team_id, canonical=True)
-            .using(WRITER_DB)
-            .filter(repo_id=self.repo.id, state=BaselineApprovalState.OPEN)
-        )
+        open_approvals = self._open_approvals()
         return list(
             self._artifacts()
             .filter(created_at__lt=self.now - timedelta(days=ARTIFACT_ORPHAN_GRACE_DAYS))
