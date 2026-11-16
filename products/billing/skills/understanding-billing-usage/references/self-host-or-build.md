@@ -57,6 +57,19 @@ break-even FTE = (monthly spend the alternative replaces - monthly infrastructur
 - **Spend the alternative replaces** comes from their bill in step 1.
   Count only the products the build or self-host would replace.
   Use what they pay, including any discount, not list prices.
+- **Person profiles are their own decision.**
+  Identified events and group analytics appear as separate lines on the bill.
+  They pay for person processing: merging anonymous and identified users, and keeping person and group properties up to date.
+  This is the most expensive part of an analytics pipeline to run and the hardest part to rebuild, and builds that look cheap usually skip it.
+  Run the comparison two ways and keep them apart:
+  - **With person profiles:** count the events, identified events, and group analytics lines.
+    The build must merge identities and keep profiles, so use the full build headcount.
+    Say that infrastructure costs more, because this processing runs on every event that comes in.
+  - **Without person profiles:** count only the events line.
+    Say what they give up: per-user funnels and retention, cohorts, and joining anonymous activity to logged-in users.
+    Then compare against PostHog with person processing turned off for the events that don't need it, which often closes most of the gap without building anything.
+- Do not quote what person processing costs PostHog to run.
+  Explain why it is expensive from what it does, not from internal numbers.
 - **Infrastructure** is their own estimate, or the default below.
 - **One-off cost** is the build or self-host work plus migration, from "One-off build cost" below.
   Spread over 36 months, the build default alone takes up 0.17-0.33 FTE, so leaving it out can flip the verdict.
