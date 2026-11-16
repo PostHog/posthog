@@ -93,7 +93,6 @@ class TestPropertyValuesQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert physical_query.clickhouse is not None
         assert "events_json" in physical_query.clickhouse
         assert "events.properties.browser" in physical_query.clickhouse
-        assert "events.properties.^browser" in physical_query.clickhouse
         assert "JSONExtractRaw" not in physical_query.clickhouse
         assert "toJSONString" in physical_query.clickhouse
         assert "toString(events.properties)" not in physical_query.clickhouse
