@@ -16,6 +16,7 @@ from posthog.hogql.errors import ImpossibleASTError
 from posthog.hogql.escape_sql import escape_trino_identifier, escape_trino_string
 from posthog.hogql.functions import find_hogql_aggregation
 from posthog.hogql.printer.postgres import PostgresPrinter
+from posthog.hogql.printer.trino_date_arithmetic import DateOffset, date_offset
 from posthog.hogql.printer.trino_functions import (
     TRINO_AGGREGATE_COMBINATORS,
     TRINO_ARRAY_INSERT_AGGREGATES,
@@ -40,6 +41,7 @@ from posthog.hogql.printer.types import JoinExprResponse
 from posthog.hogql.transforms.trino.errors import TrinoLoweringError
 from posthog.hogql.transforms.trino.expressions import constant_integer, expression_key
 from posthog.hogql.transforms.trino.limits import MAX_TRINO_SQL_LENGTH
+from posthog.hogql.type_system import infer_cast_constant_type
 from posthog.hogql.visitor import TraversingVisitor, clone_expr
 
 from posthog.dataclasses import frozen
@@ -203,6 +205,9 @@ _TRINO_REGEX_PATTERN_ARGUMENTS = {
     "splitbyregexp": 0,
 }
 
+
+# Printed as a Trino date, though the function registry declares no return type for them.
+_DATE_FUNCTIONS = frozenset({"tomonday", "tolastdayofmonth", "tolastdayofweek"})
 
 _POSIX_CLASS_PATTERN = re.compile(r"\[:\^?[a-z]+:\]")
 
@@ -635,6 +640,10 @@ class TrinoPrinter(PostgresPrinter):
             self._invalid_function_arguments(node, f"{node.name} requires an OVER clause in Trino mode.")
         if name in TRINO_AGGREGATE_COMBINATORS:
             return self._visit_aggregate_combinator(node)
+        if name in {"plus", "minus"} and len(node.args) == 2:
+            offset = self._date_offset(node.args[0], node.args[1], subtract=name == "minus")
+            if offset is not None:
+                return self._print_date_offset(offset)
         if node.filter_expr is not None and name in {"count", "sum", "avg", "min", "max", "countdistinct"}:
             unfiltered = clone_expr(node, clear_types=False)
             unfiltered.filter_expr = None
@@ -1532,19 +1541,24 @@ class TrinoPrinter(PostgresPrinter):
             return f"({', '.join(self.visit(value) for value in node.args)})"
         return super()._visit_in_values(node)
 
+    def _date_offset(self, left: ast.Expr, right: ast.Expr, *, subtract: bool) -> DateOffset | None:
+        return date_offset(left, right, subtract=subtract, resolve_type=self._resolve_type, is_numeric=self._is_numeric)
+
+    def _print_date_offset(self, offset: DateOffset) -> str:
+        amount = self.visit(offset.amount)
+        if offset.subtract:
+            amount = f"-({amount})"
+        return f"date_add('{offset.unit}', CAST({amount} AS BIGINT), {self.visit(offset.date)})"
+
     def visit_arithmetic_operation(self, node: ast.ArithmeticOperation) -> str:
+        if node.op in (ast.ArithmeticOperationOp.Add, ast.ArithmeticOperationOp.Sub):
+            offset = self._date_offset(node.left, node.right, subtract=node.op == ast.ArithmeticOperationOp.Sub)
+            if offset is not None:
+                return self._print_date_offset(offset)
         left = self.visit(node.left)
         right = self.visit(node.right)
         if node.op == ast.ArithmeticOperationOp.Div:
             return f"(CAST({left} AS DOUBLE) / CAST({right} AS DOUBLE))"
-        if (
-            node.op in (ast.ArithmeticOperationOp.Add, ast.ArithmeticOperationOp.Sub)
-            and self._is_numeric(node.right)
-            and isinstance(self._resolve_type(node.left), (ast.DateType, ast.DateTimeType))
-        ):
-            unit = "day" if isinstance(self._resolve_type(node.left), ast.DateType) else "second"
-            amount = f"-({right})" if node.op == ast.ArithmeticOperationOp.Sub else right
-            return f"date_add('{unit}', CAST({amount} AS BIGINT), {left})"
         lowered = False
         if isinstance(self._resolve_type(node.left), ast.BooleanType):
             left = f"CAST({left} AS INTEGER)"
@@ -1579,6 +1593,16 @@ class TrinoPrinter(PostgresPrinter):
             return f"({left} {operator} {right})"
         raise ImpossibleASTError(f"Unknown ArithmeticOperationOp {node.op}")
 
+    def _date_offset_of(self, node: ast.Expr) -> DateOffset | None:
+        if isinstance(node, ast.ArithmeticOperation) and node.op in (
+            ast.ArithmeticOperationOp.Add,
+            ast.ArithmeticOperationOp.Sub,
+        ):
+            return self._date_offset(node.left, node.right, subtract=node.op == ast.ArithmeticOperationOp.Sub)
+        if isinstance(node, ast.Call) and node.name.lower() in {"plus", "minus"} and len(node.args) == 2:
+            return self._date_offset(node.args[0], node.args[1], subtract=node.name.lower() == "minus")
+        return None
+
     def _resolve_type(self, node: ast.Expr) -> ast.ConstantType | None:
         # Lowerings ask for the same operand types at every nesting level, so uncached lookups grow exponentially.
         cache: dict[int, tuple[ast.Expr, ast.ConstantType | None]] = self.__dict__.setdefault("_resolved_types", {})
@@ -1596,6 +1620,24 @@ class TrinoPrinter(PostgresPrinter):
             return self._tuple_arithmetic_type(node)
         if isinstance(node, ast.Call) and node.name.lower() in {"jsonhas", "multisearchanycaseinsensitive"}:
             return ast.BooleanType()
+        offset = self._date_offset_of(node)
+        if offset is not None:
+            amount_type = self._resolve_type(offset.amount)
+            return replace(
+                offset.date_type, nullable=offset.date_type.nullable or bool(amount_type and amount_type.nullable)
+            )
+        if isinstance(node, ast.Call) and node.name.lower() in _DATE_FUNCTIONS and node.args:
+            argument_type = self._resolve_type(node.args[0])
+            return ast.DateType(nullable=argument_type is None or argument_type.nullable)
+        if isinstance(node, (ast.SelectQuery, ast.SelectSetQuery)):
+            return self._subquery_scalar_type(node)
+        if isinstance(node, ast.TypeCast) and isinstance(
+            node.type.resolve_constant_type(self.context) if node.type is not None else None, ast.UnknownType
+        ):
+            # The resolver reads a cast to a ClickHouse type name such as Int32 as unknown on the Trino dialect.
+            return infer_cast_constant_type(
+                node.type_name, self._resolve_type(node.expr) or ast.UnknownType(), "clickhouse"
+            )
         # Division always prints as a DOUBLE division, though the resolver can type divide() of integers as an integer.
         if (isinstance(node, ast.ArithmeticOperation) and node.op == ast.ArithmeticOperationOp.Div) or (
             isinstance(node, ast.Call) and node.name.lower() == "divide"

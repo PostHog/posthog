@@ -539,6 +539,24 @@ def test_ignores_clickhouse_cte_materialization_hint() -> None:
         ("(id > 0) != 0", '(CAST(("users"."id" > 0) AS INTEGER) != 0)'),
         ("(id > 0) = (id < 5)", '(("users"."id" > 0) = ("users"."id" < 5))'),
         ("id = 1", '("users"."id" = 1)'),
+        # ClickHouse reads date + n as n days and datetime + n as n seconds, with the number on either side.
+        ("toDate(created_at) - 1", "date_add('day', CAST(-(1) AS BIGINT), CAST("),
+        (
+            "1 + toDate(created_at)",
+            'date_add(\'day\', CAST(1 AS BIGINT), CAST("users"."created_at" AS DATE))',
+        ),
+        ("60 + created_at", 'date_add(\'second\', CAST(60 AS BIGINT), "users"."created_at")'),
+        ("minus(toDate(created_at), 1)", "date_add('day', CAST(-(1) AS BIGINT), CAST("),
+        ("plus(1, toDate(created_at))", "date_add('day', CAST(1 AS BIGINT), CAST("),
+        ("plus(created_at, 60)", 'date_add(\'second\', CAST(60 AS BIGINT), "users"."created_at")'),
+        ("(1 + toDate(created_at)) - 1", "date_add('day', CAST(-(1) AS BIGINT), date_add('day', CAST(1 AS BIGINT)"),
+        (
+            "toDate(created_at) - CAST(id AS Int32)",
+            'date_add(\'day\', CAST(-(CAST("users"."id" AS INTEGER)) AS BIGINT)',
+        ),
+        ("toDate(created_at) - (SELECT max(id) FROM users)", "date_add('day', CAST(-((SELECT max("),
+        ("toLastDayOfMonth(created_at) - 1", "date_add('day', CAST(-(1) AS BIGINT), last_day_of_month("),
+        ("toMonday(created_at) + 7", "date_add('day', CAST(7 AS BIGINT), CAST(date_trunc('week'"),
     ],
 )
 def test_prints_core_trino_expression_mappings(expression: str, expected: str) -> None:
