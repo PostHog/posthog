@@ -11,15 +11,12 @@ from products.data_catalog.evals.catalog_synthesizer import (
     CHURN_RISK_MISSING_SOURCE_METRIC,
     MRR_METRIC,
     NOISE_METRICS,
-    OPERATIONS_NOISE_METRICS,
     WAREHOUSE_SIGNUPS_METRIC,
     CatalogMetric,
 )
 
-# PAYING_CUSTOMERS_METRIC reads the Hedgebox `paid_bills` warehouse table, which only an eval team has.
 _CATALOG: tuple[CatalogMetric, ...] = (
     *NOISE_METRICS,
-    *OPERATIONS_NOISE_METRICS,
     MRR_METRIC,
     ACCOUNT_ENGAGEMENT_METRIC,
     WAREHOUSE_SIGNUPS_METRIC,
