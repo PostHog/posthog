@@ -300,8 +300,8 @@ class TestPipeline(ClickhouseTestMixin, APIBaseTest):
 
     @parameterized.expand(
         [
-            # The judge catches 5 of the review's 6 fails and flags 1 of its 24 passes.
-            ("judge_agrees", {1, 2, 3, 4, 5, 7}, None, _calibration_record(caught=5, false_alarms=1, kept=True)),
+            # The judge catches 5 of the review's 6 fails and flags 2 of its 24 passes.
+            ("judge_agrees", {1, 2, 3, 4, 5, 7, 8}, None, _calibration_record(caught=5, false_alarms=2, kept=True)),
             ("judge_misses_half", {1, 2, 3}, None, _calibration_record(caught=3, false_alarms=0, kept=False)),
             ("over_budget", {1, 2, 3, 4, 5, 7}, 10**7, {"status": "skipped", "detail": "budget used up"}),
         ]
@@ -370,10 +370,10 @@ class TestPipeline(ClickhouseTestMixin, APIBaseTest):
             {"key": "$ai_prompt_name", "value": ["support-reply"], "operator": "exact", "type": "event"}
         ]
         assert suggestion.evidence == [{"trace_id": e["trace_id"], "reason": e["what_went_wrong"]} for e in examples]
-        # The judge's own fails: 5 caught and 1 false alarm of the 30 calls the review found the question applies to.
+        # The judge's own fails, 5 caught and 2 false alarms, not the review's 6.
         assert (suggestion.headline, suggestion.measured_failure_rate, suggestion.sample_size) == (
             REVIEW_TITLE,
-            0.2,
+            7 / 30,
             30,
         )
         # The review read every sampled call, with the call type's system prompt shown once, and the judge read each.
