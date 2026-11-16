@@ -16,6 +16,7 @@ from ...merge_check.sources import LandedChange
 from ..adapters.repo_merge import pull_request_key
 from ..facade.contracts import DocsCommandRequest
 from ..facade.enums import DocsRequestSource
+from .held_requests_workflow import StartHeldRequestsWorkflow
 from .merge_workflow import ADD_DOCS_CHECK_WAITER_SIGNAL, MergeCheckInputs, MergeCheckWorkflow
 from .publish_workflow import PublishInputs, PublishWorkflow
 
@@ -52,6 +53,25 @@ async def start_publish_workflow(task_run_id: UUID, *, team_id: int) -> None:
         logger.info("knowledge_writer_publish_already_ran", **log_context)
         return
     logger.info("knowledge_writer_publish_requested", **log_context)
+
+
+def held_requests_workflow_id(task_run_id: UUID) -> str:
+    return f"knowledge_writer:held-requests:{task_run_id}"
+
+
+def start_held_requests(task_run_id: UUID) -> None:
+    run_with_start_timeout(start_held_requests_workflow(task_run_id))
+
+
+async def start_held_requests_workflow(task_run_id: UUID) -> None:
+    client = await async_connect()
+    await client.start_workflow(
+        StartHeldRequestsWorkflow.run,
+        id=held_requests_workflow_id(task_run_id),
+        task_queue=settings.VIDEO_EXPORT_TASK_QUEUE,
+        id_reuse_policy=WorkflowIDReusePolicy.ALLOW_DUPLICATE,
+        id_conflict_policy=WorkflowIDConflictPolicy.USE_EXISTING,
+    )
 
 
 def merge_check_workflow_id(commit_sha: str) -> str:

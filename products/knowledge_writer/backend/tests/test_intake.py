@@ -62,6 +62,7 @@ CAPTURE_VERDICT = "products.knowledge_writer.backend.logic.intake.capture_verdic
 KNOWLEDGE_WRITER_ENABLED = "products.knowledge_writer.backend.settings.is_writer_enabled"
 MERGE_WORKFLOW_MODULE = "products.knowledge_writer.backend.temporal.merge_workflow"
 START_PUBLISH = "products.knowledge_writer.backend.temporal.client.start_publish"
+START_HELD_REQUESTS = "products.knowledge_writer.backend.temporal.client.start_held_requests"
 CAPTURE_DRAFT = "products.knowledge_writer.backend.logic.pull_requests.ph_scoped_capture"
 
 COMMIT_URL = f"https://github.com/PostHog/posthog/commit/{'a' * 40}"
@@ -179,9 +180,16 @@ def _run_publish_workflow_inline(task_run_id, *, team_id: int) -> None:
     try:
         open_or_join_pull_request(task_run_id, team_id=team_id)
     except Exception:
-        settle_publication(task_run_id, team_id=team_id, has_failed=True)
+        _settle_publication_inline(task_run_id, team_id=team_id, has_failed=True)
         return
-    settle_publication(task_run_id, team_id=team_id, has_failed=False)
+    _settle_publication_inline(task_run_id, team_id=team_id, has_failed=False)
+
+
+def _settle_publication_inline(task_run_id, *, team_id: int, has_failed: bool) -> None:
+    try:
+        settle_publication(task_run_id, team_id=team_id, has_failed=has_failed)
+    finally:
+        intake.start_held_requests(team_id)
 
 
 def _issued_branch(task_id) -> str:
@@ -456,7 +464,7 @@ def test_a_section_stays_busy_until_its_publication_settles_then_starts_the_requ
         assert writer is not None
         with time_machine.travel(timezone.now() + PUBLICATION_LEASE, tick=False):
             busy_after_lease = caps.in_flight_writer_runs(writer).busy_task_id_by_section
-        settle_publication(TaskRun.objects.get(task_id=started.task_id).id, team_id=team.id, has_failed=True)
+        _settle_publication_inline(TaskRun.objects.get(task_id=started.task_id).id, team_id=team.id, has_failed=True)
         resubmitted_after_settling = intake.submit(_verdict(456, suggested_page_urls=(SECTION_PAGE,)), team_id=team.id)
 
     assert while_publishing.status == "section_busy"
@@ -466,7 +474,7 @@ def test_a_section_stays_busy_until_its_publication_settles_then_starts_the_requ
 
 
 @pytest.mark.django_db
-@pytest.mark.parametrize("blocker", ["daily_cap", "worker_crash", "stale_busy_snapshot"])
+@pytest.mark.parametrize("blocker", ["daily_cap", "worker_crash", "flag_outage", "stale_busy_snapshot"])
 def test_a_blocked_drain_keeps_every_held_request_in_order_and_the_sweep_starts_them_later(
     team, writer_env, django_capture_on_commit_callbacks, monkeypatch, blocker
 ) -> None:
@@ -491,12 +499,15 @@ def test_a_blocked_drain_keeps_every_held_request_in_order_and_the_sweep_starts_
         run_id = TaskRun.objects.get(task_id=started.task_id).id
         if blocker == "daily_cap":
             monkeypatch.setattr(caps, "DAILY_RUN_CAP", 1)
-            settle_publication(run_id, team_id=team.id, has_failed=True)
+            _settle_publication_inline(run_id, team_id=team.id, has_failed=True)
             monkeypatch.setattr(caps, "DAILY_RUN_CAP", 60)
         if blocker == "worker_crash":
             with patch.object(intake, "launch_held_request", side_effect=RuntimeError("worker died")):
                 with pytest.raises(RuntimeError):
-                    settle_publication(run_id, team_id=team.id, has_failed=True)
+                    _settle_publication_inline(run_id, team_id=team.id, has_failed=True)
+        if blocker == "flag_outage":
+            with patch(FLAG_CHECK, side_effect=RuntimeError("flag service unavailable")):
+                _settle_publication_inline(run_id, team_id=team.id, has_failed=True)
         if blocker == "stale_busy_snapshot":
             real_in_flight = caps.in_flight_writer_runs
             snapshots = iter([caps.InFlightWriterRuns(unpublished_runs=0, busy_task_id_by_section={})])
@@ -508,7 +519,7 @@ def test_a_blocked_drain_keeps_every_held_request_in_order_and_the_sweep_starts_
                 intake.sweep_held_requests()
         held_after_block = [request.dedupe_id for request in intake.held_requests(started.task_id, team.id)]
         if blocker == "stale_busy_snapshot":
-            settle_publication(run_id, team_id=team.id, has_failed=True)
+            _settle_publication_inline(run_id, team_id=team.id, has_failed=True)
         intake.sweep_held_requests()
 
     first_task = tasks_facade.get_task_by_origin_key(team.id, first.request.dedupe_id)
@@ -516,6 +527,33 @@ def test_a_blocked_drain_keeps_every_held_request_in_order_and_the_sweep_starts_
     assert held_after_block == [first.request.dedupe_id, second.request.dedupe_id]
     assert intake.held_requests(started.task_id, team.id) == []
     assert [request.dedupe_id for request in intake.held_requests(first_task.id, team.id)] == [second.request.dedupe_id]
+
+
+@pytest.mark.django_db
+def test_a_failed_writer_run_saves_without_draining_and_hands_held_requests_to_a_workflow(
+    team, writer_env, django_capture_on_commit_callbacks, monkeypatch
+) -> None:
+    monkeypatch.setattr(KNOWLEDGE_WRITER_ENABLED, lambda team_id: True)
+    held = _verdict(456, suggested_page_urls=(SECTION_PAGE,))
+    assert held.request is not None
+    with (
+        patch(FLAG_CHECK, return_value=True),
+        patch(LIST_PULL_REQUESTS, side_effect=_open_on_github()),
+        patch(START_WORKFLOW),
+    ):
+        started = intake.submit(_verdict(suggested_page_urls=(SECTION_PAGE,)), team_id=team.id)
+        assert started.task_id is not None
+        assert intake.submit(held, team_id=team.id).status == "section_busy"
+        run = TaskRun.objects.get(task_id=started.task_id)
+        with (
+            patch(START_HELD_REQUESTS) as start_held_requests_workflow,
+            django_capture_on_commit_callbacks(execute=True),
+        ):
+            run.status = TaskRun.Status.FAILED
+            run.save(update_fields=["status"])
+
+    assert [request.dedupe_id for request in intake.held_requests(started.task_id, team.id)] == [held.request.dedupe_id]
+    start_held_requests_workflow.assert_called_once_with(run.id)
 
 
 @pytest.mark.django_db

@@ -36,7 +36,7 @@ def schedule_docs_pull_request(instance: Any, *, created: bool, update_fields: A
         return
     task_run_id, task_id, team_id = instance.id, instance.task_id, instance.team_id
     if instance.status in (instance.Status.FAILED, instance.Status.CANCELLED):
-        transaction.on_commit(lambda: start_held_requests(team_id), robust=True)
+        transaction.on_commit(lambda: start_held_requests(task_run_id, team_id), robust=True)
         return
     if instance.status != instance.Status.COMPLETED:
         return
@@ -47,7 +47,7 @@ def schedule_docs_pull_request(instance: Any, *, created: bool, update_fields: A
             task_run_id=str(task_run_id),
             team_id=team_id,
         )
-        transaction.on_commit(lambda: start_held_requests(team_id), robust=True)
+        transaction.on_commit(lambda: start_held_requests(task_run_id, team_id), robust=True)
         return
     transaction.on_commit(lambda: start_publish_or_record_failure(task_run_id, task_id, team_id), robust=True)
 
@@ -69,10 +69,19 @@ def start_publish_or_record_failure(task_run_id: UUID, task_id: UUID, team_id: i
         capture_exception(error, {"team_id": team_id, "task_run_id": str(task_run_id)})
         pull_requests.record_pull_request_failure(task_id, team_id, "publish_not_started")
         pull_requests.release_publication_claim(task_id, team_id, task_run_id)
-        start_held_requests(team_id)
+        start_held_requests(task_run_id, team_id)
 
 
-def start_held_requests(team_id: int) -> None:
-    from .logic import intake  # noqa: PLC0415 — keeps the GitHub client off the setup import path
+def start_held_requests(task_run_id: UUID, team_id: int) -> None:
+    from .temporal import client as temporal_client  # noqa: PLC0415 — keeps temporalio off the setup import path
 
-    intake.start_held_requests(team_id)
+    try:
+        temporal_client.start_held_requests(task_run_id)
+    except Exception as error:
+        logger.warning(
+            "knowledge_writer_held_requests_not_started",
+            task_run_id=str(task_run_id),
+            team_id=team_id,
+            error_type=type(error).__name__,
+        )
+        capture_exception(error, {"team_id": team_id, "task_run_id": str(task_run_id)})

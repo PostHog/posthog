@@ -17,10 +17,10 @@ from posthog.temporal.common.client import async_connect
 from posthog.temporal.common.utils import close_db_connections
 
 from ...merge_check.sources import GitHubReader, LandedChange, landed_change, read_closed_pull_requests, read_github
-from ..logic import intake
 from ..logic.pull_requests import docs_github
 from ..settings import writer_settings
 from .client import start_merge_check_workflow
+from .held_requests_workflow import start_held_requests
 from .merge_workflow import GITHUB_READ_ERRORS
 
 logger = structlog.get_logger(__name__)
@@ -129,12 +129,6 @@ async def reconcile_merged_pull_requests_activity() -> None:
     )
 
 
-@activity.defn
-@close_db_connections
-async def start_stranded_held_requests_activity() -> None:
-    await database_sync_to_async(intake.sweep_held_requests, thread_sensitive=False)()
-
-
 @workflow.defn(name=RECONCILE_WORKFLOW_NAME)
 class MergeReconcileWorkflow:
     @workflow.run
@@ -146,8 +140,4 @@ class MergeReconcileWorkflow:
                 retry_policy=RetryPolicy(maximum_attempts=3),
             )
         finally:
-            await workflow.execute_activity(
-                start_stranded_held_requests_activity,
-                start_to_close_timeout=timedelta(minutes=5),
-                retry_policy=RetryPolicy(maximum_attempts=3),
-            )
+            await start_held_requests()

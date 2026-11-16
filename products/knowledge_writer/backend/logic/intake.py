@@ -154,7 +154,7 @@ def start_requests_held_on(task_id: UUID, writer: WriterSettings) -> None:
     while held := held_requests(task_id, team_id):
         request = held[0]
         outcome = launch_held_request(task_id, request, writer)
-        if outcome is None or outcome.status == "capped":
+        if outcome is None or outcome.status in ("capped", "shadow"):
             return
         if outcome.status == "section_busy" and outcome.task_id == task_id:
             return

@@ -4,6 +4,7 @@ import json
 import asyncio
 from datetime import UTC, datetime, timedelta
 from typing import Any
+from uuid import uuid4
 
 import pytest
 import time_machine
@@ -50,6 +51,7 @@ from products.knowledge_writer.backend.temporal.merge_workflow import (
     reused_report_key,
     tell_docs_check_waiters_activity,
 )
+from products.knowledge_writer.backend.temporal.publish_workflow import PublishInputs, PublishWorkflow, SettleInputs
 from products.knowledge_writer.backend.temporal.reconcile_workflow import (
     PULL_REQUESTS_PER_PAGE,
     MergeReconcileWorkflow,
@@ -546,8 +548,8 @@ async def test_the_hourly_reconcile_starts_stranded_held_requests_even_when_the_
         if reconcile_fails:
             raise ApplicationError("GitHub is down", non_retryable=True)
 
-    @activity.defn(name="start_stranded_held_requests_activity")
-    async def start_stranded_held_requests_activity() -> None:
+    @activity.defn(name="start_held_requests_activity")
+    async def start_held_requests_activity() -> None:
         started_held_requests.set()
 
     async with await WorkflowEnvironment.start_time_skipping() as env:
@@ -555,7 +557,7 @@ async def test_the_hourly_reconcile_starts_stranded_held_requests_even_when_the_
             env.client,
             task_queue=settings.VIDEO_EXPORT_TASK_QUEUE,
             workflows=[MergeReconcileWorkflow],
-            activities=[reconcile_merged_pull_requests_activity, start_stranded_held_requests_activity],
+            activities=[reconcile_merged_pull_requests_activity, start_held_requests_activity],
             workflow_runner=UnsandboxedWorkflowRunner(),
         ):
             handle = await env.client.start_workflow(
@@ -568,3 +570,49 @@ async def test_the_hourly_reconcile_starts_stranded_held_requests_even_when_the_
                 await handle.result()
 
     assert started_held_requests.is_set()
+
+
+@pytest.mark.parametrize("failing_step", [None, "publish", "settle"])
+async def test_a_publish_starts_held_requests_after_it_settles_even_when_publishing_or_settling_fails(
+    failing_step,
+) -> None:
+    steps: list[str] = []
+
+    def record(step: str) -> None:
+        steps.append(step)
+        if step == failing_step:
+            raise ApplicationError(f"{step} failed", non_retryable=True)
+
+    @activity.defn(name="publish_docs_pull_request_activity")
+    async def publish_docs_pull_request_activity(inputs: PublishInputs) -> None:
+        record("publish")
+
+    @activity.defn(name="settle_publication_activity")
+    async def settle_publication_activity(inputs: SettleInputs) -> None:
+        record("settle")
+
+    @activity.defn(name="start_held_requests_activity")
+    async def start_held_requests_activity() -> None:
+        record("held")
+
+    async with await WorkflowEnvironment.start_time_skipping() as env:
+        async with Worker(
+            env.client,
+            task_queue=settings.VIDEO_EXPORT_TASK_QUEUE,
+            workflows=[PublishWorkflow],
+            activities=[publish_docs_pull_request_activity, settle_publication_activity, start_held_requests_activity],
+            workflow_runner=UnsandboxedWorkflowRunner(),
+        ):
+            handle = await env.client.start_workflow(
+                PublishWorkflow.run,
+                PublishInputs(task_run_id=str(uuid4()), team_id=1),
+                id="publish-test",
+                task_queue=settings.VIDEO_EXPORT_TASK_QUEUE,
+            )
+            if failing_step is not None:
+                with pytest.raises(WorkflowFailureError):
+                    await handle.result()
+            if failing_step is None:
+                await handle.result()
+
+    assert steps == ["publish", "settle", "held"]
