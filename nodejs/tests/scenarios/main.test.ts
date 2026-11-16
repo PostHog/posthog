@@ -260,7 +260,9 @@ describe('publish', () => {
 
     beforeAll(async () => {
         store = await startTestStore('publish')
-        errorPage = createServer((_request, response) => response.writeHead(502).end('x'.repeat(5000)))
+        errorPage = createServer((request, response) =>
+            response.writeHead(502).end('x'.repeat(request.url?.startsWith('/huge/') ? 100_000 : 5000))
+        )
         await new Promise<void>((resolve) => errorPage.listen(0, '127.0.0.1', resolve))
     })
 
@@ -340,6 +342,12 @@ describe('publish', () => {
             (home) => storeEnvOf(home, `http://127.0.0.1:${(errorPage.address() as AddressInfo).port}`),
             EXIT_CODE.writeFailed,
             /the run store answered 502: x{200}\n$/,
+        ],
+        [
+            'the run store answers with an error page past the response cap',
+            (home) => storeEnvOf(home, `http://127.0.0.1:${(errorPage.address() as AddressInfo).port}/huge`),
+            EXIT_CODE.writeFailed,
+            /the run store answered 502: Response body is larger than the 65536 byte limit\n$/,
         ],
         [
             'the run store is down',

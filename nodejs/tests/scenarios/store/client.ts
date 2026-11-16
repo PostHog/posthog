@@ -12,6 +12,7 @@ export const STORE_URL = 'SCENARIO_STORE_URL'
 
 const REQUEST_TIMEOUT_MS = 30_000
 const PROBLEM_BODY_CHARS = 200
+const MAX_RESPONSE_BYTES = 64 * 1024
 
 const gzipAsync = promisify(gzip)
 
@@ -50,12 +51,13 @@ async function post(report: StoreReport, { url, token }: StoreTarget): Promise<S
         },
         body: await gzipAsync(JSON.stringify(report)),
         timeoutMs: REQUEST_TIMEOUT_MS,
+        maxResponseBytes: MAX_RESPONSE_BYTES,
     })
     if (response.status === 200 || response.status === 201) {
         await response.dump()
         return { stored: true }
     }
-    const body = (await response.text()).slice(0, PROBLEM_BODY_CHARS)
+    const body = (await response.text().catch((error: Error) => error.message)).slice(0, PROBLEM_BODY_CHARS)
     return { stored: false, problem: `the run store answered ${response.status}: ${body}` }
 }
 
