@@ -1,0 +1,372 @@
+{
+    "rows": [
+        {
+            "modules": [
+                {
+                    "id": "cli",
+                    "name": "CLI",
+                    "note": "core/cli",
+                    "flex": 0.8,
+                    "seam": [
+                        "run",
+                        {
+                            "name": "publish",
+                            "change": "added"
+                        }
+                    ]
+                },
+                {
+                    "id": "viewer",
+                    "name": "Viewer",
+                    "note": "core/viewer (#354)",
+                    "change": "changed",
+                    "flex": 2.2,
+                    "seam": ["map", "scenarios", "run", "live"],
+                    "chips": [
+                        {
+                            "text": "layout, cursor, valve bands"
+                        },
+                        {
+                            "id": "v-t1",
+                            "text": "panel + node specs (tier 1)",
+                            "change": "added",
+                            "q": "Q11"
+                        },
+                        {
+                            "id": "v-t2",
+                            "text": "code slot (tier 2)",
+                            "change": "added",
+                            "followUp": true
+                        },
+                        {
+                            "id": "v-tables",
+                            "text": "9 Workflows tables",
+                            "change": "removed"
+                        }
+                    ]
+                }
+            ]
+        },
+        {
+            "modules": [
+                {
+                    "id": "life",
+                    "name": "Lifecycle",
+                    "note": "core/lifecycle",
+                    "change": "changed",
+                    "flex": 1.5,
+                    "used": 6,
+                    "seam": ["up", "run(card)", "down"],
+                    "chips": [
+                        {
+                            "text": "reset \u2192 seed \u2192 valves \u2192 drive \u2192 quiet \u2192 judge \u2192 publish",
+                            "wide": true
+                        },
+                        {
+                            "id": "life-wf",
+                            "text": "Workflows wiring in run()",
+                            "change": "removed"
+                        },
+                        {
+                            "id": "life-hooks",
+                            "text": "adapter hooks",
+                            "change": "added",
+                            "q": "Q3"
+                        }
+                    ]
+                },
+                {
+                    "id": "card",
+                    "name": "Card",
+                    "note": "core/card",
+                    "change": "changed",
+                    "flex": 1,
+                    "used": 16,
+                    "seam": ["loadCard(path, adapters)"],
+                    "chips": [
+                        {
+                            "text": "schema, hashes"
+                        },
+                        {
+                            "id": "card-reg",
+                            "text": "merged registry",
+                            "change": "added",
+                            "q": "Q1"
+                        },
+                        {
+                            "id": "card-fixed",
+                            "text": "DEFINITIONS, CdpRole",
+                            "change": "removed"
+                        }
+                    ]
+                }
+            ]
+        },
+        {
+            "modules": [
+                {
+                    "id": "drive",
+                    "name": "Drive",
+                    "note": "core/drive",
+                    "change": "changed",
+                    "seam": ["drive \u2192 history"],
+                    "chips": [
+                        {
+                            "text": "open-loop scheduler"
+                        },
+                        {
+                            "id": "drive-h",
+                            "text": "history.jsonl",
+                            "change": "added",
+                            "q": "Q10"
+                        }
+                    ]
+                },
+                {
+                    "id": "valves",
+                    "name": "Valves",
+                    "note": "core/valves",
+                    "change": "changed",
+                    "seam": ["start", "releaseAll"],
+                    "chips": [
+                        {
+                            "text": "timeline, hold, release"
+                        },
+                        {
+                            "id": "valves-caps",
+                            "text": "capabilities",
+                            "change": "added",
+                            "q": "Q2"
+                        }
+                    ]
+                },
+                {
+                    "id": "judge",
+                    "name": "Judge",
+                    "note": "core/judge",
+                    "change": "changed",
+                    "seam": ["quiet", "check"],
+                    "chips": [
+                        {
+                            "text": "history invariants"
+                        },
+                        {
+                            "id": "judge-cons",
+                            "text": "conservation",
+                            "change": "added",
+                            "q": "Q5"
+                        },
+                        {
+                            "id": "judge-q",
+                            "text": "AND of pending()",
+                            "change": "added",
+                            "q": "Q7"
+                        }
+                    ]
+                },
+                {
+                    "id": "topo",
+                    "name": "Topology",
+                    "note": "core/topology",
+                    "change": "added",
+                    "seam": ["observe", "check"],
+                    "chips": [
+                        {
+                            "text": "rpk, pg_stat_activity"
+                        },
+                        {
+                            "text": "diff vs manifest"
+                        }
+                    ]
+                },
+                {
+                    "id": "score",
+                    "name": "Scorecard",
+                    "note": "core/scorecard",
+                    "change": "changed",
+                    "seam": ["payloadOf", "publish"],
+                    "chips": [
+                        {
+                            "text": "v2, namespaced"
+                        },
+                        {
+                            "text": "versions by module id"
+                        }
+                    ]
+                }
+            ]
+        },
+        {
+            "modules": [
+                {
+                    "id": "proc",
+                    "name": "Processes",
+                    "note": "core/processes",
+                    "change": "changed",
+                    "flex": 1,
+                    "seam": ["start", "kill", "freeze", "stop"],
+                    "chips": [
+                        {
+                            "text": "supervisor, run lock, ports"
+                        },
+                        {
+                            "id": "proc-env",
+                            "text": "env allowlist",
+                            "change": "added",
+                            "q": "Q9"
+                        },
+                        {
+                            "id": "proc-tsx",
+                            "text": "one tsx command",
+                            "change": "removed"
+                        }
+                    ]
+                },
+                {
+                    "id": "edge",
+                    "name": "Provider edge",
+                    "note": "core/edge",
+                    "change": "changed",
+                    "flex": 1,
+                    "seam": ["start", "truth", "faults"],
+                    "chips": [
+                        {
+                            "text": "proxy, CA, truth log"
+                        },
+                        {
+                            "id": "edge-h",
+                            "text": "host handlers",
+                            "change": "added"
+                        }
+                    ]
+                }
+            ]
+        },
+        {
+            "modules": [
+                {
+                    "id": "wf",
+                    "name": "Workflows adapter",
+                    "note": "adapters/workflows",
+                    "change": "added",
+                    "flex": 1.6,
+                    "seam": ["manifest", "definitions", "checkCard", "prepare", "reset", "pending"],
+                    "chips": [
+                        {
+                            "id": "wf-man",
+                            "text": "manifest.yaml",
+                            "q": "Q8"
+                        },
+                        {
+                            "text": "roles, traffic, SES handler"
+                        },
+                        {
+                            "text": "Cyclotron pending, backlog"
+                        },
+                        {
+                            "id": "wf-cloud",
+                            "text": "cloud/",
+                            "q": "Q13"
+                        }
+                    ]
+                },
+                {
+                    "id": "pc",
+                    "name": "Persons + cohorts adapter",
+                    "note": "adapters/persons-cohorts, stack 2",
+                    "change": "added",
+                    "followUp": true,
+                    "flex": 1.2,
+                    "seam": ["manifest", "definitions", "prepare", "reset", "pending"],
+                    "chips": [
+                        {
+                            "text": "offers $set at capture"
+                        },
+                        {
+                            "id": "pc-carrier",
+                            "text": "carrier: person id",
+                            "q": "Q4"
+                        },
+                        {
+                            "text": "Rust boot",
+                            "q": "Q14"
+                        }
+                    ]
+                }
+            ]
+        }
+    ],
+    "wires": [
+        {
+            "from": "cli",
+            "to": "life-seam",
+            "toAt": 0.15
+        },
+        {
+            "from": "life",
+            "to": "card-seam",
+            "fromSide": "right",
+            "toSide": "left"
+        },
+        {
+            "from": "life",
+            "to": "drive-seam",
+            "fromAt": 0.15
+        },
+        {
+            "from": "life",
+            "to": "valves-seam",
+            "fromAt": 0.4
+        },
+        {
+            "from": "life",
+            "to": "judge-seam",
+            "fromAt": 0.65
+        },
+        {
+            "from": "life",
+            "to": "topo-seam",
+            "fromAt": 0.85
+        },
+        {
+            "from": "life",
+            "to": "score-seam",
+            "fromAt": 0.97
+        },
+        {
+            "from": "valves-caps",
+            "to": "proc-seam",
+            "toAt": 0.6
+        },
+        {
+            "from": "valves-caps",
+            "to": "edge-seam",
+            "toAt": 0.3
+        },
+        {
+            "from": "life",
+            "to": "wf-seam",
+            "fromSide": "left",
+            "toSide": "left",
+            "toAt": 0.5,
+            "label": "hooks",
+            "q": "Q3",
+            "change": "added",
+            "bend": 24,
+            "fromAt": 0.5,
+            "labelAt": 0.5,
+            "labelOffset": [46, 0],
+            "labelAlign": "start"
+        },
+        {
+            "from": "card-fixed",
+            "to": "judge",
+            "kind": "leak",
+            "label": "3 cycles",
+            "change": "removed",
+            "toAt": 0.8,
+            "crossAt": 0.3,
+            "labelAt": 0.6
+        }
+    ]
+}
