@@ -14,7 +14,7 @@ from temporalio.service import RPCError
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
-from posthog.sync import database_sync_to_async
+from posthog.models import Team
 
 from products.signals.backend.models import SignalGroupingRecord
 from products.signals.backend.temporal.drop_telemetry import CaptureSignalDroppedInput
@@ -208,12 +208,20 @@ async def test_exhaustion_retains_assigned_batch_for_clickhouse_and_research_ret
 
 
 @pytest.mark.asyncio
-@pytest.mark.django_db(transaction=True)
-async def test_assigned_signal_ids_activity_returns_only_recorded_signals(ateam) -> None:
-    assigned = _signal("assigned", team_id=ateam.id)
-    await database_sync_to_async(SignalGroupingRecord.objects.for_team(ateam.id, canonical=True).create)(
+@pytest.mark.django_db
+@pytest.mark.parametrize("child_environment", [False, True])
+async def test_assigned_signal_ids_activity_returns_only_recorded_signals(ateam: Team, child_environment: bool) -> None:
+    team = (
+        await Team.objects.acreate(
+            organization_id=ateam.organization_id, project_id=ateam.project_id, parent_team=ateam
+        )
+        if child_environment
+        else ateam
+    )
+    assigned = _signal("assigned", team_id=team.id)
+    await SignalGroupingRecord.objects.for_team(ateam.id, canonical=True).acreate(
         team_id=ateam.id, signal_id=assigned.signal_id, report_id=uuid.uuid4(), emitted_at=timezone.now()
     )
-    signals = [assigned, _signal("unassigned", team_id=ateam.id), _signal("other-team", team_id=ateam.id + 1)]
+    signals = [assigned, _signal("unassigned", team_id=team.id), _signal("other-team", team_id=team.id + 1)]
 
     assert await assigned_signal_ids_activity(signals) == [assigned.signal_id]
