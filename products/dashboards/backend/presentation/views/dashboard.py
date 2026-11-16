@@ -3124,10 +3124,10 @@ def _parse_tags_filter(values: list[str]) -> list[str]:
     # and a bare `?tags=a` stay supported for existing callers.
     tags: list[str] = []
     for value in values:
-        if value.startswith("["):
+        if value.lstrip().startswith("["):
             try:
                 decoded = json.loads(value)
-            except json.JSONDecodeError:
+            except (json.JSONDecodeError, RecursionError):
                 decoded = None
             if isinstance(decoded, list):
                 tags.extend(tag for tag in decoded if isinstance(tag, str))
