@@ -44474,12 +44474,12 @@ export namespace Schemas {
       /** Percentage (0-100) of matching units the evaluation runs on. */
       readonly rollout_percentage: number;
       /**
-         * Share (0-1) of sampled traces that fail the check. Only Hog checks are measured; null otherwise.
+         * Share (0-1) of sampled traces or generations, per the draft's target, that fail the check. Null when nothing measured it.
          * @nullable
          */
       readonly measured_failure_rate: number | null;
       /**
-         * Traces the failure rate was measured on. Null when there is no rate.
+         * Traces or generations, per the draft's target, that the failure rate was measured on. Null when there is no rate.
          * @nullable
          */
       readonly sample_size: number | null;
