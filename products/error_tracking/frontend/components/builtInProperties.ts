@@ -25,6 +25,7 @@ export const BUILT_IN_ERROR_TRACKING_PROPERTIES: BuiltInErrorTrackingProperty[] 
     { property: '$job_class', title: 'Job class' },
     { property: '$queue_name', title: 'Job queue' },
     { property: '$job_id', title: 'Job ID' },
+    { property: '$job_priority', title: 'Job priority' },
     { property: '$job_executions', title: 'Job attempts' },
     { property: '$job_arguments', title: 'Job arguments' },
 ]
