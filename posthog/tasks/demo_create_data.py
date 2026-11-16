@@ -10,8 +10,9 @@ from posthog.scoping_audit import skip_team_scope_audit
 @shared_task(ignore_result=True, soft_time_limit=600, time_limit=660)
 @skip_team_scope_audit
 def copy_native_events_for_demo_team(source_team_id: int, target_team_id: int) -> None:
-    # The demo facade loads the simulation engine, so keep it off Celery's startup import path.
-    from products.demo.backend.facade.api import MatrixManager  # noqa: PLC0415
+    from products.demo.backend.facade.api import (  # noqa: PLC0415 — keeps mimesis off the startup import path
+        MatrixManager,
+    )
 
     MatrixManager.copy_native_events(source_team_id, target_team_id)
 

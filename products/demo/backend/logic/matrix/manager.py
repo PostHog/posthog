@@ -13,11 +13,13 @@ from django.db import transaction
 
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.events_json import DISTRIBUTED_EVENTS_JSON_TABLE
+from posthog.clickhouse.workload import Workload
 from posthog.dataclasses import frozen
 from posthog.kafka_client.routing import get_producer
 from posthog.kafka_client.topics import KAFKA_EVENTS_JSON
 from posthog.models import Organization, OrganizationMembership, Team, User
 from posthog.models.deletion_targets import table_exists_via_sync_execute
+from posthog.models.event.sql import COPY_EVENTS_JSON_BETWEEN_TEAMS
 from posthog.models.utils import UUIDT, generate_random_token_project
 
 from products.cohorts.backend.models.cohort import Cohort
@@ -34,6 +36,8 @@ from .models import EVENT_IDENTIFY, SimEvent, SimPerson
 
 # Each flush waits at most 1 second, so one event waits at most about this many seconds for queue room.
 QUEUE_FULL_MAX_FLUSHES = 60
+
+NATIVE_SOURCE_WAIT_SECONDS = 300
 
 # Demo events go straight to ClickHouse and skip Node ingestion, so this module makes the
 # $experiment_exposure copies itself. Keep these values and the copy rule in sync with
@@ -200,38 +204,40 @@ class MatrixManager:
 
     @staticmethod
     def copy_native_events(source_team_id: int, target_team_id: int) -> None:
-        from posthog.models.event.sql import COPY_EVENTS_JSON_BETWEEN_TEAMS
-
         native_events_table_exists = table_exists_via_sync_execute(DISTRIBUTED_EVENTS_JSON_TABLE)
         if not native_events_table_exists:
             return
         copy_params = {"source_team_id": source_team_id, "target_team_id": target_team_id}
-        expected_count = sync_execute(
+        # Cloud ingestion stores $feature_flag_called outside the native table, so the source is complete without it.
+        [[expected_count]] = sync_execute(
             "SELECT count() FROM events WHERE team_id = %(source_team_id)s AND event != '$feature_flag_called'",
             copy_params,
-        )[0][0]
-        deadline = monotonic() + 300
+            workload=Workload.OFFLINE,
+        )
+        deadline = monotonic() + NATIVE_SOURCE_WAIT_SECONDS
         while True:
-            native_count = sync_execute(
+            [[native_count]] = sync_execute(
                 "SELECT count() FROM events_json WHERE team_id = %(source_team_id)s AND event != '$feature_flag_called'",
                 copy_params,
-            )[0][0]
+                workload=Workload.OFFLINE,
+            )
             if native_count >= expected_count:
                 break
             if monotonic() >= deadline:
                 raise TimeoutError(f"Native demo source {source_team_id} has {native_count}/{expected_count} events")
             sleep(0.5)
-        sync_execute(COPY_EVENTS_JSON_BETWEEN_TEAMS, copy_params)
+        sync_execute(COPY_EVENTS_JSON_BETWEEN_TEAMS, copy_params, workload=Workload.OFFLINE)
 
     @staticmethod
     def _schedule_native_events_copy(source_team_id: int, target_team_id: int) -> None:
-        # Importing posthog.tasks eagerly loads every Celery task, so defer it until demo setup is complete.
-        from posthog.tasks.demo_create_data import copy_native_events_for_demo_team
+        from posthog.tasks.demo_create_data import (  # noqa: PLC0415 — posthog.tasks imports every Celery task module
+            copy_native_events_for_demo_team,
+        )
 
         def enqueue() -> None:
             copy_native_events_for_demo_team.apply_async(args=(source_team_id, target_team_id), retry=False)
 
-        # Native ingestion and even queue publication must not prevent a usable legacy demo.
+        # A failed publish must not fail demo creation, so on_commit logs the error instead of raising it.
         transaction.on_commit(enqueue, robust=True)
 
     def run_on_team(self, team: Team, user: User):
@@ -445,13 +451,13 @@ class MatrixManager:
             ][0]
             persons_ready = person_count >= self._persons_created
             person_distinct_ids_ready = person_distinct_id_count >= self._person_distinct_ids_created
-            event_count = sync_execute("SELECT count() FROM events WHERE team_id = %(team_id)s", {"team_id": team_id})[
-                0
-            ][0]
+            [[event_count]] = sync_execute(
+                "SELECT count() FROM events WHERE team_id = %(team_id)s", {"team_id": team_id}
+            )
             events_ready = event_count >= self._events_created
-            group_count = sync_execute("SELECT count() FROM groups WHERE team_id = %(team_id)s", {"team_id": team_id})[
-                0
-            ][0]
+            [[group_count]] = sync_execute(
+                "SELECT count() FROM groups WHERE team_id = %(team_id)s", {"team_id": team_id}
+            )
             groups_ready = group_count >= self._groups_created
             persons_progress = f"{'✔' if persons_ready else '✘'} {person_count}/{self._persons_created}"
             person_distinct_ids_progress = f"{'✔' if person_distinct_ids_ready else '✘'} {person_distinct_id_count}/{self._person_distinct_ids_created}"

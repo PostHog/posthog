@@ -939,11 +939,10 @@ SELECT DISTINCT event FROM events where team_id = %(team_id)s AND event NOT IN [
 # Demo data
 #
 
-# In cloud, the nodes the app queries have the Distributed read tables but not writable_events or
-# writable_events_json, so both event copies read and write through the read tables. The setting makes the copy
-# shard-local: each shard runs the INSERT SELECT from its sharded table into the same table, so a copied row stays on
-# the shard of its distinct_id and the shard computes the columns it declares MATERIALIZED. Without it, the Distributed
-# sink sends the read table's copies of those columns and the shard rejects the insert.
+# The nodes the app queries in cloud have the Distributed read tables but not the writable ones, so both event
+# copies insert through the read table. This setting runs the INSERT SELECT on each shard against its local table,
+# so a row stays on the shard of its distinct_id and the shard computes its MATERIALIZED columns. Without it the
+# Distributed sink sends those columns and the shard rejects the insert.
 _SHARD_LOCAL_COPY_SETTINGS = "SETTINGS parallel_distributed_insert_select = 2"
 
 COPY_EVENTS_BETWEEN_TEAMS = (
@@ -956,9 +955,6 @@ COPY_EVENTS_BETWEEN_TEAMS = (
     + _SHARD_LOCAL_COPY_SETTINGS
 )
 
-# The copy takes the rows that native ingestion wrote for the source team, so the event cleaner does not run again
-# and the target gets the same events as the source. The elements_chain_* columns stay out of the list because the
-# sharded table computes them from elements_chain.
 COPY_EVENTS_JSON_BETWEEN_TEAMS = (
     COPY_ROWS_BETWEEN_TEAMS_BASE_SQL.format(
         table_name=DISTRIBUTED_EVENTS_JSON_TABLE,

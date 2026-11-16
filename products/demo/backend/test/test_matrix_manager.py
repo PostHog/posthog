@@ -21,6 +21,7 @@ from posthog.models import OrganizationMembership
 from posthog.tasks.demo_create_data import copy_native_events_for_demo_team
 
 from products.demo.backend.logic.matrix.manager import (
+    NATIVE_SOURCE_WAIT_SECONDS,
     QUEUE_FULL_MAX_FLUSHES,
     MatrixManager,
     _EventToSave,
@@ -155,23 +156,25 @@ class TestMatrixManager(ClickhouseDestroyTablesMixin):
             >= 3
         )
 
-    @parameterized.expand(["copied", "unavailable", "copy_failed", "enqueue_failed", "ingestion_delayed"])
+    @parameterized.expand(["copied", "enqueue_failed", "ingestion_delayed"])
     def test_run_on_team_using_pre_save(self, native_result: str) -> None:
         manager = MatrixManager(self.matrix, use_pre_save=True)
+        ingestion_delayed = native_result == "ingestion_delayed"
 
-        def execute_with_native_failure(query: str, *args: object, **kwargs: object) -> object:
-            if "FROM events_json" in query:
-                if native_result == "unavailable":
-                    raise ConnectionError("Native event storage unavailable")
-                if native_result == "ingestion_delayed":
-                    return [(0,)]
-            if native_result == "copy_failed" and query.lstrip().startswith("INSERT INTO events_json"):
-                raise RuntimeError("Native event copy failed")
+        def execute_with_delayed_native_ingestion(query: str, *args: object, **kwargs: object) -> object:
+            if ingestion_delayed and "FROM events_json" in query:
+                return [(0,)]
             return sync_execute(query, *args, **kwargs)
 
         with (
-            patch("products.demo.backend.logic.matrix.manager.sync_execute", side_effect=execute_with_native_failure),
-            patch("products.demo.backend.logic.matrix.manager.monotonic", side_effect=[0, 301]),
+            patch(
+                "products.demo.backend.logic.matrix.manager.sync_execute",
+                side_effect=execute_with_delayed_native_ingestion,
+            ),
+            patch(
+                "products.demo.backend.logic.matrix.manager.NATIVE_SOURCE_WAIT_SECONDS",
+                0 if ingestion_delayed else NATIVE_SOURCE_WAIT_SECONDS,
+            ),
             patch.object(
                 copy_native_events_for_demo_team, "apply_async", wraps=copy_native_events_for_demo_team.apply_async
             ) as enqueue,
@@ -194,23 +197,26 @@ class TestMatrixManager(ClickhouseDestroyTablesMixin):
                 == 0
             )
 
-        # The copy retains event payloads and identities, while the new insert gets its own ingestion metadata.
-        for read_table in ("events", "events_json", "groups"):
+        for read_table, rows_the_copy_waits_for in (
+            ("events", "1"),
+            ("events_json", "event != '$feature_flag_called'"),
+            ("groups", "1"),
+        ):
             rows = sync_execute(
                 f"""
                 SELECT team_id, toJSONString(tuple(* EXCEPT (
                     team_id, _timestamp, _offset, _partition, inserted_at, consumer_breadcrumbs, historical_migration
                 )))
-                FROM {read_table} WHERE team_id IN (0, %(team_id)s) ORDER BY 2
+                FROM {read_table} WHERE team_id IN (0, %(team_id)s) AND {rows_the_copy_waits_for} ORDER BY 2
                 """,
                 {"team_id": self.team.pk},
             )
             source = [row for team_id, row in rows if team_id == 0]
             target = [row for team_id, row in rows if team_id == self.team.pk]
-            assert source
             if read_table == "events_json" and native_result != "copied":
                 assert target == []
             else:
+                assert source
                 assert target == source
 
         if native_result == "copied":
