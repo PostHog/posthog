@@ -7,6 +7,7 @@ import pytest
 from unittest import mock
 
 from django.core.cache import cache as django_cache
+from django.test import override_settings
 
 import jwt
 import requests
@@ -67,7 +68,12 @@ from products.warehouse_sources.sources.firebase.tests.conftest import (
     credentials,
 )
 from products.warehouse_sources.sources.sdk import IncrementalFieldType
-from products.warehouse_sources.sources.sdk.testing import error_message_matches
+from products.warehouse_sources.sources.sdk.testing import (
+    RecordedRequest,
+    ScriptedResponse,
+    error_message_matches,
+    scripted_network,
+)
 
 _FIREBASE_MODULE = "products.warehouse_sources.sources.firebase.firebase"
 _SESSION_FACTORY = f"{_FIREBASE_MODULE}.make_tracked_session"
@@ -1161,6 +1167,32 @@ class TestResponseSizeCaps:
     The real caps are patched down to a few kilobytes throughout: the behaviour under test is
     "stop reading at N bytes", and allocating 64 MiB per test to demonstrate it would be waste.
     """
+
+    def test_slow_oversized_pages_share_one_retry_budget(self, logger: FilteringBoundLogger) -> None:
+        def respond(request: RecordedRequest) -> ScriptedResponse:
+            assert request.read_timeout is not None
+            network.advance(min(110, request.read_timeout))
+            if request.read_timeout < 110:
+                raise TimeoutError("timed out")
+            if int(request.param("pageSize") or "0") > 75:
+                return ScriptedResponse(body=b"x" * (_PAGE_CAP + 1))
+            return ScriptedResponse(json={})
+
+        tokens = token_provider(FakeSession(post_responses=[FakeResponse(payload=TOKEN_PAYLOAD)]))
+        tokens.token()
+        manager = FakeResumeManager(FirebaseResumeConfig(cursor="page-1"))
+        with (
+            override_settings(DATA_WAREHOUSE_SOURCE_RETRY_BUDGET_SECONDS=300),
+            scripted_network(respond) as network,
+            _api_session(credentials(), capture=False) as session,
+            mock.patch(f"{_FIREBASE_MODULE}.MAX_RESPONSE_BYTES", _PAGE_CAP),
+            pytest.raises(requests.RequestException),
+        ):
+            list(iter_firestore_documents(session, tokens, credentials(), "rooms", manager, logger))
+
+        assert network.elapsed == pytest.approx(300, abs=0.5)
+        assert manager.saved == []
+        assert manager.cleared is False
 
     @pytest.mark.parametrize("mode", ["full_refresh", "incremental", "collection_group"])
     def test_an_oversized_page_is_retried_without_advancing_the_cursor(

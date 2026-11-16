@@ -72,6 +72,7 @@ from products.warehouse_sources.sources.sdk import (
     incremental_field,
     make_tracked_session,
     rank_incremental_fields,
+    request_deadline,
 )
 from products.warehouse_sources.sources.sdk.internals import NamingConvention, incremental_type_to_initial_value
 
@@ -636,19 +637,20 @@ def _read_firestore_page(
     query: Optional[dict[str, Any]] = None,
 ) -> tuple[Any, int]:
     page_size = FIRESTORE_PAGE_SIZE
-    while True:
-        try:
-            if query is None:
-                payload = _request(session, tokens, "GET", url, params={**(params or {}), "pageSize": page_size})
-            else:
-                payload = _request(
-                    session, tokens, "POST", url, json_body={"structuredQuery": {**query, "limit": page_size}}
-                )
-            return payload, page_size
-        except FirebaseResponseTooLargeError:
-            if page_size == 1:
-                raise
-            page_size = max(1, page_size // 2)
+    with request_deadline():
+        while True:
+            try:
+                if query is None:
+                    payload = _request(session, tokens, "GET", url, params={**(params or {}), "pageSize": page_size})
+                else:
+                    payload = _request(
+                        session, tokens, "POST", url, json_body={"structuredQuery": {**query, "limit": page_size}}
+                    )
+                return payload, page_size
+            except FirebaseResponseTooLargeError:
+                if page_size == 1:
+                    raise
+                page_size = max(1, page_size // 2)
 
 
 def iter_firestore_documents_incremental(
