@@ -87,14 +87,15 @@ describe('releaseAllLogic', () => {
         expect(logic.values.hasMore).toBe(false)
     })
 
-    it('drops a page that answers a search the user already changed', async () => {
+    it('drops a page that answers a search the user already changed, even after returning to the same text', async () => {
         let answer: (page: unknown) => void = () => {}
         jest.mocked(releasesCatalogFlagsRetrieve).mockImplementationOnce(
             () => new Promise((done) => (answer = done)) as never
         )
 
-        logic.actions.setAppliedSearch('old')
-        logic.actions.setAppliedSearch('new')
+        logic.actions.setAppliedSearch('same')
+        logic.actions.setAppliedSearch('other')
+        logic.actions.setAppliedSearch('same')
         answer({ results: [flag(9, 20)], has_more: false })
         await expectLogic(logic).toFinishAllListeners()
 

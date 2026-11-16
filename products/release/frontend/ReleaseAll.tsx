@@ -123,8 +123,8 @@ function useLoadMoreSentinel(onVisible: () => void, watch: unknown): (node: Elem
 
 function ReleaseAllContent(): JSX.Element {
     const { displayRows, filter, search, hasMore, loading, showSkeleton, failedTypes } = useValues(releaseAllLogic)
-    const { setFilter, setSearch, loadMore } = useActions(releaseAllLogic)
-    const sentinel = useLoadMoreSentinel(loadMore, displayRows.length)
+    const { setFilter, setSearch, loadMore, retry } = useActions(releaseAllLogic)
+    const sentinel = useLoadMoreSentinel(loadMore, loading)
 
     return (
         <SceneContent>
@@ -156,9 +156,14 @@ function ReleaseAllContent(): JSX.Element {
                     ))}
                 </div>
                 {failedTypes.length > 0 && (
-                    <Text size="xs" variant="muted">
-                        {`Some ${failedTypes.map((type) => TYPE_LABEL[type].toLowerCase()).join(' and ')} items could not load. Refresh to try again.`}
-                    </Text>
+                    <div className="flex items-center gap-2" data-attr="release-all-failed">
+                        <Text size="xs" variant="muted">
+                            {`Some ${failedTypes.map((type) => TYPE_LABEL[type].toLowerCase()).join(' and ')} items could not load.`}
+                        </Text>
+                        <Button size="sm" variant="outline" onClick={() => retry()} data-attr="release-all-retry">
+                            Try again
+                        </Button>
+                    </div>
                 )}
                 {showSkeleton ? (
                     <div className="flex flex-col gap-2" data-attr="release-all-loading">

@@ -548,6 +548,7 @@ class EarlyAccessFeatureViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             ids = parse_id_list(self.request.query_params.get("ids"), name="ids", parse=UUID)
             if ids is not None:
                 queryset = queryset.filter(id__in=ids)
+            queryset = queryset.order_by("-created_at", "-id")
         return queryset
 
     @extend_schema(

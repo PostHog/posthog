@@ -106,8 +106,16 @@ def list_release_catalog_flags(
     tour_flag_ids = ProductTour.all_objects.filter(
         team__project_id=project_id, internal_targeting_flag__isnull=False
     ).values_list("internal_targeting_flag_id", flat=True)
+    surveys = Survey.objects.filter(team__project_id=project_id)
     flags = FeatureFlag.objects.filter(team_id=team_id, deleted=False, archived=False).exclude(
-        Q(id__in=Survey.get_internal_flag_ids(project_id=project_id)) | Q(id__in=tour_flag_ids)
+        Q(id__in=surveys.filter(targeting_flag__isnull=False).values("targeting_flag_id"))
+        | Q(id__in=surveys.filter(internal_targeting_flag__isnull=False).values("internal_targeting_flag_id"))
+        | Q(
+            id__in=surveys.filter(internal_response_sampling_flag__isnull=False).values(
+                "internal_response_sampling_flag_id"
+            )
+        )
+        | Q(id__in=tour_flag_ids)
     )
     if search:
         flags = flags.filter(Q(key__icontains=search) | Q(name__icontains=search))

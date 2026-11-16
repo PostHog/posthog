@@ -59,6 +59,7 @@ interface ReleaseLogicValues {
     flagsLoading: boolean
     flagsReady: boolean
     releasesReady: boolean
+    releasesFailed: boolean
     flagSearchResults: FeatureFlagApi[]
     flagSearchResultsLoading: boolean
     flagSearch: string
@@ -633,6 +634,7 @@ export const releaseLogic = kea<releaseLogicType>([
         flagSearchFailed: [false, { searchFlags: () => false, searchFlagsFailure: () => true }],
         flagsReady: [false, { loadFlagsSuccess: () => true, loadFlagsFailure: () => true }],
         releasesReady: [false, { loadReleasesSuccess: () => true, loadReleasesFailure: () => true }],
+        releasesFailed: [false, { loadReleases: () => false, loadReleasesFailure: () => true }],
         experimentsReady: [false, { loadExperimentsSuccess: () => true }],
         hiddenExperimentFlagIds: [[] as number[], { setHiddenExperimentFlagIds: (_, { flagIds }) => flagIds }],
         hiddenEarlyAccessFlagIds: [[] as number[], { setHiddenEarlyAccessFlagIds: (_, { flagIds }) => flagIds }],
