@@ -2,10 +2,13 @@
 
 Each stock HogFunction group becomes one `AlertDestination` row that copies it, and the group's
 HogFunctions are retired in the same transaction. Delivery skips a row while any HogFunction it
-copies exists, so the row starts sending only once they are gone, and never beside them.
+copies exists, so the row starts sending only once they are gone, and never beside them. A row the
+alert page already wrote for the group is replaced, because an edit through the HogFunction API
+since then changed the HogFunctions and not the row.
 
 Each alert converts in its own transaction, under its logs row's lock, which the destination routes
-and the rollback also take first. A run is safe to repeat: a retired group is no longer listed.
+and the rollback also take first, then its HogFunctions' locks. A run is safe to repeat: a retired
+group is no longer listed.
 """
 
 from __future__ import annotations
@@ -25,11 +28,22 @@ from products.alerts.backend.facade.destinations import (
     customized_alert_destination_ids,
     list_alert_destination_groups,
     list_owned_alert_destinations,
+    lock_alert_destinations,
     soft_delete_alert_destinations,
 )
-from products.alerts_platform.backend.facade.api import copied_by_source_rows, record_source_destination
-from products.alerts_platform.backend.facade.contracts import AlertDestinationGroup, AlertDestinationValidationError
-from products.alerts_platform.backend.facade.enums import PlatformAlertOwner
+from products.alerts_platform.backend.facade.api import (
+    copied_by_source_rows,
+    delete_source_destination_rows,
+    list_source_destinations,
+    record_source_destination,
+    runtime_by_public_id,
+)
+from products.alerts_platform.backend.facade.contracts import (
+    AlertDestinationData,
+    AlertDestinationGroup,
+    AlertDestinationValidationError,
+)
+from products.alerts_platform.backend.facade.enums import PlatformAlertOwner, PlatformAlertState
 from products.logs.backend.alert_destinations import EVENT_KIND_CONFIG, LOGS_ALERT_EVENT_IDS, EventKind, row_event_kinds
 from products.logs.backend.models import LogsAlertConfiguration
 
@@ -38,8 +52,11 @@ _KIND_BY_EVENT_ID: dict[str, EventKind] = {spec.event_id: kind for kind, spec in
 
 class GroupOutcome(StrEnum):
     CONVERTED = "converted"
-    ALREADY_COPIED = "already_copied"
+    REPLACED_ROW = "replaced_row"
     CUSTOMIZED = "customized"
+    # A HogFunction opened the firing's incident under a key the row's resolve would not match, so the
+    # alert waits for a run after the firing ends.
+    FIRING = "firing"
     # Some of the group's HogFunctions are switched off. A row is on or off for every kind it hears.
     PARTLY_ENABLED = "partly_enabled"
     # A row copies only some of the group, so a second row would send to the same place twice.
@@ -78,7 +95,20 @@ def _convert_alert(alert_id: UUID, *, apply: bool) -> list[GroupConversion]:
             # A rollback can hand the alert back between listing and locking it.
             if alert is None or not alert.platform_owned:
                 return []
+            lock_alert_destinations(
+                team_id=alert.team_id, alert_id=str(alert.id), allowed_event_ids=LOGS_ALERT_EVENT_IDS
+            )
             candidates = _stock_candidates(alert)
+            if not candidates:
+                return []
+            runtime = runtime_by_public_id(team_id=alert.team_id, public_ids=[alert.id]).get(alert.id)
+            if runtime is not None and runtime.state == PlatformAlertState.FIRING:
+                return [
+                    GroupConversion(
+                        alert_id=alert.id, hog_function_ids=group.hog_function_ids, outcome=GroupOutcome.FIRING
+                    )
+                    for group, _ in candidates
+                ]
             groups = [group for group, _ in candidates]
             return [_convert_group(alert, group, facts, groups) for group, facts in candidates]
         finally:
@@ -92,6 +122,7 @@ class _GroupFacts:
     customized: bool
     enabled_count: int
     event_kinds: tuple[EventKind, ...]
+    data: AlertDestinationData
 
 
 def _stock_candidates(alert: LogsAlertConfiguration) -> list[tuple[AlertDestinationGroup, _GroupFacts]]:
@@ -109,6 +140,10 @@ def _stock_candidates(alert: LogsAlertConfiguration) -> list[tuple[AlertDestinat
         for eligibility in classify_alert_destinations(
             team_id=alert.team_id, alert_id=alert_id, allowed_event_ids=LOGS_ALERT_EVENT_IDS
         )
+    }
+    data_by_group = {
+        listed.hog_function_ids: listed.data
+        for listed in list_source_destinations(team_id=alert.team_id, public_id=alert.id, hog_function_groups=groups)
     }
     enabled_ids = {
         owned.hog_function_id
@@ -136,6 +171,7 @@ def _stock_candidates(alert: LogsAlertConfiguration) -> list[tuple[AlertDestinat
                         if event_id in _KIND_BY_EVENT_ID
                     )
                 ),
+                data=data_by_group.get(group.hog_function_ids, group.data),
             ),
         )
         for group in groups
@@ -161,22 +197,24 @@ def _convert_group(
     if copied and copied != set(group.hog_function_ids):
         return result(GroupOutcome.PARTLY_COPIED)
 
-    outcome = GroupOutcome.ALREADY_COPIED if copied else GroupOutcome.CONVERTED
     try:
         with transaction.atomic():
-            if not copied:
-                recorded = record_source_destination(
-                    team_id=alert.team_id,
-                    public_id=alert.id,
-                    data=group.data,
-                    event_kinds=row_event_kinds(facts.event_kinds),
-                    hog_function_ids=group.hog_function_ids,
-                    # Every group, so a second group that sends to the same place keeps both on HogFunctions.
-                    hog_function_groups=groups,
-                    enabled=facts.enabled_count > 0,
+            if copied:
+                delete_source_destination_rows(
+                    team_id=alert.team_id, public_id=alert.id, destination_ids=(), hog_function_ids=copied
                 )
-                if recorded is None:
-                    return result(GroupOutcome.NO_SOURCE_DESTINATIONS)
+            recorded = record_source_destination(
+                team_id=alert.team_id,
+                public_id=alert.id,
+                data=facts.data,
+                event_kinds=row_event_kinds(facts.event_kinds),
+                hog_function_ids=group.hog_function_ids,
+                # Every group, so a second group that sends to the same place keeps both on HogFunctions.
+                hog_function_groups=groups,
+                enabled=facts.enabled_count > 0,
+            )
+            if recorded is None:
+                raise _NoSourceDestinations
             # A queryset update, not a save: a HogFunction saved as deleted deletes every row that copies it.
             soft_delete_alert_destinations(
                 team_id=alert.team_id,
@@ -186,4 +224,10 @@ def _convert_group(
             )
     except AlertDestinationValidationError as error:
         return result(GroupOutcome.REFUSED, str(error))
-    return result(outcome)
+    except _NoSourceDestinations:
+        return result(GroupOutcome.NO_SOURCE_DESTINATIONS)
+    return result(GroupOutcome.REPLACED_ROW if copied else GroupOutcome.CONVERTED)
+
+
+class _NoSourceDestinations(Exception):
+    """Raised inside the group's savepoint, so a row deleted for replacement comes back."""

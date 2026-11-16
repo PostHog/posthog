@@ -178,6 +178,18 @@ def owned_alert_destination_ids(
     )
 
 
+def lock_alert_destinations(*, team_id: int, alert_id: str, allowed_event_ids: Collection[str]) -> None:
+    """Locks the alert's HogFunction destinations until the caller's transaction ends, so an edit
+    through the HogFunction API waits instead of landing between a read and a write."""
+    list(
+        owned_alert_destinations_qs(
+            team_id=team_id, alert_ids=[alert_id], allowed_event_ids=allowed_event_ids, known_templates_only=False
+        )
+        .select_for_update()
+        .values_list("id", flat=True)
+    )
+
+
 def list_owned_alert_destinations(
     *,
     team_id: int,

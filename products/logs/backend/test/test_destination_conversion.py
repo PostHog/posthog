@@ -6,6 +6,7 @@ from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
 from django.core.management import call_command
+from django.utils import timezone
 
 from parameterized import parameterized
 from rest_framework import status
@@ -25,8 +26,6 @@ from products.logs.backend.platform_cutover import NATIVE_CREATE_FLAG
 SLACK = {"type": "slack", "slack_workspace_id": 42, "slack_channel_id": "C123", "slack_channel_name": "alerts"}
 
 
-@patch("products.alerts.backend.logic.destinations.reload_hog_functions_on_workers")
-@patch("products.cdp.backend.models.hog_functions.hog_function.reload_hog_functions_on_workers")
 class TestConvertLogsAlertDestinations(APIBaseTest):
     def setUp(self) -> None:
         super().setUp()
@@ -37,6 +36,13 @@ class TestConvertLogsAlertDestinations(APIBaseTest):
         )
         patcher.start()
         self.addCleanup(patcher.stop)
+        for reload in (
+            "products.alerts.backend.logic.destinations.reload_hog_functions_on_workers",
+            "products.cdp.backend.models.hog_functions.hog_function.reload_hog_functions_on_workers",
+        ):
+            reload_patcher = patch(reload)
+            reload_patcher.start()
+            self.addCleanup(reload_patcher.stop)
         sync_template_to_db(template_slack)
 
     def _alert_with_slack(self, *, platform_owned: bool = True, name: str = "Errors") -> tuple[str, list[str]]:
@@ -64,11 +70,22 @@ class TestConvertLogsAlertDestinations(APIBaseTest):
     def _live(self, hog_function_ids: list[str]) -> int:
         return HogFunction.objects.filter(id__in=hog_function_ids, deleted=False).count()
 
-    @parameterized.expand([("added_before_rows", False), ("already_copied_by_a_row", True)])
+    @parameterized.expand(
+        [
+            ("added_before_rows", False, True),
+            ("already_copied_by_a_row", True, True),
+            ("switched_off_after_the_row_copied_it", True, False),
+        ]
+    )
     def test_a_stock_slack_group_becomes_one_row_and_its_hog_functions_retire(
-        self, _name: str, has_row: bool, *_mocks: Any
+        self, _name: str, has_row: bool, enabled: bool
     ) -> None:
         alert_id, hog_function_ids = self._alert_with_slack()
+        for hog_function_id in [] if enabled else hog_function_ids:
+            switched_off = self.client.patch(
+                f"/api/projects/{self.team.pk}/hog_functions/{hog_function_id}/", {"enabled": False}, format="json"
+            )
+            assert switched_off.status_code == status.HTTP_200_OK, switched_off.json()
         if not has_row:
             (row,) = self._rows(alert_id)
             delete_source_destination_rows(
@@ -91,7 +108,11 @@ class TestConvertLogsAlertDestinations(APIBaseTest):
             AlertEventKind.BROKEN,
             AlertEventKind.ERRORED,
         }
-        assert (row.enabled, row.data["slack_channel_id"]) == (True, "C123")
+        assert (row.enabled, row.data["slack_channel_id"], row.data.get("slack_channel_name")) == (
+            enabled,
+            "C123",
+            "alerts" if has_row else None,
+        )
         assert self._live(hog_function_ids) == 0
         assert not HogFunction.objects.filter(id__in=hog_function_ids, enabled=True).exists()
 
@@ -100,7 +121,7 @@ class TestConvertLogsAlertDestinations(APIBaseTest):
         assert "no HogFunction destinations" in again
         assert [r.id for r in self._rows(alert_id)] == [row.id]
 
-    def test_customized_groups_and_alerts_the_logs_stack_owns_keep_their_hog_functions(self, *_mocks: Any) -> None:
+    def test_customized_groups_firing_alerts_and_alerts_the_logs_stack_owns_keep_their_hog_functions(self) -> None:
         customized_alert, customized_ids = self._alert_with_slack()
         edited = self.client.patch(
             f"/api/projects/{self.team.pk}/hog_functions/{customized_ids[0]}/",
@@ -109,10 +130,17 @@ class TestConvertLogsAlertDestinations(APIBaseTest):
         )
         assert edited.status_code == status.HTTP_200_OK, edited.json()
         logs_owned_alert, logs_owned_ids = self._alert_with_slack(platform_owned=False, name="Kept on logs")
+        firing_alert, firing_ids = self._alert_with_slack(name="Firing")
+        with team_scope(self.team.id):
+            platform_testing.start_firing(
+                platform_testing.copy_of(UUID(firing_alert)).id, team_id=self.team.id, at=timezone.now()
+            )
 
         out = self._run("--apply")
 
         assert "outcome=customized" in out
+        assert f"alert={firing_alert}" in out and "outcome=firing" in out
+        assert self._live(firing_ids) == 4
         assert self._live(customized_ids) == 4
         assert self._live(logs_owned_ids) == 4
         assert len(self._rows(customized_alert)) == 1
