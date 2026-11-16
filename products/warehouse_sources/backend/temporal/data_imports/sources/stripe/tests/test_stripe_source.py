@@ -1276,7 +1276,8 @@ def _payment_method_api(
     `refuse_expand_on_page` answers an expand request for that page with Stripe's refusal, the way an
     account without access, or one whose access Stripe removed mid-sweep, is answered."""
     customers = [customer for page in customer_pages for customer in page]
-    page_starts = {None: 0} | {customer_pages[i - 1][-1]["id"]: i for i in range(1, len(customer_pages))}
+    page_starts: dict[str | None, int] = {None: 0}
+    page_starts.update({customer_pages[i - 1][-1]["id"]: i for i in range(1, len(customer_pages))})
 
     def respond(request: RecordedRequest) -> ScriptedResponse:
         if request.path == "/v1/customers":
@@ -1304,7 +1305,7 @@ def _payment_method_api(
     return respond
 
 
-_CUSTOMERS_WITH_SIGNAL = [
+_CUSTOMERS_WITH_SIGNAL: list[list[dict[str, Any]]] = [
     [
         {"id": "cus_none", "has_payment_method": False},
         {"id": "cus_card", "has_payment_method": True},

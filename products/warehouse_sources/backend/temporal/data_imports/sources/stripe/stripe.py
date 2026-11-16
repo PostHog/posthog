@@ -466,7 +466,7 @@ class StripeResource:
     params: dict[str, Any] = dataclasses.field(default_factory=dict)
 
 
-@dataclasses.dataclass
+@frozen
 class StripeNestedResource:
     method: Callable[..., ListObject[Any]]
     nested_parent_param: str
