@@ -1,16 +1,26 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonSelect, LemonSelectOption, LemonSelectOptions } from '@posthog/lemon-ui'
+import { LemonSelect } from '@posthog/lemon-ui'
 
 import { EntityFilterInfo } from 'lib/components/EntityFilterInfo'
+import { useQuillSurface } from 'lib/components/QuillSurface/quillSurfaceContext'
 import { insightLogic } from 'scenes/insights/insightLogic'
 
+import { QuillToolbarSelect } from 'products/product_analytics/frontend/insights/shared/QuillToolbarSelect'
+
 import { funnelDataLogic } from '../funnelDataLogic'
+
+interface StepOption {
+    value: number
+    label: string
+    labelInMenu: JSX.Element
+}
 
 export function FunnelStepsPicker(): JSX.Element | null {
     const { insightProps, editingDisabledReason } = useValues(insightLogic)
     const { series, isFunnelWithEnoughSteps, funnelsFilter } = useValues(funnelDataLogic(insightProps))
     const { updateInsightFilter } = useActions(funnelDataLogic(insightProps))
+    const quillSurface = useQuillSurface()
 
     const onChange = (funnelFromStep?: number, funnelToStep?: number): void => {
         updateInsightFilter({ funnelFromStep, funnelToStep })
@@ -24,9 +34,9 @@ export function FunnelStepsPicker(): JSX.Element | null {
     const fromRange = isFunnelWithEnoughSteps ? allSteps.slice(0, maxFromStep) : [0]
     const toRange = isFunnelWithEnoughSteps ? allSteps.slice((funnelsFilter?.funnelFromStep ?? 0) + 1) : [1]
 
-    const optionsForRange = (range: number[]): LemonSelectOptions<number> => {
+    const optionsForRange = (range: number[]): StepOption[] => {
         return range
-            .map((stepIndex): LemonSelectOption<number> | null => {
+            .map((stepIndex): StepOption | null => {
                 return filterSteps[stepIndex]
                     ? {
                           value: stepIndex,
@@ -40,7 +50,35 @@ export function FunnelStepsPicker(): JSX.Element | null {
                       }
                     : null
             })
-            .filter((option): option is LemonSelectOption<number> => option !== null)
+            .filter((option): option is StepOption => option !== null)
+    }
+
+    const selectedFromStep = funnelsFilter?.funnelFromStep || 0
+    const selectedToStep = funnelsFilter?.funnelToStep || Math.max(numberOfSeries - 1, 1)
+
+    if (quillSurface) {
+        return (
+            <div className="flex items-center gap-1">
+                <span className="text-muted-foreground">&nbsp;from</span>
+                <QuillToolbarSelect
+                    size="sm"
+                    value={selectedFromStep}
+                    options={optionsForRange(fromRange)}
+                    onChange={(step) => onChange(step, funnelsFilter?.funnelToStep)}
+                    disabled={!isFunnelWithEnoughSteps}
+                    disabledReason={editingDisabledReason}
+                />
+                <span className="text-muted-foreground">to</span>
+                <QuillToolbarSelect
+                    size="sm"
+                    value={selectedToStep}
+                    options={optionsForRange(toRange)}
+                    onChange={(step) => onChange(funnelsFilter?.funnelFromStep, step)}
+                    disabled={!isFunnelWithEnoughSteps}
+                    disabledReason={editingDisabledReason}
+                />
+            </div>
+        )
     }
 
     return (
@@ -53,7 +91,7 @@ export function FunnelStepsPicker(): JSX.Element | null {
                 optionTooltipPlacement="bottom-start"
                 disabled={!isFunnelWithEnoughSteps}
                 options={optionsForRange(fromRange)}
-                value={funnelsFilter?.funnelFromStep || 0}
+                value={selectedFromStep}
                 onChange={(fromStep: number | null) =>
                     fromStep != null && onChange(fromStep, funnelsFilter?.funnelToStep)
                 }
@@ -67,7 +105,7 @@ export function FunnelStepsPicker(): JSX.Element | null {
                 optionTooltipPlacement="bottom-start"
                 disabled={!isFunnelWithEnoughSteps}
                 options={optionsForRange(toRange)}
-                value={funnelsFilter?.funnelToStep || Math.max(numberOfSeries - 1, 1)}
+                value={selectedToStep}
                 onChange={(toStep: number | null) => toStep != null && onChange(funnelsFilter?.funnelFromStep, toStep)}
                 disabledReason={editingDisabledReason}
             />

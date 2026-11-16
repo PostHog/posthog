@@ -30,7 +30,7 @@ from django.utils import timezone
 import structlog
 from slack_sdk.errors import SlackApiError
 
-from posthog.integrations import IntegrationRecord
+from posthog.integrations import IntegrationManager, IntegrationRecord
 from posthog.models.integration import SLACK_INTEGRATION_KINDS, SlackIntegration
 from posthog.models.organization import OrganizationMembership
 from posthog.models.user import User
@@ -58,12 +58,14 @@ def _format_slack_user_info_payload(
     is_admin: bool,
     is_owner: bool,
     is_bot: bool,
+    tz: str,
 ) -> dict[str, Any]:
     return {
         "user": {
             "is_admin": is_admin,
             "is_owner": is_owner,
             "is_bot": is_bot,
+            "tz": tz,
             "profile": {
                 "email": email,
                 "display_name": display_name,
@@ -102,6 +104,7 @@ def _get_slack_user_info_from_db(integration: IntegrationRecord, slack_user_id: 
         is_admin=profile.is_admin,
         is_owner=profile.is_owner,
         is_bot=profile.is_bot,
+        tz=profile.tz,
     )
 
 
@@ -119,6 +122,7 @@ def persist_slack_user_info(integration: IntegrationRecord, slack_user_id: str, 
                 "is_admin": bool(user.get("is_admin")),
                 "is_owner": bool(user.get("is_owner")),
                 "is_bot": bool(user.get("is_bot")),
+                "tz": str(user.get("tz") or "")[:64],
                 "refreshed_at": timezone.now(),
             },
         )
@@ -267,9 +271,13 @@ def clear_workspace_profile_cache(slack_team_id: str) -> int:
     that survive a failed clear age out via the cache TTL.
     """
     try:
-        deleted, _ = SlackUserProfileCache.objects.filter(
-            integration__kind__in=SLACK_INTEGRATION_KINDS, integration__integration_id=slack_team_id
-        ).delete()
+        integration_ids = [
+            row.id
+            for row in IntegrationManager.kinds(*SLACK_INTEGRATION_KINDS, auth_types="any").list_by_external_id(
+                slack_team_id
+            )
+        ]
+        deleted, _ = SlackUserProfileCache.objects.filter(integration_id__in=integration_ids).delete()
     except DatabaseError:
         logger.warning("slack_app_uninstall_profile_cache_clear_failed", slack_team_id=slack_team_id, exc_info=True)
         return 0

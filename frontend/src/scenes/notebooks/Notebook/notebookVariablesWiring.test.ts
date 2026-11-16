@@ -56,7 +56,7 @@ describe('notebook variables wiring', () => {
             },
         })
         initKeaTests()
-        jest.spyOn(api.notebooks, 'collabStream').mockResolvedValue(undefined as any)
+        jest.spyOn(api, 'stream').mockResolvedValue(undefined as any)
         // Echoes the saved variables, as the API does. Returning the fixture unchanged would
         // hide a save that never reaches the bar.
         updateSpy = jest

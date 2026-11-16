@@ -454,10 +454,6 @@ export class CdpLegacyEventsConsumer extends CdpConsumerBase<CdpLegacyEventsCons
         await this.legacyWebhookService.start()
         // Start consuming messages
         await this.kafkaConsumer.connect(async (messages) => {
-            logger.info('🔁', `${this.name} - handling batch`, {
-                size: messages.length,
-            })
-
             return await instrumentFn('cdpLegacyConsumer.handleEachBatch', async () => {
                 // Both parses finish before either side sends. A parse lookup error then fails the batch
                 // before it sends a webhook or a plugin call, so reading the batch again does not repeat one.

@@ -115,7 +115,9 @@ class TestBypassRuleAPI(APIBaseTest):
         first = self.client.post(self._url(), data={"filters": VALID_FILTERS}, format="json").json()["id"]
         second = self.client.post(self._url(), data={"filters": VALID_FILTERS}, format="json").json()["id"]
 
-        response = self.client.patch(f"{self._url()}reorder/", data={"orders": {first: 1, second: 0}}, format="json")
+        response = self.client.patch(
+            f"{self._url()}reorder/", data={"orders": {first: 1, second: 0, "0": 2}}, format="json"
+        )
 
         assert response.status_code == status.HTTP_204_NO_CONTENT
         assert ErrorTrackingBypassRule.objects.get(id=first).order_key == 1
@@ -136,5 +138,11 @@ class TestBypassRuleAPI(APIBaseTest):
         )
 
         response = self.client.get(self._url(str(other_rule.id)))
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+
+    @parameterized.expand([("get",), ("patch",), ("delete",)])
+    def test_non_uuid_rule_id_returns_404(self, method: str) -> None:
+        response = getattr(self.client, method)(self._url("0"))
 
         assert response.status_code == status.HTTP_404_NOT_FOUND

@@ -19,10 +19,10 @@ from posthog.hogql.property_access_types import RestrictedProperty
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client.escape import substitute_params
-from posthog.models import PropertyDefinition
 from posthog.models.instance_setting import override_instance_config
 
 from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
+from products.event_definitions.backend.models import PropertyDefinition
 from products.event_definitions.backend.models.property_definition import PropertyType
 
 STAR_EVENTS = "(SELECT * FROM events)"

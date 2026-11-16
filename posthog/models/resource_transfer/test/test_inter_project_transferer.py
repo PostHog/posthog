@@ -4,7 +4,7 @@ from posthog.test.base import BaseTest
 
 from parameterized import parameterized
 
-from posthog.models import Project, Team
+from posthog.models import Project, Tag, Team
 from posthog.models.resource_transfer.inter_project_transferer import (
     _get_mapped_substitutions,
     build_resource_duplication_graph,
@@ -132,11 +132,9 @@ class TestBuildResourceDuplicationGraph(BaseTest):
         assert len(graph) == 0
 
     def test_raises_for_unvisitable_model(self) -> None:
-        from products.annotations.backend.models.annotation import Annotation
-
-        annotation = Annotation.objects.create(team=self.team, content="My annotation")
+        tag = Tag.objects.create(team=self.team, name="My tag")
         with self.assertRaises(TypeError):
-            list(build_resource_duplication_graph(annotation, set()))
+            list(build_resource_duplication_graph(tag, set()))
 
     def test_insight_with_dashboard_export_subscription_does_not_traverse_through_table(self) -> None:
         insight = Insight.objects.create(team=self.team, name="Exported insight")

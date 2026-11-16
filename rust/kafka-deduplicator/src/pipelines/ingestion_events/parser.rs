@@ -121,6 +121,7 @@ mod tests {
             timestamp: chrono::Utc::now(),
             is_cookieless_mode: false,
             historical_migration: false,
+            options: None,
         }
     }
 

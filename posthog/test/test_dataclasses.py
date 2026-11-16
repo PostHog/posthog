@@ -26,7 +26,7 @@ class TestFrozenDefaults:
         point = Point(x=1, y=2)
         assert (point.x, point.y) == (1, 2)
         with pytest.raises(TypeError):
-            Point(1, 2)  # type: ignore[misc]
+            Point(1, 2)  # type: ignore[call-arg]
 
     def test_instances_are_immutable_and_hashable(self):
         point = Point(x=1, y=2)

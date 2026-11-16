@@ -97,9 +97,12 @@ class TeamCityEndpointConfig:
     primary_keys: list[str] = field(default_factory=lambda: ["id"])
     # TeamCity list endpoints return newest-first and expose no sort control.
     sort_mode: Literal["asc", "desc"] = "desc"
-    page_size: int = DEFAULT_PAGE_SIZE
+    # None for collections the server returns whole, with no nextHref to follow: sending
+    # a `count` there would silently truncate the list.
+    page_size: Optional[int] = DEFAULT_PAGE_SIZE
     # Fan-out: occurrences can only be listed scoped to a build, so they are fetched by
-    # walking the builds endpoint and querying this child once per build.
+    # walking the builds endpoint and querying this child once per build. A child path with
+    # a {build_id} placeholder addresses the build in the path instead of the locator.
     fan_out_over_builds: bool = False
     should_sync_default: bool = True
 
@@ -221,6 +224,32 @@ TEAMCITY_ENDPOINTS: dict[str, TeamCityEndpointConfig] = {
         primary_keys=["id"],
         page_size=OCCURRENCE_PAGE_SIZE,
         fan_out_over_builds=True,
+        should_sync_default=False,
+    ),
+    "build_statistics": TeamCityEndpointConfig(
+        name="build_statistics",
+        path="/builds/id:{build_id}/statistics",
+        response_key="property",
+        fields="count,property(name,value)",
+        supports_incremental=True,
+        incremental_fields=_build_finish_date_incremental_fields(),
+        partition_key=FAN_OUT_BUILD_FINISH_DATE_FIELD,
+        # Statistic names are only unique within a build.
+        primary_keys=[FAN_OUT_BUILD_ID_FIELD, "name"],
+        page_size=None,
+        fan_out_over_builds=True,
+        should_sync_default=False,
+    ),
+    "users": TeamCityEndpointConfig(
+        name="users",
+        path="/users",
+        response_key="user",
+        fields="count,nextHref,user(id,username,name,email,lastLogin)",
+        supports_incremental=False,
+        timestamp_fields=["lastLogin"],
+        page_size=None,
+        # Listing users needs the global "View user profile" permission, which most project
+        # roles lack; on by default it would fail the sync for those tokens with a 403.
         should_sync_default=False,
     ),
 }

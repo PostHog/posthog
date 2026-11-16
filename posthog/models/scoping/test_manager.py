@@ -9,7 +9,7 @@ from django.core.exceptions import FieldFetchBlocked
 
 from parameterized import parameterized
 
-from posthog.models.scoping import peer_lazy_loads, team_scope, unscoped
+from posthog.models.scoping import peer_lazy_loads, reset_current_team_id, set_current_team_id, team_scope, unscoped
 from posthog.models.scoping.manager import (
     FETCH_RAISE_ON_PEERS,
     FETCH_RELATION_PEERS,
@@ -75,6 +75,19 @@ class TestTeamScopedManager(BaseTest):
         flag = qs.first()
         assert flag is not None
         assert flag.key == "flag-2"
+
+    def test_for_team_resolves_another_team_inside_a_scope_resolved_from_this_one(self) -> None:
+        other_team = Team.objects.create(organization=self.organization, name="Other Team")
+        FeatureFlag.objects.create(team=self.team, key="flag-1", created_by=self.user)
+        FeatureFlag.objects.create(team=other_team, key="flag-2", created_by=self.user)
+
+        token = set_current_team_id(self.team.id, resolved_from_team_id=self.team.id)
+        try:
+            keys = list(self._make_manager().for_team(other_team.id).values_list("key", flat=True))
+        finally:
+            reset_current_team_id(token)
+
+        assert keys == ["flag-2"]
 
     def test_queryset_chaining_preserves_team_filter(self):
         other_team = Team.objects.create(organization=self.organization, name="Other Team")

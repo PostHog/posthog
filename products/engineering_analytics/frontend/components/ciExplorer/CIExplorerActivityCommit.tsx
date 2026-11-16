@@ -8,7 +8,6 @@ import { pluralize } from 'lib/utils/strings'
 import { CIActivityCommit } from '../../lib/ciExplorerActivity'
 import { ciExplorerLogic } from '../../scenes/ciExplorerLogic'
 
-/** One commit of the activity timeline. The whole row is a link to that commit's CI. */
 export function CIExplorerActivityCommit({ commit }: { commit: CIActivityCommit }): JSX.Element {
     const { locationUrl } = useValues(ciExplorerLogic)
     return (

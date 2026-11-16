@@ -82,12 +82,24 @@ Because this channel can't be enumerated, it is closed by construction rather th
    A model is reachable with no import: `apps.get_model("label", "Class")`, migrations, admin, fixtures.
    tach cannot see that, so a model or migration change always re-runs the full suite.
    `hogli product:lint` blocks a narrowing that leaves the surface out.
-4. Keep in the inputs every module that outside suites run without an import: a module with a signal receiver on a sender of core or another product, a module that a test outside the product names by dotted path, as a patch target does, and a module that core loads by name through `load_product_modules`.
-   `hogli product:lint` finds both and fails until each module is in the inputs.
+4. Keep in the inputs every module that outside suites run without an import:
+   - a module with a signal receiver on a sender of core or another product;
+   - a module that a test outside the product names by dotted path, as a patch target does;
+   - a module that core loads by name through `load_product_modules`;
+   - `backend/apps.py` and every product module it imports, because Django runs the AppConfig in every process;
+   - a module that registers into a `register_*` hook of core or another product, and the module that defines what it registers;
+   - a module that core settings name by dotted path, such as a middleware.
+
+   `hogli product:lint` finds each of them and fails until each module is in the inputs.
+   It watches the entry module, not everything that module calls: code behind it is tested in the product, like code behind the facade.
 
 A product whose views still hold business logic is not soundly skippable even if nothing imports it.
 This is also why "no in-process callers, so we don't need a facade" is the wrong test: a product whose only consumers are over HTTP (node services, the generated TS/MCP types) is _not_ facade-optional — there the facade's whole job is sealing its own presentation.
 The genuine exception is a product with essentially no Django-side logic (a thin shim over an external service): it has nothing to seal, but it is then simply not isolated — no `backend:contract-check`, still paying the full suite — which is an accept-the-cost choice, not "isolated without a facade".
+
+A sealed product can still be unsafe to skip when its facade returns decisions that core enforces, such as access checks, and the tests for those decisions live outside the product.
+A change behind its facade changes what core does, and only the full suite tests that.
+`SKIP_WITHHELD` in `tools/hogli-commands/hogli_commands/product/isolation.py` lists these products with the reason. `hogli product:lint` rejects `backend:contract-check` for them, and DevEx owns the list.
 
 ### Wiring couplings
 
@@ -124,9 +136,14 @@ Two core registries are keyed by model class identity and are explicit, sanction
 There the class crosses for registration only, core drives only the registry's mixin methods, and the model's module must stay in the product's contract-check inputs.
 
 **The watched-models allowance** is the one further, deliberately temporary exception, for products whose models are load-bearing substrate that core and sibling products consume and cannot yet stop consuming.
-Three products hold entries.
+Four products hold entries.
 `warehouse_sources`: core HogQL reads its warehouse table/schema/source models to build queryable tables.
 `ExternalDataDestination`, `ExternalDataSourceDestination` and `ExternalDataSchemaDestination` cross for the same reason as the rest of the product's models — the destination CRUD `ModelViewSet` and the source-/schema-level link-table editors need the classes themselves for `Meta.model`, querysets, and edits to the link rows, not a read-only shape.
+`data_modeling`: `DataWarehouseSavedQuery`, `DataWarehouseSavedQueryDraft`, `DataWarehouseSavedQueryColumnAnnotation`, `DataWarehouseManagedViewSet`, `DataModelingJob`, `DAG`, `Node` and `Edge`.
+Core HogQL reads saved queries to build the views a query can name, the same reason the `warehouse_sources` table models cross.
+The saved-query, draft and column-annotation `ModelViewSet`s live in `data_warehouse` `presentation/` and need the classes for `Meta.model`, querysets and writes.
+The materialization activities in `posthog/temporal/data_modeling/` lock and update `Node` and `DataModelingJob` rows, and `endpoints` holds a ForeignKey into `DataWarehouseSavedQuery`.
+Retiring the entries means moving those viewsets and activities into the product, so that consumers keep only ids and contracts.
 `product_analytics`: `Insight` and `InsightVariable`.
 Core and seven products (alerts, dashboards, surveys, annotations, exports, customer_analytics, pulse) hold ForeignKeys or M2Ms into `Insight` — dashboard tiles, subscriptions and exported assets, sharing configurations, tagged items — and rely on cascade deletes, relation traversal, reverse relations, and queryset-typed access-control filtering that a frozen contract cannot express.
 `InsightVariable` has no consumer left outside the product; its entry survives only because the SQL-variables `ModelViewSet` in `presentation/` needs the class and presentation may reach internals only through the facade, so retiring the entry means converting that viewset off `ModelSerializer` first.

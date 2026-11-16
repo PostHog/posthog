@@ -1,0 +1,19 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "config": {
+            "description": "Settings for this destination: target database, schema or dataset, bucket and prefix, file format. Credentials are not stored here. They live on the linked integration."
+        },
+        "id": {
+            "description": "A UUID string identifying this external data destination.",
+            "type": "string"
+        },
+        "name": {
+            "description": "Human-readable name shown when picking destinations for a source or table.",
+            "maxLength": 400,
+            "type": "string"
+        }
+    },
+    "required": ["id"],
+    "type": "object"
+}

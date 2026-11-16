@@ -1,4 +1,4 @@
-import { AnyPropertyFilter, PropertyFilterType } from '~/types'
+import { AnyPropertyFilter, PropertyFilterType, PropertyOperator } from '~/types'
 
 import type { CohortApi } from 'products/cohorts/frontend/generated/api.schemas'
 
@@ -19,6 +19,11 @@ export async function readCsvText(file: File): Promise<string> {
 export function defaultListCohortName(broadcastName: string, date: string): string {
     const name = broadcastName.trim()
     return `${name && name !== 'New broadcast' ? `${name} recipients` : 'Broadcast recipients'}, ${date}`
+}
+
+/** Whether a condition sends to a cohort's members, as opposed to excluding them. */
+export function isCohortInclusion(filter: AnyPropertyFilter): boolean {
+    return filter.type === PropertyFilterType.Cohort && filter.operator !== PropertyOperator.NotIn
 }
 
 /** The cohorts an audience filters on, once each. */

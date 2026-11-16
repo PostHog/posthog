@@ -31,6 +31,7 @@ import { PreflightStatus, PropertyDefinition, PropertyDefinitionType, Realm } fr
 import { MessageTemplate } from 'products/workflows/frontend/TemplateLibrary/types'
 
 import { registerEmailMediaLibrary } from './emailMediaLibrary'
+import { senderFrom } from './emailSenderFields'
 import type { EmailFieldErrors, EmailTemplate } from './types'
 
 export type { EmailTemplate }
@@ -48,6 +49,7 @@ export type EmailTemplaterType =
     | 'native_email'
     | 'native_email_template'
     | 'native_email_transactional_template'
+    | 'native_email_sandbox'
 export type EmailMetaFieldKey = 'from' | 'to' | 'replyTo' | 'cc' | 'bcc' | 'subject' | 'preheader'
 export type EmailMetaField = {
     key: EmailMetaFieldKey
@@ -105,6 +107,12 @@ export const EMAIL_TYPE_SUPPORTED_FIELDS: Record<EmailTemplaterType, EmailMetaFi
     native_email_template: [EMAIL_META_FIELDS.SUBJECT, EMAIL_META_FIELDS.PREHEADER],
     // The sender and reply-to are edited from the sender summary above these fields.
     native_email_transactional_template: [EMAIL_META_FIELDS.SUBJECT, EMAIL_META_FIELDS.PREHEADER],
+    native_email_sandbox: [
+        EMAIL_META_FIELDS.FROM,
+        EMAIL_META_FIELDS.TO,
+        EMAIL_META_FIELDS.SUBJECT,
+        EMAIL_META_FIELDS.PREHEADER,
+    ],
 }
 
 // Helping kea-typegen navigate the exported type
@@ -268,6 +276,10 @@ export function editorDesignForEmail(value: Pick<EmailTemplate, 'html' | 'design
 const EMAIL_EDITOR_URL_PARAM = 'editor'
 const EMAIL_EDITOR_URL_VALUE = 'email'
 
+export function withEmailEditorOpen(searchParams: Record<string, any>): Record<string, any> {
+    return { ...searchParams, [EMAIL_EDITOR_URL_PARAM]: EMAIL_EDITOR_URL_VALUE }
+}
+
 // A property name reads back as `person.properties.foo` only when it is a bare identifier. Anything
 // else (spaces, a leading $, punctuation) needs bracket access. Use single quotes, never double: a
 // double quote inside an HTML attribute like a link href ends the attribute and breaks the tag, and
@@ -414,6 +426,9 @@ export interface emailTemplaterLogicActions {
     applyTemplate: (template: MessageTemplate) => {
         template: MessageTemplate
     }
+    clearCustomSender: () => {
+        value: true
+    }
     closeWithConfirmation: () => {
         value: true
     }
@@ -421,6 +436,9 @@ export interface emailTemplaterLogicActions {
         value: true
     }
     designUpdated: () => {
+        value: true
+    }
+    flushPendingDesignEdit: () => {
         value: true
     }
     hideAdvancedField: (key: EmailMetaFieldKey) => {
@@ -571,6 +589,8 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
         designLoaded: true,
         applyTemplate: (template: MessageTemplate) => ({ template }),
         closeWithConfirmation: true,
+        flushPendingDesignEdit: true,
+        clearCustomSender: true,
         setTemplatingEngine: (templating: 'hog' | 'liquid') => ({ templating }),
         saveAsTemplate: (name: string, description: string) => ({ name, description }),
         setActiveContentTab: (tab: 'visual' | 'plaintext') => ({ tab }),
@@ -771,7 +791,7 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
         },
     })),
 
-    listeners(({ props, values, actions, cache }) => ({
+    listeners(({ props, values, actions, asyncActions, cache }) => ({
         // Person properties load after the editor starts, and the editor only reads its options once.
         loadPersonPropertyDefinitionsSuccess: () => {
             const mergeTags = buildMergeTags(values.personPropertyDefinitions, props.type, props.variables)
@@ -823,7 +843,11 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
             // While this is pending, the canvas may hold an edit the parent hasn't seen yet, so
             // propsChanged must not load an external design over it (the flag below guards that).
             cache.pendingDesignEdit = true
+            cache.designEdits = (cache.designEdits ?? 0) + 1
             await breakpoint(500)
+            if (!cache.pendingDesignEdit) {
+                return
+            }
 
             const editor = values.emailEditorRef?.editor
             if (!editor || !values.isEmailEditorReady) {
@@ -883,6 +907,18 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
             } as EmailTemplate)
         },
 
+        clearCustomSender: () => {
+            const from = { ...senderFrom(values.emailTemplate ?? {}), name: undefined, email: undefined }
+            if (values.isModalOpen && !props.liveChanges) {
+                // The modal keeps edits in the form until save.
+                actions.setEmailTemplateValue('from', from)
+                actions.setEmailTemplateValue('replyTo', '')
+                return
+            }
+            // One update: two setEmailTemplateValue calls each merge into the same stale props.value, so the second undoes the first.
+            actions.setEmailTemplateValues({ from, replyTo: '' })
+        },
+
         setIsModalOpen: ({ isModalOpen }) => {
             if (isModalOpen && props.value) {
                 // Plain text only when the email is genuinely text-only; a blank email starts visual.
@@ -930,32 +966,37 @@ export const emailTemplaterLogic = kea<emailTemplaterLogicType>([
                 })
                 return
             }
-            // A canvas edit made in the last 500ms is still inside designUpdated's debounce; closing
-            // unmounts the editor before it exports, silently dropping that edit. Flush it now,
-            // while the editor is still mounted. The debounced continuation then no-ops (or never
-            // resolves post-unmount), since lastEditorDesign already matches.
-            if (props.liveChanges && cache.pendingDesignEdit && values.isEmailEditorReady) {
-                const editor = values.emailEditorRef?.editor
-                if (editor) {
-                    const [htmlData, textData]: [{ html: string; design: JSONTemplate }, { text: string }] =
-                        await Promise.all([
-                            exportEditorHtml(editor),
-                            new Promise<any>((res) => editor.exportPlainText(res)),
-                        ])
-                    cache.pendingDesignEdit = false
-                    if (!objectsEqual(htmlData.design, cache.lastEditorDesign)) {
-                        cache.lastEditorDesign = htmlData.design
-                        cache.lastLoadedExternalDesign = null
-                        props.onChange({
-                            ...values.emailTemplate,
-                            html: props.type !== 'email' ? htmlData.html : escapeHTMLStringCurlies(htmlData.html),
-                            text: textData.text,
-                            design: htmlData.design,
-                        })
-                    }
+            await asyncActions.flushPendingDesignEdit()
+            actions.setIsModalOpen(false)
+        },
+
+        flushPendingDesignEdit: async () => {
+            const editor = values.emailEditorRef?.editor
+            if (!props.liveChanges || !values.isEmailEditorReady || !editor) {
+                return
+            }
+            while (cache.pendingDesignEdit) {
+                const editsBeforeExport = cache.designEdits
+                const [htmlData, textData]: [{ html: string; design: JSONTemplate }, { text: string }] =
+                    await Promise.all([
+                        exportEditorHtml(editor),
+                        new Promise<any>((res) => editor.exportPlainText(res)),
+                    ])
+                if (cache.designEdits !== editsBeforeExport) {
+                    continue
+                }
+                cache.pendingDesignEdit = false
+                if (!objectsEqual(htmlData.design, cache.lastEditorDesign)) {
+                    cache.lastEditorDesign = htmlData.design
+                    cache.lastLoadedExternalDesign = null
+                    props.onChange({
+                        ...values.emailTemplate,
+                        html: props.type !== 'email' ? htmlData.html : escapeHTMLStringCurlies(htmlData.html),
+                        text: textData.text,
+                        design: htmlData.design,
+                    })
                 }
             }
-            actions.setIsModalOpen(false)
         },
 
         saveAsTemplate: async ({ name, description }) => {

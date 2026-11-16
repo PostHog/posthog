@@ -39,5 +39,7 @@ def _load_primary_metric(experiment: Experiment) -> PrimaryMetric | None:
         target=running_time_target(
             experiment, team_config=team_config, calculation_config=calculation_config, response=response
         ),
-        result=MetricResultStats.from_response(response) if is_funnel and response is not None else None,
+        result=MetricResultStats.from_response(response, is_quantile=False)
+        if is_funnel and response is not None
+        else None,
     )

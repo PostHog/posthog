@@ -905,7 +905,8 @@ export const SettingsForMember: Story = {
             )
         ).toBeVisible()
         await expect(await canvas.findByText('example-org/web')).toBeVisible()
-        await expect(canvas.queryByText('Include in project')).not.toBeInTheDocument()
+        await expect(canvas.getAllByText('Include in project').length).toBeGreaterThan(0)
+        await expect(canvas.queryByText('Remove from project')).not.toBeInTheDocument()
         await expect(canvas.queryByLabelText('Add exception for example-org/docs')).not.toBeInTheDocument()
     },
 }

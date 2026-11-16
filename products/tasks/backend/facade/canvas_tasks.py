@@ -6,6 +6,7 @@ from django.db import transaction
 from products.tasks.backend.facade import api
 from products.tasks.backend.facade.contracts import TaskRunDTO
 from products.tasks.backend.models import Channel, Task
+from products.tasks.backend.task_profiles import USER
 from products.tasks.backend.task_sources import idempotency_key_q
 
 
@@ -52,6 +53,7 @@ def create_and_run_channel_task(
                     "description": description,
                     "channel": channel,
                     "origin_key": origin_key,
+                    "profile": USER.key,
                 },
             )
             result = api.run_task(task.id, team_id, user_id, validated_data=run_options)

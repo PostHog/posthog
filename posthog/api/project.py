@@ -84,6 +84,7 @@ from posthog.exceptions import Conflict
 from posthog.filters import PhraseSearchFilter
 from posthog.geoip import get_geoip_properties
 from posthog.helpers.impersonation import is_impersonated
+from posthog.ip_restrictions import enforce_ip_restrictions, get_ip_blocked_organization_ids
 from posthog.models import User
 from posthog.models.activity_logging.activity_log import (
     ActivityLog,
@@ -1284,6 +1285,7 @@ class ProjectBackwardCompatSerializer(
         )
 
         request.user.current_team = team
+        request.user.current_organization_id = team.organization_id
         request.user.team = request.user.current_team  # Update cached property
         request.user.save()
 
@@ -1589,6 +1591,8 @@ class ProjectViewSet(
         # IMPORTANT: This is actually what ensures that a user cannot read/update a project for which they don't have permission
         visible_teams_ids = UserPermissions(cast(User, self.request.user)).team_ids_visible_for_user
         queryset = queryset.filter(id__in=visible_teams_ids)
+        if self.action == "list":
+            queryset = queryset.exclude(organization_id__in=get_ip_blocked_organization_ids(self.request))
         if scoped_organizations := get_authenticator_scoped_organization_ids(self.request.successful_authenticator):
             queryset = queryset.filter(organization_id__in=scoped_organizations)
         queryset = project_tags.filter_queryset(queryset, self.request.query_params)
@@ -2296,6 +2300,9 @@ class ProjectViewSet(
             if project.organization_id == target_organization.id:
                 raise exceptions.ValidationError("Project is already in the target organization.")
 
+            enforce_ip_restrictions(
+                request, user, request.successful_authenticator, organization_id=str(target_organization.id)
+            )
             teams = list(project.teams.all())
             was_impersonated = is_impersonated(request)
             project_change = Change(
