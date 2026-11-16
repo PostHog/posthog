@@ -351,7 +351,13 @@ describe('ImplementButton', () => {
             await expectLogic(detail).toFinishAllListeners()
             const task = mockTask('implementation-task', status)
             detail.actions.loadReportTasksSuccess([
-                { task, purpose: 'implementation', purposeLabel: 'Implementation', startedAt: task.created_at },
+                {
+                    task,
+                    purpose: 'implementation',
+                    purposeLabel: 'Implementation',
+                    startedAt: task.created_at,
+                    discussion: null,
+                },
             ])
             render(
                 <ImplementButton

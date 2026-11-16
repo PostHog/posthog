@@ -270,6 +270,71 @@ describe('inboxReportDetailLogic', () => {
         }
     )
 
+    it('keeps the opening question, intent, and asker of a discussion on its task entry', async () => {
+        const asker = { id: 7, uuid: 'asker-uuid', distinct_id: 'asker', first_name: 'Ada', email: 'ada@example.com' }
+        useMocks({
+            get: {
+                '/api/projects/:team_id/signals/reports/:id/feedback_state/': { sentiment: null, note: '' },
+                '/api/projects/:team_id/signals/reports/:id/artefacts/': {
+                    results: [
+                        {
+                            id: 'discussion-second-run',
+                            type: 'task_run',
+                            content: { task_id: 'discussion', product: 'signals', type: 'discussion', run_id: 'r2' },
+                            created_at: '2026-01-01T02:00:00Z',
+                        },
+                        {
+                            id: 'discussion-opened',
+                            type: 'task_run',
+                            content: {
+                                task_id: 'discussion',
+                                product: 'signals',
+                                type: 'discussion',
+                                question: 'Get this PR merged',
+                                intent: 'merge_pr',
+                            },
+                            created_at: '2026-01-01T01:00:00Z',
+                        },
+                        {
+                            id: 'implementation',
+                            type: 'task_run',
+                            content: { task_id: 'implementation', product: 'signals', type: 'implementation' },
+                            created_at: '2026-01-01T00:00:00Z',
+                        },
+                    ],
+                },
+                '/api/projects/:team_id/signals/reports/:id/signals/': { signals: [] },
+                '/api/projects/:team_id/signals/reports/:id/checks/': { results: [] },
+                '/api/projects/:team_id/signals/reports/available_reviewers/': [],
+                '/api/projects/:team_id/tasks/:id/': (req) => [
+                    200,
+                    {
+                        id: req.params.id,
+                        created_by: asker,
+                        latest_run: { id: 'run', status: TaskRunStatus.COMPLETED },
+                    },
+                ],
+            },
+        })
+        initKeaTests()
+        const logic = inboxReportDetailLogic({ reportId: REPORT.id, report: REPORT })
+        logic.mount()
+        try {
+            await expectLogic(logic).toFinishAllListeners()
+            expect(
+                logic.values.reportTasks?.map((entry) => ({ id: entry.task.id, discussion: entry.discussion }))
+            ).toEqual([
+                {
+                    id: 'discussion',
+                    discussion: { question: 'Get this PR merged', intent: 'merge_pr', askedBy: asker },
+                },
+                { id: 'implementation', discussion: null },
+            ])
+        } finally {
+            logic.unmount()
+        }
+    })
+
     describe('report editing', () => {
         let logic: ReturnType<typeof inboxReportDetailLogic.build>
 

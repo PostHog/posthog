@@ -6,6 +6,7 @@ import { isObject } from 'lib/utils/guards'
 import { identifierToHuman } from 'lib/utils/strings'
 
 import type { ReportMetricApi } from 'products/signals/frontend/generated/api.schemas'
+import type { ReportDiscussionIntentEnumApi } from 'products/tasks/frontend/generated/api.schemas'
 
 import { SignalReportArtefact } from '../../types'
 
@@ -42,6 +43,10 @@ export interface TaskRunArtefactContent {
     run_id?: string | null
     product: string
     type: string
+    /** What the person asked when they started a discussion from the report. */
+    question?: string | null
+    /** The Ask AI action that framed a discussion. Absent for a question the person wrote. */
+    intent?: ReportDiscussionIntentEnumApi | null
 }
 
 export interface NoteContent {

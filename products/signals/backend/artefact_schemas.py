@@ -38,7 +38,12 @@ from pydantic import (
 )
 
 from products.signals.backend.credential_redaction import redact_credentials
-from products.signals.backend.enums import ReportLinkKind, ReportPriority, SuggestedSourceProduct
+from products.signals.backend.enums import (
+    ReportDiscussionIntent,
+    ReportLinkKind,
+    ReportPriority,
+    SuggestedSourceProduct,
+)
 from products.signals.backend.report_checks import CheckComparison, CheckInconclusiveReason, CheckOutcome
 from products.signals.backend.report_metrics import MAX_METRIC_UNIT_LENGTH, ReportMetricValueFormat
 from products.tasks.backend.facade.repo_selection_types import RepoSelectionResult
@@ -714,6 +719,10 @@ class Commit(BaseModel):
         return v
 
 
+# Matches the `signal_report_discussion_question` cap on task creation.
+TASK_RUN_QUESTION_MAX_LENGTH = 4_000
+
+
 class TaskRunArtefact(BaseModel):
     """Content schema for a `task_run` artefact: a reference to a `tasks.Task` run executed for
     the report (research, implementation, …), surfaced as an entry in the report work log.
@@ -737,6 +746,17 @@ class TaskRunArtefact(BaseModel):
     type: str = Field(
         description="Task type within the product — e.g. `research` / `implementation` / `repo_selection` "
         "for the signals pipeline, or a custom agent's type identifier."
+    )
+    question: str | None = Field(
+        default=None,
+        max_length=TASK_RUN_QUESTION_MAX_LENGTH,
+        description="What the person asked when they started this discussion from the report. Absent on other "
+        "runs, and on discussions from clients that send no question.",
+    )
+    intent: ReportDiscussionIntent | None = Field(
+        default=None,
+        description="The Ask AI action that framed this discussion, such as `merge_pr`. Absent when the person "
+        "wrote the question themselves.",
     )
 
     @field_validator("task_id")

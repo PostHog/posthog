@@ -29,6 +29,7 @@ function entry(
         purpose: purposeLabel === 'Implementation' ? 'implementation' : 'research',
         purposeLabel,
         startedAt: '2026-09-20T09:00:00Z',
+        discussion: null,
     }
 }
 

@@ -8484,6 +8484,9 @@ def create_task(
     # The relationship the client asserted (validated by the serializer, which rejects `research`).
     # Popped so it isn't forwarded to the model; the link itself is recorded by record_report_task below.
     signal_report_task_relationship = validated_data.pop("signal_report_task_relationship", None)
+    # Kept on the report's work-log entry for a discussion, never on the task.
+    discussion_question = validated_data.pop("signal_report_discussion_question", None)
+    discussion_intent = validated_data.pop("signal_report_discussion_intent", None)
     signal_report = validated_data.get("signal_report")
     report_discussion = (
         validated_data["origin_product"] == Task.OriginProduct.SIGNAL_REPORT
@@ -8588,6 +8591,8 @@ def create_task(
                     warm_task,
                     relationship=signal_report_task_relationship,
                     description=validated_data.get("description"),
+                    question=discussion_question,
+                    intent=discussion_intent,
                 )
                 if report_discussion
                 else None
@@ -8851,6 +8856,8 @@ def create_task(
                 report_id=str(task.signal_report_source_id),
                 task_id=str(task.id),
                 relationship=signal_report_task_relationship,
+                question=discussion_question if report_discussion else None,
+                intent=discussion_intent if report_discussion else None,
             )
 
     # Only an override is a change. The inherited case is already counted by `task_created`.
@@ -9872,7 +9879,13 @@ def _report_task_github_integration_id(team: Team, *, code_access_allowed: bool)
 
 
 def _reserve_report_warm_activation(
-    team: Team, task: Task, *, relationship: str | None, description: str | None = None
+    team: Team,
+    task: Task,
+    *,
+    relationship: str | None,
+    description: str | None = None,
+    question: str | None = None,
+    intent: str | None = None,
 ) -> str:
     from products.signals.backend.facade.report_tasks import (  # noqa: PLC0415 — cross-product write kept off the api import path
         enforce_report_task_cap,
@@ -9892,7 +9905,12 @@ def _reserve_report_warm_activation(
             created_by_id=task.created_by_id,
         )
         return record_report_task(
-            team_id=task.team_id, report_id=report_id, task_id=str(task.id), relationship=relationship
+            team_id=task.team_id,
+            report_id=report_id,
+            task_id=str(task.id),
+            relationship=relationship,
+            question=question,
+            intent=intent,
         )
 
 

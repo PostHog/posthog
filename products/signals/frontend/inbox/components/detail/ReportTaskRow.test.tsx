@@ -22,6 +22,7 @@ function entry(taskSummary: string | null): ReportTaskEntry {
         purpose: 'implementation',
         purposeLabel: 'Implementation',
         startedAt: '2026-09-20T09:00:00Z',
+        discussion: null,
     }
 }
 

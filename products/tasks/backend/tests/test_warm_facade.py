@@ -874,6 +874,8 @@ class TestCreateTaskWarmReuse(APIBaseTest):
             "origin_product": Task.OriginProduct.SIGNAL_REPORT,
             "signal_report": report,
             "signal_report_task_relationship": relationship,
+            "signal_report_discussion_question": "Why did signups drop last week?",
+            "signal_report_discussion_intent": "check_metrics",
             "branch": None,
         }
         return facade.create_task(
@@ -887,7 +889,8 @@ class TestCreateTaskWarmReuse(APIBaseTest):
         ]
     )
     def test_report_discussion_create_activates_the_report_warm_and_links_it(self, _name, entitled):
-        from products.signals.backend.models import SignalReport
+        from products.signals.backend.artefact_schemas import TaskRunArtefact
+        from products.signals.backend.models import SignalReport, SignalReportArtefact
 
         report = SignalReport.objects.create(team=self.team)
         warm_task, _run = self._report_warm_run(report, github_integration=self.integration if entitled else None)
@@ -904,6 +907,10 @@ class TestCreateTaskWarmReuse(APIBaseTest):
         mock_signal.assert_called_once()
         linked = SignalReport.associated_task_runs(report_id=str(report.id), team_id=self.team.id, product="signals")
         assert [(run.type, str(run.task_id)) for run in linked] == [("discussion", str(warm_task.id))]
+        work_log_entry = TaskRunArtefact.model_validate_json(
+            SignalReportArtefact.objects.get(report=report, type=SignalReportArtefact.ArtefactType.TASK_RUN).content
+        )
+        assert (work_log_entry.question, work_log_entry.intent) == ("Why did signups drop last week?", "check_metrics")
 
     @parameterized.expand(
         [

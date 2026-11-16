@@ -107796,6 +107796,22 @@ export namespace Schemas {
     }
 
     /**
+     * * `check_metrics` - Check metrics
+     * * `merge_pr` - Get it merged
+     * * `fix_ci` - Make it green
+     * * `resolve_conflicts` - Resolve conflicts
+     */
+    export type ReportDiscussionIntentEnum = typeof ReportDiscussionIntentEnum[keyof typeof ReportDiscussionIntentEnum];
+
+
+    export const ReportDiscussionIntentEnum = {
+      CheckMetrics: 'check_metrics',
+      MergePr: 'merge_pr',
+      FixCi: 'fix_ci',
+      ResolveConflicts: 'resolve_conflicts',
+    } as const;
+
+    /**
      * * `authored` - Authored
      * * `edited` - Edited
      */
@@ -120415,10 +120431,17 @@ export namespace Schemas {
       /** Create the first cloud run. It starts immediately unless scheduled_at is set. */
       start_run?: boolean;
       /**
-         * Question to forward to the signal report's scout when creating a discussion task. Send an empty string when there is no question. Omit only for older clients that embed the question in the task description. Not persisted on the task.
+         * Question to forward to the signal report's scout when creating a discussion task. Send an empty string when there is no question. Omit only for older clients that embed the question in the task description. Kept on the report's work-log entry for the task, not on the task.
          * @maxLength 4000
          */
       signal_report_discussion_question?: string;
+      /** The Ask AI action that framed a signal report discussion task, such as `merge_pr`. Send null or omit it when the person wrote the question. Kept on the report's work-log entry for the task, not on the task.
+       *
+       * * `check_metrics` - Check metrics
+       * * `merge_pr` - Get it merged
+       * * `fix_ci` - Make it green
+       * * `resolve_conflicts` - Resolve conflicts */
+      signal_report_discussion_intent?: ReportDiscussionIntentEnum | null;
       /** Text the server generates the title from instead of `description`. Lets a client whose `description` is only an attachment summary (e.g. pasted text stored as a file) supply the real content for naming, so `description` (the prompt passed to the agent) stays unchanged. Not persisted. */
       naming_source?: string;
       /**

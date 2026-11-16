@@ -15,7 +15,6 @@ from __future__ import annotations
 import re
 from collections.abc import Callable
 from datetime import timedelta
-from enum import StrEnum
 from functools import cached_property
 
 from django.utils import timezone
@@ -29,7 +28,7 @@ from posthog.models.integration import GitHubIntegration
 from posthog.utils import absolute_uri
 
 from products.signals.backend.artefact_schemas import SIGNALS_PRODUCT, TASK_RUN_TYPE_DISCUSSION
-from products.signals.backend.enums import ReportTaskActionKind
+from products.signals.backend.enums import ReportDiscussionIntent, ReportTaskActionKind
 from products.signals.backend.implementation_pr import ImplementationPr, fetch_implementation_prs_for_reports
 from products.signals.backend.models import SignalReport, SignalReportArtefact
 from products.signals.backend.pr_ci_status import any_conflicting, pr_ci_statuses_for_references, rollup_ci_status
@@ -64,14 +63,6 @@ FALLBACK_RUNTIME_SELECTION: dict[str, str] = {
     "model": "claude-opus-5-5",
     "reasoning_effort": "high",
 }
-
-
-# pinned: analytics property values. `question_intent` and `question_source` match what the inbox
-# sends on `Inbox report action`, so runs from both surfaces read as one series.
-class ReportDiscussionIntent(StrEnum):
-    MERGE_PR = "merge_pr"
-    FIX_CI = "fix_ci"
-    RESOLVE_CONFLICTS = "resolve_conflicts"
 
 
 # --- Text ported from `inboxTaskKickoffLogic.ts`. Keep it byte-identical. ---
@@ -512,7 +503,13 @@ def runtime_selection(*, team_id: int, user_id: int) -> dict[str, str]:
     return dict(FALLBACK_RUNTIME_SELECTION)
 
 
-def task_create_data(report: SignalReport, prompt: str) -> dict:
+def task_create_data(
+    report: SignalReport,
+    prompt: str,
+    *,
+    question: str | None = None,
+    intent: ReportDiscussionIntent | None = None,
+) -> dict:
     """The task fields the inbox sends for a discussion, as validated data for the tasks facade."""
     return {
         # A report title can be longer than a task title allows.
@@ -522,6 +519,8 @@ def task_create_data(report: SignalReport, prompt: str) -> dict:
         "profile": INBOX.key,
         "signal_report": report,
         "signal_report_task_relationship": TASK_RUN_TYPE_DISCUSSION,
+        "signal_report_discussion_question": question,
+        "signal_report_discussion_intent": intent.value if intent is not None else None,
     }
 
 
@@ -562,7 +561,7 @@ def start_report_task_action(
     result = tasks_facade.create_task_and_run(
         context.team.id,
         context.user.id,
-        validated_data=task_create_data(report, prompt),
+        validated_data=task_create_data(report, prompt, question=action.question, intent=action.intent),
         run_data=task_run_data(report=report, prompt=prompt, user_id=context.user.id),
         code_access_allowed=code_access_allowed,
     )

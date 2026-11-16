@@ -23,6 +23,7 @@ from pydantic import ValidationError
 
 from products.signals.backend.artefact_schemas import (
     SIGNALS_PRODUCT,
+    TASK_RUN_QUESTION_MAX_LENGTH,
     TASK_RUN_TYPE_DISCUSSION,
     TASK_RUN_TYPE_IMPLEMENTATION,
     TASK_RUN_TYPE_REPO_SELECTION,
@@ -32,6 +33,7 @@ from products.signals.backend.artefact_schemas import (
     TaskRunArtefact,
 )
 from products.signals.backend.billing import mark_report_billing_exempt, report_has_implementation_pr
+from products.signals.backend.enums import ReportDiscussionIntent
 from products.signals.backend.models import ArtefactAttribution, SignalReport, SignalReportArtefact, SignalReportTask
 from products.signals.backend.report_assignments import ReportClaimConflict, claim_report_for_task, release_claim
 from products.signals.backend.report_claims import get_active_claim, is_claim_of_person, is_claim_of_task_creator
@@ -106,17 +108,34 @@ class ReportTaskCapExceeded(Exception):
         self.detail = detail
 
 
-def _task_run_content(product: str, type: str, task_id: str, run_id: str | None) -> TaskRunArtefact:
+def _task_run_content(
+    product: str,
+    type: str,
+    task_id: str,
+    run_id: str | None,
+    question: str | None = None,
+    intent: ReportDiscussionIntent | None = None,
+) -> TaskRunArtefact:
     return TaskRunArtefact(
         task_id=str(task_id),
         run_id=str(run_id) if run_id is not None else None,
         product=product,
         type=type,
+        question=(question or "").strip()[:TASK_RUN_QUESTION_MAX_LENGTH] or None,
+        intent=intent,
     )
 
 
 def append_task_run_artefact(
-    *, team_id: int, report_id: str, product: str, type: str, task_id: str, run_id: str | None = None
+    *,
+    team_id: int,
+    report_id: str,
+    product: str,
+    type: str,
+    task_id: str,
+    run_id: str | None = None,
+    question: str | None = None,
+    intent: ReportDiscussionIntent | None = None,
 ) -> SignalReportArtefact:
     """Append a `task_run` log artefact recording that a task ran for the report (sync).
 
@@ -125,7 +144,7 @@ def append_task_run_artefact(
     return SignalReportArtefact.add_log(
         team_id=team_id,
         report_id=str(report_id),
-        content=_task_run_content(product, type, task_id, run_id),
+        content=_task_run_content(product, type, task_id, run_id, question, intent),
         attribution=ArtefactAttribution.from_task(task_id),
     )
 
@@ -488,7 +507,14 @@ def record_implementation_task(
 
 
 def record_report_task(
-    *, team_id: int, report_id: str, task_id: str, relationship: str | None = None, run_id: str | None = None
+    *,
+    team_id: int,
+    report_id: str,
+    task_id: str,
+    relationship: str | None = None,
+    run_id: str | None = None,
+    question: str | None = None,
+    intent: ReportDiscussionIntent | None = None,
 ) -> SignalReportArtefact:
     """Record a task↔report association a client asserted when creating a task from the report.
 
@@ -496,6 +522,9 @@ def record_report_task(
     `SignalReportTask` gate row that guards auto-start spend, via `record_implementation_task`. Every
     other relationship records only the `task_run` work-log artefact under `product="signals"`
     (`research` never reaches here — it is created solely by the server-side research pipeline).
+
+    `question` and `intent` describe what a person asked for when they opened a discussion. An
+    implementation does not keep them.
     """
     if relationship is None or relationship == TASK_RUN_TYPE_IMPLEMENTATION:
         return record_implementation_task(team_id=team_id, report_id=report_id, task_id=task_id, run_id=run_id)
@@ -506,6 +535,8 @@ def record_report_task(
         type=relationship,
         task_id=task_id,
         run_id=run_id,
+        question=question,
+        intent=intent,
     )
 
 

@@ -780,7 +780,20 @@ export const TasksCreateBody = /* @__PURE__ */ zod.object({
         .max(tasksCreateBodySignalReportDiscussionQuestionMax)
         .optional()
         .describe(
-            "Question to forward to the signal report's scout when creating a discussion task. Send an empty string when there is no question. Omit only for older clients that embed the question in the task description. Not persisted on the task."
+            "Question to forward to the signal report's scout when creating a discussion task. Send an empty string when there is no question. Omit only for older clients that embed the question in the task description. Kept on the report's work-log entry for the task, not on the task."
+        ),
+    signal_report_discussion_intent: zod
+        .union([
+            zod
+                .enum(['check_metrics', 'merge_pr', 'fix_ci', 'resolve_conflicts'])
+                .describe(
+                    '\* `check_metrics` - Check metrics\n\* `merge_pr` - Get it merged\n\* `fix_ci` - Make it green\n\* `resolve_conflicts` - Resolve conflicts'
+                ),
+            zod.null(),
+        ])
+        .optional()
+        .describe(
+            "The Ask AI action that framed a signal report discussion task, such as `merge_pr`. Send null or omit it when the person wrote the question. Kept on the report's work-log entry for the task, not on the task.\n\n\* `check_metrics` - Check metrics\n\* `merge_pr` - Get it merged\n\* `fix_ci` - Make it green\n\* `resolve_conflicts` - Resolve conflicts"
         ),
     naming_source: zod
         .string()

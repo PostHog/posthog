@@ -363,6 +363,7 @@ const TasksCreateSchema = () => {
         warm_run_id: true,
         start_run: true,
         signal_report_discussion_question: true,
+        signal_report_discussion_intent: true,
         naming_source: true,
         sandbox_environment_id: true,
         custom_image_id: true,

@@ -144,12 +144,22 @@ export interface InboxReportDetailLogicProps {
     report?: SignalReport | null
 }
 
+/** What a person asked for when they started a discussion task from the report. */
+export interface ReportTaskDiscussion {
+    question: string | null
+    /** The Ask AI action that framed the run, or `null` for a question the person wrote. */
+    intent: ReportDiscussionIntent | null
+    askedBy: Task['created_by']
+}
+
 /** A linked task plus its derived purpose and when the association was first recorded. Mirrors desktop `ReportTaskData`. */
 export interface ReportTaskEntry {
     task: Task
     purpose: ReportTaskPurpose
     purposeLabel: string
     startedAt: string
+    /** `null` unless the task's first association recorded a question or an intent. */
+    discussion: ReportTaskDiscussion | null
 }
 
 /**
@@ -1064,6 +1074,8 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
                             startedAt: string
                             latestRunId?: string | null
                             latestRunAt: string
+                            question: string | null
+                            intent: ReportDiscussionIntent | null
                         }
                     >()
                     for (const artefact of artefacts) {
@@ -1079,18 +1091,21 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
                             continue
                         }
                         const existing = associations.get(content.task_id)
+                        const opening = { question: content.question ?? null, intent: content.intent ?? null }
                         if (!existing) {
                             associations.set(content.task_id, {
                                 ...derived,
+                                ...opening,
                                 startedAt: artefact.created_at,
                                 latestRunId: content.run_id,
                                 latestRunAt: artefact.created_at,
                             })
                         } else if (artefact.created_at < existing.startedAt) {
-                            // Keep the earliest association's timestamp + purpose for this task.
+                            // Keep the earliest association's timestamp, purpose, and opening question for this task.
                             associations.set(content.task_id, {
                                 ...existing,
                                 ...derived,
+                                ...opening,
                                 startedAt: artefact.created_at,
                             })
                         } else if (artefact.created_at > existing.latestRunAt) {
@@ -1103,30 +1118,37 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
                     }
                     let incomplete = false
                     const entries = await Promise.all(
-                        [...associations.entries()].map(async ([taskId, meta]): Promise<ReportTaskEntry | null> => {
-                            const cached = values.reportTasks?.find((entry) => entry.task.id === taskId)
-                            const snapshot = snapshots.get(taskId)
-                            if (
-                                values.report?.status === SignalReportStatus.MONITORING &&
-                                cached?.task.latest_run &&
-                                TERMINAL_RUN_STATUSES.includes(cached.task.latest_run.status) &&
-                                snapshot?.artefactRunId === meta.latestRunId &&
-                                Date.now() - (snapshot?.fetchedAt ?? -Infinity) < TERMINAL_TASK_CACHE_TTL_MS
-                            ) {
-                                return { task: cached.task, ...meta }
-                            }
-                            try {
-                                const task = await api.tasks.get(taskId)
-                                snapshots.set(taskId, { fetchedAt: Date.now(), artefactRunId: meta.latestRunId })
-                                return { task, ...meta }
-                            } catch (error) {
-                                // A deleted/inaccessible task drops out of the list rather than failing the load.
-                                if (!(error instanceof ApiError && (error.status === 403 || error.status === 404))) {
-                                    incomplete = true
+                        [...associations.entries()].map(
+                            async ([taskId, association]): Promise<ReportTaskEntry | null> => {
+                                const { question, intent, ...meta } = association
+                                const reportTaskDiscussion = (task: Task): ReportTaskDiscussion | null =>
+                                    question || intent ? { question, intent, askedBy: task.created_by } : null
+                                const cached = values.reportTasks?.find((entry) => entry.task.id === taskId)
+                                const snapshot = snapshots.get(taskId)
+                                if (
+                                    values.report?.status === SignalReportStatus.MONITORING &&
+                                    cached?.task.latest_run &&
+                                    TERMINAL_RUN_STATUSES.includes(cached.task.latest_run.status) &&
+                                    snapshot?.artefactRunId === meta.latestRunId &&
+                                    Date.now() - (snapshot?.fetchedAt ?? -Infinity) < TERMINAL_TASK_CACHE_TTL_MS
+                                ) {
+                                    return { task: cached.task, ...meta, discussion: reportTaskDiscussion(cached.task) }
                                 }
-                                return null
+                                try {
+                                    const task = await api.tasks.get(taskId)
+                                    snapshots.set(taskId, { fetchedAt: Date.now(), artefactRunId: meta.latestRunId })
+                                    return { task, ...meta, discussion: reportTaskDiscussion(task) }
+                                } catch (error) {
+                                    // A deleted/inaccessible task drops out of the list rather than failing the load.
+                                    if (
+                                        !(error instanceof ApiError && (error.status === 403 || error.status === 404))
+                                    ) {
+                                        incomplete = true
+                                    }
+                                    return null
+                                }
                             }
-                        })
+                        )
                     )
                     // Other failures can be transient. Sidebar alignment waits for a load that has every task.
                     cache.reportTasksIncomplete = incomplete

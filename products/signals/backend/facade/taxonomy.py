@@ -3,13 +3,14 @@
 from typing import TYPE_CHECKING
 
 from products.signals.backend.artefact_attribution import ArtefactAttribution
-from products.signals.backend.enums import ReportPriority, SignalSourceProduct, SignalSourceType
+from products.signals.backend.enums import ReportDiscussionIntent, ReportPriority, SignalSourceProduct, SignalSourceType
 
 if TYPE_CHECKING:
     from products.signals.backend.contracts import SignalRemediation
 
 __all__ = [
     "ArtefactAttribution",
+    "ReportDiscussionIntent",
     "ReportPriority",
     "SignalRemediation",
     "SignalSourceProduct",

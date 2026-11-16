@@ -270,6 +270,7 @@ describe('inboxTaskKickoffLogic', () => {
                     expect(createdTasks[0]).toMatchObject({
                         description: expect.stringContaining('- insight insight-one ("Conversion rate")'),
                         signal_report_discussion_question: 'Explain the recommendation',
+                        signal_report_discussion_intent: null,
                         branch: null,
                         model: 'claude-opus-5-5',
                     })
@@ -302,18 +303,24 @@ describe('inboxTaskKickoffLogic', () => {
         )
 
         it('sends app-built instructions to the agent but only the reader text as the question', async () => {
+            featureFlagLogic.actions.setFeatureFlags([], {
+                [FEATURE_FLAGS.PHAI_SANDBOX_MODE]: true,
+                [FEATURE_FLAGS.SIGNALS_REPORT_MONITORING]: true,
+            })
             await expectLogic(logic, () =>
                 logic.actions.discussReport(
                     report,
                     'https://example.com/report',
                     'Fewer failed checkouts',
-                    "Propose a goal. The user's idea: Fewer failed checkouts"
+                    "Propose a goal. The user's idea: Fewer failed checkouts",
+                    'check_metrics'
                 )
             ).toFinishAllListeners()
 
             expect(createdTasks[0]).toMatchObject({
                 description: expect.stringContaining("Propose a goal. The user's idea: Fewer failed checkouts"),
                 signal_report_discussion_question: 'Fewer failed checkouts',
+                signal_report_discussion_intent: 'check_metrics',
             })
         })
 

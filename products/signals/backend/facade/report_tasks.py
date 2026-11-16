@@ -11,6 +11,7 @@ from products.signals.backend import (
     task_run_artefacts,
     tracker_issues,
 )
+from products.signals.backend.enums import ReportDiscussionIntent
 from products.signals.backend.models import SignalReport, SignalReportArtefact
 from products.signals.backend.task_run_artefacts import ReportTaskCapExceeded
 
@@ -57,10 +58,27 @@ def enforce_report_task_cap(
     )
 
 
-def record_report_task(*, team_id: int, report_id: str, task_id: str, relationship: str | None = None) -> str:
-    """Record that the task belongs to the report. Return the id of the work-log artefact it writes."""
+def record_report_task(
+    *,
+    team_id: int,
+    report_id: str,
+    task_id: str,
+    relationship: str | None = None,
+    question: str | None = None,
+    intent: str | None = None,
+) -> str:
+    """Record that the task belongs to the report. Return the id of the work-log artefact it writes.
+
+    A discussion keeps the person's `question` and the Ask AI `intent` that framed it, a
+    `ReportDiscussionIntent` value or `None` for a question the person wrote.
+    """
     artefact = task_run_artefacts.record_report_task(
-        team_id=team_id, report_id=report_id, task_id=task_id, relationship=relationship
+        team_id=team_id,
+        report_id=report_id,
+        task_id=task_id,
+        relationship=relationship,
+        question=question,
+        intent=ReportDiscussionIntent(intent) if intent else None,
     )
     return str(artefact.id)
 

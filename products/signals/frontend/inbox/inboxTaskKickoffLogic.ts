@@ -43,6 +43,7 @@ import {
     ClaudeRuntimeAdapterEnumApi,
     ClaudeTaskRunCreateSchemaApi,
     ReasoningEffortEnumApi,
+    ReportDiscussionIntentEnumApi,
     RunSourceEnumApi,
     TaskCreateApi,
     TaskExecutionModeEnumApi,
@@ -202,7 +203,7 @@ export function isActionCapableReport(report: SignalReport): boolean {
 }
 
 /** Why Ask AI got the question: a dedicated surface that frames the run for one job. */
-export type ReportDiscussionIntent = 'check_metrics' | 'merge_pr' | 'fix_ci' | 'resolve_conflicts'
+export type ReportDiscussionIntent = ReportDiscussionIntentEnumApi
 
 /** What "Get it merged" in the Ask AI menu sends. The chat shows it as the person's own message. */
 export const MERGE_PR_REQUEST = `Get this approved PR merged. Fix failing CI and resolve any merge conflicts, then use the repository's merge process. Ask me before you make a decision I did not make.`
@@ -386,6 +387,7 @@ async function createReportTask(
     fallbackTitle: string,
     runtimeSelection: ReportRuntimeSelection,
     discussionQuestion?: string,
+    discussionIntent?: ReportDiscussionIntent,
     warmLease: ReportWarmLease | null = null,
     matchWarmRun: boolean = true
 ): Promise<{ taskId: string; runId: string }> {
@@ -400,6 +402,7 @@ async function createReportTask(
         ...(isDiscussion
             ? {
                   signal_report_discussion_question: discussionQuestion?.trim() ?? '',
+                  signal_report_discussion_intent: discussionIntent ?? null,
                   // The backend claims a matching warm run when `branch` is present.
                   ...(matchWarmRun ? { branch: null } : {}),
                   ...runtimeSelection,
@@ -1118,6 +1121,7 @@ export const inboxTaskKickoffLogic = kea<inboxTaskKickoffLogicType>([
                     'Ask AI about report',
                     await launchSelection(values),
                     question,
+                    intent,
                     warmLease,
                     !background
                 )

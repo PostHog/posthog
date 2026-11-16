@@ -8,6 +8,7 @@ from rest_framework import status
 
 from posthog.models.github_integration_base import PullRequestCiStatus
 
+from products.signals.backend.artefact_schemas import TaskRunArtefact
 from products.signals.backend.models import SignalReport, SignalReportArtefact, SignalReportPullRequest
 from products.signals.backend.report_task_actions import (
     FIX_CI_REQUEST,
@@ -230,6 +231,12 @@ class TestReportTaskActionsAPI(APIBaseTest):
         assert "Do not merge the pull request, do not add it to a merge queue" in task.description
         assert capture.call_args.args[2]["question_intent"] == "fix_ci"
         assert capture.call_args.args[2]["report_action"] == "make_it_green"
+        work_log_entry = TaskRunArtefact.model_validate_json(
+            SignalReportArtefact.objects.get(
+                report=report, task_id=task.id, type=SignalReportArtefact.ArtefactType.TASK_RUN
+            ).content
+        )
+        assert (work_log_entry.question, work_log_entry.intent) == (FIX_CI_REQUEST, "fix_ci")
 
         # Every PR action pushes to the same branch, so each kind refuses while another works.
         for action in ("make_it_green", "get_it_merged", "resolve_conflicts"):

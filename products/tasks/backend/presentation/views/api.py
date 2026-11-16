@@ -938,7 +938,7 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                 return limit_response
             run_data = {**run_data, **self._sandbox_run_data(sandbox_starter)}
 
-        discussion_question = validated_data.pop("signal_report_discussion_question", None)
+        discussion_question = validated_data.get("signal_report_discussion_question")
 
         # Inbox "Discuss" runs repo-less so the generally-available Inbox never 403s a caller the
         # Desktop gate refuses. An entitled caller gets the shape a normal cloud task has instead: a

@@ -3466,6 +3466,44 @@ class TestTaskAPI(BaseTaskAPITest):
         self.assertEqual(signals_task_ids(report_id=str(report.id), type=TASK_RUN_TYPE_IMPLEMENTATION), [])
         self.assertFalse(SignalReportTask.objects.filter(report=report, task_id=data["id"]).exists())
 
+    @parameterized.expand(
+        [
+            ("action_discussion", "discussion", "Get this PR merged", "merge_pr", "Get this PR merged", "merge_pr"),
+            ("typed_question", "discussion", "  Why now?  ", None, "Why now?", None),
+            ("blank_question", "discussion", "", None, None, None),
+            ("implementation_keeps_nothing", "implementation", "Fix it", "fix_ci", None, None),
+        ]
+    )
+    def test_signal_report_task_keeps_discussion_question_and_intent_on_work_log(
+        self, _name, relationship, question, intent, expected_question, expected_intent
+    ):
+        from products.signals.backend.artefact_schemas import TaskRunArtefact
+        from products.signals.backend.models import SignalReport, SignalReportArtefact
+
+        report = SignalReport.objects.create(team=self.team, title="Checkout errors spiked")
+        with patch(
+            "products.tasks.backend.logic.repo_selection.cascade.cascade_select_repository", return_value="acme/web"
+        ):
+            response = self.client.post(
+                "/api/projects/@current/tasks/",
+                {
+                    "title": "Discuss report",
+                    "description": _DISCUSS_PROMPT,
+                    "origin_product": "signal_report",
+                    "signal_report": str(report.id),
+                    "signal_report_task_relationship": relationship,
+                    "signal_report_discussion_question": question,
+                    "signal_report_discussion_intent": intent,
+                },
+                format="json",
+            )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        work_log_entry = TaskRunArtefact.model_validate_json(
+            SignalReportArtefact.objects.get(report=report, type=SignalReportArtefact.ArtefactType.TASK_RUN).content
+        )
+        self.assertEqual((work_log_entry.question, work_log_entry.intent), (expected_question, expected_intent))
+
     @parameterized.expand([("discussion", True), ("implementation", False), ("triage", False)])
     def test_signal_report_task_forwards_discussion_question_as_scout_note(self, relationship, should_forward):
         # Wiring guard: a "Discuss" kickoff (and only a discussion relationship) forwards the user's

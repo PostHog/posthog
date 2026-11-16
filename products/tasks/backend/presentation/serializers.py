@@ -27,6 +27,7 @@ from posthog.object_tags.kinds import OBJECT_KINDS
 from posthog.security.url_validation import is_url_allowed, resolve_url_hosts_ips
 from posthog.temporal.oauth import POSTHOG_CODE_OAUTH_APP_CLIENT_IDS
 
+from products.signals.backend.facade.taxonomy import ReportDiscussionIntent
 from products.tasks.backend.facade import api as tasks_facade
 from products.tasks.backend.facade.agent_instructions import AGENT_INSTRUCTIONS_MAX_LENGTH
 from products.tasks.backend.facade.api import (
@@ -1378,7 +1379,19 @@ class TaskCreateSerializer(TaskWriteSerializer, TaskRunScheduleSerializer):
         help_text=(
             "Question to forward to the signal report's scout when creating a discussion task. "
             "Send an empty string when there is no question. Omit only for older clients that embed "
-            "the question in the task description. Not persisted on the task."
+            "the question in the task description. Kept on the report's work-log entry for the task, "
+            "not on the task."
+        ),
+    )
+    signal_report_discussion_intent = serializers.ChoiceField(
+        choices=ReportDiscussionIntent.choices,
+        required=False,
+        allow_null=True,
+        write_only=True,
+        help_text=(
+            "The Ask AI action that framed a signal report discussion task, such as `merge_pr`. Send null "
+            "or omit it when the person wrote the question. Kept on the report's work-log entry for the "
+            "task, not on the task."
         ),
     )
     naming_source = serializers.CharField(
