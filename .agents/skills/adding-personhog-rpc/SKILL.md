@@ -114,6 +114,7 @@ The compiler guides you — once the proto is defined, `cargo build` errors tell
 1. **Add a trait method** in `rust/personhog-replica/src/storage/traits/<domain>.rs`
 2. **Implement the query** in `rust/personhog-replica/src/storage/postgres/<domain>.rs`
    - Use `sqlx::query_as!` or `sqlx::query!` macros
+   - Start the SQL with the query tag `/* service='personhog-replica', operation='<name>' */`; the naming rule is under "Query tags" in `rust/personhog-replica/README.md`
    - Add timing instrumentation via `DB_QUERY_DURATION` and `DB_ROWS_RETURNED` metrics
    - Use `self.replica_pool` for reads, `self.primary_pool` for writes
    - Return early for empty batch inputs
