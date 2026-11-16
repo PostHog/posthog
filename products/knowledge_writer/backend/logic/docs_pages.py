@@ -41,7 +41,7 @@ def without_docs_extension(token: str) -> str:
     return token
 
 
-def is_nav_line(line: str, docs_url_path: str) -> bool:
+def is_nav_line(line: str, page_paths: frozenset[str]) -> bool:
     code, position, previous_kind, pending_key = line.rstrip(), 0, "start", None
     while position < len(code):
         token = NAV_LINE_TOKEN_PATTERN.match(code, position)
@@ -51,7 +51,7 @@ def is_nav_line(line: str, docs_url_path: str) -> bool:
         current_kind = nav_token_kind(token)
         if not can_follow(previous_kind, current_kind):
             return False
-        if pending_key in NAV_LINK_KEYS and not is_docs_link(token, docs_url_path):
+        if pending_key in NAV_LINK_KEYS and not links_page(token, page_paths):
             return False
         previous_kind, pending_key = current_kind, token.group("key")
     return pending_key not in NAV_LINK_KEYS
@@ -73,9 +73,9 @@ def can_follow(previous: str, current: str) -> bool:
     return current != ","
 
 
-def is_docs_link(token: re.Match, docs_url_path: str) -> bool:
+def links_page(token: re.Match, page_paths: frozenset[str]) -> bool:
     literal = token.group("single") if token.group("single") is not None else token.group("double")
-    return literal is not None and literal.startswith(docs_url_path)
+    return literal is not None and literal.split("#", 1)[0] in page_paths
 
 
 def names_page(path: object, page_paths: frozenset[str]) -> bool:
@@ -92,9 +92,9 @@ def is_page_redirect(redirect: object, page_paths: frozenset[str], docs_url_path
         return False
     if not source.startswith(docs_url_path) or not destination.startswith(docs_url_path) or "\\" in destination:
         return False
-    if names_page(source, page_paths):
-        return True
-    return LITERAL_PATH_PATTERN.fullmatch(source) is not None and names_page(destination, page_paths)
+    if LITERAL_PATH_PATTERN.fullmatch(source) is None:
+        return False
+    return names_page(source, page_paths) or names_page(destination, page_paths)
 
 
 def are_only_page_redirects_changed(
@@ -110,13 +110,25 @@ def are_only_page_redirects_changed(
     base_redirects, head_redirects = base.get("redirects", []), head.get("redirects", [])
     if not isinstance(base_redirects, list) or not isinstance(head_redirects, list):
         return False
-    base_counts, head_counts = canonical_counts(base_redirects), canonical_counts(head_redirects)
-    changed = (base_counts - head_counts) + (head_counts - base_counts)
-    return all(is_page_redirect(json.loads(redirect), page_paths, docs_url_path) for redirect in changed)
+    base_rules, head_rules = canonical_rules(base_redirects), canonical_rules(head_redirects)
+    removed, added = Counter(base_rules) - Counter(head_rules), Counter(head_rules) - Counter(base_rules)
+    if without_rules(base_rules, removed) != without_rules(head_rules, added):
+        return False
+    return all(is_page_redirect(json.loads(rule), page_paths, docs_url_path) for rule in removed + added)
 
 
-def canonical_counts(redirects: list) -> Counter[str]:
-    return Counter(json.dumps(redirect, sort_keys=True) for redirect in redirects)
+def canonical_rules(redirects: list) -> list[str]:
+    return [json.dumps(redirect, sort_keys=True) for redirect in redirects]
+
+
+def without_rules(rules: list[str], dropped: Counter[str]) -> list[str]:
+    left_to_drop, kept = Counter(dropped), []
+    for rule in rules:
+        if left_to_drop[rule] > 0:
+            left_to_drop[rule] -= 1
+            continue
+        kept.append(rule)
+    return kept
 
 
 def parsed_json_object(text: str | None) -> dict | None:

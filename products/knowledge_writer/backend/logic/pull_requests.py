@@ -472,7 +472,7 @@ def publication_refusal(
     redirect_files = [changed_file for changed_file in companion_files if changed_file["filename"].endswith(".json")]
     nav_files = [changed_file for changed_file in companion_files if changed_file not in redirect_files]
     if not all(
-        is_nav_line(line, docs_url_path) for changed_file in nav_files for line in changed_lines(changed_file["patch"])
+        is_nav_line(line, page_paths) for changed_file in nav_files for line in changed_lines(changed_file["patch"])
     ):
         return "changed_paths_outside_docs"
     if not redirect_files:
@@ -519,7 +519,7 @@ def is_listed_companion(changed_file: dict) -> bool:
 
 
 def changed_lines(patch: str) -> list[str]:
-    return [line[1:] for line in patch.splitlines() if line[:1] in ("+", "-")]
+    return [line[1:] for line in patch.split("\n") if line[:1] in ("+", "-")]
 
 
 def read_file_at(github: GitHubIntegration, docs_repository: str, path: str, commit_sha: str) -> str | None:
