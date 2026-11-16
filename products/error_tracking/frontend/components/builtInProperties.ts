@@ -19,4 +19,7 @@ export const BUILT_IN_ERROR_TRACKING_PROPERTIES: BuiltInErrorTrackingProperty[] 
     { property: '$lib', title: 'Library', versionProperty: '$lib_version' },
     { property: '$app_namespace', title: 'App', versionProperty: '$app_version' },
     { property: '$current_url', title: 'Current URL' },
+    { property: '$request_method', title: 'Request method' },
+    { property: '$request_path', title: 'Request path' },
+    { property: '$user_agent', title: 'User agent' },
 ]
