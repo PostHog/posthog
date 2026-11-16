@@ -32,9 +32,45 @@ class ReportChangeItem(BaseModel):
 # Templates mark an empty line with a literal "\n", and the model sometimes copies it as text.
 _LITERAL_NEWLINE_LINE = re.compile(r"^[ \t]*(?:\\n[ \t]*)+$", re.MULTILINE)
 
-# Item joining puts a space between a template's marker item and the next item, as in "** Total **",
-# and a space just inside a pair of markers stops it rendering as bold, italic, or struck through.
-_PADDED_EMPHASIS = re.compile(r"(?<![*_~\w])(\*\*|__|~~|\*|_)[ \t]*([^\s*_~](?:[^\n]*?[^\s*_~])?)[ \t]*\1(?![*_~\w])")
+_EMPHASIS_MARKER = re.compile(r"\*\*|__|~~|\*|_")
+
+
+def _is_word_or_marker(char: str) -> bool:
+    return char.isalnum() or char in "*_~"
+
+
+def _trim_emphasis_padding(line: str) -> str:
+    """Remove spaces just inside each pair of emphasis markers on one line.
+
+    Item joining puts a space between a template's marker item and the next item, as in
+    "** Total **", and a space just inside a pair of markers stops it rendering as bold, italic, or
+    struck through. This is one pass over the markers, because report text has no length limit
+    and a backtracking regex took seconds on a long line.
+    """
+    open_ends: dict[str, int] = {}
+    removed: set[int] = set()
+    for marker in _EMPHASIS_MARKER.finditer(line):
+        start, end = marker.span()
+        token = marker.group()
+        opened_at = open_ends.get(token)
+        if opened_at is not None and (end == len(line) or not _is_word_or_marker(line[end])):
+            del open_ends[token]
+            if not line[opened_at:start].strip():
+                continue
+            index = opened_at
+            while line[index] in " \t":
+                removed.add(index)
+                index += 1
+            index = start - 1
+            while line[index] in " \t":
+                removed.add(index)
+                index -= 1
+        elif opened_at is None and (start == 0 or not _is_word_or_marker(line[start - 1])):
+            open_ends[token] = end
+    if not removed:
+        return line
+    return "".join(char for index, char in enumerate(line) if index not in removed)
+
 
 _TABLE_SEPARATOR_ROW = re.compile(r"^\|?\s*:?-+:?\s*(?:\|\s*:?-+:?\s*)*\|?$")
 
@@ -201,7 +237,7 @@ class ReportDocument(BaseModel):
                 # The user's template decides the formatting, so item kinds add no code or italic styles here.
                 parts.append(part.render(styled=False))
             markdown = _LITERAL_NEWLINE_LINE.sub("", "".join(parts))
-            return _join_table_rows(_PADDED_EMPHASIS.sub(r"\1\2\1", markdown))
+            return _join_table_rows("\n".join(_trim_emphasis_padding(line) for line in markdown.split("\n")))
         parts = [f"# {self.topic}"] if self.topic else []
         parts.extend(section.render() for section in self.sections)
         return _join_table_rows("\n\n".join(parts))
