@@ -227,8 +227,8 @@ def configured_destination_template_ids(
 # filter, and a missing or null operator is `exact`, as the consumer reads them.
 _EVENT_ALERT_ID = '@.key == "alert_id" && (!(exists(@.type)) || @.type == null || @.type == "event")'
 _EXACT_OPERATOR = '(!(exists(@.operator)) || @.operator == null || @.operator == "exact")'
-# The consumer compares a list value by membership.
-_VALUE_IS_AN_ID = '(@.value.type() == "string" || @.value.type() == "array")'
+# The consumer compares a list value by membership, and treats an empty list as no filter.
+_VALUE_IS_AN_ID = '(@.value.type() == "string" || (@.value.type() == "array" && exists(@.value[*])))'
 _VALUE_MATCHES_THIS_ALERT = (
     '((@.value.type() == "string" && @.value == $alert_id)'
     ' || (@.value.type() == "array" && exists(@.value[*] ? (@ == $alert_id))))'

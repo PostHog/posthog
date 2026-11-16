@@ -819,6 +819,7 @@ class TestListActiveAlertDestinations(AlertDestinationTestCase):
                 {"key": "alert_id", "value": "alert-1", "operator": None, "type": None},
                 {"key": "alert_id", "value": "alert-2", "operator": "is_not"},
                 {"key": "alert_id", "value": ["alert-1", "alert-2"], "operator": "exact"},
+                {"key": "alert_id", "value": [], "operator": "exact"},
                 {"key": "alert_id", "value": "alert-1", "operator": "is_not", "type": "person"},
             ],
         )
