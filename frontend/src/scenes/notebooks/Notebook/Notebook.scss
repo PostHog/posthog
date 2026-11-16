@@ -797,6 +797,18 @@ body.has-markdown-v2-notebook .TodayAppLayout .main-content-container > main,
     margin-inline: auto;
 }
 
+.Notebook:has(.Notebook__image-controls) {
+    .Notebook__markdown-v2 .MarkdownNotebook__canvas,
+    .NotebookEditor .ProseMirror {
+        padding-bottom: 2rem;
+    }
+
+    .MarkdownNotebook--jupyter {
+        --jupyter-active-color: transparent;
+        --jupyter-selected-background: transparent;
+    }
+}
+
 // Important utilities otherwise override the print layout's visibility and sizing.
 @layer base {
     @media print {

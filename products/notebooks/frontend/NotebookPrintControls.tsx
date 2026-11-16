@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import { lazy, Suspense } from 'react'
 
 import { LemonBanner, LemonButton } from '@posthog/lemon-ui'
 
@@ -6,12 +7,25 @@ import { notebookLogic } from 'scenes/notebooks/Notebook/notebookLogic'
 
 import { notebookExportLogic } from './notebookExportLogic'
 
+const NotebookImageExportControls = lazy(() => import('./NotebookImageExportControls'))
+
 export function NotebookPrintControls({ shortId }: { shortId: string }): JSX.Element | null {
-    const { preparingPrint } = useValues(notebookExportLogic({ shortId }))
+    const { preparingPrint, exportFormat } = useValues(notebookExportLogic({ shortId }))
     const { notebook } = useValues(notebookLogic({ shortId }))
     const { printNotebook, cancelPrint } = useActions(notebookExportLogic({ shortId }))
     if (!preparingPrint) {
         return null
+    }
+    if (exportFormat === 'png') {
+        return (
+            <Suspense fallback={null}>
+                <NotebookImageExportControls
+                    shortId={shortId}
+                    title={notebook?.title || 'Notebook'}
+                    onCancel={cancelPrint}
+                />
+            </Suspense>
+        )
     }
     return (
         <LemonBanner type="info" className="Notebook__print-controls mb-4">
