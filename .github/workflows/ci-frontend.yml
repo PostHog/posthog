@@ -1079,8 +1079,11 @@ jobs:
             # The diff is computed per shard, in parallel with (and independent of)
             # the other shards, instead of once in select-jest-tests before the matrix
             # can start. Same `...` base as that job and as find-affected-stories.
+            # Skip it off pull requests (the hourly schedule has no base ref):
+            # classifyChanges reads a skipped diff as "unavailable" and runs everything.
             - name: Compute changed files
               id: diff
+              if: github.event_name == 'pull_request'
               continue-on-error: true
               env:
                   BASE_REF: ${{ github.event.pull_request.base.ref }}
