@@ -92,7 +92,6 @@ export function RankingHoverCard({
     )
 }
 
-/** The model key, and whether the score predates the last edit. Staff only. */
 export function RankingStaffFooter({ ranking }: { ranking: Ranking }): JSX.Element | null {
     if (!ranking.model && ranking.status !== 'stale') {
         return null
@@ -119,6 +118,13 @@ export function RankingStatusTag({ onOpen }: { onOpen: () => void }): JSX.Elemen
     )
 }
 
+function rankingTagState(ranking: SignalReport['ranking'], hasValue: boolean): 'scored' | 'stale' | 'unscored' {
+    if (!ranking || !hasValue || ranking.status === 'unscored' || ranking.status === 'not_available') {
+        return 'unscored'
+    }
+    return ranking.status === 'stale' ? 'stale' : 'scored'
+}
+
 /**
  * How likely the report is to reach the active model sort's outcome, in the card's meta row. A report
  * the model has not scored yet says so, because the model sort puts it after the scored ones.
@@ -135,15 +141,7 @@ export function ReportCardRankingTag({
     const ranking = report.ranking
     const lift = ranking ? rankingLift(ranking, score.outcome) : null
     const probability = ranking ? rankingProbability(ranking, score.outcome, isStaff) : null
-    const state =
-        !ranking ||
-        ranking.status === 'unscored' ||
-        ranking.status === 'not_available' ||
-        (lift === null && probability === null)
-            ? 'unscored'
-            : ranking.status === 'stale'
-              ? 'stale'
-              : 'scored'
+    const state = rankingTagState(ranking, lift !== null || probability !== null)
     const strength = lift !== null ? rankingStrength(lift) : null
     // Tooltip re-fires onOpen when the callback identity changes, so a new one each render would double count views.
     const onOpen = useCallback(
