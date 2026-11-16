@@ -273,6 +273,11 @@ def owned_alert_destination_ids(
     )
 
 
+def lock_alert_destinations(*, team_id: int, alert_id: str, allowed_event_ids: Collection[str]) -> None:
+    """Locks the alert's HogFunction destinations in the caller's transaction."""
+    destinations.lock_alert_destinations(team_id=team_id, alert_id=alert_id, allowed_event_ids=allowed_event_ids)
+
+
 def list_owned_alert_destinations(
     *,
     team_id: int,

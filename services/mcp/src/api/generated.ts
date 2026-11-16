@@ -16402,6 +16402,18 @@ export namespace Schemas {
       Recent: 'recent',
     } as const;
 
+    export interface AnomalySeriesPoint {
+      /** The start of the scored bucket, in the project timezone. */
+      bucket_start: string;
+      /**
+         * The series value of the bucket at scoring time.
+         * @nullable
+         */
+      value: number | null;
+      /** Whether the detector flagged the bucket. */
+      flag: boolean;
+    }
+
     export interface AnomalySeries {
       /** The numeric id of the insight. */
       insight_id: number;
@@ -16469,6 +16481,8 @@ export namespace Schemas {
       last_flagged_bucket: string | null;
       /** Up to 5 flagged buckets in the range, newest first. */
       flagged_points: AnomalyFlaggedPoint[];
+      /** Only with `include_points`. The newest 400 scored buckets of the series in the range, oldest first. A bucket that was not scored, or only has a warm-up row, has no point: it is unknown, not 0. Fewer points than `scored_buckets` means the cap left older buckets out. */
+      points?: AnomalySeriesPoint[];
     }
 
     export interface AnomalySearchResponse {
@@ -29230,13 +29244,13 @@ export namespace Schemas {
       ready_at: string | null;
       /** The build preparing the cohort. Null unless the state is `building` or `rebuilding`. */
       build: CohortHistoryBuild | null;
-      /** Why feature flags can't target the cohort. `history_over_limit`, on a `daily` cohort: its criteria look back further than `history_limit_days`. `too_large_to_build`, on a `needs_attention` cohort: the events in its criteria happen too often for PostHog to prepare it automatically. Null in every other case, including a `daily` cohort that other criteria keep off realtime.
+      /** Why feature flags can't target the cohort. `history_over_limit`, on a `daily` cohort: its criteria look back further than realtime cohorts can. On an `off` cohort: its criteria look back further than the project's plan allows, so it can't be turned on. `too_large_to_build`, on a `needs_attention` cohort: the events in its criteria happen too often for PostHog to prepare it automatically. Null in every other case, including a `daily` cohort that other criteria keep off realtime.
        *
        * * `history_over_limit` - History over limit
        * * `too_large_to_build` - Too large to build */
       reason: CohortRealtimeUnavailableReasonEnum | null;
       /**
-         * The most days realtime cohort criteria can look back. Null unless the reason is `history_over_limit`.
+         * The most days realtime cohort criteria can look back on the project's plan. Null unless the reason is `history_over_limit`.
          * @nullable
          */
       history_limit_days: number | null;
@@ -29478,7 +29492,7 @@ export namespace Schemas {
     }
 
     export interface CohortRealtimeRequest {
-      /** True turns realtime on for the cohort and for every realtime cohort it includes as criteria, and starts preparing them from past events. False turns realtime off. PostHog refuses that while a feature flag, an active workflow, or another cohort with realtime on reads the cohort. */
+      /** True turns realtime on for the cohort and for every realtime cohort it includes as criteria, and starts preparing them from past events. PostHog refuses that when the project's plan allows no more cohorts with realtime on, or when the criteria look back further than the plan allows. False turns realtime off. PostHog refuses that while a feature flag, an active workflow, or another cohort with realtime on reads the cohort. */
       enabled: boolean;
     }
 
@@ -54917,6 +54931,11 @@ export namespace Schemas {
       readonly notebook: string | null;
     }
 
+    export interface FirehydrantAlertsIncidentSignalExtra {
+      status: string | null;
+      starts_at: string | null;
+    }
+
     export interface FirehydrantIncidentSignalExtra {
       severity: string | null;
       priority: string | null;
@@ -56354,6 +56373,13 @@ export namespace Schemas {
       channel: string | null;
       tags: unknown[];
       created_datetime: string | null;
+    }
+
+    export interface GrafanaIrmAlertGroupsIncidentSignalExtra {
+      state: string | null;
+      alerts_count: string | null;
+      integration_id: string | null;
+      created_at: string | null;
     }
 
     export interface GrafanaIrmIncidentSignalExtra {
@@ -63482,6 +63508,14 @@ export namespace Schemas {
      * * `statuspage` - Statuspage
      * * `cronitor` - Cronitor
      * * `instatus` - Instatus
+     * * `rootly` - Rootly
+     * * `zenduty` - Zenduty
+     * * `splunk_observability_cloud` - Splunk Observability Cloud
+     * * `uptimerobot` - UptimeRobot
+     * * `rootly_alerts` - Rootly alerts
+     * * `incident_io_alerts` - incident.io alerts
+     * * `firehydrant_alerts` - FireHydrant alerts
+     * * `grafana_irm_alert_groups` - Grafana IRM alert groups
      * * `asana` - Asana
      * * `monday` - monday.com
      * * `plane` - Plane
@@ -63632,6 +63666,14 @@ export namespace Schemas {
       Statuspage: 'statuspage',
       Cronitor: 'cronitor',
       Instatus: 'instatus',
+      Rootly: 'rootly',
+      Zenduty: 'zenduty',
+      SplunkObservabilityCloud: 'splunk_observability_cloud',
+      Uptimerobot: 'uptimerobot',
+      RootlyAlerts: 'rootly_alerts',
+      IncidentIoAlerts: 'incident_io_alerts',
+      FirehydrantAlerts: 'firehydrant_alerts',
+      GrafanaIrmAlertGroups: 'grafana_irm_alert_groups',
       Asana: 'asana',
       Monday: 'monday',
       Plane: 'plane',
@@ -63832,6 +63874,14 @@ export namespace Schemas {
        * * `statuspage` - Statuspage
        * * `cronitor` - Cronitor
        * * `instatus` - Instatus
+       * * `rootly` - Rootly
+       * * `zenduty` - Zenduty
+       * * `splunk_observability_cloud` - Splunk Observability Cloud
+       * * `uptimerobot` - UptimeRobot
+       * * `rootly_alerts` - Rootly alerts
+       * * `incident_io_alerts` - incident.io alerts
+       * * `firehydrant_alerts` - FireHydrant alerts
+       * * `grafana_irm_alert_groups` - Grafana IRM alert groups
        * * `asana` - Asana
        * * `monday` - monday.com
        * * `plane` - Plane
@@ -64122,6 +64172,12 @@ export namespace Schemas {
          * @nullable
          */
       people: InboxSummaryPerson[] | null;
+    }
+
+    export interface IncidentIoAlertsIncidentSignalExtra {
+      status: string | null;
+      alert_source_id: string | null;
+      created_at: string | null;
     }
 
     export interface IncidentIoIncidentSignalExtra {
@@ -68294,9 +68350,10 @@ export namespace Schemas {
     export type LogsAlertConfigurationDetailAnnotations = {[key: string]: string};
 
     export interface LogsAlertDestinationConfig {
+      /** The HogFunction IDs that delete this destination as a group. A destination moved off HogFunctions keeps the IDs it had, though those HogFunctions are deleted. */
       hog_function_ids: string[];
       /**
-         * The destination's ID on the alerts platform. Null for a destination added before the platform kept one, which `hog_function_ids` identifies instead. A destination whose HogFunctions are gone has an empty `hog_function_ids`, and is deleted by this ID.
+         * The destination's ID on the alerts platform. Null for a destination added before the platform kept one, which `hog_function_ids` identifies instead. A destination added with no HogFunctions has an empty `hog_function_ids`, and is deleted by this ID.
          * @nullable
          */
       id: string | null;
@@ -93040,6 +93097,16 @@ export namespace Schemas {
        * * `off` - Off
        * * `serving` - Serving */
       access: RealtimeCohortsAccessEnum;
+      /**
+         * How many cohorts in this project have realtime on. Null when `access` is `off`.
+         * @nullable
+         */
+      cohorts_used: number | null;
+      /**
+         * How many cohorts in this project the plan allows to have realtime on. Null when `access` is `off`, or when the plan sets no limit.
+         * @nullable
+         */
+      max_cohorts: number | null;
     }
 
     export interface TeamRevenueAnalyticsConfig {
@@ -94030,6 +94097,8 @@ export namespace Schemas {
       readonly realtime_cohorts?: TeamRealtimeCohorts;
       /** Which table this project's feature flag usage data is read from. PostHog sets it for the whole organization. 0 reads the events table. 1 and 2 read the flag_evaluations table. */
       readonly flag_evaluations_mode?: FlagEvaluationsModeEnum;
+      /** Whether this project's events table holds none of its new $feature_flag_called events, so they can only be read from the flag_evaluations table. */
+      readonly flag_calls_only_in_flag_evaluations?: boolean;
       /** Host the PostHog SDKs send events to, set as their `api_host` option. It is `https://us.i.posthog.com` on US Cloud, `https://eu.i.posthog.com` on EU Cloud, and the instance URL when self-hosted. */
       readonly api_host?: string;
       revenue_analytics_config?: TeamRevenueAnalyticsConfig;
@@ -100512,6 +100581,8 @@ export namespace Schemas {
       readonly realtime_cohorts: TeamRealtimeCohorts;
       /** Which table this project's feature flag usage data is read from. PostHog sets it for the whole organization. 0 reads the events table. 1 and 2 read the flag_evaluations table. */
       readonly flag_evaluations_mode: FlagEvaluationsModeEnum;
+      /** Whether this project's events table holds none of its new $feature_flag_called events, so they can only be read from the flag_evaluations table. */
+      readonly flag_calls_only_in_flag_evaluations: boolean;
       /** Host the PostHog SDKs send events to, set as their `api_host` option. It is `https://us.i.posthog.com` on US Cloud, `https://eu.i.posthog.com` on EU Cloud, and the instance URL when self-hosted. */
       readonly api_host: string;
       revenue_analytics_config?: TeamRevenueAnalyticsConfig;
@@ -108224,6 +108295,14 @@ export namespace Schemas {
      * * `statuspage` - statuspage
      * * `cronitor` - cronitor
      * * `instatus` - instatus
+     * * `rootly` - rootly
+     * * `zenduty` - zenduty
+     * * `splunk_observability_cloud` - splunk_observability_cloud
+     * * `uptimerobot` - uptimerobot
+     * * `rootly_alerts` - rootly_alerts
+     * * `incident_io_alerts` - incident_io_alerts
+     * * `firehydrant_alerts` - firehydrant_alerts
+     * * `grafana_irm_alert_groups` - grafana_irm_alert_groups
      * * `asana` - asana
      * * `monday` - monday
      * * `plane` - plane
@@ -108374,6 +108453,14 @@ export namespace Schemas {
       Statuspage: 'statuspage',
       Cronitor: 'cronitor',
       Instatus: 'instatus',
+      Rootly: 'rootly',
+      Zenduty: 'zenduty',
+      SplunkObservabilityCloud: 'splunk_observability_cloud',
+      Uptimerobot: 'uptimerobot',
+      RootlyAlerts: 'rootly_alerts',
+      IncidentIoAlerts: 'incident_io_alerts',
+      FirehydrantAlerts: 'firehydrant_alerts',
+      GrafanaIrmAlertGroups: 'grafana_irm_alert_groups',
       Asana: 'asana',
       Monday: 'monday',
       Plane: 'plane',
@@ -108721,6 +108808,40 @@ export namespace Schemas {
       created_at: string | null;
     }
 
+    export interface RootlyIncidentSignalExtra {
+      status: string | null;
+      severity_name: string | null;
+      kind: string | null;
+      url: string | null;
+      created_at: string | null;
+    }
+
+    export interface ZendutyIncidentSignalExtra {
+      incident_number: string | null;
+      status: string | null;
+      urgency: string | null;
+      creation_date: string | null;
+    }
+
+    export interface SplunkObservabilityCloudIncidentSignalExtra {
+      severity: string | null;
+      anomaly_state: string | null;
+      triggered_at: string | null;
+    }
+
+    export interface UptimerobotIncidentSignalExtra {
+      status: string | null;
+      type: string | null;
+      started_at: string | null;
+    }
+
+    export interface RootlyAlertsIncidentSignalExtra {
+      status: string | null;
+      source: string | null;
+      url: string | null;
+      created_at: string | null;
+    }
+
     export interface SonarcloudScannerFindingSignalExtra {
       severity: string | null;
       type: string | null;
@@ -108841,7 +108962,7 @@ export namespace Schemas {
       created_at: string | null;
     }
 
-    export type SignalExtra = SessionProblemSignalExtra | LlmEvalSignalExtra | LlmEvalReportSignalExtra | ZendeskTicketSignalExtra | GithubIssueSignalExtra | LinearIssueSignalExtra | JiraIssueSignalExtra | ConversationsTicketSignalExtra | ErrorTrackingSignalExtra | PgAnalyzeIssueSignalExtra | EndpointExecutionFailedSignalExtra | EndpointBreakdownLimitExceededSignalExtra | SignalsScoutSignalExtra | CheckFailedSignalExtra | MonitoringUnresolvedSignalExtra | LogsAlertStateChangeSignalExtra | ReplayVisionScannerFindingSignalExtra | AnalyticsAnomalyInvestigationSignalExtra | AnalyticsAlertFiringSignalExtra | HealthCheckSignalExtra | EngineeringAnalyticsCIFlakyCheckSignalExtra | EngineeringAnalyticsCIBrokenDefaultBranchSignalExtra | EngineeringAnalyticsCIDurationRegressionSignalExtra | FreshdeskTicketSignalExtra | FreshserviceTicketSignalExtra | FrontConversationSignalExtra | GorgiasTicketSignalExtra | KustomerConversationSignalExtra | DixaConversationSignalExtra | PlainThreadSignalExtra | GitlabIssueSignalExtra | GiteaIssueSignalExtra | ShortcutStorySignalExtra | ClickupTaskSignalExtra | WrikeTaskSignalExtra | TrelloCardSignalExtra | BugherdTaskSignalExtra | SentryIssueSignalExtra | RollbarItemSignalExtra | BugsnagErrorSignalExtra | HoneybadgerFaultSignalExtra | RaygunErrorGroupSignalExtra | DatadogSignalExtra | SnykScannerFindingSignalExtra | SonarqubeScannerFindingSignalExtra | SemgrepScannerFindingSignalExtra | Rapid7InsightvmScannerFindingSignalExtra | FeaturebaseFeedbackSignalExtra | FrillFeedbackSignalExtra | AhaFeedbackSignalExtra | UservoiceFeedbackSignalExtra | ProductboardFeedbackSignalExtra | CannyFeedbackSignalExtra | AsknicelyFeedbackSignalExtra | RetentlyFeedbackSignalExtra | UsersnapFeedbackSignalExtra | TypeformFeedbackSignalExtra | QualtricsFeedbackSignalExtra | SurveymonkeyFeedbackSignalExtra | FormbricksFeedbackSignalExtra | SurvicateFeedbackSignalExtra | SurveysparrowFeedbackSignalExtra | AppfiguresReviewSignalExtra | AppfollowReviewSignalExtra | JudgemeReviewsReviewSignalExtra | IntercomTicketSignalExtra | HubspotTicketSignalExtra | Dynamics365TicketSignalExtra | ZohoCrmTicketSignalExtra | GoogleSearchConsoleSearchOpportunitySignalExtra | HelpscoutConversationSignalExtra | DecagonConversationSignalExtra | VitallyConversationSignalExtra | IntercomTicketsTicketSignalExtra | PylonTicketSignalExtra | PagerdutyIncidentSignalExtra | OpsgenieAlertSignalExtra | IncidentIoIncidentSignalExtra | FirehydrantIncidentSignalExtra | SquadcastIncidentSignalExtra | ServicenowIncidentSignalExtra | SolarwindsServiceDeskIncidentSignalExtra | GrafanaIrmIncidentSignalExtra | XmattersIncidentSignalExtra | LaceworkScannerFindingSignalExtra | OrcaSecurityScannerFindingSignalExtra | TenableVulnerabilityManagementScannerFindingSignalExtra | BetterstackIncidentSignalExtra | AsanaIssueSignalExtra | MondayIssueSignalExtra | PlaneIssueSignalExtra | AzureDevopsIssueSignalExtra | MonteCarloAlertSignalExtra | BigeyeIssueSignalExtra | DynatraceIncidentSignalExtra | StatuspageIncidentSignalExtra | CronitorIncidentSignalExtra | InstatusIncidentSignalExtra | GooglePlayConsoleIssueSignalExtra | AzureApplicationInsightsIssueSignalExtra | AppsignalIssueSignalExtra | CursorIssueSignalExtra | SonarcloudScannerFindingSignalExtra | CheckmarxScannerFindingSignalExtra | VeracodeScannerFindingSignalExtra | VeracodeScaScannerFindingSignalExtra | SemgrepScaScannerFindingSignalExtra | GitguardianScannerFindingSignalExtra | InfisicalScannerFindingSignalExtra | AwsMacieScannerFindingSignalExtra | SentineloneScannerFindingSignalExtra | JfrogXrayScannerFindingSignalExtra | DynatraceSecurityScannerFindingSignalExtra | TriggerDevErrorSignalExtra | ChecklyErrorGroupSignalExtra | RoarkIssueSignalExtra | SleekplanFeedbackSignalExtra | BettermodeFeedbackSignalExtra | DiscourseFeedbackSignalExtra | MintlifyFeedbackSignalExtra | LangsmithFeedbackSignalExtra | SprigFeedbackSignalExtra | GainsightPxFeedbackSignalExtra | TrustpilotReviewSignalExtra | OkendoReviewSignalExtra | BeamerFeedbackSignalExtra | BeamerNpsFeedbackSignalExtra | ChameleonFeedbackSignalExtra | FeaturebaseSurveysFeedbackSignalExtra | UservoiceNpsFeedbackSignalExtra | VitallyNpsFeedbackSignalExtra | EtsyReviewSignalExtra | G2ReviewSignalExtra | GumroadReviewSignalExtra | TrustpilotProductReviewsReviewSignalExtra | WoocommerceReviewSignalExtra | YotpoReviewSignalExtra | AwsSecurityHubScannerFindingSignalExtra | AwsGuarddutyScannerFindingSignalExtra | AwsInspectorScannerFindingSignalExtra | MicrosoftDefenderCloudAppsScannerFindingSignalExtra | GithubDependabotScannerFindingSignalExtra | GithubCodeScanningScannerFindingSignalExtra | GithubSecretScanningScannerFindingSignalExtra | NewrelicIssueSignalExtra | AmazonCloudwatchIncidentSignalExtra | LogicmonitorIncidentSignalExtra | AirbrakeIssueSignalExtra | MuxIssueSignalExtra;
+    export type SignalExtra = SessionProblemSignalExtra | LlmEvalSignalExtra | LlmEvalReportSignalExtra | ZendeskTicketSignalExtra | GithubIssueSignalExtra | LinearIssueSignalExtra | JiraIssueSignalExtra | ConversationsTicketSignalExtra | ErrorTrackingSignalExtra | PgAnalyzeIssueSignalExtra | EndpointExecutionFailedSignalExtra | EndpointBreakdownLimitExceededSignalExtra | SignalsScoutSignalExtra | CheckFailedSignalExtra | MonitoringUnresolvedSignalExtra | LogsAlertStateChangeSignalExtra | ReplayVisionScannerFindingSignalExtra | AnalyticsAnomalyInvestigationSignalExtra | AnalyticsAlertFiringSignalExtra | HealthCheckSignalExtra | EngineeringAnalyticsCIFlakyCheckSignalExtra | EngineeringAnalyticsCIBrokenDefaultBranchSignalExtra | EngineeringAnalyticsCIDurationRegressionSignalExtra | FreshdeskTicketSignalExtra | FreshserviceTicketSignalExtra | FrontConversationSignalExtra | GorgiasTicketSignalExtra | KustomerConversationSignalExtra | DixaConversationSignalExtra | PlainThreadSignalExtra | GitlabIssueSignalExtra | GiteaIssueSignalExtra | ShortcutStorySignalExtra | ClickupTaskSignalExtra | WrikeTaskSignalExtra | TrelloCardSignalExtra | BugherdTaskSignalExtra | SentryIssueSignalExtra | RollbarItemSignalExtra | BugsnagErrorSignalExtra | HoneybadgerFaultSignalExtra | RaygunErrorGroupSignalExtra | DatadogSignalExtra | SnykScannerFindingSignalExtra | SonarqubeScannerFindingSignalExtra | SemgrepScannerFindingSignalExtra | Rapid7InsightvmScannerFindingSignalExtra | FeaturebaseFeedbackSignalExtra | FrillFeedbackSignalExtra | AhaFeedbackSignalExtra | UservoiceFeedbackSignalExtra | ProductboardFeedbackSignalExtra | CannyFeedbackSignalExtra | AsknicelyFeedbackSignalExtra | RetentlyFeedbackSignalExtra | UsersnapFeedbackSignalExtra | TypeformFeedbackSignalExtra | QualtricsFeedbackSignalExtra | SurveymonkeyFeedbackSignalExtra | FormbricksFeedbackSignalExtra | SurvicateFeedbackSignalExtra | SurveysparrowFeedbackSignalExtra | AppfiguresReviewSignalExtra | AppfollowReviewSignalExtra | JudgemeReviewsReviewSignalExtra | IntercomTicketSignalExtra | HubspotTicketSignalExtra | Dynamics365TicketSignalExtra | ZohoCrmTicketSignalExtra | GoogleSearchConsoleSearchOpportunitySignalExtra | HelpscoutConversationSignalExtra | DecagonConversationSignalExtra | VitallyConversationSignalExtra | IntercomTicketsTicketSignalExtra | PylonTicketSignalExtra | PagerdutyIncidentSignalExtra | OpsgenieAlertSignalExtra | IncidentIoIncidentSignalExtra | FirehydrantIncidentSignalExtra | SquadcastIncidentSignalExtra | ServicenowIncidentSignalExtra | SolarwindsServiceDeskIncidentSignalExtra | GrafanaIrmIncidentSignalExtra | XmattersIncidentSignalExtra | LaceworkScannerFindingSignalExtra | OrcaSecurityScannerFindingSignalExtra | TenableVulnerabilityManagementScannerFindingSignalExtra | BetterstackIncidentSignalExtra | AsanaIssueSignalExtra | MondayIssueSignalExtra | PlaneIssueSignalExtra | AzureDevopsIssueSignalExtra | MonteCarloAlertSignalExtra | BigeyeIssueSignalExtra | DynatraceIncidentSignalExtra | StatuspageIncidentSignalExtra | CronitorIncidentSignalExtra | InstatusIncidentSignalExtra | RootlyIncidentSignalExtra | ZendutyIncidentSignalExtra | SplunkObservabilityCloudIncidentSignalExtra | UptimerobotIncidentSignalExtra | RootlyAlertsIncidentSignalExtra | IncidentIoAlertsIncidentSignalExtra | FirehydrantAlertsIncidentSignalExtra | GrafanaIrmAlertGroupsIncidentSignalExtra | GooglePlayConsoleIssueSignalExtra | AzureApplicationInsightsIssueSignalExtra | AppsignalIssueSignalExtra | CursorIssueSignalExtra | SonarcloudScannerFindingSignalExtra | CheckmarxScannerFindingSignalExtra | VeracodeScannerFindingSignalExtra | VeracodeScaScannerFindingSignalExtra | SemgrepScaScannerFindingSignalExtra | GitguardianScannerFindingSignalExtra | InfisicalScannerFindingSignalExtra | AwsMacieScannerFindingSignalExtra | SentineloneScannerFindingSignalExtra | JfrogXrayScannerFindingSignalExtra | DynatraceSecurityScannerFindingSignalExtra | TriggerDevErrorSignalExtra | ChecklyErrorGroupSignalExtra | RoarkIssueSignalExtra | SleekplanFeedbackSignalExtra | BettermodeFeedbackSignalExtra | DiscourseFeedbackSignalExtra | MintlifyFeedbackSignalExtra | LangsmithFeedbackSignalExtra | SprigFeedbackSignalExtra | GainsightPxFeedbackSignalExtra | TrustpilotReviewSignalExtra | OkendoReviewSignalExtra | BeamerFeedbackSignalExtra | BeamerNpsFeedbackSignalExtra | ChameleonFeedbackSignalExtra | FeaturebaseSurveysFeedbackSignalExtra | UservoiceNpsFeedbackSignalExtra | VitallyNpsFeedbackSignalExtra | EtsyReviewSignalExtra | G2ReviewSignalExtra | GumroadReviewSignalExtra | TrustpilotProductReviewsReviewSignalExtra | WoocommerceReviewSignalExtra | YotpoReviewSignalExtra | AwsSecurityHubScannerFindingSignalExtra | AwsGuarddutyScannerFindingSignalExtra | AwsInspectorScannerFindingSignalExtra | MicrosoftDefenderCloudAppsScannerFindingSignalExtra | GithubDependabotScannerFindingSignalExtra | GithubCodeScanningScannerFindingSignalExtra | GithubSecretScanningScannerFindingSignalExtra | NewrelicIssueSignalExtra | AmazonCloudwatchIncidentSignalExtra | LogicmonitorIncidentSignalExtra | AirbrakeIssueSignalExtra | MuxIssueSignalExtra;
 
     export type SignalMatchMetadata = MatchedMetadata | NoMatchMetadata;
 
@@ -108951,6 +109072,14 @@ export namespace Schemas {
        * * `statuspage` - statuspage
        * * `cronitor` - cronitor
        * * `instatus` - instatus
+       * * `rootly` - rootly
+       * * `zenduty` - zenduty
+       * * `splunk_observability_cloud` - splunk_observability_cloud
+       * * `uptimerobot` - uptimerobot
+       * * `rootly_alerts` - rootly_alerts
+       * * `incident_io_alerts` - incident_io_alerts
+       * * `firehydrant_alerts` - firehydrant_alerts
+       * * `grafana_irm_alert_groups` - grafana_irm_alert_groups
        * * `asana` - asana
        * * `monday` - monday
        * * `plane` - plane
@@ -145176,6 +145305,10 @@ export namespace Schemas {
      * @minLength 1
      */
     group_by?: SignalsAnomaliesSearchRetrieveGroupBy;
+    /**
+     * Add `points` to each series row: its newest 400 scored buckets in the range, oldest first. Costs one more query. Has no effect with `group_by: insight`.
+     */
+    include_points?: boolean;
     /**
      * Only the series of this insight, by numeric id.
      */

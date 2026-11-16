@@ -802,6 +802,7 @@ def record_source_destination(
     event_kinds: Collection[AlertEventKind],
     hog_function_ids: Collection[UUID],
     hog_function_groups: Sequence[AlertDestinationGroup],
+    enabled: bool = True,
 ) -> StoredAlertDestination | None:
     """Adds the `AlertDestination` row for a destination a source has just written as HogFunctions, in the
     caller's transaction. `hog_function_groups` are the alert's HogFunction destinations, from the source. Raises `AlertDestinationValidationError` when the alert already sends there.
@@ -813,6 +814,7 @@ def record_source_destination(
         event_kinds=event_kinds,
         hog_function_ids=hog_function_ids,
         hog_function_groups=hog_function_groups,
+        enabled=enabled,
     )
 
 
@@ -843,6 +845,13 @@ def delete_source_destination_rows(
     """Deletes the alert's rows named or copying `hog_function_ids`, and returns what went."""
     return alert_destinations.delete_source_destination_rows(
         team_id=team_id, public_id=public_id, destination_ids=destination_ids, hog_function_ids=hog_function_ids
+    )
+
+
+def copied_by_source_rows(*, team_id: int, public_id: UUID, hog_function_ids: Collection[UUID]) -> frozenset[UUID]:
+    """The ids among `hog_function_ids` that one of the alert's rows copies, deleted HogFunctions included."""
+    return alert_destinations.copied_by_source_rows(
+        team_id=team_id, public_id=public_id, hog_function_ids=hog_function_ids
     )
 
 
