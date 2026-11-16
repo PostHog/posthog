@@ -1,11 +1,14 @@
 from dataclasses import dataclass, field
 from typing import Any, Literal, Optional
 
-from products.warehouse_sources.sources.sdk import DependentEndpointConfig
+from products.warehouse_sources.sources.sdk import DependentEndpointConfig, ResponseAction
+
+# Zenloop's list endpoints default to 50 rows per page; keep that size and paginate.
+PER_PAGE = 50
 
 
 # Mutable by choice: instances flow into `build_dependent_resource`'s `FanoutEndpointLike` mapping.
-@dataclass
+@dataclass(frozen=False)
 class ZenloopEndpointConfig:
     name: str
     path: str
@@ -27,12 +30,16 @@ class ZenloopEndpointConfig:
     # Read by the fan-out helper. Every Zenloop endpoint is full refresh, so these stay empty.
     incremental_fields: list[Any] = field(default_factory=list)
     default_incremental_field: Optional[str] = None
-    page_size: int = 50
+    page_size: int = PER_PAGE
 
 
 # Answers are listed oldest first so answers that arrive mid-sync land on the trailing pages
 # instead of shifting rows across the page boundaries already read.
 _ANSWER_PARAMS = {"order_by": "inserted_at", "order_type": "asc"}
+
+# A survey or survey group deleted after the parent list was read answers 404. Skip that parent
+# rather than failing the whole table.
+_SKIP_DELETED_PARENT: list[ResponseAction] = [{"status_code": 404, "action": "ignore"}]
 
 
 def _fanout(parent_name: str, path_param: str, renamed_parent_id: str, **kwargs: Any) -> DependentEndpointConfig:
@@ -45,7 +52,8 @@ def _fanout(parent_name: str, path_param: str, renamed_parent_id: str, **kwargs:
         resolve_field="public_hash_id",
         include_from_parent=["public_hash_id"],
         parent_field_renames={"public_hash_id": renamed_parent_id},
-        parent_params={"per_page": 50},
+        parent_params={"per_page": PER_PAGE},
+        child_response_actions=_SKIP_DELETED_PARENT,
         **kwargs,
     )
 
@@ -69,7 +77,8 @@ ZENLOOP_ENDPOINTS: dict[str, ZenloopEndpointConfig] = {
             resolve_param="survey_id",
             resolve_field="public_hash_id",
             include_from_parent=[],
-            parent_params={"per_page": 50},
+            parent_params={"per_page": PER_PAGE},
+            child_response_actions=_SKIP_DELETED_PARENT,
         ),
     ),
     "survey_answers": ZenloopEndpointConfig(
@@ -92,7 +101,8 @@ ZENLOOP_ENDPOINTS: dict[str, ZenloopEndpointConfig] = {
             resolve_param="survey_group_id",
             resolve_field="public_hash_id",
             include_from_parent=[],
-            parent_params={"per_page": 50},
+            parent_params={"per_page": PER_PAGE},
+            child_response_actions=_SKIP_DELETED_PARENT,
         ),
     ),
     "survey_group_answers": ZenloopEndpointConfig(

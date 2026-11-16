@@ -118,6 +118,8 @@ class TestFanoutEndpoints:
         # The same answer id under two parents stays two rows, so the key must carry the parent.
         assert result.response is not None
         assert result.response.primary_keys == [parent_key, "id"]
+        assert result.response.partition_mode == "datetime"
+        assert result.response.partition_keys == ["inserted_at"]
         assert all(f"_{parent}_public_hash_id" not in r for r in result.rows)
         assert result.paths == [
             f"/v1/{parent}",
@@ -154,6 +156,38 @@ class TestFanoutEndpoints:
 
         assert result.raised is None
         assert [(r["public_hash_id"], r["nps"]["percentage"]) for r in result.rows] == [("AAA=", 40), ("BBB=", -5)]
+
+    @parameterized.expand(
+        [
+            ("survey_answers", "surveys", "/answers", {"answers": [{"id": "c1"}], "meta": {"total_pages": 1}}),
+            (
+                "survey_group_answers",
+                "survey_groups",
+                "/answers",
+                {"answers": [{"id": "c1"}], "meta": {"total_pages": 1}},
+            ),
+            ("survey_summaries", "surveys", "", {"survey": {"public_hash_id": "CCC="}}),
+            ("survey_group_summaries", "survey_groups", "", {"survey_group": {"public_hash_id": "CCC="}}),
+        ]
+    )
+    def test_parent_deleted_mid_sync_is_skipped_and_later_parents_still_sync(
+        self, endpoint: str, parent: str, child_suffix: str, child_body: dict[str, Any]
+    ) -> None:
+        not_found = ScriptedResponse(status=404, json={"error": {"status": 404, "code": "NOT_FOUND"}})
+        script = route(
+            {
+                f"/{parent}/BBB={child_suffix}": [not_found],
+                f"/{parent}/CCC={child_suffix}": [ScriptedResponse(status=200, json=child_body)],
+                f"/{parent}": [
+                    _response([{"public_hash_id": "BBB="}, {"public_hash_id": "CCC="}], response_key=parent)
+                ],
+            }
+        )
+        result = _run(script, endpoint=endpoint)
+
+        assert result.raised is None
+        assert len(result.rows) == 1
+        assert result.paths[-1] == f"/v1/{parent}/CCC={child_suffix}"
 
     def test_summary_without_its_object_key_raises_loudly(self) -> None:
         script = route(

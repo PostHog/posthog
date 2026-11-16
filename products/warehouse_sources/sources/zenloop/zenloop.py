@@ -18,11 +18,9 @@ from products.warehouse_sources.sources.sdk import (
     rest_api_resource,
     validate_via_probe,
 )
-from products.warehouse_sources.sources.zenloop.settings import ZENLOOP_ENDPOINTS, ZenloopEndpointConfig
+from products.warehouse_sources.sources.zenloop.settings import PER_PAGE, ZENLOOP_ENDPOINTS, ZenloopEndpointConfig
 
 ZENLOOP_BASE_URL = "https://api.zenloop.com/v1"
-# Zenloop's list endpoints default to 50 rows per page; keep that size and paginate.
-PER_PAGE = 50
 # Cheap endpoint used to confirm an API token is genuine. The token inherits its user's account
 # permissions, so one probe validates access to the list endpoints exposed here.
 DEFAULT_PROBE_PATH = "/surveys"
