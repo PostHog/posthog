@@ -2,8 +2,8 @@
 # ruff: noqa
 
 from django.db import models
-from django.db.models import Exists, F, OuterRef, Q, Value
-from django.db.models.functions import Concat, JSONArray, JSONObject
+from django.db.models import Exists, F, OuterRef, Q, Value, functions as db_functions
+from django.db.models.functions import Concat, JSONArray, JSONArray as JsonArray, JSONObject
 from django.db.models.lookups import Contains, StartsWith
 
 # ruleid: no-pattern-lookup-from-outer-row
@@ -207,3 +207,12 @@ Task.objects.filter(Contains(F("labels"), [OuterRef("label")]), StartsWith(F("pa
 
 # ruleid: no-pattern-lookup-from-outer-row
 Task.objects.filter(**{"labels__contains": [OuterRef("label")], "path__startswith": OuterRef("path")})
+
+# ok: no-pattern-lookup-from-outer-row
+Task.objects.filter(state__verified_urls__contains=db_functions.JSONArray(OuterRef("url")))
+
+# ok: no-pattern-lookup-from-outer-row
+Task.objects.filter(state__contains=db_functions.JSONObject(url=OuterRef("url")))
+
+# ok: no-pattern-lookup-from-outer-row
+Task.objects.filter(state__verified_urls__contains=JsonArray(OuterRef("url")))

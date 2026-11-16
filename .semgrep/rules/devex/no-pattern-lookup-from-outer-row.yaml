@@ -28,6 +28,8 @@ rules:
       pattern-sanitizers:
           - pattern: JSONArray(...)
           - pattern: JSONObject(...)
+          - pattern: django.db.models.functions.JSONArray(...)
+          - pattern: django.db.models.functions.JSONObject(...)
       pattern-sinks:
           - patterns:
                 - pattern: $CALL(..., $LOOKUP=$VALUE, ...)
