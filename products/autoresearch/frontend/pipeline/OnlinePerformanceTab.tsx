@@ -47,6 +47,9 @@ function fmtPercent(value: number | null | undefined): string {
 
 function NotCheckedYet(): JSX.Element {
     const { pipeline, firstCheck } = useValues(autoresearchPipelineLogic)
+    if (pipeline && !hasLiveModel(pipeline)) {
+        return <NothingToCheckYet />
+    }
     const horizon = pluralize(pipeline?.horizon_days ?? 0, 'day')
     return (
         <EmptyTab icon={<IconGraph />} title="Not checked against real outcomes yet" cta={<ScoreNowButton />}>
@@ -106,7 +109,7 @@ export function OnlinePerformanceTab(): JSX.Element {
     if (!latestChampionPerformance || !pipeline) {
         return (
             <div className="space-y-6">
-                {pipeline && !hasLiveModel(pipeline) ? <NothingToCheckYet /> : <NotCheckedYet />}
+                <NotCheckedYet />
                 <LiveModelDrivers />
             </div>
         )

@@ -11,7 +11,7 @@ import { urls } from 'scenes/urls'
 import { autoresearchLogic } from './autoresearchLogic'
 import { AutoresearchLiveTrainingRunApi, AutoresearchPipelineApi, ProjectLimitsApi } from './generated/api.schemas'
 import { ModelCardMenu } from './ModelCardMenu'
-import { firstCheckCountdown, modelCardState } from './modelCardState'
+import { ModelCardState, firstCheckCountdown, modelCardState } from './modelCardState'
 import { formatAuc, isLiftAtCeiling, modelQuality } from './modelQuality'
 import { ModelQualityTag } from './ModelQualityTag'
 import { MetricSparkline } from './pipeline/MetricSparkline'
@@ -298,9 +298,32 @@ function DraftBody({ pipeline }: { pipeline: AutoresearchPipelineApi }): JSX.Ele
     )
 }
 
+function ModelCardBody({
+    pipeline,
+    state,
+}: {
+    pipeline: AutoresearchPipelineApi
+    state: ModelCardState
+}): JSX.Element | null {
+    const { projectLimits } = useValues(autoresearchLogic)
+    switch (state) {
+        case 'training':
+            return <TrainingBody liveRun={pipeline.live_training_run} trainingRunCount={pipeline.training_run_count} />
+        case 'not_live':
+            return <NotLiveBody pipeline={pipeline} limits={projectLimits} />
+        case 'waiting_to_train':
+            return <WaitingToTrainBody pipeline={pipeline} limits={projectLimits} />
+        case 'draft':
+            return <DraftBody pipeline={pipeline} />
+        case 'awaiting_check':
+            return <AwaitingCheckBody pipeline={pipeline} />
+        case 'confirmed':
+            return <ConfirmedBody pipeline={pipeline} />
+    }
+}
+
 export function AutoresearchModelCard({ pipeline }: { pipeline: AutoresearchPipelineApi }): JSX.Element {
     const { modelCardOpened } = useActions(autoresearchLogic)
-    const { projectLimits } = useValues(autoresearchLogic)
     const state = modelCardState(pipeline)
     const subtitle = pipelineSubtitle(pipeline)
     return (
@@ -331,22 +354,7 @@ export function AutoresearchModelCard({ pipeline }: { pipeline: AutoresearchPipe
             </div>
             <div className="flex flex-col gap-1">
                 <div className="rounded border bg-surface-secondary p-3">
-                    {state === 'training' ? (
-                        <TrainingBody
-                            liveRun={pipeline.live_training_run}
-                            trainingRunCount={pipeline.training_run_count}
-                        />
-                    ) : state === 'not_live' ? (
-                        <NotLiveBody pipeline={pipeline} limits={projectLimits} />
-                    ) : state === 'waiting_to_train' ? (
-                        <WaitingToTrainBody pipeline={pipeline} limits={projectLimits} />
-                    ) : state === 'draft' ? (
-                        <DraftBody pipeline={pipeline} />
-                    ) : state === 'awaiting_check' ? (
-                        <AwaitingCheckBody pipeline={pipeline} />
-                    ) : (
-                        <ConfirmedBody pipeline={pipeline} />
-                    )}
+                    <ModelCardBody pipeline={pipeline} state={state} />
                 </div>
                 {state !== 'training' && pipeline.live_training_run && (
                     <RetrainingStrip liveRun={pipeline.live_training_run} liveAuc={pipeline.champion_holdout_auc} />
