@@ -127,3 +127,14 @@ export const Quill: Story = {
         },
     },
 }
+
+export const QuillNarrow: Story = {
+    ...Quill,
+    parameters: {
+        ...Quill.parameters,
+        testOptions: {
+            ...Quill.parameters?.testOptions,
+            viewport: { width: 580, height: 900 },
+        },
+    },
+}
