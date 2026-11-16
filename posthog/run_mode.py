@@ -38,6 +38,11 @@ class RunMode(StrEnum):
         return self is RunMode.HOBBY
 
     @property
+    def serves_one_posthog_js_build(self) -> bool:
+        """Self-hosted or local dev: no versioned posthog-js bucket, only the scripts in the frontend build."""
+        return self is RunMode.HOBBY or self is RunMode.LOCAL
+
+    @property
     def region(self) -> str | None:
         """`US`, `EU` or `DEV` on a deployed cloud env, else None."""
         return self.value if self.is_deployed_cloud else None
