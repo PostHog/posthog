@@ -79,9 +79,11 @@ export function scorecardOf(
         units_offered: result.units?.offeredUnits ?? null,
         converged: result.convergence?.converged ?? null,
         unfinished_jobs: result.convergence?.unfinishedJobs ?? null,
+        janitor_resets: result.janitorResets ?? null,
         ...invariantProperties(result),
         ...measurementProperties(result),
         admissions: result.admissions,
+        bars: result.bars,
         valve_timeline: result.timeline,
         evidence_dir: result.evidenceDir,
     }

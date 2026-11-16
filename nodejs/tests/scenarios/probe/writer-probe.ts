@@ -10,6 +10,7 @@ export type WriterSample = {
     ok: boolean
     latencyMs: number
     inRecovery?: boolean
+    instance?: string
     sqlstate?: string
 }
 
@@ -26,10 +27,13 @@ function sqlstateOf(error: unknown): { sqlstate?: string } {
     return typeof code === 'string' && SQLSTATE.test(code) ? { sqlstate: code } : {}
 }
 
+export type WriterProbeOptions = { applicationName?: string; aurora?: boolean }
+
 export async function createWriterProbe(
     cyclotronUrl: string,
-    applicationName = `${SCENARIO_SESSION_PREFIX}writer-probe`
+    { applicationName = `${SCENARIO_SESSION_PREFIX}writer-probe`, aurora = false }: WriterProbeOptions = {}
 ): Promise<WriterProbe> {
+    const instance = aurora ? ', aurora_db_instance_identifier() AS instance' : ''
     await withPostgres(
         (client) =>
             client.query(
@@ -64,11 +68,18 @@ export async function createWriterProbe(
             const monoMs = performance.now()
             try {
                 const client = await connected()
-                const { rows } = await client.query<{ in_recovery: boolean }>(
+                const { rows } = await client.query<{ in_recovery: boolean; instance?: string }>(
                     `WITH probe AS (INSERT INTO scenario_writer_probe DEFAULT VALUES RETURNING id)
-                     SELECT pg_is_in_recovery() AS in_recovery FROM probe`
+                     SELECT pg_is_in_recovery() AS in_recovery${instance} FROM probe`
                 )
-                return { at, monoMs, ok: true, latencyMs: performance.now() - monoMs, inRecovery: rows[0].in_recovery }
+                return {
+                    at,
+                    monoMs,
+                    ok: true,
+                    latencyMs: performance.now() - monoMs,
+                    inRecovery: rows[0].in_recovery,
+                    ...(rows[0].instance === undefined ? {} : { instance: rows[0].instance }),
+                }
             } catch (error) {
                 await drop()
                 return { at, monoMs, ok: false, latencyMs: performance.now() - monoMs, ...sqlstateOf(error) }
