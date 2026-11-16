@@ -81,6 +81,21 @@ class TestPushDispatcher(TestCase):
         # No presence rows in this test's setUp, so nothing to suppress.
         self.assertEqual(suppressed, [])
 
+    @parameterized.expand([(True,), (False,)])
+    @patch("products.tasks.backend.push_dispatcher.send_user_push.delay")
+    def test_cancel_push_reads_persisted_actor(self, cancelled_by_recipient: bool, mock_delay: Mock) -> None:
+        actor_id = self.user.id if cancelled_by_recipient else self.user.id + 1
+        TaskRun.update_state_atomic(self.task_run.id, updates={"cancel_requested_by_user_id": actor_id})
+
+        with self.captureOnCommitCallbacks(execute=True):
+            notify_task_run_cancelled(self.task_run)
+
+        if cancelled_by_recipient:
+            mock_delay.assert_not_called()
+        else:
+            mock_delay.assert_called_once()
+            self.assertEqual(mock_delay.call_args.args[3]["cancelledByUserId"], actor_id)
+
     @patch("products.tasks.backend.push_dispatcher.send_user_push.delay")
     def test_trial_completion_does_not_notify_the_operator(self, mock_delay) -> None:
         self.task.origin_product = Task.OriginProduct.SIGNALS_SCOUT

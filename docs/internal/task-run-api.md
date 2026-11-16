@@ -219,6 +219,6 @@ Loops use `mobile_push_loops_enabled`, alongside each loop's delivery configurat
 
 `mobile_push_snooze_enabled` controls local snooze reminders. The mobile app checks it alongside the master switch before scheduling and cancels pending reminders when it observes an opt-out. Other devices observe changes on their next foreground refresh.
 
-Cancellation payloads identify the initiating user with `cancelledByUserId`; that user does not receive the cancellation alert. Completed report work with an already attached, new PR awaiting review uses the PR-ready alert for eligible reviewers who allow it, sharing the normal PR deduplication key. Other recipients still receive the completion alert.
+Cancellation payloads identify the initiating user with `cancelledByUserId`; that user does not receive the cancellation alert. Completed non-interactive report work with an already attached, new PR awaiting review uses the PR-ready alert for eligible reviewers who allow it, sharing the normal PR deduplication key. Other recipients still receive the completion alert. Interactive runs keep completion alerts separate because PR artefacts identify the run, not the turn that produced them.
 The delivery worker checks that the account is active, along with current preferences and access, before it sends a queued notification.
 Task notifications require current viewer access to the task resource when queued and when delivered.

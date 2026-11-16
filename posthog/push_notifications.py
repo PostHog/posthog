@@ -60,6 +60,8 @@ def mobile_push_payload_enabled(user: User, data: dict[str, Any] | None) -> bool
     )
     if not mobile_push_preference_enabled(user, category):
         return False
+    if not isinstance(kind, str):
+        return True
     if kind in {"cancelled", "report_cancelled"} and payload.get("cancelledByUserId") == user.id:
         return False
     preference = {

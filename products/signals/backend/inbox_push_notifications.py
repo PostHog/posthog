@@ -243,7 +243,9 @@ def notify_report_task_update(
             recipient_ids.add(claimant.id)
         if task.created_by_id is not None:
             recipient_ids.add(task.created_by_id)
-        if kind in {"completed", "turn_completed"}:
+        # PR artefacts identify a run, not an interactive turn. Only a single-turn run can
+        # replace its completion with PR-ready without hiding an unrelated later answer.
+        if kind == "completed" and task_run.mode != "interactive":
             ready_pr_ids = (
                 SignalReportArtefact.objects.filter(
                     team_id=task.team_id,

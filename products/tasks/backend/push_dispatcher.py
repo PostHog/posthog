@@ -310,6 +310,9 @@ def _enqueue_inner(
         if pull_request_url
         else str(task_run.id)
     )
+    if kind == "cancelled":
+        # Cancellation records its actor atomically, leaving the caller's run instance stale.
+        task_run.refresh_from_db(fields=["state"])
     accepted = False
     for user in User.objects.filter(id__in=recipient_ids):
         data: dict[str, str | int] = {"taskId": str(task.id), "taskRunId": str(task_run.id)}

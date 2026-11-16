@@ -435,15 +435,23 @@ class TestInboxPushNotifications(BaseTest):
         self.assertEqual(args[3]["pullRequestUrl"], "https://github.com/example/project/pull/2")
 
     @parameterized.expand(
-        [("before", True, False), ("after", True, False), ("after", False, False), ("after", True, True)]
+        [
+            ("before", True, False, "background"),
+            ("after", True, False, "background"),
+            ("after", False, False, "background"),
+            ("after", True, True, "background"),
+            ("before", True, False, "interactive"),
+        ]
     )
-    def test_ready_pr_and_completed_work_share_one_alert(self, order: str, ready_enabled: bool, older_pr: bool) -> None:
+    def test_ready_pr_and_completed_work_share_one_alert(
+        self, order: str, ready_enabled: bool, older_pr: bool, mode: str
+    ) -> None:
         self.user.partial_notification_settings = {"mobile_push_report_pr_ready_enabled": ready_enabled}
         self.user.save(update_fields=["partial_notification_settings"])
         report = self._report(SignalReport.Status.READY, first_visible_at=VISIBLE_AT)
         self._add_reviewers(report, self.user)
         task = Task.objects.create(team=self.team, created_by=self.user, signal_report=report)
-        run = TaskRun.objects.create(task=task, team=self.team)
+        run = TaskRun.objects.create(task=task, team=self.team, state={"mode": mode})
         append_task_run_artefact(
             team_id=self.team.id,
             report_id=str(report.id),
@@ -478,6 +486,16 @@ class TestInboxPushNotifications(BaseTest):
         if order == "after" and not older_pr:
             with self.captureOnCommitCallbacks(execute=True):
                 notify_pull_request_ready(team_id=self.team.id, pull_request_id=str(pr.id))
+        if mode == "interactive":
+            self.assertEqual(self.send_push.call_count, 2)
+            self.assertEqual(self.send_push.call_args.args[3]["notificationKind"], "report_completed")
+            for _ in range(2):
+                tasks_cache().clear()
+                with self.captureOnCommitCallbacks(execute=True):
+                    notify_task_run_turn_completed(task_run_id=str(run.id), team_id=run.team_id)
+                self.assertEqual(self.send_push.call_args.args[3]["notificationKind"], "report_turn_completed")
+            self.assertEqual(self.send_push.call_count, 4)
+            return
         self.assertEqual(self.send_push.call_count, 1)
         self.assertEqual(
             self.send_push.call_args.args[3]["notificationKind"],
