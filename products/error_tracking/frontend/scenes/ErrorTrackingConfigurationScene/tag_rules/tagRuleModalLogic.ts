@@ -69,13 +69,6 @@ export interface tagRuleModalLogicActions {
         rules: ErrorTrackingRule[]
     } // rulesLogic
     loadRules: () => any // rulesLogic
-    loadRulesSuccess: (
-        rules: ErrorTrackingRule[],
-        payload?: any
-    ) => {
-        payload?: any
-        rules: ErrorTrackingRule[]
-    } // rulesLogic
     closeModal: () => {
         value: true
     }
@@ -184,7 +177,7 @@ export const tagRuleModalLogic = kea<tagRuleModalLogicType>([
         values: [rulesLogic({ ruleType: ErrorTrackingRuleType.Tag }), ['rules']],
         actions: [
             rulesLogic({ ruleType: ErrorTrackingRuleType.Tag }),
-            ['loadRules', 'loadRulesSuccess', 'deleteSelectedRulesSuccess', 'finishReorderingRulesSuccess'],
+            ['loadRules', 'deleteSelectedRulesSuccess', 'finishReorderingRulesSuccess'],
         ],
     })),
 
@@ -279,12 +272,13 @@ export const tagRuleModalLogic = kea<tagRuleModalLogicType>([
         saveRuleSuccess: () => {
             actions.closeModal()
             actions.loadRules()
+            reloadIssueTagDefinitions()
         },
         deleteRuleSuccess: () => {
             actions.closeModal()
             actions.loadRules()
+            reloadIssueTagDefinitions()
         },
-        loadRulesSuccess: reloadIssueTagDefinitions,
         deleteSelectedRulesSuccess: reloadIssueTagDefinitions,
         finishReorderingRulesSuccess: reloadIssueTagDefinitions,
         openModal: () => actions.resetMatchCount(),

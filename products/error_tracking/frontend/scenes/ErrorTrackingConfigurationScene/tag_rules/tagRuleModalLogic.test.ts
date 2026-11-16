@@ -65,9 +65,6 @@ describe('tagRuleModalLogic', () => {
                     return [204]
                 },
             },
-            patch: {
-                '/api/projects/:team_id/error_tracking/tag_rules/reorder/': [204],
-            },
             delete: {
                 '/api/projects/:team_id/error_tracking/tag_rules/:id/': ({ params }) => {
                     rules = rules.filter((rule) => rule.id !== params.id)

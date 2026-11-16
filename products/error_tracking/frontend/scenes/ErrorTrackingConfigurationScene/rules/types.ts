@@ -52,7 +52,6 @@ export type ErrorTrackingRule =
     | ErrorTrackingSeverityRule
     | ErrorTrackingSeverityRuleNew
     | ErrorTrackingTagRule
-    | ErrorTrackingTagRuleNew
 export type ErrorTrackingRuleNew = ErrorTrackingRule & { id: 'new' }
 
 export enum ErrorTrackingRuleType {
