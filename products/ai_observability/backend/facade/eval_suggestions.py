@@ -79,7 +79,7 @@ def dismiss_eval_suggestion(
 ) -> contracts.EvalSuggestion:
     _find_eval_suggestion(team, access, suggestion_id)
     dismissed = eval_suggestion_accept.dismiss(
-        str(suggestion_id), reason=reason, visible=eval_suggestions.visible_suggestions(team.pk, access)
+        str(suggestion_id), reason=reason, visible=eval_suggestions.visible_suggestions(team, access)
     )
     return _to_eval_suggestion(dismissed)
 
@@ -104,7 +104,7 @@ def apply_eval_suggestion_fix(
 
 
 def _find_eval_suggestion(team: Team, access: UserAccessControl | None, suggestion_id: UUID) -> EvalSuggestionModel:
-    suggestion = eval_suggestions.find_suggestion(team.pk, access, suggestion_id)
+    suggestion = eval_suggestions.find_suggestion(team, access, suggestion_id)
     if suggestion is None:
         raise contracts.EvalSuggestionNotFoundError
     return suggestion

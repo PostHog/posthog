@@ -1069,6 +1069,10 @@ def user_slack_integration_from_identity(
     return integration
 
 
+# The Slack app manifest lists these under `user_optional`, so each person chooses them on the consent screen.
+SLACK_OPTIONAL_USER_SCOPES = frozenset({"search:read.private", "search:read.im", "search:read.mpim"})
+
+
 def slack_link_scopes(integration: UserIntegration) -> frozenset[str]:
     """The user scopes Slack granted the link. Stored space-delimited, as OIDC returns them."""
     return frozenset(str((integration.config or {}).get("scope") or "").replace(",", " ").split())
@@ -1082,11 +1086,13 @@ def slack_link_for(integration_id: str, *, user_id: int) -> UserIntegration | No
 
 
 def slack_link_fits(integration: UserIntegration, allowlist: Iterable[str]) -> bool:
-    """The link grants every scope in ``allowlist`` and nothing outside it. The MCP store sends the link's token
-    upstream, so the allowlist is a ceiling as well as a floor: a link that can read more than the server may read
-    does not connect it."""
+    """The link grants nothing outside ``allowlist`` and every scope in it that the person cannot clear on the
+    consent screen. The MCP store sends the link's token upstream, so the allowlist is a ceiling: a link that can
+    read more than the server may read does not connect it. A link without an optional search scope still connects,
+    because Slack's MCP server then only leaves out the matching search."""
     allowed = set(allowlist)
-    return bool(allowed) and slack_link_scopes(integration) == allowed
+    required = allowed - SLACK_OPTIONAL_USER_SCOPES
+    return bool(required) and required <= slack_link_scopes(integration) <= allowed
 
 
 def revoke_slack_user_token(integration: UserIntegration) -> None:
