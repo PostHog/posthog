@@ -249,10 +249,9 @@ class TestMCPIntentAssignmentsTable(ClickhouseTestMixin, APIBaseTest):
 
         assert isinstance(database.get_table("mcp_intent_assignments"), HogQLDataWarehouseTable)
 
-    def test_restricting_the_intent_property_masks_the_raw_hash_and_text_and_empties_the_deduped_table(self) -> None:
-        # intent_text copies $mcp_intent and intent_hash is its unsalted sha256, so a reader denied the property
-        # must not read or filter on either. The deduped table cannot pick one row per intent without the hash.
-        _insert_assignment(self.team.pk, "a" * 64, "topic-0", timestamp=_now() - timedelta(days=2))
+    @parameterized.expand([("raw_mcp_intent_assignments", 3), ("mcp_intent_assignments", 2)])
+    def test_restricting_the_intent_property_hides_assignment_rows(self, table: str, admin_count: int) -> None:
+        _insert_assignment(self.team.pk, "a" * 64, "topic-0", timestamp=_now() - timedelta(days=40))
         _insert_assignment(self.team.pk, "a" * 64, "topic-1")
         _insert_assignment(self.team.pk, "b" * 64, "topic-2")
         self.organization.available_product_features = [
@@ -270,29 +269,24 @@ class TestMCPIntentAssignmentsTable(ClickhouseTestMixin, APIBaseTest):
         def run(query: str) -> list[tuple]:
             return execute_hogql_query(query=query, team=self.team, user=self.user).results
 
-        raw_star = execute_hogql_query(
-            query="SELECT * FROM posthog.raw_mcp_intent_assignments ORDER BY topic_id", team=self.team, user=self.user
-        )
-        # A background merge can drop the older topic-0 row of the same intent, so only the masking is checked.
-        raw_rows = [dict(zip(raw_star.columns or [], values)) for values in raw_star.results]
-        assert {(row["intent_hash"], row["intent_text"]) for row in raw_rows} == {(None, None)}
-        assert {"topic-1", "topic-2"} <= {row["topic_id"] for row in raw_rows}
-        assert run(f"SELECT count() FROM posthog.raw_mcp_intent_assignments WHERE intent_hash = '{hash_a}'") == [(0,)]
-        assert run(
-            "SELECT count() FROM posthog.raw_mcp_intent_assignments WHERE intent_text = 'list feature flags'"
-        ) == [(0,)]
-        assert run("SELECT count() FROM posthog.mcp_intent_assignments") == [(0,)]
+        assert run(f"SELECT count() FROM posthog.{table}") == [(0,)]
+        assert run(f"SELECT count() FROM (SELECT run_id FROM posthog.{table})") == [(0,)]
+        assert run(f"SELECT a.* FROM posthog.{table} AS a") == []
+        assert run(f"SELECT a.run_id, a.topic_id, a.calls_in_run FROM posthog.{table} AS a") == []
+        assert run(f"SELECT count() FROM posthog.{table} WHERE intent_hash = '{hash_a}'") == [(0,)]
+        assert run(f"SELECT count() FROM posthog.{table} WHERE intent_text = 'list feature flags'") == [(0,)]
 
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()
 
-        [(admin_hash_matches,)] = run(
-            f"SELECT count() FROM posthog.raw_mcp_intent_assignments WHERE intent_hash = '{hash_a}'"
-        )
-        assert admin_hash_matches >= 1
-        assert run(
-            "SELECT intent_hash, topic_id, intent_text FROM posthog.mcp_intent_assignments ORDER BY intent_hash"
-        ) == [
-            (hash_a, "topic-1", "list feature flags"),
-            ("b" * 64, "topic-2", "list feature flags"),
+        assert run(f"SELECT count() FROM posthog.{table}") == [(admin_count,)]
+        assert run(f"SELECT count() FROM (SELECT run_id FROM posthog.{table})") == [(admin_count,)]
+        assert run(f"SELECT count() FROM posthog.{table} WHERE intent_hash = '{hash_a}'") == [(admin_count - 1,)]
+        assert run(f"SELECT count() FROM posthog.{table} WHERE intent_text = 'list feature flags'") == [(admin_count,)]
+        expected_topics = ["topic-0", "topic-1", "topic-2"] if admin_count == 3 else ["topic-1", "topic-2"]
+        assert run(f"SELECT a.run_id, a.topic_id, a.calls_in_run FROM posthog.{table} AS a ORDER BY a.topic_id") == [
+            ("run-1", topic, 3) for topic in expected_topics
+        ]
+        assert run(f"SELECT intent_hash, topic_id, intent_text FROM posthog.{table} ORDER BY topic_id") == [
+            (hash_a if topic != "topic-2" else "b" * 64, topic, "list feature flags") for topic in expected_topics
         ]
