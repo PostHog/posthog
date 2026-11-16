@@ -728,10 +728,11 @@ export type InvariantResult = {
     It also fails a unit whose follow-up was not sent though its send did not bounce. Two cases are let off: the fault refused the send outright, or the edge took the send without a fault after the run's last bounce, which needs a bounce earlier in the run.
   - `refused_at_intake`: refusals and transport errors the unit did not expect, at or under `gates.refused_at_intake`.
 
-- **Measurements.** Each has a unit in its definition. Every measurement so far is better when lower; the definitions do not record that. The runner's sampler scrapes every role's `/_metrics` every 5 seconds from the drive's start to convergence, and `measure(measurements, evidence)` in `judge/measurements.ts` turns the samples and the Judge's evidence into values.
+- **Measurements.** Each has a unit in its definition. Every measurement below but `step_claims_per_second` is better when lower; the definitions do not record that. The runner's sampler scrapes every role's `/_metrics` every 5 seconds from the drive's start to convergence, and `measure(measurements, evidence)` in `judge/measurements.ts` turns the samples and the Judge's evidence into values.
   - `role_cpu_seconds`, per role, seconds, lower is better: the sum of `process_cpu_seconds_total` increases, per process lifetime, so a killed role's restart does not reset it.
   - `role_rss_max_bytes`, per role, bytes, lower is better: the maximum of `process_resident_memory_bytes`.
   - `delivery_latency_ms`, `p50`, `p95` and `max`, milliseconds, lower is better: from the unit's offer to the edge's first 2xx record for each delivery.
+  - `step_claims_per_second`, per queue and ramp step, jobs per second: the claim rate from `cdp_cyclotron_jobs_processed` in each step, keyed `<queue>_<scale>x`, such as `hogflow_10x`. Read it against the step's offered rate to see whether the workers kept up.
 
 ### Cyclotron probe
 
@@ -834,7 +835,7 @@ A run that stops before judging has no groups, so a missing group means not judg
 | `inv_<name>_violation` | string or null | The first violation seen, even when the count stays within the gate; `null` when none was seen. Read `_passed` for the verdict |
 | `inv_<name>_ids`       | string[]       | Up to 5 unit ids that violated it                                                                                              |
 
-**Measurements** use the prefix `m_`: `m_<name>` for a single value, `m_<name>_<role>` per role, and `m_<name>_<stat>` per statistic, such as `m_delivery_latency_ms_p95`.
+**Measurements** use the prefix `m_`: `m_<name>` for a single value, `m_<name>_<role>` per role, `m_<name>_<stat>` per statistic, such as `m_delivery_latency_ms_p95`, and `m_<name>_<queue>_<scale>x` per queue and ramp step, such as `m_step_claims_per_second_hogflow_10x`.
 Hyphens in names and roles become underscores, so the CPU time of `cdp-api` is `m_role_cpu_seconds_cdp_api`.
 The unit is in the measurement's definition and in the evidence.
 A per-role value that may be short also carries `m_<name>_<role>_incomplete: true`. For `role_rss_max_bytes`, a scrape of that role was missed. For `role_cpu_seconds`, the role restarted, or a scrape after its last sample was missed.

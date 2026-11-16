@@ -4,7 +4,7 @@ import { z } from 'zod'
 
 import { internalFetch } from '~/common/utils/request'
 
-import type { Named } from '../cards'
+import type { Named, Step } from '../cards'
 import type { Definition } from '../cards/definitions'
 import type { ObservationName } from '../environment/failover'
 import { ReplicaOf, nameOf } from '../environment/identity'
@@ -47,7 +47,12 @@ export type Measurement = { name: string; unit: string } & Measured
 
 export type MeasureEvidence = JudgeEvidence &
     Readonly<Sampled> &
-    Readonly<Probed> & { sampledFrom: number; drive: DriveWindow; timeline: readonly ValveTimelineEntry[] }
+    Readonly<Probed> & {
+        sampledFrom: number
+        drive: DriveWindow
+        steps: readonly Step[]
+        timeline: readonly ValveTimelineEntry[]
+    }
 
 export type MeasurementDefinition = Definition & {
     unit: string
@@ -331,6 +336,13 @@ function phaseRate(samples: readonly MetricSample[], read: Counter, phase: Phase
     }, 0)
 }
 
+const queuesOf = (samples: readonly MetricSample[]): string[] => [
+    ...new Set(samples.flatMap(({ processed }) => Object.keys(processed))),
+]
+
+const claimRate = (samples: readonly MetricSample[], queue: string, phase: Phase): number =>
+    phaseRate(samples, ({ processed }) => processed[queue] ?? 0, phase)
+
 function scrapedSeconds(samples: readonly MetricSample[], phase: Phase): number {
     const spans = replicasOf(samples)
         .map((ofReplica) => spanning(ofReplica, phase))
@@ -362,11 +374,8 @@ export function baselineOf({ samples, queue, host, drive, timeline }: MeasureEvi
     if (length < MIN_BASELINE_SECONDS) {
         return { seconds: length, scrapedSeconds: scraped, claimsPerSecond: {} }
     }
-    const queues =
-        scraped < MIN_BASELINE_SECONDS ? [] : [...new Set(samples.flatMap(({ processed }) => Object.keys(processed)))]
-    const claimsPerSecond = Object.fromEntries(
-        queues.map((name) => [name, phaseRate(samples, ({ processed }) => processed[name] ?? 0, baseline)])
-    )
+    const queues = scraped < MIN_BASELINE_SECONDS ? [] : queuesOf(samples)
+    const claimsPerSecond = Object.fromEntries(queues.map((name) => [name, claimRate(samples, name, baseline)]))
     const inserted = spanning(counted(queue), baseline)
     const hostBusyShare = hostBusyShareOf(host, baseline)
     return {
@@ -458,6 +467,21 @@ export const RECOVERY_MEASUREMENTS: MeasurementDefinition[] = [
         unit: 'jobs/s',
         measure: (evidence) =>
             Object.entries(baselineOf(evidence).claimsPerSecond).map(([key, value]) => ({ key, value })),
+    },
+    {
+        name: 'step_claims_per_second',
+        params: z.object({}).strict(),
+        unit: 'jobs/s',
+        measure: ({ samples, drive, steps }) =>
+            steps.flatMap(({ scale, fromMs, toMs }) => {
+                const step = { from: drive.startedAt + fromMs, to: Math.min(drive.startedAt + toMs, drive.endedAt) }
+                return step.to <= step.from
+                    ? []
+                    : queuesOf(samples).map((queue) => ({
+                          key: `${queue}_${scale}x`,
+                          value: claimRate(samples, queue, step),
+                      }))
+            }),
     },
     {
         name: 'baseline_new_jobs_per_second',

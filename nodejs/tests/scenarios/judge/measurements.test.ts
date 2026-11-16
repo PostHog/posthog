@@ -67,6 +67,7 @@ const evidence = (partial: Partial<MeasureEvidence>): MeasureEvidence => ({
     queue: [],
     sampledFrom: FROM,
     drive: { startedAt: FROM, endedAt: FROM + 60_000 },
+    steps: [],
     timeline: [],
     ...partial,
 })
@@ -631,7 +632,7 @@ describe('measurements', () => {
         expect(phasesOf(DRIVE, timeline)).toEqual(phases)
     })
 
-    it('rates the baseline claims per queue, new jobs and host CPU from the drive start to the valve intent', () => {
+    it('rates the baseline claims per queue, new jobs and host CPU up to the valve intent, and claims per step', () => {
         const claims = (atSecond: number, processed: Record<string, number>, replica = 0): MetricSample => ({
             ...sample(atSecond, -60, 1, 100, replica),
             processed,
@@ -648,7 +649,17 @@ describe('measurements', () => {
             { at: atS(695), busyTicks: 3800, totalTicks: 17_000 },
             { at: atS(800), busyTicks: 17_000, totalTicks: 17_100 },
         ]
-        const recorded = evidence({ samples, host, queue: probedQueue(() => QUIET), drive: DRIVE, timeline: [VALVE] })
+        const recorded = evidence({
+            samples,
+            host,
+            queue: probedQueue(() => QUIET),
+            drive: DRIVE,
+            steps: [
+                { scale: 1, fromMs: 0, toMs: 700_000 },
+                { scale: 10, fromMs: 700_000, toMs: 1_500_000 },
+            ],
+            timeline: [VALVE],
+        })
 
         expect({
             baseline: baselineOf(recorded),
@@ -656,6 +667,7 @@ describe('measurements', () => {
                 [
                     { name: 'baseline_claims_per_second', params: {} },
                     { name: 'baseline_new_jobs_per_second', params: {} },
+                    { name: 'step_claims_per_second', params: {} },
                 ],
                 recorded
             ),
@@ -671,6 +683,10 @@ describe('measurements', () => {
                 { name: 'baseline_claims_per_second', key: 'email', unit: 'jobs/s', value: 0.375 },
                 { name: 'baseline_claims_per_second', key: 'hogflow', unit: 'jobs/s', value: 0.125 },
                 { name: 'baseline_new_jobs_per_second', unit: 'jobs/s', value: 0.5 },
+                { name: 'step_claims_per_second', key: 'email_1x', unit: 'jobs/s', value: 0.375 },
+                { name: 'step_claims_per_second', key: 'hogflow_1x', unit: 'jobs/s', value: 0.125 },
+                { name: 'step_claims_per_second', key: 'email_10x', unit: 'jobs/s', value: 44.25 },
+                { name: 'step_claims_per_second', key: 'hogflow_10x', unit: 'jobs/s', value: 44.625 },
             ],
         })
     })
