@@ -145,6 +145,7 @@ func TestSnapshot_withMetrics(t *testing.T) {
 		Children:   2,
 		FDs:        10,
 		SampledAt:  someTime,
+		cpuKnown:   true,
 	}
 
 	snap := p.Snapshot()
@@ -1095,5 +1096,30 @@ func TestProcess_noAutorestartWhenDisabled(t *testing.T) {
 	data, _ := os.ReadFile(mark)
 	if got := strings.Count(string(data), "run"); got != 1 {
 		t.Errorf("expected exactly 1 run without autorestart, got %d", got)
+	}
+}
+
+func TestCPUPercentSince(t *testing.T) {
+	at := time.Date(2026, 1, 1, 0, 0, 0, 0, time.UTC)
+	for _, tc := range []struct {
+		name      string
+		prev, cur map[int32]float64
+		prevAt    time.Time
+		now       time.Time
+		want      float64
+		wantKnown bool
+	}{
+		{"first sample has no baseline", nil, map[int32]float64{1: 5}, time.Time{}, at, 0, false},
+		{"stale baseline would average over the gap", map[int32]float64{1: 5}, map[int32]float64{1: 6}, at, at.Add(time.Minute), 0, false},
+		{"half a core over one second", map[int32]float64{1: 10}, map[int32]float64{1: 10.5}, at, at.Add(time.Second), 50, true},
+		{"exited child keeps the rest of the tree", map[int32]float64{1: 10, 2: 30}, map[int32]float64{1: 12}, at, at.Add(time.Second), 200, true},
+		{"new child counts its full time", map[int32]float64{1: 10}, map[int32]float64{1: 10, 3: 0.5}, at, at.Add(time.Second), 50, true},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			got, known := cpuPercentSince(tc.prev, tc.prevAt, tc.cur, tc.now)
+			if got != tc.want || known != tc.wantKnown {
+				t.Errorf("got %v (known %v), want %v (known %v)", got, known, tc.want, tc.wantKnown)
+			}
+		})
 	}
 }
