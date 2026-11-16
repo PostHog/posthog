@@ -111,15 +111,27 @@ def admit_evaluation_slots(
     return [_decode(member) for member in admitted]
 
 
+def _client(socket_timeout: float | None):
+    if socket_timeout is None:
+        return redis.get_client()
+    return redis.get_client(socket_timeout=socket_timeout, socket_connect_timeout=socket_timeout)
+
+
 def hold_evaluation_slot(
-    alert_id: str, *, limit: int, lease_seconds: float = SLOT_LEASE_SECONDS, key: str = INFLIGHT_KEY
+    alert_id: str,
+    *,
+    limit: int,
+    lease_seconds: float = SLOT_LEASE_SECONDS,
+    key: str = INFLIGHT_KEY,
+    socket_timeout: float | None = None,
 ) -> float | None:
     """Take the slot for a check that is about to run and return the expiry that identifies this holder.
 
-    Returns None when the check no longer holds a slot and the set is full.
+    Returns None when the check no longer holds a slot and the set is full. `socket_timeout` bounds
+    the Redis call for a caller whose work is optional and must not wait out the default timeout.
     """
     expires_at = time.time() + lease_seconds
-    held = redis.get_client().eval(_HOLD_SCRIPT, 1, key, time.time(), limit, expires_at, alert_id)
+    held = _client(socket_timeout).eval(_HOLD_SCRIPT, 1, key, time.time(), limit, expires_at, alert_id)
     return expires_at if held else None
 
 
@@ -129,10 +141,12 @@ def refresh_evaluation_slot(alert_id: str, *, held_until: float, expires_at: flo
     return bool(owned)
 
 
-def release_evaluation_slots(alert_ids: list[str], *, held_until: float, key: str = INFLIGHT_KEY) -> None:
+def release_evaluation_slots(
+    alert_ids: list[str], *, held_until: float, key: str = INFLIGHT_KEY, socket_timeout: float | None = None
+) -> None:
     """Free the slots that still carry the expiry their writer was given."""
     if alert_ids:
-        redis.get_client().eval(_RELEASE_OWNED_SCRIPT, 1, key, held_until, *alert_ids)
+        _client(socket_timeout).eval(_RELEASE_OWNED_SCRIPT, 1, key, held_until, *alert_ids)
 
 
 def release_evaluation_slot(alert_id: str, *, held_until: float, key: str = INFLIGHT_KEY) -> None:

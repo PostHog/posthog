@@ -51,6 +51,9 @@ CHART_TITLE: Final = "Last 60 min"
 # the chart, not the message.
 CHART_INFLIGHT_KEY: Final = "alerts:platform:metrics:charts:inflight"
 CHART_SLOT_LEASE_SECONDS: Final = 5
+# Delivery's attempt is 15s, so a Redis that accepts and never answers must not hold it for the
+# default socket timeout.
+CHART_REDIS_SECONDS: Final = 0.5
 # Every group and destination of one evaluation renders from the same range query, so it runs once.
 _RESULT_CACHE_SIZE: Final = 32
 _results: OrderedDict[tuple[int, str, datetime], list[dict[str, Any]] | None] = OrderedDict()
@@ -79,7 +82,7 @@ def _matching_series(result: list[dict[str, Any]], transition: AnnouncedTransiti
     matches = [
         series.get("values") or []
         for series in result
-        if all((series.get("metric") or {}).get(key) == value for key, value in labels.items())
+        if all((series.get("metric") or {}).get(key, "") == value for key, value in labels.items())
     ]
     if len(matches) <= 1:
         return matches[0] if matches else None
@@ -106,7 +109,7 @@ def _read_range(team_id: int, query: str, end: datetime) -> list[dict[str, Any]]
     # Imported here because registration runs from ready(), before models and the query layer load.
     from posthog.clickhouse.client.connection import ClickHouseUser  # noqa: PLC0415
     from posthog.models import Team  # noqa: PLC0415
-    from posthog.temporal.alerts.admission import hold_evaluation_slot, release_evaluation_slot  # noqa: PLC0415
+    from posthog.temporal.alerts.admission import hold_evaluation_slot, release_evaluation_slots  # noqa: PLC0415
 
     from products.metrics.backend.promql import snuffle_payload  # noqa: PLC0415
 
@@ -118,6 +121,7 @@ def _read_range(team_id: int, query: str, end: datetime) -> list[dict[str, Any]]
             limit=settings.ALERTS_PLATFORM_METRICS_MAX_INFLIGHT_BATCHES,
             lease_seconds=CHART_SLOT_LEASE_SECONDS,
             key=CHART_INFLIGHT_KEY,
+            socket_timeout=CHART_REDIS_SECONDS,
         )
         if held_until is None:
             logger.info("metrics_alert_history_skipped_pool_full", team_id=team_id)
@@ -147,7 +151,13 @@ def _read_range(team_id: int, query: str, end: datetime) -> list[dict[str, Any]]
         return None
     finally:
         if held_until is not None:
-            release_evaluation_slot(member, held_until=held_until, key=CHART_INFLIGHT_KEY)
+            # One bounded try. A slot the release misses frees itself when its short lease runs out.
+            try:
+                release_evaluation_slots(
+                    [member], held_until=held_until, key=CHART_INFLIGHT_KEY, socket_timeout=CHART_REDIS_SECONDS
+                )
+            except Exception:
+                logger.warning("metrics_alert_history_release_failed", team_id=team_id, exc_info=True)
 
 
 def fetch_history(team_id: int, transition: AnnouncedTransition) -> list[tuple[int, float]]:

@@ -107,6 +107,8 @@ def _series(metric: dict[str, str], values: list[Any]) -> dict[str, Any]:
             [_series({"job": "a", "instance": "1"}, [1, 2]), _series({"job": "a", "instance": "2"}, [5, 9])],
             [],
         ),
+        # Evaluation records an absent grouping label as "", so a series without it still matches.
+        ({"job": ""}, 1.0, [_series({"instance": "1"}, [0, 1])], [0.0, 1.0]),
         # NaN and infinity have no JSON form, so they never reach Slack.
         ({}, 1.0, [_series({}, ["NaN", 1, "+Inf", 2])], [1.0, 2.0]),
     ],
