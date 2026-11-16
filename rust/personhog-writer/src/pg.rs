@@ -3,6 +3,7 @@ use std::str::from_utf8;
 
 use chrono::{DateTime, TimeZone, Utc};
 use metrics::counter;
+use personhog_common::query_tag;
 use personhog_proto::personhog::types::v1::Person;
 use sqlx::postgres::PgPool;
 use tracing::error;
@@ -84,7 +85,10 @@ impl PgStore {
             table = table_name
         );
 
-        Self { pool, upsert_sql }
+        Self {
+            pool,
+            upsert_sql: query_tag!("upsert_persons", upsert_sql),
+        }
     }
 }
 
