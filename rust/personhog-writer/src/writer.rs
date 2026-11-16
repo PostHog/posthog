@@ -4,15 +4,20 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use common_liveness::SyncLivenessReporter;
+use futures::future::join_all;
 use lifecycle::Handle;
 use metrics::{counter, histogram};
+use personhog_property_store::{PropertyRecord, PropertyWriter, PutError};
 use personhog_proto::personhog::types::v1::Person;
 use tokio::sync::mpsc;
 use tokio::time::Instant;
 use tracing::{debug, error, info, warn};
 
+use crate::backfill_mode::{owner, BackfillTopic};
+use crate::buffer::BufferedPerson;
 use crate::consumer::FlushBatch;
 use crate::kafka::{PersonConsumer, Source};
+use crate::property_ownership::{partition_key, property_record};
 use crate::store::{BatchOutcome, PersonDb, PersonWriteStore};
 
 /// The offset-commit and assignment surface the writer needs from Kafka.
@@ -25,6 +30,8 @@ pub trait OffsetCommitter: Send + Sync {
 
     /// `None` while the consumer has not joined its group yet.
     fn assigned_partitions(&self) -> Result<Option<HashSet<Source>>, rdkafka::error::KafkaError>;
+
+    fn generation(&self, source: &Source) -> Option<u64>;
 }
 
 impl OffsetCommitter for PersonConsumer {
@@ -38,6 +45,10 @@ impl OffsetCommitter for PersonConsumer {
     fn assigned_partitions(&self) -> Result<Option<HashSet<Source>>, rdkafka::error::KafkaError> {
         PersonConsumer::assigned_partitions(self)
     }
+
+    fn generation(&self, source: &Source) -> Option<u64> {
+        PersonConsumer::generation(self, source)
+    }
 }
 
 /// Receives batches from the consumer task, writes to the persistent
@@ -45,11 +56,21 @@ impl OffsetCommitter for PersonConsumer {
 /// writes don't block consumption.
 pub struct WriterTask<D: PersonDb + 'static, C: OffsetCommitter + 'static> {
     consumer: Arc<C>,
-    store: PersonWriteStore<D>,
+    /// `None` in `backfill` mode, which writes SlateDB alone.
+    store: Option<PersonWriteStore<D>>,
+    /// Offsets commit once every store the writer uses has the rows.
+    properties: Option<Arc<PropertyWriter>>,
+    /// Set in `backfill` mode, where a backfill row writes the shards of its changelog partition.
+    backfill: Option<BackfillTopic>,
     flush_rx: mpsc::Receiver<FlushBatch>,
     handle: Handle,
     liveness: Arc<dyn SyncLivenessReporter>,
     consecutive_failures: u32,
+}
+
+struct PartitionWrite {
+    generation: u64,
+    records: Vec<PropertyRecord>,
 }
 
 const MAX_CONSECUTIVE_FAILURES: u32 = 3;
@@ -63,7 +84,7 @@ const FLUSH_HEALTH_BUDGET: Duration = Duration::from_secs(300);
 impl<D: PersonDb + 'static, C: OffsetCommitter + 'static> WriterTask<D, C> {
     pub fn new(
         consumer: Arc<C>,
-        store: PersonWriteStore<D>,
+        store: Option<PersonWriteStore<D>>,
         flush_rx: mpsc::Receiver<FlushBatch>,
         handle: Handle,
     ) -> Self {
@@ -71,11 +92,23 @@ impl<D: PersonDb + 'static, C: OffsetCommitter + 'static> WriterTask<D, C> {
         Self {
             consumer,
             store,
+            properties: None,
+            backfill: None,
             flush_rx,
             handle,
             liveness,
             consecutive_failures: 0,
         }
+    }
+
+    pub fn with_properties(mut self, properties: Arc<PropertyWriter>) -> Self {
+        self.properties = Some(properties);
+        self
+    }
+
+    pub fn with_backfill(mut self, backfill: BackfillTopic) -> Self {
+        self.backfill = Some(backfill);
+        self
     }
 
     pub async fn run(mut self) {
@@ -141,6 +174,7 @@ impl<D: PersonDb + 'static, C: OffsetCommitter + 'static> WriterTask<D, C> {
             mut persons,
             mut offsets,
             oldest_message_ts_ms,
+            generations,
         } = batch;
 
         // A partition revoked while this batch waited in the channel belongs
@@ -148,9 +182,16 @@ impl<D: PersonDb + 'static, C: OffsetCommitter + 'static> WriterTask<D, C> {
         match self.consumer.assigned_partitions() {
             Ok(None) => {}
             Ok(Some(assigned)) => {
+                // A revoke and reassign since the batch formed: committing it could skip rows the revoke dropped.
+                let current = |source: &Source| {
+                    assigned.contains(source)
+                        && generations
+                            .get(source)
+                            .is_none_or(|&g| self.consumer.generation(source) == Some(g))
+                };
                 let before = persons.len();
-                persons.retain(|row| assigned.contains(&row.source));
-                offsets.retain(|source, _| assigned.contains(source));
+                persons.retain(|row| current(&row.source));
+                offsets.retain(|source, _| current(source));
                 let dropped = before - persons.len();
                 if dropped > 0 {
                     counter!("personhog_writer_revoked_rows_dropped_total", "stage" => "queued")
@@ -167,6 +208,23 @@ impl<D: PersonDb + 'static, C: OffsetCommitter + 'static> WriterTask<D, C> {
         let total_rows = persons.len();
         counter!("personhog_writer_flushes_total").increment(1);
 
+        // Built before the Postgres write takes the rows.
+        let property_writes = self.properties.is_some().then(|| {
+            partition_writes(&persons, &mut offsets, &generations, self.backfill.as_ref())
+        });
+        self.write_postgres(persons).await?;
+        if let (Some(properties), Some(writes)) = (self.properties.clone(), property_writes) {
+            self.write_properties(&properties, &mut offsets, writes)
+                .await?;
+        }
+        self.finish(total_rows, &offsets, oldest_message_ts_ms);
+        ControlFlow::Continue(())
+    }
+
+    async fn write_postgres(&mut self, persons: Vec<BufferedPerson>) -> ControlFlow<()> {
+        let Some(store) = &self.store else {
+            return ControlFlow::Continue(());
+        };
         // The leader admits every record against the writer's own rejection
         // surface, so everything here is applyable verbatim. A non-transient
         // failure below is an invariant violation: the flush halts without
@@ -178,11 +236,8 @@ impl<D: PersonDb + 'static, C: OffsetCommitter + 'static> WriterTask<D, C> {
 
         loop {
             let to_process = std::mem::take(&mut remaining);
-            match self.store.upsert_batch(to_process).await {
-                BatchOutcome::Success => {
-                    self.finish(total_rows, &offsets, oldest_message_ts_ms);
-                    return ControlFlow::Continue(());
-                }
+            match store.upsert_batch(to_process).await {
+                BatchOutcome::Success => return ControlFlow::Continue(()),
 
                 BatchOutcome::Partial {
                     transient,
@@ -197,7 +252,7 @@ impl<D: PersonDb + 'static, C: OffsetCommitter + 'static> WriterTask<D, C> {
                             rows = data_failed.len(),
                             "batch had data-failed chunks, falling back to per-row"
                         );
-                        let fallback = self.store.upsert_rows_parallel(data_failed).await;
+                        let fallback = store.upsert_rows_parallel(data_failed).await;
                         if !fallback.violations.is_empty() {
                             let first = &fallback.violations[0];
                             self.handle.signal_failure(format!(
@@ -215,7 +270,6 @@ impl<D: PersonDb + 'static, C: OffsetCommitter + 'static> WriterTask<D, C> {
                     }
 
                     if retry.is_empty() && saturated.is_empty() {
-                        self.finish(total_rows, &offsets, oldest_message_ts_ms);
                         return ControlFlow::Continue(());
                     }
 
@@ -271,6 +325,86 @@ impl<D: PersonDb + 'static, C: OffsetCommitter + 'static> WriterTask<D, C> {
         }
     }
 
+    /// Store failures count as strikes; shards still opening retry without one.
+    async fn write_properties(
+        &mut self,
+        writer: &Arc<PropertyWriter>,
+        offsets: &mut HashMap<Source, i64>,
+        mut pending: HashMap<Source, PartitionWrite>,
+    ) -> ControlFlow<()> {
+        let mut waiting_rounds = 0;
+        loop {
+            let mut retry = HashMap::new();
+            let mut failed = false;
+            let results = join_all(pending.drain().map(|(source, write)| {
+                let writer = Arc::clone(writer);
+                async move {
+                    let result = writer
+                        .put(&partition_key(&source), write.generation, &write.records)
+                        .await;
+                    (source, write, result)
+                }
+            }))
+            .await;
+            for (source, write, result) in results {
+                match result {
+                    Ok(()) => {}
+                    // Still assigned here, so a late opener fenced us: retry, or a later batch would commit past these rows.
+                    Err(PutError::Lost)
+                        if self.consumer.generation(&source) == Some(write.generation) =>
+                    {
+                        counter!("personhog_writer_property_fenced_retries_total").increment(1);
+                        warn!(topic = %source.topic, partition = source.partition, "property store shards fenced while still assigned; retrying");
+                        retry.insert(source, write);
+                    }
+                    Err(PutError::Lost) => {
+                        self.drop_offsets_of(offsets, &source);
+                        counter!("personhog_writer_property_partitions_lost_total", "reason" => "ownership_lost")
+                            .increment(1);
+                        info!(topic = %source.topic, partition = source.partition, "property store ownership lost; leaving the partition to its owner");
+                    }
+                    Err(PutError::Invariant(reason)) => {
+                        self.handle
+                            .signal_failure(format!("property store: {reason}"));
+                        return ControlFlow::Break(());
+                    }
+                    Err(PutError::NotReady) => {
+                        counter!("personhog_writer_property_not_ready_total").increment(1);
+                        warn!(topic = %source.topic, partition = source.partition, "property store shards not open yet");
+                        retry.insert(source, write);
+                    }
+                    Err(e @ PutError::Store(_)) => {
+                        warn!(topic = %source.topic, partition = source.partition, error = %e, "property store write failed");
+                        failed = true;
+                        retry.insert(source, write);
+                    }
+                }
+            }
+            if retry.is_empty() {
+                return ControlFlow::Continue(());
+            }
+            let backoff = if failed {
+                self.consecutive_failures += 1;
+                if self.consecutive_failures >= MAX_CONSECUTIVE_FAILURES {
+                    self.handle.signal_failure(format!(
+                        "property store write failed {MAX_CONSECUTIVE_FAILURES} consecutive times"
+                    ));
+                    return ControlFlow::Break(());
+                }
+                backoff_duration(self.consecutive_failures)
+            } else {
+                waiting_rounds += 1;
+                backoff_duration(waiting_rounds)
+            };
+            tokio::time::sleep(backoff).await;
+            pending = retry;
+        }
+    }
+
+    fn drop_offsets_of(&self, offsets: &mut HashMap<Source, i64>, owner_source: &Source) {
+        offsets.retain(|source, _| owner(self.backfill.as_ref(), source) != *owner_source);
+    }
+
     fn finish(&mut self, rows: usize, offsets: &HashMap<Source, i64>, oldest_ts_ms: Option<i64>) {
         self.consecutive_failures = 0;
         self.liveness.report_healthy();
@@ -301,6 +435,39 @@ impl<D: PersonDb + 'static, C: OffsetCommitter + 'static> WriterTask<D, C> {
 
         debug!(rows = rows_written, "flushed to store");
     }
+}
+
+/// Keyed by the changelog partition whose shards the rows write. A partition with no
+/// assignment here cannot write its shards, so its offsets stay uncommitted.
+fn partition_writes(
+    persons: &[BufferedPerson],
+    offsets: &mut HashMap<Source, i64>,
+    generations: &HashMap<Source, u64>,
+    backfill: Option<&BackfillTopic>,
+) -> HashMap<Source, PartitionWrite> {
+    let before = offsets.len();
+    offsets.retain(|source, _| generations.contains_key(&owner(backfill, source)));
+    let unassigned = before - offsets.len();
+    if unassigned > 0 {
+        counter!("personhog_writer_property_partitions_lost_total", "reason" => "unassigned")
+            .increment(unassigned as u64);
+    }
+    let mut writes: HashMap<Source, PartitionWrite> = HashMap::new();
+    for row in persons {
+        let owner = owner(backfill, &row.source);
+        let Some(&generation) = generations.get(&owner) else {
+            continue;
+        };
+        writes
+            .entry(owner)
+            .or_insert_with(|| PartitionWrite {
+                generation,
+                records: Vec::new(),
+            })
+            .records
+            .push(property_record(&row.person));
+    }
+    writes
 }
 
 fn backoff_duration(consecutive_failures: u32) -> Duration {
@@ -357,6 +524,7 @@ mod tests {
     struct RecordingCommitter {
         commits: Mutex<Vec<HashMap<Source, i64>>>,
         assigned: Option<HashSet<Source>>,
+        reassigned: HashSet<Source>,
     }
 
     impl RecordingCommitter {
@@ -364,6 +532,7 @@ mod tests {
             Self {
                 commits: Mutex::default(),
                 assigned: Some(partitions.iter().map(|p| source(*p)).collect()),
+                reassigned: HashSet::new(),
             }
         }
 
@@ -371,7 +540,13 @@ mod tests {
             Self {
                 commits: Mutex::default(),
                 assigned: None,
+                reassigned: HashSet::new(),
             }
+        }
+
+        fn reassigning(mut self, partitions: &[i32]) -> Self {
+            self.reassigned = partitions.iter().map(|p| source(*p)).collect();
+            self
         }
     }
 
@@ -394,6 +569,18 @@ mod tests {
             &self,
         ) -> Result<Option<HashSet<Source>>, rdkafka::error::KafkaError> {
             Ok(self.assigned.clone())
+        }
+
+        fn generation(&self, source: &Source) -> Option<u64> {
+            let assigned = self
+                .assigned
+                .as_ref()
+                .is_some_and(|assigned| assigned.contains(source));
+            match (assigned, self.reassigned.contains(source)) {
+                (false, _) => None,
+                (true, false) => Some(1),
+                (true, true) => Some(2),
+            }
         }
     }
 
@@ -429,7 +616,7 @@ mod tests {
         let (tx, rx) = mpsc::channel(1);
         let mut manager = Manager::builder("test").build();
         let handle = manager.register("writer", ComponentOptions::new());
-        let writer = WriterTask::new(Arc::clone(&committer), store, rx, handle);
+        let writer = WriterTask::new(Arc::clone(&committer), Some(store), rx, handle);
         (writer, committer, rows_written, tx, manager)
     }
 
@@ -445,12 +632,21 @@ mod tests {
         }
     }
 
-    fn batch(rows: i64) -> FlushBatch {
+    fn batch_of(persons: Vec<BufferedPerson>, offsets: HashMap<Source, i64>) -> FlushBatch {
+        let generations = offsets.keys().map(|source| (source.clone(), 1)).collect();
         FlushBatch {
-            persons: (0..rows).map(|id| row(0, id)).collect(),
-            offsets: HashMap::from([(source(0), rows - 1)]),
+            persons,
+            offsets,
             oldest_message_ts_ms: None,
+            generations,
         }
+    }
+
+    fn batch(rows: i64) -> FlushBatch {
+        batch_of(
+            (0..rows).map(|id| row(0, id)).collect(),
+            HashMap::from([(source(0), rows - 1)]),
+        )
     }
 
     #[tokio::test(start_paused = true)]
@@ -511,6 +707,120 @@ mod tests {
             assert_eq!(rows_written.load(Ordering::SeqCst), rows, "{name}");
             assert_eq!(*committer.commits.lock().unwrap(), commits, "{name}");
         }
+    }
+
+    fn two_partition_store(dir: &tempfile::TempDir) -> Arc<PropertyWriter> {
+        use personhog_property_store::object_store::local::LocalFileSystem;
+        use personhog_property_store::PropertyStoreConfig;
+
+        Arc::new(PropertyWriter::new(
+            &PropertyStoreConfig::local("props", 2),
+            Arc::new(LocalFileSystem::new_with_prefix(dir.path()).unwrap()),
+        ))
+    }
+
+    fn partition_key(partition: u32) -> personhog_property_store::PartitionKey {
+        personhog_property_store::PartitionKey {
+            topic: Arc::from("personhog_updates"),
+            partition,
+        }
+    }
+
+    fn person_in(partition: i32) -> i64 {
+        (1..)
+            .find(|&id| personhog_property_store::shard_for(1, id, 2) as i32 == partition)
+            .unwrap()
+    }
+
+    fn store_writer(
+        committer: RecordingCommitter,
+        properties: Arc<PropertyWriter>,
+    ) -> (
+        WriterTask<ScriptedDb, RecordingCommitter>,
+        Arc<RecordingCommitter>,
+        Manager,
+    ) {
+        let (writer, committer, _rows, _tx, manager) = scripted_writer_with(committer, vec![]);
+        (writer.with_properties(properties), committer, manager)
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn a_batch_read_before_its_partition_was_reassigned_commits_nothing_for_it() {
+        let (mut writer, committer, rows_written, _tx, _manager) = scripted_writer_with(
+            RecordingCommitter::owning(&[0, 1]).reassigning(&[1]),
+            vec![],
+        );
+
+        let flow = writer
+            .process_batch(batch_of(
+                vec![row(0, 1), row(1, 2)],
+                HashMap::from([(source(0), 3), (source(1), 5)]),
+            ))
+            .await;
+
+        assert!(matches!(flow, ControlFlow::Continue(())));
+        assert_eq!(rows_written.load(Ordering::SeqCst), 1);
+        assert_eq!(
+            *committer.commits.lock().unwrap(),
+            vec![HashMap::from([(source(0), 3)])]
+        );
+    }
+
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_partition_fenced_while_still_assigned_retries_and_commits() {
+        let dir = tempfile::tempdir().unwrap();
+        let properties = two_partition_store(&dir);
+        properties
+            .assign(&partition_key(0), 1, 2, || true)
+            .await
+            .unwrap();
+        properties
+            .assign(&partition_key(1), 1, 2, || true)
+            .await
+            .unwrap();
+        let zombie = two_partition_store(&dir);
+        zombie
+            .assign(&partition_key(1), 1, 2, || true)
+            .await
+            .unwrap();
+        let (mut writer, committer, _manager) =
+            store_writer(RecordingCommitter::owning(&[0, 1]), properties);
+
+        let flow = writer
+            .process_batch(batch_of(
+                vec![row(0, person_in(0)), row(1, person_in(1))],
+                HashMap::from([(source(0), 3), (source(1), 5)]),
+            ))
+            .await;
+
+        assert!(matches!(flow, ControlFlow::Continue(())));
+        assert_eq!(
+            *committer.commits.lock().unwrap(),
+            vec![HashMap::from([(source(0), 3), (source(1), 5)])]
+        );
+        assert_eq!(writer.consecutive_failures, 0);
+        zombie.close().await;
+    }
+
+    #[tokio::test(start_paused = true)]
+    async fn property_shards_still_opening_retry_without_a_strike() {
+        use personhog_property_store::object_store::memory::InMemory;
+        use personhog_property_store::PropertyStoreConfig;
+
+        let properties = Arc::new(PropertyWriter::new(
+            &PropertyStoreConfig::local("props", 1),
+            Arc::new(InMemory::new()),
+        ));
+        let (mut writer, committer, _manager) =
+            store_writer(RecordingCommitter::owning(&[0]), properties);
+        let rounds_past_the_limit =
+            Duration::from_secs(60 * u64::from(MAX_CONSECUTIVE_FAILURES + 2));
+
+        let flow =
+            tokio::time::timeout(rounds_past_the_limit, writer.process_batch(batch(1))).await;
+
+        assert!(flow.is_err(), "still retrying, not halted");
+        assert!(committer.commits.lock().unwrap().is_empty());
     }
 
     #[test]
@@ -577,8 +887,12 @@ mod tests {
         let mut manager = Manager::builder("test").build();
         let handle = manager.register("writer", ComponentOptions::new());
         let liveness = Arc::new(RecordingLiveness::default());
-        let mut writer =
-            WriterTask::new(Arc::new(RecordingCommitter::default()), store, rx, handle);
+        let mut writer = WriterTask::new(
+            Arc::new(RecordingCommitter::default()),
+            Some(store),
+            rx,
+            handle,
+        );
         writer.liveness = liveness.clone();
 
         let started = Instant::now();

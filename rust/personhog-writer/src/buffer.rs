@@ -49,7 +49,8 @@ impl PersonBuffer {
 
     /// Insert a person into the buffer. Later messages for the same person
     /// overwrite earlier ones -- Kafka partition ordering guarantees the
-    /// latest version always arrives last.
+    /// latest version always arrives last. Nothing orders two topics, so a
+    /// row from another topic replaces only an older version.
     pub fn insert(&mut self, person: Person, source: Source, offset: i64, ts_ms: Option<i64>) {
         self.offsets
             .entry(source.clone())
@@ -74,6 +75,11 @@ impl PersonBuffer {
         let key = (person.team_id, person.id);
         match self.entries.entry(key) {
             Entry::Occupied(mut e) => {
+                let held = e.get();
+                if held.source.topic != source.topic && held.person.version > person.version {
+                    counter!("personhog_writer_messages_deduped_total").increment(1);
+                    return;
+                }
                 e.insert(BufferedPerson { person, source });
                 counter!("personhog_writer_messages_deduped_total").increment(1);
             }
@@ -214,15 +220,43 @@ mod tests {
 
     #[test]
     fn dedup_keeps_latest_message() {
-        let mut buf = PersonBuffer::new(100);
-        buf.insert(make_person(1, 42, 1), src(0), 0, None);
-        buf.insert(make_person(1, 42, 2), src(0), 1, None);
-        buf.insert(make_person(1, 42, 3), src(0), 2, None);
+        let backfill = |partition| Source {
+            topic: Arc::from("personhog_backfill"),
+            partition,
+        };
+        let cases = [
+            (
+                "one topic, in order",
+                vec![(1, src(0)), (2, src(0)), (3, src(0))],
+                3,
+            ),
+            ("one topic, later wins", vec![(3, src(0)), (2, src(0))], 2),
+            (
+                "older backfill row after live",
+                vec![(3, src(0)), (2, backfill(0))],
+                3,
+            ),
+            (
+                "newer live row after backfill",
+                vec![(2, backfill(0)), (3, src(0))],
+                3,
+            ),
+            (
+                "newer backfill row after live",
+                vec![(2, src(0)), (3, backfill(0))],
+                3,
+            ),
+        ];
+        for (name, inserts, kept) in cases {
+            let mut buf = PersonBuffer::new(100);
+            for (offset, (version, source)) in inserts.into_iter().enumerate() {
+                buf.insert(make_person(1, 42, version), source, offset as i64, None);
+            }
 
-        assert_eq!(buf.len(), 1);
-
-        let batch = buf.drain_up_to(usize::MAX).unwrap();
-        assert_eq!(batch.persons[0].person.version, 3);
+            assert_eq!(buf.len(), 1, "{name}");
+            let batch = buf.drain_up_to(usize::MAX).unwrap();
+            assert_eq!(batch.persons[0].person.version, kept, "{name}");
+        }
     }
 
     #[test]

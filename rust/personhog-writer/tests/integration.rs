@@ -149,6 +149,67 @@ async fn writer_upserts_a_year_one_created_at() {
 }
 
 #[tokio::test]
+async fn a_writer_without_properties_keeps_only_the_identity_columns_current() {
+    let pool = create_test_pool().await;
+    let team_id: i32 = unique_team_id();
+    let with_properties = PersonWriteStore::new(
+        PgStore::new(pool.clone(), TARGET_TABLE.to_string()),
+        common::test_store_config(),
+        common::test_permits(),
+    );
+    let without_properties = PersonWriteStore::new(
+        PgStore::without_properties(pool.clone(), TARGET_TABLE.to_string()),
+        common::test_store_config(),
+        common::test_permits(),
+    );
+    let fetch = |id: i64| {
+        let pool = pool.clone();
+        async move {
+            let row: (i64, bool, serde_json::Value) = sqlx::query_as(
+                "SELECT version, is_identified, properties \
+                 FROM personhog_person_tmp WHERE team_id = $1 AND id = $2",
+            )
+            .bind(team_id)
+            .bind(id)
+            .fetch_one(&pool)
+            .await
+            .unwrap();
+            row
+        }
+    };
+    let identified = |id, version| Person {
+        is_identified: true,
+        properties: br#"{"plan":"paid"}"#.to_vec(),
+        ..make_person(team_id as i64, id, version)
+    };
+    assert!(matches!(
+        with_properties
+            .upsert_batch(vec![make_person(team_id as i64, 1, 1)])
+            .await,
+        BatchOutcome::Success
+    ));
+
+    assert!(matches!(
+        without_properties
+            .upsert_batch(vec![identified(1, 2), identified(2, 1)])
+            .await,
+        BatchOutcome::Success
+    ));
+
+    assert_eq!(
+        fetch(1).await,
+        (2, true, serde_json::json!({})),
+        "an update empties the properties column"
+    );
+    assert_eq!(
+        fetch(2).await,
+        (1, true, serde_json::json!({})),
+        "a new row starts with empty properties"
+    );
+    cleanup_team(&pool, team_id).await;
+}
+
+#[tokio::test]
 async fn writer_projects_death_documents_as_tombstones() {
     let pool = create_test_pool().await;
     let team_id: i32 = unique_team_id();
@@ -467,7 +528,12 @@ async fn consumer_flushes_on_buffer_size_threshold() {
         common::test_store_config(),
         common::test_permits(),
     );
-    let writer_task = WriterTask::new(Arc::clone(&kafka_consumer), writer, flush_rx, writer_handle);
+    let writer_task = WriterTask::new(
+        Arc::clone(&kafka_consumer),
+        Some(writer),
+        flush_rx,
+        writer_handle,
+    );
     tokio::spawn(async move { writer_task.run().await });
 
     // Produce 6 messages to mock Kafka (two full batches of 3)
@@ -562,7 +628,12 @@ async fn consumer_flushes_on_timer() {
         common::test_store_config(),
         common::test_permits(),
     );
-    let writer_task = WriterTask::new(Arc::clone(&kafka_consumer), writer, flush_rx, writer_handle);
+    let writer_task = WriterTask::new(
+        Arc::clone(&kafka_consumer),
+        Some(writer),
+        flush_rx,
+        writer_handle,
+    );
     tokio::spawn(async move { writer_task.run().await });
 
     // Produce 2 messages -- below the size threshold of 1000
@@ -657,7 +728,12 @@ async fn consumer_deduplicates_multiple_updates_for_same_person() {
         common::test_store_config(),
         common::test_permits(),
     );
-    let writer_task = WriterTask::new(Arc::clone(&kafka_consumer), writer, flush_rx, writer_handle);
+    let writer_task = WriterTask::new(
+        Arc::clone(&kafka_consumer),
+        Some(writer),
+        flush_rx,
+        writer_handle,
+    );
     tokio::spawn(async move { writer_task.run().await });
 
     // Produce 5 updates for the same person (id=1) with increasing versions
@@ -1292,7 +1368,12 @@ async fn writer_processes_batch_from_channel() {
         common::test_store_config(),
         common::test_permits(),
     );
-    let writer_task = WriterTask::new(Arc::clone(&kafka_consumer), writer, flush_rx, writer_handle);
+    let writer_task = WriterTask::new(
+        Arc::clone(&kafka_consumer),
+        Some(writer),
+        flush_rx,
+        writer_handle,
+    );
     tokio::spawn(async move { writer_task.run().await });
 
     // Send a batch directly through the channel
@@ -1301,6 +1382,7 @@ async fn writer_processes_batch_from_channel() {
         persons: rows(vec![person]),
         offsets: HashMap::new(),
         oldest_message_ts_ms: None,
+        generations: HashMap::new(),
     };
     flush_tx.send(batch).await.unwrap();
 
@@ -1406,13 +1488,19 @@ async fn writer_crashes_after_exhausting_transient_retries() {
         common::test_permits(),
     );
 
-    let writer_task = WriterTask::new(Arc::clone(&kafka_consumer), store, flush_rx, writer_handle);
+    let writer_task = WriterTask::new(
+        Arc::clone(&kafka_consumer),
+        Some(store),
+        flush_rx,
+        writer_handle,
+    );
     tokio::spawn(async move { writer_task.run().await });
 
     let batch = FlushBatch {
         persons: rows(vec![make_person(99_040, 1, 1)]),
         offsets: HashMap::new(),
         oldest_message_ts_ms: None,
+        generations: HashMap::new(),
     };
     flush_tx.send(batch).await.unwrap();
 
@@ -1459,13 +1547,19 @@ async fn writer_recovers_on_transient_retry() {
         common::test_permits(),
     );
 
-    let writer_task = WriterTask::new(Arc::clone(&kafka_consumer), store, flush_rx, writer_handle);
+    let writer_task = WriterTask::new(
+        Arc::clone(&kafka_consumer),
+        Some(store),
+        flush_rx,
+        writer_handle,
+    );
     tokio::spawn(async move { writer_task.run().await });
 
     let batch = FlushBatch {
         persons: rows(vec![make_person(99_041, 1, 1)]),
         offsets: HashMap::new(),
         oldest_message_ts_ms: None,
+        generations: HashMap::new(),
     };
     flush_tx.send(batch).await.unwrap();
 
@@ -1475,6 +1569,7 @@ async fn writer_recovers_on_transient_retry() {
         persons: rows(vec![make_person(99_041, 2, 1)]),
         offsets: HashMap::new(),
         oldest_message_ts_ms: None,
+        generations: HashMap::new(),
     };
     assert!(
         flush_tx.send(batch2).await.is_ok(),
@@ -1516,13 +1611,19 @@ async fn writer_falls_back_to_per_row_on_data_error() {
         common::test_permits(),
     );
 
-    let writer_task = WriterTask::new(Arc::clone(&kafka_consumer), store, flush_rx, writer_handle);
+    let writer_task = WriterTask::new(
+        Arc::clone(&kafka_consumer),
+        Some(store),
+        flush_rx,
+        writer_handle,
+    );
     tokio::spawn(async move { writer_task.run().await });
 
     let batch = FlushBatch {
         persons: rows(vec![make_person(99_042, 1, 1), make_person(99_042, 2, 1)]),
         offsets: HashMap::new(),
         oldest_message_ts_ms: None,
+        generations: HashMap::new(),
     };
     flush_tx.send(batch).await.unwrap();
 
@@ -1532,6 +1633,7 @@ async fn writer_falls_back_to_per_row_on_data_error() {
         persons: rows(vec![make_person(99_042, 3, 1)]),
         offsets: HashMap::new(),
         oldest_message_ts_ms: None,
+        generations: HashMap::new(),
     };
     assert!(
         flush_tx.send(batch2).await.is_ok(),
@@ -1581,7 +1683,12 @@ async fn unapplyable_batch_halts_the_writer_before_any_later_batch() {
         common::test_permits(),
     );
 
-    let writer_task = WriterTask::new(Arc::clone(&kafka_consumer), store, flush_rx, writer_handle);
+    let writer_task = WriterTask::new(
+        Arc::clone(&kafka_consumer),
+        Some(store),
+        flush_rx,
+        writer_handle,
+    );
     tokio::spawn(async move { writer_task.run().await });
 
     // A second batch is already buffered behind the poison one — the
@@ -1590,11 +1697,13 @@ async fn unapplyable_batch_halts_the_writer_before_any_later_batch() {
         persons: rows(vec![make_person(99_043, 1, 1)]),
         offsets: HashMap::new(),
         oldest_message_ts_ms: None,
+        generations: HashMap::new(),
     };
     let buffered = FlushBatch {
         persons: rows(vec![make_person(99_043, 2, 1)]),
         offsets: HashMap::new(),
         oldest_message_ts_ms: None,
+        generations: HashMap::new(),
     };
     flush_tx.send(poison).await.unwrap();
     flush_tx.send(buffered).await.unwrap();
@@ -1718,7 +1827,12 @@ async fn e2e_produce_to_kafka_and_verify_pg_write() {
         common::test_store_config(),
         common::test_permits(),
     );
-    let writer_task = WriterTask::new(Arc::clone(&kafka_consumer), writer, flush_rx, writer_handle);
+    let writer_task = WriterTask::new(
+        Arc::clone(&kafka_consumer),
+        Some(writer),
+        flush_rx,
+        writer_handle,
+    );
     tokio::spawn(async move { writer_task.run().await });
 
     let consumer_task = ConsumerTask::new(
