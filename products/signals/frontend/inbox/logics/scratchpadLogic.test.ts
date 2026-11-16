@@ -44,6 +44,14 @@ describe('scratchpadLogic', () => {
     let logic: ReturnType<typeof scratchpadLogic.build>
     let searchRequests: URLSearchParams[]
 
+    const FULL_PAGE = Array.from({ length: SCRATCHPAD_WINDOW_PAGE_SIZE }, (_, i) => entry(`pattern:${i}`, 'note'))
+
+    const loadFullFirstPage = async (): Promise<void> => {
+        useMocks({ get: { [SCRATCHPAD_URL]: () => [200, FULL_PAGE] } })
+        logic.actions.loadEntries()
+        await expectLogic(logic).toFinishAllListeners()
+    }
+
     beforeEach(async () => {
         searchRequests = []
         useMocks({
@@ -339,9 +347,7 @@ describe('scratchpadLogic', () => {
     // read they never reach. A control offered during a search spends a page of up to a few hundred
     // rows the table cannot show, and moves the header counts while the listed rows stay put.
     it('offers no older pages while a search is active', async () => {
-        logic.actions.loadEntriesSuccess(
-            Array.from({ length: SCRATCHPAD_WINDOW_PAGE_SIZE }, (_, i) => entry(`pattern:${i}`, 'note'))
-        )
+        await loadFullFirstPage()
         expect(logic.values.canLoadOlderEntries).toBe(true)
 
         logic.actions.setSearchText('redis')
@@ -356,11 +362,10 @@ describe('scratchpadLogic', () => {
     // A reload drops the walked pages, and the fresh first page has not yet said whether anything
     // older is left. A control left live over that gap pages from the window that just went away.
     it('retires the older-page control while the first page reloads', async () => {
-        logic.actions.loadEntriesSuccess(
-            Array.from({ length: SCRATCHPAD_WINDOW_PAGE_SIZE }, (_, i) => entry(`pattern:${i}`, 'note'))
-        )
+        await loadFullFirstPage()
         expect(logic.values.hasMoreOlderEntries).toBe(true)
 
+        useMocks({ get: { [SCRATCHPAD_URL]: () => [200, [TRUNCATED, WHOLE]] } })
         logic.actions.loadEntries()
         expect(logic.values.hasMoreOlderEntries).toBe(false)
 
@@ -405,9 +410,7 @@ describe('scratchpadLogic', () => {
     // a page that succeeds can append nothing too once the dedupe drops it. Without a flag the
     // spinner just stops, and the reader reads a failed press as an empty memory.
     it('records a failed older page and clears the record on the retry', async () => {
-        logic.actions.loadEntriesSuccess(
-            Array.from({ length: SCRATCHPAD_WINDOW_PAGE_SIZE }, (_, i) => entry(`pattern:${i}`, 'note'))
-        )
+        await loadFullFirstPage()
         useMocks({ get: { [SCRATCHPAD_URL]: () => [500, {}] } })
 
         logic.actions.loadOlderEntries()
@@ -699,5 +702,30 @@ describe('scratchpadLogic', () => {
         await expectLogic(logic).toFinishAllListeners()
 
         expect((rowsOf() ?? []).map((row) => row.key)).toEqual([TRUNCATED.key])
+    })
+
+    it('keeps the older-page control when a delete shortens a full first page in flight', async () => {
+        let releaseRead: () => void = () => {}
+        const readHeld = new Promise<void>((resolve) => {
+            releaseRead = resolve
+        })
+        useMocks({
+            get: {
+                [SCRATCHPAD_URL]: async () => {
+                    await readHeld
+                    return [200, FULL_PAGE]
+                },
+            },
+            post: { [`${SCRATCHPAD_URL}discard/`]: () => [200, { deleted: true }] },
+        })
+        logic.actions.loadEntries()
+
+        logic.actions.discardEntry(FULL_PAGE[0].key)
+        await expectLogic(logic).toDispatchActions(['discardEntrySuccess'])
+        releaseRead()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.entries).toHaveLength(SCRATCHPAD_WINDOW_PAGE_SIZE - 1)
+        expect(logic.values.hasMoreOlderEntries).toBe(true)
     })
 })

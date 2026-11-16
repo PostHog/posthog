@@ -306,6 +306,9 @@ export interface scratchpadLogicActions {
         payload?: void
     }
     resolveReportTitles: () => {}
+    setFirstPageHasMore: (hasMore: boolean) => {
+        hasMore: boolean
+    }
     setHideBookkeeping: (hideBookkeeping: boolean) => {
         hideBookkeeping: boolean
     }
@@ -420,6 +423,7 @@ export const scratchpadLogic = kea<scratchpadLogicType>([
         loadFullContentSuccess: (key: string, content: string) => ({ key, content }),
         loadFullContentFailure: (key: string) => ({ key }),
         loadOlderEntries: () => ({}),
+        setFirstPageHasMore: (hasMore: boolean) => ({ hasMore }),
         appendOlderEntries: (entries: ScratchpadEntryApi[], hasMore: boolean) => ({ entries, hasMore }),
         loadOlderEntriesFailure: () => ({}),
         resolveReportTitles: () => ({}),
@@ -429,7 +433,7 @@ export const scratchpadLogic = kea<scratchpadLogicType>([
         discardEntryFailure: (key: string) => ({ key }),
     }),
 
-    loaders(({ values }) => ({
+    loaders(({ actions, values }) => ({
         entries: [
             null as ScratchpadEntryApi[] | null,
             {
@@ -459,6 +463,7 @@ export const scratchpadLogic = kea<scratchpadLogicType>([
                     // A wider span is the slower read, so narrowing right after widening is the
                     // order that would otherwise let the older response answer last.
                     breakpoint()
+                    actions.setFirstPageHasMore(page.length >= SCRATCHPAD_WINDOW_PAGE_SIZE)
                     return withoutKeysDiscardedSince(page, values.discardedKeys, discardedBeforeRead)
                 },
             },
@@ -633,7 +638,7 @@ export const scratchpadLogic = kea<scratchpadLogicType>([
         hasMoreOlderEntries: [
             false,
             {
-                loadEntriesSuccess: (_, { entries }) => entries.length >= SCRATCHPAD_WINDOW_PAGE_SIZE,
+                setFirstPageHasMore: (_, { hasMore }) => hasMore,
                 appendOlderEntries: (_, { hasMore }) => hasMore,
                 // A reload drops the walked pages, so the control goes with them until the fresh
                 // first page says whether anything older is left.
