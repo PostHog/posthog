@@ -2677,16 +2677,35 @@ describe('exec tool', () => {
                 case: 'a nested key, naming the object it sat in',
                 input: { query: { kind: 'events', search: 'signup' } },
                 expected:
-                    'Invalid input for "read-data-schema": unexpected property: search in "query"; this tool does not accept it, so remove it and call the tool again',
+                    'Invalid input for "read-data-schema": unexpected property: search in "query"; this tool does not accept it, so remove or rename it and call the tool again',
             },
             {
                 case: 'several top-level keys',
                 input: { query: { kind: 'events' }, select: 'name', after: 'x' },
                 expected:
-                    'Invalid input for "read-data-schema": unexpected properties: select, after; this tool does not accept them, so remove them and call the tool again',
+                    'Invalid input for "read-data-schema": unexpected properties: select, after; this tool does not accept them, so remove or rename them and call the tool again',
             },
-        ])('tells the caller to drop $case and call again', ({ input, expected }) => {
-            const schema = z.object({ query: z.object({ kind: z.literal('events') }).strict() }).strict()
+            {
+                case: 'a real field sent in the wrong variant',
+                input: { query: { kind: 'events', event_name: '$pageview' } },
+                expected:
+                    'Invalid input for "read-data-schema": unexpected property: event_name in "query"; "query" accepts it only in another variant, so change its other fields to match that variant instead of removing it',
+            },
+            {
+                case: 'a wrong-variant field next to an unknown one',
+                input: { query: { kind: 'events', event_name: '$pageview', search: 'signup' } },
+                expected:
+                    'Invalid input for "read-data-schema": unexpected properties: event_name, search in "query"; "query" accepts event_name only in another variant, so change its other fields to match that variant instead of removing it; this tool does not accept search, so remove or rename it and call the tool again',
+            },
+        ])('tells the caller how to fix $case', ({ input, expected }) => {
+            const schema = z
+                .object({
+                    query: z.discriminatedUnion('kind', [
+                        z.object({ kind: z.literal('events') }).strict(),
+                        z.object({ kind: z.literal('event_properties'), event_name: z.string() }).strict(),
+                    ]),
+                })
+                .strict()
             const result = schema.safeParse(input, { reportInput: true })
             expect(result.success).toBe(false)
 
@@ -2845,7 +2864,7 @@ describe('exec tool', () => {
                 it('says nothing was ignored when the schema rejected the keys instead', () => {
                     // This tool's schema is strict, so `hash` was refused rather than dropped.
                     expect(formatFor('change-requests-approve-execute', { hash: 'x', confirmation: 'confirm' })).toBe(
-                        'Invalid input for "change-requests-approve-execute": missing required parameter: confirmation_hash (The confirmation_hash returned by the matching -prepare tool. Pass it back verbatim.); unexpected property: hash; this tool does not accept it, so remove it and call the tool again'
+                        'Invalid input for "change-requests-approve-execute": missing required parameter: confirmation_hash (The confirmation_hash returned by the matching -prepare tool. Pass it back verbatim.); unexpected property: hash; this tool does not accept it, so remove or rename it and call the tool again'
                     )
                 })
 
