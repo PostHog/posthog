@@ -7,7 +7,7 @@ import { identifierToHuman } from 'lib/utils/strings'
 
 import type { ReportMetricApi } from 'products/signals/frontend/generated/api.schemas'
 
-import { SignalReportArtefact } from '../../types'
+import { SIGNAL_REPORT_TASK_DISCUSSION_RELATIONSHIP, SignalReportArtefact } from '../../types'
 
 /** Built-in signals pipeline product identifier on a `task_run` artefact. */
 export const SIGNALS_PRODUCT = 'signals'
@@ -42,6 +42,11 @@ export interface TaskRunArtefactContent {
     run_id?: string | null
     product: string
     type: string
+}
+
+/** Whether a `task_run` artefact links an Ask AI chat to the report. */
+export function isDiscussionTaskRun(content: TaskRunArtefactContent): boolean {
+    return content.product === SIGNALS_PRODUCT && content.type === SIGNAL_REPORT_TASK_DISCUSSION_RELATIONSHIP
 }
 
 export interface NoteContent {

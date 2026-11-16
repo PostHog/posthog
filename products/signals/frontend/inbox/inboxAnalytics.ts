@@ -1321,8 +1321,9 @@ export function captureInboxRunOpened(params: {
 }
 
 /**
- * A run's own summary was read on a Runs row. The summary is the cheapest account of what a run did,
- * and it is only reachable on hover, so this is the one signal for whether readers find it.
+ * A run's own summary was read: on hover over a Runs row, or by opening an Ask AI chat in the
+ * report's chat list. The summary is the cheapest account of what a run did, so this is the one
+ * signal for whether readers find it. `surface` says where it was read.
  *
  * The summary text stays out of the event, like the report title: an agent writes it about a
  * customer's own code and data. `summary_length` is the readable stand-in.
@@ -1331,8 +1332,11 @@ export function captureInboxRunSummaryViewed(params: {
     purpose: ReportTaskPurpose
     status: TaskRunStatus | null
     summaryLength: number
+    // pinned: analytics property values
+    surface: 'runs_tooltip' | 'discussion_list'
 }): void {
     captureInboxEvent(INBOX_EVENTS.RUN_SUMMARY_VIEWED, {
+        surface: params.surface,
         run_purpose: params.purpose,
         run_status: params.status,
         summary_length: params.summaryLength,

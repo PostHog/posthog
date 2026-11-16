@@ -9,7 +9,12 @@
 // --- Stream logic + status helpers ---
 // `runStreamLogic` keys on a generic `streamKey` (conversation id for Max, run/task id for a task
 // viewer); read `currentRunStatus` / `isTerminalRunStatus` off it for a status badge with no UI.
-export { runStreamLogic, isTerminalRunStatus, INITIAL_PERMISSION_MODE } from '../logics/runStreamLogic'
+export {
+    runStreamLogic,
+    isTerminalRunStatus,
+    INITIAL_PERMISSION_MODE,
+    unwrapUserMessageContent,
+} from '../logics/runStreamLogic'
 export { prefetchRunStream } from '../logics/runPrefetch'
 export type { RunStreamLogicProps, RunSseStatus, RunStatus } from '../logics/runStreamLogic'
 

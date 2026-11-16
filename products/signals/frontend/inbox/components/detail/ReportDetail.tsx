@@ -54,6 +54,7 @@ import { ReportChartsContext } from './reportChartsContext'
 import { ReportChecksSection } from './ReportChecksSection'
 import { ReportClaimPill } from './ReportClaimPill'
 import { useReportDetailActions } from './ReportDetailActions'
+import { ReportDiscussionsSection } from './ReportDiscussionsSection'
 import { ReportExpectedImpact } from './ReportExpectedImpact'
 import { ReportFeedbackFooter } from './ReportFeedbackFooter'
 import { ReportImpactMetrics } from './ReportImpactMetrics'
@@ -376,6 +377,7 @@ export function InboxDetailFrame({
     const metricsEnabled = useFeatureFlag('SIGNALS_REPORT_METRICS')
     const monitoringEnabled = useFeatureFlag('SIGNALS_REPORT_MONITORING')
     const notesEnabled = useFeatureFlag('SIGNALS_REPORT_NOTES')
+    const discussionsEnabled = useFeatureFlag('SIGNALS_REPORT_DISCUSSIONS')
     const primaryMetric = metricsEnabled ? report.metrics?.find((metric) => metric.role === 'primary') : undefined
     const supportingMetrics = metricsEnabled
         ? (report.metrics?.filter((metric) => metric.role !== 'primary') ?? [])
@@ -440,6 +442,7 @@ export function InboxDetailFrame({
             </ReportChartsContext.Provider>
             {/* The notes and the rating close out the report body, pinned to the bottom of the column. */}
             <div className="mt-auto">
+                {discussionsEnabled && <ReportDiscussionsSection report={report} />}
                 {notesEnabled && <ReportNotesSection report={report} />}
                 <ReportFeedbackFooter report={report} align="end" />
             </div>
@@ -556,7 +559,7 @@ export function InboxDetailFrame({
                         <FlaggedFeature flag={FEATURE_FLAGS.SELF_DRIVING_USAGE_DISPLAY}>
                             <ReportSpendSection reportId={report.id} />
                         </FlaggedFeature>
-                        <ReportTasksSection report={report} />
+                        <ReportTasksSection report={report} excludeDiscussions={discussionsEnabled} />
                         {!isMonitoring && <ReportChecksSection report={report} />}
                         <ReportActivitySection report={report} />
                         {asideFooter}

@@ -943,6 +943,64 @@ describe('inboxReportDetailLogic', () => {
         })
     })
 
+    describe('report discussions', () => {
+        it('lists Ask AI chats oldest first with the text the person sent, and leaves them out of the runs', async () => {
+            const links = [
+                { taskId: 'later-chat', type: 'discussion', startedAt: '2026-01-03T00:00:00Z' },
+                { taskId: 'implementation', type: 'implementation', startedAt: '2026-01-02T00:00:00Z' },
+                { taskId: 'first-chat', type: 'discussion', startedAt: '2026-01-01T00:00:00Z' },
+            ]
+            const descriptions: Record<string, string> = {
+                'first-chat':
+                    '<posthog_trusted_context>\nRead the report first.\n</posthog_trusted_context>\n\nIs this safe to resolve?',
+                'later-chat': 'Which deploy introduced it?',
+                implementation: 'Fix the checkout error.',
+            }
+            useMocks({
+                get: {
+                    '/api/projects/:team_id/signals/reports/:id/feedback_state/': { sentiment: null, note: '' },
+                    '/api/projects/:team_id/signals/reports/:id/artefacts/': {
+                        results: links.map(({ taskId, type, startedAt }) => ({
+                            id: `link-${taskId}`,
+                            type: 'task_run',
+                            content: { task_id: taskId, product: 'signals', type },
+                            created_at: startedAt,
+                        })),
+                    },
+                    '/api/projects/:team_id/signals/reports/:id/signals/': { signals: [] },
+                    '/api/projects/:team_id/signals/reports/:id/checks/': { results: [] },
+                    '/api/projects/:team_id/signals/reports/available_reviewers/': [],
+                    '/api/projects/:team_id/tasks/:id/': (req) => [
+                        200,
+                        {
+                            id: req.params.id,
+                            description: descriptions[String(req.params.id)],
+                            latest_run: { id: `${req.params.id}-run`, status: TaskRunStatus.COMPLETED },
+                        },
+                    ],
+                },
+            })
+            initKeaTests()
+            const logic = inboxReportDetailLogic({ reportId: REPORT.id, report: REPORT })
+            logic.mount()
+            try {
+                await expectLogic(logic).toFinishAllListeners()
+
+                expect(logic.values.reportDiscussions?.map(({ entry, question }) => [entry.task.id, question])).toEqual(
+                    [
+                        ['first-chat', 'Is this safe to resolve?'],
+                        ['later-chat', 'Which deploy introduced it?'],
+                    ]
+                )
+                expect(logic.values.reportTasksWithoutDiscussions?.map((entry) => entry.task.id)).toEqual([
+                    'implementation',
+                ])
+            } finally {
+                logic.unmount()
+            }
+        })
+    })
+
     describe('evidence expansion', () => {
         let logic: ReturnType<typeof inboxReportDetailLogic.build>
 
