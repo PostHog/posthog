@@ -32,7 +32,7 @@ export function Unsubscribe(): JSX.Element {
                     <>
                         <AuthCardTitle
                             title="Unsubscribe from this report?"
-                            sub="You will stop receiving this subscription by email."
+                            sub="You will stop receiving this report by email."
                         />
                         <LemonButton
                             type="primary"
@@ -50,7 +50,7 @@ export function Unsubscribe(): JSX.Element {
                     <AuthCardTitle
                         className="mb-0"
                         title="You have been unsubscribed!"
-                        sub="You will no longer receive these kinds of emails."
+                        sub="You will no longer receive this report by email."
                     />
                 ) : (
                     <AuthCardTitle

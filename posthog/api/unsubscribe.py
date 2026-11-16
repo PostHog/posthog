@@ -1,3 +1,4 @@
+from django.core.exceptions import ObjectDoesNotExist
 from django.http import HttpRequest, JsonResponse
 from django.views.decorators.csrf import csrf_exempt
 from django.views.decorators.http import require_POST
@@ -17,7 +18,7 @@ def unsubscribe(request: HttpRequest):
 
     try:
         subscriptions_api.unsubscribe(token)
-    except jwt.DecodeError:
+    except (jwt.InvalidTokenError, ObjectDoesNotExist):
         return JsonResponse({"success": False})
 
     return JsonResponse({"success": True})

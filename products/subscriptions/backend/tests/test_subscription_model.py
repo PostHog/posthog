@@ -405,6 +405,11 @@ class TestSubscription(BaseTest):
         subscription.refresh_from_db()
         assert subscription.target_value == "test1@posthog.com"
 
+        old_token = get_unsubscribe_token(subscription, "test1@posthog.com")
+        with time_machine.travel(datetime(2022, 1, 1) + timedelta(days=UNSUBSCRIBE_TOKEN_EXP_DAYS + 1), tick=False):
+            expired = client.post(f"/api/unsubscribe?token={old_token}")
+        assert expired.json() == {"success": False}
+
     def test_complex_rrule_configuration(self):
         # Equivalent to last monday and wednesday of every other month
         subscription = self._create_insight_subscription(
