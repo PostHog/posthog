@@ -433,7 +433,9 @@ function LogsViewerContent({
                 scope={scope}
             />
             {sparklineSection}
-            <div className="flex flex-row gap-2 flex-1 min-h-0 @max-[48rem]/facet-rail-host:flex-col">
+            {/* Stacked under the rail, a short scene squeezes the log list to zero height, so the row keeps a
+                fixed minimum and the scene scrolls. Not min-h-fit: the list sizes itself to its container. */}
+            <div className="flex flex-row gap-2 flex-1 min-h-0 @max-[48rem]/facet-rail-host:flex-col @max-[48rem]/facet-rail-host:min-h-[36rem]">
                 {!facetRailCollapsed && <LogsFacetRail id={id} />}
                 <div className="flex flex-col gap-2 flex-1 min-w-0 min-h-0">
                     {resultsColumn(<LogsDisplayBar {...displayBarProps} showFacetRailToggle />)}

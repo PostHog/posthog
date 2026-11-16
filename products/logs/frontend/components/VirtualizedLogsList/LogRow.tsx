@@ -80,6 +80,7 @@ export function LogRow({
         <div
             className={cn('border-b border-border', isNew && 'VirtualizedLogsList__row--new')}
             style={{ minWidth: rowWidth, minHeight }}
+            data-attr="logs-row"
         >
             <div
                 style={{ gap: ROW_GAP, minHeight }}
