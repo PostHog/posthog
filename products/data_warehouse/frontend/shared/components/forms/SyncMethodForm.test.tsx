@@ -1,6 +1,6 @@
 import '@testing-library/jest-dom'
 
-import { act, cleanup, fireEvent, render, screen } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, within } from '@testing-library/react'
 import { createRef } from 'react'
 
 import { ExternalDataSourceSyncSchema } from '~/types'
@@ -37,6 +37,71 @@ const baseSchema: ExternalDataSourceSyncSchema = {
 }
 
 describe('SyncMethodForm', () => {
+    it.each([
+        ['GoogleAds', 'ad', false, false],
+        ['MetaAds', 'ads', false, false],
+        ['GoogleAds', 'ad_stats', true, false],
+        ['MetaAds', 'ad_stats', true, false],
+        ['GoogleAds', 'ad', true, true],
+        ['Stripe', 'customers', false, false],
+    ] as const)(
+        'explains unavailable methods for %s %s (incremental: %s, append: %s)',
+        (sourceType, table, incrementalAvailable, appendAvailable) => {
+            const { container, unmount } = render(
+                <SyncMethodForm
+                    schema={{
+                        ...baseSchema,
+                        table,
+                        xmin_available: false,
+                        incremental_available: incrementalAvailable,
+                        append_available: appendAvailable,
+                        incremental_fields:
+                            incrementalAvailable || appendAvailable
+                                ? [{ field: 'date_start', label: 'date_start', type: 'date', field_type: 'date' }]
+                                : [],
+                    }}
+                    sourceType={sourceType}
+                    onClose={() => {}}
+                    onSave={() => {}}
+                />
+            )
+
+            for (const [method, available] of [
+                ['incremental', incrementalAvailable],
+                ['append', appendAvailable],
+            ] as const) {
+                const radio = container.querySelector<HTMLInputElement>(`input[value="${method}"]`)!
+                expect(radio.disabled).toBe(!available)
+                const reason = within(radio.closest('label')!).queryByText(
+                    /replication (isn't available|needs)|doesn't support/
+                )
+                if (available) {
+                    expect(reason).toBeNull()
+                } else {
+                    expect(reason).toBeVisible()
+                    expect(reason).toHaveTextContent(
+                        incrementalAvailable ? /Use incremental replication/ : /full table replication/i
+                    )
+                    if (
+                        !incrementalAvailable &&
+                        !appendAvailable &&
+                        (sourceType === 'GoogleAds' || sourceType === 'MetaAds')
+                    ) {
+                        if (method === 'incremental') {
+                            expect(reason).toHaveTextContent(/stats table such as ad_stats or campaign_stats/)
+                        }
+                        expect(reason).not.toHaveTextContent(/no timestamp/)
+                    }
+                }
+            }
+            expect(container.textContent?.includes('For incremental performance data')).toBe(
+                !incrementalAvailable && !appendAvailable && (sourceType === 'GoogleAds' || sourceType === 'MetaAds')
+            )
+            expect(container.querySelector<HTMLInputElement>('input[value="full_refresh"]')?.disabled).toBe(false)
+            unmount()
+        }
+    )
+
     it.each([
         ['available', { xmin_available: true }, true],
         ['not available', { xmin_available: false }, false],

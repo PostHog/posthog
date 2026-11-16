@@ -329,6 +329,8 @@ class TestCohort(TestExportMixin, ClickhouseTestMixin, APIBaseTest, QueryMatchin
         [
             # The create asks for realtime, and a team the pipeline does not process cannot turn it on.
             ("team_off_the_pipeline", None, False, "off"),
+            # A load-test team runs the pipeline, but its users must not turn realtime on.
+            ("team_granted_processing", RealtimeCohortLevel.PROCESSING, False, "processing"),
             ("team_serving", RealtimeCohortLevel.SERVING, True, "serving"),
         ]
     )
@@ -9212,6 +9214,7 @@ class TestCohortRealtimeSwitch(APIBaseTest):
             ("active_workflow", _REALTIME_PAGEVIEW_LEAF, "workflow", "active workflow"),
             ("cohort_that_is_on_includes_it", _REALTIME_PAGEVIEW_LEAF, "parent", "include this cohort"),
             ("static_cohort_that_is_on_includes_it", _REALTIME_PAGEVIEW_LEAF, "static_parent", None),
+            ("daily_cohort_that_is_on_includes_it", _REALTIME_PAGEVIEW_LEAF, "daily_parent", None),
             # Flags read person criteria straight off the person, so this cohort's membership table has no reader.
             ("flag_on_person_criteria", _REALTIME_PERSON_LEAF, "flag", None),
         ]
@@ -9238,6 +9241,8 @@ class TestCohortRealtimeSwitch(APIBaseTest):
             parent = self._cohort(reference, enabled=True)
             if reader == "static_parent":
                 Cohort.objects.filter(id=parent.id).update(is_static=True)
+            elif reader == "daily_parent":
+                Cohort.objects.filter(id=parent.id).update(cohort_type=None)
 
         response = self._switch(cohort, False)
 
@@ -9365,14 +9370,24 @@ class TestCohortRealtimeSwitch(APIBaseTest):
             organization_member=self.organization_membership,
         )
 
-    def test_turning_on_is_refused_when_an_included_cohort_is_not_editable(self) -> None:
+    @parameterized.expand(
+        [
+            ("included_cohort_not_editable", "realtime_refused"),
+            # A load-test team runs the pipeline, but its users must not turn realtime on.
+            ("team_processing", "realtime_unavailable"),
+        ]
+    )
+    def test_turning_on_is_refused_before_anything_is_written(self, name: str, code: str) -> None:
         included = self._cohort(_REALTIME_PAGEVIEW_LEAF)
         cohort = self._cohort(_REALTIME_PAGEVIEW_LEAF, {"type": "cohort", "key": "id", "value": included.id})
-        self._restrict(included, "viewer")
+        if name == "team_processing":
+            RealtimeCohortTeamAccess.objects.filter(team=self.team).update(level=RealtimeCohortLevel.PROCESSING)
+        else:
+            self._restrict(included, "viewer")
 
         response = self._switch(cohort, True)
 
-        assert (response.status_code, response.json()["code"]) == (400, "realtime_refused")
+        assert (response.status_code, response.json()["code"]) == (400, code)
         assert not Cohort.objects.filter(team=self.team, realtime_enabled_at__isnull=False).exists()
 
     def test_turning_off_hides_names_of_parents_the_member_cannot_view(self) -> None:

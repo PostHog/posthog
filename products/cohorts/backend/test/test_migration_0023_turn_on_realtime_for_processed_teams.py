@@ -38,9 +38,12 @@ class TestTurnOnRealtimeForProcessedTeams(TestMigrations):
     def test_turns_on_the_realtime_cohorts_of_processed_teams_only(self) -> None:
         Cohort = self.apps.get_model("cohorts", "Cohort")  # type: ignore[union-attr]
 
-        on = set(
-            Cohort.objects.filter(id__in=self.turned_on | self.left_off, realtime_enabled_at__isnull=False).values_list(
-                "id", flat=True
-            )
-        )
-        assert on == self.turned_on
+        on = {
+            cohort_id: (enabled_at, created_at)
+            for cohort_id, enabled_at, created_at in Cohort.objects.filter(
+                id__in=self.turned_on | self.left_off, realtime_enabled_at__isnull=False
+            ).values_list("id", "realtime_enabled_at", "created_at")
+        }
+        assert set(on) == self.turned_on
+        # Dated at creation, so a run created before the migration can still stamp.
+        assert all(enabled_at == created_at for enabled_at, created_at in on.values())

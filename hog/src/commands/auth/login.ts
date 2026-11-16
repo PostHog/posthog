@@ -3,7 +3,7 @@ import { dirname } from 'node:path'
 import { printPending, refuseInCi, resumeApproval, runApproval, type PendingResult } from '@/core/approval'
 import { defineCommand } from '@/core/command'
 import type { Context } from '@/core/context'
-import { EXIT_USAGE, HogError } from '@/core/errors'
+import { EXIT_USAGE, HogError, waitingExitCode } from '@/core/errors'
 import { escapeControls } from '@/core/output'
 import type { Prompts } from '@/core/prompts'
 import { validationError } from '@/core/schema'
@@ -104,8 +104,7 @@ export default defineCommand({
                 throw new HogError(
                     'region_required',
                     "hog doesn't know where your PostHog account is hosted.",
-                    'Ask the user whether their PostHog address starts with us.posthog.com or eu.posthog.com. Then run `hog auth login --region us` or `hog auth login --region eu`. For self-hosted PostHog, pass `--host`.',
-                    EXIT_USAGE
+                    'Ask the user whether their PostHog address starts with us.posthog.com or eu.posthog.com. Then run `hog auth login --region us` or `hog auth login --region eu`. For self-hosted PostHog, pass `--host`.'
                 )
             }
             const choice = await prompts.select(
@@ -140,6 +139,8 @@ export default defineCommand({
         const result = await runApproval(ctx, loginFlow(ctx.runtime, host, scopes))
         return result.status === 'pending' ? { ...result, host } : finish(ctx, result.value)
     },
+
+    exitCode: waitingExitCode,
 
     human({ result, out }) {
         if (result.status === 'pending') {

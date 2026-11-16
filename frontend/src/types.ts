@@ -93,7 +93,7 @@ import { QueryContext } from '~/queries/types'
 import type { ScopeObjectEnumApi } from 'products/access_control/frontend/generated/api.schemas'
 import { AlertType } from 'products/alerts/frontend/types'
 import type { BatchExportApi } from 'products/batch_exports/frontend/generated/api.schemas'
-import type { CohortRealtimeReadinessApi } from 'products/cohorts/frontend/generated/api.schemas'
+import type { CohortApi, CohortRealtimeReadinessApi } from 'products/cohorts/frontend/generated/api.schemas'
 import type { DashboardTileGroupApi } from 'products/dashboards/frontend/generated/api.schemas'
 import {
     type LineageIssueApi,
@@ -769,8 +769,9 @@ export interface TeamBasicType extends WithAccessControl {
     organization: string // Organization ID
     project_id: number
     api_token: string
-    secret_api_token: string
-    secret_api_token_backup: string
+    // Null in every response except rotate_secret_token, which returns the newly minted token once. The fields drop with the column retirement (#66179).
+    secret_api_token: string | null
+    secret_api_token_backup: string | null
     name: string
     completed_snippet_onboarding: boolean
     has_completed_onboarding_for?: Record<string, boolean>
@@ -1938,6 +1939,7 @@ export interface CohortType {
     /** How many of those IDs matched no person, and so were left out of the cohort. */
     last_import_unmatched_count?: number | null
     is_static?: boolean
+    cohort_type?: CohortApi['cohort_type']
     name?: string
     csv?: File
     groups: CohortGroupType[] // To be deprecated once `filter` takes over
@@ -7557,6 +7559,7 @@ export type HogFunctionConfigurationContextId =
     | 'billing-alerts'
     | 'replay-vision-alerts'
     | 'replay-vision-requests'
+    | 'signals-reports'
 
 export type HogFunctionSubTemplateIdType =
     | 'early-access-feature-enrollment'
@@ -7579,6 +7582,7 @@ export type HogFunctionSubTemplateIdType =
     | 'health-check-resolved'
     | 'batch-export-run-failed'
     | 'replay-vision-request-completed'
+    | 'signals-report-ready'
 
 export type HogFunctionConfigurationType = Omit<
     HogFunctionType,

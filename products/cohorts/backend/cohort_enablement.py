@@ -16,13 +16,13 @@ import structlog
 from products.cohorts.backend.backfill.flag_calls_table import FlagCallsTableUnresolved
 from products.cohorts.backend.backfill.pinning import pin_behavioral_run
 from products.cohorts.backend.backfill.readiness import ensure_filters_shape_hash
-from products.cohorts.backend.backfill.runs import (
-    behavioral_backfill_ineligibility_reason,
-    person_backfill_ineligibility_reason,
-)
 from products.cohorts.backend.models.backfill import CohortBackfillKind, CohortBackfillTrigger
 from products.cohorts.backend.models.cohort import COHORT_REALTIME_SWITCH_FIELDS, Cohort, CohortType
-from products.cohorts.backend.models.dependencies import queue_cohort_backfill, supersede_cohort_backfills
+from products.cohorts.backend.models.dependencies import (
+    backfill_ineligibility_reason,
+    queue_cohort_backfill,
+    supersede_cohort_backfills,
+)
 from products.cohorts.backend.models.util import get_all_cohort_dependencies
 from products.cohorts.backend.realtime_teams import is_processing_team
 
@@ -39,16 +39,6 @@ def flag_calls_table_refusal(cohort: Cohort) -> str | None:
     except FlagCallsTableUnresolved as error:
         return str(error)
     return None
-
-
-def _behavioral_turn_on_ineligibility_reason(cohort: Cohort) -> str | None:
-    return behavioral_backfill_ineligibility_reason(cohort) or flag_calls_table_refusal(cohort)
-
-
-_INELIGIBILITY_REASON = {
-    CohortBackfillKind.BEHAVIORAL: _behavioral_turn_on_ineligibility_reason,
-    CohortBackfillKind.PERSON_PROPERTY: person_backfill_ineligibility_reason,
-}
 
 
 class RealtimeTurnOnRefused(ValueError):
@@ -122,7 +112,8 @@ def _turn_on(team_id: int, cohort_id: int, *, can_edit: Callable[[Cohort], bool]
         for each in turned_on:
             ensure_filters_shape_hash(each)
             each.save(update_fields=list(COHORT_REALTIME_SWITCH_FIELDS))
-            # The seeder parses trigger kinds, and this cohort's realtime build is new, so it reuses this one.
+            # The seeder rejects trigger kinds it doesn't know. A first build after turning on is a create as far as it
+            # is concerned.
             for kind in CohortBackfillKind:
                 queue_cohort_backfill(each, CohortBackfillTrigger.COHORT_CREATED, kind)
 
@@ -155,7 +146,10 @@ def _refuse_unless_it_can_be_ready(cohort: Cohort) -> None:
     if cohort.cohort_type != CohortType.REALTIME:
         raise RealtimeTurnOnRefused(f"{refusal}, because its criteria aren't supported in realtime.")
     for kind in cohort._required_backfill_stamps():
-        reason = _INELIGIBILITY_REASON[CohortBackfillKind(kind)](cohort)
+        backfill_kind = CohortBackfillKind(kind)
+        reason = backfill_ineligibility_reason(cohort, backfill_kind)
+        if reason is None and backfill_kind == CohortBackfillKind.BEHAVIORAL:
+            reason = flag_calls_table_refusal(cohort)
         if reason is not None:
             logger.info("cohort_realtime_turn_on_refused", cohort_id=cohort.id, team_id=cohort.team_id, reason=reason)
             raise RealtimeTurnOnRefused(f"{refusal}, because PostHog can't prepare one of its criteria in realtime.")

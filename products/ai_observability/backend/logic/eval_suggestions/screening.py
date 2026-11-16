@@ -27,11 +27,11 @@ from products.ai_observability.backend.logic.consent import consented_team_ids
 from ee.hogai.utils.feature_flags import is_privacy_mode_enabled
 
 from . import catalog
+from .config import AI_PRODUCT
 from .coverage import ExistingEval
 from .measure import SampledTrace
 from .ranking import ScreeningResult
 
-AI_PRODUCT = "aio_eval_suggestions"
 # Calibrated on labelled traces: separation was best between 0.8 and 0.9, and 0.5 flagged far too much.
 FAILING_PROBABILITY = 0.9
 # A dedupe answer below this confidence keeps the candidate and labels it "similar to" the evaluation.

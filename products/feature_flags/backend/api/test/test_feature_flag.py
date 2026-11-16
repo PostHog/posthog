@@ -763,10 +763,12 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             self.user,
             "feature flag created",
             {
+                "feature_flag_id": instance.id,
                 "groups_count": 1,
                 "has_variants": False,
                 "variants_count": 0,
                 "has_rollout_percentage": True,
+                "condition_rollout_percentages": [65],
                 "has_filters": False,
                 "filter_count": 0,
                 "created_at": instance.created_at,
@@ -1114,10 +1116,12 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             self.user,
             "feature flag created",
             {
+                "feature_flag_id": instance.id,
                 "groups_count": 1,
                 "has_variants": False,
                 "variants_count": 0,
                 "has_rollout_percentage": True,
+                "condition_rollout_percentages": [50],
                 "has_filters": False,
                 "filter_count": 0,
                 "created_at": instance.created_at,
@@ -1173,10 +1177,12 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             self.user,
             "feature flag created",
             {
+                "feature_flag_id": instance.id,
                 "groups_count": 1,
                 "has_variants": False,
                 "variants_count": 0,
                 "has_rollout_percentage": False,
+                "condition_rollout_percentages": [None],
                 "has_filters": False,
                 "filter_count": 0,
                 "created_at": instance.created_at,
@@ -1572,11 +1578,13 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             self.user,
             "feature flag created",
             {
+                "feature_flag_id": instance.id,
                 "groups_count": 1,
                 "has_variants": True,
                 "variants_count": 3,
                 "has_filters": False,
                 "has_rollout_percentage": False,
+                "condition_rollout_percentages": [None],
                 "filter_count": 0,
                 "created_at": instance.created_at,
                 "aggregating_by_groups": False,
@@ -1876,10 +1884,12 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             self.user,
             "feature flag updated",
             {
+                "feature_flag_id": flag_id,
                 "groups_count": 1,
                 "has_variants": False,
                 "variants_count": 0,
                 "has_rollout_percentage": True,
+                "condition_rollout_percentages": [65],
                 "has_filters": True,
                 "filter_count": 1,
                 "created_at": datetime.fromisoformat("2021-08-25T22:09:14.252000+00:00"),
@@ -3306,10 +3316,12 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
             self.user,
             "feature flag updated",
             {
+                "feature_flag_id": flag_id,
                 "groups_count": 1,
                 "has_variants": False,
                 "variants_count": 0,
                 "has_rollout_percentage": True,
+                "condition_rollout_percentages": [65],
                 "has_filters": True,
                 "filter_count": 1,
                 "created_at": datetime.fromisoformat("2021-08-25T22:09:14.252000+00:00"),
@@ -5977,8 +5989,18 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                 status.HTTP_400_BAD_REQUEST,
                 "has an event-based condition",
             ),
+            (
+                "realtime_off",
+                CohortType.REALTIME,
+                True,
+                True,
+                status.HTTP_400_BAD_REQUEST,
+                "Realtime is off for cohort",
+            ),
         ]
     )
+    # The env list is the one source of access where the rollout flag still decides.
+    @override_settings(REALTIME_COHORT_TEAM_ALLOWLIST="all")
     @patch("products.feature_flags.backend.realtime_targeting.feature_enabled_or_false")
     @patch("products.feature_flags.backend.api.feature_flag.feature_enabled_or_false")
     def test_behavioral_cohort_flag_validation(
@@ -6025,6 +6047,8 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         }
         if cohort_type is not None:
             cohort_kwargs["cohort_type"] = cohort_type
+        if cohort_type == CohortType.REALTIME and _name != "realtime_off":
+            cohort_kwargs["realtime_enabled_at"] = datetime.now(tz=UTC)
         if is_backfilled:
             cohort_kwargs["last_backfill_person_properties_at"] = datetime.now(tz=UTC)
             cohort_kwargs["last_backfill_events_at"] = datetime.now(tz=UTC)
@@ -9700,17 +9724,65 @@ class TestBlastRadius(ClickhouseTestMixin, APIBaseTest):
                 {"properties": [{"key": "group", "type": "person", "value": ["1"], "operator": "exact"}]},
             )
 
-    def test_user_blast_radius_endpoint_returns_400_for_unevaluable_filters(self):
+    @parameterized.expand(
+        [
+            (
+                "event_property",
+                [{"key": "$browser", "type": "event", "value": ["Chrome"], "operator": "exact"}],
+                "isn't supported in release conditions",
+            ),
+            ("hogql_expression", [{"key": "1 = 1", "type": "hogql"}], "isn't supported in release conditions"),
+            (
+                "nested_hogql_expression",
+                {"type": "AND", "values": [{"key": "1 = 1", "type": "hogql"}]},
+                "isn't supported in release conditions",
+            ),
+            (
+                "unknown_type",
+                [{"key": "x", "type": "bogus", "value": "y", "operator": "exact"}],
+                "isn't supported in release conditions",
+            ),
+            (
+                "hogql_expression_with_values_key",
+                [{"key": "1 = 1", "type": "hogql", "values": []}],
+                "isn't supported in release conditions",
+            ),
+            (
+                "legacy_dict_shaped_like_a_person_property",
+                {"key": "email", "type": "person", "value": "a"},
+                "isn't supported in release conditions",
+            ),
+            ("missing_type", [{"key": "x", "value": "y"}], "needs a type"),
+            ("list_type", [{"key": "x", "type": ["person"], "value": "y"}], "needs a type"),
+            ("non_dict_item", ["not-a-property"], "needs a type"),
+            (
+                "nested_hogql_expression_with_values_key",
+                {"type": "AND", "values": [{"key": "1 = 1", "type": "hogql", "values": []}]},
+                "is not a valid PropertyOperatorType",
+            ),
+        ]
+    )
+    def test_user_blast_radius_endpoint_rejects_unsupported_property_types(self, _name, properties, detail_fragment):
         response = self.client.post(
             f"/api/projects/{self.team.id}/feature_flags/user_blast_radius",
-            {
-                "condition": {
-                    "properties": [{"key": "$browser", "type": "event", "value": ["Chrome"], "operator": "exact"}]
-                }
-            },
+            {"condition": {"properties": properties}},
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(response.json()["type"], "validation_error")
+        self.assertIn(detail_fragment, response.json()["detail"])
+
+    def test_user_blast_radius_endpoint_ignores_test_account_filters(self):
+        for i in range(3):
+            _create_person(team_id=self.team.pk, distinct_ids=[f"person{i}"], properties={"group": f"{i}"})
+        self.team.test_account_filters = [{"key": "1 = 0", "type": "hogql"}]
+        self.team.save()
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/feature_flags/user_blast_radius",
+            {"condition": {"properties": [], "filter_test_accounts": True}},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertLessEqual({"affected": 3, "total": 3}.items(), response.json().items())
 
     @parameterized.expand(
         [

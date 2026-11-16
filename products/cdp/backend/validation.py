@@ -1528,7 +1528,7 @@ COHORT_NOT_READY_CODE = "cohort_not_ready"
 
 
 def _cohort_not_ready_error(cohort: Cohort) -> serializers.ValidationError:
-    if cohort.cohort_type == CohortType.REALTIME and not cohort.realtime_enabled:
+    if cohort.cohort_type == CohortType.REALTIME and not cohort.realtime_enabled and has_realtime_state(cohort):
         return serializers.ValidationError(
             f"Realtime is off for cohort {cohort.pk}. Turn it on from the cohort's page, and workflows can use the "
             "cohort once it finishes calculating.",

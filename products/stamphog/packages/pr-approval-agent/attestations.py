@@ -54,19 +54,34 @@ def lifted_files(
     lifted: dict[str, set[str]] = {}
     pr_paths = set(pr_file_paths)
     for attestation in attestations:
-        latest = _latest_completed(check_runs, attestation)
-        if latest is None or latest.get("conclusion") != "success":
-            continue
-        proven = _proven_files(latest, attestation, reviewed)
-        if proven is None:
-            continue
-        files = {path for path in proven & pr_paths if _matches(attestation, path)}
+        files = _attested_files(attestation, check_runs, pr_paths, reviewed)
         files |= _siblings(files, attestation, pr_paths)
         if not files:
             continue
         for category in attestation.lifts:
             lifted.setdefault(category, set()).update(files)
     return lifted
+
+
+def pinned_files(
+    attestations: Iterable[Attestation],
+    check_runs: list[dict],
+    pr_file_paths: list[str],
+    reviewed: ReviewedHead,
+) -> set[str]:
+    """The files named in the proof of an attestation that declares `publisher_files`.
+
+    Only such a proof names this PR and head, and comes from a publisher the default branch pins.
+    A `sibling_files` companion is not counted, because the publisher did not name it.
+    """
+    pr_paths = set(pr_file_paths)
+    return set().union(
+        *(
+            _attested_files(attestation, check_runs, pr_paths, reviewed)
+            for attestation in attestations
+            if attestation.publisher_files
+        )
+    )
 
 
 def pending_attestations(
@@ -79,7 +94,7 @@ def pending_attestations(
     return [
         attestation
         for attestation in attestations
-        if any(_matches(attestation, path) for path in pr_file_paths)
+        if any(covers(attestation, path) for path in pr_file_paths)
         and _latest_completed(check_runs, attestation) is None
     ]
 
@@ -89,7 +104,20 @@ def pending_check_names(pending: Iterable[Attestation]) -> str:
     return " and ".join(f"`{attestation.check}`" for attestation in pending)
 
 
-def _matches(attestation: Attestation, path: str) -> bool:
+def _attested_files(
+    attestation: Attestation, check_runs: list[dict], pr_paths: set[str], reviewed: ReviewedHead
+) -> set[str]:
+    """The files in the diff that the entry's newest completed run names, within the entry's `paths`."""
+    latest = _latest_completed(check_runs, attestation)
+    if latest is None or latest.get("conclusion") != "success":
+        return set()
+    proven = _proven_files(latest, attestation, reviewed)
+    if proven is None:
+        return set()
+    return {path for path in proven & pr_paths if covers(attestation, path)}
+
+
+def covers(attestation: Attestation, path: str) -> bool:
     return any(re.search(pattern, path) for pattern in attestation.paths)
 
 

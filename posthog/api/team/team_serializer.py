@@ -99,7 +99,7 @@ class TeamRealtimeCohortsSerializer(serializers.Serializer):
 
 
 def realtime_cohorts_for_request(request: Request | None, team: Team) -> dict[str, str]:
-    serving = is_realtime_cohort_flag_targeting_enabled(request, team=team)
+    serving = is_realtime_cohort_flag_targeting_enabled(request, team=team, only_evaluate_locally=True)
     return {"access": RealtimeCohortsAccess.SERVING if serving else RealtimeCohortsAccess.OFF}
 
 
@@ -233,7 +233,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
         if not instance.organization.is_feature_available(AvailableFeature.DATA_COLOR_THEMES):
             with tracer.start_as_current_span("team_serializer.default_data_theme_fallback"):
                 representation["default_data_theme"] = live_events._default_data_color_theme_id()
-        settings_validation.hide_secret_api_tokens_from_unscoped_caller(representation, self.context.get("request"))
+        settings_validation.hide_secret_api_tokens(representation)
 
         return hide_team_secrets_from_workload_tokens(representation, self.context.get("request"))
 
