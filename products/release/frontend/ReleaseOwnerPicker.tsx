@@ -1,5 +1,5 @@
 import { useActions, useValues } from 'kea'
-import { useRef } from 'react'
+import { useEffect, useRef, useState } from 'react'
 
 import {
     Avatar,
@@ -29,6 +29,13 @@ export function ReleaseOwnerPicker({ row }: { row: ReleaseRow }): JSX.Element {
     const { meFirstMembers } = useValues(membersLogic)
     const { ensureAllMembersLoaded } = useActions(membersLogic)
     const triggerRef = useRef<HTMLButtonElement>(null)
+    const [pendingOwnerId, setPendingOwnerId] = useState<number | null | undefined>(undefined)
+    const ownerId = row.owner?.id ?? null
+
+    useEffect(() => {
+        setPendingOwnerId(undefined)
+    }, [ownerId])
+
     const optionLabels = new Map<string, string>([
         ...meFirstMembers.map((member): [string, string] => [
             String(member.user.id),
@@ -36,20 +43,28 @@ export function ReleaseOwnerPicker({ row }: { row: ReleaseRow }): JSX.Element {
         ]),
         ...(row.owner ? [[NO_OWNER, 'No owner'] as [string, string]] : []),
     ])
+    const searchText = new Map<string, string>([
+        ...meFirstMembers.map((member): [string, string] => [
+            String(member.user.id),
+            `${fullNameOrEmail(member.user)} ${member.user.email}`.toLowerCase(),
+        ]),
+        [NO_OWNER, 'no owner'],
+    ])
 
     const choose = (value: string | null): void => {
         if (!value) {
             return
         }
-        const ownerId = value === NO_OWNER ? null : Number(value)
-        if (ownerId === (row.owner?.id ?? null)) {
+        const chosen = value === NO_OWNER ? null : Number(value)
+        if (chosen === (pendingOwnerId === undefined ? ownerId : pendingOwnerId)) {
             return
         }
-        updateRelease(row.id, { owner_id: ownerId }, undefined, {
+        setPendingOwnerId(chosen)
+        updateRelease(row.id, { owner_id: chosen }, undefined, {
             event: 'release owner changed',
             properties: {
                 release_id: row.id,
-                change: ownerId === null ? 'cleared' : ownerId === user?.id ? 'assigned to self' : 'assigned to member',
+                change: chosen === null ? 'cleared' : chosen === user?.id ? 'assigned to self' : 'assigned to member',
             },
         })
     }
@@ -62,7 +77,7 @@ export function ReleaseOwnerPicker({ row }: { row: ReleaseRow }): JSX.Element {
             onValueChange={choose}
             itemToStringLabel={(value: string) => optionLabels.get(value) ?? value}
             filter={(value: string, query: string) =>
-                (optionLabels.get(value) ?? '').toLowerCase().includes(query.trim().toLowerCase())
+                (searchText.get(value) ?? '').includes(query.trim().toLowerCase())
             }
         >
             <ComboboxTrigger
