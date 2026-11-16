@@ -1227,7 +1227,8 @@ class TestPluginAPI(APIBaseTest, QueryMatchingTest):
         assert hog_function[0].execution_order == 1
         assert hog_function[0].inputs == {}
 
-    def test_create_hog_function_from_plugin_config_with_inputs(self, mock_get, mock_reload):
+    @parameterized.expand([("multipart",), ("json",)])
+    def test_create_hog_function_from_plugin_config_with_inputs(self, mock_get, mock_reload, request_format):
         mock_geoip_plugin = Plugin.objects.create(
             organization=self.organization,
             plugin_type="local",
@@ -1235,6 +1236,7 @@ class TestPluginAPI(APIBaseTest, QueryMatchingTest):
             description="",
             url="https://github.com/PostHog/taxonomy-plugin",
         )
+        config = {"defaultNamingConvention": "snake_case", "other": "to be removed"}
 
         response = self.client.post(
             "/api/plugin_config/",
@@ -1242,9 +1244,9 @@ class TestPluginAPI(APIBaseTest, QueryMatchingTest):
                 "plugin": mock_geoip_plugin.id,
                 "enabled": True,
                 "order": 0,
-                "config": json.dumps({"defaultNamingConvention": "snake_case", "other": "to be removed"}),
+                "config": json.dumps(config) if request_format == "multipart" else config,
             },
-            format="multipart",
+            format=request_format,
         )
 
         assert response.status_code == 201, response.json()
