@@ -25,19 +25,24 @@ rules:
       pattern-sanitizers:
           - pattern: JSONArray(...)
           - pattern: JSONObject(...)
-          - pattern: '[...]'
       pattern-sinks:
           - patterns:
                 - pattern: $CALL(..., $LOOKUP=$VALUE, ...)
                 - metavariable-regex:
                       metavariable: $LOOKUP
                       regex: ^\w+__i?(contains|startswith|endswith|regex)$
+                - metavariable-regex:
+                      metavariable: $VALUE
+                      regex: ^[^\[]
                 - focus-metavariable: $VALUE
           - patterns:
-                - pattern: '$CALL(..., **{$KEY: $VALUE}, ...)'
+                - pattern: '$CALL(..., **{..., $KEY: $VALUE, ...}, ...)'
                 - metavariable-regex:
                       metavariable: $KEY
                       regex: ^["']\w+__i?(contains|startswith|endswith|regex)["']$
+                - metavariable-regex:
+                      metavariable: $VALUE
+                      regex: ^[^\[]
                 - focus-metavariable: $VALUE
           - patterns:
                 - pattern: $LOOKUPCLASS($LHS, $VALUE)

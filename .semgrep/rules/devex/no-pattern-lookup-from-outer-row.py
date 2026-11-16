@@ -109,3 +109,12 @@ def variable_reassigned_to_a_constant(queryset):
     prefix = Value("fixed/")
     # ok: no-pattern-lookup-from-outer-row
     return queryset.filter(path__startswith=prefix)
+
+# ruleid: no-pattern-lookup-from-outer-row
+FileSystem.objects.filter(**{"team_id": team_id, "path__startswith": OuterRef("path")})
+
+# ruleid: no-pattern-lookup-from-outer-row
+FileSystem.objects.filter(path__startswith=Concat(*[OuterRef("path"), Value("/")]))
+
+# ok: no-pattern-lookup-from-outer-row
+Task.objects.filter(**{"team_id": team_id, "labels__contains": [OuterRef("label")]})
