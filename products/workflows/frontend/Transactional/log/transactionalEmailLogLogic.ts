@@ -23,7 +23,6 @@ export const LOG_RETENTION_DAYS = 30
 
 // pinned: URL search params of the Log tab and of an email's Sends tab - renaming breaks shared links
 const URL_PARAMS = ['search', 'status', 'reason', 'email', 'date_from', 'date_to', 'page'] as const
-/** The pages with an email's own Sends tab. A template opens from the transactional, workflows or broadcasts library. */
 const EMAIL_PAGE_ROUTES = [
     '/transactional/code-emails/:id',
     '/transactional/library/templates/:id',
@@ -303,7 +302,6 @@ export function logWindow(filters: Pick<TransactionalEmailLogFilters, 'dateFrom'
     }
 }
 
-// The page shows the Reason filter only under the status a reason belongs to, so a link's other reasons would filter the list unseen.
 function reasonUnder(status: EmailDeliveryStatusEnumApi | null, reason: unknown): string | null {
     return emailReasonOptions(status)?.some((option) => option.value === reason) ? String(reason) : null
 }

@@ -105,7 +105,6 @@ describe('CodeEmailTabs', () => {
         mountTabs()
     }
 
-    // Opening the page again keeps the URL, as a reload or a saved link does.
     const reopenTabs = (): void => {
         cleanup()
         logic.unmount()

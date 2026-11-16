@@ -40,7 +40,6 @@ export function CodeEmailTabs({ codeEmail }: { codeEmail: CodeEmailApi }): JSX.E
         // The reused workflow tabs read workflowLogic without props, so bind it to this email's workflow.
         <BindLogic logic={workflowLogic} props={workflowProps}>
             <LemonTabs
-                // Without the flag, the run logs keep their Sends label, and a `tab=sends` link opens them.
                 activeKey={!sendLinks && tab === 'sends' ? 'runs' : tab}
                 onChange={setTab}
                 tabs={[

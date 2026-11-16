@@ -1,5 +1,4 @@
 import { useActions, useValues } from 'kea'
-import { router } from 'kea-router'
 
 import { LemonBanner, LemonButton, LemonSkeleton } from '@posthog/lemon-ui'
 
@@ -11,7 +10,6 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
 
-import { templatePageUrl, transactionalEmailSendsUrl } from '../transactionalEmailUrl'
 import { TransactionalEmailActivity } from './TransactionalEmailActivity'
 import { TransactionalEmailDeliveryProgress } from './TransactionalEmailDeliveryProgress'
 import { TransactionalEmailDetails } from './TransactionalEmailDetails'
@@ -32,11 +30,8 @@ export const scene: SceneExport<TransactionalEmailLogEntryLogicProps> = {
 export function TransactionalEmailLogEntryScene(): JSX.Element {
     const showTransactional = useFeatureFlag('WORKFLOWS_TRANSACTIONAL_EMAIL_API')
     // The scene binds the logic to the message ID in the URL.
-    const { email, emailLoading, emailFailed } = useValues(transactionalEmailLogEntryLogic)
+    const { email, emailLoading, emailFailed, emailPageUrl } = useValues(transactionalEmailLogEntryLogic)
     const { loadEmail } = useActions(transactionalEmailLogEntryLogic)
-    const sendLinks = useFeatureFlag('WORKFLOWS_EMAIL_SEND_LINKS')
-    const { searchParams } = useValues(router)
-    const emailUrl = sendLinks ? transactionalEmailSendsUrl(email, searchParams) : templatePageUrl(email?.template_id)
 
     if (!showTransactional) {
         return <NotFound object="page" />
@@ -75,11 +70,11 @@ export function TransactionalEmailLogEntryScene(): JSX.Element {
                     resourceType={{ type: 'transactional' }}
                     isLoading={!email}
                     actions={
-                        emailUrl ? (
+                        emailPageUrl ? (
                             <LemonButton
                                 type="secondary"
                                 size="small"
-                                to={emailUrl}
+                                to={emailPageUrl}
                                 data-attr="transactional-email-log-entry-open-template"
                             >
                                 Open email
@@ -104,7 +99,7 @@ export function TransactionalEmailLogEntryScene(): JSX.Element {
                         </div>
                         <div className="w-full @3xl:w-80 shrink-0 flex flex-col gap-4">
                             {email.distinct_id && <TransactionalEmailPersonCard distinctId={email.distinct_id} />}
-                            <TransactionalEmailDetails email={email} />
+                            <TransactionalEmailDetails email={email} emailUrl={emailPageUrl} />
                         </div>
                     </div>
                 </div>
