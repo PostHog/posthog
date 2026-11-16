@@ -219,16 +219,18 @@ class AccessControlSettingsViewSetMixin(_GenericViewSet):
             count=Count("id"), latest=Max("updated_at")
         )
         visible_ids = ",".join(str(candidate.id) for candidate, _ in visible_teams)
-        # Per requester, because a product's visibility rule can hide some objects from them
+        # Per requester and credential, because a product's visibility rule can hide some objects
+        # from them, and a sandbox token may see less than its user
+        sandboxed = is_sandbox_oauth_request(request)
         cache_key = (
-            f"access_control_resolution_preview/{team.organization_id}/{request.user.pk}"
+            f"access_control_resolution_preview/{team.organization_id}/{request.user.pk}/{int(sandboxed)}"
             f"/{visible_ids}/{fingerprint['count']}/{fingerprint['latest']}"
         )
         cached = django_cache.get(cache_key)
         if cached is not None:
             return Response(cached)
 
-        changes = []
+        changes: list[dict[str, Any]] = []
         for candidate, candidate_access in visible_teams:
             candidate_changes = build_resolution_preview(candidate, candidate_access)
             visible_by_resource = {
