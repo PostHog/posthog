@@ -53,6 +53,16 @@ def _integer(value: Any, path: list[Any]) -> Issues:
     return [] if isinstance(value, int) and not isinstance(value, bool) else [_issue("invalid_type", path)]
 
 
+def _unsubscribe_link(value: Any, path: list[Any]) -> Issues:
+    link = re.compile(r"<https://[A-Za-z0-9-]+(?:\.[A-Za-z0-9-]+)*(?:[/?#][!-;=?-~]*)?>")
+    ok = isinstance(value, str) and len(value) <= 870 and link.fullmatch(value)
+    return [] if ok else [_issue("invalid_format", path)]
+
+
+def _one_click(value: Any, path: list[Any]) -> Issues:
+    return [] if value == "List-Unsubscribe=One-Click" else [_issue("invalid_value", path)]
+
+
 def _literal(expected: Any) -> Check:
     def check(value: Any, path: list[Any]) -> Issues:
         return [] if value is expected else [_issue("invalid_value", path)]
@@ -122,6 +132,10 @@ _ATTACHMENT = _object(
 )
 
 
+def _headers_without_copies(send: dict[str, Any], path: list[Any]) -> Issues:
+    return [_issue("custom", [*path, "headers"])] if send.get("headers") and (send.get("cc") or send.get("bcc")) else []
+
+
 def _accepted_send(tracking: Check, *, takes_sensitive: bool, takes_attachments: bool) -> Check:
     copies = _Key(_array(_email, max_items=10), optional=True)
     sensitive = {"sensitive": _Key(_boolean, optional=True)} if takes_sensitive else {}
@@ -159,8 +173,8 @@ def _accepted_send(tracking: Check, *, takes_sensitive: bool, takes_attachments:
             "headers": _Key(
                 _object(
                     {
-                        "List-Unsubscribe": _Key(_string(min_length=1, max_length=870)),
-                        "List-Unsubscribe-Post": _Key(_string(min_length=1), optional=True),
+                        "List-Unsubscribe": _Key(_unsubscribe_link),
+                        "List-Unsubscribe-Post": _Key(_one_click, optional=True),
                     },
                     strict=True,
                 ),
@@ -169,6 +183,7 @@ def _accepted_send(tracking: Check, *, takes_sensitive: bool, takes_attachments:
             "tracking": _Key(tracking),
         },
         strict=True,
+        refine=_headers_without_copies,
     )
 
 

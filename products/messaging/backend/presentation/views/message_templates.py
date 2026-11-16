@@ -720,6 +720,10 @@ class SendEmailSerializer(TransactionalEmailMessageSerializer):
             raise serializers.ValidationError({"subject": "A send with `template_key` needs a subject."})
         if not (data.get("html") or data.get("text")):
             raise serializers.ValidationError({"html": "A send with `template_key` needs `html`, `text` or both."})
+        if data.get("headers") and (data.get("cc") or data.get("bcc")):
+            raise serializers.ValidationError(
+                {"headers": "Send `headers` without `cc` or `bcc`. An unsubscribe link names one recipient."}
+            )
         return data
 
 

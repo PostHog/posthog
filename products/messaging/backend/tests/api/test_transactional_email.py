@@ -1058,6 +1058,11 @@ class TestTransactionalEmail(APIBaseTest):
                 {"headers": {"List-Unsubscribe": "<https://example.com:8443/u>"}},
                 "headers",
             ),
+            (
+                "unsubscribe_headers_beside_a_cc",
+                {"headers": {"List-Unsubscribe": "<https://example.com/unsubscribe>"}, "cc": ["copy@example.com"]},
+                "headers",
+            ),
             ("unsubscribe_link_that_is_null", {"headers": {"List-Unsubscribe": None}}, "headers"),
             ("unsubscribe_link_without_a_host", {"headers": {"List-Unsubscribe": "<https://?>"}}, "headers"),
             (
