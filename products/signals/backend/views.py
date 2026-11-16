@@ -243,6 +243,12 @@ from products.signals.backend.report_metric_refresh import (
 )
 from products.signals.backend.report_monitoring_attempts import complete_implementation
 from products.signals.backend.report_monitoring_summary import ReportMonitoringSummary, monitoring_summaries
+from products.signals.backend.report_note_mentions import (
+    note_text,
+    parse_note_mentions,
+    request_mention_author_id,
+    schedule_note_mention_notifications,
+)
 from products.signals.backend.report_plan import report_plan
 from products.signals.backend.report_priority import latest_priority_rank, update_report_priority
 from products.signals.backend.report_read_state import (
@@ -1800,7 +1806,7 @@ _REPORT_LIST_PARAMETERS = [
             "Inbox sort preset: priority, recommended, personal, last_updated, newest, or oldest. Ignored "
             "when ordering is supplied. recommended resolves per user to a ranker: the priority order, or "
             "the open, action or fix outcome of the served ranking model, highest score first, with "
-            "unscored and stale reports in priority order after the scored ones, or your stored personal "
+            "unscored reports in priority order after the scored ones, or your stored personal "
             "ranking, as personal gives it, then the priority order. The response's ranker "
             "field names the one used, and its ranking_pill field says whether to show score pills. "
             "personal puts the reports of a stored personal ranking first, by rank, then the reports it "
@@ -1833,8 +1839,8 @@ _REPORT_LIST_PARAMETERS = [
         description=(
             "Comma-separated <outcome>:<lift> pairs, e.g. fix:2,open:1.5. Keeps reports whose served "
             "ranking lift is at least the value for every named outcome. Outcomes: open, action, fix. Read "
-            "inbox-ranking-outcomes-list for what each outcome means. Unscored and stale reports never match. "
-            "Needs staff or the inbox model sort rollout: other users get a 400."
+            "inbox-ranking-outcomes-list for what each outcome means. A report edited after its last score "
+            "matches on that score. Unscored reports never match. Needs staff or the inbox model sort rollout: other users get a 400."
         ),
     ),
     OpenApiParameter(
@@ -1845,8 +1851,8 @@ _REPORT_LIST_PARAMETERS = [
         description=(
             "Comma-separated <outcome>:<probability> pairs, e.g. fix:0.3. Keeps reports whose served "
             "ranking probability is at least the value for every named outcome. Outcomes: open, action, "
-            "fix. Read inbox-ranking-outcomes-list for what each outcome means. Unscored and stale reports "
-            "never match. "
+            "fix. Read inbox-ranking-outcomes-list for what each outcome means. A report edited after its last "
+            "score matches on that score. Unscored reports never match. "
             "Needs staff or the inbox model sort rollout: other users get a 400."
         ),
     ),
@@ -7321,6 +7327,13 @@ class SignalReportArtefactViewSet(
                 )
             except ArtefactContentValidationError as e:
                 return Response({"error": str(e)}, status=status.HTTP_400_BAD_REQUEST)
+        if isinstance(parsed_content, NoteArtefact):
+            schedule_note_mention_notifications(
+                team_id=self.team.id,
+                artefact_id=str(artefact.id),
+                author_id=request_mention_author_id(request, attribution),
+                mentions=parse_note_mentions(parsed_content.note),
+            )
         return Response(self._write_response_data(artefact), status=status.HTTP_201_CREATED)
 
     def _capture_canonical_reviewer_state(self, report_id: str) -> None:
@@ -7394,6 +7407,13 @@ class SignalReportArtefactViewSet(
                 {"error": f"Artefact type '{artefact.type}' is read-only and cannot be edited through the API."},
                 status=status.HTTP_400_BAD_REQUEST,
             )
+        previous_content = artefact.content
+        # Resolved before the edit is saved, so a bad task header fails the request without writing it.
+        mention_author_id = (
+            request_mention_author_id(request, resolve_request_attribution(request, self.team.id))
+            if artefact.type == SignalReportArtefact.ArtefactType.NOTE
+            else None
+        )
         try:
             parsed_content = parse_artefact_content(artefact.type, request.validated_data["content"])
             if isinstance(parsed_content, ChannelAssignment):
@@ -7403,6 +7423,16 @@ class SignalReportArtefactViewSet(
             return Response(
                 {"error": f"content does not match the '{artefact.type}' schema: {e}"},
                 status=status.HTTP_400_BAD_REQUEST,
+            )
+        if isinstance(parsed_content, NoteArtefact):
+            # An edit pings only the people it adds, so fixing a typo does not ping everyone again.
+            schedule_note_mention_notifications(
+                team_id=self.team.id,
+                artefact_id=str(artefact.id),
+                author_id=mention_author_id,
+                mentions=parse_note_mentions(parsed_content.note).added_since(
+                    parse_note_mentions(note_text(artefact.type, previous_content) or "")
+                ),
             )
         if artefact.type == SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS:
             # Editing a reviewers row can change the report's canonical reviewer set in place.

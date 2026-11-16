@@ -106,8 +106,10 @@ tools:
             the project turned scoring off in its self-driving settings; `message` says which. `scoring_enabled: true`
             does not mean the scores are ready: rely on them only when `scored_history_ready` is true, that is when
             `scored_days` (distinct days with a scored daily bucket in the last 28 days, whatever the requested range)
-            is 14 or more. Use `group_by: insight` for one row per insight. A 404 means anomaly search is not available
-            for this project.
+            is 14 or more. Use `group_by: insight` for one row per insight. Rows come most unusual first; pass `order:
+            recent` for the newest flagged bucket first. Pass `search` to keep only insights whose name contains the
+            text. When `has_more` is true, read the next page with `offset` set to `offset + limit`. A 404 means anomaly
+            search is not available for this project.
         feature_flag: anomalies-search
     inbox-my-settings-get:
         operation: users_signal_autonomy_retrieve
@@ -592,7 +594,8 @@ tools:
         title: List inbox reports
         description: >
             List inbox reports in the current project. A report groups related findings into one issue or trend. Each
-            parameter's description says how it filters.
+            parameter's description says how it filters. To find the reports about a topic, an error message or an
+            entity name, use inbox-reports-search: the `search` filter here matches the exact text only.
 
             Without `view`, the list holds reports from the whole project, not only the user's. When the user says "my
             inbox", "my top 10", or "what should I look at", pass `view=for_you` with `sort=personal` and `limit=10`. Do

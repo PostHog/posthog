@@ -5989,8 +5989,18 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
                 status.HTTP_400_BAD_REQUEST,
                 "has an event-based condition",
             ),
+            (
+                "realtime_off",
+                CohortType.REALTIME,
+                True,
+                True,
+                status.HTTP_400_BAD_REQUEST,
+                "Realtime is off for cohort",
+            ),
         ]
     )
+    # The env list is the one source of access where the rollout flag still decides.
+    @override_settings(REALTIME_COHORT_TEAM_ALLOWLIST="all")
     @patch("products.feature_flags.backend.realtime_targeting.feature_enabled_or_false")
     @patch("products.feature_flags.backend.api.feature_flag.feature_enabled_or_false")
     def test_behavioral_cohort_flag_validation(
@@ -6037,6 +6047,8 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         }
         if cohort_type is not None:
             cohort_kwargs["cohort_type"] = cohort_type
+        if cohort_type == CohortType.REALTIME and _name != "realtime_off":
+            cohort_kwargs["realtime_enabled_at"] = datetime.now(tz=UTC)
         if is_backfilled:
             cohort_kwargs["last_backfill_person_properties_at"] = datetime.now(tz=UTC)
             cohort_kwargs["last_backfill_events_at"] = datetime.now(tz=UTC)

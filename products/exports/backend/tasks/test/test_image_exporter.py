@@ -94,6 +94,30 @@ class TestImageExporter(APIBaseTest):
         bucket = s3.Bucket(OBJECT_STORAGE_BUCKET)
         bucket.objects.filter(Prefix=TEST_PREFIX).delete()
 
+    @parameterized.expand([("asked", True, {"site_style": {"text_color": "#123456"}}), ("not_asked", False, {})])
+    def test_replay_export_keeps_the_site_style_only_when_asked(
+        self,
+        _remove: Any,
+        _open: Any,
+        mock_screenshot: Any,
+        _name: str,
+        read_site_style: bool,
+        expected: dict,
+    ) -> None:
+        mock_screenshot.return_value = {"text_color": "#123456"}
+        context = {"session_recording_id": "rec-1", "timestamp": 3, "width": 1440, "height": 900}
+        if read_site_style:
+            context["read_site_style"] = True
+        asset = ExportedAsset.objects.create(
+            team=self.team, export_format=ExportedAsset.ExportFormat.PNG, export_context=context
+        )
+
+        image_exporter._export_to_png(asset)
+
+        asset.refresh_from_db()
+        assert asset.export_context == {**context, **expected}
+        assert mock_screenshot.call_args.args[-1] is read_site_style
+
     def test_export_without_renderable_target_raises_invalid_export_context(self, *args: Any) -> None:
         exported_asset = ExportedAsset.objects.create(
             team=self.team,
@@ -1050,6 +1074,20 @@ class TestScreenshotAssetBrowserless(SimpleTestCase):
         # The re-raise preserves the original timeout as its cause (the message carries no secret, so chaining is safe).
         assert isinstance(ctx.exception.__cause__, PlaywrightTimeoutError)
         assert "Timeout 30000ms exceeded" in str(ctx.exception.__cause__)
+
+    @parameterized.expand(
+        [
+            ("all_stylesheets_loaded", [], {"text_color": "#123456"}),
+            ("a_stylesheet_failed", ["https://example.com/site.css"], None),
+        ]
+    )
+    def test_site_style_is_empty_when_a_stylesheet_failed(
+        self, _name: str, failed_stylesheets: list[str], expected: dict | None
+    ) -> None:
+        page = MagicMock()
+        page.evaluate.return_value = {"text_color": "#123456"}
+
+        assert image_exporter._read_site_style(page, failed_stylesheets) == expected
 
     def test_replay_export_finds_the_player_inside_its_frame_document(self) -> None:
         # The player can mount rrweb inside its own frame document. A selector wait or a document query

@@ -1817,13 +1817,23 @@ describe('exec tool', () => {
             expect(result.hint).toContain('metric-list')
         })
 
-        it('keeps the metric catalog hint when a data-domain tool is a top match', async () => {
-            const exec = createExec([makeMockTool({ name: 'billing-usage', title: 'Billing usage' }), ...catalogTools])
+        it.each([
+            { name: 'keeps', metricCatalogLookup: undefined, hinted: true },
+            { name: 'drops', metricCatalogLookup: false, hinted: false },
+        ])(
+            '$name the metric catalog hint for a top data-domain match (metricCatalogLookup: $metricCatalogLookup)',
+            async ({ metricCatalogLookup, hinted }) => {
+                const exec = createExec(
+                    [makeMockTool({ name: 'billing-usage', title: 'Billing usage' }), ...catalogTools],
+                    undefined,
+                    { metricCatalogLookup }
+                )
 
-            const result = JSON.parse((await exec.handler(mockContext, { command: 'search billing' })) as string)
+                const result = JSON.parse((await exec.handler(mockContext, { command: 'search billing' })) as string)
 
-            expect(result.hint).toContain('metric-list')
-        })
+                expect(result.hint?.includes('metric-list') ?? false).toBe(hinted)
+            }
+        )
 
         it('rejects an overly long search pattern before compiling the regex', async () => {
             const exec = createExec([makeMockTool()])
@@ -2662,6 +2672,27 @@ describe('exec tool', () => {
             expect(message).not.toContain('undefined')
         })
 
+        it.each([
+            {
+                case: 'a nested key, naming the object it sat in',
+                input: { query: { kind: 'events', search: 'signup' } },
+                expected:
+                    'Invalid input for "read-data-schema": unexpected property: search in "query"; this tool does not accept it, so remove it and call the tool again',
+            },
+            {
+                case: 'several top-level keys',
+                input: { query: { kind: 'events' }, select: 'name', after: 'x' },
+                expected:
+                    'Invalid input for "read-data-schema": unexpected properties: select, after; this tool does not accept them, so remove them and call the tool again',
+            },
+        ])('tells the caller to drop $case and call again', ({ input, expected }) => {
+            const schema = z.object({ query: z.object({ kind: z.literal('events') }).strict() }).strict()
+            const result = schema.safeParse(input, { reportInput: true })
+            expect(result.success).toBe(false)
+
+            expect(formatInputValidationError('read-data-schema', result.error!, input, schema)).toBe(expected)
+        })
+
         // A tool whose whole payload sits under one required object is the shape
         // agents flatten most often, and zod strips the misplaced keys — so
         // "sent everything, unwrapped" and "sent nothing" both arrive as a bare
@@ -2814,7 +2845,7 @@ describe('exec tool', () => {
                 it('says nothing was ignored when the schema rejected the keys instead', () => {
                     // This tool's schema is strict, so `hash` was refused rather than dropped.
                     expect(formatFor('change-requests-approve-execute', { hash: 'x', confirmation: 'confirm' })).toBe(
-                        'Invalid input for "change-requests-approve-execute": missing required parameter: confirmation_hash (The confirmation_hash returned by the matching -prepare tool. Pass it back verbatim.); unexpected property: hash'
+                        'Invalid input for "change-requests-approve-execute": missing required parameter: confirmation_hash (The confirmation_hash returned by the matching -prepare tool. Pass it back verbatim.); unexpected property: hash; this tool does not accept it, so remove it and call the tool again'
                     )
                 })
 

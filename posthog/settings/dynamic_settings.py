@@ -350,14 +350,25 @@ CONSTANCE_CONFIG = {
     "FLAG_EVALUATIONS_READS_FORCE_EVENTS": (
         get_from_env("FLAG_EVALUATIONS_READS_FORCE_EVENTS", False, type_cast=str_to_bool),
         "When on, every organization on flag_evaluations mode 1 reads its flag calls from the events table: the "
-        "feature flag Usage tab, the per-project counts on a flag's Projects tab, and event lists filtered to only "
-        "$feature_flag_called. Use it when the flag_evaluations table stops receiving rows. Organizations on mode 2 "
-        "keep reading flag_evaluations, because ingestion writes no flag calls to events for their teams in the "
-        "ingestion allowlist. A project that reads the native JSON events table keeps reading flag_evaluations "
+        "feature flag Usage tab, the per-project counts on a flag's Projects tab, event lists filtered to only "
+        "$feature_flag_called, the home page flag call and enrollment counts, and HogQL queries. Event pickers and "
+        "the actions and cohorts APIs also accept $feature_flag_called again. Use it when the flag_evaluations table "
+        "stops receiving rows. Organizations on mode 2 keep reading flag_evaluations, because ingestion writes no new "
+        "flag calls to events for their teams. A project that reads the native JSON events table keeps reading flag_evaluations "
         "whatever the mode, because that table holds no flag calls. "
         "Stored modes and the flag_evaluations SQL table stay as they are, so turning it off restores every "
         "organization. Takes up to a minute to apply. Pages that are already open need a reload to update the Usage "
         "tab charts and the 90-day notes.",
+        bool,
+    ),
+    "FLAG_EVALUATIONS_UNION_DISABLED": (
+        get_from_env("FLAG_EVALUATIONS_UNION_DISABLED", False, type_cast=str_to_bool),
+        "When on, HogQL stops reading flag calls from events and flag_evaluations together for every organization. "
+        "A query that reads $feature_flag_called with other events, such as a funnel with other steps, a retention "
+        "query, a mixed action or SQL, then reads events only. On flag_evaluations mode 2, and for a project that "
+        "reads the native JSON events table, events holds no new flag calls, so those queries return no new flag "
+        "calls. Queries that read only flag calls keep reading flag_evaluations. Use it when the combined reads "
+        "time out or overload ClickHouse. Takes up to two minutes to apply.",
         bool,
     ),
     "REDIRECT_APP_TO_US": (
@@ -482,6 +493,7 @@ SETTINGS_ALLOWING_API_OVERRIDE = (
     "RATE_LIMITING_ALLOW_LIST_TEAMS",
     "FLAGS_LOG_BODIES_TEAMS",
     "FLAG_EVALUATIONS_READS_FORCE_EVENTS",
+    "FLAG_EVALUATIONS_UNION_DISABLED",
     "CLICKHOUSE_KILL_SWITCH",
     "CLICKHOUSE_KILL_SWITCH_LIGHT_TEAMS",
     "CLICKHOUSE_KILL_SWITCH_FULL_TEAMS",

@@ -240,11 +240,13 @@ export const FEATURE_FLAGS = {
     SIGNALS_REPORT_METRICS: 'signals-report-metrics', // owner: #team-self-driving, gates the live impact metrics on inbox report rows and the report detail, and the snapshot refresh calls they make
     SIGNALS_REPORT_MONITORING: 'signals-report-monitoring', // owner: #team-self-driving
     SIGNALS_REPORT_NOTES: 'signals-report-notes', // owner: #team-self-driving, gates the notes list and composer at the end of an inbox report, and the quoted notes in its activity
+    SIGNALS_REPORT_NOTE_MENTIONS: 'signals-report-note-mentions', // owner: #team-self-driving, gates @mentions of people and roles in report notes and the notifications they send
     STARTUP_PROGRAM_INTENT: 'startup-program-intent', // owner: @pawel-cebula #team-billing
     SURVEYS_ACTIONS: 'surveys-actions', // owner: #team-surveys
     SURVEYS_ADAPTIVE_LIMITS: 'surveys-adaptive-limits', // owner: #team-surveys
     SURVEYS_AI_FIRST_EMPTY_STATE: 'surveys-ai-first-empty-state', // owner: #team-surveys, enables ai-first empty state
     SURVEYS_HOSTED_EDITOR: 'surveys-hosted-editor', // owner: #team-surveys, enables the dedicated hosted-survey editor UI
+    SURVEYS_MATCH_MY_SITE: 'surveys-match-my-site', // owner: @lucasheriques #team-surveys, shows the Match my site theme in the survey appearance editors
     SURVEYS_TRANSLATIONS: 'surveys-translations', // owner: #team-surveys
     TRACK_DETACHED_ELEMENTS: 'track-detached-elements', // owner: @pauldambra #team-replay
     TRACK_MEMORY_USAGE: 'track-memory-usage', // owner: @pauldambra #team-replay
@@ -275,6 +277,7 @@ export const FEATURE_FLAGS = {
     BILLING_ALERTS: 'billing-alerts', // owner: #team-billing, gates the Billing > Alerts tab
     BILLING_REAL_TIME_USAGE: 'billing-real-time-usage', // owner: #team-billing, gates the Real-time usage scene
     BROADCASTS_AI_FIRST_NEW: 'broadcasts-ai-first-new', // owner: @dmarchuk #team-workflows
+    BUSINESS_KNOWLEDGE_MCP: 'business-knowledge-mcp', // owner: @veryayskiy #team-conversations, shows the Connect your agent setting
     CANVAS_COMMENTS: 'posthog-desktop-canvas-comments', // owner: @k11kirky, shows canvas comments and selection comments on web canvases, shared with PostHog Desktop
     CDP_DWH_TABLE_SOURCE: 'cdp-dwh-table-source', // owner: #team-workflows-cdp
     CDP_DWH_VIEW_SOURCE: 'cdp-dwh-view-source', // owner: #team-workflows-cdp
@@ -455,6 +458,7 @@ export const FEATURE_FLAGS = {
     NEW_TEAM_CORE_EVENTS: 'new-team-core-events', // owner: @jabahamondes #team-web-analytics
     NOTEBOOK_SANDBOX_FREE_COMPUTE: 'notebook-sandbox-free-compute', // owner: #team-data-tools, shows the notebook sandbox rate crossed out at $0.00 / h
     NOTEBOOK_SHARING: 'notebook-sharing', // owner: @reecejones #team-platform-features
+    OPEN_INBOX_BUTTON: 'open-inbox-button', // owner: #team-growth multivariate=control,test, shows a "Check your Gmail inbox"-style link on the verify email page and the login code step; gate on === 'test'
     ORGANIZATION_BILLING_API: 'organization-billing-api', // owner: #team-billing, reads the usage and spend pages from the organization billing API; the same flag gates those routes
     OWNER_ONLY_BILLING: 'owner-only-billing', // owner: @pawelcebula #team-billing
     PAGE_REPORTS_AVERAGE_PAGE_VIEW: 'page-reports-average-page-view', // owner: @jordanm-posthog #team-web-analytics
@@ -510,7 +514,6 @@ export const FEATURE_FLAGS = {
     QUICK_START_PULSE_INDICATOR: 'quick-start-pulse-indicator', // owner: @fercgomes #team-growth multivariate=control,test
     QUILL_DATE_PICKER: 'quill-date-picker', // owner: @pauldambra, flips the lib/components/DatePicker seam from LemonUI to Quill
     REAL_TIME_NOTIFICATIONS: 'real-time-notifications', // owner: #team-platform-features
-    REALTIME_COHORT_FLAG_TARGETING: 'realtime-cohort-flag-targeting', // owner: @dmarticus #team-feature-flags
     REALTIME_COHORTS: 'realtime-cohorts', // owner: #team-feature-flags, links the cohorts list waitlist banner to its early access feature
     RECORDINGS_PLAYER_EVENT_PROPERTY_EXPANSION: 'recordings-player-event-property-expansion', // owner: @pauldambra #team-replay
     RELEASES_AREA: 'releases-area', // owner: #team-feature-flags, gates the release calendar, list and pages, the Releases rail entry and the releases API; the backend reads the same key
@@ -598,6 +601,7 @@ export const FEATURE_FLAGS = {
     WAREHOUSE_INCREMENTAL_FIELD_MODEL: 'warehouse-incremental-field-model', // owner: #team-warehouse-sources, gates the decision model picking incremental fields
     WAREHOUSE_MIGRATION_IMPORT: 'warehouse-migration-import', // owner: #team-warehouse-sources — gates importing a Fivetran setup
     WAREHOUSE_MULTI_DESTINATION: 'warehouse-multi-destination', // owner: #team-warehouse-sources
+    WAREHOUSE_DESTINATION_MOTHERDUCK: 'warehouse-destination-motherduck', // owner: #team-warehouse-sources
     WAREHOUSE_PERSON_PROPERTIES: 'warehouse-person-properties', // owner: @tomowers #team-warehouse-sources, gates warehouse -> person properties (person-target custom property sources)
     WAREHOUSE_SUGGESTIONS: 'warehouse-suggestions', // owner: #team-data-modeling
     WEB_ANALYTICS_ACHIEVEMENTS: 'web-analytics-achievements', // owner: @jordanm-posthog #team-web-analytics
