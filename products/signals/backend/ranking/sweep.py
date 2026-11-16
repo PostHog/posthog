@@ -51,8 +51,8 @@ from products.signals.backend.ranking.inventory import SCORABLE_STATUSES, spine_
 from products.signals.backend.ranking.model_store import ModelLoadError, ServingSet, load_serving_set
 from products.signals.backend.ranking.overrides import RankingOverrides, read_ranking_overrides
 from products.signals.backend.ranking.serving_manifest import serving_project_vectors_date
-from products.signals.backend.report_embedding_reader import REPORT_EMBEDDINGS_TABLE
-from products.signals.backend.report_embeddings import EMBEDDING_DOCUMENT_TYPE, EMBEDDING_PRODUCT
+from products.signals.backend.report_embedding_reader import REPORT_EMBEDDINGS_TABLE, SCORABLE_VECTOR_HAVING
+from products.signals.backend.report_embeddings import EMBEDDING_DOCUMENT_TYPE, EMBEDDING_PRODUCT, RetractionReason
 
 logger = structlog.get_logger(__name__)
 
@@ -68,19 +68,21 @@ _ACTIVITY_TIMEOUT = datetime.timedelta(minutes=10)
 _TIME_BUDGET = datetime.timedelta(minutes=8)
 
 # `timestamp` is the report's `created_at` and the partition key, so the lower bound prunes the
-# read to a few weekly partitions. The query does not read the `embedding` column.
+# read to a few weekly partitions. The query does not read the `embedding` column. The vector time
+# is the time of the newest live row, which is the row the scorer reads. An unreviewed edit writes a
+# tombstone and no live row, so it does not make a scored report due again.
 CANDIDATE_VECTORS_SQL = f"""
 SELECT
     team_id,
     document_id,
-    max(inserted_at) AS vector_inserted_at
+    maxIf(inserted_at, NOT JSONExtractBool(metadata, 'deleted')) AS vector_inserted_at
 FROM {REPORT_EMBEDDINGS_TABLE}
 WHERE product = %(product)s
   AND document_type = %(document_type)s
   AND rendering = %(rendering)s
   AND timestamp >= %(since)s
 GROUP BY team_id, document_id
-HAVING argMax(JSONExtractBool(metadata, 'deleted'), inserted_at) = 0
+{SCORABLE_VECTOR_HAVING}
 """
 
 # The scan is cross-team, so it cannot use the `team_id` sort-key prefix, and its cost grows with the
@@ -150,7 +152,7 @@ def _utc(value: datetime.datetime) -> datetime.datetime:
 
 
 def _live_vectors(since: datetime.datetime, rendering: str) -> dict[str, tuple[int, datetime.datetime]]:
-    """Report id to `(team_id, newest vector time)`, for each report whose newest row is live."""
+    """Report id to `(team_id, newest live vector time)`, for each report that `SCORABLE_VECTOR_HAVING` keeps."""
     tag_queries(product=Product.SIGNALS, feature=Feature.ENRICHMENT, query_type="inbox_ranking_sweep_candidates")
     rows = cast(
         list[tuple[Any, ...]],
@@ -161,6 +163,7 @@ def _live_vectors(since: datetime.datetime, rendering: str) -> dict[str, tuple[i
                 "document_type": EMBEDDING_DOCUMENT_TYPE,
                 "rendering": rendering,
                 "since": since.astimezone(datetime.UTC).replace(tzinfo=None),
+                "unreviewed_edit": RetractionReason.UNREVIEWED_EDIT.value,
             },
             settings=CANDIDATE_VECTORS_QUERY_SETTINGS,
             workload=Workload.OFFLINE,
@@ -228,7 +231,8 @@ def reports_due_for_scoring(now: datetime.datetime, *, rendering: str, limit: in
 
     Unscored reports come first, then the oldest scores, so no report starves under the cap. A
     report with no live vector is never a candidate, so a safety-suppressed or retracted report is
-    not retried every tick. It comes back when a new vector lands.
+    not retried every tick. It comes back when a new vector lands. A report that an unreviewed edit
+    retracted stays a candidate with its judged vector until it has a score from that vector.
     """
     since = now - datetime.timedelta(days=settings.INBOX_RANKING_SCORING_MAX_AGE_DAYS)
     vectors = _live_vectors(since, rendering)

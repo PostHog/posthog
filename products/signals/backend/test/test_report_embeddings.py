@@ -1,6 +1,6 @@
 import json
 from collections.abc import Mapping
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from posthog.test.base import BaseTest
@@ -17,6 +17,7 @@ from products.signals.backend.report_embeddings import (
     EMBEDDING_RENDERING_TITLE_SUMMARY,
     EMBEDDING_RENDERINGS,
     TOMBSTONE_CONTENT,
+    RetractionReason,
     emit_report_embeddings,
     emit_report_tombstone,
     render_report_documents,
@@ -63,10 +64,17 @@ class TestRenderReportDocuments(SimpleTestCase):
 class TestEmittedRow(SimpleTestCase):
     CREATED_AT = datetime(2026, 7, 1, 12, 0, tzinfo=UTC)
 
-    def _emit(self, tombstone: bool, renderings: tuple[str, ...] = EMBEDDING_RENDERINGS) -> list[Mapping[str, Any]]:
+    def _emit(
+        self,
+        tombstone: bool,
+        renderings: tuple[str, ...] = EMBEDDING_RENDERINGS,
+        reason: RetractionReason = RetractionReason.DELETION,
+    ) -> list[Mapping[str, Any]]:
         with patch(EMIT_REQUEST_PATH) as emit_request:
             if tombstone:
-                emit_report_tombstone(team_id=7, report_id="r1", created_at=self.CREATED_AT, renderings=renderings)
+                emit_report_tombstone(
+                    team_id=7, report_id="r1", created_at=self.CREATED_AT, reason=reason, renderings=renderings
+                )
             else:
                 emit_report_embeddings(
                     team_id=7, report_id="r1", documents=REPORT_DOCUMENTS, created_at=self.CREATED_AT
@@ -74,16 +82,46 @@ class TestEmittedRow(SimpleTestCase):
         return [call.kwargs for call in emit_request.call_args_list]
 
     @parameterized.expand(
-        [("live", False, {"report_id": "r1"}), ("tombstone", True, {"report_id": "r1", "deleted": True})]
+        [
+            ("live", False, RetractionReason.DELETION, timedelta(0), {"report_id": "r1"}),
+            (
+                "deletion_tombstone",
+                True,
+                RetractionReason.DELETION,
+                timedelta(0),
+                {"report_id": "r1", "deleted": True, "retraction_reason": "deletion"},
+            ),
+            (
+                "unsafe_verdict_tombstone",
+                True,
+                RetractionReason.UNSAFE_VERDICT,
+                timedelta(0),
+                {"report_id": "r1", "deleted": True, "retraction_reason": "unsafe_verdict"},
+            ),
+            # Another day of `timestamp` is another ReplacingMergeTree key, so a merge keeps the judged
+            # row that the ranking sweep scores from.
+            (
+                "unreviewed_edit_tombstone",
+                True,
+                RetractionReason.UNREVIEWED_EDIT,
+                timedelta(days=1),
+                {"report_id": "r1", "deleted": True, "retraction_reason": "unreviewed_edit"},
+            ),
+        ]
     )
     def test_row_targets_the_report_document_slot(
-        self, _name: str, tombstone: bool, expected_metadata: dict[str, Any]
+        self,
+        _name: str,
+        tombstone: bool,
+        reason: RetractionReason,
+        timestamp_offset: timedelta,
+        expected_metadata: dict[str, Any],
     ) -> None:
-        for kwargs in self._emit(tombstone):
+        for kwargs in self._emit(tombstone, reason=reason):
             assert kwargs["product"] == "signals"
             assert kwargs["document_type"] == "report"
             assert kwargs["document_id"] == "r1"
-            assert kwargs["timestamp"] == self.CREATED_AT
+            assert kwargs["timestamp"] == self.CREATED_AT + timestamp_offset
             assert kwargs["metadata"] == expected_metadata
 
     def test_each_rendering_gets_its_own_row(self) -> None:
@@ -233,6 +271,7 @@ class TestReportEmbeddingReceiver(BaseTest):
             team_id=self.team.id,
             report_id=str(report.id),
             created_at=report.created_at,
+            reason=RetractionReason.TEXT_REMOVED,
             renderings=removed_renderings,
         )
         if summary:
@@ -272,6 +311,7 @@ class TestReportEmbeddingReceiver(BaseTest):
         assert self.tombstone.call_count == 1
         assert self.tombstone.call_args.kwargs["report_id"] == str(report.id)
         assert self.tombstone.call_args.kwargs["created_at"] == report.created_at
+        assert self.tombstone.call_args.kwargs["reason"] == RetractionReason.DELETION
 
     @parameterized.expand([("unsafe", False, 0, 1), ("safe", True, 1, 0)])
     def test_safety_verdict_gates_embedding(
@@ -294,6 +334,7 @@ class TestReportEmbeddingReceiver(BaseTest):
         assert self.tombstone.call_count == 1
         assert self.tombstone.call_args.kwargs["report_id"] == str(report.id)
         assert self.tombstone.call_args.kwargs["created_at"] == report.created_at
+        assert self.tombstone.call_args.kwargs["reason"] == RetractionReason.UNSAFE_VERDICT
 
     def test_editing_a_verdict_to_unsafe_retracts_the_embedding(self) -> None:
         # `update_content` rewrites the verdict row in place, so this arrives as an update rather than
@@ -323,6 +364,7 @@ class TestReportEmbeddingReceiver(BaseTest):
             report._unreviewed_edit = True  # type: ignore[attr-defined]
             report.save(update_fields=["title", "summary", "updated_at"])
         assert self.tombstone.call_count == 1
+        assert self.tombstone.call_args.kwargs["reason"] == RetractionReason.UNREVIEWED_EDIT
         self.embed.reset_mock()
 
         with self.captureOnCommitCallbacks(execute=True):

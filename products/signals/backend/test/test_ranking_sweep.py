@@ -30,7 +30,8 @@ from products.signals.backend.ranking.overrides import (
 from products.signals.backend.ranking.scorer import NO_VECTOR, ReportScoringOutcome, ScoringError
 from products.signals.backend.ranking.sweep import ScoringCandidate, reports_due_for_scoring, score_inbox_reports
 from products.signals.backend.report_embedding_reader import REPORT_EMBEDDINGS_TABLE
-from products.signals.backend.report_embeddings import EMBEDDING_RENDERING_TITLE_SUMMARY
+from products.signals.backend.report_embeddings import EMBEDDING_RENDERING_TITLE_SUMMARY, RetractionReason
+from products.signals.backend.test.report_embedding_rows import insert_report_tombstone
 
 MANIFEST = "manifest-b"
 OLD_MANIFEST = "manifest-a"
@@ -115,6 +116,16 @@ class TestReportsDueForScoring(ClickhouseTestMixin, BaseTest):
         )
         return inserted_at
 
+    def _retract(self, report_id: str, *, hours_ago: int, reason: RetractionReason) -> None:
+        report = SignalReport.objects.get(id=report_id)
+        insert_report_tombstone(
+            team_id=report.team_id,
+            report_id=report_id,
+            created_at=report.created_at,
+            inserted_at=self.now - datetime.timedelta(hours=hours_ago),
+            reason=reason,
+        )
+
     def _scored(
         self,
         report_id: str,
@@ -188,7 +199,35 @@ class TestReportsDueForScoring(ClickhouseTestMixin, BaseTest):
             created_at=self.now + datetime.timedelta(hours=1)
         )
 
-        assert sorted(self._due()) == sorted([unscored, edited, cross_team_score])
+        # An unreviewed edit before the first tick leaves the judged vector to score from.
+        edited_before_scoring = self._report()
+        self._vector(edited_before_scoring, hours_ago=5)
+        self._retract(edited_before_scoring, hours_ago=2, reason=RetractionReason.UNREVIEWED_EDIT)
+
+        # An unreviewed edit lands no new vector, so a score from the judged vector stays current.
+        edited_after_scoring = self._report()
+        self._scored(edited_after_scoring, vector_at=self._vector(edited_after_scoring, hours_ago=5))
+        self._retract(edited_after_scoring, hours_ago=2, reason=RetractionReason.UNREVIEWED_EDIT)
+
+        for first, then in [
+            (RetractionReason.UNREVIEWED_EDIT, RetractionReason.DELETION),
+            (RetractionReason.UNREVIEWED_EDIT, RetractionReason.UNSAFE_VERDICT),
+            (RetractionReason.UNSAFE_VERDICT, RetractionReason.UNREVIEWED_EDIT),
+            (RetractionReason.DELETION, RetractionReason.UNREVIEWED_EDIT),
+        ]:
+            hard_retracted = self._report()
+            self._vector(hard_retracted, hours_ago=5)
+            self._retract(hard_retracted, hours_ago=3, reason=first)
+            self._retract(hard_retracted, hours_ago=2, reason=then)
+
+        # The judged row must still be there after a merge of the replacing table.
+        sync_execute(
+            "OPTIMIZE TABLE sharded_posthog_document_embeddings_text_embedding_3_small_1536 FINAL",
+            flush=False,
+            team_id=self.team.pk,
+        )
+
+        assert sorted(self._due()) == sorted([unscored, edited, cross_team_score, edited_before_scoring])
 
     def test_the_cap_keeps_unscored_reports_first_then_the_oldest_scores(self) -> None:
         recently_scored, long_ago_scored, unscored = self._report(), self._report(), self._report()

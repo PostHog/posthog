@@ -12,7 +12,8 @@ already exists: `capture_status_change_analytics` in `receivers.py` emits
 """
 
 from collections.abc import Mapping
-from datetime import datetime
+from datetime import datetime, timedelta
+from enum import StrEnum
 
 from posthog.schema_enums import EmbeddingModelName
 
@@ -44,6 +45,33 @@ EMBEDDING_RENDERINGS = (EMBEDDING_RENDERING_TITLE_SUMMARY, EMBEDDING_RENDERING_T
 # deliberate divergence from `soft_delete_report_signals`, which re-emits signal text verbatim.
 TOMBSTONE_CONTENT = "[deleted report]"
 
+# Metadata key of the reason a tombstone records. Readers that only need to know if a report is
+# retracted keep reading `deleted`. The ranking sweep reads the reason too.
+RETRACTION_REASON_KEY = "retraction_reason"
+
+
+class RetractionReason(StrEnum):
+    DELETION = "deletion"
+    HARD_DELETION = "hard_deletion"
+    UNSAFE_VERDICT = "unsafe_verdict"
+    # A judged write that no longer renders the document, for example a cleared summary.
+    TEXT_REMOVED = "text_removed"
+    # A user or agent edit that the safety judge has not read. The text it retracts was judged safe.
+    UNREVIEWED_EDIT = "unreviewed_edit"
+
+
+# An unreviewed-edit tombstone is written under `created_at` plus this offset, not under `created_at`.
+# `toDate(timestamp)` is part of the ReplacingMergeTree key, so the tombstone gets its own key and a
+# merge does not remove the judged row that it retracts. The ranking sweep scores the report from
+# that judged row (see `ranking/sweep.py`). Every other reader takes the newest row of a report
+# whatever its `timestamp`, so the tombstone still retracts the report for them. A deletion, an
+# unsafe verdict, or a later judged write lands under `created_at` and replaces the judged row. One
+# day is the smallest offset that always changes the date. The offset is fixed, so each later
+# unreviewed edit replaces the earlier edit tombstone and the rows do not accumulate. The offset is
+# forward so that a reader with a lower bound on `timestamp` never reads the judged row without
+# its tombstone.
+UNREVIEWED_EDIT_TOMBSTONE_OFFSET = timedelta(days=1)
+
 
 def render_report_documents(title: str | None, summary: str | None) -> dict[str, str]:
     """Render a report's documents, keyed by rendering, dropping any that has nothing to embed yet.
@@ -64,7 +92,15 @@ def render_report_documents(title: str | None, summary: str | None) -> dict[str,
     return documents
 
 
-def _emit(*, team_id: int, report_id: str, rendering: str, content: str, created_at: datetime, deleted: bool) -> None:
+def _emit(
+    *,
+    team_id: int,
+    report_id: str,
+    rendering: str,
+    content: str,
+    created_at: datetime,
+    retraction_reason: RetractionReason | None,
+) -> None:
     """Queue one report document for the embedding worker.
 
     `created_at` becomes the row's `timestamp`, rather than the emission time, on purpose. The
@@ -77,6 +113,8 @@ def _emit(*, team_id: int, report_id: str, rendering: str, content: str, created
     The cost of pinning is that the table's `timestamp + 3 MONTH` TTL is measured from report creation,
     so a report that stays open longer than that loses its vector while still live. Consumers must
     therefore snapshot features as they are produced rather than recompute them retroactively.
+
+    The unreviewed-edit tombstone is the one row that is not pinned, see `UNREVIEWED_EDIT_TOMBSTONE_OFFSET`.
     """
     # Deferred so `django.setup()` does not pay for the embedding producer: `receivers.py` is imported
     # from SignalsConfig.ready(), and this module's only heavy dependency is the Kafka/HTTP/ClickHouse
@@ -84,8 +122,12 @@ def _emit(*, team_id: int, report_id: str, rendering: str, content: str, created
     from posthog.api.embedding_worker import emit_embedding_request  # noqa: PLC0415
 
     metadata: dict[str, object] = {"report_id": report_id}
-    if deleted:
+    timestamp = created_at
+    if retraction_reason is not None:
         metadata["deleted"] = True
+        metadata[RETRACTION_REASON_KEY] = retraction_reason.value
+        if retraction_reason == RetractionReason.UNREVIEWED_EDIT:
+            timestamp = created_at + UNREVIEWED_EDIT_TOMBSTONE_OFFSET
 
     emit_embedding_request(
         content=content,
@@ -95,7 +137,7 @@ def _emit(*, team_id: int, report_id: str, rendering: str, content: str, created
         rendering=rendering,
         document_id=report_id,
         models=[model.value for model in EmbeddingModelName],
-        timestamp=created_at,
+        timestamp=timestamp,
         # Deliberately minimal. Metadata is only refreshed when the report's text changes or the row is
         # retracted, so mutable state (status, priority, signal_count) would go stale here with nothing
         # to signal it; those belong in a join against Postgres or the `signal_report_status_changed`
@@ -118,7 +160,7 @@ def emit_report_embeddings(*, team_id: int, report_id: str, documents: Mapping[s
             rendering=rendering,
             content=content,
             created_at=created_at,
-            deleted=False,
+            retraction_reason=None,
         )
 
 
@@ -127,6 +169,7 @@ def emit_report_tombstone(
     team_id: int,
     report_id: str,
     created_at: datetime,
+    reason: RetractionReason,
     renderings: tuple[str, ...] = EMBEDDING_RENDERINGS,
 ) -> None:
     """Retract all renderings by default, or a specified subset when report text is removed.
@@ -138,7 +181,8 @@ def emit_report_tombstone(
     retract every rendering rather than the subset the report happens to hold.
 
     Readers must filter these out the way every signals query already does, with
-    `NOT JSONExtractBool(metadata, 'deleted')`.
+    `NOT JSONExtractBool(metadata, 'deleted')`. The row records `reason`, so the ranking sweep can
+    tell an unreviewed edit from a deletion or an unsafe verdict.
     """
     for rendering in renderings:
         _emit(
@@ -147,5 +191,5 @@ def emit_report_tombstone(
             rendering=rendering,
             content=TOMBSTONE_CONTENT,
             created_at=created_at,
-            deleted=True,
+            retraction_reason=reason,
         )

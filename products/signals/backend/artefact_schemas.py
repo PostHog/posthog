@@ -518,6 +518,13 @@ class RankingScore(BaseModel):
             "key. Absent when no model in the pass read a vector."
         ),
     )
+    pre_edit_vector: bool = Field(
+        default=False,
+        description=(
+            "Whether the pass scored the vector of the text the safety judge approved, because an "
+            "unreviewed edit retracted that vector and no judged text has replaced it yet."
+        ),
+    )
     manifest_version: str = Field(description="Version of the serving manifest that chose the models for the pass.")
     served_key: str = Field(
         description="Key in `results` of the model whose scores the inbox would order on, as `<model_name>@<model_version>`."

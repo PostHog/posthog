@@ -28,6 +28,7 @@ from products.signals.backend.models import SignalFirstReportNotification, Signa
 from products.signals.backend.ranking.cache import refresh_report_ranking_cache
 from products.signals.backend.ranking.staleness import EDIT_ARTEFACT_TYPES
 from products.signals.backend.report_embeddings import (
+    RetractionReason,
     emit_report_embeddings,
     emit_report_tombstone,
     render_report_documents,
@@ -223,7 +224,7 @@ def sync_task_run_pr_to_assignments(sender: type, instance: Any, created: bool, 
         logger.exception("signals.task_run_pr_assignment_sync_failed", task_run_id=str(instance.id))
 
 
-def _schedule_tombstone(*, team_id: int, report_id: str, created_at: datetime, reason: str) -> None:
+def _schedule_tombstone(*, team_id: int, report_id: str, created_at: datetime, reason: RetractionReason) -> None:
     """Retract the report's vector after the current transaction commits.
 
     Unconditional by design. The tombstone carries fixed placeholder text rather than the report's own,
@@ -233,10 +234,10 @@ def _schedule_tombstone(*, team_id: int, report_id: str, created_at: datetime, r
 
     def _emit() -> None:
         try:
-            emit_report_tombstone(team_id=team_id, report_id=report_id, created_at=created_at)
+            emit_report_tombstone(team_id=team_id, report_id=report_id, created_at=created_at, reason=reason)
         except Exception:
             logger.exception(
-                "Failed to tombstone signal report embedding", report_id=report_id, tombstone_reason=reason
+                "Failed to tombstone signal report embedding", report_id=report_id, tombstone_reason=reason.value
             )
 
     # After commit so a rolled-back transaction never retracts a vector that is still current.
@@ -668,13 +669,16 @@ def emit_report_embedding_on_document_change(
     # A user or agent edit (the PATCH endpoint, the scout `edit_report` channel) supplies text the
     # safety judge has never seen, and the report's existing verdict predates it. Rather than trust a
     # stale approval, retract whatever vector the report has and leave it unindexed until the pipeline
-    # writes judged text again on its next research run.
+    # writes judged text again on its next research run. The tombstone records the reason, so the
+    # ranking sweep can still score the report from the vector of the text the judge approved.
     if getattr(instance, "_unreviewed_edit", False):
         # Consumed here: the marker describes the one save it was set for. Leaving it attached would
         # make every later save of the same in-memory instance retract again, so the judged rewrite
         # that should restore the report would tombstone it instead.
         instance._unreviewed_edit = False  # type: ignore[attr-defined]
-        _schedule_tombstone(team_id=team_id, report_id=report_id, created_at=created_at, reason="unreviewed edit")
+        _schedule_tombstone(
+            team_id=team_id, report_id=report_id, created_at=created_at, reason=RetractionReason.UNREVIEWED_EDIT
+        )
         return
 
     # The inverse marker: a judged rewrite that re-sent the exact stored document. The text is
@@ -724,7 +728,11 @@ def emit_report_embedding_on_document_change(
         try:
             if removed_renderings:
                 emit_report_tombstone(
-                    team_id=team_id, report_id=report_id, created_at=created_at, renderings=removed_renderings
+                    team_id=team_id,
+                    report_id=report_id,
+                    created_at=created_at,
+                    reason=RetractionReason.TEXT_REMOVED,
+                    renderings=removed_renderings,
                 )
             # Checked post-commit, because a scout report's safety verdict is written as an artefact
             # in the same transaction as the report row it judges, so it is only visible from here.
@@ -777,7 +785,7 @@ def tombstone_report_embedding_on_delete(
         team_id=instance.team_id,
         report_id=str(instance.id),
         created_at=instance.created_at,
-        reason="deletion",
+        reason=RetractionReason.DELETION,
     )
 
 
@@ -802,7 +810,7 @@ def tombstone_report_embedding_on_hard_delete(
         team_id=instance.team_id,
         report_id=str(instance.id),
         created_at=instance.created_at,
-        reason="hard deletion",
+        reason=RetractionReason.HARD_DELETION,
     )
 
 
@@ -847,10 +855,17 @@ def _reconcile_report_embedding_with_verdict(instance: SignalReportArtefact) -> 
                 return
             if not _is_safety_suppressed(report_id, team_id):
                 return
-            emit_report_tombstone(team_id=team_id, report_id=report_id, created_at=report["created_at"])
+            emit_report_tombstone(
+                team_id=team_id,
+                report_id=report_id,
+                created_at=report["created_at"],
+                reason=RetractionReason.UNSAFE_VERDICT,
+            )
         except Exception:
             logger.exception(
-                "Failed to tombstone signal report embedding", report_id=report_id, tombstone_reason="unsafe verdict"
+                "Failed to tombstone signal report embedding",
+                report_id=report_id,
+                tombstone_reason=RetractionReason.UNSAFE_VERDICT.value,
             )
 
     transaction.on_commit(_emit)

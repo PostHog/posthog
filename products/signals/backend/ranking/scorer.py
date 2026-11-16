@@ -431,6 +431,7 @@ def score_reports(
         score = RankingScore(
             scored_at=now,
             embedding_inserted_at=served_vectors[report_id].inserted_at,
+            pre_edit_vector=served_vectors[report_id].pre_edit,
             manifest_version=serving.manifest.manifest_version,
             served_key=served_key,
             results=results,

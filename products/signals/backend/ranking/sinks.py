@@ -83,6 +83,7 @@ def persist_scores(
                 "embedding_inserted_at": score.embedding_inserted_at.isoformat()
                 if score.embedding_inserted_at
                 else None,
+                "pre_edit_vector": score.pre_edit_vector,
             }
             for model_key, result in score.results.items():
                 active_capture(

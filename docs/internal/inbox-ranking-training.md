@@ -214,6 +214,7 @@ Caveats:
 - The sweep scores a candidate only after a manifest names it, so a candidate's online cohort starts the day after it was trained. A new manifest does not rescore reports that already have a score, and a change of the served key does not either. So a candidate, or a newly served model, scores only the reports that are new or have a new vector after its manifest is published. `pool_coverage_by_model` shows how much of the pool each key covered.
 - A report first scored after D ends, for example when its vector arrived late, is not in D's rows. `served_pool_coverage` shows this for the served model. A later score never fills it in.
 - The sweep scores with the vector current at scoring time, so two keys that scored one report at different times did not always read the same vector.
+- When an unreviewed edit retracted a report's vector, the sweep scores the last vector the safety judge approved, from the text before the edit. The score and its `inbox_ranking_report_scored` events carry `pre_edit_vector: true`. A deletion or an unsafe verdict still leaves the report unscored.
 - A deployment where the sweep is off writes an empty object with coverage 0 and grades nothing.
 
 After deployment, check that `inbox_ranking_unseen_head_evaluated` holds more than one model key for one scoring day, each with its `model_role`.

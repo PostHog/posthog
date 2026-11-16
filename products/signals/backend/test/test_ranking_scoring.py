@@ -74,9 +74,14 @@ from products.signals.backend.report_embedding_reader import (
     ReportVector,
     latest_report_vectors,
 )
-from products.signals.backend.report_embeddings import EMBEDDING_RENDERING_TITLE, EMBEDDING_RENDERING_TITLE_SUMMARY
+from products.signals.backend.report_embeddings import (
+    EMBEDDING_RENDERING_TITLE,
+    EMBEDDING_RENDERING_TITLE_SUMMARY,
+    RetractionReason,
+)
 from products.signals.backend.report_sources_reader import live_report_sources
 from products.signals.backend.signal_metadata import EMBEDDING_MODEL
+from products.signals.backend.test.report_embedding_rows import insert_report_tombstone
 
 PREFIX = "inbox_ranking_test"
 VERSION = "2026-09-01"
@@ -624,7 +629,7 @@ class TestScorerPersists(_ScorerTestMixin, BaseTest):
         scored, unscored = self._report(self.team.id), self._report(self.team.id)
         other_team = Team.objects.create(organization=self.organization)
         foreign = self._report(other_team.id)
-        vector = ReportVector(embedding=_vector(1), inserted_at=LANDED)
+        vector = ReportVector(embedding=_vector(1), inserted_at=LANDED, pre_edit=True)
 
         outcomes, _, captured = self._score(
             [scored, unscored, foreign],
@@ -642,6 +647,7 @@ class TestScorerPersists(_ScorerTestMixin, BaseTest):
         assert [(str(row.report_id), row.team_id) for row in rows] == [(scored, self.team.id)]
         score = RankingScore.model_validate_json(rows[0].content)
         assert score.served_key == manifest.served.key
+        assert score.pre_edit_vector
         assert score.results[candidate.key].status == "scored"
         report = SignalReport.objects.get(id=scored)
         assert report.ranking_scores == score.results[manifest.served.key].scores
@@ -650,6 +656,7 @@ class TestScorerPersists(_ScorerTestMixin, BaseTest):
             (event["event"], event["properties"]["report_id"], event["properties"]["model_key"])
             for event in captured.events
         ) == sorted([(REPORT_SCORED_EVENT, scored, served.key), (REPORT_SCORED_EVENT, scored, candidate.key)])
+        assert {event["properties"]["pre_edit_vector"] for event in captured.events} == {True}
         classification = {
             event["properties"]["model_key"]: {
                 key: value
@@ -1041,6 +1048,15 @@ class TestLatestReportVectors(ClickhouseTestMixin, BaseTest):
             team_id=team_id,
         )
 
+    def _retract(self, report_id: str, *, hours: int, reason: RetractionReason) -> None:
+        insert_report_tombstone(
+            team_id=self.team.pk,
+            report_id=report_id,
+            created_at=self.base,
+            inserted_at=self.base + datetime.timedelta(hours=hours),
+            reason=reason,
+        )
+
     def test_reads_the_newest_live_row_of_the_team_only(self) -> None:
         self._emit(team_id=self.team.pk, report_id="live", hours=1)
         self._emit(team_id=self.team.pk, report_id="live", hours=2)
@@ -1048,16 +1064,25 @@ class TestLatestReportVectors(ClickhouseTestMixin, BaseTest):
         self._emit(team_id=self.team.pk, report_id="retracted", hours=2, deleted=True)
         self._emit(team_id=self.team.pk, report_id="title_only", hours=1, rendering=EMBEDDING_RENDERING_TITLE)
         self._emit(team_id=self.team.pk + 1, report_id="foreign", hours=1)
+        self._emit(team_id=self.team.pk, report_id="edited", hours=1)
+        self._retract("edited", hours=2, reason=RetractionReason.UNREVIEWED_EDIT)
+        self._emit(team_id=self.team.pk, report_id="edited_then_deleted", hours=1)
+        self._retract("edited_then_deleted", hours=2, reason=RetractionReason.UNREVIEWED_EDIT)
+        self._retract("edited_then_deleted", hours=3, reason=RetractionReason.DELETION)
 
         vectors = latest_report_vectors(
             self.team.pk,
-            ["live", "retracted", "title_only", "foreign", "absent"],
+            ["live", "retracted", "title_only", "foreign", "absent", "edited", "edited_then_deleted"],
             rendering=EMBEDDING_RENDERING_TITLE_SUMMARY,
         )
 
-        assert list(vectors) == ["live"]
+        assert sorted(vectors) == ["edited", "live"]
         assert vectors["live"].embedding[0] == 2.0
         assert vectors["live"].inserted_at == self.base + datetime.timedelta(hours=2)
+        assert not vectors["live"].pre_edit
+        assert vectors["edited"].embedding[0] == 1.0
+        assert vectors["edited"].inserted_at == self.base + datetime.timedelta(hours=1)
+        assert vectors["edited"].pre_edit
 
     @parameterized.expand([("one_batch", 500, 1), ("paged", 2, 2)])
     def test_reads_in_batches_of_the_configured_size(self, _name: str, batch_size: int, queries: int) -> None:

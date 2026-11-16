@@ -17,8 +17,9 @@ from posthog.models import Organization, Team
 from products.signals.backend.models import SignalReport
 from products.signals.backend.ranking.features import EMBEDDING_DIMENSIONS
 from products.signals.backend.report_embedding_reader import REPORT_EMBEDDINGS_TABLE
-from products.signals.backend.report_embeddings import EMBEDDING_RENDERING_TITLE_SUMMARY
+from products.signals.backend.report_embeddings import EMBEDDING_RENDERING_TITLE_SUMMARY, RetractionReason
 from products.signals.backend.report_search import keyword_terms
+from products.signals.backend.test.report_embedding_rows import insert_report_tombstone
 
 SEARCH = "products.signals.backend.report_search"
 
@@ -123,6 +124,16 @@ class TestReportSearchAPI(ClickhouseTestMixin, APIBaseTest):
         retracted = self._report("Unrelated title")
         self._embed(retracted, _vector(1.0, 0.0), hours=0)
         self._embed(retracted, _vector(1.0, 0.0), hours=1, deleted=True)
+        # The ranking sweep reads the judged vector under this tombstone, and search must not.
+        edited = self._report("Unrelated title")
+        self._embed(edited, _vector(1.0, 0.0))
+        insert_report_tombstone(
+            team_id=self.team.pk,
+            report_id=str(edited.id),
+            created_at=self.inserted_at,
+            inserted_at=self.inserted_at + datetime.timedelta(hours=1),
+            reason=RetractionReason.UNREVIEWED_EDIT,
+        )
         other_team = Team.objects.create(organization=Organization.objects.create(name="other"))
         foreign = self._report("Checkout button does nothing", team=other_team)
         self._embed(foreign, _vector(1.0, 0.0))
