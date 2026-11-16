@@ -32,8 +32,10 @@ from products.workflows.backend.services.hog_flow_reads import (
     workflow_from_fields,
     workflow_publish_impact,
 )
+from products.workflows.backend.services.workflow_run_totals import fetch_run_totals_by_workflow
 
 __all__ = [
+    "fetch_run_totals_by_workflow",
     "ADD_TO_STATIC_COHORT_TEMPLATE_ID",
     "ALL_MARKETING_CATEGORY_ID",
     "OPT_OUT_OF_MESSAGES_TEMPLATE_ID",
