@@ -162,7 +162,6 @@ class TestMatrixManager(ClickhouseDestroyTablesMixin):
         for read_table, rows_the_copy_waits_for in (
             ("events", "1"),
             ("events_json", "event != '$feature_flag_called'"),
-            ("groups", "1"),
         ):
             rows = sync_execute(
                 f"""

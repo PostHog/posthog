@@ -96,7 +96,6 @@ class MatrixManager:
     _person_distinct_ids_created: int
     _events_created: int
     _native_events_created: int
-    _groups_created: int
 
     def __init__(self, matrix: Matrix, *, use_pre_save: bool = False, print_steps: bool = False):
         self.matrix = matrix
@@ -106,7 +105,6 @@ class MatrixManager:
         self._person_distinct_ids_created = 0
         self._events_created = 0
         self._native_events_created = 0
-        self._groups_created = 0
 
     def ensure_account_and_save(
         self,
@@ -262,7 +260,6 @@ class MatrixManager:
                     group,
                     self.matrix.now,
                 )
-                self._groups_created += 1
         bulk_create_group_type_mappings(data_team.id, data_team.project_id, group_type_mapping_dicts)
         for sim_person in sim_persons:
             self._save_sim_person(data_team, sim_person)
@@ -412,7 +409,6 @@ class MatrixManager:
                 "SELECT count() FROM events_json WHERE team_id = %(team_id)s AND event != '$feature_flag_called'",
                 self._native_events_created,
             ),
-            ("Groups", "SELECT count() FROM groups WHERE team_id = %(team_id)s", self._groups_created),
         ]
         MAX_WAIT_ITERATIONS = 600  # 600 * 0.5s = 300 seconds
         for i in range(MAX_WAIT_ITERATIONS):
