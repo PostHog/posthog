@@ -156,6 +156,14 @@ def final_answer(generations: Sequence[LLMTraceEvent]) -> str:
     )
 
 
+def captures_output(sampled: SampledTrace) -> bool:
+    """Whether any model generation in the trace sent its output, a text answer or a tool call."""
+    return bool(sampled.final_text.strip()) or any(
+        event.event == "$ai_generation" and (event.properties or {}).get("$ai_model") and _calls_tools(event)
+        for event in sampled.trace.events
+    )
+
+
 def _tokens(value: Any) -> float:
     """Token counts as sent, where a malformed value counts as none rather than failing the sample."""
     try:
