@@ -158,10 +158,7 @@ class _InvestigationRunner:
             self._tick_heartbeat()
 
             if self.tool_calls_used >= MAX_TOOL_CALLS:
-                result = await self._finalize_report("Tool call budget exhausted.")
-                if result is not None:
-                    return result
-                break
+                return await self._finalize_report("Tool call budget exhausted.") or self._finish_investigation()
 
             try:
                 response = await self._llm_with_tools.ainvoke(self.messages, config=self._config)
@@ -178,12 +175,12 @@ class _InvestigationRunner:
                 # final answer with no report. Leave it out of the history: it can still hold a
                 # partial tool_use block, which the API rejects without a matching tool_result.
                 logger.warning("anomaly_investigation.max_tokens_stop", extra={"tool_calls_used": self.tool_calls_used})
-                result = await self._finalize_report(
-                    "Your last response hit the output token limit and was cut off. Keep the report concise."
+                return (
+                    await self._finalize_report(
+                        "Your last response hit the output token limit and was cut off. Keep the report concise."
+                    )
+                    or self._finish_investigation()
                 )
-                if result is not None:
-                    return result
-                break
             self.messages.append(response)
             if not tool_calls:
                 break
