@@ -7,18 +7,15 @@ import { gunzip } from 'zlib'
 
 import { parseJSON } from '~/common/utils/json-parse'
 
-import { RunReport, RunStore } from './runs'
+import { RunId, RunReport, RunStore } from './runs'
 import { migrate } from './schema'
 
-// Only this path is opened past the host's sign-in, so it is the one path that checks the run token.
 export const INGEST_PATH = '/api/ingest/runs'
 export const RUNS_PATH = '/api/runs'
 
 const MAX_BODY_BYTES = 32 * 1024 * 1024
 const DEFAULT_LIMIT = 100
 const MAX_LIMIT = 500
-const RUN_ID = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/
-// The managed database caps an app at 20 connections and every statement at 30 seconds.
 const POOL_SIZE = 5
 const STATEMENT_TIMEOUT_MS = 25_000
 
@@ -33,6 +30,8 @@ class HttpError extends Error {
     }
 }
 
+const tooLarge = (): HttpError => new HttpError(413, `the body is larger than ${MAX_BODY_BYTES} bytes`)
+
 const digest = (value: string): Buffer => createHash('sha256').update(value).digest()
 
 function tokenMatches(header: string | undefined, expected: Buffer): boolean {
@@ -40,31 +39,61 @@ function tokenMatches(header: string | undefined, expected: Buffer): boolean {
     return match !== null && timingSafeEqual(digest(match[1]), expected)
 }
 
-async function bodyOf(request: IncomingMessage): Promise<unknown> {
-    const chunks: Buffer[] = []
-    let size = 0
-    for await (const chunk of request) {
-        size += (chunk as Buffer).length
-        if (size > MAX_BODY_BYTES) {
-            throw new HttpError(413, `the body is larger than ${MAX_BODY_BYTES} bytes`)
+function rawBodyOf(request: IncomingMessage): Promise<Buffer> {
+    if (Number(request.headers['content-length'] ?? 0) > MAX_BODY_BYTES) {
+        return Promise.reject(tooLarge())
+    }
+    return new Promise((resolve, reject) => {
+        const chunks: Buffer[] = []
+        let size = 0
+        const onData = (chunk: Buffer): void => {
+            size += chunk.length
+            if (size > MAX_BODY_BYTES) {
+                request.off('data', onData)
+                reject(tooLarge())
+                return
+            }
+            chunks.push(chunk)
         }
-        chunks.push(chunk as Buffer)
+        request.on('data', onData)
+        request.once('end', () => resolve(Buffer.concat(chunks)))
+        request.once('error', reject)
+    })
+}
+
+async function decodedBodyOf(request: IncomingMessage): Promise<Buffer> {
+    const raw = await rawBodyOf(request)
+    if (request.headers['content-encoding'] !== 'gzip') {
+        return raw
     }
-    let raw = Buffer.concat(chunks)
-    if (request.headers['content-encoding'] === 'gzip') {
-        raw = await gunzipAsync(raw, { maxOutputLength: MAX_BODY_BYTES }).catch(() => {
-            throw new HttpError(400, 'the gzipped body does not decompress within the size limit')
-        })
-    }
+    return await gunzipAsync(raw, { maxOutputLength: MAX_BODY_BYTES }).catch((error: NodeJS.ErrnoException) => {
+        throw error.code === 'ERR_BUFFER_TOO_LARGE' ? tooLarge() : new HttpError(400, 'the body is not valid gzip')
+    })
+}
+
+async function reportOf(request: IncomingMessage): Promise<RunReport> {
+    const body = (await decodedBodyOf(request)).toString('utf8')
+    let json: unknown
     try {
-        return parseJSON(raw.toString('utf8'))
+        json = parseJSON(body)
     } catch {
         throw new HttpError(400, 'the body is not JSON')
     }
+    const parsed = RunReport.safeParse(json)
+    if (!parsed.success) {
+        throw new HttpError(
+            400,
+            parsed.error.issues.map(({ path, message }) => `${path.join('.')}: ${message}`).join('; ')
+        )
+    }
+    return parsed.data
 }
 
 function send(response: ServerResponse, status: number, body: unknown): void {
-    response.writeHead(status, { 'Content-Type': 'application/json' })
+    response.writeHead(status, {
+        'Content-Type': 'application/json',
+        ...(status === 413 ? { Connection: 'close' } : {}),
+    })
     response.end(JSON.stringify(body))
 }
 
@@ -79,50 +108,51 @@ function limitOf(value: string | null): number {
     return limit
 }
 
-async function handle(
-    store: RunStore,
-    token: Buffer,
-    request: IncomingMessage,
-    response: ServerResponse
-): Promise<void> {
-    const url = new URL(request.url ?? '/', 'http://store')
-    if (url.pathname === INGEST_PATH) {
-        if (request.method !== 'POST') {
-            throw new HttpError(405, 'use POST')
-        }
-        if (!tokenMatches(request.headers.authorization, token)) {
-            throw new HttpError(401, 'a valid run token is required')
-        }
-        const parsed = RunReport.safeParse(await bodyOf(request))
-        if (!parsed.success) {
-            throw new HttpError(
-                400,
-                parsed.error.issues.map(({ path, message }) => `${path.join('.')}: ${message}`).join('; ')
-            )
-        }
-        const stored = await store.put(parsed.data)
-        return send(response, stored === 'created' ? 201 : 200, { runId: parsed.data.scorecard.run_id, stored })
+function requireMethod(request: IncomingMessage, method: 'GET' | 'POST'): void {
+    if (request.method !== method) {
+        throw new HttpError(405, `use ${method}`)
     }
-    if (request.method !== 'GET') {
-        throw new HttpError(405, 'use GET')
+}
+
+async function ingest(store: RunStore, token: Buffer, request: IncomingMessage, response: ServerResponse) {
+    requireMethod(request, 'POST')
+    if (!tokenMatches(request.headers.authorization, token)) {
+        throw new HttpError(401, 'a valid run token is required')
     }
-    if (url.pathname === RUNS_PATH) {
-        const runs = await store.list({
-            cardId: url.searchParams.get('card_id') ?? undefined,
-            limit: limitOf(url.searchParams.get('limit')),
-        })
-        return send(response, 200, { runs })
+    const report = await reportOf(request)
+    const stored = await store.put(report)
+    send(response, stored === 'created' ? 201 : 200, { runId: report.scorecard.run_id, stored })
+}
+
+async function listRuns(store: RunStore, query: URLSearchParams, request: IncomingMessage, response: ServerResponse) {
+    requireMethod(request, 'GET')
+    const runs = await store.list({ cardId: query.get('card_id') || undefined, limit: limitOf(query.get('limit')) })
+    send(response, 200, { runs })
+}
+
+async function readRun(store: RunStore, id: string, request: IncomingMessage, response: ServerResponse) {
+    requireMethod(request, 'GET')
+    const runId = RunId.safeParse(id)
+    if (!runId.success) {
+        throw new HttpError(400, 'the run id is not a UUID')
     }
-    if (url.pathname.startsWith(`${RUNS_PATH}/`)) {
-        const runId = url.pathname.slice(RUNS_PATH.length + 1)
-        if (!RUN_ID.test(runId)) {
-            throw new HttpError(400, 'the run id is not a lowercase UUID')
-        }
-        const run = await store.get(runId)
-        if (run === undefined) {
-            throw new HttpError(404, 'no run with that id')
-        }
-        return send(response, 200, run)
+    const run = await store.get(runId.data)
+    if (run === undefined) {
+        throw new HttpError(404, 'no run with that id')
+    }
+    send(response, 200, run)
+}
+
+async function handle(store: RunStore, token: Buffer, request: IncomingMessage, response: ServerResponse) {
+    const [path, query = ''] = (request.url ?? '/').split('?', 2)
+    if (path === INGEST_PATH) {
+        return await ingest(store, token, request, response)
+    }
+    if (path === RUNS_PATH) {
+        return await listRuns(store, new URLSearchParams(query), request, response)
+    }
+    if (path.startsWith(`${RUNS_PATH}/`)) {
+        return await readRun(store, path.slice(RUNS_PATH.length + 1), request, response)
     }
     throw new HttpError(404, 'not found')
 }
@@ -131,24 +161,17 @@ export type StoreOptions = { databaseUrl: string; token: string; port: number; h
 
 export type RunningStore = { url: string; close: () => Promise<void> }
 
-// Migrations finish before the port opens, so a new revision never serves an old schema.
-export async function startStore({ databaseUrl, token, port, host = '0.0.0.0' }: StoreOptions): Promise<RunningStore> {
+export async function startStore({
+    databaseUrl,
+    token,
+    port,
+    host = '127.0.0.1',
+}: StoreOptions): Promise<RunningStore> {
     if (token === '') {
         throw new Error('the store needs a run token to check reports against')
     }
-    const pool = new Pool({
-        connectionString: databaseUrl,
-        max: POOL_SIZE,
-        statement_timeout: STATEMENT_TIMEOUT_MS,
-    })
-    // An idle client the server drops would otherwise throw from an event handler and end the process.
+    const pool = new Pool({ connectionString: databaseUrl, max: POOL_SIZE, statement_timeout: STATEMENT_TIMEOUT_MS })
     pool.on('error', () => undefined)
-    try {
-        await migrate(pool)
-    } catch (error) {
-        await pool.end()
-        throw error
-    }
     const store = new RunStore(pool)
     const expected = digest(token)
     const server: Server = createServer((request, response) => {
@@ -160,17 +183,21 @@ export async function startStore({ databaseUrl, token, port, host = '0.0.0.0' }:
             send(response, 500, { error: 'the store failed to answer' })
         })
     })
-    await new Promise<void>((resolve, reject) => {
-        server.once('error', reject)
-        server.listen(port, host, resolve)
-    })
+    try {
+        await migrate(pool)
+        await new Promise<void>((resolve, reject) => {
+            server.once('error', reject)
+            server.listen(port, host, resolve)
+        })
+    } catch (error) {
+        await pool.end()
+        throw error
+    }
     const { port: bound } = server.address() as AddressInfo
     return {
         url: `http://${host === '0.0.0.0' ? '127.0.0.1' : host}:${bound}`,
         close: async () => {
-            const closed = new Promise<void>((resolve) => server.close(() => resolve()))
-            server.closeAllConnections()
-            await closed
+            await new Promise<void>((resolve, reject) => server.close((error) => (error ? reject(error) : resolve())))
             await pool.end()
         },
     }

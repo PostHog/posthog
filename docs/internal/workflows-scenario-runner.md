@@ -855,7 +855,8 @@ The runner works without it and reports `recorded: false`.
 
 ## Run store
 
-The run store keeps every run, local or cloud, in one place that people and agents can read.
+The run store keeps every run, local or cloud, in one place.
+The runners report to it and the hosted viewer reads from it; both land in later changes.
 It is one Node HTTP service over Postgres, in `store/`, and it runs nowhere in production.
 The scorecard event stays the durable record: everything in the store can be rebuilt from scorecard events and the evidence bucket.
 
@@ -865,9 +866,9 @@ The scorecard event stays the durable record: everything in the store can be reb
 | -------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------- |
 | `scorecard`                                                                      | The scorecard properties as posted, schema version 1                                            |
 | `card_id`, `status`, `target`, `head_sha`, `card_hash`, `started_at`, `ended_at` | Copied from the scorecard, so lists filter and sort without reading the JSON                    |
-| `evidence_prefix`                                                                | The scorecard's `evidence_dir`: a path on the box for a local run, an S3 prefix for a cloud run |
+| `evidence_dir`                                                                   | The scorecard's `evidence_dir`: a path on the box for a local run, an S3 prefix for a cloud run |
 | `host`                                                                           | The box that reported the run, when the report names it                                         |
-| `series`                                                                         | Derived time series for the viewer, as gzipped JSON; never raw evidence                         |
+| `series`                                                                         | Derived time series for the viewer, as JSON; never raw evidence                                 |
 | `topology`                                                                       | The systems the run saw, when the report has them                                               |
 
 **Routes**
@@ -876,23 +877,28 @@ The scorecard event stays the durable record: everything in the store can be reb
 | ----------------------- | ------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------- |
 | `POST /api/ingest/runs` | Anyone with the run token, as `Authorization: Bearer <token>` | Stores `{ scorecard, series?, topology?, host? }`: `201` for a new run, `200` for a run it already had. A wrong or missing token gets `401` and stores nothing |
 | `GET /api/runs`         | Whoever reaches the host                                      | Lists runs newest first, without `series` and `topology`. `?card_id=` filters, `?limit=` takes 1 to 500, default 100                                           |
-| `GET /api/runs/<id>`    | Whoever reaches the host                                      | One run with its `series` and `topology`                                                                                                                       |
+| `GET /api/runs/<id>`    | Whoever reaches the host                                      | One run with its `series` and `topology`, by its id in any letter case                                                                                         |
 
-A report for a run the store already has replaces its scorecard and keeps the `series`, `topology` and `host` the new report leaves out, so re-sending a scorecard never drops a series a backfill added.
-The ingest route accepts a gzipped body with `Content-Encoding: gzip`, up to 32 MiB unzipped.
+A report for a run the store already has replaces its scorecard and keeps the `series`, `topology` and `host` the new report leaves out or sends as `null`, so re-sending a scorecard never drops a series a backfill added.
+The ingest route takes scorecards of schema version 1 only.
+It accepts a gzipped body with `Content-Encoding: gzip`, and answers `413` to a body over 32 MiB, zipped or unzipped.
 
 Ingest has its own path because the hosted app opens paths past its sign-in by path, for every method.
 Only `/api/ingest/runs` is opened; the read routes stay behind the sign-in.
+The store routes on the path as sent, so a path that starts with the ingest path and climbs out of it with `..` gets `404`.
 
 **Run it locally**
 
 ```bash
-DATABASE_URL=postgres://... SCENARIO_STORE_TOKEN=<a long random token> PORT=8080 \
+DATABASE_URL=postgres://... SCENARIO_STORE_TOKEN=<a long random token> PORT=8080 HOST=127.0.0.1 \
   pnpm --dir nodejs exec tsx tests/scenarios/store/main.ts
 ```
 
+It listens on `127.0.0.1` unless `HOST` names another address, such as `0.0.0.0` in a container.
 It applies its migrations before it opens the port, and refuses to start without `SCENARIO_STORE_TOKEN`.
+Each migration is one idempotent statement, such as `ADD COLUMN IF NOT EXISTS`, that runs on every start under an advisory lock.
 Migrations only add, because the old revision keeps serving while a new one starts.
+On `SIGTERM` it stops taking connections and finishes the requests in flight before it exits.
 It holds at most 5 database connections and stops any statement after 25 seconds.
 
 ## Decisions

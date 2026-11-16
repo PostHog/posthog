@@ -1,4 +1,5 @@
 import { randomUUID } from 'crypto'
+import { request as httpRequest } from 'http'
 import { gzipSync } from 'zlib'
 
 import { defaultConfig } from '~/common/config/config'
@@ -8,9 +9,10 @@ import { scratchSchema } from '../environment/stack'
 import { INGEST_PATH, RUNS_PATH, RunningStore, startStore } from './server'
 
 const TOKEN = 'test-run-token'
+const AUTHORIZED = { Authorization: `Bearer ${TOKEN}` }
 const schema = scratchSchema(defaultConfig.DATABASE_URL, `scenario_store_${process.pid}`, [])
 
-function scorecardOf(runId: string, overrides: Record<string, unknown> = {}): Record<string, unknown> {
+function scorecardFixture(runId: string, overrides: Record<string, unknown> = {}): Record<string, unknown> {
     return {
         schema_version: 1,
         run_id: runId,
@@ -29,10 +31,15 @@ function scorecardOf(runId: string, overrides: Record<string, unknown> = {}): Re
     }
 }
 
+const withoutStatus = (runId: string): Record<string, unknown> => {
+    const { status: _status, ...scorecard } = scorecardFixture(runId)
+    return scorecard
+}
+
 describe('run store', () => {
     let store: RunningStore
 
-    const ingest = (body: unknown, headers: Record<string, string> = { Authorization: `Bearer ${TOKEN}` }) =>
+    const ingest = (body: unknown, headers: Record<string, string> = AUTHORIZED) =>
         internalFetch(`${store.url}${INGEST_PATH}`, {
             method: 'POST',
             headers: { 'Content-Type': 'application/json', ...headers },
@@ -44,13 +51,15 @@ describe('run store', () => {
         return { status: response.status, body: await response.json() }
     }
 
+    const runIdsOf = async (path: string): Promise<string[]> =>
+        (await read(path)).body.runs.map((run: { runId: string }) => run.runId)
+
     beforeAll(async () => {
         await schema.create()
     })
 
     beforeEach(async () => {
-        // Each test starts its own store on the same schema, so migrations also run on a migrated database.
-        store = await startStore({ databaseUrl: schema.url, token: TOKEN, port: 0, host: '127.0.0.1' })
+        store = await startStore({ databaseUrl: schema.url, token: TOKEN, port: 0 })
     })
 
     afterEach(async () => {
@@ -61,16 +70,16 @@ describe('run store', () => {
         await schema.drop()
     })
 
-    it('stores a run posted twice once, reads back what was posted, and keeps its series when re-sent without one', async () => {
+    it('reads back exactly what was posted', async () => {
         const runId = randomUUID()
         const series = { bucketMs: 5000, flow: [{ at: 1, offered: 3 }] }
         const topology = { nodes: ['a', 'b'], edges: [['a', 'b']] }
-        const first = await ingest({ scorecard: scorecardOf(runId), series, topology, host: 'box-1' })
-        expect(first.status).toBe(201)
+
+        expect((await ingest({ scorecard: scorecardFixture(runId), series, topology, host: 'box-1' })).status).toBe(201)
 
         expect(await read(`${RUNS_PATH}/${runId}`)).toEqual({
             status: 200,
-            body: expect.objectContaining({
+            body: {
                 runId,
                 cardId: 'example-card',
                 status: 'passed',
@@ -80,55 +89,198 @@ describe('run store', () => {
                 cardHash: 'c0ffee',
                 startedAt: '2026-01-02T03:04:05.000Z',
                 endedAt: '2026-01-02T03:09:05.000Z',
-                evidencePrefix: '/tmp/example/evidence',
-                scorecard: scorecardOf(runId),
+                evidenceDir: '/tmp/example/evidence',
+                receivedAt: expect.any(String),
+                updatedAt: expect.any(String),
+                scorecard: scorecardFixture(runId),
                 series,
                 topology,
-            }),
+            },
         })
+    })
 
-        const failed = scorecardOf(runId, { status: 'failed', status_reason: 'an invariant failed' })
-        const again = await ingest(gzipSync(JSON.stringify({ scorecard: failed })), {
-            Authorization: `Bearer ${TOKEN}`,
-            'Content-Encoding': 'gzip',
-        })
-        expect(again.status).toBe(200)
+    it('stores a run posted twice once, with the second report', async () => {
+        const runId = randomUUID()
+        const failed = scorecardFixture(runId, { status: 'failed', status_reason: 'an invariant failed' })
 
-        const { body: listed } = await read(`${RUNS_PATH}?card_id=example-card`)
-        expect(listed.runs.filter((run: { runId: string }) => run.runId === runId)).toEqual([
-            expect.objectContaining({ status: 'failed', host: 'box-1', scorecard: failed }),
+        expect((await ingest({ scorecard: scorecardFixture(runId) })).status).toBe(201)
+        expect((await ingest({ scorecard: failed })).status).toBe(200)
+
+        const { body } = await read(`${RUNS_PATH}?card_id=example-card`)
+        expect(body.runs.filter((run: { runId: string }) => run.runId === runId)).toEqual([
+            expect.objectContaining({ status: 'failed', scorecard: failed }),
         ])
-        const { body: detail } = await read(`${RUNS_PATH}/${runId}`)
-        expect(detail).toMatchObject({ status: 'failed', series, topology })
     })
 
     it.each([
-        ['no token', {}, 401],
-        ['a wrong token', { Authorization: 'Bearer not-the-token' }, 401],
-        ['the token without the Bearer scheme', { Authorization: TOKEN }, 401],
-        ['a scorecard without a status', { Authorization: `Bearer ${TOKEN}` }, 400],
-    ])('refuses a report with %s and stores nothing', async (what, headers, status) => {
+        ['leaves them out', {}],
+        ['sends them as null', { series: null, topology: null, host: null }],
+    ])('keeps the series, topology and host when a re-report %s', async (_, absent) => {
         const runId = randomUUID()
-        const scorecard = scorecardOf(runId)
-        if (status === 400) {
-            delete scorecard.status
-        }
-        const response = await ingest({ scorecard }, headers)
-        expect({ what, status: response.status }).toEqual({ what, status })
+        const series = { flow: [1, 2, 3] }
+        const topology = { nodes: ['a'] }
+        await ingest({ scorecard: scorecardFixture(runId), series, topology, host: 'box-1' })
+
+        expect((await ingest({ scorecard: scorecardFixture(runId), ...absent })).status).toBe(200)
+
+        expect((await read(`${RUNS_PATH}/${runId}`)).body).toMatchObject({ series, topology, host: 'box-1' })
+    })
+
+    it('takes a gzipped report', async () => {
+        const runId = randomUUID()
+        const body = gzipSync(JSON.stringify({ scorecard: scorecardFixture(runId) }))
+
+        expect((await ingest(body, { ...AUTHORIZED, 'Content-Encoding': 'gzip' })).status).toBe(201)
+        expect(await read(`${RUNS_PATH}/${runId}`)).toMatchObject({ status: 200 })
+    })
+
+    it('reads a run back by the uppercase id it was reported under', async () => {
+        const runId = randomUUID()
+
+        await ingest({ scorecard: scorecardFixture(runId.toUpperCase()) })
+
+        expect(await read(`${RUNS_PATH}/${runId.toUpperCase()}`)).toMatchObject({ status: 200, body: { runId } })
+    })
+
+    it.each<[string, (runId: string) => { body: unknown; headers: Record<string, string> }, number]>([
+        ['no token', (runId) => ({ body: { scorecard: scorecardFixture(runId) }, headers: {} }), 401],
+        [
+            'a wrong token',
+            (runId) => ({
+                body: { scorecard: scorecardFixture(runId) },
+                headers: { Authorization: 'Bearer not-the-token' },
+            }),
+            401,
+        ],
+        [
+            'the token without the Bearer scheme',
+            (runId) => ({ body: { scorecard: scorecardFixture(runId) }, headers: { Authorization: TOKEN } }),
+            401,
+        ],
+        [
+            'a scorecard without a status',
+            (runId) => ({ body: { scorecard: withoutStatus(runId) }, headers: AUTHORIZED }),
+            400,
+        ],
+        [
+            'a scorecard of another schema version',
+            (runId) => ({ body: { scorecard: scorecardFixture(runId, { schema_version: 2 }) }, headers: AUTHORIZED }),
+            400,
+        ],
+        ['a body that is not JSON', () => ({ body: Buffer.from('{"scorecard":'), headers: AUTHORIZED }), 400],
+        [
+            'a gzip header on a plain body',
+            (runId) => ({
+                body: { scorecard: scorecardFixture(runId) },
+                headers: { ...AUTHORIZED, 'Content-Encoding': 'gzip' },
+            }),
+            400,
+        ],
+        [
+            'a gzipped body that unpacks past the size limit',
+            () => ({
+                body: gzipSync(Buffer.alloc(33 * 1024 * 1024, ' ')),
+                headers: { ...AUTHORIZED, 'Content-Encoding': 'gzip' },
+            }),
+            413,
+        ],
+        ['a body past the size limit', () => ({ body: Buffer.alloc(33 * 1024 * 1024, ' '), headers: AUTHORIZED }), 413],
+    ])('refuses a report with %s and stores nothing', async (_, reportOf, status) => {
+        const runId = randomUUID()
+        const { body, headers } = reportOf(runId)
+
+        const response = await ingest(body, headers)
+
+        expect({ status: response.status, body: await response.json() }).toEqual({
+            status,
+            body: { error: expect.any(String) },
+        })
         expect(await read(`${RUNS_PATH}/${runId}`)).toMatchObject({ status: 404 })
     })
 
-    it('lists runs newest first, filtered by card', async () => {
-        const [older, newer, other] = [randomUUID(), randomUUID(), randomUUID()]
-        await ingest({
-            scorecard: scorecardOf(older, { card_id: 'list-card', started_at: '2026-02-01T00:00:00.000Z' }),
-        })
-        await ingest({
-            scorecard: scorecardOf(newer, { card_id: 'list-card', started_at: '2026-02-02T00:00:00.000Z' }),
-        })
-        await ingest({ scorecard: scorecardOf(other, { card_id: 'other-card' }) })
+    it.each([
+        ['GET', INGEST_PATH, 405],
+        ['POST', RUNS_PATH, 405],
+        ['DELETE', `${RUNS_PATH}/${randomUUID()}`, 405],
+        ['POST', `${INGEST_PATH}/`, 404],
+        ['GET', '/api/unknown', 404],
+        ['GET', `${RUNS_PATH}/not-a-run-id`, 400],
+        ['GET', `${RUNS_PATH}/${randomUUID()}`, 404],
+        ['GET', `${RUNS_PATH}?limit=0`, 400],
+        ['GET', `${RUNS_PATH}?limit=501`, 400],
+        ['GET', `${RUNS_PATH}?limit=ten`, 400],
+    ])('answers %s %s with %i', async (method, path, status) => {
+        const response = await internalFetch(`${store.url}${path}`, { method, headers: AUTHORIZED })
 
-        const { body } = await read(`${RUNS_PATH}?card_id=list-card`)
-        expect(body.runs.map((run: { runId: string }) => run.runId)).toEqual([newer, older])
+        expect({ status: response.status, body: await response.json() }).toEqual({
+            status,
+            body: { error: expect.any(String) },
+        })
+    })
+
+    it('answers a path that climbs out of the ingest path with 404, not the runs it names', async () => {
+        const { hostname, port } = new URL(store.url)
+        const status = await new Promise<number>((resolve, reject) => {
+            httpRequest({ hostname, port, path: `${INGEST_PATH}/%2e%2e/%2e%2e/runs` }, (response) => {
+                response.resume()
+                resolve(response.statusCode ?? 0)
+            })
+                .on('error', reject)
+                .end()
+        })
+
+        expect(status).toBe(404)
+    })
+
+    it('lists runs newest first, filtered by card, up to the limit', async () => {
+        const [oldest, older, newer, other] = [randomUUID(), randomUUID(), randomUUID(), randomUUID()]
+        for (const [runId, day] of [
+            [oldest, '01'],
+            [older, '02'],
+            [newer, '03'],
+        ]) {
+            await ingest({
+                scorecard: scorecardFixture(runId, {
+                    card_id: 'list-card',
+                    started_at: `2026-02-${day}T00:00:00.000Z`,
+                }),
+            })
+        }
+        await ingest({ scorecard: scorecardFixture(other, { card_id: 'other-card' }) })
+
+        expect(await runIdsOf(`${RUNS_PATH}?card_id=list-card`)).toEqual([newer, older, oldest])
+        expect(await runIdsOf(`${RUNS_PATH}?card_id=list-card&limit=2`)).toEqual([newer, older])
+        expect(await runIdsOf(`${RUNS_PATH}?card_id=`)).toEqual(expect.arrayContaining([newer, other]))
+    })
+
+    it('finishes a report already in flight when it closes', async () => {
+        const runId = randomUUID()
+        const body = JSON.stringify({ scorecard: scorecardFixture(runId) })
+        const { hostname, port } = new URL(store.url)
+        const answered = new Promise<number>((resolve, reject) => {
+            const request = httpRequest({
+                hostname,
+                port,
+                method: 'POST',
+                path: INGEST_PATH,
+                headers: { ...AUTHORIZED, 'Content-Length': Buffer.byteLength(body), Expect: '100-continue' },
+            })
+            request.on('continue', () => {
+                const closed = store.close()
+                request.end(body)
+                closed.catch(reject)
+            })
+            request.on('response', (response) => {
+                response.resume()
+                resolve(response.statusCode ?? 0)
+            })
+            request.on('error', reject)
+            request.flushHeaders()
+        })
+
+        expect(await answered).toBe(201)
+
+        store = await startStore({ databaseUrl: schema.url, token: TOKEN, port: 0 })
+        expect(await read(`${RUNS_PATH}/${runId}`)).toMatchObject({ status: 200 })
     })
 })
