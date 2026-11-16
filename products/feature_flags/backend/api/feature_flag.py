@@ -840,6 +840,19 @@ def check_flag_limits_for_team(
         )
 
 
+class _JSONNullResponse(Response):
+    # DRF renders Response(None) as an empty body, and the SDKs' JSON parsers reject an empty body.
+    # This response renders the JSON literal null. Its .data stays None, so the Rust shadow comparison,
+    # which reads .data, still sees no payload.
+    def __init__(self) -> None:
+        super().__init__(None)
+
+    @property
+    def rendered_content(self) -> bytes:
+        self["Content-Type"] = "application/json"
+        return b"null"
+
+
 # Default per-key and per-team cap for remote_config. Both throttles below respect
 # per-team overrides from REMOTE_CONFIG_RATE_LIMITS.
 REMOTE_CONFIG_DEFAULT_RATE = "600/minute"
@@ -6680,9 +6693,14 @@ class FeatureFlagViewSet(
         # usage numbers.
         should_count = is_service_auth(request)
 
-        if not feature_flag.active or not feature_flag.has_encrypted_payloads:
+        if not feature_flag.active:
             # A disabled flag evaluates as off in local evaluation and /flags, so it serves no payload here either.
-            payloads = feature_flag.filters.get("payloads", {}) if feature_flag.active else {}
+            if should_count:
+                increment_request_count(self.team.pk, 1, FlagRequestType.REMOTE_CONFIG)
+            return _JSONNullResponse()
+
+        if not feature_flag.has_encrypted_payloads:
+            payloads = feature_flag.filters.get("payloads", {})
             if should_count:
                 increment_request_count(self.team.pk, 1, FlagRequestType.REMOTE_CONFIG)
             return Response(payloads.get("true") or None)

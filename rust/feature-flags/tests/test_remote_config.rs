@@ -877,7 +877,7 @@ async fn test_remote_config_empty_payload_returns_empty_body() {
 }
 
 #[tokio::test]
-async fn test_remote_config_disabled_flag_returns_empty_body() {
+async fn test_remote_config_disabled_flag_returns_json_null() {
     let config = Config::default_test_config();
     let context = TestContext::new(Some(&config)).await;
     let (team, secret_token, _) = context
@@ -901,7 +901,16 @@ async fn test_remote_config_disabled_flag_returns_empty_body() {
         .unwrap();
 
     assert_eq!(response.status(), 200);
-    assert_eq!(response.text().await.unwrap(), "");
+    assert_eq!(
+        response
+            .headers()
+            .get("content-type")
+            .unwrap()
+            .to_str()
+            .unwrap(),
+        "application/json"
+    );
+    assert_eq!(response.text().await.unwrap(), "null");
 }
 
 #[tokio::test]

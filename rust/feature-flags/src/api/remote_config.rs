@@ -215,9 +215,10 @@ pub async fn remote_config(
     // -- a missing payload is an empty body on either credential, and the redact path only marks a
     // payload that actually exists -- so phase 2 reads these rare rows as a known diff, not a bug.
     //
-    // A disabled flag evaluates as off in local evaluation and /flags, so it serves no payload.
+    // A disabled flag evaluates as off in local evaluation and /flags, so it serves the JSON
+    // literal `null`, which every SDK's JSON parser reads as no payload.
     let payload: Option<Value> = if !active {
-        None
+        Some(Value::Null)
     } else if has_encrypted_payloads != Some(true) {
         stored.cloned()
     } else if should_decrypt {
@@ -229,7 +230,11 @@ pub async fn remote_config(
     // Django applies `or None` to the final value and renders None as an empty body, not
     // the JSON literal `null`. Apply the falsy check after decryption so an empty decrypted
     // string nulls out too. In practice the payload is always a JSON-encoded string.
-    let payload = payload.filter(|v| !is_falsy(v));
+    let payload = if active {
+        payload.filter(|v| !is_falsy(v))
+    } else {
+        payload
+    };
 
     // `Value::to_string` produces the same compact JSON `Json(v)` would serialize, so the
     // etag hashes the exact bytes the client receives (empty payloads hash the empty body).

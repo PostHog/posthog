@@ -2608,7 +2608,8 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
         )
 
         self.assertEqual(response.status_code, status.HTTP_200_OK)
-        self.assertEqual(response.content, b"")
+        self.assertEqual(response["Content-Type"], "application/json")
+        self.assertEqual(response.content, b"null")
 
     @parameterized.expand(
         [
