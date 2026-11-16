@@ -109,7 +109,10 @@ def _set_events(people: list[StagedPerson], storage_key: str) -> list[dict[str, 
             "event": "$set",
             "distinct_id": person["distinct_id"],
             # The server's IP says nothing about where the person is.
-            "properties": {"$set": person["properties"], "$geoip_disable": True},
+            "properties": {
+                "$set_once" if person.get("fill_only") else "$set": person["properties"],
+                "$geoip_disable": True,
+            },
             # A stable uuid per person lets a retry find which events capture didn't acknowledge.
             "event_uuid": str(uuid.uuid5(uuid.NAMESPACE_URL, f"{storage_key}/{person['distinct_id']}")),
         }

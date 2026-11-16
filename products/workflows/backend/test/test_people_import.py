@@ -241,17 +241,27 @@ class TestPeopleImport(_StorageMixin, ClickhouseTestMixin, BaseTest):
 
 
 class TestPeopleImportTasks(_StorageMixin, BaseTest):
-    def _stage(self, distinct_ids: tuple[str, ...] = ("user-1",)) -> tuple[int, str]:
+    def _stage(self, distinct_ids: tuple[str, ...] = ("user-1",), *, fill_only: bool = False) -> tuple[int, str]:
         cohort = Cohort.objects.create(team=self.team, name="List", is_static=True, is_calculating=True)
         key = f"workflows_people_imports/team-{self.team.id}/{cohort.pk}.json"
-        people = [{"distinct_id": d, "properties": {"email": f"{d}@example.com"}} for d in distinct_ids]
+        people = [
+            {
+                "distinct_id": d,
+                "properties": {"email": f"{d}@example.com"},
+                **({"fill_only": True} if fill_only else {}),
+            }
+            for d in distinct_ids
+        ]
         self.storage.write(key, json.dumps(people))
         return cohort.pk, key
 
+    @parameterized.expand([("overwrites", False, "$set"), ("fills_only_what_is_missing", True, "$set_once")])
     @patch("products.workflows.backend.tasks.people_import.fill_people_import_cohort.apply_async")
     @patch("products.workflows.backend.tasks.people_import.capture_batch_internal")
-    def test_capture_sets_each_row_on_its_person(self, capture: MagicMock, fill: MagicMock) -> None:
-        cohort_id, key = self._stage()
+    def test_capture_sets_each_row_on_its_person(
+        self, _name: str, fill_only: bool, operation: str, capture: MagicMock, fill: MagicMock
+    ) -> None:
+        cohort_id, key = self._stage(fill_only=fill_only)
         capture.return_value.succeeded.return_value = True
 
         capture_people_import(team_id=self.team.id, cohort_id=cohort_id, storage_key=key)
@@ -260,7 +270,7 @@ class TestPeopleImportTasks(_StorageMixin, BaseTest):
         assert (event["event"], event["distinct_id"], event["properties"]) == (
             "$set",
             "user-1",
-            {"$set": {"email": "user-1@example.com"}, "$geoip_disable": True},
+            {operation: {"email": "user-1@example.com"}, "$geoip_disable": True},
         )
         assert capture.call_args.kwargs["process_person_profile"] is True
         fill.assert_called_once()

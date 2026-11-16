@@ -21,7 +21,8 @@ def import_provider_contacts(
     cohort_description: str,
     source: str,
 ) -> ProviderContactsResult:
-    """Update the person each contact's email matches, and create a person for the rest when `create_people` is set.
+    """Fill in what the person each contact's email matches lacks, and create a person for the rest when
+    `create_people` is set. A person's existing values stay as they are.
 
     Each row holds an `email` and the person properties to set. The people go into the cohort with
     `cohort_description`, created on the first import. Without `send_events`, only the cohort fills, and an import of
@@ -60,6 +61,7 @@ def import_provider_contacts(
                 cohort_id=cohort.cohort_id,
                 create_missing=create_people,
                 send_events=send_events,
+                fill_only=True,
             )
             contacts += summary.row_count
             new_people += summary.new_people

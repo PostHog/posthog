@@ -4,7 +4,7 @@ import re
 import json
 import uuid
 from datetime import timedelta
-from typing import TypedDict
+from typing import NotRequired, TypedDict
 
 from django.core.exceptions import ValidationError as DjangoValidationError
 from django.core.validators import validate_email
@@ -89,6 +89,8 @@ class StagedPerson(TypedDict):
 
     distinct_id: str
     properties: dict[str, str]
+    # Only fills properties the person doesn't have yet.
+    fill_only: NotRequired[bool]
 
 
 @frozen
@@ -109,11 +111,13 @@ def start_people_import(
     cohort_id: int | None = None,
     create_missing: bool = True,
     send_events: bool = True,
+    fill_only: bool = False,
 ) -> PeopleImportSummary:
     """Create or update a person per row, then add them to a new static cohort called `name`, or to `cohort_id`.
 
     Without `create_missing`, a row no person matches is left out instead of becoming a new person. Without
     `send_events`, the import only fills the cohort: another import of the same rows creates and updates the people.
+    With `fill_only`, a person keeps the values they have, and the import sets only the properties they lack.
     """
     if cohort_id is None and not create_missing:
         raise ValueError("An import that leaves out new people adds the rest to an existing cohort.")
@@ -142,7 +146,11 @@ def start_people_import(
             dropped_duplicate_distinct_id += 1
             continue
         seen_distinct_ids.add(resolved)
-        people.append({"distinct_id": resolved, "properties": row})
+        people.append(
+            {"distinct_id": resolved, "properties": row, "fill_only": True}
+            if fill_only
+            else {"distinct_id": resolved, "properties": row}
+        )
 
     if not people:
         # Every row was left out, so there is nothing to send and the cohort stays as it is.

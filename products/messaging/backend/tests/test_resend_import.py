@@ -81,6 +81,11 @@ class FakeResend:
             return self._page([row for row in self.data["contacts"] if row["id"] in members], params)
         if match := re.fullmatch(r"/contacts/([^/]+)/topics", path):
             return self._page(self.data["contact_topics"].get(match.group(1), []), params)
+        if match := re.fullmatch(r"/contacts/([^/]+)", path):
+            for row in self.data["contacts"]:
+                if row["id"] == match.group(1):
+                    return self._response(200, {**row, "properties": self.data["contact_properties"].get(row["id"])})
+            return self._response(404, {"name": "not_found", "message": "Not found"})
         if match := re.fullmatch(r"/(templates|domains|automations|segments)/([^/]+)", path):
             for row in self.data[match.group(1)]:
                 if match.group(2) in (row["id"], row.get("alias")):
@@ -587,6 +592,35 @@ class TestResendContacts(ClickhouseTestMixin, BaseTest):
             self.addCleanup(patcher.stop)
             patcher.start()
         self.people = PeopleImportRecorder(self)
+
+    @parameterized.expand([("properties_defined", True), ("no_properties_defined", False)])
+    def test_contact_properties_fill_only_what_the_person_lacks(self, _name: str, defined: bool) -> None:
+        if not defined:
+            self.resend.data["contact-properties"] = []
+        _create_person(team=self.team, distinct_ids=["user-hal"], properties={"email": "Happy@Example.com"})
+        flush_persons_and_events()
+
+        run = runs.start_run(self.team.id, "resend", ["contacts", "contact_properties"], API_KEY, self.user.id)
+        with self.captureOnCommitCallbacks(execute=True):
+            for step in run.steps:
+                runs.run_step(self.team.id, run.id, step, attempt=1)
+        run.refresh_from_db()
+
+        sent = [json.loads(rows) for rows in self.people.stored.values()]
+        assert all(person["fill_only"] for rows in sent for person in rows)
+        if defined:
+            # The identity and $ names stay out, and a property with no value adds nothing.
+            assert sent[-1] == [
+                {
+                    "distinct_id": "user-hal",
+                    "properties": {"email": "happy@example.com", "plan": "pro", "seats": "3"},
+                    "fill_only": True,
+                }
+            ]
+            assert run.progress["contact_properties"]["counts"] == {"people": 1, "contacts": 4}
+        else:
+            assert run.progress["contact_properties"]["status"] == "completed"
+            assert not any(re.fullmatch(r"/contacts/[^/]+", call) for call in self.resend.calls)
 
     @parameterized.expand(
         [

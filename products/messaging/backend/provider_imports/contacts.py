@@ -10,6 +10,7 @@ from posthog.dataclasses import frozen
 from products.messaging.backend.provider_imports.base import (
     ImportContext,
     ImportItem,
+    ImportStepError,
     ImportStepSpec,
     ImportTooLarge,
     SavedPage,
@@ -204,6 +205,17 @@ def _item(contact_list: ContactList, result: ProviderContactsResult, notes: tupl
         url=f"/cohorts/{result.cohort_id}" if result.cohort_id else None,
         notes=notes,
     )
+
+
+def save_contact_properties(context: ImportContext, everyone: ContactList, contacts_checked: int) -> SavedPage:
+    """Fill in the properties each person in `everyone` lacks. The people join `everyone`'s cohort, which the contacts
+    step of the same run fills too."""
+    if not everyone.rows:
+        return SavedPage(imported=0, counts={"people": 0, "contacts": contacts_checked})
+    result = _import(context, everyone, create_people=NEW_PEOPLE_STEP in context.steps, send_events=True)
+    if result.status == "failed":
+        raise ImportStepError(" ".join(result.notes))
+    return SavedPage(imported=result.people, counts={"people": result.people, "contacts": contacts_checked})
 
 
 def new_people_page() -> SavedPage:

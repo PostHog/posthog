@@ -37,7 +37,7 @@ PROVIDER_IMPORT_STATUS_CHOICES: list[tuple[str, str]] = [
 IMPORT_STEP_STATUS_CHOICES: list[tuple[str, str]] = [(value, str(label)) for value, label in ImportStepStatus.choices]
 
 # Steps that write people and cohorts, so starting one needs the rights the people upload needs.
-CONTACT_STEPS = frozenset({"contacts", NEW_PEOPLE_STEP})
+CONTACT_STEPS = frozenset({"contacts", NEW_PEOPLE_STEP, "contact_properties"})
 
 
 class ProviderImportRejected(Exception):
