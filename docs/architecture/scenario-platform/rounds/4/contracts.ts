@@ -258,9 +258,27 @@ export type ScorecardV2 = {
     status: Status
     adapters: AdapterId[]
     owners: string[]
-    /** `${adapterId}:${treeSha}` per adapter plus `core:${treeSha}`; the fingerprint hashes these. */
-    versions: Record<string, string | null>
+    /** One entry per outcome-shaping core module and per adapter the card lists; the fingerprint hashes these. */
+    versions: Record<`core/${string}` | `adapters/${AdapterId}`, string | null>
 } & Record<`${AdapterId}__inv_${string}` | `${AdapterId}__m_${string}`, string | number | boolean | null | string[]>
+
+// Versions hash only what shapes a run's outcome, by inclusion (parent seam update, after #136526 and #136484).
+// Every directory under `nodejs/tests/scenarios/` holds a `module.json` marker; a test fails on a directory
+// without one, so a new module is a deliberate include or exclude, never a silent change to every baseline.
+export const ModuleMarker = z.object({
+    /** true: the module's tree is hashed into `versions`. false: read-only modules such as `viewer` and `store`. */
+    outcome: z.boolean(),
+    /** Files inside an outcome module that never shape a verdict, such as `*.test.ts`. */
+    ignore: z.array(z.string()).default([]),
+})
+
+export type VersionsOf = (input: {
+    /** A git tree-ish, so a dirty worktree gives null rather than a wrong hash (today's `known()` rule). */
+    head: string
+    adapters: AdapterId[]
+}) => ScorecardV2['versions']
+// An adapter's version hashes its directory with one filter: `manifest.yaml` is hashed with its `view` key
+// removed, so a tier 1 change redraws runs without moving a baseline band.
 
 /** `scenarios publish <file>`: a foreign harness writes a run record; this builds the same payload a run would. */
 export type PayloadOf = (record: RunRecord) => ScorecardV2
