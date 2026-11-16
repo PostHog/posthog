@@ -66,7 +66,7 @@ function KPITile({
     incompleteTail: boolean
 }): JSX.Element {
     const { metric } = tile
-    // Tiles whose metric carries no sparkline (Users, Intent clusters) have no segment to dash.
+    // Tiles whose metric carries no sparkline (Intent clusters) have no segment to dash.
     const dashedFromIndex = incompleteTail && metric.sparkline.length >= 2 ? metric.sparkline.length - 1 : undefined
 
     return (
@@ -102,7 +102,6 @@ function KPITile({
 
 export function KpiTiles({
     kpis,
-    users,
     intentClusterCount,
     kpisLoading,
     usersLoading,
@@ -116,7 +115,6 @@ export function KpiTiles({
     incompleteTail,
 }: {
     kpis: KPIData
-    users: KPIMetric
     intentClusterCount: KPIMetric
     kpisLoading: boolean
     usersLoading: boolean
@@ -142,16 +140,20 @@ export function KpiTiles({
     const tiles: TileSpec[] = [
         {
             label: 'Users',
-            metric: users,
+            metric: kpis.users,
             // Person identity (email/name) is resolved on the Sessions tab, so that's the drill-down for "who".
             href: sessionsHref,
             format: formatNumber,
             color: theme.colors[2],
-            loading: usersLoading,
-            failed: usersFailed,
-            onRetry: onRetryUsers,
+            loading: kpisLoading || usersLoading,
+            failed: kpisFailed || usersFailed,
+            onRetry: () =>
+                retryFailedSources([
+                    { failed: kpisFailed, retry: onRetryKpis },
+                    { failed: usersFailed, retry: onRetryUsers },
+                ]),
             summaryLabel: 'Total',
-            trend: false,
+            trend: true,
         },
         {
             label: 'Sessions',
