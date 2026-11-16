@@ -18,7 +18,7 @@ from posthog.api.utils import action
 from posthog.auth import PersonalAPIKeyAuthentication, SessionAuthentication
 from posthog.exceptions import InsufficientScope
 from posthog.llm.wizard_blocklist import WIZARD_BLOCKED_DETAIL
-from posthog.models import Organization, User
+from posthog.models import Organization, Team, User
 from posthog.models.project_secret_api_key import ProjectSecretAPIKey, RevokedTeamSecretToken
 from posthog.models.utils import ai_credential_value, generate_random_token_secret, hash_key_value, mask_key_value
 from posthog.permissions import TeamMemberStrictManagementPermission, TimeSensitiveActionPermission, scopes_caller_lacks
@@ -32,6 +32,7 @@ from posthog.settings import EE_AVAILABLE
 from posthog.tasks.email import send_feature_flags_secure_api_key_exposed, send_project_secret_api_key_exposed
 from posthog.utils import get_trusted_client_ip
 
+from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.security.backend.facade.api import access_refused as security_access_refused
 from products.security.backend.facade.contracts import SubjectInput as SecuritySubject
 from products.security.backend.facade.enums import Surface as SecuritySurface
@@ -71,6 +72,22 @@ def _enforce_caller_may_grant_billing_read(request: Request, organization: Organ
         raise PermissionDenied(
             "Only someone with full access to the organization's billing can give a project secret API key "
             "the billing:read scope."
+        )
+
+
+def _enforce_caller_may_grant_business_knowledge_read(request: Request, team: Team, scopes: Iterable[str]) -> None:
+    """A key reads business knowledge with no user to check, so the access rules that apply to people
+    run here, on the person who grants the scope."""
+    if "business_knowledge:read" not in scopes:
+        return
+    # The parent project owns the knowledge, so its rules decide for every environment.
+    access = UserAccessControl(
+        user=cast(User, request.user), team=team.parent_team or team, organization_id=str(team.organization_id)
+    )
+    if not access.check_access_level_for_resource("business_knowledge", "viewer"):
+        raise PermissionDenied(
+            "You need access to business knowledge in this project to give a project secret API key "
+            "the business_knowledge:read scope."
         )
 
 
@@ -177,6 +194,7 @@ class ProjectSecretAPIKeySerializer(serializers.ModelSerializer):
         added = [scope for scope in scopes if scope not in existing]
         _enforce_caller_holds_scopes(self.context["request"], added)
         _enforce_caller_may_grant_billing_read(self.context["request"], self.context["view"].team.organization, added)
+        _enforce_caller_may_grant_business_knowledge_read(self.context["request"], self.context["view"].team, added)
         if "llm_gateway:read" in added:
             _enforce_gateway_bans(self.context["request"], self.context["view"].team)
         return scopes
@@ -290,6 +308,7 @@ class ProjectSecretAPIKeyViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         _enforce_caller_holds_scopes(request, instance.scopes or [])
         # Rolling hands back a usable secret, so it needs what granting the scopes needs.
         _enforce_caller_may_grant_billing_read(request, self.team.organization, instance.scopes or [])
+        _enforce_caller_may_grant_business_knowledge_read(request, self.team, instance.scopes or [])
         serializer = cast(ProjectSecretAPIKeySerializer, self.get_serializer(instance))
         serializer.roll(instance)
         return response.Response(serializer.data, status=status.HTTP_200_OK)

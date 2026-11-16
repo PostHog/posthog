@@ -4,6 +4,7 @@ from unittest.mock import patch
 from parameterized import parameterized
 
 from posthog.api.project_secret_api_key import MAX_PROJECT_SECRET_API_KEYS_PER_TEAM
+from posthog.constants import AvailableFeature
 from posthog.models import Organization, OrganizationMembership, Team
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.project_secret_api_key import ProjectSecretAPIKey
@@ -13,6 +14,8 @@ from posthog.models.utils import (
     generate_random_token_secret,
     hash_key_value,
 )
+
+from products.access_control.backend.models.access_control import AccessControl
 
 
 class TestProjectSecretAPIKeysAPIMember(APIBaseTest):
@@ -57,6 +60,52 @@ class TestProjectSecretAPIKeysAPIMember(APIBaseTest):
     def test_list_allowed(self):
         response = self.client.get(f"/api/projects/{self.team.id}/project_secret_api_keys")
         assert response.status_code == 200
+
+    def _become_project_admin(self, business_knowledge_access: str | None) -> None:
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+            {"key": AvailableFeature.ROLE_BASED_ACCESS, "name": AvailableFeature.ROLE_BASED_ACCESS},
+        ]
+        self.organization.save()
+        AccessControl.objects.create(
+            team=self.team,
+            resource="project",
+            resource_id=str(self.team.id),
+            access_level="admin",
+            organization_member=self.organization_membership,
+        )
+        if business_knowledge_access is not None:
+            AccessControl.objects.create(
+                team=self.team,
+                resource="business_knowledge",
+                access_level=business_knowledge_access,
+                organization_member=self.organization_membership,
+            )
+
+    @parameterized.expand([("default_access", None, 201), ("viewer", "viewer", 201), ("no_access", "none", 403)])
+    def test_create_business_knowledge_read_scope_needs_business_knowledge_access(
+        self, _name, business_knowledge_access, expected_status
+    ):
+        self._become_project_admin(business_knowledge_access)
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/project_secret_api_keys",
+            {"label": "agent key", "scopes": ["business_knowledge:read"]},
+        )
+
+        assert response.status_code == expected_status, response.json()
+
+    def test_roll_business_knowledge_read_key_needs_business_knowledge_access(self):
+        self._become_project_admin("none")
+        key = ProjectSecretAPIKey.objects.create(
+            team=self.team, label="agent key", secure_value="sha256$agent", scopes=["business_knowledge:read"]
+        )
+
+        response = self.client.post(f"/api/projects/{self.team.id}/project_secret_api_keys/{key.id}/roll")
+
+        assert response.status_code == 403, response.json()
+        key.refresh_from_db()
+        assert key.secure_value == "sha256$agent"
 
 
 class TestProjectSecretAPIKeysAPI(APIBaseTest):
