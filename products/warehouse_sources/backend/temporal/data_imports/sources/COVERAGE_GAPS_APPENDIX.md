@@ -13004,14 +13004,14 @@ Diffed against: <https://uservoice.uservoice.com/api/v2/public/doc/api-v2-refere
 - [x] `GET /admin/features` — roadmap features that suggestions roll up to; resolves the feature_ids on suggestions (high)
 - [x] `GET /admin/categories` — lookup resolving the category id carried on every suggestion (high)
 - [x] `GET /admin/status_updates` — state-transition history of suggestions (status changes and their messages) (high)
-- [ ] `GET /admin/external_accounts` — the CRM account (and its revenue/MRR fields) that feedback is attributed to (high)
-- [ ] `GET /admin/external_users` — lookup joining UserVoice users to CRM contacts/accounts (high)
-- [ ] `GET /admin/feedback_records` — raw captured feedback items that suggestions and impact scores are derived from (high)
+- [x] `GET /admin/external_accounts` — the CRM account (and its revenue/MRR fields) that feedback is attributed to (high)
+- [x] `GET /admin/external_users` — lookup joining UserVoice users to CRM contacts/accounts (high)
+- [x] `GET /admin/feedback_records` — raw captured feedback items that suggestions and impact scores are derived from (high)
 - [ ] `GET /admin/segments and GET /admin/segmented_values` — the segment dimensions UserVoice reporting breaks feedback down by (medium)
 - [ ] `GET /admin/importance_scores and GET /admin/importance_responses` — prioritization scoring per suggestion — the core PM ranking metric (medium)
 - [ ] `GET /admin/internal_statuses and GET /admin/internal_status_updates` — internal (non-public) status plus its change history, a lookup for suggestion pipelines (medium)
 - [ ] `GET /admin/product_areas` — lookup resolving product area ids on suggestions and feedback (medium)
-- [ ] `GET /admin/teams` — lookup resolving owning team on suggestions/features (medium)
+- [x] `GET /admin/teams` — lookup resolving owning team on suggestions/features (medium)
 
 Note: Full Swagger 2.0 spec recovered from the ReDoc spec-url on developer.uservoice.com (the rendered page is JS-only and unusable via curl/WebFetch). The admin API exposes ~45 GET-able collections; we sync 10. Also missing but below the cut: /admin/feature_statuses, /admin/suggestion_activity_entries, /admin/supporter_messages, /admin/custom_fields, /admin/impact_reports, /admin/feedback_atoms, /admin/attachments. Note the source's `tickets` and `ticket\_messages` tables are not in this v2 admin spec, so they come from a separate/undocumented surface.
 
