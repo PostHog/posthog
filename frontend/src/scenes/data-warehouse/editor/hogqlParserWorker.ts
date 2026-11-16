@@ -1,6 +1,11 @@
 import type { ASTNode } from '@posthog/hogql-parser'
 
 import {
+    type SqlTableReference,
+    tableReferenceFromAst,
+} from 'products/data_warehouse/frontend/shared/sqlTableReference'
+
+import {
     type AstRange,
     type SelectComparison,
     compareParsedSelects,
@@ -15,13 +20,17 @@ import {
 export type HogqlParserQuestion =
     | { op: 'innermostSelect'; query: string; localOffset: number }
     | { op: 'tablesAndColumns'; query: string }
+    | { op: 'tableReference'; query: string; localOffset: number }
     | { op: 'compareSelects'; query: string; other: string }
 
 export type HogqlParserRequest = HogqlParserQuestion & { id: number }
 
 export type HogqlParserResponse =
     | { type: 'ready' }
-    | { id: number; result: AstRange | null | Record<string, Record<string, boolean>> | SelectComparison }
+    | {
+          id: number
+          result: AstRange | SqlTableReference | null | Record<string, Record<string, boolean>> | SelectComparison
+      }
     | { id: number; error: string }
 
 let parserPromise: Promise<{ parseSelect: (input: string, isInternal?: boolean) => string }> | null = null
@@ -38,7 +47,7 @@ function getParser(): Promise<{ parseSelect: (input: string, isInternal?: boolea
     return parserPromise as Promise<{ parseSelect: (input: string, isInternal?: boolean) => string }>
 }
 
-// The two ops are driven by different debounces over the same text, and a cursor move re-asks for
+// These ops are driven by different debounces over the same text, and a cursor move re-asks for
 // a range without changing the text at all. Holding the last AST here means those cost a walk
 // instead of a parse — and the AST (megabytes of JSON) never has to reach the main thread.
 let lastQuery: string | null = null
@@ -77,14 +86,16 @@ self.onmessage = async (event: MessageEvent<HogqlParserRequest>): Promise<void> 
         if (!ast) {
             self.postMessage({
                 id: request.id,
-                result: request.op === 'innermostSelect' ? null : {},
+                result: request.op === 'tablesAndColumns' ? {} : null,
             } satisfies HogqlParserResponse)
             return
         }
         const result =
             request.op === 'innermostSelect'
                 ? innermostSelectRangeFromAst(ast, request.localOffset)
-                : tablesAndColumnsFromAst(ast)
+                : request.op === 'tableReference'
+                  ? tableReferenceFromAst(ast, request.localOffset)
+                  : tablesAndColumnsFromAst(ast)
         self.postMessage({ id: request.id, result } satisfies HogqlParserResponse)
     } catch (error) {
         self.postMessage({

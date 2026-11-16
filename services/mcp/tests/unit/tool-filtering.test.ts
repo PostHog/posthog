@@ -1153,17 +1153,15 @@ describe('Tool Filtering - Feature Flags', () => {
             'personal-inbox-ranking',
             'inbox-reports-search',
             'anomalies-search',
-            'workflows-email-domain-agent-setup',
             'feature-flag-rules-v2-mcp',
             'investigate-insight',
-            'workflows-customerio-import',
             'mcp-session-recording-console-logs',
-            'workflows-push-token-import-mcp',
             'discussions-slack-sync',
             'ui-customization',
             'warehouse-migration-import',
             'mcp-feature-flag-restore-version',
             'platform-alerts-source-warehouse',
+            'dwh-custom-source-ai-builder',
             'workflows-bulk-suppressions-mcp',
         ]
         expect(allFlags).toEqual(expect.arrayContaining(branchFlags))
@@ -1204,9 +1202,9 @@ describe('Tool Filtering - Feature Flags', () => {
                 'autoresearch',
                 'marketing-analytics-setup-plan-mcp',
                 'subscription-source-summaries',
-                'workflows-mcp-onboarding',
                 'aeo-citation-tracking',
                 'self-driving-usage-display',
+                'logs-agent-tools',
             ])
         )
         expect(flags).toContain('ai-observability-offline-evaluations')

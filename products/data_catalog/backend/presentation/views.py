@@ -61,6 +61,7 @@ from .serializers import (
     MetricRunResponseSerializer,
     MetricSerializer,
     MetricUsageSerializer,
+    PendingReviewCountsSerializer,
     RelationshipProposalSerializer,
     RelationshipRejectSerializer,
     UsageSnapshotSerializer,
@@ -641,6 +642,7 @@ class UsageSnapshotViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     scope_object = "data_catalog"
     # A plain ViewSet maps no actions to scopes by default, so API-key reads would 403 without these.
     scope_object_read_actions = ["list", "latest"]
+    scope_object_write_actions = ["recompute"]
 
     def initial(self, request: Request, *args, **kwargs) -> None:
         super().initial(request, *args, **kwargs)
@@ -659,3 +661,54 @@ class UsageSnapshotViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
         if snapshot is None:
             raise NotFound(_NO_USAGE_SCAN)
         return Response(UsageSnapshotSerializer(snapshot).data)
+
+    @action(
+        detail=False,
+        methods=["POST"],
+        request=None,
+        responses={
+            202: UsageSnapshotSummarySerializer,
+            403: OpenApiResponse(
+                description="The user has no query access, or the organization has not approved AI data processing."
+            ),
+            404: _USAGE_404,
+            409: OpenApiResponse(description="A usage scan is already running for this project."),
+            429: OpenApiResponse(description="A usage scan started less than an hour ago."),
+        },
+        required_scopes=["data_catalog:write", "query:read"],
+    )
+    def recompute(self, request: Request, **kwargs) -> Response:
+        """Start a usage scan now. The new snapshot computes until the scan finishes."""
+        # The scan reads the project's query logs and agent SQL. Session users carry no scopes, and
+        # AccessControlPermission checks only the data_catalog resource, so check query RBAC here.
+        if not self.user_access_control.check_access_level_for_resource("query", "viewer"):
+            raise PermissionDenied("You need query access to run a usage scan.")
+        try:
+            snapshot = api.start_usage_scan(self.team)
+        except api.AIConsentMissing:
+            raise PermissionDenied("Your organization has not approved AI data processing, so a usage scan can't run.")
+        except api.ScanAlreadyRunning:
+            return Response(
+                {"detail": "A usage scan is already running for this project."}, status=status.HTTP_409_CONFLICT
+            )
+        except api.ScanCooldown:
+            return Response(
+                {"detail": "A usage scan started less than an hour ago. Try again later."},
+                status=status.HTTP_429_TOO_MANY_REQUESTS,
+            )
+        return Response(UsageSnapshotSummarySerializer(snapshot).data, status=status.HTTP_202_ACCEPTED)
+
+
+class PendingReviewViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
+    scope_object = "data_catalog"
+
+    @action(
+        detail=False,
+        methods=["GET"],
+        required_scopes=["data_catalog:read"],
+        responses={200: PendingReviewCountsSerializer},
+    )
+    def pending_review(self, request: Request, **kwargs) -> Response:
+        """How many items wait in each review queue, counted as the list of that queue shows them to you."""
+        counts = api.pending_review_counts(self.team, cast(User, request.user), self.user_access_control)
+        return Response(PendingReviewCountsSerializer(counts).data)

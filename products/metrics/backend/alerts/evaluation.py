@@ -73,6 +73,7 @@ from products.alerts_platform.backend.facade.payload import MAX_BATCH_PAYLOAD_BY
 from products.alerts_platform.backend.facade.platform_metrics import (
     increment_checks,
     increment_checks_deferred,
+    increment_checks_skipped,
     increment_state_transition,
     record_batch_duration,
     safe_record,
@@ -143,6 +144,9 @@ def evaluate_metrics_alert_batch(team_id: int, slot: str, cutoff: datetime) -> S
         return SourceBatchEvaluation(outcomes=(), deliveries=())
     team = Team.objects.filter(id=team_id).first()
     if team is None:
+        # Counted, because these checks stay due and nothing else would say why they never ran.
+        for _ in checks:
+            safe_record(increment_checks_skipped, SOURCE.value, "team_missing")
         return SourceBatchEvaluation(outcomes=(), deliveries=())
 
     # One slot per batch, because a batch runs its queries one after another, so the batches in

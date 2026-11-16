@@ -15,9 +15,9 @@ import {
     cn,
 } from '@posthog/quill'
 
+import { QuillTablePagination } from 'lib/components/QuillTablePagination/QuillTablePagination'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 
-import { CatalogTablesPagination } from '../tables/CatalogTablesPagination'
 import { QuillResultCell } from './QuillResultCell'
 import type { SqlTestResultProps } from './SqlTestResult'
 
@@ -56,7 +56,7 @@ function PreviewTable({ columns, rows }: { columns: string[]; rows: unknown[][] 
                 </Table>
             </div>
             {pageCount > 1 && (
-                <CatalogTablesPagination
+                <QuillTablePagination
                     currentPage={currentPage}
                     pageCount={pageCount}
                     pageSize={PREVIEW_PAGE_SIZE}

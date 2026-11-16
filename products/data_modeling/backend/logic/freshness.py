@@ -451,13 +451,17 @@ def compute_target_bounds(
     return _bounds_from(floor=floor, ceiling=ceiling)
 
 
+def _reachable_ceiling(source_floor: timedelta, consumer_ceiling: timedelta) -> timedelta:
+    return max(consumer_ceiling, nearest_schedulable_bucket_at_least(source_floor))
+
+
 def _bounds_from(*, floor: Bound, ceiling: Bound | None) -> TargetBounds:
     """Mark every cadence against one pair of bounds, reporting each bound only if it blocks."""
     options: list[TargetOption] = []
     for value in sorted(SCHEDULABLE_BUCKETS):
         if is_finer_than(value, floor.value):
             options.append(TargetOption(value=value, allowed=False, blocked_by="source", blocker=floor.blocker))
-        elif ceiling is not None and is_coarser_than(value, ceiling.value):
+        elif ceiling is not None and is_coarser_than(value, _reachable_ceiling(floor.value, ceiling.value)):
             options.append(TargetOption(value=value, allowed=False, blocked_by="consumer", blocker=ceiling.blocker))
         else:
             options.append(TargetOption(value=value, allowed=True))
@@ -481,10 +485,15 @@ def intersect_target_bounds(bounds: Iterable[TargetBounds]) -> TargetBounds:
     per_dag = list(bounds)
     floors = [bound.floor for bound in per_dag if bound.floor is not None]
     ceilings = [bound.ceiling for bound in per_dag if bound.ceiling is not None]
-    return _bounds_from(
+    merged = _bounds_from(
         floor=max(floors, key=_bound_sort_key) if floors else Bound(value=STREAMING, blocker=None),
         ceiling=min(ceilings, key=_bound_sort_key) if ceilings else None,
     )
+    blocked_in_some_dag = {option.value: option for bound in per_dag for option in bound.options if not option.allowed}
+    options = tuple(
+        blocked_in_some_dag.get(option.value, option) if option.allowed else option for option in merged.options
+    )
+    return TargetBounds(options=options, floor=merged.floor, ceiling=merged.ceiling)
 
 
 def _describe(node_id: str | None, names: Mapping[str, str] | None, fallback: str) -> str:
@@ -512,27 +521,13 @@ def _nothing_satisfiable_message(
     bounds: TargetBounds, names: Mapping[str, str] | None, pinned: Collection[str] = frozenset()
 ) -> str:
     """Explain a node with no legal cadence at all: crossed bounds, or a source slower than 30 days."""
-    floor, ceiling = bounds.floor, bounds.ceiling
-    floor_reason = _floor_reason(floor, names, pinned) if floor else FloorReason(node="", why="")
-    source = floor_reason.node
-    consumer = _describe(ceiling.blocker, names, "a view or endpoint built on this one") if ceiling else ""
-    if floor is not None and ceiling is not None:
-        return (
-            f"No cadence works here: {floor_reason.why},"
-            f" but {consumer} refreshes every {humanize_cadence(ceiling.value)}."
-            f" Slow down {consumer} or speed up {source}."
-        )
-    if floor is not None:
-        return (
-            f"No cadence works here: {floor_reason.why},"
-            f" less often than anything this can refresh at. Speed up {source} first."
-        )
-    if ceiling is not None:
-        return (
-            f"No cadence works here: {consumer} refreshes every {humanize_cadence(ceiling.value)},"
-            f" more often than anything this can refresh at. Slow down {consumer} first."
-        )
-    return "No cadence works here."
+    if bounds.floor is None:
+        return "No cadence works here."
+    floor_reason = _floor_reason(bounds.floor, names, pinned)
+    return (
+        f"No cadence works here: {floor_reason.why},"
+        f" less often than anything this can refresh at. Speed up {floor_reason.node} first."
+    )
 
 
 def ensure_schedulable(target: timedelta) -> None:
@@ -627,7 +622,8 @@ def find_invalid_targets(
         source_floor = floors.get(node_id, STREAMING)
         consumer_ceiling = ceilings.get(node_id)
         if (node_id not in floor_exempt and is_finer_than(declared, source_floor)) or (
-            consumer_ceiling is not None and is_coarser_than(declared, consumer_ceiling)
+            consumer_ceiling is not None
+            and is_coarser_than(declared, _reachable_ceiling(source_floor, consumer_ceiling))
         ):
             invalid.append(
                 InvalidTarget(

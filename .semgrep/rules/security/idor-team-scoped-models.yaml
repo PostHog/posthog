@@ -284,6 +284,7 @@ rules:
                               |KnowledgeLibrary
                               |KnowledgeLibraryRepository
                               |KnowledgeLibrarySource
+                              |KnowledgeRunCitation
                               |KnowledgeSource
                               |KnowledgeUsageRecord
                               |PlaygroundChat
@@ -294,6 +295,7 @@ rules:
                               |LogsExclusionRule
                               |LogsMetricRule
                               |LogsRetentionRule
+                              |LogsSigningSecret
                               |LogsView
                               |Loop
                               |LoopFire
@@ -334,6 +336,7 @@ rules:
                               |MCPIntentClusterSnapshot
                               |MCPIntentEmbeddingCache
                               |MCPMeasuredStats
+                              |MCPMemberAutoConnectOptOut
                               |MCPMemberServerRevocation
                               |MCPOrgRule
                               |MCPServiceAccount
@@ -373,6 +376,7 @@ rules:
                               |QueueSchedulerState
                               |QuickFilter
                               |QuickFilterContext
+                              |RecommendationResolution
                               |Release
                               |ReleaseImportState
                               |ReleaseAutoLinkedFlag
@@ -423,6 +427,7 @@ rules:
                               |SessionRecordingPlaylist
                               |SharingConfiguration
                               |SignalEmissionRecord
+                              |SignalGroupingRecord
                               |SignalFirstReportNotification
                               |SignalRatedUsage
                               |SignalReport
@@ -494,6 +499,7 @@ rules:
                               |TaskPresence
                               |TaskRun
                               |TaskRunGatewayRequest
+                              |AgentEgressRegistration
                               |TaskStatusChange
                               |TaskWorkflowDispatch
                               |TaskSearchDocument
@@ -520,6 +526,7 @@ rules:
                               |TicketViewFavorite
                               |ZendeskImportJob
                               |IntercomImportJob
+                              |PylonImportJob
                               |ReviewQueue
                               |ReviewQueueItem
                               |TraceReview
@@ -828,6 +835,7 @@ rules:
                         |KnowledgeLibrary
                         |KnowledgeLibraryRepository
                         |KnowledgeLibrarySource
+                        |KnowledgeRunCitation
                         |KnowledgeSource
                         |KnowledgeUsageRecord
                         |PlaygroundChat
@@ -870,6 +878,7 @@ rules:
                         |MCPGatewayServer
                         |MCPIntentClusterSnapshot
                         |MCPIntentEmbeddingCache
+                        |MCPMemberAutoConnectOptOut
                         |MCPMemberServerRevocation
                         |MCPOrgRule
                         |MCPServiceAccount
@@ -909,6 +918,7 @@ rules:
                         |QueueSchedulerState
                         |QuickFilter
                         |QuickFilterContext
+                        |RecommendationResolution
                         |Release
                         |ReleaseImportState
                         |ReleaseAutoLinkedFlag
@@ -959,6 +969,7 @@ rules:
                         |SessionRecordingPlaylist
                         |SharingConfiguration
                         |SignalEmissionRecord
+                        |SignalGroupingRecord
                         |SignalFirstReportNotification
                         |SignalRatedUsage
                         |SignalReport
@@ -1030,6 +1041,7 @@ rules:
                         |TaskPresence
                         |TaskRun
                         |TaskRunGatewayRequest
+                        |AgentEgressRegistration
                         |TaskStatusChange
                         |TaskWorkflowDispatch
                         |TaskSession
@@ -1055,6 +1067,7 @@ rules:
                         |TicketViewFavorite
                         |ZendeskImportJob
                         |IntercomImportJob
+                        |PylonImportJob
                         |ReviewQueue
                         |ReviewQueueItem
                         |TraceReview
@@ -1162,6 +1175,7 @@ rules:
                         AccessControl
                         |ActivityLog
                         |AgentArtifact
+                        |AgentEgressRegistration
                         |AgentMemory
                         |AITrainingDeletionRequest
                         |Alert
@@ -1225,6 +1239,9 @@ rules:
                         |ErrorTrackingStackFrame
                         |ErrorTrackingSuppressionRule
                         |ErrorTrackingSymbolSet
+                        |EvalSuggestion
+                        |EvalSuggestionRun
+                        |EvalSuggestionTeamState
                         |Evaluation
                         |EvaluationConfig
                         |EvaluationContext
@@ -1279,6 +1296,7 @@ rules:
                         |LogsAlertConfiguration
                         |LogsExclusionRule
                         |LogsRetentionRule
+                        |LogsSigningSecret
                         |LogsView
                         |MarketingAnalyticsGoalMapping
                         |MaterializedColumnSlot

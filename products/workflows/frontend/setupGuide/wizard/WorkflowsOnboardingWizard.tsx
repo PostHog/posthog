@@ -5,14 +5,12 @@ import { LemonBanner, LemonButton, LemonTag } from '@posthog/lemon-ui'
 
 import { LemonCard } from 'lib/lemon-ui/LemonCard'
 import { Link } from 'lib/lemon-ui/Link'
-import { urls } from 'scenes/urls'
 
 import { CustomerIOImportModal } from '../../OptOuts/CustomerIOImportModal'
 import { OptOutCategories } from '../../OptOuts/OptOutCategories'
 import { workflowDataSuggestionsLogic } from '../suggestions/workflowDataSuggestionsLogic'
 import type { WorkflowsOnboardingPath } from '../workflowsSetupGuideLogic'
 import { OnboardingWizardStepper } from './OnboardingWizardStepper'
-import { WIZARD_STEP_COPY } from './onboardingWizardSteps'
 import { WizardBroadcastStep } from './WizardBroadcastStep'
 import { WizardChannelStep } from './WizardChannelStep'
 import { WizardConnectStep } from './WizardConnectStep'
@@ -46,10 +44,11 @@ export function WorkflowsOnboardingWizard(): JSX.Element {
         continueDisabledReason,
         setupCheckFailed,
         suggestionsFirst,
+        stepCopy: copy,
+        broadcastLinkUrl,
     } = useValues(workflowsOnboardingWizardLogic)
     const { setStepIndex, next, back, exit, loadHasMessagingWorkflow } = useActions(workflowsOnboardingWizardLogic)
 
-    const copy = WIZARD_STEP_COPY[currentStep]
     const isSkip = copy.optional && !stepDone?.[currentStep]
     const continueLabel = isLastStep
         ? wizardPath === 'broadcast'
@@ -108,7 +107,7 @@ export function WorkflowsOnboardingWizard(): JSX.Element {
                     <div className="mt-1 text-secondary">
                         Sending one email to a list of people?{' '}
                         <Link
-                            to={urls.broadcastNew()}
+                            to={broadcastLinkUrl}
                             onClick={() => {
                                 // pinned: analytics event name - renaming breaks dashboards
                                 posthog.capture('workflows onboarding wizard broadcast clicked')

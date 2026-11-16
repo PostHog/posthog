@@ -45,6 +45,9 @@ from posthog.utils import get_instance_region
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.commands.backend.facade import api as commands_api
+from products.security.backend.facade.api import access_refused as security_access_refused
+from products.security.backend.facade.contracts import SubjectInput as SecuritySubject
+from products.security.backend.facade.enums import Surface as SecuritySurface
 from products.slack_app.backend import inbox_channel
 from products.slack_app.backend.analytics import capture_slack_event, slack_session_id
 from products.slack_app.backend.discussion_replies import try_ingest_discussion_reply
@@ -65,6 +68,11 @@ from products.slack_app.backend.logic.daily_focus import (
 from products.slack_app.backend.logic.feature_tips import interactivity as feature_tip_interactivity
 from products.slack_app.backend.logic.feature_tips.features import SlackFeature
 from products.slack_app.backend.logic.feature_tips.state import record_feature_used
+from products.slack_app.backend.logic.inbox_report_actions import (
+    SIGNALS_REMOVE_REVIEWER_ACTION_ID,
+    SIGNALS_REPORT_STATE_ACTION_IDS,
+    SIGNALS_RESOLVE_REPORT_ACTION_ID,
+)
 from products.slack_app.backend.logic.onboarding import interactivity as onboarding_interactivity
 from products.slack_app.backend.logic.onboarding.actions import (
     WORK_FOCUS_START_ACTION_ID,
@@ -6023,13 +6031,20 @@ def _handle_channel_approval_deny(payload: dict) -> HttpResponse:
     return HttpResponse(status=200)
 
 
-# Handles the Dismiss button on inbox notifications delivered before that button was removed.
-SIGNALS_DISMISS_REPORT_ACTION_ID = "signals_dismiss_report"
+_REPORT_ACTION_NO_ACCESS = (
+    "You need editor access to this project's inbox to change this report. Ask a project admin for access."
+)
+_REMOVE_REVIEWER_FEEDBACK = {
+    "removed": "You're no longer a suggested reviewer on this report.",
+    "not_reviewer": "You aren't a suggested reviewer on this report.",
+    "failed": "PostHog couldn't remove you from this report. Try again from the inbox.",
+}
 
 
-def _dismiss_action_value(payload: dict) -> dict | None:
+def _signals_report_state_action(payload: dict) -> tuple[str, dict] | None:
+    """The Resolve or Dismiss click on an inbox report's follow-up message, with its decoded value."""
     action = next(
-        (a for a in payload.get("actions", []) if a.get("action_id") == SIGNALS_DISMISS_REPORT_ACTION_ID), None
+        (a for a in payload.get("actions", []) if a.get("action_id") in SIGNALS_REPORT_STATE_ACTION_IDS), None
     )
     if not action:
         return None
@@ -6037,28 +6052,31 @@ def _dismiss_action_value(payload: dict) -> dict | None:
         value = json.loads(action.get("value", ""))
     except (json.JSONDecodeError, TypeError):
         return None
-    return value if isinstance(value, dict) else None
+    return (action["action_id"], value) if isinstance(value, dict) else None
 
 
 def _extract_dismiss_hints(payload: dict) -> int | None:
-    """Integration id carried by a signals 'Dismiss' button, used for region-ownership routing."""
-    value = _dismiss_action_value(payload)
-    if not value:
+    """Integration id carried by a signals report follow-up button, used for region-ownership routing."""
+    clicked = _signals_report_state_action(payload)
+    if not clicked:
         return None
-    integration_id = value.get("integration_id")
+    integration_id = clicked[1].get("integration_id")
     return integration_id if isinstance(integration_id, int) else None
 
 
-def _handle_signals_dismiss_report(payload: dict) -> HttpResponse:
-    """Suppress a signals inbox report when a reviewer clicks 'Dismiss' in Slack."""
+def _handle_signals_report_state_click(payload: dict) -> HttpResponse:
+    """Act on a signals inbox report when a reviewer clicks 'Mark resolved', 'Dismiss' or 'Remove me' in Slack."""
     from products.signals.backend.facade.api import (  # noqa: PLC0415 — cross-product action kept off the slack import path
         dismiss_report_from_slack,
+        remove_reviewer_from_slack,
+        resolve_report_from_slack,
     )
 
-    value = _dismiss_action_value(payload)
+    clicked = _signals_report_state_action(payload)
     slack_team_id = payload.get("team", {}).get("id")
-    if not value or not slack_team_id:
+    if not clicked or not slack_team_id:
         return HttpResponse(status=200)
+    action_id, value = clicked
 
     integration_id = value.get("integration_id")
     report_id = value.get("report_id")
@@ -6070,33 +6088,75 @@ def _handle_signals_dismiss_report(payload: dict) -> HttpResponse:
     # ensures the report belongs to the workspace's integration before we touch it.
     integration = get_workspace_integration(integration_id, slack_team_id)
     if integration is None:
-        logger.info("signals_dismiss_report_no_integration", integration_id=integration_id)
+        logger.info("signals_report_state_no_integration", integration_id=integration_id)
         return HttpResponse(status=200)
 
     if integration.team_id != report_team_id:
         logger.warning(
-            "signals_dismiss_report_team_mismatch",
+            "signals_report_state_team_mismatch",
             integration_team_id=integration.team_id,
             report_team_id=report_team_id,
         )
         return HttpResponse(status=200)
 
     slack_user_id = payload.get("user", {}).get("id", "")
-    # Only PostHog org members may dismiss — a non-member in a shared channel must not suppress reports.
+    # Only PostHog org members may act — a non-member in a shared channel must not change reports.
     org_member = _is_org_member(integration, slack_user_id)
     if org_member is None:
         logger.warning(
-            "signals_dismiss_report_not_org_member",
+            "signals_report_state_not_org_member",
             integration_id=integration.id,
             slack_user_id=slack_user_id,
         )
         return HttpResponse(status=200)
 
-    suppressed = dismiss_report_from_slack(
-        report_team_id, str(report_id), slack_user_id=slack_user_id, user_id=org_member.id
-    )
+    # The same bar as the inbox API: no enforced account block, project access, and editor on `task`,
+    # which governs the inbox. The block check leaves the IP out, since the request comes from Slack.
+    if (
+        security_access_refused(
+            SecuritySubject(email=org_member.email, user_uuid=str(org_member.uuid)),
+            SecuritySurface.APP,
+            call_site="slack_inbox_report_action",
+        )
+        or not _can_access_team(org_member, integration)
+        or not UserAccessControl(org_member, team=integration.team).check_access_level_for_resource("task", "editor")
+    ):
+        logger.info("signals_report_state_no_access", integration_id=integration.id, slack_user_id=slack_user_id)
+        inbox_interactivity.post_response_url(
+            payload.get("response_url", ""),
+            {"response_type": "ephemeral", "replace_original": False, "text": _REPORT_ACTION_NO_ACCESS},
+        )
+        return HttpResponse(status=200)
 
-    _post_signals_dismiss_feedback(payload, dismissed=suppressed, slack_user_id=slack_user_id)
+    if action_id == SIGNALS_REMOVE_REVIEWER_ACTION_ID:
+        removal = remove_reviewer_from_slack(report_team_id, str(report_id), user_id=org_member.id)
+        # Only the clicker stepped off, so the buttons stay for everyone else and only they see the outcome.
+        inbox_interactivity.post_response_url(
+            payload.get("response_url", ""),
+            {"response_type": "ephemeral", "replace_original": False, "text": _REMOVE_REVIEWER_FEEDBACK[removal]},
+        )
+        return HttpResponse(status=200)
+
+    resolving = action_id == SIGNALS_RESOLVE_REPORT_ACTION_ID
+    apply_state = resolve_report_from_slack if resolving else dismiss_report_from_slack
+    outcome = apply_state(report_team_id, str(report_id), slack_user_id=slack_user_id, user_id=org_member.id)
+
+    if outcome != "changed":
+        # Only the clicker hears about it. Replacing the shared message would credit them for someone
+        # else's change, or take the other buttons away from everyone after a refusal.
+        verb = "resolved" if resolving else "dismissed"
+        text = (
+            f"This report is already {verb}."
+            if outcome == "unchanged"
+            else f"This report couldn't be {verb} from Slack. Open it in PostHog to check its status."
+        )
+        inbox_interactivity.post_response_url(
+            payload.get("response_url", ""),
+            {"response_type": "ephemeral", "replace_original": False, "text": text},
+        )
+        return HttpResponse(status=200)
+
+    _post_signals_report_state_feedback(payload, resolving=resolving, slack_user_id=slack_user_id)
     return HttpResponse(status=200)
 
 
@@ -6137,18 +6197,15 @@ def _replace_message_stripping_actions(
     inbox_interactivity.post_response_url(response_url, response)
 
 
-def _post_signals_dismiss_feedback(payload: dict, *, dismissed: bool, slack_user_id: str) -> None:
-    """Best-effort: replace the original message so it reads as dismissed."""
-    if dismissed:
-        actor = f"<@{slack_user_id}>" if slack_user_id else "a reviewer"
-        text = f"✅ Dismissed by {actor}"
-    else:
-        text = "This report could not be dismissed — it may already be resolved or removed."
+def _post_signals_report_state_feedback(payload: dict, *, resolving: bool, slack_user_id: str) -> None:
+    """Best-effort: replace the follow-up message so it reads as resolved or dismissed."""
+    verb = "Resolved" if resolving else "Dismissed"
+    actor = f"<@{slack_user_id}>" if slack_user_id else "a reviewer"
+    text = f"✅ {verb} by {actor}"
 
-    # keep_link_buttons=False: historical dismiss-capable messages carried "Review PR"/"Open in
-    # PostHog" link buttons in the same actions block as Dismiss (see the pre-removal
-    # slack_inbox_notifications.py block construction), so dropping the whole block here matches
-    # existing behavior rather than the default.
+    # keep_link_buttons=False: messages posted before the follow-up carried "Review PR"/"Open in
+    # PostHog" link buttons in the same actions block as Dismiss, so dropping the whole block here
+    # matches existing behavior rather than the default.
     _replace_message_stripping_actions(payload, text, keep_link_buttons=False)
 
 
@@ -6569,8 +6626,8 @@ def posthog_code_interactivity_handler(request: HttpRequest) -> HttpResponse:
         local = workspace_integration_exists(hinted_integration_id, slack_team_id)
     elif slack_team_id and dismiss_integration_id:
         # Routing/region-ownership only — this just claims the workspace's integration locally.
-        # Authorization (report-team match + org-member gate) is enforced in _handle_signals_dismiss_report.
-        # Intended trust boundary for dismiss is org membership (any org member can dismiss the org's reports).
+        # Authorization (report-team match + org-member gate) is enforced in _handle_signals_report_state_click.
+        # Intended trust boundary for resolve and dismiss is org membership (any org member can act on the org's reports).
         local = workspace_integration_exists(dismiss_integration_id, slack_team_id)
     elif slack_team_id and alert_snooze_uuid:
         # Alert UUIDs are globally unique per region (each region has its own DB), so a local
@@ -6730,8 +6787,8 @@ def posthog_code_interactivity_handler(request: HttpRequest) -> HttpResponse:
                 return _handle_untagged_question_turn_off(payload)
             if project_picker.is_project_picker_action(action_id):
                 return _handle_project_picker_pick(payload)
-            if action_id == SIGNALS_DISMISS_REPORT_ACTION_ID:
-                return _handle_signals_dismiss_report(payload)
+            if action_id in SIGNALS_REPORT_STATE_ACTION_IDS:
+                return _handle_signals_report_state_click(payload)
             if action_id in (INSIGHT_ALERT_SNOOZE_ACTION_ID, INSIGHT_ALERT_SNOOZE_UNTIL_ACTION_ID):
                 return _handle_insight_alert_snooze(payload)
             if action_id == slack_welcome_messages.INBOX_CREATE_ACTION_ID:

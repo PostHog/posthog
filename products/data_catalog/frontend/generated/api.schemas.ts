@@ -631,12 +631,45 @@ export interface AdjustedRunApi {
     /** When the agent ran the query. */
     occurred_at: string
     /**
-     * Agent session of the query, when known.
+     * Agent conversation of the query, when known: the session id of the conversation's first piece. Every query in one conversation carries the same id.
      * @nullable
      */
     session_id: string | null
     /** True when a scout (scheduled agent) ran the query. */
     is_scout: boolean
+}
+
+/**
+ * * `metric_runs` - Metric runs
+ * * `conversations` - Conversations
+ * * `adjusted_runs` - Adjusted runs
+ * * `topics` - Topics
+ * * `table_sources` - Table sources
+ * * `uncovered` - Uncovered
+ */
+export type UsageSectionEnumApi = (typeof UsageSectionEnumApi)[keyof typeof UsageSectionEnumApi]
+
+export const UsageSectionEnumApi = {
+    MetricRuns: 'metric_runs',
+    Conversations: 'conversations',
+    AdjustedRuns: 'adjusted_runs',
+    Topics: 'topics',
+    TableSources: 'table_sources',
+    Uncovered: 'uncovered',
+} as const
+
+export interface SectionFailureApi {
+    /** The payload section whose step failed.
+     *
+     * * `metric_runs` - Metric runs
+     * * `conversations` - Conversations
+     * * `adjusted_runs` - Adjusted runs
+     * * `topics` - Topics
+     * * `table_sources` - Table sources
+     * * `uncovered` - Uncovered */
+    section: UsageSectionEnumApi
+    /** Why the scan step failed. */
+    reason: string
 }
 
 export interface MetricUsageApi {
@@ -657,6 +690,8 @@ export interface MetricUsageApi {
     runs: MetricRunCountsApi | null
     /** Agent queries that re-derived the metric. is_scout marks the ones a scout ran. */
     adjusted_runs: AdjustedRunApi[]
+    /** Failed sections that these numbers read, so a missing count is not a zero. */
+    failed_sections: SectionFailureApi[]
 }
 
 /**
@@ -728,6 +763,15 @@ export interface DataCatalogMetricBulkDeleteApi {
     deleted: string[]
     /** Requested metrics that were not deleted, with reasons. */
     skipped: DataCatalogMetricBulkSkipApi[]
+}
+
+export interface PendingReviewCountsApi {
+    /** Proposed metrics you can see that wait for approval. */
+    metrics: number
+    /** Proposed joins that wait to be accepted or rejected. */
+    relationships: number
+    /** Proposed certifications that wait for review. */
+    certifications: number
 }
 
 export interface DataCatalogRelationshipProposalApi {
@@ -842,27 +886,56 @@ export interface UsageSnapshotSummaryApi {
 }
 
 export interface TopicCoverageApi {
-    /** Sessions that ran a catalog metric directly. */
-    canonical: number
-    /** Sessions that read a catalog metric, then changed it. */
-    adapted: number
-    /** Sessions that re-derived a catalog metric without consulting it. */
-    silent: number
-    /** Sessions that ran SQL that matches no catalog metric. */
-    raw_sql_only: number
-    /** Sessions that ran no query. */
-    no_sql: number
+    /** Sessions that asked for a metric and found one that fits. */
+    metric: number
+    /** Sessions that asked for a metric, found none, and found a table or view description that fits. */
+    table: number
+    /** Sessions that asked for a metric and found neither. */
+    nothing: number
 }
 
 export interface TopicClusterApi {
-    /** Short name of the topic, written by a model from sample intents. */
+    /** Short name of the subject. 'Other' holds the sessions that fit no topic. */
     title: string
-    /** Agent sessions in the topic. Scout sessions are not clustered. */
+    /** One sentence on what the topic covers. */
+    description: string
+    /** Agent sessions in the topic. Scout sessions are not included. */
     session_count: number
-    /** How the topic's sessions got their numbers. */
+    /** Distinct people behind the topic's sessions. */
+    people: number
+    /** What the sessions that asked for a metric ended up with. */
     coverage: TopicCoverageApi
-    /** A few intents from the topic's sessions. */
-    sample_intents: string[]
+}
+
+export interface TopicDefinitionApi {
+    /** Short name of the subject. */
+    title: string
+    /** One sentence on what the topic covers. */
+    description: string
+}
+
+export interface TopicSessionCountsApi {
+    /** Sampled sessions that calculated or compared data. */
+    analysis: number
+    /** Sampled sessions that read or checked specific things. */
+    lookup: number
+    /** Sampled sessions from a scheduled or repeated job. */
+    automation: number
+    /** Sampled sessions whose intents did not show what they did with data. */
+    unclear: number
+    /** Sampled sessions that the model failed to read. */
+    unread: number
+    /** Analysis sessions whose coverage check failed. They count as a metric only after a direct run. */
+    coverage_unchecked: number
+}
+
+export interface TableSourceApi {
+    /** Name of the table or view, as the agent's search returned it. */
+    name: string
+    /** Sessions in the window that found its description and then queried it. */
+    sessions: number
+    /** Distinct people behind those sessions. */
+    people: number
 }
 
 /**
@@ -894,10 +967,12 @@ export interface UncoveredGroupApi {
      * @nullable
      */
     matched_metric_id: string | null
-    /** Distinct people who ran the measure, without scouts. */
+    /** People who wrote the measure or created a chart of it, directly or through an agent. Without scouts. */
     distinct_people: number
-    /** Query runs of the measure, without scouts. */
-    runs: number
+    /** Runs of the measure that a person saw, in the web app or an agent session. At least the built count. */
+    views: number
+    /** Times a person or an agent wrote the measure, plus one per chart, notebook query or canvas query. */
+    built: number
     /** One query that computes the measure. */
     sample_sql: string
     /**
@@ -910,6 +985,77 @@ export interface UncoveredGroupApi {
      * @nullable
      */
     draft_description: string | null
+    /**
+     * Proposed HogQL definition, when one was drafted.
+     * @nullable
+     */
+    draft_definition: string | null
+    /** How hard the query is to write by hand: 1 low, 2 medium, 3 high, 0 when it does not parse. */
+    complexity: number
+}
+
+export interface ChartSourceApi {
+    /** Short ID of the saved chart, for a link to it. */
+    insight_short_id: string
+    /** Name of the saved chart. */
+    insight_name: string
+    /**
+     * The dashboard that ran the chart, if any.
+     * @nullable
+     */
+    dashboard_id: number | null
+    /**
+     * Name of the dashboard, if any.
+     * @nullable
+     */
+    dashboard_name: string | null
+    /** Distinct people whose visit ran the chart. Viewers count. */
+    people: number
+}
+
+export interface SurfaceSourceApi {
+    /** The web app area that ran the query. Empty when it is unknown. */
+    product: string
+    /** Distinct people who ran the query there. */
+    people: number
+    /** Query runs from that area. */
+    runs: number
+}
+
+export interface AgentSourceApi {
+    /** Distinct people whose agents ran the query, without scouts. */
+    people: number
+    /** Agent sessions that ran the query, without scouts. */
+    sessions: number
+    /** Query runs by agents, without scouts. */
+    runs: number
+}
+
+export interface ProposedMetricApi {
+    /** Proposed metric name. */
+    name: string
+    /** What the proposed metric counts. */
+    description: string
+    /** Proposed HogQL definition. */
+    definition: string
+    /** Recurring measures that this proposal merges. */
+    measures: number
+    /** Distinct people across the measures, without scouts. */
+    people: number
+    /** Runs of the measure that a person saw, in the web app or an agent session. At least the built count. */
+    views: number
+    /** Times a person or an agent wrote the most-built measure in the proposal, as on a measure. */
+    built: number
+    /** The saved charts with the most people. */
+    charts: ChartSourceApi[]
+    /** Saved charts that are not listed in charts. */
+    other_charts: number
+    /** Web app areas that ran it outside a saved chart. */
+    surfaces: SurfaceSourceApi[]
+    /** Agent use, or null when no agent ran it. */
+    agents: AgentSourceApi | null
+    /** How hard the query is to write by hand: 1 low, 2 medium, 3 high, 0 when it does not parse. */
+    complexity: number
 }
 
 export interface UsageSnapshotPayloadApi {
@@ -924,15 +1070,34 @@ export interface UsageSnapshotPayloadApi {
      */
     adjusted_runs: AdjustedRunApi[] | null
     /**
-     * Agent session topics. Null until clustered.
+     * Agent session topics. Null until grouped.
      * @nullable
      */
     topics: TopicClusterApi[] | null
+    /**
+     * The whole topic list that the next scan keeps, including topics with no sessions in this scan. Null until grouped.
+     * @nullable
+     */
+    topic_definitions: TopicDefinitionApi[] | null
+    /** What the sampled sessions were about, by kind. Null until grouped. */
+    topic_sessions: TopicSessionCountsApi | null
+    /**
+     * Tables and views that agents found by description and then queried. Null until counted.
+     * @nullable
+     */
+    table_sources: TableSourceApi[] | null
     /**
      * Recurring query shapes and their catalog outcome. Null until grouped.
      * @nullable
      */
     uncovered: UncoveredGroupApi[] | null
+    /**
+     * Proposed metrics with their sources. Null until drafted.
+     * @nullable
+     */
+    proposed_metrics: ProposedMetricApi[] | null
+    /** Sections whose scan step failed. Each one stays null, and the others keep their results. */
+    failed_sections: SectionFailureApi[]
 }
 
 export interface UsageSnapshotApi {

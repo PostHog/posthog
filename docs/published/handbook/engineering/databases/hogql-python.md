@@ -59,6 +59,13 @@ Circular dependencies fail with a query error. Soft saves skip column inference 
 Query preparation shares a 60-second cooperative deadline across parsing, resolution, transformations, and printing.
 AST visitors check the deadline while walking; native parser calls are checked when they return, rather than interrupted mid-call.
 
+## Embedding text
+
+`embedText(text, model)` requires string literals for both arguments and a team in the query context.
+For example, use `embedText('example text', 'text-embedding-3-small-1536')`.
+A missing or invalid model raises a HogQL `QueryError` that lists the valid model names.
+Other argument validation failures also raise `QueryError`, so query APIs and AI SQL validation can expose them to the caller.
+
 ## Disabling projection optimization
 
 Set `HOGQL_PROJECTION_OPTIMIZATION_ENABLED` to `false` in Django admin's instance settings to disable unused-column pruning and exported event-property narrowing for every project.
@@ -295,8 +302,13 @@ If you access `poe.properties.$browser`, we will actually access the field `pers
 
 In practice, you should avoid both and access `person.properties.$browser`, which will choose the right approach for you.
 
+A `FieldTraverser` can use `..` to reach its parent table, followed by the target field.
+The resolver raises a `QueryError` if there is no parent or if the chain ends at `..`.
+
 On the native JSON events table, HogQL compares non-empty string constants directly with declared String paths and casts Dynamic paths to Nullable(String) for properties with String or unknown definition types.
 This keeps equality and membership predicates visible to the JSON skip index without failing on mixed scalar types.
+An equality or inequality between a Boolean constant and a String or untyped property compares with the string `'true'` or `'false'`, because ClickHouse cannot compare text with a Boolean.
+The legacy table does the same only for an equality on a key it keeps in a property-group map, and fails on the other forms.
 Numeric and Boolean properties on the native table compare as text when a string literal cannot be converted to the property's definition type, including the empty string and text that starts with `[` or `{`.
 Boolean literals keep ClickHouse's case-insensitive spellings, including yes/no, on/off and enable/disable.
 DateTime property definitions keep their conversions when compared with strings, for both event and person properties; only a comparison with the empty string alone compares as text, and an `IN` list that also holds dates keeps the conversion.

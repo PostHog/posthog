@@ -11,6 +11,7 @@ import { ErrorCode, findPostHogPermissionError, formatPermissionErrorMessage, Po
 import { isIdJagAccessToken } from './id-jag'
 import { buildInsufficientScopeChallenge, InsufficientScopeError, insufficientScopeResponse } from './missing-scope'
 import { MCP_DOCS_URL } from './oauth-constants'
+import { isProjectSecretKey } from './project-secret-key'
 import { getPublicUrl } from './routing'
 
 // Map a thrown error to the appropriate auth response, or null if not auth-related.
@@ -197,7 +198,7 @@ export function validateBearerToken(
     if (!token) {
         return buildMissingTokenResponse(request, effectiveRegion)
     }
-    if (token.startsWith('phx_') || token.startsWith('pha_')) {
+    if (token.startsWith('phx_') || token.startsWith('pha_') || isProjectSecretKey(token)) {
         return null
     }
     if (isIdJagAccessToken(token)) {

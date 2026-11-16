@@ -28,10 +28,10 @@ import { AccessControlResourceType, FileSystemIconColor } from '~/types'
 import { todayShellLogic } from './todayShellLogic'
 
 // pinned: persisted section ids and the `section` property of `people section toggled`.
-export type TodayPeopleSection = 'recents' | 'groups' | 'customer-analytics'
+export type TodayPeopleSection = 'pinned' | 'recents' | 'groups' | 'customer-analytics'
 
 /** A titled section under Recents. A row with no section sits on top of the pane. */
-export type TodayPeopleRowSection = Exclude<TodayPeopleSection, 'recents'>
+export type TodayPeopleRowSection = Exclude<TodayPeopleSection, 'pinned' | 'recents'>
 
 export const TODAY_PEOPLE_ROW_SECTION_LABELS: Record<TodayPeopleRowSection, string> = {
     groups: 'Groups',

@@ -33,6 +33,15 @@ export function TodayPreviewTrigger({
             delay={OPEN_DELAY_MS}
             closeDelay={CLOSE_DELAY_MS}
             render={inline ? <span /> : <div className="min-w-0" />}
+            // Capture, so a row control that stops propagation still closes the card.
+            onClickCapture={(event) => card.dismissFor(event.currentTarget)}
+            // Enter, not leave: a clicked row the pointer never visited, such as Enter in a search list, rearms on its first hover.
+            onPointerEnter={(event) => card.rearm(event.currentTarget)}
+            onBlur={(event) => {
+                if (!event.currentTarget.contains(event.relatedTarget as Node | null)) {
+                    card.rearm(event.currentTarget)
+                }
+            }}
         >
             {children}
         </PreviewCard.Trigger>

@@ -1122,6 +1122,10 @@ def run_service_names_query(
         interval=IntervalType.MINUTE,
         interval_count=2,
         now=dt.datetime.now(),
+        # {date_from}/{date_to} print as naive wall-clock strings in this range's timezone, and
+        # TIME_BUCKET_DATE_RANGE_WHERE reads them as UTC. A team-timezone range west of UTC lands
+        # the bounds on the previous UTC day and drops the current day's spans.
+        timezone_info=ZoneInfo("UTC"),
     )
 
     exprs: list[ast.Expr] = [

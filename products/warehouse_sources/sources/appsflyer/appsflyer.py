@@ -5,7 +5,7 @@ import json
 from collections.abc import Buffer, Iterable, Iterator
 from datetime import UTC, date, datetime, timedelta
 from typing import Any
-from urllib.parse import quote, urlencode
+from urllib.parse import quote, urlencode, urlparse
 
 import requests
 from structlog.types import FilteringBoundLogger
@@ -26,6 +26,10 @@ from products.warehouse_sources.sources.sdk import (
 
 APPSFLYER_BASE_URL = "https://hq1.appsflyer.com"
 QUOTA_EXHAUSTED_MARKER = "limit reached"
+MASTER_API_PATH = "/api/master-agg-data/"
+# AppsFlyer answers a Master API call with an empty 404 when the account's plan has no Master API,
+# so the app id can be valid while this report never syncs.
+MASTER_API_NOT_IN_PLAN_ERROR = "AppsFlyer subscription does not include the Master API"
 # Aggregate pull requests cap the date range at ~1000 days.
 MAX_WINDOW_DAYS = 999
 # AppsFlyer doesn't finalize data until ~48h after the UTC day; re-fetch the
@@ -106,6 +110,10 @@ class _ResponseByteStream(io.RawIOBase):
 
 
 class AppsFlyerRetryableError(Exception):
+    pass
+
+
+class AppsFlyerMasterApiNotInPlanError(Exception):
     pass
 
 
@@ -215,7 +223,7 @@ def _parse_csv_rows(
 
 def _report_url(config: AppsFlyerEndpointConfig, app_id: str, params: dict[str, str]) -> str:
     if config.kind == AppsFlyerReportKind.MASTER:
-        path = f"/api/master-agg-data/v4/app/{quote(app_id)}"
+        path = f"{MASTER_API_PATH}v4/app/{quote(app_id)}"
     elif config.kind == AppsFlyerReportKind.RAW:
         path = f"/api/raw-data/export/app/{quote(app_id)}/{config.report}/v5"
     else:
@@ -298,6 +306,8 @@ def _open_report(session: requests.Session, url: str, logger: FilteringBoundLogg
     if not response.ok:
         logger.error(f"AppsFlyer API error: status={response.status_code}, body={response.text[:500]}, url={url}")
         response.close()
+        if response.status_code == 404 and urlparse(url).path.startswith(MASTER_API_PATH):
+            raise AppsFlyerMasterApiNotInPlanError(f"{MASTER_API_NOT_IN_PLAN_ERROR}: status=404")
         response.raise_for_status()
 
     return response

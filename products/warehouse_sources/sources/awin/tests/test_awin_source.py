@@ -3,8 +3,9 @@ from typing import Optional
 from parameterized import parameterized
 
 from products.warehouse_sources.sources.awin._config import AwinSourceConfig
+from products.warehouse_sources.sources.awin.awin import AwinRetryableError
 from products.warehouse_sources.sources.awin.source import AwinSource
-from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, scripted_network
+from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, error_message_matches, scripted_network
 
 
 class TestAwinSourceClass:
@@ -37,3 +38,10 @@ class TestAwinSourceClass:
             result = AwinSource().validate_credentials(AwinSourceConfig(api_token="x"), team_id=1)
         assert result == (ok, err)
         assert [request.path for request in network.requests_log] == ["/accounts"]
+
+    def test_rate_limit_and_server_errors_are_classified_retryable(self) -> None:
+        # `_fetch` raises this once its own in-line backoff is exhausted on a 429 or 5xx. It
+        # must stay out of error tracking, since Temporal retrying the activity is the right
+        # recovery, not a bug report.
+        error = AwinRetryableError("Awin API error (retryable): status=429, url=https://api.awin.com/accounts")
+        assert error_message_matches(str(error), AwinSource().get_retryable_errors())

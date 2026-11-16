@@ -11,7 +11,7 @@ from enum import StrEnum
 from posthog.dataclasses import frozen
 
 from products.experiments.backend.facade.contracts import ExperimentHealthFindingSeverity
-from products.experiments.backend.health.context import ConditionSetTraffic, ReachableCondition
+from products.experiments.backend.health.context import ConditionSetTraffic, FlagState, ReachableCondition
 from products.experiments.backend.health.split_changes import format_change_time
 from products.feature_flags.backend.facade.edits import Split
 
@@ -75,10 +75,15 @@ class PinnedShareMeasurement:
     remotely_evaluated_share: float | None
     since: datetime
     team_timezone: str
+    filters_test_accounts: bool
 
     @property
     def share(self) -> float:
         return self.pinned_people / self.variant_people if self.variant_people else 0.0
+
+    def counts(self) -> str:
+        counts = f"{self.pinned_people:,} of about {round(self.variant_people):,}"
+        return f"{counts}, not counting internal and test users" if self.filters_test_accounts else counts
 
 
 @frozen
@@ -96,16 +101,19 @@ class PinnedShareGrade:
 
     def evidence(self) -> dict[str, str | int | float | None]:
         evidence: dict[str, str | int | float | None] = {}
-        if self.measurement is not None:
-            remotely_evaluated_share = self.measurement.remotely_evaluated_share
+        if self.measurement is None:
+            return evidence
+        remotely_evaluated_share = self.measurement.remotely_evaluated_share
+        evidence["remotely_evaluated_share"] = (
+            None if remotely_evaluated_share is None else round(remotely_evaluated_share, 4)
+        )
+        # Without a share, the counts cover only the calls that the flag service saw, so a reader would take a part
+        # for the whole. They appear only beside the share that they measure.
+        if self.share is not None:
             evidence["most_pinned_variant"] = self.measurement.most_pinned_variant
             evidence["pinned_people"] = self.measurement.pinned_people
             evidence["variant_people"] = round(self.measurement.variant_people)
             evidence["matched_people"] = self.measurement.matched_people
-            evidence["remotely_evaluated_share"] = (
-                None if remotely_evaluated_share is None else round(remotely_evaluated_share, 4)
-            )
-        if self.share is not None:
             evidence["pinned_share"] = round(self.share, 4)
         return evidence
 
@@ -116,7 +124,7 @@ class PinnedShareGrade:
             return (
                 f" Since {format_change_time(measurement.since, measurement.team_timezone)}, about "
                 f'{percent(self.share)} of the users who got "{measurement.most_pinned_variant}" matched {them} '
-                f"({measurement.pinned_people:,} of about {round(measurement.variant_people):,})."
+                f"({measurement.counts()})."
             )
         if self.unknown_reason == PinnedShareUnknownReason.EVALUATED_OUTSIDE_FLAG_SERVICE:
             return (
@@ -166,6 +174,13 @@ def pinned_share_severity(grade: PinnedShareGrade | None) -> ExperimentHealthFin
 
 def pinned_variant_keys(conditions: Sequence[ReachableCondition]) -> list[str]:
     return list(dict.fromkeys(condition.pinned_variant for condition in conditions if condition.pinned_variant))
+
+
+def assigns_nobody_by_split(flag: FlagState) -> bool:
+    """Whether every release condition that includes users sets a variant override, so the split assigns nobody."""
+    return bool(flag.reachable_conditions) and all(
+        condition.pinned_variant is not None for condition in flag.reachable_conditions
+    )
 
 
 def percent(share: float) -> str:
@@ -232,4 +247,5 @@ def _measure(pins: PinnedConditions, traffic: ConditionSetTraffic) -> PinnedShar
         remotely_evaluated_share=traffic.remotely_evaluated_calls / traffic.calls if traffic.calls else None,
         since=traffic.since,
         team_timezone=traffic.team_timezone,
+        filters_test_accounts=traffic.filters_test_accounts,
     )
