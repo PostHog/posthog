@@ -278,7 +278,8 @@ class MailgunImportProvider(ImportProvider):
             key="contacts",
             label="Contacts",
             description=(
-                "Matches each list member to a person in PostHog by email and sets their name and list variables. "
+                "Matches each list member to a person in PostHog by email and fills in their name and list variables "
+                "where PostHog has none. "
                 "Fills a cohort with all your members and one with each list's subscribed members. Each person "
                 "updated counts as one event."
             ),
