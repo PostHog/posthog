@@ -1,4 +1,4 @@
-from posthog.hogql.ast import Constant, LazyTableType, SelectQuery
+from posthog.hogql.ast import Constant, LazyTableType, SelectQuery, TableType
 from posthog.hogql.base import Expr
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import (
@@ -75,6 +75,11 @@ class RawMCPIntentAssignmentsTable(StoredMCPIntentAssignmentsTable, EventsRetent
     events_retention_field: str = "source_min_timestamp"
 
     def get_predicates(self, context: HogQLContext | None = None) -> list[Expr]:
+        # Deferred because restricted_properties imports this module.
+        from posthog.hogql.restricted_properties import mirrored_column_is_restricted  # noqa: PLC0415
+
+        if context is not None and mirrored_column_is_restricted(TableType(table=self), "intent_hash", context):
+            return [Constant(value=False)]
         return [parse_expr("isNotNull(source_min_timestamp)")]
 
     def to_printed_hogql(self) -> str:
