@@ -120,7 +120,10 @@ export interface transactionalEmailLogEntryLogicActions {
 export interface transactionalEmailLogEntryLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
-        emailPageUrl: (email: TransactionalEmailLogDetailApi | null | undefined, featureFlags: any) => string | null
+        emailPageUrl: (
+            email: TransactionalEmailLogDetailApi | null | undefined,
+            featureFlags: FeatureFlagsSet
+        ) => string | null
         breadcrumbs: (messageId: string) => Breadcrumb[]
     }
 }
