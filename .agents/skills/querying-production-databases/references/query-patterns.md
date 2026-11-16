@@ -3,6 +3,8 @@
 Run the ClickHouse queries with `sendRawQuery: true` on the `Production` connection (or its EU match).
 Run the Postgres queries in HogQL mode on the Postgres connection.
 Replace each `<placeholder>` before you run a query.
+Before a query that names a `team_id`, run the opt-out check in the SKILL.md section "AI data processing opt-out".
+Cross-team queries return metadata only. To read the `query` text of a row, run "One query by id" after its team passes the check.
 
 ## ClickHouse: the query log
 
@@ -31,8 +33,7 @@ SELECT
     formatReadableSize(memory_usage) AS memory,
     formatReadableSize(read_bytes) AS read_bytes,
     exception_code,
-    lc_query_type,
-    substring(query, 1, 200) AS query_preview
+    lc_query_type
 FROM posthog.query_log_archive
 WHERE event_date >= yesterday()
     AND event_time > now() - INTERVAL 1 DAY
