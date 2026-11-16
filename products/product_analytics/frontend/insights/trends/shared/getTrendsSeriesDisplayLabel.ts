@@ -4,7 +4,7 @@ import { ActionNames, getResultSeries } from 'scenes/insights/utils/resultSeries
 
 import type { FormatPropertyValueForDisplayFunction } from '~/models/propertyDefinitionsModel'
 import type { BreakdownFilter, InsightQueryNode } from '~/queries/schema/schema-general'
-import type { CohortType } from '~/types'
+import { CompareLabelType, type CohortType } from '~/types'
 
 import type { IndexedTrendResult } from 'products/product_analytics/frontend/insights/trends/types'
 
@@ -23,6 +23,12 @@ export interface TrendsSeriesLabelDeps {
 }
 
 export function getTrendsSeriesDisplayLabel(r: IndexedTrendResult, deps: TrendsSeriesLabelDeps): string {
+    const label = getSeriesLabel(r, deps)
+    // The previous period is the same series, so without the suffix both legend rows read the same
+    return r.compare_label === CompareLabelType.Previous ? `${label} · Previous` : label
+}
+
+function getSeriesLabel(r: IndexedTrendResult, deps: TrendsSeriesLabelDeps): string {
     const series = getResultSeries(deps.querySource, r, deps.actionNames)
     const seriesName = getResultSeriesName(series) ?? humanizeSeriesLabel(r.label)
     if (r.breakdown_value != null) {

@@ -67,6 +67,18 @@ describe('getTrendsSeriesDisplayLabel', () => {
             'Feature flag called',
         ],
         ['falls back to the humanized label on a formula row', formulaQuery, { label: 'A + B' }, 'A + B'],
+        [
+            'names the period on a previous-period row',
+            signups,
+            { compare: true, compare_label: 'previous' },
+            'Signups · Previous',
+        ],
+        [
+            'leaves a current-period row as the series name',
+            signups,
+            { compare: true, compare_label: 'current' },
+            'Signups',
+        ],
     ])('%s', (_name, querySource, overrides, expected) => {
         expect(
             getTrendsSeriesDisplayLabel(makeResult(overrides as Partial<IndexedTrendResult>), {
@@ -90,6 +102,12 @@ describe('getTrendsSeriesDisplayLabel', () => {
             { label: 'A + B' },
             { querySource: formulaQuery },
             'A + B · Chrome',
+        ],
+        [
+            'the series name, breakdown value and period for a previous-period row',
+            { compare: true, compare_label: 'previous' },
+            {},
+            'Signups · Chrome · Previous',
         ],
     ])('resolves to %s', (_name, resultOverrides, depOverrides, expected) => {
         const result = makeResult({
