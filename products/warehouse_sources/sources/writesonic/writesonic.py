@@ -81,10 +81,10 @@ def _retry_wait(retry_state: RetryCallState) -> float:
 @dataclasses.dataclass(frozen=False)
 class WritesonicResumeConfig:
     # Daily endpoints resume at (day, page); config endpoints only use `page`. Fan-out endpoints
-    # resume at (pages listing page, parent index within it).
+    # resume at (pages listing page, last finished parent on it).
     date: Optional[str] = None
     page: Optional[int] = None
-    item: Optional[int] = None
+    parent_id: Optional[str] = None
 
 
 def _to_date(value: Any) -> Optional[date]:
@@ -328,7 +328,11 @@ def _select_issues(data: dict[str, Any]) -> list[dict[str, Any]]:
 
 
 def _select_fixes(data: dict[str, Any]) -> list[dict[str, Any]]:
-    return [fix for group in data.get("recommendations") or [] for fix in group.get("fixes") or []]
+    return [
+        {"issue_type": group.get("issue_type"), **fix}
+        for group in data.get("recommendations") or []
+        for fix in group.get("fixes") or []
+    ]
 
 
 _FANOUT_ROW_SELECTORS: dict[str, Callable[[dict[str, Any]], list[dict[str, Any]]]] = {
@@ -353,18 +357,21 @@ def _iter_page_fanout(
     select_rows = _FANOUT_ROW_SELECTORS[endpoint_config.name]
     resume = manager.load_state() if manager.can_resume() else None
     start_page = resume.page if resume and resume.page else 1
-    skip_items = resume.item if resume and resume.page and resume.item else 0
+    resume_after = resume.parent_id if resume and resume.page else None
     if resume and resume.page:
-        logger.debug(f"Writesonic {endpoint_config.name}: resuming from page {start_page} item {skip_items}")
+        logger.debug(f"Writesonic {endpoint_config.name}: resuming from page {start_page} after {resume_after}")
 
     params = _base_params(site_url, project_id)
     for page, parents in _iter_pages(
         CONTENT_OPTIMIZE_PAGES_PATH, api_key=api_key, params=params, start_page=start_page, logger=logger
     ):
-        for index, parent in enumerate(parents):
-            if page == start_page and index < skip_items:
-                continue
+        if page == start_page and resume_after is not None:
+            parent_ids = [parent.get("optimization_page_id") for parent in parents]
+            # By id, not position: a parent removed since the interrupted run must not shift one out.
+            if resume_after in parent_ids:
+                parents = parents[parent_ids.index(resume_after) + 1 :]
 
+        for parent in parents:
             rows: list[dict[str, Any]] = []
             page_url = parent.get("source_url")
             if page_url:
@@ -380,7 +387,7 @@ def _iter_page_fanout(
                     context = {"optimization_page_id": parent.get("optimization_page_id"), "page_url": page_url}
                     rows = [{**row, **context} for row in select_rows(response.json())]
 
-            manager.save_state(WritesonicResumeConfig(page=page, item=index + 1))
+            manager.save_state(WritesonicResumeConfig(page=page, parent_id=parent.get("optimization_page_id")))
             if rows:
                 yield rows
             else:
