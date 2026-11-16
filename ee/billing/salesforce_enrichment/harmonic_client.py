@@ -41,6 +41,12 @@ _ENRICHMENT_STATUS_BATCH_SIZE = 50
 # Caps how many slow lookups can overlap. Admission pacing controls the request rate.
 _ENRICH_MAX_CONCURRENT_LOOKUPS = 24
 _ENRICH_MAX_ATTEMPTS = 3
+# Bulk admissions aim at this fraction of the lane's share. The limiter admits a BATCH call only
+# while the window's weighted count is below that share, and it decides in a worker thread some time
+# after the pacing admits the lookup. A run paced at the full share holds the count at the edge, so
+# that drift alone gets calls denied whenever Harmonic answers quickly enough for the pacing to set
+# the rate.
+_ENRICH_BUDGET_FRACTION = 0.8
 
 
 class AsyncHarmonicClient:
@@ -318,8 +324,8 @@ class AsyncHarmonicClient:
 
         An asyncio.Semaphore bounds how many lookups run at once (_ENRICH_MAX_CONCURRENT_LOOKUPS); admission
         for each request is paced individually against the shared egress budget and held at least the
-        lane's admission interval after the previous one, serialized through a lock so only the wait
-        blocks, not the request itself. A domain shed by the egress limiter
+        lane's admission interval, stretched by _ENRICH_BUDGET_FRACTION, after the previous one,
+        serialized through a lock so only the wait blocks, not the request itself. A domain shed by the egress limiter
         waits one budget window and retries, up to _ENRICH_MAX_ATTEMPTS. A domain still shed after
         every attempt is reported to error tracking and left None, distinctly from a genuine
         not-found or an operational failure (also None): callers persist these results against a
@@ -352,7 +358,9 @@ class AsyncHarmonicClient:
                 total_wait = max(time.monotonic() - admission_started_at, wait)
                 with suppress(Exception):
                     record_harmonic_admission_wait(total_wait, source=self.source, priority=self.priority)
-                next_admission_at = time.monotonic() + admission_interval_harmonic(self.priority)
+                next_admission_at = (
+                    time.monotonic() + admission_interval_harmonic(self.priority) / _ENRICH_BUDGET_FRACTION
+                )
 
         async def enrich_one(index: int, domain: str) -> None:
             for attempt in range(1, _ENRICH_MAX_ATTEMPTS + 1):

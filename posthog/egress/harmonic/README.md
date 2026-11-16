@@ -21,6 +21,7 @@ The default reserve ladder applies, and it matters here, because the lanes carry
 
 The client is `ee/billing/salesforce_enrichment/harmonic_client.py`.
 The bulk sweep paces with `pace_seconds_harmonic` and `admission_interval_harmonic` rather than getting denied.
+It aims at 80% of the `BATCH` share. The limiter decides each call in a worker thread after the pacing admits it, and a sweep paced at the full share had about one call in eight denied from that drift while Harmonic answered quickly.
 It keeps up to 24 company lookups in flight while each request draws from the shared budget.
 A denied call raises `HarmonicEgressBudgetExhausted`. A caller that folds exceptions into an enrichment miss must catch it first, or a throttled lookup gets recorded as a company Harmonic does not know.
 

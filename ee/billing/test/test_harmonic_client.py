@@ -1,3 +1,5 @@
+import uuid
+import random
 import asyncio
 from collections.abc import Callable
 from typing import Any
@@ -8,11 +10,15 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from django.test import override_settings
 
 import aiohttp
+from limits.storage import MemoryStorage
+from limits.strategies import SlidingWindowCounterRateLimiter
 from parameterized import parameterized
 from prometheus_client import REGISTRY
 
 from posthog.egress.harmonic.limiter import HARMONIC_WINDOW_SECONDS
 from posthog.egress.harmonic.transport import HarmonicEgressBudgetExhausted
+from posthog.egress.limiter.backends import LimitsBackend
+from posthog.egress.limiter.outbound import OutboundRateLimiter
 from posthog.egress.limiter.policies import Priority
 
 from ee.billing.salesforce_enrichment.constants import (
@@ -20,6 +26,7 @@ from ee.billing.salesforce_enrichment.constants import (
     HARMONIC_COMPANY_ENRICHMENT_QUERY,
 )
 from ee.billing.salesforce_enrichment.harmonic_client import (
+    _ENRICH_BUDGET_FRACTION,
     _ENRICH_MAX_ATTEMPTS,
     _ENRICH_MAX_CONCURRENT_LOOKUPS,
     AsyncHarmonicClient,
@@ -372,7 +379,7 @@ async def test_enrich_companies_batch_paces_once_per_request(mock_sleep, mock_pa
 @patch(MONOTONIC, new=lambda: 1000.0)
 @patch(ASYNCIO_SLEEP, new_callable=AsyncMock)
 @patch(ASYNCIO_TO_THREAD, new=_fake_to_thread)
-async def test_enrich_companies_batch_spaces_admissions_by_the_lane_interval_despite_headroom(mock_sleep, mock_pace):
+async def test_enrich_companies_batch_spaces_admissions_by_the_paced_interval_despite_headroom(mock_sleep, mock_pace):
     # pace_seconds reads the window, which does not yet hold the calls this batch admitted but has
     # not consumed, so headroom alone would let several admissions through at once.
     domains = ["a.com", "b.com", "c.com"]
@@ -383,10 +390,36 @@ async def test_enrich_companies_batch_spaces_admissions_by_the_lane_interval_des
     with patch(HARMONIC_REQUEST, new=mock_request):
         results = await client.enrich_companies_batch(domains)
 
+    paced_interval = 0.25 / _ENRICH_BUDGET_FRACTION
     assert results == [{"name": d} for d in domains]
-    assert [call.args[0] for call in mock_sleep.await_args_list] == [0.25, 0.25]
+    assert [call.args[0] for call in mock_sleep.await_args_list] == [paced_interval, paced_interval]
     wait_after = REGISTRY.get_sample_value("harmonic_api_admission_wait_seconds_sum", wait_labels) or 0.0
-    assert wait_after - wait_before == pytest.approx(0.5)
+    assert wait_after - wait_before == pytest.approx(2 * paced_interval)
+
+
+def test_bulk_pacing_leaves_room_for_limiter_calls_that_drift_from_the_schedule() -> None:
+    # The limiter decides in a worker thread after the pacing lock admits a lookup, so the decisions
+    # drift from the paced schedule. This replays a run that Harmonic answers quickly enough for the
+    # pacing alone to set its rate, against the real Harmonic policy and admission rule on a fake
+    # clock. Paced at the full BATCH share, a drift of up to 0.2 s gets several percent of the calls
+    # denied.
+    rng = random.Random(0)
+    start = 1_000.0
+    clock = start
+    backend = LimitsBackend()
+    with patch("limits.storage.memory.time") as fake_time:
+        fake_time.time.side_effect = lambda: clock
+        backend._redis = SlidingWindowCounterRateLimiter(MemoryStorage())
+        limiter = OutboundRateLimiter(backend)
+        key = f"harmonic:test:{uuid.uuid4().hex}"
+        interval = limiter.admission_interval_seconds(key, priority=Priority.BATCH) / _ENRICH_BUDGET_FRACTION
+        decision_times = sorted(start + i * interval + rng.uniform(0, 0.2) for i in range(int(60 / interval)))
+        grants = []
+        for decision_time in decision_times:
+            clock = decision_time
+            grants.append(limiter.consume_sync(key, priority=Priority.BATCH, source="test"))
+
+    assert all(grants)
 
 
 @pytest.mark.asyncio
