@@ -1174,9 +1174,10 @@ async def _run_agentic_report(input: RunAgenticReportInput) -> RunAgenticReportO
         )
         repository = input.repo_selection.repository
         if repository is not None:
-            sources = await database_sync_to_async(monitoring_repository_sources, thread_sensitive=False)(
-                input.team_id, input.signals
-            )
+            async with Heartbeater():
+                sources = await database_sync_to_async(monitoring_repository_sources, thread_sensitive=False)(
+                    input.team_id, input.signals
+                )
             if sources is not None:
                 allowed = await database_sync_to_async(
                     filter_repository_candidates_for_sources, thread_sensitive=False

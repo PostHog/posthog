@@ -189,6 +189,18 @@ class TestBuildOpenAIChatClient:
                 client = build_langchain_chat_client("gpt-5.4", 600.0, service_tier=service_tier)
                 assert client.service_tier == expected
 
+    def test_responses_api_clients_never_store_and_carry_reasoning_in_both_routing_modes(self):
+        for gateway_url, gateway_key in [(GATEWAY_URL, GATEWAY_KEY), (None, None)]:
+            with (
+                override_settings(DEBUG=True, AI_GATEWAY_URL=gateway_url, AI_GATEWAY_API_KEY=gateway_key),
+                patch.dict("os.environ", {"OPENAI_API_KEY": "sk-direct"}, clear=False),
+            ):
+                client = build_langchain_chat_client("gpt-6.1-terra", 600.0, use_responses_api=True)
+                assert client.use_responses_api is True
+                assert client.store is False
+                assert client.include == ["reasoning.encrypted_content"]
+                assert client.output_version == "responses/v1"
+
     @pytest.mark.parametrize(
         "model,expected_tier",
         [
@@ -251,6 +263,36 @@ _COMPLETION = {
     "choices": [{"index": 0, "finish_reason": "stop", "message": {"role": "assistant", "content": "labeled"}}],
     "usage": {"prompt_tokens": 1, "completion_tokens": 1, "total_tokens": 2},
 }
+
+
+_RESPONSE = openai.types.responses.Response.model_validate(
+    {
+        "id": "resp_1",
+        "object": "response",
+        "created_at": 1,
+        "model": "gpt-6.1-terra",
+        "status": "completed",
+        "parallel_tool_calls": True,
+        "tool_choice": "auto",
+        "tools": [],
+        "output": [
+            {
+                "type": "message",
+                "id": "msg_1",
+                "role": "assistant",
+                "status": "completed",
+                "content": [{"type": "output_text", "text": "reported", "annotations": []}],
+            }
+        ],
+        "usage": {
+            "input_tokens": 1,
+            "output_tokens": 1,
+            "total_tokens": 2,
+            "input_tokens_details": {"cached_tokens": 0},
+            "output_tokens_details": {"reasoning_tokens": 0},
+        },
+    }
+)
 
 
 def _flex_client(service_tier: str | None = "flex") -> FlexFirstChatOpenAI:
@@ -339,6 +381,29 @@ class TestFlexFirstChatOpenAI:
 
         assert result.content == "labeled"
         first, second = llm.client.with_raw_response.create.call_args_list
+        assert first.kwargs["service_tier"] == "flex"
+        assert second.kwargs["service_tier"] == "default"
+
+    def test_responses_api_flex_failure_retries_that_call_on_standard(self):
+        llm = FlexFirstChatOpenAI(
+            model="gpt-6.1-terra",
+            api_key="sk-test",
+            max_retries=0,
+            service_tier="flex",
+            use_responses_api=True,
+            store=False,
+            include=["reasoning.encrypted_content"],
+            output_version="responses/v1",
+        )
+        refusal = RateLimitError("capacity refused", response=httpx.Response(429, request=_FLEX_REQUEST), body=None)
+        create = _mock_create(refusal, _RESPONSE).with_raw_response.create
+        llm.root_client = MagicMock()
+        llm.root_client.responses.with_raw_response.create = create
+
+        result = llm.invoke("write the report")
+
+        assert result.text() == "reported"
+        first, second = create.call_args_list
         assert first.kwargs["service_tier"] == "flex"
         assert second.kwargs["service_tier"] == "default"
 

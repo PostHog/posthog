@@ -10,13 +10,17 @@ from openai.types.shared_params import ReasoningEffort, ResponseFormatJSONSchema
 from pydantic import BaseModel, ValidationError
 from temporalio import activity
 
+from posthog.dataclasses import frozen
 from posthog.llm.gateway_client import (
     GatewayNotConfiguredError,
     build_ai_gateway_anthropic_client,
     build_ai_gateway_openai_client,
     trace_id_from_seed,
 )
+from posthog.llm.managed_decision_model import DEFAULT_DECISION_MODEL
 from posthog.llm.semantic_enrichment import extract_json_object
+from posthog.llm.system_one import NoulAnswer, NoulQuestion, SystemOneRequestFailed
+from posthog.llm.system_one_client import build_system_one_client
 from posthog.models.integration import SlackIntegration
 from posthog.models.repo_routing_rule import RepoRoutingRule
 from posthog.models.user import User
@@ -274,6 +278,93 @@ def classify_task_needs_repo(
     except Exception:
         logger.exception("slack_app_classify_task_needs_repo_failed")
         return False
+
+
+NEEDS_REPO_DECISION_MODEL = DEFAULT_DECISION_MODEL
+# On the path to the first reply, in front of every mention from a person with a connected repository.
+NEEDS_REPO_TIMEOUT_SECONDS = 5.0
+# A miss is recoverable: a repo-less Slack run keeps its GitHub token and can clone mid-run.
+# Tune against products/slack_app/evals/eval_needs_repo.py.
+NEEDS_REPO_MIN_PROBABILITY = 0.5
+NEEDS_REPO_QUESTION_ID = "needs_code"
+
+NEEDS_REPO_INSTRUCTIONS = (
+    "`message` is a request someone sent to PostHog's assistant in Slack, and `thread` is the conversation it "
+    "sits in. The assistant can read the team's PostHog data and the PostHog documentation without any code. "
+    "It can also open one of the team's code repositories, which costs time. `routing_rules` lists kinds of "
+    "requests the team sends to a repository. Does answering `message` need the team's source code? A "
+    "question about how the team's own product, app, job or service behaves is answered from its code, even "
+    "when it does not say the word code."
+)
+NEEDS_REPO_TRUE = (
+    "Reading, changing, reviewing or debugging the team's code: fix a bug, implement or change a feature, "
+    "open or update a pull request, explain how some code works, find where something is defined or sent, "
+    "look into a failing test or CI job, or a request that matches one of `routing_rules`. This includes how "
+    "or why the team's own app, job, handler or logic does something, such as how a value is calculated or "
+    "when a retry gives up. It also includes a request to start, change or stop tracking something, such as "
+    '"can we track when someone does X?": a new event or property is sent from the team\'s app, so it is a '
+    "code change."
+)
+NEEDS_REPO_FALSE = (
+    "A question about the team's product data or setup that PostHog holds: metrics, trends, funnels, "
+    "retention, events, persons, cohorts, dashboards, insights, session recordings, feature flag or "
+    "experiment state, surveys, errors, logs or LLM traces. Also a question about how PostHog itself works or "
+    "how to use it, a request to change a PostHog setting, or a social message. Checking whether an event "
+    "already arrives is a data question."
+)
+
+
+@frozen
+class NeedsRepoVerdict:
+    probability: float
+
+    @property
+    def needs_repo(self) -> bool:
+        return self.probability >= NEEDS_REPO_MIN_PROBABILITY
+
+
+def classify_needs_repo_with_jev(
+    event_text: str,
+    thread_messages: list[SlackThreadMessage],
+    *,
+    routing_rules: list[str],
+    team_id: int,
+    distinct_id: str | None,
+    trace_id: str | None = None,
+) -> NeedsRepoVerdict:
+    """Ask Jev, a System One decision model, whether a mention needs the team's code.
+
+    Raises when no System One server is configured, the call fails or the model refuses,
+    so the caller decides what an unanswered question means.
+    """
+    recent = thread_messages[-CLASSIFIER_THREAD_HISTORY_MESSAGES:]
+    client = build_system_one_client(
+        model=NEEDS_REPO_DECISION_MODEL,
+        ai_product=CLASSIFIER_AI_PRODUCT,
+        team_id=team_id,
+        distinct_id=distinct_id,
+        trace_id=trace_id,
+        properties={CLASSIFIER_PROPERTY: "needs_repo_jev"},
+        timeout=NEEDS_REPO_TIMEOUT_SECONDS,
+    )
+    result = client.decide(
+        state={
+            "message": event_text,
+            "thread": [f"{msg.user}: {msg.text}" for msg in recent],
+            "routing_rules": routing_rules,
+        },
+        questions={
+            NEEDS_REPO_QUESTION_ID: NoulQuestion(
+                instructions=NEEDS_REPO_INSTRUCTIONS,
+                criteria_true=NEEDS_REPO_TRUE,
+                criteria_false=NEEDS_REPO_FALSE,
+            )
+        },
+    )
+    answer = result.answers.get(NEEDS_REPO_QUESTION_ID)
+    if not isinstance(answer, NoulAnswer):
+        raise SystemOneRequestFailed("Jev refused the needs-repo question")
+    return NeedsRepoVerdict(probability=answer.probability)
 
 
 @activity.defn

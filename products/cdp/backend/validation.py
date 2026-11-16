@@ -15,6 +15,7 @@ from posthog.hogql import ast
 from posthog.hogql.compiler.bytecode import create_bytecode
 from posthog.hogql.compiler.javascript import JavaScriptCompiler
 from posthog.hogql.context import HogQLContext
+from posthog.hogql.errors import SyntaxError as HogQLSyntaxError
 from posthog.hogql.parser import parse_program, parse_string_template
 from posthog.hogql.visitor import TraversingVisitor
 
@@ -1143,6 +1144,16 @@ class InputsItemSerializer(serializers.Serializer):
                             "Invalid template: this field uses single-curly templating like "
                             "{person.properties.email}. Liquid-style {{ ... }} syntax is not "
                             f"supported here. ({str(e)})"
+                        )
+                    }
+                )
+            # A brace typed as plain text, such as JSON in an AI prompt, opens an expression that never parses.
+            if isinstance(e, HogQLSyntaxError):
+                raise serializers.ValidationError(
+                    {
+                        "input": (
+                            f"Invalid template: {str(e)}. Curly braces insert a value, like "
+                            "{person.properties.email}. To use a literal brace, type \\{ instead."
                         )
                     }
                 )

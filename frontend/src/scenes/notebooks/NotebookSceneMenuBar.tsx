@@ -20,11 +20,12 @@ import {
 import { notebooksModel } from '~/models/notebooksModel'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
+import { notebookExportLogic } from 'products/notebooks/frontend/notebookExportLogic'
+
 import { isMarkdownNotebookContent } from './Notebook/markdownNotebookV2'
 import { notebookLogic } from './Notebook/notebookLogic'
 import { notebookSettingsLogic } from './Notebook/notebookSettingsLogic'
 import { notebookPanelLogic } from './NotebookPanel/notebookPanelLogic'
-import { isJupyterModeAvailable, isKernelUiEnabled } from './utils'
 
 const RESOURCE_TYPE = 'notebook'
 
@@ -37,18 +38,18 @@ export function NotebookSceneMenuBar({ shortId }: { shortId: string }): JSX.Elem
 }
 
 function NotebookSceneMenuBarInner({ shortId }: { shortId: string }): JSX.Element {
+    const { preparePrint } = useActions(notebookExportLogic({ shortId }))
     const logic = notebookLogic({ shortId })
     const { notebook, showHistory, isLocalOnly, content, showVariables } = useValues(logic)
     const { openShareModal, duplicateNotebook, downloadMarkdown, copyMarkdown, setShowHistory } = useActions(logic)
-    const { featureFlags } = useValues(featureFlagLogic)
     const { isMarkdownExpanded, showKernelInfo, isJupyterMode } = useValues(notebookSettingsLogic)
     const { setIsMarkdownExpanded, setShowKernelInfo, setShowVariables, setIsJupyterMode } =
         useActions(notebookSettingsLogic)
     const { selectNotebook } = useActions(notebookPanelLogic)
     const canDelete = !isLocalOnly && !notebook?.is_template
     // The kernel info panel only renders for markdown (V2) notebooks, so hide the toggle elsewhere
-    const showKernelToggle = isKernelUiEnabled(featureFlags) && isMarkdownNotebookContent(content)
-    const showJupyterModeToggle = isJupyterModeAvailable(featureFlags) && isMarkdownNotebookContent(content)
+    const showKernelToggle = isMarkdownNotebookContent(content)
+    const showJupyterModeToggle = isMarkdownNotebookContent(content)
     const sharingDisabledReason = getAccessControlDisabledReason(
         AccessControlResourceType.SharingConfiguration,
         AccessControlLevel.Viewer
@@ -58,6 +59,10 @@ function NotebookSceneMenuBarInner({ shortId }: { shortId: string }): JSX.Elemen
         <SceneMenuBar>
             <SceneMenuBarMenu label="File" dataAttr={`${RESOURCE_TYPE}-menubar-file`}>
                 <SceneMenuBarSubMenu label="Export">
+                    <SceneMenuBarItem onClick={preparePrint} data-attr="notebook-menubar-print-pdf">
+                        <IconDownload />
+                        Print / save PDF
+                    </SceneMenuBarItem>
                     <SceneMenuBarItem
                         onClick={() => downloadMarkdown()}
                         data-attr={`${RESOURCE_TYPE}-menubar-download-markdown`}

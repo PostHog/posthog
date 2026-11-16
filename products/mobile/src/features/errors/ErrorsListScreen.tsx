@@ -4,6 +4,7 @@ import { FlatList, Linking, RefreshControl, Text, View } from 'react-native'
 import type { ErrorsWindow } from '@/api/errorTracking'
 import { useViewer } from '@/auth/useViewer'
 import { changeNavPin } from '@/features/tabs/navPinActions'
+import { NAV_PINS_ENABLED } from '@/features/tabs/navPinSlot'
 import { useIsNavPinned } from '@/features/tabs/navPinStore'
 import { TABS_HEADER_BOTTOM } from '@/features/tabs/TabsHeader'
 import { useTabHeader } from '@/features/tabs/tabHeaderStore'
@@ -295,12 +296,16 @@ function ErrorsListBody({ chrome }: { chrome: ErrorsChrome }): ReactElement {
                         onClose={() => setMenuOpen(false)}
                         testID="errors-menu"
                         items={[
-                            {
-                                key: pinned ? 'unpin' : 'pin',
-                                label: pinned ? 'Unpin from navigation' : 'Pin to navigation',
-                                Icon: PinIcon,
-                                onPress: () => changeNavPin('errors', !pinned, 'list_menu', toasts.show),
-                            },
+                            ...(NAV_PINS_ENABLED
+                                ? [
+                                      {
+                                          key: pinned ? 'unpin' : 'pin',
+                                          label: pinned ? 'Unpin from navigation' : 'Pin to navigation',
+                                          Icon: PinIcon,
+                                          onPress: () => changeNavPin('errors', !pinned, 'list_menu', toasts.show),
+                                      },
+                                  ]
+                                : []),
                             {
                                 key: 'web',
                                 label: 'Open on web',

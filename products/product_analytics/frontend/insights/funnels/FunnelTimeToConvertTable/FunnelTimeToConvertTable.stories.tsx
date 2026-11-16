@@ -2,6 +2,7 @@ import type { Meta, StoryObj } from '@storybook/react'
 import { BindLogic } from 'kea'
 import { useState } from 'react'
 
+import { QuillSurfaceContext } from 'lib/components/QuillSurface/quillSurfaceContext'
 import { insightLogic } from 'scenes/insights/insightLogic'
 
 import __funnelTimeToConvert from '~/mocks/fixtures/api/projects/team_id/insights/funnelTimeToConvert.json'
@@ -46,4 +47,15 @@ let uniqueNode = 0
 
 export const Default: Story = {
     args: {},
+}
+
+export const Quill: Story = {
+    decorators: [
+        (Story) => (
+            <QuillSurfaceContext.Provider value={true}>
+                <Story />
+            </QuillSurfaceContext.Provider>
+        ),
+    ],
+    parameters: { testOptions: { snapshotBrowsers: [] } },
 }

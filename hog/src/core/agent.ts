@@ -1,11 +1,25 @@
 import { isRunningInCI } from './ci'
 import type { Env } from './runtime'
 
+export const KNOWN_AGENTS = [
+    'claude-code',
+    'codex',
+    'cursor',
+    'gemini-cli',
+    'cline',
+    'opencode',
+    'augment',
+    'antigravity',
+    'github-copilot',
+] as const
+
+export type KnownAgent = (typeof KNOWN_AGENTS)[number]
+
 // Env vars that coding agents set for the commands they run, checked in order.
 // Sources: the env vars @vercel/detect-agent and the Gauge CLI check. CURSOR_TRACE_ID and
 // REPL_ID are left out on purpose, because people also see them in Cursor's and Replit's
 // own terminals.
-const AGENT_ENV_MARKERS: ReadonlyArray<readonly [envVar: string, agent: string]> = [
+const AGENT_ENV_MARKERS: ReadonlyArray<readonly [envVar: string, agent: KnownAgent]> = [
     ['CLAUDECODE', 'claude-code'],
     ['CLAUDE_CODE', 'claude-code'],
     ['CODEX_SANDBOX', 'codex'],
@@ -66,6 +80,17 @@ function detectAgent(env: Env): { agent: string | undefined; reason: string } {
         }
     }
     return { agent: undefined, reason: 'no agent env var is set' }
+}
+
+// The agent hog knows behind a detected name. AI_AGENT can name an agent its own way, as Claude Code's
+// `claude-code_<version>_agent` does, so the agent's own env var decides then.
+export function knownAgent(agent: string, env: Env): KnownAgent | undefined {
+    const named = KNOWN_AGENTS.find((known) => known === agent)
+    if (named) {
+        return named
+    }
+
+    return AGENT_ENV_MARKERS.find(([envVar]) => env[envVar])?.[1]
 }
 
 export function resolveMode(env: Env, terminal: Terminal, requestedFormat: OutputFormat | undefined): Mode {

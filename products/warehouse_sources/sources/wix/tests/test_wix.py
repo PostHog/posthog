@@ -112,10 +112,20 @@ class TestWixTransport:
 
 class TestWixCredentials:
     @pytest.mark.parametrize(
-        "status_code,expected_valid",
-        [(403, True), (428, False)],
+        "status_code,expected_valid,expected_message_start",
+        [
+            (200, True, None),
+            (403, True, None),
+            (401, False, "Wix rejected this API key."),
+            (404, False, "Wix could not find this site."),
+            (428, False, "Wix could not find this site."),
+            (500, False, "Wix couldn't check your API key."),
+            (502, False, "Wix couldn't check your API key."),
+        ],
     )
-    def test_status_maps_to_a_verdict(self, status_code: int, expected_valid: bool) -> None:
+    def test_status_maps_to_a_verdict(
+        self, status_code: int, expected_valid: bool, expected_message_start: str | None
+    ) -> None:
         session = mock.MagicMock()
         session.post.return_value = _response(status_code=status_code)
 
@@ -123,7 +133,11 @@ class TestWixCredentials:
             valid, message = validate_credentials("key", "site")
 
         assert valid is expected_valid
-        assert (message is None) is expected_valid
+        if expected_message_start is None:
+            assert message is None
+        else:
+            assert message is not None and message.startswith(expected_message_start)
+            assert str(status_code) not in message
 
     def test_permission_probe_names_the_missing_wix_permission(self) -> None:
         session = mock.MagicMock()

@@ -12,6 +12,8 @@ import {
     reducers,
     selectors,
 } from 'kea'
+import { forms } from 'kea-forms'
+import type { DeepPartial, DeepPartialMap, FieldName, ValidationErrorType } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 import posthog from 'posthog-js'
 
@@ -22,14 +24,28 @@ import { teamLogic } from 'scenes/teamLogic'
 
 import { Breadcrumb } from '~/types'
 
-import { platformAlertsRetrieve, platformAlertsSnoozeGroupCreate } from './generated/api'
+import { platformAlertsPartialUpdate, platformAlertsRetrieve, platformAlertsSnoozeGroupCreate } from './generated/api'
 import {
     GroupingModeEnumApi,
     PlatformAlertApi,
     PlatformAlertConfigurationApi,
     PlatformAlertOwnerEnumApi,
 } from './generated/api.schemas'
+import {
+    RuleMetadataForm,
+    errorMessage,
+    fieldError,
+    ruleMetadataEntries,
+    ruleMetadataEntriesError,
+    ruleMetadataRecord,
+} from './platformAlertFormat'
 import { PLATFORM_ALERTS_BREADCRUMB } from './platformAlertsLogic'
+
+const EMPTY_RULE_METADATA_FORM: RuleMetadataForm = { labels: [], annotations: [] }
+const RULE_METADATA_FIELD_BY_ATTR: Record<string, keyof RuleMetadataForm> = {
+    labels: 'labels',
+    annotations: 'annotations',
+}
 
 export interface PlatformAlertLogicProps {
     id: string
@@ -52,11 +68,25 @@ export interface platformAlertLogicValues {
     currentTeamId: number | null // teamLogic
     alertSnoozeUntil: string | null
     breadcrumbs: Breadcrumb[]
+    canEditRuleMetadata: boolean
     canSnoozeGroups: boolean
     configuration: PlatformAlertConfigurationApi | null
     configurationError: boolean
     configurationLoading: boolean
     customSnoozeGroupKey: string | null
+    isRuleMetadataFormSubmitting: boolean
+    isRuleMetadataFormValid: boolean
+    ruleMetadataForm: RuleMetadataForm
+    ruleMetadataFormAllErrors: Record<string, any>
+    ruleMetadataFormChanged: boolean
+    ruleMetadataFormErrors: DeepPartialMap<RuleMetadataForm, ValidationErrorType>
+    ruleMetadataFormHasErrors: boolean
+    ruleMetadataFormManualErrors: Record<string, any>
+    ruleMetadataFormTouched: boolean
+    ruleMetadataFormTouches: Record<string, boolean>
+    ruleMetadataFormValidationErrors: DeepPartialMap<RuleMetadataForm, ValidationErrorType>
+    ruleMetadataModalOpen: boolean
+    showRuleMetadataFormErrors: boolean
     snoozingGroupKey: string | null
 }
 
@@ -70,6 +100,9 @@ export interface platformAlertLogicActions {
         payload?: any
     } // teamLogic
     closeCustomSnooze: () => {
+        value: true
+    }
+    closeRuleMetadataModal: () => {
         value: true
     }
     loadConfiguration: () => any
@@ -90,6 +123,12 @@ export interface platformAlertLogicActions {
     openCustomSnooze: (groupingKey: string) => {
         groupingKey: string
     }
+    openRuleMetadataModal: () => {
+        value: true
+    }
+    resetRuleMetadataForm: (values?: RuleMetadataForm) => {
+        values?: RuleMetadataForm
+    }
     setGroupSnooze: (
         groupingKey: string,
         snoozeUntil: string | null,
@@ -105,6 +144,19 @@ export interface platformAlertLogicActions {
     setGroupSnoozeSuccess: (alert: PlatformAlertApi) => {
         alert: PlatformAlertApi
     }
+    setRuleMetadataFormManualErrors: (errors: Record<string, any>) => {
+        errors: Record<string, any>
+    }
+    setRuleMetadataFormValue: (
+        key: FieldName,
+        value: any
+    ) => {
+        name: FieldName
+        value: any
+    }
+    setRuleMetadataFormValues: (values: DeepPartial<RuleMetadataForm>) => {
+        values: DeepPartial<RuleMetadataForm>
+    }
     snoozeGroupFor: (
         groupingKey: string,
         duration: GroupSnoozeDuration
@@ -119,6 +171,25 @@ export interface platformAlertLogicActions {
         groupingKey: string
         snoozeUntil: string
     }
+    submitRuleMetadataForm: () => {
+        value: boolean
+    }
+    submitRuleMetadataFormFailure: (
+        error: Error,
+        errors: Record<string, any>
+    ) => {
+        error: Error
+        errors: Record<string, any>
+    }
+    submitRuleMetadataFormRequest: (ruleMetadataForm: RuleMetadataForm) => {
+        ruleMetadataForm: RuleMetadataForm
+    }
+    submitRuleMetadataFormSuccess: (ruleMetadataForm: RuleMetadataForm) => {
+        ruleMetadataForm: RuleMetadataForm
+    }
+    touchRuleMetadataFormField: (key: string) => {
+        key: string
+    }
     unsnoozeGroup: (groupingKey: string) => {
         groupingKey: string
     }
@@ -131,6 +202,7 @@ export interface platformAlertLogicMeta {
         breadcrumbs: (configuration: PlatformAlertConfigurationApi | null, arg: any) => Breadcrumb[]
         alertSnoozeUntil: (configuration: PlatformAlertConfigurationApi | null) => string | null
         canSnoozeGroups: (configuration: PlatformAlertConfigurationApi | null) => boolean
+        canEditRuleMetadata: (configuration: PlatformAlertConfigurationApi | null) => boolean
     }
 }
 
@@ -162,7 +234,33 @@ export const platformAlertLogic: LogicWrapper<platformAlertLogicType> = kea<plat
         setGroupSnoozeFailure: true,
         openCustomSnooze: (groupingKey: string) => ({ groupingKey }),
         closeCustomSnooze: true,
+        openRuleMetadataModal: true,
+        closeRuleMetadataModal: true,
     }),
+    forms(({ actions, values, props }) => ({
+        ruleMetadataForm: {
+            defaults: EMPTY_RULE_METADATA_FORM,
+            // An array field takes one message for the whole list, which kea-forms renders but does not type.
+            errors: ({ labels, annotations }: RuleMetadataForm) =>
+                ({
+                    labels: ruleMetadataEntriesError(labels),
+                    annotations: ruleMetadataEntriesError(annotations),
+                }) as DeepPartialMap<RuleMetadataForm, ValidationErrorType>,
+            submit: async ({ labels, annotations }: RuleMetadataForm) => {
+                try {
+                    const updated = await platformAlertsPartialUpdate(String(values.currentTeamId), props.id, {
+                        source_kind: values.configuration!.source_kind,
+                        labels: ruleMetadataRecord(labels),
+                        annotations: ruleMetadataRecord(annotations),
+                    })
+                    actions.loadConfigurationSuccess(updated)
+                } catch (error) {
+                    actions.setRuleMetadataFormManualErrors(fieldError(error, RULE_METADATA_FIELD_BY_ATTR))
+                    throw error
+                }
+            },
+        },
+    })),
     loaders(({ values, props }) => ({
         configuration: [
             null as PlatformAlertConfigurationApi | null,
@@ -197,6 +295,14 @@ export const platformAlertLogic: LogicWrapper<platformAlertLogicType> = kea<plat
                 setGroupSnooze: (_, { groupingKey }) => groupingKey,
                 setGroupSnoozeSuccess: () => null,
                 setGroupSnoozeFailure: () => null,
+            },
+        ],
+        ruleMetadataModalOpen: [
+            false,
+            {
+                openRuleMetadataModal: () => true,
+                closeRuleMetadataModal: () => false,
+                submitRuleMetadataFormSuccess: () => false,
             },
         ],
         customSnoozeGroupKey: [
@@ -235,6 +341,12 @@ export const platformAlertLogic: LogicWrapper<platformAlertLogicType> = kea<plat
                 configuration?.owner === PlatformAlertOwnerEnumApi.Platform &&
                 configuration.grouping.mode === GroupingModeEnumApi.ByResultLabels,
         ],
+        // The API refuses an edit to a source-owned alert (409). Its source product edits it.
+        canEditRuleMetadata: [
+            (s) => [s.configuration],
+            (configuration: PlatformAlertConfigurationApi | null): boolean =>
+                configuration?.owner === PlatformAlertOwnerEnumApi.Platform,
+        ],
     }),
     listeners(({ actions, values, props, cache }) => ({
         loadCurrentTeamSuccess: () => {
@@ -253,6 +365,39 @@ export const platformAlertLogic: LogicWrapper<platformAlertLogicType> = kea<plat
                 const timer = setTimeout(() => actions.loadConfiguration(), delay)
                 return () => clearTimeout(timer)
             }, 'alertSnoozeExpiry')
+        },
+        openRuleMetadataModal: () => {
+            actions.resetRuleMetadataForm({
+                labels: ruleMetadataEntries(values.configuration?.labels ?? {}),
+                annotations: ruleMetadataEntries(values.configuration?.annotations ?? {}),
+            })
+            // pinned: analytics event names and properties. Renaming them breaks dashboards.
+            posthog.capture('platform alert rule metadata edit opened', {
+                configuration_id: props.id,
+                source_kind: values.configuration?.source_kind,
+            })
+        },
+        submitRuleMetadataFormFailure: ({ error }) => {
+            if (!Object.keys(fieldError(error, RULE_METADATA_FIELD_BY_ATTR)).length) {
+                lemonToast.error(`Couldn't save labels and annotations. ${errorMessage(error)}`)
+            }
+        },
+        // A server error can name the other field, such as an annotation that references a removed
+        // label, and kea-forms clears it only when that field changes.
+        setRuleMetadataFormValue: () => {
+            if (Object.keys(values.ruleMetadataFormManualErrors).length) {
+                actions.setRuleMetadataFormManualErrors({})
+            }
+        },
+        submitRuleMetadataFormSuccess: () => {
+            // pinned: analytics event names and properties. Renaming them breaks dashboards.
+            posthog.capture('platform alert rule metadata saved', {
+                configuration_id: props.id,
+                source_kind: values.configuration?.source_kind,
+                label_count: Object.keys(values.configuration?.labels ?? {}).length,
+                annotation_count: Object.keys(values.configuration?.annotations ?? {}).length,
+            })
+            lemonToast.success('Labels and annotations saved')
         },
         snoozeGroupFor: ({ groupingKey, duration }) => {
             const { hours } = GROUP_SNOOZE_DURATIONS.find((option) => option.duration === duration)!
