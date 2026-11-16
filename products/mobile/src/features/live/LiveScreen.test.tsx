@@ -142,14 +142,16 @@ describe('LiveScreen', () => {
         { chrome: 'stack', reading: true },
         { chrome: 'stack', reading: false },
     ] as const)('retains values with a loading indicator in $chrome while reading=$reading', ({ chrome, reading }) => {
-        mockFeed = { ...feed(), reading }
+        mockFeed = { ...feed(), reading, pulling: reading }
         const view = render(screen(chrome))
         expect(view.getByText('Home')).toBeTruthy()
         if (chrome === 'tab') {
             expect(useTabHeaderStore.getState().slots.live?.refreshing).toBe(reading)
         } else {
-            expect(!!view.queryByTestId('live-refreshing')).toBe(reading)
+            expect(view.getByLabelText('Live data').props.accessibilityState.busy).toBe(reading)
         }
+        expect(view.queryByTestId('live-refreshing')).toBeNull()
+        expect(view.getByTestId('live-scroll').props.refreshControl.props.refreshing).toBe(false)
         expect(view.queryByText('Updating…')).toBeNull()
         expect(view.getByTestId('live-stat-users-online-loading')).toBeTruthy()
         expect(view.queryByText("Couldn't load this yet. Live tries again every 30 seconds.")).toBeNull()

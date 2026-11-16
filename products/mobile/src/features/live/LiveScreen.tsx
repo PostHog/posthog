@@ -1,14 +1,6 @@
 import { useFocusEffect } from 'expo-router'
 import { type ReactElement, useCallback, useEffect, useRef, useState } from 'react'
-import {
-    ActivityIndicator,
-    Linking,
-    RefreshControl,
-    ScrollView,
-    type ScrollViewInstance,
-    Text,
-    View,
-} from 'react-native'
+import { Linking, Platform, RefreshControl, ScrollView, type ScrollViewInstance, Text, View } from 'react-native'
 
 import type { ProjectScope } from '@/api/reports'
 import type { NavChrome } from '@/features/tabs/navPinStore'
@@ -28,6 +20,7 @@ import { liveBreakdownKinds } from '@/model/adapters/live'
 import type { LiveBreakdownKind, LiveEventRow, LiveProjectState } from '@/model/live'
 import type { ViewEntry } from '@/model/views'
 import { Eyebrow } from '@/ui/Eyebrow'
+import { AnimatedLogomark } from '@/ui/icons/AnimatedLogomark'
 import { ExternalLinkIcon } from '@/ui/icons/ExternalLinkIcon'
 import { WarningIcon } from '@/ui/icons/WarningIcon'
 import { LiveDot } from '@/ui/LiveDot'
@@ -367,12 +360,12 @@ function LiveBody({ chrome, scope, scrollTitle, toasts }: LiveBodyProps): ReactE
                 scrollEventThrottle={16}
                 refreshControl={
                     <RefreshControl
-                        refreshing={feed.pulling}
+                        refreshing={false}
                         onRefresh={feed.pull}
-                        tintColor={colors.tertiary}
-                        progressBackgroundColor={colors.surface}
-                        colors={[colors.tertiary]}
-                        progressViewOffset={contentTop}
+                        tintColor="transparent"
+                        style={styles.refreshControl}
+                        // Android's native indicator ignores transparency, so keep it above the visible scroll area.
+                        progressViewOffset={Platform.OS === 'android' ? -1000 : contentTop}
                     />
                 }
                 testID="live-scroll"
@@ -423,7 +416,6 @@ function LiveTitle({
     updatedAt,
     onTitleLayout,
 }: LiveTitleProps): ReactElement {
-    const colors = useColors()
     const styles = useStyles()
     const on = status === 'live' && state !== 'quiet' && state !== 'not_set_up'
     return (
@@ -440,20 +432,14 @@ function LiveTitle({
                 </Eyebrow>
                 <View style={styles.titleRow}>
                     <View style={styles.titleText}>
+                        <View accessible accessibilityLabel="Live data" accessibilityState={{ busy: refreshing }}>
+                            <AnimatedLogomark height={18} animate={refreshing} />
+                        </View>
                         <Text style={styles.title} accessibilityRole="header">
                             Live
                         </Text>
                         <LiveDot on={on} animate={screenActive} />
                     </View>
-                    {refreshing ? (
-                        <ActivityIndicator
-                            size="small"
-                            color={colors.tertiary}
-                            accessibilityRole="progressbar"
-                            accessibilityLabel="Loading live data"
-                            testID="live-refreshing"
-                        />
-                    ) : null}
                 </View>
             </View>
             <LiveStatusLine status={status} state={state} screenActive={screenActive} updatedAt={updatedAt} />
@@ -486,6 +472,9 @@ const useStyles = createStyles(({ colors }) => ({
     },
     content: {
         paddingHorizontal: layout.inboxGutter,
+    },
+    refreshControl: {
+        opacity: 0,
     },
     cards: {
         gap: 12,
