@@ -347,8 +347,7 @@ class TestInsightPlatformCutover(APIBaseTest):
             team_id=self.team.id, alert_id=str(alert.id), allowed_event_ids=INSIGHT_ALERT_DESTINATION_EVENT_IDS
         )
         (group,) = [group for group in groups if group.hog_function_ids]
-        shown = {key: value for key, value in data.items() if key != "webhook_headers"}
-        assert {key: group.data.get(key) for key in shown} == shown
+        assert {key: group.data.get(key) for key in data} == data
         rebuilt = HogFunction.objects.filter(id__in=group.hog_function_ids)
         if "webhook_headers" in data:
             (function,) = rebuilt

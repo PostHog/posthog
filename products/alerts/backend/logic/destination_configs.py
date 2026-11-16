@@ -283,7 +283,11 @@ class WebhookDestination(_WebhookUrlDestination):
 
     def read(self, inputs: dict[str, Any]) -> AlertDestinationData:
         data = super().read(inputs)
-        headers = added_webhook_headers(input_value(inputs, "headers"))
+        # The template sends a secret header in place of a plain one of the same name.
+        headers = {
+            **added_webhook_headers(input_value(inputs, "headers")),
+            **added_webhook_headers(input_value(inputs, "secret_headers")),
+        }
         if headers:
             data["webhook_headers"] = headers
         return data

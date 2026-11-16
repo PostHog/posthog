@@ -380,8 +380,7 @@ class TestPlatformCutover(APIBaseTest):
         (group,) = list_alert_destination_groups(
             team_id=self.team.id, alert_id=str(alert.id), allowed_event_ids=LOGS_ALERT_EVENT_IDS
         )
-        shown = {key: value for key, value in fields.items() if key != "webhook_headers"}
-        assert {key: group.data.get(key) for key in ("type", *shown)} == {"type": destination_type, **shown}
+        assert {key: group.data.get(key) for key in ("type", *fields)} == {"type": destination_type, **fields}
         rebuilt = HogFunction.objects.filter(id__in=group.hog_function_ids)
         assert sorted(
             event["id"] for function in rebuilt for event in (function.filters or {}).get("events", [])
@@ -401,6 +400,24 @@ class TestPlatformCutover(APIBaseTest):
             )
         assert retired.isdisjoint(group.hog_function_ids)
         assert set(HogFunction.objects.filter(team=self.team, deleted=True).values_list("id", flat=True)) == retired
+
+    def test_rolling_back_rebuilds_two_webhooks_that_differ_only_in_their_headers(self) -> None:
+        alert = self._moved()
+        url = DESTINATION_DATA[DestinationType.WEBHOOK]
+        for token in ("Bearer one", "Bearer two"):
+            self._platform_destination(
+                alert, DestinationType.WEBHOOK, fields={**url, "webhook_headers": {"Authorization": token}}
+            )
+
+        assert self._rolled_back(alert, NOW + timedelta(days=8)) is None
+
+        groups = list_alert_destination_groups(
+            team_id=self.team.id, alert_id=str(alert.id), allowed_event_ids=LOGS_ALERT_EVENT_IDS
+        )
+        assert sorted(group.data.get("webhook_headers", {}).get("Authorization", "") for group in groups) == [
+            "Bearer one",
+            "Bearer two",
+        ]
 
     def test_rolling_back_again_after_a_new_cutover_creates_nothing_twice(self) -> None:
         alert = self._moved()
