@@ -504,14 +504,15 @@ def _denial_is_final(pipeline: Pipeline, folder_policies_known: bool) -> bool:
     )
 
 
-def _pending_attestation_wait(pending: list[Attestation]) -> dict:
+def _pending_attestation_wait(pipeline: Pipeline, pending: list[Attestation]) -> dict:
     """The WAIT the full review returns while a check that may lift the deny has not reported."""
+    # The server queues no review of a self-driving inbox PR when a check reports.
+    again = "on the next push" if pipeline.self_driving else "when the check reports, or on the next push"
     return {
         "verdict": "WAIT",
         "reasoning": (
             f"The {pending_check_names(pending)} check has not finished for this commit, so stamphog "
-            "cannot tell yet whether the change it covers is safe. The review runs again on the next "
-            "push, or you can re-request it once the check reports."
+            f"cannot tell yet whether the change it covers is safe. Stamphog reviews again {again}."
         ),
         "risk": "unknown",
         "issues": [],
@@ -582,7 +583,7 @@ def pregate(context: dict) -> dict:
         if not _pending_attestation_outcome_is_known(pipeline, folder_policies_known):
             return {**outcome, "not_final_reason": "pending_migration_check"}
         pipeline.final_verdict = "WAIT"
-        pipeline.reviewer_output = _pending_attestation_wait(pending)
+        pipeline.reviewer_output = _pending_attestation_wait(pipeline, pending)
         pipeline._capture_review_completed(pipeline._gate_verdict(), "PENDING-ATTESTATION")
         return {**outcome, "final": True, "result": pipeline.to_dict()}
     if not _denial_is_final(pipeline, folder_policies_known):
@@ -688,7 +689,7 @@ def run(context: dict) -> dict:
         # re-request the review that it displaced.
         if pending := _blocked_only_by_pending_attestations(pipeline):
             pipeline.final_verdict = "WAIT"
-            pipeline.reviewer_output = _pending_attestation_wait(pending)
+            pipeline.reviewer_output = _pending_attestation_wait(pipeline, pending)
             pipeline._capture_review_completed(gate_verdict, "PENDING-ATTESTATION")
             return pipeline.to_dict()
 
