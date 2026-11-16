@@ -139701,6 +139701,11 @@ export namespace Schemas {
      */
     search?: string;
     /**
+     * A JSON array of tag names, such as ["growth", "weekly"]. Keeps only the dashboards and insights that carry at least one of them.
+     * @minLength 1
+     */
+    tags?: string;
+    /**
      * Only entries of this type, such as 'insight', 'dashboard', 'notebook' or 'folder'.
      */
     type?: string;

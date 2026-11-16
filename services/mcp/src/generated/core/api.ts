@@ -6087,6 +6087,13 @@ export const FileSystemListQueryParams = () => zod.object({
             "Only entries pointing at this item: the insight or notebook short_id, or the dashboard id. Combine with type to find an item's entry in the project tree."
         ),
     search: zod.string().optional().describe('A search term.'),
+    tags: zod
+        .string()
+        .min(1)
+        .optional()
+        .describe(
+            'A JSON array of tag names, such as [\"growth\", \"weekly\"]. Keeps only the dashboards and insights that carry at least one of them.'
+        ),
     type: zod
         .string()
         .optional()
