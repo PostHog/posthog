@@ -1,14 +1,9 @@
 import socket
 import tempfile
 import threading
-from collections.abc import Callable, Iterator
-from concurrent.futures import (
-    Future,
-    TimeoutError as FutureTimeoutError,
-)
+from collections.abc import Iterator
 from contextlib import contextmanager
 from enum import StrEnum
-from uuid import uuid4
 
 import psycopg
 from psycopg import errors as pg_errors
@@ -17,6 +12,7 @@ from posthog.integrations import IntegrationRecord
 from posthog.models.integration import MotherDuckIntegration, PostgreSQLIntegration
 from posthog.models.integration.postgres import MISSING_CERT_PATH
 
+from products.warehouse_sources.backend.facade.destinations import probe_motherduck_destination
 from products.warehouse_sources.backend.facade.source_management import HostNotAllowedError, pinned_host_kwargs
 
 CONNECT_TIMEOUT_SECONDS = 5
@@ -154,8 +150,6 @@ def check_postgres_destination(integration: IntegrationRecord, config: dict[str,
 
 
 MOTHERDUCK_CONNECT_TIMEOUT_SECONDS = 15
-MOTHERDUCK_DEFAULT_SCHEMA = "main"
-MOTHERDUCK_CHECK_TABLE_PREFIX = "posthog_destination_check"
 
 # Like the Postgres messages, these never include the driver's text.
 MOTHERDUCK_FAILURE_MESSAGES: dict[CheckFailure, str] = {
@@ -177,76 +171,21 @@ def _motherduck_failure(failure: CheckFailure) -> DestinationConnectionCheckErro
     return DestinationConnectionCheckError(failure, MOTHERDUCK_FAILURE_MESSAGES[failure])
 
 
-def _run_with_deadline[T](work: Callable[[], T], timeout_seconds: float) -> T:
-    """Run `work` on a daemon thread, giving up after `timeout_seconds`.
-
-    DuckDB's connect takes no timeout, and a request must not hang on an unreachable service. A
-    thread that overruns is left to finish on its own; it holds nothing the request needs.
-    """
-    future: Future[T] = Future()
-
-    def run() -> None:
-        try:
-            future.set_result(work())
-        except BaseException as error:
-            future.set_exception(error)
-
-    threading.Thread(target=run, daemon=True, name="motherduck-destination-check").start()
-    try:
-        return future.result(timeout=timeout_seconds)
-    except FutureTimeoutError as error:
-        raise TimeoutError("The MotherDuck check did not finish in time") from error
-
-
 def check_motherduck_destination(integration: IntegrationRecord, config: dict[str, str] | None) -> None:
     """Connect to the destination's MotherDuck database and check that a writer can create tables.
 
-    Creates the schema when it is missing, as the writer does, then creates and drops a scratch
-    table with a random name. Raises `DestinationConnectionCheckError`.
+    Raises `DestinationConnectionCheckError`.
     """
-    # The writer module loads duckdb, which the web process only needs here.
-    from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.destinations_load.writers.motherduck import (  # noqa: PLC0415
-        AUTHENTICATION_FAILED_DETAIL,
-        READ_ONLY_DETAIL,
-        UNKNOWN_DATABASE_DETAIL,
-        configuration_error_detail,
-    )
-    from products.warehouse_sources.backend.temporal.data_imports.sources.motherduck.motherduck import (  # noqa: PLC0415
-        build_motherduck_connection_string,
-        connect,
-    )
-
     config = config or {}
-    database = str(config.get("database") or "").strip()
-    schema = str(config.get("schema") or "").strip() or MOTHERDUCK_DEFAULT_SCHEMA
     token = MotherDuckIntegration(integration).access_token
     if not token:
         raise _motherduck_failure(CheckFailure.AUTHENTICATION)
-    try:
-        build_motherduck_connection_string(database or None, token)
-    except ValueError as error:
-        raise _motherduck_failure(CheckFailure.UNKNOWN_DATABASE) from error
-    if not database:
-        raise _motherduck_failure(CheckFailure.UNKNOWN_DATABASE)
 
-    quoted_schema = '"' + schema.replace('"', '""') + '"'
-    table = f"{quoted_schema}.{MOTHERDUCK_CHECK_TABLE_PREFIX}_{uuid4().hex[:12]}"
-
-    def probe() -> None:
-        connection = connect(token, database, read_only=False)
-        try:
-            connection.execute(f"CREATE SCHEMA IF NOT EXISTS {quoted_schema}")
-            connection.execute(f"CREATE TABLE {table} (id INTEGER)")
-            connection.execute(f"DROP TABLE IF EXISTS {table}")
-        finally:
-            connection.close()
-
-    try:
-        _run_with_deadline(probe, MOTHERDUCK_CONNECT_TIMEOUT_SECONDS)
-    except Exception as error:
-        failure = {
-            AUTHENTICATION_FAILED_DETAIL: CheckFailure.AUTHENTICATION,
-            UNKNOWN_DATABASE_DETAIL: CheckFailure.UNKNOWN_DATABASE,
-            READ_ONLY_DETAIL: CheckFailure.MISSING_PRIVILEGE,
-        }.get(configuration_error_detail(error) or "", CheckFailure.UNREACHABLE)
-        raise _motherduck_failure(failure) from error
+    failure = probe_motherduck_destination(
+        token,
+        str(config.get("database") or "").strip(),
+        str(config.get("schema") or "").strip(),
+        timeout_seconds=MOTHERDUCK_CONNECT_TIMEOUT_SECONDS,
+    )
+    if failure is not None:
+        raise _motherduck_failure(CheckFailure(failure))

@@ -203,7 +203,7 @@ class TestCheckPostgresDestination:
             assert seen["path"] == expected_path
 
 
-MOTHERDUCK_CONNECT = "products.warehouse_sources.backend.temporal.data_imports.sources.motherduck.motherduck.connect"
+MOTHERDUCK_CONNECT = "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.destinations_load.writers.motherduck.connect_motherduck"
 
 
 def _motherduck_integration(token: str | None = "md-token") -> Integration:

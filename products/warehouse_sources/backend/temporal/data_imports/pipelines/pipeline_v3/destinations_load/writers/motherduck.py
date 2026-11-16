@@ -23,15 +23,20 @@ from __future__ import annotations
 
 import re
 import asyncio
+import threading
 from collections.abc import AsyncIterator, Callable, Iterator
+from concurrent.futures import (
+    Future,
+    TimeoutError as FutureTimeoutError,
+)
 from contextlib import contextmanager
 from typing import ClassVar, TypeVar
+from uuid import uuid4
 
 import duckdb
 import pyarrow as pa
 
-from posthog.integrations import IntegrationManager, IntegrationNotFound
-from posthog.models.integration import Integration
+from posthog.integrations import IntegrationKind, IntegrationManager, IntegrationNotFound
 from posthog.models.integration.motherduck import MotherDuckIntegration
 
 from products.warehouse_sources.backend.temporal.data_imports.destinations.contracts import (
@@ -182,13 +187,77 @@ def _quote(identifier: str) -> str:
     return _QUOTER.quote(identifier)
 
 
+PROBE_TABLE_PREFIX = "posthog_destination_check"
+
+# What `probe_write_access` reports, keyed by the configuration error behind it.
+_PROBE_FAILURES: dict[str, str] = {
+    AUTHENTICATION_FAILED_DETAIL: "authentication",
+    UNKNOWN_DATABASE_DETAIL: "unknown_database",
+    READ_ONLY_DETAIL: "missing_privilege",
+}
+
+
+def _run_with_deadline(work: Callable[[], T], timeout_seconds: float) -> T:
+    """Run `work` on a daemon thread, giving up after `timeout_seconds`.
+
+    DuckDB's connect takes no timeout, and a request must not hang on an unreachable service. A
+    thread that overruns is left to finish on its own; it holds nothing the caller needs.
+    """
+    future: Future[T] = Future()
+
+    def run() -> None:
+        try:
+            future.set_result(work())
+        except BaseException as error:
+            future.set_exception(error)
+
+    threading.Thread(target=run, daemon=True, name="motherduck-destination-probe").start()
+    try:
+        return future.result(timeout=timeout_seconds)
+    except FutureTimeoutError as error:
+        raise TimeoutError("The MotherDuck probe did not finish in time") from error
+
+
+def probe_write_access(access_token: str, database: str, schema: str, *, timeout_seconds: float) -> str | None:
+    """Check that the token can create tables where the writer will, before any sync runs.
+
+    Creates the schema when it is missing, as the writer does, then creates and drops a scratch
+    table with a random name. Returns None on success, or `authentication`, `unknown_database`,
+    `missing_privilege` or `unreachable`.
+    """
+    try:
+        if not database:
+            raise ValueError("Database is missing")
+        build_motherduck_connection_string(database, access_token)
+    except ValueError:
+        return "unknown_database"
+
+    quoted_schema = _quote(schema or DEFAULT_SCHEMA)
+    table = f"{quoted_schema}.{_quote(f'{PROBE_TABLE_PREFIX}_{uuid4().hex[:12]}')}"
+
+    def probe() -> None:
+        connection = connect_motherduck(access_token, database, read_only=False)
+        try:
+            connection.execute(f"CREATE SCHEMA IF NOT EXISTS {quoted_schema}")
+            connection.execute(f"CREATE TABLE {table} (id INTEGER)")
+            connection.execute(f"DROP TABLE IF EXISTS {table}")
+        finally:
+            connection.close()
+
+    try:
+        _run_with_deadline(probe, timeout_seconds)
+    except Exception as error:
+        return _PROBE_FAILURES.get(configuration_error_detail(error) or "", "unreachable")
+    return None
+
+
 class MotherDuckDestinationWriter:
     """Writes a run's batches into a MotherDuck table."""
 
     holds_sync_lock: ClassVar[bool] = False
     runs_post_load: ClassVar[bool] = False
 
-    integration_kind: ClassVar[str] = Integration.IntegrationKind.MOTHERDUCK.value
+    integration_kind: ClassVar[str] = IntegrationKind.MOTHERDUCK.value
 
     def __init__(self, ctx: DestinationRunContext, *, connector: MotherDuckConnector | None = None) -> None:
         self._ctx = ctx

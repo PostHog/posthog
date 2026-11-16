@@ -35,6 +35,7 @@ from products.warehouse_sources.backend.facade import (
     warehouse_migration as migrations,
 )
 from products.warehouse_sources.backend.facade.destination_health import resume_destination
+from products.warehouse_sources.backend.facade.destinations import is_destination_type_enabled
 from products.warehouse_sources.backend.facade.models import (
     ExternalDataDestination,
     ExternalDataSchema,
@@ -67,7 +68,6 @@ from products.warehouse_sources.backend.presentation.destination_connection_test
 )
 from products.warehouse_sources.backend.presentation.views.destination_links import MAX_DESTINATIONS_PER_LINK
 from products.warehouse_sources.backend.presentation.views.external_data_schema import resync_schema
-from products.warehouse_sources.backend.temporal.data_imports.destinations.enablement import is_destination_type_enabled
 
 # Which Integration kind holds the credentials for each destination type. A type absent from
 # this map needs no integration; the PostHog warehouse is the only such type today.
