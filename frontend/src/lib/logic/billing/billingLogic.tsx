@@ -520,6 +520,9 @@ export interface billingLogicActions {
     reportBillingAlertActionClicked: (alertConfig: BillingAlertConfig) => {
         alertConfig: BillingAlertConfig
     }
+    reportBillingAlertDismissed: (alertConfig: BillingAlertConfig) => {
+        alertConfig: BillingAlertConfig
+    }
     reportBillingAlertShown: (alertConfig: BillingAlertConfig) => {
         alertConfig: BillingAlertConfig
     }
@@ -846,6 +849,7 @@ export const billingLogic = kea<billingLogicType>([
         setShowLicenseDirectInput: (show: boolean) => ({ show }),
         reportBillingAlertShown: (alertConfig: BillingAlertConfig) => ({ alertConfig }),
         reportBillingAlertActionClicked: (alertConfig: BillingAlertConfig) => ({ alertConfig }),
+        reportBillingAlertDismissed: (alertConfig: BillingAlertConfig) => ({ alertConfig }),
         dismissUnpaidInvoiceAlert: true,
         reportCreditsFormSubmitted: (creditInput: number) => ({ creditInput }),
         reportCreditsModalShown: true,
@@ -1759,6 +1763,9 @@ export const billingLogic = kea<billingLogicType>([
         reportBillingAlertActionClicked: ({ alertConfig }) => {
             posthog.capture('billing alert action clicked', alertAnalyticsProperties(alertConfig))
         },
+        reportBillingAlertDismissed: ({ alertConfig }) => {
+            posthog.capture('billing alert dismissed', alertAnalyticsProperties(alertConfig))
+        },
         reportCreditsModalShown: () => {
             posthog.capture('credits modal shown')
         },
@@ -1964,6 +1971,7 @@ export const billingLogic = kea<billingLogicType>([
                         onClick: () => actions.reportBillingAlertActionClicked(alert),
                     },
                     onClose: () => {
+                        actions.reportBillingAlertDismissed(alert)
                         actions.dismissUnpaidInvoiceAlert()
                         actions.setBillingAlert(null)
                     },

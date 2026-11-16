@@ -992,6 +992,19 @@ describe('billingLogic', () => {
             expect(billingLogic.values.billingAlert).toBeNull()
         })
 
+        it('reports closing the unpaid invoice banner', async () => {
+            const capture = jest.spyOn(posthog, 'capture')
+            await loadAlert([200, { count: 1, link: HOSTED_INVOICE_URL }])
+
+            billingLogic.values.billingAlert?.onClose?.()
+
+            const dismissed = capture.mock.calls.filter(([event]) => event === 'billing alert dismissed')
+            expect(dismissed).toHaveLength(1)
+            expect(dismissed[0][1]).toMatchObject({ kind: 'unpaid_invoice', title: 'You have an unpaid invoice' })
+            expect(JSON.stringify(dismissed)).not.toContain(HOSTED_INVOICE_URL)
+            capture.mockRestore()
+        })
+
         it('keeps the hosted invoice URL out of alert analytics', async () => {
             const capture = jest.spyOn(posthog, 'capture')
             await loadAlert([200, { count: 1, link: HOSTED_INVOICE_URL }])
