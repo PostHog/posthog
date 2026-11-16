@@ -2308,35 +2308,35 @@ def test_delete_rebuilds_a_copy_staged_by_the_previous_version(cluster: Clickhou
 
 
 @pytest.mark.django_db
-def test_delete_rebuilds_a_copy_that_another_property_removal_rewrote(cluster: ClickhouseCluster):
+def test_a_property_removal_waits_for_an_unfinished_one_on_the_same_team(cluster: ClickhouseCluster):
     now = datetime.now(UTC)
     props = json.dumps({"secret": "value", "other": "value", "keep": "yes"})
     events = [(PROP_TEAM_ID, "$pageview", uuid4(), now - timedelta(hours=i + 1), props) for i in range(3)]
     cluster.any_host(partial(_insert_events_with_properties, events)).result()
     first = _property_removal_request(start_time=now - timedelta(days=7))
-    first_config = {"ops": {"load_property_removal_request": {"config": {"request_id": str(first.pk)}}}}
+    second = _property_removal_request(start_time=now - timedelta(days=7), properties=["other"])
 
-    def run(config):
+    def run(request: DataDeletionRequest) -> bool:
+        DataDeletionRequest.objects.filter(pk=request.pk, status=RequestStatus.FAILED).update(
+            status=RequestStatus.APPROVED
+        )
         return data_deletion_request_property_removal.execute_in_process(
-            run_config=config, resources={"cluster": cluster}, raise_on_error=False
+            run_config={"ops": {"load_property_removal_request": {"config": {"request_id": str(request.pk)}}}},
+            resources={"cluster": cluster},
+            raise_on_error=False,
         ).success
 
     # The first removal stages its copy and dies before it deletes anything.
     with _fail_before_recording("delete_started"):
-        assert not run(first_config)
-    # A second removal then rewrites the same rows.
-    second = _property_removal_request(start_time=now - timedelta(days=7), properties=["other"])
-    assert run({"ops": {"load_property_removal_request": {"config": {"request_id": str(second.pk)}}}})
+        assert not run(first)
+    # A second removal would rewrite the rows the first one staged, so it refuses to start.
+    assert not run(second)
+    second.refresh_from_db()
+    assert second.property_removal_marker is None
 
-    for _ in range(2):
-        DataDeletionRequest.objects.filter(pk=first.pk, status=RequestStatus.FAILED).update(
-            status=RequestStatus.APPROVED
-        )
-        if run(first_config):
-            break
+    assert run(first)
+    assert run(second)
 
-    first.refresh_from_db()
-    assert first.status == RequestStatus.COMPLETED
     all_props = cluster.any_host(partial(_get_properties, PROP_TEAM_ID, "$pageview")).result()
     assert len(all_props) == len(events)
     assert all("secret" not in row and "other" not in row and "keep" in row for row in all_props)
