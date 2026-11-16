@@ -760,14 +760,16 @@ describe('CI workflow run plans', () => {
         ['merge group', { ...push(), event_name: 'merge_group' }, false, false, false],
         ['cancelled master push', push(), false, false, true],
     ] as const)(
-        'Desktop typecheck keeps coverage without an empty detector (%s)',
-        (name, github, changes, typecheck, cancelled) => {
-            const wf = workflow('desktop-typecheck.yml')
-            const plan = planWorkflow(wf, { name, github, cancelled, steps: allFiltersChanged(wf) })
-            expect(plan.errors).toEqual([])
-            expect(plan.jobs.changes?.result === 'success').toBe(changes)
-            expect(plan.jobs.typecheck?.result === 'success').toBe(typecheck)
-            expect(plan.jobs['desktop-typecheck-pass']?.result === 'success').toBe(!cancelled)
+        'Desktop checks keep coverage without an empty detector (%s)',
+        (name, github, changes, checkRuns, cancelled) => {
+            for (const check of ['typecheck', 'quality']) {
+                const wf = workflow(`desktop-${check}.yml`)
+                const plan = planWorkflow(wf, { name, github, cancelled, steps: allFiltersChanged(wf) })
+                expect(plan.errors).toEqual([])
+                expect(plan.jobs.changes?.result === 'success', check).toBe(changes)
+                expect(plan.jobs[check]?.result === 'success', check).toBe(checkRuns)
+                expect(plan.jobs[`desktop-${check}-pass`]?.result === 'success', check).toBe(!cancelled)
+            }
         }
     )
 
