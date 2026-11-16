@@ -24,6 +24,7 @@ describe('supabaseAuthEmailsLogic', () => {
     let messageTemplates: Record<string, unknown>[]
     let patches: Record<string, unknown>[]
     let failure: [number, Record<string, string>?] | null
+    let templatesListed: Promise<void>
 
     const settingsResponse = (): Record<string, unknown> => ({
         ...stored,
@@ -45,13 +46,15 @@ describe('supabaseAuthEmailsLogic', () => {
         ]
         patches = []
         failure = null
+        templatesListed = Promise.resolve()
         const sendable = (id: string): boolean =>
             messageTemplates.some((t) => t.id === id && t.transactional_hog_flow_id && t.sensitive && !t.deleted)
         useMocks({
             get: {
                 '/api/projects/:team_id/messaging_supabase_auth_emails/settings/': () =>
                     failure ?? [200, settingsResponse()],
-                '/api/projects/:team_id/messaging_templates/': ({ request }) => {
+                '/api/projects/:team_id/messaging_templates/': async ({ request }) => {
+                    await templatesListed
                     if (failure) {
                         return failure
                     }
@@ -211,6 +214,20 @@ describe('supabaseAuthEmailsLogic', () => {
         expect(logic.values.supabaseUrl).toEqual('https://draft.supabase.co')
     })
 
+    it.each([
+        ['https://a.supabase.co ', '', false],
+        ['https://a.supabase.co', '  ', false],
+        ['https://a.supabase.co', 'v1,whsec_new', true],
+        ['https://b.supabase.co', '', true],
+    ])('counts URL %j with secret %j as a change: %s', async (url, secret, changed) => {
+        stored.supabase_url = 'https://a.supabase.co'
+        const logic = await mounted()
+        logic.actions.setSupabaseUrl(url)
+        logic.actions.setHookSecret(secret)
+
+        expect(logic.values.connectionChanged).toBe(changed)
+    })
+
     it('starts each open from the saved URL with no secret', async () => {
         stored.supabase_url = 'https://a.supabase.co'
         const logic = await mounted()
@@ -263,19 +280,24 @@ describe('supabaseAuthEmailsLogic', () => {
     )
 
     it.each([
-        [{}, 'Created 2 starter templates'],
-        [{ signup: SENDABLE, recovery: DELETED }, 'Created 1 starter template'],
-        [{ signup: SENDABLE, recovery: SENDABLE }, 'Every email already has a template, so nothing was created'],
-    ])('creates starter templates over mapping %j and says %s', async (mapping, message) => {
+        [{}, 'Created 2 starter templates', null],
+        [{ signup: SENDABLE, recovery: DELETED }, 'Created 1 starter template', null],
+        [{ signup: SENDABLE, recovery: SENDABLE }, 'Every email already has a template, so nothing was created', []],
+    ])('creates starter templates over mapping %j and says %s', async (mapping, message, missingWhileReloading) => {
         stored.templates = mapping
         const logic = await mounted()
         logic.actions.openSetup()
         await settled(logic)
 
+        let listTemplates = (): void => {}
+        templatesListed = new Promise((resolve) => (listTemplates = resolve))
+
         logic.actions.createStarterTemplates()
-        await settled(logic)
 
         expect(await screen.findByText(message)).toBeTruthy()
+        expect(logic.values.missingStarterTypes).toEqual(missingWhileReloading)
+        listTemplates()
+        await settled(logic)
         expect(logic.values.missingStarterTypes).toEqual([])
     })
 
