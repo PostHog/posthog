@@ -637,6 +637,32 @@ def get_persisted_feature_flags_for_app_context() -> list[str]:
     return flags
 
 
+def _app_build_context(request: HttpRequest, js_url: str, is_authenticated: bool) -> dict[str, Any]:
+    vite_app, stable_chunks = app_build_for_request(request)
+    if vite_app:
+        build_context: dict[str, Any] = {"frontend_build": "vite"}
+        if settings.DEBUG:
+            # JS_URL names the Vite dev server here. This build is served from /static/ on this
+            # host, and the dev server's scripts must not load next to it.
+            js_url = ""
+            build_context.update(js_url=js_url, vite_dev_scripts="")
+        build_context.update(vite_app.template_context(js_url, is_authenticated))
+        return build_context
+    if not stable_chunks:
+        return {"frontend_build": "default"}
+    build_context = {
+        "frontend_build": "stable",
+        "stable_chunks": True,
+        "stable_chunks_importmap": stable_chunks.import_map_json(js_url, logged_out=not is_authenticated),
+        "preload_js_urls": stable_chunks.preload_urls(is_authenticated),
+    }
+    if stable_chunks.eager_css_urls:
+        # The stable page links its split stylesheets and loads the full one only as a fallback.
+        build_context["preload_css_url"] = ""
+        build_context["stable_preload_css_urls"] = stable_chunks.eager_css_urls
+    return build_context
+
+
 def _build_template_context(
     template_name: str,
     request: HttpRequest,
@@ -794,25 +820,7 @@ def _build_template_context(
         context["preload_css_url"], context["preload_js_urls"], context["preload_font_url"] = _resolve_entry_assets(
             is_authenticated
         )
-        vite_app, stable_chunks = app_build_for_request(request)
-        context["frontend_build"] = "vite" if vite_app else "stable" if stable_chunks else "default"
-        if vite_app:
-            if settings.DEBUG:
-                # JS_URL names the Vite dev server here. This build is served from /static/ on this
-                # host, and the dev server's scripts must not load next to it.
-                context["js_url"] = ""
-                context["vite_dev_scripts"] = ""
-            context.update(vite_app.template_context(context["js_url"], is_authenticated))
-        elif stable_chunks:
-            context["stable_chunks"] = True
-            context["stable_chunks_importmap"] = stable_chunks.import_map_json(
-                context["js_url"], logged_out=not is_authenticated
-            )
-            context["preload_js_urls"] = stable_chunks.preload_urls(is_authenticated)
-            if stable_chunks.eager_css_urls:
-                # The stable page links its split stylesheets and loads the full one only as a fallback.
-                context["preload_css_url"] = ""
-                context["stable_preload_css_urls"] = stable_chunks.eager_css_urls
+        context.update(_app_build_context(request, context["js_url"], is_authenticated))
         # Theme for the pre-React shell (critical CSS in index.html), mirroring the app's
         # themeLogic.isDarkModeOn: anonymous pages are always light, a missing theme_mode
         # means light, and only "system" defers to prefers-color-scheme.
