@@ -82,6 +82,32 @@ function rows(state: SessionThreadState): string[] {
 }
 
 describe('session thread reducer', () => {
+    test('keeps message times through streaming, echoes and history replay', () => {
+        const sent = '2026-11-15T14:30:00Z'
+        const started = '2026-11-15T14:31:00Z'
+        const state = play([
+            { type: 'local_user', id: 'local', text: 'Hello', timestamp: sent },
+            { ...userChunk('Hello'), timestamp: '2026-11-15T14:30:02Z' },
+            { ...chunk('Hi'), timestamp: started },
+            { ...message('Hi there'), timestamp: '2026-11-15T14:32:00Z' },
+        ])
+        expect(state.items).toEqual([
+            expect.objectContaining({ kind: 'user', timestamp: sent }),
+            expect.objectContaining({ kind: 'assistant', timestamp: started, text: 'Hi there' }),
+        ])
+        const replay = play(
+            [
+                { ...userChunk('Hello'), timestamp: sent },
+                { ...message('Hi there'), timestamp: started },
+            ],
+            REPLAY
+        )
+        expect(replay.items).toEqual([
+            expect.objectContaining({ kind: 'user', timestamp: sent }),
+            expect.objectContaining({ kind: 'assistant', timestamp: started }),
+        ])
+    })
+
     test('preserves the trace and source run of a completed turn across replay', () => {
         const frame = notification('_posthog/turn_complete', { traceId: 'trace-1' })
         for (const context of [LIVE, REPLAY]) {
