@@ -45,8 +45,12 @@ export interface logsImpactLogicActions {
     setViewMode: (viewMode: LogsViewerViewMode) => {
         viewMode: LogsViewerViewMode
     } // logsViewerConfigLogic
-    runQuery: (debounce?: number | undefined) => {
+    runQuery: (
+        trigger?: import('products/logs/frontend/generated/api.schemas').LogsQueryTriggerEnumApi | undefined,
+        debounce?: number | undefined
+    ) => {
         debounce: number | undefined
+        trigger: import('products/logs/frontend/generated/api.schemas').LogsQueryTriggerEnumApi | undefined
     } // logsViewerDataLogic
     loadImpact: (_: any) => any
     loadImpactFailure: (

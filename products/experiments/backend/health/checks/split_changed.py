@@ -34,7 +34,13 @@ from products.experiments.backend.health.checks.flag_change_findings import (
 )
 from products.experiments.backend.health.checks.flag_state import is_single_variant_shipped
 from products.experiments.backend.health.context import FlagHistory, FlagHistoryNotChecked, FlagState, HealthContext
-from products.experiments.backend.health.skips import CheckOutcome, CheckRows, CheckSkip
+from products.experiments.backend.health.skips import (
+    REPORTED_BY_FLAG_STATE,
+    CheckOutcome,
+    CheckRows,
+    CheckSkip,
+    not_applicable,
+)
 from products.experiments.backend.health.split_changes import (
     SplitChangeShape,
     SplitNetEffect,
@@ -70,8 +76,10 @@ def split_changed_mid_run(ctx: HealthContext) -> CheckOutcome:
     if isinstance(history, FlagHistoryNotChecked):
         return _not_checked(history, flag)
     effect = net_effect(history.counted(SplitChange))
-    if effect is None or _reported_as_shipped(effect, flag):
+    if effect is None:
         return None
+    if _reported_as_shipped(effect, flag):
+        return not_applicable(REPORTED_BY_FLAG_STATE)
 
     if (
         effect.shape == SplitChangeShape.REVERTED
@@ -124,10 +132,12 @@ def split_changed_mid_run(ctx: HealthContext) -> CheckOutcome:
     )
 
 
-def _not_checked(history: FlagHistoryNotChecked, flag: FlagState) -> ExperimentHealthFinding | None:
+def _not_checked(history: FlagHistoryNotChecked, flag: FlagState) -> CheckOutcome:
     effect = net_effect(history.of_kind(SplitChange))
-    if effect is None or _reported_as_shipped(effect, flag):
+    if effect is None:
         return None
+    if _reported_as_shipped(effect, flag):
+        return not_applicable(REPORTED_BY_FLAG_STATE)
     at = format_change_time(effect.last.changed_at, history.team_timezone)
     from_split = describe_split(effect.from_split)
     if effect.shape == SplitChangeShape.REVERTED:

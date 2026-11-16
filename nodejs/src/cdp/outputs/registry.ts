@@ -8,6 +8,7 @@ import { IngestionOutputsBuilder } from '~/common/outputs/ingestion-outputs-buil
 
 import {
     CDP_EVENTS_DLQ_OUTPUT,
+    CDP_INTAKE_DLQ_OUTPUT,
     EMAIL_STATUS_OUTPUT,
     SES_WEBHOOKS_OUTPUT,
     WAREHOUSE_SOURCE_WEBHOOKS_OUTPUT,
@@ -23,6 +24,7 @@ import {
  *   `clickhouse_app_metrics2` schema).
  * - `WAREHOUSE_SOURCE_WEBHOOKS_OUTPUT` — warehouse source webhook payloads.
  * - `CDP_EVENTS_DLQ_OUTPUT` — events that matched a function but produced no invocation.
+ * - `CDP_INTAKE_DLQ_OUTPUT` — intake messages that can never insert as a job.
  * - `SES_WEBHOOKS_OUTPUT` — verified SES notifications, recorded by the cdp-ses-webhooks consumer.
  * - `EMAIL_STATUS_OUTPUT` — status changes of transactional emails.
  */
@@ -51,6 +53,10 @@ export function createCdpOutputsRegistry() {
         .register(CDP_EVENTS_DLQ_OUTPUT, {
             topicKey: 'CDP_EVENTS_DLQ_TOPIC',
             producerKey: 'CDP_EVENTS_DLQ_PRODUCER',
+        })
+        .register(CDP_INTAKE_DLQ_OUTPUT, {
+            topicKey: 'CDP_INTAKE_DLQ_TOPIC',
+            producerKey: 'CDP_INTAKE_PRODUCER',
         })
         .register(SES_WEBHOOKS_OUTPUT, {
             topicKey: 'CDP_SES_WEBHOOKS_TOPIC',

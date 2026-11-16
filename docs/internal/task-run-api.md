@@ -18,6 +18,12 @@ The origin marker does not grant sandbox access.
 PostHog Desktop access, runtime access, and usage limits still apply.
 PostHog Code's per-user gateway caps are disabled by default and apply only to configured users when enabled.
 Repository-backed report discussions also require Desktop access.
+PostHog Desktop makes at most one speculative warm request per composer draft, scoped to the account and project.
+Selection changes before provisioning starts debounce into that request. Once provisioning starts, an incompatible selection change or abandoning the composer releases the unused run; the draft submits cold instead of warming again.
+Submission takes ownership before navigation and only enables warm activation when it holds a matching lease. A late warm response is released, and releasing an unused run cannot cancel a run whose activation has already started.
+When the warm response advertises `permission_mode_mutable`, permission-only changes retain the draft’s warm run. Submission targets that run by ID and the server must acknowledge the final mode before delivering the prompt; other selection changes still release the run. Older servers keep the strict matching behavior.
+A successful submission gives the next draft a fresh warm-up budget. Remounting or retrying a failed submission does not.
+
 Opening Ask AI on a Self-driving inbox report warms a task sandbox for the discussion.
 
 The response has status `201` and contains the task and its `latest_run`.
@@ -41,6 +47,15 @@ Older agents may omit these fields; consumers must preserve the existing behavio
 
 `branch` selects the base branch for the first run.
 Optional run hints can be `null`.
+
+User-created and PostHog AI tasks may target an unused warm run with `warm_run_id` when the warm response advertises `permission_mode_mutable`. All sandbox settings still need to match except permission mode.
+
+The web composer also sends `warm_submission_id`, a UUID kept unchanged across request retries. If another submission already claimed the shared warm run, the new submission falls back to a cold task. Repeating the original submission cannot take that fallback after ambiguous delivery.
+The server claims the run and requires an exact runtime acknowledgement of a changed mode before delivering the first prompt. Unsupported or unacknowledged mode changes release the warm run, remove its unused draft, and create a cold task; an ambiguous prompt delivery never falls back to another run.
+Other origins do not advertise permission mutability. A failed `user_message` command returns an `id` that the caller can reuse as its JSON-RPC request ID when retrying. Confirmed nondelivery releases a direct message's activation claim; ambiguous delivery preserves it for that same-ID retry.
+
+The PostHog AI task composer attempts one warm per draft after a 600 ms debounce. Permission changes keep a capable warm; other selection changes release it and submit cold. Emptying the draft for five seconds or completing a submission resets the budget. Resume warms retain strict permission-mode matching.
+
 Pi runs reject ACP runtime, model, reasoning-effort, and permission-mode hints.
 The combined request rejects `pending_user_artifact_ids` before it creates a task.
 It also rejects inaccessible sandbox environments and custom images before task creation.

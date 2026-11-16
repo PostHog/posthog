@@ -1,4 +1,4 @@
-import { IconEllipsis, IconX } from '@posthog/icons'
+import { IconGear, IconX } from '@posthog/icons'
 import { Button, ButtonGroup, Popover, PopoverContent, PopoverTrigger } from '@posthog/quill'
 
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
@@ -69,7 +69,7 @@ export function QuillEditableBreakdownTag({
                             />
                         }
                     >
-                        <IconEllipsis />
+                        <IconGear />
                     </PopoverTrigger>
                     <PopoverContent align="start" className="w-72 gap-2">
                         <QuillBreakdownTagMenu />

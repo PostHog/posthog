@@ -466,6 +466,7 @@ Changes in the examples repo will be reflected on the next request.
 - `pnpm run lint:fix` - Apply safe lint fixes without suggestion fixes
 - `pnpm run format` - Format code with Oxfmt only
 - `pnpm run fix` - Apply safe lint fixes, always format code, and report failures from either tool
+- `pnpm run build:cli:catalog` - Write the API tool catalog that the PostHog app serves to hog at `/api/cli/catalog.json`. The image build runs it, and so does `bin/start-backend` in the background, so local dev serves the catalog of your checkout
 
 ### Adding New Tools
 
