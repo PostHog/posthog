@@ -9,6 +9,10 @@ import tldextract
 # its meaning if that module changes.
 _DOMAIN_PARTS = tldextract.TLDExtract(suffix_list_urls=(), include_psl_private_domains=True)
 _REASON = "Already a provisioning partner before reviews existed"
+_REFUSED_HOST_REASON = (
+    "Already a provisioning partner before reviews existed, on a host that registration now refuses. "
+    "Reject it to disable provisioning, or accept it to keep it."
+)
 
 
 def _registrable_domain(url: str) -> str:
@@ -25,12 +29,18 @@ def _registrable_domain(url: str) -> str:
 
 
 def backfill_accepted_reviews(apps, schema_editor):
-    """Record every active CIMD partner as accepted, because it was trusted before reviews existed.
+    """Record every active CIMD partner as reviewed, because it was trusted before reviews existed.
 
-    Only active partners that are not disabled get a row. An accepted row lets a later client
-    from the same organization on that domain skip the pipeline, so an admin-blocked partner must
-    not get one. Admin-created partners have no CIMD URL and never go through a review.
+    Only active partners that are not disabled get a row. An accepted row lets a later client on
+    the same host skip part of the review, so an admin-blocked partner must not get one. A partner
+    whose metadata host registration now refuses gets a row that waits for staff instead, so staff
+    can reject it from PostHog Admin. Admin-created partners have no CIMD URL and never go
+    through a review.
     """
+    # Imported here so that a fresh database, which has no partners to check, never depends on
+    # the current shape of this module.
+    from posthog.api.oauth.cimd import is_throwaway_host
+
     OAuthApplication = apps.get_model("posthog", "OAuthApplication")
     CIMDProvisioningReview = apps.get_model("posthog", "CIMDProvisioningReview")
 
@@ -42,6 +52,19 @@ def backfill_accepted_reviews(apps, schema_editor):
     for app in partners.iterator():
         config = app._provisioning_config or {}
         if not config.get("active") or config.get("disabled"):
+            continue
+        if is_throwaway_host(app.client_id):
+            reviews.append(
+                CIMDProvisioningReview(
+                    application_id=app.pk,
+                    domain=_registrable_domain(app.client_id),
+                    status="needs_human",
+                    reason=_REFUSED_HOST_REASON,
+                    run_log=[
+                        {"at": now.isoformat(), "step": "backfill", "level": "warning", "message": _REFUSED_HOST_REASON}
+                    ],
+                )
+            )
             continue
         reviews.append(
             CIMDProvisioningReview(
