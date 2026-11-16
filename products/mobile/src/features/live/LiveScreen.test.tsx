@@ -133,11 +133,12 @@ describe('LiveScreen', () => {
         view.unmount()
     })
 
-    test.each([true, false])('retains values with a refresh indicator only while reading=%s', (reading) => {
+    test.each([true, false])('retains values with the header loading indicator while reading=%s', (reading) => {
         mockFeed = { ...feed(), reading }
         const view = render(screen())
         expect(view.getByText('Home')).toBeTruthy()
-        expect(!!view.queryByTestId('live-updating')).toBe(reading)
+        expect(useTabHeaderStore.getState().slots.live?.refreshing).toBe(reading)
+        expect(view.queryByText('Updating…')).toBeNull()
         expect(view.getByTestId('live-stat-users-online-loading')).toBeTruthy()
         expect(view.queryByText("Couldn't load this yet. Live tries again every 30 seconds.")).toBeNull()
         view.unmount()
