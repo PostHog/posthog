@@ -7,6 +7,7 @@ from unittest.mock import MagicMock, patch
 from django.test import SimpleTestCase
 
 from parameterized import parameterized
+from requests.exceptions import SSLError
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.auth import (
     _TOKEN_CONNECT_TIMEOUT,
@@ -370,3 +371,13 @@ class TestOAuth2Auth(SimpleTestCase):
         auth = OAuth2Auth(token_url="https://a/t", client_id="cid", client_secret="cs", grant_type="refresh_token")
         with self.assertRaises(OAuth2AuthRequestError):
             auth._obtain_token()
+
+    @patch(f"{AUTH_MODULE}.make_tracked_session")
+    def test_connection_failure_reaching_token_endpoint_is_transient(self, mock_session):
+        # A TLS/connection failure never reaches a response, so it can't go through the
+        # status-code classification above — it must be caught around the `post()` call itself.
+        mock_session.return_value.post.side_effect = SSLError("EOF occurred in violation of protocol")
+        auth = OAuth2Auth(token_url="https://a/t", client_id="cid", client_secret="cs")
+        with self.assertRaises(OAuth2AuthRequestError) as ctx:
+            auth._obtain_token()
+        assert ctx.exception.is_permanent is False
