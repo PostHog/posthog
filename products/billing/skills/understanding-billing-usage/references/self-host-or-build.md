@@ -61,12 +61,11 @@ break-even FTE = (monthly spend the alternative replaces - monthly infrastructur
   Identified events and group analytics appear as separate lines on the bill.
   They pay for person processing: merging anonymous and identified users, and keeping person and group properties up to date.
   This is the most expensive part of an analytics pipeline to run and the hardest part to rebuild, and builds that look cheap usually skip it.
-  Run the comparison two ways and keep them apart:
+  Run the comparison two ways, for self-hosting and for building, and keep them apart:
   - **With person profiles:** count the events, identified events, and group analytics lines.
-    The build must merge identities and keep profiles, so use the full build headcount.
-    Say that infrastructure costs more, because this processing runs on every event that comes in.
-    The infrastructure defaults cover anonymous events only, so treat them as a minimum here.
-    List the extra infrastructure as a cost the comparison could not put a number on, unless the user gives their own estimate.
+    For both options, infrastructure costs more, because this processing runs on every event that comes in; see "Infrastructure".
+    For building, use the full build headcount, because the build must merge identities and keep profiles.
+    For self-hosting, the headcount does not change, because PostHog's code already does identity merging.
   - **Without person profiles:** count only the events line.
     Say what they give up: per-user funnels and retention, cohorts, and joining anonymous activity to logged-in users.
     Then compare against PostHog with person processing turned off for the events that don't need it, which often closes most of the gap without building anything.
@@ -193,11 +192,14 @@ Check current rates on the provider's pricing page before quoting.
   The extra pays for a durable queue, separate compute for queries so dashboards can't slow ingest, a staging copy, and headroom for traffic spikes.
 - **Rough monthly figures for a production build on ClickHouse Cloud**, including a managed queue:
   about $600 at 10M events, $1,400 at 100M, $4,000 at 1B, and $15,000 at 10B.
-  These cover anonymous events only, with no person processing.
-  When the build must keep person profiles, treat them as a minimum; see "Person profiles are their own decision".
 - **Self-hosting PostHog** runs ClickHouse, Kafka, ZooKeeper, Postgres, Redis, object storage, and the app.
   The hobby deploy runs everything on one VM with no replication.
   At production volumes those components need separate, replicated machines, so expect costs in the same range as a production build.
+- **These figures assume anonymous events, with no person processing.**
+  This applies to self-hosting and building.
+  When the comparison includes person profiles, say that infrastructure costs more than the default.
+  List the extra as a cost the comparison could not put a number on, unless the user gives their own estimate.
+  Do not quote a multiplier.
 
 ## Other things to weigh
 
