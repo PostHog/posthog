@@ -3195,6 +3195,7 @@ module.exports = {
     computeTargets,
     jsLockfileNodeLanes,
     loadNodeLaneMap,
+    loadRustInventory,
     NODE_LANES,
     NODE_SUB_LANES,
     allKnownTargets,
