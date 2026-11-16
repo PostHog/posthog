@@ -46,8 +46,11 @@ def record_ses_sending_status(failed_domains: Iterable[str]) -> None:
         if rolled_out(sender.team_id) is not True:
             continue
         stopped_at = _stop_awaiting_notice(sender, _patch_domain(sender, _MARK))
-        if stopped_at and _queue_sending_stopped_email(sender.team_id, sender.config["domain"], stopped_at):
-            _patch_domain(sender, _NOTICE_SENT)
+        if (
+            stopped_at
+            and _queue_sending_stopped_email(sender.team_id, sender.config["domain"], stopped_at)
+            and _patch_domain(sender, _NOTICE_SENT).changed_ids
+        ):
             _create_sending_stopped_notification(sender.team_id, sender.config["domain"])
     for sender in _one_sender_per_project_domain(where={SES_SENDING_STATUS_KEY: SES_SENDING_FAILED}):
         if sender.config["domain"] not in failed or rolled_out(sender.team_id) is False:

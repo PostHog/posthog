@@ -142,6 +142,27 @@ class TestSesSenderHealth(EmailDomainApiTestCase):
         assert len(mail.outbox) == 2
         assert len(stored_notifications_for_team(self.team.id)) == 2
 
+    def test_tells_the_admins_once_when_two_checks_overlap(self) -> None:
+        self.deliver_notices()
+        self.verified_sender(f"hello@{DOMAIN}")
+        self.world.ses.identities[DOMAIN].forced_verification_status = "Failed"
+        mail.outbox.clear()
+        queue_email = send_email_sender_domain_sending_stopped.delay
+        checks_started = 0
+
+        def publish_during_another_check(*args: Any, **kwargs: Any) -> None:
+            nonlocal checks_started
+            checks_started += 1
+            if checks_started == 1:
+                check_ses_sender_health()
+            queue_email(*args, **kwargs)
+
+        with patch.object(send_email_sender_domain_sending_stopped, "delay", side_effect=publish_during_another_check):
+            check_ses_sender_health()
+
+        assert len(mail.outbox) == 1
+        assert len(stored_notifications_for_team(self.team.id)) == 1
+
     @parameterized.expand(
         [
             ("the_broker_refuses_it", False),
