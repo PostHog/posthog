@@ -30,9 +30,8 @@ Semantics, chosen so the sync can run unattended at every app startup:
   not by anything in this module.
 """
 
-from dataclasses import dataclass, replace
+from dataclasses import dataclass
 
-from django.conf import settings
 from django.db import IntegrityError
 
 import structlog
@@ -159,6 +158,13 @@ def _create_template(entry: CatalogEntry, skip_probe: bool, counts: SyncCounts) 
 
 
 def _update_template(template: MCPServerTemplate, entry: CatalogEntry, skip_probe: bool, counts: SyncCounts) -> None:
+    if template.oauth_credentials_source != (entry.oauth_credentials_source or "") and template.installations.exists():
+        # An installation's token belongs to the OAuth app that issued it, and the other app cannot refresh it.
+        # The template stays inactive on the old app until its members disconnect, so nobody installs it meanwhile.
+        if template.is_active:
+            template.is_active = False
+            template.save(update_fields=["is_active", "updated_at"])
+        raise ValueError("Disconnect existing installations before changing OAuth apps")
     changed = [f for f in _CONTENT_FIELDS if getattr(template, f) != _entry_field_value(entry, f)]
     for f in changed:
         setattr(template, f, _entry_field_value(entry, f))
@@ -202,30 +208,12 @@ def _update_template(template: MCPServerTemplate, entry: CatalogEntry, skip_prob
     counts.updated += 1
 
 
-def _entry_for_environment(entry: CatalogEntry, template: MCPServerTemplate | None) -> CatalogEntry:
-    if entry.oauth_credentials_source != "slack_app" or entry.url != "https://mcp.slack.com/mcp":
-        return entry
-    dev_enabled = bool(settings.MCP_STORE_SLACK_DEV_ALLOWED_TEAM_IDS)
-    dev_template = template is not None and template.oauth_credentials_source == "slack_dev_app"
-    if not dev_enabled and (not dev_template or (template is not None and not template.installations.exists())):
-        return entry
-    if template is not None and not dev_template and template.installations.exists():
-        raise ValueError("Disconnect existing Slack MCP installations before changing OAuth apps")
-    return replace(
-        entry,
-        name="Slack via PostHog (dev)",
-        oauth_credentials_source="slack_dev_app",
-        disabled=not dev_enabled,
-    )
-
-
 def sync_mcp_catalog(entries: list[CatalogEntry] | None = None, skip_probe: bool = False) -> SyncCounts:
     counts = SyncCounts()
     catalog = entries if entries is not None else MCP_SERVER_CATALOG
     for entry in catalog:
         try:
             template = MCPServerTemplate.objects.filter(url=entry.url).first()
-            entry = _entry_for_environment(entry, template)
             if template is None:
                 try:
                     _create_template(entry, skip_probe, counts)
