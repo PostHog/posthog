@@ -189,7 +189,7 @@ function narrowColumns(width: number): ColumnDef<ReleaseRow>[] {
 
 function ReleaseListContent(): JSX.Element {
     const { filteredRows, dataLoading, loadFailed, releases, canEditReleases } = useValues(releaseLogic)
-    const { selection, hiddenReleaseIds } = useValues(releaseMergeLogic)
+    const { selection, selectionDisabledReason } = useValues(releaseMergeLogic)
     const { setSelection } = useActions(releaseMergeLogic)
     const { showAutoImport } = useValues(releaseImportLogic)
     const [container, setContainer] = useState<HTMLDivElement | null>(null)
@@ -215,7 +215,7 @@ function ReleaseListContent(): JSX.Element {
             />
             <div data-quill className="flex flex-col gap-3" ref={setContainer}>
                 {!showAutoImport && <ReleaseFilters />}
-                {canEditReleases && <ReleaseSelectionBar />}
+                <ReleaseSelectionBar />
                 <ReleasePartialLoadWarning />
                 <ReleaseImportFailedNotice />
                 {loadFailed ? (
@@ -239,9 +239,7 @@ function ReleaseListContent(): JSX.Element {
                             onRowSelectionChange={setSelection}
                             getRowId={(row) => row.id}
                             rowSelectionLabel={(row) => `Select ${row.name}`}
-                            rowSelectionDisabledReason={(row) =>
-                                hiddenReleaseIds.has(row.id) ? 'This release links flags you can’t see' : null
-                            }
+                            rowSelectionDisabledReason={(row) => selectionDisabledReason(row.id)}
                             onRowClick={(row) => router.actions.push(urls.release(row.id))}
                             empty={
                                 <Text size="xs" variant="muted">

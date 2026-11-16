@@ -6,10 +6,10 @@ import { MERGE_LIMIT_REASON, MERGE_SOURCE_LIMIT } from './releaseMerge'
 import { releaseMergeLogic } from './releaseMergeLogic'
 
 export function ReleaseSelectionBar(): JSX.Element | null {
-    const { candidates } = useValues(releaseMergeLogic)
+    const { candidates, canEditReleases } = useValues(releaseMergeLogic)
     const { setMergeOpen, setSelection } = useActions(releaseMergeLogic)
 
-    if (!candidates.length) {
+    if (!canEditReleases || !candidates.length) {
         return null
     }
     return (

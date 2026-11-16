@@ -6,7 +6,7 @@ import { releaseMergeLogic } from './releaseMergeLogic'
 import { ReleaseRow } from './releaseUtils'
 
 export function ReleaseMergeButton({ row }: { row: ReleaseRow }): JSX.Element | null {
-    const { canEditReleases, rows, hiddenReleaseIds } = useValues(releaseMergeLogic)
+    const { canEditReleases, rows, selectionDisabledReason } = useValues(releaseMergeLogic)
     const { openMergeInto } = useActions(releaseMergeLogic)
 
     if (!canEditReleases || rows.length < 2) {
@@ -15,7 +15,7 @@ export function ReleaseMergeButton({ row }: { row: ReleaseRow }): JSX.Element | 
     return (
         <Button
             variant="outline"
-            disabledReason={hiddenReleaseIds.has(row.id) ? 'This release links flags you can’t see' : undefined}
+            disabledReason={selectionDisabledReason(row.id) ?? undefined}
             onClick={() => openMergeInto(row.id)}
             data-attr="release-merge-into"
         >

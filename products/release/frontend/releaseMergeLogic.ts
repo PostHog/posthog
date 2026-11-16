@@ -24,6 +24,7 @@ interface ReleaseMergeLogicValues {
     merging: boolean
     candidates: MergeCandidate[]
     hiddenReleaseIds: Set<string>
+    selectionDisabledReason: (releaseId: string) => string | null
 }
 
 interface ReleaseMergeLogicActions {
@@ -92,6 +93,12 @@ export const releaseMergeLogic = kea<releaseMergeLogicType>([
             (s) => [s.releases],
             (releases: ReleaseDTOApi[]): Set<string> =>
                 new Set(releases.filter((release) => release.has_hidden_flags).map((release) => release.id)),
+        ],
+        selectionDisabledReason: [
+            (s) => [s.hiddenReleaseIds],
+            (hiddenReleaseIds: Set<string>) =>
+                (releaseId: string): string | null =>
+                    hiddenReleaseIds.has(releaseId) ? 'This release links flags you can’t see' : null,
         ],
     }),
     listeners(({ actions, values }) => ({
