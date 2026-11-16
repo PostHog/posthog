@@ -221,11 +221,12 @@ describe('RustVmExecutor', () => {
         expect(executor.execute(createExampleInvocation(), [])).toBeNull()
     })
 
-    it('falls back to the node vm when the ffi boundary throws instead of returning an error', () => {
+    it('falls back to the node vm when the ffi boundary throws instead of returning an error', async () => {
         const invocation = createExampleInvocation({ bytecode: RETURN_EVENT_UUID })
         invocation.state.globals.event.properties.unrepresentable = NaN
 
         expect(executor.execute(invocation, [])).toBeNull()
+        expect(await outcomeCount('fallback_exception')).toEqual(1)
     })
 
     it('redacts sensitive values from fallback logs', () => {
@@ -282,6 +283,7 @@ describe('RustVmExecutor', () => {
 
             expect(fellBack).toBeNull()
             expect(executed!.execResult).toEqual(representable.state.globals.event.uuid)
+            expect(await outcomeCount('fallback_exception')).toEqual(1)
         })
 
         it('falls back to the node vm on unsupported-program errors, same predicate as the sync path', async () => {
@@ -303,7 +305,7 @@ describe('RustVmExecutor', () => {
             })
 
             expect(await executor.executeBatched(createExampleInvocation(), [])).toBeNull()
-            expect(mockHogvmNode.executeRegisteredBatch).not.toHaveBeenCalled()
+            expect(await outcomeCount('fallback_exception')).toEqual(1)
         })
     })
 
