@@ -547,7 +547,15 @@ def record_repartition_history(
 def capture_repartition_event(event: str, props: dict[str, Any], *, requested_by_id: int | None = None) -> None:
     """Report one repartition step as a PostHog event, and record it in the schema's repartition history."""
     status = _HISTORY_STATUS_BY_EVENT.get(event)
-    if status is not None:
+    if status == RepartitionStatus.SKIPPED and props.get("terminal") is False:
+        # The pending marker survives a stand-down and a later run resumes the rewrite, so the row goes back
+        # to queued and that run continues it.
+        record_repartition_history(
+            RepartitionStatus.FLAGGED,
+            {k: v for k, v in props.items() if k not in ("reason", "error_type")},
+            requested_by_id=requested_by_id,
+        )
+    elif status is not None:
         record_repartition_history(status, props, requested_by_id=requested_by_id)
     posthoganalytics.capture(distinct_id=get_machine_id(), event=event, properties=props)
 
@@ -835,7 +843,10 @@ async def maybe_flag_for_repartition(
         # Only query the OOM log when the size check didn't already trip: an over-budget table
         # repartitions regardless, so the count would only feed observability props there — skip the
         # per-sync indexed COUNT for it and report 0.
-        if over_budget or not split_applies or not tuning.stages_targets:
+        # A policy whose size split stops above the hour tier still needs the count on an over-budget
+        # table, because only repeated OOMs let it reach the hour tier.
+        needs_oom_count = not over_budget or not tuning.size_split_reaches_hour_tier
+        if not needs_oom_count or not split_applies or not tuning.stages_targets:
             oom_count = 0
             oom_triggered = False
         else:
@@ -981,7 +992,7 @@ async def maybe_flag_for_repartition(
             schema,
             partition_bytes,
             split_budget,
-            allow_hour_tier=tuning.size_split_reaches_hour_tier or trigger_reason == "oom_history",
+            allow_hour_tier=tuning.size_split_reaches_hour_tier or oom_triggered,
         )
         if target is None:
             # Needs repartition but nothing finer to do (datetime at hour, numerical can't shrink, unpartitionable).

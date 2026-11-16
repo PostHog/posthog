@@ -7161,6 +7161,27 @@ class TestExternalDataSchemaPartitioning(APIBaseTest):
         assert row.scheme_after["count"] == 8
         assert (second.status_code, second.json()["code"]) == (409, "busy")
 
+    def test_repartition_refuses_keys_that_are_not_columns_of_the_table(self) -> None:
+        schema = self._schema()
+        schema.table = DataWarehouseTable.objects.create(
+            team=self.team, columns={"id": {"clickhouse": "String"}, "created_at": {"clickhouse": "DateTime64"}}
+        )
+        schema.save(update_fields=["table"])
+        body = {"partition_mode": "datetime", "partition_format": "month"}
+
+        with self._flag(), self._repartition_boundaries(None) as start:
+            unknown = self.client.post(
+                self._url(schema, "repartition/"), data={**body, "partitioning_keys": ["createdat"]}, format="json"
+            )
+            known = self.client.post(
+                self._url(schema, "repartition/"), data={**body, "partitioning_keys": ["created_at"]}, format="json"
+            )
+
+        assert (unknown.status_code, unknown.json()["code"]) == (400, "invalid_scheme")
+        assert "createdat" in unknown.json()["detail"]
+        assert known.status_code == 202, known.json()
+        start.assert_called_once()
+
     def test_repartition_is_refused_while_the_team_is_over_its_billing_limit(self) -> None:
         schema = self._schema()
 

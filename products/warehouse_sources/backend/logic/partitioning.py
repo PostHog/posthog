@@ -132,6 +132,10 @@ def build_repartition_target(
     # datetime or numerical they are required, because the existing composite PK is usually unsuitable for
     # single-column bucketing.
     keys = list(request.partitioning_keys)
+    if trigger_reason == "user" and keys:
+        unknown = _unknown_columns(schema, keys)
+        if unknown:
+            return f"Unknown partitioning key(s): {', '.join(unknown)}. Choose columns of the synced table."
 
     if new_mode == "datetime":
         if keys:
@@ -204,6 +208,16 @@ def build_repartition_target(
     )
 
 
+def _unknown_columns(schema: ExternalDataSchema, keys: list[str]) -> list[str]:
+    # A missing key reads as null for every row, which puts the whole table in one partition.
+    table = schema.table
+    columns = (table.columns or {}) if table is not None else {}
+    if not columns:
+        return []
+    known = {str(name).lower() for name in columns}
+    return [key for key in keys if key.lower() not in known]
+
+
 def measure_live_partition_bytes(schema: ExternalDataSchema) -> dict[str | None, int] | None:
     """Bytes per partition of the table on disk, from the Delta log. None when there is no table yet."""
     uri = build_delta_table_uri(schema.folder_path(), schema.resolved_s3_folder_name or schema.name)
@@ -220,8 +234,8 @@ def estimate_largest_partition_bytes(
 
     Exact where the new partitions are unions of the old ones (a coarser datetime tier, an md5 count that
     divides the current one, a numerical size that is a multiple of the current one). A finer layout of the
-    same scheme cannot grow a partition. An md5 layout over the primary key spreads rows evenly. Any other
-    change depends on values the Delta log does not record.
+    same scheme cannot grow a partition, except month to week. An md5 layout over the primary key spreads rows
+    evenly. Any other change depends on values the Delta log does not record.
     """
     if not partition_bytes:
         return 0
@@ -249,7 +263,8 @@ def estimate_largest_partition_bytes(
         current_format: PartitionFormat = schema.partition_format or "month"
         new_format: PartitionFormat = target["partition_format"]
         if DATETIME_FORMAT_TIERS.index(new_format) >= DATETIME_FORMAT_TIERS.index(current_format):
-            return current_max
+            # An ISO week can straddle two months, so a weekly partition can take rows from two monthly ones.
+            return 2 * current_max if (current_format, new_format) == ("month", "week") else current_max
         simulated = simulate_datetime_coarsening(partition_bytes, current_format, new_format)
         return max(simulated.values()) if simulated else None
 

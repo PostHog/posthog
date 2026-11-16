@@ -53,6 +53,14 @@ class TestEstimateLargestPartitionBytes(SimpleTestCase):
                 _target("datetime", ["at"], partition_format="day"),
                 400,
             ),
+            # An ISO week can take rows from the end of one month and the start of the next.
+            (
+                "datetime_month_to_week_can_join_two_months",
+                {"partition_mode": "datetime", "partition_format": "month", "partitioning_keys": ["at"]},
+                {"2026-01": 400, "2026-02": 100},
+                _target("datetime", ["at"], partition_format="week"),
+                800,
+            ),
             # A divisor of the md5 count merges whole buckets.
             (
                 "md5_divisor_is_exact",

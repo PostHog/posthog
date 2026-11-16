@@ -840,14 +840,17 @@ class TestPartitionPolicy:
         assert schema.partition_measurement["healthy"] is False
 
     @pytest.mark.parametrize(
-        "policy,oom_triggered,expected_format",
+        "policy,oom_triggered,max_bytes,expected_format",
         [
-            ("auto", False, "hour"),
-            ("prefer_query_speed", False, None),
-            ("prefer_query_speed", True, "hour"),
+            ("auto", False, 1000, "hour"),
+            ("prefer_query_speed", False, 1000, None),
+            ("prefer_query_speed", True, 500, "hour"),
+            ("prefer_query_speed", True, 1000, "hour"),
         ],
     )
-    def test_prefer_query_speed_reaches_the_hour_tier_only_on_ooms(self, team, policy, oom_triggered, expected_format):
+    def test_prefer_query_speed_reaches_the_hour_tier_only_on_ooms(
+        self, team, policy, oom_triggered, max_bytes, expected_format
+    ):
         schema = _make_schema(
             team,
             {
@@ -863,7 +866,7 @@ class TestPartitionPolicy:
         if oom_triggered:
             for _ in range(3):
                 ExternalDataSchemaOOMEvent.objects.for_team(team.id).create(team_id=team.id, schema=schema)
-        partition_bytes: dict[str | None, int] = {"2026-01-01": 500 if oom_triggered else 1000}
+        partition_bytes: dict[str | None, int] = {"2026-01-01": max_bytes}
 
         with (
             patch.object(ctrl, "repartition_oom_threshold", return_value=3),
@@ -1507,6 +1510,27 @@ class TestRepartitionActivity:
             assert row.rows_rewritten == 6
             assert row.max_partition_bytes_before == 900
             assert row.scheme_after is not None and row.scheme_after["count"] == 4
+
+    def test_a_resumable_stand_down_keeps_one_history_row_for_the_repartition(self, team):
+        schema = _make_schema(team, {"partition_mode": "md5", "partition_count": 2, "partitioning_keys": ["id"]})
+        first_job, second_job = _make_job(team, schema), _make_job(team, schema)
+
+        def props(job: ExternalDataJob, **extra: Any) -> dict[str, Any]:
+            return {**ctrl.base_event_props(schema, schema.source, str(job.id)), "trigger_reason": "user", **extra}
+
+        with patch.object(ctrl, "posthoganalytics"):
+            ctrl.capture_repartition_event("warehouse_repartition_flagged", props(first_job))
+            ctrl.capture_repartition_event("warehouse_repartition_started", props(first_job))
+            ctrl.capture_repartition_event(
+                "warehouse_repartition_skipped", props(first_job, reason="sync_slice", terminal=False)
+            )
+            ctrl.capture_repartition_event("warehouse_repartition_started", props(second_job))
+            ctrl.capture_repartition_event("warehouse_repartition_completed", props(second_job, row_count=6))
+
+        rows = list(ExternalDataSchemaRepartition.objects.for_team(team.id).filter(schema=schema))
+        assert [(r.status, r.job_id, r.error_type, r.rows_rewritten) for r in rows] == [
+            ("completed", str(second_job.id), None, 6)
+        ]
 
     def test_a_history_write_failure_does_not_fail_the_sync(self, team):
         schema = _make_schema(team, {})
