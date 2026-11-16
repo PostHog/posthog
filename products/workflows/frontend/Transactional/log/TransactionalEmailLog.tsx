@@ -67,10 +67,13 @@ function EmailLogList({ emailOptions }: { emailOptions?: { value: string; label:
         useValues(transactionalEmailLogLogic)
     const { setFilters, setPage, refresh, loadEmails } = useActions(transactionalEmailLogLogic)
     const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+    const sendLinks = useFeatureFlag('WORKFLOWS_EMAIL_SEND_LINKS')
     const oneEmail = !emailOptions
 
     const sendUrl = (email: TransactionalEmailLogEntryApi): string =>
-        combineUrl(urls.transactionalEmailLogEntry(email.message_id), sendFilterSearchParams).url
+        sendLinks
+            ? combineUrl(urls.transactionalEmailLogEntry(email.message_id), sendFilterSearchParams).url
+            : urls.transactionalEmailLogEntry(email.message_id)
 
     return (
         <div className="flex flex-col gap-2">

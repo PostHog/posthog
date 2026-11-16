@@ -98,6 +98,7 @@ export function MessageTemplate(props: MessageTemplateSceneLogicProps): JSX.Elem
     } = useValues(logic)
     const transactionalEmailsEnabled = useFeatureFlag('WORKFLOWS_TRANSACTIONAL_EMAIL_API')
     const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
+    const sendLinks = useFeatureFlag('WORKFLOWS_EMAIL_SEND_LINKS')
     const showTransactional = transactionalEmailsEnabled && props.id !== 'new'
 
     const { setIsSaveTemplateModalOpen } = useActions(emailTemplaterLogic)
@@ -175,7 +176,8 @@ export function MessageTemplate(props: MessageTemplateSceneLogicProps): JSX.Elem
 
     const tabs = (
         <LemonTabs
-            activeKey={transactionalTab}
+            // Without the flag, the run logs keep their Sends label, and a `tab=sends` link opens them.
+            activeKey={!sendLinks && transactionalTab === 'sends' ? 'runs' : transactionalTab}
             onChange={setTransactionalTab}
             className="flex flex-col grow [&>div]:flex [&>div]:flex-col [&>div]:grow"
             tabs={[
@@ -193,14 +195,18 @@ export function MessageTemplate(props: MessageTemplateSceneLogicProps): JSX.Elem
                                   />
                               ),
                           },
-                          {
-                              key: 'sends' as const,
-                              label: 'Sends',
-                              content: <TransactionalEmailLog workflowId={transactionalHogFlowId} />,
-                          },
+                          ...(sendLinks
+                              ? [
+                                    {
+                                        key: 'sends' as const,
+                                        label: 'Sends',
+                                        content: <TransactionalEmailLog workflowId={transactionalHogFlowId} />,
+                                    },
+                                ]
+                              : []),
                           {
                               key: 'runs' as const,
-                              label: 'Run logs',
+                              label: sendLinks ? 'Run logs' : 'Sends',
                               content: <WorkflowInvocations id={transactionalHogFlowId} />,
                           },
                           {
