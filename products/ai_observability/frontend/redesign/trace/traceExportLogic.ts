@@ -15,6 +15,7 @@ import {
     COPY_TRACE_MAX_MEGABYTES,
     TraceExportFailedError,
     TraceTooLargeToCopyError,
+    isNetworkFailure,
     readTraceExportText,
     writePendingTextToClipboard,
 } from './traceExportCopy'
@@ -170,6 +171,9 @@ export const traceExportLogic = kea<traceExportLogicType>([
                 } else if (error instanceof TraceExportFailedError) {
                     lemonToast.error(error.message)
                     traceViewTracking.exportCopyFailed('export_failed')
+                } else if (isNetworkFailure(error)) {
+                    lemonToast.error("Couldn't copy this trace. Try again.")
+                    traceViewTracking.exportCopyFailed('network')
                 } else {
                     lemonToast.error("Couldn't copy this trace. Try again.")
                     traceViewTracking.exportCopyFailed('error')
