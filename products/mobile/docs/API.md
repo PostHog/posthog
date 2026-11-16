@@ -22,6 +22,11 @@ Pending approvals and clarification forms pause reconnection until the person re
 The classic chat hook exposes form questions from both streamed replies and history, with submit and dismiss methods.
 Form responses send no new chat message; they resume the conversation with the selected answers or a dismissal.
 Notebook artifacts retain their Markdown and chart blocks, with links to saved notebooks and a web fallback for other content.
+Chart previews use supplied results when available. Saved insight previews read `insights/{id}/`;
+supported generated chart and SQL previews use `query/` when they need results.
+They use the same native renderers as Views and retain an action to open the chart or insight on the web.
+Supplied results can be arrays or envelopes with `result` or `results`, plus SQL `columns`, `types`, and `hasMore` metadata.
+Missing or null results trigger a fetch for supported queries; unsupported chart types keep a web fallback without running the query.
 Reply links without a project prefix use the conversation's project; explicit project links and external links keep their destination.
 Canceling a classic reply requires `conversation:write` for OAuth and personal API tokens.
 
