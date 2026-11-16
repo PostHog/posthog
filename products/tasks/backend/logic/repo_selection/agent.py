@@ -570,6 +570,10 @@ Only consider rows whose `full_name` is in the candidate list below.
 **Source privacy.** Check where the information in the context comes from before selecting a repo.
 If it comes from a private repository or another explicitly private source, avoid selecting a public
 repo. Prefer a relevant private candidate; do not choose an unrelated repo just because it is private.
+A source is explicitly private when the context quotes a private repository's content, or says the
+information is confidential or must not be published. A team's own conversation, such as a Slack
+thread, or a report about the team's product is not a private source by itself. When this rule does
+not apply, do not prefer a `same files as` copy for its visibility: select the repository it copies.
 Repository access and topic relevance are not permission to publish private information.
 Each candidate below carries its visibility from GitHub metadata: `private`, `public`, or
 `visibility unknown`. Trust that label, not the repo name, and do not look visibility up yourself.

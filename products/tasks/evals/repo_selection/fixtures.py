@@ -19,7 +19,7 @@ from typing import Literal
 
 from posthog.dataclasses import frozen
 
-FIXTURE_VERSION = "2026-11-11.1"
+FIXTURE_VERSION = "2026-11-16.1"
 
 ORG = "fernhill"
 BOT_MENTION = "@PostHog"
@@ -27,6 +27,7 @@ BOT_MENTION = "@PostHog"
 STOREFRONT = f"{ORG}/storefront"
 CORE_API = f"{ORG}/core-api"
 DOCS_SITE = f"{ORG}/docs-site"
+DOCS_SITE_PRIVATE = f"{ORG}/docs-site-private"
 MARKETING_SITE = f"{ORG}/marketing-site"
 IOS_SDK = f"{ORG}/fernhill-ios"
 ANDROID_SDK = f"{ORG}/fernhill-android"
@@ -320,6 +321,7 @@ REPOSITORIES: tuple[FixtureRepository, ...] = (
 )
 
 _STOREFRONT = next(repo for repo in REPOSITORIES if repo.full_name == STOREFRONT)
+_DOCS_SITE = next(repo for repo in REPOSITORIES if repo.full_name == DOCS_SITE)
 
 # Repositories that match request keywords but are not where the work happens. Only the activity
 # figures in the candidate list separate them from the repository people work in.
@@ -336,6 +338,19 @@ REPOSITORIES += (
         tree_paths=_STOREFRONT.tree_paths,
         commits_last_30_days=240,
         recent_author_count=9,
+        merged_pull_request_count=0,
+    ),
+    # A private mirror of the public docs site: the same files and commits, for confidential work only.
+    FixtureRepository(
+        full_name=DOCS_SITE_PRIVATE,
+        description=_DOCS_SITE.description,
+        primary_language=_DOCS_SITE.primary_language,
+        topics=_DOCS_SITE.topics,
+        private=True,
+        readme=_DOCS_SITE.readme,
+        tree_paths=_DOCS_SITE.tree_paths,
+        commits_last_30_days=_DOCS_SITE.commits_last_30_days,
+        recent_author_count=_DOCS_SITE.recent_author_count,
         merged_pull_request_count=0,
     ),
     # Written by a release bot only. Its paths name order discounts, which the API code does not.
@@ -738,6 +753,30 @@ SELECTOR_CASES: tuple[SelectorCase, ...] = (
         ),
         expected=SelectorExpectation(accepted=(STOREFRONT,)),
         category="mirror",
+    ),
+    SelectorCase(
+        scenario=_scenario(
+            "team_thread_public_source",
+            "A teammate reports a docs bug in Slack; a team thread is not a private source, so the public source wins.",
+            _ask(
+                "@PostHog can you fix the search on the docs site?",
+                ("dana", "the search box on our docs site returns nothing for two-word queries since this morning"),
+            ),
+        ),
+        expected=SelectorExpectation(accepted=(DOCS_SITE,)),
+        category="team_context",
+    ),
+    SelectorCase(
+        scenario=_scenario(
+            "confidential_source_private_copy",
+            "The thread marks its details confidential, so the private copy of the docs site is the safe pick.",
+            _ask(
+                "@PostHog can you fix this on the docs site? keep the details out of anything public",
+                ("dana", "confidential, do not publish: the docs search leaks unreleased page titles in its results"),
+            ),
+        ),
+        expected=SelectorExpectation(accepted=(DOCS_SITE_PRIVATE,)),
+        category="confidential_source",
     ),
     SelectorCase(
         scenario=_scenario(
