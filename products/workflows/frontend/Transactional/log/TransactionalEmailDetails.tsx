@@ -4,10 +4,11 @@ import { LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { TZLabel } from 'lib/components/TZLabel'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 
 import type { TransactionalEmailLogDetailApi } from 'products/messaging/frontend/generated/api.schemas'
 
-import { transactionalEmailUrl } from '../transactionalEmailUrl'
+import { templatePageUrl, transactionalEmailUrl } from '../transactionalEmailUrl'
 import { EMAIL_STATUS_DESCRIPTION, EMAIL_STATUS_LABEL, EMAIL_STATUS_TAG } from './emailLogStatus'
 
 function DetailRow({
@@ -55,7 +56,8 @@ function CopyableId({
 }
 
 export function TransactionalEmailDetails({ email }: { email: TransactionalEmailLogDetailApi }): JSX.Element {
-    const emailUrl = transactionalEmailUrl(email)
+    const sendLinks = useFeatureFlag('WORKFLOWS_EMAIL_SEND_LINKS')
+    const emailUrl = sendLinks ? transactionalEmailUrl(email) : templatePageUrl(email.template_id)
     return (
         <section className="border rounded bg-surface-primary p-4 flex flex-col gap-3">
             <h3 className="text-sm font-semibold m-0">Details</h3>

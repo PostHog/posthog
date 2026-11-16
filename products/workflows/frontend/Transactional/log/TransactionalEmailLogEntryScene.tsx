@@ -10,7 +10,7 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { ProductKey } from '~/queries/schema/schema-general'
 
-import { transactionalEmailUrl } from '../transactionalEmailUrl'
+import { templatePageUrl, transactionalEmailUrl } from '../transactionalEmailUrl'
 import { TransactionalEmailActivity } from './TransactionalEmailActivity'
 import { TransactionalEmailDeliveryProgress } from './TransactionalEmailDeliveryProgress'
 import { TransactionalEmailDetails } from './TransactionalEmailDetails'
@@ -33,7 +33,8 @@ export function TransactionalEmailLogEntryScene(): JSX.Element {
     // The scene binds the logic to the message ID in the URL.
     const { email, emailLoading, emailFailed } = useValues(transactionalEmailLogEntryLogic)
     const { loadEmail } = useActions(transactionalEmailLogEntryLogic)
-    const emailUrl = transactionalEmailUrl(email)
+    const sendLinks = useFeatureFlag('WORKFLOWS_EMAIL_SEND_LINKS')
+    const emailUrl = sendLinks ? transactionalEmailUrl(email) : templatePageUrl(email?.template_id)
 
     if (!showTransactional) {
         return <NotFound object="page" />
