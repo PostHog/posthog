@@ -193,6 +193,20 @@ class TeamMarketingAnalyticsConfigSerializer(serializers.ModelSerializer, UserAc
             "in campaign_name_mappings still take precedence."
         ),
     )
+    recommendation_conversion_actions = serializers.ListField(
+        child=serializers.RegexField(
+            r"^customers/\d+/conversionActions/\d+$",
+            help_text="A Google Ads conversion action resource name, such as customers/123/conversionActions/456.",
+        ),
+        required=False,
+        max_length=200,
+        help_text=(
+            "Google Ads conversion actions that recommendations count as conversions, as resource names. Each ad "
+            "account counts the actions it owns or reports, including actions shared from a manager account, and an "
+            "account with none of them counts its primary actions. Empty counts the primary actions of every account. "
+            "Replaces the whole list on write."
+        ),
+    )
 
     class Meta:
         model = TeamMarketingAnalyticsConfig
@@ -205,6 +219,7 @@ class TeamMarketingAnalyticsConfigSerializer(serializers.ModelSerializer, UserAc
             "campaign_name_mappings",
             "custom_source_mappings",
             "campaign_field_preferences",
+            "recommendation_conversion_actions",
         ]
 
     def to_internal_value(self, data):
@@ -258,6 +273,9 @@ class TeamMarketingAnalyticsConfigSerializer(serializers.ModelSerializer, UserAc
 
         if "campaign_field_preferences" in validated_data:
             instance.campaign_field_preferences = validated_data["campaign_field_preferences"]
+
+        if "recommendation_conversion_actions" in validated_data:
+            instance.recommendation_conversion_actions = validated_data["recommendation_conversion_actions"]
 
         instance.save()
         return instance

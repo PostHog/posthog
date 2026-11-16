@@ -336,7 +336,8 @@
          "posthog_teammarketinganalyticsconfig"."conversion_goals",
          "posthog_teammarketinganalyticsconfig"."campaign_name_mappings",
          "posthog_teammarketinganalyticsconfig"."custom_source_mappings",
-         "posthog_teammarketinganalyticsconfig"."campaign_field_preferences"
+         "posthog_teammarketinganalyticsconfig"."campaign_field_preferences",
+         "posthog_teammarketinganalyticsconfig"."recommendation_conversion_actions"
   FROM "posthog_teammarketinganalyticsconfig"
   WHERE "posthog_teammarketinganalyticsconfig"."team_id" = 99999
   LIMIT 21
@@ -1604,7 +1605,8 @@
          "posthog_teammarketinganalyticsconfig"."conversion_goals",
          "posthog_teammarketinganalyticsconfig"."campaign_name_mappings",
          "posthog_teammarketinganalyticsconfig"."custom_source_mappings",
-         "posthog_teammarketinganalyticsconfig"."campaign_field_preferences"
+         "posthog_teammarketinganalyticsconfig"."campaign_field_preferences",
+         "posthog_teammarketinganalyticsconfig"."recommendation_conversion_actions"
   FROM "posthog_teammarketinganalyticsconfig"
   WHERE "posthog_teammarketinganalyticsconfig"."team_id" = 99999
   LIMIT 21
@@ -2565,7 +2567,8 @@
          "posthog_teammarketinganalyticsconfig"."conversion_goals",
          "posthog_teammarketinganalyticsconfig"."campaign_name_mappings",
          "posthog_teammarketinganalyticsconfig"."custom_source_mappings",
-         "posthog_teammarketinganalyticsconfig"."campaign_field_preferences"
+         "posthog_teammarketinganalyticsconfig"."campaign_field_preferences",
+         "posthog_teammarketinganalyticsconfig"."recommendation_conversion_actions"
   FROM "posthog_teammarketinganalyticsconfig"
   WHERE "posthog_teammarketinganalyticsconfig"."team_id" = 99999
   LIMIT 21
@@ -3841,7 +3844,8 @@
          "posthog_teammarketinganalyticsconfig"."conversion_goals",
          "posthog_teammarketinganalyticsconfig"."campaign_name_mappings",
          "posthog_teammarketinganalyticsconfig"."custom_source_mappings",
-         "posthog_teammarketinganalyticsconfig"."campaign_field_preferences"
+         "posthog_teammarketinganalyticsconfig"."campaign_field_preferences",
+         "posthog_teammarketinganalyticsconfig"."recommendation_conversion_actions"
   FROM "posthog_teammarketinganalyticsconfig"
   WHERE "posthog_teammarketinganalyticsconfig"."team_id" = 99999
   LIMIT 21
@@ -6345,7 +6349,8 @@
          "posthog_teammarketinganalyticsconfig"."conversion_goals",
          "posthog_teammarketinganalyticsconfig"."campaign_name_mappings",
          "posthog_teammarketinganalyticsconfig"."custom_source_mappings",
-         "posthog_teammarketinganalyticsconfig"."campaign_field_preferences"
+         "posthog_teammarketinganalyticsconfig"."campaign_field_preferences",
+         "posthog_teammarketinganalyticsconfig"."recommendation_conversion_actions"
   FROM "posthog_teammarketinganalyticsconfig"
   WHERE "posthog_teammarketinganalyticsconfig"."team_id" = 99999
   LIMIT 21
@@ -7731,7 +7736,8 @@
          "posthog_teammarketinganalyticsconfig"."conversion_goals",
          "posthog_teammarketinganalyticsconfig"."campaign_name_mappings",
          "posthog_teammarketinganalyticsconfig"."custom_source_mappings",
-         "posthog_teammarketinganalyticsconfig"."campaign_field_preferences"
+         "posthog_teammarketinganalyticsconfig"."campaign_field_preferences",
+         "posthog_teammarketinganalyticsconfig"."recommendation_conversion_actions"
   FROM "posthog_teammarketinganalyticsconfig"
   WHERE "posthog_teammarketinganalyticsconfig"."team_id" = 99999
   LIMIT 21
@@ -8851,7 +8857,8 @@
          "posthog_teammarketinganalyticsconfig"."conversion_goals",
          "posthog_teammarketinganalyticsconfig"."campaign_name_mappings",
          "posthog_teammarketinganalyticsconfig"."custom_source_mappings",
-         "posthog_teammarketinganalyticsconfig"."campaign_field_preferences"
+         "posthog_teammarketinganalyticsconfig"."campaign_field_preferences",
+         "posthog_teammarketinganalyticsconfig"."recommendation_conversion_actions"
   FROM "posthog_teammarketinganalyticsconfig"
   WHERE "posthog_teammarketinganalyticsconfig"."team_id" = 99999
   LIMIT 21
@@ -9817,7 +9824,8 @@
          "posthog_teammarketinganalyticsconfig"."conversion_goals",
          "posthog_teammarketinganalyticsconfig"."campaign_name_mappings",
          "posthog_teammarketinganalyticsconfig"."custom_source_mappings",
-         "posthog_teammarketinganalyticsconfig"."campaign_field_preferences"
+         "posthog_teammarketinganalyticsconfig"."campaign_field_preferences",
+         "posthog_teammarketinganalyticsconfig"."recommendation_conversion_actions"
   FROM "posthog_teammarketinganalyticsconfig"
   WHERE "posthog_teammarketinganalyticsconfig"."team_id" = 99999
   LIMIT 21
@@ -12175,7 +12183,8 @@
          "posthog_teammarketinganalyticsconfig"."conversion_goals",
          "posthog_teammarketinganalyticsconfig"."campaign_name_mappings",
          "posthog_teammarketinganalyticsconfig"."custom_source_mappings",
-         "posthog_teammarketinganalyticsconfig"."campaign_field_preferences"
+         "posthog_teammarketinganalyticsconfig"."campaign_field_preferences",
+         "posthog_teammarketinganalyticsconfig"."recommendation_conversion_actions"
   FROM "posthog_teammarketinganalyticsconfig"
   WHERE "posthog_teammarketinganalyticsconfig"."team_id" = 99999
   LIMIT 21
@@ -13125,7 +13134,8 @@
          "posthog_teammarketinganalyticsconfig"."conversion_goals",
          "posthog_teammarketinganalyticsconfig"."campaign_name_mappings",
          "posthog_teammarketinganalyticsconfig"."custom_source_mappings",
-         "posthog_teammarketinganalyticsconfig"."campaign_field_preferences"
+         "posthog_teammarketinganalyticsconfig"."campaign_field_preferences",
+         "posthog_teammarketinganalyticsconfig"."recommendation_conversion_actions"
   FROM "posthog_teammarketinganalyticsconfig"
   WHERE "posthog_teammarketinganalyticsconfig"."team_id" = 99999
   LIMIT 21
@@ -14127,7 +14137,8 @@
          "posthog_teammarketinganalyticsconfig"."conversion_goals",
          "posthog_teammarketinganalyticsconfig"."campaign_name_mappings",
          "posthog_teammarketinganalyticsconfig"."custom_source_mappings",
-         "posthog_teammarketinganalyticsconfig"."campaign_field_preferences"
+         "posthog_teammarketinganalyticsconfig"."campaign_field_preferences",
+         "posthog_teammarketinganalyticsconfig"."recommendation_conversion_actions"
   FROM "posthog_teammarketinganalyticsconfig"
   WHERE "posthog_teammarketinganalyticsconfig"."team_id" = 99999
   LIMIT 21
@@ -16489,7 +16500,8 @@
          "posthog_teammarketinganalyticsconfig"."conversion_goals",
          "posthog_teammarketinganalyticsconfig"."campaign_name_mappings",
          "posthog_teammarketinganalyticsconfig"."custom_source_mappings",
-         "posthog_teammarketinganalyticsconfig"."campaign_field_preferences"
+         "posthog_teammarketinganalyticsconfig"."campaign_field_preferences",
+         "posthog_teammarketinganalyticsconfig"."recommendation_conversion_actions"
   FROM "posthog_teammarketinganalyticsconfig"
   WHERE "posthog_teammarketinganalyticsconfig"."team_id" = 99999
   LIMIT 21
@@ -17430,7 +17442,8 @@
          "posthog_teammarketinganalyticsconfig"."conversion_goals",
          "posthog_teammarketinganalyticsconfig"."campaign_name_mappings",
          "posthog_teammarketinganalyticsconfig"."custom_source_mappings",
-         "posthog_teammarketinganalyticsconfig"."campaign_field_preferences"
+         "posthog_teammarketinganalyticsconfig"."campaign_field_preferences",
+         "posthog_teammarketinganalyticsconfig"."recommendation_conversion_actions"
   FROM "posthog_teammarketinganalyticsconfig"
   WHERE "posthog_teammarketinganalyticsconfig"."team_id" = 99999
   LIMIT 21
@@ -18367,7 +18380,8 @@
          "posthog_teammarketinganalyticsconfig"."conversion_goals",
          "posthog_teammarketinganalyticsconfig"."campaign_name_mappings",
          "posthog_teammarketinganalyticsconfig"."custom_source_mappings",
-         "posthog_teammarketinganalyticsconfig"."campaign_field_preferences"
+         "posthog_teammarketinganalyticsconfig"."campaign_field_preferences",
+         "posthog_teammarketinganalyticsconfig"."recommendation_conversion_actions"
   FROM "posthog_teammarketinganalyticsconfig"
   WHERE "posthog_teammarketinganalyticsconfig"."team_id" = 99999
   LIMIT 21
@@ -20830,7 +20844,8 @@
          "posthog_teammarketinganalyticsconfig"."conversion_goals",
          "posthog_teammarketinganalyticsconfig"."campaign_name_mappings",
          "posthog_teammarketinganalyticsconfig"."custom_source_mappings",
-         "posthog_teammarketinganalyticsconfig"."campaign_field_preferences"
+         "posthog_teammarketinganalyticsconfig"."campaign_field_preferences",
+         "posthog_teammarketinganalyticsconfig"."recommendation_conversion_actions"
   FROM "posthog_teammarketinganalyticsconfig"
   WHERE "posthog_teammarketinganalyticsconfig"."team_id" = 99999
   LIMIT 21
@@ -21897,7 +21912,8 @@
          "posthog_teammarketinganalyticsconfig"."conversion_goals",
          "posthog_teammarketinganalyticsconfig"."campaign_name_mappings",
          "posthog_teammarketinganalyticsconfig"."custom_source_mappings",
-         "posthog_teammarketinganalyticsconfig"."campaign_field_preferences"
+         "posthog_teammarketinganalyticsconfig"."campaign_field_preferences",
+         "posthog_teammarketinganalyticsconfig"."recommendation_conversion_actions"
   FROM "posthog_teammarketinganalyticsconfig"
   WHERE "posthog_teammarketinganalyticsconfig"."team_id" = 99999
   LIMIT 21
@@ -22829,7 +22845,8 @@
          "posthog_teammarketinganalyticsconfig"."conversion_goals",
          "posthog_teammarketinganalyticsconfig"."campaign_name_mappings",
          "posthog_teammarketinganalyticsconfig"."custom_source_mappings",
-         "posthog_teammarketinganalyticsconfig"."campaign_field_preferences"
+         "posthog_teammarketinganalyticsconfig"."campaign_field_preferences",
+         "posthog_teammarketinganalyticsconfig"."recommendation_conversion_actions"
   FROM "posthog_teammarketinganalyticsconfig"
   WHERE "posthog_teammarketinganalyticsconfig"."team_id" = 99999
   LIMIT 21
@@ -25191,7 +25208,8 @@
          "posthog_teammarketinganalyticsconfig"."conversion_goals",
          "posthog_teammarketinganalyticsconfig"."campaign_name_mappings",
          "posthog_teammarketinganalyticsconfig"."custom_source_mappings",
-         "posthog_teammarketinganalyticsconfig"."campaign_field_preferences"
+         "posthog_teammarketinganalyticsconfig"."campaign_field_preferences",
+         "posthog_teammarketinganalyticsconfig"."recommendation_conversion_actions"
   FROM "posthog_teammarketinganalyticsconfig"
   WHERE "posthog_teammarketinganalyticsconfig"."team_id" = 99999
   LIMIT 21
@@ -26121,7 +26139,8 @@
          "posthog_teammarketinganalyticsconfig"."conversion_goals",
          "posthog_teammarketinganalyticsconfig"."campaign_name_mappings",
          "posthog_teammarketinganalyticsconfig"."custom_source_mappings",
-         "posthog_teammarketinganalyticsconfig"."campaign_field_preferences"
+         "posthog_teammarketinganalyticsconfig"."campaign_field_preferences",
+         "posthog_teammarketinganalyticsconfig"."recommendation_conversion_actions"
   FROM "posthog_teammarketinganalyticsconfig"
   WHERE "posthog_teammarketinganalyticsconfig"."team_id" = 99999
   LIMIT 21
@@ -27131,7 +27150,8 @@
          "posthog_teammarketinganalyticsconfig"."conversion_goals",
          "posthog_teammarketinganalyticsconfig"."campaign_name_mappings",
          "posthog_teammarketinganalyticsconfig"."custom_source_mappings",
-         "posthog_teammarketinganalyticsconfig"."campaign_field_preferences"
+         "posthog_teammarketinganalyticsconfig"."campaign_field_preferences",
+         "posthog_teammarketinganalyticsconfig"."recommendation_conversion_actions"
   FROM "posthog_teammarketinganalyticsconfig"
   WHERE "posthog_teammarketinganalyticsconfig"."team_id" = 99999
   LIMIT 21
@@ -29729,7 +29749,8 @@
          "posthog_teammarketinganalyticsconfig"."conversion_goals",
          "posthog_teammarketinganalyticsconfig"."campaign_name_mappings",
          "posthog_teammarketinganalyticsconfig"."custom_source_mappings",
-         "posthog_teammarketinganalyticsconfig"."campaign_field_preferences"
+         "posthog_teammarketinganalyticsconfig"."campaign_field_preferences",
+         "posthog_teammarketinganalyticsconfig"."recommendation_conversion_actions"
   FROM "posthog_teammarketinganalyticsconfig"
   WHERE "posthog_teammarketinganalyticsconfig"."team_id" = 99999
   LIMIT 21

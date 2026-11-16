@@ -9,7 +9,7 @@ Do not use it for attribution, conversion goals, or channel performance. Use `ma
 # Inputs
 
 - `dateRange` — pass `{ "date_from": "-30d" }` unless the user asks for another period. Short ranges give few recommendations, because the rules need enough clicks and spend to compare.
-- `conversionActions` — pass it only when the user names the Google Ads conversion actions that count. Omit it to count the account's primary conversion actions. It takes resource names like `customers/123/conversionActions/456`, not action names. Look them up with SQL on the account's `campaign_conversion_action_stats` table: `SELECT DISTINCT segments_conversion_action, segments_conversion_action_name`. Each ad account only uses the resource names under its own customer ID.
+- `conversionActions` — pass it only when the user names the Google Ads conversion actions that count. Omit it to use the actions the project saved for recommendations, which are the primary actions when it saved none. Pass an empty list to count the primary actions whatever the project saved. It takes resource names like `customers/123/conversionActions/456`, not action names. Look them up with SQL on the account's `campaign_conversion_action_stats` table: `SELECT DISTINCT segments_conversion_action, segments_conversion_action_name`. Each ad account only uses the resource names under its own customer ID.
 - Leave everything else out. The tool reads every synced Google Ads and Google Search Console source in the project.
 
 # Output
