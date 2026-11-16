@@ -2142,18 +2142,25 @@ class TestAlertTestDelivery(TrendsInsightAPITest):
         self.alert = response.json()
 
     def _create_destination(
-        self, *, enabled: bool = True, alert_id: str | None = None, template_id: str | None = "template-webhook"
+        self,
+        *,
+        enabled: bool = True,
+        alert_id: str | None = None,
+        template_id: str | None = "template-webhook",
+        function_type: str = "internal_destination",
+        source: str | None = "internal-events",
     ) -> HogFunction:
         return HogFunction.objects.create(
             team=self.team,
             name="Alert destination",
-            type="internal_destination",
+            type=function_type,
             template_id=template_id,
             enabled=enabled,
             inputs_schema=[],
             inputs={},
             hog="return event",
             filters={
+                **({"source": source} if source is not None else {}),
                 "events": [{"id": "$insight_alert_firing", "type": "events"}],
                 "properties": [
                     {
@@ -2292,15 +2299,25 @@ class TestAlertTestDelivery(TrendsInsightAPITest):
         }
         mock_trigger.assert_called_once()
 
-    @mock.patch("products.alerts.backend.presentation.views.alert.trigger_alert_hog_functions")
-    def test_rejects_test_delivery_without_active_destinations(self, mock_trigger) -> None:
-        self._create_destination(enabled=False)
+    @parameterized.expand(
+        [
+            ("disabled", False, "internal_destination", "internal-events"),
+            ("event_destination", True, "destination", "internal-events"),
+            ("event_source", True, "internal_destination", "events"),
+            ("missing_source", True, "internal_destination", None),
+        ]
+    )
+    @mock.patch("products.cdp.backend.internal_events.get_producer")
+    def test_rejects_test_delivery_without_active_destinations(
+        self, _name: str, enabled: bool, function_type: str, source: str | None, mock_producer: mock.MagicMock
+    ) -> None:
+        self._create_destination(enabled=enabled, function_type=function_type, source=source)
 
         response = self.client.post(f"/api/projects/{self.team.id}/alerts/{self.alert['id']}/test-delivery/")
 
         assert response.status_code == status.HTTP_409_CONFLICT
         assert response.json() == {"detail": "Add an email recipient or active destination before sending a test."}
-        mock_trigger.assert_not_called()
+        mock_producer.return_value.produce.assert_not_called()
 
     @mock.patch("posthog.rate_limit.AlertTestDeliveryThrottle.rate", new="2/minute")
     @mock.patch("posthog.rate_limit.is_rate_limit_enabled", return_value=True)

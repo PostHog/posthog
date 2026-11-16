@@ -24,6 +24,7 @@ from products.alerts.backend.logic.destinations import (
     _raise_if_alert_already_has_these_destination_configs,
     alert_destination_group_key,
     alert_internal_event_delivered,
+    count_active_alert_destinations,
     flush_alert_internal_events,
     group_alert_destination_rows,
     list_active_alert_destinations,
@@ -99,18 +100,21 @@ class AlertDestinationTestCase(APIBaseTest):
         team: Team | None = None,
         name: str = "Test destination",
         secret_keys: set[str] | None = None,
+        function_type: str = "internal_destination",
+        source: str | None = "internal-events",
     ) -> HogFunction:
         resolved_inputs = _READABLE_INPUTS_BY_TEMPLATE.get(template_id or "", {}) if inputs is None else inputs
         return HogFunction.objects.create(
             team=team or self.team,
             name=name,
-            type="destination",
+            type=function_type,
             template_id=template_id,
             enabled=True,
             inputs_schema=_schema_declaring_every_input(resolved_inputs, secret_keys or set()),
             inputs=resolved_inputs,
             hog="return event",
             filters={
+                **({"source": source} if source is not None else {}),
                 "events": [{"id": event_id, "type": "events"}],
                 "properties": [{"key": "alert_id", "value": alert_id}],
             },
@@ -773,6 +777,10 @@ class TestListActiveAlertDestinations(AlertDestinationTestCase):
         deleted.deleted = True
         deleted.save()
 
+        self._make_hog_function(template_id=template_id, alert_id="alert-1", function_type="destination")
+        self._make_hog_function(template_id=template_id, alert_id="alert-1", source="events")
+        self._make_hog_function(template_id=template_id, alert_id="alert-1", source=None)
+
         destinations = list_active_alert_destinations(
             team_id=self.team.id, alert_id="alert-1", allowed_event_ids=("$logs_alert_firing",)
         )
@@ -782,6 +790,12 @@ class TestListActiveAlertDestinations(AlertDestinationTestCase):
         assert ("Slack #alerts", "slack") in names_and_types
         assert all(isinstance(d.id, str) for d in destinations)
         assert len(destinations) == 2
+        assert (
+            count_active_alert_destinations(
+                team_id=self.team.id, alert_id="alert-1", allowed_event_ids=("$logs_alert_firing",)
+            )
+            == 2
+        )
 
     @parameterized.expand(
         [

@@ -3,6 +3,7 @@
 Insight alert **Test delivery** sends a synthetic `$insight_alert_firing` event when the alert has an active HogFunction destination.
 The destination count includes every template and custom HogFunctions without a template.
 Destinations must belong to the alert's project, reference its `alert_id`, listen for an allowed alert event, and be enabled and not deleted.
+Only `internal_destination` functions with the `internal-events` filter source receive these events and count toward delivery.
 
 Delivery receipts include these destinations when an alert firing is queued successfully.
 A receipt records acceptance for delivery, not the destination's eventual execution result.

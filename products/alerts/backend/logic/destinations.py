@@ -227,7 +227,7 @@ def _active_alert_destinations_qs(
 ) -> QuerySet[HogFunction]:
     return owned_alert_destinations_qs(
         team_id=team_id, alert_ids=[alert_id], allowed_event_ids=allowed_event_ids, known_templates_only=False
-    ).filter(enabled=True)
+    ).filter(type="internal_destination", filters__source="internal-events", enabled=True)
 
 
 def _raise_if_alert_already_has_these_destination_configs(
