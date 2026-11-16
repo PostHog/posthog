@@ -1,26 +1,46 @@
+import { getDefaultCommonConfig } from '~/common/config'
+import { deleteKeysWithPrefix } from '~/common/redis/_tests/redis'
+import { RedisV2, createRedisV2PoolFromConfig } from '~/common/redis/redis-v2'
+
 import { ConnectionRateLimiter } from './connection-rate-limiter'
 
+const config = getDefaultCommonConfig()
+
 describe('ConnectionRateLimiter', () => {
-    beforeEach(() => {
-        jest.useFakeTimers({ now: new Date('2026-01-01T00:00:00Z') })
+    let redis: RedisV2
+
+    beforeEach(async () => {
+        jest.spyOn(Date, 'now').mockReturnValue(1_767_225_600_000)
+        redis = createRedisV2PoolFromConfig({ connection: { url: config.REDIS_URL }, poolMinSize: 1, poolMaxSize: 2 })
+        await deleteKeysWithPrefix(redis, '@posthog/new-connections/')
     })
 
     afterEach(() => {
-        jest.useRealTimers()
+        jest.restoreAllMocks()
     })
 
-    it('allows a burst per address, then refills at the configured rate', () => {
-        const limiter = new ConnectionRateLimiter({ perSecond: 2, burst: 3 })
-        const take = (address: string, count: number): boolean[] =>
-            Array.from({ length: count }, () => limiter.tryTake(address))
+    it('shares one budget per address across pods, then refills at the configured rate', async () => {
+        const options = { perSecond: 2, burst: 3 }
+        const [podA, podB] = [new ConnectionRateLimiter(redis, options), new ConnectionRateLimiter(redis, options)]
 
-        expect(take('1.1.1.1', 4)).toEqual([true, true, true, false])
-        expect(take('2.2.2.2', 1)).toEqual([true])
+        expect(await podA.tryTake(['1.1.1.1', '2.2.2.2'])).toEqual([true, true])
+        expect(await podB.tryTake(['1.1.1.1'])).toEqual([true])
+        expect(await podA.tryTake(['1.1.1.1'])).toEqual([true])
+        expect(await podB.tryTake(['1.1.1.1', '2.2.2.2'])).toEqual([false, true])
 
-        jest.advanceTimersByTime(1_000)
-        expect(take('1.1.1.1', 3)).toEqual([true, true, false])
+        jest.spyOn(Date, 'now').mockReturnValue(1_767_225_601_000)
+        expect(await podA.tryTake(['1.1.1.1'])).toEqual([true])
+        expect(await podB.tryTake(['1.1.1.1'])).toEqual([true])
+        expect(await podA.tryTake(['1.1.1.1'])).toEqual([false])
+    })
 
-        jest.advanceTimersByTime(60_000)
-        expect(take('1.1.1.1', 4)).toEqual([true, true, true, false])
+    it('lets every connection through when Redis does not answer', async () => {
+        // The error a real pool throws when it cannot hand out a client before the deadline.
+        const unreachable = {
+            usePipeline: () => Promise.reject(new Error('Redis pool redis: acquisition passed its deadline')),
+        } as unknown as RedisV2
+        const limiter = new ConnectionRateLimiter(unreachable, { perSecond: 1, burst: 1 })
+
+        expect(await limiter.tryTake(['1.1.1.1', '1.1.1.1'])).toEqual([true, true])
     })
 })

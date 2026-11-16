@@ -8,6 +8,7 @@ import { PostgresRouter } from '~/common/utils/db/postgres'
 import { getRedisHost } from '~/common/utils/db/redis'
 import { logger } from '~/common/utils/logger'
 import { PubSub } from '~/common/utils/pubsub'
+import { limitNewConnectionsWith } from '~/common/utils/request'
 import { TeamManager } from '~/common/utils/team-manager'
 import { InternalLogsProducer, InternalLogsProducerConfig } from '~/logs/internal-logs-producer'
 
@@ -442,6 +443,7 @@ export function createCdpCoreServices(
 
     const redisReader = createCdpReaderRedisPool(config, redis, redisName)
     const valkeyShadow = createCdpValkeyShadowPools(config, redisName)
+    limitNewConnectionsWith(redis)
 
     // Every CDP process funnels through here, so this is the one place the per-feature read
     // source has to be applied for `dualRead` / `dualWrite` to see it.

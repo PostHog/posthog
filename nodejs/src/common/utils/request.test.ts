@@ -4,7 +4,9 @@ import http from 'node:http'
 import net, { AddressInfo } from 'node:net'
 import { register } from 'prom-client'
 
-import { getExternalRequestConfig } from '~/common/config'
+import { getDefaultCommonConfig, getExternalRequestConfig } from '~/common/config'
+import { deleteKeysWithPrefix } from '~/common/redis/_tests/redis'
+import { createRedisV2PoolFromConfig } from '~/common/redis/redis-v2'
 
 import { parseJSON } from './json-parse'
 import { logger } from './logger'
@@ -480,6 +482,15 @@ describe('fetch', () => {
         const ipv6First = [{ address: '::1', family: 6 }, ipv4]
         const deadIpv4First = [{ address: '127.0.0.2', family: 4 }, ipv4]
         const ipv4Mapped = [{ address: '::ffff:127.0.0.1', family: 6 }]
+        const connectionLimitRedis = createRedisV2PoolFromConfig({
+            connection: { url: getDefaultCommonConfig().REDIS_URL },
+            poolMinSize: 1,
+            poolMaxSize: 2,
+        })
+
+        beforeEach(async () => {
+            await deleteKeysWithPrefix(connectionLimitRedis, '@posthog/new-connections/')
+        })
 
         test.each<{
             name: string
@@ -566,6 +577,7 @@ describe('fetch', () => {
                             EXTERNAL_REQUEST_NEW_CONNECTIONS_PER_IP_ENFORCED: enforced,
                         },
                         async (fresh) => {
+                            fresh.limitNewConnectionsWith(connectionLimitRedis)
                             jest.mocked(require('dns/promises').lookup).mockResolvedValue(addresses)
                             const {
                                 fetchAttribution,
@@ -597,6 +609,7 @@ describe('fetch', () => {
             await withIsolatedRequestModule(
                 { EXTERNAL_REQUEST_NEW_CONNECTIONS_PER_IP_PER_SECOND: '1' },
                 async (fresh) => {
+                    fresh.limitNewConnectionsWith(connectionLimitRedis)
                     jest.mocked(require('dns/promises').lookup).mockResolvedValue([ipv4, ipv4, ...ipv4Mapped])
                     const result = await new Promise((resolve, reject) =>
                         fresh.httpStaticLookup('localhost', {}, (error, addresses) =>

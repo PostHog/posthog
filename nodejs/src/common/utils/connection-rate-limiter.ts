@@ -1,43 +1,50 @@
-import { LRUCache } from 'lru-cache'
-
-type Bucket = { tokens: number; updatedAt: number }
+import { RedisV2 } from '~/common/redis/redis-v2'
 
 export type ConnectionRateLimiterOptions = {
     perSecond: number
     burst: number
 }
 
+// A slow Redis must not hold up new connections, so past this every connection goes through.
+const REDIS_DEADLINE_MS = 50
+
 /**
- * Limits how fast new connections open to each destination IP address. Behind a NAT gateway every new connection takes
- * a source port for its destination IP and port, and a gateway IP has about 55,000 of them. A request on a kept-alive
- * socket opens no connection, so a healthy origin rarely takes a token. An origin that times out or closes its
- * connections makes every request open a new one, and that origin alone runs out of tokens.
+ * Limits how fast the fleet opens new connections to each destination IP. Behind a NAT gateway each one holds one of
+ * about 55,000 ports per destination for a while after it closes. The budget lives in Redis because a per-pod budget
+ * grows with the pod count and the NAT's ports do not.
  */
 export class ConnectionRateLimiter {
-    // Evicting a bucket only resets that address to a full burst, so the cap on entries costs little accuracy.
-    private readonly buckets = new LRUCache<string, Bucket>({ max: 10_000 })
+    constructor(
+        private readonly redis: RedisV2,
+        private readonly options: ConnectionRateLimiterOptions
+    ) {}
 
-    constructor(private readonly options: ConnectionRateLimiterOptions) {}
-
-    /** Takes a token for the address. Returns false when the address has none left. */
-    tryTake(address: string): boolean {
-        const bucket = this.refilled(address)
-        this.buckets.set(address, bucket)
-        if (bucket.tokens < 1) {
-            return false
-        }
-        bucket.tokens--
-        return true
-    }
-
-    private refilled(address: string): Bucket {
-        const now = Date.now()
-        const bucket = this.buckets.get(address) ?? { tokens: this.options.burst, updatedAt: now }
-        bucket.tokens = Math.min(
-            this.options.burst,
-            bucket.tokens + ((now - bucket.updatedAt) / 1000) * this.options.perSecond
-        )
-        bucket.updatedAt = now
-        return bucket
+    async tryTake(keys: string[]): Promise<boolean[]> {
+        const { perSecond, burst } = this.options
+        const now = Math.round(Date.now() / 1000)
+        const ttlSeconds = Math.ceil(burst / perSecond) + 60
+        // failOpen does not cover a pool that cannot hand out a client in time, so that error is caught here.
+        const res = await this.redis
+            .usePipeline(
+                { name: 'connection-rate-limiter', failOpen: true, deadlineMs: REDIS_DEADLINE_MS },
+                (pipeline) => {
+                    for (const key of keys) {
+                        pipeline.checkRateLimitV2(
+                            `@posthog/new-connections/${key}`,
+                            now,
+                            1,
+                            burst,
+                            perSecond,
+                            ttlSeconds
+                        )
+                    }
+                }
+            )
+            .catch(() => null)
+        // The script returns -1 when the bucket could not pay, and 0 when it paid its last token.
+        return keys.map((_, index) => {
+            const [error, result] = res?.[index] ?? [null, null]
+            return error !== null || result === null || Number(result[1]) >= 0
+        })
     }
 }

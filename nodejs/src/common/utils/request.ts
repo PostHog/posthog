@@ -24,6 +24,7 @@ import { URL } from 'url'
 
 import { getExternalRequestConfig } from '~/common/config'
 import { buildIntegerMatcherWithPercentage } from '~/common/config/matchers'
+import type { RedisV2 } from '~/common/redis/redis-v2'
 
 import { ColdStartGate } from './cold-start-gate'
 import { ConnectionRateLimiter } from './connection-rate-limiter'
@@ -360,13 +361,19 @@ async function staticLookupAsync(hostname: string): Promise<LookupAddress[]> {
     return validAddrinfo
 }
 
-const connectionRateLimiter =
-    requestConfig.EXTERNAL_REQUEST_NEW_CONNECTIONS_PER_IP_PER_SECOND > 0
-        ? new ConnectionRateLimiter({
-              perSecond: requestConfig.EXTERNAL_REQUEST_NEW_CONNECTIONS_PER_IP_PER_SECOND,
-              burst: requestConfig.EXTERNAL_REQUEST_NEW_CONNECTIONS_PER_IP_BURST,
-          })
-        : null
+let connectionRateLimiter: ConnectionRateLimiter | null = null
+
+/** Turns on the new connection limit when it is configured. Its budget lives in this Redis, shared by every pod. */
+export function limitNewConnectionsWith(redis: RedisV2 | null): void {
+    const perSecond = requestConfig.EXTERNAL_REQUEST_NEW_CONNECTIONS_PER_IP_PER_SECOND
+    connectionRateLimiter =
+        redis && perSecond > 0
+            ? new ConnectionRateLimiter(redis, {
+                  perSecond,
+                  burst: requestConfig.EXTERNAL_REQUEST_NEW_CONNECTIONS_PER_IP_BURST,
+              })
+            : null
+}
 
 const connectionRateLimitedCounter = new Counter({
     name: 'node_request_connection_rate_limited_total',
@@ -393,7 +400,7 @@ function natAddress({ address, family }: LookupAddress): string | null {
 // A new connection resolves its hostname once and a kept-alive request resolves nothing, so this sees each new
 // connection once. The socket may try every address it gets, so each IPv4 address takes a token. When the limit is
 // enforced, an address with no token left is removed. In count-only mode every address stays.
-function admitNewConnection(hostname: string, addresses: LookupAddress[]): LookupAddress[] {
+async function admitNewConnection(hostname: string, addresses: LookupAddress[]): Promise<LookupAddress[]> {
     if (!connectionRateLimiter) {
         return addresses
     }
@@ -414,11 +421,10 @@ function admitNewConnection(hostname: string, addresses: LookupAddress[]): Looku
     }
     // Each team has its own budget per address, so one team cannot use up the connections of another.
     const teamId = fetchAttribution.getStore()?.teamId
-    const admitted = new Set(
-        limited.filter((address) =>
-            connectionRateLimiter.tryTake(teamId === undefined ? address : `${teamId}:${address}`)
-        )
+    const hasToken = await connectionRateLimiter.tryTake(
+        limited.map((address) => (teamId === undefined ? address : `${teamId}:${address}`))
     )
+    const admitted = new Set(limited.filter((_, index) => hasToken[index]))
     const enforced = requestConfig.EXTERNAL_REQUEST_NEW_CONNECTIONS_PER_IP_ENFORCED
     if (admitted.size === 0) {
         const address = limited[0]
@@ -448,7 +454,7 @@ function admitNewConnection(hostname: string, addresses: LookupAddress[]): Looku
 
 export const httpStaticLookup: net.LookupFunction = async (hostname, _options, cb) => {
     try {
-        const addrinfo = admitNewConnection(hostname, await staticLookupAsync(hostname))
+        const addrinfo = await admitNewConnection(hostname, await staticLookupAsync(hostname))
         cb(null, addrinfo)
     } catch (err) {
         cb(err as Error, '', 4)
@@ -576,15 +582,14 @@ function admittingConnector(allowH2: boolean): buildConnector.connector {
     return (options, callback) => {
         const literal = options.hostname.replace(/^\[(.*)\]$/, '$1')
         const family = net.isIP(literal)
-        if (family !== 0) {
-            try {
-                admitNewConnection(literal, [{ address: literal, family }])
-            } catch (error) {
-                callback(error as Error, null)
-                return
-            }
+        if (family === 0) {
+            connect(options, callback)
+            return
         }
-        connect(options, callback)
+        admitNewConnection(literal, [{ address: literal, family }]).then(
+            () => connect(options, callback),
+            (error) => callback(error as Error, null)
+        )
     }
 }
 
