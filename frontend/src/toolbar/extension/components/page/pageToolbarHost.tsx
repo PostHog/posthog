@@ -115,7 +115,12 @@ export class PageToolbarHost {
     private async start(session: PageToolbarSession, href: string): Promise<void> {
         this.session = { session, href }
         if (this.unmountLogics && this.uiHost === session.uiHost) {
-            toolbarConfigLogic.actions.setOAuthTokens(session.accessToken, session.refreshToken, session.clientId)
+            toolbarConfigLogic.actions.setOAuthTokens(
+                session.accessToken,
+                session.refreshToken,
+                session.clientId,
+                session.project
+            )
             extensionPageToolbarLogic.actions.handleCommand({ tool: 'session', command: { type: 'set-href', href } })
             return
         }
@@ -132,6 +137,8 @@ export class PageToolbarHost {
             accessToken: session.accessToken,
             refreshToken: session.refreshToken ?? undefined,
             clientId: session.clientId,
+            teamId: session.project.teamId,
+            projectId: session.project.projectId,
             dataAttributes: session.dataAttributes,
             posthog: this.posthogBridge?.posthog,
         }
@@ -233,12 +240,12 @@ export class PageToolbarHost {
         if (!this.unmountLogics) {
             return
         }
-        const { accessToken, refreshToken, clientId } = toolbarConfigLogic.values
+        const { accessToken, refreshToken, clientId, project } = toolbarConfigLogic.values
         if (accessToken !== this.lastAccessToken) {
             this.lastAccessToken = accessToken
             this.broadcast(
-                accessToken && clientId
-                    ? { type: 'tokens', tokens: { accessToken, refreshToken, clientId } }
+                accessToken && clientId && project
+                    ? { type: 'tokens', tokens: { accessToken, refreshToken, clientId, project } }
                     : { type: 'token-expired' }
             )
         }

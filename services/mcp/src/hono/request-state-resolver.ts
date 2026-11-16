@@ -5,6 +5,7 @@ import { isCloudApi, isLocalApi, MCP_GATEWAY_FLAG } from '@/lib/constants'
 import { env } from '@/lib/env'
 import { McpSessionResetRequiredError } from '@/lib/errors'
 import { EVENT_SOURCE, resolveEventSource } from '@/lib/event-source'
+import { METRIC_LIST_TOOL } from '@/lib/metric-catalog'
 import { buildMCPAnalyticsGroups, type MCPAnalyticsContext } from '@/lib/posthog/analytics'
 import {
     type EvaluatedFlags,
@@ -25,11 +26,19 @@ import {
     getScopeGatedTools,
     type ScopeGatedTool,
 } from '@/tools/toolDefinitions'
-import type { BusinessKnowledgeContent, Context, Env, PinnedActiveContext, Tool, ZodObjectAny } from '@/tools/types'
+import type {
+    BusinessKnowledgeContent,
+    Context,
+    Env,
+    MetricCatalogContent,
+    PinnedActiveContext,
+    Tool,
+    ZodObjectAny,
+} from '@/tools/types'
 
 import { McpSessionRedisStore } from './cache/McpSessionRedisStore'
 import type { RedisLike } from './cache/RedisCache'
-import { MCP_EXEC_SKILLS_FEATURE_FLAG, MCP_INBOX_FIRST_FLAG } from './constants'
+import { MCP_CURSOR_EXEC_MODE_FLAG, MCP_EXEC_SKILLS_FEATURE_FLAG, MCP_INBOX_FIRST_FLAG } from './constants'
 import { GUIDANCE_RULE_FLAGS } from './guidance/rules'
 import { MCP_INTENT_PROMPT_FLAG, resolveIntentPrompt } from './intent-prompt'
 import {
@@ -79,6 +88,7 @@ export interface ResolvedState {
     aiConsentGiven?: boolean | undefined
     /** Read only when a business knowledge search tool is advertised; undefined when unread. */
     businessKnowledgeContent?: BusinessKnowledgeContent | undefined
+    metricCatalog?: MetricCatalogContent | undefined
     oauthClientId: string | undefined
     clientProfile: MCPClientProfile
     requestContext: MCPRequestContext
@@ -115,15 +125,19 @@ export interface ResolvedState {
 
 // ─── Pure helpers ───
 
-export function resolveMode(args: { mode: McpMode | undefined; clientProfile: MCPClientProfile }): {
+export function resolveMode(args: {
+    mode: McpMode | undefined
+    clientProfile: MCPClientProfile
+    cursorExecMode?: boolean | undefined
+}): {
     mode: McpMode
     useSingleExec: boolean
 } {
-    const { mode, clientProfile } = args
+    const { mode, clientProfile, cursorExecMode } = args
     // CLI (single-exec) is the default; only allow-listed clients (Cursor) keep
     // the full per-tool roster, and an explicit ?mode= / x-posthog-mcp-mode
     // header always wins over auto-detection.
-    const resolved: McpMode = mode ?? (clientProfile.isToolsModeClient() ? 'tools' : 'cli')
+    const resolved: McpMode = mode ?? (clientProfile.isToolsModeClient() && !cursorExecMode ? 'tools' : 'cli')
     return { mode: resolved, useSingleExec: resolved === 'cli' }
 }
 
@@ -214,6 +228,7 @@ export class RequestStateResolver {
                 ...getRequiredFeatureFlags(),
                 MCP_GATEWAY_FLAG,
                 MCP_EXEC_SKILLS_FEATURE_FLAG,
+                MCP_CURSOR_EXEC_MODE_FLAG,
                 MCP_INTERVIEW_RECRUITMENT_FLAG,
                 MCP_INTENT_PROMPT_FLAG,
                 MCP_INBOX_FIRST_FLAG,
@@ -312,6 +327,7 @@ export class RequestStateResolver {
         const { mode: resolvedMode, useSingleExec } = resolveMode({
             mode: requestContext.mode ?? (usesProjectSecretKey ? 'tools' : undefined),
             clientProfile,
+            cursorExecMode: mergedFlags[MCP_CURSOR_EXEC_MODE_FLAG] === true,
         })
         requestContext.mode = resolvedMode
         reqCtx.setMcpContexts(requestContext, sessionContext)
@@ -355,9 +371,12 @@ export class RequestStateResolver {
                 () => context.stateManager.getUser()
             )
         ).filter(isHeld)
-        const businessKnowledgeContent = allTools.some(({ name }) => BUSINESS_KNOWLEDGE_SEARCH_TOOLS.has(name))
-            ? await this.resolveBusinessKnowledgeContent(context)
-            : undefined
+        const [businessKnowledgeContent, metricCatalog] = await Promise.all([
+            allTools.some(({ name }) => BUSINESS_KNOWLEDGE_SEARCH_TOOLS.has(name))
+                ? this.resolveBusinessKnowledgeContent(context)
+                : undefined,
+            allTools.some(({ name }) => name === METRIC_LIST_TOOL) ? this.resolveMetricCatalog(context) : undefined,
+        ])
         // Scope-gated hints are only consumed by the exec `search` command, which
         // only exists in single-exec mode — skip the extra scan otherwise.
         const scopeGatedTools = useSingleExec ? getScopeGatedTools(apiKeyScopes, filterOptions).filter(isHeld) : []
@@ -387,6 +406,7 @@ export class RequestStateResolver {
             analyticsContext: flagAnalyticsContext,
             aiConsentGiven: aiConsentGiven ?? undefined,
             businessKnowledgeContent,
+            metricCatalog,
             oauthClientId: oauthClientId || undefined,
             clientProfile,
             requestContext,
@@ -509,6 +529,15 @@ export class RequestStateResolver {
         try {
             const projectId = await context.stateManager.getProjectId()
             return await context.stateManager.getOrFetchBusinessKnowledgeContent(projectId)
+        } catch {
+            return undefined
+        }
+    }
+
+    private async resolveMetricCatalog(context: Context): Promise<MetricCatalogContent | undefined> {
+        try {
+            const projectId = await context.stateManager.getProjectId()
+            return await context.stateManager.getOrFetchMetricCatalog(projectId)
         } catch {
             return undefined
         }

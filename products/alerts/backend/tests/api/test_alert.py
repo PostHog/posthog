@@ -45,6 +45,7 @@ from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration,
 from products.alerts.backend.platform_native_cleanup import NativeCleanupInputs, delete_native_alert, native_alert_ids
 from products.alerts.backend.platform_source_config_schema import INSIGHT_SOURCE_CONFIG
 from products.alerts.backend.presentation.views.alert import FORECAST_PREVIEW_UNAVAILABLE_MESSAGE, AlertSerializer
+from products.alerts.backend.test.insight_alerts import create_insight_alert
 from products.alerts_platform.backend.facade import (
     api as platform_api,
     testing as platform_testing,
@@ -143,7 +144,11 @@ class TestAlert(TrendsInsightAPITest, QueryMatchingTest):
         }
         self.insight = self.client.post(f"/api/projects/{self.team.id}/insights", data=self.default_insight_data).json()
 
+    def _keep_the_team_on_insight(self) -> None:
+        create_insight_alert(self.team, name="Kept on insight", enabled=False)
+
     def test_create_and_delete_alert(self) -> None:
+        self._keep_the_team_on_insight()
         creation_request = {
             "insight": self.insight["id"],
             "subscribed_users": [
@@ -196,13 +201,13 @@ class TestAlert(TrendsInsightAPITest, QueryMatchingTest):
         assert response.status_code == status.HTTP_201_CREATED, response.content
         assert response.json() == expected_alert_json
 
-        alerts = self.client.get(f"/api/projects/{self.team.id}/alerts")
+        alerts = self.client.get(f"/api/projects/{self.team.id}/alerts?insight={self.insight['id']}")
         assert alerts.json()["results"] == [{**expected_alert_json, "checks": []}]
 
         alert_id = response.json()["id"]
         self.client.delete(f"/api/projects/{self.team.id}/alerts/{alert_id}")
 
-        alerts = self.client.get(f"/api/projects/{self.team.id}/alerts")
+        alerts = self.client.get(f"/api/projects/{self.team.id}/alerts?insight={self.insight['id']}")
         assert len(alerts.json()["results"]) == 0
 
     def test_alert_rejects_insight_without_viewer_access(self) -> None:
@@ -432,6 +437,7 @@ class TestAlert(TrendsInsightAPITest, QueryMatchingTest):
     def test_retrieve_checks_limit_behaviour(
         self, _name: str, total_checks: int, query_param: str, expected_count: int
     ) -> None:
+        self._keep_the_team_on_insight()
         creation_request = {
             "insight": self.insight["id"],
             "subscribed_users": [self.user.id],
@@ -464,6 +470,7 @@ class TestAlert(TrendsInsightAPITest, QueryMatchingTest):
         ]
     )
     def test_retrieve_check_includes_allowlisted_error_code(self, code: str, message: str) -> None:
+        self._keep_the_team_on_insight()
         creation_request = {
             "insight": self.insight["id"],
             "subscribed_users": [self.user.id],
@@ -487,6 +494,7 @@ class TestAlert(TrendsInsightAPITest, QueryMatchingTest):
         assert response.json()["checks"][0]["error"] == {"code": code, "message": message}
 
     def test_retrieve_check_hides_internal_error_message(self) -> None:
+        self._keep_the_team_on_insight()
         creation_request = {
             "insight": self.insight["id"],
             "subscribed_users": [self.user.id],
@@ -521,6 +529,7 @@ class TestAlert(TrendsInsightAPITest, QueryMatchingTest):
     def test_retrieve_checks_offset_pagination(
         self, _label: str, checks_limit: int, checks_offset: int, expected_values: list[float]
     ) -> None:
+        self._keep_the_team_on_insight()
         creation_request = {
             "insight": self.insight["id"],
             "subscribed_users": [self.user.id],
@@ -551,6 +560,7 @@ class TestAlert(TrendsInsightAPITest, QueryMatchingTest):
         assert [c["calculated_value"] for c in body["checks"]] == expected_values
 
     def test_retrieve_checks_with_date_from(self) -> None:
+        self._keep_the_team_on_insight()
         creation_request = {
             "insight": self.insight["id"],
             "subscribed_users": [self.user.id],
@@ -594,6 +604,7 @@ class TestAlert(TrendsInsightAPITest, QueryMatchingTest):
             assert check["calculated_value"] >= 10.0
 
     def test_retrieve_checks_with_date_from_and_date_to(self) -> None:
+        self._keep_the_team_on_insight()
         creation_request = {
             "insight": self.insight["id"],
             "subscribed_users": [self.user.id],
@@ -794,6 +805,7 @@ class TestAlert(TrendsInsightAPITest, QueryMatchingTest):
         expected_deliveries: list[dict] | None,
         expected_targets_notified: bool,
     ) -> None:
+        self._keep_the_team_on_insight()
         creation_request = {
             "insight": self.insight["id"],
             "subscribed_users": [self.user.id],
@@ -1075,6 +1087,7 @@ class TestAlert(TrendsInsightAPITest, QueryMatchingTest):
         assert self.client.get(f"/api/projects/{self.team.id}/alerts/{alert_id}").status_code == status.HTTP_200_OK
 
     def test_alert_is_deleted_on_insight_soft_delete(self) -> None:
+        self._keep_the_team_on_insight()
         another_insight = self.client.post(
             f"/api/projects/{self.team.id}/insights", data=self.default_insight_data
         ).json()
@@ -1160,6 +1173,7 @@ class TestAlert(TrendsInsightAPITest, QueryMatchingTest):
         assert unrelated_hog_function.enabled is True
 
     def test_snooze_alert(self) -> None:
+        self._keep_the_team_on_insight()
         creation_request = {
             "insight": self.insight["id"],
             "subscribed_users": [
@@ -3501,6 +3515,7 @@ class TestLLMDetectorValidation(TrendsInsightAPITest):
     def test_rejected_on_the_real_time_cadence(self, _name, concurrent_change, _flag) -> None:
         config = {"type": "llm"}
         if concurrent_change:
+            create_insight_alert(self.team, name="Kept on insight", enabled=False)
             created = self._create({"type": "zscore", "threshold": 0.9, "window": 30})
             assert created.status_code == status.HTTP_201_CREATED, created.content
             update = AlertSerializer.update

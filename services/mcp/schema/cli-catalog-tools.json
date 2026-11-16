@@ -6517,6 +6517,9 @@
                     "iteration_count",
                     "best_holdout_score",
                     "error",
+                    "task_id",
+                    "task_run_id",
+                    "task_url",
                     "started_at",
                     "completed_at",
                     "created_at"
@@ -24839,6 +24842,11 @@
                 {
                     "param": "search",
                     "key": "search",
+                    "csv": false
+                },
+                {
+                    "param": "tags",
+                    "key": "tags",
                     "csv": false
                 },
                 {

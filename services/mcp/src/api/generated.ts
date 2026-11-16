@@ -12099,6 +12099,10 @@ export namespace Schemas {
       useQueryV3?: boolean | null;
       /** version of the node, used for schema migrations */
       version?: number | null;
+      /**
+         * @minimum 0
+         * @maximum 200
+         */
       volumeResolution: number;
       withAggregations?: boolean | null;
       withFirstEvent?: boolean | null;
@@ -17781,6 +17785,21 @@ export namespace Schemas {
     export interface AutoresearchLiveTrainingRun {
       /** Unique UUID of the live training run. */
       readonly id: string;
+      /**
+         * Parent Task ID of the run's sandbox. Null for a run that an external agent opened.
+         * @nullable
+         */
+      readonly task_id: string | null;
+      /**
+         * Task run ID of the run's sandbox, which holds its log, cost and failure reason. Null for a run that an external agent opened.
+         * @nullable
+         */
+      readonly task_run_id: string | null;
+      /**
+         * Relative URL to the run's Task detail page. Null for a run that an external agent opened.
+         * @nullable
+         */
+      readonly task_url: string | null;
       /** Maximum experiments allowed for this run. */
       readonly iteration_budget: number;
       /** Experiments the agent has recorded so far in this run. */
@@ -72621,6 +72640,11 @@ export namespace Schemas {
       Auto: 'auto',
     } as const;
 
+    export interface MetricAvailability {
+      /** Whether the project has any live metric, counted before per-table access checks. */
+      has_metrics: boolean;
+    }
+
     /**
      * * `precise` - Precise
      * * `coarse` - Coarse
@@ -73080,6 +73104,11 @@ export namespace Schemas {
       labels?: MetricsPlatformAlertConfigurationCreateLabels;
       /** Context for whoever responds, such as {"runbook_url": "https://..."}. Values can use {{ $labels.<name> }} for a grouping key or label of the alert, and {{ $value }}. An annotation whose name ends in _url must start with https://. */
       annotations?: MetricsPlatformAlertConfigurationCreateAnnotations;
+      /**
+         * Minutes between scheduled checks. One of: 1, 2, 3, 4, 5, 6, 10, 12, 15, 20, 30, 60. Defaults to 1 on a create. An edit that leaves it out keeps the stored value.
+         * @minimum 1
+         */
+      check_interval_minutes?: number;
     }
 
     /**
@@ -73143,6 +73172,11 @@ export namespace Schemas {
       labels?: MetricsPlatformAlertConfigurationEditLabels;
       /** Context for whoever responds, such as {"runbook_url": "https://..."}. Values can use {{ $labels.<name> }} for a grouping key or label of the alert, and {{ $value }}. An annotation whose name ends in _url must start with https://. */
       annotations?: MetricsPlatformAlertConfigurationEditAnnotations;
+      /**
+         * Minutes between scheduled checks. One of: 1, 2, 3, 4, 5, 6, 10, 12, 15, 20, 30, 60. Defaults to 1 on a create. An edit that leaves it out keeps the stored value.
+         * @minimum 1
+         */
+      check_interval_minutes?: number;
     }
 
     export interface MetricsRecordingRule {
@@ -92075,6 +92109,11 @@ export namespace Schemas {
       labels?: PatchedMetricsPlatformAlertConfigurationEditLabels;
       /** Context for whoever responds, such as {"runbook_url": "https://..."}. Values can use {{ $labels.<name> }} for a grouping key or label of the alert, and {{ $value }}. An annotation whose name ends in _url must start with https://. */
       annotations?: PatchedMetricsPlatformAlertConfigurationEditAnnotations;
+      /**
+         * Minutes between scheduled checks. One of: 1, 2, 3, 4, 5, 6, 10, 12, 15, 20, 30, 60. Defaults to 1 on a create. An edit that leaves it out keeps the stored value.
+         * @minimum 1
+         */
+      check_interval_minutes?: number;
     }
 
     export interface PatchedMetricsRecordingRuleUpdate {
@@ -110110,7 +110149,101 @@ export namespace Schemas {
       Compatibility: 'compatibility',
     } as const;
 
+    /**
+     * * `addressed` - Addressed
+     * * `reacted` - Reacted
+     * * `ignored` - Ignored
+     */
+    export type ReviewFindingOutcomeKindEnum = typeof ReviewFindingOutcomeKindEnum[keyof typeof ReviewFindingOutcomeKindEnum];
+
+
+    export const ReviewFindingOutcomeKindEnum = {
+      Addressed: 'addressed',
+      Reacted: 'reacted',
+      Ignored: 'ignored',
+    } as const;
+
+    /**
+     * * `judge_confirmed` - A judge confirmed the fix
+     * * `judge_rejected` - A judge found no fix
+     * * `comment_reply` - A person replied
+     * * `comment_reply_agent` - An agent replied
+     * * `comment_reaction` - A person reacted
+     * * `no_signal` - No signal
+     * * `judge_budget_exhausted` - Not judged
+     * * `judge_failed` - The judge failed
+     */
+    export type ReviewFindingOutcomeMethodEnum = typeof ReviewFindingOutcomeMethodEnum[keyof typeof ReviewFindingOutcomeMethodEnum];
+
+
+    export const ReviewFindingOutcomeMethodEnum = {
+      JudgeConfirmed: 'judge_confirmed',
+      JudgeRejected: 'judge_rejected',
+      CommentReply: 'comment_reply',
+      CommentReplyAgent: 'comment_reply_agent',
+      CommentReaction: 'comment_reaction',
+      NoSignal: 'no_signal',
+      JudgeBudgetExhausted: 'judge_budget_exhausted',
+      JudgeFailed: 'judge_failed',
+    } as const;
+
+    /**
+     * * `positive` - Positive
+     * * `negative` - Negative
+     * * `mixed` - Mixed
+     */
+    export type ReviewFindingReactionSentimentEnum = typeof ReviewFindingReactionSentimentEnum[keyof typeof ReviewFindingReactionSentimentEnum];
+
+
+    export const ReviewFindingReactionSentimentEnum = {
+      Positive: 'positive',
+      Negative: 'negative',
+      Mixed: 'mixed',
+    } as const;
+
+    export interface ReviewFindingOutcome {
+      /** What happened to the published finding by the time its pull request merged. `reacted`: a person or another agent replied to or reacted on its comment. `addressed`: a later commit changed the finding's lines and a judge confirmed that the change fixes it. `ignored`: neither.
+       *
+       * * `addressed` - Addressed
+       * * `reacted` - Reacted
+       * * `ignored` - Ignored */
+      outcome: ReviewFindingOutcomeKindEnum;
+      /** The signal that decided `outcome`. `judge_confirmed` gives `addressed`. `comment_reply`, `comment_reply_agent` and `comment_reaction` give `reacted`. `judge_rejected` (the lines changed but the judge found no fix), `no_signal` (nothing touched the lines), `judge_budget_exhausted` and `judge_failed` (the judge did not rule) give `ignored`.
+       *
+       * * `judge_confirmed` - A judge confirmed the fix
+       * * `judge_rejected` - A judge found no fix
+       * * `comment_reply` - A person replied
+       * * `comment_reply_agent` - An agent replied
+       * * `comment_reaction` - A person reacted
+       * * `no_signal` - No signal
+       * * `judge_budget_exhausted` - Not judged
+       * * `judge_failed` - The judge failed */
+      method: ReviewFindingOutcomeMethodEnum;
+      /** The commit the finding was published at, the base of the diff the outcome was judged on. */
+      reviewed_head: string;
+      /** The pull request's head commit when it merged. */
+      final_head: string;
+      /** The tone of the reactions on the finding's comment, without PostHog Review's own. `positive`: 👍, ❤️, 🎉 or 🚀. `negative`: 👎 or 😕. `mixed`: both. Null when no reaction carries a tone.
+       *
+       * * `positive` - Positive
+       * * `negative` - Negative
+       * * `mixed` - Mixed */
+      reaction_sentiment: ReviewFindingReactionSentimentEnum | null;
+      /**
+         * The start of the first reply to the finding's comment that PostHog Review did not write, such as 'Fixed in <sha>' or 'Leaving this as is'. Null without a reply.
+         * @nullable
+         */
+      reply_excerpt: string | null;
+      /**
+         * Whether GitHub showed the finding's comment as outdated at merge, because a push changed the code under it. Null when the comment was not found on the pull request.
+         * @nullable
+         */
+      comment_outdated: boolean | null;
+    }
+
     export interface ReviewFinding {
+      /** The finding's id, unique within the review: it starts with the turn that raised it. */
+      issue_key: string;
       /** One-line summary of the finding. */
       title: string;
       /** Repository-relative path of the affected file. */
@@ -110152,6 +110285,8 @@ export namespace Schemas {
       validator_category: ValidatorCategoryEnum | null;
       /** The validator's argumentation for keeping or dismissing the finding. */
       validator_note: string;
+      /** What the pull request did about the finding, decided once after it merged. Null while the pull request is open, when it closed without merging, for a dismissed finding, and until the hourly outcome sweep reaches it. The sweep finds merges through the project's GitHub data warehouse source, so a project without one gets no outcomes. */
+      outcome: ReviewFindingOutcome | null;
     }
 
     /**
@@ -117018,6 +117153,28 @@ export namespace Schemas {
       Ready: 'ready',
     } as const;
 
+    export interface SiteStyle {
+      /** Hex color of the page surface behind its main content. */
+      background_color: string;
+      /** Hex color of the page's main text. */
+      text_color: string;
+      /**
+         * Hex background color of the page's most prominent button. Null when none was found.
+         * @nullable
+         */
+      button_color: string | null;
+      /**
+         * Hex text color of that button. Null when no button was found.
+         * @nullable
+         */
+      button_text_color: string | null;
+      /**
+         * Corner radius of that button in CSS pixels. Null when no button was found.
+         * @nullable
+         */
+      button_border_radius: number | null;
+    }
+
     export interface SiteSnapshot {
       /** `ready` when the snapshot image can be loaded, `rendering` while it is being created, `unavailable` when no recent session recording matches the survey or the user cannot view recordings.
        *
@@ -117040,6 +117197,8 @@ export namespace Schemas {
          * @nullable
          */
       viewport_width: number | null;
+      /** Colors read from the snapshot's page, to suggest a survey appearance that matches the site. Null until the snapshot is ready, or when the page's colors could not be read. */
+      site_style: SiteStyle | null;
     }
 
     export interface SlackAppChannelJoinResult {
@@ -118041,7 +118200,7 @@ export namespace Schemas {
     }
 
     export interface StaffFlagEvaluationsModeMutation {
-      /** Target flag_evaluations mode. 0 reads events. 1 reads flag_evaluations for the flag Usage tab, the per-project counts on a flag's Projects tab, and events lists filtered to only $feature_flag_called, such as the Activity page. 2 reads the same way as 1, and ingestion stops writing $feature_flag_called to events for teams in the ingestion allowlist. On PostHog Cloud the table is available in SQL on every mode. Self-hosted, it is available on 1 and 2.
+      /** Target flag_evaluations mode. 0 reads events. 1 reads flag_evaluations for the flag Usage tab, the per-project counts on a flag's Projects tab, events lists filtered to only $feature_flag_called, such as the Activity page, and the flag call and experiment enrollment counts on the home page. On 1, a HogQL query, such as an insight, also reads flag_evaluations when it pins $feature_flag_called and $feature_flag to string keys, and its date range starts within the table's coverage. Other queries, including default experiment exposures, read events. 1 also hides $feature_flag_called from event pickers, and refuses a new action step on it and a new cohort criterion on it that the batch calculation would read from events. 2 also stops ingestion writing $feature_flag_called to events for the teams it copies to flag_evaluations, which on PostHog Cloud is every team outside INGESTION_FLAG_EVALUATIONS_EXCLUDED_TEAMS. On 2, a HogQL query reads flag_evaluations for any date range and fails when it can't, a query that mixes flag calls with other events reads both tables, realtime cohorts refuse new flag-call criteria, and flags keep no last called time unless it syncs from flag_evaluations. On PostHog Cloud the table is available in SQL on every mode. Self-hosted, it is available on 1 and 2.
        *
        * * `0` - Events
        * * `1` - Read flag evaluations
@@ -118053,7 +118212,7 @@ export namespace Schemas {
          * @maxItems 50
          */
       team_ids: number[];
-      /** Also lower organizations that are above the target mode. Lowering an organization from 2 restarts the events writes that ingestion stopped for its teams in the ingestion allowlist. The events table keeps a gap for those teams for the time the organization spent on 2. */
+      /** Also lower organizations that are above the target mode. Lowering an organization from 2 restarts the events writes that ingestion stopped for its teams. The events table keeps a gap for those teams for the time the organization spent on 2. */
       allow_downgrade?: boolean;
       /** Report what the write would change, and write nothing. */
       dry_run?: boolean;
@@ -118078,8 +118237,8 @@ export namespace Schemas {
       organization_name: string;
       /** Teams of the organization. They all read the organization's mode. */
       team_count: number;
-      /** Running experiments of the organization that count exposures on $feature_flag_called. On teams in the ingestion allowlist, mode 2 stops those exposures. */
-      running_experiments_on_feature_flag_called: number;
+      /** Running experiments of the organization that read $feature_flag_called from events without its $experiment_exposure copy: through an exposure action, an activation, or a metric. Mode 2 stops those events writes, so those reads find no new calls. */
+      running_experiments_needing_flag_calls_in_events: number;
       /** True when the write moved the organization to the target mode, or would on a dry run. */
       changed: boolean;
       /** True when the organization is above the target mode and stays there, because allow_downgrade is not set. */
@@ -118123,7 +118282,7 @@ export namespace Schemas {
       max_feature_flags_override: number | null;
       /** The flag-count limit actually enforced for this team: the override when one is set, otherwise the global MAX_FEATURE_FLAGS_PER_TEAM setting. */
       effective_max_feature_flags: number;
-      /** Which table the $feature_flag_called data of this team's organization is read from. Every team of an organization shares one mode. 0 reads events. 1 reads flag_evaluations for the flag Usage tab, the per-project counts on a flag's Projects tab, and events lists filtered to only $feature_flag_called, such as the Activity page. 2 reads the same way as 1, and ingestion stops writing $feature_flag_called to events for teams in the ingestion allowlist. On PostHog Cloud the table is available in SQL on every mode. Self-hosted, it is available on 1 and 2. This is the stored mode: while the FLAG_EVALUATIONS_READS_FORCE_EVENTS instance setting is on, an organization on 1 reads events anyway.
+      /** Which table the $feature_flag_called data of this team's organization is read from. Every team of an organization shares one mode. 0 reads events. 1 reads flag_evaluations for the flag Usage tab, the per-project counts on a flag's Projects tab, events lists filtered to only $feature_flag_called, such as the Activity page, and the flag call and experiment enrollment counts on the home page. On 1, a HogQL query, such as an insight, also reads flag_evaluations when it pins $feature_flag_called and $feature_flag to string keys, and its date range starts within the table's coverage. Other queries, including default experiment exposures, read events. 1 also hides $feature_flag_called from event pickers, and refuses a new action step on it and a new cohort criterion on it that the batch calculation would read from events. 2 also stops ingestion writing $feature_flag_called to events for the teams it copies to flag_evaluations, which on PostHog Cloud is every team outside INGESTION_FLAG_EVALUATIONS_EXCLUDED_TEAMS. On 2, a HogQL query reads flag_evaluations for any date range and fails when it can't, a query that mixes flag calls with other events reads both tables, realtime cohorts refuse new flag-call criteria, and flags keep no last called time unless it syncs from flag_evaluations. On PostHog Cloud the table is available in SQL on every mode. Self-hosted, it is available on 1 and 2. This is the stored mode: while the FLAG_EVALUATIONS_READS_FORCE_EVENTS instance setting is on, an organization on 1 reads events anyway.
        *
        * * `0` - Events
        * * `1` - Read flag evaluations
@@ -136030,7 +136189,7 @@ export namespace Schemas {
      */
     offset?: number;
     /**
-     * Find metrics for a measure instead of reading the whole catalog. Send the user's words, the likely metric name, and the spelled-out form of an acronym, separated by commas, such as 'mrr, monthly recurring revenue'. Results come best match first, 10 by default, and match_reason says why each one matched. Words match by stem in the name, display name, description, and definition. Synonyms do not match unless the metric's text contains them.
+     * Find metrics for a measure instead of reading the whole catalog. Send the user's words, the likely metric name, and the spelled-out form of an acronym, separated by commas, such as 'mrr, monthly recurring revenue'. Results come best match first, 20 by default, and match_reason says why each one matched. Words match by stem in the name, display name, description, and definition. Synonyms do not match unless the metric's text contains them.
      */
     search?: string;
     /**
@@ -139730,6 +139889,11 @@ export namespace Schemas {
      * A search term.
      */
     search?: string;
+    /**
+     * A JSON array of tag names, such as ["growth", "weekly"]. Keeps only the dashboards and insights that carry at least one of them.
+     * @minLength 1
+     */
+    tags?: string;
     /**
      * Only entries of this type, such as 'insight', 'dashboard', 'notebook' or 'folder'.
      */
@@ -146314,6 +146478,22 @@ export namespace Schemas {
      * @minLength 1
      */
     device: SurveysSiteSnapshotRetrieveDevice;
+    /**
+     * URL condition to use instead of the survey's saved one, for an editor with unsaved targeting. Empty means every page. Leave out to use the saved targeting.
+     */
+    url?: string;
+    /**
+     * How `url` matches a page URL. Defaults to `icontains`. Ignored without `url`.
+     *
+     * * `regex` - regex
+     * * `not_regex` - not_regex
+     * * `exact` - exact
+     * * `is_not` - is_not
+     * * `icontains` - icontains
+     * * `not_icontains` - not_icontains
+     * @minLength 1
+     */
+    url_match_type?: SurveysSiteSnapshotRetrieveUrlMatchType;
     };
 
     export type SurveysSiteSnapshotRetrieveDevice = typeof SurveysSiteSnapshotRetrieveDevice[keyof typeof SurveysSiteSnapshotRetrieveDevice];
@@ -146322,6 +146502,18 @@ export namespace Schemas {
     export const SurveysSiteSnapshotRetrieveDevice = {
       Desktop: 'desktop',
       Mobile: 'mobile',
+    } as const;
+
+    export type SurveysSiteSnapshotRetrieveUrlMatchType = typeof SurveysSiteSnapshotRetrieveUrlMatchType[keyof typeof SurveysSiteSnapshotRetrieveUrlMatchType];
+
+
+    export const SurveysSiteSnapshotRetrieveUrlMatchType = {
+      Regex: 'regex',
+      NotRegex: 'not_regex',
+      Exact: 'exact',
+      IsNot: 'is_not',
+      Icontains: 'icontains',
+      NotIcontains: 'not_icontains',
     } as const;
 
     export type SurveysStatsRetrieveParams = {

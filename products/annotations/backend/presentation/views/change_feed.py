@@ -9,7 +9,8 @@ from posthog.api.mixins import validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.models import User
 from posthog.permissions import get_authenticator_scopes
-from posthog.scopes import APIScopeObject, scopes_not_covered
+from posthog.scopes.catalog import APIScopeObject
+from posthog.scopes.checks import scopes_not_covered
 
 from products.annotations.backend.facade import api
 from products.annotations.backend.facade.contracts import ChangeWindow, KindVisibility
