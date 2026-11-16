@@ -390,24 +390,14 @@ class _RenderedEmail:
     subject: str
     html: str
     reply_to: str | None
+    pinned: frozenset[str]
 
 
-def _pin_to_workflows(idempotency_key: str) -> None:
-    try:
-        cache.set(f"email_workflows_pin:{idempotency_key}", True, timeout=WORKFLOWS_PIN_TTL_SECONDS)
-    except Exception as err:
-        logger.warning("email_workflows_pin_write_failed", error=str(err))
+def _workflows_pin_key(campaign_key: str, raw_email: str) -> str:
+    return f"email_workflows_pin:{_workflows_idempotency_key(campaign_key, raw_email)}"
 
 
-def _is_pinned_to_workflows(idempotency_key: str) -> bool:
-    # A failed read raises, because reading it as unpinned could send an email Workflows queued again over SMTP.
-    return bool(cache.get(f"email_workflows_pin:{idempotency_key}"))
-
-
-def _smtp_email_via_workflows(dest: dict[str, str], campaign_key: str, template_name: str) -> bool:
-    # After an attempt Workflows may have queued, a retry skips the flag, so a flag change cannot also send it over SMTP.
-    if _is_pinned_to_workflows(_workflows_idempotency_key(campaign_key, dest["raw_email"])):
-        return True
+def _smtp_email_via_workflows(dest: dict[str, str], template_name: str) -> bool:
     person_properties = {"email": dest["raw_email"], "transactional_email_template": template_name}
     if region := get_instance_region():
         person_properties["region"] = region
@@ -430,7 +420,7 @@ def _send_rendered_via_workflows(
 ) -> dict[str, Any] | Literal["smtp"]:
     """Send a Django-rendered email through Workflows, or return "smtp" when Workflows certainly queued nothing."""
     idempotency_key = _workflows_idempotency_key(campaign_key, dest["raw_email"])
-    pinned = _is_pinned_to_workflows(idempotency_key)
+    pinned = dest["raw_email"] in email.pinned
     reply_to = email.reply_to or get_instance_setting("EMAIL_REPLY_TO")
     try:
         # Celery owns the retries, and the short timeout keeps the MessagingRecord row lock brief.
@@ -473,10 +463,7 @@ def _send_rendered_via_workflows(
                 },
             )
             return "smtp"
-        _pin_to_workflows(idempotency_key)
         raise err from sdk_err
-    # Marking the record sent can still fail, and the retry must then replay this send.
-    _pin_to_workflows(idempotency_key)
     return {"message_id": result.id, "replayed": result.replayed}
 
 
@@ -899,8 +886,18 @@ def _send_email_now(
     properties: Optional[dict] = None,
     retry_in_worker: bool = False,
 ) -> list[str]:
-    undeliverable: list[str] = []
-    smtp_to = to
+    def send_over_smtp(recipients: list[dict[str, str]]) -> None:
+        if recipients:
+            _send_via_smtp(
+                to=recipients,
+                campaign_key=campaign_key,
+                subject=subject,
+                txt_body=txt_body,
+                html_body=html_body,
+                headers=headers,
+                reply_to=reply_to,
+            )
+
     try:
         if use_http and is_http_email_service_available():
             return _send_via_http(
@@ -917,18 +914,32 @@ def _send_email_now(
             # The pinned SDK cannot send custom headers yet.
             and not headers
         ):
-            workflows_to = [dest for dest in to if _smtp_email_via_workflows(dest, campaign_key, template_name)]
-            smtp_to = [dest for dest in to if dest not in workflows_to]
-            if workflows_to:
-                undeliverable, fallback_to = _send_via_http(
-                    to=workflows_to,
-                    campaign_key=campaign_key,
-                    template_name=template_name,
-                    properties=properties or {},
-                    will_retry=_send_will_retry(retry_in_worker),
-                    rendered=_RenderedEmail(subject=subject, html=html_body, reply_to=reply_to),
-                )
-                smtp_to += fallback_to
+            # Cache errors raise here, before any send, because a missed pin could send a queued email again over SMTP.
+            pin_keys = {dest["raw_email"]: _workflows_pin_key(campaign_key, dest["raw_email"]) for dest in to}
+            pinned = frozenset(email for email, key in pin_keys.items() if cache.get(key))
+            workflows_to = [
+                dest for dest in to if dest["raw_email"] in pinned or _smtp_email_via_workflows(dest, template_name)
+            ]
+            # Sent first, so a Workflows retry never holds back the recipients Workflows does not serve.
+            send_over_smtp([dest for dest in to if dest not in workflows_to])
+            if not workflows_to:
+                return []
+            # Pinned before the send, so no answer from Workflows can arrive without its pin.
+            cache.set_many(
+                {pin_keys[dest["raw_email"]]: True for dest in workflows_to}, timeout=WORKFLOWS_PIN_TTL_SECONDS
+            )
+            undeliverable, fallback_to = _send_via_http(
+                to=workflows_to,
+                campaign_key=campaign_key,
+                template_name=template_name,
+                properties=properties or {},
+                will_retry=_send_will_retry(retry_in_worker),
+                rendered=_RenderedEmail(subject=subject, html=html_body, reply_to=reply_to, pinned=pinned),
+            )
+            # Unpinned before the SMTP send, so a retry after a transient SMTP error can still fall back.
+            cache.delete_many([pin_keys[dest["raw_email"]] for dest in fallback_to])
+            send_over_smtp(fallback_to)
+            return undeliverable
     except RETRYABLE_HTTP_SEND_ERRORS as err:
         if not retry_in_worker:
             task = _worker_send_task()
@@ -959,17 +970,8 @@ def _send_email_now(
         return []
     if not is_smtp_email_service_available():
         raise Exception("Email is not enabled in this instance.")
-    if smtp_to:
-        _send_via_smtp(
-            to=smtp_to,
-            campaign_key=campaign_key,
-            subject=subject,
-            txt_body=txt_body,
-            html_body=html_body,
-            headers=headers,
-            reply_to=reply_to,
-        )
-    return undeliverable
+    send_over_smtp(to)
+    return []
 
 
 _send_email = shared_task(**EMAIL_TASK_KWARGS, name="posthog.email._send_email")(_send_email_now)

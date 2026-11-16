@@ -866,6 +866,49 @@ class TestEmail(BaseTest):
         self.assertEqual(len(mail.outbox), 0)
         self.assertTrue(was_email_delivered("pinned_campaign", "test@posthog.com"))
 
+    @override_settings(POSTHOG_TRANSACTIONAL_EMAIL_API_KEY="phs_test", POSTHOG_HOST="https://us.posthog.com")
+    @patch(
+        "posthog.email.posthoganalytics.feature_enabled",
+        side_effect=lambda _flag, distinct_id, **_: distinct_id == "on@posthog.com",
+    )
+    @patch("requests.adapters.HTTPAdapter.send", autospec=True)
+    def test_smtp_recipients_do_not_wait_on_a_workflows_retry(
+        self, mock_send: MagicMock, _mock_flag: MagicMock
+    ) -> None:
+        mock_send.return_value = _workflows_response(503, {"code": "delivery_unavailable"})
+
+        with override_instance_config("EMAIL_HOST", "localhost"):
+            message = EmailMessage(
+                campaign_key="mixed_campaign", subject="Subject", template_name="async_migration_error"
+            )
+            message.add_recipient("on@posthog.com")
+            message.add_recipient("off@posthog.com")
+            with self.assertRaises(WorkflowsEmailError):
+                message.send(send_async=False, retry=False)
+
+        self.assertEqual([email.to for email in mail.outbox], [["off@posthog.com"]])
+
+    @parameterized.expand([("pin_read", "get"), ("pin_write", "set_many")])
+    @override_settings(POSTHOG_TRANSACTIONAL_EMAIL_API_KEY="phs_test", POSTHOG_HOST="https://us.posthog.com")
+    @patch("posthog.email.posthoganalytics.feature_enabled", return_value=True)
+    @patch("requests.adapters.HTTPAdapter.send", autospec=True)
+    def test_cache_failure_sends_nothing(
+        self, _name: str, cache_call: str, mock_send: MagicMock, _mock_flag: MagicMock
+    ) -> None:
+        with (
+            override_instance_config("EMAIL_HOST", "localhost"),
+            patch(f"posthog.email.cache.{cache_call}", side_effect=ConnectionError("cache down")),
+        ):
+            message = EmailMessage(
+                campaign_key="cache_campaign", subject="Subject", template_name="async_migration_error"
+            )
+            message.add_recipient("test@posthog.com")
+            with self.assertRaises(ConnectionError):
+                message.send(send_async=False, retry=False)
+
+        mock_send.assert_not_called()
+        self.assertEqual(len(mail.outbox), 0)
+
     def test_sanitize_email_properties(self) -> None:
         # Test with various types of input including potential HTML injection
         properties = {
