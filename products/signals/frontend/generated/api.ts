@@ -57,6 +57,8 @@ import type {
     PullRequestReviewCommentCreateResponseApi,
     PullRequestReviewCommentReactionCreateApi,
     PullRequestReviewCommentReactionCreateResponseApi,
+    QuickActivationPlanApi,
+    QuickActivationRequestApi,
     RankingOutcomesResponseApi,
     RecordCheckResultRequestApi,
     RecordCheckResultResponseApi,
@@ -480,6 +482,45 @@ export const signalsOnboardingExposeCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(inboxOnboardingExposureApi),
+    })
+}
+
+export const getSignalsOnboardingQuickActivationRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/signals/onboarding/quick_activation/`
+}
+
+/**
+ * What quick activation would turn on in this project: signal sources, Replay Vision scanners, scouts, automatic pull requests, the GitHub access agents get and the cost terms, plus anything that blocks it. Changes nothing.
+ * @summary Get the quick activation plan
+ */
+export const signalsOnboardingQuickActivationRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<QuickActivationPlanApi> => {
+    return apiMutator<QuickActivationPlanApi>(getSignalsOnboardingQuickActivationRetrieveUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getSignalsOnboardingQuickActivationCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/signals/onboarding/quick_activation/`
+}
+
+/**
+ * Turn on Self-driving with the quick activation plan the person approved, identified by its fingerprint. Refuses without changing anything when the plan changed since it was shown.
+ * @summary Activate quick setup
+ */
+export const signalsOnboardingQuickActivationCreate = async (
+    projectId: string,
+    quickActivationRequestApi: QuickActivationRequestApi,
+    options?: RequestInit
+): Promise<InboxOnboardingStateApi> => {
+    return apiMutator<InboxOnboardingStateApi>(getSignalsOnboardingQuickActivationCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(quickActivationRequestApi),
     })
 }
 

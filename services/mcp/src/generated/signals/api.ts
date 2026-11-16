@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 89 enabled ops
+ * PostHog API - MCP 91 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -411,6 +411,39 @@ export const SignalsOnboardingListParams = () => zod.object({
         .describe(
             "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
+})
+
+/**
+ * What quick activation would turn on in this project: signal sources, Replay Vision scanners, scouts, automatic pull requests, the GitHub access agents get and the cost terms, plus anything that blocks it. Changes nothing.
+ * @summary Get the quick activation plan
+ */
+export const SignalsOnboardingQuickActivationRetrieveParams = () => zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+/**
+ * Turn on Self-driving with the quick activation plan the person approved, identified by its fingerprint. Refuses without changing anything when the plan changed since it was shown.
+ * @summary Activate quick setup
+ */
+export const SignalsOnboardingQuickActivationCreateParams = () => zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
+        ),
+})
+
+export const signalsOnboardingQuickActivationCreateBodyPlanFingerprintMax = 64
+
+export const SignalsOnboardingQuickActivationCreateBody = () => zod.object({
+    plan_fingerprint: zod
+        .string()
+        .max(signalsOnboardingQuickActivationCreateBodyPlanFingerprintMax)
+        .describe('`fingerprint` from the quick activation plan the person approved.'),
 })
 
 export const SignalsReportsListParams = () => zod.object({

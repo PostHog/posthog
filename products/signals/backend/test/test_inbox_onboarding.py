@@ -203,6 +203,7 @@ class TestInboxOnboarding(APIBaseTest):
             "onboarding_origin": onboarding_origin or "app",
             "setup_mode": setup_mode or "guided",
             "self_driving_ubp": not automatic_implementation,
+            "activation_method": "page",
             "automatic_implementation": automatic_implementation,
             "implementation_priority": "P1",
             "enabled_source_products": ["error_tracking", "signals_scout"] if has_scout else ["error_tracking"],

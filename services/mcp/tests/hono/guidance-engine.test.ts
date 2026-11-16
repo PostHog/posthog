@@ -2,7 +2,12 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { ApiClient } from '@/api/client'
 import { GuidanceEngine, triggerMatches, type GuidanceCall } from '@/hono/guidance/engine'
-import { GUIDANCE_RULES, MCP_GUIDANCE_SELF_DRIVING_ACTIVATION_FLAG, type GuidanceRule } from '@/hono/guidance/rules'
+import {
+    GUIDANCE_RULES,
+    MCP_GUIDANCE_SELF_DRIVING_ACTIVATION_FLAG,
+    MCP_SELF_DRIVING_PAGELESS_ACTIVATION_FLAG,
+    type GuidanceRule,
+} from '@/hono/guidance/rules'
 import type { ResolvedState } from '@/hono/request-state-resolver'
 import { MCPClientProfile } from '@/lib/client-detection'
 
@@ -518,26 +523,50 @@ describe('Self-driving activation guidance', () => {
         vi.useRealTimers()
     })
 
+    const IN_CHAT_TOOLS = [
+        'self-driving-activation-preview',
+        'self-driving-activate-prepare',
+        'self-driving-activate-execute',
+    ]
+
     it.each([
-        [issueCall, true, false],
-        [issueCall, true, true],
-        [issueCall, true, undefined],
-        [issueCall, false, true],
-        [listCall, true, false],
-        [listCall, true, true],
-        [listCall, false, true],
+        // call, experiment flag, GitHub-optional setup, GitHub connected, pageless flag, in-chat tools listed
+        [issueCall, true, false, undefined, false, false],
+        [issueCall, true, true, undefined, false, false],
+        [issueCall, true, undefined, undefined, false, false],
+        [issueCall, false, true, undefined, false, false],
+        [listCall, true, false, undefined, false, false],
+        [listCall, true, true, undefined, false, false],
+        [listCall, false, true, undefined, false, false],
+        [issueCall, true, false, true, true, true],
+        [listCall, true, true, true, true, true],
+        [issueCall, false, false, true, true, true],
+        [issueCall, true, false, true, false, true],
+        [issueCall, true, true, false, true, true],
+        [issueCall, true, false, true, true, false],
     ] as const)(
-        'records exposure for %j with experiment flag %s and GitHub-optional setup %s',
-        async (call, enabled, githubOptional) => {
+        'records exposure for %j with experiment flag %s, GitHub-optional setup %s, GitHub connected %s, pageless flag %s and in-chat tools %s',
+        async (call, enabled, githubOptional, githubConnected, pageless, inChatTools) => {
             const state = activationState({
-                toolFeatureFlags: { [MCP_GUIDANCE_SELF_DRIVING_ACTIVATION_FLAG]: enabled },
+                toolFeatureFlags: {
+                    [MCP_GUIDANCE_SELF_DRIVING_ACTIVATION_FLAG]: enabled,
+                    [MCP_SELF_DRIVING_PAGELESS_ACTIVATION_FLAG]: pageless,
+                },
             })
+            if (inChatTools) {
+                state.allTools = [
+                    ...state.allTools,
+                    ...IN_CHAT_TOOLS.map((name) => ({ name })),
+                ] as ResolvedState['allTools']
+            }
             vi.mocked(state.context.api.request).mockResolvedValue({
                 completed_at: null,
                 draft: null,
                 github_optional_available: githubOptional,
+                github_connected: githubConnected,
             })
             const notice = await new GuidanceEngine(makeGuidanceRedis()).evaluate(state, call)
+            const inChat = enabled && githubConnected === true && pageless && inChatTools
 
             expect(notice).toMatchObject({
                 ruleId: 'error-tracking-sd-activation',
@@ -552,10 +581,13 @@ describe('Self-driving activation guidance', () => {
                 )
                 expect(notice?.text).toContain('Continue helping with the current task')
                 expect(notice?.text?.includes('https://example.com/project/2/inbox/activate/without-github')).toBe(
-                    githubOptional === true
+                    githubOptional === true && !inChat
                 )
                 expect(notice?.text).not.toContain('api.example.com')
-                expect(notice?.text).not.toContain('self-driving-activate')
+                expect(notice?.text?.includes('Do not activate through tools')).toBe(!inChat)
+                for (const tool of IN_CHAT_TOOLS) {
+                    expect(notice?.text?.includes(tool)).toBe(inChat)
+                }
             }
             expect(state.context.api.request).toHaveBeenCalledWith({
                 method: 'GET',

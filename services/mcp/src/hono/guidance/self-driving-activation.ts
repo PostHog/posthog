@@ -5,6 +5,7 @@ import type { Schemas } from '@/api/generated'
 import { isCustomerAgentCaller } from '@/lib/event-source'
 import { resolveScopePreset } from '@/lib/scope-preset'
 import { formatPrompt } from '@/lib/utils'
+import IN_CHAT_ACTIVATION_PROMPT from '@/templates/guidance/self-driving-activation-in-chat.md'
 import WITHOUT_GITHUB_OFFER from '@/templates/guidance/self-driving-activation-without-github.md'
 import ACTIVATION_PROMPT from '@/templates/guidance/self-driving-activation.md'
 
@@ -12,7 +13,7 @@ import type { RedisLike } from '../cache/RedisCache'
 import type { ResolvedState } from '../request-state-resolver'
 import type { GuidanceCall, GuidanceNotice } from './engine'
 import type { GuidanceProductState } from './product-state'
-import { MCP_GUIDANCE_SELF_DRIVING_ACTIVATION_FLAG } from './rules'
+import { MCP_GUIDANCE_SELF_DRIVING_ACTIVATION_FLAG, MCP_SELF_DRIVING_PAGELESS_ACTIVATION_FLAG } from './rules'
 
 const RULE_ID = 'error-tracking-sd-activation'
 const SESSION_TTL_SECONDS = 24 * 60 * 60
@@ -24,11 +25,18 @@ const REQUIRED_TOOLS = [
     'inbox-reports-retrieve',
     'inbox-report-artefacts-list',
 ]
+const IN_CHAT_ACTIVATION_TOOLS = [
+    'self-driving-activation-preview',
+    'self-driving-activate-prepare',
+    'self-driving-activate-execute',
+]
 const onboardingSchema = z.object({
     completed_at: z.string().nullable(),
     draft: z.record(z.string(), z.unknown()).nullable(),
+    github_connected: z.boolean().optional().default(false),
     github_optional_available: z.boolean().optional().default(false),
 })
+type OnboardingState = z.infer<typeof onboardingSchema>
 
 function isEligibleCall(state: ResolvedState, call: GuidanceCall): boolean {
     return (
@@ -72,11 +80,23 @@ function ineligibleKey(state: ResolvedState, projectId: string): string {
     return `mcp:guidance:sd-activation:ineligible:{${identity}}`
 }
 
-function activationText(projectUrl: string, githubOptional: boolean): string {
+// GitHub authorization needs a browser, so only a project that is already connected can activate in chat.
+function offersInChatActivation(state: ResolvedState, onboarding: OnboardingState): boolean {
+    return (
+        onboarding.github_connected &&
+        state.toolFeatureFlags?.[MCP_SELF_DRIVING_PAGELESS_ACTIVATION_FLAG] === true &&
+        IN_CHAT_ACTIVATION_TOOLS.every((name) => state.allTools.some((tool) => tool.name === name))
+    )
+}
+
+function activationText(projectUrl: string, onboarding: OnboardingState, inChat: boolean): string {
     const vars = { project_url: projectUrl }
+    if (inChat) {
+        return formatPrompt(IN_CHAT_ACTIVATION_PROMPT, vars)
+    }
     return formatPrompt(ACTIVATION_PROMPT, {
         ...vars,
-        github_optional_offer: githubOptional ? formatPrompt(WITHOUT_GITHUB_OFFER, vars) : '',
+        github_optional_offer: onboarding.github_optional_available ? formatPrompt(WITHOUT_GITHUB_OFFER, vars) : '',
     }).replace(/\n{3,}/g, '\n\n')
 }
 
@@ -150,7 +170,7 @@ async function lookupActivationGuidance(
             ruleId: RULE_ID,
             outcome,
             ...(outcome === 'shown'
-                ? { text: activationText(projectUrl, onboarding.data.github_optional_available) }
+                ? { text: activationText(projectUrl, onboarding.data, offersInChatActivation(state, onboarding.data)) }
                 : {}),
         }
         keepReservation = true

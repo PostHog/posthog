@@ -23,12 +23,13 @@ from products.signals.backend.first_report_scout import (
     set_first_report_state,
 )
 from products.signals.backend.first_report_scout_types import FirstReportStatus
-from products.signals.backend.models import SignalScoutConfig, SignalTeamConfig
+from products.signals.backend.models import SignalScoutConfig, SignalSourceConfig, SignalTeamConfig
 from products.signals.backend.onboarding_analytics import InboxOnboardingAnalytics
 from products.signals.backend.onboarding_completion import InboxOnboardingReconciler
 from products.signals.backend.onboarding_state import is_quick_setup
 from products.signals.backend.scout_harness.run_gates import check_fleet_gates, check_run_in_flight, check_spend_gates
 from products.signals.backend.scout_harness.suggestions import read_suggestion_settings, suggestions_allowed_for_team
+from products.signals.backend.source_backfill import start_onboarding_error_tracking_backfill
 from products.signals.backend.temporal.agentic.scout_scheduler import start_onboarding_signals_scout_run
 from products.signals.backend.temporal.agentic.scout_suggestions import start_manual_scout_suggestions_run
 
@@ -148,8 +149,27 @@ class InboxOnboardingActivation:
         )
         return True
 
+    def _start_error_tracking_backfill(self) -> bool:
+        if not SignalSourceConfig.is_source_enabled(
+            self.team_id,
+            SignalSourceConfig.SourceProduct.ERROR_TRACKING,
+            SignalSourceConfig.SourceType.ISSUE_CREATED,
+        ):
+            return False
+        start_onboarding_error_tracking_backfill(self.team_id)
+        return True
+
+    def _start_job(self, job: str, team: Team, state: dict[str, Any], *, enrolled: bool, final_attempt: bool) -> bool:
+        if enrolled:
+            return self._start_first_report(team, state, final_attempt=final_attempt)
+        if job == "scout":
+            return self._start_default_scout(team, state)
+        if job == "error_tracking_backfill":
+            return self._start_error_tracking_backfill()
+        return self._start_recommendations(team, state.get("activated_by"))
+
     def run(self, job: str, *, final_attempt: bool = True) -> None:
-        if job not in ("scout", "recommendations"):
+        if job not in ("scout", "recommendations", "error_tracking_backfill"):
             raise ValueError("Unknown onboarding job")
         config = SignalTeamConfig.objects.select_related("team__parent_team", "team__organization").get(
             team_id=self.team_id
@@ -162,18 +182,14 @@ class InboxOnboardingActivation:
         team = config.team.parent_team or config.team
         enrolled = job == "scout" and bool(state.get("first_report_variant"))
         first_report = state.get("first_report_variant") in FIRST_REPORT_SCOUT_VARIANTS
-        if team.organization.is_ai_data_processing_approved is not True:
+        # The backfill starts no agent. The source config viewset starts it without a consent check, so it is exempt too.
+        if job != "error_tracking_backfill" and team.organization.is_ai_data_processing_approved is not True:
             if enrolled and first_report:
                 set_first_report_state(team.id, FirstReportStatus.INCOMPLETE)
             self._record_status(job, "skipped", "ai_consent_required")
             return
         try:
-            if enrolled:
-                started = self._start_first_report(team, state, final_attempt=final_attempt)
-            elif job == "scout":
-                started = self._start_default_scout(team, state)
-            else:
-                started = self._start_recommendations(team, state.get("activated_by"))
+            started = self._start_job(job, team, state, enrolled=enrolled, final_attempt=final_attempt)
         except Exception:
             if enrolled and first_report and final_attempt:
                 set_first_report_state(team.id, FirstReportStatus.INCOMPLETE)
