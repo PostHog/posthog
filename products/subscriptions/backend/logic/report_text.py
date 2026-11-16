@@ -29,6 +29,9 @@ class ReportChangeItem(BaseModel):
     direction: Literal["increase", "decrease"]
 
 
+# Templates mark an empty line with a literal "\n", and the model sometimes copies it as text.
+_LITERAL_NEWLINE_LINE = re.compile(r"^[ \t]*(?:\\n[ \t]*)+$", re.MULTILINE)
+
 _TABLE_SEPARATOR_ROW = re.compile(r"^\|?\s*:?-+:?\s*(?:\|\s*:?-+:?\s*)*\|?$")
 
 
@@ -199,7 +202,7 @@ class ReportDocument(BaseModel):
                     parts.append("\n")
                 # The user's template decides the formatting, so item kinds add no code or italic styles here.
                 parts.append(part.render(styled=False))
-            return _join_table_rows("".join(parts))
+            return _join_table_rows(_LITERAL_NEWLINE_LINE.sub("", "".join(parts)))
         parts = [f"# {self.topic}"] if self.topic else []
         parts.extend(section.render() for section in self.sections)
         return _join_table_rows("\n\n".join(parts))

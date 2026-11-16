@@ -65,8 +65,10 @@ def _visual(text: str) -> ReportText:
         (["First line\n", "Second line\n"], "First line\nSecond line\n"),
         (["First line", "\n", "Second line"], "First line\n\nSecond line"),
         (["First line", "", "Second line"], "First line\n\nSecond line"),
+        (["First line", "\\n", "\\n", "Second line"], "First line\n\n\nSecond line"),
+        (["First line\n\\n\nSecond line \\n"], "First line\n\nSecond line \\n"),
     ],
-    ids=["per_line", "existing_newlines", "spacer", "empty_line"],
+    ids=["per_line", "existing_newlines", "spacer", "empty_line", "literal_spacers", "literal_spacer_inside_a_part"],
 )
 def test_custom_layout_preserves_lines(lines: list[str], expected: str) -> None:
     document = ReportDocument(topic=None, sections=[], custom_layout=[_visual(line) for line in lines])
