@@ -17262,10 +17262,6 @@ export namespace Schemas {
          * How many cohorts in this project the plan allows to have realtime on. Null when `access` is `off`, or when the plan sets no limit.
          */
         max_cohorts: number | null;
-        /**
-         * How many days back the criteria of a realtime cohort can look on the plan. Null when `access` is `off`.
-         */
-        max_history_days: number | null;
     };
     export type TeamRevenueAnalyticsConfig = Partial<{
         base_currency: BaseCurrencyEnum;
