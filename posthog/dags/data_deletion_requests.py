@@ -9,7 +9,7 @@ from typing import TypeVar
 
 from django.conf import settings as django_settings
 from django.core.exceptions import ValidationError as DjangoValidationError
-from django.db.models import F
+from django.db.models import Exists, F, OuterRef, Q
 
 import dagster
 import pydantic
@@ -60,6 +60,7 @@ from posthog.models.data_deletion_request import (
     queued_requests_to_verify,
     reaches_target_through_event_uuids,
     uncopied_rows_predicate,
+    unfinished_property_removals,
     verify_queued_request,
 )
 from posthog.models.deletion_targets import (
@@ -1006,18 +1007,11 @@ def load_property_removal_request(
                 f"Request {config.request_id} has no properties or person_properties specified.",
             )
 
-        # A removal that started and did not complete may hold the team's rows only in its staged files, or
-        # may restore a staged copy of them. Another removal that rewrites those rows in between would lose
-        # its change when that copy comes back.
         unfinished = [
             str(pk)
-            for pk in DataDeletionRequest.objects.filter(
-                team_id=request.team_id,
-                request_type=RequestType.PROPERTY_REMOVAL,
-                property_removal_marker__isnull=False,
-            )
+            for pk in unfinished_property_removals()
+            .filter(team_id=request.team_id)
             .exclude(pk=request.pk)
-            .exclude(status=RequestStatus.COMPLETED)
             .order_by("created_at")
             .values_list("pk", flat=True)
         ]
@@ -1714,12 +1708,23 @@ def delete_property_removal_shard(
     hogql_compiled = _compile_predicate(deletion_request, target.json_schema)
     staging = _ShardStaging(request_id=deletion_request.request_id, target=target)
     log = _query_logger(context, target)
+    # A criteria edit clears the marker, and then another removal on the team may start and rewrite these
+    # rows. A re-executed step of this run still carries the old marker, so it must not delete them. The
+    # read happens here because the shard work runs on threads with their own database connections.
+    holds_marker = DataDeletionRequest.objects.filter(
+        pk=deletion_request.request_id, property_removal_marker=deletion_request.inserted_at_marker
+    ).exists()
 
     def delete(client: Client) -> int:
         steps = staging.finished_steps(client)
         if _DELETED in steps:
             log("skip", "delete already finished")
             return steps[_DELETED]["rows"]
+        if _DELETE_STARTED not in steps and not holds_marker:
+            raise dagster.Failure(
+                description=f"[{target.mapping_key}] the request no longer holds this run's marker. Nothing was "
+                "deleted. Retry the request to start a new run."
+            )
         if _COPIED not in steps:
             raise dagster.Failure(
                 description=f"[{target.mapping_key}] staged copy is missing. Re-execute the copy step before "
@@ -2566,8 +2571,12 @@ def data_deletion_request_pickup_sensor(context: dagster.SensorEvaluationContext
     # Only one deletion job runs at a time, so automatic requests (such as conversations ticket
     # purges) can build a long queue. Staff-created requests skip that queue. created_by_staff is
     # NULL on requests that no person submitted, so nulls sort with the non-staff requests.
+    # A property removal waits while another one on its team is unfinished. Its load would refuse it, and
+    # a refused run consumes the run key, so the sensor leaves it for a later tick.
+    waiting = Exists(unfinished_property_removals().filter(team_id=OuterRef("team_id")).exclude(pk=OuterRef("pk")))
     next_request = (
         DataDeletionRequest.objects.filter(status=RequestStatus.APPROVED)
+        .exclude(Q(request_type=RequestType.PROPERTY_REMOVAL) & waiting)
         .order_by(F("created_by_staff").desc(nulls_last=True), "approved_at")
         .first()
     )

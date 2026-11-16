@@ -35,6 +35,7 @@ from posthog.models.data_deletion_request import (
     count_remaining_for_request,
     fetch_deletion_stats,
     refresh_deletion_stats,
+    unfinished_property_removals,
 )
 from posthog.models.team.team import Team
 from posthog.models.user import User
@@ -448,6 +449,10 @@ def verify(request: HttpRequest, obj: Model, form: forms.Form | None) -> HttpRes
     # Read before counting, so a criteria edit during the count cannot mark the new criteria completed.
     revision = obj.criteria_updated_at
     prior_status = obj.status
+    if unfinished_property_removals().filter(pk=obj.pk).exists():
+        # The count reads only the table, and the run may hold rows only in its staged files.
+        messages.error(request, "This property removal's run started. Retry it so that its run completes it.")
+        return HttpResponse(status=409)
     try:
         remaining = count_remaining_for_request(obj)
     except Exception as error:

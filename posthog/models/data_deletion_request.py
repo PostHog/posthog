@@ -9,7 +9,7 @@ from django.contrib.postgres.fields import ArrayField
 from django.core.cache import cache
 from django.core.exceptions import ValidationError
 from django.db import models
-from django.db.models import F
+from django.db.models import F, QuerySet
 from django.utils import timezone
 
 from posthog.dataclasses import frozen
@@ -1475,6 +1475,17 @@ def queued_requests_to_verify(lookback: timedelta) -> list["DataDeletionRequest"
 # An event removal below this many events is cheap enough that a dedicated ClickHouse Team review buys
 # nothing. The sweep job approves it instead, always deferred so the scheduled deletes_job drains it
 # alongside everything else rather than running a mutation of its own.
+def unfinished_property_removals() -> QuerySet[DataDeletionRequest]:
+    """Property removals whose run started and did not complete.
+
+    Such a run may hold rows only in its staged files, or may still restore a staged copy over rows that
+    another removal rewrote, so no other property removal on the team may start meanwhile.
+    """
+    return DataDeletionRequest.objects.filter(
+        request_type=RequestType.PROPERTY_REMOVAL, property_removal_marker__isnull=False
+    ).exclude(status=RequestStatus.COMPLETED)
+
+
 AUTO_APPROVE_MAX_EVENTS = 100_000
 # How often the sweep job runs. Lives here rather than beside the schedule so the admin can tell an
 # operator how long their request will sit before it's looked at, without the two drifting apart.

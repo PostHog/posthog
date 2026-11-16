@@ -2343,6 +2343,28 @@ def test_a_property_removal_waits_for_an_unfinished_one_on_the_same_team(cluster
 
 
 @pytest.mark.django_db
+def test_delete_refuses_a_run_whose_marker_the_request_no_longer_holds(cluster: ClickhouseCluster):
+    now = datetime.now(UTC)
+    props = json.dumps({"secret": "value", "keep": "yes"})
+    events = [(PROP_TEAM_ID, "$pageview", uuid4(), now - timedelta(hours=i + 1), props) for i in range(3)]
+    cluster.any_host(partial(_insert_events_with_properties, events)).result()
+    request = _property_removal_request(start_time=now - timedelta(days=7), property_removal_marker=timezone.now())
+    ctx = _request_context(request)
+    target = next(t for t in _property_removal_targets(cluster, ctx) if not t.json_schema)
+    copy_property_removal_shard(build_op_context(), cluster, target, ctx)
+
+    # A criteria edit clears the marker, which lets another removal on the team start. Re-executing the
+    # old run's delete step still carries the old context.
+    DataDeletionRequest.objects.filter(pk=request.pk).update(property_removal_marker=None)
+
+    with pytest.raises(dagster.Failure, match="no longer holds"):
+        delete_property_removal_shard(build_op_context(), cluster, target, ctx)
+    all_props = cluster.any_host(partial(_get_properties, PROP_TEAM_ID, "$pageview")).result()
+    assert len(all_props) == len(events)
+    assert all("secret" in row for row in all_props)
+
+
+@pytest.mark.django_db
 def test_reingest_keeps_a_flag_evaluation_that_differs_from_a_staged_row_only_by_flag_key(cluster: ClickhouseCluster):
     marker = timezone.now() - timedelta(minutes=5)
     now = datetime.now(UTC)
@@ -3802,6 +3824,39 @@ def test_pickup_sensor_launches_staff_request_before_older_non_staff_request(old
 
     assert isinstance(result, dagster.RunRequest)
     assert result.tags["deletion_request_id"] == str(staff_request.pk)
+
+
+@pytest.mark.django_db
+def test_pickup_sensor_skips_a_property_removal_that_waits_for_another_on_its_team():
+    now = timezone.now()
+    removal = {
+        "team_id": TEAM_ID,
+        "request_type": RequestType.PROPERTY_REMOVAL,
+        "events": ["$pageview"],
+        "start_time": now - timedelta(days=7),
+        "end_time": now,
+    }
+    DataDeletionRequest.objects.create(
+        **removal, properties=["secret"], status=RequestStatus.FAILED, property_removal_marker=now
+    )
+    DataDeletionRequest.objects.create(
+        **removal, properties=["other"], status=RequestStatus.APPROVED, approved_at=now - timedelta(hours=1)
+    )
+    other_team = DataDeletionRequest.objects.create(
+        team_id=TEAM_ID + 1,
+        request_type=RequestType.PERSON_REMOVAL,
+        person_uuids=[str(uuid4())],
+        person_drop_profiles=True,
+        status=RequestStatus.APPROVED,
+        approved_at=now,
+    )
+
+    result = data_deletion_request_pickup_sensor(
+        dagster.build_sensor_context(instance=dagster.DagsterInstance.ephemeral())
+    )
+
+    assert isinstance(result, dagster.RunRequest)
+    assert result.run_key == f"{other_team.pk}:{other_team.attempt_count}"
 
 
 @pytest.mark.django_db

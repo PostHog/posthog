@@ -368,6 +368,21 @@ class TestDeletionRequestConsole(BaseTest):
         obj.refresh_from_db()
         assert obj.status == expected
 
+    def test_verify_does_not_complete_a_property_removal_whose_run_started(self) -> None:
+        # The run may hold the team's rows only in its staged files, which the count does not read.
+        obj = self._request(
+            request_type=RequestType.PROPERTY_REMOVAL,
+            properties=["secret"],
+            status=RequestStatus.FAILED,
+            property_removal_marker=timezone.now(),
+        )
+
+        with patch(f"{PANELS}.count_remaining_for_request", return_value=0):
+            self.client.post(self._url(obj, "workflow", "verify"))
+
+        obj.refresh_from_db()
+        assert obj.status == RequestStatus.FAILED
+
     def test_verify_does_not_complete_criteria_edited_while_it_counted(self) -> None:
         obj = self._request(status=RequestStatus.FAILED)
 
