@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from collections.abc import Sequence
 from typing import Any
 
 from parameterized import parameterized
@@ -33,6 +34,16 @@ from products.data_catalog.evals.scorers import (
     TableInspected,
     TrustBadgeShown,
 )
+from products.data_catalog.evals.scorers_analysis import (
+    AnalysisDiligence,
+    AnnotationsRead,
+    EvidenceQueried,
+    FirstSeenChecked,
+    SurfacesAllFindingsWhenListed,
+    VerifiedBeforeExplaining,
+)
+from products.posthog_ai.eval_harness.acp_log import parse_log
+from products.posthog_ai.eval_harness.scorers.contract import Score
 
 CATALOG_QUERY = "SELECT name, status, is_drifted FROM system.information_schema.metrics"
 METRIC_NAME = "top_customers_mrr_by_business_model"
@@ -61,10 +72,13 @@ def _session_update(sequence: int, update: dict) -> str:
     )
 
 
-def _tool_log(calls: list[tuple[str, dict[str, Any], str]]) -> str:
+def _tool_log(calls: Sequence[tuple[Any, ...]]) -> str:
+    """A fourth tuple element sets the tool output, which is ``ok`` or ``error`` otherwise."""
     updates: list[str] = []
     sequence = 0
-    for index, (tool_name, raw_input, status) in enumerate(calls, start=1):
+    for index, call in enumerate(calls, start=1):
+        tool_name, raw_input, status = call[0], call[1], call[2]
+        output = call[3] if len(call) > 3 else ("error" if status == "failed" else "ok")
         call_id = f"call-{index}"
         sequence += 1
         updates.append(
@@ -88,7 +102,7 @@ def _tool_log(calls: list[tuple[str, dict[str, Any], str]]) -> str:
                     "sessionUpdate": "tool_call_update",
                     "toolCallId": call_id,
                     "status": status,
-                    "rawOutput": "error" if status == "failed" else "ok",
+                    "rawOutput": output,
                 },
             )
         )
@@ -870,3 +884,211 @@ def test_semantic_layer_answer_gives_the_judge_the_ordered_chain() -> None:
 
     assert prepared["output"]["tool_chain"].splitlines()[0].startswith("1. metric-list(")
     assert prepared["output"]["tool_chain"].splitlines()[1].startswith("2. data-catalog-metric-run(")
+
+
+_WAU_QUERY = "SELECT toStartOfWeek(timestamp) AS week, count(DISTINCT person_id) FROM events GROUP BY week"
+_CAUSE_QUERY = "SELECT properties.$referring_domain, count() FROM events GROUP BY 1"
+_CAUSE_AND_MEASURE = "SELECT properties.utm_source, count(DISTINCT person_id) FROM events GROUP BY 1"
+_SPIKE_SPEC = {"measure": r"count\s*\(\s*distinct", "cause": r"referr|utm_"}
+
+
+@parameterized.expand(
+    [
+        ("measured_first", [_WAU_QUERY, _CAUSE_QUERY], False, 1.0),
+        ("cause_first", [_CAUSE_QUERY, _WAU_QUERY], False, 0.0),
+        # A breakdown by cause that also counts users is still a cause query, not a check of the premise.
+        ("breakdown_counts_as_cause", [_CAUSE_AND_MEASURE, _WAU_QUERY], False, 0.0),
+        ("never_explained", [_WAU_QUERY], False, None),
+        ("never_explained_when_required", [_WAU_QUERY], True, 0.0),
+    ]
+)
+def test_verified_before_explaining(
+    _name: str, queries: list[str], required: bool, expected_score: float | None
+) -> None:
+    log = _tool_log([("execute-sql", {"query": query}, "completed") for query in queries])
+    spec = _SPIKE_SPEC | {"required": required}
+
+    score = VerifiedBeforeExplaining()._run_eval_sync({"raw_log": log}, {"verified_before_explaining": spec})
+
+    assert score.score == expected_score
+
+
+@parameterized.expand(
+    [
+        (
+            "pattern_in_sql",
+            [("execute-sql", {"query": "SELECT properties.$lib_version FROM events"}, "completed")],
+            1.0,
+        ),
+        ("tool_counts_alone", [("feature-flag-get-all", {}, "completed")], 1.0),
+        ("failed_call", [("execute-sql", {"query": "SELECT properties.$lib_version FROM events"}, "failed")], 0.0),
+        (
+            "schema_lookup_is_not_evidence",
+            [
+                (
+                    "execute-sql",
+                    {"query": "SELECT * FROM system.information_schema.columns WHERE name = '$lib_version'"},
+                    "completed",
+                )
+            ],
+            0.0,
+        ),
+    ]
+)
+def test_evidence_queried(_name: str, calls: list[tuple[str, dict[str, Any], str]], expected_score: float) -> None:
+    score = EvidenceQueried()._run_eval_sync(
+        {"raw_log": _tool_log(calls)},
+        {"hypothesis_evidence_queried": {"patterns": [r"\$lib_version"], "tools": ["feature-flag-get-all"]}},
+    )
+
+    assert score.score == expected_score
+
+
+@parameterized.expand(
+    [
+        ("min_timestamp", "SELECT min(timestamp) FROM events WHERE properties.tool_name = 'evalpack-export'", 1.0),
+        (
+            "ascending_sort",
+            "SELECT timestamp FROM events WHERE event = 'evalpack-export' ORDER BY timestamp LIMIT 1",
+            1.0,
+        ),
+        (
+            "latest_is_not_first",
+            "SELECT timestamp FROM events WHERE event = 'evalpack-export' ORDER BY timestamp DESC",
+            0.0,
+        ),
+        ("other_subject", "SELECT min(timestamp) FROM events WHERE event = 'uploaded_file'", 0.0),
+        (
+            "qualified_timestamp",
+            "SELECT min(e.timestamp) FROM events AS e WHERE e.properties.tool_name = 'evalpack-export'",
+            1.0,
+        ),
+    ]
+)
+def test_first_seen_checked(_name: str, query: str, expected_score: float) -> None:
+    score = FirstSeenChecked()._run_eval_sync(
+        {"raw_log": _sql_log(query)}, {"first_seen_checked": {"subject": "evalpack-export"}}
+    )
+
+    assert score.score == expected_score
+
+
+_ANNOTATION = "Sponsorship went live"
+_ANNOTATION_ROWS = f'[{{"content": "{_ANNOTATION}", "date_marker": "2026-11-02"}}]'
+
+
+@parameterized.expand(
+    [
+        ("list", "annotations-list", {}, _ANNOTATION_ROWS, 1.0),
+        ("sql", "execute-sql", {"query": "SELECT content FROM system.annotations"}, _ANNOTATION_ROWS, 1.0),
+        ("change_feed", "change-feed-list", {"date_from": "-30d"}, _ANNOTATION_ROWS, 1.0),
+        # The default 24-hour window of the change feed misses an older annotation.
+        ("change_feed_default_window", "change-feed-list", {}, "[]", 0.0),
+        ("change_feed_without_annotations", "change-feed-list", {"kinds": ["feature_flag"]}, _ANNOTATION_ROWS, 0.0),
+        (
+            "schema_lookup_is_not_a_read",
+            "execute-sql",
+            {"query": "SELECT name FROM system.information_schema.tables WHERE name LIKE '%annotation%'"},
+            _ANNOTATION_ROWS,
+            0.0,
+        ),
+        ("create_is_not_a_read", "annotation-create", {"content": _ANNOTATION}, _ANNOTATION_ROWS, 0.0),
+        ("column_annotations", "warehouse-column-annotations-list", {}, _ANNOTATION_ROWS, 0.0),
+    ]
+)
+def test_annotations_read(
+    _name: str, tool: str, tool_input: dict[str, Any], tool_output: str, expected_score: float
+) -> None:
+    score = AnnotationsRead()._run_eval_sync(
+        {"raw_log": _tool_log([(tool, tool_input, "completed", tool_output)])},
+        {"annotations_read": {"content": _ANNOTATION.lower()}},
+    )
+
+    assert score.score == expected_score
+
+
+def test_analysis_scorers_skip_cases_that_do_not_request_them() -> None:
+    output = {"raw_log": _sql_log(_WAU_QUERY), "last_message": "Weekly actives rose."}
+
+    for scorer in (VerifiedBeforeExplaining(), EvidenceQueried(), FirstSeenChecked(), AnnotationsRead()):
+        assert scorer._run_eval_sync(output, {}).score is None
+    for judge in (SurfacesAllFindingsWhenListed(), AnalysisDiligence()):
+        prepared = judge._prepare(output, {})
+        assert isinstance(prepared, Score) and prepared.score is None
+
+
+def _answer_log(steps: list[tuple[str, str]]) -> str:
+    updates: list[dict[str, Any]] = []
+    for index, (kind, value) in enumerate(steps, start=1):
+        if kind == "text":
+            updates.append({"sessionUpdate": "agent_message", "content": {"type": "text", "text": value}})
+            continue
+        call = {"toolCallId": f"call-{index}", "_meta": {"claudeCode": {"toolName": value}}}
+        updates.append(call | {"sessionUpdate": "tool_call", "status": "pending", "rawInput": {"query": _WAU_QUERY}})
+        updates.append(call | {"sessionUpdate": "tool_call_update", "status": "completed", "rawOutput": "ok"})
+    return "\n".join(_session_update(sequence, update) for sequence, update in enumerate(updates, start=1))
+
+
+@parameterized.expand(
+    [
+        (
+            "note_after_show_actions",
+            [
+                ("tool", "execute-sql"),
+                ("text", "Signups spiked from the campaign."),
+                ("tool", "mcp__posthog-code-tools__show_actions"),
+                ("text", "The buttons above start each task."),
+            ],
+            ["Signups spiked from the campaign.", "The buttons above start each task."],
+            [],
+        ),
+        (
+            "note_after_render_ui",
+            [
+                ("tool", "execute-sql"),
+                ("text", "Signups spiked from the campaign."),
+                ("tool", "mcp__posthog__render-ui"),
+                ("text", "The chart above shows the spike."),
+            ],
+            ["Signups spiked from the campaign.", "The chart above shows the spike."],
+            [],
+        ),
+        (
+            "narration_before_last_query",
+            [
+                ("text", "Checking signups next."),
+                ("tool", "execute-sql"),
+                ("text", "Signups spiked from the campaign."),
+            ],
+            ["Signups spiked from the campaign."],
+            ["Checking signups next."],
+        ),
+    ]
+)
+def test_analysis_judges_read_the_answer_after_the_last_data_call(
+    _name: str, steps: list[tuple[str, str]], kept: list[str], dropped: list[str]
+) -> None:
+    raw_log = _answer_log(steps)
+    messages = parse_log(raw_log, initial_prompt="Give me a health check.").messages
+    output = {
+        "raw_log": raw_log,
+        "messages": messages,
+        "last_message": steps[-1][1],
+        "prompt": "Give me a health check.",
+    }
+    expected = {
+        "surfaces_all_findings": ["finding one", "finding two"],
+        "analysis_diligence": {"expected_behavior": "Name the campaign."},
+        "semantic_layer_answer": {"expected_behavior": "Name the campaign."},
+    }
+
+    for judge, field in (
+        (SurfacesAllFindingsWhenListed(), "last_message"),
+        (AnalysisDiligence(), "final_message"),
+        (SemanticLayerAnswer(), "final_message"),
+    ):
+        prepared = judge._prepare(output, expected)
+        assert isinstance(prepared, dict)
+        answer = prepared["output"][field]
+        assert all(text in answer for text in kept)
+        assert not any(text in answer for text in dropped)
