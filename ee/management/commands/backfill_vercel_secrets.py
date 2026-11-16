@@ -20,10 +20,12 @@ from django.core.management.base import BaseCommand
 import structlog
 
 from posthog.exceptions_capture import capture_exception
-from posthog.models.integration import Integration
+from posthog.integrations import CrossTeamFilter, IntegrationManager
 from posthog.tasks.integrations import push_vercel_secrets
 
 logger = structlog.get_logger(__name__)
+
+PAGE_SIZE = 1000
 
 
 class Command(BaseCommand):
@@ -37,11 +39,17 @@ class Command(BaseCommand):
         )
 
     def handle(self, *args: Any, **options: Any) -> None:
-        team_ids = sorted(
-            Integration.objects.filter(kind=Integration.IntegrationKind.VERCEL)
-            .values_list("team_id", flat=True)
-            .distinct()
-        )
+        found: set[int] = set()
+        after_id: int | None = None
+        while True:
+            page = IntegrationManager.vercel.oauth.list_across_teams(
+                CrossTeamFilter(limit=PAGE_SIZE, after_id=after_id)
+            )
+            found.update(resource.team_id for resource in page)
+            if len(page) < PAGE_SIZE:
+                break
+            after_id = page[-1].id
+        team_ids = sorted(found)
 
         if options["dry_run"]:
             for team_id in team_ids:

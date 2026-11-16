@@ -1,14 +1,14 @@
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 
-import { LemonButton, LemonInput, LemonInputSelect, LemonModal, LemonTextArea, Link } from '@posthog/lemon-ui'
+import { LemonButton, LemonInput, LemonModal, LemonTextArea, Link } from '@posthog/lemon-ui'
 
 import { MemberSelect } from 'lib/components/MemberSelect'
+import { TagsInputSelect } from 'lib/components/TagsInputSelect'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { urls } from 'scenes/urls'
 
-import { tagsModel } from '~/models/tagsModel'
 import { UserBasicType } from '~/types'
 
 import { eventDefinitionModalLogic } from './eventDefinitionModalLogic'
@@ -22,7 +22,6 @@ export function EventDefinitionModal({ isOpen, onClose }: EventDefinitionModalPr
     const logic = eventDefinitionModalLogic({ onClose })
     const { eventDefinitionForm, isEventDefinitionFormSubmitting, existingEvent } = useValues(logic)
     const { setEventDefinitionFormValue: setFormValue, submitEventDefinitionForm } = useActions(logic)
-    const { tags } = useValues(tagsModel)
 
     return (
         <LemonModal
@@ -87,11 +86,8 @@ export function EventDefinitionModal({ isOpen, onClose }: EventDefinitionModalPr
                     </LemonField>
 
                     <LemonField name="tags" label="Tags" showOptional className="flex-1">
-                        <LemonInputSelect
-                            mode="multiple"
-                            allowCustomValues
+                        <TagsInputSelect
                             value={eventDefinitionForm.tags || []}
-                            options={tags.map((tag) => ({ key: tag, label: tag }))}
                             onChange={(tags) => setFormValue('tags', tags)}
                             placeholder="Add tags..."
                             data-attr="event-definition-tags-input"

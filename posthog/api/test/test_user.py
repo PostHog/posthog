@@ -4209,6 +4209,7 @@ class TestUserDeletionAfterOrgDeletion(NonAtomicBaseTest):
     """
 
     CLASS_DATA_LEVEL_SETUP = False
+    databases = {"default", "ui_customization_db_writer", "ui_customization_db_reader"}
 
     @patch("posthoganalytics.capture")
     def test_can_delete_account_after_deleting_only_organization(self, mock_capture):

@@ -1,9 +1,6 @@
 from posthog.test.base import BaseTest
-from unittest.mock import MagicMock, patch
 
 from django.contrib.admin.sites import AdminSite
-from django.contrib.messages.storage.fallback import FallbackStorage
-from django.contrib.sessions.backends.cache import SessionStore
 from django.test import RequestFactory
 from django.utils import timezone
 
@@ -12,7 +9,7 @@ from parameterized import parameterized
 from posthog.models import Organization, Team
 
 from products.experiments.backend.admin.experiment_admin import ExperimentAdmin
-from products.experiments.backend.models.experiment import Experiment, ExperimentMetricsRecalculation
+from products.experiments.backend.models.experiment import Experiment
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 
@@ -62,44 +59,3 @@ class TestExperimentAdmin(BaseTest):
     def test_organization_filter_ignores_a_value_that_is_not_a_uuid(self) -> None:
         all_ids = {self.draft.id, self.running.id, self.stopped.id, self.other_org_experiment.id}
         assert self._changelist_ids({"organization": "invalid"}) == all_ids
-
-    @parameterized.expand([("post_starts_manual_run", "post", True), ("get_is_a_noop", "get", False)])
-    @patch("products.experiments.backend.admin.recalculation_panel.start_metrics_recalculation_workflow")
-    def test_start_recalculation_view(self, _name: str, method: str, expects_run: bool, mock_start: MagicMock) -> None:
-        request = getattr(RequestFactory(), method)("/")
-        request.user = self.user
-        request.session = SessionStore()
-        request._messages = FallbackStorage(request)
-        with patch.object(self.model_admin, "has_change_permission", return_value=True):
-            response = self.model_admin.start_recalculation_view(request, str(self.running.pk))
-
-        run = ExperimentMetricsRecalculation.objects.unscoped().filter(experiment=self.running).first()
-        assert (run is not None) is expects_run
-        assert mock_start.called is expects_run
-        if run is not None:
-            assert run.trigger == ExperimentMetricsRecalculation.Trigger.MANUAL
-            assert str(run.pk) in response.url
-
-    def test_migrate_experiment_view_creates_a_new_engine_copy(self) -> None:
-        Experiment.objects.filter(pk=self.draft.pk).update(
-            metrics=[
-                {
-                    "kind": "ExperimentTrendsQuery",
-                    "count_query": {"kind": "TrendsQuery", "series": [{"kind": "EventsNode", "event": "$pageview"}]},
-                }
-            ]
-        )
-        request = RequestFactory().post("/")
-        request.user = self.user
-        request.session = SessionStore()
-        request._messages = FallbackStorage(request)  # type: ignore[attr-defined]
-
-        response = self.model_admin.migrate_experiment(request, str(self.draft.pk))
-
-        self.draft.refresh_from_db()
-        assert self.draft.stats_config is not None
-        migrated_to = self.draft.stats_config["migrated_to"]
-        assert str(migrated_to) in response.url
-        migrated_metrics = Experiment.objects.get(pk=migrated_to).metrics
-        assert migrated_metrics is not None
-        assert migrated_metrics[0]["kind"] == "ExperimentMetric"

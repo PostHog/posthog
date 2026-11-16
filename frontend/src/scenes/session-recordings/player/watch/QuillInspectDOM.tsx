@@ -11,7 +11,7 @@ export function QuillInspectDOM(): JSX.Element {
 
     return (
         <Button
-            size="xs"
+            size="sm"
             onClick={openExplorer}
             tooltip="Inspect the DOM as it was at this moment in the session. Analyze the structure and elements captured during the recording."
             disabledReason={

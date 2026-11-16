@@ -102,6 +102,11 @@ def pagerduty_body(message: AlertMessage, *, routing_key: str, severity: PagerDu
     return body
 
 
+# Every destination posts to the same endpoint, which answers a bad routing key and a malformed
+# event both with 400. Only the routing key is the owner's to fix.
+_OWNER_REFUSALS: Final = {400: b"invalid routing key"}
+
+
 class PagerDutyTransport:
     provider = PROVIDER
 
@@ -125,6 +130,13 @@ class PagerDutyTransport:
         except ValueError:
             raise DeliveryError("This PagerDuty destination has an unknown region or severity.") from None
         body = pagerduty_body(message, routing_key=routing_key, severity=severity)
-        post_json(ENDPOINTS[region], body, display_name="PagerDuty")
+        post_json(
+            ENDPOINTS[region],
+            body,
+            display_name="PagerDuty",
+            # An uncompressed answer, so the refusal check can read its error text.
+            headers={"Accept-Encoding": "identity"},
+            owner_refusals=_OWNER_REFUSALS,
+        )
         # PagerDuty answers with the dedup key, which this transport derives again for the resolve.
         return None

@@ -26,6 +26,17 @@ class BuiltInFilterEvaluation(LabeledStrEnum):
     SERVER = "server"
 
 
+class LifecycleFilterOutcome(LabeledStrEnum):
+    """Why compiled lifecycle filters admitted or skipped one issue transition."""
+
+    MATCH = "match"
+    EXCLUDED_BY_FILTER = "excluded_by_filter"
+    # A filter key needs exception properties that the transition does not carry.
+    DATA_UNAVAILABLE = "data_unavailable"
+    # Missing bytecode, or bytecode that failed to evaluate.
+    FILTER_ERROR = "filter_error"
+
+
 class IssueTrendDirection(LabeledStrEnum):
     NEW = "new"
     INCREASING = "increasing"

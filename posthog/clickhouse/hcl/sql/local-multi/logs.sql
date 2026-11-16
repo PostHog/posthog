@@ -590,8 +590,9 @@ CREATE TABLE posthog.metrics4_samples (
   has_labels SimpleAggregateFunction(max, UInt8),
   instrumentation_scope SimpleAggregateFunction(any, String),
   histogram_bounds SimpleAggregateFunction(anyLast, Array(Float64)),
+  histogram_bounds_hash UInt64,
   _topic SimpleAggregateFunction(any, LowCardinality(String)),
-  timestamp_arr SimpleAggregateFunction(groupArrayArray(10000), Array(DateTime64(6))) CODEC(DoubleDelta, Default),
+  timestamp_arr SimpleAggregateFunction(groupArrayArray(10000), Array(DateTime64(6))) CODEC(Delta(8), Default),
   observed_timestamp_arr SimpleAggregateFunction(groupArrayArray(10000), Array(DateTime64(6))) CODEC(DoubleDelta, Default),
   value_arr SimpleAggregateFunction(groupArrayArray(10000), Array(Float64)) CODEC(Gorilla(8), Default),
   count_arr SimpleAggregateFunction(groupArrayArray(10000), Array(UInt64)) CODEC(T64, Default),
@@ -609,7 +610,7 @@ CREATE TABLE posthog.metrics4_samples (
   PROJECTION service_freshness_by_hour (SELECT team_id, time_bucket, service_name, max(arrayMax(timestamp_arr))
 GROUP BY
   team_id, time_bucket, service_name)
-) ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/noshard/posthog.metrics4_samples', '{replica}-{shard}') ORDER BY (team_id, metric_name, time_bucket, series_fingerprint) PARTITION BY original_expiry_date TTL original_expiry_date SETTINGS deduplicate_merge_projection_mode = 'rebuild', index_granularity = 128, ttl_only_drop_parts = 1;
+) ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/noshard/posthog.metrics4_samples', '{replica}-{shard}') PRIMARY KEY (team_id, metric_name, time_bucket, series_fingerprint) ORDER BY (team_id, metric_name, time_bucket, series_fingerprint, histogram_bounds_hash) PARTITION BY original_expiry_date TTL original_expiry_date SETTINGS deduplicate_merge_projection_mode = 'rebuild', index_granularity = 128, ttl_only_drop_parts = 1;
 CREATE TABLE posthog.metrics4_series (
   team_id Int32,
   metric_name LowCardinality(String),
@@ -959,7 +960,7 @@ CREATE TABLE posthog.trace_spans_kafka_metrics (
   max_timestamp SimpleAggregateFunction(max, DateTime64(9)),
   max_created_at SimpleAggregateFunction(max, DateTime64(9)),
   max_lag SimpleAggregateFunction(max, UInt64)
-) ENGINE = ReplicatedMergeTree('/clickhouse/tables/noshard/posthog.trace_spans_kafka_metrics', '{replica}-{shard}') ORDER BY (_topic, _partition) SETTINGS index_granularity = 8192;
+) ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/noshard/posthog.trace_spans_kafka_metrics', '{replica}-{shard}') ORDER BY (_topic, _partition) SETTINGS index_granularity = 8192;
 CREATE MATERIALIZED VIEW posthog.kafka_logs_avro_billing_metrics_mv TO posthog.logs_billing_metrics (team_id Int32, time_bucket DateTime, service_name LowCardinality(String), bytes_uncompressed SimpleAggregateFunction(sum, Float64), bytes_compressed SimpleAggregateFunction(sum, Float64), record_count SimpleAggregateFunction(sum, UInt64)) AS SELECT
   team_id,
   time_bucket,

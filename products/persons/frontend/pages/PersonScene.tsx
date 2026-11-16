@@ -27,6 +27,7 @@ import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { isMobile } from 'lib/utils/dom'
 import { pluralize } from 'lib/utils/strings'
 import { tryDecodeURIComponent } from 'lib/utils/url'
+import { getEuUserId, getUserAdminUrl } from 'lib/utils/userAdmin'
 import { NotebookSelectButton } from 'scenes/notebooks/NotebookSelectButton/NotebookSelectButton'
 import { NotebookNodeType } from 'scenes/notebooks/types'
 import { sceneConfigurations } from 'scenes/scenes'
@@ -48,6 +49,7 @@ import {
     PersonType,
     PersonsTabType,
     PropertyDefinitionType,
+    Region,
 } from '~/types'
 
 import { ComposeTicketButton } from 'products/conversations/frontend/components/ComposeTicket/ComposeTicketButton'
@@ -615,13 +617,17 @@ function OpenInAdminPanelButton({ size = 'small' }: { size?: LemonButtonProps['s
     const openInAdminPanel = async (email: string): Promise<void> => {
         try {
             const response = await api.users.list(email)
-
-            if (!response.results || response.results.length === 0) {
-                throw new Error('User not found')
+            const userId = response.results?.[0]?.id
+            if (userId) {
+                window.open(`/admin/posthog/user/${userId}/change/`, '_blank')
+                return
             }
 
-            const userId = response.results[0].id
-            window.open(`/admin/posthog/user/${userId}/change/`, '_blank')
+            const euUserId = await getEuUserId(person?.distinct_ids ?? [], { productKey: ProductKey.PERSONS })
+            if (euUserId === null) {
+                throw new Error('User not found')
+            }
+            window.open(getUserAdminUrl(Region.EU, euUserId), '_blank')
         } catch (error) {
             const message = error instanceof Error ? error.message : String(error)
             lemonToast.error(`Failed to open admin panel: ${message}`)

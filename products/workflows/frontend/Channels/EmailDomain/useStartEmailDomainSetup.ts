@@ -6,7 +6,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { urls } from 'scenes/urls'
 
-export type EmailDomainSetupEntry = 'channels' | 'broadcast'
+export type EmailDomainSetupEntry = 'channels' | 'broadcast' | 'add_sender'
 
 export function openEmailDomainSetupPage(entry: EmailDomainSetupEntry): void {
     // pinned: analytics event name

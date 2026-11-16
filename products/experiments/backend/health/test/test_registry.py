@@ -1,5 +1,5 @@
 from dataclasses import replace
-from datetime import UTC, datetime
+from datetime import UTC, date, datetime
 from typing import Any
 from zoneinfo import ZoneInfo
 
@@ -119,6 +119,16 @@ def _raise(_ctx: HealthContext) -> Any:
     raise ValueError("malformed")
 
 
+UNSERVED_CONTROL_FLAG = replace(
+    UNEVEN_FLAG,
+    variants=(FlagVariant(key="control", rollout_percentage=0), FlagVariant(key="test", rollout_percentage=100)),
+    reachable_conditions=(ReachableCondition(number=1, pinned_variant=None, variant_property=None),),
+    saved_at=LAUNCHED_AT,
+)
+UNSERVED_CONTROL_TOTALS = replace(
+    UNEVEN_SPLIT_TOTALS, daily_exposures={"control": {date(2026, 10, 3): 30}, "test": {date(2026, 10, 3): 70}}
+)
+
 MULTIPLE_VARIANTS_CHECK = next(check for check in EXPOSURE_HEALTH_CHECKS if check.key == Key.MULTIPLE_VARIANTS_SHARE)
 FAILING_CHECK = HealthCheck(key=Key.FLAG_STATE, name="Failing", description="Fails.", run=_raise)
 
@@ -223,14 +233,14 @@ class TestEvaluate(TestCase):
                 "flag_changes_are_not_checked_without_the_history",
                 {
                     "flag_history": flag_history(
-                        [], launched_at=LAUNCHED_AT, not_checked=FlagHistoryNotCheckedReason.NO_HISTORY_ACCESS
+                        [], start_date=LAUNCHED_AT, not_checked=FlagHistoryNotCheckedReason.NO_HISTORY_ACCESS
                     )
                 },
                 {Key.FLAG_HISTORY: Status.FINDING, **dict.fromkeys(FLAG_CHANGE_KEYS, Status.NOT_CHECKED)},
             ),
             (
                 "flag_changes_pass_with_a_history_without_changes",
-                {"flag_history": flag_history([], launched_at=LAUNCHED_AT)},
+                {"flag_history": flag_history([], start_date=LAUNCHED_AT)},
                 {Key.FLAG_HISTORY: Status.PASSED, **dict.fromkeys(FLAG_CHANGE_KEYS, Status.PASSED)},
             ),
             (
@@ -528,6 +538,20 @@ class TestEvaluate(TestCase):
                     Value.SHIPPED_VARIANT: "test",
                 },
             ),
+            (
+                "unserved_variants_read_the_users_first_exposed_after_the_save",
+                Key.UNSERVED_VARIANT_EXPOSURES,
+                {"flag": UNSERVED_CONTROL_FLAG, "exposures": UNSERVED_CONTROL_TOTALS},
+                Status.FINDING,
+                {Value.UNSERVED_EXPOSED_COUNT: 30, Value.UNSERVED_EXPOSED_PERCENTAGE: 30.0},
+            ),
+            (
+                "unserved_variants_read_nothing_when_they_dont_judge",
+                Key.UNSERVED_VARIANT_EXPOSURES,
+                {"flag": UNSERVED_CONTROL_FLAG, "exposures": UNSERVED_CONTROL_TOTALS, **ENDED},
+                Status.NOT_APPLICABLE,
+                {},
+            ),
         ]
     )
     def test_a_check_reports_what_it_read(
@@ -547,6 +571,7 @@ class TestEvaluate(TestCase):
             (Key.MULTIPLE_VARIANTS_SHARE, {"exposures": _totals_with_multiple(30, 1000)}),
             (Key.TEST_ACCOUNT_FILTER_REMOVES_EXPOSURES, {"exposures": _filtered_totals(400, 1000)}),
             (Key.ZERO_EXPOSURES, {}),
+            (Key.UNSERVED_VARIANT_EXPOSURES, {"flag": UNSERVED_CONTROL_FLAG}),
         ]
     )
     def test_a_rule_names_values_that_its_check_reads(self, key: Key, changes: dict[str, Any]) -> None:

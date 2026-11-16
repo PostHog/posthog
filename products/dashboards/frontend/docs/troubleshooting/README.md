@@ -2,7 +2,7 @@
 
 Symptom-driven notes for the dashboard scene (`products/dashboards/frontend/` and `frontend/src/scenes/dashboard/`).
 
-## Edit mode / react-grid-layout
+## Layout editing / react-grid-layout
 
 | Symptom                                   | Doc                                                          |
 | ----------------------------------------- | ------------------------------------------------------------ |

@@ -1,4 +1,4 @@
-import { IconTrending } from '@posthog/icons'
+import { IconInfo, IconTrending } from '@posthog/icons'
 import { LemonCard, LemonTag, Tooltip } from '@posthog/lemon-ui'
 
 import { IconTrendingDown, IconTrendingFlat } from 'lib/lemon-ui/icons'
@@ -37,7 +37,10 @@ export const ContentAutopilotPromptKpiCard = ({
     <LemonCard hoverEffect={false} className="p-3 flex flex-col gap-1 min-w-0" data-attr={dataAttr}>
         <div className="flex items-center justify-between gap-2">
             <Tooltip title={description}>
-                <span className="text-muted text-xs font-semibold uppercase truncate">{label}</span>
+                <span className="flex items-center gap-1 min-w-0 text-muted text-xs font-semibold uppercase">
+                    <span className="truncate">{label}</span>
+                    <IconInfo className="shrink-0 text-sm" />
+                </span>
             </Tooltip>
             {delta ? <DeltaTag delta={delta} /> : null}
         </div>

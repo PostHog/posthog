@@ -9,16 +9,18 @@ import {
     type TooltipContext,
     ValueLabels,
 } from '@posthog/quill-charts'
-import { Skeleton } from '@posthog/quill-primitives'
 
 import { useChartConfig } from 'lib/charts/hooks'
 import { formatPercentage } from 'lib/utils/numbers'
 
 import { type ToolRow } from '../mcpDashboardOverviewLogic'
 import { Card, CardState } from './Card'
+import { ChartSkeleton } from './ChartSkeleton'
 import { ChartTooltip } from './ChartTooltip'
 
 const MAX_TOOLS = 8
+const ROW_HEIGHT_PX = 40
+const CHART_MARGINS = { top: 4, right: 20, bottom: 22 }
 
 // Upper bound for the error-rate track: a bit above the worst tool's rate, rounded up to a clean 10 —
 // so the track ends just past the data (a 30% max gives a 50% track) rather than an empty-looking 100%.
@@ -29,13 +31,17 @@ function niceErrorAxisMax(maxRate: number): number {
 export function ToolErrorRateChart({
     rows,
     loading,
+    failed,
+    onRetry,
     theme,
     onToolClick,
     title = 'Tools with the highest error rate',
-    emptyMessage = 'No tool calls yet.',
+    emptyMessage = 'No tool calls in this date range. Try a wider range.',
 }: {
     rows: ToolRow[]
     loading: boolean
+    failed?: boolean
+    onRetry?: () => void
     theme: ChartTheme
     onToolClick?: (tool: string) => void
     title?: string
@@ -68,9 +74,11 @@ export function ToolErrorRateChart({
             showGrid: true,
             yTickFormatter: (value: number) => formatPercentage(value, { compact: true }),
             tooltip: { placement: 'cursor' },
-            margins: { top: 4, right: 20, bottom: 22 },
+            margins: CHART_MARGINS,
             barCornerRadius: 4,
-            bars: { minBandSize: 30, valueDomain: { min: 0, max: axisMax } },
+            // The wrapper height already gives each row ROW_HEIGHT_PX, and the chart's own row minimum
+            // would make a chart with few rows taller than that wrapper.
+            bars: { minBandSize: 0, valueDomain: { min: 0, max: axisMax } },
         }
     }, [sorted])
     const byTool = useMemo(() => new Map(sorted.map((r) => [r.tool, r])), [sorted])
@@ -100,16 +108,22 @@ export function ToolErrorRateChart({
             <CardState
                 loading={loading}
                 isEmpty={rows.length === 0}
-                skeleton={
-                    <div className="space-y-2 py-3">
-                        {Array.from({ length: 5 }).map((_, i) => (
-                            <Skeleton key={i} className="h-7 w-full" />
-                        ))}
+                failed={failed}
+                onRetry={onRetry}
+                className="min-h-80"
+                skeleton={<ChartSkeleton kind="bars" />}
+                empty={
+                    <div className="flex flex-1 items-center justify-center py-6 text-center text-[12px] text-secondary">
+                        {emptyMessage}
                     </div>
                 }
-                empty={<div className="py-6 text-center text-[12px] text-secondary">{emptyMessage}</div>}
             >
-                <div className="flex min-h-80 flex-1 flex-col">
+                {/* The height follows the row count, not the card. The card stretches to the height of the card
+                    next to it, so a chart that fills the card draws thicker bars beside a taller neighbor. */}
+                <div
+                    className="flex flex-col"
+                    style={{ height: sorted.length * ROW_HEIGHT_PX + CHART_MARGINS.top + CHART_MARGINS.bottom }}
+                >
                     <BarChart
                         series={series}
                         labels={labels}

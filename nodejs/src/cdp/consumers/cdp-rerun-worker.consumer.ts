@@ -114,6 +114,7 @@ export class CdpRerunWorkerConsumer extends CdpConsumerBase<PluginsServerConfig>
             // Tunable via CDP_RERUN_WORKER_BATCH_SIZE.
             batchMaxSize: this.config.CDP_RERUN_WORKER_BATCH_SIZE,
             pollDelayMs: 1000,
+            boundedPolls: this.config.CDP_CYCLOTRON_BOUNDED_POLLS,
         })
 
         await this.worker.connect((jobs) => this.handleBatch(jobs))

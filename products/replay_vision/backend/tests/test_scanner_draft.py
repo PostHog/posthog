@@ -14,12 +14,13 @@ from rest_framework import status
 
 from posthog.schema import RecordingsQuery
 
-from posthog.models import EventDefinition, PersonalAPIKey
+from posthog.models import PersonalAPIKey
 from posthog.models.utils import generate_random_token_personal, hash_key_value
 from posthog.rate_limit import AIBurstRateThrottle
 
 from products.actions.backend.facade.testing import create_action
 from products.cohorts.backend.models.cohort import Cohort
+from products.event_definitions.backend.models import EventDefinition
 from products.experiments.backend.models.experiment import Experiment
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.posthog_ai.backend.models.assistant import CoreMemory

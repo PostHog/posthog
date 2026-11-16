@@ -8,9 +8,12 @@ import { createPersistHydrationGate } from '@/lib/persistHydration'
 // Which lists sit in the nav pill after Views. A device preference: it holds no account data, so sign-out keeps it,
 // like the pin hint, and it applies to every project.
 
-export type NavPin = 'errors' | 'replay'
+export type NavPin = 'errors' | 'replay' | 'web_analytics' | 'live'
 
-export const NAV_PINS: readonly NavPin[] = ['errors', 'replay']
+export const NAV_PINS: readonly NavPin[] = ['errors', 'replay', 'web_analytics', 'live']
+
+/** How a pinnable screen draws: as its navigation tab, or pushed above the tabs. */
+export type NavChrome = 'tab' | 'stack'
 
 /**
  * The pill fits Home, Chats, Views and this many 44pt pin slots next to the labelled Chat button on a 375pt phone.
@@ -20,7 +23,7 @@ export const MAX_NAV_PINS = 1
 
 const NO_PINS: readonly NavPin[] = []
 
-function isNavPin(value: unknown): value is NavPin {
+export function isNavPin(value: unknown): value is NavPin {
     return typeof value === 'string' && (NAV_PINS as readonly string[]).includes(value)
 }
 

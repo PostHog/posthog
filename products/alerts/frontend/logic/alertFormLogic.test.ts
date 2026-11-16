@@ -517,6 +517,28 @@ describe('alertFormLogic', () => {
         expect(successToastSpy).not.toHaveBeenCalled()
     })
 
+    it.each([
+        [true, 1],
+        [false, 0],
+    ])('saves a new alert with staged PagerDuty only when it can page (%s)', async (available, creates) => {
+        jest.spyOn(generatedApi, 'alertsPagerdutyAvailabilityRetrieve').mockResolvedValue({ available })
+        jest.spyOn(generatedApi, 'alertsDestinationsPagerdutyCreate').mockResolvedValue({ hog_function_ids: [] })
+        const logic = mountForm()
+        logic.actions.setAlertFormValues({ ...makeFormDefaults(), checks: undefined })
+        alertNotificationLogic({}).actions.addPendingNotification({
+            type: 'pagerduty',
+            routingKey: 'a'.repeat(32),
+            severity: 'critical',
+            region: 'us',
+        })
+
+        await expectLogic(logic, () => {
+            logic.actions.submitAlertForm()
+        }).toFinishAllListeners()
+
+        expect(createSpy).toHaveBeenCalledTimes(creates)
+    })
+
     describe('hogql column prefill', () => {
         function mountHogqlForm(configOverrides: Record<string, any>): ReturnType<typeof alertFormLogic.build> {
             const logic = alertFormLogic({

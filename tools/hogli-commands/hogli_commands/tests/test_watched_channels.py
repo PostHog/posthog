@@ -9,9 +9,12 @@ from hogli_commands.product.checks import CheckContext, WatchedChannelsCheck
 from hogli_commands.product.isolation import compute_isolation_status
 from hogli_commands.product.watched_channels import (
     UNRESOLVED_SUBMODULE_PREFIX,
+    app_setup_modules,
     discovered_modules,
     foreign_receiver_modules,
+    hook_callback_modules,
     outside_named_modules,
+    settings_named_modules,
 )
 
 _SIGNAL_IMPORTS = "from django.db.models.signals import post_save\nfrom django.dispatch import receiver\n\n"
@@ -169,11 +172,11 @@ class TestWatchedChannelsCheck:
     @pytest.mark.parametrize(
         "inputs, narrowed, unwatched",
         [
-            (["backend/facade/**", "backend/delivery/email.py"], True, []),
-            (["backend/facade/**", "backend/delivery/**"], False, []),
-            (["backend/facade/**"], True, ["backend/delivery/email.py"]),
+            (["backend/facade/**", "backend/apps.py", "backend/delivery/email.py"], True, []),
+            (["backend/facade/**", "backend/apps.py", "backend/delivery/**"], False, []),
+            (["backend/facade/**", "backend/apps.py"], True, ["backend/delivery/email.py"]),
             (
-                ["backend/facade/**", "backend/delivery/**", "!backend/delivery/email.py"],
+                ["backend/facade/**", "backend/apps.py", "backend/delivery/**", "!backend/delivery/email.py"],
                 False,
                 ["backend/delivery/email.py"],
             ),
@@ -235,3 +238,69 @@ class TestDiscoveredByName:
         _write(tmp_path / "posthog", {"loader.py": "def load(name):\n    return load_product_modules(name)\n"})
         paths = [c.path for c in discovered_modules(product_dir, tmp_path)]
         assert len(paths) == 1 and paths[0].startswith(UNRESOLVED_SUBMODULE_PREFIX)
+
+
+class TestAppSetup:
+    def test_apps_module_and_its_runtime_imports(self, tmp_path: Path) -> None:
+        product_dir = _write_products(
+            tmp_path,
+            {
+                "receivers.py": "",
+                "logic/__init__.py": "",
+                "logic/projection.py": "def project(): ...\n",
+                "typing_only.py": "",
+                "apps.py": (
+                    "from typing import TYPE_CHECKING\n\n"
+                    "if TYPE_CHECKING:\n    from products.mine.backend.typing_only import Shape\n\n"
+                    "class Config:\n    def ready(self):\n"
+                    "        from products.mine.backend import receivers\n\n"
+                    "        def resolver():\n"
+                    "            from .logic.projection import project\n\n"
+                    "            return project()\n"
+                ),
+            },
+        )
+        assert {c.path for c in app_setup_modules(product_dir)} == {
+            "backend/apps.py",
+            "backend/receivers.py",
+            "backend/logic/projection.py",
+        }
+
+
+class TestHookCallbacks:
+    @pytest.mark.parametrize(
+        "hook_import, expected",
+        [
+            (
+                "from products.other.backend.facade.hooks import register_describer",
+                {"backend/registration.py", "backend/wording.py"},
+            ),
+            (
+                "from posthog.admin.inline_registry import register_describer",
+                {"backend/registration.py", "backend/wording.py"},
+            ),
+            ("from products.mine.backend.hooks import register_describer", set()),
+            ("from structlog import register_describer", set()),
+        ],
+        ids=["hook-of-another-product", "hook-of-core", "own-hook", "third-party-function"],
+    )
+    def test_registration_and_registered_module(self, tmp_path: Path, hook_import: str, expected: set[str]) -> None:
+        product_dir = _write_products(
+            tmp_path,
+            {
+                "hooks.py": "",
+                "wording.py": "def describe(): ...\n",
+                "registration.py": f"{hook_import}\n\nfrom .wording import describe\n\nregister_describer(describe)\n",
+            },
+        )
+        assert {c.path for c in hook_callback_modules(product_dir)} == expected
+
+
+class TestSettingsNames:
+    def test_middleware_path_resolves_to_its_module(self, tmp_path: Path) -> None:
+        _write_products(tmp_path, {"middleware.py": "class SessionMiddleware: ...\n"})
+        _write(
+            tmp_path,
+            {"posthog/settings/web.py": 'MIDDLEWARE = ["products.mine.backend.middleware.SessionMiddleware"]\n'},
+        )
+        assert {c.path for c in settings_named_modules("mine", tmp_path)} == {"backend/middleware.py"}

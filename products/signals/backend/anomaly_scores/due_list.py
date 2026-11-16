@@ -120,13 +120,14 @@ def refresh_team(config: AnomalyScoringConfig, team: Team, now: datetime.datetim
     for insight in insights:
         row = existing.get(insight.insight_id)
         watermarks = parse_watermarks(row.series_scored_through) if row else seeded.get(insight.insight_id, {})
-        next_due_at = (
-            due_at(insight.insight_id, insight.interval, max(watermarks.values(), default=None), team.timezone_info)
-            or now
+        computed_due = due_at(
+            insight.insight_id, insight.interval, max(watermarks.values(), default=None), team.timezone_info
         )
         if row is not None and row.interval == insight.interval.value:
-            # A failed pick moved the row past its cooldown.
-            next_due_at = max(next_due_at, row.next_due_at)
+            # Keep a pushed-out time. A never-scored row keeps its own, so `oldest_due_seconds` shows the full wait.
+            next_due_at = row.next_due_at if computed_due is None else max(computed_due, row.next_due_at)
+        else:
+            next_due_at = computed_due or now
         fields = {
             "interval": insight.interval.value,
             "next_due_at": next_due_at,

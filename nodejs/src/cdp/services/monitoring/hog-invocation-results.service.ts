@@ -165,7 +165,7 @@ export const classifyError = (error: unknown): { kind: string; message: string }
         kind = 'http_5xx'
     } else if (http4xxRegex.test(lower)) {
         kind = 'http_4xx'
-    } else if (lower.includes('out of memory') || lower.includes('oom')) {
+    } else if (lower.includes('out of memory') || /\boom\b/.test(lower)) {
         kind = 'oom'
     }
 

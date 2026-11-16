@@ -2,6 +2,7 @@ import { useRouter } from 'expo-router'
 import type { ReactElement } from 'react'
 import { Linking, Text, View } from 'react-native'
 
+import { useProjectScopeOverride } from '@/auth/projectScope'
 import { useDataMode } from '@/demo/demoMode'
 import { track } from '@/lib/analytics'
 import type { EvidenceBlock } from '@/model/types'
@@ -18,12 +19,14 @@ export function ReplayRow({ block, reportId }: { block: ReplayBlock; reportId: s
     const colors = useColors()
     const router = useRouter()
     const demo = useDataMode() === 'demo'
+    // The replay screen reads the session's project, so a report opened from another project plays on the web.
+    const otherProject = useProjectScopeOverride() !== null
     const countLabel = block.count === 1 ? '1 replay' : `${block.count} replays`
     return (
         <Pressable44
             onPress={() => {
                 track('mobile_report_replay_opened', { report_id: reportId, replay_count: block.count })
-                if (demo) {
+                if (demo || otherProject) {
                     // Demo sessions exist in no project, so the session screen would have nothing to load.
                     Linking.openURL(block.url).catch(() => undefined)
                     return

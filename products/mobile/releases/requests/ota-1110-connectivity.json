@@ -1,0 +1,8 @@
+{
+    "schemaVersion": 1,
+    "id": "ota-1110-connectivity",
+    "kind": "ota",
+    "runtimeVersion": "1.11.0",
+    "previousRelease": "ota-1110-navigation",
+    "notes": "Keep the chat input available while access checks wait on a slow connection, and hide routine reconnect indicators. Verify that typing remains available during pending checks and that confirmed connection failures still offer recovery controls."
+}

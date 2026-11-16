@@ -299,6 +299,24 @@ export const BEHAVIORAL_COUNT_OPERATOR_LABELS: Partial<Record<PropertyOperator, 
     [PropertyOperator.Exact]: 'exactly',
 }
 
+export const BEHAVIORAL_NEGATION_OPTIONS = [
+    { value: false, label: 'Performed' },
+    { value: true, label: 'Did not perform' },
+]
+
+export const BEHAVIORAL_COUNT_OPERATOR_OPTIONS = [
+    PropertyOperator.GreaterThanOrEqual,
+    PropertyOperator.LessThanOrEqual,
+    PropertyOperator.Exact,
+].map((value) => ({ value, label: BEHAVIORAL_COUNT_OPERATOR_LABELS[value] || 'exactly' }))
+
+export const BEHAVIORAL_TIME_INTERVAL_OPTIONS = [
+    { value: TimeUnitType.Day, label: 'days' },
+    { value: TimeUnitType.Week, label: 'weeks' },
+    { value: TimeUnitType.Month, label: 'months' },
+    { value: TimeUnitType.Year, label: 'years' },
+]
+
 /** Display name for the event or action a behavioral filter targets. An unresolved action falls back
  * to its id, which is all the filter itself stores. */
 export function behavioralEntityLabel(

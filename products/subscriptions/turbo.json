@@ -10,7 +10,9 @@
                 "backend/migrations/**",
                 "backend/temporal/**",
                 "!backend/temporal/**/test_*.py",
-                "!backend/temporal/**/test/**"
+                "!backend/temporal/**/test/**",
+                "backend/scopes.py",
+                "backend/apps.py"
             ],
             "outputs": [],
             "cache": true

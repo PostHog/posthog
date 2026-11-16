@@ -215,7 +215,7 @@ def _flag_disabled(pause: PauseHistory | None, *, running_others: int) -> Experi
                 "conclusion."
             ),
         )
-    if pause is not None and pause.launched_at >= PAUSE_ENTRIES_SINCE:
+    if pause is not None and pause.start_date >= PAUSE_ENTRIES_SINCE:
         return _finding(
             code=ExperimentHealthFindingCode.FLAG_OFF_WHILE_RUNNING,
             subcode=RUNNING_BUT_FLAG_DISABLED,
@@ -298,7 +298,7 @@ def _live_after_end(ctx: HealthContext, ended_at: datetime) -> ExperimentHealthF
 
 
 def _serves_later_experiment(other: ExperimentOnFlag, ended_at: datetime) -> bool:
-    return other.launched_at is not None and (other.ended_at is None or other.launched_at > ended_at)
+    return other.start_date is not None and (other.ended_at is None or other.start_date > ended_at)
 
 
 def _shared_with_draft(ended_at: datetime, team_timezone: str) -> ExperimentHealthFinding:

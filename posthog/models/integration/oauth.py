@@ -5,6 +5,7 @@ import time
 import base64
 import hashlib
 import secrets
+from dataclasses import replace
 from datetime import timedelta
 from typing import Any, NoReturn
 from urllib.parse import parse_qs, urlencode, urlparse
@@ -23,13 +24,13 @@ from posthog.credentials_service.instance_settings import get_many_or_instance_s
 from posthog.credentials_service.settings_fallback import get_many_or_settings
 from posthog.dataclasses import frozen
 from posthog.egress.slack.observability import record_slack_api_response
-from posthog.integrations.contracts import IntegrationRecord
+from posthog.integrations.contracts import IntegrationPatch, IntegrationRecord
 from posthog.models.user import User
 from posthog.plugins.plugin_server_api import reload_integrations_on_workers
 from posthog.schema_enums import SlackIntegrationScope, SlackIntegrationScopeInReview
 from posthog.scopes import get_oauth_scopes_supported
 
-from . import apple_ads, common, model, refresh_tracking
+from . import apple_ads, common, model, refresh_tracking, row_writes
 
 logger = structlog.get_logger(__name__)
 
@@ -1517,12 +1518,9 @@ class OauthIntegration:
                 "config": config,
                 "sensitive_config": sensitive_config,
                 "created_by": created_by,
+                "errors": "",
             },
         )
-
-        if integration.errors:
-            integration.errors = ""
-            integration.save()
 
         if kind == "slack":
             # The cached auth verdict in slack_app is per-integration. A
@@ -1537,7 +1535,7 @@ class OauthIntegration:
                     invalidate_slack_integration_auth_state,
                 )
 
-                invalidate_slack_integration_auth_state(integration.id)
+                invalidate_slack_integration_auth_state(integration.team_id, integration.id)
             except Exception:
                 logger.warning(
                     "slack_app_auth_state_invalidation_on_oauth_failed",
@@ -1747,15 +1745,14 @@ class OauthIntegration:
             config = {**config, **config["data"]}
         return config
 
-    def _record_terminal_unreadable_secret(self) -> None:
+    def _terminal_unreadable_secret_patch(self) -> IntegrationPatch:
         logger.error(
             "integration_refresh_secret_unreadable",
-            integration_id=self.integration.pk,
+            integration_id=self.integration.id,
             team_id=self.integration.team_id,
             kind=self.integration.kind,
         )
-        self.integration.errors = common.ERROR_TOKEN_REFRESH_FAILED
-        attempt = refresh_tracking.record_refresh_failure(
+        failure, attempt = refresh_tracking.refresh_failure_patch(
             self.integration, reason=refresh_tracking.REFRESH_FAILURE_REASON_UNREADABLE_SECRET
         )
         refresh_tracking.oauth_refresh_counter.labels(
@@ -1764,22 +1761,37 @@ class OauthIntegration:
             reason=refresh_tracking.REFRESH_FAILURE_REASON_UNREADABLE_SECRET,
             attempt=attempt,
         ).inc()
-        # `sensitive_config` is deliberately excluded: saving it would re-encrypt the ciphertext
-        # this integration already can't read, adding another layer to the stored value.
-        self.integration.save(update_fields=["errors", "config"])
+        # No `sensitive_config` change: writing it would re-encrypt the ciphertext this
+        # integration already can't read, adding another layer to the stored value.
+        return replace(failure, errors=common.ERROR_TOKEN_REFRESH_FAILED)
 
-    def refresh_access_token(self):
+    def refresh_access_token(self) -> IntegrationRecord:
+        """Refresh the access token, store the new tokens and return the stored row.
+
+        The integrations SDK holds a row lock during the refresh. Some providers rotate the refresh
+        token on each refresh, so two workers must not spend it twice: when another worker already
+        stored a newer access token, the row comes back without a refresh. A failed refresh does not
+        raise: the row comes back with `errors` set.
         """
-        Refresh the access token for the integration if necessary
+        original = self.integration
+        fresh = row_writes.oauth_row_accessor(original).refresh_access_token(
+            original.team_id, original.id, stale_access_token=_held_access_token(original)
+        )
+        row_writes.keep_caller_row_current(original, fresh)
+        self.integration = model.integration_model(fresh)
+        return fresh
+
+    def token_refresh_patch(self) -> IntegrationPatch:
+        """Ask the provider for new tokens and return the patch that stores them. Writes nothing.
+
+        The integrations SDK calls this with the row locked, then stores the patch. A failed refresh
+        returns a patch that sets `errors` and the backoff state.
         """
         region = self.integration.config.get("region") if self.integration.kind == "posthog" else None
         oauth_config = self.oauth_config_for_kind(self.integration.kind, region)
         # Resolved before anything changes on the integration: a credentials service failure is
         # never this integration's fault, so it must not leave the integration marked as failed.
         client = self.client_credentials_for_kind(self.integration.kind, region)
-
-        # Clear out previous token refreshing errors, as they'll be re-set below if another error occurs
-        self.integration.errors = ""
 
         res: requests.Response | None = None
         config: dict = {}
@@ -1791,8 +1803,7 @@ class OauthIntegration:
             # The stored refresh token can't be read, so there is nothing to refresh with and no
             # later attempt can change that. Go terminal immediately: the sweep stops retrying,
             # and the UI shows the reconnect prompt.
-            self._record_terminal_unreadable_secret()
-            return
+            return self._terminal_unreadable_secret_patch()
         except requests.RequestException as e:
             # A network error (timeout, connection reset) is a failed refresh, not a crash. Without
             # this the Celery sweep task errors out before recording the failure, so the backoff and
@@ -1821,49 +1832,62 @@ class OauthIntegration:
             logger.warning(
                 f"Failed to refresh token for {self}", response=res.text if res is not None else "network error"
             )
-            self.integration.errors = common.ERROR_TOKEN_REFRESH_FAILED
             reason = (
                 refresh_tracking.oauth_refresh_failure_reason(res.status_code, config, kind=self.integration.kind)
                 if res is not None
                 else refresh_tracking.REFRESH_FAILURE_REASON_NETWORK
             )
-            attempt = refresh_tracking.record_refresh_failure(self.integration, reason=reason)
+            failure, attempt = refresh_tracking.refresh_failure_patch(self.integration, reason=reason)
             refresh_tracking.oauth_refresh_counter.labels(
                 kind=self.integration.kind, result="failed", reason=reason, attempt=attempt
             ).inc()
             # A failed refresh leaves `sensitive_config` untouched, so writing it back only risks
             # harm: `ignore_decrypt_errors` hands back raw ciphertext for a secret that couldn't be
             # decrypted, and saving re-encrypts it, permanently adding a layer to the stored value.
-            self.integration.save(update_fields=["errors", "config"])
-            return
-        else:
-            logger.info(f"Refreshed access token for {self}")
-            refresh_tracking.record_refresh_success(self.integration)
-            refresh_tracking.record_oauth_client_used(self.integration, used_fallback=used_fallback)
-            self.integration.sensitive_config["access_token"] = config["access_token"]
+            return replace(failure, errors=common.ERROR_TOKEN_REFRESH_FAILED)
 
-            # Some providers (e.g. Atlassian/Jira) rotate refresh tokens — each
-            # refresh response includes a new refresh_token and the old one is
-            # invalidated.  Always store the latest one to avoid "invalid refresh
-            # token" errors on subsequent refreshes.
-            if config.get("refresh_token"):
-                self.integration.sensitive_config["refresh_token"] = config["refresh_token"]
+        logger.info(f"Refreshed access token for {self}")
+        tokens: dict[str, object] = {"access_token": config["access_token"]}
+        # Some providers (e.g. Atlassian/Jira) rotate refresh tokens — each
+        # refresh response includes a new refresh_token and the old one is
+        # invalidated.  Always store the latest one to avoid "invalid refresh
+        # token" errors on subsequent refreshes.
+        if config.get("refresh_token"):
+            tokens["refresh_token"] = config["refresh_token"]
 
-            # Handle case where Salesforce/Stripe doesn't provide expires_in in refresh response
-            expires_in = config.get("expires_in")
-            if not expires_in and self.integration.kind in SALESFORCE_OAUTH_KINDS:
-                expires_in = 3600
-            if not expires_in and self.integration.kind == "stripe":
-                expires_in = 3600
+        # Handle case where Salesforce/Stripe doesn't provide expires_in in refresh response
+        expires_in = config.get("expires_in")
+        if not expires_in and self.integration.kind in SALESFORCE_OAUTH_KINDS:
+            expires_in = 3600
+        if not expires_in and self.integration.kind == "stripe":
+            expires_in = 3600
 
-            self.integration.config["expires_in"] = expires_in
-            self.integration.config["refreshed_at"] = int(time.time())
-            reload_integrations_on_workers(self.integration.team_id, [self.integration.id])
-            refresh_tracking.oauth_refresh_counter.labels(
-                kind=self.integration.kind,
-                result="success_fallback" if used_fallback else "success",
-                reason="",
-                attempt="",
-            ).inc()
+        reload_integrations_on_workers(self.integration.team_id, [self.integration.id])
+        refresh_tracking.oauth_refresh_counter.labels(
+            kind=self.integration.kind,
+            result="success_fallback" if used_fallback else "success",
+            reason="",
+            attempt="",
+        ).inc()
+        return row_writes.merged_patch(
+            refresh_tracking.REFRESH_SUCCESS_PATCH,
+            refresh_tracking.oauth_client_patch(used_fallback=used_fallback),
+            IntegrationPatch(
+                config_patch={"expires_in": expires_in, "refreshed_at": int(time.time())},
+                sensitive_config_patch=tokens,
+                errors="",
+            ),
+        )
 
-        self.integration.save()
+
+def _held_access_token(record: IntegrationRecord) -> str:
+    """The access token that the caller holds, so the SDK refreshes only while the row still stores it.
+
+    An empty string stands for no token.
+    """
+    try:
+        token = record.access_token
+    except model.UndecryptedIntegrationSecretError:
+        # The stored value compares as it is, so a refresh can still replace an unreadable token.
+        token = record.sensitive_config.get("access_token")
+    return token or ""

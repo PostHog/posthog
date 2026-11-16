@@ -1,7 +1,10 @@
 """The rows one incremental materialization reads: the rows created at or after the run's window
 start. The window start reaches the view as the ``{incremental_window_start}`` placeholder, which
 data modeling binds to the key's watermark minus the lookback on an incremental run and to NULL on
-a full build, so the floor then keeps every row.
+a full build. A full build seeds only the rows created in the last ``SEED_LOOKBACK``, because it
+runs as one ClickHouse query and a busy repository's whole job history does not fit in one. Each
+incremental run adds newer rows, and a read that starts before the seed uses the raw tables instead
+(``MaterializedCI.covers``).
 
 The floors compare the raw ISO-8601 ``created_at`` strings with the window start formatted the
 same way, which is the one comparison that lets a warehouse scan skip files; the filter data
@@ -11,9 +14,16 @@ workflow took decides whether a GitHub run is a shell. A scan for such rows reac
 ``JOB_FLOOR_SLACK_ON_RUN_STARTED`` before the window.
 """
 
-from products.engineering_analytics.backend.logic.queries._workflow_filters import JOB_FLOOR_SLACK_ON_RUN_STARTED
+from products.engineering_analytics.backend.logic._shared import DEFAULT_WINDOW
+from products.engineering_analytics.backend.logic.queries._workflow_filters import (
+    JOB_FLOOR_SLACK_ON_RUN_STARTED,
+    WIDEST_SCAN_FLOOR_SLACK,
+)
 
 WINDOW_START = "{incremental_window_start}"
+# The slack keeps a default window's scan floor inside the seed, so the first build can serve a
+# default read.
+SEED_LOOKBACK = DEFAULT_WINDOW + WIDEST_SCAN_FLOOR_SLACK
 
 
 def stored_rows(column: str = "created_at") -> str:
@@ -27,8 +37,9 @@ def stored_rows_and_earlier(column: str = "created_at") -> str:
 
 
 def _floor(*, days_before: int) -> str:
-    start = f"toTimeZone({WINDOW_START}, 'UTC')"
+    seed_start = f"toTimeZone(now(), 'UTC') - INTERVAL {SEED_LOOKBACK.days} DAY"
+    start = f"ifNull(toTimeZone({WINDOW_START}, 'UTC'), {seed_start})"
     if days_before:
         start = f"{start} - INTERVAL {days_before} DAY"
     # A fractional timestamp sorts before the same second's trailing Z, so use the second's prefix.
-    return f"ifNull(formatDateTime({start}, '%Y-%m-%dT%H:%i:%S'), '')"
+    return f"formatDateTime({start}, '%Y-%m-%dT%H:%i:%S')"

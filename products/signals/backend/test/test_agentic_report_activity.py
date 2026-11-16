@@ -912,6 +912,7 @@ async def test_select_repository_activity_does_not_raise_with_only_user_integrat
     [
         ("RepositoryCloneError", True),
         ("RepositoryAccessError", False),
+        ("UnknownSandboxError", False),
         ("startup_requires_action", False),
         ("startup_unknown", False),
         ("startup_transient", True),
@@ -952,7 +953,12 @@ async def test_run_agentic_report_activity_flags_transient_sandbox_failures(
                 if sandbox_error_type == "startup_unknown_transient_sandbox"
                 else None,
             )
-        raise SandboxRunFailed("TaskRun reached terminal status=failed", error_type=sandbox_error_type)
+        error = (
+            RepositoryContextUnavailable(sandbox_error_type)
+            if sandbox_error_type == "RepositoryAccessError" and repository is not None
+            else SandboxRunFailed("TaskRun reached terminal status=failed", error_type=sandbox_error_type)
+        )
+        raise error
 
     monkeypatch.setattr(
         "products.signals.backend.temporal.agentic.report.run_multi_turn_research", fake_run_multi_turn_research
@@ -980,6 +986,11 @@ async def test_run_agentic_report_activity_flags_transient_sandbox_failures(
     elif expected_transient:
         assert isinstance(error.value, ApplicationError)
         assert error.value.type == RESEARCH_SANDBOX_UNAVAILABLE_ERROR_TYPE
+        assert not error.value.non_retryable
+    elif sandbox_error_type == "RepositoryAccessError":
+        assert isinstance(error.value, ApplicationError)
+        assert error.value.type == "RepositoryAccessError"
+        assert error.value.non_retryable
     else:
         assert isinstance(error.value, SandboxRunFailed)
 

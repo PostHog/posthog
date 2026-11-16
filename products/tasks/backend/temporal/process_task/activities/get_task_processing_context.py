@@ -241,6 +241,11 @@ class TaskProcessingContext:
         return (self.state or {}).get("github_read_access") is True
 
     @property
+    def github_token_scope(self) -> Literal["read", "push"] | None:
+        scope = (self.state or {}).get("github_token_scope")
+        return scope if scope in ("read", "push") else None
+
+    @property
     def sandbox_environment_id(self) -> str | None:
         return (self.state or {}).get("sandbox_environment_id")
 
@@ -930,7 +935,6 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
             task_run = TaskRun.objects.select_related(
                 "task__created_by",
                 "task__team",
-                "task__github_integration",
                 "task__github_user_integration",
             ).get(id=run_id)
             posthoganalytics.tag("origin_product", task_run.task.origin_product)

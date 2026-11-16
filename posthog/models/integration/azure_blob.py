@@ -80,12 +80,9 @@ class AzureBlobIntegration:
                 "config": config,
                 "sensitive_config": sensitive_config,
                 "created_by": created_by,
+                "errors": "",
             },
         )
-
-        if integration.errors:
-            integration.errors = ""
-            integration.save()
 
         return integration
 

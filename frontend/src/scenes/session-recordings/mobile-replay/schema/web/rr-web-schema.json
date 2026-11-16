@@ -1007,7 +1007,6 @@
                             "type": "number"
                         },
                         "textContent": {
-                            "const": "",
                             "type": "string"
                         },
                         "type": {

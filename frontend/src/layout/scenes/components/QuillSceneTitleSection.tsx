@@ -158,7 +158,7 @@ export function QuillSceneTitleSection({
                 }
             />
             {descriptionShown && (
-                <div className={cn('[&_svg]:size-6', noPadding && cn('pl-4 pr-2', className))}>
+                <div className={cn(noPadding && cn('pl-4 pr-2', className))}>
                     <SceneDescription
                         description={description}
                         markdown={markdown}

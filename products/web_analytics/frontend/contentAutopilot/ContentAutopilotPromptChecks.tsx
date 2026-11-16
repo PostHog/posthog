@@ -72,8 +72,12 @@ export const ContentAutopilotPromptChecks = (): JSX.Element => {
                     {
                         title: 'Result',
                         key: 'result',
-                        render: (_, { cited, check_failed }) => (
-                            <ContentAutopilotCheckResultTag cited={cited} checkFailed={check_failed} />
+                        render: (_, { cited, check_failed, target_best_position }) => (
+                            <ContentAutopilotCheckResultTag
+                                cited={cited}
+                                checkFailed={check_failed}
+                                position={target_best_position}
+                            />
                         ),
                     },
                 ]}

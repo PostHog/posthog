@@ -237,7 +237,7 @@ def query_pr_costs(
     A population that can be repo-wide (every PR merged in a window) passes ``run_from``: runs started
     before it are left out, which trims the jobs scan for a population of thousands of PRs.
     """
-    cost_source = curated.job_cost_source(created_floor=run_from is not None)
+    cost_source = curated.job_cost_source(created_floor=run_from is not None, since=run_from)
     if cost_source is None or not pr_numbers:
         return {}
     placeholders: dict[str, ast.Expr] = {"pr_numbers": ast.Constant(value=pr_numbers)}
@@ -303,7 +303,7 @@ def query_workflow_window_costs(
     run-level ``query_workflow_health`` (a job whose run is missing has a NULL run_started_at and is
     excluded by the window filter, matching the legacy INNER JOIN).
     """
-    cost_source = curated.job_cost_source(created_floor=True)
+    cost_source = curated.job_cost_source(created_floor=True, since=date_from)
     if cost_source is None:
         return {}
     placeholders: dict[str, ast.Expr] = {
@@ -355,7 +355,7 @@ def query_author_workflow_costs(
     author→runs link goes through their PR numbers (the one attribution rule, SPEC §6) — the cost
     source's normalized pr_number never matches on an unattributed (NULL) run.
     """
-    cost_source = curated.job_cost_source(created_floor=True)
+    cost_source = curated.job_cost_source(created_floor=True, since=date_from)
     if cost_source is None:
         return []
     placeholders: dict[str, ast.Expr] = {
@@ -430,7 +430,7 @@ def query_workflow_window_costs_with_prev(
     prior implementation), so a workflow present only in the other window doesn't create a phantom
     zero-cost entry.
     """
-    cost_source = curated.job_cost_source(created_floor=True)
+    cost_source = curated.job_cost_source(created_floor=True, since=prev_from)
     if cost_source is None:
         return _EMPTY_WINDOW_COSTS
     placeholders: dict[str, ast.Expr] = {
@@ -537,7 +537,7 @@ def query_cost_per_merge_series(
     there's no cost to divide, so the series is empty (the UI shows the same "sync jobs" state as
     the other cost surfaces).
     """
-    cost_source = curated.job_cost_source(created_floor=True)
+    cost_source = curated.job_cost_source(created_floor=True, since=date_from)
     if cost_source is None:
         return []
 
@@ -630,7 +630,7 @@ def query_workflow_runner_costs(
     """A workflow's CI cost broken down by runner tier over [date_from, date_to] (optional branch and
     run scope), highest spend first. Empty when the jobs source isn't synced. Grouped by the rendered
     (provider, os, vcpu) tier and mapped to its display badge/label via ``runner_tier_descriptor``."""
-    cost_source = curated.job_cost_source(created_floor=True)
+    cost_source = curated.job_cost_source(created_floor=True, since=date_from)
     if cost_source is None:
         return []
     placeholders: dict[str, ast.Expr] = {

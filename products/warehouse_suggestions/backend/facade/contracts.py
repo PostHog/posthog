@@ -26,6 +26,16 @@ SUBJECT_SCOPE_OBJECTS = {
 
 
 @frozen
+class WarehouseSuggestionNote:
+    id: UUID
+    kind: WarehouseSuggestionKind
+    view_name: str
+    message: str
+    url: str
+    can_act: bool
+
+
+@frozen
 class SubjectKinds:
     readable: frozenset[WarehouseSuggestionSubjectKind]
     actionable: frozenset[WarehouseSuggestionSubjectKind]
@@ -214,6 +224,13 @@ class SuggestionStatus:
     window_days: int
     paused_reason: str | None
     refreshed_at: datetime | None
+    waiting: int
+    can_show_more: bool
+
+
+@frozen
+class SurfaceMoreResult:
+    surfaced: int
 
 
 class SuggestionNotFoundError(Exception):

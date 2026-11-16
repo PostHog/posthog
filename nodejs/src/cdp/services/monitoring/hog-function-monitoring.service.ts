@@ -198,7 +198,8 @@ export class HogFunctionMonitoringService {
         metrics.forEach((metric) => this.queueAppMetric(metric, source))
     }
 
-    queueLogs(logEntries: LogEntry[], source: MetricLogSource) {
+    /** Set `aboutInternalLogs` for logs about a batch that came from the internal producer, so they never go back to it and loop. */
+    queueLogs(logEntries: LogEntry[], source: MetricLogSource, { aboutInternalLogs = false } = {}) {
         const sourcedLogEntries = logEntries.map((logEntry) => ({
             ...logEntry,
             log_source: source,
@@ -211,7 +212,12 @@ export class HogFunctionMonitoringService {
         })
         hogFunctionMonitoringPendingMessages.set(this.queuedLogMessages.length)
 
-        if (this.internalLogsSources.has(source)) {
+        if (!this.internalLogsSources.has(source)) {
+            return
+        }
+        if (aboutInternalLogs) {
+            this.internalLogsProducer?.skipLooping(source, sourcedLogEntries)
+        } else {
             this.internalLogsProducer?.enqueue(source, sourcedLogEntries)
         }
     }
@@ -224,8 +230,7 @@ export class HogFunctionMonitoringService {
                 : result.invocation.functionId
             // Stamped here rather than at each of the ~10 sites that push onto `result.metrics`
             // (executor, action handlers, billing). The workflow is re-read from the manager on every
-            // dequeue, so this is the version that actually executed the step — a run started on v2
-            // that reaches its email step after v3 is published attributes that step to v3.
+            // dequeue, so this is the version that actually executed the step.
             const appSourceVersion = isHogFlowResult(result)
                 ? { id: result.invocation.hogFlow.id, version: result.invocation.hogFlow.version }
                 : undefined

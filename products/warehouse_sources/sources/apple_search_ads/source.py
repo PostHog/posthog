@@ -58,6 +58,19 @@ from products.warehouse_sources.sources.sdk import (
     detect,
 )
 
+APPLE_RATE_LIMITED_MESSAGE = (
+    "Apple Ads is rate limiting requests for this connection, so this sync run did not finish. "
+    "The next sync runs on schedule."
+)
+APPLE_SERVER_ERROR_MESSAGE = (
+    "Apple Ads had an internal error, so this sync run did not finish. "
+    "This is on Apple's side, and the next sync runs on schedule."
+)
+APPLE_UNAVAILABLE_MESSAGE = (
+    "Apple Ads was unavailable, so this sync run did not finish. "
+    "This is on Apple's side, and the next sync runs on schedule."
+)
+
 
 @SourceRegistry.register
 class AppleSearchAdsSource(
@@ -125,12 +138,17 @@ class AppleSearchAdsSource(
         # benign, self-recovering failure is logged at `exception` and reported as an
         # unclassified error every run. Match the code-anchored fragment, not the volatile
         # reason phrase or per-request URL.
+        return set(self.get_retry_exhausted_errors())
+
+    def get_retry_exhausted_errors(self) -> dict[str, str]:
+        # Without these, a run that outlasts Temporal's retries stores the raw status line,
+        # which names Apple's request URL and gives the customer no next step.
         return {
-            "429 Client Error",
-            "500 Server Error",
-            "502 Server Error",
-            "503 Server Error",
-            "504 Server Error",
+            "429 Client Error": APPLE_RATE_LIMITED_MESSAGE,
+            "500 Server Error": APPLE_SERVER_ERROR_MESSAGE,
+            "502 Server Error": APPLE_UNAVAILABLE_MESSAGE,
+            "503 Server Error": APPLE_UNAVAILABLE_MESSAGE,
+            "504 Server Error": APPLE_UNAVAILABLE_MESSAGE,
         }
 
     @property

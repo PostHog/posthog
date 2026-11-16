@@ -21,6 +21,7 @@ resulting credential on a ``UserIntegration(kind="slack")`` row in symmetry
 with the GitHub personal integration.
 """
 
+from dataclasses import field
 from typing import Any
 from urllib.parse import urlencode
 from uuid import UUID
@@ -36,6 +37,7 @@ from slack_sdk.errors import SlackApiError, SlackClientError
 from posthog.credentials_service.callers import CredentialsCaller
 from posthog.credentials_service.errors import CredentialsServiceFailure
 from posthog.credentials_service.instance_settings import get_many_or_instance_settings
+from posthog.dataclasses import frozen
 from posthog.egress.slack.client import SlackWebClient as WebClient
 from posthog.models.organization import OrganizationMembership
 from posthog.models.user import User
@@ -52,6 +54,25 @@ def _slack_links(*, slack_user_id: str, slack_team_id: str) -> QuerySet[UserInte
         config__slack_team_id=slack_team_id,
         user__is_active=True,
     ).order_by("-created_at")
+
+
+def granted_user_scopes(user_scopes: str) -> frozenset[str]:
+    return frozenset(user_scopes.replace(",", " ").split())
+
+
+@frozen
+class LinkedUserToken:
+    access_token: str = field(repr=False)
+    scopes: frozenset[str]
+
+
+def linked_user_token(*, slack_user_id: str, slack_team_id: str) -> LinkedUserToken | None:
+    """The user token of the most recent link, with the scopes Slack granted it."""
+    link = _slack_links(slack_user_id=slack_user_id, slack_team_id=slack_team_id).first()
+    token = (link.sensitive_config or {}).get("user_access_token") if link else None
+    if link is None or not token:
+        return None
+    return LinkedUserToken(access_token=token, scopes=granted_user_scopes(str((link.config or {}).get("scope") or "")))
 
 
 def linked_posthog_user_ids(*, slack_user_id: str, slack_team_id: str) -> list[int]:
@@ -202,6 +223,8 @@ class CallbackState(BaseModel):
     slack_user_id: str | None = None
     channel: str | None = None
     thread_ts: str | None = None
+    # The callback must exchange the code at the endpoint that issued it.
+    search_scopes: bool = False
 
     def encode(self) -> str:
         return signing.dumps(self.model_dump(exclude_none=True), salt=CALLBACK_STATE_SALT, compress=True)
@@ -256,6 +279,13 @@ SLACK_AUTHORIZE_URL = "https://slack.com/openid/connect/authorize"
 # replace are rejected by Slack Marketplace review.
 OIDC_SCOPES = "openid email profile"
 
+SLACK_OAUTH_V2_AUTHORIZE_URL = "https://slack.com/oauth/v2/authorize"
+# The search scopes let the work focus read the person's recent messages with `assistant.search.context`.
+# `users:read.email` keeps the email that the OIDC link stores for support.
+SEARCH_USER_SCOPES = ("search:read.public", "search:read.users", "users:read", "users:read.email")
+# The manifest lists these under `user_optional`, so each person chooses them on the consent screen.
+OPTIONAL_SEARCH_USER_SCOPES = ("search:read.private", "search:read.im", "search:read.mpim")
+
 
 class SlackUserOAuthError(Exception):
     """Raised when the OAuth exchange or identity fetch fails. The view
@@ -301,13 +331,25 @@ def _credentials() -> tuple[str, str]:
     return client_id, client_secret
 
 
-def build_authorize_url(*, redirect_uri: str, state: str) -> str:
+def build_authorize_url(*, redirect_uri: str, state: str, slack_team_id: str, search_scopes: bool = False) -> str:
     """The full Slack OIDC URL the user is redirected to. Only identity
     scopes are requested — bot scopes belong to the separate workspace
     install flow, so the user doesn't see a permissions prompt for things
     the bot already has.
+
+    With ``search_scopes``, the URL asks for user scopes at ``oauth.v2.authorize`` instead, because Sign in with
+    Slack cannot grant the search scopes. ``team`` keeps the consent screen on the invite's workspace.
     """
     client_id, _ = _credentials()
+    if search_scopes:
+        search_params = {
+            "client_id": client_id,
+            "user_scope": ",".join((*SEARCH_USER_SCOPES, *OPTIONAL_SEARCH_USER_SCOPES)),
+            "redirect_uri": redirect_uri,
+            "state": state,
+            "team": slack_team_id,
+        }
+        return f"{SLACK_OAUTH_V2_AUTHORIZE_URL}?{urlencode(search_params)}"
     params = {
         "client_id": client_id,
         "scope": OIDC_SCOPES,
@@ -318,7 +360,7 @@ def build_authorize_url(*, redirect_uri: str, state: str) -> str:
     return f"{SLACK_AUTHORIZE_URL}?{urlencode(params)}"
 
 
-def exchange_code(*, code: str, redirect_uri: str) -> SlackIdentity:
+def exchange_code(*, code: str, redirect_uri: str, search_scopes: bool = False) -> SlackIdentity:
     """Trade the auth code for a user token at ``openid.connect.token``, then
     call ``openid.connect.userInfo`` to learn who that token belongs to. The
     token is returned on ``SlackIdentity`` so the caller can persist it
@@ -332,6 +374,10 @@ def exchange_code(*, code: str, redirect_uri: str) -> SlackIdentity:
     exactly; Slack rejects the exchange otherwise.
     """
     client_id, client_secret = _credentials()
+    if search_scopes:
+        return _exchange_user_scopes_code(
+            code=code, redirect_uri=redirect_uri, client_id=client_id, client_secret=client_secret
+        )
     try:
         token_response = WebClient(source="slack_user_oauth", app_id="posthog").openid_connect_token(
             client_id=client_id,
@@ -377,6 +423,51 @@ def exchange_code(*, code: str, redirect_uri: str) -> SlackIdentity:
         # `token_rotation_enabled`; falls back to None in today's manifest.
         user_refresh_token=token_response.get("refresh_token"),
         user_scopes=token_response.get("scope") or "",
+    )
+
+
+def _exchange_user_scopes_code(*, code: str, redirect_uri: str, client_id: str, client_secret: str) -> SlackIdentity:
+    try:
+        response = WebClient(source="slack_user_oauth", app_id="posthog").oauth_v2_access(
+            client_id=client_id,
+            client_secret=client_secret,
+            code=code,
+            redirect_uri=redirect_uri,
+        )
+    except SlackApiError as exc:
+        error = exc.response.get("error") if exc.response else None
+        logger.warning("slack_app_user_link_oauth_v2_access_failed", error=error)
+        raise SlackUserOAuthError(f"Slack oauth.v2.access failed: {error}") from exc
+    except (SlackClientError, OSError) as exc:
+        raise SlackUserOAuthError("Slack oauth.v2.access request failed") from exc
+
+    authed_user = response.get("authed_user") or {}
+    team = response.get("team") or {}
+    user_token = authed_user.get("access_token")
+    slack_user_id = authed_user.get("id")
+    slack_team_id = team.get("id")
+    if not user_token or not slack_user_id or not slack_team_id:
+        raise SlackUserOAuthError("Slack oauth.v2.access response missing the user, the team or the user token")
+
+    slack_email = None
+    try:
+        user_info = WebClient(token=user_token, source="slack_user_oauth", app_id="posthog").users_info(
+            user=slack_user_id
+        )
+        slack_email = ((user_info.get("user") or {}).get("profile") or {}).get("email")
+    except (SlackApiError, SlackClientError, OSError):
+        # The email is only a support detail on the link, so the link goes ahead without it.
+        logger.warning("slack_app_user_link_email_lookup_failed", exc_info=True)
+
+    return SlackIdentity(
+        slack_user_id=slack_user_id,
+        slack_team_id=slack_team_id,
+        slack_team_name=team.get("name"),
+        slack_email=slack_email,
+        user_access_token=user_token,
+        user_refresh_token=authed_user.get("refresh_token"),
+        # oauth.v2 lists scopes with commas. The OIDC link stores them with spaces, so one parser reads both.
+        user_scopes=" ".join(scope for scope in str(authed_user.get("scope") or "").split(",") if scope),
     )
 
 

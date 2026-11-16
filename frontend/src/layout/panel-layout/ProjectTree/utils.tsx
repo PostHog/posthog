@@ -690,7 +690,7 @@ export function calculateMovePath(
     // Moving to another folder
     newPath = joinPath([...splitPath(destinationFolder), fileName])
     // Only valid if destination is different from current location
-    const isValidMove = newPath !== oldPath
+    const isValidMove = newPath !== oldPath && !(item.type === 'folder' && isPathUnder(destinationFolder, oldPath))
     return { newPath, isValidMove }
 }
 

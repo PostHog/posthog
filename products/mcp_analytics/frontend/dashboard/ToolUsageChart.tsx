@@ -7,22 +7,26 @@ import {
     TimeSeriesBarChart,
     type TimeSeriesBarChartConfig,
 } from '@posthog/quill-charts'
-import { Skeleton } from '@posthog/quill-primitives'
 
 import { useChartConfig } from 'lib/charts/hooks'
 
 import { type ToolDailySeries } from '../mcpDashboardOverviewLogic'
 import { Card, CardState } from './Card'
+import { ChartSkeleton } from './ChartSkeleton'
 
 export function ToolUsageChart({
     data,
     loading,
+    failed,
+    onRetry,
     theme,
     timezone,
     interval,
 }: {
     data: ToolDailySeries
     loading: boolean
+    failed?: boolean
+    onRetry?: () => void
     theme: ChartTheme
     timezone: string
     interval: TimeInterval
@@ -59,12 +63,17 @@ export function ToolUsageChart({
                 // names, so `tools` can be non-empty with every series zeroed. Checking the counts
                 // rather than the names keeps that rendering as the empty state, not a blank stack.
                 isEmpty={data.tools.every((t) => t.data.every((v) => v === 0))}
-                skeleton={<Skeleton className="min-h-[300px] flex-1" />}
-                empty={<div className="py-6 text-center text-[12px] text-secondary">No tool calls yet.</div>}
+                failed={failed}
+                onRetry={onRetry}
+                className="min-h-[300px]"
+                skeleton={<ChartSkeleton kind="columns" />}
+                empty={
+                    <div className="flex flex-1 items-center justify-center py-6 text-center text-[12px] text-secondary">
+                        No tool calls in this date range. Try a wider range.
+                    </div>
+                }
             >
-                <div className="flex min-h-[300px] flex-1 flex-col">
-                    <TimeSeriesBarChart series={series} labels={data.labels} config={config} theme={theme} />
-                </div>
+                <TimeSeriesBarChart series={series} labels={data.labels} config={config} theme={theme} />
             </CardState>
         </Card>
     )

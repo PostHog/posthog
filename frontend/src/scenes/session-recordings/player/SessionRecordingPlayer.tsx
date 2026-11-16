@@ -2,7 +2,9 @@ import './SessionRecordingPlayer.scss'
 
 import clsx from 'clsx'
 import { BindLogic, useActions, useValues } from 'kea'
-import { useRef } from 'react'
+import { useEffect, useRef } from 'react'
+
+import { ResizableHandle, ResizablePanel, ResizablePanelGroup } from '@posthog/quill'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -13,7 +15,7 @@ import { userLogic } from 'scenes/userLogic'
 import { SessionRecordingSidebarStacking } from '~/types'
 
 import { SummarizeRecordingBar } from 'products/replay_vision/frontend/components/SummarizeRecordingBar'
-import { visionSurfaceShown } from 'products/replay_vision/frontend/utils/visionSurface'
+import { useVisionSurfaceShown } from 'products/replay_vision/frontend/utils/useVisionSurfaceShown'
 
 import { DebugReplayButton } from './player-meta/DebugReplayButton'
 import { playerSettingsLogic } from './playerSettingsLogic'
@@ -26,9 +28,53 @@ import {
 } from './sessionRecordingPlayerLogic'
 import { useLinkedIssuesAvailable } from './sidebar/useLinkedIssuesAvailable'
 import { debugTabKeys } from './watch/DebugTabBar'
-import { WatchPanel } from './watch/WatchPanel'
+import { WATCH_PANEL_COLLAPSED_SIZE, WatchPanel } from './watch/WatchPanel'
 
 export { createPlaybackSpeedKey } from './PurePlayer'
+
+type PanelHandle = { collapse: () => void; expand: () => void; isCollapsed: () => boolean }
+
+function WatchPanelResizablePanel(): JSX.Element {
+    const { watchPanelCollapsed } = useValues(playerSettingsLogic)
+    const { setWatchPanelCollapsed } = useActions(playerSettingsLogic)
+    const handle = useRef<PanelHandle | null>(null)
+    const collapsed = useRef(watchPanelCollapsed)
+    collapsed.current = watchPanelCollapsed
+
+    useEffect(() => {
+        const panel = handle.current
+        if (!panel) {
+            return
+        }
+        if (watchPanelCollapsed && !panel.isCollapsed()) {
+            panel.collapse()
+        } else if (!watchPanelCollapsed && panel.isCollapsed()) {
+            panel.expand()
+        }
+    }, [watchPanelCollapsed])
+
+    return (
+        <ResizablePanel
+            id="watch"
+            defaultSize={30}
+            minSize="8rem"
+            collapsible
+            collapsedSize={WATCH_PANEL_COLLAPSED_SIZE}
+            panelRef={(panel) => {
+                handle.current = panel
+            }}
+            onResize={() => {
+                const isCollapsed = handle.current?.isCollapsed() ?? false
+                if (isCollapsed !== collapsed.current) {
+                    setWatchPanelCollapsed(isCollapsed)
+                }
+            }}
+            className="flex flex-col min-h-0 overflow-hidden"
+        >
+            <WatchPanel />
+        </ResizablePanel>
+    )
+}
 
 export interface SessionRecordingPlayerProps extends SessionRecordingPlayerLogicProps {
     noMeta?: boolean
@@ -107,10 +153,11 @@ function SessionRecordingPlayerInternal({
     withSidebar: boolean
     playerRef: React.RefObject<HTMLDivElement>
 }): JSX.Element {
-    const { isVerticallyStacked, sidebarOpen, debugMode, replayLayout, watchDebugDock, watchPanelCollapsed } =
+    const { isVerticallyStacked, sidebarOpen, debugMode, replayLayout, watchDebugDock, watchPanelLayout } =
         useValues(playerSettingsLogic)
-    const { setWatchDebugDock } = useActions(playerSettingsLogic)
+    const { setWatchDebugDock, setWatchPanelLayout } = useActions(playerSettingsLogic)
     const { logicProps, isFullScreen } = useValues(sessionRecordingPlayerLogic)
+    const visionSurfaceShown = useVisionSurfaceShown()
     const { featureFlags } = useValues(featureFlagLogic)
     const { user } = useValues(userLogic)
     const linkedIssuesAvailable = useLinkedIssuesAvailable()
@@ -122,23 +169,34 @@ function SessionRecordingPlayerInternal({
         const rightDock = debugMode && watchDebugDock === 'right' && !isFullScreen
         return (
             <div
-                ref={playerRef}
                 className={clsx('SessionRecordingPlayerWrapper SessionRecordingPlayerWrapper--watch', {
                     'SessionRecordingPlayerWrapper--watch-right-dock': rightDock,
-                    'SessionRecordingPlayerWrapper--watch-panel-collapsed': watchPanelCollapsed,
                 })}
             >
-                <div className="SessionRecordingPlayerWrapper__column">
-                    <div
+                <ResizablePanelGroup
+                    orientation="vertical"
+                    className="SessionRecordingPlayerWrapper__column"
+                    defaultLayout={watchPanelLayout ?? undefined}
+                    onLayoutChanged={(layout) => {
+                        setWatchPanelLayout(layout)
+                    }}
+                >
+                    <ResizablePanel
+                        id="player"
+                        // Fullscreen targets the player alone so the watch panel stays mounted
+                        elementRef={playerRef}
+                        defaultSize={70}
+                        minSize="12rem"
                         className={clsx(
                             'SessionRecordingPlayerWrapper__player',
                             isFullScreen && 'SessionRecordingPlayerWrapper__player--fullscreen'
                         )}
                     >
                         <PurePlayer noMeta={noMeta} noBorder={noBorder} />
-                    </div>
-                    {!isFullScreen && <WatchPanel />}
-                </div>
+                    </ResizablePanel>
+                    <ResizableHandle withHandle data-attr="watch-panel-resize-handle" />
+                    <WatchPanelResizablePanel />
+                </ResizablePanelGroup>
                 {rightDock && (
                     <PlayerSidebar
                         tabs={debugTabKeys(linkedIssuesAvailable)}
@@ -159,7 +217,7 @@ function SessionRecordingPlayerInternal({
         >
             <div className="relative flex flex-col flex-1 min-w-0 min-h-0">
                 <PurePlayer noMeta={noMeta} noBorder={noBorder} />
-                {visionSurfaceShown(logicProps) && <SummarizeRecordingBar extraActions={debugReplayAction} />}
+                {visionSurfaceShown && <SummarizeRecordingBar extraActions={debugReplayAction} />}
             </div>
             {withSidebar && <PlayerSidebar />}
         </div>
