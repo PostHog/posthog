@@ -1132,7 +1132,9 @@ def _release_card(ctx: _UnfurlContext, ref: str, url: str) -> _UnfurlCard | _Ski
     except releases_api.ReleaseNotFoundError:
         return "not_found"
     flags = list(
-        FeatureFlag.objects_including_soft_deleted.filter(team_id=ctx.team.pk, pk__in=release.feature_flag_ids)
+        FeatureFlag.objects_including_soft_deleted.filter(team_id=ctx.team.pk, pk__in=release.feature_flag_ids).only(
+            "id", "team_id", "created_by_id", "key", "active", "deleted"
+        )
     )
     viewable = [flag for flag in flags if ctx.uac.check_access_level_for_object(flag, required_level="viewer")]
     hidden = len(viewable) < len(flags)
