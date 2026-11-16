@@ -54,9 +54,6 @@ import { isCrossFilterWorksheet } from 'products/business_intelligence/frontend/
 import { BIDashboardFilterStatus } from 'products/business_intelligence/frontend/BIDashboardFilterStatus'
 import { BIDashboardTile } from 'products/business_intelligence/frontend/BIDashboardTile'
 import { DashboardInsightResultMenu } from 'products/dashboards/frontend/components/DashboardInsightResultMenu'
-import { DashboardResultFilterStatus } from 'products/dashboards/frontend/components/DashboardResultFilterStatus'
-import { DashboardResultInsight } from 'products/dashboards/frontend/components/DashboardResultInsight'
-import { canFilterInsight } from 'products/dashboards/frontend/dashboardResultFilters'
 import type { TileGroupMoveOptions } from 'products/dashboards/frontend/dashboardTileSections'
 
 import { DashboardResizeHandles } from '../handles'
@@ -93,6 +90,17 @@ export function shouldRenderInsightCardViz({
 
 const LazyEditAlertModal = lazyWithRetry(() =>
     import('products/alerts/frontend/views/EditAlertModal').then(({ EditAlertModal }) => ({ default: EditAlertModal }))
+)
+
+const DashboardResultFilterStatus = lazyWithRetry(() =>
+    import('products/dashboards/frontend/components/DashboardResultFilterStatus').then(
+        ({ DashboardResultFilterStatus }) => ({ default: DashboardResultFilterStatus })
+    )
+)
+const DashboardResultInsight = lazyWithRetry(() =>
+    import('products/dashboards/frontend/components/DashboardResultInsight').then(({ DashboardResultInsight }) => ({
+        default: DashboardResultInsight,
+    }))
 )
 
 type AlertModalState = {
@@ -432,20 +440,7 @@ function InsightCardInternal(
                 />
             )
         }
-        if (resultMenuEnabled && dashboardId && tile && canFilterInsight(insight.query)) {
-            return (
-                <DashboardResultInsight
-                    dashboardId={dashboardId}
-                    tileId={tile.id}
-                    insight={insight}
-                    insightProps={insightLogicProps}
-                    filtersOverride={filtersOverride}
-                    variablesOverride={variablesOverride}
-                    loadPriority={loadPriority}
-                />
-            )
-        }
-        return (
+        const defaultInsight = (
             <Query
                 query={insight.query}
                 cachedResults={insight}
@@ -465,6 +460,23 @@ function InsightCardInternal(
                 editMode={false}
             />
         )
+        if (resultMenuEnabled && dashboardId && tile) {
+            return (
+                <React.Suspense fallback={<SpinnerOverlay />}>
+                    <DashboardResultInsight
+                        dashboardId={dashboardId}
+                        tileId={tile.id}
+                        insight={insight}
+                        insightProps={insightLogicProps}
+                        filtersOverride={filtersOverride}
+                        variablesOverride={variablesOverride}
+                        loadPriority={loadPriority}
+                        fallback={defaultInsight}
+                    />
+                </React.Suspense>
+            )
+        }
+        return defaultInsight
     }, [
         BlockingEmptyState,
         insight,
@@ -521,7 +533,12 @@ function InsightCardInternal(
                             biDashboardTileId !== undefined && dashboardId ? (
                                 <>
                                     <BIDashboardFilterStatus dashboardId={dashboardId} tileId={biDashboardTileId} />
-                                    <DashboardResultFilterStatus dashboardId={dashboardId} tileId={biDashboardTileId} />
+                                    <React.Suspense fallback={null}>
+                                        <DashboardResultFilterStatus
+                                            dashboardId={dashboardId}
+                                            tileId={biDashboardTileId}
+                                        />
+                                    </React.Suspense>
                                 </>
                             ) : undefined
                         }

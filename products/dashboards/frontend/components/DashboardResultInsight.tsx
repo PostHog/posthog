@@ -5,7 +5,7 @@ import { DashboardFilter, HogQLVariable } from '~/queries/schema/schema-general'
 import { InsightLogicProps, InsightModel } from '~/types'
 
 import { dashboardResultFilterLogic } from '../dashboardResultFilterLogic'
-import { getDashboardResultItemId } from '../dashboardResultFilters'
+import { canFilterInsight, getDashboardResultItemId } from '../dashboardResultFilters'
 
 export function DashboardResultInsight({
     dashboardId,
@@ -15,6 +15,7 @@ export function DashboardResultInsight({
     filtersOverride,
     variablesOverride,
     loadPriority,
+    fallback,
 }: {
     dashboardId: number
     tileId: number
@@ -23,8 +24,12 @@ export function DashboardResultInsight({
     filtersOverride?: DashboardFilter
     variablesOverride?: Record<string, HogQLVariable>
     loadPriority?: number
+    fallback: JSX.Element
 }): JSX.Element {
     const { targets, loadQueue } = useValues(dashboardResultFilterLogic({ dashboardId }))
+    if (!canFilterInsight(insight.query)) {
+        return fallback
+    }
     const filtered = targets[tileId]
     const query = filtered ?? insight.query
     // Dashboard responses already merge dashboard and tile overrides into the query.
