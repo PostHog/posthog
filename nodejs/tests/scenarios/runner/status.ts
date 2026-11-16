@@ -104,10 +104,6 @@ const DATABASE_TARGETS = new Set(['postgres', 'cyclotron'])
 const SUSTAINED_FAILURES = 5
 const CONNECTION_LOST = /^(08...|57P01)$/
 
-const ROLE_EXIT_GRACE_MS = new Map(
-    VALVES.flatMap(({ name, roleExitGraceMs }) => (roleExitGraceMs === undefined ? [] : [[name, roleExitGraceMs]]))
-)
-
 const appliedWithin = (
     { intentAt, appliedAt, releasedAt }: ValveTimelineEntry,
     at: string,
@@ -124,9 +120,10 @@ const appliedWithin = (
 
 const exitedByValve = (exit: RoleExit, timeline: ValveTimelineEntry[]): boolean =>
     exit.byValve ||
-    (exit.signal === null &&
+    (exit.code !== null &&
+        exit.signal === null &&
         timeline.some((entry) => {
-            const graceMs = ROLE_EXIT_GRACE_MS.get(entry.valve)
+            const graceMs = VALVES.find(({ name }) => name === entry.valve)?.roleExitGraceMs
             return graceMs !== undefined && appliedWithin(entry, exit.at, graceMs)
         }))
 

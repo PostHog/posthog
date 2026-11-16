@@ -279,6 +279,27 @@ describe('statusOf', () => {
             `${HOGFLOW_WORKER} exited (code 1) without a valve causing it`,
         ],
         [
+            'a role exited with an error before the connection drop applied',
+            { timeline: [dropped(10, 40)], exits: [exitedWithError(HOGFLOW_WORKER, 8)] },
+            'failed',
+            `${HOGFLOW_WORKER} exited (code 1) without a valve causing it`,
+        ],
+        [
+            'a role exited with an error during a valve that sets no exit grace',
+            { timeline: [failedOver], exits: [exitedWithError(HOGFLOW_WORKER, 15)] },
+            'failed',
+            `${HOGFLOW_WORKER} exited (code 1) without a valve causing it, while pg.failover on cyclotron was applied`,
+        ],
+        [
+            'a role failed to start while the connections were dropped',
+            {
+                timeline: [dropped(10, 40)],
+                exits: [{ ...exited(HOGFLOW_WORKER, 25), signal: null, error: 'spawn ENOENT' }],
+            },
+            'failed',
+            `${HOGFLOW_WORKER} exited (code null) without a valve causing it, while pg.drop_connections on postgres was applied`,
+        ],
+        [
             'a role was killed by a signal while the connections were dropped',
             { timeline: [dropped(10, 40)], exits: [exited(HOGFLOW_WORKER, 25)] },
             'failed',
