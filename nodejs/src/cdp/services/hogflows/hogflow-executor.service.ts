@@ -52,6 +52,7 @@ import { WaitUntilTimeWindowHandler } from './actions/wait_until_time_window'
 import { buildConversionWatcher, runStartedAt } from './conversion-watcher'
 import { HogFlowDuplicateObserverService } from './hogflow-duplicate-observer.service'
 import { HogFlowFunctionsService } from './hogflow-functions.service'
+import { HOGFLOW_QUEUE_PRIORITY } from './hogflow-queue-priority'
 import { hasSensitiveMessageStep } from './hogflow-sensitivity'
 import {
     WorkflowChangedError,
@@ -154,7 +155,7 @@ export function createHogFlowInvocation(
         groups: globals.groups, // Same as person: in-memory only (test path); real execution re-resolves on dequeue
         filterGlobals,
         queue: 'hogflow',
-        queuePriority: 1,
+        queuePriority: HOGFLOW_QUEUE_PRIORITY.triggered,
     }
 }
 

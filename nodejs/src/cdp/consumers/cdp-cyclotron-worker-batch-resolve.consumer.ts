@@ -20,6 +20,7 @@ import {
     AudienceFetchTimeoutError,
     HogFlowBatchPersonQueryService,
 } from '../services/hogflows/hogflow-batch-person-query.service'
+import { HOGFLOW_QUEUE_PRIORITY } from '../services/hogflows/hogflow-queue-priority'
 import { HOG_FLOW_QUOTA_LIMITED_MESSAGE } from '../services/hogflows/hogflow-quota-limiting'
 import { hasSensitiveMessageStep } from '../services/hogflows/hogflow-sensitivity'
 import { RealtimeCohortAudienceService } from '../services/hogflows/realtime-cohort-audience.service'
@@ -541,6 +542,9 @@ export class CdpCyclotronWorkerBatchResolve extends CdpConsumerBase<PluginsServe
         const pageTruncated = eligibleIds.length < page.ids.length
 
         const defaultVariables = mergeDefaultVariables(hogFlow.variables, state.variables)
+        const queuePriority = this.config.CDP_HOGFLOW_BROADCAST_LOW_PRIORITY
+            ? HOGFLOW_QUEUE_PRIORITY.background
+            : HOGFLOW_QUEUE_PRIORITY.triggered
         const builtInvocations: CyclotronJobInvocationHogFlow[] = eligibleIds.map((id) =>
             isAccountAudience
                 ? buildAccountHogFlowInvocation({
@@ -551,6 +555,7 @@ export class CdpCyclotronWorkerBatchResolve extends CdpConsumerBase<PluginsServe
                       externalId: id,
                       groupType: page.accountGroupType ?? '',
                       defaultVariables,
+                      queuePriority,
                   })
                 : buildHogFlowInvocation({
                       siteUrl: this.config.SITE_URL,
@@ -559,6 +564,7 @@ export class CdpCyclotronWorkerBatchResolve extends CdpConsumerBase<PluginsServe
                       hogFlow,
                       personId: id,
                       defaultVariables,
+                      queuePriority,
                   })
         )
 
@@ -830,6 +836,7 @@ export function buildAccountHogFlowInvocation(params: {
     externalId: string
     groupType: string
     defaultVariables: Record<string, unknown>
+    queuePriority: number
 }): CyclotronJobInvocationHogFlow {
     const invocationGlobals = convertAccountBatchHogFlowRequestToHogFunctionInvocationGlobals({
         team: params.team,
@@ -863,7 +870,7 @@ export function buildAccountHogFlowInvocation(params: {
         parentRunId: params.parentRunId,
         filterGlobals,
         queue: 'hogflow' as const,
-        queuePriority: 1,
+        queuePriority: params.queuePriority,
         queueScheduledAt: DateTime.now(),
     }
 }
@@ -877,6 +884,7 @@ function buildHogFlowInvocation(params: {
     hogFlow: HogFlow
     personId: string
     defaultVariables: Record<string, unknown>
+    queuePriority: number
 }): CyclotronJobInvocationHogFlow {
     const invocationGlobals = convertBatchHogFlowRequestToHogFunctionInvocationGlobals({
         team: params.team,
@@ -908,7 +916,7 @@ function buildHogFlowInvocation(params: {
         person: invocationGlobals.person,
         filterGlobals,
         queue: 'hogflow' as const,
-        queuePriority: 1,
+        queuePriority: params.queuePriority,
         queueScheduledAt: DateTime.now(),
     }
 }

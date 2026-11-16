@@ -79,6 +79,7 @@ import {
     serializeResolverState,
 } from './services/hogflows/batch-resolver.types'
 import { HogFlowBatchPersonQueryService } from './services/hogflows/hogflow-batch-person-query.service'
+import { createHogFlowInvocation } from './services/hogflows/hogflow-executor.service'
 import { CyclotronJobQueueKafka } from './services/job-queue/job-queue-kafka'
 import { CyclotronJobQueuePostgresV2 } from './services/job-queue/job-queue-postgres-v2'
 import { CyclotronJobQueueRateLimitedPostgresV2 } from './services/job-queue/job-queue-rate-limited-postgres-v2'
@@ -5028,6 +5029,58 @@ describe('Workflows E2E: batch resolver dispatch via cdp-api', () => {
             expect(children.rows).toHaveLength(expectedChildren)
         } finally {
             await setTeamQuotaLimited(hub, team, 'workflow_destinations_dispatched', false)
+        }
+    })
+
+    it.each([
+        ['ahead of a later event-triggered run with the switch off', false, 'broadcast child'],
+        ['behind a later event-triggered run with the switch on', true, 'event run'],
+    ])('dequeues broadcast children %s', async (_name, lowPriority, firstOut) => {
+        const flow = await insertActiveBatchFlow()
+        const parentRunId = new UUIDT().toString()
+        const statusPuts: Array<{ status: string }> = []
+        mockInternalFetch.mockImplementation((url: string, opts: any) => {
+            const body = url.includes('/user_blast_radius_persons')
+                ? { users_affected: [new UUIDT().toString(), new UUIDT().toString()], cursor: null, has_more: false }
+                : {}
+            if (url.includes('/batch_jobs/') && url.endsWith('/status')) {
+                statusPuts.push(parseJSON(opts.body) as { status: string })
+            }
+            return Promise.resolve({
+                status: 200,
+                headers: {},
+                json: () => Promise.resolve({}),
+                text: () => Promise.resolve(JSON.stringify(body)),
+                dump: () => Promise.resolve(),
+            })
+        })
+        const hogflowQueue = new CyclotronJobQueuePostgresV2(1, hub)
+
+        try {
+            hub.CDP_HOGFLOW_BROADCAST_LOW_PRIORITY = lowPriority
+            await supertest(app)
+                .post(`/api/projects/${team.id}/hog_flows/${flow.id}/batch_invocations/${parentRunId}`)
+                .send({ filters: { filter_test_accounts: false }, max_audience_size: 1000 })
+                .expect(200)
+            resolverWorker = buildResolverConsumer()
+            await resolverWorker.start()
+            await waitForExpect(() => expect(statusPuts).toEqual([{ status: 'completed' }]), 20000)
+
+            const eventRun = createHogFlowInvocation(createHogExecutionGlobals({}), flow, {} as any)
+            await hogflowQueue.startAsProducer()
+            await hogflowQueue.queueInvocations([eventRun])
+            const claimed: string[] = []
+            await hogflowQueue.startAsConsumer('hogflow', (invocations) => {
+                claimed.push(...invocations.map((invocation) => invocation.id))
+                return Promise.resolve({ backgroundTask: Promise.resolve() })
+            })
+            await waitForExpect(() => expect(claimed.length).toBeGreaterThan(0))
+
+            expect(claimed[0] === eventRun.id ? 'event run' : 'broadcast child').toBe(firstOut)
+        } finally {
+            hub.CDP_HOGFLOW_BROADCAST_LOW_PRIORITY = false
+            await hogflowQueue.stopConsumer()
+            await hogflowQueue.stopProducer()
         }
     })
 

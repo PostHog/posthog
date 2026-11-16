@@ -21,6 +21,7 @@ import { dualRead } from '../utils/dual-store'
 import { InvocationFailureSink } from './dead-letter/cdp-dead-letter.service'
 import { HogFlowExecutorService } from './hogflows/hogflow-executor.service'
 import { HogFlowManagerService } from './hogflows/hogflow-manager.service'
+import { HOGFLOW_QUEUE_PRIORITY } from './hogflows/hogflow-queue-priority'
 import { shouldBlockHogFlowDueToQuota } from './hogflows/hogflow-quota-limiting'
 import { HogFunctionMonitoringService } from './monitoring/hog-function-monitoring.service'
 import { HogMaskerService } from './monitoring/hog-masker.service'
@@ -236,7 +237,7 @@ export class HogFlowInvocationPipeline {
                 }
 
                 if (state === HogWatcherState.degraded) {
-                    item.queuePriority = 2
+                    item.queuePriority = HOGFLOW_QUEUE_PRIORITY.background
                 }
 
                 validInvocations.push(item)

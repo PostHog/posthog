@@ -40,6 +40,7 @@ describe('CdpCyclotronWorkerBatchResolve', () => {
                 externalId: 'acme-1',
                 groupType: 'customer',
                 defaultVariables: { greeting: 'hi' },
+                queuePriority: 1,
             })
 
             const state = invocation.state as CyclotronJobInvocationHogFlow['state']
@@ -83,6 +84,7 @@ describe('CdpCyclotronWorkerBatchResolve', () => {
                 externalId: 'acme-1',
                 groupType: 'customer',
                 defaultVariables: {},
+                queuePriority: 1,
             })
 
             expect(invocation.hogFlow).toBe(maskedHogFlow)
@@ -110,6 +112,7 @@ describe('CdpCyclotronWorkerBatchResolve', () => {
                 externalId: 'acme-1',
                 groupType: 'customer',
                 defaultVariables: {},
+                queuePriority: 1,
             })
 
             expect(invocation.state.sensitive).toBe(true)
