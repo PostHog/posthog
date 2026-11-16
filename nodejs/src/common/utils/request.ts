@@ -426,8 +426,8 @@ async function admitNewConnection(hostname: string, addresses: LookupAddress[]):
     )
     const admitted = new Set(limited.filter((_, index) => hasToken[index]))
     const enforced = requestConfig.EXTERNAL_REQUEST_NEW_CONNECTIONS_PER_IP_ENFORCED
-    if (admitted.size === 0) {
-        const address = limited[0]
+    const address = limited.find((candidate) => !admitted.has(candidate))
+    if (address !== undefined) {
         connectionRateLimitedCounter.inc({ enforced: String(enforced) })
         if (!connectionRateLimitLogged.has(address)) {
             connectionRateLimitLogged.set(address, true)

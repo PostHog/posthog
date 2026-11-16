@@ -1,3 +1,5 @@
+import { Counter } from 'prom-client'
+
 import { RedisV2 } from '~/common/redis/redis-v2'
 
 export type ConnectionRateLimiterOptions = {
@@ -7,6 +9,11 @@ export type ConnectionRateLimiterOptions = {
 
 // A slow Redis must not hold up new connections, so past this every connection goes through.
 const REDIS_DEADLINE_MS = 50
+
+const unavailableCounter = new Counter({
+    name: 'node_request_connection_rate_limiter_unavailable_total',
+    help: 'New connections let through without a limit check because Redis did not answer in time',
+})
 
 /**
  * Limits how fast the fleet opens new connections to each destination IP. Behind a NAT gateway each one holds one of
@@ -41,6 +48,9 @@ export class ConnectionRateLimiter {
                 }
             )
             .catch(() => null)
+        if (res === null) {
+            unavailableCounter.inc(keys.length)
+        }
         // The script returns -1 when the bucket could not pay, and 0 when it paid its last token.
         return keys.map((_, index) => {
             const [error, result] = res?.[index] ?? [null, null]

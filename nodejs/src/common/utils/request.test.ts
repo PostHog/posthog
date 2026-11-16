@@ -489,7 +489,9 @@ describe('fetch', () => {
         })
 
         beforeEach(async () => {
-            await deleteKeysWithPrefix(connectionLimitRedis, '@posthog/new-connections/')
+            for (const key of ['127.0.0.1', '1:127.0.0.1', '2:127.0.0.1']) {
+                await deleteKeysWithPrefix(connectionLimitRedis, `@posthog/new-connections/${key}`)
+            }
         })
 
         test.each<{
