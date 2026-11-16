@@ -36,6 +36,49 @@ const program = (value: number): unknown[] => ['_H', 1, 33, value, 38]
 // budget of 10_000, so it only returns 20000 when the executor passes its own step budget.
 const COUNT_TO_20000 = ['_H', 1, 33, 0, 33, 20000, 36, 0, 15, 40, 9, 33, 1, 36, 0, 6, 37, 0, 39, -16, 36, 0, 38, 35]
 const RETURN_EVENT_UUID = ['_H', 1, 32, 'uuid', 32, 'event', 1, 2, 38]
+const printing = (...messages: string[]): unknown[] => [
+    '_H',
+    1,
+    ...messages.flatMap((message) => [32, message, 2, 'print', 1, 35]),
+    33,
+    1,
+    38,
+]
+// `let i := 0; while (i < 30) { print(i); i := i + 1 } return 1`
+const PRINT_30_TIMES = [
+    '_H',
+    1,
+    33,
+    0,
+    33,
+    30,
+    36,
+    0,
+    15,
+    40,
+    15,
+    36,
+    0,
+    2,
+    'print',
+    1,
+    35,
+    33,
+    1,
+    36,
+    0,
+    6,
+    37,
+    0,
+    39,
+    -22,
+    33,
+    1,
+    38,
+    35,
+]
+const DIVIDE_BY_ZERO = ['_H', 1, 33, 0, 33, 1, 9, 38]
+const CALL_MESSAGING_PREFERENCES_URL = ['_H', 1, 2, 'generateMessagingPreferencesUrl', 0, 38]
 
 const outcomeCount = async (outcome: string): Promise<number> =>
     (await rustVmExecution.get()).values.find((value) => value.labels.outcome === outcome)?.value ?? 0
@@ -60,7 +103,7 @@ describe('RustVmExecutor', () => {
         resetHogvmNodeModuleCacheForTests()
         rustVmExecution.reset()
         rustVmProgramRegistrations.reset()
-        executor = new RustVmExecutor({ mmdb: { kind: 'file', path: '/dev/null' } })
+        executor = new RustVmExecutor({ mmdb: { kind: 'file', path: process.env.MMDB_FILE_LOCATION! } })
         // `clearAllMocks` resets call data but not implementations, so a case that makes a mock
         // throw would leak into every case after it. Re-establish the working defaults here.
         liveHandles = new Set()
@@ -112,45 +155,43 @@ describe('RustVmExecutor', () => {
     })
 
     it('a null program result leaves execResult unset so the transformer drops the event', () => {
-        mockHogvmNode.executeRegisteredSync.mockReturnValue(rustResult({ result: null }))
-
-        const result = executor.execute(createExampleInvocation(), [])
+        const result = executor.execute(createExampleInvocation({ bytecode: ['_H', 1, 31, 38] }), [])
 
         expect(result!.error).toBeUndefined()
         expect(result!.execResult).toBeUndefined()
     })
 
-    it('surfaces print() output as info logs with sensitive values redacted, plus a truncation warning', () => {
-        mockHogvmNode.executeRegisteredSync.mockReturnValue(
-            rustResult({ logs: ['token is secret-token', 'plain'], logsTruncated: true })
-        )
+    it('surfaces print() output as info logs with sensitive values redacted', () => {
+        const invocation = createExampleInvocation({ bytecode: printing('token is secret-token', 'plain') })
 
-        const result = executor.execute(createExampleInvocation(), ['secret-token'])
+        const result = executor.execute(invocation, ['secret-token'])
 
         expect(result!.logs.map((log) => [log.level, log.message])).toEqual([
             ['info', 'token is ***REDACTED***'],
             ['info', 'plain'],
-            ['warn', expect.stringContaining('Function exceeded maximum log entries')],
             ['debug', expect.stringContaining('Function completed in')],
         ])
     })
 
-    it("redacts each invocation's logs with its own sensitive values, not another invocation's", () => {
-        mockHogvmNode.executeRegisteredSync.mockReturnValue(rustResult({ logs: ['token is secret-a and secret-b'] }))
+    it('keeps the first 24 print() messages and warns that the rest were dropped', () => {
+        const result = executor.execute(createExampleInvocation({ bytecode: PRINT_30_TIMES }), [])
 
-        const first = executor.execute(createExampleInvocation(), ['secret-a'])
-        const second = executor.execute(createExampleInvocation(), ['secret-b'])
+        expect(result!.logs.map((log) => log.level)).toEqual([...Array(24).fill('info'), 'warn', 'debug'])
+        expect(result!.logs[24].message).toContain('Function exceeded maximum log entries')
+    })
+
+    it("redacts each invocation's logs with its own sensitive values, not another invocation's", () => {
+        const bytecode = printing('token is secret-a and secret-b')
+
+        const first = executor.execute(createExampleInvocation({ bytecode }), ['secret-a'])
+        const second = executor.execute(createExampleInvocation({ bytecode }), ['secret-b'])
 
         expect(first!.logs[0].message).toEqual('token is ***REDACTED*** and secret-b')
         expect(second!.logs[0].message).toEqual('token is secret-a and ***REDACTED***')
     })
 
     it('a rust execution error becomes the result error with an error log, without falling back', () => {
-        mockHogvmNode.executeRegisteredSync.mockReturnValue(
-            rustResult({ result: undefined, error: 'Division by zero' })
-        )
-
-        const result = executor.execute(createExampleInvocation(), [])
+        const result = executor.execute(createExampleInvocation({ bytecode: DIVIDE_BY_ZERO }), [])
 
         expect(result).not.toBeNull()
         expect(result!.error).toEqual('Division by zero')
@@ -161,12 +202,17 @@ describe('RustVmExecutor', () => {
     })
 
     it.each([
-        ['unsupported host function', 'Native call failed: unsupported_ext_fn:geoipLookup'],
-        ['function missing from the rust vm', 'Unknown function sendEmail'],
-        ['global chain the rust vm cannot resolve', 'Unknown Global ["inputs", "foo"]'],
-        ['input shape the rust vm has no implementation for', 'Not implemented: extract of a value only luxon reads'],
-    ])('falls back to the node vm on %s', (_name, error) => {
-        mockHogvmNode.executeRegisteredSync.mockReturnValue(rustResult({ result: undefined, error }))
+        ['unsupported host function', CALL_MESSAGING_PREFERENCES_URL],
+        ['function missing from the rust vm', ['_H', 1, 32, 'x', 2, 'sendEmail', 1, 38]],
+        ['global chain the rust vm cannot resolve', ['_H', 1, 32, 'foo', 32, 'inputs', 1, 2, 38]],
+    ])('falls back to the node vm on %s', (_name, bytecode) => {
+        expect(executor.execute(createExampleInvocation({ bytecode }), [])).toBeNull()
+    })
+
+    it('falls back to the node vm on an input shape the rust vm has no implementation for', () => {
+        mockHogvmNode.executeRegisteredSync.mockReturnValue(
+            rustResult({ result: undefined, error: 'Not implemented: extract of a value only luxon reads' })
+        )
 
         expect(executor.execute(createExampleInvocation(), [])).toBeNull()
     })
@@ -235,11 +281,9 @@ describe('RustVmExecutor', () => {
         })
 
         it('falls back to the node vm on unsupported-program errors, same predicate as the sync path', async () => {
-            mockHogvmNode.executeRegisteredBatch.mockResolvedValue([
-                rustResult({ result: undefined, error: 'Native call failed: unsupported_ext_fn:geoipLookup' }),
-            ])
+            const invocation = createExampleInvocation({ bytecode: CALL_MESSAGING_PREFERENCES_URL })
 
-            expect(await executor.executeBatched(createExampleInvocation(), [])).toBeNull()
+            expect(await executor.executeBatched(invocation, [])).toBeNull()
         })
 
         it('falls back to the node vm when the whole batch call rejects', async () => {
