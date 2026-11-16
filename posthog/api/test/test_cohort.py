@@ -40,7 +40,7 @@ from posthog.clickhouse.client.execute import sync_execute
 from posthog.constants import AvailableFeature
 from posthog.models import User
 from posthog.models.activity_logging.activity_log import ActivityLog
-from posthog.models.async_deletion.async_deletion import AsyncDeletion
+from posthog.models.async_deletion.async_deletion import AsyncDeletion, DeletionType
 from posthog.models.event.new_events_schema import use_new_events_schema
 from posthog.models.file_system.file_system import FileSystem
 from posthog.models.person.util import get_person_by_id
@@ -9365,9 +9365,9 @@ class TestCohortRealtimeSwitch(APIBaseTest):
 
     @parameterized.expand(
         [
-            (
+            param(
                 "made_realtime_again",
-                {
+                state={
                     "cohort_type": None,
                     "filters": {
                         "properties": {
@@ -9376,27 +9376,79 @@ class TestCohortRealtimeSwitch(APIBaseTest):
                         }
                     },
                 },
-                {"filters": {"properties": {"type": "AND", "values": [_REALTIME_PAGEVIEW_LEAF]}}},
+                edit={"filters": {"properties": {"type": "AND", "values": [_REALTIME_PAGEVIEW_LEAF]}}},
+                limit_event={"limit": "cohorts", "allowed": 3, "used": 3, "source": "edit"},
             ),
-            ("made_dynamic_again", {"is_static": True}, {"is_static": False}),
-            ("restored", {"deleted": True}, {"deleted": False}),
+            param(
+                "made_dynamic_again",
+                state={"is_static": True},
+                edit={"is_static": False},
+                limit_event={"limit": "cohorts", "allowed": 3, "used": 3, "source": "edit"},
+            ),
+            param(
+                "restored",
+                state={"deleted": True},
+                edit={"deleted": False},
+                limit_event={"limit": "cohorts", "allowed": 3, "used": 3, "source": "edit"},
+            ),
+            # The check and the save hold the lock turn-ons take, so a slot taken while the restore ran counts.
+            param(
+                "restored_while_a_turn_on_takes_the_last_slot",
+                state={"deleted": True},
+                edit={"deleted": False},
+                others_on=2,
+                turned_on_during_the_edit=True,
+                limit_event={"limit": "cohorts", "allowed": 3, "used": 3, "source": "edit"},
+            ),
+            # An edit saved while the cohort was deleted held no slot, so nothing judged its criteria until now.
+            param(
+                "restored_with_criteria_past_the_plan",
+                state={
+                    "deleted": True,
+                    "filters": {
+                        "properties": {"type": "AND", "values": [{**_REALTIME_PAGEVIEW_LEAF, "time_value": 15}]}
+                    },
+                },
+                edit={"deleted": False},
+                others_on=0,
+                limit_event={"limit": "history_days", "allowed": 14, "used": None, "source": "edit"},
+            ),
         ]
     )
     @patch("posthog.api.cohort.report_user_action")
-    def test_an_edit_that_brings_back_a_cohort_that_is_on_needs_a_slot(
-        self, _name: str, state: dict, edit: dict, report_user_action: MagicMock
+    def test_an_edit_that_brings_back_a_cohort_that_is_on_is_judged_like_a_turn_on(
+        self,
+        _name: str,
+        report_user_action: MagicMock,
+        *,
+        state: dict,
+        edit: dict,
+        limit_event: dict,
+        others_on: int = 3,
+        turned_on_during_the_edit: bool = False,
     ) -> None:
         cohort = self._cohort(_REALTIME_PAGEVIEW_LEAF, enabled=True)
         Cohort.objects.filter(id=cohort.id).update(**state)
-        for _ in range(3):
+        if state.get("deleted"):
+            AsyncDeletion.objects.create(
+                deletion_type=DeletionType.Cohort_full, team_id=self.team.id, key=f"{cohort.pk}_{cohort.version}"
+            )
+        for _ in range(others_on):
             self._cohort(_REALTIME_PAGEVIEW_LEAF, enabled=True)
 
-        response = self.client.patch(f"/api/projects/{self.team.id}/cohorts/{cohort.id}/", edit, format="json")
+        def turn_on_during_the_edit(_cohort: Cohort) -> bool:
+            if turned_on_during_the_edit:
+                self._cohort(_REALTIME_PAGEVIEW_LEAF, enabled=True)
+            return False
+
+        with patch("posthog.api.cohort.will_create_loops", side_effect=turn_on_during_the_edit):
+            response = self.client.patch(f"/api/projects/{self.team.id}/cohorts/{cohort.id}/", edit, format="json")
 
         assert (response.status_code, response.json().get("code")) == (400, "realtime_limit_reached"), response.json()
-        assert self._limit_events(report_user_action) == [
-            {"limit": "cohorts", "allowed": 3, "used": 3, "source": "edit"}
-        ]
+        assert self._limit_events(report_user_action) == [limit_event]
+        assert AsyncDeletion.objects.filter(key=f"{cohort.pk}_{cohort.version}").count() == (
+            1 if state.get("deleted") else 0
+        )
 
     def test_turning_off_hides_names_of_parents_the_member_cannot_view(self) -> None:
         cohort = self._cohort(_REALTIME_PAGEVIEW_LEAF, enabled=True)

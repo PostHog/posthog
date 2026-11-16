@@ -128,8 +128,9 @@ A cohort holds a slot while it is `realtime`, on, not static and not deleted.
 
 The limits only gate turning realtime on.
 `cohort_enablement.py` refuses a turn-on that needs more slots than are left, or whose criteria look back further than the plan allows.
-The cohort API refuses the same for a criteria edit of a cohort that is on, before it saves, when the request's user sees realtime cohorts.
-A cohort that is on keeps its switch while it is daily, static or deleted, so the API also needs a slot left for an edit that brings it back, such as a restore.
+The cohort API refuses the same for a criteria edit of a cohort that is on, when the request's user sees realtime cohorts.
+A cohort that is on keeps its switch while it is daily, static or deleted, so the API judges an edit that brings it back, such as a restore, like a turn-on.
+It judges an edit in the transaction that saves it, under the same team lock as a turn-on.
 A cohort that is on keeps running when the plan changes or its start date ages past the limit, and a rename that resends the same criteria is not judged again.
 The refusal is a `400` with code `realtime_limit_reached`, and it is captured as the `cohort realtime limit reached` event.
 

@@ -2364,21 +2364,11 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
             and not cohort.is_static
             and not (cohort.deleted if deleted_state is None else deleted_state)
         )
-        if (
+        judge_plan_limits = (
             holds_a_realtime_slot
             and (filters_changed or not held_a_realtime_slot)
             and _realtime_targeting_enabled(self.context)
-        ):
-            try:
-                refuse_edit_over_plan_limits(
-                    cohort,
-                    criteria_changed=filters_changed,
-                    held_a_slot=held_a_realtime_slot,
-                    can_edit=_can_edit(self._user_access_control()),
-                )
-            except RealtimeLimitReached as error:
-                _report_realtime_limit_reached(request, cohort, error, "edit")
-                raise ValidationError(str(error), code=REALTIME_LIMIT_REACHED_ERROR_CODE) from error
+        )
 
         incoming_has_criteria = cohort_filters_have_values(validated_data.get("filters"))
         if cohort.is_static and filters_changed and (existing_has_criteria or incoming_has_criteria):
@@ -2494,11 +2484,6 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
                     ],
                     ignore_conflicts=True,
                 )
-            else:
-                AsyncDeletion.objects.filter(
-                    deletion_type=DeletionType.Cohort_full,
-                    key__startswith=f"{cohort.pk}_{cohort.version}",  # We target this _prefix_, so all teams are covered
-                ).delete()
         elif not cohort.is_static:
             cohort.is_calculating = True
 
@@ -2517,6 +2502,22 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
             if not field.primary_key and field.name not in COHORT_REALTIME_SWITCH_FIELDS
         ]
         with transaction.atomic():
+            # Judged in the save's transaction, under the lock turn-ons take, so no other turn-on or edit takes a slot
+            # between the count and the save. A restore cancels its pending deletion in the same transaction, so a
+            # refused restore keeps it.
+            if judge_plan_limits:
+                try:
+                    refuse_edit_over_plan_limits(
+                        cohort, held_a_slot=held_a_realtime_slot, can_edit=_can_edit(self._user_access_control())
+                    )
+                except RealtimeLimitReached as error:
+                    _report_realtime_limit_reached(request, cohort, error, "edit")
+                    raise ValidationError(str(error), code=REALTIME_LIMIT_REACHED_ERROR_CODE) from error
+            if is_deletion_change and deleted_state is False:
+                AsyncDeletion.objects.filter(
+                    deletion_type=DeletionType.Cohort_full,
+                    key__startswith=f"{cohort.pk}_{cohort.version}",  # We target this _prefix_, so all teams are covered
+                ).delete()
             if import_from_csv or populate_from_query:
                 self._claim_static_population(cohort, "csv" if import_from_csv else "query")
                 cohort.save(update_fields=update_fields)

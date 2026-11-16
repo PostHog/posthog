@@ -82,10 +82,7 @@ def _turn_on(team_id: int, cohort_id: int, *, can_edit: Callable[[Cohort], bool]
         # Turn-ons of one team run one at a time, so an edit's turn-on of the cohorts it now includes reads the
         # cohort after a concurrent turn-on commits, and finds it on. A row lock on the cohort would also do that,
         # but it is taken out of id order, so two turn-ons where one includes the other's cohort could deadlock.
-        with connection.cursor() as cursor:
-            cursor.execute(
-                "SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))", [f"cohort-realtime-turn-on:{team_id}"]
-            )
+        _lock_turn_ons(team_id)
         cohort = Cohort.objects.select_related("team__organization").get(id=cohort_id, team_id=team_id)
         if not including_cohort and not cohort.realtime_enabled:
             return []
@@ -113,8 +110,8 @@ def _turn_on(team_id: int, cohort_id: int, *, can_edit: Callable[[Cohort], bool]
             each.realtime_enabled_at = now
             _refuse_unless_it_can_be_ready(each)
 
-        # The team's lock is held from this count through the saves below, so two turn-ons can't both take
-        # the last slot.
+        # The team's lock is held from this count through the saves below, so two turn-ons, or a turn-on and an
+        # edit, can't both take the last slot.
         _refuse_over_plan_limits(cohort.team, taking_slots=turned_on, history_of=turned_on)
 
         for each in turned_on:
@@ -128,23 +125,22 @@ def _turn_on(team_id: int, cohort_id: int, *, can_edit: Callable[[Cohort], bool]
     return [each.id for each in turned_on]
 
 
-def refuse_edit_over_plan_limits(
-    cohort: Cohort, *, criteria_changed: bool, held_a_slot: bool, can_edit: Callable[[Cohort], bool]
-) -> None:
-    """Before an edit that leaves a cohort holding a slot is saved, refuse it when the project's plan doesn't allow it.
+def refuse_edit_over_plan_limits(cohort: Cohort, *, held_a_slot: bool, can_edit: Callable[[Cohort], bool]) -> None:
+    """Refuse an edit that leaves a cohort holding a slot, when the project's plan doesn't allow the result.
 
-    New criteria have to fit the plan's history limit. The save turns on the realtime cohorts they include that are
-    off, so each of those needs a slot and has to fit the history limit too. When ``can_edit`` refuses one of them,
-    the turn-on after the save refuses them all, so none of them is judged. The cohort needs a slot of its own when
-    it held none before the edit, because it was daily, static or deleted. Raises ``RealtimeLimitReached``.
+    Call it in the transaction that saves the edit. It takes the lock that turn-ons take, so no turn-on or other edit
+    can take a slot between its count and the save. The cohort's criteria have to fit the plan's history limit. The
+    save turns on the realtime cohorts they include that are off, so each of those needs a slot and has to fit the
+    history limit too. When ``can_edit`` refuses one of them, the turn-on after the save refuses them all, so none of
+    them is judged. The cohort needs a slot of its own when it held none before the edit, because it was daily, static
+    or deleted. Raises ``RealtimeLimitReached``.
     """
+    _lock_turn_ons(cohort.team_id)
     turning_on = [nested for nested in _included_realtime_cohorts(cohort) if not nested.realtime_enabled]
     if not all(can_edit(nested) for nested in turning_on):
         turning_on = []
     _refuse_over_plan_limits(
-        cohort.team,
-        taking_slots=turning_on if held_a_slot else [cohort, *turning_on],
-        history_of=[cohort, *turning_on] if criteria_changed else turning_on,
+        cohort.team, taking_slots=turning_on if held_a_slot else [cohort, *turning_on], history_of=[cohort, *turning_on]
     )
 
 
@@ -163,6 +159,11 @@ def turn_realtime_off(team_id: int, cohort_id: int) -> bool:
         for kind in CohortBackfillKind:
             transaction.on_commit(partial(supersede_cohort_backfills, cohort, kind))
     return True
+
+
+def _lock_turn_ons(team_id: int) -> None:
+    with connection.cursor() as cursor:
+        cursor.execute("SELECT pg_advisory_xact_lock(hashtextextended(%s, 0))", [f"cohort-realtime-turn-on:{team_id}"])
 
 
 def _included_realtime_cohorts(cohort: Cohort) -> list[Cohort]:
