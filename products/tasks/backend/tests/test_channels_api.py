@@ -11,8 +11,9 @@ from parameterized import parameterized
 from rest_framework import status
 from rest_framework.test import APIClient
 
+from posthog.integrations import IntegrationManager
 from posthog.models import Integration, Organization, OrganizationMembership, PersonalAPIKey, Team, User
-from posthog.models.oauth import OAuthAccessToken, OAuthApplication
+from posthog.models.oauth import OAuthAccessToken, OAuthApplication, OAuthRefreshToken
 from posthog.models.personal_api_key import hash_key_value
 from posthog.models.scoping import team_scope
 from posthog.models.utils import generate_random_token_personal
@@ -28,6 +29,8 @@ from products.tasks.backend.models import (
     ChannelMembership,
     Task,
     TaskActivity,
+    TaskClient,
+    TaskClientProvenance,
     TaskRun,
     TaskThreadMessage,
 )
@@ -991,6 +994,44 @@ class ThreadMessagesAPITestCase(ChannelTaskAPITestCase):
         again = self.author_client.post(f"{self._thread_url()}{message_id}/send_to_agent/")
         self.assertEqual(again.status_code, status.HTTP_400_BAD_REQUEST)
 
+    def test_send_to_agent_records_last_client(self):
+        TaskRun.objects.create(task=self.task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
+        earlier = django_timezone.now() - timedelta(days=1)
+        Task.objects.filter(id=self.task.id).update(last_client=TaskClient.SLACK, last_client_at=earlier)
+        message_id = self.peer_client.post(self._thread_url(), {"content": "try X"}).json()["id"]
+        application = OAuthApplication.objects.create(
+            name="Desktop",
+            client_id=ARRAY_APP_CLIENT_ID_DEV,
+            client_type=OAuthApplication.CLIENT_PUBLIC,
+            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+            redirect_uris="https://example.com/callback",
+            algorithm="RS256",
+            organization=self.organization,
+            user=self.author,
+        )
+        token = OAuthAccessToken.objects.create(
+            user=self.author,
+            application=application,
+            token=f"pha_thread_{uuid4().hex}",
+            scope="task:read task:write",
+            expires=django_timezone.now() + timedelta(hours=1),
+            scoped_teams=[self.team.id],
+        )
+        OAuthRefreshToken.objects.create(
+            user=self.author, application=application, token=f"phr_thread_{uuid4().hex}", access_token=token
+        )
+        desktop_client = APIClient()
+        desktop_client.credentials(HTTP_AUTHORIZATION=f"Bearer {token.token}")
+
+        with patch("products.tasks.backend.facade.api.signal_task_run_user_message", return_value=True):
+            response = desktop_client.post(f"{self._thread_url()}{message_id}/send_to_agent/")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+        self.task.refresh_from_db()
+        self.assertEqual(self.task.last_client, TaskClientProvenance.POSTHOG_DESKTOP)
+        assert self.task.last_client_at is not None
+        self.assertGreater(self.task.last_client_at, earlier)
+
     def test_send_to_agent_returns_structured_compute_quota_denial(self):
         TaskRun.objects.create(task=self.task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
         message_id = self.peer_client.post(self._thread_url(), {"content": "try X"}).json()["id"]
@@ -1774,12 +1815,22 @@ class RepositoryConfigAnalyticsTestCase(TestCase):
         self.assertTrue(rows[0]["diverged_from_space"])
         self.assertEqual(rows[0]["space_repository_count"], 1)
 
-    def test_deleting_the_github_integration_emits_one_aggregate_row(self):
-        self._channel_with_repos(["posthog/posthog"], name="growth")
-        self._channel_with_repos(["posthog/posthog.com", "posthog/marketing"], name="editorial")
+    @parameterized.expand(
+        [
+            ("model_delete", lambda team_id, row_id: Integration.objects.filter(id=row_id).delete()),
+            ("sdk_delete", lambda team_id, row_id: IntegrationManager.github.oauth.delete(team_id, row_id)),
+            (
+                "sdk_delete_by_external_id",
+                lambda team_id, row_id: IntegrationManager.github.oauth.delete_by_external_id("1"),
+            ),
+        ]
+    )
+    def test_deleting_the_github_integration_emits_one_aggregate_row(self, _name, delete):
+        growth = self._channel_with_repos(["posthog/posthog"], name="growth")
+        editorial = self._channel_with_repos(["posthog/posthog.com", "posthog/marketing"], name="editorial")
 
         with patch(self.CAPTURE) as capture:
-            Integration.objects.filter(id=self.integration.id).delete()
+            delete(self.team.id, self.integration.id)
 
         rows = self._rows(capture, "repository_config_changed")
         self.assertEqual(len(rows), 1)
@@ -1787,6 +1838,9 @@ class RepositoryConfigAnalyticsTestCase(TestCase):
         self.assertEqual(rows[0]["affected_space_count"], 2)
         self.assertEqual(rows[0]["previous_repository_count"], 3)
         self.assertTrue(rows[0]["is_cleared"])
+        for channel in (growth, editorial):
+            channel.refresh_from_db()
+            self.assertEqual((channel.github_integration_id, channel.repositories), (None, []))
 
     def test_context_publish_records_whether_a_person_or_a_loop_wrote_it(self):
         channel = self._channel_with_repos([])

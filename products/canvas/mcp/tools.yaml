@@ -138,10 +138,13 @@ tools:
             capabilities grow the live version's (insights, capture events, inline queries, network origins) — so added
             access is visible before shipping. Poll canvas-builds-retrieve until the draft's build is terminal, preview
             the draft with canvas-source-retrieve passing the returned `version_id`, then make it live with
-            canvas-promote-create. Declare runtime capabilities in `project.capabilities`. A project that shows PostHog
-            data must make every figure verifiable before staging: an insight-backed metric links its saved insight
-            (ph.openExternal with a URL from generate-app-url); an ad-hoc ph.query figure exposes the exact query that
-            ran in a modal or collapsed area.
+            canvas-promote-create. Only the canvas creator can add capabilities: a draft that declares more than the
+            live version does is rejected with 403 `capability_widening_requires_creator`, whose `capability_widening`
+            lists what was added. When that happens, do not retry; tell the user the creator must stage or publish this
+            change, or stage it without the added capabilities. Declare runtime capabilities in `project.capabilities`.
+            A project that shows PostHog data must make every figure verifiable before staging: an insight-backed metric
+            links its saved insight (ph.openExternal with a URL from generate-app-url); an ad-hoc ph.query figure
+            exposes the exact query that ran in a modal or collapsed area.
         param_overrides:
             id:
                 description: ID of the canvas to stage a draft for.
@@ -184,12 +187,15 @@ tools:
             {"op": "str_replace", "path": "src/canvas.tsx", "old_string": "<CardTitle>Users</CardTitle>", "new_string":
             "<CardTitle>Daily active users</CardTitle>"}. A 400 lists each failed operation by index: `edit_no_match`
             shows the closest lines of the file, `edit_ambiguous_match` lists the matching lines. Fix those operations
-            and send the edit again; if a replacement fails twice, `write` the whole file instead.
-            `expected_current_version_id` is REQUIRED (from canvas-source-retrieve, or the `current_version_id` a
-            previous edit returned; null only for a never-published canvas). A stale base is rejected with 409
-            version_conflict: re-read the source and edit again. The edited project is validated, published, and built
-            like canvas-publish-create. The response's `build` carries the build status: `ready` means the build
-            finished, and the canvas shows it when `canvas.published_build_id` is its id, so do not call
+            and send the edit again; if a replacement fails twice, `write` the whole file instead. Only the canvas
+            creator can add capabilities: a change that declares more than the live version does is rejected with 403
+            `capability_widening_requires_creator`, whose `capability_widening` lists what was added. When that happens,
+            do not retry; tell the user the creator must publish this change, or publish it without the added
+            capabilities. `expected_current_version_id` is REQUIRED (from canvas-source-retrieve, or the
+            `current_version_id` a previous edit returned; null only for a never-published canvas). A stale base is
+            rejected with 409 version_conflict: re-read the source and edit again. The edited project is validated,
+            published, and built like canvas-publish-create. The response's `build` carries the build status: `ready`
+            means the build finished, and the canvas shows it when `canvas.published_build_id` is its id, so do not call
             canvas-builds-retrieve; `failed` lists the build errors to fix; poll canvas-builds-retrieve only while it is
             `queued` or `building`. Stage a draft with canvas-draft-create only when the user asked for a draft or a
             review step. After substantial visual changes, check the final canvas once its build is ready if browser
@@ -238,7 +244,10 @@ tools:
             again. To fill a drawn box: update_placement with changes {status: "live", component: <component canvas id>,
             config: {...}}. The component must be published (canvas-list kind=component shows component_meta and
             published_build_id) and the config must match its configSchema. After substantial visual changes, check the
-            final live canvas once if browser access is already available. Skip browser checks for small edits.
+            final live canvas once if browser access is already available. Skip browser checks for small edits. Only a
+            component's creator can pin a version other than that component's live version: a new pin like that is
+            refused with 403 `pinned_version_requires_creator`, whose `components` lists the components. Place those
+            components on "latest" or their live version instead.
         param_overrides:
             id:
                 description: ID of the grid canvas whose layout to patch.
@@ -260,7 +269,10 @@ tools:
             immediately — no build. `expected_current_version_id` is REQUIRED (from canvas-layout-get; null only before
             the first layout publish) — a stale base is rejected with 409 version_conflict; re-read the layout, rebuild
             the document on the new head, and publish again. After substantial visual changes, check the final live
-            canvas once if browser access is already available. Skip browser checks for small edits.
+            canvas once if browser access is already available. Skip browser checks for small edits. Only a component's
+            creator can pin a version other than that component's live version: a new pin like that is refused with 403
+            `pinned_version_requires_creator`, whose `components` lists the components. Place those components on
+            "latest" or their live version instead.
         param_overrides:
             id:
                 description: ID of the grid canvas whose layout to publish.
@@ -333,7 +345,10 @@ tools:
             `expected_current_version_id` — the live `current_version_id` from canvas-source-retrieve — so a concurrent
             change is rejected with 409 version_conflict instead of overwritten. A 429 means the team's build capacity
             is exhausted; wait and retry. Returns the now-live build. This is the only way a draft reaches the head:
-            revert does not act on drafts.
+            revert does not act on drafts. Only the canvas creator can add capabilities: a change that declares more
+            than the live version does is rejected with 403 `capability_widening_requires_creator`, whose
+            `capability_widening` lists what was added. When that happens, do not retry; tell the user the creator must
+            publish this change, or publish it without the added capabilities.
         param_overrides:
             id:
                 description: ID of the canvas whose draft to promote.
@@ -356,12 +371,15 @@ tools:
             `expected_current_version_id` (from canvas-source-retrieve) so a concurrent edit is rejected with 409
             version_conflict instead of overwritten; on conflict, re-read the source, re-apply your edits, and publish
             against the new head. A 429 means the team's build capacity is exhausted — wait a moment and retry. Declare
-            the canvas's runtime capabilities (insights, capture events, inline queries) in `project.capabilities`. A
-            project that shows PostHog data must make every figure verifiable before publishing: an insight-backed
-            metric links its saved insight (ph.openExternal with a URL from generate-app-url); an ad-hoc ph.query figure
-            exposes the exact query that ran in a modal or collapsed area. The canvas lives in PostHog, not on disk —
-            this tool is what saves it. The response's `build` carries the build status: `ready` means the build
-            finished, and the canvas shows it when `canvas.published_build_id` is its id, so do not call
+            the canvas's runtime capabilities (insights, capture events, inline queries) in `project.capabilities`. Only
+            the canvas creator can add capabilities: a change that declares more than the live version does is rejected
+            with 403 `capability_widening_requires_creator`, whose `capability_widening` lists what was added. When that
+            happens, do not retry; tell the user the creator must publish this change, or publish it without the added
+            capabilities. A project that shows PostHog data must make every figure verifiable before publishing: an
+            insight-backed metric links its saved insight (ph.openExternal with a URL from generate-app-url); an ad-hoc
+            ph.query figure exposes the exact query that ran in a modal or collapsed area. The canvas lives in PostHog,
+            not on disk — this tool is what saves it. The response's `build` carries the build status: `ready` means the
+            build finished, and the canvas shows it when `canvas.published_build_id` is its id, so do not call
             canvas-builds-retrieve; `failed` lists the build errors to fix; poll canvas-builds-retrieve only while it is
             `queued` or `building`. After substantial visual changes, check the final canvas once its build is ready if
             browser access is already available. Skip browser checks for small edits.

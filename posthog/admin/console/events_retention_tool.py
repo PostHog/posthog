@@ -5,7 +5,7 @@ from django.core.paginator import Paginator
 from django.http import HttpRequest
 from django.urls import reverse
 
-from posthog.admin.console.panels import Owner
+from posthog.admin.console.deletion_request_panels import CLICKHOUSE
 from posthog.admin.console.registry import console
 from posthog.admin.console.tools import Cell, ConsoleTool, GroupRow, Notice, Page, Paging, Row, Table
 from posthog.models.events_retention_config import (
@@ -17,7 +17,6 @@ from posthog.models.events_retention_config import (
 )
 
 TEAMS_PER_PAGE = 100
-CLICKHOUSE = Owner(name="ClickHouse", crest="clickhouse")
 
 
 def _months(value: int | None) -> Cell:
@@ -52,7 +51,7 @@ def _team_row(retention: ConfiguredEventsRetention, now: datetime) -> Row:
     cells = (
         Cell(
             text=f"{retention.team_name} ({retention.team_id})",
-            href=reverse("admin_console_team", kwargs={"team_id": retention.team_id}),
+            href=reverse("admin_console_team", kwargs={"pk": retention.team_id}),
         ),
         Cell(text=f"{retention.billing_months} months"),
         _months(retention.team_months),
@@ -108,3 +107,10 @@ class EventsRetentionTool(ConsoleTool):
                 *((paging,) if page.paginator.count else ()),
             )
         )
+
+
+console.register_moved_page(
+    old_path="admin/events-retention/",
+    title="Events retention",
+    url="/admin/console/tools/events-retention/",
+)

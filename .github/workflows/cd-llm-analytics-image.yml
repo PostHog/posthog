@@ -15,6 +15,9 @@ on:
             - 'posthog/temporal/llm_analytics/**'
             - 'products/ai_observability/**'
             - 'products/llm_analytics/**'
+            # temporal-worker-aeo runs this image and deploys from the temporal-worker-llm-analytics
+            # state, so the dispatch below rolls it out too.
+            - 'products/aeo/**'
             - 'posthog/temporal/common/**'
             - 'posthog/management/commands/start_temporal_worker.py'
             - 'posthog/clickhouse/migrations/**'
@@ -31,6 +34,9 @@ on:
             - 'posthog/temporal/llm_analytics/**'
             - 'products/ai_observability/**'
             - 'products/llm_analytics/**'
+            # temporal-worker-aeo runs this image and deploys from the temporal-worker-llm-analytics
+            # state, so the dispatch below rolls it out too.
+            - 'products/aeo/**'
             - 'posthog/temporal/common/**'
             - 'posthog/management/commands/start_temporal_worker.py'
             - 'posthog/clickhouse/migrations/**'
@@ -64,7 +70,8 @@ jobs:
 
         steps:
             - name: Assert default-branch publish role is configured
-              if: github.ref == 'refs/heads/master'
+              # Only the repo with CD_DEPLOY_ENABLED publishes master images; elsewhere master builds without pushing.
+              if: github.ref == 'refs/heads/master' && vars.CD_DEPLOY_ENABLED == 'true'
               env:
                   DEFAULT_BRANCH_ROLE: ${{ secrets.AWS_ECR_SHARED_SERVICES_POSTHOG_MASTER_PUBLISH_IAM_ROLE }}
               run: |

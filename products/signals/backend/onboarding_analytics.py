@@ -37,6 +37,9 @@ class InboxOnboardingAnalytics:
             "project_id": config.team_id,
             "flow_version": "ui-first-v1",
             "inbox_client": "cloud",
+            "onboarding_origin": draft.get("onboarding_origin")
+            or (config.onboarding or {}).get("onboarding_origin")
+            or "app",
             "setup_mode": setup_mode(config.onboarding or {}),
             "self_driving_ubp": cls.pricing_flag(config, user),
         }

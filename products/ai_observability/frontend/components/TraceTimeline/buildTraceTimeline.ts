@@ -94,7 +94,7 @@ interface TimedEvent {
     /** The operation's start as epoch ms, see the timestamp-convention note below. */
     startAt: number
     latencyMs: number
-    /** Same node identity conventions as restoreTree, so nesting matches the tree. */
+    /** The generation id, else the span id, else the event id: the id that a child names as its parent. */
     nodeId: string
     parentId: string | null
 }

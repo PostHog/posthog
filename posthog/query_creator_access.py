@@ -7,6 +7,7 @@ from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.ph_client import ph_scoped_capture
 
+from products.access_control.backend.facade.contracts import ObjectAccessRef
 from products.access_control.backend.facade.user_access_control import (
     UserAccessControl,
     UserAccessControlError,
@@ -37,13 +38,16 @@ def creator_access_revoked(user: Optional[User], team: Team) -> bool:
     return not OrganizationMembership.objects.filter(organization_id=team.organization_id, user=user).exists()
 
 
-def assert_creator_can_run(user: Optional[User], team: Team, *objects: Model | None) -> None:
+def assert_creator_can_run(user: Optional[User], team: Team, *objects: Model | ObjectAccessRef | None) -> None:
     """Raise when `user` can no longer run a background query for `team` as its owner.
 
     `CreatorLeftOrganizationError` when they were deleted (`user is None`), deactivated, or left the
     team's org. `UserAccessControlError` when they are still in the org but cannot view the project
     or one of `objects`. Background jobs load their dashboard and insight directly, so nothing else
     checks object access for them. Organization admins pass, and a `None` object is skipped.
+
+    An object that the caller holds only as a contract passes as its `ObjectAccessRef`. The ref is
+    checked with the rules of the team that stores the object.
     """
     if user is None or creator_access_revoked(user, team):
         raise CreatorLeftOrganizationError()
@@ -53,6 +57,11 @@ def assert_creator_can_run(user: Optional[User], team: Team, *objects: Model | N
         raise UserAccessControlError("project", "viewer", str(team.pk))
     for obj in objects:
         if obj is None:
+            continue
+        if isinstance(obj, ObjectAccessRef):
+            owner_access = user_access_control.for_team_ids([obj.team_id]).get(obj.team_id)
+            if owner_access is None or not owner_access.check_access_level_for_ref(obj, "viewer"):
+                raise UserAccessControlError(obj.resource, "viewer", obj.id)
             continue
         resource = model_to_resource(obj)
         # A model with no scope has no access rules, so there is nothing to deny.

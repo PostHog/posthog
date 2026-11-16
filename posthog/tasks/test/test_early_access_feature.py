@@ -44,6 +44,7 @@ class TestSendEventsForEarlyAccessFeatureStageChange(APIBaseTest):
             distinct_id="abc123",
             properties={
                 "from": "concept",
+                "$update_person_last_seen_at": False,
                 "to": "beta",
                 "feature_flag_key": feature_flag.key,
                 "feature_id": feature.id,
@@ -205,6 +206,7 @@ class TestSendEventsForEarlyAccessFeatureStageChange(APIBaseTest):
                 distinct_id=f"user_{i}",
                 properties={
                     "from": "concept",
+                    "$update_person_last_seen_at": False,
                     "to": "beta",
                     "feature_flag_key": feature_flag.key,
                     "feature_id": feature.id,

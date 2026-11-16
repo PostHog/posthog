@@ -108,7 +108,15 @@ You can create an API key under **Settings → Code & analytics → API** in you
         if not is_valid_subdomain(config.subdomain):
             return False, "Thinkific subdomain is invalid"
 
-        endpoint_path = THINKIFIC_ENDPOINTS[schema_name].path if schema_name in THINKIFIC_ENDPOINTS else "/courses"
+        endpoint_path = "/courses"
+        if schema_name in THINKIFIC_ENDPOINTS:
+            endpoint_config = THINKIFIC_ENDPOINTS[schema_name]
+            # A fan-out path needs a parent id, so probe the parent list instead: the sync reads it first.
+            endpoint_path = (
+                THINKIFIC_ENDPOINTS[endpoint_config.fanout.parent_name].path
+                if endpoint_config.fanout
+                else endpoint_config.path
+            )
         is_valid, status_code = validate_thinkific_credentials(config.api_key, config.subdomain, endpoint_path)
         if is_valid:
             return True, None

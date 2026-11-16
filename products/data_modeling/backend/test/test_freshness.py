@@ -4,12 +4,11 @@ from unittest import TestCase
 
 from parameterized import parameterized
 
+from products.data_modeling.backend.facade.contracts import UnsatisfiableFrequencyError, UnsupportedFrequencyTargetError
 from products.data_modeling.backend.logic.freshness import (
     SCHEDULABLE_BUCKETS,
     STREAMING,
     InvalidTarget,
-    UnsatisfiableFrequencyError,
-    UnsupportedFrequencyTargetError,
     all_consumer_ceilings,
     all_source_floors,
     clamp_to_source_floor,

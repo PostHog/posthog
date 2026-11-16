@@ -10,13 +10,13 @@ from parameterized import parameterized
 
 from posthog.constants import AvailableFeature
 from posthog.hogql_queries.query_runner import ExecutionMode
-from posthog.models import PropertyDefinition
 from posthog.test.persons import create_person
 
 from products.access_control.backend.facade.api import upsert_property_access_control
 from products.access_control.backend.facade.contracts import PropertyAccessLevel, UpsertPropertyAccessControlInput
 from products.customer_analytics.backend.facade.api import get_key_metrics
 from products.customer_analytics.backend.logic import key_metrics as key_metrics_logic
+from products.event_definitions.backend.models import PropertyDefinition
 
 
 class TestKeyMetrics(ClickhouseTestMixin, BaseTest):

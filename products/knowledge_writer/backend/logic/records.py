@@ -11,10 +11,12 @@ from ..facade.contracts import DocsRequest
 REQUEST_STATE_KEY = "knowledge_writer_request"
 SECTION_STATE_KEY = "knowledge_writer_section"
 JOIN_STATE_KEY = "knowledge_writer_join"
+HEAD_BRANCH_STATE_KEY = "knowledge_writer_head_branch"
 PULL_REQUEST_STATE_KEY = "knowledge_writer_pull_request"
 PULL_REQUEST_FAILURE_STATE_KEY = "knowledge_writer_pull_request_failure"
 PUBLICATION_CLAIM_STATE_KEY = "knowledge_writer_publication_claim"
 PUBLICATION_LEASE = timedelta(minutes=30)
+BRANCH_REFUSALS = frozenset({"changed_paths_outside_docs", "too_many_changed_files"})
 
 
 def publication_claim(task_run_id: UUID) -> dict[str, str]:
@@ -48,3 +50,10 @@ class WriterPullRequest:
 
 request_json = TypeAdapter(DocsRequest)
 pull_request_json = TypeAdapter(WriterPullRequest)
+
+
+def stored_request(entry: object) -> DocsRequest:
+    if isinstance(entry, dict):
+        # TODO: remove once writer tasks stored before skip_judge was dropped have all published.
+        entry = {key: value for key, value in entry.items() if key != "skip_judge"}
+    return request_json.validate_python(entry)

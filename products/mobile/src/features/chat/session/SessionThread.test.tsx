@@ -1,6 +1,10 @@
-import { fireEvent, render, screen } from '@testing-library/react-native'
-import { ScrollView } from 'react-native'
+import { act, fireEvent, render, screen } from '@testing-library/react-native'
+import * as Clipboard from 'expo-clipboard'
+import type { ReactElement } from 'react'
+import { ActivityIndicator, ScrollView } from 'react-native'
+import { setAnalyticsClient } from '@/lib/analytics'
 
+import * as markdown from '../ChatMarkdown'
 import { SessionThread } from './SessionThread'
 import type { Session, SessionThreadItem, SessionToolInvocation } from './types'
 
@@ -14,6 +18,10 @@ jest.mock(
     'react-native-safe-area-context',
     () => jest.requireActual('react-native-safe-area-context/jest/mock').default
 )
+
+jest.mock('react-native-keyboard-controller', () => ({
+    useReanimatedKeyboardAnimation: () => ({ height: { value: 0 } }),
+}))
 
 jest.mock('@/features/handoff/usePullRequestChecks', () => ({
     usePullRequestChecks: () => ({ status: 'unavailable', isRefreshing: false }),
@@ -70,7 +78,164 @@ const TWO_GROUPS: SessionThreadItem[] = [
 ]
 
 describe('SessionThread', () => {
-    afterEach(() => jest.restoreAllMocks())
+    const capture = jest.fn()
+
+    beforeEach(() => {
+        capture.mockClear()
+        setAnalyticsClient({ capture, identify: jest.fn(), reset: jest.fn() })
+    })
+
+    afterEach(() => {
+        jest.restoreAllMocks()
+        setAnalyticsClient(null)
+    })
+
+    test.each(['user', 'assistant'] as const)('copies the full %s message with its formatting', async (role) => {
+        const copy = jest.spyOn(Clipboard, 'setStringAsync').mockResolvedValue(true)
+        const text = '  **A result**\n\n```sql\nSELECT 1\n```\n'
+        const item: SessionThreadItem =
+            role === 'user'
+                ? { kind: 'user', id: 'message', text }
+                : { kind: 'assistant', id: 'message', text, complete: true }
+        render(<SessionThread session={session({ items: [item] })} onRetryHistory={jest.fn()} />)
+        expect(screen.queryByText('Copy text')).toBeNull()
+
+        await act(async () => fireEvent.press(screen.getByLabelText('Copy message text')))
+
+        expect(copy).toHaveBeenCalledWith(text)
+        expect(screen.getByLabelText('Message copied')).toBeTruthy()
+        expect(screen.queryByText('Copied')).toBeNull()
+        expect(capture).toHaveBeenCalledWith(
+            'mobile_chat_message_copied',
+            expect.objectContaining({ message_role: role, text_length: text.length })
+        )
+        expect(JSON.stringify(capture.mock.calls)).not.toContain('SELECT 1')
+    })
+
+    test.each(['sandbox', 'langgraph'] as const)('shows one set of actions per %s reply', async (runtime) => {
+        const copy = jest.spyOn(Clipboard, 'setStringAsync').mockResolvedValue(true)
+        const items: SessionThreadItem[] = [
+            { kind: 'user', id: 'empty-user', text: '  ' },
+            { kind: 'assistant', id: 'empty-assistant', text: '\n', complete: true },
+            { kind: 'assistant', id: 'intro', text: 'I’ll check.', complete: true, traceId: 'trace-1' },
+            {
+                kind: 'assistant',
+                id: 'chart',
+                text: '[View chart](https://example.com/chart)',
+                complete: true,
+                traceId: 'trace-1',
+            },
+        ]
+        const feedbackContext = { sessionId: 'task-1', runtime }
+        const view = render(
+            <SessionThread
+                session={session({ items, phase: 'working' })}
+                onRetryHistory={jest.fn()}
+                feedbackContext={feedbackContext}
+            />
+        )
+        expect(screen.queryByTestId('chat-copy-message')).toBeNull()
+        expect(screen.queryByLabelText('Good answer')).toBeNull()
+
+        view.rerender(
+            <SessionThread
+                session={session({
+                    items: [
+                        ...items,
+                        { kind: 'assistant', id: 'reply', text: 'Final reply', complete: true, traceId: 'trace-1' },
+                        ...(runtime === 'sandbox'
+                            ? [{ kind: 'turn_end' as const, id: 'end', traceId: 'trace-1' }]
+                            : []),
+                    ],
+                })}
+                onRetryHistory={jest.fn()}
+                feedbackContext={feedbackContext}
+            />
+        )
+        await act(async () => fireEvent.press(screen.getByTestId('chat-copy-message')))
+        expect(copy).toHaveBeenCalledWith('Final reply')
+        expect(screen.getByLabelText('Good answer')).toBeTruthy()
+        expect(screen.getByLabelText('Bad answer')).toBeTruthy()
+    })
+
+    test('keeps completed answers from rerendering while the next answer streams', () => {
+        const renderMarkdown = jest.spyOn(markdown, 'ChatMarkdown')
+        const history: SessionThreadItem[] = [
+            { kind: 'user', id: 'first-prompt', text: 'Find the error' },
+            { kind: 'assistant', id: 'first-answer', text: 'The request timed out.', complete: true },
+            { kind: 'turn_end', id: 'first-end', traceId: 'trace-1', runId: 'run-1' },
+            { kind: 'user', id: 'next-prompt', text: 'How can we retry?' },
+        ]
+        const thread = (text: string): ReactElement => (
+            <SessionThread
+                session={session({
+                    items: [...history, { kind: 'assistant', id: 'next-answer', text, complete: false }],
+                })}
+                onRetryHistory={jest.fn()}
+                feedbackContext={{ sessionId: 'task-1', runtime: 'sandbox' }}
+            />
+        )
+
+        const { rerender } = render(thread('Retry'))
+        expect(screen.getByLabelText('Good answer')).toBeTruthy()
+        renderMarkdown.mockClear()
+
+        rerender(thread('Retry the request.'))
+
+        expect(renderMarkdown.mock.calls.map(([props]) => props.text)).toEqual(['Retry the request.'])
+    })
+
+    test.each(['rejected', 'false'] as const)(
+        'prevents duplicate copies and allows retry after a %s write',
+        async (failure) => {
+            let resolveCopy!: (copied: boolean) => void
+            let rejectCopy!: (error: Error) => void
+            const copy = jest.spyOn(Clipboard, 'setStringAsync').mockImplementationOnce(
+                () =>
+                    new Promise<boolean>((resolve, reject) => {
+                        resolveCopy = resolve
+                        rejectCopy = reject
+                    })
+            )
+            render(
+                <SessionThread
+                    session={session({ items: [{ kind: 'user', id: 'message', text: 'Copy this message' }] })}
+                    onRetryHistory={jest.fn()}
+                />
+            )
+
+            fireEvent.press(screen.getByTestId('chat-copy-message'))
+            fireEvent.press(screen.getByTestId('chat-copy-message'))
+            expect(copy).toHaveBeenCalledTimes(1)
+            expect(screen.getByTestId('chat-copy-message')).toBeDisabled()
+            expect(screen.queryByLabelText('Message copied')).toBeNull()
+            await act(async () => {
+                if (failure === 'rejected') rejectCopy(new Error('Clipboard unavailable'))
+                else resolveCopy(false)
+            })
+            expect(screen.getByText("Couldn't copy the message. Try again.")).toBeTruthy()
+            expect(screen.getByTestId('chat-copy-message')).toBeEnabled()
+            expect(capture).toHaveBeenCalledWith('mobile_chat_message_copy_failed', expect.anything())
+            expect(capture.mock.calls.some(([event]) => event === 'mobile_chat_message_copied')).toBe(false)
+
+            copy.mockResolvedValueOnce(true)
+            await act(async () => fireEvent.press(screen.getByTestId('chat-copy-message')))
+            expect(screen.getByLabelText('Message copied')).toBeTruthy()
+            expect(screen.queryByText("Couldn't copy the message. Try again.")).toBeNull()
+        }
+    )
+
+    test('keeps received messages visible without a reconnecting indicator', () => {
+        render(
+            <SessionThread
+                session={session({ items: TWO_GROUPS.slice(0, 1), phase: 'reconnecting' })}
+                onRetryHistory={jest.fn()}
+            />
+        )
+        expect(screen.getByText('Fix the legend')).toBeTruthy()
+        expect(screen.queryByText('Reconnecting…')).toBeNull()
+        expect(screen.UNSAFE_queryByType(ActivityIndicator)).toBeNull()
+    })
 
     test.each([
         ['above newer messages', 200],

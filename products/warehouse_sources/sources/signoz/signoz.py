@@ -37,6 +37,22 @@ QUERY_RANGE_PATH = "/api/v5/query_range"
 HOST_NOT_ALLOWED_ERROR = "SigNoz host is not allowed"
 NON_JSON_RESPONSE_ERROR = "SigNoz host returned a non-JSON response"
 
+INVALID_HOST_ERROR = (
+    "Enter your SigNoz host as a domain name or IP address, for example example.signoz.io. "
+    "PostHog connects over HTTPS on port 443, so leave out any port."
+)
+TLS_ERROR = (
+    "PostHog couldn't verify your SigNoz host's TLS certificate. "
+    "Use a host with a certificate that a public certificate authority signed, then try again."
+)
+CONNECTION_ERROR = (
+    "PostHog couldn't connect to your SigNoz host. "
+    "Check the host and that it's reachable from the internet over HTTPS, then try again."
+)
+UNEXPECTED_RESPONSE_ERROR = (
+    "Your SigNoz host returned an unexpected response. Check the host and API key, then try again."
+)
+
 
 class SigNozRetryableError(Exception):
     def __init__(self, message: str, retry_after: float | None = None) -> None:
@@ -122,10 +138,10 @@ def validate_credentials(
     try:
         normalized = normalize_host(host)
     except Exception:
-        return False, "Invalid SigNoz host"
+        return False, INVALID_HOST_ERROR
 
     if not normalized or not re.match(r"^[A-Za-z0-9.\-]+$", normalized):
-        return False, "Invalid SigNoz host"
+        return False, INVALID_HOST_ERROR
 
     # The host is fully customer-controlled (cloud tenant or self-hosted URL), so block hosts
     # that resolve to private/internal addresses (SSRF). Only enforced on cloud — see _is_host_safe.
@@ -142,8 +158,11 @@ def validate_credentials(
         response = make_tracked_session(redact_values=(api_key,), capture=False).get(
             url, headers=_get_headers(api_key), timeout=10, allow_redirects=False
         )
-    except requests.exceptions.RequestException as e:
-        return False, str(e)
+    # Never return str(e): it carries the host, URL and raw urllib3 detail.
+    except requests.exceptions.SSLError:
+        return False, TLS_ERROR
+    except requests.exceptions.RequestException:
+        return False, CONNECTION_ERROR
 
     if response.is_redirect or response.is_permanent_redirect:
         return False, HOST_NOT_ALLOWED_ERROR
@@ -165,7 +184,7 @@ def validate_credentials(
             return True, None
         return False, "Your SigNoz API key lacks the required permissions for this endpoint."
 
-    return False, f"SigNoz credential validation failed (status {response.status_code})."
+    return False, UNEXPECTED_RESPONSE_ERROR
 
 
 def _build_query_range_body(

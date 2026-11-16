@@ -32,7 +32,7 @@ import numpy as np
 from openai import OpenAI
 from pydantic import BaseModel, Field
 
-MODEL = "gpt-4.1-mini"
+MODEL = "gpt-6-luna"
 EMBEDDING_MODEL = "text-embedding-3-small"
 BATCH = 256
 

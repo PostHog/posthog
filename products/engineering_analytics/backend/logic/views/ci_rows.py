@@ -1,5 +1,5 @@
-"""The stored CI rows: two materialized managed views, one per grain, that data modeling updates
-in place every 15 minutes. SPEC.md section 5 has the design.
+"""The stored CI rows: a runs view and a jobs view that data modeling materializes and updates in
+place. SPEC.md section 5 has the design.
 """
 
 from collections.abc import Sequence
@@ -19,6 +19,7 @@ from posthog.dataclasses import frozen
 
 from products.engineering_analytics.backend.logic.sources import JobSourceTables, resolve_job_source_tables
 from products.engineering_analytics.backend.logic.views import depot_ci, job_costs, workflow_jobs, workflow_runs
+from products.engineering_analytics.backend.logic.views.materialized_columns import materialized_select
 
 if TYPE_CHECKING:
     from posthog.models.team import Team
@@ -28,9 +29,7 @@ JOBS_VIEW_NAME = "engineering_analytics_ci_jobs"
 
 SYNC_FREQUENCY = timedelta(minutes=15)
 
-# Almost every run settles within a day of its creation, so two days of lookback re-read the few
-# that settle later without re-reading much. A run that settles later than that is read again only
-# by a full build.
+# A run that settles later than this after its creation keeps its stored snapshot until a full build.
 LOOKBACK = timedelta(days=2)
 
 
@@ -40,8 +39,8 @@ _INCREMENTAL_CONFIG: dict[str, Any] = {
     "lookback_seconds": int(LOOKBACK.total_seconds()),
 }
 
-# A rerun replaces the run snapshot. Depot's stable job ID also replaces a carried-over copy
-# when that job executes again with a new attempt ID.
+# The run key lets a rerun replace the run's snapshot. The job key uses Depot's stable job ID, so a
+# job that executes again under a new attempt ID replaces its carried-over copy.
 RUN_INCREMENTAL_CONFIG = {**_INCREMENTAL_CONFIG, "unique_key": ["source_id", "ci_engine", "id"]}
 JOB_INCREMENTAL_CONFIG = {
     **_INCREMENTAL_CONFIG,
@@ -116,14 +115,15 @@ JOB_COLUMNS = tuple(column for column in JOB_FIELDS if column not in _SOURCE_FIE
 assert JOB_COLUMNS == (*workflow_jobs.COLUMNS, *job_costs.COST_COLUMNS, "is_handoff_shell")
 
 
-def _stored_rows(source: JobSourceTables, columns: tuple[str, ...], rows: str) -> str:
+def _stored_rows(source: JobSourceTables, fields: dict[str, FieldOrTable], rows: str) -> str:
+    row_fields = {name: field for name, field in fields.items() if name not in _SOURCE_FIELDS}
     # GitHub names are case-insensitive, and a source can store them in either case.
     return f"""
         SELECT
             {escape_hogql_string(source.source_id)} AS source_id,
             {escape_hogql_string(source.repository.casefold())} AS repository,
-            {", ".join(columns)}
-        FROM ({rows})
+            {materialized_select(row_fields, "stored")}
+        FROM ({rows}) AS stored
     """
 
 
@@ -142,7 +142,7 @@ def runs_select(source: JobSourceTables) -> str:
     rows = workflow_runs.build_query(
         _stored_runs(source), pull_requests_table=source.pull_requests, passthrough=depot_ci.STORED_RUN_COLUMNS
     )
-    return _stored_rows(source, RUN_COLUMNS, rows)
+    return _stored_rows(source, RUN_FIELDS, rows)
 
 
 def jobs_select(source: JobSourceTables) -> str:
@@ -155,7 +155,7 @@ def jobs_select(source: JobSourceTables) -> str:
     else:
         shell = "0"
     rows = f"SELECT j.*, {shell} AS is_handoff_shell FROM ({rows}) AS j"
-    return _stored_rows(source, JOB_COLUMNS, rows)
+    return _stored_rows(source, JOB_FIELDS, rows)
 
 
 @frozen
@@ -165,8 +165,8 @@ class CIViewQueries:
 
 
 def build_views(sources: Sequence[JobSourceTables]) -> CIViewQueries:
-    """The runs view and the jobs view over these sources. The reader compares a stored definition
-    against this output, so it is the one place that assembles either view."""
+    """Both view bodies over ``sources``. The reader compares a stored definition against this
+    output, so no other code may assemble either view."""
     return CIViewQueries(
         runs="\nUNION ALL\n".join(runs_select(source) for source in sources),
         jobs="\nUNION ALL\n".join(jobs_select(source) for source in sources),
@@ -174,6 +174,6 @@ def build_views(sources: Sequence[JobSourceTables]) -> CIViewQueries:
 
 
 def build_team_views(team: "Team") -> CIViewQueries | None:
-    """Both views over every qualifying source of the team, or None when there is none."""
+    """Both view bodies, or None when the team has no source with runs and jobs synced."""
     sources = resolve_job_source_tables(team)
     return build_views(sources) if sources else None

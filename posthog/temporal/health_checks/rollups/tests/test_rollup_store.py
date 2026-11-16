@@ -2,7 +2,14 @@ import datetime as dt
 
 import pytest
 import time_machine
-from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events, materialized
+from posthog.test.base import (
+    BaseTest,
+    ClickhouseTestMixin,
+    _create_event,
+    _create_flag_evaluations,
+    flush_persons_and_events,
+    materialized,
+)
 from unittest.mock import patch
 
 from django.core.cache import cache
@@ -13,11 +20,8 @@ from parameterized import parameterized
 from posthog.dags.daily_rollups import DailyRollupConfig
 from posthog.models.health_issue import HealthIssue
 from posthog.models.team import Team
-from posthog.temporal.health_checks.models import HealthCheckResult
 from posthog.temporal.health_checks.processing import _process_batch_detection
-from posthog.temporal.health_checks.rollups import checks, store
-from posthog.temporal.health_checks.rollups.checks import RollupHealthCheck
-from posthog.temporal.health_checks.rollups.freshness import RollupWindow
+from posthog.temporal.health_checks.rollups import store
 from posthog.temporal.health_checks.rollups.runner import RollupDay, RollupDayRefused, run_rollup_day
 from posthog.temporal.health_checks.rollups.store import delete_days_before, delete_rollup_rows_for_teams
 
@@ -25,26 +29,12 @@ from products.growth.backend.models import SdkVersionsDaily
 from products.growth.backend.sdk_version_rollup import SdkVersionsDailyRollup
 from products.growth.backend.temporal.health_checks.sdk_outdated import SdkOutdatedCheck
 from products.growth.dags.sdk_versions_rollup import sdk_versions_daily_rollup
-from products.web_analytics.backend.models.health_rollups import EventsHealthDaily, HostProxyDaily, SessionIdState
+from products.web_analytics.backend.models.health_rollups import HostProxyDaily
 from products.web_analytics.backend.rollups import host_proxy
 from products.web_analytics.backend.rollups.host_proxy import HostProxyDailyRollup
 
 YESTERDAY = dt.date(2026, 10, 28)
 NOON_YESTERDAY = dt.datetime.combine(YESTERDAY, dt.time(12), tzinfo=dt.UTC)
-EVENT_ISSUE = HealthCheckResult(severity=HealthIssue.Severity.WARNING, payload={"source": "events"})
-
-
-class _ShadowRollupCheck(RollupHealthCheck):
-    kind = "rollup_shadow_stub"
-    rollup_model = EventsHealthDaily
-    window_days = 7
-    reads_rollup = False
-
-    def detect_from_events(self, team_ids: list[int]) -> dict[int, list[HealthCheckResult]]:
-        return {team_id: [EVENT_ISSUE] for team_id in team_ids}
-
-    def detect_from_rollup(self, team_ids: list[int], window: RollupWindow) -> dict[int, list[HealthCheckResult]]:
-        return {}
 
 
 def _sdk_row(team_id: int, day: dt.date, event_count: int = 1) -> SdkVersionsDaily:
@@ -130,6 +120,27 @@ class TestRollupFillAndPublish(ClickhouseTestMixin, BaseTest):
 
         rows = set(SdkVersionsDaily.objects.for_team(self.team.id).values_list("lib", "lib_version", "event_count"))
         assert rows == {("web", "1.200.0", 2), ("posthog-java", "", 1), ("posthog-node", "4.0.0-beta.1", 1)}
+
+    @parameterized.expand([("only_in_flag_evaluations", False), ("in_both_tables", True)])
+    def test_sdk_fill_counts_each_flag_call_once(self, _name: str, call_in_events: bool) -> None:
+        sdk = {"$lib": "posthog-python", "$lib_version": "6.0.0"}
+        with materialized("events", "$lib"), materialized("events", "$lib_version"):
+            self._capture_sdk_events(self.team, [("web", "1.0.0")], NOON_YESTERDAY)
+            if call_in_events:
+                _create_event(
+                    team=self.team,
+                    event="$feature_flag_called",
+                    distinct_id="user",
+                    timestamp=NOON_YESTERDAY,
+                    properties={**sdk, "$feature_flag": "beta"},
+                )
+            flush_persons_and_events()
+            _create_flag_evaluations(self.team.id, "beta", timestamp=NOON_YESTERDAY, properties=sdk)
+
+            run_rollup_day(SdkVersionsDailyRollup, RollupDay(day=YESTERDAY, mode="publish"))
+
+        rows = set(SdkVersionsDaily.objects.for_team(self.team.id).values_list("lib", "lib_version", "event_count"))
+        assert rows == {("web", "1.0.0", 1), ("posthog-python", "6.0.0", 1)}
 
     @patch.object(host_proxy, "MAX_HOSTS_PER_TEAM_DAY", 1)
     def test_host_fill_keeps_the_proxied_row_of_a_busy_unproxied_host(self) -> None:
@@ -231,29 +242,3 @@ class TestRollupFillAndPublish(ClickhouseTestMixin, BaseTest):
         assert result.teams_skipped == 1
         issue.refresh_from_db()
         assert issue.status == HealthIssue.Status.ACTIVE
-
-    @parameterized.expand([("fresh_rollup", 1), ("stale_rollup", 5)])
-    @patch.object(checks, "COMPARISON_SAMPLE_RATE", 1.0)
-    def test_check_not_reading_the_rollup_serves_event_issues(self, _name: str, newest_day_offset: int) -> None:
-        EventsHealthDaily.objects.unscoped().bulk_create(
-            [
-                EventsHealthDaily(
-                    team_id=self.team.id,
-                    day=YESTERDAY - dt.timedelta(days=offset - 1),
-                    event="$pageview",
-                    has_custom_api_host=False,
-                    has_scroll_depth=False,
-                    session_id_state=SessionIdState.VALID,
-                    event_count=1,
-                )
-                for offset in range(newest_day_offset, newest_day_offset + 7)
-            ]
-        )
-
-        assert _ShadowRollupCheck().detect([self.team.id]) == {self.team.id: [EVENT_ISSUE]}
-
-    @patch.object(checks, "rollup_window", side_effect=RuntimeError("cache unavailable"))
-    def test_check_not_reading_the_rollup_serves_event_issues_when_the_freshness_lookup_fails(
-        self, _rollup_window: object
-    ) -> None:
-        assert _ShadowRollupCheck().detect([self.team.id]) == {self.team.id: [EVENT_ISSUE]}
