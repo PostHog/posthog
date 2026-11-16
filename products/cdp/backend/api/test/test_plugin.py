@@ -1227,8 +1227,16 @@ class TestPluginAPI(APIBaseTest, QueryMatchingTest):
         assert hog_function[0].execution_order == 1
         assert hog_function[0].inputs == {}
 
-    @parameterized.expand([("multipart",), ("json",)])
-    def test_create_hog_function_from_plugin_config_with_inputs(self, mock_get, mock_reload, request_format):
+    @parameterized.expand(
+        [
+            ("multipart", True, {"defaultNamingConvention": {"order": 0, "value": "snake_case"}}),
+            ("json", True, {"defaultNamingConvention": {"order": 0, "value": "snake_case"}}),
+            ("json", False, {"defaultNamingConvention": {"order": 0, "value": "camelCase"}}),
+        ]
+    )
+    def test_create_hog_function_from_plugin_config_with_inputs(
+        self, mock_get, mock_reload, request_format, send_config, expected_inputs
+    ):
         mock_geoip_plugin = Plugin.objects.create(
             organization=self.organization,
             plugin_type="local",
@@ -1236,18 +1244,12 @@ class TestPluginAPI(APIBaseTest, QueryMatchingTest):
             description="",
             url="https://github.com/PostHog/taxonomy-plugin",
         )
-        config = {"defaultNamingConvention": "snake_case", "other": "to be removed"}
+        data: dict[str, Any] = {"plugin": mock_geoip_plugin.id, "enabled": True, "order": 0}
+        if send_config:
+            config = {"defaultNamingConvention": "snake_case", "other": "to be removed"}
+            data["config"] = json.dumps(config) if request_format == "multipart" else config
 
-        response = self.client.post(
-            "/api/plugin_config/",
-            {
-                "plugin": mock_geoip_plugin.id,
-                "enabled": True,
-                "order": 0,
-                "config": json.dumps(config) if request_format == "multipart" else config,
-            },
-            format=request_format,
-        )
+        response = self.client.post("/api/plugin_config/", data, format=request_format)
 
         assert response.status_code == 201, response.json()
 
@@ -1255,14 +1257,21 @@ class TestPluginAPI(APIBaseTest, QueryMatchingTest):
         hog_function = HogFunction.objects.all()
         assert hog_function.count() == 1
         assert hog_function[0].template_id == "plugin-taxonomy-plugin"
-        assert hog_function[0].inputs == {
-            "defaultNamingConvention": {
-                "order": 0,
-                "value": "snake_case",
-            },
-        }
+        assert hog_function[0].inputs == expected_inputs
 
-    @parameterized.expand([("multipart", "{"), ("json", "{"), ("json", "[]")])
+    @parameterized.expand(
+        [
+            ("multipart", "{"),
+            ("multipart", ""),
+            ("json", "{"),
+            ("json", "[]"),
+            ("json", []),
+            ("json", False),
+            ("json", 0),
+            ("json", ""),
+            ("json", None),
+        ]
+    )
     def test_create_plugin_config_rejects_config_that_is_not_a_json_object(
         self, mock_get, mock_reload, request_format, config
     ):

@@ -225,7 +225,9 @@ def _fix_formdata_config_json(request: request.Request, validated_data: dict):
 
 # `config` is a read-only method field, so it never reaches validated_data: form data sends it as a string, JSON as an object
 def _config_from_request(request: request.Request) -> dict:
-    config = request.data.get("config") or {}
+    if "config" not in request.data:
+        return {}
+    config = request.data["config"]
     if isinstance(config, str):
         try:
             config = json.loads(config)
