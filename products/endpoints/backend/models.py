@@ -3,7 +3,7 @@ import json
 import uuid
 import logging
 from collections.abc import Iterator
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from django.core.exceptions import ObjectDoesNotExist, ValidationError
 from django.db import models
@@ -25,8 +25,11 @@ from posthog.schema_enums import ProductKey
 from products.data_modeling.backend.facade.api import (
     declared_targets_by_saved_query,
     get_declared_target,
-    target_before_plan_floor_clamp,
+    get_plan_floor_clamp,
 )
+
+if TYPE_CHECKING:
+    from products.data_modeling.backend.facade.contracts import PlanFloorClamp
 
 logger = logging.getLogger(__name__)
 
@@ -326,16 +329,24 @@ class EndpointVersion(UpdatedMetaFields, models.Model):
             return int(target.total_seconds())
         return self.cache_ttl_seconds
 
-    def _target_seconds_before_plan_floor_clamp(self) -> int | None:
+    @property
+    def plan_floor_clamp(self) -> "PlanFloorClamp | None":
+        if self.saved_query_id is None:
+            return None
         from products.data_modeling.backend.facade.models import Node
 
-        for node in Node.objects.filter(team_id=self.saved_query.team_id, saved_query_id=self.saved_query_id).only(
-            "properties"
-        ):
-            previous = target_before_plan_floor_clamp(node)
-            if previous is not None:
-                return int(previous.total_seconds())
-        return None
+        nodes = getattr(self.saved_query, self.FREQUENCY_NODES_ATTR, None)
+        if nodes is None:
+            nodes = Node.objects.filter(team_id=self.saved_query.team_id, saved_query_id=self.saved_query_id).only(
+                "properties"
+            )
+        return next((clamp for node in nodes if (clamp := get_plan_floor_clamp(node)) is not None), None)
+
+    def _target_seconds_before_plan_floor_clamp(self) -> int | None:
+        clamp = self.plan_floor_clamp
+        if clamp is None or clamp.previous_target is None:
+            return None
+        return int(clamp.previous_target.total_seconds())
 
     def disable_materialization(self, *, cache_ttl_seconds: int | None = None) -> None:
         """Disable materialization: revert and soft-delete the saved query, clear version fields."""

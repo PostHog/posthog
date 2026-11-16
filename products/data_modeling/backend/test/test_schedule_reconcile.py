@@ -11,6 +11,7 @@ from temporalio.client import ScheduleAlreadyRunningError, ScheduleListActionSta
 from temporalio.service import RPCError, RPCStatusCode
 
 from posthog.constants import AvailableFeature
+from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.temporal.common.search_attributes import POSTHOG_SCHEDULE_TYPE_KEY
 
 from products.data_modeling.backend.facade.contracts import UnsatisfiableFrequencyError, UnsupportedFrequencyTargetError
@@ -19,10 +20,10 @@ from products.data_modeling.backend.logic.node_frequency import (
     get_declared_anchor,
     get_declared_pin,
     get_declared_target,
+    get_plan_floor_clamp,
     set_declared_anchor,
     set_declared_pin,
     set_declared_target,
-    target_before_plan_floor_clamp,
 )
 from products.data_modeling.backend.logic.saved_query_dag_sync import promote_dag_view_nodes_to_matview
 from products.data_modeling.backend.logic.schedule_reconcile import (
@@ -589,7 +590,8 @@ class TestMaybeReconcileDag(BaseTest):
             apply_saved_query_frequency_target(node.saved_query, saved)
 
         node.refresh_from_db()
-        self.assertEqual(target_before_plan_floor_clamp(node), expected)
+        clamp = get_plan_floor_clamp(node)
+        self.assertEqual(clamp.previous_target if clamp is not None else None, expected)
 
     def test_a_pin_on_its_own_keeps_the_stored_target(self):
         node = _saved_query_node(self.team, DAG.get_or_create_default(self.team), "mv", NodeType.MAT_VIEW)
@@ -645,7 +647,16 @@ class TestMaybeReconcileDag(BaseTest):
         capture = background_capture.return_value
         node.refresh_from_db()
         self.assertEqual((get_declared_target(node), get_declared_pin(node)), (expected, True))
-        self.assertEqual(target_before_plan_floor_clamp(node), saved if expected != saved else None)
+        clamp = get_plan_floor_clamp(node)
+        self.assertEqual(clamp.previous_target if clamp is not None else None, saved if expected != saved else None)
+        activity = ActivityLog.objects.filter(scope="DataWarehouseSavedQuery", activity="sync_frequency_plan_floor")
+        self.assertEqual(
+            [
+                (row.item_id, row.user, row.detail["changes"][0]["before"], row.detail["changes"][0]["after"])
+                for row in activity
+            ],
+            [(str(node.saved_query_id), None, "0:15:00", "6:00:00")] if expected != saved else [],
+        )
         self.assertEqual((rewritten, reconcile.call_count), (1, 1) if expected != saved else (0, 0))
         if expected != saved:
             self.assertEqual(reconcile.call_args.kwargs["graph"].declared_targets[str(node.id)], expected)

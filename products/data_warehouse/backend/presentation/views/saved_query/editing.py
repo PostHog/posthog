@@ -253,6 +253,7 @@ class DataWarehouseSavedQuerySerializer(
     sync_frequency_bounds = serializers.SerializerMethodField(
         read_only=True, help_text=sync_cadence.SYNC_FREQUENCY_BOUNDS_HELP_TEXT
     )
+    plan_clamp = serializers.SerializerMethodField(read_only=True, help_text=view_state.PLAN_CLAMP_HELP_TEXT)
     latest_history_id = serializers.UUIDField(
         source="query_revision",
         read_only=True,
@@ -337,6 +338,7 @@ class DataWarehouseSavedQuerySerializer(
             "description",
             "sync_frequency",
             "sync_frequency_bounds",
+            "plan_clamp",
             "columns",
             "status",
             "last_run_at",
@@ -370,6 +372,7 @@ class DataWarehouseSavedQuerySerializer(
             "last_run_at",
             "managed_viewset_kind",
             "sync_frequency_bounds",
+            "plan_clamp",
             "folder_name",
             "latest_error",
             "latest_history_id",

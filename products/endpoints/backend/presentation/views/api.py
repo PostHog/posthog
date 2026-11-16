@@ -400,6 +400,19 @@ class EndpointViewSet(
         floor = read_plan_refresh_floor(self.team_id)
         return int(floor.total_seconds()) if floor is not None else None
 
+    @staticmethod
+    def _plan_clamp(version: EndpointVersion) -> dict | None:
+        clamp = version.plan_floor_clamp
+        if clamp is None:
+            return None
+        return {
+            "previous_data_freshness_seconds": (
+                int(clamp.previous_target.total_seconds()) if clamp.previous_target is not None else None
+            ),
+            "plan_floor_seconds": int(clamp.plan_floor.total_seconds()),
+            "at": clamp.at,
+        }
+
     def _serialize(
         self,
         obj: Endpoint | EndpointVersion,
@@ -437,6 +450,7 @@ class EndpointViewSet(
             "is_active": version.is_active if isinstance(obj, EndpointVersion) else endpoint.is_active,
             "data_freshness_seconds": version.data_freshness_seconds,
             "plan_refresh_floor_seconds": self._plan_refresh_floor_seconds,
+            "plan_clamp": self._plan_clamp(version),
             "endpoint_path": endpoint.endpoint_path,
             "url": url,
             "ui_url": ui_url,

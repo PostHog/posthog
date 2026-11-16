@@ -98,7 +98,7 @@ _LAZY = {
     "declared_targets_by_saved_query": "logic.node_frequency",
     "node_states_by_saved_query": "logic.node_frequency",
     "get_declared_target": "logic.node_frequency",
-    "target_before_plan_floor_clamp": "logic.node_frequency",
+    "get_plan_floor_clamp": "logic.node_frequency",
     "set_declared_target": "logic.node_frequency",
     "is_declared_pin": "logic.node_frequency",
     "parse_warehouse_table_id": "logic.node_frequency",

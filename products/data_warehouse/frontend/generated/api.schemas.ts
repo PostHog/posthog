@@ -2120,6 +2120,18 @@ export interface SyncFrequencyBoundsApi {
     best_effort_sources_withheld: boolean
 }
 
+export interface SavedQueryPlanClampApi {
+    /**
+     * The refresh interval, in seconds, this view had before the rewrite. Null when it had none.
+     * @nullable
+     */
+    previous_target_seconds: number | null
+    /** The refresh interval, in seconds, the view was set to: the fastest the organization's plan allowed. */
+    plan_floor_seconds: number
+    /** When the refresh interval was rewritten. */
+    at: string
+}
+
 /**
  * Shared methods for DataWarehouseSavedQuery serializers.
  *
@@ -2165,6 +2177,8 @@ export interface DataWarehouseSavedQueryApi {
     sync_frequency?: SavedQuerySyncFrequencyEnumApi | null
     /** Which cadences this view can actually be set to, and what withholds the rest. Computed from the view's data modeling lineage: upstream source sync frequencies set a floor, downstream cadences set a ceiling, and the organization's plan can set a floor too. Read-only, and present on retrieve, create and update responses only. */
     readonly sync_frequency_bounds: SyncFrequencyBoundsApi
+    /** Set when a scheduled run slowed this view's refresh interval to the fastest one the organization's plan allows. Saving a different interval clears it. Null when no such rewrite stands. */
+    readonly plan_clamp: SavedQueryPlanClampApi | null
     readonly columns: readonly DataWarehouseSavedQueryApiColumnsItem[]
     readonly status: DataWarehouseSavedQueryStatusEnumApi | null
     /** @nullable */
@@ -2293,6 +2307,8 @@ export interface PatchedDataWarehouseSavedQueryApi {
     sync_frequency?: SavedQuerySyncFrequencyEnumApi | null
     /** Which cadences this view can actually be set to, and what withholds the rest. Computed from the view's data modeling lineage: upstream source sync frequencies set a floor, downstream cadences set a ceiling, and the organization's plan can set a floor too. Read-only, and present on retrieve, create and update responses only. */
     readonly sync_frequency_bounds?: SyncFrequencyBoundsApi
+    /** Set when a scheduled run slowed this view's refresh interval to the fastest one the organization's plan allows. Saving a different interval clears it. Null when no such rewrite stands. */
+    readonly plan_clamp?: SavedQueryPlanClampApi | null
     readonly columns?: readonly PatchedDataWarehouseSavedQueryApiColumnsItem[]
     readonly status?: DataWarehouseSavedQueryStatusEnumApi | null
     /** @nullable */

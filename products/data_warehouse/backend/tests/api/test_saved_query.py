@@ -1571,6 +1571,29 @@ class TestSavedQuery(APIBaseTest):
         self.assertEqual(response.json()["sync_frequency"], "15min")
         self.assertEqual(bounds["plan_floor"], {"label": expected_label, "blocker": None} if expected_label else None)
 
+    def test_retrieve_reports_a_plan_floor_rewrite(self):
+        from products.data_modeling.backend.facade.api import clamp_dag_targets_to_plan_floor, set_declared_target
+
+        saved_query = self._create_saved_query_for_frequency_tests()
+        node = Node.objects.get(saved_query_id=saved_query["id"])
+        set_declared_target(node, timedelta(minutes=15))
+
+        with (
+            self._six_hour_plan_floor(True),
+            patch("products.data_modeling.backend.logic.schedule_reconcile.reconcile_dag_schedules"),
+            patch("products.data_modeling.backend.logic.schedule_reconcile.maybe_reconcile_dag"),
+            patch("products.data_modeling.backend.logic.schedule_reconcile.ph_background_capture"),
+        ):
+            self.assertEqual(clamp_dag_targets_to_plan_floor(self.team.pk, str(node.dag_id)), 1)
+            response = self.client.get(f"/api/environments/{self.team.id}/warehouse_saved_queries/{saved_query['id']}")
+
+        self.assertEqual(response.status_code, 200, response.json())
+        self.assertEqual(response.json()["sync_frequency"], "6hour")
+        plan_clamp = response.json()["plan_clamp"]
+        self.assertEqual(
+            (plan_clamp["previous_target_seconds"], plan_clamp["plan_floor_seconds"]), (900, 21600), plan_clamp
+        )
+
     def test_a_withheld_cadence_names_the_view_that_withholds_it(self):
         # A disabled option with no reason reads as a broken control. Every block carries the
         # node someone would have to change, by name, not just an id.
