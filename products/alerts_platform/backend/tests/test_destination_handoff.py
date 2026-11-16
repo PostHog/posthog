@@ -3,6 +3,7 @@ from dataclasses import replace
 from datetime import UTC, datetime
 from typing import Any, cast
 
+import pytest
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 from unittest.mock import MagicMock, patch
 
@@ -11,6 +12,8 @@ from parameterized import parameterized
 from posthog.models.scoping import team_scope
 
 from products.alerts_platform.backend.delivery import evaluation
+from products.alerts_platform.backend.delivery.handoff import deliver_handoff
+from products.alerts_platform.backend.delivery.transport import DeliveryError
 from products.alerts_platform.backend.facade import api as platform_api
 from products.alerts_platform.backend.facade.contracts import (
     ROUTING_FLAG,
@@ -231,13 +234,14 @@ class TestDestinationHandoff(ClickhouseTestMixin, APIBaseTest):
                     team_id=self.team.id, route_id=route.id, edit=AlertRouteEdit(receiver_id=old.id)
                 )
 
-        # The first edit's handoff runs last, after the firing is back where it started. Its resolve to
-        # the old destination and trigger to the new one would undo the second edit.
+        # Each edit's resolve went out when it committed. The first edit's trigger runs last, after the
+        # firing is back where it started, and would open an incident on the new destination for good.
         for request in reversed(started):
             web_start.hand_over_inline(request)
 
         assert self._sends() == sorted(
             [
+                ("old", IncidentAction.RESOLVE, AlertEventKind.FIRING),
                 ("new", IncidentAction.RESOLVE, AlertEventKind.FIRING),
                 ("old", IncidentAction.TRIGGER, AlertEventKind.FIRING),
             ],
@@ -257,5 +261,37 @@ class TestDestinationHandoff(ClickhouseTestMixin, APIBaseTest):
 
         with self.captureOnCommitCallbacks(execute=True):
             self._destination_add("pagerduty")
+
+        assert self._sends() == []
+
+    def test_a_receiver_deleted_before_its_handoff_runs_still_gets_its_resolve(self) -> None:
+        started: list[AlertDeliveryRequest] = []
+        with patch.object(web_start, "hand_over", side_effect=started.append):
+            with self.captureOnCommitCallbacks(execute=True):
+                self._route_edit("pagerduty")
+            with self.captureOnCommitCallbacks(execute=True):
+                alert_routing.delete_receiver(
+                    team_id=self.team.id, receiver_id=AlertReceiver.objects.for_team(self.team.id).get(name="old").id
+                )
+        for request in started:
+            web_start.hand_over_inline(request)
+
+        assert self._sends() == sorted([self._RESOLVE_OLD, self._TRIGGER_NEW], key=str)
+
+    def test_an_unreadable_routing_flag_retries_a_routed_trigger(self) -> None:
+        started: list[AlertDeliveryRequest] = []
+        with patch.object(web_start, "hand_over", side_effect=started.append):
+            with self.captureOnCommitCallbacks(execute=True):
+                self._route_edit("pagerduty")
+        RecordingTransport.sends = []
+
+        with (
+            patch(
+                "products.alerts_platform.backend.delivery.team_flags.posthoganalytics.feature_enabled",
+                return_value=None,
+            ),
+            pytest.raises(DeliveryError),
+        ):
+            deliver_handoff(started[0])
 
         assert self._sends() == []

@@ -11,6 +11,7 @@ comparison read must not see a second firing.
 
 from collections.abc import Sequence
 from dataclasses import replace
+from datetime import datetime
 from typing import cast
 
 import structlog
@@ -23,6 +24,7 @@ from products.alerts_platform.backend.delivery.dispatch import SendTally, delive
 from products.alerts_platform.backend.delivery.evaluation import _TRANSPORTS
 from products.alerts_platform.backend.delivery.pagerduty import source_incident_key
 from products.alerts_platform.backend.delivery.thread_store import DatabaseThreadStore
+from products.alerts_platform.backend.delivery.transport import DeliveryError
 from products.alerts_platform.backend.facade.contracts import (
     AlertDeliveryRequest,
     AlertDestinationData,
@@ -84,16 +86,11 @@ def send_handoff(request: AlertDeliveryRequest, targets: Sequence[HandoffTarget]
         .filter(configuration_id=request.configuration_id, state=PlatformAlertState.FIRING)
         .values_list("grouping_key", "firing_started_at")
     }
-    # Checked again now, because a later edit may have moved the firing back before this ran: a stale
-    # send would undo it. A firing that ended since already sent its resolve to the destinations of
-    # that moment, so a trigger now would open an incident nothing closes.
     current = destination_handoff.current_addresses(request.team_id, request.configuration_id)
-    targets = [
-        target
-        for target in targets
-        if (destination_handoff.address(target.data) in current) == target.send.gained
-        and (not target.send.gained or (target.send.grouping_key, target.send.episode_started_at) in still_firing)
-    ]
+    if current is None and any(target.send.gained for target in targets):
+        # Unreadable flags would read as no routed receivers and drop every routed trigger for good.
+        raise DeliveryError("Could not read whether this team routes alerts.")
+    targets = [target for target in targets if _still_owed(target, current, still_firing)]
     announced = opening_transitions(
         request.team_id,
         request.configuration_id,
@@ -142,3 +139,19 @@ def send_handoff(request: AlertDeliveryRequest, targets: Sequence[HandoffTarget]
         sent=tally.sent,
     )
     return tally.sent
+
+
+def _still_owed(
+    target: HandoffTarget, current: frozenset[str] | None, still_firing: set[tuple[str, datetime | None]]
+) -> bool:
+    """Checked again when the send runs, because a later edit may have moved the firing back, and a
+    stale send would undo it."""
+    firing = (target.send.grouping_key, target.send.episode_started_at) in still_firing
+    here = current is not None and destination_handoff.address(target.data) in current
+    if target.send.gained:
+        # A firing that ended since sent its resolve to the destinations of that moment, so a trigger
+        # now would open an incident nothing closes.
+        return firing and here
+    # Held back only while this same firing is still open at the destination. Once it ended, the
+    # resolve went to wherever it was then, which may not have been here.
+    return not (firing and here)

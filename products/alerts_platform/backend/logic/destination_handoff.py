@@ -26,7 +26,9 @@ from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Team
 
+from products.alerts_platform.backend.delivery.team_flags import team_flag_enabled
 from products.alerts_platform.backend.facade.contracts import (
+    ROUTING_FLAG,
     AlertDeliveryRequest,
     AlertDestinationData,
     DestinationType,
@@ -42,12 +44,7 @@ from products.alerts_platform.backend.logic.alert_destinations import (
     enabled_alert_destinations,
 )
 from products.alerts_platform.backend.logic.alert_routes import routed_receivers, routing_is_enabled
-from products.alerts_platform.backend.models import (
-    AlertDestination,
-    AlertReceiver,
-    PlatformAlert,
-    PlatformAlertConfiguration,
-)
+from products.alerts_platform.backend.models import PlatformAlert, PlatformAlertConfiguration
 
 logger = structlog.get_logger(__name__)
 
@@ -176,20 +173,16 @@ def _schedule(
     after: Mapping[str, _Endpoint],
 ) -> None:
     queued: list[HandoffSend] = []
-    # Resolves for an incident manager whose row is gone or now sends elsewhere. Its old settings exist only
-    # here, so they are sent from this process rather than put on a workflow's payload.
+    # Resolves go from this process with the settings read before the edit. A later edit can delete or
+    # repoint the row before a workflow would read it by id, and nothing else knows the incident is open.
+    # The settings carry a credential, so they never go on a workflow's payload.
     inline: list[tuple[HandoffSend, AlertDestinationData]] = []
     for where, endpoint in after.items():
         if where not in before:
             queued.extend(_sends(endpoint, firing, gained=True))
     for where, endpoint in before.items():
-        if where in after:
-            continue
-        sends = _sends(endpoint, firing, gained=False)
-        if _still_sends_there(configuration, endpoint, where):
-            queued.extend(sends)
-        else:
-            inline.extend((send, endpoint.data) for send in sends)
+        if where not in after:
+            inline.extend((send, endpoint.data) for send in _sends(endpoint, firing, gained=False))
     if not queued and not inline:
         return
     request = _request(configuration, queued or [send for send, _ in inline])
@@ -257,8 +250,9 @@ def _request(configuration: PlatformAlertConfiguration, sends: list[HandoffSend]
     )
 
 
-def current_addresses(team_id: int, configuration_id: str) -> frozenset[str]:
-    """Where the configuration's firings go now, by `address`, for a send to check it is still owed."""
+def current_addresses(team_id: int, configuration_id: str) -> frozenset[str] | None:
+    """Where the configuration's firings go now, by `address`, for a send to check it is still owed.
+    None when the routing flag cannot be read, which would otherwise read as no routed receivers."""
     team = Team.objects.filter(id=team_id).first()
     configuration = (
         PlatformAlertConfiguration.objects.for_team(team_id)
@@ -267,7 +261,14 @@ def current_addresses(team_id: int, configuration_id: str) -> frozenset[str]:
     )
     if team is None or configuration is None:
         return frozenset()
-    return frozenset(_endpoints(configuration, routing=routing_is_enabled(team)))
+    try:
+        routing = team_flag_enabled(ROUTING_FLAG, team)
+    except Exception:
+        logger.warning("alerts_platform_handoff_routing_flag_unreadable", team_id=team_id, exc_info=True)
+        return None
+    if routing is None:
+        return None
+    return frozenset(_endpoints(configuration, routing=routing))
 
 
 def _sends(endpoint: _Endpoint, firing: Mapping[str, datetime], *, gained: bool) -> list[HandoffSend]:
@@ -307,19 +308,6 @@ def address(data: AlertDestinationData) -> str:
     fields = _ADDRESS_FIELDS.get(cast(DestinationType, data.get("type")), ())
     kept = {key: value for key, value in data.items() if key in fields}
     return json.dumps({**kept, "type": data.get("type")}, sort_keys=True, default=str)
-
-
-def _still_sends_there(configuration: PlatformAlertConfiguration, endpoint: _Endpoint, expected: str) -> bool:
-    """Whether the destination's row will still hold this address when the delivery reads it by id."""
-    rows = (
-        AlertReceiver.objects.for_team(configuration.team_id).filter(id=endpoint.destination_id)
-        if endpoint.routed
-        else AlertDestination.objects.for_team(configuration.team_id).filter(
-            id=endpoint.destination_id, configuration_id=configuration.id
-        )
-    )
-    config = rows.values_list("config", flat=True).first()
-    return config is not None and address(cast(AlertDestinationData, config)) == expected
 
 
 def _firing_groups(team_id: int, configuration_ids: Collection[UUID] | None) -> dict[UUID, dict[str, datetime]]:
