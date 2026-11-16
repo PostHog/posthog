@@ -1338,6 +1338,7 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
                 "id": {"type": "string"},
                 "source_type": {"type": "string"},
                 "access_method": {"type": "string"},
+                "direct_query_enabled": {"type": "boolean"},
                 "supports_column_selection": {"type": "boolean"},
                 "supports_row_filters": {"type": "boolean"},
                 "requires_exact_column_metadata": {"type": "boolean"},
@@ -1374,6 +1375,8 @@ class ExternalDataSchemaSerializer(UserAccessControlSerializerMixin, serializers
             "source_type": source.source_type,
             # The schema page hides sync-history UI for direct-query sources, which have no jobs.
             "access_method": source.access_method,
+            # The schema page offers the live query switch only on a synced source that also serves live queries.
+            "direct_query_enabled": source.direct_query_enabled,
             "supports_column_selection": source_supports_column_selection(source.source_type),
             "supports_row_filters": source_supports_row_filters(source.source_type),
             "requires_exact_column_metadata": source_requires_exact_column_metadata(source.source_type),
@@ -2967,7 +2970,17 @@ class ExternalDataSchemaCompactSerializer(ExternalDataSchemaSummarySerializer):
     """The compact row of the schemas list: the summary row plus the source it belongs to and its sync type."""
 
     class Meta(ExternalDataSchemaSummarySerializer.Meta):
-        fields = ["id", "name", "source_id", "should_sync", "sync_type", "status", "last_synced_at", "latest_error"]
+        fields = [
+            "id",
+            "name",
+            "source_id",
+            "should_sync",
+            "live_query_enabled",
+            "sync_type",
+            "status",
+            "last_synced_at",
+            "latest_error",
+        ]
         read_only_fields = fields
 
 

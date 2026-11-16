@@ -52,6 +52,7 @@ import type {
     ErrorTrackingIssueSplitResponseApi,
     ErrorTrackingIssueSuccessResponseApi,
     ErrorTrackingIssueSummaryResponseApi,
+    ErrorTrackingIssueTagCorrectionApi,
     ErrorTrackingIssueTagDefinitionsResponseApi,
     ErrorTrackingIssueValuesResponseApi,
     ErrorTrackingIssueWriteApi,
@@ -115,6 +116,7 @@ import type {
     PatchedErrorTrackingGroupingRuleReorderRequestApi,
     PatchedErrorTrackingGroupingRuleUpdateRequestApi,
     PatchedErrorTrackingIssueAssignRequestApi,
+    PatchedErrorTrackingIssueTagWriteApi,
     PatchedErrorTrackingIssueWriteApi,
     PatchedErrorTrackingReleaseUpdateRequestApi,
     PatchedErrorTrackingSettingsApi,
@@ -1181,6 +1183,24 @@ export const errorTrackingIssuesSummaryRetrieve = async (
     return apiMutator<ErrorTrackingIssueSummaryResponseApi>(getErrorTrackingIssuesSummaryRetrieveUrl(projectId, id), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getErrorTrackingIssuesTagPartialUpdateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/error_tracking/issues/${id}/tag/`
+}
+
+export const errorTrackingIssuesTagPartialUpdate = async (
+    projectId: string,
+    id: string,
+    patchedErrorTrackingIssueTagWriteApi?: PatchedErrorTrackingIssueTagWriteApi,
+    options?: RequestInit
+): Promise<ErrorTrackingIssueTagCorrectionApi> => {
+    return apiMutator<ErrorTrackingIssueTagCorrectionApi>(getErrorTrackingIssuesTagPartialUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedErrorTrackingIssueTagWriteApi),
     })
 }
 

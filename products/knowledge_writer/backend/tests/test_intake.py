@@ -122,8 +122,16 @@ def _open_on_github(
 
 def _changed_on_branch(*changed_files: str | dict[str, str], status_code: int = 200) -> Callable[..., MagicMock]:
     listed = [changed if isinstance(changed, dict) else {"filename": changed} for changed in changed_files]
-    compared = {"ahead_by": 1, "files": listed}
-    return lambda method, path, **kwargs: MagicMock(status_code=status_code, json=MagicMock(return_value=compared))
+    return lambda method, path, **kwargs: MagicMock(
+        status_code=status_code,
+        json=MagicMock(
+            return_value={
+                "ahead_by": 1,
+                "files": listed,
+                "html_url": f"https://github.com{path.removeprefix('/repos')}",
+            }
+        ),
+    )
 
 
 def _verdict(
@@ -481,16 +489,15 @@ def test_a_publish_retry_reclaims_the_claim_its_crashed_attempt_left_and_opens_t
 
 @pytest.mark.django_db
 @pytest.mark.parametrize(
-    "open_pull_requests_reply, expected_deleted_branch_count, expected_outcomes",
-    [(False, 1, ["logged"]), (None, 0, [])],
+    "open_pull_requests_reply, expected_outcomes",
+    [(False, ["logged"]), (None, [])],
 )
-def test_with_pull_requests_off_a_finished_run_is_logged_and_its_branch_deleted_but_an_unread_flag_keeps_it(
+def test_with_pull_requests_off_a_finished_run_is_logged_with_a_compare_url_and_keeps_its_branch(
     team,
     writer_env,
     django_capture_on_commit_callbacks,
     monkeypatch,
     open_pull_requests_reply,
-    expected_deleted_branch_count,
     expected_outcomes,
 ) -> None:
     monkeypatch.setattr(KNOWLEDGE_WRITER_ENABLED, lambda team_id: True)
@@ -518,12 +525,11 @@ def test_with_pull_requests_off_a_finished_run_is_logged_and_its_branch_deleted_
         _finish_run(started.task_id, django_capture_on_commit_callbacks, changed_files=(patched_file,))
 
     create_pull_request.assert_not_called()
-    assert delete_branch.call_count == expected_deleted_branch_count
+    delete_branch.assert_not_called()
     capture = scoped_capture.return_value.__enter__.return_value
     assert [call.kwargs["properties"]["outcome"] for call in capture.call_args_list] == expected_outcomes
     if open_pull_requests_reply is None:
         return
-    delete_branch.assert_called_once_with("posthog.com", _issued_branch(started.task_id))
     assert (
         tasks_facade.read_task_state_entry(started.task_id, team.id, PULL_REQUEST_FAILURE_STATE_KEY)
         == OPEN_PULL_REQUESTS_OFF
@@ -531,6 +537,9 @@ def test_with_pull_requests_off_a_finished_run_is_logged_and_its_branch_deleted_
     event, properties = capture.call_args.args[0], capture.call_args.kwargs["properties"]
     assert (event, properties["routed_page_urls"]) == (DRAFT_EVENT, [SECTION_PAGE])
     assert properties["files"] == [{**patched_file, "is_patch_truncated": False}]
+    assert properties["compare_url"] == (
+        f"https://github.com/PostHog/posthog.com/compare/master...{_issued_branch(started.task_id)}"
+    )
 
 
 @pytest.mark.django_db

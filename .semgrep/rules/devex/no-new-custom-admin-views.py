@@ -60,6 +60,20 @@ class OrganizationAdmin(admin.ModelAdmin):
         ] + super().get_urls()
 
 
+class CampaignInline(admin.TabularInline):
+    # ruleid: no-new-custom-admin-views
+    template = "admin/growth/edit_inline/campaign_tabular.html"
+
+    # ruleid: no-new-custom-admin-views
+    class Media:
+        js = ("admin/js/campaigns.js",)
+
+    def preview(self, obj):
+        # ok: no-new-custom-admin-views
+        template = "Next up: {}"
+        return template.format(obj)
+
+
 api_urlpatterns = [
     # ok: no-new-custom-admin-views
     path("api/projects/", projects_view),
