@@ -5317,7 +5317,7 @@ describe('Cyclotron V2', () => {
             it('gives up a retry at the heartbeat limit even when an earlier statement of the retry used up part of it', async () => {
                 const [id] = await manager.bulkCreateJobs([{ teamId: 1, queueName: 'email' }])
                 const job = await dequeueOnDropTestPool(
-                    { releaseWriteRetry: true, releaseWriteHeartbeatLimitMs: 1000 },
+                    { releaseWriteRetry: true, releaseWriteHeartbeatLimitMs: 2000 },
                     'email'
                 )
                 const jobHolder = await assertPool.connect()
@@ -5325,6 +5325,7 @@ describe('Cyclotron V2', () => {
                 await jobHolder.query(...jobRow(id))
                 let startedAt = 0
                 let settledAt = 0
+                let writeWaitedOnJob = false
 
                 try {
                     const outcome = await interruptReleaseWrite(
@@ -5344,16 +5345,25 @@ describe('Cyclotron V2', () => {
                                     2000,
                                     10
                                 )
-                                // The retry's slot reservation spends most of the budget waiting, so its
-                                // write starts with little left and must not get a fresh one.
-                                await new Promise((resolve) => setTimeout(resolve, 600))
+                                // Elapsed time is the behavior: the retry's slot reservation spends most
+                                // of the budget waiting, so its write starts with little left and must
+                                // not get a fresh budget of its own.
+                                await new Promise((resolve) => setTimeout(resolve, 1200))
                                 await holder.query('ROLLBACK')
+                                await waitForExpect(
+                                    async () => expect(await backendsWaitingOnLocks()).toBe(1),
+                                    2000,
+                                    10
+                                )
+                                writeWaitedOnJob = true
                             },
                         }
                     )
 
-                    expect({ outcome, withinLimit: settledAt - startedAt < 1300 }).toEqual({
+                    // A fresh budget for the write would settle near 3200 ms, the limit near 2000 ms.
+                    expect({ outcome, writeWaitedOnJob, withinLimit: settledAt - startedAt < 2600 }).toEqual({
                         outcome: 'rejected',
+                        writeWaitedOnJob: true,
                         withinLimit: true,
                     })
                 } finally {
