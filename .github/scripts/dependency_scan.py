@@ -8,9 +8,11 @@ import os
 import re
 import sys
 import json
+import time
 import signal
 import hashlib
 import tomllib
+import tempfile
 import subprocess
 from collections.abc import Callable, Iterable
 from concurrent.futures import ThreadPoolExecutor
@@ -20,6 +22,7 @@ import yaml
 
 GUARDDOG = [sys.executable, "-m", "guarddog"]
 SCAN_TIMEOUT_SECONDS = 180
+BATCH_DEADLINE_SECONDS = 14 * 60
 SCAN_WORKERS = 8
 MAX_PACKAGES = 300
 BLOCKING_LABEL = "high_risk"
@@ -36,10 +39,12 @@ VERSION = re.compile(r"[0-9][0-9A-Za-z.+!-]*")
 GO_VERSION = re.compile(r"v[0-9][0-9A-Za-z.+-]*")
 NAME_PATTERNS = {"npm": NPM_NAME, "pypi": PLAIN_NAME, "crates": PLAIN_NAME, "go": GO_MODULE}
 VERSION_PATTERNS = {"npm": VERSION, "pypi": VERSION, "crates": VERSION, "go": GO_VERSION}
-GO_REQUIREMENT = re.compile(r"^\s*(?:require\s+)?(\S+)\s+(v\S+)\s*(?://.*)?$")
+GO_TOKEN = re.compile(r"\(|\)|[^\s()]+")
 COMMIT_SHA = re.compile(r"[0-9a-f]{40}")
 PYPI_REGISTRY = "https://pypi.org/simple"
-CRATES_REGISTRY = "registry+https://github.com/rust-lang/crates.io-index"
+CRATES_REGISTRIES = ("registry+https://github.com/rust-lang/crates.io-index", "sparse+https://index.crates.io/")
+LOCAL_UV_SOURCES = ("editable", "virtual", "directory", "path")
+REGISTRY_RESOLUTION_KEYS = {"integrity"}
 YAML_LOADER = getattr(yaml, "CSafeLoader", yaml.SafeLoader)
 
 EXCLUDED_RULES: dict[str, tuple[str, ...]] = {
@@ -61,6 +66,7 @@ class Package:
     ecosystem: str
     name: str
     version: str
+    source: str = ""
 
     @property
     def spec(self) -> str:
@@ -69,7 +75,8 @@ class Package:
     @property
     def scannable(self) -> bool:
         return bool(
-            NAME_PATTERNS[self.ecosystem].fullmatch(self.name)
+            not self.source
+            and NAME_PATTERNS[self.ecosystem].fullmatch(self.name)
             and VERSION_PATTERNS[self.ecosystem].fullmatch(self.version)
         )
 
@@ -98,41 +105,79 @@ def pnpm_packages(lockfile: str) -> set[Package]:
     entries = document.get("packages") if isinstance(document, dict) else None
     if not isinstance(entries, dict | None):
         raise ValueError("pnpm-lock.yaml has a `packages` entry that is not a mapping")
+    slash_separated_keys = float(str(document.get("lockfileVersion", 9))) < 6
     packages: set[Package] = set()
-    for key in entries or {}:
-        name, _, version = str(key).rpartition("@")
+    for key, entry in (entries or {}).items():
+        name, version = pnpm_key(str(key), slash_separated_keys)
         if name and version:
-            packages.add(Package("npm", name, version))
+            packages.add(Package("npm", name, version, pnpm_source(entry)))
     return packages
 
 
+def pnpm_key(key: str, slash_separated: bool) -> tuple[str, str]:
+    key = key.removeprefix("/").split("(", 1)[0]
+    if slash_separated:
+        name, _, version = key.rpartition("/")
+        return name, version.split("_", 1)[0]
+    name, _, version = key.rpartition("@")
+    return name, version
+
+
+def pnpm_source(entry: object) -> str:
+    resolution = entry.get("resolution") if isinstance(entry, dict) else None
+    if not isinstance(resolution, dict) or set(resolution) <= REGISTRY_RESOLUTION_KEYS:
+        return ""
+    return json.dumps(resolution, sort_keys=True)
+
+
 def uv_packages(lockfile: str) -> set[Package]:
-    return {
-        Package("pypi", entry["name"], entry["version"])
-        for entry in tomllib.loads(lockfile).get("package", [])
-        if entry.get("source", {}).get("registry") == PYPI_REGISTRY and "version" in entry
-    }
+    packages: set[Package] = set()
+    for entry in tomllib.loads(lockfile).get("package", []):
+        source = entry.get("source", {})
+        if any(kind in source for kind in LOCAL_UV_SOURCES):
+            continue
+        foreign = "" if source.get("registry") == PYPI_REGISTRY else json.dumps(source, sort_keys=True)
+        packages.add(Package("pypi", entry["name"], entry.get("version", ""), foreign))
+    return packages
 
 
 def cargo_packages(lockfile: str) -> set[Package]:
-    return {
-        Package("crates", entry["name"], entry["version"])
-        for entry in tomllib.loads(lockfile).get("package", [])
-        if entry.get("source") == CRATES_REGISTRY
-    }
+    packages: set[Package] = set()
+    for entry in tomllib.loads(lockfile).get("package", []):
+        source = entry.get("source")
+        if source is None:
+            continue
+        foreign = "" if source in CRATES_REGISTRIES else source
+        packages.add(Package("crates", entry["name"], entry["version"], foreign))
+    return packages
+
+
+def go_directives(manifest: str) -> Iterable[tuple[str, list[str]]]:
+    block = ""
+    for line in manifest.splitlines():
+        tokens = [token.strip('"`') for token in GO_TOKEN.findall(line.split("//", 1)[0])]
+        if not tokens:
+            continue
+        if block:
+            if tokens == [")"]:
+                block = ""
+            else:
+                yield block, tokens
+        elif tokens[1:] == ["("]:
+            block = tokens[0]
+        else:
+            yield tokens[0], tokens[1:]
 
 
 def go_packages(manifest: str) -> set[Package]:
     packages: set[Package] = set()
-    in_require_block = False
-    for line in manifest.splitlines():
-        stripped = line.strip()
-        if stripped.startswith("require ("):
-            in_require_block = True
-        elif stripped == ")":
-            in_require_block = False
-        elif (in_require_block or stripped.startswith("require ")) and (match := GO_REQUIREMENT.match(line)):
-            packages.add(Package("go", match[1], match[2]))
+    for directive, arguments in go_directives(manifest):
+        if directive == "replace" and "=>" in arguments:
+            arguments = arguments[arguments.index("=>") + 1 :]
+        elif directive != "require":
+            continue
+        if len(arguments) >= 2:
+            packages.add(Package("go", arguments[0], arguments[1]))
     return packages
 
 
@@ -165,7 +210,15 @@ def changed_lockfiles(base: str, head: str) -> list[str]:
     return [path for path in paths if path.rpartition("/")[2] in LOCKFILE_READERS]
 
 
-def scan(package: Package) -> Finding:
+def not_scanned(package: Package, reason: str) -> Finding:
+    sys.stderr.write(f"{package.ecosystem} {package.spec} was not scanned: {reason}\n")
+    return Finding(package, NOT_SCANNED, 0.0, ())
+
+
+def scan(package: Package, deadline: float) -> Finding:
+    remaining = deadline - time.monotonic()
+    if remaining <= 0:
+        return not_scanned(package, "the batch ran out of time")
     excluded = [flag for rule in EXCLUDED_RULES[package.ecosystem] for flag in ("--exclude-rules", rule)]
     command = [
         *GUARDDOG,
@@ -178,32 +231,37 @@ def scan(package: Package) -> Finding:
         "json",
         *excluded,
     ]
-    env = {name: value for name, value in os.environ.items() if not name.startswith("GITHUB_")}
-    process = subprocess.Popen(
-        command, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True, env=env, start_new_session=True
-    )
+    with tempfile.TemporaryDirectory(prefix="guarddog-") as scratch:
+        env = {name: value for name, value in os.environ.items() if not name.startswith("GITHUB_")}
+        env["TMPDIR"] = scratch
+        process = subprocess.Popen(
+            command, stdout=subprocess.PIPE, stderr=subprocess.DEVNULL, text=True, env=env, start_new_session=True
+        )
+        try:
+            stdout, _ = process.communicate(timeout=min(SCAN_TIMEOUT_SECONDS, remaining))
+        except subprocess.TimeoutExpired:
+            os.killpg(process.pid, signal.SIGKILL)
+            process.wait()
+            return not_scanned(package, "GuardDog timed out")
     try:
-        stdout, _ = process.communicate(timeout=SCAN_TIMEOUT_SECONDS)
         report = json.loads(stdout)
         # GuardDog scores only the rules that ran, so a rule that failed can hide what it would find.
         if report["errors"]:
-            return Finding(package, NOT_SCANNED, 0.0, ())
+            failed_rules = ", ".join(sorted(rule for rule in report["errors"] if PLAIN_NAME.fullmatch(str(rule))))
+            return not_scanned(package, f"GuardDog rules failed: {failed_rules or 'unnamed'}")
         risk = report["risk_score"]
         rules = tuple(
             sorted(rule for rule, hits in report["results"].items() if hits and not rule.startswith("capability"))
         )
         return Finding(package, str(risk["label"]), float(risk["score"]), rules)
-    except subprocess.TimeoutExpired:
-        os.killpg(process.pid, signal.SIGKILL)
-        process.wait()
-        return Finding(package, NOT_SCANNED, 0.0, ())
     except (ValueError, KeyError, TypeError):
-        return Finding(package, NOT_SCANNED, 0.0, ())
+        return not_scanned(package, f"GuardDog exited with status {process.returncode} without a usable report")
 
 
 def scan_all(packages: Iterable[Package]) -> list[Finding]:
+    deadline = time.monotonic() + BATCH_DEADLINE_SECONDS
     with ThreadPoolExecutor(max_workers=SCAN_WORKERS) as pool:
-        return list(pool.map(scan, packages))
+        return list(pool.map(lambda package: scan(package, deadline), packages))
 
 
 def summary(findings: list[Finding], skipped: list[Package]) -> str:
@@ -257,7 +315,8 @@ def line_of(lockfile: str, package: Package) -> int:
         if package.ecosystem == "npm":
             found = stripped.strip("':") == package.spec
         elif package.ecosystem == "go":
-            found = stripped.removeprefix("require ").split("//")[0].split() == [package.name, package.version]
+            tokens = GO_TOKEN.findall(stripped.split("//", 1)[0])
+            found = any(tokens[index : index + 2] == [package.name, package.version] for index in range(len(tokens)))
         else:
             following = lines[number].strip() if number < len(lines) else ""
             found = stripped == f'name = "{package.name}"' and following == f'version = "{package.version}"'
@@ -333,11 +392,12 @@ def scan_additions(
     base: str, head: str, fallback: Iterable[Package]
 ) -> tuple[list[Finding], list[Package], dict[Package, Location]]:
     locations: dict[Package, Location] = {}
-    for path in changed_lockfiles(base, head):
+    lockfiles = changed_lockfiles(base, head)
+    for path in lockfiles:
         head_lockfile = blob(head, path)
         for package in added_packages(path.rpartition("/")[2], blob(base, path), head_lockfile):
             locations.setdefault(package, Location(path, line_of(head_lockfile, package)))
-    candidates = sorted(locations) or list(fallback)
+    candidates = sorted(locations) if lockfiles else list(fallback)
     to_scan = [package for package in candidates if package.scannable][:MAX_PACKAGES]
     skipped = [package for package in candidates if package not in to_scan]
     findings = scan_all(to_scan)
@@ -357,10 +417,12 @@ def report() -> int:
             sys.stdout.write(
                 f"::warning title=Dependency scan::{finding.package.ecosystem} {finding.package.spec} is {finding.label}\n"
             )
-    if output_path := os.environ.get("GITHUB_OUTPUT"):
-        with open(output_path, "a") as handle:
-            handle.write(f"findings={findings_output(findings, skipped)}\n")
-            handle.write(f"sarif={sarif_output(findings, locations)}\n")
+    if findings_path := os.environ.get("FINDINGS_FILE"):
+        with open(findings_path, "w") as handle:
+            handle.write(findings_output(findings, skipped))
+    if sarif_path := os.environ.get("SARIF_FILE"):
+        with open(sarif_path, "w") as handle:
+            handle.write(sarif_output(findings, locations))
     return 1 if scanner_is_broken(findings) else 0
 
 

@@ -1,4 +1,5 @@
 #!/usr/bin/env node
+import { existsSync, readFileSync } from 'node:fs'
 import { pathToFileURL } from 'node:url'
 
 import { markdownCell } from '../../frontend/bin/ci-report/format.mjs'
@@ -49,11 +50,20 @@ export function buildDependencyScanSection({ scanned, skipped, flagged }) {
     }
 }
 
+const UNFINISHED_SCAN_SECTION = {
+    status: 'warn',
+    summary: 'the scan did not finish',
+    body: `${INTRO}\n\nThe scan job stopped before it reported any results. Its log has the reason.`,
+}
+
 if (process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href) {
-    const findings = JSON.parse(process.env.FINDINGS || 'null')
-    if (!findings) {
+    const findingsFile = process.env.FINDINGS_FILE
+    const findings = findingsFile && existsSync(findingsFile) ? JSON.parse(readFileSync(findingsFile, 'utf8')) : null
+    if (findings) {
+        await postSection({ id: 'dependency-scan', ...buildDependencyScanSection(findings) })
+    } else if (process.env.SCAN_RESULT !== 'success') {
+        await postSection({ id: 'dependency-scan', ...UNFINISHED_SCAN_SECTION })
+    } else {
         console.info('No findings from the scan job, so there is nothing to post.')
-        process.exit(0)
     }
-    await postSection({ id: 'dependency-scan', ...buildDependencyScanSection(findings) })
 }
