@@ -73,6 +73,7 @@ describe('broadcastSendingLogic', () => {
 
     afterEach(async () => {
         mounted.splice(0).forEach((logic) => logic.isMounted() && logic.unmount())
+        jest.useRealTimers()
         screen.queryAllByText('Cancel').forEach((cancel) => fireEvent.click(cancel))
         await waitFor(() => expect(screen.queryByText('Cancel')).toBeNull())
         resumeKeaLoadersErrors()
@@ -234,7 +235,6 @@ describe('broadcastSendingLogic', () => {
 
     describe('while a send runs', () => {
         beforeEach(() => jest.useFakeTimers())
-        afterEach(() => jest.useRealTimers())
 
         const mountWithTimers = async (): Promise<ReturnType<typeof broadcastSendingLogic.build>> => {
             const logic = broadcastSendingLogic({ id: 'flow-1' })
