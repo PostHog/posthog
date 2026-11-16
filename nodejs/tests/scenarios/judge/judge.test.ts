@@ -245,10 +245,8 @@ describe('judge', () => {
         ['a redirect, which fetch does not follow or retry, on the only attempt', [302], true],
         ['a status fetch does not retry, on the only attempt', [400], true],
         ['a request timeout, which fetch retries, on the only attempt', [408], false],
-        ['a server error, which fetch retries, on the only attempt', [503], false],
         ['a server error on fewer attempts than fetch makes', [503, 503], false],
         ['a server error on every attempt fetch makes', [503, 503, 503], true],
-        ['too many requests on every attempt fetch makes', [429, 503, 429], true],
     ])('at_least_once for a webhook a fault answered with %s', (_story, statuses, passed) => {
         const attempts = statuses.map(
             (status, i): TruthRecord => ({

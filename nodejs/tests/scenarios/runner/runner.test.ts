@@ -122,6 +122,7 @@ describe('runner', () => {
                 metricsUrl: processMetrics.url,
             })),
         actuate: () => Promise.reject(new Error('these runs schedule no valves')),
+        writerCpu: () => Promise.reject(new Error('these runs read no writer CPU')),
         dependencyHealth: () => Promise.resolve({ healthy: true, down: [] }),
         exits: () => [],
         groupLag: () => Promise.resolve(0),
@@ -204,6 +205,37 @@ describe('runner', () => {
         expect(api.captured.map(({ properties }) => properties)).toEqual([
             expect.objectContaining({ run_id: result.runId, status: 'invalid', status_reason: result.statusReason }),
         ])
+    })
+
+    it('runs one card under the run id of its run manifest', async () => {
+        const runId = '6b0c8f4e-2d1a-4c55-9a7e-1f3b5d7e9a2c'
+        const manifest = path.join(cacheHome, 'manifest.json')
+        writeFileSync(
+            manifest,
+            JSON.stringify({
+                runId,
+                account: '000000000000',
+                stackName: `scn-${runId}`,
+                schedules: [],
+                expiresAt: '2026-01-05T16:00:00.000Z',
+            })
+        )
+        const onHost = createRunner(environment, {
+            ...process.env,
+            XDG_CACHE_HOME: cacheHome,
+            DATABASE_URL: PROCESS_DATABASE_URL,
+            SCENARIO_RUN_MANIFEST: manifest,
+            ...api.credentials,
+        })
+        const loaded = withSettings({ DATABASE_URL: PROFILE_DATABASE_URL })
+
+        const result = await onHost.run(loaded, NEVER_ABORTED)
+
+        expect(result).toMatchObject({ runId, evidenceDir: path.join(stateDir, runId) })
+        expect(api.captured.map(({ properties }) => properties.run_id)).toEqual([runId])
+        await expect(onHost.run(loaded, NEVER_ABORTED)).rejects.toThrow(
+            `This runner already ran run ${runId} from its run manifest; a run host runs one card per manifest.`
+        )
     })
 
     it('saves the verdict with the event it publishes once, before publication, and leaves it as written', async () => {
@@ -650,6 +682,7 @@ describe('runner through seed, drive and judge', () => {
         dependencyHealth: () => Promise.resolve({ healthy: true, down: [] }),
         exits: () => [...exits],
         groupLag: () => Promise.resolve(0),
+        writerCpu: () => Promise.reject(new Error('a local run reads no writer CPU')),
         down: async () => {
             await roles?.stop()
             roles = undefined
@@ -666,6 +699,8 @@ describe('runner through seed, drive and judge', () => {
             measures = SMOKE.card.measure,
             load: loadTargets,
             backlog,
+            ramp,
+            bars = [],
         }: {
             replicas?: Profile['replicas']
             parks?: number
@@ -673,6 +708,8 @@ describe('runner through seed, drive and judge', () => {
             measures?: Named[]
             load?: Profile['load']
             backlog?: Backlog
+            ramp?: LoadedCard['card']['drive']['ramp']
+            bars?: Named[]
         } = {}
     ): LoadedCard => {
         const card = path.join(cacheHome, 'card.yaml')
@@ -681,9 +718,10 @@ describe('runner through seed, drive and judge', () => {
             card,
             stringify({
                 ...SMOKE.card,
-                drive: { ...SMOKE.card.drive, for: '2s', minOffered: 0.5, traffic: [{ name: traffic }] },
+                drive: { ...SMOKE.card.drive, for: '2s', minOffered: 0.5, traffic: [{ name: traffic }], ramp },
                 invariants,
                 measure: measures,
+                bars,
                 valves,
                 convergeWithin: valves.length > 0 ? '8s' : '3s',
             })
@@ -1113,6 +1151,36 @@ describe('runner through seed, drive and judge', () => {
         },
         30_000
     )
+
+    it('calls the failover card invalid at its valve on a host without a run manifest', async () => {
+        const [failover] = load(path.join(__dirname, '..', 'cards', 'cyclotron-failover-under-load.yaml')).card.valves
+
+        const result = await run('all', [{ ...failover, at: '1s', for: '500ms' }])
+
+        expect(result).toMatchObject({
+            status: 'invalid',
+            statusReason: 'pg.failover on cyclotron was not observed: pg.failover runs only on a run host',
+            timeline: [{ valve: 'pg.failover', target: 'cyclotron', error: 'pg.failover runs only on a run host' }],
+        })
+    }, 30_000)
+
+    it('calls the scale card invalid at its writer CPU bar on a host without a run manifest', async () => {
+        const { bars } = load(path.join(__dirname, '..', 'cards', 'cyclotron-scale.yaml')).card
+        const ramp = [
+            { scale: 1, for: '1s' },
+            { scale: 2, for: '1s' },
+        ]
+
+        const result = await run('all', [], undefined, { ramp, bars })
+
+        expect(result.status).toBe('invalid')
+        expect(result.bars[0]).toEqual({
+            name: 'writer_cpu_under',
+            unit: '%',
+            passed: false,
+            unjudged: 'no writer CPU reading off a run host in the 1x step',
+        })
+    }, 30_000)
 
     it('leaves a valve due after the drive window unapplied while an intake answer is still pending', async () => {
         const slowIntake = http.createServer((_request, response) => {
