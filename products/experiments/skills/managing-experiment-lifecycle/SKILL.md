@@ -48,7 +48,7 @@ never let it delay the launch. Do **not** raise it at end or ship-variant time â
 on rolling out. â†’ See [`references/qualitative-feedback.md`](../diagnosing-experiment-health/references/qualitative-feedback.md) in [[diagnosing-experiment-health]]
 
 When the launch succeeds, end your report with one question about the next step, as [`references/next-steps.md`](../creating-experiments/references/next-steps.md) in [[creating-experiments]] describes.
-The experiment now has a start date, so include the reminder and recommend it.
+The experiment now has a start date, so include the reminder and recommend it when you can see `reminder-create`.
 
 ### Pause (`experiment-pause`)
 
