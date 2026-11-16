@@ -5,6 +5,7 @@ import { useState } from 'react'
 import { LemonBanner, LemonModal } from '@posthog/lemon-ui'
 
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { transactionalEmailsLogic } from '../transactionalEmailsLogic'
 import { SendFromCodeSetup } from './SendFromCodeSetup'
@@ -15,6 +16,7 @@ export function SendFromCodeBanner(): JSX.Element | null {
     const { codeEmails, transactionalTemplatesLoading, transactionalTemplatesFailed } =
         useValues(transactionalEmailsLogic)
     const sendFromCodeEnabled = useFeatureFlag('WORKFLOWS_EMAIL_FROM_CODE')
+    const { receivedFeatureFlags } = useValues(featureFlagLogic)
     const [guideOpen, setGuideOpen] = useState(false)
     const offered =
         sendFromCodeEnabled &&
@@ -22,9 +24,11 @@ export function SendFromCodeBanner(): JSX.Element | null {
         !transactionalTemplatesLoading &&
         !transactionalTemplatesFailed
     useSendFromCodeGuideLink({
+        surface: 'transactional',
         settled:
-            !sendFromCodeEnabled ||
-            (!transactionalTemplatesLoading && (transactionalTemplatesFailed || codeEmails !== null)),
+            receivedFeatureFlags &&
+            (!sendFromCodeEnabled ||
+                (!transactionalTemplatesLoading && (transactionalTemplatesFailed || codeEmails !== null))),
         offered,
         onOpen: () => setGuideOpen(true),
     })

@@ -13,7 +13,6 @@ export interface SendFromCodeTarget {
     secretKeysUrl: string
 }
 
-/** Where the user's server sends from: the project token and the hosts of the region this app runs against. */
 export function useSendFromCodeTarget(): SendFromCodeTarget {
     const { currentTeam, currentTeamIdStrict } = useValues(teamLogic)
     // In OAuth mode this app runs against a remote region, which is where the user's server has to send.

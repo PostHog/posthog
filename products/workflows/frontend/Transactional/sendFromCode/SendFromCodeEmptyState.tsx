@@ -16,7 +16,7 @@ export function SendFromCodeEmptyState(): JSX.Element {
         AccessControlResourceType.Workflow,
         AccessControlLevel.Editor
     )
-    useSendFromCodeGuideLink({ settled: true, offered: true })
+    useSendFromCodeGuideLink({ surface: 'transactional_empty', settled: true, offered: true })
 
     return (
         <div className="flex flex-col items-center py-8" data-attr="send-from-code-empty-state">

@@ -34,7 +34,10 @@ const codeEmail = (key: string, userAccessLevel: AccessControlLevel): CodeEmailA
 })
 
 describe('TransactionalEmailsTable', () => {
-    afterEach(cleanup)
+    afterEach(() => {
+        cleanup()
+        Reflect.deleteProperty(navigator, 'clipboard')
+    })
 
     it.each([
         ['a workflow editor who can only view this email', AccessControlLevel.Editor, AccessControlLevel.Viewer, 0],
@@ -145,9 +148,22 @@ describe('TransactionalEmailsTable', () => {
         expect(await screen.findByText(heading)).toBeInTheDocument()
     })
 
+    const loadFlags = (wizardOffered = false): void =>
+        featureFlagLogic.actions.setFeatureFlags(
+            [FEATURE_FLAGS.WORKFLOWS_EMAIL_FROM_CODE, FEATURE_FLAGS.WORKFLOWS_TRANSACTIONAL_EMAIL_WIZARD],
+            {
+                [FEATURE_FLAGS.WORKFLOWS_EMAIL_FROM_CODE]: true,
+                [FEATURE_FLAGS.WORKFLOWS_TRANSACTIONAL_EMAIL_WIZARD]: wizardOffered,
+            }
+        )
+
     const renderWithCodeSends = (
         get: Record<string, unknown>,
-        { wizardOffered = false, selfHosted = false }: { wizardOffered?: boolean; selfHosted?: boolean } = {}
+        {
+            wizardOffered = false,
+            selfHosted = false,
+            flagsLoaded = true,
+        }: { wizardOffered?: boolean; selfHosted?: boolean; flagsLoaded?: boolean } = {}
     ): ReturnType<typeof render> => {
         useMocks({
             get: {
@@ -160,13 +176,9 @@ describe('TransactionalEmailsTable', () => {
             } as Record<string, any>,
         })
         initKeaTests()
-        featureFlagLogic.actions.setFeatureFlags(
-            [FEATURE_FLAGS.WORKFLOWS_EMAIL_FROM_CODE, FEATURE_FLAGS.WORKFLOWS_TRANSACTIONAL_EMAIL_WIZARD],
-            {
-                [FEATURE_FLAGS.WORKFLOWS_EMAIL_FROM_CODE]: true,
-                [FEATURE_FLAGS.WORKFLOWS_TRANSACTIONAL_EMAIL_WIZARD]: wizardOffered,
-            }
-        )
+        if (flagsLoaded) {
+            loadFlags(wizardOffered)
+        }
         return render(
             <Provider>
                 <TransactionalEmailsTable />
@@ -255,7 +267,7 @@ describe('TransactionalEmailsTable', () => {
     }
 
     it.each([
-        ['opens the guide over the list', [receipt], [], 'Receipt', true, true],
+        ['opens the guide over the list', [receipt], [], 'Receipt', true, 'transactional'],
         [
             'keeps the guide closed when the project already sends from code',
             [receipt],
@@ -264,10 +276,17 @@ describe('TransactionalEmailsTable', () => {
             false,
             false,
         ],
-        ['shows the empty tab, which holds the guide already', [], [], 'Send your first email from code', false, true],
+        [
+            'shows the empty tab, which holds the guide already',
+            [],
+            [],
+            'Send your first email from code',
+            false,
+            'transactional_empty',
+        ],
     ])(
         'answers a link from the domain-ready card: %s',
-        async (_case, templates, codeEmails, landmark, modalOpens, guideShown) => {
+        async (_case, templates, codeEmails, landmark, modalOpens, guideSurface) => {
             const capture = jest.spyOn(posthog, 'capture')
             renderWithCodeSends({
                 '/api/projects/:team_id/messaging_templates/': { results: templates },
@@ -280,10 +299,10 @@ describe('TransactionalEmailsTable', () => {
             await waitFor(() => expect(router.values.searchParams).toEqual({}))
             expect(screen.queryByText('Send an email from your code') !== null).toBe(modalOpens)
             expect(
-                capture.mock.calls.some(
+                capture.mock.calls.find(
                     ([event, props]) => event === 'send from code guide opened' && props?.entry === 'domain_ready'
-                )
-            ).toBe(guideShown)
+                )?.[1]?.surface ?? false
+            ).toBe(guideSurface)
             capture.mockRestore()
         }
     )
@@ -316,5 +335,20 @@ describe('TransactionalEmailsTable', () => {
         releaseTemplates()
 
         expect(await screen.findByText(/Your code can send any email/)).toBeInTheDocument()
+    })
+
+    it('holds a link from the domain-ready card until feature flags load', async () => {
+        renderWithCodeSends(
+            { '/api/projects/:team_id/messaging_templates/': { results: [receipt] } },
+            { flagsLoaded: false }
+        )
+        expect(await screen.findByText('Receipt')).toBeInTheDocument()
+        act(() => router.actions.push(sendFromCodeGuideUrl()))
+        expect(router.values.searchParams).toEqual({ guide: 'send-from-code' })
+
+        act(() => loadFlags())
+
+        expect(await screen.findByText('Send an email from your code')).toBeInTheDocument()
+        expect(router.values.searchParams).toEqual({})
     })
 })

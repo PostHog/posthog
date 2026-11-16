@@ -5,15 +5,13 @@ import { useEffect, useRef } from 'react'
 
 import { SEND_FROM_CODE_GUIDE_PARAM, SEND_FROM_CODE_GUIDE_VALUE } from './sendFromCodeGuideUrl'
 
-/**
- * Answers a link from the domain-ready card once the tab knows what it shows: shows the guide when it is
- * offered, and drops the link's param either way so it cannot open the guide later.
- */
 export function useSendFromCodeGuideLink({
+    surface,
     settled,
     offered,
     onOpen,
 }: {
+    surface: 'transactional' | 'transactional_empty'
     settled: boolean
     offered: boolean
     onOpen?: () => void
@@ -29,10 +27,10 @@ export function useSendFromCodeGuideLink({
         }
         if (offered) {
             // pinned: analytics event name
-            posthog.capture('send from code guide opened', { surface: 'transactional', entry: 'domain_ready' })
+            posthog.capture('send from code guide opened', { surface, entry: 'domain_ready' })
             onOpenRef.current?.()
         }
         const { [SEND_FROM_CODE_GUIDE_PARAM]: _guide, ...otherParams } = router.values.searchParams
         router.actions.replace(router.values.location.pathname, otherParams, router.values.hashParams)
-    }, [linked, settled, offered])
+    }, [linked, settled, offered, surface])
 }

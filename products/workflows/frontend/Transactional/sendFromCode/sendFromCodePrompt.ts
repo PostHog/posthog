@@ -8,7 +8,6 @@ export interface SendFromCodePromptInput {
 
 const DOCS_URL = 'https://posthog.com/docs/workflows/transactional-emails'
 
-/** A prompt a person pastes into their coding agent to add the first email send to their server code. */
 export function sendFromCodePrompt({
     projectToken,
     host,
