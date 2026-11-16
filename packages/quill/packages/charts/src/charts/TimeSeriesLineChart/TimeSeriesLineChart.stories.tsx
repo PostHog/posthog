@@ -373,7 +373,8 @@ export const ComparisonOf: Story = {
             { key: 'visits', label: 'Visits', data: [20, 35, 28, 60, 45, 70, 52], color: theme.colors[0] },
             {
                 key: 'visits-prev',
-                label: 'Visits (previous)',
+                label: 'Visits',
+                legendTag: 'Previous',
                 data: [15, 25, 32, 40, 38, 50, 44],
                 color: theme.colors[0],
             },
@@ -387,6 +388,7 @@ export const ComparisonOf: Story = {
                     config={{
                         yAxis: { showGrid: true },
                         comparisonOf: { 'visits-prev': 'visits' },
+                        legend: { show: true, position: 'bottom' },
                     }}
                 />
             </Stage>
