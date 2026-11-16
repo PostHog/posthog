@@ -1,7 +1,9 @@
 version: 1
 owners: []
 rules:
-    - match: ['/behavioral_cohorts_migrations/', '/capture/']
+    - match: '/behavioral_cohorts_migrations/'
+      owners: team-feature-flags
+    - match: '/capture/'
       owners: team-ingestion
     - match: '/common/cookieless/'
       owners: team-web-analytics
