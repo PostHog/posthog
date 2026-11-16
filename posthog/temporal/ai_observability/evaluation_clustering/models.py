@@ -6,7 +6,7 @@ from typing import Any
 from posthog.dataclasses import frozen
 
 
-@dataclass
+@frozen
 class SamplerActivityInputs:
     """Inputs for the per-job sample_and_embed activity.
 
@@ -35,7 +35,7 @@ class SamplerActivityResult:
     embedded: int  # we enqueue one Kafka message per sampled row, this is the count produced
 
 
-@dataclass
+@frozen
 class SamplerWorkflowInputs:
     """Inputs for the per-job sampler child workflow."""
 

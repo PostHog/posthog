@@ -5,6 +5,7 @@ from typing import Any, Literal
 
 from pydantic import BaseModel
 
+from posthog.dataclasses import frozen
 from posthog.temporal.ai_observability.trace_summarization.constants import (
     DEFAULT_BATCH_SIZE,
     DEFAULT_MAX_ITEMS_PER_WINDOW,
@@ -29,7 +30,7 @@ class TraceSummary(BaseModel):
     metadata: dict[str, Any]
 
 
-@dataclass
+@frozen
 class BatchSummarizationInputs:
     """Inputs for batch trace summarization workflow.
 
@@ -145,7 +146,7 @@ class FetchResult:
     event_count: int
 
 
-@dataclass
+@frozen
 class SummarizeAndSaveInput:
     redis_key: str
     trace_id: str

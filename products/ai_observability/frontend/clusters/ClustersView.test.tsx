@@ -182,7 +182,7 @@ describe('cluster setup and jobs', () => {
         }))
         router.actions.push(`/ai-observability/clusters/${runId}`)
         render(<ClustersView />)
-        fireEvent.click((await screen.findAllByRole('button', { name: 'Show more' }))[0])
+        fireEvent.click((await screen.findAllByTitle('Show more'))[0])
         fireEvent.click((await screen.findAllByText('Trace trace-0-'))[0])
         expect(traceDrawerLogic({ listId: 'clusters' }).values.rows.map((row) => row.traceId)).toEqual([
             'trace-0-0',

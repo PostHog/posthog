@@ -3,6 +3,7 @@
 from dataclasses import dataclass, field
 from typing import Any, TypedDict
 
+from posthog.dataclasses import frozen
 from posthog.temporal.ai_observability.shared_activities import AnalysisLevel  # noqa: F401
 from posthog.temporal.ai_observability.trace_clustering.constants import (
     DEFAULT_LOOKBACK_DAYS,
@@ -24,7 +25,7 @@ class ClusterItem:
     generation_id: str | None = None  # Only set for generation-level clustering
 
 
-@dataclass
+@frozen
 class ClusteringWorkflowInputs:
     """Input parameters for the daily trace clustering workflow.
 
@@ -59,7 +60,7 @@ class ClusteringWorkflowInputs:
         return {"team_id": self.team_id}
 
 
-@dataclass
+@frozen
 class ClusteringActivityInputs:
     """Input parameters for the clustering activity.
 
@@ -255,7 +256,7 @@ class TraceLabelingMetadata:
     rank: int  # Rank within cluster (1 = closest to centroid)
 
 
-@dataclass
+@frozen
 class GenerateLabelsActivityInputs:
     """Input for the LLM labeling activity.
 
@@ -310,7 +311,7 @@ class ClusteringParams:
     max_samples: int  # Max traces to sample
 
 
-@dataclass
+@frozen
 class EmitEventsActivityInputs:
     """Input for the event emission activity."""
 

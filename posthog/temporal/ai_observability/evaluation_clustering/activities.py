@@ -24,6 +24,7 @@ import numpy as np
 import structlog
 from temporalio import activity
 
+from posthog.dataclasses import frozen
 from posthog.models.team import Team
 from posthog.sync import database_sync_to_async
 from posthog.temporal.ai_observability.evaluation_clustering.aggregates import aggregate_evaluation_metrics
@@ -65,7 +66,7 @@ logger = structlog.get_logger(__name__)
 # ---- Activity input/output dataclasses ----
 
 
-@dataclass
+@frozen
 class EvaluationClusteringComputeInputs:
     team_id: int
     job_id: str
@@ -118,7 +119,7 @@ class FetchEvaluationMetadataResult:
     metadata: dict[str, EvaluationMetadata]
 
 
-@dataclass
+@frozen
 class GenerateEvaluationLabelsInputs:
     team_id: int
     eval_ids: list[str]
@@ -160,7 +161,7 @@ class ComputeEvaluationAggregatesInputs:
     eval_metadata: dict[str, EvaluationMetadata]
 
 
-@dataclass
+@frozen
 class EmitEvaluationClusterEventsInputs:
     team_id: int
     clustering_run_id: str
