@@ -1,6 +1,7 @@
 import { MOCK_DEFAULT_TEAM } from '~/lib/api.mock'
 
 import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import userEvent from '@testing-library/user-event'
 import { BindLogic } from 'kea'
 import { Form } from 'kea-forms'
 
@@ -42,66 +43,116 @@ const TEMPLATE: HogFunctionTemplateType = {
     icon_url: '/static/posthog-icon.svg',
 }
 
-describe('destination event matchers', () => {
-    beforeEach(() => {
-        // Recent picks persist in localStorage. Without this, a pick in one case shows up in the next.
-        localStorage.clear()
-        initKeaTests()
-        teamLogic.actions.loadCurrentTeamSuccess({
-            ...MOCK_DEFAULT_TEAM,
-            flag_evaluations_mode: FlagEvaluationsModeEnumApi.Number2,
+describe('HogFunctionFilters', () => {
+    describe('destination event matchers', () => {
+        beforeEach(() => {
+            // Recent picks persist in localStorage. Without this, a pick in one case shows up in the next.
+            localStorage.clear()
+            initKeaTests()
+            teamLogic.actions.loadCurrentTeamSuccess({
+                ...MOCK_DEFAULT_TEAM,
+                flag_evaluations_mode: FlagEvaluationsModeEnumApi.Number2,
+            })
         })
+
+        afterEach(cleanup)
+
+        it.each([
+            {
+                matcher: 'the destination filters',
+                template: TEMPLATE,
+                matchedEvents: (configuration: HogFunctionConfigurationType) => configuration.filters?.events,
+            },
+            {
+                matcher: 'a mapping',
+                template: {
+                    ...TEMPLATE,
+                    filters: null,
+                    mapping_templates: [{ name: 'Track', include_by_default: true, filters: PAGEVIEW_FILTERS }],
+                },
+                matchedEvents: (configuration: HogFunctionConfigurationType) =>
+                    configuration.mappings?.[0]?.filters?.events,
+            },
+        ])(
+            'lets a team on flag evaluations mode 2 match Feature flag called in $matcher',
+            async ({ template, matchedEvents }) => {
+                useMocks({
+                    get: {
+                        '/api/projects/:team/hog_function_templates/:id': template,
+                        '/api/projects/:team/event_definitions': mockGetEventDefinitionsFrom([
+                            { ...mockEventDefinitions[0], id: 'flag-called', name: '$feature_flag_called' },
+                        ]),
+                    },
+                })
+                const logic = hogFunctionConfigurationLogic(LOGIC_PROPS)
+                logic.mount()
+                // HogFunctionConfiguration renders both. Each template leaves exactly one of them with an event matcher.
+                render(
+                    <BindLogic logic={hogFunctionConfigurationLogic} props={LOGIC_PROPS}>
+                        <Form logic={hogFunctionConfigurationLogic} props={LOGIC_PROPS} formKey="configuration">
+                            <HogFunctionFilters />
+                            <HogFunctionMappings />
+                        </Form>
+                    </BindLogic>
+                )
+
+                fireEvent.click(await screen.findByTestId('trend-element-subject-0'))
+                fireEvent.click(await screen.findByText('Feature flag called'))
+
+                await waitFor(() => {
+                    expect(matchedEvents(logic.values.configuration)?.map((event) => event.id)).toEqual([
+                        '$feature_flag_called',
+                    ])
+                })
+            }
+        )
     })
 
-    afterEach(cleanup)
+    describe('Inbox report trigger filters', () => {
+        const INTERNAL_TEMPLATE: HogFunctionTemplateType = {
+            ...TEMPLATE,
+            type: 'internal_destination',
+            filters: { source: 'internal-events', events: [{ id: '$signals_report_ready', type: 'events' }] },
+        }
 
-    it.each([
-        {
-            matcher: 'the destination filters',
-            template: TEMPLATE,
-            matchedEvents: (configuration: HogFunctionConfigurationType) => configuration.filters?.events,
-        },
-        {
-            matcher: 'a mapping',
-            template: {
-                ...TEMPLATE,
-                filters: null,
-                mapping_templates: [{ name: 'Track', include_by_default: true, filters: PAGEVIEW_FILTERS }],
-            },
-            matchedEvents: (configuration: HogFunctionConfigurationType) =>
-                configuration.mappings?.[0]?.filters?.events,
-        },
-    ])(
-        'lets a team on flag evaluations mode 2 match Feature flag called in $matcher',
-        async ({ template, matchedEvents }) => {
-            useMocks({
-                get: {
-                    '/api/projects/:team/hog_function_templates/:id': template,
-                    '/api/projects/:team/event_definitions': mockGetEventDefinitionsFrom([
-                        { ...mockEventDefinitions[0], id: 'flag-called', name: '$feature_flag_called' },
-                    ]),
-                },
-            })
+        beforeEach(() => {
+            localStorage.clear()
+            initKeaTests()
+            teamLogic.actions.loadCurrentTeamSuccess(MOCK_DEFAULT_TEAM)
+            useMocks({ get: { '/api/projects/:team/hog_function_templates/:id': INTERNAL_TEMPLATE } })
+        })
+
+        afterEach(cleanup)
+
+        it.each([
+            { search: null, key: 'priority', value: 'P1' },
+            { search: 'actionab', key: 'actionability', value: 'not_actionable' },
+            { search: 'source', key: 'source_products_text', value: 'github' },
+        ])('adds an event property filter on $key when the person picks it', async ({ search, key, value }) => {
             const logic = hogFunctionConfigurationLogic(LOGIC_PROPS)
             logic.mount()
-            // HogFunctionConfiguration renders both. Each template leaves exactly one of them with an event matcher.
             render(
                 <BindLogic logic={hogFunctionConfigurationLogic} props={LOGIC_PROPS}>
                     <Form logic={hogFunctionConfigurationLogic} props={LOGIC_PROPS} formKey="configuration">
                         <HogFunctionFilters />
-                        <HogFunctionMappings />
                     </Form>
                 </BindLogic>
             )
 
-            fireEvent.click(await screen.findByTestId('trend-element-subject-0'))
-            fireEvent.click(await screen.findByText('Feature flag called'))
+            fireEvent.click(await screen.findByTestId('property-select-toggle-0'))
+            if (search) {
+                fireEvent.change(await screen.findByTestId('taxonomic-filter-searchfield'), {
+                    target: { value: search },
+                })
+            }
+            fireEvent.click(await screen.findByTestId('prop-filter-internal_event_properties-0'))
+            await userEvent.type(await screen.findByPlaceholderText('Enter value...'), `${value}{Enter}`)
 
             await waitFor(() => {
-                expect(matchedEvents(logic.values.configuration)?.map((event) => event.id)).toEqual([
-                    '$feature_flag_called',
+                expect(logic.values.configuration.filters?.properties).toEqual([
+                    expect.objectContaining({ key, type: 'event', value: [value] }),
                 ])
             })
-        }
-    )
+        })
+    })
 })

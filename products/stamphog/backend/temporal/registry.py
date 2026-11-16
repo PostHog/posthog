@@ -13,6 +13,7 @@ from products.stamphog.backend.temporal.activities import (
     fetch_review_context,
     list_in_flight_reviewer_bots,
     mark_review_failed,
+    poll_pending_attestations,
     post_verdict,
     refresh_review_evidence,
     refuse_on_pre_gates,
@@ -41,6 +42,7 @@ ACTIVITIES = [
     run_review_in_sandbox,
     destroy_review_sandbox,
     rereview_after_external_review_finished,
+    poll_pending_attestations,
     post_verdict,
     mark_review_failed,
 ]

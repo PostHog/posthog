@@ -26,7 +26,6 @@ from posthog.models.user import User
 from products.signals.backend.artefact_attribution import ArtefactAttribution
 from products.signals.backend.models import SignalFirstReportNotification, SignalReport, SignalReportArtefact
 from products.signals.backend.ranking.cache import refresh_report_ranking_cache
-from products.signals.backend.ranking.staleness import EDIT_ARTEFACT_TYPES
 from products.signals.backend.report_embeddings import (
     emit_report_embeddings,
     emit_report_tombstone,
@@ -405,6 +404,46 @@ def schedule_github_writeback_on_status_change(
         lambda: schedule_writeback_for_status_change(team_id=team_id, report_id=report_id, status=status),
         robust=True,
     )
+
+
+def _became_ready_on_this_save(
+    instance: SignalReport, *, created: bool, update_fields: set[str] | None, prior_status: str | None
+) -> bool:
+    if instance.status != SignalReport.Status.READY:
+        return False
+    if created:
+        return True
+    if update_fields is not None and "status" not in update_fields:
+        return False
+    return prior_status is not None and prior_status != SignalReport.Status.READY
+
+
+@receiver(post_save, sender=SignalReport)
+def emit_report_ready_internal_event(
+    sender: type[SignalReport],
+    instance: SignalReport,
+    created: bool,
+    update_fields: set[str] | None = None,
+    **kwargs: Any,
+) -> None:
+    """Send `$signals_report_ready` to CDP destinations once per transition into READY."""
+    if not _became_ready_on_this_save(
+        instance, created=created, update_fields=update_fields, prior_status=getattr(instance, "_prior_status", None)
+    ):
+        return
+    team_id, report_id = instance.team_id, str(instance.id)
+    known_source_products = getattr(instance, "_known_source_products", None)
+
+    def _emit() -> None:
+        from products.signals.backend.tasks import emit_report_ready_event_task  # noqa: PLC0415
+
+        # A hook outside an atomic block runs inside save(), so an error here must not reach the caller.
+        try:
+            emit_report_ready_event_task.delay(team_id, report_id, known_source_products)
+        except Exception:
+            logger.exception("signals.report_ready_event_failed", team_id=team_id, report_id=report_id)
+
+    transaction.on_commit(_emit, robust=True)
 
 
 def _pr_close_reason(
@@ -908,7 +947,7 @@ def _sync_report_latest_actionability(instance: SignalReportArtefact) -> None:
 def _sync_report_inbox_sort_cache(instance: SignalReportArtefact) -> None:
     if instance.type == SignalReportArtefact.ArtefactType.PRIORITY_JUDGMENT:
         refresh_report_priority_rank(team_id=instance.team_id, report_id=instance.report_id)
-    elif instance.type == SignalReportArtefact.ArtefactType.RANKING_SCORE or instance.type in EDIT_ARTEFACT_TYPES:
+    elif instance.type == SignalReportArtefact.ArtefactType.RANKING_SCORE:
         refresh_report_ranking_cache(team_id=instance.team_id, report_id=instance.report_id)
 
 
