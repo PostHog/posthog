@@ -260,7 +260,6 @@ def _export_to_png(
         elif exported_asset.dashboard is not None:
             cache_keys_param = _build_cache_keys_param(insight_cache_keys)
             url_to_render = _exporter_url(f"token={access_token}{cache_keys_param}")
-            # Insight, text and button tiles all carry this class, so a dashboard without insights still renders.
             wait_for_css_selector = ".DashboardTileCard"
             screenshot_width = 1920
         elif exported_asset.export_context and exported_asset.export_context.get("session_recording_id"):
@@ -638,8 +637,6 @@ def export_image(
                     "export_image.calculate_dashboard_insights",
                     dashboard_id=exported_asset.dashboard.id,
                 )
-                # The render waits for a tile, so a dashboard that renders none would hold a browser
-                # session until the page-load timeout on every retry.
                 if not dashboards_api.has_tiles_shown_in_image_export(exported_asset.dashboard.id):
                     raise InvalidExportContext(
                         "This dashboard has no insights or text cards to show in an image. "
