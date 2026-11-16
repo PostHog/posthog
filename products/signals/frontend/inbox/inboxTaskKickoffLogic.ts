@@ -43,7 +43,6 @@ import {
     ClaudeRuntimeAdapterEnumApi,
     ClaudeTaskRunCreateSchemaApi,
     ReasoningEffortEnumApi,
-    ReportDiscussionIntentEnumApi,
     RunSourceEnumApi,
     TaskCreateApi,
     TaskExecutionModeEnumApi,
@@ -203,7 +202,7 @@ export function isActionCapableReport(report: SignalReport): boolean {
 }
 
 /** Why Ask AI got the question: a dedicated surface that frames the run for one job. */
-export type ReportDiscussionIntent = ReportDiscussionIntentEnumApi
+export type ReportDiscussionIntent = 'check_metrics' | 'merge_pr' | 'fix_ci' | 'resolve_conflicts'
 
 /** What "Get it merged" in the Ask AI menu sends. The chat shows it as the person's own message. */
 export const MERGE_PR_REQUEST = `Get this approved PR merged. Fix failing CI and resolve any merge conflicts, then use the repository's merge process. Ask me before you make a decision I did not make.`
