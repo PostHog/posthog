@@ -1,4 +1,4 @@
-from datetime import timedelta
+from datetime import datetime, timedelta
 from functools import partial
 from uuid import UUID
 
@@ -55,25 +55,89 @@ def set_issue_tag(
             if tag.source in sources_above:
                 return False
             before = {"key": key, "value": tag.value, "source": tag.source}
-            # Pods do not share one clock, so a later write can read an earlier time. Each write to the
-            # locked row moves updated_at forward, which keeps the ClickHouse versions of a tag in commit order.
-            updated_at = max(timezone.now(), tag.updated_at + timedelta(microseconds=1))
+            updated_at = _next_updated_at(tag)
             tags.filter(pk=tag.pk).update(**fields, updated_at=updated_at)
         if before != after:
-            _log_tag_change(issue, answer.set_by, was_impersonated, before, after)
-        transaction.on_commit(
-            partial(
-                sync_issue_tag_to_clickhouse,
-                team_id=issue.team_id,
-                issue_id=issue.id,
-                key=key,
-                value=answer.value,
-                updated_at=updated_at,
-            ),
-            # The tag is already stored when this runs, so a failed produce must not fail the caller.
-            robust=True,
-        )
+            _log_tag_change(issue, answer.set_by, was_impersonated, before, after, strict=True)
+        _sync_tag_on_commit(issue, key, answer.value, updated_at)
     return True
+
+
+def carry_issue_tags_on_merge(target: ErrorTrackingIssue, source_issue_ids: list[UUID]) -> None:
+    """Copy the labels applied on the source issues to the target, before the merge deletes the sources.
+
+    The merge calls this inside its transaction, with the issues locked and the issue tags flag already checked.
+    A removal is not carried, because it was a decision about the issue it was made on.
+    """
+    team = target.team
+    tags = ErrorTrackingIssueTag.objects.for_team(team.parent_team_id or team.id, canonical=True)
+    target_tags: dict[str, ErrorTrackingIssueTag] = {}
+    carried: dict[str, ErrorTrackingIssueTag] = {}
+    # Lock the rows so that a correction committed during the merge cannot be carried from a stale read.
+    for tag in tags.select_for_update().filter(issue_id__in=[target.id, *source_issue_ids]).order_by("issue_id", "key"):
+        if tag.issue_id == target.id:
+            target_tags[tag.key] = tag
+        elif tag.value is True and _carried_label_replaces(tag, carried.get(tag.key)):
+            carried[tag.key] = tag
+
+    for key, label in carried.items():
+        current = target_tags.get(key)
+        if not _carried_label_replaces(label, current):
+            continue
+        fields = {
+            "source": label.source,
+            "value": True,
+            "probability": label.probability,
+            "model": label.model,
+            "question_version": label.question_version,
+            "set_by_id": label.set_by_id,
+        }
+        before: dict[str, object] | None = None
+        if current is None:
+            updated_at = tags.create(team=team, issue=target, key=key, **fields).updated_at
+        else:
+            before = {"key": key, "value": current.value, "source": current.source}
+            updated_at = _next_updated_at(current)
+            tags.filter(pk=current.pk).update(**fields, updated_at=updated_at)
+        # A strict write would insert the activity row, and produce its internal event, while the merge holds
+        # its row locks. The default write waits for the commit.
+        after: dict[str, object] = {"key": key, "value": True, "source": label.source}
+        _log_tag_change(target, None, False, before, after, strict=False)
+        _sync_tag_on_commit(target, key, True, updated_at)
+
+
+def _carried_label_replaces(label: ErrorTrackingIssueTag, current: ErrorTrackingIssueTag | None) -> bool:
+    """Whether an applied label from a merged issue replaces `current`, the answer that it competes with.
+
+    A person's answer ranks above every tagger, so it is never replaced, and it replaces any tagger's answer.
+    Between two taggers an applied answer stays, because the label shows either way.
+    """
+    if current is None:
+        return True
+    if current.source == ErrorTrackingIssueTag.Source.MANUAL:
+        return False
+    return label.source == ErrorTrackingIssueTag.Source.MANUAL or current.value is not True
+
+
+def _next_updated_at(tag: ErrorTrackingIssueTag) -> datetime:
+    # Pods do not share one clock, so a later write can read an earlier time. Each write to the
+    # locked row moves updated_at forward, which keeps the ClickHouse versions of a tag in commit order.
+    return max(timezone.now(), tag.updated_at + timedelta(microseconds=1))
+
+
+def _sync_tag_on_commit(issue: ErrorTrackingIssue, key: str, value: bool | None, updated_at: datetime) -> None:
+    transaction.on_commit(
+        partial(
+            sync_issue_tag_to_clickhouse,
+            team_id=issue.team_id,
+            issue_id=issue.id,
+            key=key,
+            value=value,
+            updated_at=updated_at,
+        ),
+        # The tag is already stored when this runs, so a failed produce must not fail the caller.
+        robust=True,
+    )
 
 
 def _log_tag_change(
@@ -82,6 +146,8 @@ def _log_tag_change(
     was_impersonated: bool,
     before: dict[str, object] | None,
     after: dict[str, object],
+    *,
+    strict: bool,
 ) -> None:
     log_activity(
         organization_id=issue.team.organization_id,
@@ -91,7 +157,7 @@ def _log_tag_change(
         item_id=str(issue.id),
         scope="ErrorTrackingIssue",
         activity="updated",
-        strict=True,
+        strict=strict,
         detail=Detail(
             name=issue.name,
             changes=[
