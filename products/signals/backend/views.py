@@ -135,7 +135,7 @@ from products.signals.backend.billing import (
     report_pr_is_merged,
 )
 from products.signals.backend.briefing_reports import reports_for_person
-from products.signals.backend.contracts import alert_patterns_problem
+from products.signals.backend.contracts import LINEAR_MIRROR_REPORTS_KEY, alert_patterns_problem
 from products.signals.backend.dismissal_notes import forward_dismissal_note, principal_may_steer_scouts
 from products.signals.backend.enums import ReportPriority, ReportTaskActionKind, ReviewerRemovalReason
 from products.signals.backend.facade.api import emit_signal
@@ -613,6 +613,15 @@ class SignalSourceConfigViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
     permission_classes = [IsAuthenticated, APIScopePermission]
     scope_object = "inbox"
     queryset = SignalSourceConfig.objects.all().order_by("-updated_at")
+
+    def dangerously_get_required_scopes(self, request: Request, view) -> list[str] | None:
+        # The Linear mirror picks where reports open tracker issues, like the team's tracker fields,
+        # so it needs the same scopes. Any mention of the key counts, including a form-encoded one.
+        if request.method in ("GET", "HEAD", "OPTIONS") or not isinstance(request.data, dict):
+            return None
+        if any(LINEAR_MIRROR_REPORTS_KEY in f"{key}{value}" for key, value in request.data.items()):
+            return ["inbox:write", "task:write"]
+        return None
 
     @tracer.start_as_current_span("signals.source_configs.list")
     def list(self, request, *args, **kwargs):

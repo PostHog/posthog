@@ -1435,7 +1435,8 @@ An irreversible end closes the tracker issue: a resolve asked for through the st
 **Mirroring reports into Linear** (`mirror_report_to_linear` in `backend/tracker_issues.py`, off by default).
 The Linear issue source can also write: its `mirror_reports` config key names a Linear integration and team.
 The save that stamps `first_visible_at` queues `mirror_report_to_linear_issue`, which opens the report's tracker issue in that team for a ready or needs-input report that is not already addressed.
-The mirror goes through the same `SignalReportTrackerIssue` claim, so a report holds one tracker issue whichever path opens it first. A later pull request links to the mirrored issue, and the close rules above apply to it.
+The mirror goes through the same `SignalReportTrackerIssue` claim, so a report holds one tracker issue. A later pull request links to the mirrored issue, and the close rules above apply to it.
+A tracker set in `SignalTeamConfig` wins: the mirror does nothing while `issue_tracking_integration` is set, so it never takes the row change management expects. Setting the key needs `task:write` as well as `inbox:write`, the same as the team tracker fields.
 The Linear emitter skips any issue whose description carries a `link_source=tracker` report link, so an issue PostHog opened never comes back as a signal for its own report.
 
 **One DRI per pull request** (`backend/reviewer_pr_assignment.py`).

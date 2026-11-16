@@ -265,19 +265,23 @@ def _mirror_to_linear(team, *, source_enabled: bool = True) -> None:
 
 @pytest.mark.django_db
 @pytest.mark.parametrize(
-    ("status", "already_addressed", "source_enabled", "mirrored"),
+    ("status", "already_addressed", "source_enabled", "team_tracker", "mirrored"),
     [
-        (SignalReport.Status.READY, None, True, True),
-        (SignalReport.Status.PENDING_INPUT, False, True, True),
-        (SignalReport.Status.FAILED, None, True, False),
-        (SignalReport.Status.READY, True, True, False),
-        (SignalReport.Status.READY, None, False, False),
+        (SignalReport.Status.READY, None, True, False, True),
+        (SignalReport.Status.PENDING_INPUT, False, True, False, True),
+        (SignalReport.Status.FAILED, None, True, False, False),
+        (SignalReport.Status.READY, True, True, False, False),
+        (SignalReport.Status.READY, None, False, False, False),
+        # The tracker a team set for change management must not be pre-empted by the mirror.
+        (SignalReport.Status.READY, None, True, True, False),
     ],
 )
 def test_mirror_report_to_linear_files_researched_reports_while_the_source_is_on(
-    team, status, already_addressed, source_enabled, mirrored
+    team, status, already_addressed, source_enabled, team_tracker, mirrored
 ):
     _mirror_to_linear(team, source_enabled=source_enabled)
+    if team_tracker:
+        _connect_tracker(team, "jira")
     report = SignalReport.objects.create(
         team=team,
         status=status,

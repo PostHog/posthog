@@ -177,7 +177,7 @@ export function LinearTeamsModal({
                     <LemonDivider className="my-1" />
                     <LemonField
                         name="mirrorReports"
-                        help="Applies to reports that reach your inbox from now on. Each issue gets the report's title, summary, and a link back, and resolving or deleting the report closes it."
+                        help="Applies to reports that reach your inbox from now on. Each issue gets the report's title, summary, and a link back, and resolving or deleting the report closes it. Skipped while self-driving settings name an issue tracker for pull requests."
                     >
                         {({ value, onChange }) => (
                             <LemonCheckbox

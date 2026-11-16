@@ -330,6 +330,26 @@ class TestSignalSourceConfigAPI(APIBaseTest):
         )
         assert config.config == expected
 
+    @parameterized.expand(
+        [("inbox_only", ["inbox:write"], 403), ("inbox_and_task", ["inbox:write", "task:write"], 200)]
+    )
+    def test_mirror_reports_needs_task_scope(self, _name: str, scopes: list[str], expected_status: int) -> None:
+        integration = Integration.objects.create(team=self.team, kind="linear", integration_id="linear-1", config={})
+        config = SignalSourceConfig.objects.create(team=self.team, source_product="linear", source_type="issue")
+        api_key = self.create_personal_api_key_with_scopes(scopes)
+        self.client.logout()
+
+        response = self.client.patch(
+            self._url(str(config.id)),
+            {"config_set": {"mirror_reports": {"integration_id": integration.id, "team_id": "team-1"}}},
+            format="json",
+            HTTP_AUTHORIZATION=f"Bearer {api_key}",
+        )
+
+        assert response.status_code == expected_status, response.json()
+        config.refresh_from_db()
+        assert ("mirror_reports" in config.config) is (expected_status == 200)
+
     def test_stored_mirror_target_does_not_block_other_writes_after_its_integration_is_gone(self) -> None:
         mirror = {"integration_id": 999999, "team_id": "team-1"}
         config = SignalSourceConfig.objects.create(

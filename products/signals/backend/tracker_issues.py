@@ -349,10 +349,13 @@ def mirror_report_to_linear(*, team_id: int, report_id: str) -> SignalReportTrac
     The issue is the report's tracker issue, so a later self-driving pull request links to it, and
     resolving or deleting the report closes it. A report that already has a
     tracker issue keeps it. Never raises.
+
+    A tracker the team set in its self-driving settings wins: the mirror steps aside, so it can
+    never take the row that change management expects in that tracker.
     """
     try:
         target = linear_mirror_target_for_team(team_id)
-        if target is None:
+        if target is None or tracker_issue_target_for_team(team_id) is not None:
             return None
         if (
             not SignalReport.objects.filter(id=report_id, team_id=team_id, status__in=MIRRORED_REPORT_STATUSES)
