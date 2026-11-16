@@ -10,6 +10,7 @@ If their numbers favor building or self-hosting, say that.
 Keep the two alternatives apart.
 Self-hosting runs the same PostHog code on their own infrastructure.
 Building replaces PostHog with a pipeline they design, run, and staff.
+A third variant is sending events to a warehouse and BI tool the team already runs; see "If they already run a warehouse and BI tool" below.
 
 Compare against a production setup, not a demo.
 A weekend build that ships events straight into ClickHouse is cheap to run, but it is not what the user would rely on for decisions.
@@ -36,8 +37,39 @@ A weekend build that ships events straight into ClickHouse is cheap to run, but 
    Ask for what only they know: engineer cost, on-call, the retention they need, and infrastructure they already run.
    Where they don't know, use the defaults below and label them as defaults.
    Compare month 1 with month 36, not only the first build.
-5. **Give a verdict for each option**: stay on cloud with reductions, self-host PostHog, or build their own.
+5. **Work out the break-even headcount.**
+   Follow "Break-even headcount" below and lead the comparison with it.
+   It uses their bill, so it holds even if they disagree with the staffing defaults.
+6. **Give a verdict for each option**: stay on cloud with reductions, self-host PostHog, or build their own.
    Name which "when building is the right call" criteria they meet, if any, and which costs the ledger could not price.
+
+## Break-even headcount
+
+Show the user how few engineers the alternative must need before it saves money.
+Then ask whether they can run it on fewer.
+This puts the staffing question to the user instead of asking them to trust a table.
+
+```text
+break-even FTE = (monthly spend the alternative replaces - monthly infrastructure) / monthly engineer cost
+```
+
+- **Spend the alternative replaces** comes from their bill in step 1.
+  Count only the products the build or self-host would replace.
+  Use what they pay, including any discount, not list prices.
+- **Infrastructure** is their own estimate, or the default below.
+- **Engineer cost** is their own figure, or the default below.
+
+How to read the result:
+
+- Zero or negative: infrastructure alone costs more than the bill.
+  Say plainly that the alternative cannot win on cost, and stop the cost comparison there.
+- Below the ownership floor in "Staffing": the alternative cannot win on cost in practice.
+- Above the staffing default for their volume: the alternative can win on cost.
+  Say so, then check the one-off build cost and "Other things to weigh" before the verdict.
+- In between: the answer depends on their team.
+  Ask who would own it and how much of their week it would take.
+
+Show the working, so the user can change any input and see the result move.
 
 ## Defaults for the ledger
 
@@ -46,22 +78,40 @@ They are rough planning figures for a production setup, not quotes.
 
 ### Staffing
 
-Headcount includes on-call and incident time.
+Headcount is the ongoing run-rate after the build, and includes on-call and incident time.
+These figures are planning judgements, not benchmarks.
+Tell the user that, and use them to check the break-even headcount, not to replace it.
 
 | Events per month | Self-host PostHog (FTE) | Build your own (FTE) |
 | ---------------- | ----------------------- | -------------------- |
-| 10M              | 0.25                    | 0.5                  |
+| 10M              | Ownership floor         | Ownership floor      |
 | 100M             | 0.5                     | 1                    |
 | 1B               | 1                       | 2                    |
-| 10B              | 2                       | 4                    |
+| 10B              | 2 or more               | 4 or more            |
 
+- **Ownership floor.**
+  A system people rely on for decisions needs at least two engineers who know it, so one can be away.
+  Use 0.2 FTE in total (two engineers at about 10% each) as the lowest figure at any volume.
+  At 10M events the pipeline itself is small; the floor is the cost, not the volume.
 - Between rows, headcount roughly doubles for every 10x in volume.
 - Building needs about twice the self-host headcount.
   The team owns everything PostHog's code would otherwise do: capture, queueing, identity merging, the query layer, and exports.
 - Treat the self-host figures as a floor.
   Self-hosting PostHog beyond the hobby deploy is unsupported, so upgrades and incidents have no vendor to call.
-- A fraction of an FTE still needs real people.
-  An on-call rotation needs at least two engineers who know the system, even if neither spends most of their week on it.
+- Treat the 10B row as a minimum.
+  Teams at that volume often already have a data platform team, which changes the comparison; see "Who the engineers are".
+
+### One-off build cost
+
+The staffing table starts after the system is live.
+Add the work to get there:
+
+- **Build your own:** use two engineers for three to six months as the default, which is $125,000 to $250,000 at the default engineer cost.
+  This covers a production pipeline and the first set of queries, not a product analytics UI.
+- **Self-host PostHog:** use one engineer for one to two months as the default.
+- Add the migration work listed under "Other things to weigh" to either option.
+
+Spread the one-off cost over 36 months when you compare month 36, and show it in full when you compare month 1.
 
 ### Who the engineers are
 
@@ -110,10 +160,26 @@ These change the verdict and are easy to miss:
   Each one adds to the headcount.
 - **People leaving.**
   Ask what happens when the engineer who built it leaves.
-- **The spend gap.**
-  Compare staffing alone with their monthly events spend first.
-  If staffing alone costs more, say so plainly, before adding infrastructure.
-  Where the two meet depends on their actual rate, so work it out from their bill rather than list prices.
+- **What the engineers would otherwise build.**
+  The engineer cost default is what the team pays, not what the team loses.
+  Ask what those engineers would ship instead.
+  If no one is free and they would hire, add hiring time.
+  If the team has spare capacity, the real cost is lower than the default; say that too.
+
+### If they already run a warehouse and BI tool
+
+Many teams that ask about building mean this: send events to a warehouse they already run, such as Snowflake or BigQuery, and query them with their BI tool.
+Treat it as its own option, because the staffing table does not fit it.
+
+- The extra headcount is much lower than the table, because the warehouse, the pipelines, and the on-call rotation already exist.
+  Ask for their own estimate instead of using the staffing defaults.
+- It replaces event storage and SQL over events.
+  It does not replace funnels, retention, cohorts, identity merging, session replay, feature flags, or experiments.
+  Ask which of those the team uses today; each one either stays on the PostHog bill or has to be rebuilt.
+- Add the warehouse compute for event-level queries to the infrastructure line.
+  Check the provider's pricing page; do not quote it from memory.
+- If the team only needs SQL over events, this is often the right call.
+  Say so.
 
 ## Rules
 
@@ -121,5 +187,7 @@ These change the verdict and are easy to miss:
   Label each default as a default and replace it with the user's number when they give one.
 - Do not estimate PostHog's infrastructure costs, margins, or internal numbers.
 - Separate measured numbers (their billing data) from estimates (their ledger inputs and the defaults).
+- Lead with the break-even headcount, which rests on their bill, before any staffing default.
+- Say where the numbers favor building, self-hosting, or the warehouse option, including when the result is close.
 - If billing tools are unavailable, still read the pages and build the ledger from the volumes the user gives you,
   and say the numbers are theirs, not measured.
