@@ -1,7 +1,7 @@
 import hashlib
 from enum import StrEnum
 
-from django.core.cache import cache
+from django.core.cache import caches
 from django.http import HttpRequest
 
 import structlog
@@ -11,6 +11,8 @@ from posthog.clickhouse.query_tagging import get_query_tag_value
 from posthog.event_usage import get_request_analytics_properties, report_user_action, sanitize_header_value
 
 logger = structlog.get_logger(__name__)
+
+dedupe_cache = caches["current_alias_usage"]
 
 CURRENT_ALIAS = "@current"
 CURRENT_ALIAS_REQUESTS_METRIC = "api.current_alias.requests"
@@ -80,9 +82,11 @@ def _record(request: HttpRequest, *, scope: CurrentAliasScope, route: str, statu
         return
 
     api_key_mask = get_query_tag_value("api_key_mask")
-    dedupe_parts = (user.pk, scope.value, route, method, access_method, token_in_query, api_key_mask)
+    # Synthetic principals such as team secret tokens share one pk, so their distinct_id is what tells callers apart.
+    caller = getattr(user, "distinct_id", None) or user.pk
+    dedupe_parts = (caller, scope.value, route, method, access_method, token_in_query, api_key_mask)
     dedupe_key = "current_alias_use:" + hashlib.sha256(repr(dedupe_parts).encode()).hexdigest()
-    if not cache.add(dedupe_key, True, timeout=ATTRIBUTION_DEDUPE_SECONDS):
+    if not dedupe_cache.add(dedupe_key, True, timeout=ATTRIBUTION_DEDUPE_SECONDS):
         return
 
     report_user_action(
