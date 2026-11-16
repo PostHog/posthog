@@ -11,17 +11,16 @@ import {
     DialogFooter,
     DialogHeader,
     DialogTitle,
-    Text,
 } from '@posthog/quill'
 
-import { TZLabel } from 'lib/components/TZLabel'
-
 import { warehouseSuggestionsLogic } from '../warehouseSuggestionsLogic'
+import { QuillSuggestionsCaughtUp } from './QuillSuggestionsCaughtUp'
+import { QuillSuggestionsReadsNote } from './QuillSuggestionsReadsNote'
 import { SuggestionsReviewModalProps } from './SuggestionsReviewModal'
 import { useFocusFollowsRemovedRow } from './useFocusFollowsRemovedRow'
 
 export function QuillSuggestionsReviewModal({ title, summary, children }: SuggestionsReviewModalProps): JSX.Element {
-    const { reviewOpen, status, stripState, listedSuggestions } = useValues(warehouseSuggestionsLogic)
+    const { reviewOpen, stripState, listedSuggestions } = useValues(warehouseSuggestionsLogic)
     const { closeReview } = useActions(warehouseSuggestionsLogic)
     const bodyRef = useRef<HTMLDivElement>(null)
     const returnFocusRef = useRef<HTMLSpanElement>(null)
@@ -53,30 +52,11 @@ export function QuillSuggestionsReviewModal({ title, summary, children }: Sugges
                     <DialogBody viewportClassName="p-0">
                         <div ref={bodyRef} className="@container/suggestions">
                             <div className="divide-y divide-border">{children}</div>
-                            {stripState === 'all_done' && (
-                                <Text
-                                    size="xs"
-                                    variant="muted"
-                                    tabIndex={-1}
-                                    data-suggestions-done
-                                    className="px-3 py-6 text-center"
-                                >
-                                    All caught up. New suggestions appear as usage changes.
-                                </Text>
-                            )}
+                            {stripState === 'all_done' && <QuillSuggestionsCaughtUp placement="dialog" />}
                         </div>
                     </DialogBody>
                     <DialogFooter className="flex-wrap items-center justify-between gap-2">
-                        <Text size="xs" variant="muted" render={<span />} className="min-w-0 flex-1">
-                            <span>{`Based on the last ${status?.window_days ?? 0} days of reads. Cached dashboard views aren't counted.`}</span>
-                            {status?.refreshed_at && (
-                                <>
-                                    <span> Updated </span>
-                                    <TZLabel time={status.refreshed_at} showPopover={false} />
-                                    <span>.</span>
-                                </>
-                            )}
-                        </Text>
+                        <QuillSuggestionsReadsNote />
                         <DialogClose render={<Button variant="outline" />}>Close</DialogClose>
                     </DialogFooter>
                 </DialogContent>

@@ -121,6 +121,8 @@ class TestSanitizeUserText:
             "plan_intent",
             "query_results",
             "event_names",
+            "coverage",
+            "items_to_fix",
         ],
     )
     def test_unclosed_llm_marker_tags_are_stripped(self, marker):

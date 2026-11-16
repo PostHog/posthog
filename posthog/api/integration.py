@@ -158,7 +158,7 @@ from posthog.permissions import (
     TimeSensitiveActionPermission,
     is_service_auth,
 )
-from posthog.rate_limit import GitHubRepositoryRefreshThrottle, PushTokenImportThrottle
+from posthog.rate_limit import EmailSenderCreateThrottle, GitHubRepositoryRefreshThrottle, PushTokenImportThrottle
 from posthog.tasks.email import send_integration_access_request
 from posthog.utils import absolute_uri, is_relative_url
 
@@ -166,7 +166,7 @@ from products.access_control.backend.facade.contracts import ObjectAccessRef
 from products.slack_app.backend.services.slack_auth import SLACK_AUTH_FAILURE_CODES
 from products.tasks.backend.facade.api import get_in_progress_runs_for_github_integration
 from products.tasks.backend.facade.contracts import InProgressGithubRunsDTO
-from products.workflows.backend.facade.api import lookup_existing_email_tools
+from products.workflows.backend.facade.api import lookup_existing_email_tools, lookup_existing_email_tools_when_answered
 from products.workflows.backend.facade.contracts import EmailProviderUnavailableError
 from products.workflows.backend.facade.enums import EmailDomainSetupMethod
 
@@ -1840,6 +1840,8 @@ class IntegrationViewSet(
             return [GitHubRepositoryRefreshThrottle(), *super().get_throttles()]
         if self.action == "push_tokens":
             return [PushTokenImportThrottle(), *super().get_throttles()]
+        if self.action == "create" and self.request.data.get("kind") == "email":
+            return [EmailSenderCreateThrottle(), *super().get_throttles()]
         return super().get_throttles()
 
     def perform_destroy(self, instance: IntegrationRecord) -> None:
@@ -3104,9 +3106,21 @@ class IntegrationViewSet(
             {
                 "method": self._email_domain_setup_method(request, instance),
                 "seconds_since_created": int((timezone.now() - instance.created_at).total_seconds()),
+                "previous_email_providers": self._previous_email_providers(instance),
             },
             team=self.team,
         )
+
+    # The domain is already verified when this runs, so a failed lookup must not fail the request.
+    @staticmethod
+    def _previous_email_providers(instance: IntegrationRecord) -> list[str] | None:
+        try:
+            return lookup_existing_email_tools_when_answered(
+                extract_root_domain_and_host(instance.config["domain"]).root_domain
+            )
+        except Exception as e:
+            capture_exception(e)
+            return None
 
     @staticmethod
     def _email_domain_setup_method(request: Request, instance: IntegrationRecord) -> str:

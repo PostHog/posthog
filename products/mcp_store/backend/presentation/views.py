@@ -56,6 +56,7 @@ from ..models import (
     AGENT_GRANT_SCOPE_CHOICES,
     APPROVAL_STATES,
     MCPGatewayServer,
+    MCPMemberAutoConnectOptOut,
     MCPMemberServerRevocation,
     MCPOAuthState,
     MCPServerInstallation,
@@ -401,8 +402,7 @@ class MCPServerInstallationSerializer(serializers.ModelSerializer):
     def get_pending_oauth(self, obj: MCPServerInstallation) -> bool:
         if obj.auth_type != "oauth":
             return False
-        sensitive = obj.sensitive_configuration or {}
-        return not sensitive.get("access_token")
+        return not obj.upstream_access_token()
 
     def get_proxy_url(self, obj: MCPServerInstallation) -> str:
         request = self.context.get("request")
@@ -778,7 +778,7 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
                 team_id=self.team_id,
             )
             .filter(Q(scope="shared") | Q(user=self.request.user))
-            .select_related("template", "gateway_server")
+            .select_related("template", "gateway_server", "linked_user_integration")
             .annotate(tool_count_annotated=Count("tools", filter=Q(tools__removed_at__isnull=True)))
             .order_by("-created_at")
         )
@@ -1004,6 +1004,12 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
             team=self.team,
             request=request,
         )
+        # A member who removes a server that came with their account link opts out of it, so a relink does not
+        # connect it again. The row outlives the link, which an unlink deletes.
+        if installation.connected_from_link_at is not None:
+            MCPMemberAutoConnectOptOut.objects.for_team(installation.team_id).get_or_create(
+                team_id=installation.team_id, user_id=installation.user_id, url=installation.url
+            )
         installation.delete()
         return Response(status=status.HTTP_204_NO_CONTENT)
 
@@ -1123,6 +1129,14 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
         if installation.scope != "personal":
             return Response(
                 {"detail": "Only personal installations can be shared."},
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+        if installation.connected_from_link_at is not None:
+            return Response(
+                {
+                    "detail": "A connection made from your Slack account link can't be shared. "
+                    "Connect Slack from the MCP store to share it with the project."
+                },
                 status=status.HTTP_400_BAD_REQUEST,
             )
         if installation.user_id != request.user.id:
@@ -2106,7 +2120,7 @@ class MCPServerInstallationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet
             .filter(Q(user=user) | Q(scope="shared"))
             .filter(Q(gateway_server__isnull=True) | Q(gateway_server__is_team_enabled=True))
             .exclude(gateway_server__member_revocations__user=user)
-            .select_related("template", "gateway_server")
+            .select_related("template", "gateway_server", "linked_user_integration")
             .prefetch_related("tools")
             .order_by("id")
         )
@@ -2516,7 +2530,12 @@ class MCPOAuthRedirectViewSet(viewsets.ViewSet):
             sensitive["expires_in"] = expires_in
 
         installation.sensitive_configuration = sensitive
-        installation.save(update_fields=["sensitive_configuration", "updated_at"])
+        # The member's own token replaces the account link, so the installation is theirs to share.
+        installation.linked_user_integration = None
+        installation.connected_from_link_at = None
+        installation.save(
+            update_fields=["sensitive_configuration", "linked_user_integration", "connected_from_link_at", "updated_at"]
+        )
 
     @staticmethod
     def _build_oauth_redirect(

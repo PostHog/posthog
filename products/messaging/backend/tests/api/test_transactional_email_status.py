@@ -5,12 +5,15 @@ import time_machine
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 from unittest.mock import patch
 
+from django.test import override_settings
+
 from parameterized import parameterized
 from rest_framework import status
 from rest_framework.test import APIClient
 
 from posthog.clickhouse.client.execute import sync_execute
 from posthog.models import ProjectSecretAPIKey, Team
+from posthog.models.instance_setting import override_instance_config
 from posthog.models.personal_api_key import hash_key_value
 from posthog.models.utils import generate_random_token_secret
 from posthog.uuidt import UUIDT
@@ -149,6 +152,19 @@ class TestTransactionalEmailStatus(ClickhouseTestMixin, APIBaseTest):
             "status_at": self._at(2).isoformat().replace("+00:00", "Z"),
             "reason": None,
         }
+
+    @parameterized.expand([("timed_id", False), ("keyed_id", True)])
+    @override_settings(CLICKHOUSE_EVENTS_OFFLINE_HOST="events-cluster.invalid")
+    def test_reads_a_status_when_the_project_reads_the_native_events_table(self, _flag, _name, keyed):
+        if keyed:
+            self.message_id = str(uuid5(NAMESPACE_URL, "a-key"))
+        self._status_rows([("queued", 0, ""), ("sent", 2, "")])
+
+        with override_instance_config("CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA_TEAMS", str(self.team.pk)):
+            response = self.client.get(self._url(self.message_id))
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["status"] == "sent"
 
     @parameterized.expand(
         [

@@ -6,6 +6,10 @@ import { Duration, durationMs } from '../duration'
 const RecipientMatch = z.object({ recipient: z.string().optional() }).strict()
 const HostMatch = z.object({ host: z.string().optional() }).strict()
 
+export const SesThrottleParams = z.object({ rate: z.number().int().min(1) }).strict()
+
+export const SesRejectParams = z.object({ type: z.enum(['rejected', 'bounce']) }).strict()
+
 const Dose = z.union([
     z.object({ count: z.number().int().min(1) }).strict(),
     z.object({ share: z.number().gt(0).max(1) }).strict(),
@@ -15,9 +19,17 @@ export const CardFault = z.discriminatedUnion('name', [
     z
         .object({
             name: z.literal('ses.reject'),
-            params: z.object({ type: z.literal('rejected') }).strict(),
+            params: SesRejectParams,
             match: RecipientMatch.optional(),
             dose: Dose,
+            for: Duration.optional(),
+        })
+        .strict(),
+    z
+        .object({
+            name: z.literal('ses.throttle'),
+            params: SesThrottleParams,
+            match: RecipientMatch.optional(),
             for: Duration.optional(),
         })
         .strict(),
@@ -37,6 +49,7 @@ export type SesStatusAnswer = { status: number; type: string; message: string }
 
 export type SesAnswer =
     | { kind: 'status'; answer: SesStatusAnswer }
+    | { kind: 'bounce' }
     | { kind: 'drop-connection' }
     | { kind: 'no-answer' }
     | { kind: 'stalled-body' }
@@ -47,24 +60,42 @@ export type FaultRule = {
     name: string
     answer: SesAnswer | WebhookAnswer
     match?: { recipient?: string; host?: string }
-    dose: z.infer<typeof Dose>
+    dose: z.infer<typeof Dose> | { perSecond: number }
     for?: string
 }
 
 type FaultedRequest = { channel: 'ses'; recipients: string[] } | { channel: 'webhook'; host: string }
 
 const REJECTED: SesStatusAnswer = { status: 400, type: 'MessageRejected', message: 'Message rejected' }
+const THROTTLED: SesStatusAnswer = {
+    status: 429,
+    type: 'TooManyRequestsException',
+    message: 'Maximum sending rate exceeded.',
+}
+const RATE_WINDOW_MS = 1000
 
 export function ruleOf(fault: CardFault): FaultRule {
     switch (fault.name) {
         case 'ses.reject':
-            return { ...fault, answer: { kind: 'status', answer: REJECTED } }
+            return {
+                ...fault,
+                answer: fault.params.type === 'bounce' ? { kind: 'bounce' } : { kind: 'status', answer: REJECTED },
+            }
+        case 'ses.throttle':
+            return { ...fault, dose: { perSecond: fault.params.rate }, answer: { kind: 'status', answer: THROTTLED } }
         case 'dest.status':
             return { ...fault, answer: { kind: 'webhook-status', status: fault.params.code } }
     }
 }
 
-type ActiveFault = { id: string; rule: FaultRule; until: number; matched: number; applied: number }
+type ActiveFault = {
+    id: string
+    rule: FaultRule
+    until: number
+    matched: number
+    applied: number
+    passedAt: number[]
+}
 
 const SHARE_TOLERANCE = 1e-9
 
@@ -78,7 +109,16 @@ function matches({ answer, match }: FaultRule, request: FaultedRequest): boolean
     )
 }
 
-function doseTakes({ rule: { dose }, matched, applied }: ActiveFault): boolean {
+function doseTakes(fault: ActiveFault, now: number): boolean {
+    const {
+        rule: { dose },
+        matched,
+        applied,
+    } = fault
+    if ('perSecond' in dose) {
+        fault.passedAt = fault.passedAt.filter((at) => at > now - RATE_WINDOW_MS)
+        return fault.passedAt.length >= dose.perSecond
+    }
     if ('count' in dose) {
         return applied < dose.count
     }
@@ -86,13 +126,20 @@ function doseTakes({ rule: { dose }, matched, applied }: ActiveFault): boolean {
     return crossings(matched) > crossings(matched - 1)
 }
 
+function countSentAgainst(throttles: ActiveFault[], now: number): void {
+    for (const throttle of throttles) {
+        throttle.passedAt.push(now)
+    }
+}
+
 export class FaultList {
     private faults: ActiveFault[] = []
+    private firstApplied = new Map<string, number>()
 
     add(rule: FaultRule): string {
         const id = randomUUID()
         const until = rule.for === undefined ? Infinity : Date.now() + durationMs(rule.for)
-        this.faults.push({ id, rule, until, matched: 0, applied: 0 })
+        this.faults.push({ id, rule, until, matched: 0, applied: 0, passedAt: [] })
         return id
     }
 
@@ -104,6 +151,11 @@ export class FaultList {
 
     clear(): void {
         this.faults = []
+        this.firstApplied.clear()
+    }
+
+    firstAppliedAt(id: string): number | undefined {
+        return this.firstApplied.get(id)
     }
 
     takeSes(recipients: string[]): { name: string; answer: SesAnswer } | undefined {
@@ -119,16 +171,24 @@ export class FaultList {
     private take(request: FaultedRequest): FaultRule | undefined {
         const now = Date.now()
         this.faults = this.faults.filter((fault) => fault.until > now)
-        for (const fault of this.faults) {
-            if (!matches(fault.rule, request)) {
-                continue
-            }
+        const matching = this.faults.filter((fault) => matches(fault.rule, request))
+        const throttles = matching.filter((fault) => 'perSecond' in fault.rule.dose)
+        const answering = [...throttles, ...matching.filter((fault) => !throttles.includes(fault))].find((fault) => {
             fault.matched += 1
-            if (doseTakes(fault)) {
-                fault.applied += 1
-                return fault.rule
+            return doseTakes(fault, now)
+        })
+        if (answering) {
+            answering.applied += 1
+            if (!this.firstApplied.has(answering.id)) {
+                this.firstApplied.set(answering.id, now)
             }
         }
-        return undefined
+        if (answering === undefined || answering.rule.answer.kind === 'bounce') {
+            countSentAgainst(
+                throttles.filter((fault) => fault !== answering),
+                now
+            )
+        }
+        return answering?.rule
     }
 }

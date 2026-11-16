@@ -40,17 +40,19 @@ def _make_cache_key(prefix: str, *args: str) -> str:
 # Widget Messages Cache
 # Caches both initial load (after=None) and polling (after=timestamp).
 # When polling, 'after' stays constant until a new message arrives,
-# so cache hits are common. Stale data expires via short TTL.
+# so cache hits are common. A new message changes last_message_at in the key, so the next poll misses.
 
 
-def get_messages_cache_key(team_id: int, ticket_id: str, after: str | None = None) -> str:
+def get_messages_cache_key(team_id: int, ticket_id: str, last_message_at: str | None, after: str | None = None) -> str:
     """Cache key for widget messages endpoint."""
-    return _make_cache_key("messages", str(team_id), ticket_id, after or "initial")
+    return _make_cache_key("messages", str(team_id), ticket_id, last_message_at or "none", after or "initial")
 
 
-def get_cached_messages(team_id: int, ticket_id: str, after: str | None = None) -> dict | None:
+def get_cached_messages(
+    team_id: int, ticket_id: str, last_message_at: str | None, after: str | None = None
+) -> dict | None:
     """Get cached messages response."""
-    key = get_messages_cache_key(team_id, ticket_id, after)
+    key = get_messages_cache_key(team_id, ticket_id, last_message_at, after)
     try:
         return cache.get(key)
     except Exception:
@@ -58,9 +60,15 @@ def get_cached_messages(team_id: int, ticket_id: str, after: str | None = None) 
         return None
 
 
-def set_cached_messages(team_id: int, ticket_id: str, response_data: dict, after: str | None = None) -> None:
+def set_cached_messages(
+    team_id: int,
+    ticket_id: str,
+    response_data: dict,
+    last_message_at: str | None,
+    after: str | None = None,
+) -> None:
     """Cache messages response."""
-    key = get_messages_cache_key(team_id, ticket_id, after)
+    key = get_messages_cache_key(team_id, ticket_id, last_message_at, after)
     try:
         cache.set(key, response_data, timeout=MESSAGES_CACHE_TTL)
     except Exception:
@@ -186,15 +194,6 @@ def set_cached_unread_count(team_id: int, count: int) -> None:
 def invalidate_unread_count_cache(team_id: int) -> None:
     """Invalidate unread count cache for a team."""
     key = get_unread_count_cache_key(team_id)
-    try:
-        cache.delete(key)
-    except Exception:
-        logger.warning("conversations_cache_delete_error", key=key)
-
-
-def invalidate_messages_cache(team_id: int, ticket_id: str) -> None:
-    """Invalidate the initial-load messages cache entry for a ticket (after=None). Polling entries (after=<ts>) expire via TTL."""
-    key = get_messages_cache_key(team_id, ticket_id, None)
     try:
         cache.delete(key)
     except Exception:
