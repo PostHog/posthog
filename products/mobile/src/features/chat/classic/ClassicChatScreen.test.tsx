@@ -37,7 +37,196 @@ jest.mock('../chatSheetEvents', () => ({
 jest.mock('../useChatDraft', () => ({ useChatDraft: jest.fn() }))
 jest.mock('./useClassicChat', () => ({ useClassicChat: jest.fn() }))
 
+function formChat(questions: Record<string, unknown>[]): ReturnType<typeof useClassicChat> {
+    const state = classicHistory(
+        [
+            { id: 'question', type: 'human', content: 'Compare my events' },
+            {
+                id: 'form-message',
+                type: 'ai',
+                content: '',
+                tool_calls: [{ id: 'form-call', name: 'create_form', args: { questions } }],
+            },
+        ],
+        'Event comparison'
+    )
+    return {
+        id: 'saved-chat',
+        state,
+        form: state.form,
+        loading: false,
+        working: false,
+        stopping: false,
+        historyError: null,
+        error: null,
+        send: jest.fn(),
+        answer: jest.fn(),
+        submitForm: jest.fn(),
+        dismissForm: jest.fn(async () => true),
+        stop: jest.fn(),
+        reload: jest.fn(),
+        reset: jest.fn(),
+        dismissError: jest.fn(),
+    }
+}
+
+function formScreen(): React.ReactElement {
+    return (
+        <ClassicChatScreen
+            conversationId="saved-chat"
+            source={{ entry: 'chats_list', origin: 'chat' }}
+            autoFocus={false}
+            onBack={jest.fn()}
+            onNewChat={jest.fn()}
+        />
+    )
+}
+
 describe('classic chat draft recovery', () => {
+    test('answers native form selections and composite fields, retaining values after a failed submission', async () => {
+        jest.mocked(useChatDraft).mockReturnValue({
+            draft: { text: '', reportIds: [] },
+            ready: true,
+        } as unknown as ReturnType<typeof useChatDraft>)
+        const chat = formChat([
+            {
+                id: 'range',
+                title: 'Range',
+                question: 'Which range?',
+                options: [{ value: 'Last week' }],
+                allow_custom_answer: false,
+            },
+            {
+                id: 'events',
+                title: 'Events',
+                question: 'Which events?',
+                type: 'multi_select',
+                options: [{ value: 'Signup' }, { value: 'Purchase' }],
+            },
+            {
+                id: 'details',
+                title: 'Details',
+                question: 'Which settings?',
+                type: 'multi_field',
+                fields: [
+                    { id: 'segment', type: 'text', label: 'Segment' },
+                    { id: 'limit', type: 'number', label: 'Limit', min: 5, max: 15, step: 5 },
+                    { id: 'threshold', type: 'slider', label: 'Threshold', min: 10, max: 20, step: 5 },
+                    { id: 'returning', type: 'toggle', label: 'Returning users' },
+                    { id: 'group', type: 'dropdown', label: 'Group', options: [{ value: 'Country' }] },
+                ],
+            },
+        ])
+        let finish!: (accepted: boolean) => void
+        chat.submitForm = jest.fn(
+            () =>
+                new Promise<boolean>((resolve) => {
+                    finish = resolve
+                })
+        )
+        jest.mocked(useClassicChat).mockReturnValue(chat)
+        render(formScreen())
+        expect(screen.getByTestId('classic-form')).toBeTruthy()
+        expect(screen.queryByTestId('chat-input')).toBeNull()
+        expect(screen.getByLabelText('Submit answers')).toBeDisabled()
+        fireEvent.press(screen.getByRole('radio', { name: 'Last week' }))
+        fireEvent.press(screen.getByRole('checkbox', { name: 'Signup' }))
+        fireEvent.press(screen.getByRole('checkbox', { name: 'Purchase' }))
+        fireEvent.changeText(screen.getByLabelText('Other answers'), 'Activation\nInvite\nsignup\nactivation')
+        fireEvent.changeText(screen.getByLabelText('Segment'), 'New accounts')
+        fireEvent.changeText(screen.getByLabelText('Limit'), '7')
+        fireEvent.press(screen.getByRole('radio', { name: 'Country' }))
+        expect(screen.getByLabelText('Submit answers')).toBeDisabled()
+        fireEvent.changeText(screen.getByLabelText('Limit'), '10')
+        expect(screen.getByLabelText('Submit answers')).toBeEnabled()
+        fireEvent.press(screen.getByLabelText('Submit answers'))
+        fireEvent.press(screen.getByLabelText('Submit answers'))
+        expect(chat.submitForm).toHaveBeenCalledTimes(1)
+        expect(chat.submitForm).toHaveBeenCalledWith({
+            range: 'Last week',
+            events: ['Signup', 'Purchase', 'Activation', 'Invite'],
+            segment: 'New accounts',
+            limit: '10',
+            threshold: '10',
+            returning: 'false',
+            group: 'Country',
+        })
+        expect(screen.getByLabelText('Dismiss form')).toBeDisabled()
+        await act(async () => finish(false))
+        expect(screen.getByDisplayValue('New accounts')).toBeTruthy()
+        expect(screen.getByRole('checkbox', { name: 'Signup' })).toBeChecked()
+        expect(screen.getByLabelText('Submit answers')).toBeEnabled()
+        expect(chat.send).not.toHaveBeenCalled()
+    })
+
+    test('skips individual questions without sending their fields and offers dismissal for unsupported forms', async () => {
+        jest.mocked(useChatDraft).mockReturnValue({
+            draft: { text: '', reportIds: [] },
+            ready: true,
+        } as unknown as ReturnType<typeof useChatDraft>)
+        const chat = formChat([
+            { id: 'range', title: 'Range', question: 'Which range?', options: [{ value: 'Last week' }] },
+            {
+                id: 'details',
+                title: 'Details',
+                question: 'Which settings?',
+                type: 'multi_field',
+                fields: [
+                    { id: 'enabled', label: 'Enabled', type: 'toggle' },
+                    { id: 'segment', type: 'text', label: 'Segment' },
+                ],
+            },
+        ])
+        chat.submitForm = jest.fn(async () => false)
+        jest.mocked(useClassicChat).mockReturnValue(chat)
+        const view = render(formScreen())
+        fireEvent.press(screen.getByRole('radio', { name: 'Last week' }))
+        fireEvent.press(screen.getByLabelText('Skip question: Details'))
+        await act(async () => fireEvent.press(screen.getByLabelText('Submit answers')))
+        expect(chat.submitForm).toHaveBeenCalledWith({ range: 'Last week' })
+
+        const unsupported = formChat([
+            { id: 'future', title: 'Future', question: 'A future question', type: 'future_type' },
+        ])
+        jest.mocked(useClassicChat).mockReturnValue(unsupported)
+        view.rerender(formScreen())
+        expect(screen.getByText(/This form needs the web app/)).toBeTruthy()
+        expect(screen.queryByLabelText('Submit answers')).toBeNull()
+        await act(async () => fireEvent.press(screen.getByLabelText('Dismiss form')))
+        expect(unsupported.dismissForm).toHaveBeenCalledTimes(1)
+    })
+
+    test('adds streamed composite defaults without replacing an answer already entered', async () => {
+        jest.mocked(useChatDraft).mockReturnValue({
+            draft: { text: '', reportIds: [] },
+            ready: true,
+        } as unknown as ReturnType<typeof useChatDraft>)
+        const first = formChat([{ id: 'name', title: 'Name', question: 'Which segment?' }])
+        jest.mocked(useClassicChat).mockReturnValue(first)
+        const view = render(formScreen())
+        fireEvent.changeText(screen.getByLabelText('Your answer'), 'New accounts')
+        const complete = formChat([
+            { id: 'name', title: 'Name', question: 'Which segment?' },
+            {
+                id: 'settings',
+                title: 'Settings',
+                question: 'Which settings?',
+                type: 'multi_field',
+                fields: [
+                    { id: 'enabled', type: 'toggle', label: 'Enabled' },
+                    { id: 'threshold', type: 'slider', label: 'Threshold', min: 5 },
+                ],
+            },
+        ])
+        complete.submitForm = jest.fn(async () => false)
+        jest.mocked(useClassicChat).mockReturnValue(complete)
+        view.rerender(formScreen())
+        expect(screen.getByDisplayValue('New accounts')).toBeTruthy()
+        expect(screen.getByDisplayValue('5')).toBeTruthy()
+        await act(async () => fireEvent.press(screen.getByLabelText('Submit answers')))
+        expect(complete.submitForm).toHaveBeenCalledWith({ name: 'New accounts', enabled: 'false', threshold: '5' })
+    })
+
     test('keeps tool commentary collapsed while the final answer stays readable and copyable', async () => {
         const copy = jest.spyOn(Clipboard, 'setStringAsync').mockResolvedValue(true)
         jest.mocked(useChatDraft).mockReturnValue({
@@ -86,7 +275,6 @@ describe('classic chat draft recovery', () => {
         await waitFor(() => expect(copy).toHaveBeenCalledWith('Signups increased.'))
         copy.mockRestore()
     })
-
     test.each(['empty', 'partial', 'reloading'] as const)(
         'keeps %s history recoverable without hiding received messages',
         (kind) => {

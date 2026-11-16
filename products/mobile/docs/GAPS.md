@@ -54,7 +54,7 @@ Known gaps and behavior that stays on the device.
   The agent server source is not in this repo; its built dist answers `{ configOptions }`.
 - **In-progress reopen relies on the server backlog.** A live run is followed without a cursor and without reading `logs/`,
   which shows the whole thread only on thin-tail runs. The web reads `logs/` and reconciles on every connect.
-- **Unsupported chart and notebook content opens on the web.** Classic approvals work in the app. Clarification forms still lack native controls.
+- **Unsupported chart and notebook content opens on the web.** Classic approvals and clarification forms work in the app.
   Supported charts and notebook Markdown render inline; other notebook blocks and chart types keep a web fallback.
 - **Files from history show by name only.** A picked image draws from the file on the device.
   A file in a stored thread has no local copy, and the app neither downloads it nor draws a thumbnail.

@@ -31,6 +31,7 @@ import { type ChatSheetSource, useChatSheetEvents } from '../chatSheetEvents'
 import { SessionThread, type SessionThreadState } from '../session/SessionThread'
 import { useChatDraft } from '../useChatDraft'
 import { ClassicComposer } from './ClassicComposer'
+import { ClassicFormPanel } from './ClassicFormPanel'
 import { classicToolInvocations } from './classicActivity'
 import { classicThreadItems } from './classicMessages'
 import { useClassicChat } from './useClassicChat'
@@ -221,7 +222,16 @@ export function ClassicChatScreen({
                             {showErrorNotice ? (
                                 <ChatErrorNotice message={chat.error ?? ''} onDismiss={chat.dismissError} />
                             ) : null}
-                            {approval ? (
+                            {chat.form ? (
+                                <ClassicFormPanel
+                                    key={chat.form.id}
+                                    form={chat.form}
+                                    pending={chat.working || chat.loading}
+                                    webUrl={conversationWebUrl(scope, chat.id)}
+                                    onSubmit={chat.submitForm}
+                                    onDismiss={chat.dismissForm}
+                                />
+                            ) : approval ? (
                                 <View style={styles.approval} testID="classic-approval">
                                     <Text style={styles.label}>{approval.toolName}</Text>
                                     <Text style={styles.body}>{approval.preview}</Text>
