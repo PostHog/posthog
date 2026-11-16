@@ -35,21 +35,23 @@ export function LoginCodeResend(): JSX.Element {
 
     return (
         <div className="flex flex-col items-center gap-1 text-sm text-secondary text-center">
+            {/* Each branch has its own key and wraps all text in elements. Browser page translation
+                replaces bare text nodes with <font> elements, so React throws NotFoundError when it
+                removes a text node that is no longer in the paragraph. */}
             {secondsLeft > 0 ? (
-                <p className="m-0 flex flex-wrap items-center justify-center gap-x-1">
+                <p key="countdown" className="m-0 flex flex-wrap items-center justify-center gap-x-1">
                     {resendResponse?.success && (
                         <span className="flex items-center gap-1 text-success">
                             <IconCheckCircle />
-                            Code sent.
+                            <span>Code sent.</span>
                         </span>
                     )}
-                    <span>
-                        You can send a new code in <span className="tabular-nums">{formatCountdown(secondsLeft)}</span>
-                    </span>
+                    <span>You can send a new code in</span>
+                    <span className="tabular-nums">{formatCountdown(secondsLeft)}</span>
                 </p>
             ) : (
-                <p className="m-0">
-                    Didn't get the code?{' '}
+                <p key="ready" className="m-0 flex flex-wrap items-center justify-center gap-x-1">
+                    <span>Didn't get the code?</span>
                     <Link
                         onClick={() => resendCodeBasedVerification(null)}
                         disabledReason={resendResponseLoading ? 'Sending...' : undefined}
