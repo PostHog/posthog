@@ -7,9 +7,12 @@ import { Button } from '@posthog/quill-primitives'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { MCP_TOOL_CALL_EVENT } from 'lib/components/TaxonomicFilter/utils/mcpProperties'
+import { useDebouncedValue } from 'lib/hooks/useDebouncedValue'
+import { LoadingBar } from 'lib/lemon-ui/LoadingBar'
 import { cn } from 'lib/utils/css-classes'
 
 import { mcpAnalyticsFiltersLogic } from '../mcpAnalyticsFiltersLogic'
+import { LOADING_FEEDBACK_DELAY_MS } from './loadingFeedback'
 import { McpInternalUsersFilter } from './McpInternalUsersFilter'
 
 const TAXONOMIC_GROUP_TYPES = [
@@ -64,9 +67,10 @@ export function McpSharedFilters({
 }: McpSharedFiltersProps): JSX.Element {
     const { propertyFilters } = useValues(mcpAnalyticsFiltersLogic)
     const { setPropertyFilters } = useActions(mcpAnalyticsFiltersLogic)
+    const showLoadingBar = useDebouncedValue(refreshing, LOADING_FEEDBACK_DELAY_MS)
 
     return (
-        <div className={cn('w-full min-w-0', className)} data-attr={`${dataAttrPrefix}-property-filter`}>
+        <div className={cn('relative w-full min-w-0', className)} data-attr={`${dataAttrPrefix}-property-filter`}>
             <PropertyFilters
                 pageKey={pageKey}
                 propertyFilters={propertyFilters}
@@ -119,6 +123,12 @@ export function McpSharedFilters({
                     </div>
                 )}
             />
+            {showLoadingBar && (
+                <LoadingBar
+                    wrapperClassName="absolute inset-x-0 top-full mt-1 max-w-none"
+                    className="h-1 rounded-none bg-border"
+                />
+            )}
         </div>
     )
 }
