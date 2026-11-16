@@ -57,6 +57,26 @@ describe('sessionEventsDataLogic', () => {
         teamLogic.actions.loadCurrentTeamSuccess({ ...MOCK_DEFAULT_TEAM, flag_calls_only_in_flag_evaluations: value })
     }
 
+    const mockQueries = ({
+        flagEvaluationsFails,
+        flagEvaluationsRows,
+        eventsRows,
+    }: {
+        flagEvaluationsFails: boolean
+        flagEvaluationsRows: any[][]
+        eventsRows: (query: string) => any[][]
+    }): void => {
+        jest.spyOn(api, 'queryHogQL').mockImplementation(async (query: string) => {
+            if (query.includes('posthog.flag_evaluations')) {
+                if (flagEvaluationsFails) {
+                    throw new Error('timeout')
+                }
+                return { results: flagEvaluationsRows } as any
+            }
+            return { results: eventsRows(query) } as any
+        })
+    }
+
     afterEach(() => {
         logic.unmount()
         jest.restoreAllMocks()
@@ -104,22 +124,16 @@ describe('sessionEventsDataLogic', () => {
         'lists the session events when flagCallsOnlyInFlagEvaluations is $flagCallsOnlyInFlagEvaluations and the flag_evaluations read fails: $flagEvaluationsFails',
         async ({ flagCallsOnlyInFlagEvaluations, flagEvaluationsFails, expectedIds }) => {
             setFlagCallsOnlyInFlagEvaluations(flagCallsOnlyInFlagEvaluations)
-            jest.spyOn(api, 'queryHogQL').mockImplementation(async (query: string) => {
-                if (query.includes('posthog.flag_evaluations')) {
-                    if (flagEvaluationsFails) {
-                        throw new Error('timeout')
-                    }
-                    return {
-                        results: [
-                            row('both', '$feature_flag_called'),
-                            row('flag-evaluation-only', '$feature_flag_called'),
-                        ],
-                    } as any
-                }
-                if (query.includes('$session_id =')) {
-                    return { results: [row('pageview', '$pageview'), row('both', '$feature_flag_called')] } as any
-                }
-                return { results: [] } as any
+            mockQueries({
+                flagEvaluationsFails,
+                flagEvaluationsRows: [
+                    row('both', '$feature_flag_called'),
+                    row('flag-evaluation-only', '$feature_flag_called'),
+                ],
+                eventsRows: (query) =>
+                    query.includes('$session_id =')
+                        ? [row('pageview', '$pageview'), row('both', '$feature_flag_called')]
+                        : [],
             })
 
             await expectLogic(logic, () => {
@@ -151,24 +165,16 @@ describe('sessionEventsDataLogic', () => {
             const flagCallInBoth = makeEvent('both', '$feature_flag_called')
             const flagCall = makeEvent('flag-evaluation-only', '$feature_flag_called')
             logic.actions.loadEventsSuccess([pageview, flagCallInBoth, flagCall])
-            jest.spyOn(api, 'queryHogQL').mockImplementation(async (query: string) => {
-                if (query.includes('posthog.flag_evaluations')) {
-                    if (flagEvaluationsFails) {
-                        throw new Error('timeout')
-                    }
-                    return {
-                        results: [
-                            [JSON.stringify({ $feature_flag: 'from-flag-evaluations' }), 'both'],
-                            [JSON.stringify({ $feature_flag: 'from-flag-evaluations' }), 'flag-evaluation-only'],
-                        ],
-                    } as any
-                }
-                return {
-                    results: [
-                        [JSON.stringify({ $current_url: 'https://example.com/' }), 'pageview'],
-                        [JSON.stringify({ $feature_flag: 'from-events' }), 'both'],
-                    ],
-                } as any
+            mockQueries({
+                flagEvaluationsFails,
+                flagEvaluationsRows: [
+                    [JSON.stringify({ $feature_flag: 'from-flag-evaluations' }), 'both'],
+                    [JSON.stringify({ $feature_flag: 'from-flag-evaluations' }), 'flag-evaluation-only'],
+                ],
+                eventsRows: () => [
+                    [JSON.stringify({ $current_url: 'https://example.com/' }), 'pageview'],
+                    [JSON.stringify({ $feature_flag: 'from-events' }), 'both'],
+                ],
             })
 
             await expectLogic(logic, () => {

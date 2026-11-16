@@ -75,7 +75,6 @@ export interface sessionEventsDataLogicValues {
     }>
     eventsWithPrimaryProperty: RecordingEventType[]
     exceptionEvents: RecordingEventType[]
-    flagCallsOnlyInFlagEvaluations: boolean
     preloadableEvents: RecordingEventType[]
     sessionEventsData: RecordingEventType[] | null
     sessionEventsDataLoading: boolean
@@ -149,7 +148,6 @@ export interface sessionEventsDataLogicActions {
 export interface sessionEventsDataLogicMeta {
     key: string
     __keaTypeGenInternalSelectorTypes: {
-        flagCallsOnlyInFlagEvaluations: (currentTeam: TeamPublicType | TeamType | null) => boolean
         webVitalsEvents: (sessionEventsData: RecordingEventType[] | null) => RecordingEventType[]
         AIEvents: (sessionEventsData: RecordingEventType[] | null) => RecordingEventType[]
         exceptionEvents: (sessionEventsData: RecordingEventType[] | null) => RecordingEventType[]
@@ -255,7 +253,7 @@ AND properties.$lib != 'web'`
 
                     // flag_evaluations' sort key leads with flag_key, so the time range is the only filter that skips parts.
                     // That is why the range is ±5 minutes, not the ±24 hours of the events query.
-                    const flagCallsQuery = values.flagCallsOnlyInFlagEvaluations
+                    const flagCallsQuery = storesNoNewFlagCallsInEvents(values.currentTeam)
                         ? hogql`
 SELECT ${SESSION_EVENT_COLUMNS}
 FROM ${hogql.raw(FLAG_EVALUATIONS_TABLE)}
@@ -346,9 +344,9 @@ LIMIT 1000000`
                     const timestamps = existingEvents.map((ee) => dayjs(ee.timestamp).utc().valueOf())
                     const eventNames = Array.from(new Set(existingEvents.map((ee) => ee.event)))
                     const eventIds = existingEvents.map((ee) => ee.id)
-                    const flagCallIds = existingEvents
-                        .filter((ee) => values.flagCallsOnlyInFlagEvaluations && ee.event === FEATURE_FLAG_CALLED_EVENT)
-                        .map((ee) => ee.id)
+                    const flagCallIds = storesNoNewFlagCallsInEvents(values.currentTeam)
+                        ? existingEvents.filter((ee) => ee.event === FEATURE_FLAG_CALLED_EVENT).map((ee) => ee.id)
+                        : []
                     const earliestTimestamp = timestamps.reduce((a, b) => Math.min(a, b))
                     const latestTimestamp = timestamps.reduce((a, b) => Math.max(a, b))
 
@@ -382,16 +380,15 @@ LIMIT 1000000`
                         if (response.error) {
                             throw new Error(response.error)
                         }
-                        // A flag call that the events table holds wins, because its result comes first.
-                        const results = [...response.results, ...flagCalls]
+                        // A flag call that the events table holds wins, because its row goes into the map last.
+                        const propertiesById = new Map<string, string>(
+                            [...flagCalls, ...response.results].map((row: any) => [row[1], row[0]])
+                        )
 
                         for (const event of existingEvents) {
-                            const result = results.find((x: any) => {
-                                return x[1] === event.id
-                            })
-
-                            if (result) {
-                                event.properties = JSON.parse(result[0])
+                            const properties = propertiesById.get(event.id)
+                            if (properties) {
+                                event.properties = JSON.parse(properties)
                                 event.fullyLoaded = true
                             }
                         }
@@ -434,10 +431,6 @@ LIMIT 1000000`
         },
     })),
     selectors(() => ({
-        flagCallsOnlyInFlagEvaluations: [
-            (s) => [s.currentTeam],
-            (currentTeam: TeamPublicType | TeamType | null): boolean => storesNoNewFlagCallsInEvents(currentTeam),
-        ],
         webVitalsEvents: [
             (s) => [s.sessionEventsData],
             (sessionEventsData: RecordingEventType[] | null): RecordingEventType[] =>

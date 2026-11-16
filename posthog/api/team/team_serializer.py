@@ -89,7 +89,7 @@ def hide_team_secrets_from_workload_tokens(representation: dict[str, Any], reque
     return representation
 
 
-def _flag_evaluations_read_mode(context: dict[str, Any], organization_id: UUID) -> int:
+def flag_evaluations_read_mode_for(context: dict[str, Any], organization_id: UUID) -> int:
     # Two fields read the mode. A list serializes every object with one context, so one lookup serves the list.
     modes: dict[UUID, int] = context.setdefault("flag_evaluations_read_modes", {})
     if organization_id not in modes:
@@ -311,10 +311,12 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
 
     @extend_schema_field(serializers.ChoiceField(choices=FlagEvaluationsMode.choices))
     def get_flag_evaluations_mode(self, obj: Team) -> int:
-        return _flag_evaluations_read_mode(self.context, obj.organization_id)
+        return flag_evaluations_read_mode_for(self.context, obj.organization_id)
 
     def get_flag_calls_only_in_flag_evaluations(self, obj: Team) -> bool:
-        return flag_calls_only_in_flag_evaluations(obj, _flag_evaluations_read_mode(self.context, obj.organization_id))
+        return flag_calls_only_in_flag_evaluations(
+            obj, flag_evaluations_read_mode_for(self.context, obj.organization_id)
+        )
 
     @extend_schema_field(REALTIME_COHORTS_FIELD_SCHEMA)
     def get_realtime_cohorts(self, obj: Team) -> dict[str, str]:

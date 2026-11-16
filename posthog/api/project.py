@@ -71,6 +71,7 @@ from posthog.api.team.team_serializer import (
     EvaluationContextSuggestionRequestSerializer,
     EvaluationContextSuggestionResponseSerializer,
     TeamSerializer,
+    flag_evaluations_read_mode_for,
     hide_team_secrets_from_workload_tokens,
     realtime_cohorts_for_request,
 )
@@ -147,6 +148,7 @@ from products.access_control.backend.presentation.access_control import (
 from products.access_control.backend.presentation.access_control_settings import AccessControlSettingsViewSetMixin
 from products.dashboards.backend.models import Dashboard
 from products.feature_flags.backend.facade.enums import FlagEvaluationsMode
+from products.feature_flags.backend.facade.flags import flag_calls_only_in_flag_evaluations
 from products.feature_flags.backend.models import TeamFeatureFlagDefaultsConfig
 from products.feature_flags.backend.models.evaluation_context import (
     EvaluationContext,
@@ -1060,10 +1062,11 @@ class ProjectBackwardCompatSerializer(
 
     @extend_schema_field(serializers.ChoiceField(choices=FlagEvaluationsMode.choices))
     def get_flag_evaluations_mode(self, obj: Project) -> int:
-        return TeamSerializer.get_flag_evaluations_mode(cast(TeamSerializer, self), obj.passthrough_team)
+        return flag_evaluations_read_mode_for(self.context, obj.organization_id)
 
     def get_flag_calls_only_in_flag_evaluations(self, obj: Project) -> bool:
-        return TeamSerializer.get_flag_calls_only_in_flag_evaluations(cast(TeamSerializer, self), obj.passthrough_team)
+        read_mode = flag_evaluations_read_mode_for(self.context, obj.organization_id)
+        return flag_calls_only_in_flag_evaluations(obj.passthrough_team, read_mode)
 
     @extend_schema_field(REALTIME_COHORTS_FIELD_SCHEMA)
     def get_realtime_cohorts(self, obj: Project) -> dict[str, str]:
