@@ -167,6 +167,7 @@ CREDENTIAL_AUTH_TYPES: Mapping[str, str] = {
     "beacons": "credentials",
     "beamer": "token",
     "beehiiv": "credentials",
+    "better-auth": "credentials",
     "better-stack": "token",
     "bettermode": "credentials",
     "bexio": "credentials",
