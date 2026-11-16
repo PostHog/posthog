@@ -4,7 +4,7 @@ import math
 import time
 import random
 import datetime
-from typing import Any, TypedDict, cast
+from typing import TYPE_CHECKING, Any, TypedDict, cast
 from urllib.parse import urlencode, urljoin
 from uuid import uuid4
 
@@ -73,6 +73,7 @@ from posthog.helpers.sso import (
     sso_failure_redirect_url,
 )
 from posthog.helpers.two_factor_session import (
+    CODE_BASED_VERIFICATION_SSO_SESSION_KEY,
     CODE_MAX_ATTEMPTS,
     CODE_TTL_SECONDS,
     LOGIN_CODE_VERIFICATION_COUNTER,
@@ -88,6 +89,7 @@ from posthog.helpers.verified_domain_enforcement import VERIFIED_DOMAIN_REQUIRED
 from posthog.inbox_providers import InboxProvider, InboxProviderLookup
 from posthog.models import IdentityProviderConfig, OrganizationDomain, User
 from posthog.models.activity_logging import signal_handlers  # imported for its signal receivers too
+from posthog.models.identity_provider_email_verification import IdentityProviderEmailVerification
 from posthog.models.webauthn_credential import WebauthnCredential
 from posthog.passkey import generate_passkey_authentication_options, verify_passkey_authentication_response
 from posthog.rate_limit import (
@@ -126,6 +128,9 @@ from products.security.backend.facade.api import (
 )
 from products.security.backend.facade.contracts import SubjectInput as SecuritySubject
 from products.security.backend.facade.enums import Surface as SecuritySurface
+
+if TYPE_CHECKING:
+    from posthog.api.oidc import MultitenantOIDCAuth
 
 logger = structlog.get_logger("posthog.auth")
 mfa_logger = structlog.get_logger("posthog.auth.mfa")
@@ -282,9 +287,13 @@ class LoginCodeEmailUndeliverable(APIException):
     default_code = "login_code_email_undeliverable"
 
 
-def _send_login_code(request: HttpRequest, user: User, *, is_resend: bool = False) -> bool:
+def _send_login_code(
+    request: HttpRequest, user: User, *, is_resend: bool = False, target_email: str | None = None
+) -> bool:
     try:
-        return code_based_verifier.create_and_send_code_based_verification(request, user, is_resend=is_resend)
+        return code_based_verifier.create_and_send_code_based_verification(
+            request, user, is_resend=is_resend, target_email=target_email
+        )
     except EmailRecipientUndeliverableError:
         raise LoginCodeEmailUndeliverable()
 
@@ -1257,27 +1266,38 @@ class CodeBasedVerificationViewSet(NonCreatingViewSetMixin, viewsets.GenericView
             raise invalid_error
 
         # Code valid - invalidate the pending state and complete login.
+        sso = request.session.get(CODE_BASED_VERIFICATION_SSO_SESSION_KEY)
         code_based_verifier.clear_pending(request)
-        login(request, user, backend="django.contrib.auth.backends.ModelBackend")
+        if sso:
+            # The code replaced the identity provider's email claim, so record the proof for that
+            # issuer, and start the session on the provider's backend to keep the SSO exemptions.
+            IdentityProviderEmailVerification.objects.get_or_create(user=user, issuer=sso["issuer"])
+            login(request, user, backend=sso["backend"])
+            _notify_social_login(request, user, str(sso["provider"]))
+        else:
+            login(request, user, backend="django.contrib.auth.backends.ModelBackend")
+            report_user_logged_in(user, social_provider="")
         set_two_factor_verified_in_session(request)
-        report_user_logged_in(user, social_provider="")
         mfa_logger.info("Code-based verification successful", user_id=user.pk)
         LOGIN_CODE_VERIFICATION_COUNTER.labels(result="success").inc()
 
-        # Always set remember device cookie (30 days), same as TOTP 2FA
-        cookie_key = REMEMBER_COOKIE_PREFIX + str(uuid4())
-        cookie_value = get_remember_device_cookie(user=user, otp_device_id="code_based_verification")
         response = Response({"success": True})
-        response.set_cookie(
-            cookie_key,
-            cookie_value,
-            max_age=settings.TWO_FACTOR_REMEMBER_COOKIE_AGE,  # 30 days
-            domain=getattr(settings, "TWO_FACTOR_REMEMBER_COOKIE_DOMAIN", None),
-            path=getattr(settings, "TWO_FACTOR_REMEMBER_COOKIE_PATH", "/"),
-            secure=getattr(settings, "TWO_FACTOR_REMEMBER_COOKIE_SECURE", True),
-            httponly=getattr(settings, "TWO_FACTOR_REMEMBER_COOKIE_HTTPONLY", True),
-            samesite=getattr(settings, "TWO_FACTOR_REMEMBER_COOKIE_SAMESITE", "Strict"),
-        )
+
+        if not sso:
+            # Only a password login may skip the code this way. An identity provider login would
+            # otherwise grant the remember cookie that exempts the same account's password logins.
+            cookie_key = REMEMBER_COOKIE_PREFIX + str(uuid4())
+            cookie_value = get_remember_device_cookie(user=user, otp_device_id="code_based_verification")
+            response.set_cookie(
+                cookie_key,
+                cookie_value,
+                max_age=settings.TWO_FACTOR_REMEMBER_COOKIE_AGE,  # 30 days
+                domain=getattr(settings, "TWO_FACTOR_REMEMBER_COOKIE_DOMAIN", None),
+                path=getattr(settings, "TWO_FACTOR_REMEMBER_COOKIE_PATH", "/"),
+                secure=getattr(settings, "TWO_FACTOR_REMEMBER_COOKIE_SECURE", True),
+                httponly=getattr(settings, "TWO_FACTOR_REMEMBER_COOKIE_HTTPONLY", True),
+                samesite=getattr(settings, "TWO_FACTOR_REMEMBER_COOKIE_SAMESITE", "Strict"),
+            )
 
         # Also add device to fingerprint cache
         short_user_agent = get_short_user_agent(request)
@@ -1302,7 +1322,10 @@ class CodeBasedVerificationViewSet(NonCreatingViewSetMixin, viewsets.GenericView
         except User.DoesNotExist:
             raise serializers.ValidationError({"detail": "User not found."}, code="user_not_found")
 
-        if not _send_login_code(request, user, is_resend=True):
+        # A resend must keep mailing the address the pending code authorizes, or the new code would
+        # bind to the account address and no longer verify.
+        target_email = code_based_verifier.get_pending_code_based_verification_target(request)
+        if not _send_login_code(request, user, is_resend=True, target_email=target_email):
             raise serializers.ValidationError(
                 {"detail": "Could not send verification code."},
                 code="code_based_verification_email_failed",
@@ -1628,6 +1651,86 @@ def social_access_rules_allow(
         raise AuthFailed(backend, SECURITY_REFUSAL_CODE)
 
 
+IDP_EMAIL_VERIFICATION_BACKENDS = ("saml", "oidc")
+
+
+def _identity_provider_issuer(backend: BaseAuth, response: dict[str, Any] | None) -> str | None:
+    """The identity provider's own identifier, which is what scopes the emailed-code proof.
+
+    OIDC keeps the issuer on its config. SAML names the config by relay state in `idp_name`, and the
+    config holds the provider's entity ID, so read the entity ID: two configs can front one provider,
+    and a user who proved the address through one has proved it for the other.
+    """
+    if backend.name == "oidc":
+        try:
+            oidc_config = cast("MultitenantOIDCAuth", backend).identity_provider_config
+        except AuthFailed:
+            return None
+        return oidc_config.oidc_issuer_url.rstrip("/") or None
+
+    relay_state = (response or {}).get("idp_name")
+    if not relay_state:
+        return None
+    issuer = (
+        IdentityProviderConfig.objects.filter(saml_relay_state=relay_state)
+        .values_list("saml_entity_id", flat=True)
+        .first()
+    )
+    return issuer or None
+
+
+def social_require_idp_email_verification(
+    strategy: DjangoStrategy,
+    backend: BaseAuth,
+    user: User | None = None,
+    details: dict[str, Any] | None = None,
+    response: dict[str, Any] | None = None,
+    **kwargs: Any,
+) -> HttpResponse | None:
+    """Hold the first login through an identity provider until the user enters a code mailed to the
+    address that provider asserted.
+
+    A response from a pipeline step makes `do_complete` return it instead of starting a session, so
+    the login stays incomplete until the verification endpoint accepts the code.
+    """
+    if user is None or backend.name not in IDP_EMAIL_VERIFICATION_BACKENDS:
+        return None
+    if _sso_reauth_request(strategy):
+        # A step-up re-auth continues a signed-in session, so it is not that user's first login.
+        return None
+
+    issuer = _identity_provider_issuer(backend, response)
+    email = ((details or {}).get("email") or "").strip()
+    if not issuer or not email:
+        return None
+    if IdentityProviderEmailVerification.objects.filter(user=user, issuer=issuer).exists():
+        return None
+
+    request = strategy.request
+    try:
+        sent = _send_login_code(request, user, target_email=email)
+    except LoginCodeEmailUndeliverable:
+        # The provider refuses mail for this address, so the user cannot complete the step. Refusing
+        # the login as well would lock the account out, and the step retries on the next login.
+        logger.warning("idp_email_verification_code_undeliverable", user_id=user.pk, backend=backend.name)
+        sent = False
+    if not sent:
+        # No email configured, or an access rule exempts the address. A refused send must not lock out
+        # every account this provider signs in.
+        return None
+
+    request.session[CODE_BASED_VERIFICATION_SSO_SESSION_KEY] = {
+        "issuer": issuer,
+        "backend": f"{backend.__module__}.{backend.__class__.__name__}",
+        "provider": backend.name,
+    }
+    query = {"code_verification_pending": "1", "email": email}
+    next_url = strategy.session_get("next") or ""
+    if next_url:
+        query["next"] = next_url
+    return redirect(f"/login?{urlencode(query)}")
+
+
 def social_reauth_complete(strategy: DjangoStrategy, backend, user: User | None = None, **kwargs) -> None:
     """Grant the step-up, once every other pipeline step has accepted the flow.
 
@@ -1683,6 +1786,14 @@ def social_grant_staff_to_google_workspace_members(
         user.save(update_fields=["is_staff"])
 
 
+def _notify_social_login(request: HttpRequest, user: User, backend_name: str) -> None:
+    report_user_logged_in(user, social_provider=backend_name)
+    if not has_valid_known_device_cookie(request, user):
+        login_from_new_device_notification.delay(
+            user.id, timezone.now(), get_short_user_agent(request), get_ip_address(request), backend_name
+        )
+
+
 def social_login_notification(
     strategy: DjangoStrategy, backend, user: User | None = None, is_new: bool = False, **kwargs
 ):
@@ -1695,13 +1806,4 @@ def social_login_notification(
 
     # Trigger notification and event only on login
     if not is_new:
-        report_user_logged_in(user, social_provider=getattr(backend, "name", ""))
-
-        request = strategy.request
-        if not has_valid_known_device_cookie(request, user):
-            short_user_agent = get_short_user_agent(request)
-            ip_address = get_ip_address(request)
-            backend_name = getattr(backend, "name", "")
-            login_from_new_device_notification.delay(
-                user.id, timezone.now(), short_user_agent, ip_address, backend_name
-            )
+        _notify_social_login(strategy.request, user, getattr(backend, "name", ""))

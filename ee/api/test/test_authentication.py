@@ -33,11 +33,13 @@ from social_django.utils import load_strategy
 from posthog.api.authentication import social_identity_matches_session
 from posthog.api.oidc import MultitenantOIDCAuth
 from posthog.api.sso import CustomGoogleOAuth2, MultitenantSAMLAuth
+from posthog.api.test.test_code_based_verification import enable_code_sending, workflows_refuses_the_recipient
 from posthog.constants import AvailableFeature
 from posthog.helpers.sso import GITHUB_EMAIL_LOOKUP_ERROR, UNVERIFIED_SOCIAL_EMAIL_ERROR
 from posthog.models import OrganizationMembership, User
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.identity_provider_config import IdentityProviderConfig
+from posthog.models.identity_provider_email_verification import IdentityProviderEmailVerification
 from posthog.models.linked_identity_provider_config import LinkedIdentityProviderConfig
 from posthog.models.organization_domain import OrganizationDomain
 from posthog.redis import get_client
@@ -235,6 +237,90 @@ class TestOIDCAuthentication(APILicensedTest):
         social_auth = UserSocialAuth.objects.get(user=self.user, provider="oidc")
         self.assertEqual(social_auth.uid, f"{self.config.oidc_issuer_url}:example-user")
         self.assertEqual(social_auth.extra_data, {})
+
+    @pytest.mark.disable_mock_code_based_verifier
+    def test_first_login_with_oidc_requires_the_code_emailed_to_the_asserted_address(self) -> None:
+        self.user.email = "member@example.com"
+        self.user.save()
+        self.client.logout()
+
+        with enable_code_sending() as mock_send:
+            response = self._complete_oidc_login("member@example.com")
+
+            self.assertEqual(response.status_code, 302)
+            location = urlparse(response["Location"])
+            self.assertEqual(location.path, "/login")
+            query = parse_qs(location.query)
+            self.assertEqual(query["code_verification_pending"], ["1"])
+            self.assertEqual(query["email"], ["member@example.com"])
+            self.assertNotIn("_auth_user_id", self.client.session)
+
+            code = mock_send.call_args[0][1]
+            response = self.client.post("/api/login/code-based-verification/", {"code": code})
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(self.client.session["_auth_user_id"], str(self.user.pk))
+        # The session must stay on the provider's backend, or the SSO-only exemptions stop applying.
+        self.assertEqual(self.client.session["_auth_user_backend"], "posthog.api.oidc.MultitenantOIDCAuth")
+        self.assertTrue(
+            IdentityProviderEmailVerification.objects.filter(
+                user=self.user, issuer=self.config.oidc_issuer_url
+            ).exists()
+        )
+
+        # The proof belongs to the account and issuer, so the next login needs no code.
+        self.client.logout()
+        with enable_code_sending() as mock_send:
+            self._complete_oidc_login("member@example.com")
+            self.assertFalse(mock_send.called)
+        self.assertEqual(self.client.session["_auth_user_id"], str(self.user.pk))
+
+    @pytest.mark.disable_mock_code_based_verifier
+    def test_the_proof_is_scoped_to_the_issuer(self) -> None:
+        self.user.email = "member@example.com"
+        self.user.save()
+        self.client.logout()
+        IdentityProviderEmailVerification.objects.create(user=self.user, issuer="https://other-idp.example.com")
+
+        with enable_code_sending() as mock_send:
+            response = self._complete_oidc_login("member@example.com")
+
+        self.assertIn("code_verification_pending=1", response["Location"])
+        self.assertTrue(mock_send.called)
+        self.assertNotIn("_auth_user_id", self.client.session)
+
+    @pytest.mark.disable_mock_code_based_verifier
+    def test_the_code_goes_to_the_address_the_provider_asserts(self) -> None:
+        # A linked identity resolves by uid, so the account address can differ from the one the
+        # provider asserts. The code has to prove the asserted address, not the account one.
+        UserSocialAuth.objects.create(
+            user=self.user, provider="oidc", uid=f"{self.config.oidc_issuer_url}:example-user"
+        )
+        self.user.email = "owner@example.com"
+        self.user.save()
+        self.client.logout()
+
+        with enable_code_sending() as mock_send:
+            response = self._complete_oidc_login("member@example.com")
+            self.assertEqual(mock_send.call_args.kwargs["to_email"], "member@example.com")
+            code = mock_send.call_args[0][1]
+            response = self.client.post("/api/login/code-based-verification/", {"code": code})
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(self.client.session["_auth_user_id"], str(self.user.pk))
+
+    @pytest.mark.disable_mock_code_based_verifier
+    def test_login_continues_when_the_asserted_address_refuses_mail(self) -> None:
+        self.user.email = "member@example.com"
+        self.user.save()
+        self.client.logout()
+
+        with workflows_refuses_the_recipient():
+            response = self._complete_oidc_login("member@example.com")
+
+        self.assertEqual(response.status_code, 302)
+        self.assertEqual(self.client.session["_auth_user_id"], str(self.user.pk))
+        self.assertFalse(IdentityProviderEmailVerification.objects.filter(user=self.user).exists())
 
     @parameterized.expand([("verified", True), ("unverified", False), ("missing", None)])
     def test_oidc_jit_provisioning_creates_user_on_verified_domain(
@@ -1460,6 +1546,48 @@ class TestEESAMLAuthenticationAPI(APILicensedTest):
         # Test logged in request
         response = self.client.get("/api/users/@me/")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+    @pytest.mark.disable_mock_code_based_verifier
+    @time_machine.travel("2021-08-25T22:09:14.252Z", tick=False)  # Ensures the SAML timestamp validation passes
+    def test_first_login_with_saml_requires_the_emailed_code(self) -> None:
+        user = User.objects.create(email="engineering@posthog.com", distinct_id=str(uuid.uuid4()))
+
+        self.client.get("/login/saml/?email=engineering@posthog.com")
+        _session = self.client.session
+        _session.update({"saml_state": "ONELOGIN_87856a50b5490e643b1ebef9cb5bf6e78225a3c6"})
+        _session.save()
+
+        with open(
+            os.path.join(CURRENT_FOLDER, "fixtures/saml_login_response"),
+            encoding="utf_8",
+        ) as f:
+            saml_response = f.read()
+        post_data = {"SAMLResponse": saml_response, "RelayState": str(self.organization_domain.id)}
+
+        with enable_code_sending() as mock_send:
+            response = self.client.post("/complete/saml/", post_data, format="multipart")
+
+            self.assertEqual(response.status_code, 302)
+            self.assertIn("code_verification_pending=1", response["Location"])
+            self.assertNotIn("_auth_user_id", self.client.session)
+
+            config = cast(IdentityProviderConfig, self.organization_domain.saml_identity_provider_configs.first())
+            code = mock_send.call_args[0][1]
+            response = self.client.post("/api/login/code-based-verification/", {"code": code})
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(self.client.session["_auth_user_id"], str(user.pk))
+        self.assertEqual(self.client.session["_auth_user_backend"], "posthog.api.sso.MultitenantSAMLAuth")
+        self.assertTrue(
+            IdentityProviderEmailVerification.objects.filter(user=user, issuer=config.saml_entity_id).exists()
+        )
+
+        # The proof is keyed by the provider's entity ID, so a second assertion from it needs no code.
+        self.client.logout()
+        with enable_code_sending() as mock_send:
+            self.client.post("/complete/saml/", post_data, follow=True, format="multipart")
+            self.assertFalse(mock_send.called)
+        self.assertEqual(self.client.session["_auth_user_id"], str(user.pk))
 
     @parameterized.expand(
         [

@@ -274,8 +274,13 @@ export const authLogic = kea<authLogicType>([
                 panel: number,
                 pendingInvite: PendingInvite | null
             ): AuthPageStep => {
+                // A pending login code owns the page, even on a fresh load: the person already left for
+                // their identity provider and came back, so asking for the email again would restart it.
+                if (codeVerificationRequired) {
+                    return 'login_code'
+                }
                 if (accountPath === 'login') {
-                    return codeVerificationRequired ? 'login_code' : 'login'
+                    return 'login'
                 }
                 if (accountPath === 'signup') {
                     if (pendingInvite) {
@@ -410,7 +415,15 @@ export const authLogic = kea<authLogicType>([
     urlToAction(({ actions, values }) => {
         // `?email=` gives the `generate_demo_data` command a quick login link. Demo signup is left to
         // `signupLogic`, which signs the demo user in straight away.
-        const prefillEmail = (_: Record<string, any>, { email }: Record<string, any>): void => {
+        const prefillEmail = (
+            _: Record<string, any>,
+            { email, code_verification_pending }: Record<string, any>
+        ): void => {
+            // The identity provider round trip returns with a code already emailed; prechecking would
+            // start a second login attempt, and can bounce the person back to that provider.
+            if (code_verification_pending) {
+                return
+            }
             if (email && !(values.preflight?.demo && values.entry === 'signup')) {
                 actions.setLoginValue('email', email)
                 actions.precheck({ email })

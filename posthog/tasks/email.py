@@ -604,8 +604,11 @@ def send_email_verification_code(user_id: int, code: str, target_email: str | No
 
 @shared_task(**EMAIL_TASK_KWARGS)
 @skip_team_scope_audit
-def send_code_based_verification(user_id: int, code: str) -> None:
-    """Send the 6-digit login verification code."""
+def send_code_based_verification(user_id: int, code: str, to_email: str | None = None) -> None:
+    """Send the 6-digit login verification code.
+
+    `to_email` pins the recipient to the address the code authorizes, which is the address an
+    identity provider asserted for the user. Password logins leave it None."""
     user: User = User.objects.get(pk=user_id)
 
     message = EmailMessage(
@@ -620,7 +623,7 @@ def send_code_based_verification(user_id: int, code: str) -> None:
             "site_url": settings.SITE_URL,
         },
     )
-    message.add_user_recipient(user)
+    message.add_user_recipient(user, email_override=to_email)
     if message.send(send_async=False):
         raise EmailRecipientUndeliverableError("the login code email was refused as undeliverable")
     posthoganalytics.capture(

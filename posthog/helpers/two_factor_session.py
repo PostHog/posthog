@@ -288,6 +288,14 @@ def is_backup_code_attempt(token: object) -> bool:
 # (INCR) rather than via a raceable session read-modify-write, which parallel guesses could sidestep.
 CODE_ATTEMPTS_REDIS_KEY_PREFIX = "code_based_verification_attempts"
 
+# The address a code is bound to, when it is not the account address. An identity provider login
+# mails the code to the address the provider asserted, so only that address can verify it.
+CODE_BASED_VERIFICATION_TARGET_SESSION_KEY = "code_based_verification_target"
+
+# Set when a login through an identity provider stopped here. The verification endpoint reads it to
+# start the session on the provider's backend and to record the proof for that issuer.
+CODE_BASED_VERIFICATION_SSO_SESSION_KEY = "code_based_verification_sso"
+
 
 class CodeBasedVerificationTokenGenerator(PasswordResetTokenGenerator):
     """Derive a short numeric login-verification code from the same secret-keyed,
@@ -388,9 +396,14 @@ class CodeBasedVerifier:
         return True
 
     def create_and_send_code_based_verification(
-        self, request: HttpRequest, user: User, *, is_resend: bool = False
+        self, request: HttpRequest, user: User, *, is_resend: bool = False, target_email: str | None = None
     ) -> bool:
-        """Raises EmailRecipientUndeliverableError when the address cannot receive the code."""
+        """Raises EmailRecipientUndeliverableError when the address cannot receive the code.
+
+        `target_email` mails the code to the address it authorizes instead of the account address.
+        An identity provider login passes the address the provider asserted, so the code proves the
+        user receives mail there, and it verifies only that address.
+        """
         from posthog.tasks import email
 
         if not self.should_send_code_based_verification(user):
@@ -398,10 +411,11 @@ class CodeBasedVerifier:
 
         try:
             issued_at = int(time.time())
-            code = code_based_verification_token_generator.make_code(user, issued_at)
-            email.send_code_based_verification(user.pk, code)
+            code = code_based_verification_token_generator.make_code(user, issued_at, target_email or "")
+            email.send_code_based_verification(user.pk, code, to_email=target_email)
             request.session["code_based_verification_pending_user_id"] = user.pk
             request.session["code_based_verification_issued_at"] = issued_at
+            request.session[CODE_BASED_VERIFICATION_TARGET_SESSION_KEY] = target_email
             # Resends must not reset the failed-attempt counter, otherwise the attempt cap could be
             # sidestepped by guessing up to the limit, resending, and repeating - letting the 6-digit
             # code be brute-forced in batches. The attempt budget is per pending login, not per code,
@@ -439,11 +453,16 @@ class CodeBasedVerifier:
     def get_pending_code_based_verification_issued_at(self, request: HttpRequest) -> int | None:
         return request.session.get("code_based_verification_issued_at")
 
+    def get_pending_code_based_verification_target(self, request: HttpRequest) -> str | None:
+        target: str | None = request.session.get(CODE_BASED_VERIFICATION_TARGET_SESSION_KEY)
+        return target
+
     def check_code(self, request: HttpRequest, user: User, code: str) -> bool:
         issued_at = self.get_pending_code_based_verification_issued_at(request)
         if not issued_at:
             return False
-        return code_based_verification_token_generator.check_code(user, code, issued_at)
+        target = self.get_pending_code_based_verification_target(request) or ""
+        return code_based_verification_token_generator.check_code(user, code, issued_at, target)
 
     @staticmethod
     def _attempts_redis_key(user_id: int) -> str:
@@ -486,6 +505,8 @@ class CodeBasedVerifier:
             "code_based_verification_pending_user_id",
             "code_based_verification_issued_at",
             "code_based_verification_attempts",
+            CODE_BASED_VERIFICATION_TARGET_SESSION_KEY,
+            CODE_BASED_VERIFICATION_SSO_SESSION_KEY,
         ):
             request.session.pop(key, None)
 

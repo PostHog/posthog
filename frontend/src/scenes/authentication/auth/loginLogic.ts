@@ -869,7 +869,14 @@ export const loginLogic = kea<loginLogicType>([
         },
     })),
     urlToAction(({ actions }) => ({
-        '/login': (_, { error_code, error_detail, message }) => {
+        '/login': (_, { error_code, error_detail, message, code_verification_pending, email }) => {
+            if (code_verification_pending) {
+                // A login through an identity provider stopped here: the code is already emailed, so
+                // this page continues that login instead of starting one.
+                actions.setCodeVerificationRequired(typeof email === 'string' ? email : '')
+                return
+            }
+
             if (error_code) {
                 actions.setGeneralError(error_code, error_detail)
                 router.actions.replace('/login', {})
