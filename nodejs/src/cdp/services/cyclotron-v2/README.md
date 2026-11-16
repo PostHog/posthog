@@ -60,7 +60,7 @@ Each dequeued job exposes an ack interface:
 
 Every release write (`ack`, `fail`, `reschedule`, `defer`, `cancel`) matches the row on `lock_id`, so a write from a worker that lost its claim changes nothing.
 With `CDP_CYCLOTRON_RELEASE_WRITE_RETRY` on, a release write that loses its Postgres connection runs once more on a fresh connection, unless the heartbeat limit has passed.
-Without the retry, the job stays claimed until the janitor's stall reset, and then runs a second time.
+Without the retry, a write whose connection drops before it commits leaves the job claimed until the janitor's stall reset, which then runs it a second time.
 `cdp_cyclotron_v2_release_write_retries_total` counts each retry by outcome.
 
 ### Janitor (standalone service)

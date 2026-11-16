@@ -5172,7 +5172,9 @@ describe('Cyclotron V2', () => {
 
                     expect(await interruptReleaseWrite(id, () => release(job), 'pg_terminate_backend')).toBe('released')
 
-                    const [next] = await dequeueOneBatch(createWorker('email', { batchMaxSize: 1 }))
+                    const emailWorker = createWorker('email', { batchMaxSize: 1 })
+                    stops.push(() => emailWorker.disconnect())
+                    const [next] = await dequeueOneBatch(emailWorker)
                     expect(next.id).toBe(enqueuedWhileRunning)
                 }
             )
