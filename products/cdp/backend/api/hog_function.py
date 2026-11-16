@@ -795,6 +795,15 @@ class HogFunctionSerializer(HogFunctionMinimalSerializer):
                 {"filters": f"{', '.join(reserved)} is reserved for the product that emits it."}
             )
 
+        # Debug output lands in the shared log store, which a reader without the event's read scope can query.
+        guarded = sorted(_event_ids(proposed_filters) & INTERNAL_EVENT_READ_SCOPES.keys())
+        inputs = attrs.get("inputs", instance.inputs if isinstance(instance, HogFunction) else None) or {}
+        debug_value = (inputs.get("debug") or {}).get("value") if isinstance(inputs.get("debug"), dict) else None
+        if guarded and debug_value not in (None, False, "", "false"):
+            raise serializers.ValidationError(
+                {"inputs": f"Destinations on {', '.join(guarded)} can't log debug output. Turn off the debug input."}
+            )
+
         self._validate_hidden_template_not_enabled(attrs, bool(is_create))
 
         # Existing functions keep working (and can be updated/disabled) if the flag is

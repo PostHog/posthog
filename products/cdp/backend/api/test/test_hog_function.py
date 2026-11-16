@@ -477,6 +477,42 @@ class TestHogFunctionAPIWithoutAvailableFeature(ClickhouseTestMixin, APIBaseTest
 
         self.assertEqual(response.status_code, expected_status, response.json())
 
+    @parameterized.expand(
+        [
+            ("debug on for the report event", _REPORT_FILTERS, True, status.HTTP_400_BAD_REQUEST),
+            ("debug as a truthy template", _REPORT_FILTERS, "{true}", status.HTTP_400_BAD_REQUEST),
+            ("debug off for the report event", _REPORT_FILTERS, False, status.HTTP_201_CREATED),
+            ("debug on for another event", _OTHER_INTERNAL_FILTERS, True, status.HTTP_201_CREATED),
+        ]
+    )
+    def test_a_destination_on_signals_reports_cannot_log_debug_output(self, _name, filters, debug, expected_status):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/hog_functions/",
+            data={
+                "name": "Inbox webhook",
+                "hog": "fetch('https://example.com');",
+                "type": "internal_destination",
+                "filters": filters,
+                "inputs_schema": [{"key": "debug", "type": "boolean", "required": False}],
+                "inputs": {"debug": {"value": debug}},
+            },
+        )
+
+        self.assertEqual(response.status_code, expected_status, response.json())
+
+    def test_turning_on_debug_for_a_stored_report_destination_is_refused(self):
+        destination = self._create_internal_destination(_REPORT_FILTERS)
+        destination.inputs_schema = [{"key": "debug", "type": "boolean", "required": False}]
+        destination.save(update_fields=["inputs_schema"])
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_functions/{destination.id}/",
+            data={"inputs": {"debug": {"value": True}}},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.json())
+        self.assertEqual(response.json()["attr"], "inputs")
+
     def _destination_with_report_history(self, history: str) -> HogFunction:
         destination = self._create_internal_destination(_OTHER_INTERNAL_FILTERS)
         if history == "revision":
