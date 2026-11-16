@@ -36,6 +36,7 @@ import requests
 import structlog
 import posthoganalytics
 from django_prometheus.middleware import Metrics
+from django_prometheus.utils import TimeSince
 from loginas.utils import is_impersonated_session, restore_original_login
 from opentelemetry import trace
 from prometheus_client import Counter, Histogram
@@ -630,26 +631,25 @@ def request_route(request: HttpRequest) -> str:
     return route_template(match.route)
 
 
-_ENVOY_STAMP = re.compile(r"t=(\d+(?:\.\d+)?)")
-# No proxy in front of Django holds a request for this long, so an older stamp is not from Envoy.
-_MAX_REQUEST_QUEUE_SECONDS = 3600
+_REQUEST_START_STAMP = re.compile(r"t=(\d+(?:\.\d+)?)")
+_CLOCK_SKEW_SECONDS = 1
+_LONGEST_PROXY_TIMEOUT_SECONDS = 600
 
 
-def request_queue_seconds(request_start: str | None, now: float) -> float | None:
-    """Seconds between Envoy receiving a request and Django starting to handle it.
-
-    `request_start` is the `X-Request-Start` header. Contour makes Envoy add it to every request
-    as `t=<epoch seconds>`. Returns None when no proxy stamped the request.
-    """
-    stamps = _ENVOY_STAMP.findall(request_start or "")
+def request_queue_seconds(request_start_header: str | None, entered_django_at: float) -> float | None:
+    stamps = _REQUEST_START_STAMP.findall(request_start_header or "")
     if not stamps:
         return None
-    # Envoy appends its stamp after any value the client sent, so only the last stamp is trusted.
-    elapsed = now - float(stamps[-1])
-    # The lower bound allows for a small clock difference between the Envoy host and this host.
-    if not -1 <= elapsed <= _MAX_REQUEST_QUEUE_SECONDS:
+    stamped_by_envoy_at = float(stamps[-1])
+    waited = entered_django_at - stamped_by_envoy_at
+    if not -_CLOCK_SKEW_SECONDS <= waited <= _LONGEST_PROXY_TIMEOUT_SECONDS:
         return None
-    return max(elapsed, 0.0)
+    return max(waited, 0.0)
+
+
+def _seconds_inside_django(request: HttpRequest) -> float:
+    entered = getattr(request, "prometheus_before_middleware_event", None)
+    return 0.0 if entered is None else TimeSince(entered)
 
 
 REQUEST_QUEUE_TIME_SECONDS = Histogram(
@@ -700,7 +700,8 @@ class CHQueries:
         If monkey-patch has not been run in for this process (assuming multiple preforked processes),
         then do it now.
         """
-        queue_seconds = request_queue_seconds(request.headers.get("x-request-start"), time.time())
+        entered_django_at = time.time() - _seconds_inside_django(request)
+        queue_seconds = request_queue_seconds(request.headers.get("x-request-start"), entered_django_at)
         is_api_request = "api/" in request.path and "capture" not in request.path
 
         user = cast(User, request.user)

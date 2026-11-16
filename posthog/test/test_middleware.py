@@ -27,6 +27,7 @@ from django.urls import path, resolve, reverse
 
 import requests
 import structlog
+from django_prometheus.utils import Time
 from loginas import settings as la_settings
 from parameterized import parameterized
 from prometheus_client import REGISTRY
@@ -3424,12 +3425,12 @@ ENVOY_STAMP = "t=1737036339.250"
         ("clock_slightly_behind_envoy", ENVOY_STAMP, -0.002, 0.0),
         ("no_header", None, 3.2, None),
         ("not_a_stamp", "garbage", 3.2, None),
-        ("stamp_older_than_any_proxy_timeout", ENVOY_STAMP, 86_400.0, None),
+        ("stamp_older_than_any_proxy_timeout", ENVOY_STAMP, 601.0, None),
         ("stamp_in_the_future", ENVOY_STAMP, -60.0, None),
     ]
 )
 def test_request_queue_seconds(name, request_start, seconds_since_stamp, expected):
-    waited = request_queue_seconds(request_start, now=ENVOY_RECEIVED_AT + seconds_since_stamp)
+    waited = request_queue_seconds(request_start, ENVOY_RECEIVED_AT + seconds_since_stamp)
 
     if expected is None:
         assert waited is None
@@ -3439,11 +3440,14 @@ def test_request_queue_seconds(name, request_start, seconds_since_stamp, expecte
 
 @parameterized.expand(
     [
-        ("stamped_by_envoy", {"HTTP_X_REQUEST_START": ENVOY_STAMP}, 1.0, 5000),
-        ("not_stamped", {}, 0.0, None),
+        ("stamped_by_envoy", {"HTTP_X_REQUEST_START": ENVOY_STAMP}, None, 1.0, 5000),
+        ("time_inside_django_is_not_queue_time", {"HTTP_X_REQUEST_START": ENVOY_STAMP}, 0.2, 1.0, 4800),
+        ("not_stamped", {}, None, 0.0, None),
     ]
 )
-def test_chqueries_middleware_records_request_queue_time(name, headers, expected_observations, expected_tag_ms):
+def test_chqueries_middleware_records_request_queue_time(
+    name, headers, seconds_inside_django, expected_observations, expected_tag_ms
+):
     labels = {"access_method": "personal_api_key"}
 
     def observations() -> float:
@@ -3461,12 +3465,17 @@ def test_chqueries_middleware_records_request_queue_time(name, headers, expected
     request.resolver_match = resolve(request.path)
     request.user = MagicMock(pk=1, is_authenticated=False)
     request.session = MagicMock(session_key="abc123")
+    if seconds_inside_django is not None:
+        request.prometheus_before_middleware_event = Time() - seconds_inside_django
 
     with time_machine.travel(datetime.fromtimestamp(ENVOY_RECEIVED_AT + 5, tz=UTC), tick=False):
         CHQueries(get_response)(request)
 
     assert observations() - before == expected_observations
-    assert tagged["request_queue_ms"] == expected_tag_ms
+    if expected_tag_ms is None:
+        assert tagged["request_queue_ms"] is None
+    else:
+        assert tagged["request_queue_ms"] == pytest.approx(expected_tag_ms, abs=20)
 
 
 @parameterized.expand(
