@@ -147,7 +147,7 @@ describe('broadcastPreviewLogic', () => {
             expect(logic.values.persons.map((person) => person.id)).toEqual(['person-ada'])
         })
 
-        it('still leaves out the members of an excluded cohort', async () => {
+        it('loads preview people for an excluded cohort and sends it to the query as not_in', async () => {
             await resume([savedCondition({ key: 'id', type: 'cohort', value: 42, operator: 'in' }, true)])
 
             expect(logic.values.persons.map((person) => person.id)).toEqual(['person-ada'])
