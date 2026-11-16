@@ -648,10 +648,13 @@ class SESProvider:
         team_id: int,
         org_team_ids: Iterable[int] | None = None,
         *,
+        unverified_claimant_team_ids: Iterable[int] = (),
         keep_existing_mail_from: bool = False,
     ):
         expected_tenant = self._tenant_name_for_team(team_id)
-        friendly_tenants = {self._tenant_name_for_team(t) for t in (org_team_ids or [team_id])}
+        friendly_tenants = {
+            self._tenant_name_for_team(t) for t in [*(org_team_ids or [team_id]), *unverified_claimant_team_ids]
+        }
         foreign_tenants = self._list_identity_tenants(domain) - friendly_tenants
         if foreign_tenants:
             raise exceptions.ValidationError(
@@ -693,6 +696,17 @@ class SESProvider:
                 logger.exception(
                     "Failed to associate configuration set '%s' with tenant '%s'", config_set, expected_tenant
                 )
+
+    def remove_tenant_associations(self, domain: str, *, team_ids: Iterable[int]) -> None:
+        arn = self._identity_arn(domain)
+        for team_id in team_ids:
+            try:
+                self.ses_v2_client.delete_tenant_resource_association(
+                    TenantName=self._tenant_name_for_team(team_id), ResourceArn=arn
+                )
+            except ClientError as e:
+                if e.response["Error"]["Code"] != "NotFoundException":
+                    raise
 
     def disable_feedback_forwarding(self, domain: str) -> None:
         """
@@ -973,6 +987,23 @@ class SESProvider:
         except (ClientError, BotoCoreError) as e:
             logger.exception(f"SES API error deleting identity: {e}")
             raise
+
+    def list_failed_domain_identities(self) -> list[str]:
+        """The domain identities of this region whose verification failed."""
+        failed: list[str] = []
+        next_token: str | None = None
+        while True:
+            response = self.ses_v2_client.list_email_identities(
+                PageSize=1000, **({"NextToken": next_token} if next_token else {})
+            )
+            failed.extend(
+                identity["IdentityName"]
+                for identity in response["EmailIdentities"]
+                if identity.get("IdentityType") == "DOMAIN" and identity.get("VerificationStatus") == "FAILED"
+            )
+            next_token = response.get("NextToken")
+            if not next_token:
+                return failed
 
     def list_bounce_suppressions(self) -> Iterator[list[str]]:
         """Yield the email addresses on the account-level suppression list for a bounce, one page at a time."""

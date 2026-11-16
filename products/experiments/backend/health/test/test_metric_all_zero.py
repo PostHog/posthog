@@ -37,7 +37,10 @@ CODE = ExperimentHealthFindingCode.METRIC_ALL_ZERO
 WARNING = ExperimentHealthFindingSeverity.WARNING
 INFO = ExperimentHealthFindingSeverity.INFO
 NO_QUERIES = ExperimentHealthReaderAccess(
-    can_read_flag_history=False, can_query_events=False, denied_event_properties=frozenset()
+    can_read_flag_history=False,
+    can_query_events=False,
+    denied_event_properties=frozenset(),
+    restricted_properties=frozenset(),
 )
 LAST_ARRIVED = datetime(2026, 10, 1, 9, 30, tzinfo=UTC)
 MEAN = {"metric_type": "mean"}

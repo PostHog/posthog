@@ -10,6 +10,7 @@ from products.workflows.backend.services.batch_jobs import (
     get_batch_job,
     hog_flow_ids_with_broadcast_status,
     list_batch_jobs,
+    rate_limit_change_unpaces_batch,
     set_batch_job_status,
 )
 
@@ -20,6 +21,7 @@ __all__ = [
     "get_batch_job",
     "hog_flow_ids_with_broadcast_status",
     "list_batch_jobs",
+    "rate_limit_change_unpaces_batch",
     "request_audience_snapshot",
     "set_batch_job_status",
 ]
