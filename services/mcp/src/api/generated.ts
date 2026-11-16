@@ -45116,6 +45116,86 @@ export namespace Schemas {
       results: ErrorTrackingIssueTagDefinition[];
     }
 
+    /**
+     * Why the rule was turned off after it failed on an event, or null when the rule is active. A turned-off rule labels no new issues until its filters are saved again.
+     * @nullable
+     */
+    export type ErrorTrackingIssueTagRuleDisabledData = {
+      readonly message?: string;
+      readonly issue?: { [key: string]: unknown };
+      readonly properties?: { [key: string]: unknown };
+    } | null;
+
+    export interface ErrorTrackingIssueTagRuleFilterGroup {
+      type: FilterLogicalOperator;
+      values: EventPropertyFilter[];
+    }
+
+    export interface ErrorTrackingIssueTagRuleFilters {
+      type: FilterLogicalOperator;
+      values: (ErrorTrackingIssueTagRuleFilterGroup | EventPropertyFilter)[];
+    }
+
+    export interface ErrorTrackingIssueTagRule {
+      /** Unique identifier of the tag rule. */
+      readonly id: string;
+      /** Tag key that issues store for this rule's label. Use it to filter issues by the label, or to apply or remove the label on one issue. */
+      readonly key: string;
+      /**
+         * Label applied to each new issue whose first event matches the filters.
+         * @maxLength 128
+         */
+      label: string;
+      /** What the label means. Shown with the label. */
+      description: string;
+      /** Property-group filters on event properties, evaluated against the first event of each new issue. Person, cohort, HogQL and other filter types are rejected. */
+      filters: ErrorTrackingIssueTagRuleFilters;
+      /** Starts at 1, and goes up by one each time the filters change. */
+      readonly version: number;
+      /** Position in the list of tag rules. Lower values come first. Every matching rule applies its label, whatever its position. */
+      order_key: number;
+      /**
+         * Why the rule was turned off after it failed on an event, or null when the rule is active. A turned-off rule labels no new issues until its filters are saved again.
+         * @nullable
+         */
+      readonly disabled_data: ErrorTrackingIssueTagRuleDisabledData;
+      /** When the rule was created. */
+      readonly created_at: string;
+      /** When the rule was last updated. */
+      readonly updated_at: string;
+    }
+
+    export interface ErrorTrackingIssueTagRuleCreateRequest {
+      /**
+         * Label applied to each new issue whose first event matches the filters.
+         * @maxLength 128
+         */
+      label: string;
+      /** What the label means. Shown with the label. Defaults to empty. */
+      description?: string;
+      /** Property-group filters on event properties, evaluated against the first event of each new issue. Person, cohort, HogQL and other filter types are rejected. */
+      filters: ErrorTrackingIssueTagRuleFilters;
+      /** Position in the list of tag rules. Lower values come first. Defaults to 0. */
+      order_key?: number;
+    }
+
+    export interface ErrorTrackingIssueTagRuleListResponse {
+      /** Tag rules in ascending order key. */
+      results: ErrorTrackingIssueTagRule[];
+    }
+
+    export interface ErrorTrackingIssueTagRuleUpdateRequest {
+      /**
+         * Replacement label. Omit to keep the existing label.
+         * @maxLength 128
+         */
+      label?: string;
+      /** Replacement description. Omit to keep the existing description. */
+      description?: string;
+      /** Replacement event property filters. Omit to keep the existing filters. New filters apply only to issues created after the update, and existing labels stay. */
+      filters?: ErrorTrackingIssueTagRuleFilters;
+    }
+
     export interface ErrorTrackingIssueValue {
       /** One distinct value of the requested property. */
       name: string;
@@ -90864,6 +90944,28 @@ export namespace Schemas {
     export interface PatchedErrorTrackingIssueAssignRequest {
       /** Assignment target. Set to null or omit to remove the current assignment. */
       assignee?: ErrorTrackingIssueAssigneeWrite | null;
+    }
+
+    /**
+     * Mapping from tag rule UUID to its new order key.
+     */
+    export type PatchedErrorTrackingIssueTagRuleReorderRequestOrders = {[key: string]: number};
+
+    export interface PatchedErrorTrackingIssueTagRuleReorderRequest {
+      /** Mapping from tag rule UUID to its new order key. */
+      orders?: PatchedErrorTrackingIssueTagRuleReorderRequestOrders;
+    }
+
+    export interface PatchedErrorTrackingIssueTagRuleUpdateRequest {
+      /**
+         * Replacement label. Omit to keep the existing label.
+         * @maxLength 128
+         */
+      label?: string;
+      /** Replacement description. Omit to keep the existing description. */
+      description?: string;
+      /** Replacement event property filters. Omit to keep the existing filters. New filters apply only to issues created after the update, and existing labels stay. */
+      filters?: ErrorTrackingIssueTagRuleFilters;
     }
 
     export interface PatchedErrorTrackingIssueTagWrite {
