@@ -31,10 +31,11 @@ export const COMPUTED_FILTER_KEYS = new Set(['bytecode', 'bytecode_error', 'cond
 // The query schema refuses `negation` and compiled keys. The backend excludes a cohort on `negation` or `not_in`.
 export function toActorsQueryProperties(audienceProperties: AnyPropertyFilter[]): AnyPersonScopeFilter[] {
     return audienceProperties.map((filter) => {
+        const { negation, ...rest } = filter as AnyPropertyFilter & { negation?: boolean }
         const queryFilter = Object.fromEntries(
-            Object.entries(filter).filter(([key]) => key !== 'negation' && !COMPUTED_FILTER_KEYS.has(key))
+            Object.entries(rest).filter(([key]) => !COMPUTED_FILTER_KEYS.has(key))
         ) as AnyPersonScopeFilter
-        if (queryFilter.type === PropertyFilterType.Cohort && (filter as { negation?: unknown }).negation === true) {
+        if (queryFilter.type === PropertyFilterType.Cohort && negation === true) {
             queryFilter.operator = PropertyOperator.NotIn
         }
         return queryFilter

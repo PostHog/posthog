@@ -1,3 +1,4 @@
+import { waitFor } from '@testing-library/react'
 import { expectLogic } from 'kea-test-utils'
 
 import api from 'lib/api'
@@ -135,8 +136,8 @@ describe('broadcastPreviewLogic', () => {
             wizard.mount()
             logic = broadcastPreviewLogic({ id: 'broadcast-1' })
             logic.mount()
-            await expectLogic(logic).toDispatchActions(['loadPersons', 'loadPersons']).toFinishAllListeners()
         }
+        const previewPeople = (): string[] => logic.values.persons.map((person) => person.id)
 
         it('loads preview people for an included cohort', async () => {
             await resume([
@@ -144,13 +145,13 @@ describe('broadcastPreviewLogic', () => {
                 savedCondition({ key: 'plan', type: 'person', value: ['pro'], operator: 'exact' }, false),
             ])
 
-            expect(logic.values.persons.map((person) => person.id)).toEqual(['person-ada'])
+            await waitFor(() => expect(previewPeople()).toEqual(['person-ada']))
         })
 
         it('loads preview people for an excluded cohort and sends it to the query as not_in', async () => {
             await resume([savedCondition({ key: 'id', type: 'cohort', value: 42, operator: 'in' }, true)])
 
-            expect(logic.values.persons.map((person) => person.id)).toEqual(['person-ada'])
+            await waitFor(() => expect(previewPeople()).toEqual(['person-ada']))
             expect(received.at(-1)).toEqual([{ key: 'id', type: 'cohort', value: 42, operator: 'not_in' }])
         })
     })
