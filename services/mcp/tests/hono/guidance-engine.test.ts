@@ -3,7 +3,8 @@ import { afterEach, describe, expect, it, vi } from 'vitest'
 
 import { ApiClient } from '@/api/client'
 import { GuidanceEngine, triggerMatches, type GuidanceCall } from '@/hono/guidance/engine'
-import { GUIDANCE_RULES, MCP_GUIDANCE_SELF_DRIVING_ACTIVATION_FLAG, type GuidanceRule } from '@/hono/guidance/rules'
+import type { GuidanceRule } from '@/hono/guidance/rule-schema'
+import { GUIDANCE_RULES, MCP_GUIDANCE_SELF_DRIVING_ACTIVATION_FLAG } from '@/hono/guidance/rules'
 import type { ResolvedState } from '@/hono/request-state-resolver'
 import { MCPClientProfile } from '@/lib/client-detection'
 
