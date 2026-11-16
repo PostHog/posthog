@@ -43,13 +43,12 @@ export class CdpCyclotronWorkerHogFlow extends CdpCyclotronWorker {
 
     @instrumented('cdpConsumer.handleEachBatch.loadHogFlows')
     protected async loadHogFlows(invocations: CyclotronJobInvocation[]): Promise<LoadHogFlowsResult> {
-        const loadedInvocations: CyclotronJobInvocationHogFlow[] = []
         const failedInvocations: CyclotronJobInvocation[] = []
         const canceledResults: CyclotronJobInvocationResult[] = []
         const hogFlows = await this.hogFlowsFor(invocations.filter((item) => !item.cancelRequestedAt))
 
-        await Promise.all(
-            invocations.map(async (item) => {
+        const loadedOrSkipped = await Promise.all(
+            invocations.map(async (item): Promise<CyclotronJobInvocationHogFlow | undefined> => {
                 // Checked before the team/flow lookups so a cancel-requested run terminates even
                 // when its flow or team has since been deleted. The flow lookup here is
                 // best-effort and only sets the terminal row's function_kind: a null flow
@@ -168,12 +167,13 @@ export class CdpCyclotronWorkerHogFlow extends CdpCyclotronWorker {
                     }
                 }
 
-                loadedInvocations.push(loaded)
+                return loaded
             })
         )
 
         await this.cyclotronJobQueue.dequeueInvocations(failedInvocations)
 
+        const loadedInvocations = loadedOrSkipped.filter((item) => item !== undefined)
         return { loadedInvocations, canceledResults }
     }
 }
