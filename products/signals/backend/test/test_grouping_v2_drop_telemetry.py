@@ -9,7 +9,7 @@ from unittest.mock import AsyncMock, patch
 from django.utils import timezone
 
 from temporalio import activity
-from temporalio.exceptions import ActivityError, ApplicationError, RetryState
+from temporalio.exceptions import ApplicationError
 from temporalio.service import RPCError
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
@@ -179,30 +179,7 @@ async def test_failed_batch_retries_until_attempt_limit(
 
 
 @pytest.mark.asyncio
-@pytest.mark.parametrize(
-    "assigned_lookup,expected_retry_keys,expected_dropped",
-    [
-        (AsyncMock(return_value=[BATCHES["batch-a"][0].signal_id]), ["batch-a"], [BATCHES["batch-b"][0]]),
-        (
-            AsyncMock(
-                side_effect=ActivityError(
-                    "Activity task failed",
-                    scheduled_event_id=1,
-                    started_event_id=2,
-                    identity="worker",
-                    activity_type="assigned_signal_ids_activity",
-                    activity_id="1",
-                    retry_state=RetryState.MAXIMUM_ATTEMPTS_REACHED,
-                )
-            ),
-            [],
-            [BATCHES["batch-a"][0], BATCHES["batch-b"][0]],
-        ),
-    ],
-)
-async def test_exhaustion_retains_assigned_batch_for_clickhouse_and_research_retry(
-    assigned_lookup: AsyncMock, expected_retry_keys: list[str], expected_dropped: list[EmitSignalInputs]
-) -> None:
+async def test_exhaustion_retains_assigned_batch_for_clickhouse_and_research_retry() -> None:
     workflow = TeamSignalGroupingV2Workflow()
     workflow._failed_rounds_by_batch_key = {"batch-a": MAX_BATCH_ATTEMPTS, "batch-b": MAX_BATCH_ATTEMPTS}
     collected = CollectedBatch(
@@ -216,7 +193,7 @@ async def test_exhaustion_retains_assigned_batch_for_clickhouse_and_research_ret
         patch("products.signals.backend.temporal.grouping_v2.workflow.logger"),
         patch(
             "products.signals.backend.temporal.grouping_v2.workflow.execute_activity",
-            new=assigned_lookup,
+            new=AsyncMock(return_value=[BATCHES["batch-a"][0].signal_id]),
         ),
         patch("products.signals.backend.temporal.grouping_v2.capture_signal_dropped", new=AsyncMock()),
         patch("products.signals.backend.temporal.grouping_v2._complete_signal_batch", new=AsyncMock()) as complete,
@@ -225,9 +202,9 @@ async def test_exhaustion_retains_assigned_batch_for_clickhouse_and_research_ret
             TeamSignalGroupingV2Input(team_id=1), collected, RuntimeError("ClickHouse wait failed")
         )
 
-    assert retry_keys == expected_retry_keys
-    complete.assert_awaited_once_with(expected_dropped, {})
-    assert workflow._failed_rounds_by_batch_key == dict.fromkeys(expected_retry_keys, MAX_BATCH_ATTEMPTS)
+    assert retry_keys == ["batch-a"]
+    complete.assert_awaited_once_with([BATCHES["batch-b"][0]], {})
+    assert workflow._failed_rounds_by_batch_key == {"batch-a": MAX_BATCH_ATTEMPTS}
 
 
 @pytest.mark.asyncio

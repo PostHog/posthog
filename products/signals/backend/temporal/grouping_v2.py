@@ -334,23 +334,17 @@ class TeamSignalGroupingV2Workflow:
             if key in exhausted_keys
         ]
         if workflow.patched("grouping-v2-retain-assigned-batches-v1"):
-            assigned_ids: set[str] = set()
-            try:
-                assigned_ids = set(
-                    await workflow.execute_activity(
-                        assigned_signal_ids_activity,
-                        [signal for signal, _ in dropped],
-                        start_to_close_timeout=timedelta(minutes=1),
-                        retry_policy=RetryPolicy(
-                            initial_interval=timedelta(seconds=5),
-                            maximum_interval=timedelta(seconds=30),
-                            maximum_attempts=5,
-                        ),
-                    )
+            assigned_ids = {
+                str(signal_id)
+                for signal_id in await workflow.execute_activity(
+                    assigned_signal_ids_activity,
+                    [signal for signal, _ in dropped],
+                    start_to_close_timeout=timedelta(minutes=1),
+                    retry_policy=RetryPolicy(
+                        initial_interval=timedelta(seconds=5), maximum_interval=timedelta(seconds=30)
+                    ),
                 )
-            except temporalio.exceptions.ActivityError:
-                # Dropping every exhausted batch keeps the workflow moving; failing it loses the buffered keys.
-                workflow.logger.exception("signals_grouping_assigned_ids_failed", extra={"team_id": input.team_id})
+            }
             retained_keys = {
                 key
                 for signal, key in zip(collected.signals, collected.signal_object_keys, strict=True)
