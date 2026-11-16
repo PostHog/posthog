@@ -51,6 +51,7 @@ class _StatsPage:
     payload: dict[str, Any]
     start: date
     end: date
+    is_last: bool
 
 
 # X caps a stats window at 7 days but rejects some exact weeks: one with a fall-back hour, and every week on a
@@ -210,6 +211,8 @@ class TwitterAdsClient:
         end: date,
         account_timezone: ZoneInfo,
         logger: FilteringBoundLogger,
+        *,
+        is_last: bool,
     ) -> Iterator[_StatsPage]:
         try:
             payload = self.get(path, params)
@@ -221,9 +224,15 @@ class TwitterAdsClient:
                 raise
             entity_ids = str(params["entity_ids"]).split(",")
             if len(entity_ids) > 1:
-                for entity_id in entity_ids:
+                for index, entity_id in enumerate(entity_ids):
                     yield from self.stats_pages(
-                        path, {**params, "entity_ids": entity_id}, start, end, account_timezone, logger
+                        path,
+                        {**params, "entity_ids": entity_id},
+                        start,
+                        end,
+                        account_timezone,
+                        logger,
+                        is_last=is_last and index == len(entity_ids) - 1,
                     )
             elif end - start > timedelta(days=1):
                 day = start
@@ -240,12 +249,13 @@ class TwitterAdsClient:
                         next_day,
                         account_timezone,
                         logger,
+                        is_last=is_last and next_day == end,
                     )
                     day = next_day
             else:
                 raise ValueError(STATS_ENTITY_REJECTED) from error
             return
-        yield _StatsPage(payload=payload, start=start, end=end)
+        yield _StatsPage(payload=payload, start=start, end=end, is_last=is_last)
 
     @staticmethod
     def stats_rows(
@@ -346,9 +356,15 @@ class TwitterAdsClient:
                         "metric_groups": metric_groups,
                     }
                     for page in self.stats_pages(
-                        f"stats/{account_path}", params, start, window_end, account_timezone, logger
+                        f"stats/{account_path}",
+                        params,
+                        start,
+                        window_end,
+                        account_timezone,
+                        logger,
+                        is_last=batch_start + 20 >= len(entity_ids) and placement == PLACEMENTS[-1],
                     ):
-                        yield self.stats_rows(
+                        rows = self.stats_rows(
                             page.payload,
                             page.start,
                             page.end,
@@ -357,13 +373,17 @@ class TwitterAdsClient:
                             account_id,
                             include_video_and_conversions,
                         )
-            # A failed subrequest must not move the checkpoint past missing stats.
-            manager.save_state(
-                TwitterAdsResumeConfig(
-                    next_date=window_end.isoformat(), end_date=end.isoformat(), complete=window_end == end
-                )
-            )
-            yield []
+                        # Only the final successful page covers the whole window. Stage its cursor
+                        # before yielding so a shutdown cannot replay a completed window.
+                        if page.is_last:
+                            manager.save_state(
+                                TwitterAdsResumeConfig(
+                                    next_date=window_end.isoformat(),
+                                    end_date=end.isoformat(),
+                                    complete=window_end == end,
+                                )
+                            )
+                        yield rows
             start = window_end
 
 

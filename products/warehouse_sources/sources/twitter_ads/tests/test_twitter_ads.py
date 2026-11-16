@@ -14,8 +14,15 @@ from django.test import override_settings
 import requests
 from requests_oauthlib import OAuth1
 
-from products.warehouse_sources.sources.sdk import SourceResponse
-from products.warehouse_sources.sources.sdk.testing import Integration, RecordedRequest, ScriptedResponse, SourceDriver
+from products.warehouse_sources.sources.sdk import ResumableSourceManager, SourceResponse
+from products.warehouse_sources.sources.sdk.testing import (
+    Integration,
+    RecordedRequest,
+    ScriptedResponse,
+    SourceDriver,
+    scripted_network,
+    source_inputs,
+)
 from products.warehouse_sources.sources.twitter_ads._config import TwitterAdsSourceConfig
 from products.warehouse_sources.sources.twitter_ads.settings import PLACEMENTS, STATS_ENTITY_REJECTED
 from products.warehouse_sources.sources.twitter_ads.source import TwitterAdsSource
@@ -367,6 +374,43 @@ def test_stats_rejection_recovers_all_rows_and_resumes(
     assert resumed.rows == [row for row in result.rows if row["date"] >= date(2025, 11, 6)]
     stats_requests = [request for request in result.requests if "/stats/" in request.path]
     assert len(stats_requests) == 2 * len(PLACEMENTS) * (15 if narrowing == "day" else 3)
+
+
+@pytest.mark.parametrize("narrowing", ["batch", "entity", "day"])
+def test_stats_shutdown_after_window_does_not_reimport_written_rows(client: TwitterAdsClient, narrowing: str) -> None:
+    timezone = "Asia/Kolkata"
+
+    def answer(request: RecordedRequest) -> ScriptedResponse:
+        metadata = stats_metadata(request, timezone)
+        if metadata is not None:
+            return metadata
+        start = datetime.fromisoformat(str(request.param("start_time"))).astimezone(ZoneInfo(timezone)).date()
+        end = datetime.fromisoformat(str(request.param("end_time"))).astimezone(ZoneInfo(timezone)).date()
+        if narrowing != "batch" and (
+            "," in str(request.param("entity_ids")) or (narrowing == "day" and (end - start).days > 1)
+        ):
+            return ScriptedResponse(status=400, json={"errors": [{"code": "INVALID_PARAMETER", "parameter": "entity"}]})
+        return stats_success(request, timezone)
+
+    with time_machine.travel("2025-11-12T12:00:00Z", tick=False), scripted_network(answer):
+        manager = ResumableSourceManager(source_inputs("campaign_stats"), TwitterAdsResumeConfig)
+        resource = twitter_ads_source(client, "account", "campaign_stats", manager, date(2025, 10, 31), MagicMock())
+        written: list[dict[str, Any]] = []
+        for page in sync_items(resource):
+            written.extend(page)
+            manager.confirm()
+            manager.commit()
+            if len(written) == 2 * 6 * len(PLACEMENTS):
+                break
+
+        checkpoint = manager.load_state()
+        assert checkpoint is not None
+        assert checkpoint.next_date == "2025-11-06"
+        resumed = twitter_ads_source(client, "account", "campaign_stats", manager, None, MagicMock())
+        written.extend(row for page in sync_items(resumed) for row in page)
+
+    assert len(written) == 2 * 12 * len(PLACEMENTS)
+    assert len({(row["entity_id"], row["date"], row["placement"]) for row in written}) == len(written)
 
 
 @pytest.mark.parametrize(
