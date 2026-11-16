@@ -985,6 +985,11 @@ def _flag_called_after_end(experiment: Experiment) -> bool | None:
     return None if _flag_calls_unrecorded(experiment) else False
 
 
+# The exposure query reads the limit for its cache key, before it looks up a cached answer, so the default Redis timeout
+# would let a stalled Redis delay every exposure answer, cached ones included.
+_BILLING_LIMIT_READ_TIMEOUT_SECONDS = 0.25
+
+
 def load_events_billing_limit(team: Team) -> EventsBillingLimit | None:
     # Deferred because ee is optional, and the billing module imports the usage report stack. A build without ee has
     # no billing limits.
@@ -993,7 +998,12 @@ def load_events_billing_limit(team: Team) -> EventsBillingLimit | None:
     except ImportError:
         return EventsBillingLimit(ends_at=None)
     try:
-        ends_at = team_limited_until(team.api_token, QuotaResource.EVENTS, QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY)
+        ends_at = team_limited_until(
+            team.api_token,
+            QuotaResource.EVENTS,
+            QuotaLimitingCaches.QUOTA_LIMITER_CACHE_KEY,
+            timeout_seconds=_BILLING_LIMIT_READ_TIMEOUT_SECONDS,
+        )
     except Exception as error:
         # The exposure query reads the limit for its cache key, so a Redis error here would fail the exposure answer
         # for a read that only explains one finding.

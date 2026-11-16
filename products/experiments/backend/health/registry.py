@@ -339,8 +339,8 @@ EXPOSURE_HEALTH_CHECKS: tuple[HealthCheck, ...] = (
         name="Product analytics billing limit",
         description=(
             "Checks whether your organization reached its billing limit for product analytics. While the limit holds, "
-            "PostHog drops the project's product analytics events, so a running experiment counts no new users and "
-            "its metrics on these events get no new data."
+            "PostHog drops the project's product analytics events, so a running experiment gets no new exposures or "
+            "metric data from them."
         ),
         run=billing_limit,
         read=billing_limit_values,

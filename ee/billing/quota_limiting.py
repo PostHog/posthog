@@ -323,13 +323,21 @@ def is_team_limited(team_api_token: str, resource: QuotaResource, cache_key: Quo
     return team_limited_until(team_api_token, resource, cache_key) is not None
 
 
-def team_limited_until(team_api_token: str, resource: QuotaResource, cache_key: QuotaLimitingCaches) -> datetime | None:
+def team_limited_until(
+    team_api_token: str,
+    resource: QuotaResource,
+    cache_key: QuotaLimitingCaches,
+    *,
+    timeout_seconds: float | None = None,
+) -> datetime | None:
     """When the team's entry in the resource's zset stops being in force, or None when no entry is in force now.
 
     Capture limits the team until this time. The quota job can remove the entry earlier, for example after the
-    organization raises its limit.
+    organization raises its limit. `timeout_seconds` bounds the connect and the read, for a caller that can do
+    without the answer.
     """
-    score = get_client().zscore(f"{cache_key.value}{resource.value}", team_api_token)
+    client = get_client(socket_timeout=timeout_seconds, socket_connect_timeout=timeout_seconds)
+    score = client.zscore(f"{cache_key.value}{resource.value}", team_api_token)
     if score is None or score < timezone.now().timestamp():
         return None
     return datetime.fromtimestamp(score, tz=UTC)

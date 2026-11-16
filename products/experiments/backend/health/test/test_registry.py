@@ -895,6 +895,37 @@ class TestEvaluate(TestCase):
             ),
         )
 
+    @parameterized.expand(
+        [
+            ("product_analytics_event", "checkout_viewed", False),
+            ("exception", "$exception", True),
+            ("llm_event", "$ai_generation", True),
+            ("survey_event", "survey sent", True),
+        ]
+    )
+    def test_billing_limit_keeps_exposure_events_with_their_own_limit(
+        self, _name: str, exposure_event: str, has_own_limit: bool
+    ) -> None:
+        ctx = replace(
+            RUNNING_CONTEXT,
+            flag=EVEN_SPLIT_FLAG,
+            exposures=replace(NO_EXPOSURES, hours_since_launch=48),
+            events_billing_limit=BILLING_LIMITED,
+            flag_called_during_run=False,
+            **_events(exposure_event, {exposure_event: True}),
+        )
+
+        health = evaluate(ctx, EXPOSURE_HEALTH_CHECKS)
+
+        billing = next(
+            finding for finding in health.findings if finding.code == ExperimentHealthFindingCode.BILLING_LIMIT
+        )
+        zero_exposures = next(check for check in health.checks if check.key == Key.ZERO_EXPOSURES)
+        self.assertEqual(
+            ("has a limit of its own" in billing.detail, zero_exposures.status),
+            (has_own_limit, Status.FINDING if has_own_limit else Status.NOT_APPLICABLE),
+        )
+
     def test_a_failing_check_does_not_hide_the_other_findings(self) -> None:
         with patch.object(registry, "capture_exception") as capture:
             health = evaluate(RUNNING_UNEVEN_SPLIT, (FAILING_CHECK, *EXPOSURE_HEALTH_CHECKS))
