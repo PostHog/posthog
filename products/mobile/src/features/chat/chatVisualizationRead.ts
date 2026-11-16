@@ -2,6 +2,7 @@ import { ApiError } from '@/api/client'
 import { readInsight } from '@/api/insights'
 import { runQuery } from '@/api/query'
 import type { ProjectScope } from '@/api/reports'
+import { serverNow } from '@/api/serverClock'
 import { cacheTargetPassed } from '@/features/views/freshness'
 import { queryDisplay } from '@/features/views/snapshotChart'
 import { hasGoodResult, insightSnapshot, isRateLimited } from '@/model/adapters/insightSnapshot'
@@ -27,18 +28,19 @@ async function savedVisualization({
     let cachedSnapshot: InsightSnapshot | undefined
     try {
         const cached = await readInsight({ shortId }, { refresh: 'force_cache', signal, scope })
+        if (cached.short_id !== shortId) return null
         const now = Date.now()
-        const snapshot = insightSnapshot(cached, undefined, { readAt: now, serverNow: now })
+        const snapshot = insightSnapshot(cached, undefined, { readAt: now, serverNow: serverNow() })
         if (hasGoodResult(cached)) {
             cachedSnapshot = snapshot
             onCached?.(snapshot)
         }
         if (queryDisplay(cached.query) === 'web' || (hasGoodResult(cached) && !cacheTargetPassed(snapshot)))
             return snapshot
-        const computed = await readInsight({ shortId }, { refresh: 'blocking', signal, scope })
+        const computed = await readInsight({ id: cached.id, shortId }, { refresh: 'blocking', signal, scope })
         if (isRateLimited(computed)) throw new ApiError(429, {})
         if (!hasGoodResult(computed)) throw new Error('Insight data unavailable')
-        return insightSnapshot(computed, snapshot, { readAt: Date.now(), serverNow: Date.now() })
+        return insightSnapshot(computed, snapshot, { readAt: Date.now(), serverNow: serverNow() })
     } catch (error) {
         if (error instanceof ApiError && [401, 403, 404].includes(error.status)) onCached?.(null)
         else if (cachedSnapshot) onCached?.({ ...cachedSnapshot, refreshFailed: true })
