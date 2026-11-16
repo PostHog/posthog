@@ -880,3 +880,60 @@ select {
     margin: 0;
     color: var(--ink-2);
 }
+
+.toggle {
+    width: 24px;
+    color: var(--muted);
+}
+
+tr.expanded > td {
+    padding: 0 0 12px 36px;
+    background: var(--page);
+}
+
+.findings {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+    gap: 10px;
+}
+
+.found {
+    display: block;
+    padding: 10px 12px;
+    color: var(--ink-2);
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 8px;
+}
+
+.found:hover {
+    text-decoration: none;
+    border-color: var(--series-1);
+}
+
+.found-head {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    align-items: center;
+    margin-bottom: 4px;
+    color: var(--ink);
+}
+
+.history {
+    max-width: 760px;
+    margin-bottom: 16px;
+}
+
+td.num,
+td.when {
+    white-space: nowrap;
+}
+
+.run-dot {
+    cursor: pointer;
+}
+
+.run-dot:hover circle:last-child {
+    r: 6;
+}

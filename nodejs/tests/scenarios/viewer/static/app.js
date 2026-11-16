@@ -33,7 +33,9 @@ const h = (tag, attrs = {}, ...children) => {
 const s = (tag, attrs = {}, ...children) => {
     const el = document.createElementNS(SVG, tag)
     for (const [key, value] of Object.entries(attrs)) {
-        if (value !== undefined && value !== null) {
+        if (typeof value === 'function') {
+            el.addEventListener(key.slice(2), value)
+        } else if (value !== undefined && value !== null) {
             el.setAttribute(key, value)
         }
     }
@@ -455,7 +457,7 @@ function viewAt(detail, windows, t) {
 
 // ---------- charts ----------
 
-function lineChart({ title, unit, series, from, to, bands = [], height = 220 }) {
+function lineChart({ title, unit, series, from, to, bands = [], height = 220, xLabel = fmtDuration, xTicks = 8 }) {
     const width = 640
     const pad = { l: 48, r: 26, t: 10, b: 26 }
     const all = series.flatMap(({ points }) => points.map(([, v]) => v)).filter((v) => v !== null)
@@ -508,17 +510,21 @@ function lineChart({ title, unit, series, from, to, bands = [], height = 220 }) 
         )
     }
     const span = to - from
-    const step = [10, 30, 60, 120, 300, 600, 1800].map((x) => x * 1000).find((x) => span / x <= 8) ?? 3600_000
+    const step =
+        [10, 30, 60, 120, 300, 600, 1800, 3600, 10800, 21600, 86400]
+            .map((x) => x * 1000)
+            .find((x) => span / x <= xTicks) ?? 604_800_000
     for (let t = 0; t <= span; t += step) {
         svg.append(
             s(
                 'text',
                 { x: x(from + t), y: height - 8, 'text-anchor': 'middle', fill: 'var(--muted)', 'font-size': 11 },
-                fmtDuration(t)
+                xLabel(t)
             )
         )
     }
     svg.append(s('line', { x1: pad.l, x2: width - pad.r, y1: y(0), y2: y(0), stroke: 'var(--axis)' }))
+    const dots = []
     for (const line of series) {
         const pts = line.points.filter(([t, v]) => v !== null && t >= from - 5000 && t <= to + 5000)
         if (pts.length === 0) {
@@ -535,6 +541,29 @@ function lineChart({ title, unit, series, from, to, bands = [], height = 220 }) 
         )
         for (const [t, v] of line.marks ?? []) {
             svg.append(s('circle', { cx: x(t), cy: y(v), r: 4, fill: 'var(--critical)' }))
+        }
+        // A point that names a run gets a dot that says which run it is and opens it.
+        for (const [t, v, run] of pts.filter(([, , run]) => run)) {
+            dots.push(
+                s(
+                    'g',
+                    {
+                        class: 'run-dot',
+                        onclick: () => (location.hash = run.href),
+                        onmousemove: (event) => showTooltip(event, run.html),
+                        onmouseleave: hideTooltip,
+                    },
+                    s('circle', { cx: x(t), cy: y(v), r: 10, fill: 'transparent' }),
+                    s('circle', {
+                        cx: x(t),
+                        cy: y(v),
+                        r: 4.5,
+                        fill: line.color,
+                        stroke: 'var(--surface)',
+                        'stroke-width': 2,
+                    })
+                )
+            )
         }
     }
     const cursorLine = s('line', {
@@ -571,13 +600,17 @@ function lineChart({ title, unit, series, from, to, bands = [], height = 220 }) 
                     : ''
             })
             .join('')
-        showTooltip(event, `<div class="t">t+${fmtDuration(Math.max(t - from, 0))}</div>${rows}`)
+        const at = Math.max(t - from, 0)
+        showTooltip(
+            event,
+            `<div class="t">${xLabel === fmtDuration ? `t+${fmtDuration(at)}` : xLabel(at)}</div>${rows}`
+        )
     })
     hit.addEventListener('mouseleave', () => {
         hideTooltip()
         cursorLine.setAttribute('visibility', 'hidden')
     })
-    svg.append(hit)
+    svg.append(hit, ...dots)
     container.append(svg)
     const replayLine = s('line', {
         y1: pad.t,
@@ -1021,12 +1054,25 @@ function mapOf(topology) {
     }
 }
 
+// Status codes one destination answers in turn read as one sentence: "answer 503, then 429".
+const valveLines = (valves) => {
+    const lines = []
+    valves.forEach((valve, i) => {
+        const before = valves[i - 1]
+        if (valve.valve === 'dest.status' && before?.valve === 'dest.status' && before.target === valve.target) {
+            lines[lines.length - 1] += `, then ${valve.dose?.code ?? 'errors'}`
+        } else {
+            lines.push(valvePlain(valve))
+        }
+    })
+    return lines
+}
+
 const scenarioLine = (card) =>
     card.problems.length
         ? 'Does not load'
         : card.valves.length
-          ? card.valves
-                .map(valvePlain)
+          ? valveLines(card.valves)
                 .map((line, i) => (i === 0 ? line : line[0].toLowerCase() + line.slice(1)))
                 .join(', then ')
           : card.steps.length > 1
@@ -1169,7 +1215,9 @@ async function mapPage() {
     )
 }
 
-function runsTable(runs) {
+// Inside one scenario every row has the same card, so those tables show where and at which commit
+// each run ran instead.
+function runsTable(runs, { ofOneCard = false } = {}) {
     if (runs.length === 0) {
         return h(
             'div',
@@ -1190,7 +1238,7 @@ function runsTable(runs) {
                     'tr',
                     {},
                     h('th', {}, 'Status'),
-                    h('th', {}, 'Card'),
+                    ofOneCard ? [h('th', {}, 'Commit'), h('th', {}, 'Where')] : h('th', {}, 'Card'),
                     h('th', {}, 'Started'),
                     h('th', { class: 'num' }, 'Duration'),
                     h('th', { class: 'num' }, 'Units offered'),
@@ -1206,7 +1254,17 @@ function runsTable(runs) {
                         'tr',
                         { class: 'link', onclick: () => (location.hash = `#/runs/${run.runId}`) },
                         h('td', {}, statusPill(run.status)),
-                        h('td', {}, run.cardId),
+                        ofOneCard
+                            ? [
+                                  h(
+                                      'td',
+                                      { class: 'mono' },
+                                      run.headSha ? run.headSha.slice(0, 10) : '-',
+                                      run.headDirty ? h('span', { class: 'muted' }, ' + edits') : null
+                                  ),
+                                  h('td', {}, run.where),
+                              ]
+                            : h('td', {}, run.cardId),
                         h('td', {}, fmtTime(run.startedAt)),
                         h('td', { class: 'num' }, fmtDuration(run.durationS * 1000)),
                         h(
@@ -1244,52 +1302,123 @@ async function runsPage() {
 const latencyOf = (run, key) =>
     run.measurements.find((m) => m.name === 'delivery_latency_ms' && m.key === key)?.value ?? null
 
+const runMark = (run) => ({
+    href: `#/runs/${run.runId}`,
+    html: [
+        `<div class="t">${fmtTime(run.startedAt)}, ${run.where}</div>`,
+        `<div class="r"><span>run</span><b>${run.runId.slice(0, 8)}</b></div>`,
+        `<div class="r"><span>commit</span><b>${run.headSha ? run.headSha.slice(0, 10) : 'unknown'}</b></div>`,
+        `<div class="r"><span>status</span><b>${run.status}</b></div>`,
+        `<div class="r"><span>click to open</span></div>`,
+    ].join(''),
+})
+
+// The newest runs of a scenario and what each found, newest first.
+const RECENT_FINDINGS = 6
+
+function findingsList(details) {
+    if (details.length === 0) {
+        return h('p', { class: 'muted' }, 'No runs on this box yet.')
+    }
+    return h(
+        'div',
+        { class: 'findings' },
+        details.map((detail) =>
+            h(
+                'a',
+                { class: 'found', href: `#/runs/${detail.runId}` },
+                h(
+                    'div',
+                    { class: 'found-head' },
+                    statusPill(detail.status),
+                    h('span', {}, fmtTime(detail.startedAt)),
+                    h('span', { class: 'muted' }, `${ago(detail.startedAt)}, ${detail.where}`),
+                    detail.headSha ? h('span', { class: 'muted mono' }, detail.headSha.slice(0, 10)) : null
+                ),
+                findingOf(detail).map((line) => h('div', {}, line))
+            )
+        )
+    )
+}
+
 async function cardPage(id) {
-    const [all, runs] = await Promise.all([cards(), getJson('/api/runs')])
+    const [all, runs, recorded] = await Promise.all([
+        cards(),
+        getJson('/api/runs'),
+        getJson('/api/topology').catch(() => null),
+    ])
     const card = all.find((c) => c.id === id)
     if (!card) {
-        render(h('h1', {}, 'No such card'))
+        render(h('h1', {}, 'No such scenario'))
         return
     }
     const ofCard = runs.filter((run) => run.cardId === id)
-    const diagram = deliveryPath()
-    const nodes = {}
-    for (const valve of card.valves ?? []) {
-        const node = nodeOfTarget(valve.target)
-        if (node) {
-            nodes[node] = { className: 'target', state: `${valve.valve}` }
-        }
+    const map = mapOf(recorded?.topology ?? DECLARED_TOPOLOGY)
+    if (!card.problems.length) {
+        map.setCards([card])
+        map.focus(card)
     }
-    diagram.paint({ nodes, links: {} })
+    const details = (
+        await Promise.all(
+            ofCard.slice(0, RECENT_FINDINGS).map((run) => getJson(`/api/runs/${run.runId}`).catch(() => null))
+        )
+    ).filter(Boolean)
+    const held = ofCard.filter((run) => run.status === 'passed').length
     const chronological = [...ofCard].reverse()
     const history = lineChart({
         title: 'Delivery latency across runs',
         unit: 'ms',
+        xLabel: (offset) =>
+            new Date(Date.parse(chronological[0].startedAt) + offset).toLocaleString([], {
+                weekday: 'short',
+                hour: '2-digit',
+                minute: '2-digit',
+            }),
+        xTicks: 4,
         series: [
             {
                 name: 'p50',
                 color: SERIES[0],
-                points: chronological.map((run) => [Date.parse(run.startedAt), latencyOf(run, 'p50')]),
+                points: chronological.map((run) => [Date.parse(run.startedAt), latencyOf(run, 'p50'), runMark(run)]),
             },
             {
                 name: 'p95',
                 color: SERIES[1],
-                points: chronological.map((run) => [Date.parse(run.startedAt), latencyOf(run, 'p95')]),
+                points: chronological.map((run) => [Date.parse(run.startedAt), latencyOf(run, 'p95'), runMark(run)]),
             },
         ],
         from: chronological.length ? Date.parse(chronological[0].startedAt) : 0,
         to: chronological.length ? Date.parse(chronological.at(-1).startedAt) : 0,
     })
     render(
-        h('a', { href: '#/' }, '← Map'),
+        h('a', { href: '#/scenarios' }, '← Scenarios'),
         h('h1', {}, card.id, ' ', h('span', { class: 'badge' }, `v${card.version}`)),
         h(
             'p',
             { class: 'sub' },
+            scenarioLine(card),
+            '. ',
+            h(
+                'span',
+                { class: 'muted' },
+                ofCard.length ? `${held} of ${ofCard.length} runs held every check.` : 'Never run on this box.'
+            )
+        ),
+        h(
+            'p',
+            { class: 'sub muted' },
             `Profile ${card.profileName}, seed ${card.seed}, ${card.teams} team${card.teams === 1 ? '' : 's'}. Converges within ${fmtDuration(card.convergeWithinMs)}.`,
             card.runHostOnly ? ' Judges only on a run host: a local run is invalid by design.' : ''
         ),
-        h('div', { class: 'panel' }, h('h3', {}, 'Where it breaks the delivery path'), diagram.svg),
+        h('div', { class: 'panel' }, map.svg),
+        h('h2', {}, 'What its runs found'),
+        findingsList(details),
+        h('h2', {}, 'Fixes and pull requests'),
+        h(
+            'div',
+            { class: 'panel muted' },
+            'No finding has a fix or pull request linked yet. Links will live with the runs in the shared run store, one per scenario and finding, and show up here.'
+        ),
         h(
             'div',
             { class: 'split', style: 'margin-top:16px' },
@@ -1348,9 +1477,91 @@ async function cardPage(id) {
                 )
             )
         ),
-        h('h2', {}, 'Runs'),
-        ofCard.length > 1 ? h('div', { style: 'margin-bottom:16px' }, history.el) : null,
-        runsTable(ofCard)
+        h('h2', {}, 'Runs over time'),
+        ofCard.length > 1 ? h('div', { class: 'history' }, history.el) : null,
+        runsTable(ofCard, { ofOneCard: true })
+    )
+}
+
+async function scenariosPage() {
+    const [all, runs] = await Promise.all([cards(), getJson('/api/runs')])
+    const open = new Set()
+    const body = h('tbody', {})
+    const draw = () =>
+        body.replaceChildren(
+            ...all.flatMap((card) => {
+                const ofCard = runs.filter((run) => run.cardId === card.id)
+                const last = ofCard[0]
+                const p95 = last ? latencyOf(last, 'p95') : null
+                const held = ofCard.filter((run) => run.status === 'passed').length
+                const row = h(
+                    'tr',
+                    {
+                        class: 'link',
+                        onclick: () => {
+                            if (!open.delete(card.id)) {
+                                open.add(card.id)
+                            }
+                            draw()
+                        },
+                    },
+                    h('td', { class: 'toggle' }, ofCard.length ? (open.has(card.id) ? '▾' : '▸') : ''),
+                    h('td', {}, last ? statusPill(last.status) : h('span', { class: 'muted' }, 'never run')),
+                    h(
+                        'td',
+                        {},
+                        h('a', { href: `#/cards/${card.id}`, onclick: (event) => event.stopPropagation() }, card.id)
+                    ),
+                    h('td', { class: 'muted' }, scenarioLine(card)),
+                    h('td', { class: 'num' }, ofCard.length ? `${held} / ${ofCard.length}` : '-'),
+                    h('td', { class: 'when' }, last ? `${ago(last.startedAt)}, ${last.where}` : '-'),
+                    h('td', { class: 'num' }, p95 !== null ? `${fmtNumber(p95 / 1000)} s` : '-')
+                )
+                return open.has(card.id)
+                    ? [
+                          row,
+                          h(
+                              'tr',
+                              { class: 'expanded' },
+                              h('td', { colspan: 7 }, runsTable(ofCard, { ofOneCard: true }))
+                          ),
+                      ]
+                    : [row]
+            })
+        )
+    draw()
+    render(
+        h('h1', {}, 'Scenarios'),
+        h(
+            'p',
+            { class: 'sub' },
+            'Each scenario is one card: a fault, the load it runs under, and the checks that judge it. Expand one for its runs, or open it for what its runs found. ',
+            h('a', { href: '#/runs' }, 'Every run, newest first →')
+        ),
+        h(
+            'div',
+            { class: 'panel', style: 'padding:0' },
+            h(
+                'table',
+                {},
+                h(
+                    'thead',
+                    {},
+                    h(
+                        'tr',
+                        {},
+                        h('th', {}, ''),
+                        h('th', {}, 'Last run'),
+                        h('th', {}, 'Scenario'),
+                        h('th', {}, 'What it breaks'),
+                        h('th', { class: 'num' }, 'Held'),
+                        h('th', {}, 'Last'),
+                        h('th', { class: 'num' }, '95% within')
+                    )
+                ),
+                body
+            )
+        )
     )
 }
 
@@ -1962,7 +2173,7 @@ async function route() {
         .forEach((a) =>
             a.classList.toggle(
                 'active',
-                a.dataset.nav === (page || 'map') || (page === 'cards' && a.dataset.nav === 'map')
+                a.dataset.nav === (page || 'map') || (['cards', 'runs'].includes(page) && a.dataset.nav === 'scenarios')
             )
         )
     try {
@@ -1972,6 +2183,8 @@ async function route() {
             await runPage(id, startAt)
         } else if (page === 'runs') {
             await runsPage()
+        } else if (page === 'scenarios') {
+            await scenariosPage()
         } else if (page === 'cards' && id) {
             await cardPage(id)
         } else {
