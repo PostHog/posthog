@@ -1,4 +1,4 @@
-import { isDevEnv, isProdEnv, isTestEnv } from '~/common/utils/env-utils'
+import { isDevEnv, isProdEnv, isTestEnv, stringToBoolean } from '~/common/utils/env-utils'
 import { logger } from '~/common/utils/logger'
 
 import type { BaseServerConfig } from '../servers/base-server'
@@ -346,8 +346,9 @@ export function getExternalRequestConfig(): ExternalRequestConfig {
             'EXTERNAL_REQUEST_NEW_CONNECTIONS_PER_IP_BURST',
             50
         ),
-        EXTERNAL_REQUEST_NEW_CONNECTIONS_PER_IP_ENFORCED:
-            process.env.EXTERNAL_REQUEST_NEW_CONNECTIONS_PER_IP_ENFORCED === 'true',
+        EXTERNAL_REQUEST_NEW_CONNECTIONS_PER_IP_ENFORCED: stringToBoolean(
+            process.env.EXTERNAL_REQUEST_NEW_CONNECTIONS_PER_IP_ENFORCED
+        ),
     }
 }
 
