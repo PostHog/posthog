@@ -1,5 +1,5 @@
 import { DateTime } from 'luxon'
-import { Pool, PoolClient, QueryResult } from 'pg'
+import { ClientBase, Pool, PoolClient, QueryResult } from 'pg'
 import { Counter, Histogram } from 'prom-client'
 import { v7 as uuidv7 } from 'uuid'
 
@@ -42,7 +42,7 @@ import {
  */
 export const EMAIL_DEQUEUE_BLOCK_SIZE = BigInt(16_777_216)
 
-export async function allocateEmailDequeueSeqs(pool: Pool | PoolClient, jobTeamIds: number[]): Promise<string[]> {
+export async function allocateEmailDequeueSeqs(pool: Pool | ClientBase, jobTeamIds: number[]): Promise<string[]> {
     const indicesByTeam = new Map<number, number[]>()
     jobTeamIds.forEach((teamId, i) => {
         const indices = indicesByTeam.get(teamId)

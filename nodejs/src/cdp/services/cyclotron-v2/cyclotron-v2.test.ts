@@ -5246,29 +5246,24 @@ describe('Cyclotron V2', () => {
                 expect({ status: row.status, lock_id: row.lock_id }).toEqual(expected)
             })
 
-            it('gives up a retry that stalls past the heartbeat limit, and the abandoned retry cannot touch the job once it is claimed again', async () => {
+            it('cancels a retry that stalls past the heartbeat limit, so nothing waits on the job once the write gives up', async () => {
                 const id = await manager.createJob({ teamId: 1, queueName: QUEUE })
                 const job = await dequeueOnDropTestPool({ releaseWriteRetry: true, releaseWriteHeartbeatLimitMs: 500 })
                 let ack!: Promise<void>
+                let waitingWhileLocked: number | undefined
 
                 const outcome = await interruptReleaseWrite(() => (ack = job.ack()), {
                     lock: jobRow(id),
                     beforeRetry: async (holder) => {
                         await ack.catch(() => undefined)
-                        await holder.query(`UPDATE cyclotron_jobs SET lock_id = '${OTHER_WORKER_LOCK}' WHERE id = $1`, [
-                            id,
-                        ])
-                        await holder.query('COMMIT')
+                        waitingWhileLocked = await backendsWaitingOnLocks()
+                        await holder.query('ROLLBACK')
                     },
                 })
 
-                expect(outcome).toBe('rejected')
-                await waitForExpect(async () => expect(await backendsWaitingOnLocks()).toBe(0), 2000, 10)
-                const row = await queryJob(id)
-                expect({ status: row.status, lock_id: row.lock_id }).toEqual({
-                    status: 'running',
-                    lock_id: OTHER_WORKER_LOCK,
-                })
+                expect({ outcome, waitingWhileLocked }).toEqual({ outcome: 'rejected', waitingWhileLocked: 0 })
+                expect((await queryJob(id)).status).toBe('running')
+                expect(await janitorResets(id)).toBe(1)
             }, 10_000)
 
             it.each([
