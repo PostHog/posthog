@@ -2296,6 +2296,7 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
             cohort._create_in_folder = create_in_folder or None
 
         was_realtime = cohort.cohort_type == CohortType.REALTIME and not cohort.is_static
+        held_a_realtime_slot = cohort.realtime_enabled and was_realtime and not cohort.deleted
 
         cohort.name = validated_data.get("name", cohort.name)
         cohort.description = validated_data.get("description", cohort.description)
@@ -2351,16 +2352,33 @@ class CohortSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerializ
                     code=COHORT_USED_BY_WORKFLOWS_ERROR_CODE,
                 )
 
-        # A user who doesn't see realtime cohorts can't act on a plan's limit, and the pipeline doesn't run for most
-        # such teams. Cohorts that are on there still save, and the turn-on after the save refuses on its own.
-        if filters_changed and _realtime_targeting_enabled(self.context):
+        deleted_state = cast(bool | None, validated_data.get("deleted"))
+
+        # The plan's limits judge new criteria, and an edit that brings back a cohort that is on. Such a cohort keeps its
+        # switch while it is daily, static or deleted, and holds no slot then, so the edit takes a slot without a
+        # turn-on. A user who doesn't see realtime cohorts is not judged, because they can't see or turn off the
+        # cohorts that hold the slots.
+        holds_a_realtime_slot = (
+            cohort.realtime_enabled
+            and cohort.cohort_type == CohortType.REALTIME
+            and not cohort.is_static
+            and not (cohort.deleted if deleted_state is None else deleted_state)
+        )
+        if (
+            holds_a_realtime_slot
+            and (filters_changed or not held_a_realtime_slot)
+            and _realtime_targeting_enabled(self.context)
+        ):
             try:
-                refuse_edit_over_plan_limits(cohort)
+                refuse_edit_over_plan_limits(
+                    cohort,
+                    criteria_changed=filters_changed,
+                    held_a_slot=held_a_realtime_slot,
+                    can_edit=_can_edit(self._user_access_control()),
+                )
             except RealtimeLimitReached as error:
                 _report_realtime_limit_reached(request, cohort, error, "edit")
                 raise ValidationError(str(error), code=REALTIME_LIMIT_REACHED_ERROR_CODE) from error
-
-        deleted_state = cast(bool | None, validated_data.get("deleted"))
 
         incoming_has_criteria = cohort_filters_have_values(validated_data.get("filters"))
         if cohort.is_static and filters_changed and (existing_has_criteria or incoming_has_criteria):

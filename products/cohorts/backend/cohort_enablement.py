@@ -114,7 +114,7 @@ def _turn_on(team_id: int, cohort_id: int, *, can_edit: Callable[[Cohort], bool]
             _refuse_unless_it_can_be_ready(each)
 
         # The team's lock makes this count and the saves below one step, so two turn-ons can't both take the last slot.
-        _refuse_over_plan_limits(cohort.team, turning_on=turned_on, history_of=turned_on)
+        _refuse_over_plan_limits(cohort.team, taking_slots=turned_on, history_of=turned_on)
 
         for each in turned_on:
             ensure_filters_shape_hash(each)
@@ -127,16 +127,24 @@ def _turn_on(team_id: int, cohort_id: int, *, can_edit: Callable[[Cohort], bool]
     return [each.id for each in turned_on]
 
 
-def refuse_edit_over_plan_limits(cohort: Cohort) -> None:
-    """Before new criteria of a cohort that is on are saved, refuse them when the project's plan doesn't allow them.
+def refuse_edit_over_plan_limits(
+    cohort: Cohort, *, criteria_changed: bool, held_a_slot: bool, can_edit: Callable[[Cohort], bool]
+) -> None:
+    """Before an edit that leaves a cohort holding a slot is saved, refuse it when the project's plan doesn't allow it.
 
-    The criteria have to fit the plan's history limit. The save turns on the realtime cohorts they include that
-    are off, so each of those needs a slot and has to fit the history limit too. Raises ``RealtimeLimitReached``.
+    New criteria have to fit the plan's history limit. The save turns on the realtime cohorts they include that are
+    off, so each of those needs a slot and has to fit the history limit too. When ``can_edit`` refuses one of them,
+    the turn-on after the save refuses them all, so none of them is judged. The cohort needs a slot of its own when
+    it held none before the edit, because it was daily, static or deleted. Raises ``RealtimeLimitReached``.
     """
-    if not cohort.realtime_enabled or cohort.is_static or cohort.cohort_type != CohortType.REALTIME:
-        return
     turning_on = [nested for nested in _included_realtime_cohorts(cohort) if not nested.realtime_enabled]
-    _refuse_over_plan_limits(cohort.team, turning_on=turning_on, history_of=[cohort, *turning_on])
+    if not all(can_edit(nested) for nested in turning_on):
+        turning_on = []
+    _refuse_over_plan_limits(
+        cohort.team,
+        taking_slots=turning_on if held_a_slot else [cohort, *turning_on],
+        history_of=[cohort, *turning_on] if criteria_changed else turning_on,
+    )
 
 
 def turn_realtime_off(team_id: int, cohort_id: int) -> bool:
@@ -165,7 +173,7 @@ def _included_realtime_cohorts(cohort: Cohort) -> list[Cohort]:
     ]
 
 
-def _refuse_over_plan_limits(team: Team, *, turning_on: Sequence[Cohort], history_of: Sequence[Cohort]) -> None:
+def _refuse_over_plan_limits(team: Team, *, taking_slots: Sequence[Cohort], history_of: Sequence[Cohort]) -> None:
     max_days = max_realtime_history_days(team.organization)
     today = day_of_instant(timezone.now(), resolve_zoneinfo(team.timezone))
     for cohort in history_of:
@@ -178,13 +186,13 @@ def _refuse_over_plan_limits(team: Team, *, turning_on: Sequence[Cohort], histor
             )
 
     max_cohorts = max_realtime_cohorts(team.organization)
-    if max_cohorts is None or not turning_on:
+    if max_cohorts is None or not taking_slots:
         return
     used = realtime_cohorts_used(team.id)
-    if used + len(turning_on) > max_cohorts:
+    if used + len(taking_slots) > max_cohorts:
         raise RealtimeLimitReached(
             f"Your plan allows realtime for {max_cohorts} cohorts in this project, and it is on for {used}. This "
-            f"needs {len(turning_on)} more. Turn realtime off for cohorts you no longer need, then try again.",
+            f"needs {len(taking_slots)} more. Turn realtime off for cohorts you no longer need, then try again.",
             limit="cohorts",
             allowed=max_cohorts,
             used=used,

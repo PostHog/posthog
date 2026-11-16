@@ -9292,6 +9292,8 @@ class TestCohortRealtimeSwitch(APIBaseTest):
                 "includes_a_cohort_that_is_off_with_no_slot_left",
                 {"limit": "cohorts", "allowed": 3, "used": 3, "source": "edit"},
             ),
+            # The turn-on after the save refuses a cohort the editor can't edit, and a refusal here would name it.
+            ("includes_a_cohort_past_the_plan_that_the_editor_cannot_view", None),
             ("window_past_the_plan_of_a_cohort_that_is_off", None),
             # Migration 0023 turned on the cohorts of teams whose users don't see realtime cohorts.
             ("window_past_the_plan_outside_the_realtime_gate", None),
@@ -9318,7 +9320,10 @@ class TestCohortRealtimeSwitch(APIBaseTest):
         else:
             for _ in range(2):
                 self._cohort(_REALTIME_PAGEVIEW_LEAF, enabled=True)
-            off = self._cohort(_REALTIME_PAGEVIEW_LEAF)
+            hidden = name.endswith("cannot_view")
+            off = self._cohort({**_REALTIME_PAGEVIEW_LEAF, "time_value": 15} if hidden else _REALTIME_PAGEVIEW_LEAF)
+            if hidden:
+                self._restrict(off, "none")
             edited = criteria(leaf, {"type": "cohort", "key": "id", "value": off.id})
 
         response = self.client.patch(
@@ -9333,6 +9338,27 @@ class TestCohortRealtimeSwitch(APIBaseTest):
         ), response.json()
         assert cohort.name == ("Realtime" if limit_event else "Renamed")
         assert self._limit_events(report_user_action) == ([limit_event] if limit_event else [])
+
+    @parameterized.expand(
+        [("made_realtime_again", {"cohort_type": None}, {}), ("restored", {"deleted": True}, {"deleted": False})]
+    )
+    @patch("posthog.api.cohort.report_user_action")
+    def test_an_edit_that_brings_back_a_cohort_that_is_on_needs_a_slot(
+        self, _name: str, state: dict, edit: dict, report_user_action: MagicMock
+    ) -> None:
+        cohort = self._cohort(_REALTIME_PAGEVIEW_LEAF, enabled=True)
+        Cohort.objects.filter(id=cohort.id).update(**state)
+        for _ in range(3):
+            self._cohort(_REALTIME_PAGEVIEW_LEAF, enabled=True)
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/cohorts/{cohort.id}/", {"filters": cohort.filters, **edit}, format="json"
+        )
+
+        assert (response.status_code, response.json().get("code")) == (400, "realtime_limit_reached"), response.json()
+        assert self._limit_events(report_user_action) == [
+            {"limit": "cohorts", "allowed": 3, "used": 3, "source": "edit"}
+        ]
 
     def test_turning_off_hides_names_of_parents_the_member_cannot_view(self) -> None:
         cohort = self._cohort(_REALTIME_PAGEVIEW_LEAF, enabled=True)

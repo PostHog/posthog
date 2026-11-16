@@ -30,7 +30,7 @@ def max_realtime_history_days(organization: Organization) -> int:
 
 
 def realtime_cohorts_used(team_id: int) -> int:
-    """How many of the project's cohorts the pipeline loads. ``team_id`` is the project's root team."""
+    """How many of the project's cohorts hold a slot. ``team_id`` is the project's root team."""
     return Cohort.objects.filter(
         team_id=team_id,
         cohort_type=CohortType.REALTIME,
