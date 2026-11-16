@@ -79,7 +79,6 @@ export interface explainChartLogicValues {
     featureFlags: FeatureFlagsSet // featureFlagLogic
     visibleStepsWithConversionMetrics: FunnelStepWithConversionMetrics[] // funnelDataLogic
     query: Node | null // insightDataLogic
-    canEditInsight: boolean // insightLogic
     insight: Partial<InsightModel<Node<Record<string, any>>>> // insightLogic
     savedInsight: Partial<InsightModel<Node<Record<string, any>>>> // insightLogic
     funnelsFilter: FunnelsFilter | null | undefined // insightVizDataLogic
@@ -105,11 +104,9 @@ export interface explainChartLogicValues {
     investigationPrompt: string
     investigationStreamKey: string | null
     linkedExplanationId: string | null
-    shareDisabledReason: string | null
     story: ExplainChartData | null
     storyAvailable: boolean
     storyEventProperties: StoryEventProperties
-    storyLinkCopying: boolean
     storyOrigin: StoryOrigin | null
     storyOutdated: boolean
     storyQuery: Node | null
@@ -204,9 +201,6 @@ export interface explainChartLogicActions {
     startInvestigation: () => {
         value: true
     }
-    storyLinkCopied: () => {
-        value: true
-    }
     storySaved: (explanationId: string) => {
         explanationId: string
     }
@@ -260,7 +254,6 @@ export interface explainChartLogicMeta {
             indexedResults: IndexedTrendResult[]
         ) => string | null
         storyEventProperties: (storyOrigin: StoryOrigin | null) => StoryEventProperties
-        shareDisabledReason: (storyOrigin: StoryOrigin | null, canEditInsight: boolean) => string | null
         formatValue: (
             trendsFilter: TrendsFilter | null | undefined,
             baseCurrency: CurrencyCode
@@ -288,7 +281,7 @@ export const explainChartLogic: LogicWrapper<explainChartLogicType> = kea<explai
             aiConsentLogic,
             ['dataProcessingAccepted'],
             insightLogic(props),
-            ['insight', 'savedInsight', 'canEditInsight'],
+            ['insight', 'savedInsight'],
             insightDataLogic(props),
             ['query'],
             teamLogic,
@@ -331,7 +324,6 @@ export const explainChartLogic: LogicWrapper<explainChartLogicType> = kea<explai
         }),
         storySaved: (explanationId: string) => ({ explanationId }),
         copyStoryLink: true,
-        storyLinkCopied: true,
         setLinkedExplanationId: (explanationId: string | null) => ({ explanationId }),
         loadLinkedExplanation: true,
         showStory: true,
@@ -386,13 +378,6 @@ export const explainChartLogic: LogicWrapper<explainChartLogicType> = kea<explai
                 storySaved: (origin, { explanationId }) =>
                     origin?.source === 'agent' ? { ...origin, explanationId } : origin,
                 forgetStory: () => null,
-            },
-        ],
-        storyLinkCopying: [
-            false,
-            {
-                copyStoryLink: () => true,
-                storyLinkCopied: () => false,
             },
         ],
         linkedExplanationId: [
@@ -531,13 +516,6 @@ export const explainChartLogic: LogicWrapper<explainChartLogicType> = kea<explai
                 story_source: storyOrigin?.source ?? null,
                 explanation_id: storyOrigin?.explanationId ?? null,
             }),
-        ],
-        shareDisabledReason: [
-            (s) => [s.storyOrigin, s.canEditInsight],
-            (storyOrigin: StoryOrigin | null, canEditInsight: boolean): string | null =>
-                !storyOrigin?.explanationId && !canEditInsight
-                    ? 'You need edit access to this insight to share this explanation'
-                    : null,
         ],
         formatValue: [
             (s) => [s.trendsFilter, s.baseCurrency],
@@ -704,25 +682,37 @@ export const explainChartLogic: LogicWrapper<explainChartLogicType> = kea<explai
                 ...values.storyEventProperties,
                 ...(origin.source === 'link' ? { opened_by_author: origin.openedByAuthor } : {}),
             })
-            if (origin.source === 'agent') {
-                await saveStory({ actions, values, cache }, story)
+            const insightId = values.insightId
+            const shortId = values.insight.short_id
+            if (origin.source !== 'agent' || !insightId || !shortId) {
+                return
+            }
+            try {
+                const saved = await insightsExplanationsCreate(String(getCurrentTeamId()), insightId, {
+                    data: storedExplanation(story) as unknown as InsightExplanationCreateApi['data'],
+                })
+                if (cache.disposables.isDisposed || values.story !== story) {
+                    return
+                }
+                // The address bar now opens this explanation, so loading it from there again is skipped.
+                cache.linkedExplanationIdLoaded = saved.id
+                actions.storySaved(saved.id)
+                const { location, searchParams, hashParams } = router.values
+                if (
+                    [`/insights/${shortId}`, `/insights/${shortId}/edit`].some((path) =>
+                        location.pathname.endsWith(path)
+                    )
+                ) {
+                    router.actions.replace(location.pathname, { ...searchParams, explanation: saved.id }, hashParams)
+                }
+            } catch {
+                // Someone who can view the insight but not edit it cannot save, so their explanation has no link.
             }
         },
         copyStoryLink: async () => {
-            const story = values.story
-            const origin = values.storyOrigin
+            const explanationId = values.storyOrigin?.explanationId
             const shortId = values.insight.short_id
-            if (!story || !origin || !shortId) {
-                actions.storyLinkCopied()
-                return
-            }
-            const explanationId = origin.explanationId ?? (await saveStory({ actions, values, cache }, story))
-            if (cache.disposables.isDisposed) {
-                return
-            }
-            actions.storyLinkCopied()
-            if (!explanationId) {
-                lemonToast.error("Couldn't save this explanation, so there's no link to copy. Try again in a moment.")
+            if (!explanationId || !shortId) {
                 return
             }
             const url = urls.absolute(
@@ -731,9 +721,8 @@ export const explainChartLogic: LogicWrapper<explainChartLogicType> = kea<explai
             if (await copyToClipboard(url, 'link')) {
                 // pinned: analytics event name
                 posthog.capture('explain chart link copied', {
-                    source: origin.source,
+                    source: values.storyOrigin?.source,
                     ...values.storyEventProperties,
-                    explanation_id: explanationId,
                 })
             }
         },
@@ -764,49 +753,6 @@ function explainedQuery(savedQuery: Node | null | undefined, explainedSource: Re
     }
     const explained: InsightVizNode = { ...savedQuery, source: explainedSource as unknown as InsightVizNode['source'] }
     return explained
-}
-
-type ExplainChartListenerScope = Pick<explainChartLogicType, 'actions' | 'values'> & { cache: Record<string, any> }
-
-// Share waits on a save already in flight rather than saving the same explanation twice.
-function saveStory(logic: ExplainChartListenerScope, story: ExplainChartData): Promise<string | null> {
-    if (logic.cache.storySave?.story !== story) {
-        logic.cache.storySave = { story, saved: storeStory(logic, story) }
-    }
-    return logic.cache.storySave.saved
-}
-
-async function storeStory(
-    { actions, values, cache }: ExplainChartListenerScope,
-    story: ExplainChartData
-): Promise<string | null> {
-    const insightId = values.insightId
-    const shortId = values.insight.short_id
-    if (!insightId || !shortId) {
-        return null
-    }
-    try {
-        const saved = await insightsExplanationsCreate(String(getCurrentTeamId()), insightId, {
-            data: storedExplanation(story) as unknown as InsightExplanationCreateApi['data'],
-        })
-        if (cache.disposables.isDisposed || values.story !== story) {
-            return null
-        }
-        // The address bar now opens this explanation, so loading it from there again is skipped.
-        cache.linkedExplanationIdLoaded = saved.id
-        actions.storySaved(saved.id)
-        const { location, searchParams, hashParams } = router.values
-        if ([`/insights/${shortId}`, `/insights/${shortId}/edit`].some((path) => location.pathname.endsWith(path))) {
-            router.actions.replace(location.pathname, { ...searchParams, explanation: saved.id }, hashParams)
-        }
-        return saved.id
-    } catch {
-        // Someone who can view the insight but not edit it cannot save, so their explanation has no link.
-        if (cache.storySave?.story === story) {
-            cache.storySave = null
-        }
-        return null
-    }
 }
 
 function dataDiffers(a: Node | null | undefined, b: Node | null | undefined): boolean {

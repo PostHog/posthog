@@ -10,21 +10,17 @@ import type { InsightLogicProps } from '~/types'
 
 import { explainChartLogic } from './explainChartLogic'
 
-export function ExplainChartShareButton({ insightProps }: { insightProps: InsightLogicProps }): JSX.Element {
-    const { storyLinkCopying, shareDisabledReason } = useValues(explainChartLogic(insightProps))
+export function ExplainChartShareButton({ insightProps }: { insightProps: InsightLogicProps }): JSX.Element | null {
+    const { storyOrigin } = useValues(explainChartLogic(insightProps))
     const { copyStoryLink } = useActions(explainChartLogic(insightProps))
     const quillSurface = useQuillSurface()
 
+    if (!storyOrigin?.explanationId) {
+        return null
+    }
     return quillSurface ? (
         <span data-quill>
-            <Button
-                variant="outline"
-                size="sm"
-                disabledReason={shareDisabledReason}
-                loading={storyLinkCopying}
-                onClick={copyStoryLink}
-                data-attr="explain-chart-share"
-            >
+            <Button variant="outline" size="sm" onClick={copyStoryLink} data-attr="explain-chart-share">
                 <IconShare />
                 Share
             </Button>
@@ -34,8 +30,6 @@ export function ExplainChartShareButton({ insightProps }: { insightProps: Insigh
             size="xsmall"
             type="secondary"
             icon={<IconShare />}
-            disabledReason={shareDisabledReason}
-            loading={storyLinkCopying}
             onClick={copyStoryLink}
             data-attr="explain-chart-share"
         >
