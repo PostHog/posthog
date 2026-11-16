@@ -2,8 +2,8 @@
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "properties": {
         "destination_type": {
-            "description": "The destination type to connect, e.g. 'Snowflake' or 'S3'.\n\n* `Redshift` - Redshift\n* `Snowflake` - Snowflake\n* `BigQuery` - BigQuery\n* `Postgres` - Postgres\n* `Databricks` - Databricks\n* `AzureBlob` - Azure Blob\n* `S3` - S3",
-            "enum": ["Redshift", "Snowflake", "BigQuery", "Postgres", "Databricks", "AzureBlob", "S3"],
+            "description": "The destination type to connect, e.g. 'Snowflake' or 'S3'.\n\n* `Redshift` - Redshift\n* `Snowflake` - Snowflake\n* `BigQuery` - BigQuery\n* `Postgres` - Postgres\n* `Databricks` - Databricks\n* `AzureBlob` - Azure Blob\n* `S3` - S3\n* `MotherDuck` - MotherDuck",
+            "enum": ["Redshift", "Snowflake", "BigQuery", "Postgres", "Databricks", "AzureBlob", "S3", "MotherDuck"],
             "type": "string"
         },
         "integration_kind": {

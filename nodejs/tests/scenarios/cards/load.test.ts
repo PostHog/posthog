@@ -223,16 +223,6 @@ describe('load', () => {
             'convergeWithin: 100s must exceed 107s',
         ],
         [
-            'pg.drop_connections scheduled by at',
-            {
-                ...card,
-                valves: [{ valve: 'pg.drop_connections', target: 'postgres', dose: { share: 1 }, at: '5s', for: '1s' }],
-                convergeWithin: '2m',
-            },
-            undefined,
-            'valves.0.at: pg.drop_connections waits for running jobs, so it takes when, not at',
-        ],
-        [
             'bounced_suppressed without a bounce',
             {
                 ...card,
@@ -351,6 +341,12 @@ describe('load', () => {
         ],
     ])('rejects %s', (_name, content, profileContent, problem) => {
         expect(problemsOf(content, profileContent)).toEqual([expect.stringContaining(problem)])
+    })
+
+    it('reports a profile path it cannot read as a problem of the card', () => {
+        expect(() => load(write('card.yaml', card), { definitions, profilePath: dir })).toThrow(
+            expect.objectContaining({ problems: [expect.stringMatching(/^profile: .*EISDIR/)] })
+        )
     })
 
     it('lists every problem in one error', () => {

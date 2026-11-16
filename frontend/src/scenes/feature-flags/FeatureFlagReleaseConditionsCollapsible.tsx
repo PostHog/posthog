@@ -46,7 +46,6 @@ import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { cohortFilterName, isPropertyFilterWithOperator } from 'lib/components/PropertyFilters/utils'
 import { TaxonomicFilterGroupType, TaxonomicFilterProps } from 'lib/components/TaxonomicFilter/types'
 import { FEATURE_FLAGS } from 'lib/constants'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { IconArrowDown, IconArrowUp, IconErrorOutline } from 'lib/lemon-ui/icons'
 import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonSlider } from 'lib/lemon-ui/LemonSlider'
@@ -69,6 +68,7 @@ import {
     PropertyFilterType,
 } from '~/types'
 
+import { useRealtimeCohortsServing } from 'products/cohorts/frontend/realtime/useRealtimeCohortsServing'
 import { INTENT_METADATA } from 'products/feature_flags/frontend/featureFlagTemplateConstants'
 import { FractionalRolloutWarning } from 'products/feature_flags/frontend/FractionalRolloutWarning'
 
@@ -472,7 +472,7 @@ const ConditionContent = ({
     isDragDropEnabled: boolean
 }): JSX.Element => {
     const [originalWidth, setOriginalWidth] = useState<number | undefined>(undefined)
-    const realtimeCohortFlagTargeting = useFeatureFlag('REALTIME_COHORT_FLAG_TARGETING')
+    const realtimeCohortFlagTargeting = useRealtimeCohortsServing()
     const { aggregationLabel } = useValues(groupsModel)
 
     // Combined ref callback

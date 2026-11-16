@@ -41,7 +41,7 @@ from opentelemetry import trace
 from prometheus_client import Counter, Histogram
 from rest_framework.exceptions import PermissionDenied, ValidationError
 from social_core.backends.utils import load_backends
-from social_core.exceptions import AuthCanceled, AuthException, AuthFailed
+from social_core.exceptions import AuthCanceled, AuthException, AuthFailed, AuthStateForbidden, AuthStateMissing
 from statshog.defaults.django import statsd
 
 from posthog.api.shared import UserBasicSerializer
@@ -1698,6 +1698,11 @@ class SocialAuthExceptionMiddleware:
                 "access_blocked",
             ):
                 return redirect(sso_failure_redirect_url(request, error))
+
+        # The OAuth `state` saved in the session when the flow started is gone or does not match the callback.
+        # The library text gives the person no next step, so the login page shows its own copy for this code.
+        if isinstance(exception, (AuthStateMissing, AuthStateForbidden)):
+            return redirect(sso_failure_redirect_url(request, "oauth_state_invalid"))
 
         # Handle any other social auth exception by passing the error detail to the frontend
         if isinstance(exception, AuthException):
