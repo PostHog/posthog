@@ -1608,6 +1608,8 @@ class TestDestinationIntegrationAccessControl(DestinationAPITestBase):
             access_level="none",
             organization_member=membership,
         )
+        # Creating the shared destination above already ran the check once.
+        self.check_motherduck.reset_mock()
         self.client.force_login(self.member)
 
     def test_a_member_cannot_create_a_destination_with_an_integration_they_are_denied(self) -> None:
