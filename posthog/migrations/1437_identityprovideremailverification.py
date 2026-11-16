@@ -9,7 +9,7 @@ import posthog.uuidt
 
 class Migration(migrations.Migration):
     dependencies = [
-        ("posthog", "1433_integrationrepositorycacheentry_activity"),
+        ("posthog", "1436_identityproviderconfig_scim_token_digest"),
     ]
 
     operations = [
