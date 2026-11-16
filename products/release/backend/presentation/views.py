@@ -58,12 +58,15 @@ BROADCAST_SEARCH_LIMIT = 50
 
 class ReleaseViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     scope_object = "feature_flag"
-    requires_resource_level_access = True
     scope_object_read_actions = ["list", "retrieve", "broadcast_search", "catalog_flags"]
     scope_object_write_actions = ["create", "update", "partial_update", "destroy", "import_all", "merge"]
     serializer_class = ReleaseSerializer
     pagination_class = FacadeLimitOffsetPagination
     path_parameters = {"pk": UUID}
+
+    @property
+    def requires_resource_level_access(self) -> bool:
+        return self.action != "catalog_flags"
 
     def initial(self, request: Request, *args: Any, **kwargs: Any) -> None:
         super().initial(request, *args, **kwargs)

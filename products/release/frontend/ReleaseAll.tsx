@@ -1,6 +1,5 @@
 import type { ColumnDef } from '@tanstack/react-table'
 import { useActions, useValues } from 'kea'
-import { router } from 'kea-router'
 import { useCallback, useEffect, useMemo, useRef } from 'react'
 
 import { IconList } from '@posthog/icons'
@@ -8,6 +7,7 @@ import { Badge, Button, Card, DataTable, Input, Skeleton, Text } from '@posthog/
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
+import { navigateToHref } from 'lib/utils/navigateToHref'
 import { SceneExport } from 'scenes/sceneTypes'
 
 import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
@@ -124,11 +124,11 @@ function useLoadMoreSentinel(onVisible: () => void, watch: unknown): (node: Elem
 }
 
 function ReleaseAllContent(): JSX.Element {
-    const { displayRows, filter, search, hasMore, loading, showSkeleton, failedTypes } = useValues(releaseAllLogic)
-    const { setFilter, setSearch, loadMore, retry } = useActions(releaseAllLogic)
-    const sentinel = useLoadMoreSentinel(loadMore, loading)
+    const { renderedRows, filter, search, canShowMore, loading, showSkeleton, failedTypes } = useValues(releaseAllLogic)
+    const { setFilter, setSearch, next, retry } = useActions(releaseAllLogic)
+    const sentinel = useLoadMoreSentinel(next, `${loading}-${renderedRows.length}`)
     const searching = !!search.trim()
-    const openRow = useCallback((row: ReleaseAllRow) => router.actions.push(row.href), [])
+    const openRow = useCallback((row: ReleaseAllRow) => navigateToHref(row.href), [])
     const empty = useMemo(
         () => (
             <Text size="xs" variant="muted">
@@ -187,15 +187,15 @@ function ReleaseAllContent(): JSX.Element {
                     <Card size="sm" flush className="pt-0" data-attr="release-all-table">
                         <DataTable
                             columns={COLUMNS}
-                            data={displayRows}
+                            data={renderedRows}
                             fullWidth
                             size="sm"
                             getRowId={rowId}
                             onRowClick={openRow}
                             empty={empty}
                         />
-                        {hasMore && <div ref={sentinel} />}
-                        {loading && displayRows.length > 0 && <Skeleton className="m-2 h-9" />}
+                        {canShowMore && <div ref={sentinel} />}
+                        {loading && renderedRows.length > 0 && <Skeleton className="m-2 h-9" />}
                     </Card>
                 )}
             </div>

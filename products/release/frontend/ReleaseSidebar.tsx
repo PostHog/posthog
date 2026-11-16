@@ -8,6 +8,7 @@ import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { urls } from 'scenes/urls'
 
 import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
+import { splitPath } from '~/layout/panel-layout/ProjectTree/utils'
 import { SidebarPinButton } from '~/layout/today/sidebar/SidebarPinButton'
 import { sidebarPinsLogic } from '~/layout/today/sidebar/sidebarPinsLogic'
 import { SidebarRow } from '~/layout/today/sidebar/SidebarRow'
@@ -24,7 +25,7 @@ const RELEASE_TYPES = ['feature_flag', 'experiment', 'early_access_feature', 're
 const RECENTS_LIMIT = 6
 
 function entryName(entry: FileSystemEntry): string {
-    return entry.path.split('/').pop() || entry.path
+    return splitPath(entry.path).pop() || entry.path
 }
 
 export function ReleaseSidebar(): JSX.Element {
@@ -71,7 +72,7 @@ export function ReleaseSidebar(): JSX.Element {
             icon: iconForType('feature_flag' as FileSystemIconType),
             to: urls.featureFlags(),
             count: flagCount,
-            active: path.startsWith('/feature_flags'),
+            active: path.startsWith(urls.featureFlags()),
         },
         {
             key: 'experiments',

@@ -137,7 +137,7 @@ class TestReleaseAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_403_FORBIDDEN, response.json()
 
-    def _restrict_as_admin(self, resource_path: str) -> None:
+    def _restrict_as_admin(self, resource_path: str, endpoint: str = "access_controls", **extra: str) -> None:
         self.organization.available_product_features = [
             {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
             {"key": AvailableFeature.ROLE_BASED_ACCESS, "name": AvailableFeature.ROLE_BASED_ACCESS},
@@ -146,7 +146,9 @@ class TestReleaseAPI(APIBaseTest):
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()
         restricted = self.client.put(
-            f"/api/projects/{self.team.id}/{resource_path}/access_controls", {"access_level": "none"}, format="json"
+            f"/api/projects/{self.team.id}/{resource_path}/{endpoint}".rstrip("/"),
+            {"access_level": "none", **extra},
+            format="json",
         )
         assert restricted.status_code == status.HTTP_200_OK, restricted.json()
 
@@ -432,6 +434,25 @@ class TestReleaseAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_200_OK, response.json()
         assert [flag["id"] for flag in response.json()["results"]] == [visible]
+
+    def test_catalog_flags_lists_flags_granted_one_by_one_without_resource_access(self) -> None:
+        granted = self._flag("checkout-granted")
+        self._flag("checkout-other")
+        member = self._create_user("member@example.com")
+        self._restrict_as_admin("resource_access_controls", endpoint="", resource="feature_flag")
+        membership = OrganizationMembership.objects.get(user=member, organization=self.organization)
+        grant = self.client.put(
+            f"/api/projects/{self.team.id}/feature_flags/{granted}/access_controls",
+            {"organization_member": str(membership.id), "access_level": "viewer"},
+            format="json",
+        )
+        assert grant.status_code == status.HTTP_200_OK, grant.json()
+        self.client.force_login(member)
+
+        response = self.client.get(self._url("catalog_flags/"))
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert [flag["id"] for flag in response.json()["results"]] == [granted]
 
     def test_update_of_a_missing_release_returns_404(self) -> None:
         response = self.client.patch(
