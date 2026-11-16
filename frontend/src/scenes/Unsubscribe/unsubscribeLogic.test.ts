@@ -7,10 +7,10 @@ import { initKeaTests } from '~/test/init'
 import { unsubscribeLogic } from './unsubscribeLogic'
 
 describe('unsubscribeLogic', () => {
-    let unsubscribeRequest: jest.Mock
+    let requestedTokens: (string | null)[]
 
     beforeEach(() => {
-        unsubscribeRequest = jest.fn()
+        requestedTokens = []
         initKeaTests()
     })
 
@@ -21,7 +21,7 @@ describe('unsubscribeLogic', () => {
         useMocks({
             post: {
                 '/api/unsubscribe': ({ request }) => {
-                    unsubscribeRequest(new URL(request.url).searchParams.get('token'))
+                    requestedTokens.push(new URL(request.url).searchParams.get('token'))
                     return [status, body]
                 },
             },
@@ -32,11 +32,11 @@ describe('unsubscribeLogic', () => {
         await expectLogic(logic).toFinishAllListeners()
 
         expect(logic.values.unsubscription).toBeNull()
-        expect(unsubscribeRequest).not.toHaveBeenCalled()
+        expect(requestedTokens).toEqual([])
 
         await expectLogic(logic, () => logic.actions.attemptUnsubscribe()).toFinishAllListeners()
 
-        expect(unsubscribeRequest).toHaveBeenCalledWith('tok')
+        expect(requestedTokens).toEqual(['tok'])
         expect(logic.values.unsubscription).toBe(expected)
     })
 })
