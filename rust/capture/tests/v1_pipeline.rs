@@ -9,6 +9,7 @@ use capture::v1::analytics::response::BatchResponse;
 use capture::v1::analytics::types::{Batch, EventResult};
 use capture::v1::test_utils::{self, batch_payload, valid_event, TestStateBuilder};
 use capture::v1::Error;
+use limiters::redis::QuotaResource;
 
 fn event_with_name(name: &str) -> capture::v1::analytics::types::Event {
     let mut e = valid_event();
@@ -141,6 +142,63 @@ async fn all_events_quota_dropped() {
 }
 
 #[tokio::test]
+async fn events_quota_keeps_events_under_their_own_quota() {
+    let events = vec![
+        event_with_name("$pageview"),
+        event_with_name("$exception"),
+        event_with_name("survey sent"),
+        event_with_name("$ai_generation"),
+    ];
+    let payload = batch_payload(&events);
+    let ts = TestStateBuilder::new()
+        .with_quota_limited_resources(&[QuotaResource::Events])
+        .build();
+
+    // Poll until the limiter cache loads the wildcard "*" token instead of sleeping.
+    let deadline = tokio::time::Instant::now() + std::time::Duration::from_secs(2);
+    let response = loop {
+        let batch: Batch = serde_json::from_slice(&payload).expect("payload must parse as Batch");
+        let mut ctx = test_utils::test_analytics_context();
+        ctx.api_token = "*".to_string();
+        let response = process_batch(&ts.state, &mut ctx, batch)
+            .await
+            .expect("an events quota must not refuse events under their own quota");
+        if response
+            .entries()
+            .iter()
+            .any(|(_, status)| status.result == EventResult::Drop)
+        {
+            break response;
+        }
+        assert!(
+            tokio::time::Instant::now() < deadline,
+            "quota limiter cache was not populated within 2s"
+        );
+        tokio::time::sleep(std::time::Duration::from_millis(5)).await;
+    };
+
+    let by_uuid: std::collections::HashMap<String, _> = response
+        .entries()
+        .iter()
+        .map(|(uuid, status)| (uuid.to_string(), status))
+        .collect();
+    for event in &events {
+        let status = by_uuid[&event.uuid];
+        if event.event == "$pageview" {
+            assert_eq!(status.result, EventResult::Drop);
+            assert_eq!(status.details, Some("events_over_quota"));
+        } else {
+            assert_eq!(
+                status.result,
+                EventResult::Ok,
+                "{} was dropped",
+                event.event
+            );
+        }
+    }
+}
+
+#[tokio::test]
 async fn historical_rerouting() {
     let old_ts = chrono::Utc::now() - chrono::Duration::days(60);
     let mut event = valid_event();
@@ -247,23 +305,23 @@ async fn empty_batch_error() {
 }
 
 #[tokio::test]
-async fn duplicate_uuid_error() {
-    let shared_uuid = Uuid::new_v4().to_string();
-    let mut e1 = valid_event();
-    e1.uuid = shared_uuid.clone();
-    let mut e2 = valid_event();
-    e2.event = "$identify".to_string();
-    e2.uuid = shared_uuid;
+async fn duplicate_uuid_keeps_and_publishes_only_the_first_copy() {
+    let first = event_with_name("$pageview");
+    let mut copy = event_with_name("$exception");
+    copy.uuid = first.uuid.clone();
+    let payload = batch_payload(&[first, copy]);
 
-    let payload = batch_payload(&[e1, e2]);
+    let (result, ts) = run_batch_with_state(&payload, TestStateBuilder::new()).await;
 
-    let err = run_batch(&payload, TestStateBuilder::new())
-        .await
-        .expect_err("duplicate uuid should fail");
-
-    assert!(
-        matches!(err, Error::DuplicateEventUuid(_)),
-        "expected DuplicateEventUuid, got: {err:?}"
+    let resp = result.expect("a duplicate uuid no longer rejects the request");
+    assert_eq!(resp.entries().len(), 1);
+    assert_eq!(resp.entries()[0].1.result, EventResult::Ok);
+    assert_eq!(resp.entries()[0].1.duplicates_dropped, 1);
+    let records = ts.mock_producer.get_records();
+    assert_eq!(records.len(), 1, "only the first copy is published");
+    assert_eq!(
+        &*records[0].topic, "events_main",
+        "the $exception copy was dropped"
     );
 }
 

@@ -18,13 +18,16 @@ WIZARD_DIFF_OUTPUT_PATH = "/tmp/posthog-wizard-diff.patch"
 LOCAL_WIZARD_SOURCE_ENTRIES = (
     "README.md",
     "bin.ts",
+    "main.ts",
     "package.json",
     "pnpm-lock.yaml",
     "pnpm-workspace.yaml",
     "scripts",
     "src",
-    "tsconfig.build.json",
+    "tsconfig.base.json",
+    "tsconfig.bin.json",
     "tsconfig.json",
+    "tsconfig.no-tui.json",
     "tsdown.config.ts",
     "types",
 )

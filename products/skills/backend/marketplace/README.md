@@ -40,6 +40,10 @@ unit-testable against the real `git` binary without booting the app
   Behind the `skills-store-in-sandbox` flag (off → 404, flag service unavailable → 503).
   `llm_skill:read`, which the sandbox OAuth token already carries. Throttled per user, so one caller
   cannot 429 the rest of the project. Consumer-facing contract: `docs/internal/skills/skill-bundle-api.md`.
+- **Resource manifests** — `GET /api/projects/:team/llm_skills/name/:name/manifest/?version=N` and the paged
+  `GET /api/projects/:team/llm_skills/manifests/` return every file of a skill (`SKILL.md` first) with the stored
+  SHA-256 and byte size, plus a `servable` flag against the MCP Skills extension limits, for the MCP server's
+  `skills/get` and `skills/list`. `llm_skill:read`. Contract: `docs/internal/skills/skill-md-api.md`.
 - **Sandbox run state** — `select_skill_stubs` in `adapters.py` is the same stub walk without the zip.
   The tasks worker calls it when it builds a run's processing context and writes the entries into
   `TaskRun.state["store_skills"]` (`products/tasks/backend/logic/services/store_skills.py`); the sandbox

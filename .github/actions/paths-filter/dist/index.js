@@ -42291,6 +42291,37 @@ exports.Filter = Filter;
 
 /***/ }),
 
+/***/ 1467:
+/***/ ((__unused_webpack_module, exports, __nccwpck_require__) => {
+
+"use strict";
+
+Object.defineProperty(exports, "__esModule", ({ value: true }));
+exports.parseGitDiffOutput = parseGitDiffOutput;
+const file_1 = __nccwpck_require__(3765);
+const statusMap = {
+    A: file_1.ChangeStatus.Added,
+    C: file_1.ChangeStatus.Copied,
+    D: file_1.ChangeStatus.Deleted,
+    M: file_1.ChangeStatus.Modified,
+    R: file_1.ChangeStatus.Renamed,
+    U: file_1.ChangeStatus.Unmerged
+};
+function parseGitDiffOutput(output) {
+    const tokens = output.split('\u0000').filter(s => s.length > 0);
+    const files = [];
+    for (let i = 0; i + 1 < tokens.length; i += 2) {
+        files.push({
+            status: statusMap[tokens[i]],
+            filename: tokens[i + 1]
+        });
+    }
+    return files;
+}
+
+
+/***/ }),
+
 /***/ 1243:
 /***/ (function(__unused_webpack_module, exports, __nccwpck_require__) {
 
@@ -42330,12 +42361,11 @@ var __importStar = (this && this.__importStar) || (function () {
     };
 })();
 Object.defineProperty(exports, "__esModule", ({ value: true }));
-exports.HEAD = exports.NULL_SHA = void 0;
+exports.HEAD = exports.NULL_SHA = exports.parseGitDiffOutput = void 0;
 exports.getChangesInLastCommit = getChangesInLastCommit;
 exports.getChanges = getChanges;
 exports.getChangesOnHead = getChangesOnHead;
 exports.getChangesSinceMergeBase = getChangesSinceMergeBase;
-exports.parseGitDiffOutput = parseGitDiffOutput;
 exports.listAllFilesAsAdded = listAllFilesAsAdded;
 exports.getCurrentRef = getCurrentRef;
 exports.getShortName = getShortName;
@@ -42343,19 +42373,22 @@ exports.isGitSha = isGitSha;
 const exec_1 = __nccwpck_require__(5236);
 const core = __importStar(__nccwpck_require__(7484));
 const file_1 = __nccwpck_require__(3765);
+const git_diff_1 = __nccwpck_require__(1467);
+var git_diff_2 = __nccwpck_require__(1467);
+Object.defineProperty(exports, "parseGitDiffOutput", ({ enumerable: true, get: function () { return git_diff_2.parseGitDiffOutput; } }));
 exports.NULL_SHA = '0000000000000000000000000000000000000000';
 exports.HEAD = 'HEAD';
 async function getChangesInLastCommit() {
     core.startGroup(`Change detection in last commit`);
     let output = '';
     try {
-        output = (await (0, exec_1.getExecOutput)('git', ['log', '--format=', '--no-renames', '--name-status', '-z', '-n', '1'])).stdout;
+        output = (await (0, exec_1.getExecOutput)('git', ['log', '--format=', '--no-renames', '--name-status', '-z', '-n', '1'], { silent: true })).stdout;
     }
     finally {
         fixStdOutNullTermination();
         core.endGroup();
     }
-    return parseGitDiffOutput(output);
+    return (0, git_diff_1.parseGitDiffOutput)(output);
 }
 async function getChanges(base, head) {
     const baseRef = await ensureRefAvailable(base);
@@ -42365,27 +42398,29 @@ async function getChanges(base, head) {
     let output = '';
     try {
         // Two dots '..' change detection - directly compares two versions
-        output = (await (0, exec_1.getExecOutput)('git', ['diff', '--no-renames', '--name-status', '-z', `${baseRef}..${headRef}`]))
-            .stdout;
+        output = (await (0, exec_1.getExecOutput)('git', ['diff', '--no-renames', '--name-status', '-z', `${baseRef}..${headRef}`], {
+            silent: true
+        })).stdout;
     }
     finally {
         fixStdOutNullTermination();
         core.endGroup();
     }
-    return parseGitDiffOutput(output);
+    return (0, git_diff_1.parseGitDiffOutput)(output);
 }
 async function getChangesOnHead() {
     // Get current changes - both staged and unstaged
     core.startGroup(`Change detection on HEAD`);
     let output = '';
     try {
-        output = (await (0, exec_1.getExecOutput)('git', ['diff', '--no-renames', '--name-status', '-z', 'HEAD'])).stdout;
+        output = (await (0, exec_1.getExecOutput)('git', ['diff', '--no-renames', '--name-status', '-z', 'HEAD'], { silent: true }))
+            .stdout;
     }
     finally {
         fixStdOutNullTermination();
         core.endGroup();
     }
-    return parseGitDiffOutput(output);
+    return (0, git_diff_1.parseGitDiffOutput)(output);
 }
 async function getChangesSinceMergeBase(base, head, initialFetchDepth) {
     let baseRef;
@@ -42452,30 +42487,20 @@ async function getChangesSinceMergeBase(base, head, initialFetchDepth) {
     core.startGroup(`Change detection ${diffArg}`);
     let output = '';
     try {
-        output = (await (0, exec_1.getExecOutput)('git', ['diff', '--no-renames', '--name-status', '-z', diffArg])).stdout;
+        output = (await (0, exec_1.getExecOutput)('git', ['diff', '--no-renames', '--name-status', '-z', diffArg], { silent: true }))
+            .stdout;
     }
     finally {
         fixStdOutNullTermination();
         core.endGroup();
     }
-    return parseGitDiffOutput(output);
-}
-function parseGitDiffOutput(output) {
-    const tokens = output.split('\u0000').filter(s => s.length > 0);
-    const files = [];
-    for (let i = 0; i + 1 < tokens.length; i += 2) {
-        files.push({
-            status: statusMap[tokens[i]],
-            filename: tokens[i + 1]
-        });
-    }
-    return files;
+    return (0, git_diff_1.parseGitDiffOutput)(output);
 }
 async function listAllFilesAsAdded() {
     core.startGroup('Listing all files tracked by git');
     let output = '';
     try {
-        output = (await (0, exec_1.getExecOutput)('git', ['ls-files', '-z'])).stdout;
+        output = (await (0, exec_1.getExecOutput)('git', ['ls-files', '-z'], { silent: true })).stdout;
     }
     finally {
         fixStdOutNullTermination();
@@ -42574,14 +42599,6 @@ function fixStdOutNullTermination() {
     // Otherwise things like ::set-output wouldn't work.
     core.info('');
 }
-const statusMap = {
-    A: file_1.ChangeStatus.Added,
-    C: file_1.ChangeStatus.Copied,
-    D: file_1.ChangeStatus.Deleted,
-    M: file_1.ChangeStatus.Modified,
-    R: file_1.ChangeStatus.Renamed,
-    U: file_1.ChangeStatus.Unmerged
-};
 
 
 /***/ }),
@@ -42858,7 +42875,7 @@ async function getChangedFilesFromApi(token, pullRequest) {
             core.info(`Received ${response.data.length} items`);
             for (const row of response.data) {
                 apiRows++;
-                core.info(`[${row.status}] ${row.filename}`);
+                core.info(`[${row.status}] ${JSON.stringify(row.filename)}`);
                 // There's no obvious use-case for detection of renames
                 // Therefore we treat it as if rename detection in git diff was turned off.
                 // Rename is replaced by delete of original filename and add of new filename
@@ -42898,7 +42915,7 @@ function exportResults(results, format) {
         if (value) {
             core.info('Matching files:');
             for (const file of files) {
-                core.info(`${file.filename} [${file.status}]`);
+                core.info(`${JSON.stringify(file.filename)} [${file.status}]`);
             }
         }
         else {

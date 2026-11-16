@@ -19,6 +19,9 @@ pub struct CohortStreamEvent {
     pub person_properties: Option<String>,
     pub elements_chain: Option<String>,
     pub source_offset: i64,
+    /// Not always a Kafka partition. Each shuffler input topic writes its partitions into its own
+    /// range (`SourcePartitionRange` in the shuffler), so a reader must treat the value as an opaque
+    /// `i32` key and must not bound or narrow it.
     pub source_partition: i32,
     /// The merge origin person, set when a post-merge straggler is redirected to the merged-into
     /// person. `None` for a normal event. Stage 1 routes replay-dedup through

@@ -1,1 +1,1 @@
-0013_alertconfiguration_owner
+0018_insight_alert_investigation_no_row

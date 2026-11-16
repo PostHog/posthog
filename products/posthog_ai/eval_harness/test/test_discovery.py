@@ -11,7 +11,6 @@ _ONE_SHOT_MODULE = """
 from products.posthog_ai.eval_harness.harness.requirements import SuiteKind
 
 SUITE_KIND = SuiteKind.ONE_SHOT
-NO_SEND_LOGS = True
 
 
 async def eval_alpha(ctx) -> None:
@@ -71,18 +70,17 @@ def test_singular_eval_dir_is_ignored(product_roots: tuple[Path, Path]) -> None:
 
 
 @pytest.mark.parametrize(
-    "suite_id, expected_kind, no_send_logs",
+    "suite_id, expected_kind",
     [
-        pytest.param("analytics/eval_one::eval_alpha", SuiteKind.ONE_SHOT, True, id="markers_respected"),
-        pytest.param("core/eval_two::eval_beta", SuiteKind.SANDBOXED, False, id="absent_markers_keep_defaults"),
+        pytest.param("analytics/eval_one::eval_alpha", SuiteKind.ONE_SHOT, id="markers_respected"),
+        pytest.param("core/eval_two::eval_beta", SuiteKind.SANDBOXED, id="absent_markers_keep_defaults"),
     ],
 )
 def test_suite_configuration_resolved_from_product_module(
-    product_roots: tuple[Path, Path], suite_id: str, expected_kind: SuiteKind, no_send_logs: bool
+    product_roots: tuple[Path, Path], suite_id: str, expected_kind: SuiteKind
 ) -> None:
     suite = _discover(product_roots)[suite_id]
     assert suite.kind == expected_kind
-    assert suite.no_send_logs == no_send_logs
 
 
 def test_selector_matches_product_suite_ids(product_roots: tuple[Path, Path]) -> None:

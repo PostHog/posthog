@@ -137,8 +137,8 @@ class ReadTaxonomyTool(MaxTool):
             ReadEvents,
             ReadEventProperties,
             ReadEventSamplePropertyValues,
-            ReadEntityPropertiesWithGroups,  # type: ignore[valid-type]
-            ReadEntitySamplePropertyValuesWithGroups,  # type: ignore[valid-type]
+            ReadEntityPropertiesWithGroups,
+            ReadEntitySamplePropertyValuesWithGroups,
             ReadActionProperties,
             ReadActionSamplePropertyValues,
         ]

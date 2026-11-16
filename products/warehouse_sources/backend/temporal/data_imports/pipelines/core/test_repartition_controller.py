@@ -1130,6 +1130,34 @@ class CancelledError(Exception):
     pass
 
 
+class TestIsStaleSizeSplit:
+    @pytest.mark.parametrize(
+        "sync_type,trigger_reason,max_bytes_offset,expected",
+        [
+            pytest.param("incremental", "proactive_threshold", -1, True, id="under_budget"),
+            pytest.param("incremental", "proactive_threshold", 0, True, id="at_budget"),
+            pytest.param("incremental", "proactive_threshold", 1, False, id="over_budget"),
+            pytest.param("incremental", "proactive_threshold", None, False, id="unmeasured"),
+            pytest.param("webhook", "proactive_threshold", -1, True, id="webhook"),
+            pytest.param("xmin", "proactive_threshold", -1, True, id="xmin"),
+            pytest.param("incremental", "oom_history", -1, False, id="oom_history"),
+            pytest.param("incremental", "admin", -1, False, id="admin"),
+            pytest.param("incremental", "coarsening", -1, False, id="coarsening"),
+            pytest.param("incremental", "resume", -1, False, id="resume"),
+            pytest.param("full_refresh", "proactive_threshold", -1, False, id="full_refresh"),
+            pytest.param("append", "proactive_threshold", -1, False, id="append"),
+        ],
+    )
+    def test_only_a_proactive_split_of_a_keyed_table_under_budget_is_stale(
+        self, sync_type, trigger_reason, max_bytes_offset, expected
+    ):
+        schema = ExternalDataSchema(sync_type=sync_type, sync_type_config={})
+        if max_bytes_offset is not None:
+            schema.sync_type_config = {"max_partition_bytes": ctrl.split_budget_bytes(schema) + max_bytes_offset}
+
+        assert ctrl.is_stale_size_split(schema, trigger_reason) is expected
+
+
 class TestRepartitionActivity:
     def _inputs(self, team, schema: ExternalDataSchema) -> RepartitionActivityInputs:
         job = _make_job(team, schema)
@@ -1720,6 +1748,65 @@ class TestRepartitionActivity:
             mocked.assert_awaited_once()
             purge.assert_not_called()
 
+    @pytest.mark.parametrize(
+        "sync_type,trigger_reason,max_bytes_offset,swap,dropped",
+        [
+            pytest.param("incremental", "proactive_threshold", -1, False, True, id="incremental_under_budget"),
+            pytest.param("webhook", "proactive_threshold", 0, False, True, id="webhook_at_budget"),
+            pytest.param("xmin", "proactive_threshold", -1, False, True, id="xmin_under_budget"),
+            pytest.param("incremental", "proactive_threshold", 1, False, False, id="over_budget_still_runs"),
+            pytest.param("incremental", "proactive_threshold", None, False, False, id="unmeasured_still_runs"),
+            pytest.param("incremental", "oom_history", -1, False, False, id="oom_history_still_runs"),
+            pytest.param("incremental", "admin", -1, False, False, id="admin_still_runs"),
+            pytest.param("incremental", "coarsening", -1, False, False, id="coarsening_still_runs"),
+            pytest.param("incremental", "proactive_threshold", -1, True, False, id="staged_swap_is_kept"),
+        ],
+    )
+    def test_a_queued_size_split_under_the_merge_budget_is_dropped(
+        self, team, sync_type, trigger_reason, max_bytes_offset, swap, dropped
+    ):
+        schema = _make_schema(team, {})
+        schema.sync_type = sync_type
+        schema.save()
+        if max_bytes_offset is not None:
+            schema.record_partition_measurement(ctrl.split_budget_bytes(schema) + max_bytes_offset)
+        schema.set_repartition_pending(
+            {
+                "partition_mode": "md5",
+                "partition_count": 4,
+                "partition_keys": ["id"],
+                "trigger_reason": trigger_reason,
+                "attempts": 0,
+            }
+        )
+        schema.set_repartition_rewrite({"temp_uri": "s3://bucket/t__repartitioned_x", "rows_written": 10})
+        if swap:
+            schema.set_repartition_swap(
+                {"state": "ready", "temp_uri": "s3://bucket/t__repartitioned_x", "live_uri": "s3://bucket/t"}
+            )
+        mocked = AsyncMock(return_value={"outcome": "completed", "row_count": 6, "partition_mode_after": "md5"})
+        purge = AsyncMock(return_value=True)
+        with patch.object(repartition_table, "purge_abandoned_rewrite_temp", new=purge):
+            capture = self._run(self._inputs(team, schema), mocked)
+
+        schema.refresh_from_db()
+        skipped = [c.args[1] for c in capture.call_args_list if c.args[0] == "warehouse_repartition_skipped"]
+        if dropped:
+            mocked.assert_not_called()
+            assert purge.await_args is not None
+            assert purge.await_args.args[2] == "s3://bucket/t__repartitioned_x"
+            assert schema.repartition_pending is None
+            assert schema.repartition_rewrite is None
+            assert [props["reason"] for props in skipped] == ["under_merge_split_budget"]
+            assert schema.last_repartition_at is None
+        else:
+            assert "under_merge_split_budget" not in [props["reason"] for props in skipped]
+            purge.assert_not_called()
+            if swap:
+                assert schema.repartition_swap is not None
+            else:
+                mocked.assert_awaited_once()
+
     @pytest.mark.parametrize("prior_attempts, gives_up", [(0, False), (MAX_REPARTITION_ATTEMPTS - 1, True)])
     def test_an_append_split_whose_temp_cannot_be_deleted_is_retried_a_bounded_number_of_times(
         self, team, prior_attempts, gives_up
@@ -1751,7 +1838,7 @@ class TestRepartitionActivity:
         if gives_up:
             assert schema.repartition_pending is None
             assert schema.repartition_rewrite is None
-            assert any("dropped append split" in str(c.args[0]) for c in captured.call_args_list)
+            assert any("dropped queued split" in str(c.args[0]) for c in captured.call_args_list)
         else:
             assert schema.repartition_pending is not None
             assert schema.repartition_pending["dropping"] is True

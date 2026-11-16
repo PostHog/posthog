@@ -1,11 +1,11 @@
-import { addUtmTagsToEmail, resolveUtmTags } from './utm'
+import { addUtmTagsToEmail, addWorkflowRunTagToEmail, resolveUtmTags } from './utm'
 
 const TAGS = { utm_source: 'posthog', utm_medium: 'email', utm_campaign: 'Spring sale', utm_content: '' }
 const SITE_URL = 'https://us.posthog.com'
 const QUERY = 'utm_source=posthog&amp;utm_medium=email&amp;utm_campaign=Spring%20sale'
 
 describe('addUtmTagsToEmail', () => {
-    it.each([
+    it.each<{ case: string; html: string; expected: string; fixedScanner?: boolean }>([
         {
             case: 'a plain link',
             html: '<a href="https://example.com/pricing">x</a>',
@@ -15,6 +15,22 @@ describe('addUtmTagsToEmail', () => {
             case: 'a link with a query and a fragment',
             html: '<a href="https://example.com/p?a=1&amp;b=2#plans">x</a>',
             expected: `<a href="https://example.com/p?a=1&amp;b=2&amp;${QUERY}#plans">x</a>`,
+        },
+        {
+            case: 'a link whose query encodes its ampersand as an uppercase entity',
+            html: '<a href="https://example.com/p?a=1&AMP;b=2">x</a>',
+            expected: `<a href="https://example.com/p?a=1&amp;b=2&amp;${QUERY}">x</a>`,
+        },
+        {
+            case: 'a link whose query decodes to angle brackets, with the fixed scanner',
+            html: '<a href="https://example.com/p?q=&GT;&lt;">x</a>',
+            expected: `<a href="https://example.com/p?q=&gt;&lt;&amp;${QUERY}">x</a>`,
+        },
+        {
+            case: 'a link whose query decodes to angle brackets, with the legacy scanner',
+            html: '<a href="https://example.com/p?q=&GT;&lt;">x</a>',
+            expected: `<a href="https://example.com/p?q=&gt;&lt;&amp;${QUERY}">x</a>`,
+            fixedScanner: false,
         },
         {
             case: 'a link that already sets its campaign',
@@ -72,8 +88,45 @@ describe('addUtmTagsToEmail', () => {
             html: '<a href="https://example.com/{{ person.id }}">x</a>',
             expected: '<a href="https://example.com/{{ person.id }}">x</a>',
         },
-    ])('tags $case', ({ html, expected }) => {
-        expect(addUtmTagsToEmail(html, TAGS, SITE_URL)).toEqual(expected)
+        {
+            case: 'an unquoted href with a query',
+            html: '<a href=https://example.com/pricing?plan=pro>x</a>',
+            expected: `<a href="https://example.com/pricing?plan=pro&amp;${QUERY}">x</a>`,
+        },
+        {
+            case: 'a quoted and an unquoted href with the fixed scanner on for the team',
+            html: '<a href="https://example.com/a">x</a><a href=https://example.com/b>y</a>',
+            expected: `<a href="https://example.com/a?${QUERY}">x</a><a href="https://example.com/b?${QUERY}">y</a>`,
+            fixedScanner: true,
+        },
+        {
+            case: "a quoted and an unquoted href with the fixed scanner off for the team, which keeps master's scanner",
+            html: '<a href="https://example.com/a">x</a><a href=https://example.com/b>y</a>',
+            expected: `<a href="https://example.com/a?${QUERY}">x</a><a href=https://example.com/b>y</a>`,
+            fixedScanner: false,
+        },
+        {
+            case: 'an unquoted href with a non-breaking space, which HTML keeps in the value',
+            html: '<a href=https://example.com/summer sale>x</a>',
+            expected: `<a href="https://example.com/summer sale?${QUERY}">x</a>`,
+        },
+        {
+            case: 'an href with a trailing space',
+            html: '<a href="https://example.com/pricing ">x</a>',
+            expected: `<a href="https://example.com/pricing?${QUERY}">x</a>`,
+        },
+        {
+            case: 'an href ending in a non-breaking space, which is part of the URL',
+            html: '<a href="https://example.com/pricing&#160;">x</a>',
+            expected: `<a href="https://example.com/pricing\u00a0?${QUERY}">x</a>`,
+        },
+        {
+            case: 'links after text that grows when lowercased',
+            html: '<p>İstanbul, İzmir, İzmit</p><a data-ph-no-utm href="https://example.com/a">x</a><a href="https://example.com/b">y</a>',
+            expected: `<p>İstanbul, İzmir, İzmit</p><a data-ph-no-utm href="https://example.com/a">x</a><a href="https://example.com/b?${QUERY}">y</a>`,
+        },
+    ])('tags $case', ({ html, expected, fixedScanner = true }) => {
+        expect(addUtmTagsToEmail(html, TAGS, SITE_URL, fixedScanner)).toEqual(expected)
     })
 
     it.each([
@@ -97,5 +150,97 @@ describe('addUtmTagsToEmail', () => {
             utm_source: 'posthog',
             ...expected,
         })
+    })
+
+    it.each([
+        {
+            case: 'tags a link on the sender domain',
+            html: '<a href="https://example.com/p?a=1#plans">x</a>',
+            expected: '<a href="https://example.com/p?a=1&amp;ph_workflow_run=run-1#plans">x</a>',
+        },
+        {
+            case: 'tags a link on another subdomain of the sender domain',
+            html: '<a href="https://app.example.com/">x</a>',
+            expected: '<a href="https://app.example.com/?ph_workflow_run=run-1">x</a>',
+        },
+        {
+            case: 'keeps the UTM tags already on a link',
+            html: `<a href="https://example.com/?${QUERY}">x</a>`,
+            expected: `<a href="https://example.com/?${QUERY}&amp;ph_workflow_run=run-1">x</a>`,
+        },
+        {
+            case: 'leaves links off the sender domain, signed or lookalike',
+            html: '<a href="https://other.com/">x</a><a href="https://bucket.s3.amazonaws.com/f.pdf?X-Amz-Signature=abc">y</a><a href="https://example.com.evil.io/">z</a>',
+            expected:
+                '<a href="https://other.com/">x</a><a href="https://bucket.s3.amazonaws.com/f.pdf?X-Amz-Signature=abc">y</a><a href="https://example.com.evil.io/">z</a>',
+        },
+        {
+            case: 'leaves another app on the shared hosting domain of the sender',
+            sender: 'hi@acme.herokuapp.com',
+            html: '<a href="https://other.herokuapp.com/">x</a>',
+            expected: '<a href="https://other.herokuapp.com/">x</a>',
+        },
+        {
+            case: 'leaves the unsubscribe link on the PostHog host',
+            sender: 'hi@posthog.com',
+            html: '<a href="https://us.posthog.com/messaging-preferences/abc/">Unsubscribe</a>',
+            expected: '<a href="https://us.posthog.com/messaging-preferences/abc/">Unsubscribe</a>',
+        },
+        {
+            case: 'leaves mailto, tel, javascript, relative and anchor links',
+            html: '<a href="mailto:hi@example.com">m</a><a href="tel:+15550100">t</a><a href="javascript:void(0)">j</a><a href="/docs">r</a><a href="#top">a</a>',
+            expected:
+                '<a href="mailto:hi@example.com">m</a><a href="tel:+15550100">t</a><a href="javascript:void(0)">j</a><a href="/docs">r</a><a href="#top">a</a>',
+        },
+        {
+            case: 'leaves malformed and unrendered links',
+            html: '<a href="https://">a</a><a href="https://exa mple.com/">b</a><a href="https://example.com/{{ person.id }}">c</a><a href>d</a>',
+            expected:
+                '<a href="https://">a</a><a href="https://exa mple.com/">b</a><a href="https://example.com/{{ person.id }}">c</a><a href>d</a>',
+        },
+        {
+            case: 'leaves an email without links',
+            html: '<p>Your <abbr>PDF</abbr> is attached.</p>',
+            expected: '<p>Your <abbr>PDF</abbr> is attached.</p>',
+        },
+        {
+            case: 'leaves a link opted out of click tracking',
+            html: '<a clicktracking="off" href="https://example.com/">x</a><a data-ph-no-track href="https://example.com/">y</a>',
+            expected:
+                '<a clicktracking="off" href="https://example.com/">x</a><a data-ph-no-track href="https://example.com/">y</a>',
+        },
+        {
+            case: 'leaves a link SES never tracks',
+            html: '<a ses:no-track href="https://example.com/">x</a>',
+            expected: '<a ses:no-track href="https://example.com/">x</a>',
+        },
+        {
+            case: 'replaces the run id of an earlier send',
+            html: '<a href="https://example.com/p?ph_workflow_run=old-run&amp;a=1">x</a>',
+            expected: '<a href="https://example.com/p?a=1&amp;ph_workflow_run=run-1">x</a>',
+        },
+        {
+            case: 'replaces a percent-encoded run id of an earlier send',
+            html: '<a href="https://example.com/p?%70h_workflow_run=old-run&amp;a=%zz">x</a>',
+            expected: '<a href="https://example.com/p?a=%zz&amp;ph_workflow_run=run-1">x</a>',
+        },
+        {
+            case: 'replaces every run id of earlier sends and keeps a hash route',
+            html: '<a href="https://example.com/?ph_workflow_run=a&amp;ph_workflow_run=b#/p?ph_workflow_run=x">x</a>',
+            expected: '<a href="https://example.com/?ph_workflow_run=run-1#/p?ph_workflow_run=x">x</a>',
+        },
+        {
+            case: 'tags a link that only opts out of UTM tags',
+            html: '<a data-ph-no-utm href="https://example.com/">x</a>',
+            expected: '<a data-ph-no-utm href="https://example.com/?ph_workflow_run=run-1">x</a>',
+        },
+    ])('$case', ({ html, expected, sender }) => {
+        expect(
+            addWorkflowRunTagToEmail(html, {
+                runId: 'run-1',
+                senderEmail: sender ?? 'hi@mail.example.com',
+                siteUrl: SITE_URL,
+            })
+        ).toEqual(expected)
     })
 })

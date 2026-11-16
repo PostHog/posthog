@@ -277,10 +277,13 @@ def pre_extraction_measurement_is_redundant(schema: ExternalDataSchema, job: Ext
         >= repartition_oom_threshold()
     ):
         return False
+    # The equality filters are the schema and the team so that `idx_extdatajob_schema_team` serves
+    # this read as one index range. An equality filter on a column outside that index, such as the
+    # source, makes Postgres read every job the schema has run.
     earlier_jobs = [
         (str(job_id), status, rows_synced)
         for job_id, status, rows_synced in ExternalDataJob.objects.filter(
-            pipeline_id=schema.source_id, schema_id=schema.id, created_at__lt=job.created_at
+            team_id=schema.team_id, schema_id=schema.id, created_at__lt=job.created_at
         )
         .order_by("-created_at")
         .values_list("id", "status", "rows_synced")[:MEASUREMENT_CHAIN_LIMIT]
@@ -294,6 +297,17 @@ AUTOMATIC_SPLIT_TRIGGERS = frozenset({"proactive_threshold", "oom_history"})
 def is_automatic_split_of_append_table(schema: ExternalDataSchema, trigger_reason: str) -> bool:
     """Whether a queued target is an automatic split of an append table. An operator target is not."""
     return schema.is_append and trigger_reason in AUTOMATIC_SPLIT_TRIGGERS
+
+
+def is_stale_size_split(schema: ExternalDataSchema, trigger_reason: str) -> bool:
+    """Whether a queued target is a size split that the current merge budget no longer needs."""
+    # A marker queued before the merge budget rose uses the old, smaller target.
+    return (
+        trigger_reason == "proactive_threshold"
+        and schema.sync_type in KEYED_MERGE_SYNC_TYPES
+        and schema.max_partition_bytes is not None
+        and schema.max_partition_bytes <= split_budget_bytes(schema)
+    )
 
 
 def repartition_activity_has_work(schema: ExternalDataSchema) -> bool:

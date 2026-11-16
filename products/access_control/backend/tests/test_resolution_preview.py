@@ -106,7 +106,8 @@ class TestBuildResolutionPreview(BaseUserAccessControlTest):
 
         assert [(change.subject.type, change.object_id) for change in changes] == [("default", str(self.dashboard.id))]
 
-    def test_parent_resource_row_is_compared_against_child_objects(self):
+    @parameterized.expand([("none", "none"), ("viewer", "editor")])
+    def test_parent_resource_row_is_compared_against_child_objects(self, resource_level, proposed_level):
         # Resolution consults the parent resource (session_recording) for playlist objects, so
         # a member whose only rule sits there can still resolve a playlist differently
         from posthog.session_recordings.models.session_recording_playlist import SessionRecordingPlaylist
@@ -116,16 +117,20 @@ class TestBuildResolutionPreview(BaseUserAccessControlTest):
             resource="session_recording_playlist", resource_id=str(playlist.id), access_level="editor"
         )
         self._create_access_control(
-            resource="session_recording", access_level="none", organization_member=self.other_membership
+            resource="session_recording", access_level=resource_level, organization_member=self.other_membership
         )
 
         changes = self._changes()
 
         member_changes = [change for change in changes if change.subject.type == "member"]
-        assert [(change.scope, change.object_id) for change in member_changes] == [("object", str(playlist.id))]
-        # Legacy: the member's parent-resource rule blocks the object. Most-specific: the object's
-        # own default row decides first, so the member's parent rule no longer reaches it.
-        assert (member_changes[0].current.access_level, member_changes[0].proposed.access_level) == ("none", "editor")
+        if resource_level == "none":
+            assert member_changes == []
+        else:
+            assert [(change.scope, change.object_id) for change in member_changes] == [("object", str(playlist.id))]
+            assert (member_changes[0].current.access_level, member_changes[0].proposed.access_level) == (
+                resource_level,
+                proposed_level,
+            )
 
     @parameterized.expand(
         [

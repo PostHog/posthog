@@ -1,4 +1,4 @@
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator, Mapping
 from typing import Any
 
 from django.db import transaction
@@ -25,6 +25,13 @@ def _category(team_id: int, category_key: str) -> MessageCategory:
     return category
 
 
+def _live_category(team_id: int, category_key: str) -> MessageCategory:
+    category = _category(team_id, category_key)
+    if category.deleted:
+        raise CategoryNotFound()
+    return category
+
+
 def opted_out(team_id: int, category_key: str | None, search: str | None) -> QuerySet[MessageRecipientPreference]:
     # Find recipients who have opted out of this specific category, or use the derived $all category if no specific category is provided
     preference_key = str(_category(team_id, category_key).id) if category_key else ALL_MESSAGE_PREFERENCE_CATEGORY_ID
@@ -47,7 +54,7 @@ def _sync_after_commit(team_id: int, identifier: str) -> None:
 def add_opt_out(
     team_id: int, identifier: str, category_key: str | None, created_by_id: int | None
 ) -> tuple[MessageRecipientPreference, bool]:
-    category = _category(team_id, category_key) if category_key else None
+    category = _live_category(team_id, category_key) if category_key else None
     category_id = str(category.id) if category else ALL_MESSAGE_PREFERENCE_CATEGORY_ID
 
     preference, created = MessageRecipientPreference.objects.get_or_create(
@@ -64,7 +71,7 @@ def add_opt_out(
 def remove_opt_out(
     team_id: int, identifier: str, category_key: str | None, created_by_id: int | None
 ) -> tuple[MessageRecipientPreference, bool]:
-    category = _category(team_id, category_key) if category_key else None
+    category = _live_category(team_id, category_key) if category_key else None
 
     preference, created = MessageRecipientPreference.objects.get_or_create(
         team_id=team_id,
@@ -84,6 +91,57 @@ def remove_opt_out(
 
     _sync_after_commit(team_id, identifier)
     return preference, created
+
+
+class TopicsNotFound(Exception):
+    def __init__(self, keys: list[str]) -> None:
+        super().__init__(", ".join(keys))
+        self.keys = keys
+
+
+def set_preferences(
+    team_id: int, identifier: str, all_marketing: bool | None, topics: Mapping[str, bool]
+) -> dict[str, Any]:
+    """Apply `all_marketing`, then each topic in order, in one locked write. Returns the stored preferences.
+
+    Raises TopicsNotFound before any write when a topic key names no live category of the team.
+    """
+    categories = {
+        category.key: category
+        for category in MessageCategory.objects.filter(team_id=team_id, key__in=list(topics), deleted=False)
+    }
+    unknown = [key for key in topics if key not in categories]
+    if unknown:
+        raise TopicsNotFound(unknown)
+
+    saved: dict[str, Any] = {}
+
+    def apply(stored: dict[str, Any]) -> dict[str, Any]:
+        preferences = dict(stored)
+        if all_marketing is not None:
+            preferences[ALL_MESSAGE_PREFERENCE_CATEGORY_ID] = _status(all_marketing)
+        for key, opted_in in topics.items():
+            if opted_in:
+                _lift_global_opt_out(team_id, preferences, categories[key])
+            preferences[str(categories[key].id)] = _status(opted_in)
+        saved.update(preferences)
+        return preferences
+
+    transition_preferences(team_id, identifier, apply, touch_updated_at=True)
+    _sync_after_commit(team_id, identifier)
+    # The written snapshot, not a reread that a lagging replica could answer with old preferences.
+    return saved
+
+
+def _status(opted_in: bool) -> str:
+    return (PreferenceStatus.OPTED_IN if opted_in else PreferenceStatus.OPTED_OUT).value
+
+
+def topic_keys_by_id(team_id: int) -> dict[str, str]:
+    return {
+        str(category_id): key
+        for category_id, key in MessageCategory.objects.filter(team_id=team_id, deleted=False).values_list("id", "key")
+    }
 
 
 def _lift_global_opt_out(team_id: int, preferences: dict[str, Any], category: MessageCategory) -> None:
@@ -145,17 +203,21 @@ def recipient_or_none(team_id: int, identifier: str) -> MessageRecipientPreferen
     return MessageRecipientPreference.objects.filter(team_id=team_id, identifier=identifier).first()
 
 
-def set_preferences_column(team_id: int, identifier: str, preferences: dict[str, Any]) -> None:
-    recipient = MessageRecipientPreference.objects.get(team_id=team_id, identifier=identifier)
-    recipient.preferences = preferences
-    recipient.save(update_fields=["preferences"])
+def transition_preferences(
+    team_id: int,
+    identifier: str,
+    build: Callable[[dict[str, Any]], dict[str, Any]],
+    *,
+    touch_updated_at: bool,
+) -> dict[str, Any]:
+    """Replace the recipient's preferences with `build(stored)` under a row lock, and return the stored ones.
 
-
-def replace_preferences(team_id: int, identifier: str, preferences: dict[str, Any]) -> None:
-    try:
-        recipient = MessageRecipientPreference.objects.get(team_id=team_id, identifier=identifier)
-    except MessageRecipientPreference.DoesNotExist:
-        recipient = MessageRecipientPreference(team_id=team_id, identifier=identifier)
-    # Update all preferences with a single DB write
-    recipient.preferences = preferences
-    recipient.save()
+    Concurrent saves for one recipient run one after another, so each sees the result of the one before it.
+    """
+    with transaction.atomic():
+        MessageRecipientPreference.objects.get_or_create(team_id=team_id, identifier=identifier)
+        recipient = MessageRecipientPreference.objects.select_for_update().get(team_id=team_id, identifier=identifier)
+        prior = dict(recipient.preferences or {})
+        recipient.preferences = build(prior)
+        recipient.save(update_fields=None if touch_updated_at else ["preferences"])
+    return prior

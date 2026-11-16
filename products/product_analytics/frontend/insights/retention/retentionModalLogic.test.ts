@@ -1,5 +1,6 @@
 import { expectLogic } from 'kea-test-utils'
 
+import { capturePersonsModalForClick } from 'lib/components/ResultMenu/personsModalCapture'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { useMocks } from '~/mocks/jest'
@@ -157,6 +158,23 @@ describe('retentionModalLogic', () => {
         } else {
             expect(logic.values.selectedRow?.values[0].count).toBe(expectedCount)
         }
+    })
+
+    it('defers a dashboard cohort drilldown until View underlying rows and retains its selected column', async () => {
+        await loadResults(twoBreakdownGroups)
+        const capture = jest.fn()
+        capturePersonsModalForClick(capture)
+        await expectLogic(logic, () => logic.actions.openModal(1, 'Firefox', 2)).toNotHaveDispatchedActions([
+            'loadPeople',
+        ])
+        expect(logic.values.selectedInterval).toBeNull()
+        expect(capture).toHaveBeenCalledTimes(1)
+        const request = capture.mock.calls[0][0]
+        expect(request.rowsQuery.source.source).toMatchObject({ interval: 1, breakdown: ['Firefox'] })
+        await expectLogic(logic, () => request.open()).toDispatchActions(['loadPeople'])
+        expect(logic.values.selectedInterval).toBe(1)
+        expect(logic.values.selectedBreakdownValue).toBe('Firefox')
+        expect(logic.values.selectedColumnIndex).toBe(2)
     })
 
     it('closes the modal when the reloaded results no longer contain the selected row', async () => {

@@ -93,7 +93,16 @@ _RECOVERY_PROMPTS = {
     SLACK_RECOVERY_STRATEGY_RECONNECT_GITHUB: _RECONNECT_GITHUB_PROMPT.format(connect=_RECONNECT_GITHUB_CONNECT_LABEL),
 }
 
-SLACK_DENIAL_STOP_MESSAGE = "Stopped after the denied action — reply here to continue with a different approach."
+_NOT_STARTED_STAGES = ("Waking up the hedgehog", "Stretching the little legs", "Brewing the hedgehog's coffee")
+_QUEUED_STAGES = ("Waiting in line for a sandbox", "Queued behind other hedgehogs", "Saving a spot in the sandbox line")
+_IN_PROGRESS_STAGES = (
+    "Paws on the keyboard",
+    "Nose in the code",
+    "Digging through the code",
+    "Building, one quill at a time",
+)
+
+SLACK_DENIAL_STOP_MESSAGE = "Stopped, because you said no. Reply here to try a different way."
 
 
 @dataclass(frozen=False)
@@ -119,6 +128,9 @@ def post_slack_update(input: PostSlackUpdateInput) -> None:
     try:
         context = SlackThreadContext.from_dict(input.slack_thread_context)
         handler = SlackThreadHandler.for_run(context, task_run.id)
+        if handler.proactive_notifications_muted():
+            handler.delete_progress()
+            return
         # The buttons lead where the footer's link does.
         task_url = handler.reader_task_url()
         pr_url = (task_run.output or {}).get("pr_url")
@@ -151,7 +163,7 @@ def post_slack_update(input: PostSlackUpdateInput) -> None:
                 # so the thread reads as in-progress until it genuinely completes.
                 handler.update_reaction("eyes")
                 return
-            stage = _get_stage_from_status(task_run.status, task_run.stage)
+            stage = _get_stage_from_status(task_run.status, task_run.stage, str(task_run.id))
             handler.post_or_update_progress(stage, task_url)
     except Exception:
         logger.exception("post_slack_update_failed", run_id=input.run_id)
@@ -186,19 +198,20 @@ def _post_failure_or_timeout(task_run: Any, handler: Any, task_url: str | None) 
     _post_error_once(task_run, handler, error, task_url)
 
 
-def _get_stage_from_status(status: str, stage: str | None = None) -> str:
+def _get_stage_from_status(status: str, stage: str | None = None, run_id: str | None = None) -> str:
     """Map task run status to human-readable stage. Uses the run's stage field when available."""
     if stage:
         return stage
 
+    from products.slack_app.backend.slack_thread import pick_variant
     from products.tasks.backend.models import TaskRun
 
-    status_map: dict[str, str] = {
-        TaskRun.Status.NOT_STARTED: "Starting up...",
-        TaskRun.Status.QUEUED: "Queued...",
-        TaskRun.Status.IN_PROGRESS: "In progress...",
+    status_map: dict[str, tuple[str, ...]] = {
+        TaskRun.Status.NOT_STARTED: _NOT_STARTED_STAGES,
+        TaskRun.Status.QUEUED: _QUEUED_STAGES,
+        TaskRun.Status.IN_PROGRESS: _IN_PROGRESS_STAGES,
     }
-    return status_map.get(status, "In progress...")
+    return pick_variant(status_map.get(status, _IN_PROGRESS_STAGES), run_id)
 
 
 def _post_pr_opened_notification_once(

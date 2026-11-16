@@ -1,6 +1,8 @@
+import os
 import json
 import datetime as dt
 from typing import Any
+from uuid import uuid4
 
 import time_machine
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
@@ -18,6 +20,8 @@ from posthog.schema import (
     PropertyGroupFilterValue,
     PropertyOperator,
 )
+
+from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client import sync_execute
 from posthog.errors import CHQueryErrorTooManyBytes
@@ -249,6 +253,43 @@ class TestRunPatternsDiff(ClickhouseTestMixin, APIBaseTest):
         assert results["baseline"]["date_from"].startswith("2026-06-20T12:00:00")
         assert results["baseline"]["total_count"] == 2
 
+    @time_machine.travel(_FROZEN_NOW, tick=False)
+    def test_both_windows_share_one_deadline(self) -> None:
+        self._insert([self._log("deploy marker line", day=23), self._log("deploy marker line", day=16)])
+        query = LogsQuery(
+            dateRange=DateRange(date_from="2026-06-23T12:00:00Z", date_to="2026-06-23T13:00:00Z"),
+            filterGroup=PropertyGroupFilter(type=FilterLogicalOperator.AND_, values=[]),
+            severityLevels=[],
+            serviceNames=[],
+            searchTerm=None,
+        )
+
+        with patch("products.logs.backend.patterns_query_runner.monotonic", return_value=100.0) as clock:
+            budgets = []
+
+            def execute_with_elapsed_time(*args, **kwargs):
+                budgets.append(kwargs["settings"].max_execution_time)
+                result = execute_hogql_query(*args, **kwargs)
+                clock.return_value += 200
+                return result
+
+            with patch(
+                "products.logs.backend.patterns_query_runner.execute_hogql_query",
+                side_effect=execute_with_elapsed_time,
+            ):
+                # Three timeouts in a row would open the query failure breaker if they counted.
+                for _ in range(3):
+                    budgets.clear()
+                    with self.assertRaises(ClickHouseQueryTimeOut):
+                        run_patterns_diff(self.team, query, None, deadline=clock.return_value + 420)
+                    # Two queries per window. The third query gets the 20 seconds left, and no query gets
+                    # more than its own 60-second limit.
+                    assert budgets == [60, 60, 20]
+
+                results = run_patterns_diff(self.team, query, None)
+
+        assert results["baseline"]["total_count"] == 1
+
 
 class TestStoredPatternKeys(TestCase):
     def test_groups_sharing_a_stored_member_compare_as_one_pattern(self) -> None:
@@ -264,6 +305,24 @@ class TestStoredPatternKeys(TestCase):
         entries = diff_patterns(current, baseline, current_window=_HOUR, baseline_window=_BASELINE_HOUR, key=keys)
 
         assert [e["classification"] for e in entries] == ["rate_shift"]
+
+    def test_split_json_patterns_without_stored_members_match_by_fingerprint(self) -> None:
+        current = [
+            {**_pattern("upstream refused", count=100), "match_patterns": []},
+            {**_pattern("Retry <*> timed out", count=100), "match_patterns": ["Retry <N> timed out"]},
+        ]
+        baseline = [
+            {**_pattern("upstream refused", count=10), "match_patterns": []},
+            {**_pattern("Retry <*> timed out", count=100), "match_patterns": ["Retry <N> timed out"]},
+        ]
+
+        keys = stored_pattern_keys(current, baseline)
+        entries = diff_patterns(current, baseline, current_window=_HOUR, baseline_window=_BASELINE_HOUR, key=keys)
+
+        assert {e["pattern"]["pattern"]: e["classification"] for e in entries} == {
+            "upstream refused": "rate_shift",
+            "Retry <*> timed out": "unchanged",
+        }
 
     def test_a_baseline_group_spanning_two_current_groups_matches_both(self) -> None:
         current = [
@@ -347,6 +406,20 @@ class TestFirstSeenEver(TestCase):
             result = _first_seen_ever(MagicMock(), _bare_query(), self._ENTRIES, 1, dt.datetime.now(dt.UTC))
 
         assert result is None
+
+    @parameterized.expand([("time_left", 110.0, 10), ("deadline_passed", 100.5, None)])
+    def test_stays_inside_the_request_deadline(self, _name, deadline, expected_limit) -> None:
+        with (
+            patch("products.logs.backend.pattern_diff.monotonic", return_value=100.0),
+            patch("products.logs.backend.pattern_diff.execute_hogql_query") as execute,
+        ):
+            execute.return_value.results = []
+            _first_seen_ever(MagicMock(), _bare_query(), self._ENTRIES, 1, dt.datetime.now(dt.UTC), deadline)
+
+        if expected_limit is None:
+            execute.assert_not_called()
+        else:
+            assert execute.call_args.kwargs["settings"].max_execution_time == expected_limit
 
 
 class TestRunPatternsDiffV2(ClickhouseTestMixin, APIBaseTest):
@@ -451,6 +524,35 @@ class TestRunPatternsDiffV2(ClickhouseTestMixin, APIBaseTest):
         archive = by_example["Archive job <ID> queued"]
         assert archive["classification"] == "unchanged"
         assert archive["first_seen_ever"] == "2026-06-12T12:00:00Z"
+
+    @time_machine.travel(_FROZEN_NOW, tick=False)
+    def test_both_windows_split_the_same_json_key_sets(self) -> None:
+        def tracing(key_set: str, message: str, day: int, count: int) -> list[dict]:
+            body = json.dumps({"fields": {"message": message}, key_set: 1})
+            return [
+                {**self._log(body, day=day, minute=i % 60, stored=f"<JSON:fields,{key_set}>"), "uuid": str(uuid4())}
+                for i in range(count)
+            ]
+
+        # Only the largest key set is split. "drained" is largest in the current window and "warm" in the
+        # baseline, so ranking each window on its own would split a different group on each side.
+        self._insert(
+            tracing("drained", "queue drained", 23, 40)
+            + tracing("warm", "cache warm", 23, 10)
+            + tracing("drained", "queue drained", 16, 40)
+            + tracing("warm", "cache warm", 16, 60)
+        )
+
+        with (
+            patch("posthoganalytics.feature_enabled", return_value=True),
+            patch.dict(os.environ, {"LOGS_PATTERNS_MAX_JSON_SPLITS": "1", "LOGS_PATTERNS_SAMPLE_LIMIT": "20"}),
+        ):
+            results = run_patterns_diff(self.team, self._query(), None)
+
+        by_example = {e["masked_example"]: e for e in results["entries"]}
+        assert by_example["queue drained"]["classification"] == "unchanged"
+        assert by_example["queue drained"]["baseline_estimated_count"] == 40
+        assert results["sampled"] is True
 
     @time_machine.travel(_FROZEN_NOW, tick=False)
     def test_the_version_check_shares_the_runner_time_budget(self) -> None:

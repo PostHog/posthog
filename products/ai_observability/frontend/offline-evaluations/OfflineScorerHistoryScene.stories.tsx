@@ -73,3 +73,42 @@ export const EmptyHistory: Story = {
         }),
     ],
 }
+
+export const ModelBreakdown: Story = {
+    parameters: {
+        pageUrl: `${urls.aiObservabilityOfflineScorerHistory(OFFLINE_STORY_DEFINITION.id)}?breakdown=model_version`,
+    },
+    decorators: [
+        mswDecorator({
+            get: {
+                '/api/projects/:project/ai_observability/offline_scorers/:definition/history/': ({ request }) => {
+                    const breakdown = new URL(request.url).searchParams.get('breakdown')
+                    const results =
+                        breakdown === 'model_version'
+                            ? OFFLINE_STORY_POINTS.flatMap((point) => [
+                                  { ...point, breakdown_value: 'model-a' },
+                                  {
+                                      ...point,
+                                      breakdown_value: 'model-b',
+                                      summary: { ...point.summary, mean: (point.summary.mean ?? 0) / 2 },
+                                  },
+                              ])
+                            : OFFLINE_STORY_POINTS.map((point) => ({
+                                  ...point,
+                                  breakdown_value:
+                                      breakdown === 'suite_key'
+                                          ? point.experiment.suite_key
+                                          : breakdown === 'run_source'
+                                            ? point.experiment.run_source
+                                            : breakdown === 'prompt_version'
+                                              ? point.experiment.prompt_version
+                                              : breakdown === 'application_version'
+                                                ? point.experiment.application_version
+                                                : null,
+                              }))
+                    return { results, count: results.length, next_cursor: null }
+                },
+            },
+        }),
+    ],
+}

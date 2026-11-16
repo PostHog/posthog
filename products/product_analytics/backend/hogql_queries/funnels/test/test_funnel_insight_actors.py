@@ -20,7 +20,6 @@ from posthog.schema import (
     EventsNode,
     EventsQuery,
     FunnelsActorsQuery,
-    FunnelsFilter,
     FunnelsQuery,
     HogQLQueryModifiers,
     InsightActorsQuery,
@@ -31,8 +30,6 @@ from posthog.schema import (
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.query import execute_hogql_query
 
-from posthog.clickhouse.workload import Workload
-from posthog.hogql_queries.actor_strategies import SessionStrategy
 from posthog.hogql_queries.actors_query_runner import ActorsQueryRunner
 from posthog.hogql_queries.events_query_runner import EventsQueryRunner
 from posthog.hogql_queries.insight_actors_query_options_runner import InsightActorsQueryOptionsRunner
@@ -40,7 +37,6 @@ from posthog.hogql_queries.insight_actors_query_runner import InsightActorsQuery
 from posthog.hogql_queries.query_runner import QueryRunner, get_query_runner, get_query_runner_or_none
 from posthog.models import Organization, Team, User
 from posthog.models.group.util import create_group
-from posthog.models.instance_setting import override_instance_config
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
 
 from products.product_analytics.backend.hogql_queries.funnels.funnels_query_runner import FunnelsQueryRunner
@@ -165,21 +161,13 @@ class TestFunnelInsightActors(ClickhouseTestMixin, APIBaseTest):
         )
 
 
-@override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=False, CLICKHOUSE_NATIVE_EVENTS_HOST="native.example.com")
+@override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=False)
 class TestNativeEventsActorRouting(SimpleTestCase):
     def setUp(self) -> None:
         self.team = Team(id=44, modifiers={}, organization=Organization(id=1))
         self.user = User(id=123, is_staff=True, is_active=True)
         self.modifiers = HogQLQueryModifiers(personsOnEventsMode=PersonsOnEventsMode.DISABLED)
-        self.enterContext(
-            patch(
-                "posthog.models.event.new_events_schema.get_instance_setting",
-                side_effect={
-                    "CLICKHOUSE_NATIVE_EVENTS_TEAMS": [44],
-                    "CLICKHOUSE_NATIVE_EVENTS_HOST": "native.example.com",
-                }.get,
-            )
-        )
+        self.enterContext(patch("posthog.models.event.new_events_schema.get_instance_setting", return_value=None))
         self.enterContext(
             patch(
                 "products.web_analytics.backend.hogql_queries.cookieless_flag.resolve_cookieless_traffic_is_regular_modifier",
@@ -197,7 +185,7 @@ class TestNativeEventsActorRouting(SimpleTestCase):
     def test_actor_queries_inherit_the_source_route_unless_explicitly_overridden(
         self, kind: str, source_choice: bool | None, wrapper_choice: bool | None
     ) -> None:
-        modifiers = self.modifiers.model_copy(update={"useNewEventsCluster": source_choice})
+        modifiers = self.modifiers.model_copy(update={"useNewEventsSchema": source_choice})
         source = FunnelsQuery(series=[EventsNode(event="example"), EventsNode(event="finished")], modifiers=modifiers)
         actors = FunnelsActorsQuery(source=source, funnelStep=1)
         query: BaseModel
@@ -219,15 +207,12 @@ class TestNativeEventsActorRouting(SimpleTestCase):
             )
         if wrapper_choice is not None:
             assert isinstance(query, (ActorsQuery, InsightActorsQuery))
-            query.modifiers = self.modifiers.model_copy(
-                update={"useNewEventsSchema": wrapper_choice, "useNewEventsCluster": wrapper_choice}
-            )
+            query.modifiers = self.modifiers.model_copy(update={"useNewEventsSchema": wrapper_choice})
         original = query.model_dump()
         runner = get_query_runner(query, self.team, user=self.user)
         native = source_choice if wrapper_choice is None else wrapper_choice
         self.assertEqual(runner.modifiers.personsOnEventsMode, PersonsOnEventsMode.DISABLED)
         self.assertIs(bool(runner.modifiers.useNewEventsSchema), bool(native))
-        self.assertIs(runner.modifiers.useNewEventsCluster, native)
         if kind == "EventsQuery":
             self.assertIs(runner.modifiers.convertToProjectTimezone, False)
         self.assertEqual(query.model_dump(), original)
@@ -238,23 +223,6 @@ class TestActorExecutionUserContext(APIBaseTest):
         source = FunnelsQuery(series=[EventsNode(event="example"), EventsNode(event="finished")])
         runner = get_query_runner(InsightActorsQuery(source=source).model_dump(), self.team, user=self.user)
         self.assertIsInstance(runner.query, InsightActorsQuery)
-
-    @override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=False, CLICKHOUSE_NATIVE_EVENTS_HOST="native.example.com")
-    def test_session_actors_hydrate_on_the_selected_cluster(self) -> None:
-        source = FunnelsQuery(
-            series=[EventsNode(event="started"), EventsNode(event="finished")],
-            funnelsFilter=FunnelsFilter(funnelAggregateByHogQL="properties.$session_id"),
-            modifiers=HogQLQueryModifiers(useNewEventsSchema=True, useNewEventsCluster=True),
-        )
-        with (
-            override_instance_config("CLICKHOUSE_NATIVE_EVENTS_HOST", "native.example.com"),
-            override_instance_config("CLICKHOUSE_NATIVE_EVENTS_TEAMS", [self.team.pk]),
-            patch("posthog.hogql.query.sync_execute", return_value=([], [])) as execute,
-        ):
-            runner = get_query_runner(ActorsQuery(source=FunnelsActorsQuery(source=source, funnelStep=1)), self.team)
-            assert isinstance(runner, ActorsQueryRunner) and isinstance(runner.strategy, SessionStrategy)
-            runner.strategy.get_actors(["a-session"])
-        self.assertEqual(execute.call_args.kwargs["workload"], Workload.NEW_EVENTS_CLUSTER)
 
     @parameterized.expand([("ActorsQuery",), ("InsightActorsQuery",), ("InsightActorsQueryOptions",), ("EventsQuery",)])
     def test_nested_query_context_follows_execution_user(self, kind: str) -> None:

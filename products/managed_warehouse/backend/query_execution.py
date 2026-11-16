@@ -8,6 +8,7 @@ from posthog.schema import HogQLQuery, HogQLQueryResponse
 
 from posthog.hogql import ast
 from posthog.hogql.constants import LimitContext
+from posthog.hogql.direct_connection import require_browser_session_for_organization_grant
 from posthog.hogql.direct_sql.trino_adapter import (
     DIRECT_TRINO_DEFAULT_STATEMENT_TIMEOUT_SECONDS,
     TrinoQueryRequest,
@@ -21,6 +22,7 @@ from posthog.direct_query_cancellation import build_direct_query_cancellation_to
 from posthog.hogql_queries.paginators import HogQLHasMorePaginator
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
+from products.managed_warehouse.backend.facade.access import enable_customer_warehouse_access
 from products.managed_warehouse.backend.facade.contracts import TrinoExpansionMode
 from products.managed_warehouse.backend.facade.feature_flags import MANAGED_TRINO_QUERY_FLAG
 from products.managed_warehouse.backend.trino_compiler import TrinoTargetUnavailable, compile_hogql_to_trino_sql
@@ -36,11 +38,7 @@ if TYPE_CHECKING:
 def validate_managed_trino_raw_access(team: Team, user: User | None) -> None:
     if user is None or not user.is_authenticated:
         raise ExposedHogQLError("Sign in to run a raw query against hosted Trino.")
-    # Token credentials can restrict projects while the warehouse grant spans the organization.
-    if get_query_tags().access_method is not None:
-        raise ExposedHogQLError(
-            "Raw Trino queries require a browser session. Turn off Send raw query to use HogQL with a token."
-        )
+    require_browser_session_for_organization_grant()
     if not UserAccessControl(user=user, team=team).has_project_access:
         raise ExposedHogQLError("You do not have access to this project.")
 
@@ -60,7 +58,7 @@ def validate_managed_trino_query(query: HogQLQuery, team: Team, user: User | Non
         )
     except Exception:
         enabled = False
-    if not enabled:
+    if not enable_customer_warehouse_access(team.organization_id, trino_enabled=bool(enabled)):
         raise ExposedHogQLError(
             "Hosted Trino queries are not enabled for this organization. Select PostHog to run this query."
         )
@@ -79,6 +77,7 @@ def execute_managed_trino_query(
     settings: HogQLGlobalSettings,
     timings: HogQLTimings,
     limit_context: LimitContext | None,
+    canary: bool = False,
 ) -> HogQLQueryResponse:
     validate_managed_trino_query(query, team, user)
     assert user is not None
@@ -86,10 +85,9 @@ def execute_managed_trino_query(
 
     def paginate(parsed: ast.SelectQuery | ast.SelectSetQuery) -> ast.SelectQuery | ast.SelectSetQuery:
         nonlocal paginator
-        if limit_context == LimitContext.SQL_ALERT:
-            paginator = HogQLHasMorePaginator.from_alert_query(parsed, limit_context=limit_context)
-        elif isinstance(parsed, ast.SelectQuery) and not parsed.limit:
-            paginator = HogQLHasMorePaginator.from_limit_context(limit_context=limit_context or LimitContext.QUERY)
+        paginator = HogQLHasMorePaginator.for_hogql_query(
+            parsed, limit_context=limit_context or LimitContext.QUERY, offset=query.offset
+        )
         return paginator.paginate(parsed) if paginator is not None else parsed
 
     if query.sendRawQuery:
@@ -130,7 +128,9 @@ def execute_managed_trino_query(
             cancellation_token=cancellation_token,
         ),
         connect_managed_warehouse_trino(
-            str(team.organization_id), principal=f"posthog:sql-editor:team:{team.pk}:user:{user.pk}"
+            str(team.organization_id),
+            principal=f"posthog:sql-editor:team:{team.pk}:user:{user.pk}",
+            canary=canary,
         ),
     )
     response = HogQLQueryResponse(

@@ -16,7 +16,7 @@ from __future__ import annotations
 
 from typing import Any
 
-from products.posthog_ai.eval_harness.base import SandboxedPublicEval
+from products.posthog_ai.eval_harness.base import SandboxedEval
 from products.posthog_ai.eval_harness.config import SandboxedEvalCase
 from products.posthog_ai.eval_harness.harness.context import EvalContext
 from products.posthog_ai.eval_harness.scorers import NoToolCall, RequiredToolCall
@@ -103,7 +103,7 @@ async def eval_visualization_choice(ctx: EvalContext) -> None:
         ),
     ]
 
-    await SandboxedPublicEval(
+    await SandboxedEval(
         experiment_name="sandboxed-visualization-choice-cli",
         offline_suite=offline_suite(
             "product_analytics/eval_visualization_choice::eval_visualization_choice",
@@ -154,7 +154,7 @@ async def eval_saved_insight_display(ctx: EvalContext) -> None:
         ),
     ]
 
-    await SandboxedPublicEval(
+    await SandboxedEval(
         experiment_name="sandboxed-saved-insight-display-cli",
         offline_suite=offline_suite(
             "product_analytics/eval_visualization_choice::eval_saved_insight_display",

@@ -14,6 +14,7 @@ use crate::common::*;
 
 use feature_flags::cohorts::cohort_models::CohortType;
 use feature_flags::config::DEFAULT_TEST_CONFIG;
+use feature_flags::team::team_models::RealtimeCohortLevel;
 use feature_flags::utils::test_utils::{
     insert_active_flags, insert_config_in_hypercache, insert_flags_for_team_in_redis,
     insert_flags_with_metadata_for_team_in_redis, insert_new_team_in_redis, setup_pg_reader_client,
@@ -1742,9 +1743,9 @@ async fn it_sets_quota_limited_in_legacy_and_v2() -> Result<()> {
 }
 
 #[tokio::test]
-async fn test_minimal_flag_called_events_reaches_v2_and_v3_but_not_legacy_response() -> Result<()> {
+async fn test_minimal_flag_called_events_reaches_v2_and_v4_but_not_legacy_response() -> Result<()> {
     let mut config = DEFAULT_TEST_CONFIG.clone();
-    config.flags_v3_response_enabled = true;
+    config.flags_v4_response_enabled = true;
     let distinct_id = "user1".to_string();
 
     let client = setup_redis_client(Some(config.redis_url.clone())).await;
@@ -1771,13 +1772,13 @@ async fn test_minimal_flag_called_events_reaches_v2_and_v3_but_not_legacy_respon
     let v2: FlagsResponse = res.json().await?;
     assert_eq!(v2.minimal_flag_called_events, Some(true));
 
-    // V3 response: carried over from the v2 response.
+    // V4 response: carried over from the v2 response.
     let res = server
-        .send_flags_request(payload.to_string(), Some("3"), None)
+        .send_flags_request(payload.to_string(), Some("4"), None)
         .await;
     assert_eq!(StatusCode::OK, res.status());
-    let v3 = res.json::<Value>().await?;
-    assert_eq!(v3["minimalFlagCalledEvents"], true);
+    let v4 = res.json::<Value>().await?;
+    assert_eq!(v4["minimalFlagCalledEvents"], true);
 
     // Legacy response (v=1): LegacyFlagsResponse doesn't carry the field at all, so a
     // gated team's v1 clients never see the signal and keep sending full events.
@@ -6328,6 +6329,118 @@ async fn test_realtime_cohort_without_backfill_falls_through_to_dynamic_eval() -
                 "realtime-fallback-flag": {
                     "key": "realtime-fallback-flag",
                     "enabled": true
+                }
+            }
+        })
+    );
+
+    Ok(())
+}
+
+/// With REALTIME_COHORT_EVALUATION_TEAM_IDS at `none`, only the cached team's access level can
+/// route a backfilled realtime cohort to the `cohort_membership` table. The person is a member
+/// there but fails the cohort's person-property filters, so the flag is on only when the cohort
+/// routes to the table.
+#[rstest]
+#[case::serving_reads_the_membership_table(RealtimeCohortLevel::Serving, true)]
+#[case::processing_evaluates_dynamically(RealtimeCohortLevel::Processing, false)]
+#[tokio::test]
+async fn test_realtime_cohort_routing_follows_the_cached_team_access_level(
+    #[case] level: RealtimeCohortLevel,
+    #[case] expected_enabled: bool,
+) -> Result<()> {
+    let config = DEFAULT_TEST_CONFIG.clone();
+    let client = setup_redis_client(Some(config.redis_url.clone())).await;
+    let mut team = insert_new_team_in_redis(client.clone()).await.unwrap();
+    team.realtime_cohort_level = level;
+    update_team_in_hypercache(client.clone(), &team).await?;
+
+    let context = TestContext::new(None).await;
+    context.insert_new_team(Some(team.id)).await.unwrap();
+
+    let cohort = context
+        .insert_cohort_with_type_and_condition_type(
+            team.id,
+            Some("Realtime Backfilled".to_string()),
+            json!({
+                "properties": {
+                    "type": "OR",
+                    "values": [{
+                        "type": "AND",
+                        "values": [{
+                            "key": "plan",
+                            "type": "person",
+                            "value": ["enterprise"],
+                            "operator": "exact",
+                            "negation": false
+                        }]
+                    }]
+                }
+            }),
+            false,
+            Some(CohortType::Realtime),
+            None,
+            Some(chrono::Utc::now()),
+            Some(json!({"behavioral": true})),
+            None,
+        )
+        .await
+        .unwrap();
+
+    let flag_json = json!([{
+        "id": 1,
+        "key": "realtime-level-flag",
+        "name": "Realtime Level Flag",
+        "active": true,
+        "deleted": false,
+        "team_id": team.id,
+        "filters": {
+            "groups": [{
+                "properties": [{
+                    "key": "id",
+                    "type": "cohort",
+                    "value": cohort.id,
+                    "operator": "in"
+                }],
+                "rollout_percentage": 100
+            }]
+        }
+    }]);
+    insert_flags_for_team_in_redis(client.clone(), team.id, Some(flag_json.to_string())).await?;
+
+    let distinct_id = "user_realtime_level".to_string();
+    context
+        .insert_person(
+            team.id,
+            distinct_id.clone(),
+            Some(json!({ "plan": "free" })),
+        )
+        .await
+        .unwrap();
+    let person_uuid = context
+        .get_person_uuid_by_distinct_id(team.id, &distinct_id)
+        .await?;
+    context
+        .insert_cohort_membership(team.id, cohort.id, person_uuid, true)
+        .await?;
+
+    let server = ServerHandle::for_config(config).await;
+    let payload = json!({
+        "token": team.api_token,
+        "distinct_id": distinct_id,
+    });
+    let res = server
+        .send_flags_request(payload.to_string(), Some("2"), None)
+        .await;
+
+    assert_eq!(res.status(), StatusCode::OK);
+    assert_json_include!(
+        actual: res.json::<Value>().await?,
+        expected: json!({
+            "flags": {
+                "realtime-level-flag": {
+                    "key": "realtime-level-flag",
+                    "enabled": expected_enabled
                 }
             }
         })

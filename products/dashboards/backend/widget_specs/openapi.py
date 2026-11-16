@@ -8,29 +8,70 @@ from drf_spectacular.utils import PolymorphicProxySerializer, extend_schema_fiel
 from pydantic import BaseModel
 from rest_framework import serializers
 
+from posthog.schema import BreakdownFilter, CompareFilter, IntervalType
+
 from products.dashboards.backend.constants import (
     DASHBOARD_GRID_COLUMN_COUNT,
     MAX_GROUP_KEY_LENGTH,
     MAX_GROUP_TITLE_LENGTH,
 )
-from products.dashboards.backend.models.dashboard import DASHBOARD_GRID_COMPACTION_MODES, DASHBOARD_GRID_SPACING_GAPS
+from products.dashboards.backend.models.dashboard import (
+    DASHBOARD_GRID_COMPACTION_MODES,
+    DASHBOARD_GRID_SPACING_GAPS,
+    DASHBOARD_TILE_GROUP_DISPLAY_MODES,
+    DashboardTileGroupColor,
+)
 from products.dashboards.backend.models.dashboard_tile import DashboardTileBadge
 from products.dashboards.backend.widget_specs.pydantic_openapi import pydantic_config_field, pydantic_stub_serializer
 from products.dashboards.backend.widget_specs.registry import EXPECTED_WIDGET_TYPES, WIDGET_SPECS
 
+GROUPS_HELP_TEXT = (
+    "Settings for tile groups, keyed by the tiles' group_key. Each group shows as a band of its tiles under a "
+    "heading that viewers can open and close. Viewers who do not have bands yet see only the group title above "
+    "its tiles. A write replaces the whole map. Send an empty object or null to remove all group settings."
+)
 GROUP_TITLES_HELP_TEXT = (
-    "Titles for tile groups, keyed by the tiles' group_key. The dashboard shows a title above its group. "
-    "A write replaces the whole map. Send an empty object or null to remove all group titles."
+    "Deprecated: use groups. Titles for tile groups, keyed by group_key. A write replaces all titles and keeps "
+    "the other group settings. Send an empty object or null to clear titles. Do not send it with groups."
 )
 GROUP_KEY_HELP_TEXT = (
     "Key that puts this tile in a group with the other tiles that have the same key on this dashboard. "
-    "Set the group's title in the dashboard's group_titles. Null or an empty string removes the tile from its group."
+    "Set the group's title and style in the dashboard's groups. Null or an empty string removes the tile from its "
+    "group."
 )
 BADGE_HELP_TEXT = (
     "Badge on the tile. winner shows a crown in the top left corner, for example to mark the best tile in a group. "
     "cheeky-hog shows a hedgehog when a person hovers over the tile. Null removes the badge. "
     "More than one tile in a group can have the winner badge."
 )
+
+
+DASHBOARD_TILE_GROUP_DEFAULTS = {"collapsed": False, "color": None}
+
+
+# No field has a default, so a write stores only the settings the client sent.
+class DashboardTileGroupSerializer(serializers.Serializer):
+    title = serializers.CharField(
+        max_length=MAX_GROUP_TITLE_LENGTH,
+        required=False,
+        allow_blank=True,
+        help_text="Heading for the group. When it is blank or omitted, the heading shows the number of tiles.",
+    )
+    collapsed = serializers.BooleanField(
+        required=False,
+        help_text=(
+            "Whether the group starts closed. Defaults to false. When a viewer opens or closes the group, their "
+            "browser keeps that choice and it wins over this default. A closed group loads its tiles when a viewer "
+            "opens it."
+        ),
+    )
+    color = serializers.ChoiceField(
+        choices=DashboardTileGroupColor.choices,
+        required=False,
+        allow_null=True,
+        help_text="Color of a dot before the group heading. Null or omitted shows no dot.",
+    )
+
 
 WIDGET_BATCH_ADD_OPENAPI_HELP = (
     "Widget tiles to add atomically. Supported widget_type values: "
@@ -49,6 +90,7 @@ class DashboardWidgetType(models.TextChoices):
     EXPERIMENT_RESULTS = "experiment_results"
     EXPERIMENTS_LIST = "experiments_list"
     LOGS_LIST = "logs_list"
+    METRICS_TABLE = "metrics_table"
     NOTEBOOK_WIDGET = "notebook_widget"
     SESSION_REPLAY_LIST = "session_replay_list"
     SURVEY_RESULTS = "survey_results"
@@ -338,6 +380,16 @@ class DashboardPatchTileOpenApiSerializer(serializers.Serializer):
     widget = DashboardPatchWidgetOpenApiSerializer(required=False, help_text="Nested widget row updates.")
 
 
+@extend_schema_field(BreakdownFilter)  # type: ignore[arg-type]
+class DashboardBreakdownFilterField(serializers.JSONField):
+    pass
+
+
+@extend_schema_field(CompareFilter)  # type: ignore[arg-type]
+class DashboardCompareFilterField(serializers.JSONField):
+    pass
+
+
 class DashboardFiltersOpenApiSerializer(serializers.Serializer):
     """OpenAPI-only shape for a dashboard's filters object (agents/MCP).
 
@@ -359,6 +411,31 @@ class DashboardFiltersOpenApiSerializer(serializers.Serializer):
     properties = serializers.JSONField(
         required=False,
         help_text="Dashboard-level property filters applied to every tile (PostHog property filter group).",
+    )
+    breakdown_filter = DashboardBreakdownFilterField(
+        required=False,
+        allow_null=True,
+        help_text=(
+            "Dashboard-level breakdown applied to every tile that supports one, replacing the tile's own breakdown. "
+            'Example: {"breakdown_type": "event", "breakdown": "$browser"}. Null clears it.'
+        ),
+    )
+    # nosemgrep: choices-need-a-class -- generated query schema enum, ENUM_NAME_OVERRIDES pins IntervalTypeEnum
+    interval = serializers.ChoiceField(
+        choices=[interval.value for interval in IntervalType],
+        required=False,
+        allow_null=True,
+        help_text="Time granularity forced onto every tile that supports one. Null means each tile keeps its own.",
+    )
+    compareFilter = DashboardCompareFilterField(
+        required=False,
+        allow_null=True,
+        help_text="Period comparison forced onto every tile that supports one. Null means each tile keeps its own.",
+    )
+    filterTestAccounts = serializers.BooleanField(
+        required=False,
+        allow_null=True,
+        help_text="True forces test accounts out of every tile, false forces them in, null keeps each tile's setting.",
     )
 
 
@@ -423,7 +500,7 @@ class PatchedDashboardOpenApiSerializer(serializers.Serializer):
     pinned = serializers.BooleanField(required=False)
     filters = DashboardFiltersOpenApiSerializer(
         required=False,
-        help_text="Dashboard-level filters (date range and properties) applied across all tiles as the source of truth.",
+        help_text="Dashboard-level filters (date range, properties, breakdown, interval, comparison) applied across all tiles as the source of truth.",
     )
     breakdown_colors = serializers.ListField(
         child=BreakdownColorConfigSerializer(),
@@ -458,6 +535,20 @@ class PatchedDashboardOpenApiSerializer(serializers.Serializer):
             "How tiles rearrange after a move or resize. vertical stacks tiles upward, horizontal stacks tiles "
             "to the left, and stable preserves positions while moving colliding tiles."
         ),
+    )
+    group_display = serializers.ChoiceField(
+        choices=DASHBOARD_TILE_GROUP_DISPLAY_MODES,
+        required=False,
+        help_text=(
+            "How tile groups show. sections shows each group as a band that opens and closes. tabs shows one "
+            "group at a time, and tiles outside any group get their own first tab."
+        ),
+    )
+    groups = serializers.DictField(
+        child=DashboardTileGroupSerializer(),
+        required=False,
+        allow_null=True,
+        help_text=GROUPS_HELP_TEXT,
     )
     group_titles = serializers.DictField(
         child=serializers.CharField(max_length=MAX_GROUP_TITLE_LENGTH),

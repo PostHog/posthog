@@ -1,14 +1,18 @@
+import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
 import { ErrorTrackingFingerprint } from 'lib/components/Errors/types'
 import type { ErrorEventType } from 'lib/components/Errors/types'
+import { urls } from 'scenes/urls'
 
 import { useMocks } from '~/mocks/jest'
 import type { ErrorTrackingRelationalIssue } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 
+import { eventsSourceLogic } from '../../components/EventsTable/eventsSourceLogic'
 import { issueActionsLogic } from '../../components/IssueActions/issueActionsLogic'
 import { errorTrackingIssueSceneLogic, toErrorTrackingIssueSummary } from './errorTrackingIssueSceneLogic'
+import { issueRecordingFilterLogic } from './issueRecordingFilterLogic'
 import { linkedReportsLogic } from './linkedReportsLogic'
 
 const VALID_ISSUE_ID = '01890a1b-2c3d-4e4f-8a9b-0c1d2e3f4a5b'
@@ -147,19 +151,42 @@ describe('errorTrackingIssueSceneLogic', () => {
         expect(loadIssue).toHaveBeenCalledTimes(1)
     })
 
-    it('reloads only the issue that was split and does not reload merged issues', async () => {
+    it('reloads only the issue that was split, with both of its exception lists', async () => {
+        // The issue page lists the issue events query, and the notebook widget lists the plain events query.
+        const lists = [
+            eventsSourceLogic({ query: logic.values.issueEventsQuery, queryKey: logic.values.issueEventsQueryKey }),
+            eventsSourceLogic({ query: logic.values.eventsQuery, queryKey: logic.values.eventsQueryKey }),
+        ]
+        lists.forEach((list) => list.mount())
         await expectLogic(logic).toFinishAllListeners()
         const loadIssue = jest.spyOn(logic.actions, 'loadIssue')
+        const listReloads = lists.map((list) => jest.spyOn(list.actions, 'loadData'))
 
         logic.actions.splitIssueSuccess('another-issue', [])
         issueActionsLogic().actions.mutationSuccess('mergeIssues', VALID_ISSUE_ID)
         await expectLogic(logic).toFinishAllListeners()
         expect(loadIssue).not.toHaveBeenCalled()
+        listReloads.forEach((listReload) => expect(listReload).not.toHaveBeenCalled())
 
         await expectLogic(logic, () => {
             logic.actions.splitIssueSuccess(VALID_ISSUE_ID, [])
         }).toDispatchActions(['loadIssue'])
         expect(loadIssue).toHaveBeenCalledTimes(1)
+        listReloads.forEach((listReload) => expect(listReload).toHaveBeenCalledWith('force_blocking'))
+        lists.forEach((list) => list.unmount())
+    })
+
+    it('keeps the recording filter in the URL', () => {
+        const recordingFilter = issueRecordingFilterLogic({ issueId: VALID_ISSUE_ID })
+
+        router.actions.push(urls.errorTrackingIssue(VALID_ISSUE_ID), { onlyWithRecording: true })
+        expect(recordingFilter.values.onlyWithRecording).toBe(true)
+
+        recordingFilter.actions.setOnlyWithRecording(false)
+        expect(router.values.searchParams).not.toHaveProperty('onlyWithRecording')
+
+        recordingFilter.actions.setOnlyWithRecording(true)
+        expect(router.values.searchParams).toMatchObject({ onlyWithRecording: true })
     })
 
     it('keeps stable first and last event IDs in the issue summary', () => {

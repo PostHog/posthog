@@ -71,6 +71,10 @@ fn record_observation(topic: Topic, report: &ObserveReport) {
         metrics::counter!("personhog_parity_filtered_total", "feed" => feed, "topic" => topic.kind.label())
             .increment(1);
     }
+    if report.sampled_out {
+        metrics::counter!("personhog_parity_sampled_out_total", "feed" => feed, "topic" => topic.kind.label())
+            .increment(1);
+    }
     if let Some(side) = report.version_tie {
         metrics::counter!("personhog_parity_version_ties_total", "feed" => side.label())
             .increment(1);

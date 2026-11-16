@@ -1,3 +1,4 @@
+from collections.abc import Sequence
 from datetime import datetime
 from typing import Optional
 
@@ -10,6 +11,7 @@ from django.utils import timezone
 
 from posthog.models.file_system.constants import DEFAULT_SURFACE, surface_q
 from posthog.models.file_system.file_system_shortcut import FileSystemShortcut
+from posthog.models.file_system.refs import file_refs_q
 from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.models.utils import uuid7
@@ -71,9 +73,9 @@ def create_or_update_file(
 ):
     has_existing = False
     all_existing = (
-        FileSystem.objects.filter(surface_q(surface), team=team, type=file_type, ref=ref)
+        FileSystem.objects.filter(surface_q(surface), file_refs_q(file_type, [ref]), team=team, type=file_type)
         .filter(~Q(shortcut=True))
-        .all()
+        .order_by("id")
     )
     for existing in all_existing:
         has_existing = True
@@ -93,7 +95,9 @@ def create_or_update_file(
     if has_existing:
         path = escape_path(name)
         shortcuts = (
-            FileSystemShortcut.objects.filter(surface_q(surface), team=team, type=file_type, ref=ref)
+            FileSystemShortcut.objects.filter(
+                surface_q(surface), file_refs_q(file_type, [ref]), team=team, type=file_type
+            )
             .filter(~(Q(path=path) & Q(href=href)))
             .all()
         )
@@ -119,9 +123,14 @@ def create_or_update_file(
 
 
 def delete_file(*, team: Team, file_type: str, ref: str, surface: str = DEFAULT_SURFACE):
-    count, _ = FileSystem.objects.filter(surface_q(surface), team=team, type=file_type, ref=ref).delete()
+    delete_files(team=team, file_type=file_type, refs=[ref], surface=surface)
+
+
+def delete_files(*, team: Team, file_type: str, refs: Sequence[str], surface: str = DEFAULT_SURFACE) -> None:
+    same_objects = file_refs_q(file_type, refs)
+    count, _ = FileSystem.objects.filter(surface_q(surface), same_objects, team=team, type=file_type).delete()
     if count > 0:
-        FileSystemShortcut.objects.filter(surface_q(surface), team=team, type=file_type, ref=ref).delete()
+        FileSystemShortcut.objects.filter(surface_q(surface), same_objects, team=team, type=file_type).delete()
 
 
 def split_path(path: str) -> list[str]:

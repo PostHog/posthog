@@ -9,6 +9,7 @@ import {
     IconExternal,
     IconPauseFilled,
     IconPencil,
+    IconPinFilled,
     IconPlay,
     IconPlayFilled,
     IconTarget,
@@ -32,9 +33,10 @@ import { DataModelingNode } from '~/types'
 
 import { MATERIALIZING_TYPES } from 'products/data_modeling/frontend/freshness'
 import { servingSuspension } from 'products/data_modeling/frontend/suspension'
-import { syncIntervalToShorthand } from 'products/data_warehouse/frontend/utils'
+import { SYNC_FREQUENCY_ORDER, syncIntervalToShorthand } from 'products/data_warehouse/frontend/utils'
 
 import { ElkDirection, NodeHandle } from './autolayout'
+import { LineageGraphNode } from './lineageHiddenNodes'
 import { NODE_TYPE_TAG_SETTINGS, statusBackgroundClass } from './nodeStyles'
 import { NodeTypeTag } from './NodeTypeTag'
 
@@ -47,6 +49,8 @@ export type LineageNodeShape = Pick<
     | 'name'
     | 'type'
     | 'sync_interval'
+    | 'effective_sync_interval'
+    | 'pinned'
     | 'last_run_at'
     | 'last_run_status'
     | 'upstream_count'
@@ -54,7 +58,8 @@ export type LineageNodeShape = Pick<
     | 'user_tag'
     | 'suspended'
     | 'lineage_issue'
->
+> &
+    Pick<LineageGraphNode, 'collapsed'>
 
 export interface LineageNodeState {
     isCurrent?: boolean
@@ -94,6 +99,17 @@ export function lineageIssueMessage(issue: NonNullable<DataModelingNode['lineage
         return `Lineage could not be refreshed: ${issue.detail}`
     }
     return `Couldn't find ${issue.detail}. This may read a table that was renamed or removed.`
+}
+
+export function lineageNodeAriaLabel(node: LineageNodeShape, selectable?: boolean): string {
+    const destination = node.type === 'metric' ? 'the metric' : 'the model'
+    const cardAction = selectable ? 'highlights its lineage' : `opens ${destination}`
+    return [
+        `${node.name}, ${NODE_TYPE_TAG_SETTINGS[node.type].label.toLowerCase()}, ${cardAction}`,
+        node.lineage_issue && lineageIssueMessage(node.lineage_issue),
+    ]
+        .filter(Boolean)
+        .join('. ')
 }
 
 /** The warning mark drawn on a lineage node, and repeated beside the name in the editor's table. */
@@ -180,14 +196,40 @@ function RunArrow({
     )
 }
 
+function CadenceLabel({ node }: { node: LineageNodeShape }): JSX.Element {
+    const runsAt = node.effective_sync_interval ?? node.sync_interval ?? undefined
+    const differs = !node.pinned && !!runsAt && !!node.sync_interval && runsAt !== node.sync_interval
+    // The scheduler runs a node faster than its own setting to serve a downstream view,
+    // and slower when one of its sources refreshes less often than the node is set to.
+    const faster =
+        differs &&
+        SYNC_FREQUENCY_ORDER.indexOf(runsAt as (typeof SYNC_FREQUENCY_ORDER)[number]) <
+            SYNC_FREQUENCY_ORDER.indexOf(node.sync_interval as (typeof SYNC_FREQUENCY_ORDER)[number])
+    const title = !runsAt
+        ? 'This node is not set to sync on a schedule yet'
+        : node.pinned
+          ? 'Pinned to this cadence. Downstream views may read older data from it.'
+          : differs
+            ? faster
+                ? `Refreshes this often to keep up with a downstream view. Its own setting is ${syncIntervalToShorthand(node.sync_interval)}.`
+                : `Refreshes this often because a source it reads from refreshes less often. Its own setting is ${syncIntervalToShorthand(node.sync_interval)}.`
+            : null
+    return (
+        <Tooltip title={title}>
+            <span className="inline-flex items-center gap-0.5">
+                <span translate="no">{syncIntervalToShorthand(runsAt)}</span>
+                {node.pinned && <IconPinFilled className="text-[10px]" />}
+            </span>
+        </Tooltip>
+    )
+}
+
 function MetadataBar({ node }: { node: LineageNodeShape }): JSX.Element {
     return (
         <div className="flex items-center bg-primary dark:bg-primary/60 rounded-b-lg px-2.5 py-1.5 justify-between">
             <div className="flex gap-1 text-[10px] items-center">
                 <IconClockRewind className="scale-x-[-1]" />
-                <Tooltip title={node.sync_interval ? null : 'This node is not set to sync on a schedule yet'}>
-                    {syncIntervalToShorthand(node.sync_interval)}
-                </Tooltip>
+                <CadenceLabel node={node} />
                 <IconActivity />
                 {node.last_run_at ? (
                     <Tooltip title="Last successful run.">
@@ -205,6 +247,57 @@ function MetadataBar({ node }: { node: LineageNodeShape }): JSX.Element {
             </div>
             <StatusDot node={node} />
         </div>
+    )
+}
+
+function NodeHandles({ handles }: { handles: NodeHandle[] }): JSX.Element {
+    return (
+        <>
+            {handles.map((handle) => (
+                <Handle
+                    key={handle.id}
+                    id={handle.id}
+                    type={handle.type}
+                    position={handle.position ?? (handle.type === 'target' ? Position.Left : Position.Right)}
+                    className="opacity-0"
+                    isConnectable={false}
+                />
+            ))}
+        </>
+    )
+}
+
+function CollapsedLineageNode({ data }: { data: LineageNodeData }): JSX.Element {
+    const { node, state, callbacks } = data
+    const description = `Hidden ${NODE_TYPE_TAG_SETTINGS[node.type].label.toLowerCase()}: ${node.name}`
+    return (
+        <Tooltip title={description}>
+            <div
+                className={clsx(
+                    'relative flex h-full w-full items-center justify-center rounded-full border border-dashed bg-bg-light text-secondary pointer-events-auto',
+                    data.draggable && 'cursor-grab active:cursor-grabbing',
+                    !data.draggable && callbacks.onClick && 'cursor-pointer',
+                    state.isSelected && 'border-link ring-2 ring-link/40',
+                    state.isDimmed && 'opacity-30'
+                )}
+                onClick={callbacks.onClick}
+                data-attr="lineage-collapsed-node"
+            >
+                {callbacks.onClick && (
+                    <button
+                        type="button"
+                        className="absolute inset-0 pointer-events-none rounded-full focus-visible:ring-2 focus-visible:ring-link/40"
+                        onClick={(event) => {
+                            event.stopPropagation()
+                            callbacks.onClick?.(event)
+                        }}
+                        aria-label={description}
+                    />
+                )}
+                <NodeHandles handles={data.handles} />
+                <span aria-hidden="true">⋯</span>
+            </div>
+        </Tooltip>
     )
 }
 
@@ -289,16 +382,7 @@ export function LineageNode({ data }: { data: LineageNodeData }): JSX.Element {
                         state.loading === 'focus' ? `color-mix(in srgb, ${color} 60%, transparent)` : undefined,
                 }}
             >
-                {data.handles.map((handle) => (
-                    <Handle
-                        key={handle.id}
-                        id={handle.id}
-                        type={handle.type}
-                        position={handle.position ?? (handle.type === 'target' ? Position.Left : Position.Right)}
-                        className="opacity-0"
-                        isConnectable={false}
-                    />
-                ))}
+                <NodeHandles handles={data.handles} />
                 <div className="flex flex-1 flex-col justify-center gap-2 px-3">
                     {state.loading === 'focus' ? (
                         <div className="opacity-70">
@@ -327,19 +411,16 @@ export function LineageNode({ data }: { data: LineageNodeData }): JSX.Element {
         )
     }
 
+    if (node.collapsed) {
+        return <CollapsedLineageNode data={data} />
+    }
+
     const stop = (fn?: () => void) => (e: React.MouseEvent) => {
         e.stopPropagation()
         fn?.()
     }
 
-    const destination = node.type === 'metric' ? 'the metric' : 'the model'
-    const cardAction = data.selectable ? 'highlights its lineage' : `opens ${destination}`
-    const ariaLabel = [
-        `${node.name}, ${NODE_TYPE_TAG_SETTINGS[node.type].label.toLowerCase()}, ${cardAction}`,
-        node.lineage_issue && lineageIssueMessage(node.lineage_issue),
-    ]
-        .filter(Boolean)
-        .join('. ')
+    const ariaLabel = lineageNodeAriaLabel(node, data.selectable)
 
     const nodeCard = (
         <div
@@ -376,16 +457,7 @@ export function LineageNode({ data }: { data: LineageNodeData }): JSX.Element {
                     aria-label={ariaLabel}
                 />
             )}
-            {data.handles.map((handle) => (
-                <Handle
-                    key={handle.id}
-                    id={handle.id}
-                    type={handle.type}
-                    position={handle.position ?? (handle.type === 'target' ? Position.Left : Position.Right)}
-                    className="opacity-0"
-                    isConnectable={false}
-                />
-            ))}
+            <NodeHandles handles={data.handles} />
 
             {showRunArrows && node.upstream_count > 0 && callbacks.onRunUpstream && (
                 <RunArrow direction="upstream" layoutDirection={direction} onClick={stop(callbacks.onRunUpstream)} />

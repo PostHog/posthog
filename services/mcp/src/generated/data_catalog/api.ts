@@ -77,7 +77,12 @@ export const DataCatalogMetricsListQueryParams = () => zod.object({
     definition_kind: zod.string().optional().describe('Only metrics with this query node kind.'),
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
-    search: zod.string().optional().describe('A search term.'),
+    search: zod
+        .string()
+        .optional()
+        .describe(
+            "Find metrics for a measure instead of reading the whole catalog. Send the user's words, the likely metric name, and the spelled-out form of an acronym, separated by commas, such as 'mrr, monthly recurring revenue'. Results come best match first, 10 by default, and match_reason says why each one matched. Words match by stem in the name, display name, description, and definition. Synonyms do not match unless the metric's text contains them."
+        ),
     status: zod.string().optional().describe('Only metrics with this review status.'),
 })
 
@@ -104,9 +109,6 @@ export const dataCatalogMetricsCreateBodyUnitMax = 64
 export const dataCatalogMetricsCreateBodySourceInsightShortIdMax = 12
 
 export const dataCatalogMetricsCreateBodyAiModelMax = 128
-
-export const dataCatalogMetricsCreateBodyConfidenceMin = 0
-export const dataCatalogMetricsCreateBodyConfidenceMax = 1
 
 export const dataCatalogMetricsCreateBodyOverwriteDefault = false
 
@@ -135,6 +137,12 @@ export const DataCatalogMetricsCreateBody = () => zod
             .max(dataCatalogMetricsCreateBodyUnitMax)
             .optional()
             .describe('Unit of the result, e.g. usd, percent, cents.'),
+        owner: zod
+            .email()
+            .nullish()
+            .describe(
+                "Email of the human accountable for this metric, or null. Set it to the email of a member of this organization to reassign the metric, or to null to clear it. Changing the owner keeps the metric's approval."
+            ),
         definition: zod
             .record(zod.string(), zod.unknown())
             .nullish()
@@ -151,12 +159,6 @@ export const DataCatalogMetricsCreateBody = () => zod
             .max(dataCatalogMetricsCreateBodyAiModelMax)
             .optional()
             .describe('Model that generated the metric, if AI-authored.'),
-        confidence: zod
-            .number()
-            .min(dataCatalogMetricsCreateBodyConfidenceMin)
-            .max(dataCatalogMetricsCreateBodyConfidenceMax)
-            .nullish()
-            .describe("AI author's confidence in the proposal, 0-1."),
         reasoning: zod
             .string()
             .optional()
@@ -211,9 +213,6 @@ export const dataCatalogMetricsPartialUpdateBodySourceInsightShortIdMax = 12
 
 export const dataCatalogMetricsPartialUpdateBodyAiModelMax = 128
 
-export const dataCatalogMetricsPartialUpdateBodyConfidenceMin = 0
-export const dataCatalogMetricsPartialUpdateBodyConfidenceMax = 1
-
 export const DataCatalogMetricsPartialUpdateBody = () => zod.object({
     name: zod
         .string()
@@ -240,6 +239,12 @@ export const DataCatalogMetricsPartialUpdateBody = () => zod.object({
         .max(dataCatalogMetricsPartialUpdateBodyUnitMax)
         .optional()
         .describe('Unit of the result, e.g. usd, percent, cents.'),
+    owner: zod
+        .email()
+        .nullish()
+        .describe(
+            "Email of the human accountable for this metric, or null. Set it to the email of a member of this organization to reassign the metric, or to null to clear it. Changing the owner keeps the metric's approval."
+        ),
     definition: zod
         .record(zod.string(), zod.unknown())
         .nullish()
@@ -256,12 +261,6 @@ export const DataCatalogMetricsPartialUpdateBody = () => zod.object({
         .max(dataCatalogMetricsPartialUpdateBodyAiModelMax)
         .optional()
         .describe('Model that generated the metric, if AI-authored.'),
-    confidence: zod
-        .number()
-        .min(dataCatalogMetricsPartialUpdateBodyConfidenceMin)
-        .max(dataCatalogMetricsPartialUpdateBodyConfidenceMax)
-        .nullish()
-        .describe("AI author's confidence in the proposal, 0-1."),
     reasoning: zod
         .string()
         .optional()
@@ -293,6 +292,17 @@ export const DataCatalogMetricsApproveCreateParams = () => zod.object({
             "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
         ),
 })
+
+export const DataCatalogMetricsApproveCreateBody = () => zod
+    .object({
+        expected_updated_at: zod.iso
+            .datetime({ offset: true })
+            .optional()
+            .describe(
+                "The metric's `updated_at` as last seen by the approver. When the metric changed since then, the API returns 409 and leaves it proposed. Omit to approve the current version."
+            ),
+    })
+    .describe('Input for approving one metric.')
 
 /**
  * Re-snapshot the linked insight's current query into the definition.
@@ -327,6 +337,8 @@ export const DataCatalogMetricsRunCreateQueryParams = () => zod.object({
         ),
 })
 
+export const dataCatalogMetricsRunCreateBodyOffsetMin = 0
+
 export const DataCatalogMetricsRunCreateBody = () => zod
     .object({
         date_from: zod
@@ -344,6 +356,13 @@ export const DataCatalogMetricsRunCreateBody = () => zod
             .optional()
             .describe(
                 'Override the bucket interval. Rejected for HogQLQuery metrics.\n\n\* `second` - second\n\* `minute` - minute\n\* `hour` - hour\n\* `day` - day\n\* `week` - week\n\* `month` - month\n\* `quarter` - quarter\n\* `year` - year'
+            ),
+        offset: zod
+            .number()
+            .min(dataCatalogMetricsRunCreateBodyOffsetMin)
+            .optional()
+            .describe(
+                'Rows to skip, to read the page after a run that returned has_more. Pass next_offset from that run. Only HogQLQuery metrics accept it. Runs made with a personal or project API key are rejected.'
             ),
         query_id: zod.string().optional().describe('Client-supplied id to correlate or cancel the run.'),
     })

@@ -6,8 +6,93 @@
             "type": "string"
         },
         "context": {
-            "description": "Why this query runs, and the governed-catalog outcome behind it: state \"governed catalog consulted: no match\" here when no approved metric covered the measure. This rides alongside the query and never reaches the person who asked, so catalog bookkeeping belongs here instead of in the answer.",
+            "description": "Why this query runs, and the governed-catalog outcome behind it. Write \"governed catalog consulted: no match\" here only after a catalog check found no approved metric for the measure: a `metric-list` call, or a metric listing that your instructions provide. Without that check, leave the phrase out. This rides alongside the query and never reaches the person who asked, so catalog bookkeeping belongs here instead of in the answer.",
             "type": "string"
+        },
+        "filters": {
+            "anyOf": [
+                {
+                    "additionalProperties": {},
+                    "properties": {
+                        "dateRange": {
+                            "anyOf": [
+                                {
+                                    "additionalProperties": {},
+                                    "properties": {
+                                        "date_from": {
+                                            "anyOf": [
+                                                {
+                                                    "type": "string"
+                                                },
+                                                {
+                                                    "type": "null"
+                                                }
+                                            ]
+                                        },
+                                        "date_to": {
+                                            "anyOf": [
+                                                {
+                                                    "type": "string"
+                                                },
+                                                {
+                                                    "type": "null"
+                                                }
+                                            ]
+                                        },
+                                        "explicitDate": {
+                                            "anyOf": [
+                                                {
+                                                    "type": "boolean"
+                                                },
+                                                {
+                                                    "type": "null"
+                                                }
+                                            ]
+                                        }
+                                    },
+                                    "type": "object"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ]
+                        },
+                        "filterTestAccounts": {
+                            "anyOf": [
+                                {
+                                    "type": "boolean"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ]
+                        },
+                        "properties": {
+                            "anyOf": [
+                                {
+                                    "items": {
+                                        "additionalProperties": {},
+                                        "propertyNames": {
+                                            "type": "string"
+                                        },
+                                        "type": "object"
+                                    },
+                                    "type": "array"
+                                },
+                                {
+                                    "type": "null"
+                                }
+                            ],
+                            "description": "Complete property-filter objects from the editor, including type, key, operator, value, and group_type_index for group filters. Preserve all fields and boolean values; the backend validates each filter."
+                        }
+                    },
+                    "type": "object"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Structured filters applied through SQL filter placeholders. When working in the SQL editor, copy current_query_node.source.filters here and preserve {filters} in each relevant source scan. Keep dateRange, properties, and filterTestAccounts unless the user asks to change them. Pass an empty object to clear filters. Not supported with sendRawQuery."
         },
         "query": {
             "description": "The final SQL query to be executed.",

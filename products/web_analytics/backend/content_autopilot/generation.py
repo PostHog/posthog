@@ -15,7 +15,7 @@ from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
 from posthog.security.llm_prompt_sanitization import sanitize_user_text, strip_llm_framing_markers
 
-from products.web_analytics.backend.content_autopilot.edits import PageEdit, apply_edits, page_headings
+from products.web_analytics.backend.content_autopilot.edits import PageEdit, apply_edits, first_h1, page_headings
 from products.web_analytics.backend.content_autopilot.llm import (
     ContentAutopilotLLMError,
     Effort,
@@ -45,7 +45,7 @@ from products.web_analytics.backend.content_autopilot.research import (
     gather_research,
     search_site_pages,
 )
-from products.web_analytics.backend.content_autopilot.site_discovery import site_host
+from products.web_analytics.backend.content_autopilot.site_discovery import is_site_link, site_host
 from products.web_analytics.backend.content_autopilot.validation import (
     LINK_RE,
     JudgeVerdict,
@@ -304,17 +304,20 @@ def _draft_from_payload(payload: dict[str, Any], *, original_markdown: str = "")
             )
         )
     )
+    title = sanitize_user_text(str(payload.get("title", "")), 300)
     if "edits" in payload:
         applied = apply_edits(original_markdown, list(edits))
         markdown = applied.markdown
         new_markdown = "\n\n".join(edit.markdown for edit in edits)
         unplaced = applied.unplaced
+        if heading := first_h1(markdown.splitlines()):
+            title = sanitize_user_text(heading[1], 300)
     else:
         markdown = strip_llm_framing_markers(str(payload.get("markdown", "")), 400_000)
         new_markdown = markdown
         unplaced = ()
     return Draft(
-        title=sanitize_user_text(str(payload.get("title", "")), 300),
+        title=title,
         description=sanitize_user_text(str(payload.get("description", "")), 300),
         url_path=sanitize_user_text(str(payload.get("url_path", "")), 500),
         markdown=markdown,
@@ -483,10 +486,8 @@ def _internal_link_urls(markdown: str, origin: str) -> list[str]:
     host = site_host(origin)
     urls: dict[str, None] = {}
     for target in LINK_RE.findall(markdown):
-        if target.startswith("/") and not target.startswith("//"):
-            urls[f"{origin}{target}"] = None
-        elif (target_host := site_host(target)) and target_host == host:
-            urls[target] = None
+        if is_site_link(target, host):
+            urls[f"{origin}{target}" if target.startswith("/") else target] = None
     return list(urls)
 
 
@@ -861,6 +862,15 @@ def _fail_unfinished_proposal(proposal: ContentAutopilotProposal | None, message
         _fail_proposal(proposal, message)
 
 
+def _refresh_proposal(opportunity: ContentAutopilotOpportunity) -> None:
+    # Drafting may link a proposal after this row loaded. Reload the link together with the proposal,
+    # so the read that follows is not a lazy load per row of the batch.
+    opportunity.refresh_from_db(
+        fields=["proposal"],
+        from_queryset=ContentAutopilotOpportunity.objects.for_team(opportunity.team_id).select_related("proposal"),
+    )
+
+
 def _draft_opportunity(
     client: Anthropic,
     *,
@@ -882,7 +892,7 @@ def _draft_opportunity(
                 }
             )
     except SoftTimeLimitExceeded:
-        opportunity.refresh_from_db(fields=["proposal"])
+        _refresh_proposal(opportunity)
         _fail_unfinished_proposal(opportunity.proposal, TIMED_OUT_PROPOSAL_MESSAGE)
         raise
     except ContentAutopilotLLMError as error:
@@ -892,7 +902,7 @@ def _draft_opportunity(
         capture_exception(error)
         logger.exception("content_autopilot_generation_failed", team_id=run.team_id, run_id=str(run.id))
         errors.append({"error_code": "draft_failed", "message": f"{title}: something went wrong while drafting."})
-        opportunity.refresh_from_db(fields=["proposal"])
+        _refresh_proposal(opportunity)
         _fail_proposal(opportunity.proposal, "Something went wrong while drafting. Regenerate to try again.")
     finally:
         if opportunity.proposal_id:
@@ -910,6 +920,7 @@ def generate_run(team_id: int, run_id: str, *, client: Anthropic | None = None) 
     try:
         opportunities = list(
             ContentAutopilotOpportunity.objects.for_team(team_id)
+            .select_related("proposal")
             .filter(run=run, status=ContentAutopilotOpportunity.Status.QUEUED)
             .order_by("-score")
         )

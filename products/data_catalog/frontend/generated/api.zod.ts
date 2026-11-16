@@ -47,9 +47,6 @@ export const dataCatalogMetricsCreateBodySourceInsightShortIdMax = 12
 
 export const dataCatalogMetricsCreateBodyAiModelMax = 128
 
-export const dataCatalogMetricsCreateBodyConfidenceMin = 0
-export const dataCatalogMetricsCreateBodyConfidenceMax = 1
-
 export const dataCatalogMetricsCreateBodyOverwriteDefault = false
 
 export const DataCatalogMetricsCreateBody = /* @__PURE__ */ zod
@@ -77,6 +74,12 @@ export const DataCatalogMetricsCreateBody = /* @__PURE__ */ zod
             .max(dataCatalogMetricsCreateBodyUnitMax)
             .optional()
             .describe('Unit of the result, e.g. usd, percent, cents.'),
+        owner: zod
+            .email()
+            .nullish()
+            .describe(
+                "Email of the human accountable for this metric, or null. Set it to the email of a member of this organization to reassign the metric, or to null to clear it. Changing the owner keeps the metric's approval."
+            ),
         definition: zod
             .record(zod.string(), zod.unknown())
             .nullish()
@@ -100,12 +103,6 @@ export const DataCatalogMetricsCreateBody = /* @__PURE__ */ zod
             .max(dataCatalogMetricsCreateBodyAiModelMax)
             .optional()
             .describe('Model that generated the metric, if AI-authored.'),
-        confidence: zod
-            .number()
-            .min(dataCatalogMetricsCreateBodyConfidenceMin)
-            .max(dataCatalogMetricsCreateBodyConfidenceMax)
-            .nullish()
-            .describe("AI author's confidence in the proposal, 0-1."),
         reasoning: zod
             .string()
             .optional()
@@ -139,9 +136,6 @@ export const dataCatalogMetricsUpdateBodySourceInsightShortIdMax = 12
 
 export const dataCatalogMetricsUpdateBodyAiModelMax = 128
 
-export const dataCatalogMetricsUpdateBodyConfidenceMin = 0
-export const dataCatalogMetricsUpdateBodyConfidenceMax = 1
-
 export const DataCatalogMetricsUpdateBody = /* @__PURE__ */ zod.object({
     name: zod
         .string()
@@ -166,6 +160,12 @@ export const DataCatalogMetricsUpdateBody = /* @__PURE__ */ zod.object({
         .max(dataCatalogMetricsUpdateBodyUnitMax)
         .optional()
         .describe('Unit of the result, e.g. usd, percent, cents.'),
+    owner: zod
+        .email()
+        .nullish()
+        .describe(
+            "Email of the human accountable for this metric, or null. Set it to the email of a member of this organization to reassign the metric, or to null to clear it. Changing the owner keeps the metric's approval."
+        ),
     definition: zod
         .record(zod.string(), zod.unknown())
         .nullish()
@@ -189,12 +189,6 @@ export const DataCatalogMetricsUpdateBody = /* @__PURE__ */ zod.object({
         .max(dataCatalogMetricsUpdateBodyAiModelMax)
         .optional()
         .describe('Model that generated the metric, if AI-authored.'),
-    confidence: zod
-        .number()
-        .min(dataCatalogMetricsUpdateBodyConfidenceMin)
-        .max(dataCatalogMetricsUpdateBodyConfidenceMax)
-        .nullish()
-        .describe("AI author's confidence in the proposal, 0-1."),
     reasoning: zod
         .string()
         .optional()
@@ -218,9 +212,6 @@ export const dataCatalogMetricsPartialUpdateBodyUnitMax = 64
 export const dataCatalogMetricsPartialUpdateBodySourceInsightShortIdMax = 12
 
 export const dataCatalogMetricsPartialUpdateBodyAiModelMax = 128
-
-export const dataCatalogMetricsPartialUpdateBodyConfidenceMin = 0
-export const dataCatalogMetricsPartialUpdateBodyConfidenceMax = 1
 
 export const DataCatalogMetricsPartialUpdateBody = /* @__PURE__ */ zod.object({
     name: zod
@@ -248,6 +239,12 @@ export const DataCatalogMetricsPartialUpdateBody = /* @__PURE__ */ zod.object({
         .max(dataCatalogMetricsPartialUpdateBodyUnitMax)
         .optional()
         .describe('Unit of the result, e.g. usd, percent, cents.'),
+    owner: zod
+        .email()
+        .nullish()
+        .describe(
+            "Email of the human accountable for this metric, or null. Set it to the email of a member of this organization to reassign the metric, or to null to clear it. Changing the owner keeps the metric's approval."
+        ),
     definition: zod
         .record(zod.string(), zod.unknown())
         .nullish()
@@ -271,12 +268,6 @@ export const DataCatalogMetricsPartialUpdateBody = /* @__PURE__ */ zod.object({
         .max(dataCatalogMetricsPartialUpdateBodyAiModelMax)
         .optional()
         .describe('Model that generated the metric, if AI-authored.'),
-    confidence: zod
-        .number()
-        .min(dataCatalogMetricsPartialUpdateBodyConfidenceMin)
-        .max(dataCatalogMetricsPartialUpdateBodyConfidenceMax)
-        .nullish()
-        .describe("AI author's confidence in the proposal, 0-1."),
     reasoning: zod
         .string()
         .optional()
@@ -286,8 +277,24 @@ export const DataCatalogMetricsPartialUpdateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
+ * Bless a metric as canonical. Returns 409 while the metric is drifted from its insight.
+ */
+export const DataCatalogMetricsApproveCreateBody = /* @__PURE__ */ zod
+    .object({
+        expected_updated_at: zod.iso
+            .datetime({ offset: true })
+            .optional()
+            .describe(
+                "The metric's `updated_at` as last seen by the approver. When the metric changed since then, the API returns 409 and leaves it proposed. Omit to approve the current version."
+            ),
+    })
+    .describe('Input for approving one metric.')
+
+/**
  * Execute the metric's definition and return the normalized result envelope.
  */
+export const dataCatalogMetricsRunCreateBodyOffsetMin = 0
+
 export const DataCatalogMetricsRunCreateBody = /* @__PURE__ */ zod
     .object({
         date_from: zod
@@ -306,9 +313,39 @@ export const DataCatalogMetricsRunCreateBody = /* @__PURE__ */ zod
             .describe(
                 'Override the bucket interval. Rejected for HogQLQuery metrics.\n\n\* `second` - second\n\* `minute` - minute\n\* `hour` - hour\n\* `day` - day\n\* `week` - week\n\* `month` - month\n\* `quarter` - quarter\n\* `year` - year'
             ),
+        offset: zod
+            .number()
+            .min(dataCatalogMetricsRunCreateBodyOffsetMin)
+            .optional()
+            .describe(
+                'Rows to skip, to read the page after a run that returned has_more. Pass next_offset from that run. Only HogQLQuery metrics accept it. Runs made with a personal or project API key are rejected.'
+            ),
         query_id: zod.string().optional().describe('Client-supplied id to correlate or cancel the run.'),
     })
     .describe('Optional run-time overrides. The whole body may be omitted; a metric runs by its URL name.')
+
+/**
+ * Give many metrics one owner, keeping their approvals. Unknown metrics are skipped.
+ */
+export const dataCatalogMetricsBulkChangeOwnerCreateBodyNamesItemMax = 128
+
+export const dataCatalogMetricsBulkChangeOwnerCreateBodyNamesMax = 100
+
+export const DataCatalogMetricsBulkChangeOwnerCreateBody = /* @__PURE__ */ zod
+    .object({
+        names: zod
+            .array(zod.string().max(dataCatalogMetricsBulkChangeOwnerCreateBodyNamesItemMax))
+            .min(1)
+            .max(dataCatalogMetricsBulkChangeOwnerCreateBodyNamesMax)
+            .describe('Names of the metrics to act on, at most 100. Duplicates are collapsed.'),
+        owner: zod
+            .email()
+            .nullable()
+            .describe(
+                "Email of the member of this organization who becomes the owner of every named metric, or null to clear the owner. Changing the owner keeps each metric's approval."
+            ),
+    })
+    .describe('Input for giving many metrics one owner.')
 
 /**
  * Approve many metrics as canonical. Unknown, already-approved, and drifted metrics are skipped.

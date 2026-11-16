@@ -42,7 +42,8 @@ class _ListWithAllLines(Generic[_ParentT, _LineT]):
     session to every thread, `requests.Session` is not documented as thread-safe, and the retrying
     client keeps per-request state. The page client comes from the same factory, so a 429 on
     either leg slows the whole pool. Objects are yielded in list order because the
-    `starting_after` resume cursor is the last yielded id.
+    `starting_after` resume cursor is the last yielded id. Under `ending_before` the list reads
+    oldest first, as Stripe's own auto-pagination does.
     """
 
     object_name: ClassVar[str]
@@ -82,15 +83,18 @@ class _ListWithAllLines(Generic[_ParentT, _LineT]):
         pool = ThreadPoolExecutor(
             max_workers=self._concurrency + 1, thread_name_prefix=f"stripe-{self.object_name.replace(' ', '-')}-lines"
         )
+        # `ending_before` lists oldest first, the same way Stripe's own auto-pagination reads it.
+        oldest_first = "ending_before" in self.params and "starting_after" not in self.params
         try:
             while not page.is_empty:
-                next_page = submit_with_context(pool, page.next_page)
+                next_page = submit_with_context(pool, page.previous_page if oldest_first else page.next_page)
+                objects = list(reversed(page.data)) if oldest_first else page.data
                 line_futures = [
                     submit_with_context(pool, self._fetch_lines, obj.id) if obj.lines.has_more and obj.id else None
-                    for obj in page.data
+                    for obj in objects
                 ]
 
-                for obj, future in zip(page.data, line_futures):
+                for obj, future in zip(objects, line_futures):
                     if obj.lines.has_more and future is None:
                         self.logger.warning(f"Stripe {self.object_name} {obj.id} has no id")
                         continue

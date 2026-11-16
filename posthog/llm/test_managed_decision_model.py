@@ -102,14 +102,17 @@ class TestManagedDecisionModel(SimpleTestCase):
         get.assert_any_call("emoji-search-suggestions", with_metadata=True, label="production", version=None)
         get.assert_any_call("emoji-search-suggestions", with_metadata=True, label=None, version=3)
 
-    @patch("posthog.llm.managed_decision_model.posthoganalytics.personal_api_key", None)
+    @parameterized.expand([("no_key", None), ("project_secret_key", "phs_test")])
     @patch("posthog.llm.managed_decision_model.Prompts")
-    def test_without_a_personal_key_the_bundled_model_stays(self, prompts_class) -> None:
+    def test_without_a_personal_key_the_bundled_model_stays(self, _name: str, key: str | None, prompts_class) -> None:
         managed = ManagedDecisionModel("emoji-search-suggestions")
 
-        managed._refresher._refresh()
+        with patch("posthog.llm.managed_decision_model.posthoganalytics.personal_api_key", key):
+            managed._refresher._refresh()
+            with self.assertRaisesRegex(
+                RuntimeError, r"version 3 needs a personal API key \(phx_\) in POSTHOG_PERSONAL_API_KEY"
+            ):
+                managed.fetch(version=3)
 
         assert managed.current() == DEFAULT_DECISION_MODEL
-        with self.assertRaisesRegex(RuntimeError, "version 3 needs POSTHOG_PERSONAL_API_KEY"):
-            managed.fetch(version=3)
         prompts_class.assert_not_called()

@@ -7,15 +7,10 @@ import { logger } from '../../utils/logger'
 import { killGracefully } from '../../utils/utils'
 import { captureException } from '../posthog'
 
-/** Number of Redis error events until the server is killed gracefully. */
+/** Redis errors a fatal client tolerates. The next error stops the process. */
 const REDIS_ERROR_COUNTER_LIMIT = 10
 const NON_FATAL_CONNECT_TIMEOUT_MS = 10_000
 
-/**
- * Configuration for a Redis connection.
- * Consumers should build this config inline where they create Redis connections,
- * rather than relying on centralized builder functions.
- */
 export interface RedisConnectionConfig {
     url: string
     options?: RedisOptions
@@ -28,9 +23,6 @@ export interface RedisConnectionConfig {
     exitOnRepeatedErrors?: boolean
 }
 
-/**
- * Configuration needed to create Redis pool instances.
- */
 export interface RedisPoolConfig {
     connection: RedisConnectionConfig
     poolMinSize: number
@@ -42,6 +34,12 @@ export interface RedisPoolConfig {
      * borrowing it. Enough of those and the pool is empty for good.
      */
     acquireTimeoutMillis?: number
+    /**
+     * Destroys a pooled client that still waits for replies when it is borrowed. ioredis keeps a command
+     * that hit commandTimeout queued until a reply arrives, so on a connection that stopped answering
+     * every reuse adds commands that are never released.
+     */
+    discardStalledClients?: boolean
 }
 
 export async function createRedisFromConfig(config: RedisConnectionConfig): Promise<Redis.Redis> {
@@ -66,22 +64,30 @@ export function createRedisPoolFromConfig(config: RedisPoolConfig): RedisPool {
 }
 
 /**
- * Scope entry for a `RedisPool`. `start` creates the pool (which connects
- * to Redis eagerly via `autostart`), `stop` drains the pool then clears
- * it so all connections are released.
+ * Scope entry for a `RedisPool`. `start` creates the pool and resolves after
+ * one connection answers. A pool with `exitOnRepeatedErrors: false` starts
+ * without a connection, because an outage of an optional store must not block
+ * startup. `stop` drains the pool then clears it so all connections are released.
  */
 export class RedisPoolComponent {
     constructor(private readonly config: RedisPoolConfig) {}
 
-    start(): Promise<{ value: RedisPool; stop: () => Promise<void> }> {
+    async start(): Promise<{ value: RedisPool; stop: () => Promise<void> }> {
         const pool = createRedisPoolFromConfig(this.config)
-        return Promise.resolve({
-            value: pool,
-            stop: async (): Promise<void> => {
-                await pool.drain()
-                await pool.clear()
-            },
-        })
+        const stop = async (): Promise<void> => {
+            await pool.drain()
+            await pool.clear()
+        }
+        if (this.config.connection.exitOnRepeatedErrors === false) {
+            return { value: pool, stop }
+        }
+        try {
+            await pool.release(await pool.acquire())
+        } catch (error) {
+            await stop()
+            throw error
+        }
+        return { value: pool, stop }
     }
 }
 
@@ -151,7 +157,10 @@ export async function createRedisClient(
             // A command waits offline while the client reconnects, so commandTimeout never starts for it.
             let timer: NodeJS.Timeout | undefined
             await Promise.race([
-                redis.info(),
+                // Without the offline queue, a command sent before the connection is ready rejects at once.
+                options?.enableOfflineQueue === false
+                    ? new Promise<void>((resolve) => redis.once('ready', () => resolve()))
+                    : redis.info(),
                 new Promise<never>((_, reject) => {
                     timer = setTimeout(
                         () => reject(new Error(`${connectionId}Redis did not connect`)),

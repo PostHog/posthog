@@ -1,51 +1,39 @@
 import os
-from dataclasses import dataclass
+from concurrent.futures import ThreadPoolExecutor
 from datetime import timedelta
 from functools import wraps
-from html import escape
-from typing import Union
+from typing import Literal, Union, cast
 from urllib.parse import parse_qs, urlencode, urlparse, urlunparse
 
-from django.apps import apps
 from django.conf import settings
-from django.contrib.admin.sites import site as admin_site
-from django.contrib.admin.views.decorators import staff_member_required
 from django.contrib.auth import login
 from django.contrib.auth.decorators import login_required as base_login_required
 from django.db import DEFAULT_DB_ALIAS, connections
 from django.db.migrations.executor import MigrationExecutor
-from django.db.models import Q
-from django.http import HttpRequest, HttpResponse, HttpResponseNotAllowed, HttpResponseServerError, JsonResponse
+from django.http import HttpRequest, HttpResponse, HttpResponseNotFound, HttpResponseServerError, JsonResponse
 from django.shortcuts import redirect, render
 from django.template import loader
 from django.views.decorators.cache import never_cache
 from django.views.decorators.clickjacking import xframe_options_exempt
-from django.views.decorators.csrf import csrf_protect, requires_csrf_token
+from django.views.decorators.csrf import requires_csrf_token
 
 import structlog
 from opentelemetry import trace
 from prometheus_client import REGISTRY, CollectorRegistry, generate_latest, multiprocess
 
-from posthog.api.secret_revocation import NON_PERSONAL_SECRET_PREFIXES
 from posthog.auth import AUTH_BRAND_COOKIE, apply_auth_brand_cookie, normalize_auth_brand
-from posthog.cloud_utils import is_cloud
+from posthog.cache_utils import cache_for
+from posthog.cloud_utils import is_cloud, is_hobby
+from posthog.credentials_service.callers import CredentialsCaller
+from posthog.credentials_service.errors import CredentialsServiceFailure
+from posthog.credentials_service.settings_fallback import get_many_or_settings
 from posthog.email import is_email_available
 from posthog.exceptions_capture import capture_exception
 from posthog.health import is_clickhouse_connected, is_kafka_connected
 from posthog.helpers.dev_login import is_dev_login_allowed
 from posthog.models import Organization, User
-from posthog.models.activity_logging.activity_log import Detail, log_activity
+from posthog.models.instance_setting import get_instance_settings
 from posthog.models.integration import SlackIntegration
-from posthog.models.oauth import find_oauth_access_token, find_oauth_refresh_token
-from posthog.models.personal_api_key import find_personal_api_key
-from posthog.models.project_secret_api_key import find_project_secret_api_key
-from posthog.models.utils import (
-    OAUTH_ACCESS_TOKEN_PREFIX,
-    OAUTH_REFRESH_TOKEN_PREFIX,
-    PROJECT_API_TOKEN_PREFIX,
-    SECRET_API_TOKEN_PREFIX,
-)
-from posthog.redis import get_client
 from posthog.utils import (
     get_available_timezones_with_offsets,
     get_can_create_org,
@@ -162,6 +150,17 @@ Disallow: /flags/
     return HttpResponse(ROBOTS_TXT_CONTENT, content_type="text/plain")
 
 
+def llms_txt(request: HttpRequest) -> HttpResponse:
+    if is_hobby():
+        return HttpResponseNotFound()
+
+    return render(request, "llms_txt.md", {"site_url": settings.SITE_URL}, content_type="text/markdown; charset=utf-8")
+
+
+def not_found(request: HttpRequest) -> HttpResponse:
+    return HttpResponseNotFound()
+
+
 def security_txt(request):
     SECURITY_TXT_CONTENT = """
         Contact: mailto:engineering@posthog.com
@@ -180,12 +179,46 @@ def render_query(request: HttpRequest) -> HttpResponse:
     return render_template("render_query.html", request, context={"render_query_payload": payload})
 
 
+PREFLIGHT_OAUTH_CLIENT_ID_KEYS = ["HUBSPOT_APP_CLIENT_ID", "SALESFORCE_CONSUMER_KEY"]
+
+
+@cache_for(timedelta(minutes=5))
+def _preflight_oauth_client_ids() -> dict[str, str]:
+    try:
+        return get_many_or_settings(PREFLIGHT_OAUTH_CLIENT_ID_KEYS, CredentialsCaller.INTEGRATIONS)
+    except CredentialsServiceFailure:
+        logger.warning("preflight.credentials_service_unavailable", keys=PREFLIGHT_OAUTH_CLIENT_ID_KEYS)
+        return {key: cast(str, getattr(settings, key)) for key in PREFLIGHT_OAUTH_CLIENT_ID_KEYS}
+
+
+def _preflight_oauth_client_id(key: Literal["HUBSPOT_APP_CLIENT_ID", "SALESFORCE_CONSUMER_KEY"]) -> str:
+    return _preflight_oauth_client_ids()[key]
+
+
+@cache_for(timedelta(minutes=5))
+def _preflight_slack_instance_client_id() -> str:
+    return cast(str, get_instance_settings(["SLACK_APP_CLIENT_ID"])["SLACK_APP_CLIENT_ID"] or "")
+
+
+def _preflight_slack_client_id(instance_setting: str) -> str:
+    with tracer.start_as_current_span("preflight.slack_config_main"):
+        return SlackIntegration.slack_client_id(instance_setting)
+
+
 @never_cache
 def preflight_check(request: HttpRequest) -> JsonResponse:
-    with tracer.start_as_current_span("preflight.slack_config_main"):
-        slack_client_id = SlackIntegration.slack_client_id()
-    hubspot_client_id = settings.HUBSPOT_APP_CLIENT_ID
-    salesforce_client_id = settings.SALESFORCE_CONSUMER_KEY
+    # Read the database-backed fallback on the request thread, then resolve independent credential
+    # groups concurrently so a service timeout costs at most one request timeout. HubSpot and
+    # Salesforce share one batch request.
+    slack_instance_client_id = _preflight_slack_instance_client_id()
+    with ThreadPoolExecutor(max_workers=2, thread_name_prefix="preflight-credentials") as executor:
+        slack_client_id_future = executor.submit(_preflight_slack_client_id, slack_instance_client_id)
+        oauth_client_ids_future = executor.submit(_preflight_oauth_client_ids)
+        slack_client_id = slack_client_id_future.result()
+        oauth_client_ids = oauth_client_ids_future.result()
+
+    hubspot_client_id = oauth_client_ids["HUBSPOT_APP_CLIENT_ID"]
+    salesforce_client_id = oauth_client_ids["SALESFORCE_CONSUMER_KEY"]
 
     in_cloud = is_cloud()
 
@@ -257,24 +290,11 @@ def preflight_check(request: HttpRequest) -> JsonResponse:
             "site_url": settings.SITE_URL,
             "instance_preferences": settings.INSTANCE_PREFERENCES,
             "buffer_conversion_seconds": settings.BUFFER_CONVERSION_SECONDS,
+            "cohort_csv_upload_max_bytes": settings.COHORT_CSV_UPLOAD_MAX_BYTES,
             "webmcp_available": webmcp_api.is_available(),
         }
 
     return JsonResponse(response)
-
-
-MAX_VALUE_DISPLAY_LENGTH = 200
-
-
-@dataclass
-class RedisKeySnapshot:
-    key: str
-    type: str
-    ttl: timedelta | int
-    size: str
-    value: str
-    full_value: str
-    is_truncated: bool
 
 
 def format_bytes(size_bytes: int) -> str:
@@ -287,226 +307,6 @@ def format_bytes(size_bytes: int) -> str:
         return f"{size_bytes / (1024 * 1024):.1f}{nbsp}MB"
     else:
         return f"{size_bytes / (1024 * 1024 * 1024):.1f}{nbsp}GB"
-
-
-def truncate_value(value, max_length: int = MAX_VALUE_DISPLAY_LENGTH) -> str:
-    str_value = str(value)
-    if len(str_value) <= max_length:
-        return str_value
-    return str_value[:max_length] + "..."
-
-
-def get_redis_key_info(key: bytes, redis_client) -> RedisKeySnapshot:
-    redis_key = key.decode("utf-8")
-    redis_type = redis_client.type(redis_key).decode("utf8")
-    redis_ttl = redis_client.ttl(redis_key)
-
-    if redis_ttl > 0:
-        redis_ttl = timedelta(seconds=redis_ttl)
-
-    if redis_type == "string":
-        value = redis_client.get(key)
-    elif redis_type == "hash":
-        value = redis_client.hgetall(key)
-    elif redis_type == "zset":
-        value = redis_client.zrange(key, 0, -1)
-    elif redis_type == "list":
-        value = redis_client.lrange(key, 0, -1)
-    elif redis_type == "set":
-        value = redis_client.smembers(key)
-    else:
-        raise ValueError(f"Key {redis_key} has an unsupported type: {redis_type}")
-
-    memory_bytes = redis_client.memory_usage(redis_key) or 0
-    full_value = str(value)
-    is_truncated = len(full_value) > MAX_VALUE_DISPLAY_LENGTH
-
-    return RedisKeySnapshot(
-        key=redis_key,
-        type=redis_type,
-        ttl=redis_ttl,
-        size=format_bytes(memory_bytes),
-        value=truncate_value(value),
-        full_value=full_value,
-        is_truncated=is_truncated,
-    )
-
-
-@staff_member_required
-def redis_values_view(request: HttpRequest):
-    """A Django admin view to list Redis key-value pairs."""
-    if request.method != "GET":
-        return HttpResponseNotAllowed(permitted_methods=["GET"])
-
-    query = request.GET.get("q", None)
-    if query == "":
-        query = None
-
-    keys_per_page = 50
-    cursor = int(request.GET.get("c", 0))
-
-    redis_client = get_client()
-    next_cursor, key_list = redis_client.scan(cursor=cursor, count=keys_per_page, match=query)
-
-    redis_keys = [get_redis_key_info(key, redis_client) for key in key_list]
-
-    context = {
-        **admin_site.each_context(request),
-        **{
-            "redis_keys": redis_keys,
-            "query": query or "",
-            "title": "Select Redis key to mutate",
-            "cursor": cursor,
-            "next_cursor": next_cursor,
-            "keys_per_page": keys_per_page,
-        },
-    }
-
-    return render(request, template_name="redis/values.html", context=context, status=200)
-
-
-@csrf_protect
-@staff_member_required
-def redis_edit_ttl_view(request: HttpRequest):
-    """A Django admin view to edit TTL of a Redis key."""
-    if request.method not in ("GET", "POST"):
-        return HttpResponseNotAllowed(permitted_methods=["GET", "POST"])
-
-    redis_key = request.GET.get("key") or request.POST.get("key")
-    if not redis_key:
-        return redirect("redis_values")
-
-    try:
-        cursor = int(request.GET.get("c", "0"))
-    except ValueError:
-        cursor = 0
-    query = request.GET.get("q", "")
-
-    redis_client = get_client()
-
-    if request.method == "POST":
-        ttl_seconds_str = request.POST.get("ttl_seconds", "").strip()
-        previous_ttl = redis_client.ttl(redis_key)
-
-        if ttl_seconds_str == "":
-            redis_client.persist(redis_key)
-            activity = "ttl_removed"
-            detail_name = f"Removed TTL from Redis key {redis_key}"
-        else:
-            try:
-                ttl_seconds = int(ttl_seconds_str)
-            except ValueError:
-                return HttpResponse("Invalid TTL value: must be an integer", status=400)
-
-            redis_client.expire(redis_key, ttl_seconds)
-            activity = "ttl_updated"
-            detail_name = f"Set TTL to {ttl_seconds}s on Redis key {redis_key}"
-
-        user = request.user if request.user.is_authenticated else None
-        organization_id = user.current_organization.id if user and user.current_organization else None
-
-        log_activity(
-            organization_id=organization_id,
-            team_id=None,
-            user=user,
-            was_impersonated=False,
-            item_id=redis_key,
-            scope="Admin",
-            activity=activity,
-            detail=Detail(
-                name=detail_name,
-                short_id=redis_key,
-                type=f"previous_ttl:{previous_ttl}",
-            ),
-        )
-
-        params: dict[str, str | int] = {"c": cursor}
-        if query:
-            params["q"] = query
-        return redirect(f"/admin/redisvalues?{urlencode(params)}")
-
-    current_ttl = redis_client.ttl(redis_key)
-
-    if current_ttl == -2:
-        return HttpResponse(f"Redis key not found: {escape(redis_key)}", status=404)
-
-    context = {
-        **admin_site.each_context(request),
-        **{
-            "redis_key": redis_key,
-            "current_ttl": current_ttl if current_ttl > 0 else None,
-            "cursor": cursor,
-            "query": query,
-            "title": f"Edit TTL for {redis_key}",
-        },
-    }
-
-    return render(request, template_name="redis/edit_ttl.html", context=context, status=200)
-
-
-@staff_member_required
-def api_key_search_view(request: HttpRequest):
-    """A Django admin view to search for an API Key by value."""
-
-    query = request.POST.get("q", None)
-    if query is None:
-        if request.method != "GET":
-            return HttpResponseNotAllowed(permitted_methods=["GET"])
-    else:
-        if request.method != "POST":
-            return HttpResponseNotAllowed(permitted_methods=["POST"])
-        query = query.strip()
-
-    personal_api_key_object = None
-    personal_api_key_hash_mode = None
-    # Legacy personal API keys predate the phx_ prefix, so any query without another known
-    # prefix is also treated as a personal key candidate (matching authentication behavior).
-    non_personal_api_key_prefixes = (*NON_PERSONAL_SECRET_PREFIXES, PROJECT_API_TOKEN_PREFIX)
-    if query and not query.startswith(non_personal_api_key_prefixes):
-        result = find_personal_api_key(query)
-        if result is not None:
-            personal_api_key_object, personal_api_key_hash_mode = result
-
-    project_secret_api_key_object = None
-    team_object = None
-    team_object_key_type = None
-    if query is not None and query.startswith(SECRET_API_TOKEN_PREFIX):
-        project_secret_api_key_object = find_project_secret_api_key(query)
-
-        Team = apps.get_model(app_label="posthog", model_name="Team")
-
-        try:
-            # don't use the cache so that we can differentiate btwn the primary and the backup key
-            team_object = Team.objects.get(Q(secret_api_token=query) | Q(secret_api_token_backup=query))
-            team_object_key_type = "primary" if team_object.secret_api_token == query else "backup"
-
-        except Team.DoesNotExist:
-            pass
-
-    oauth_access_token_object = None
-    if query is not None and query.startswith(OAUTH_ACCESS_TOKEN_PREFIX):
-        oauth_access_token_object = find_oauth_access_token(query)
-
-    oauth_refresh_token_object = None
-    if query is not None and query.startswith(OAUTH_REFRESH_TOKEN_PREFIX):
-        oauth_refresh_token_object = find_oauth_refresh_token(query)
-
-    context = {
-        **admin_site.each_context(request),
-        **{
-            "query": query or "",
-            "title": "Specify key to search",
-            "personal_api_key_object": personal_api_key_object,
-            "personal_api_key_hash_mode": personal_api_key_hash_mode,
-            "project_secret_api_key_object": project_secret_api_key_object,
-            "team_object": team_object,
-            "team_object_key_type": team_object_key_type,
-            "oauth_access_token_object": oauth_access_token_object,
-            "oauth_refresh_token_object": oauth_refresh_token_object,
-        },
-    }
-
-    return render(request, template_name="api_key_search/values.html", context=context, status=200)
 
 
 @xframe_options_exempt

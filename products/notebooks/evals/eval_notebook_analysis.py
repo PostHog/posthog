@@ -34,7 +34,7 @@ from products.notebooks.evals.scorers import (
     NotebookCreated,
 )
 from products.notebooks.evals.seeders import seed_churn_signal
-from products.posthog_ai.eval_harness.base import SandboxedPublicEval
+from products.posthog_ai.eval_harness.base import SandboxedEval
 from products.posthog_ai.eval_harness.config import SandboxedEvalCase
 from products.posthog_ai.eval_harness.harness.context import EvalContext
 from products.posthog_ai.eval_harness.scorers import RequiredToolCall
@@ -124,7 +124,7 @@ async def eval_notebook_analysis(ctx: EvalContext) -> None:
         ),
     ]
 
-    await SandboxedPublicEval(
+    await SandboxedEval(
         experiment_name="sandboxed-notebook-analysis-cli",
         offline_suite=offline_suite(
             "notebooks/eval_notebook_analysis::eval_notebook_analysis",

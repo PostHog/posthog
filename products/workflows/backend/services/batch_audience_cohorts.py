@@ -1,7 +1,12 @@
+from rest_framework import exceptions
+
+from posthog.models.property import PropertyGroup
+from posthog.schema_enums import PropertyOperator
+
 from products.cohorts.backend.models.cohort import Cohort, CohortType
 from products.cohorts.backend.models.util import get_all_cohort_dependencies
 from products.cohorts.backend.realtime_state import CohortRealtimeState, resolve_realtime_readiness
-from products.cohorts.backend.realtime_teams import is_realtime_cohort_team
+from products.cohorts.backend.realtime_teams import is_serving_team
 from products.workflows.backend.facade.contracts import RealtimeCohortStatus
 
 
@@ -52,6 +57,41 @@ def find_realtime_behavioral_cohort(project_id: int, cohort_ids: list[int | str]
     return None
 
 
+def reject_excluded_cohort_without_members(project_id: int, prop_group: PropertyGroup) -> None:
+    """Refuse an audience that excludes a cohort whose members are not complete yet.
+
+    Cohort expansion turns an included person-property cohort into its own conditions, so it matches
+    before any calculation. An excluded one stays a NOT IN over the stored members: none before a dynamic
+    cohort's first calculation, and a partial list while an upload matches or after it fails, so the send
+    would reach the people it must leave out.
+    """
+    for prop in prop_group.flat:
+        excluded = prop.negation or prop.operator == PropertyOperator.NOT_IN.value
+        if (
+            prop.type not in ("cohort", "static-cohort", "precalculated-cohort")
+            or not excluded
+            or not isinstance(prop.value, str | int)
+        ):
+            continue
+        cohort = Cohort.objects.filter(pk=prop.value, team__project_id=project_id, deleted=False).first()
+        if cohort is None:
+            continue
+        if cohort.is_static and (cohort.is_calculating or cohort.errors_calculating > 0):
+            raise exceptions.ValidationError(
+                {
+                    "filters": f"Can't exclude cohort {cohort.pk} until its uploaded list has matched everyone. "
+                    "Wait for the upload to finish, or upload the list again if it failed."
+                }
+            )
+        if not cohort.is_static and cohort.last_calculation is None:
+            raise exceptions.ValidationError(
+                {
+                    "filters": f"Can't exclude cohort {cohort.pk} until it has calculated who's in it. "
+                    "Try again when its calculation finishes."
+                }
+            )
+
+
 def sole_audience_cohort_id(filters: object) -> int | str | None:
     """The cohort ID of an audience of exactly one condition, "in" a cohort, or None. Reads no rows."""
     if not isinstance(filters, dict) or filters.get("filter_test_accounts"):
@@ -86,15 +126,18 @@ def realtime_audience_cohort(project_id: int, filters: object) -> Cohort | None:
 
 
 def realtime_cohort_can_finish(cohort: Cohort) -> bool:
-    """Whether the realtime pipeline runs for this cohort's team, so the cohort can become ready at all."""
-    return is_realtime_cohort_team(cohort.team_id)
+    """Whether this cohort's team is at the `serving` level, so the cohort can become ready at all.
+
+    A `processing` team runs the pipeline, but its users must not see a realtime audience come alive.
+    """
+    return is_serving_team(cohort.team_id)
 
 
 def realtime_cohort_is_ready(cohort: Cohort) -> bool:
     """Whether the realtime pipeline holds this cohort's full membership and keeps it current.
 
-    The backfill stamps stay set when a team leaves the realtime allowlist, but the pipeline then
-    stops updating the membership, so the team has to be on the allowlist too.
+    The backfill stamps stay set when a team stops serving, but the pipeline may then stop updating
+    the membership, so the team has to be serving too.
     """
     return cohort.is_flag_compatible and realtime_cohort_can_finish(cohort)
 
@@ -108,8 +151,8 @@ def realtime_cohort_status(cohort: Cohort) -> RealtimeCohortStatus:
     readiness = resolve_realtime_readiness([cohort]).get(cohort.pk)
     if realtime_cohort_is_ready(cohort):
         state: str = CohortRealtimeState.READY
-    elif not is_realtime_cohort_team(cohort.team_id):
-        # The pipeline doesn't run for this team, so the cohort never finishes calculating.
+    elif not is_serving_team(cohort.team_id):
+        # The pipeline doesn't serve this team, so the cohort never finishes calculating.
         state = CohortRealtimeState.NEEDS_ATTENTION
     elif readiness is not None and readiness.state in _REPORTED_PENDING_STATES:
         state = readiness.state

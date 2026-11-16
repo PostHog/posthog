@@ -1,6 +1,8 @@
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { dataWarehouseViewsLogic } from 'scenes/data-warehouse/saved_queries/dataWarehouseViewsLogic'
 
 import { useMocks } from '~/mocks/jest'
@@ -86,6 +88,7 @@ describe('modelsSceneLogic', () => {
             },
         })
         initKeaTests()
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.DATA_MODELING_USAGE]: true })
     })
 
     afterEach(() => {
@@ -98,10 +101,36 @@ describe('modelsSceneLogic', () => {
         ['/models?tab=lineage', 'lineage'],
         ['/models?tab=nope', 'overview'],
         ['/models?tab=data-quality', 'data-quality'],
+        ['/models?tab=usage', 'usage'],
     ])('%s opens the %s tab', async (path, tab) => {
         await mount(path)
         expect(logic.values.activeTab).toEqual(tab)
         expect(logic.values.lineageTabVisited).toBe(tab === 'lineage')
+    })
+
+    it.each([
+        ['/models', {}],
+        ['/models?tab=lineage&search=%2Borders%2B&node_id=n1', { tab: 'lineage', search: '+orders+', node_id: 'n1' }],
+        ['/models?tab=data-quality', { tab: 'data-quality' }],
+        ['/models?tab=models', { tab: 'tables' }],
+    ])('with the catalog restructure on, %s opens the data catalog with %j', async (path, searchParams) => {
+        featureFlagLogic.actions.setFeatureFlags([], {
+            [FEATURE_FLAGS.TODAY_RAIL_NAV]: true,
+            [FEATURE_FLAGS.DATA_CATALOG_RESTRUCTURE]: true,
+        })
+
+        await mount(path)
+
+        expect(router.values.location.pathname.endsWith('/data-catalog')).toBe(true)
+        expect(router.values.searchParams).toEqual(searchParams)
+    })
+
+    it('falls back to overview when the usage tab is disabled', async () => {
+        featureFlagLogic.actions.setFeatureFlags([], { [FEATURE_FLAGS.DATA_MODELING_USAGE]: false })
+
+        await mount('/models?tab=usage')
+
+        expect(logic.values.activeTab).toEqual('overview')
     })
 
     it('remembers that the lineage tab was visited after the user leaves it', async () => {

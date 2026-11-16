@@ -16,7 +16,7 @@ from posthog.temporal.ai_observability.evaluation_errors import (
     status_reason_detail_for_terminal_user_error,
     terminal_user_error_result_from_application_error,
 )
-from posthog.temporal.ai_observability.evaluation_event_io import extract_event_io, extract_event_tools
+from posthog.temporal.ai_observability.evaluation_event_io import GENERATION_NOT_FOUND_RETRY_WINDOW, extract_event_tools
 from posthog.temporal.ai_observability.evaluation_hog import execute_hog_eval_activity, run_hog_eval
 from posthog.temporal.ai_observability.evaluation_llm_judge import (
     DEFAULT_JUDGE_MODEL,
@@ -31,7 +31,7 @@ from posthog.temporal.ai_observability.evaluation_llm_judge import (
     get_output_type_config,
 )
 from posthog.temporal.ai_observability.evaluation_sentiment import execute_sentiment_eval_activity
-from posthog.temporal.ai_observability.evaluation_types import EvaluationActivityResult
+from posthog.temporal.ai_observability.evaluation_types import GENERATION_NOT_FOUND, EvaluationActivityResult
 from posthog.temporal.ai_observability.evaluation_workflow_activities import (
     EMIT_EVALUATION_EVENT_FAILED_ERROR_TYPE,
     EmitEvaluationEventInputs,
@@ -56,7 +56,7 @@ from posthog.temporal.ai_observability.team_capture import (
 from posthog.temporal.common.base import PostHogWorkflow
 
 from products.ai_observability.backend.models.provider_keys import LLMProviderKey
-from products.signals.backend.temporal.emit_eval_signal import (
+from products.signals.backend.facade.temporal import (
     EmitEvalSignalInputs,
     EmitEvalSignalWorkflow,
     emit_eval_signal_activity,
@@ -84,7 +84,6 @@ __all__ = [
     "execute_hog_eval_activity",
     "execute_llm_judge_activity",
     "execute_sentiment_eval_activity",
-    "extract_event_io",
     "extract_event_tools",
     "fetch_evaluation_activity",
     "get_output_type_config",
@@ -110,6 +109,22 @@ class WorkflowResult(TypedDict, total=False):
     is_byok: NotRequired[bool]
     skip_reason: NotRequired[str]
     message: NotRequired[str]
+
+
+def build_skipped_workflow_result(
+    *, evaluation: dict[str, Any], evaluation_type: str, skip_reason: str, message: str | None = None
+) -> WorkflowResult:
+    result: WorkflowResult = {
+        "skipped": True,
+        "skip_reason": skip_reason,
+        "evaluation_id": evaluation["id"],
+        "evaluation_type": evaluation_type,
+    }
+    if message is not None:
+        result["message"] = message
+    if evaluation.get("output_type") not in ("numeric", "categorical"):
+        result["verdict"] = None
+    return result
 
 
 async def handle_llm_judge_activity_error(
@@ -142,16 +157,9 @@ async def handle_llm_judge_activity_error(
         )
 
     if error_type == "parse_error":
-        skip_result: WorkflowResult = {
-            "skipped": True,
-            "skip_reason": error_type,
-            "message": e.cause.message,
-            "evaluation_id": evaluation["id"],
-            "evaluation_type": evaluation_type,
-        }
-        if evaluation.get("output_type") not in ("numeric", "categorical"):
-            skip_result["verdict"] = None
-        return skip_result
+        return build_skipped_workflow_result(
+            evaluation=evaluation, evaluation_type=evaluation_type, skip_reason=error_type, message=e.cause.message
+        )
 
     key_id = details.get("key_id")
     if key_id and error_type in ("auth_error", "permission_error", "quota_error", "rate_limit"):
@@ -243,16 +251,9 @@ async def handle_terminal_user_error_result(
                 team_id=evaluation["team_id"],
             )
 
-    workflow_result: WorkflowResult = {
-        "skipped": True,
-        "skip_reason": skip_reason,
-        "message": result["reasoning"],
-        "evaluation_id": evaluation["id"],
-        "evaluation_type": evaluation_type,
-    }
-    if evaluation.get("output_type") not in ("numeric", "categorical"):
-        workflow_result["verdict"] = None
-    return workflow_result
+    return build_skipped_workflow_result(
+        evaluation=evaluation, evaluation_type=evaluation_type, skip_reason=skip_reason, message=result["reasoning"]
+    )
 
 
 def compact_backfill_result(result: WorkflowResult, backfill_id: str | None) -> WorkflowResult:
@@ -348,15 +349,11 @@ class RunEvaluationWorkflow(PostHogWorkflow):
             and (evaluation["deleted"] or not evaluation["enabled"])
             and temporalio.workflow.patched("evaluation-backfill-skips-disabled-evaluation")
         ):
-            disabled_result: WorkflowResult = {
-                "skipped": True,
-                "skip_reason": "evaluation_deleted" if evaluation["deleted"] else "evaluation_disabled",
-                "evaluation_id": inputs.evaluation_id,
-                "evaluation_type": evaluation_type,
-            }
-            if evaluation.get("output_type") not in ("numeric", "categorical"):
-                disabled_result["verdict"] = None
-            return disabled_result
+            return build_skipped_workflow_result(
+                evaluation=evaluation,
+                evaluation_type=evaluation_type,
+                skip_reason="evaluation_deleted" if evaluation["deleted"] else "evaluation_disabled",
+            )
 
         if result is None:
             if evaluation_type == "hog":
@@ -382,7 +379,11 @@ class RunEvaluationWorkflow(PostHogWorkflow):
                             event_data=event_data,
                             backfill_id=inputs.backfill_id if recover_backfill else None,
                         ),
-                        schedule_to_close_timeout=backfill_timeout(recover_backfill, timedelta(minutes=6)),
+                        # The waits for a live reference that is not in ai_events yet come on top of
+                        # the time the judge call needs, so they do not cut into the provider timeout.
+                        schedule_to_close_timeout=backfill_timeout(
+                            recover_backfill, timedelta(minutes=6) + GENERATION_NOT_FOUND_RETRY_WINDOW
+                        ),
                         retry_policy=backfill_retry_policy(recover_backfill, LLM_JUDGE_RETRY_POLICY),
                     )
                 except temporalio.exceptions.ActivityError as e:
@@ -402,6 +403,20 @@ class RunEvaluationWorkflow(PostHogWorkflow):
             raise ApplicationError(
                 f"No evaluation result for type: {evaluation_type}",
                 non_retryable=True,
+            )
+
+        # The generation left ai_events, so no $ai_evaluation event can describe it and the emit
+        # activity would fail to read it. The backfill counts the run as skipped, not failed.
+        # During a rolling deploy an old workflow worker can receive this result and schedule
+        # the emit, so the patch keeps those histories replaying through the emit command.
+        if result.get("skip_reason") == GENERATION_NOT_FOUND and temporalio.workflow.patched(
+            "skip-emit-for-missing-generation-2026-10"
+        ):
+            return build_skipped_workflow_result(
+                evaluation=evaluation,
+                evaluation_type=evaluation_type,
+                skip_reason=GENERATION_NOT_FOUND,
+                message=result["reasoning"],
             )
 
         if is_terminal_user_error_result(result):

@@ -11,7 +11,7 @@
  *  - inline and shared metrics are merged into one ordered result stream,
  *    with `source` tagged so callers can tell them apart
  *  - row order follows `*_metrics_ordered_uuids` (the canonical UI ordering)
- *  - UI-only bulk fields (`clickhouse_sql`, `hogql`, `insight`, and
+ *  - UI-only bulk fields (`clickhouse_sql`, `hogql`, and
  *    `step_sessions` — including the copies inside each `breakdown_results`
  *    entry) are stripped from each row's `data`, while statistical fields
  *    (including per-breakdown stats) are preserved
@@ -21,6 +21,7 @@ import { describe, expect, it } from 'vitest'
 import type { Experiment } from '@/schema/experiments'
 import {
     buildMetricEntries,
+    collectHealth,
     ExperimentExposureQuerySchema,
     ExperimentSchema,
     transformExperimentResults,
@@ -310,6 +311,89 @@ describe('transformExperimentResults', () => {
         expect(result.experiment.saved_metrics).toEqual([savedMetric])
     })
 
+    it('opens with a short health overview of both sources, most severe first, and keeps the full findings out', () => {
+        const findingText = {
+            actions: [],
+            detail: 'detail',
+            diagnostic_ref: null,
+            evidence: {},
+            reason: null,
+            subcode: null,
+            title: 'title',
+        }
+        const exposureFindings = [
+            {
+                ...findingText,
+                code: 'multiple_variants_share' as const,
+                check: 'multiple_variants_share' as const,
+                severity: 'info' as const,
+            },
+            { ...findingText, code: 'srm' as const, check: 'srm' as const, severity: 'critical' as const },
+        ]
+        const exposureChecks = [
+            {
+                key: 'srm' as const,
+                name: 'Sample ratio mismatch',
+                description: 'Compares the split with the configured one.',
+                reason: null,
+                status: 'finding' as const,
+                values: { p_value: 0.0001 },
+            },
+            {
+                key: 'zero_exposures' as const,
+                name: 'No exposures',
+                reason: 'Runs after launch',
+                status: 'not_applicable' as const,
+            },
+        ]
+        const configHealth = {
+            findings: [
+                {
+                    ...findingText,
+                    code: 'split_changed_mid_run' as const,
+                    check: 'split_changed_mid_run' as const,
+                    severity: 'warning' as const,
+                },
+            ],
+            checks: [
+                {
+                    key: 'split_changed_mid_run' as const,
+                    name: 'Split changed after launch',
+                    description: 'Compares the variant split with the one at launch.',
+                    reason: null,
+                    status: 'finding' as const,
+                    values: {},
+                    rule: null,
+                    rows: [],
+                },
+            ],
+        }
+        const experiment = makeExperiment({ metrics: [], primary_metrics_ordered_uuids: [] })
+
+        const result = transformExperimentResults({
+            experiment,
+            exposures: { ...baseExposures, health_findings: exposureFindings, health_checks: exposureChecks },
+            primaryMetricEntries: [],
+            secondaryMetricEntries: [],
+            primaryMetricsResults: [],
+            secondaryMetricsResults: [],
+            health: collectHealth([configHealth, { findings: exposureFindings, checks: exposureChecks }]),
+        })
+
+        expect(Object.keys(result)[0]).toBe('health')
+        expect(result.health.summary).toBe(
+            'Findings: 1 critical, 1 warning, 1 info. Checks: 2 finding, 1 not_applicable.'
+        )
+        expect(result.health.findings).toEqual([
+            { severity: 'critical', code: 'srm', title: 'title' },
+            { severity: 'warning', code: 'split_changed_mid_run', title: 'title' },
+            { severity: 'info', code: 'multiple_variants_share', title: 'title' },
+        ])
+        expect(result.health.details).toContain('experiment-health-get')
+        expect(result.exposures).not.toHaveProperty('health_findings')
+        expect(result.exposures).not.toHaveProperty('health_checks')
+    })
+
     it('keeps a row with `data: null` when the underlying metric query fails, so positions stay aligned', () => {
         // The API client returns `null` for that row when the per-metric query errors.
         // Erasing the row would shift subsequent positions away from
@@ -395,33 +479,6 @@ describe('transformExperimentResults', () => {
         const variants = data.variant_results as Array<Record<string, unknown>>
         expect(variants[0]?.step_sessions).toBeUndefined()
         expect(variants[0]?.sum).toBe(95)
-    })
-
-    it('strips the legacy `insight` visualization payload from each row', () => {
-        // `insight` is a rendered visualization payload (list[dict[str, Any]]) used by
-        // legacy trends/funnels charts
-        const experiment = makeExperiment({
-            metrics: [{ uuid: 'p-1', name: 'Primary', metric_type: 'mean' }],
-            primary_metrics_ordered_uuids: ['p-1'],
-        })
-
-        const result = transformExperimentResults({
-            experiment,
-            exposures: baseExposures,
-            primaryMetricEntries: buildMetricEntries(experiment, 'primary'),
-            secondaryMetricEntries: [],
-            primaryMetricsResults: [
-                {
-                    baseline: { key: 'control', sum: 100, sum_squares: 100 },
-                    insight: [{ breakdown_value: 'control', data: [1, 2, 3] }],
-                },
-            ],
-            secondaryMetricsResults: [],
-        })
-
-        const data = result.metrics.primary.results[0]?.data as Record<string, unknown>
-        expect(data.insight).toBeUndefined()
-        expect((data.baseline as Record<string, unknown>).sum).toBe(100)
     })
 
     it('strips step_sessions from inside breakdown_results entries while preserving per-breakdown stats', () => {

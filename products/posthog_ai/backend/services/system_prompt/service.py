@@ -39,7 +39,8 @@ class ClaudeCodeSystemPrompt(TypedDict):
 class PromptService(BaseSandboxService):
     """Provide the systemPrompt suffix for a PostHog AI sandbox Run."""
 
-    def build(self) -> ClaudeCodeSystemPrompt:
+    @staticmethod
+    def build() -> ClaudeCodeSystemPrompt:
         """Return the PostHog AI systemPrompt as a Claude Code preset-plus-append suffix.
 
         Called once at Run creation. The returned object goes into

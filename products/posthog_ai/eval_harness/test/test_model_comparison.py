@@ -4,6 +4,7 @@ import os
 import sys
 import json
 import signal
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -15,12 +16,14 @@ from products.posthog_ai.eval_harness.harness.discovery import EvalSuite
 from products.posthog_ai.eval_harness.harness.reporting import ProgressReporter
 from products.posthog_ai.eval_harness.harness.requirements import SuiteKind
 from products.posthog_ai.eval_harness.harness.run_report import ExperimentReport, RunReport, ScoreReport
+from products.posthog_ai.eval_harness.harness.skill_snapshot import SkillSnapshot
 
 
 @pytest.mark.parametrize(
     "scenario,expected_exit,expected_calls",
     [
         ("success", 0, 4),
+        ("in_checkout_output", 0, 4),
         ("skipped", 1, 4),
         ("filtered_out_experiment", 0, 4),
         ("launch_error", 1, 1),
@@ -29,6 +32,8 @@ from products.posthog_ai.eval_harness.harness.run_report import ExperimentReport
         ("different_cases", 1, 4),
         ("different_scorers", 1, 4),
         ("different_checkout", 1, 4),
+        ("different_skills", 1, 4),
+        ("missing_skills", 1, 4),
         ("missing_report", 1, 4),
         ("failed_check", 1, 1),
         ("one_shot", 1, 1),
@@ -44,6 +49,8 @@ def test_model_comparison_preserves_settings_and_partial_results(
     expected_calls: int,
 ) -> None:
     directory = tmp_path / "comparison"
+    if scenario == "in_checkout_output":
+        subprocess.run(["git", "init", "-q", str(tmp_path)], check=True)
     options = parse_args(
         [
             "example/suite",
@@ -69,8 +76,10 @@ def test_model_comparison_preserves_settings_and_partial_results(
         ]
     )
     calls: list[bool] = []
+    fingerprint: str | None = None
 
     def execute(command: list[str]) -> int:
+        nonlocal fingerprint
         child = parse_args(command[3:])
         calls.append(child.check_only)
         assert child.selectors == options.selectors
@@ -85,6 +94,20 @@ def test_model_comparison_preserves_settings_and_partial_results(
         assert child.interactive is False
         assert not child.comparison_models
         assert child.results_file is not None
+        if scenario == "in_checkout_output" and not child.check_only:
+            assert child.skill_snapshot_output_dir == directory
+            current = SkillSnapshot.source_fingerprint(
+                tmp_path, "skills", excluded_paths=(child.skill_snapshot_output_dir,)
+            )
+            if fingerprint is None:
+                fingerprint = current
+            assert current == fingerprint
+        if (
+            not child.check_only
+            and child.agent_runtime == "codex"
+            and scenario not in {"missing_report", "missing_skills"}
+        ):
+            assert child.skill_snapshot_report == directory / "1-results.json"
         if child.check_only and scenario == "failed_check":
             return 2
         if scenario == "launch_error":
@@ -107,6 +130,13 @@ def test_model_comparison_preserves_settings_and_partial_results(
             exit_code=int(error),
             duration_seconds=2,
             revision="changed" if scenario == "different_checkout" and second else "example-revision",
+            skills_sha256=None
+            if scenario == "missing_skills"
+            else "b" * 64
+            if scenario == "different_skills" and second
+            else "a" * 64,
+            skills_source_sha256="b" * 64,
+            skills_archive_path=str(tmp_path / "skills.zip"),
             experiments={}
             if child.check_only
             else {
@@ -172,6 +202,53 @@ def test_model_comparison_preserves_settings_and_partial_results(
         assert saved["runs"][1]["report"] is not None
 
 
+def test_comparison_arms_forward_their_own_tier_and_effort(tmp_path: Path) -> None:
+    options = parse_args(
+        [
+            "example/suite",
+            "--comparison-dir",
+            str(tmp_path / "comparison"),
+            "--reasoning-effort",
+            "medium",
+            "--compare-model",
+            "claude:claude-example",
+            "--compare-model",
+            "codex:gpt-example",
+            "--compare-model",
+            "codex:gpt-example,service_tier=flex,reasoning_effort=low",
+        ]
+    )
+    comparison = ModelComparison(options)
+    children = [
+        parse_args(comparison._command(target, tmp_path / "report.json", check=False)[3:])
+        for target in options.comparison_models
+    ]
+
+    assert [(child.agent_model, child.service_tier, child.reasoning_effort) for child in children] == [
+        ("claude-example", None, "medium"),
+        ("gpt-example", None, "medium"),
+        ("gpt-example", "flex", "low"),
+    ]
+    flex_run = comparison.runs[2].model_copy(
+        update={
+            "exit_code": 0,
+            "report": RunReport(
+                runtime="codex",
+                model="gpt-example",
+                reasoning_effort="low",
+                service_tier=None,
+                provider="docker",
+                trials=1,
+                suite_ids=[],
+                suite_kinds=["sandboxed"],
+                exit_code=0,
+                duration_seconds=1,
+            ),
+        }
+    )
+    assert comparison._validate_run(flex_run) == "Run report does not match the requested arm or exit status."
+
+
 @pytest.mark.parametrize("interrupt", [None, "keyboard", "sigterm"])
 def test_comparison_streams_child_output_and_waits_for_interrupt_cleanup(
     interrupt: str | None,
@@ -216,6 +293,15 @@ async def test_run_report_preserves_zero_skipped_scores_and_scorer_errors(
     monkeypatch.delenv("EXPORT_EVAL_RESULTS", raising=False)
     options = parse_args(["example", "--trials", "3", "--results-file", str(tmp_path / "results.json")])
     reporter = ProgressReporter(1, revision="example-revision", worktree_dirty=True)
+    reporter.set_skill_snapshot(
+        SkillSnapshot(
+            directory=tmp_path / "skills",
+            manifest_path=tmp_path / "manifest.json",
+            sha256="a" * 64,
+            source_sha256="b" * 64,
+            archive_path=tmp_path / "skills.zip",
+        )
+    )
     await reporter.experiment_started("example", 3, tmp_path, case_names=["selected"])
     for status in ("ok", "ok", "timeout"):
         await reporter.case_done("example", "selected", duration_seconds=1, status=status)
@@ -261,4 +347,8 @@ async def test_run_report_preserves_zero_skipped_scores_and_scorer_errors(
     assert experiment.scores["skipped"].scored_trials == 0
     assert report.revision == "example-revision"
     assert report.worktree_dirty is True
+    assert report.skills_sha256 == "a" * 64
+    assert report.skills_manifest_path == str(tmp_path / "manifest.json")
+    assert report.skills_source_sha256 == "b" * 64
+    assert report.skills_archive_path == str(tmp_path / "skills.zip")
     assert not list(tmp_path.glob("*.tmp"))

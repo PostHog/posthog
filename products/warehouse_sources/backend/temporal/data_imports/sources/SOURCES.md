@@ -1,13 +1,14 @@
 # Warehouse sources — implementation status & communication methods
 
-This file is the authoritative inventory of every source registered in [`products/warehouse_sources/backend/temporal/data_imports/sources/__init__.py`](__init__.py),
+This file is the authoritative inventory of every source the loader in [`products/warehouse_sources/backend/temporal/data_imports/sources/__init__.py`](__init__.py) registers (vendor directories here and in the `products/warehouse_sources/sources/` tree),
 the wire protocol it uses to talk to its upstream, and whether its outbound traffic is currently routed
 through the [tracked HTTP transport](common/http/) (so it shows up in our HTTP logs, metrics, and
 sample-capture pipeline).
 
-Keep this file in sync as sources are added, implemented, or migrated. The [implementing-warehouse-sources
-skill](/.agents/skills/implementing-warehouse-sources/SKILL.md) instructs agents to update it as part of any
-new source / vendor-SDK / migration PR.
+A new vendor does not add itself here: a vendor PR touches only its own directory, so this list is not
+complete. The source registry, and the wizard and `/api/public_source_configs/` endpoints built from it, are
+the list of sources. Update an existing entry when a source's protocol or tracked-transport state changes,
+as the [implementing-warehouse-sources skill](/.agents/skills/implementing-warehouse-sources/SKILL.md) says.
 
 This file tracks _whether_ a source is implemented. For endpoints a source is missing relative to its
 vendor's API, see [COVERAGE_GAPS.md](COVERAGE_GAPS.md), refreshed by the
@@ -76,7 +77,9 @@ the row lists both.
 | alguna                           | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | alpha_vantage                    | HTTP                        | requests                                                        | ✅                          |
 | amazon_ads                       | HTTP                        | requests                                                        | ✅                          |
+| amazon_cloudwatch                | HTTP                        | requests + botocore (SigV4 signing, model-driven serializer)    | ✅                          |
 | amazon_s3                        | HTTP (vendor SDK)           | boto3 (listing), s3fs (reads), deltalake (Delta tables)         | ⚠️                          |
+| amazon_selling_partner           | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | amplemarket                      | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | amplitude                        | HTTP                        | requests                                                        | ✅                          |
 | anthropic                        | HTTP                        | requests                                                        | ✅                          |
@@ -111,13 +114,16 @@ the row lists both.
 | aviationstack                    | HTTP                        | requests                                                        | ✅                          |
 | aviator                          | HTTP                        | requests                                                        | ✅                          |
 | awin                             | HTTP                        | requests                                                        | ✅                          |
+| aws_athena                       | HTTP                        | requests + botocore (SigV4 signing, model-driven serializer)    | ✅                          |
 | aws_batch                        | HTTP                        | requests                                                        | ✅                          |
 | aws_budgets                      | HTTP                        | requests                                                        | ✅                          |
 | aws_cloudtrail                   | HTTP                        | requests                                                        | ✅                          |
 | aws_compute_optimizer            | HTTP                        | requests                                                        | ✅                          |
 | aws_config                       | HTTP                        | requests                                                        | ✅                          |
+| aws_cost_and_usage_report        | HTTP                        | requests + botocore (S3 SigV4) + pyarrow                        | ✅                          |
 | aws_cost_anomaly_detection       | HTTP                        | requests                                                        | ✅                          |
 | aws_cost_explorer                | HTTP                        | requests                                                        | ✅                          |
+| aws_documentdb                   | DB protocol                 | pymongo (delegates to MongoDBSource)                            | ➖                          |
 | aws_glue_data_catalog            | HTTP                        | requests                                                        | ✅                          |
 | aws_guardduty                    | HTTP                        | requests                                                        | ✅                          |
 | aws_iam_access_analyzer          | HTTP                        | requests                                                        | ✅                          |
@@ -132,10 +138,12 @@ the row lists both.
 | aws_systems_manager              | HTTP                        | requests                                                        | ✅                          |
 | aws_waf                          | HTTP                        | requests                                                        | ✅                          |
 | axiom                            | HTTP                        | requests                                                        | ✅                          |
+| azure_api_management             | HTTP                        | requests                                                        | ✅                          |
 | azure_application_insights       | HTTP                        | requests                                                        | ✅                          |
 | azure_blob                       | HTTP (vendor SDK)           | azure-storage-blob (listing), adlfs (reads), deltalake          | ⚠️                          |
 | azure_cost_management            | HTTP                        | requests                                                        | ✅                          |
 | azure_devops                     | HTTP                        | requests                                                        | ✅                          |
+| azure_log_analytics              | HTTP                        | requests                                                        | ✅                          |
 | babelforce                       | HTTP                        | requests                                                        | ✅                          |
 | back_market                      | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | bamboohr                         | HTTP                        | requests                                                        | ✅                          |
@@ -243,6 +251,7 @@ the row lists both.
 | cimis                            | HTTP                        | requests                                                        | ✅                          |
 | cisco_duo                        | HTTP                        | requests (hand-rolled HMAC-SHA1/SHA-512 request signing)        | ✅                          |
 | cloudflare                       | HTTP                        | requests                                                        | ✅                          |
+| cloudflare_d1                    | HTTP                        | requests                                                        | ✅                          |
 | cloudflare_r2                    | HTTP (vendor SDK)           | boto3 (listing), s3fs (reads), deltalake (Delta tables)         | ⚠️                          |
 | clari                            | HTTP                        | requests                                                        | ✅                          |
 | clay                             | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
@@ -1033,10 +1042,8 @@ doesn't conflict with concurrent PRs.
 - allegro
 - alpaca_broker_api
 - amazon_ads
-- amazon_cloudwatch
 - amazon_eventbridge
 - amazon_kinesis
-- amazon_selling_partner
 - amazon_sns
 - amazon_sqs
 - anodot_cost
@@ -1053,21 +1060,18 @@ doesn't conflict with concurrent PRs.
 - audiogo
 - autodesk_construction_cloud
 - automox
-- aws_athena
 - aws_cloudformation
 - aws_connect
-- aws_cost_and_usage_report
 - aws_health
 - aws_rds_performance_insights
+- aws_s3_tables
 - aws_support
 - aws_trusted_advisor
 - aws_xray
 - azure_activity_log
 - azure_advisor
-- azure_api_management
 - azure_data_explorer
 - azure_data_factory
-- azure_log_analytics
 - azure_monitor_alerts
 - azure_monitor_metrics
 - azure_openai_usage
@@ -1081,6 +1085,7 @@ doesn't conflict with concurrent PRs.
 - backblaze
 - basecamp
 - bcms
+- beacons
 - bexio
 - billit
 - bitly
@@ -1155,6 +1160,7 @@ doesn't conflict with concurrent PRs.
 - drchrono
 - dreamdata
 - dremio
+- dripify
 - dropbox
 - dubsado
 - ducklake
@@ -1172,6 +1178,7 @@ doesn't conflict with concurrent PRs.
 - facebook_pages
 - faros_ai
 - fastbill
+- fathom
 - fauna
 - feishu
 - fieldwire
@@ -1344,6 +1351,7 @@ doesn't conflict with concurrent PRs.
 - moodle
 - msg91
 - mycase
+- nango
 - nasa
 - nationbuilder
 - navan
@@ -1485,6 +1493,7 @@ doesn't conflict with concurrent PRs.
 - solarwinds_service_desk
 - sonar_cloud
 - sonatype_nexus
+- soniox
 - spacelift
 - spotify_ads
 - sprinklr
@@ -1492,6 +1501,7 @@ doesn't conflict with concurrent PRs.
 - sprout_social
 - sqlite
 - stackadapt
+- stamped
 - starburst
 - stockx
 - strato
@@ -1565,6 +1575,7 @@ doesn't conflict with concurrent PRs.
 - wistia
 - wiz
 - wompi
+- woopayments
 - workato
 - workflowmax
 - workramp

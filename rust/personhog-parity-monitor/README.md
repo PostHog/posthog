@@ -33,7 +33,7 @@ All names start with `personhog_parity_`. Labels carry outcomes only, never a te
 | `merge_partition_total` | `outcome`: `same`, `different` | Merges present on both feeds, by partition number; only counted while both merge topics have the same partition count |
 | `merge_placement_total` | `feed`, `outcome`: `expected`, `unexpected` | Arrival partition against the key's murmur2 partition |
 | `version_ties_total`, `merge_conflicts_total` | `feed` | A feed contradicting itself |
-| `messages_total`, `decode_failures_total`, `read_errors_total`, `metadata_errors_total`, `filtered_total` | `feed`, `topic` | Reader counters |
+| `messages_total`, `decode_failures_total`, `read_errors_total`, `metadata_errors_total`, `filtered_total`, `sampled_out_total` | `feed`, `topic` | Reader counters |
 | `topic_partitions` | `feed`, `topic` | Partition counts from metadata, re-read every `PARITY_METADATA_POLL_SECONDS` |
 | `topic_pair_partitions_equal` | `topic` | Whether the two feeds' topics of that kind have the same count |
 | `pending_entries` | `kind` | Entries waiting to settle |
@@ -52,6 +52,7 @@ All names start with `personhog_parity_`. Labels carry outcomes only, never a te
 | `PERSONHOG_DISTINCT_ID_TOPIC`, `PERSONHOG_MERGE_EVENTS_TOPIC` | required | The publisher's topics |
 | `NODE_PERSON_TOPIC`, `PERSONHOG_PERSON_TOPIC` | unset | Node's and the relay's `clickhouse_person` topics; persons are compared only when both are set |
 | `PARITY_PERSON_IGNORED_PROPERTIES` | `$creator_event_uuid` | Comma separated top level property keys the person comparison leaves out; their values depend on the order each backend applied a merge's writes in |
+| `PARITY_PERSON_SAMPLE_PERCENT` | `100` | The share of persons compared, 1 to 100. Both feeds keep the persons whose key hashes into the sample, so every kept person gets a full verdict; a row outside it is read no further than its key and still moves the watermark. Distinct ids and merges are never sampled: a merge's verdict follows other merges and the rows naming its persons |
 | `PARITY_GRACE_SECONDS` | `60` | How long an entry waits for the other feed |
 | `PARITY_IDLE_PARTITION_SECONDS` | `30` | When a quiet partition stops holding the watermark |
 | `PARITY_MAPPING_LAG_MS` | `2000` | How much longer than merges the mappings wait |

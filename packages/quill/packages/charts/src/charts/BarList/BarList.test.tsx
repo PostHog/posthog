@@ -1,7 +1,7 @@
 import { fireEvent, screen, within } from '@testing-library/react'
 
 import type { ChartTheme, Series } from '../../core/types'
-import { mockRect, renderHogChart, waitForHogChartTooltip } from '../../testing'
+import { mockRect, renderChart, waitForChartTooltip } from '../../testing'
 import { BarList } from './BarList'
 
 const THEME: ChartTheme = { colors: ['#22d3ee', '#f14f58', '#a78bfa', '#fbbf24'], backgroundColor: '#ffffff' }
@@ -20,12 +20,11 @@ describe('BarList', () => {
         { name: 'the sum of the rows', total: undefined, valueText: '12.5% · 100' },
         { name: 'an explicit total', total: 1000, valueText: '10% · 100' },
     ])('shows the hovered row in the tooltip and its share of $name', async ({ total, valueText }) => {
-        const { chart } = renderHogChart(
-            <BarList series={ROWS} theme={THEME} total={total} config={{ valueDisplay: 'both' }} />,
-            { nativeTooltip: true }
+        const { chart } = renderChart(
+            <BarList series={ROWS} theme={THEME} total={total} config={{ valueDisplay: 'both' }} />
         )
 
-        const tooltip = await waitForHogChartTooltip(3000, () => fireEvent.mouseMove(chart.element, INSIDE_B))
+        const tooltip = await waitForChartTooltip(3000, () => fireEvent.mouseMove(chart.element, INSIDE_B))
 
         expect(within(tooltip).getByText('Row b')).toBeTruthy()
         expect(within(tooltip).getByText('100')).toBeTruthy()
@@ -33,9 +32,9 @@ describe('BarList', () => {
     })
 
     it('hands a custom tooltip the meta of the hovered row', async () => {
-        const { chart } = renderHogChart(<BarList series={ROWS} theme={THEME} tooltip={() => <span>custom</span>} />)
+        const { chart } = renderChart(<BarList series={ROWS} theme={THEME} tooltip={() => <span>custom</span>} />)
 
-        await waitForHogChartTooltip(3000, () => fireEvent.mouseMove(chart.element, INSIDE_B))
+        await waitForChartTooltip(3000, () => fireEvent.mouseMove(chart.element, INSIDE_B))
         const tooltip = await chart.waitForTooltip()
 
         expect(tooltip.seriesData[0].series.meta).toEqual({ id: 'b' })

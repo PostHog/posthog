@@ -4,10 +4,14 @@ from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event, flus
 
 from parameterized import parameterized
 
+from posthog.hogql.parser import parse_expr
 from posthog.hogql.query import execute_hogql_query
 
-from products.ai_observability.backend.facade.api import get_evaluation_pass_filters
-from products.ai_observability.backend.facade.evaluation_signals import evaluation_output_changed
+from products.ai_observability.backend.logic.evaluations.pass_filters import (
+    PassRules,
+    build_evaluation_pass_filters,
+    build_pass_rules,
+)
 from products.ai_observability.backend.models.evaluations import Evaluation
 
 CATEGORY_OPTIONS = [{"key": "ok", "label": "Ok"}, {"key": "bad", "label": "Bad"}]
@@ -20,17 +24,32 @@ def _evaluation(team, output_type: str = "boolean", output_config: dict | None =
     )
 
 
+def _per_evaluation_rules(team_id: int, _evaluation_ids: list[str]) -> PassRules:
+    filters = build_evaluation_pass_filters(team_id)
+    return PassRules(graded=parse_expr(filters.graded), passes=parse_expr(filters.passed))
+
+
 class TestEvaluationPassFilters(ClickhouseTestMixin, BaseTest):
-    def test_grades_each_kind_of_run_by_its_evaluation_rule(self) -> None:
+    @parameterized.expand([("per_evaluation", _per_evaluation_rules), ("by_kind_of_rule", build_pass_rules)])
+    def test_grades_each_kind_of_run_by_its_evaluation_rule(
+        self, _name: str, build: Callable[[int, list[str]], PassRules]
+    ) -> None:
         plain = _evaluation(self.team)
         detector = _evaluation(self.team, output_config={"true_is_failure": True})
         deleted_detector = _evaluation(self.team, output_config={"true_is_failure": True}, deleted=True)
         numeric = _evaluation(self.team, "numeric", {"passing_rule": {"operator": "gte", "threshold": 4}})
+        numeric_lower = _evaluation(self.team, "numeric", {"passing_rule": {"operator": "gte", "threshold": 2}})
+        numeric_at_most = _evaluation(self.team, "numeric", {"passing_rule": {"operator": "lte", "threshold": 4}})
         numeric_without_rule = _evaluation(self.team, "numeric", {})
         categorical = _evaluation(
             self.team,
             "categorical",
             {"options": CATEGORY_OPTIONS, "selection_mode": "single", "passing_rule": {"categories": ["ok"]}},
+        )
+        bad_passes = _evaluation(
+            self.team,
+            "categorical",
+            {"options": CATEGORY_OPTIONS, "selection_mode": "multiple", "passing_rule": {"categories": ["bad"]}},
         )
         empty_passes = _evaluation(
             self.team,
@@ -49,6 +68,19 @@ class TestEvaluationPassFilters(ClickhouseTestMixin, BaseTest):
             "deleted detector false": (deleted_detector, {"$ai_evaluation_result": False}, (True, True)),
             "numeric at threshold": (numeric, {"$ai_evaluation_numeric_result": 4}, (True, True)),
             "numeric below threshold": (numeric, {"$ai_evaluation_numeric_result": 3.5}, (True, False)),
+            "lower threshold below the other": (numeric_lower, {"$ai_evaluation_numeric_result": 3.5}, (True, True)),
+            "at most, above": (numeric_at_most, {"$ai_evaluation_numeric_result": 4.5}, (True, False)),
+            "at most, at threshold": (numeric_at_most, {"$ai_evaluation_numeric_result": 4}, (True, True)),
+            "numeric n/a": (
+                numeric,
+                {"$ai_evaluation_numeric_result": 5, "$ai_evaluation_applicable": False},
+                (False, False),
+            ),
+            "numeric skipped": (
+                numeric,
+                {"$ai_evaluation_numeric_result": 5, "$ai_evaluation_skipped": True},
+                (False, False),
+            ),
             "numeric without rule": (numeric_without_rule, {"$ai_evaluation_numeric_result": 5}, (False, False)),
             "categorical passing key": (
                 categorical,
@@ -58,6 +90,16 @@ class TestEvaluationPassFilters(ClickhouseTestMixin, BaseTest):
             "categorical failing key": (
                 categorical,
                 {"$ai_evaluation_categorical_result": ["bad"], "$ai_evaluation_applicable": True},
+                (True, False),
+            ),
+            "other passing key": (
+                bad_passes,
+                {"$ai_evaluation_categorical_result": ["bad"], "$ai_evaluation_applicable": True},
+                (True, True),
+            ),
+            "other passing key, both chosen": (
+                bad_passes,
+                {"$ai_evaluation_categorical_result": ["ok", "bad"], "$ai_evaluation_applicable": True},
                 (True, False),
             ),
             "empty passes, empty": (
@@ -91,19 +133,20 @@ class TestEvaluationPassFilters(ClickhouseTestMixin, BaseTest):
             )
         flush_persons_and_events()
 
-        filters = get_evaluation_pass_filters(self.team.id)
+        rules = build(self.team.id, list({str(evaluation.id) for evaluation, _, _ in cases.values()}))
         response = execute_hogql_query(
-            f"""
+            """
             SELECT
                 JSONExtractString(properties, 'case'),
-                countIf({filters.graded}) > 0,
-                countIf({filters.passed}) > 0,
-                countIf({filters.graded} AND NOT {filters.passed}) > 0
+                countIf({graded}) > 0,
+                countIf({graded} AND {passes}) > 0,
+                countIf({graded} AND NOT {passes}) > 0
             FROM events
             WHERE event = '$ai_evaluation'
             GROUP BY 1
             """,
             team=self.team,
+            placeholders={"graded": rules.graded, "passes": rules.passes},
         )
 
         graded_passed_failed = {
@@ -112,45 +155,3 @@ class TestEvaluationPassFilters(ClickhouseTestMixin, BaseTest):
         assert graded_passed_failed == {
             case: (graded, passed, graded and not passed) for case, (_, _, (graded, passed)) in cases.items()
         }
-
-
-def _save(evaluation: Evaluation, **changes: object) -> None:
-    for field, value in changes.items():
-        setattr(evaluation, field, value)
-    evaluation.save()
-
-
-def _save_name_only(evaluation: Evaluation) -> None:
-    evaluation.output_config = {"true_is_failure": True}
-    evaluation.name = "renamed"
-    evaluation.save(update_fields=["name"])
-
-
-class TestEvaluationOutputChangedSignal(BaseTest):
-    @parameterized.expand(
-        [
-            ("created", None, True),
-            ("output config changed", lambda e: _save(e, output_config={"true_is_failure": True}), True),
-            ("full save without an output change", lambda e: _save(e, name="renamed"), True),
-            ("status update", lambda e: e.set_status("paused", None), False),
-            ("output edited but only the name saved", _save_name_only, False),
-        ]
-    )
-    def test_notifies_on_saves_that_write_the_output(
-        self, _name: str, change: Callable[[Evaluation], None] | None, should_notify: bool
-    ) -> None:
-        evaluation = None if change is None else _evaluation(self.team)
-        notified: list[int] = []
-        evaluation_output_changed.connect(
-            lambda **kwargs: notified.append(kwargs["team_id"]), weak=False, dispatch_uid="test-output-changed"
-        )
-        self.addCleanup(evaluation_output_changed.disconnect, dispatch_uid="test-output-changed")
-
-        with self.captureOnCommitCallbacks(execute=True):
-            if change is None:
-                _evaluation(self.team)
-            else:
-                assert evaluation is not None
-                change(evaluation)
-
-        assert notified == ([self.team.id] if should_notify else [])

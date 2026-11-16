@@ -17,7 +17,7 @@ mod corpus;
 #[path = "test_rules_v2_evaluation/wire.rs"]
 mod wire;
 
-/// `wire::validate_v3` accepts every wire fixture case marked `valid` and fails every other
+/// `wire::validate_v4` accepts every wire fixture case marked `valid` and fails every other
 /// case at the layer its `expected_failure.layer` declares.
 #[test]
 fn vendored_response_fixtures_agree_with_the_validator() {
@@ -25,7 +25,7 @@ fn vendored_response_fixtures_agree_with_the_validator() {
     let (mut valid, mut invalid) = (0, 0);
     for case in fixtures["cases"].as_array().unwrap() {
         let id = case["id"].as_str().unwrap();
-        let verdict = wire::validate_v3(&wire::fixture_case(&fixtures, case));
+        let verdict = wire::validate_v4(&wire::fixture_case(&fixtures, case));
         if case["expected"] == "valid" {
             assert_eq!(verdict, Ok(()), "{id}");
             valid += 1;
@@ -76,10 +76,10 @@ fn evaluation_corpora_have_unique_ids_and_the_pinned_families() {
             family("v2_value_evaluation", "values", 11),
             family("v2_value_evaluation", "parser", 11),
             family("v2_experiment_evaluation", "ordering", 20),
-            family("v2_experiment_evaluation", "assignment", 22),
+            family("v2_experiment_evaluation", "assignment", 21),
             family("v2_experiment_evaluation", "values", 9),
             family("v2_experiment_evaluation", "white_box", 10),
-            family("v2_experiment_evaluation", "parser", 20),
+            family("v2_experiment_evaluation", "parser", 13),
         ])
     );
 }
@@ -173,7 +173,7 @@ fn parsed_configs_match_every_core_case_without_mutating_cached_inputs() {
         }
         executed += 1;
     }
-    assert_eq!((executed, rejected), (120 + 38 + 51, 2 + 11 + 20));
+    assert_eq!((executed, rejected), (120 + 38 + 50, 2 + 11 + 13));
 }
 
 fn assert_experiment_hash_evidence(
@@ -460,7 +460,7 @@ fn evaluation_is_repeatable_and_diagnostics_do_not_retain_inputs() {
 #[tokio::test]
 async fn corpus_cases_project_through_the_matcher_and_the_legacy_formats() {
     use feature_flags::api::types::{
-        DecideV1Response, DecideV2Response, FlagValue, FlagsResponse, FlagsResponseV3,
+        DecideV1Response, DecideV2Response, FlagValue, FlagsResponse, FlagsResponseV4,
         LegacyFlagsResponse,
     };
     use feature_flags::cohorts::cohort_cache_manager::CohortCacheManager;
@@ -510,10 +510,10 @@ async fn corpus_cases_project_through_the_matcher_and_the_legacy_formats() {
         .with_now(context.now);
         let expected = &case["expected"];
         let failed = expected["status"] != "success";
-        let legacy = case.get("legacy").cloned().unwrap_or_else(|| {
-            let enabled = expected["value"].as_bool().unwrap_or(false);
-            json!({"enabled": enabled, "variant": null, "value": enabled, "payload": null})
-        });
+        let legacy = case
+            .get("legacy")
+            .cloned()
+            .unwrap_or_else(|| corpus::legacy(&expected["value"]));
         let enabled = legacy["enabled"].as_bool().unwrap();
         let variant = legacy["variant"].as_str().map(str::to_owned);
         let payload = Some(&legacy["payload"]).filter(|payload| !payload.is_null());
@@ -635,9 +635,9 @@ async fn corpus_cases_project_through_the_matcher_and_the_legacy_formats() {
             enabled.then_some(map_value).as_ref(),
             "{id}"
         );
-        let v3 = serde_json::to_value(FlagsResponseV3::from_response(response)).unwrap();
-        wire::validate_v3(&v3).unwrap_or_else(|error| panic!("{id}: {error:?}"));
-        let record = &v3["flags"][&key];
+        let v4 = serde_json::to_value(FlagsResponseV4::from_response(response)).unwrap();
+        wire::validate_v4(&v4).unwrap_or_else(|error| panic!("{id}: {error:?}"));
+        let record = &v4["flags"][&key];
         assert_eq!(record["metadata"]["config_version"], 2, "{id}");
         assert_eq!(record.get("enabled"), None, "{id}");
         if failed {
@@ -678,5 +678,5 @@ async fn corpus_cases_project_through_the_matcher_and_the_legacy_formats() {
         }
         projected += 1;
     }
-    assert_eq!((projected, direct, skipped), (114 + 49 + 71, 8, 13 + 10));
+    assert_eq!((projected, direct, skipped), (114 + 49 + 63, 8, 13 + 10));
 }

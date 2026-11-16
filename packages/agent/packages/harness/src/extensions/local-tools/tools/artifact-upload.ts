@@ -19,8 +19,8 @@ export interface ArtifactUpload {
   content: Buffer;
   /**
    * Manifest classification. Only user-facing deliverables are "output" — every
-   * deliverable surface filters on exactly that type — so other consumers (e.g.
-   * peer-message attachments) must classify themselves as something else.
+   * deliverable surface filters on exactly that type — so other consumers must
+   * classify themselves as something else.
    */
   type: ArtifactType;
   source: ArtifactSource;

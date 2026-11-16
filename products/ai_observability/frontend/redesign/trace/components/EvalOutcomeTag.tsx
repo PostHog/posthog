@@ -1,4 +1,4 @@
-import { IconCheck, IconClock, IconMinus, IconWarning, IconX } from '@posthog/icons'
+import { IconCheck, IconMinus, IconX } from '@posthog/icons'
 import { LemonTag, LemonTagType } from '@posthog/lemon-ui'
 
 import { EvalOutcome } from '../types'
@@ -6,8 +6,6 @@ import { EvalOutcome } from '../types'
 const OUTCOME_STYLES: Record<EvalOutcome, { type: LemonTagType; icon: JSX.Element | undefined }> = {
     pass: { type: 'success', icon: <IconCheck /> },
     fail: { type: 'danger', icon: <IconX /> },
-    error: { type: 'danger', icon: <IconWarning /> },
-    pending: { type: 'default', icon: <IconClock /> },
     inconclusive: { type: 'muted', icon: <IconMinus /> },
     unrated: { type: 'default', icon: undefined },
 }

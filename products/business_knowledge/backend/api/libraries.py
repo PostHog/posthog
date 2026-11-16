@@ -1,5 +1,5 @@
 from functools import cached_property
-from typing import Any, cast
+from typing import Any
 from uuid import UUID
 
 from django.core.exceptions import ValidationError as DjangoValidationError
@@ -14,13 +14,12 @@ from rest_framework.viewsets import ViewSet
 
 from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
-from posthog.models.user import User
+from posthog.auth import ProjectSecretAPIKeyAuthentication
 from posthog.permissions import APIScopePermission, PostHogFeatureFlagPermission
-from posthog.rate_limit import BurstRateThrottle, SustainedRateThrottle
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 
-from ..github_repos import has_github_repos_feature_flag, selected_repositories
+from ..github_repos import selected_repositories
 from ..libraries import (
     LibraryNotFound,
     LibraryRejected,
@@ -40,6 +39,7 @@ from .library_serializers import (
     KnowledgeLibraryUpdateSerializer,
 )
 from .settings import CanonicalTeamTokenPermission, canonical_user_access_control
+from .throttles import KNOWLEDGE_THROTTLES
 
 _READ_ACTIONS = frozenset({"list", "retrieve"})
 _WRITE_ACTIONS = frozenset({"create", "partial_update", "destroy"})
@@ -50,6 +50,8 @@ class KnowledgeLibraryViewSet(TeamAndOrgViewSetMixin, ViewSet):
     # A library is project-wide, not an access-controlled object. Without this flag, editor
     # access to one source passes the list check for a member whose resource-level access is "none".
     requires_resource_level_access = True
+    authentication_classes = [ProjectSecretAPIKeyAuthentication]
+    psak_allowed_actions = ["list", "retrieve"]
     permission_classes = [
         IsAuthenticated,
         APIScopePermission,
@@ -57,7 +59,7 @@ class KnowledgeLibraryViewSet(TeamAndOrgViewSetMixin, ViewSet):
         CanonicalTeamTokenPermission,
     ]
     posthog_feature_flag = "product-business-knowledge"
-    throttle_classes = [BurstRateThrottle, SustainedRateThrottle]
+    throttle_classes = KNOWLEDGE_THROTTLES
     pagination_class = None
 
     @cached_property
@@ -123,10 +125,6 @@ class KnowledgeLibraryViewSet(TeamAndOrgViewSetMixin, ViewSet):
     def partial_update(self, request: ValidatedRequest, pk: str, **kwargs: Any) -> Response:
         library_id = _parse_library_id(pk)
         data = request.validated_data
-        if "repos" in data:
-            user = cast(User, request.user)
-            if not has_github_repos_feature_flag(self.team, str(user.distinct_id)):
-                raise exceptions.PermissionDenied(detail="GitHub repositories are not available for this project.")
         allowlist = self._allowlist() if "repos" in data else set()
         try:
             with transaction.atomic():

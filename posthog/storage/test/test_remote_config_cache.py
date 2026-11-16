@@ -5,11 +5,7 @@ from unittest.mock import MagicMock, patch
 
 from posthog.models.remote_config import RemoteConfig
 from posthog.storage.cache_expiry_manager import CacheRefreshCounts
-from posthog.storage.remote_config_cache import (
-    cleanup_stale_expiry_tracking,
-    refresh_expiring_caches,
-    update_remote_config_cache,
-)
+from posthog.storage.remote_config_cache import refresh_expiring_caches, update_remote_config_cache
 
 
 class TestUpdateRemoteConfigCache(BaseTest):
@@ -120,18 +116,3 @@ class TestRefreshExpiringRemoteConfigCaches(BaseTest):
         assert push_kwargs["expiry_backlog"] == 12
         assert push_kwargs["limit_reached"] is False
         assert push_kwargs["oldest_expiry_seconds"] < 0
-
-
-class TestCleanupStaleRemoteConfigExpiryTracking(BaseTest):
-    @patch("posthog.storage.cache_expiry_manager.get_client")
-    def test_removes_only_entries_for_deleted_teams(self, mock_get_client):
-        mock_redis = MagicMock()
-        mock_get_client.return_value = mock_redis
-        # One live team (kept) and one stale token (removed).
-        mock_redis.zrange.return_value = [self.team.api_token.encode(), b"phc_does_not_exist"]
-        mock_redis.zrem.return_value = 1
-
-        removed = cleanup_stale_expiry_tracking()
-
-        assert removed == 1
-        mock_redis.zrem.assert_called_once_with("remote_config_cache_expiry", "phc_does_not_exist")

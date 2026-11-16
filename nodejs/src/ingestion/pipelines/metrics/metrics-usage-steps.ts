@@ -1,6 +1,7 @@
 import { AppMetricsOutput } from '~/common/outputs'
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
 import { AppMetricsAggregator } from '~/common/services/app-metrics-aggregator'
+import { UsageRecordBatch } from '~/common/usage-ingestion/usage-record-batch'
 import { logger } from '~/common/utils/logger'
 import { BeforeBatchStep } from '~/ingestion/framework/batching-pipeline'
 import { ok } from '~/ingestion/framework/results'
@@ -46,14 +47,29 @@ export function createRecordMetricsReceivedStep<T extends RecordMetricsReceivedI
     }
 }
 
-const USAGE_METRIC_NAMES: [keyof UsageStats, string][] = [
+export const USAGE_METRIC_NAMES: [keyof UsageStats, string][] = [
     ['bytesReceived', 'bytes_received'],
     ['recordsReceived', 'records_received'],
     ['bytesAllowed', 'bytes_ingested'],
+    ['bytesAllowedRecords', 'bytes_ingested_records'],
     ['recordsAllowed', 'records_ingested'],
     ['bytesDropped', 'bytes_dropped'],
     ['recordsDropped', 'records_dropped'],
 ]
+
+const USAGE_RECORD_KEYS: ['bytes' | 'bytesRecords' | 'records', string, string][] = [
+    ['bytes', 'metrics_bytes', 'bytes'],
+    ['bytesRecords', 'metrics_bytes_records', 'bytes'],
+    ['records', 'metrics_records', 'records'],
+]
+
+export function addMetricsUsageRecords(usageBatch: UsageRecordBatch, usage: MetricsUsageAccumulator): void {
+    for (const message of usage.allowedMessages()) {
+        for (const [key, usageKey, unit] of USAGE_RECORD_KEYS) {
+            usageBatch.add(message.teamId, usageKey, message.recordId, message[key], unit, message.timestampMs)
+        }
+    }
+}
 
 function incrementUsageCounters(usage: MetricsUsageAccumulator): void {
     let bytesReceived = 0
@@ -112,10 +128,17 @@ async function emitUsageRows(
 /** Never rejects. A failed write of the billing rows is logged. */
 export async function emitMetricsUsage(
     outputs: IngestionOutputs<AppMetricsOutput>,
+    usageBatch: UsageRecordBatch,
     usage: MetricsUsageAccumulator
 ): Promise<void> {
     incrementUsageCounters(usage)
-    await emitUsageRows(outputs, usage)
+    addMetricsUsageRecords(usageBatch, usage)
+    await Promise.all([
+        emitUsageRows(outputs, usage),
+        usageBatch.flush().catch((error) => {
+            logger.error('🔴', 'Failed to emit usage records - billing data may be lost', { error })
+        }),
+    ])
 }
 
 export function createKeepMetricsUsageStep<T extends { batchContext: MetricsUsageBatchContext }>(): ProcessingStep<

@@ -579,6 +579,11 @@ class TestDataQualityCheckAPI(APIBaseTest):
         self.suites_url = f"/api/projects/{self.team.id}/data_quality_runs"
         self.subject = {"subject_type": SubjectType.VIEW, "subject_uuid": str(self.view.id)}
 
+    def test_non_uuid_check_id_returns_404(self) -> None:
+        response = self.client.get(f"{self.url}/999999999/runs/")
+
+        assert response.status_code == status.HTTP_404_NOT_FOUND
+
     def test_model_history_includes_deleted_checks_without_other_models(self) -> None:
         check = self._create_check()
         other_view = DataWarehouseSavedQuery.objects.create(
@@ -1155,6 +1160,8 @@ class TestDataQualityCheckAPI(APIBaseTest):
         rollups = response.json()
         assert [entry["health"] for entry in rollups] == ([expected] if states else [])
         assert sum(entry["checks_total"] for entry in rollups) == len(states)
+        failing = self.client.get(f"{self.url}/failing_count/")
+        assert failing.json() == {"count": sum(1 for _, last_status in states if last_status == CheckRunStatus.FAILED)}
 
     def test_health_ignores_disabled_checks(self) -> None:
         # A disabled failing check must not drive the verdict, or health would read 'failing' while
@@ -1304,6 +1311,7 @@ class TestDataQualityCheckAPI(APIBaseTest):
 
         assert health.status_code == status.HTTP_200_OK, health.json()
         assert health.json() == []
+        assert self.client.get(f"{self.url}/failing_count/").json() == {"count": 0}
 
     @parameterized.expand([("pinned", True), ("recorded before pinning", False)])
     def test_editing_a_check_does_not_unlock_the_history_it_used_to_read(self, _name: str, pinned: bool) -> None:
@@ -1480,6 +1488,31 @@ class TestDataQualityCheckAPI(APIBaseTest):
         editable_by_name = {row["name"]: row["editable"] for row in response.json()}
         assert "orders" in editable_by_name
         assert not any(editable_by_name.values())
+
+    def test_the_catalog_narrows_by_search_and_subject_type(self) -> None:
+        DataWarehouseSavedQuery.objects.create(team=self.team, name="Orders_daily", query={"kind": "HogQLQuery"})
+        DataWarehouseSavedQuery.objects.create(team=self.team, name="refunds", query={"kind": "HogQLQuery"})
+
+        by_search = self.client.get(f"{self.url}/subjects/", {"search": "ORDERS", "subject_type": "view"})
+        assert by_search.status_code == status.HTTP_200_OK, by_search.content
+        assert [row["name"] for row in by_search.json()] == ["Orders_daily", "orders"]
+
+        events = self.client.get(f"{self.url}/subjects/", {"search": "events", "subject_type": "posthog_table"})
+        assert [(row["name"], bool(row["columns"])) for row in events.json()] == [("events", True)]
+
+        bare = self.client.get(f"{self.url}/subjects/", {"search": "events", "include_columns": "false"})
+        assert [(row["name"], row["columns"]) for row in bare.json()] == [("events", {})]
+
+    def test_the_catalog_pages_with_limit_and_offset(self) -> None:
+        DataWarehouseSavedQuery.objects.create(team=self.team, name="refunds", query={"kind": "HogQLQuery"})
+        everything = [row["id"] for row in self.client.get(f"{self.url}/subjects/").json()]
+
+        first = self.client.get(f"{self.url}/subjects/", {"limit": 2}).json()
+        second = self.client.get(f"{self.url}/subjects/", {"limit": 2, "offset": 2}).json()
+
+        assert [row["id"] for row in first + second] == everything[:4]
+        assert len(everything) > 4
+        assert self.client.get(f"{self.url}/subjects/", {"limit": 0}).status_code == status.HTTP_400_BAD_REQUEST
 
     @parameterized.expand(
         [

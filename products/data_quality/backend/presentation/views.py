@@ -15,12 +15,12 @@ from typing import TYPE_CHECKING, Any, ClassVar, cast
 from uuid import UUID
 
 from django.db.models import QuerySet
-from django.shortcuts import get_object_or_404
 
 from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, extend_schema, extend_schema_view
 from rest_framework import mixins, status, viewsets
 from rest_framework.exceptions import APIException, NotFound, PermissionDenied, ValidationError
+from rest_framework.generics import get_object_or_404
 from rest_framework.permissions import SAFE_METHODS, BasePermission, IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -52,7 +52,9 @@ from .serializers import (
     DataQualitySubjectRefSerializer,
     DataQualitySubjectScheduleSerializer,
     DataQualitySubjectSerializer,
+    DataQualitySubjectsQuerySerializer,
     DataQualitySuiteRunSerializer,
+    FailingCheckCountSerializer,
     SubjectHealthSerializer,
 )
 
@@ -412,13 +414,14 @@ class DataQualityCheckViewSet(_ProjectQualityViewSet, viewsets.ModelViewSet):
             "run",
             "runs",
             "health",
+            "failing_count",
             "output_schema",
             "schedule",
             "subjects",
             "metric_subjects",
         }
     )
-    SUBJECT_FILTERED_ACTIONS = frozenset({"list", "health", "schedules"})
+    SUBJECT_FILTERED_ACTIONS = frozenset({"list", "health", "failing_count", "schedules"})
     serializer_class = DataQualityCheckSerializer
     queryset = DataQualityCheck.objects.unscoped()
 
@@ -667,6 +670,15 @@ class DataQualityCheckViewSet(_ProjectQualityViewSet, viewsets.ModelViewSet):
         return Response(SubjectHealthSerializer(rollups, many=True).data)
 
     @extend_schema(
+        description="How many enabled checks you can see last reported a failure, across the project.",
+        responses={200: FailingCheckCountSerializer},
+    )
+    @action(methods=["GET"], detail=False, pagination_class=None)
+    def failing_count(self, request: Request, **kwargs) -> Response:
+        failing = self.get_queryset().filter(enabled=True, last_status=CheckRunStatus.FAILED)
+        return Response(FailingCheckCountSerializer({"count": self.filter_queryset(failing).count()}).data)
+
+    @extend_schema(
         description="The check types this project can author, with the JSON schema of each type's config. "
         "Pass subject_type to narrow it to the types that kind of subject supports.",
         parameters=[_SUBJECT_TYPE_PARAMETER],
@@ -680,13 +692,21 @@ class DataQualityCheckViewSet(_ProjectQualityViewSet, viewsets.ModelViewSet):
         return Response(CheckTypeSerializer(api.list_check_types(subject_type), many=True).data)
 
     @extend_schema(
-        description="Everything in this project you can author a check on, with each subject's columns.",
+        description="Everything in this project you can author a check on, with each subject's columns. "
+        "Filter by subject_type or search, and page with limit and offset.",
+        parameters=[DataQualitySubjectsQuerySerializer],
         request=None,
         responses={200: DataQualitySubjectSerializer(many=True)},
     )
     @action(methods=["GET"], detail=False, pagination_class=None)
     def subjects(self, request: Request, **kwargs) -> Response:
-        selectable = api.selectable_subjects(self.team_id, self._authorized_subject_types())
+        query = DataQualitySubjectsQuerySerializer(data=request.query_params)
+        query.is_valid(raise_exception=True)
+        params = query.validated_data
+        kinds = self._authorized_subject_types()
+        if subject_type := params.get("subject_type"):
+            kinds = kinds & {SubjectType(subject_type)}
+        selectable = api.selectable_subjects(self.team_id, kinds, params.get("search", ""))
         editable_kinds = self._authorized_subject_types(write=True)
         if self._can_be_object_denied():
             readable = self._denial_context().readable
@@ -700,6 +720,11 @@ class DataQualityCheckViewSet(_ProjectQualityViewSet, viewsets.ModelViewSet):
             selectable = [
                 replace(subject, editable=SubjectType(subject.subject_type) in editable_kinds) for subject in selectable
             ]
+        offset = params["offset"]
+        limit = params.get("limit")
+        selectable = selectable[offset : None if limit is None else offset + limit]
+        if not params["include_columns"]:
+            selectable = [replace(subject, columns={}) for subject in selectable]
         return Response(DataQualitySubjectSerializer(selectable, many=True).data)
 
     @extend_schema(request=None, responses={200: DataQualityMetricSubjectSerializer(many=True)})

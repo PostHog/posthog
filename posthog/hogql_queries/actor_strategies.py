@@ -20,7 +20,27 @@ from posthog.models.user import User
 from posthog.personhog_client.caller_tag import personhog_caller_tag
 from posthog.utils import is_anonymous_id
 
+from products.event_definitions.backend.models import PropertyDefinition
+from products.event_definitions.backend.models.property_definition import effective_project_id_expr
+
 logger = structlog.get_logger(__name__)
+
+PERSON_EMAIL_PROPERTY_KEY = "email"
+PERSON_TITLE_CASED_EMAIL_PROPERTY_KEY = "Email"
+PERSON_EMAIL_PROPERTY_KEYS = (PERSON_EMAIL_PROPERTY_KEY, PERSON_TITLE_CASED_EMAIL_PROPERTY_KEY)
+
+
+def person_email_property_keys(team: Team) -> tuple[str, ...]:
+    has_title_cased_email = (
+        PropertyDefinition.objects.alias(effective_project_id=effective_project_id_expr())
+        .filter(
+            effective_project_id=team.project_id,
+            type=PropertyDefinition.Type.PERSON,
+            name=PERSON_TITLE_CASED_EMAIL_PROPERTY_KEY,
+        )
+        .exists()
+    )
+    return PERSON_EMAIL_PROPERTY_KEYS if has_title_cased_email else (PERSON_EMAIL_PROPERTY_KEY,)
 
 
 class ActorStrategy:
@@ -146,23 +166,17 @@ class PersonStrategy(ActorStrategy):
 
         search = self.query.search.strip() if self.query.search else None
         if search:
+            searched_properties = [*person_email_property_keys(self.team), "name"]
             where_exprs.append(
                 ast.Or(
                     exprs=[
-                        ast.CompareOperation(
-                            op=ast.CompareOperationOp.ILike,
-                            left=ast.Call(name="toString", args=[ast.Field(chain=["properties", "email"])]),
-                            right=ast.Constant(value=f"%{search}%"),
-                        ),
-                        ast.CompareOperation(
-                            op=ast.CompareOperationOp.ILike,
-                            left=ast.Call(name="toString", args=[ast.Field(chain=["properties", "Email"])]),
-                            right=ast.Constant(value=f"%{search}%"),
-                        ),
-                        ast.CompareOperation(
-                            op=ast.CompareOperationOp.ILike,
-                            left=ast.Call(name="toString", args=[ast.Field(chain=["properties", "name"])]),
-                            right=ast.Constant(value=f"%{search}%"),
+                        *(
+                            ast.CompareOperation(
+                                op=ast.CompareOperationOp.ILike,
+                                left=ast.Call(name="toString", args=[ast.Field(chain=["properties", name])]),
+                                right=ast.Constant(value=f"%{search}%"),
+                            )
+                            for name in searched_properties
                         ),
                         ast.CompareOperation(
                             op=ast.CompareOperationOp.ILike,
@@ -328,7 +342,7 @@ class SessionStrategy(ActorStrategy):
         if search:
             where_exprs.append(
                 parse_expr(
-                    "person_id in (select id from persons where ilike(properties.email, {search}) or ilike(properties.name, {search}))",
+                    "person_id in (select id from persons where ilike(toString(properties.email), {search}) or ilike(toString(properties.name), {search}))",
                     {"search": ast.Constant(value=f"%{search}%")},
                 )
             )

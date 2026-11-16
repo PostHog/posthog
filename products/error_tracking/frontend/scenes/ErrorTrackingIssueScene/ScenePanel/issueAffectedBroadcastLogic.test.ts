@@ -54,6 +54,7 @@ describe('issueAffectedBroadcastLogic', () => {
         expect(pathname).toContain('/broadcasts/new')
         expect(searchParams.name).toEqual('We fixed Checkout timeout')
         expect(searchParams.source).toEqual('error_tracking_affected')
+        expect(searchParams.source_record).toEqual('error_tracking:issue-1')
         expect(parseBroadcastAudiencePrefill(searchParams.audience)).toMatchObject([
             { type: 'cohort', key: 'id', value: 42 },
         ])

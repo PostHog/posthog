@@ -24,7 +24,7 @@ _PATCH_SIGNAL_DROPPED = "signal-dropped-telemetry-v1"
 _MAX_ERROR_LENGTH = 500
 
 
-@dataclass
+@dataclass(frozen=True)
 class CaptureSignalDroppedInput:
     team_id: int
     source_product: str
@@ -35,6 +35,8 @@ class CaptureSignalDroppedInput:
     error_type: str
     error: str
     extra: dict = field(default_factory=dict)
+    signal_id: str | None = None
+    attempt: int | None = None
 
 
 def summarize_drop_error(error: BaseException) -> tuple[str, str]:
@@ -53,7 +55,7 @@ def summarize_drop_error(error: BaseException) -> tuple[str, str]:
 
 
 def signal_dropped_input(
-    signal: EmitSignalInputs, stage: str, error_type: str, error: str
+    signal: EmitSignalInputs, stage: str, error_type: str, error: str, attempt: int | None = None
 ) -> CaptureSignalDroppedInput:
     return CaptureSignalDroppedInput(
         team_id=signal.team_id,
@@ -67,6 +69,8 @@ def signal_dropped_input(
         # Flatten before scheduling: the raw `extra` can nest large customer-derived
         # payloads, and the activity input is recorded verbatim in workflow history.
         extra=_telemetry_props_from_extra(signal.extra),
+        signal_id=signal.signal_id,
+        attempt=attempt,
     )
 
 
@@ -92,6 +96,9 @@ def capture_signal_dropped_event(team: Team, input: CaptureSignalDroppedInput) -
             "source_type": input.source_type,
             "source_id": input.source_id,
             "weight": input.weight,
+            # Only stages that retry a failed batch set it. Count events for retry volume and
+            # distinct `source_id` for lost signals.
+            **({"attempt": input.attempt} if input.attempt is not None else {}),
         },
         groups=groups(team.organization, team),
     )
@@ -116,7 +123,9 @@ async def capture_signal_dropped_activity(input: CaptureSignalDroppedInput) -> N
         )
 
 
-async def capture_signal_dropped(signal: EmitSignalInputs, error: BaseException, stage: str) -> None:
+async def capture_signal_dropped(
+    signal: EmitSignalInputs, error: BaseException, stage: str, attempt: int | None = None
+) -> None:
     """Best-effort signal_dropped telemetry from workflow code; never raises into the grouping flow."""
     if not workflow.patched(_PATCH_SIGNAL_DROPPED):
         return
@@ -124,7 +133,7 @@ async def capture_signal_dropped(signal: EmitSignalInputs, error: BaseException,
     try:
         await workflow.execute_activity(
             capture_signal_dropped_activity,
-            signal_dropped_input(signal, stage, error_type, error_message),
+            signal_dropped_input(signal, stage, error_type, error_message, attempt=attempt),
             start_to_close_timeout=timedelta(minutes=1),
             retry_policy=RetryPolicy(maximum_attempts=2),
         )

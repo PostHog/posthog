@@ -20,10 +20,16 @@ export function BIDrilldownModal({
     onNavigate?: (worksheet: BIVisualizationNode) => void
     navigationDisabledReason?: string
 }): JSX.Element {
-    const { selection, queries, showRows, hierarchyDrills } = useValues(biDrilldownLogic(props))
-    const { close, viewRows } = useActions(biDrilldownLogic(props))
+    const { selection, queries, showRows, hierarchyDrills, interaction, record, dashboardFilterDisabledReason } =
+        useValues(biDrilldownLogic(props))
+    const { close, viewRows, filterDashboard } = useActions(biDrilldownLogic(props))
     return (
-        <LemonModal title="Explore this result" isOpen={!!selection} onClose={close} width={showRows ? '90vw' : 520}>
+        <LemonModal
+            title="Explore this result"
+            isOpen={!!selection && (!interaction || showRows)}
+            onClose={close}
+            width={showRows ? '90vw' : 520}
+        >
             {queries ? (
                 <div className="flex flex-col gap-3">
                     <p className="m-0">
@@ -40,47 +46,79 @@ export function BIDrilldownModal({
                         </ul>
                     ) : null}
                     <div className="flex flex-wrap gap-2">
-                        {hierarchyDrills.map(({ hierarchy, next, worksheet }) => (
+                        {!interaction && props.onFilterDashboard && (
                             <LemonButton
-                                key={hierarchy.id}
                                 type="primary"
-                                disabledReason={navigationDisabledReason}
+                                disabledReason={dashboardFilterDisabledReason}
                                 to={
-                                    onNavigate
-                                        ? undefined
-                                        : `${urls.businessIntelligenceNew()}#q=${encodeURIComponent(JSON.stringify(worksheet))}`
+                                    record && !dashboardFilterDisabledReason
+                                        ? props.getDashboardFilterUrl?.(record)
+                                        : undefined
                                 }
+                                disableClientSideRouting
+                                onClick={(event) => {
+                                    if (
+                                        event.button !== 0 ||
+                                        event.metaKey ||
+                                        event.ctrlKey ||
+                                        event.shiftKey ||
+                                        event.altKey
+                                    ) {
+                                        return
+                                    }
+                                    event.preventDefault()
+                                    filterDashboard()
+                                }}
+                            >
+                                {record && props.isDashboardFilterSelected?.(record)
+                                    ? 'Remove filter'
+                                    : 'Filter dashboard by this result'}
+                            </LemonButton>
+                        )}
+                        {!interaction &&
+                            hierarchyDrills.map(({ hierarchy, next, worksheet }) => (
+                                <LemonButton
+                                    key={hierarchy.id}
+                                    type="primary"
+                                    disabledReason={navigationDisabledReason}
+                                    to={
+                                        onNavigate
+                                            ? undefined
+                                            : `${urls.businessIntelligenceNew()}#q=${encodeURIComponent(JSON.stringify(worksheet))}`
+                                    }
+                                    onClick={() => {
+                                        onNavigate?.(worksheet)
+                                        close()
+                                    }}
+                                    tooltip={`${hierarchy.name}: ${onNavigate ? 'filters this worksheet to the selection' : 'opens a new worksheet filtered to this selection'}`}
+                                >
+                                    Drill to {next.name}
+                                    {onNavigate ? '' : ' in new worksheet'}
+                                </LemonButton>
+                            ))}
+                        {!interaction && (
+                            <LemonButton
+                                type="primary"
                                 onClick={() => {
-                                    onNavigate?.(worksheet)
+                                    if (props.query.kind === NodeKind.BIVisualizationNode) {
+                                        captureBIWorksheetAction('drilldown_worksheet_opened', props.query.config)
+                                    }
                                     close()
                                 }}
-                                tooltip={`${hierarchy.name}: ${onNavigate ? 'filters this worksheet to the selection' : 'opens a new worksheet filtered to this selection'}`}
-                            >
-                                Drill to {next.name}
-                                {onNavigate ? '' : ' in new worksheet'}
-                            </LemonButton>
-                        ))}
-                        <LemonButton
-                            type="primary"
-                            onClick={() => {
-                                if (props.query.kind === NodeKind.BIVisualizationNode) {
-                                    captureBIWorksheetAction('drilldown_worksheet_opened', props.query.config)
+                                to={
+                                    queries.worksheet
+                                        ? `${urls.businessIntelligenceNew()}#q=${encodeURIComponent(JSON.stringify(queries.worksheet))}`
+                                        : undefined
                                 }
-                                close()
-                            }}
-                            to={
-                                queries.worksheet
-                                    ? `${urls.businessIntelligenceNew()}#q=${encodeURIComponent(JSON.stringify(queries.worksheet))}`
-                                    : undefined
-                            }
-                            disabledReason={
-                                !queries.worksheet
-                                    ? 'Maximum filter group depth reached. View the underlying rows instead.'
-                                    : undefined
-                            }
-                        >
-                            Filter in new worksheet
-                        </LemonButton>
+                                disabledReason={
+                                    !queries.worksheet
+                                        ? 'Maximum filter group depth reached. View the underlying rows instead.'
+                                        : undefined
+                                }
+                            >
+                                Filter in new worksheet
+                            </LemonButton>
+                        )}
                         <LemonButton
                             type="secondary"
                             onClick={viewRows}

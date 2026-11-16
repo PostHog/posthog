@@ -21,7 +21,7 @@ from ee.billing.quota_usage import QuotaUsageBatch
 
 class TestQuotaUsageBatch(BaseTest):
     @parameterized.expand([("set", False), ("delete_only", True)])
-    def test_sql_shape_is_independent_of_batch_size(self, _name, delete_only) -> None:
+    def test_one_statement_for_any_batch_size_or_patch_shape(self, _name, delete_only) -> None:
         other = Organization.objects.create(name="Other organization", slug="other-quota-organization")
         organizations = [self.organization, other]
         usage = {"events": {"usage": 10, "todays_usage": 0, "quota_limited_until": 1234}}
@@ -37,23 +37,21 @@ class TestQuotaUsageBatch(BaseTest):
             for batch_size in (1, 2):
                 batch = QuotaUsageBatch()
                 for index, org in enumerate(organizations[:batch_size], start=1):
-                    batch.patch(
-                        org,
-                        [
-                            (["events", "todays_usage"], None if delete_only else index * 20),
-                            (["events", "quota_limited_until"], None if delete_only else index * 100),
-                        ],
-                    )
+                    operations = [(["events", "todays_usage"], None if delete_only else index * 20)]
+                    if index == 2:
+                        operations.append((["events", "quota_limited_until"], None if delete_only else index * 100))
+                    batch.patch(org, operations)
                 batch.write()
 
         assert len(statements) == 2
         assert statements[0] == statements[1]
-        for index, org in enumerate(organizations, start=1):
-            org.refresh_from_db()
-            expected = {"usage": 10}
-            if not delete_only:
-                expected.update(todays_usage=index * 20, quota_limited_until=index * 100)
-            assert org.usage == {"events": expected}
+        first, second = (Organization.objects.get(id=org.id).usage for org in organizations)
+        if delete_only:
+            assert first == {"events": {"usage": 10, "quota_limited_until": 1234}}
+            assert second == {"events": {"usage": 10}}
+        else:
+            assert first == {"events": {"usage": 10, "todays_usage": 20, "quota_limited_until": 1234}}
+            assert second == {"events": {"usage": 10, "todays_usage": 40, "quota_limited_until": 200}}
 
     @parameterized.expand([("all_present", False), ("deleted_organization", True)])
     def test_multiple_patches_preserve_other_organizations_and_fields(self, _name, delete_second) -> None:
@@ -63,6 +61,7 @@ class TestQuotaUsageBatch(BaseTest):
         batch = QuotaUsageBatch()
         batch.patch(self.organization, [(["events", "todays_usage"], 20)])
         batch.patch(self.organization, [(["events", "quota_limited_until"], 1234)])
+        batch.patch(self.organization, [(["recordings", "todays_usage"], 5)])
         batch.patch(other, [(["events", "todays_usage"], 30)])
         if delete_second:
             other.delete()
@@ -83,7 +82,7 @@ class TestQuotaUsageBatch(BaseTest):
     )
     @patch("posthoganalytics.capture")
     @patch("ee.billing.quota_usage.sleep")
-    def test_failed_statement_rolls_back_batch_before_retry_or_events(
+    def test_failed_write_leaves_rows_unchanged_and_sends_no_events(
         self, _name, error_type, failures, _sleep, capture
     ) -> None:
         other = Organization.objects.create(name="Other organization", slug="other-quota-organization")
@@ -95,23 +94,20 @@ class TestQuotaUsageBatch(BaseTest):
         properties = {"usage": {"events": 20}}
         batch.report_action(self.organization, "organization quota limits changed", properties)
         properties["usage"]["events"] = 999
-        writes = 0
         errors = 0
 
-        def fail_second_statement(execute, sql, params, many, context):
-            nonlocal writes, errors
+        def fail_first_attempts(execute, sql, params, many, context):
+            nonlocal errors
             if sql.startswith("UPDATE posthog_organization AS o"):
-                writes += 1
-                if writes % 2 == 1:
-                    assert Organization.objects.get(id=self.organization.id).usage == usage
-                    assert Organization.objects.get(id=other.id).usage == usage
-                elif errors < failures:
+                assert Organization.objects.get(id=self.organization.id).usage == usage
+                assert Organization.objects.get(id=other.id).usage == usage
+                if errors < failures:
                     errors += 1
                     raise error_type("synthetic write failure")
             return execute(sql, params, many, context)
 
         succeeds = error_type is OperationalError and failures == 1
-        with connection.execute_wrapper(fail_second_statement), self.captureOnCommitCallbacks(execute=True):
+        with connection.execute_wrapper(fail_first_attempts), self.captureOnCommitCallbacks(execute=True):
             if succeeds:
                 batch.write()
                 batch.publish()

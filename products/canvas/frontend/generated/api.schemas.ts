@@ -736,6 +736,12 @@ export interface CanvasPostHogCapabilitiesApi {
      * @items.maxLength 64
      */
     actions?: string[]
+    /**
+     * PostHog MCP tools the canvas may run via ph.tools (e.g. 'feature-flag-get-definition', 'feature-flag-set-release-condition-rollout'). Each runs as the viewer; declaring one shows it in the promote review.
+     * @maxItems 32
+     * @items.maxLength 200
+     */
+    tools?: string[]
     agentRequests?: boolean
 }
 
@@ -843,6 +849,8 @@ export interface CanvasCapabilityWideningApi {
     state_scopes_added: string[]
     /** Action verbs the draft newly declares it may invoke via ph.actions. */
     actions_added: string[]
+    /** PostHog MCP tools the draft newly declares it may run via ph.tools. */
+    tools_added: string[]
     /** Connector providers and tools the draft newly declares it may call via ph.connectors. */
     connectors_added: CanvasConnectorDeclarationApi[]
 }
@@ -871,6 +879,39 @@ export interface CanvasSourceInvalidApi {
     code: string
     /** The validation diagnostics, including at least one error. */
     diagnostics: CanvasDiagnosticApi[]
+}
+
+/**
+ * * `capability_widening_requires_creator` - Capability widening requires creator
+ * * `pinned_version_requires_creator` - Pinned version requires creator
+ * * `permission_denied` - Permission denied
+ */
+export type CanvasCreatorRequiredCodeEnumApi =
+    (typeof CanvasCreatorRequiredCodeEnumApi)[keyof typeof CanvasCreatorRequiredCodeEnumApi]
+
+export const CanvasCreatorRequiredCodeEnumApi = {
+    CapabilityWideningRequiresCreator: 'capability_widening_requires_creator',
+    PinnedVersionRequiresCreator: 'pinned_version_requires_creator',
+    PermissionDenied: 'permission_denied',
+} as const
+
+/**
+ * 403 body for a change that only a creator can make: renaming or adding capabilities to a canvas,
+ * or pinning a component version other than that component's live version.
+ */
+export interface CanvasCreatorRequiredApi {
+    /** Human-readable description of the refusal. */
+    detail: string
+    /** `capability_widening_requires_creator`: the change adds capabilities and the caller did not create the canvas. `pinned_version_requires_creator`: a grid layout pins a component version other than that component's live version and the caller did not create that component. `permission_denied`: a publish or edit supplied a name and the caller did not create the canvas.
+     *
+     * * `capability_widening_requires_creator` - Capability widening requires creator
+     * * `pinned_version_requires_creator` - Pinned version requires creator
+     * * `permission_denied` - Permission denied */
+    code: CanvasCreatorRequiredCodeEnumApi
+    /** Set for capability_widening_requires_creator. The capabilities the change adds, so the caller can ask the canvas creator to publish them. */
+    capability_widening?: CanvasCapabilityWideningApi
+    /** Set for pinned_version_requires_creator. IDs of the components whose placements must use the live version or `latest` instead. */
+    components?: string[]
 }
 
 /**
@@ -1605,6 +1646,18 @@ export interface CanvasStateEntryApi {
 export interface CanvasStateResponseApi {
     /** The canvas's shared entries plus the caller's own user-scoped entries. */
     entries: CanvasStateEntryApi[]
+    /** Number of entries in the whole selection, across all pages. */
+    count: number
+    /**
+     * URL of the next page, or null when complete. It pages the same way as this request: by cursor when the request used a cursor, otherwise by offset.
+     * @nullable
+     */
+    next: string | null
+    /**
+     * URL of the previous page by offset, or null on the first page and for a cursor request.
+     * @nullable
+     */
+    previous: string | null
     /**
      * Next entry offset, or null when complete. Null when the request used a cursor.
      * @nullable
@@ -1660,6 +1713,39 @@ export interface CanvasStateValueResponseApi {
     next_offset: number | null
     /** True when no further chunks remain. Earlier chunks are still needed when offset is nonzero. */
     complete: boolean
+}
+
+/**
+ * The tool's input, exactly as an MCP client passes it.
+ */
+export type CanvasToolInvokeApiArguments = { [key: string]: unknown }
+
+/**
+ * Payload for running one PostHog MCP tool.
+ */
+export interface CanvasToolInvokeApi {
+    /**
+     * MCP tool to run, e.g. 'feature-flag-enable'.
+     * @maxLength 200
+     */
+    tool: string
+    /** The tool's input, exactly as an MCP client passes it. */
+    arguments?: CanvasToolInvokeApiArguments
+}
+
+/**
+ * The tool's JSON result.
+ */
+export type CanvasToolResultApiResult = { [key: string]: unknown }
+
+/**
+ * Result of one PostHog MCP tool run.
+ */
+export interface CanvasToolResultApi {
+    /** The tool that ran. */
+    tool: string
+    /** The tool's JSON result. */
+    result: CanvasToolResultApiResult
 }
 
 /**
@@ -1766,11 +1852,29 @@ export interface CanvasActionDefinitionApi {
 }
 
 /**
- * The action registry: every verb a canvas may declare and invoke.
+ * One PostHog MCP tool a canvas may declare, as the host renders it before running it.
+ */
+export interface CanvasToolDefinitionApi {
+    /** MCP tool name, e.g. 'feature-flag-enable'. */
+    name: string
+    /** Human-readable tool title. */
+    title: string
+    /** One line naming what the tool does. */
+    summary: string
+    /** True when the tool only reads. A canvas runs read-only tools with ph.tools.read, others with ph.tools.call. */
+    read_only: boolean
+    /** True when the tool deletes or overwrites something; the host warns the viewer before it runs. */
+    destructive: boolean
+}
+
+/**
+ * The action registry: every verb and PostHog MCP tool a canvas may declare and invoke.
  */
 export interface CanvasActionsResponseApi {
     /** Registered verbs, sorted by name. */
     actions: CanvasActionDefinitionApi[]
+    /** PostHog MCP tools a canvas may declare in capabilities.posthog.tools, sorted by name. Read each tool's input schema with the MCP `info` command. */
+    tools: CanvasToolDefinitionApi[]
 }
 
 /**
@@ -1852,6 +1956,7 @@ export type CanvasesListParams = {
     kind?: CanvasesListKind
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number
     /**
@@ -2050,6 +2155,7 @@ export const CanvasesStateValueRetrieveScope = {
 export type CanvasesVersionsRetrieveParams = {
     /**
      * Number of results to return per page.
+     * @maximum 1000
      */
     limit?: number
     /**

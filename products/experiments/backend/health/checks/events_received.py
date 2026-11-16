@@ -8,8 +8,8 @@ normal: the code that sends the event often ships with the launch.
 from collections.abc import Sequence
 
 from products.experiments.backend.facade.contracts import ExperimentHealthFindingSeverity
-from products.experiments.backend.health.checks.zero_exposures import ZERO_EXPOSURES_GRACE_HOURS
 from products.experiments.backend.health.context import HealthContext
+from products.experiments.backend.health.delays import ZERO_EXPOSURES_GRACE_HOURS
 
 
 def not_received_severity(ctx: HealthContext, *, affects_results: bool) -> ExperimentHealthFindingSeverity:

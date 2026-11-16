@@ -1,4 +1,3 @@
-import time
 from typing import Any, cast
 
 import pyarrow as pa
@@ -125,7 +124,6 @@ class TestBatchBuffer:
         )
         buf = BatchBuffer(config)
         buf.add(1, "s", '{"a": 1}')
-        time.sleep(0.01)
 
         assert buf.should_flush() == "time"
 
@@ -156,7 +154,6 @@ class TestBatchBuffer:
     def test_should_flush_empty_buffer(self):
         config = _make_config(flush_interval_seconds=0.0)
         buf = BatchBuffer(config)
-        time.sleep(0.01)
 
         assert buf.should_flush() is None
 

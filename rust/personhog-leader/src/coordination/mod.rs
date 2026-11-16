@@ -9,7 +9,7 @@ use personhog_coordination::authority::AuthorityClock;
 use personhog_coordination::changelog::{warm_sources, LiveChangelog};
 use personhog_coordination::error::{Error, Result};
 use personhog_coordination::pod::HandoffHandler;
-use personhog_coordination::types::ChangelogConfig;
+use personhog_coordination::types::{ChangelogConfig, ClusterEndpoint};
 use tracing::{error, info};
 
 use crate::cache::{DirtyIndex, PartitionedCache};
@@ -30,6 +30,7 @@ pub struct Capture {
     pub config: ChangelogConfig,
     /// The config's topic, shared so the write path names it without allocating.
     pub topic: Arc<str>,
+    pub cluster: Option<Arc<ClusterEndpoint>>,
 }
 
 /// Per-partition captures, shared by the handler and the service.
@@ -258,6 +259,7 @@ impl HandoffHandler for LeaderHandoffHandler {
             partition,
             Capture {
                 topic: Arc::from(config.topic.as_str()),
+                cluster: config.cluster.clone().map(Arc::new),
                 config: config.clone(),
             },
         );
@@ -636,6 +638,7 @@ mod tests {
 
         let handler = handler();
         let config = |topic: &str, partitions: u32, epoch: u64| ChangelogConfig {
+            cluster: None,
             topic: topic.to_string(),
             partitions,
             epoch,
@@ -648,6 +651,7 @@ mod tests {
             handler.captures.insert(
                 partition,
                 Capture {
+                    cluster: None,
                     topic: Arc::from(cfg.topic.as_str()),
                     config: cfg,
                 },
@@ -661,6 +665,7 @@ mod tests {
             .find(|k| partition_for_person(k.team_id, k.person_id, 8) == 5)
             .unwrap();
         let old5 = Stream {
+            cluster: None,
             topic: Arc::from("old"),
             partition: 5,
         };

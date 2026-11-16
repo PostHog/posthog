@@ -21,11 +21,10 @@ from rest_framework import permissions, serializers, status, viewsets
 from rest_framework.exceptions import APIException, NotFound, PermissionDenied, ValidationError
 from rest_framework.request import Request
 from rest_framework.response import Response
-from rest_framework_extensions.settings import extensions_api_settings
 
 from posthog.api.fields import OptionalBooleanField
 from posthog.api.mixins import ValidatedRequest, validated_request
-from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.api.routing import PARENT_LOOKUP_KWARG_PREFIX, TeamAndOrgViewSetMixin
 from posthog.api.streaming import streaming_response
 from posthog.api.utils import action
 from posthog.cloud_utils import get_cached_instance_license
@@ -358,7 +357,6 @@ class BillingOverviewResponseSerializer(serializers.Serializer):
     billing_plan = serializers.CharField(required=False, allow_blank=True, allow_null=True)
     subscription_level = serializers.CharField(required=False, allow_blank=True, allow_null=True)
     has_active_subscription = serializers.BooleanField(required=False)
-    deactivated = serializers.BooleanField(required=False)
     is_annual_plan_customer = serializers.BooleanField(required=False)
     free_trial_until = serializers.CharField(required=False, allow_blank=True, allow_null=True)
     current_total_amount_usd = serializers.CharField(required=False, allow_blank=True, allow_null=True)
@@ -578,6 +576,19 @@ class BillingTimeSeriesResponseSerializer(serializers.Serializer):
     total_count = serializers.IntegerField(required=False)
 
 
+class BillingSpendTimeSeriesResponseSerializer(BillingTimeSeriesResponseSerializer):
+    pricing_reset_dates = serializers.ListField(
+        child=serializers.DateField(),
+        required=False,
+        help_text=(
+            "Usage dates (YYYY-MM-DD) in the requested range where the organization's known reported billing-period "
+            "assignment changes. These dates can differ from subscription renewal dates. Organization-wide, even on "
+            "filtered or project-scoped responses, and independent of interval and pagination. An empty or omitted list "
+            "does not establish whether a renewal occurred."
+        ),
+    )
+
+
 class BillingTeamOptionsResponseSerializer(serializers.Serializer):
     team_id_options = serializers.ListField(
         child=serializers.IntegerField(), help_text="Project ids that appear in the organization's usage reports."
@@ -664,7 +675,10 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
     def initial(self, request: Request, *args: Any, **kwargs: Any) -> None:
         scoped_billing_read = self.action == "list" and "organization_id" in request.query_params
-        if self.action in self.payment_actions or scoped_billing_read:
+        scoped_startup_application = self.action == "apply_startup_program" and bool(
+            request.data.get("organization_id")
+        )
+        if self.action in self.payment_actions or scoped_startup_application or scoped_billing_read:
             serializer = BillingPaymentOrganizationSerializer(
                 data=request.query_params if scoped_billing_read else request.data
             )
@@ -672,8 +686,9 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             # Configure normal organization scope before shared permissions resolve any cached
             # routing properties. The user's current project can change in another browser tab.
             self.param_derived_from_user_current_team = None
-            parent_prefix = extensions_api_settings.DEFAULT_PARENT_LOOKUP_KWARG_NAME_PREFIX
-            self.kwargs[f"{parent_prefix}organization_id"] = str(serializer.validated_data["organization_id"])
+            self.kwargs[f"{PARENT_LOOKUP_KWARG_PREFIX}organization_id"] = str(
+                serializer.validated_data["organization_id"]
+            )
         super().initial(request, *args, **kwargs)
 
     def get_billing_manager(self) -> BillingManager:
@@ -1224,7 +1239,7 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         detail=False,
         url_path="spend",
         permission_classes=[permissions.IsAuthenticated, HasBillingUsageSpendReadAccess],
-        responses={200: BillingTimeSeriesResponseSerializer},
+        responses={200: BillingSpendTimeSeriesResponseSerializer},
     )
     def spend(self, request: Request, *args: Any, **kwargs: Any) -> HttpResponse:
         """Endpoint to fetch spend data (proxy to billing service)."""

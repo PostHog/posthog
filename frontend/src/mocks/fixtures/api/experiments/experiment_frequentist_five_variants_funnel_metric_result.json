@@ -8,19 +8,11 @@
     "cache_key": "cache_1fc548df0bb59cf67f3f74b10519d471",
     "cache_target_age": "2025-06-13T15:06:04.080661Z",
     "calculation_trigger": null,
-    "credible_intervals": null,
-    "insight": null,
     "is_cached": true,
     "kind": "ExperimentQuery",
     "last_refresh": "2025-06-12T15:06:04.080661Z",
-    "metric": null,
     "next_allowed_client_refresh": "2025-06-12T15:07:04.080661Z",
-    "p_value": null,
-    "probability": null,
     "query_status": null,
-    "significance_code": null,
-    "significant": null,
-    "stats_version": null,
     "timezone": "UTC",
     "variant_results": [
         {
@@ -63,6 +55,5 @@
             "sum": 81.0,
             "sum_squares": 81.0
         }
-    ],
-    "variants": null
+    ]
 }

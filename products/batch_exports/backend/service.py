@@ -580,21 +580,24 @@ class RedshiftCopyInputs:
     s3_bucket: str
     region_name: str
     s3_key_prefix: str
-    # Authorization for Redshift to COPY data from the bucket: an IAM role ARN,
-    # inline credentials, or the id of a team-scoped aws-s3 integration.
+    # Authorization for Redshift to COPY data from the bucket: an IAM role ARN or the id of a
+    # team-scoped aws-s3 integration. Inline credentials still parse, but the activity rejects them.
     authorization: IAMRole | AWSCredentials | IntegrationID
-    # Credentials used to stage files in the S3 bucket: inline credentials or
-    # the id of a team-scoped aws-s3 integration.
+    # Credentials used to stage files in the S3 bucket: the id of a team-scoped aws-s3
+    # integration. Inline credentials still parse, but the activity rejects them.
     bucket_credentials: AWSCredentials | IntegrationID
 
 
 @dataclass(frozen=False, kw_only=True)
 class RedshiftBatchExportInputs(BaseBatchExportInputs):
-    """Inputs for Redshift export workflow."""
+    """Inputs for Redshift export workflow.
+
+    Credentials are never carried here: the activity resolves them from the linked Integration at
+    run time (see `integration_id`). `host` and `port` are read only for AWS Redshift integrations,
+    because a plain Redshift integration stores the server itself.
+    """
 
     database: str
-    user: str | None = None
-    password: str | None = field(default=None, repr=False)
     host: str | None = None
     schema: str = "public"
     table_name: str = "events"
@@ -655,15 +658,16 @@ class RedshiftBatchExportInputs(BaseBatchExportInputs):
 
 @dataclass(frozen=False, kw_only=True)
 class BigQueryBatchExportInputs(BaseBatchExportInputs):
-    """Inputs for BigQuery export workflow."""
+    """Inputs for BigQuery export workflow.
+
+    Credentials are never carried here: the activity resolves them from the linked Integration at
+    run time (see `integration_id`). The activity also reads the project from the Integration, so
+    `project_id` only keeps existing configs valid.
+    """
 
     dataset_id: str
     table_id: str = "events"
     project_id: str | None = None
-    private_key: str | None = field(default=None, repr=False)
-    private_key_id: str | None = None
-    token_uri: str | None = None
-    client_email: str | None = None
     use_json_type: bool = False
 
 
@@ -806,19 +810,37 @@ class BatchExportServiceScheduleNotFound(BatchExportServiceRPCError):
         super().__init__(f"The Temporal Schedule {schedule_id} was not found (maybe it was deleted?)")
 
 
-def pause_batch_export(temporal: Client, batch_export_id: str, note: str | None = None) -> bool:
+def _get_batch_export_for_schedule_change(batch_export_id: str, team_id: int | None) -> BatchExport:
+    """Load the export that a pause or unpause changes.
+
+    With ``team_id``, only a live export of that team matches, so a request cannot reach another
+    team's export. Internal callers (Temporal, deletes) pass no team and match any export.
+    """
+    # nosemgrep: idor-lookup-without-team (scoped below when the caller passes team_id)
+    batch_exports = BatchExport.objects.filter(id=batch_export_id)
+    if team_id is not None:
+        batch_exports = batch_exports.filter(team_id=team_id, deleted=False)
+
+    try:
+        return batch_exports.get()
+    except BatchExport.DoesNotExist:
+        raise BatchExportIdError(batch_export_id)
+
+
+def pause_batch_export(
+    temporal: Client, batch_export_id: str, note: str | None = None, *, team_id: int | None = None
+) -> bool:
     """Pause this BatchExport.
 
     We pass the call to the underlying Temporal Schedule.
 
     Returns:
         `True` if the batch export was paused, `False` if it was already paused.
+
+    Raises:
+        BatchExportIdError: If no export matches ``batch_export_id`` (and ``team_id``, when given).
     """
-    try:
-        # nosemgrep: idor-lookup-without-team (internal service, team_id passed as parameter)
-        batch_export = BatchExport.objects.get(id=batch_export_id)
-    except BatchExport.DoesNotExist:
-        raise BatchExportIdError(batch_export_id)
+    batch_export = _get_batch_export_for_schedule_change(batch_export_id, team_id)
 
     if batch_export.paused is True:
         return False
@@ -869,6 +891,8 @@ def unpause_batch_export(
     batch_export_id: str,
     note: str | None = None,
     backfill: bool = False,
+    *,
+    team_id: int | None = None,
 ) -> None:
     """Unpause this BatchExport.
 
@@ -880,15 +904,12 @@ def unpause_batch_export(
         batch_export_id: The ID of the BatchExport to unpause.
         note: An optional note to include in the Schedule when unpausing.
         backfill: If True, a backfill will be triggered since the BatchExport's last_paused_at.
+        team_id: If set, only a live export of this team matches.
 
     Raises:
-        BatchExportIdError: If the provided batch_export_id doesn't point to an existing BatchExport.
+        BatchExportIdError: If no export matches ``batch_export_id`` (and ``team_id``, when given).
     """
-    try:
-        # nosemgrep: idor-lookup-without-team (internal service, team_id passed as parameter)
-        batch_export = BatchExport.objects.get(id=batch_export_id)
-    except BatchExport.DoesNotExist:
-        raise BatchExportIdError(batch_export_id)
+    batch_export = _get_batch_export_for_schedule_change(batch_export_id, team_id)
 
     if batch_export.paused is False:
         return

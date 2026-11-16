@@ -4,6 +4,7 @@ import { LemonRadio, LemonRadioOption } from 'lib/lemon-ui/LemonRadio'
 import { LemonTextArea } from 'lib/lemon-ui/LemonTextArea'
 
 import { DISMISSAL_REASON_OPTIONS, DismissalFeedback, DismissalReasonValue } from '../../utils/dismissalReasons'
+import { ReportInterviewInvite } from '../detail/ReportInterviewInvite'
 import { DismissCorrectedRepoField } from './DismissCorrectedRepoField'
 import { HotkeyRadio } from './HotkeyRadio'
 
@@ -109,6 +110,7 @@ export function openDismissReportDialog({
                         maxRows={12}
                     />
                 </LemonField>
+                {!isSelection && !hotkeys && !copy && <ReportInterviewInvite />}
             </div>
         ),
         errors: {

@@ -10,11 +10,12 @@ import { createTestTeamFixture } from '../../../tests/helpers/sql'
 import { Hub, Team } from '../../types'
 import { FixtureHogFlowBuilder } from '../_tests/builders/hogflow.builder'
 import { HOG_FLOW_MASK_EXAMPLES } from '../_tests/examples'
-import { createCohortMembershipEvent, createKafkaMessage } from '../_tests/fixtures'
+import { createCohortMembershipEvent, createKafkaMessage, createSweepFloorRecord } from '../_tests/fixtures'
 import { insertHogFlow } from '../_tests/fixtures-hogflows'
 import { COHORT_MEMBERSHIP_CHANGED_EVENT } from '../services/cohorts/cohort-membership-repository'
 import { CyclotronJobInvocationHogFlow } from '../types'
 import { CdpCohortMembershipTriggerConsumer } from './cdp-cohort-membership-trigger.consumer'
+import { counterParseError } from './metrics'
 
 describe('CdpCohortMembershipTriggerConsumer', () => {
     let processor: CdpCohortMembershipTriggerConsumer
@@ -134,6 +135,39 @@ describe('CdpCohortMembershipTriggerConsumer', () => {
         const change = createCohortMembershipEvent({ team_id: team.id, cohort_id: 42, status: 'entered' })
 
         await expect(processor._parseKafkaBatch([createKafkaMessage(change)])).rejects.toThrow('conflict with recovery')
+    })
+
+    it('skips a change with an out-of-range team_id as a parse error and keeps the rest of the batch', async () => {
+        // The dropped-changes alert counts parse errors. It does not count a skip with any other reason.
+        const invalidTeamIdErrors = async (): Promise<number> =>
+            (await counterParseError.get()).values.find((v) => v.labels.error === 'invalid_team_id')?.value ?? 0
+        await insertHogFlow(hub.postgres, cohortFlow(42, 'entered'))
+        const change = createCohortMembershipEvent({ team_id: team.id, cohort_id: 42, status: 'entered' })
+        const before = await invalidTeamIdErrors()
+
+        const globals = await processor._parseKafkaBatch([
+            createKafkaMessage({ ...change, team_id: 3_000_000_000 }),
+            createKafkaMessage(change),
+        ])
+
+        expect(globals).toHaveLength(1)
+        expect(await invalidTeamIdErrors()).toBe(before + 1)
+    })
+
+    it('skips a control record without counting a parse error, and keeps the rest of the batch', async () => {
+        const parseErrors = async (): Promise<number> =>
+            (await counterParseError.get()).values.reduce((sum, v) => sum + v.value, 0)
+        await insertHogFlow(hub.postgres, cohortFlow(42, 'entered'))
+        const change = createCohortMembershipEvent({ team_id: team.id, cohort_id: 42, status: 'entered' })
+        const before = await parseErrors()
+
+        const globals = await processor._parseKafkaBatch([
+            createKafkaMessage(createSweepFloorRecord({ team_id: team.id, cohort_id: 42 })),
+            createKafkaMessage(change),
+        ])
+
+        expect(globals.map((g) => g.person?.id)).toEqual([change.person_id])
+        expect(await parseErrors()).toBe(before)
     })
 
     it("loads a team's workflows once per batch, however many changes the batch holds for it", async () => {

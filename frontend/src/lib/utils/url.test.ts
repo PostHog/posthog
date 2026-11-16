@@ -182,9 +182,14 @@ describe('url utils', () => {
             ['/\\evil.com/path', '/-then-backslash'],
             ['/\\\\evil.com/path', '/-then-two-backslashes'],
             ['%2F%5Cevil.com%2Fpath', 'encoded /-then-backslash'],
-        ])('returns null for backslash external bypass (%s — %s)', (input) => {
-            // Browsers normalize backslashes in special-scheme URLs per WHATWG, so /\\evil.com
-            // resolves to //evil.com and escapes the origin.
+            ['/.//evil.com/path', 'dot segment then //'],
+            ['/a/..//evil.com/path', 'parent segment then //'],
+            ['/../\\evil.com/path', 'parent segment then backslash'],
+            ['%2F.%2F%2Fevil.com%2Fpath', 'encoded dot segment then //'],
+            ['https://us.posthog.com/.//evil.com/path', 'same-origin absolute URL with dot segment then //'],
+        ])('returns null for a path that normalizes to protocol-relative (%s — %s)', (input) => {
+            // Browsers normalize backslashes and dot segments in special-scheme URLs per WHATWG, so
+            // each input resolves to //evil.com and escapes the origin.
             expect(getRelativeNextPath(input, location)).toBeNull()
         })
     })

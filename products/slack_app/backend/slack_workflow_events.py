@@ -10,7 +10,7 @@ from typing import Any
 
 import structlog
 
-from posthog.models.integration import Integration
+from posthog.integrations import IntegrationManager
 
 from products.cdp.backend.internal_events import InternalEventEvent, produce_internal_event
 
@@ -91,9 +91,9 @@ def emit_slack_message_event(
         # Integration is per team), and each configures its own workflows, so every one gets a copy.
         # Projects with nothing listening are discarded by the CDP consumer, which is cheaper than
         # asking Postgres here.
-        integrations = list(
-            Integration.objects.filter(kind="slack", integration_id=slack_team_id).values_list("team_id", "id")
-        )
+        integrations = [
+            (row.team_id, row.id) for row in IntegrationManager.slack.oauth.list_by_external_id(slack_team_id)
+        ]
     except Exception:
         # Stay put on a lookup failure: handing the workspace over would turn a local database blip
         # into a cross-region hop for every message in every channel.

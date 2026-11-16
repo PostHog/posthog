@@ -462,6 +462,32 @@ describe('generateToolCode with input_schema', () => {
         expect(result.code).toContain("params.fields?.length ? params.fields : ['id', 'name']")
     })
 
+    it('adds an `expand` param that restores the expandable fields the response omits by default', () => {
+        const config: ToolConfig = {
+            operation: 'things_retrieve',
+            enabled: true,
+            input_schema: 'ThingGetSchema',
+            response: { exclude: ['secret'], expandable: ['items.*.body'] },
+        }
+        const resolved = makeResolved({ method: 'GET' })
+
+        const result = generateToolCode(
+            'thing-get',
+            config,
+            resolved,
+            defaultCategory,
+            makeSpec(),
+            new Set<string>(),
+            stubGetQuerySchema
+        )
+
+        expect(result.code).toContain(".extend({ expand: z.array(z.enum(['items.*.body'])).min(1).optional()")
+        expect(result.code).toContain('const { expand: _expand, ...parsedParams } = ThingGetSchema().parse(params)')
+        expect(result.code).toContain(
+            "omitResponseFields(result, ['secret', ...(['items.*.body'] as const).filter((path) => !params.expand?.includes(path))])"
+        )
+    })
+
     it('throws when selectable is set without an include allowlist', () => {
         const config: ToolConfig = {
             operation: 'things_list',
@@ -988,6 +1014,36 @@ describe('anyOf / oneOf body schemas (discriminated unions)', () => {
 })
 
 describe('rename_params', () => {
+    it('maps a query alias to the original HTTP key and preserves its schema override', () => {
+        const config: ToolConfig = {
+            operation: 'things_list',
+            enabled: true,
+            rename_params: { tile_ids: 'dashboard_tile_ids' },
+            param_overrides: { tile_ids: { input_schema: 'DashboardInsightTileIdsSchema', aliases: ['tile_ids'] } },
+        }
+        const resolved = makeResolved({
+            operation: {
+                operationId: 'things_list',
+                parameters: [{ in: 'query', name: 'tile_ids', schema: { type: 'string' } }],
+            },
+        })
+        const result = generateToolCode(
+            'things-list',
+            config,
+            resolved,
+            defaultCategory,
+            makeSpec(),
+            new Set<string>(),
+            stubGetQuerySchema
+        )
+
+        expect(result.code).toContain('dashboard_tile_ids:')
+        expect(result.code).toContain('DashboardInsightTileIdsSchema')
+        expect(result.code).toContain('tile_ids: params.dashboard_tile_ids')
+        expect(result.code).not.toContain('ThingsListBody')
+        expect(result.code).toContain("normalizeParamAliases({ dashboard_tile_ids: ['tile_ids'] })")
+    })
+
     it('swaps field names in schema expression and tracks renames', () => {
         const config: ToolConfig = {
             operation: 'things_create',
@@ -1559,12 +1615,18 @@ describe('ToolConfigSchema validation', () => {
         expect(result.success).toBe(true)
     })
 
-    it('rejects response.include with response.exclude', () => {
-        const result = ToolConfigSchema.safeParse({
-            operation: 'things_list',
-            enabled: true,
-            response: { include: ['id'], exclude: ['name'] },
-        })
+    it.each([
+        { name: 'rejects response.include with response.exclude', response: { include: ['id'], exclude: ['name'] } },
+        {
+            name: 'rejects response.expandable with response.include',
+            response: { include: ['id'], expandable: ['body'] },
+        },
+        {
+            name: 'rejects a response.expandable path that response.exclude also removes',
+            response: { exclude: ['body'], expandable: ['body'] },
+        },
+    ])('$name', ({ response }) => {
+        const result = ToolConfigSchema.safeParse({ operation: 'things_get', enabled: true, response })
         expect(result.success).toBe(false)
     })
 

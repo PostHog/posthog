@@ -1,3 +1,6 @@
+import pytest
+
+from products.alerts_platform.backend.delivery.message import _SOURCE_LABELS
 from products.alerts_platform.backend.facade.contracts import SourceKind
 from products.alerts_platform.backend.facade.enums import PlatformAlertConfigurationSourceKind
 from products.alerts_platform.backend.presentation.views.platform_alert import (
@@ -19,3 +22,9 @@ def test_every_source_kind_names_the_resource_that_gates_reading_it() -> None:
         SOURCE_KIND_RESOURCE
     ) | UNSERVED_SOURCE_KINDS
     assert not set(SOURCE_KIND_RESOURCE) & UNSERVED_SOURCE_KINDS
+
+
+@pytest.mark.parametrize("source", list(SourceKind))
+def test_every_source_kind_names_itself_in_a_message_headline(source: SourceKind) -> None:
+    # The headline reads the label by key, so a kind without one raises on every send of its alerts.
+    assert _SOURCE_LABELS[source]

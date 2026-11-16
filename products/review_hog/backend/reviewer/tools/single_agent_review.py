@@ -22,6 +22,8 @@ from posthog.dataclasses import frozen
 
 from products.review_hog.backend.reviewer.artefact_content import ReviewIssueFinding, ValidationVerdict
 from products.review_hog.backend.reviewer.constants import (
+    DEVEX_LENS,
+    DEVEX_LENS_NAME,
     FLASH_FIRST_REVIEW_CAP_MULTIPLIER,
     FLASH_FOLLOW_UP_CHANGE_MARGIN_LINES,
     FLASH_LENSES,
@@ -34,7 +36,7 @@ from products.review_hog.backend.reviewer.constants import (
     priority_rank,
 )
 from products.review_hog.backend.reviewer.models import PROMPTS_DIR
-from products.review_hog.backend.reviewer.models.github_meta import PRFile, PRMetadata
+from products.review_hog.backend.reviewer.models.github_meta import PRFile, PRFileUpdate, PRMetadata
 from products.review_hog.backend.reviewer.models.issues_review import (
     DropDisposition,
     DroppedIssue,
@@ -65,6 +67,10 @@ _LEADING_HTML_COMMENT = re.compile(r"\A\s*<!--.*?-->\s*", re.S)
 # A full SHA-1 or SHA-256 commit id. The prompt puts the merge base into a shell command the session
 # runs, so only a value of this shape may reach it.
 _COMMIT_SHA = re.compile(r"[0-9a-f]{40}|[0-9a-f]{64}")
+
+
+def _commit_sha(value: str | None) -> str | None:
+    return value if value is not None and _COMMIT_SHA.fullmatch(value) else None
 
 
 def load_prompt_file(path: Path) -> str:
@@ -100,8 +106,10 @@ class SingleAgentPrompt:
         merge_base_sha: str | None = None,
         scope_files: list[str] | None = None,
         for_lens: bool = False,
+        delta_since: str | None = None,
     ) -> None:
         self.repository = repository
+        self.delta_since = delta_since
         self.guidelines = guidelines
         self.pr_metadata = pr_metadata
         self.merge_base_sha = merge_base_sha
@@ -174,8 +182,7 @@ class SingleAgentPrompt:
 
     def _base_sha(self) -> str | None:
         """The merge base when it is a commit id, else None: the prompt then gives no git command."""
-        sha = self.merge_base_sha
-        return sha if sha is not None and _COMMIT_SHA.fullmatch(sha) else None
+        return _commit_sha(self.merge_base_sha)
 
     def render(self) -> str:
         template, output_schema = load_template_and_schema(SINGLE_AGENT_PROMPT_DIR)
@@ -190,6 +197,8 @@ class SingleAgentPrompt:
             REPOSITORY=self.repository,
             HEAD_SHA=self.pr_metadata.head_sha or self.pr_metadata.head_branch,
             BASE_SHA=self._base_sha(),
+            # A commit id only, so no text from the repository reaches the session's shell.
+            DELTA_SINCE=_commit_sha(self.delta_since),
             PR_TITLE=without_cache_marker(self.pr_metadata.title),
             PR_DESCRIPTION=without_cache_marker(self.pr_metadata.body.strip() or "(no description provided)"),
             FILE_LIST=without_cache_marker(self._file_list(not_shown)),
@@ -325,6 +334,7 @@ def compose_flash_findings(
 _SESSION_NAMES = {
     SINGLE_AGENT_SOURCE: "main",
     **{lens.source: name.replace("-", "_") for name, lens in FLASH_LENSES.items()},
+    DEVEX_LENS.source: DEVEX_LENS_NAME,
 }
 
 
@@ -359,6 +369,7 @@ def flash_turn_stats(
     *,
     reviewable_lines: int,
     changed_since: "ChangedSinceReview | None" = None,
+    devex_lens: bool = False,
 ) -> FlashTurnStats:
     """Count a turn's findings per session and per drop reason.
 
@@ -366,7 +377,7 @@ def flash_turn_stats(
     session reported. The on and off change split reads the stored priority instead, because it counts
     what the turn posts.
     """
-    per_session = dict.fromkeys(_SESSION_NAMES.values(), 0)
+    per_session = {name: 0 for name in _SESSION_NAMES.values() if devex_lens or name != DEVEX_LENS_NAME}
     must_fix = dict(per_session)
     for issue in candidates:
         session = _SESSION_NAMES.get(issue.source_perspective or "", issue.source_perspective or "unknown")
@@ -609,6 +620,13 @@ def _count_delta(pr_file: PRFile | None, earlier: PRFile | None) -> int:
     return abs(additions - earlier_additions) + abs(deletions - earlier_deletions)
 
 
+def _within_margin(start: int, end: int | None, lines: set[int]) -> bool:
+    """Whether any of `lines` falls in `start`..`end`, widened by the follow-up change margin."""
+    margin = FLASH_FOLLOW_UP_CHANGE_MARGIN_LINES
+    # The range can come from the model, so it is compared, never expanded line by line.
+    return any(start - margin <= line <= (end or start) + margin for line in lines)
+
+
 @frozen
 class ChangedSinceReview:
     """The lines of the head that changed since an earlier reviewed head, per file."""
@@ -646,13 +664,41 @@ class ChangedSinceReview:
         if not issue.lines or issue.file in self.files_without_patch:
             return True
         changed = self.lines.get(issue.file, set())
-        margin = FLASH_FOLLOW_UP_CHANGE_MARGIN_LINES
-        # The range comes from the model, so it is compared, never expanded line by line.
-        return any(
-            line_range.start - margin <= line <= (line_range.end or line_range.start) + margin
-            for line_range in issue.lines
-            for line in changed
-        )
+        return any(_within_margin(line_range.start, line_range.end, changed) for line_range in issue.lines)
+
+
+def _near_changed(update: PRFileUpdate, changed: set[int]) -> bool:
+    return update.new_start_line is not None and _within_margin(update.new_start_line, update.new_end_line, changed)
+
+
+def _borders_near(near: list[bool], index: int) -> bool:
+    return (index > 0 and near[index - 1]) or (index + 1 < len(near) and near[index + 1])
+
+
+def delta_files(pr_files: list[PRFile], change: ChangedSinceReview) -> list[PRFile]:
+    """The PR's files that changed since the earlier head, each with only the diff blocks around the changed lines.
+
+    A removal block stays when it borders a kept block, so a removed guard shows next to the code it guarded. A file
+    without a patch stays whole when its counts changed. Files the push did not touch drop out.
+    """
+    result: list[PRFile] = []
+    for pr_file in pr_files:
+        if pr_file.filename in change.files_without_patch:
+            if change.changed_line_counts.get(pr_file.filename):
+                result.append(pr_file)
+            continue
+        changed = change.lines.get(pr_file.filename)
+        if not changed:
+            continue
+        near = [_near_changed(update, changed) for update in pr_file.changes]
+        kept = [
+            update
+            for index, update in enumerate(pr_file.changes)
+            if near[index] or (update.type == "deletion" and _borders_near(near, index))
+        ]
+        # A change with only removals, such as a deleted file, has no head line to be near, so the file stays whole.
+        result.append(pr_file.model_copy(update={"changes": kept}) if kept else pr_file)
+    return result
 
 
 def _old_code_findings(

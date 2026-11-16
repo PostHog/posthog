@@ -32,6 +32,7 @@ export interface KafkaConsumerInterface {
     ): Promise<void>
     disconnect(): Promise<void>
     isHealthy(): HealthCheckResult
+    /** Throws once a background task returned from `eachBatch` has failed. */
     offsetsStore(offsets: TopicPartitionOffset[]): void
     /** Broker-side `[low, high]` offsets for a partition. `high` is the next offset to be produced. */
     queryWatermarkOffsets(topic: string, partition: number, timeout?: number): Promise<[number, number]>

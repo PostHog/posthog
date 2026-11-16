@@ -14,6 +14,10 @@ Choosing **Already fixed** in the Dismiss dialog pauses the report. It returns t
 action does not start an investigation. Other dismissal reasons archive the
 report with status `suppressed`.
 
+**Wrong assignee** records a routing mistake without treating the report as
+incorrect. **Not relevant to this project** records that the report itself is
+not useful to the project.
+
 **Already fixed** is available for `in_progress`, `pending_input`, `ready`, and
 `failed` reports. It is disabled for `potential` and `candidate` reports. These
 reports can still be archived with another dismissal reason.

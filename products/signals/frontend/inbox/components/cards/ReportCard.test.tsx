@@ -223,6 +223,24 @@ describe('ReportCard', () => {
         expect(logic.values.selectedReportIds).toEqual([])
     })
 
+    it.each([
+        ['a report without a pull request', null],
+        ['a pull request', 'https://github.com/example/repo/pull/123'],
+    ])('shows a plain title without a conventional commit tag for %s', (_name, implementationPrUrl) => {
+        cleanup()
+        render(
+            <ReportCard
+                report={makeReport('r-2', {
+                    title: 'note(example): Example report title',
+                    implementation_pr_url: implementationPrUrl,
+                })}
+            />
+        )
+
+        expect(screen.getByText('Example report title')).toBeInTheDocument()
+        expect(screen.queryByText('note(example)')).not.toBeInTheDocument()
+    })
+
     test.each([
         [
             "a person's reason",
@@ -264,6 +282,11 @@ describe('ReportCard', () => {
             action: 'unassign',
             hold: () => jest.spyOn(api, 'delete').mockReturnValue(new Promise<never>(() => {})),
             start: () => logic.actions.bulkUnassignMe(['r-1']),
+        },
+        {
+            action: 'claim',
+            hold: () => jest.spyOn(api, 'create').mockReturnValue(new Promise<never>(() => {})),
+            start: () => logic.actions.bulkClaim(['r-1']),
         },
     ])('locks the selection while a bulk $action is running', ({ hold, start }) => {
         const pending = hold()
@@ -422,12 +445,12 @@ describe('ReportCard', () => {
     })
 
     it.each([
-        ['with the impact column', true, 'ranking_fixed', '2.7x more likely'],
+        ['with the impact column', true, 'ranking_fix', '2.7x more likely'],
         [
             'without the impact column, falling back to the probability for a head with no lift',
             false,
             'ranking_action',
-            '6.2% engage',
+            '6.2% action',
         ],
     ] as const)('shows the active head lift in the meta row %s', (_name, impactColumn, sortField, tagText) => {
         // The harness renders a card for every test; these assert against their own.
@@ -436,15 +459,13 @@ describe('ReportCard', () => {
         const report = makeReport('r-2', {
             metrics: [makeMetric()],
             ranking: {
-                served_key: 'report_embeddings@2026-09-30',
-                model_name: 'report_embeddings',
-                model_version: '2026-09-30',
-                manifest_version: 'manifest',
+                status: 'scored',
+                model: 'report_embeddings@2026-09-30',
                 scored_at: '2026-09-30T12:00:00Z',
-                scores: { fixed: 0.41, action: 0.062 },
-                lifts: { fixed: 2.7 },
-                readable_heads: ['action', 'fixed'],
-                stale: false,
+                predictions: [
+                    { outcome: 'action', probability: 0.062, lift: null, readable: true },
+                    { outcome: 'fix', probability: 0.41, lift: 2.7, readable: true },
+                ],
             },
         })
         const { container } = render(<ReportCard report={report} rankingSortField={sortField} />)
@@ -459,28 +480,59 @@ describe('ReportCard', () => {
         // The harness renders a card for every test; these assert against their own.
         cleanup()
         enableImpactColumn()
-        const { rerender } = render(<ReportCard report={makeReport('r-2')} rankingSortField="ranking_fixed" />)
+        const { rerender } = render(<ReportCard report={makeReport('r-2')} rankingSortField="ranking_fix" />)
         expect(screen.getByText('Not scored yet')).toBeInTheDocument()
 
         const stale = makeReport('r-2', {
             ranking: {
-                served_key: 'report_embeddings@2026-09-30',
-                model_name: 'report_embeddings',
-                model_version: '2026-09-30',
-                manifest_version: 'manifest',
+                status: 'stale',
+                model: 'report_embeddings@2026-09-30',
                 scored_at: '2026-09-30T12:00:00Z',
-                scores: { fixed: 0.41 },
-                lifts: { fixed: 2.7 },
-                readable_heads: ['fixed'],
-                stale: true,
+                predictions: [{ outcome: 'fix', probability: 0.41, lift: 2.7, readable: true }],
             },
         })
-        rerender(<ReportCard report={stale} rankingSortField="ranking_fixed" />)
+        rerender(<ReportCard report={stale} rankingSortField="ranking_fix" />)
         expect(screen.getByText('Score out of date')).toBeInTheDocument()
         expect(screen.queryByText('2.7x more likely')).not.toBeInTheDocument()
 
         rerender(<ReportCard report={makeReport('r-2')} />)
         expect(screen.queryByText('Not scored yet')).not.toBeInTheDocument()
+    })
+
+    it('shows the three-score pill only when the Recommended list asks for it, and keeps the tags elsewhere', () => {
+        // The harness renders a card for every test; these assert against their own.
+        cleanup()
+        enableImpactColumn()
+        const scored = makeReport('r-2', {
+            ranking: {
+                status: 'scored',
+                model: 'report_embeddings@2026-09-30',
+                scored_at: '2026-09-30T12:00:00Z',
+                predictions: [
+                    { outcome: 'open', probability: 0.8, lift: 2.9, readable: true },
+                    { outcome: 'action', probability: 0.3, lift: 0.04, readable: true },
+                    { outcome: 'fix', probability: 0.41, lift: 2.7, readable: true },
+                ],
+            },
+        })
+        const { container, rerender } = render(<ReportCard report={scored} rankingPill />)
+        const pill = container.querySelector('[data-attr="inbox-ranking-pill"]')
+        expect(pill?.textContent).toBe('Open2.9xAction<0.1xFix2.7x')
+        // The card is a link, so a click that reaches it would open the report.
+        expect(fireEvent.click(pill as Element)).toBe(false)
+        ;(pill as HTMLElement).focus()
+        expect(document.activeElement).toBe(pill)
+
+        rerender(<ReportCard report={scored} rankingPill rankingSortField="ranking_fix" />)
+        expect(container.querySelector('[data-attr="inbox-ranking-pill"]')).toBeNull()
+        expect(screen.getByText('2.7x more likely')).toBeInTheDocument()
+
+        rerender(<ReportCard report={{ ...scored, ranking: { ...scored.ranking!, status: 'stale' } }} rankingPill />)
+        expect(screen.getByText('Score out of date')).toBeInTheDocument()
+
+        rerender(<ReportCard report={scored} />)
+        expect(container.querySelector('[data-attr="inbox-ranking-pill"]')).toBeNull()
+        expect(container.querySelector('[data-attr="inbox-ranking-tag"]')).toBeNull()
     })
 
     it('does not show a list metric without a stored snapshot or with the metrics flag off', () => {

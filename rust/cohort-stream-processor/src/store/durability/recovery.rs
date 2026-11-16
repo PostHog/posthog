@@ -327,7 +327,7 @@ async fn prepare_store(
     remove_dir_if_present(&stage).map_err(RestoreBlocked::Local)?;
 
     if !config.effective_wipe_on_start() && live_store_is_intact(&live) {
-        match PendingRestore::resume(&live, window, config.partition_count()) {
+        match PendingRestore::resume(&live, window, &ownership) {
             Ok(Some(pending)) => return Ok((BootStore::Restored(Box::new(pending)), "pending")),
             Ok(None) => match source {
                 StoreSource::Own => return Ok((BootStore::Reopened, "reopen_live")),
@@ -620,9 +620,9 @@ impl<W: ReplayWindow> Restore<'_, W> {
 
     /// The window check.
     fn replay_plan(&self, manifest: &OffsetManifest) -> Result<Admission, RestoreBlocked> {
-        let plan = RestorePlan::check(manifest, self.window, self.ownership.partition_count())
+        let plan = RestorePlan::check(manifest, self.window, &self.ownership)
             .map_err(RestoreBlocked::Positions)?;
-        if !plan.resumes_any(&self.ownership) {
+        if !plan.resumes_any() {
             // Older candidates hold older positions, which the broker deletes first, so retrying
             // cannot help.
             return Ok(Admission::Rejected(Unusable::NothingToReplay));
@@ -1266,39 +1266,48 @@ mod tests {
 
     #[tokio::test]
     async fn a_local_checkpoint_stays_pending_and_each_boot_checks_its_window_again() {
-        let boot = Boot::new();
-        let baseline = boot.local_checkpoint();
-        let uploaded = boot.lineage_dir().join(UPLOADED_FILENAME);
-        UploadBaseline::save(&uploaded, &boot.config.checkpoint_s3_bucket, baseline).unwrap();
+        // Pod 1 of 2's checkpoint lacks partition 0, so a wrong split resets it.
+        for boot in [Boot::new(), Boot::of(split(2, 1))] {
+            let baseline = boot.local_checkpoint();
+            let uploaded = boot.lineage_dir().join(UPLOADED_FILENAME);
+            UploadBaseline::save(&uploaded, &boot.config.checkpoint_s3_bucket, baseline).unwrap();
 
-        let Ok(BootStore::Restored(published)) = boot.prepare(&window()).await else {
-            panic!("a fresh local checkpoint restores");
-        };
-        assert_eq!(published.source().label(), "local");
-        assert!(boot.live().join(MARKER_FILENAME).is_file());
-        assert!(
-            !uploaded.exists(),
-            "a local restore leaves no upload baseline, so the next upload is full",
-        );
+            let Ok(BootStore::Restored(published)) = boot.prepare(&window()).await else {
+                panic!("{}: a fresh local checkpoint restores", boot.ownership);
+            };
+            assert_eq!(published.source().label(), "local");
+            assert_eq!(published.plan().resets().count(), 0, "{}", boot.ownership);
+            assert!(boot.live().join(MARKER_FILENAME).is_file());
+            assert!(
+                !uploaded.exists(),
+                "a local restore leaves no upload baseline, so the next upload is full",
+            );
 
-        let Ok(BootStore::Restored(resumed)) = boot.prepare(&window()).await else {
-            panic!("a store with a marker resumes its restore instead of reopening");
-        };
-        assert_eq!(resumed.plan(), published.plan());
+            let Ok(BootStore::Restored(resumed)) = boot.prepare(&window()).await else {
+                panic!(
+                    "{}: a store with a marker resumes its restore instead of reopening",
+                    boot.ownership
+                );
+            };
+            assert_eq!(resumed.plan(), published.plan(), "{}", boot.ownership);
 
-        // The checkpoint resumes the events at 42.
-        let Ok(BootStore::Restored(expired)) = boot.prepare(&window_at(Some(43))).await else {
-            panic!("a pending restore resumes whatever the window holds");
-        };
-        assert_eq!(expired.plan().resets().count(), 1);
-        assert!(matches!(
-            boot.prepare(&window_at(None)).await,
-            Err(RestoreBlocked::Positions(_))
-        ));
-        assert!(
-            boot.live().join(MARKER_FILENAME).is_file(),
-            "a window that cannot be read keeps the published store for the next round",
-        );
+            // The checkpoint resumes the events at 42.
+            let Ok(BootStore::Restored(expired)) = boot.prepare(&window_at(Some(43))).await else {
+                panic!(
+                    "{}: a pending restore resumes whatever the window holds",
+                    boot.ownership
+                );
+            };
+            assert_eq!(expired.plan().resets().count(), 1, "{}", boot.ownership);
+            assert!(matches!(
+                boot.prepare(&window_at(None)).await,
+                Err(RestoreBlocked::Positions(_))
+            ));
+            assert!(
+                boot.live().join(MARKER_FILENAME).is_file(),
+                "a window that cannot be read keeps the published store for the next round",
+            );
+        }
     }
 
     #[tokio::test]
@@ -1315,7 +1324,7 @@ mod tests {
             panic!("the store with an unreadable marker is replaced by a restore");
         };
         assert_eq!(pending.source().label(), "local");
-        PendingRestore::resume(&boot.live(), &window(), 1)
+        PendingRestore::resume(&boot.live(), &window(), &boot.ownership)
             .unwrap()
             .expect("the new restore carries a readable marker");
     }

@@ -37,11 +37,8 @@ class EvalEngine(Protocol):
     name: ClassVar[str]
     """Stable engine identifier; ``reporting`` renders ``name.title()`` as the label."""
 
-    supports_public_experiments: ClassVar[bool]
-    """Whether the engine has a notion of a public experiment (``is_public``)."""
-
     @classmethod
-    def required_env(cls, *, no_send_logs: bool = False) -> tuple[EnvVarSpec, ...]:
+    def required_env(cls) -> tuple[EnvVarSpec, ...]:
         """The environment variables this engine needs, validated in preflight."""
         ...
 

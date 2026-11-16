@@ -1,7 +1,17 @@
 import { useActions, useMountedLogic, useValues } from 'kea'
 import { useId } from 'react'
 
-import { Accordion, Button, Popover, PopoverContent, PopoverTrigger, Skeleton, Spinner, Text } from '@posthog/quill'
+import {
+    Accordion,
+    Button,
+    Dot,
+    Popover,
+    PopoverContent,
+    PopoverTrigger,
+    Skeleton,
+    Spinner,
+    Text,
+} from '@posthog/quill'
 
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 import { pluralize } from 'lib/utils/strings'
@@ -25,6 +35,9 @@ function summary(status: InsightDataChecksStatus, coverage: InsightDataChecksCov
     if (status === 'failed') {
         return "The checks didn't finish. The chart's own numbers are not affected."
     }
+    if (status === 'on_request') {
+        return "Checking this chart's events reads a lot of data, so the checks don't run on their own."
+    }
     if (!coverage) {
         return 'No check could run on this chart.'
     }
@@ -46,8 +59,8 @@ export interface DataChecksPopoverProps {
 
 export function DataChecksPopover({ insightProps, trigger, children }: DataChecksPopoverProps): JSX.Element {
     const logic = insightDataChecksLogic(insightProps)
-    const { visibleChecks, checkedQuery, result, status } = useValues(logic)
-    const { loadDataChecks, reportButtonClicked, reportDataChecksViewed } = useActions(logic)
+    const { visibleChecks, checkedQuery, result, status, canRunFullCheck } = useValues(logic)
+    const { loadDataChecks, reportButtonClicked, reportDataChecksViewed, runFullCheck } = useActions(logic)
     const { user } = useValues(userLogic)
     const userId = user?.uuid ?? ''
     // Mounted outside the popover content, so a half-written note survives the popover closing.
@@ -72,29 +85,36 @@ export function DataChecksPopover({ insightProps, trigger, children }: DataCheck
                 data-attr="insight-data-checks-list"
             >
                 <Text id={titleId} size="sm" weight="medium">
-                    Checks we've run on this data
+                    {status === 'on_request' ? 'Checks we can run on this data' : "Checks we've run on this data"}
                 </Text>
-                {visibleChecks.length > 0 ? (
+                {/* Every check waits for the same request, so the reason is said once, below the list. */}
+                {visibleChecks.length > 0 && status !== 'on_request' ? (
                     <Accordion>
                         {visibleChecks.map((check) => (
                             <InsightDataCheckRow key={check.key} insightProps={insightProps} check={check} />
                         ))}
                     </Accordion>
                 ) : (
-                    status === 'checking' && (
+                    (status === 'checking' || status === 'on_request') && (
                         <ul className="-mx-2 my-0 flex list-none flex-col p-0">
                             {Object.entries(DATA_CHECK_NAMES).map(([key, name]) => (
                                 <li key={key} className="flex items-start gap-2 px-2 py-1">
                                     <span className="flex h-5 w-4 shrink-0 items-center justify-center">
-                                        <Spinner aria-hidden className="text-(--muted-foreground)" />
+                                        {status === 'checking' ? (
+                                            <Spinner aria-hidden className="text-(--muted-foreground)" />
+                                        ) : (
+                                            <Dot variant="default" />
+                                        )}
                                     </span>
                                     <span className="flex flex-col">
                                         <Text size={null} weight="medium" render={<span />}>
                                             {name}
                                         </Text>
-                                        <span className="flex h-4 items-center">
-                                            <Skeleton className="h-2.5 w-28" />
-                                        </span>
+                                        {status === 'checking' && (
+                                            <span className="flex h-4 items-center">
+                                                <Skeleton className="h-2.5 w-28" />
+                                            </span>
+                                        )}
                                     </span>
                                 </li>
                             ))}
@@ -120,7 +140,18 @@ export function DataChecksPopover({ insightProps, trigger, children }: DataCheck
                         Try again
                     </Button>
                 )}
-                {(status === 'passed' || status === 'warning' || status === 'problem') && (
+                {canRunFullCheck && (
+                    <Button
+                        variant="outline"
+                        size="sm"
+                        className="self-start"
+                        onClick={() => checkedQuery && runFullCheck(checkedQuery)}
+                        data-attr="insight-data-checks-run-full"
+                    >
+                        Run a full check
+                    </Button>
+                )}
+                {(status === 'passed' || status === 'warning' || status === 'problem' || status === 'partial') && (
                     <DataChecksFeedback userId={userId} />
                 )}
             </PopoverContent>

@@ -55,6 +55,19 @@ class TestCaptureStatusChangeAnalytics(BaseTest):
         assert kwargs["properties"].get("resolution_reason") is None
         assert kwargs["properties"].get("dismissal_cause") is None
 
+    @parameterized.expand([("earliest_visible", 0, True), ("later_visible", 1, False), ("never_visible", 2, False)])
+    def test_label_marks_the_projects_first_visible_report(self, _name, index, expected):
+        now = timezone.now()
+        reports = [self._create_report() for _ in range(3)]
+        SignalReport.objects.filter(id=reports[0].id).update(first_visible_at=now - timedelta(hours=2))
+        SignalReport.objects.filter(id=reports[1].id).update(first_visible_at=now - timedelta(hours=1))
+        SignalReport.objects.filter(id=reports[2].id).update(first_visible_at=None)
+        report = SignalReport.objects.get(id=reports[index].id)
+        with patch("products.signals.backend.receivers.posthoganalytics.capture") as mock_capture:
+            with self.captureOnCommitCallbacks(execute=True):
+                report.save(update_fields=report.transition_to(SignalReport.Status.RESOLVED))
+        assert mock_capture.call_args.kwargs["properties"]["is_first_report"] is expected
+
     @parameterized.expand(
         [
             ("pipeline_without_actor", None, "system", False, None, None),

@@ -107,17 +107,20 @@ class LLMSkill(UUIDModel):
 
     objects = SkillDigestManager()
 
-    def to_export(self, files: "list[LLMSkillFile] | None" = None) -> SkillExport:
+    def to_export(self, files: "list[LLMSkillFile] | None" = None, *, include_body: bool = True) -> SkillExport:
         """Map this row onto the Django-free spec dataclass. The one storage -> spec mapping.
 
         The digest below and the exported artifact must describe the same bytes, so they cannot
         each carry their own copy of this mapping — a spec field added to one and not the other
         would make every host reject the file it downloads.
+
+        ``include_body=False`` leaves the body empty without reading it, for a caller that only
+        needs the frontmatter and loaded the row with the body deferred.
         """
         return SkillExport(
             name=self.name,
             description=self.description,
-            body=self.body,
+            body=self.body if include_body else "",
             version=self.version,
             license=self.license or "",
             compatibility=self.compatibility or "",

@@ -106,7 +106,7 @@ class TestTeamScan(DivergenceFixturesMixin, ClickhouseTestMixin, BaseTest):
             "x2": ("diverged", "ambiguous", None, f"ambiguous:{keys['holder']}", ()),
             keys["unseen"]: ("missing_in_ch", None, "republish", None, ()),
             "unseen-1": ("missing_in_ch", None, "republish", None, ()),
-            "stray-1": ("stray", None, None, None, ()),
+            "stray-1": ("stray", None, "detach", None, ()),
             keys["lonely"]: ("no_live_mappings", None, None, None, ()),
         }
         summary = json.loads((scan_dir / team_scan.SUMMARY_FILE).read_text())
@@ -122,7 +122,7 @@ class TestTeamScan(DivergenceFixturesMixin, ClickhouseTestMixin, BaseTest):
         for distinct_id in ("moved", "lost", "x1", "unseen-1", "stray-1"):
             assert distinct_id not in out.getvalue()
 
-        with pytest.raises(CommandError, match="pass resume"):
+        with pytest.raises(CommandError, match="pass --resume"):
             call_command("person_consistency", "scan", "--dir", str(scan_dir), stdout=StringIO())
 
     def test_a_deleted_team_reports_its_clickhouse_leftovers_without_repairs(self):

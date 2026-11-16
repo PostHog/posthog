@@ -458,7 +458,7 @@ impl PodHandle {
     /// stall every freeze quorum until the phase deadline.
     pub async fn run(&self, cancel: CancellationToken) -> Result<()> {
         util::preregister_pod_metrics();
-        let mut consecutive_failures: u32 = 0;
+        let mut consecutive_failures = util::RunFailures::default();
         // Set by the coordination loop whenever it applies real work
         // (a convergence completed); consumed by each failure note to
         // decide crash-loop vs fresh failure.
@@ -476,7 +476,10 @@ impl PodHandle {
                     if !self.note_run_failure(&mut consecutive_failures, &progress, &e) {
                         return Err(e);
                     }
-                    if self.run_backoff(&cancel, consecutive_failures).await {
+                    if self
+                        .run_backoff(&cancel, consecutive_failures.consecutive())
+                        .await
+                    {
                         return Ok(());
                     }
                     continue;
@@ -589,7 +592,7 @@ impl PodHandle {
                 // coordinator may already be reassigning while the pod
                 // serves, unaware, until the nap ends.
                 tokio::select! {
-                    stop = self.run_backoff(&cancel, consecutive_failures) => {
+                    stop = self.run_backoff(&cancel, consecutive_failures.consecutive()) => {
                         if stop {
                             break;
                         }
@@ -753,7 +756,10 @@ impl PodHandle {
                     if !self.note_run_failure(&mut consecutive_failures, &progress, &e) {
                         return Err(e);
                     }
-                    if self.run_backoff(&cancel, consecutive_failures).await {
+                    if self
+                        .run_backoff(&cancel, consecutive_failures.consecutive())
+                        .await
+                    {
                         return Ok(());
                     }
                     // New session: fresh lease, fresh registration,
@@ -813,9 +819,14 @@ impl PodHandle {
 
     /// See `util::note_run_failure` for the progress-based reset
     /// semantics.
-    fn note_run_failure(&self, consecutive: &mut u32, progress: &AtomicBool, err: &Error) -> bool {
+    fn note_run_failure(
+        &self,
+        failures: &mut util::RunFailures,
+        progress: &AtomicBool,
+        err: &Error,
+    ) -> bool {
         util::note_run_failure(
-            consecutive,
+            failures,
             progress,
             self.config.run_retry_budget,
             "pod",

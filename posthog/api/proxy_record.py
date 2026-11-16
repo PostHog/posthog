@@ -139,6 +139,15 @@ class ProxyRecordSerializer(serializers.ModelSerializer):
             organization_id = getattr(getattr(view, "organization", None), "id", None)
             if organization_id is None or not org_may_register_reserved_domain(organization_id, value):
                 raise serializers.ValidationError("This domain belongs to PostHog. Enter a domain you own instead.")
+        # DNS names ignore case, but the unique constraint does not. A case variant would let one
+        # organization register another organization's domain without its DNS. Older rows can hold
+        # uppercase, so the lookup ignores case. New rows are lowercase, so the constraint also
+        # stops two concurrent registrations.
+        value = value.lower()
+        if ProxyRecord.objects.filter(domain__iexact=value).exists():
+            raise serializers.ValidationError(
+                "This domain already has a managed reverse proxy. Enter a different domain."
+            )
         return value
 
 
@@ -223,7 +232,7 @@ class DiagnosticRemediationSerializer(serializers.Serializer):
 
 class DiagnosticCheckResultSerializer(serializers.Serializer):
     id = serializers.CharField(
-        help_text="Stable identifier for the check (e.g. cname, cloudflare, caa, http_challenge, live_event, cert_expiry)."
+        help_text="Stable identifier for the check (e.g. cname, cloudflare, caa, http_challenge, live_event, capture_v1, cert_expiry)."
     )
     name = serializers.CharField(help_text="Human-readable check name.")
     status = serializers.ChoiceField(

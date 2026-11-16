@@ -3,6 +3,8 @@ from datetime import datetime
 from typing import Literal
 from uuid import UUID
 
+from django.db import models
+
 from posthog.dataclasses import frozen
 
 from products.ai_observability.backend.offline_evaluation_service import OfflineEvaluationValidationError
@@ -13,8 +15,17 @@ MAX_READ_SCORER_VERSIONS = 20
 MAX_RESULT_CELL_ITEMS = 50
 
 
+class OfflineHistoryBreakdown(models.TextChoices):
+    MODEL = "model_version", "Model"
+    PROMPT = "prompt_version", "Prompt version"
+    APPLICATION = "application_version", "Application version"
+    SUITE = "suite_key", "Suite"
+    SOURCE = "run_source", "Run source"
+
+
 @frozen
 class OfflineReadQuery:
+    breakdown: OfflineHistoryBreakdown | None = None
     limit: int = 50
     cursor: str | None = None
     date_from: datetime | None = None
@@ -109,11 +120,14 @@ class OfflineExperimentRead:
 
 @frozen
 class OfflineScorerVersionRead:
+    calculation: str = "reported"
+    composition: dict[str, JSONValue] | None = None
     id: UUID
     definition_id: UUID
     version: int
     kind: str
     name: str
+    short_name: str
     description: str
     archived: bool
     config: dict[str, JSONValue]
@@ -121,6 +135,7 @@ class OfflineScorerVersionRead:
 
 @frozen
 class OfflineResultRead:
+    input_result_ids: list[UUID] | None = None
     id: UUID
     item_id: UUID
     scorer: OfflineScorerVersionRead
@@ -142,6 +157,7 @@ class OfflineResultCells:
 
 @frozen
 class OfflineItemRead:
+    model_version: str | None = None
     id: UUID
     experiment_id: UUID
     case_key: str | None
@@ -188,6 +204,7 @@ class OfflineCategorySummary:
 
 @frozen
 class OfflineScorerSummary:
+    not_requested_count: int = 0
     scorer: OfflineScorerVersionRead
     observed_item_count: int
     result_count: int
@@ -212,3 +229,4 @@ class OfflineScorerSummary:
 class OfflineHistoryPoint:
     experiment: OfflineExperimentRead
     summary: OfflineScorerSummary
+    breakdown_value: str | None = None

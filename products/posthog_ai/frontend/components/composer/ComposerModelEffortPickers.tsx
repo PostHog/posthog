@@ -15,6 +15,8 @@ import {
     DropdownMenuTrigger,
 } from '@posthog/quill-primitives'
 
+import { cn } from 'lib/utils/css-classes'
+
 import {
     getCapabilityLadder,
     getDefaultModelForRuntimeAdapter,
@@ -38,8 +40,10 @@ import {
 import { useThreadSkin } from '../../hooks/useThreadSkin'
 import { ModelCostChip } from '../ModelCostChip'
 import { ModelCostFooter } from '../ModelCostFooter'
+import { COMPOSER_MENU_CLASS } from '../quill/composerMenuClass'
 import type { ThreadSkin } from '../quill/quillThreadContext'
 import { ComposerModelEffortSheet } from './ComposerModelEffortSheet'
+import { ComposerModelIcon } from './ComposerModelIcon'
 import { ComposerReasoningSlider } from './ComposerReasoningSlider'
 
 // Separates model and effort in a slider stop key; never appears in a model id or an effort.
@@ -106,20 +110,27 @@ interface PickerSectionProps {
 /** One `label … current ›` row of the cascade, opening a radio list. */
 const PICKER_CHROME: Record<
     ThreadSkin,
-    { triggerVariant: 'outline' | 'default'; icons: boolean; defaultPrefix: boolean }
+    {
+        triggerVariant: 'outline' | 'default'
+        icons: boolean
+        defaultPrefix: boolean
+        modelIcon: boolean
+        composerMenu: boolean
+    }
 > = {
-    lemon: { triggerVariant: 'outline', icons: true, defaultPrefix: true },
-    quill: { triggerVariant: 'default', icons: false, defaultPrefix: false },
+    lemon: { triggerVariant: 'outline', icons: true, defaultPrefix: true, modelIcon: false, composerMenu: false },
+    quill: { triggerVariant: 'default', icons: false, defaultPrefix: false, modelIcon: true, composerMenu: true },
 }
 
 function PickerSection({ title, current, value, onValueChange, children, footer }: PickerSectionProps): JSX.Element {
+    const chrome = PICKER_CHROME[useThreadSkin()]
     return (
         <DropdownMenuSub>
             <DropdownMenuSubTrigger>
                 <span>{title}</span>
                 <span className="flex-1 text-right text-muted">{current}</span>
             </DropdownMenuSubTrigger>
-            <DropdownMenuSubContent>
+            <DropdownMenuSubContent className={cn(chrome.composerMenu && COMPOSER_MENU_CLASS)}>
                 <DropdownMenuRadioGroup value={value} onValueChange={onValueChange}>
                     {children}
                 </DropdownMenuRadioGroup>
@@ -281,21 +292,31 @@ export function ComposerModelEffortPickers({
         >
             <DropdownMenuTrigger
                 render={
-                    <Button variant={chrome.triggerVariant} size="sm">
+                    <Button variant={chrome.triggerVariant} size="sm" aria-label="Model and reasoning">
+                        {chrome.modelIcon && (
+                            <ComposerModelIcon
+                                model={selectedModel}
+                                ownPlan={billing?.value === ModelAccessEnumApi.OwnSubscription}
+                            />
+                        )}
                         {isDefaultSelection && chrome.defaultPrefix ? `Default · ${modelLabel}` : modelLabel}
                         {effortOptions.length > 0 && (
                             <span className="text-muted @max-[400px]/composer:hidden">
                                 {getEffortLabel(selectedEffort)}
                             </span>
                         )}
-                        {billing?.value === ModelAccessEnumApi.OwnSubscription && (
+                        {!chrome.modelIcon && billing?.value === ModelAccessEnumApi.OwnSubscription && (
                             <span className="text-muted">ChatGPT plan</span>
                         )}
                         {chrome.icons && <IconChevronDown />}
                     </Button>
                 }
             />
-            <DropdownMenuContent className="w-auto min-w-56">
+            <DropdownMenuContent
+                side={chrome.composerMenu ? 'top' : 'bottom'}
+                sideOffset={chrome.composerMenu ? 6 : 4}
+                className={cn('w-auto min-w-56', chrome.composerMenu && COMPOSER_MENU_CLASS)}
+            >
                 {advanced ? (
                     <>
                         {showBack && (
@@ -410,15 +431,22 @@ export function ComposerModelEffortPickers({
                         )}
                     </>
                 ) : (
-                    <ComposerReasoningSlider
-                        stops={stops}
-                        currentStop={currentStop}
-                        onSelect={selectStop}
-                        onAdvanced={() => {
-                            setShowBack(true)
-                            setAdvanced(true)
-                        }}
-                    />
+                    <>
+                        {isDefaultSelection && !chrome.defaultPrefix && (
+                            <div className="px-2 pt-1.5 pb-1 text-xs text-muted" data-attr="composer-default-selection">
+                                Using your default
+                            </div>
+                        )}
+                        <ComposerReasoningSlider
+                            stops={stops}
+                            currentStop={currentStop}
+                            onSelect={selectStop}
+                            onAdvanced={() => {
+                                setShowBack(true)
+                                setAdvanced(true)
+                            }}
+                        />
+                    </>
                 )}
 
                 {(showReset || onOpenDefaultSettings) && <DropdownMenuSeparator />}

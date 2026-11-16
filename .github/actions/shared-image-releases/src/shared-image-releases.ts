@@ -3,6 +3,11 @@ import {Paths, Policy} from '../../paths-filter/src/shared-image-policy'
 
 export const CANONICAL_SOURCE_REPOSITORY = 'PostHog/posthog'
 
+export const POLICY_PATH = '.github/shared-image-releases.yaml'
+export const ORDERED_ALIAS = /^r([0-9]{12})-([0-9a-f]{6})$/
+export const REVISION = /^[0-9a-f]{40}$/
+export const DIGEST = /^sha256:[0-9a-f]{64}$/
+
 export interface DestinationBinding {
   repository: string
 }

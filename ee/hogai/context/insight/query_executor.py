@@ -71,6 +71,7 @@ from posthog.exceptions import (
     QueryRanConcurrently,
 )
 from posthog.hogql_queries.query_runner import BLOCKING_EXECUTION_MODES, ExecutionMode
+from posthog.hogql_queries.utils.result_series import get_action_names
 from posthog.models import Team
 from posthog.sync import database_sync_to_async
 
@@ -89,6 +90,7 @@ from ee.hogai.context.insight.format import (
     StickinessResultsFormatter,
     TrendsResultsFormatter,
     format_access_control_warnings,
+    format_warehouse_suggestions,
     format_warehouse_sync_warnings,
     get_boxplot_results,
     is_boxplot_query,
@@ -262,7 +264,9 @@ class AssistantQueryExecutor:
         _utc_now_datetime: Current UTC datetime for time-based calculations
     """
 
-    WAIT_TIME_S = 0.5
+    FIRST_POLL_INTERVAL_S = 0.05
+    POLL_BACKOFF_COEFFICIENT = 1.5
+    MAX_POLL_INTERVAL_S = 0.5
 
     def __init__(
         self,
@@ -346,8 +350,12 @@ class AssistantQueryExecutor:
                 # Fallback to raw JSON if formatting fails - ensures robustness
                 fallback_start = time.time()
                 fallback_results = json.dumps(response_dict["results"], cls=DjangoJSONEncoder, separators=(",", ":"))
+                suggestions = self._suggestions_that_fit_budget(response_dict, self._max_sql_result_chars)
                 if isinstance(query, AssistantHogQLQuery | HogQLQuery | DataVisualizationNode):
-                    fallback_results = SQLResultsFormatter.bound_fallback(fallback_results, self._max_sql_result_chars)
+                    fallback_results = SQLResultsFormatter.bound_fallback(
+                        fallback_results, _budget_left_after(self._max_sql_result_chars, suggestions)
+                    )
+                fallback_results += suggestions
                 fallback_elapsed = time.time() - fallback_start
                 total_elapsed = time.time() - start_time
                 if debug_timing:
@@ -511,6 +519,7 @@ class AssistantQueryExecutor:
                     polling_start = time.time()
                     poll_count = 0
                     total_wait_s = 0.0
+                    poll_interval_s = self.FIRST_POLL_INTERVAL_S
 
                     if debug_timing:
                         logger.warning(
@@ -518,17 +527,18 @@ class AssistantQueryExecutor:
                         )
 
                     # Poll async query until completion
-                    # Total wait time: 5 minutes with linear increments
+                    # Total wait time: 5 minutes with increments growing up to MAX_POLL_INTERVAL_S
                     while total_wait_s <= 60 * 5:
                         poll_count += 1
-                        total_wait_s += self.WAIT_TIME_S
+                        total_wait_s += poll_interval_s
 
                         if poll_count % 10 == 0 and debug_timing:  # Log every 10 polls
                             logger.warning(
                                 f"{TIMING_LOG_PREFIX} Polling attempt {poll_count}, total wait: {total_wait_s:.1f}s"
                             )
 
-                        await asyncio.sleep(self.WAIT_TIME_S)  # wait in seconds
+                        await asyncio.sleep(poll_interval_s)  # wait in seconds
+                        poll_interval_s = min(poll_interval_s * self.POLL_BACKOFF_COEFFICIENT, self.MAX_POLL_INTERVAL_S)
 
                         status_check_start = time.time()
                         # Fast operation–Redis access
@@ -646,6 +656,12 @@ class AssistantQueryExecutor:
             logger.warning(f"{TIMING_LOG_PREFIX} aexecute_query completed successfully in {total_elapsed:.3f}s")
         return response_dict
 
+    async def _get_action_names(self, query: BaseModel) -> dict[int, str | None]:
+        # The formatters label an action series by the action's current name, which only the database holds.
+        return await database_sync_to_async(get_action_names, thread_sensitive=False)(
+            self._team, query.model_dump(mode="json")
+        )
+
     async def _compress_results(
         self,
         query: AnyPydanticModelQuery | AnyAssistantGeneratedQuery,
@@ -675,13 +691,17 @@ class AssistantQueryExecutor:
 
         warning_prefix = format_warehouse_sync_warnings(response) + format_access_control_warnings(response)
         result_budget = self._max_sql_result_chars
-        if isinstance(query, AssistantHogQLQuery | HogQLQuery | DataVisualizationNode) and result_budget is not None:
+        is_sql = isinstance(query, AssistantHogQLQuery | HogQLQuery | DataVisualizationNode)
+        if is_sql and result_budget is not None:
             result_budget -= len(warning_prefix)
             if result_budget < SQLResultsFormatter.MIN_RESULT_CHARS:
                 return SQLResultsFormatter.bound_fallback(
                     "[SQL result preview omitted because query warnings exceed the preview budget.]\n" + warning_prefix,
                     self._max_sql_result_chars,
                 )
+        suggestions = self._suggestions_that_fit_budget(response, result_budget if is_sql else None)
+        if is_sql:
+            result_budget = _budget_left_after(result_budget, suggestions)
 
         try:
             # Handle assistant-specific query types with direct formatting
@@ -698,6 +718,7 @@ class AssistantQueryExecutor:
                         self._utc_now_datetime,
                         resolved_date_range=response.get("resolved_date_range"),
                         resolved_compare_date_range=response.get("resolved_compare_date_range"),
+                        action_names=await self._get_action_names(query),
                     ).format()
             elif isinstance(query, AssistantFunnelsQuery | FunnelsQuery):
                 formatter_name = "FunnelResultsFormatter"
@@ -706,13 +727,17 @@ class AssistantQueryExecutor:
                 result = await database_sync_to_async(formatter.format, thread_sensitive=False)()
             elif isinstance(query, AssistantLifecycleQuery | LifecycleQuery):
                 formatter_name = "LifecycleResultsFormatter"
-                result = LifecycleResultsFormatter(query, response["results"]).format()
+                result = LifecycleResultsFormatter(
+                    query, response["results"], action_names=await self._get_action_names(query)
+                ).format()
             elif isinstance(query, AssistantPathsQuery | PathsQuery):
                 formatter_name = "PathsResultsFormatter"
                 result = PathsResultsFormatter(response["results"]).format()
             elif isinstance(query, AssistantStickinessQuery | StickinessQuery):
                 formatter_name = "StickinessResultsFormatter"
-                result = StickinessResultsFormatter(query, response["results"]).format()
+                result = StickinessResultsFormatter(
+                    query, response["results"], action_names=await self._get_action_names(query)
+                ).format()
             elif isinstance(query, AssistantRetentionQuery | RetentionQuery):
                 formatter_name = "RetentionResultsFormatter"
                 result = RetentionResultsFormatter(query, response["results"]).format()
@@ -747,14 +772,27 @@ class AssistantQueryExecutor:
 
             if warning_prefix:
                 result = warning_prefix + result
-            if isinstance(query, AssistantHogQLQuery | HogQLQuery | DataVisualizationNode):
-                result = SQLResultsFormatter.bound_fallback(result, self._max_sql_result_chars)
-            return result
+            if is_sql:
+                result = SQLResultsFormatter.bound_fallback(
+                    result, _budget_left_after(self._max_sql_result_chars, suggestions)
+                )
+            return result + suggestions
         except Exception:
             elapsed = time.time() - start_time
             if debug_timing:
                 logger.exception(f"{TIMING_LOG_PREFIX} _compress_results failed after {elapsed:.3f}s for {query_type}")
             raise
+
+    @staticmethod
+    def _suggestions_that_fit_budget(response: dict[str, Any], result_budget: int | None) -> str:
+        suggestions = format_warehouse_suggestions(response)
+        if result_budget is None or result_budget - len(suggestions) >= SQLResultsFormatter.MIN_RESULT_CHARS:
+            return suggestions
+        return ""
+
+
+def _budget_left_after(budget: int | None, text: str) -> int | None:
+    return None if budget is None else budget - len(text)
 
 
 def _is_boxplot_query(query: AnyPydanticModelQuery | AnyAssistantGeneratedQuery) -> bool:

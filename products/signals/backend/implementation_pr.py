@@ -1,18 +1,19 @@
 """Resolve implementation PR URLs linked to signal reports."""
 
 import re
-from collections.abc import Callable
+from collections.abc import Callable, Sequence
 from dataclasses import replace
 from datetime import datetime
-from typing import TYPE_CHECKING, Any, Literal
+from typing import TYPE_CHECKING, Any, Literal, TypeVar
 from uuid import NAMESPACE_URL, uuid5
 
 from django.contrib.postgres.expressions import ArraySubquery
-from django.db.models import F, Lookup, Q
+from django.db.models import F, Lookup, Q, QuerySet
 
 import structlog
 
 from posthog.dataclasses import frozen
+from posthog.egress.github.transport import GitHubEgressBudgetExhausted, GitHubRateLimitError
 from posthog.egress.limiter.policies import Priority
 from posthog.models.github_integration_base import GitHubIntegrationBase
 from posthog.models.integration import GitHubIntegration
@@ -38,6 +39,8 @@ from products.tasks.backend.facade import api as tasks_facade
 
 logger = structlog.get_logger(__name__)
 
+_LinkModel = TypeVar("_LinkModel", SignalReportArtefact, SignalReportAssignment, SignalReportTask)
+
 if TYPE_CHECKING:
     from django.db.backends.base.base import BaseDatabaseWrapper
     from django.db.models.sql.compiler import SQLCompiler
@@ -47,7 +50,12 @@ if TYPE_CHECKING:
 # A report in one of these statuses is finished with its pull request. Anything else still holds
 # it open — a status this list doesn't know about keeps the PR, which is the safe direction.
 _FINISHED_REPORT_STATUSES = frozenset(
-    {SignalReport.Status.RESOLVED, SignalReport.Status.SUPPRESSED, SignalReport.Status.DELETED}
+    {
+        SignalReport.Status.RESOLVED,
+        SignalReport.Status.CLOSED,
+        SignalReport.Status.SUPPRESSED,
+        SignalReport.Status.DELETED,
+    }
 )
 
 _PULL_REQUEST_URL_BODY = (
@@ -67,34 +75,69 @@ class _EqualsAny(Lookup):
         return f"{lhs} = ANY({rhs})", (*lhs_params, *rhs_params)
 
 
-def implementation_pr_report_filter(*, team_id: int, active_only: bool = False) -> Q:
+def implementation_pr_report_filter(
+    *, team_id: int, active_only: bool = False, report_ids: Sequence[Any] | None = None
+) -> Q:
+    """Matches the reports with an implementation PR.
+
+    `report_ids` narrows every link subquery to those reports, so a caller that asks about a few
+    reports does not scan the team's links and PR-bearing task runs. The answer for those reports
+    is the same either way.
+    """
+
     # Every branch is a team-scoped subquery on the report id. A join through `assignment` or
     # `pull_request` lets the planner scan every team's rows before it applies the team scope.
-    assignments = SignalReportAssignment.all_teams.filter(team_id=team_id, pr_url__regex=_PULL_REQUEST_URL_PATTERN)
+    def for_reports(queryset: QuerySet[_LinkModel]) -> QuerySet[_LinkModel]:
+        return queryset if report_ids is None else queryset.filter(report_id__in=report_ids)
+
+    assignments = for_reports(
+        SignalReportAssignment.all_teams.filter(team_id=team_id, pr_url__regex=_PULL_REQUEST_URL_PATTERN)
+    )
     pull_requests = SignalReportPullRequest.objects.for_team(team_id).filter(url__regex=_PULL_REQUEST_URL_PATTERN)
-    task_ids = tasks_facade.task_ids_with_pr_url_subquery(
-        team_id,
+    task_conditions = [
         pr_bearing_task_run_filter(),
         Q(output__pr_url__regex=_PULL_REQUEST_URL_PATTERN) | Q(output__pr_urls__regex=_PULL_REQUEST_URL_ARRAY_PATTERN),
-    )
+    ]
+    if report_ids is not None:
+        pull_requests = pull_requests.filter(
+            id__in=SignalReportArtefact.objects.filter(
+                team_id=team_id, type=SignalReportArtefact.ArtefactType.PULL_REQUEST, report_id__in=report_ids
+            ).values("pull_request_id")
+        )
+        task_conditions.append(
+            Q(task_id__in=for_reports(SignalReportArtefact.objects.filter(team_id=team_id)).values("task_id"))
+            | Q(task_id__in=for_reports(SignalReportTask.objects.filter(team_id=team_id)).values("task_id"))
+            | Q(
+                task_id__in=for_reports(SignalReportAssignment.all_teams.filter(team_id=team_id)).values(
+                    "actor_task_id"
+                )
+            )
+        )
+    task_ids = tasks_facade.task_ids_with_pr_url_subquery(team_id, *task_conditions)
     task_run_artefacts = (
-        SignalReportArtefact.objects.filter(
-            team_id=team_id,
-            type=SignalReportArtefact.ArtefactType.TASK_RUN,
-            task_id__in=task_ids,
-            content__regex=rf'"product"\s*:\s*"{SIGNALS_PRODUCT}"',
+        for_reports(
+            SignalReportArtefact.objects.filter(
+                team_id=team_id,
+                type=SignalReportArtefact.ArtefactType.TASK_RUN,
+                task_id__in=task_ids,
+                content__regex=rf'"product"\s*:\s*"{SIGNALS_PRODUCT}"',
+            )
         )
         .exclude(content__regex=rf'"type"\s*:\s*"({"|".join(sorted(NON_PR_BEARING_TASK_RUN_TYPES))})"')
         .values("report_id")
     )
-    legacy_tasks = SignalReportTask.objects.filter(
-        team_id=team_id,
-        task_id__in=task_ids,
-        relationship__in=_PR_BEARING_LEGACY_TASK_RELATIONSHIPS,
+    legacy_tasks = for_reports(
+        SignalReportTask.objects.filter(
+            team_id=team_id,
+            task_id__in=task_ids,
+            relationship__in=_PR_BEARING_LEGACY_TASK_RELATIONSHIPS,
+        )
     ).values("report_id")
-    assignment_tasks = SignalReportAssignment.all_teams.filter(
-        team_id=team_id,
-        actor_task_id__in=task_ids,
+    assignment_tasks = for_reports(
+        SignalReportAssignment.all_teams.filter(
+            team_id=team_id,
+            actor_task_id__in=task_ids,
+        )
     ).values("report_id")
 
     if active_only:
@@ -110,10 +153,12 @@ def implementation_pr_report_filter(*, team_id: int, active_only: bool = False) 
 
     # `pull_request_id IN (subquery)` keeps the cross-team merge join. Only the array form makes
     # Postgres probe `signals_artefact_pr_report_idx` with this team's PR ids.
-    pull_request_links = SignalReportArtefact.objects.filter(
-        _EqualsAny(F("pull_request_id"), ArraySubquery(pull_requests.values("id"))),
-        team_id=team_id,
-        type=SignalReportArtefact.ArtefactType.PULL_REQUEST,
+    pull_request_links = for_reports(
+        SignalReportArtefact.objects.filter(
+            _EqualsAny(F("pull_request_id"), ArraySubquery(pull_requests.values("id"))),
+            team_id=team_id,
+            type=SignalReportArtefact.ArtefactType.PULL_REQUEST,
+        )
     ).values("report_id")
 
     return (
@@ -289,28 +334,44 @@ def fetch_implementation_pr_urls_for_reports(report_ids: list[str], *, team_id: 
 
 
 def report_ids_for_implementation_pr(*, team_id: int, repository: str, pr_number: int) -> list[str]:
+    # The webhook reaches every team on the installation. A team without reports must not pay for
+    # the regex scan over its task runs below.
+    if not SignalReport.objects.filter(team_id=team_id).exists():
+        return []
     # Narrow by task output before resolving reports so webhooks do not scan the whole inbox.
     owner, repo = repository.split("/", 1)
     url_body = rf'[^:"]+://(www\.)?github\.com/+{re.escape(owner)}/+{re.escape(repo)}/+pull/+0*{pr_number}'
     url_pattern = rf"^{url_body}([/?#]|$)"
     array_url_pattern = rf'"{url_body}([/?#"]|$)'
-    task_ids = tasks_facade.task_ids_with_pr_url_subquery(
-        team_id,
-        pr_bearing_task_run_filter(),
-        Q(output__pr_url__iregex=url_pattern) | Q(output__pr_urls__iregex=array_url_pattern),
+    task_ids = list(
+        tasks_facade.task_ids_with_pr_url_subquery(
+            team_id,
+            pr_bearing_task_run_filter(),
+            Q(output__pr_url__iregex=url_pattern) | Q(output__pr_urls__iregex=array_url_pattern),
+        ).values_list("task_id", flat=True)
     )
-    candidates = SignalReport.objects.filter(team_id=team_id).filter(
-        Q(
-            artefacts__pull_request__repository__iexact=repository,
-            artefacts__pull_request__number=pr_number,
-            artefacts__pull_request__team_id=team_id,
-        )
-        | Q(assignment__repository__iexact=repository, assignment__pr_number=pr_number)
-        | SignalReport.reports_for_task_ids_filter(task_ids, team_id=team_id)
-    )
-    prs = fetch_implementation_prs_for_reports(
-        [str(report_id) for report_id in candidates.values_list("id", flat=True).distinct()], team_id=team_id
-    )
+    # One `OR` over joins to every link table defeats the indexes, so each path is its own lookup.
+    candidate_querysets = [
+        # The array form, as in `implementation_pr_report_filter`, so Postgres probes the artefact index.
+        SignalReportArtefact.objects.filter(
+            _EqualsAny(
+                F("pull_request_id"),
+                ArraySubquery(
+                    SignalReportPullRequest.objects.for_team(team_id)
+                    .filter(repository__iexact=repository, number=pr_number)
+                    .values("id")
+                ),
+            ),
+            team_id=team_id,
+        ).values("report_id"),
+        SignalReportAssignment.all_teams.filter(
+            team_id=team_id, repository__iexact=repository, pr_number=pr_number
+        ).values("report_id"),
+    ]
+    if task_ids:
+        candidate_querysets.extend(SignalReport.report_ids_for_task_ids(task_ids, team_id=team_id))
+    candidate_ids = {str(row["report_id"]) for queryset in candidate_querysets for row in queryset}
+    prs = fetch_implementation_prs_for_reports(sorted(candidate_ids), team_id=team_id)
     return [
         report_id
         for report_id, report_prs in prs.items()
@@ -383,7 +444,6 @@ def _pr_close_comment(
             if actor_mention
             else f"🔕 Closing this PR because the {report_link} was resolved without it."
         )
-        # A resolved report never reopens, so the restore advice below does not apply to it.
         return f"{opening}\n\nIf that wasn't intended, reopen this PR."
     opening = (
         f"🔕 Closing this PR because {actor_mention} {reason} the {report_link}."
@@ -404,15 +464,15 @@ def _close_implementation_pr(
     expected_head_sha: str | None = None,
     comment_marker: str | None = None,
     before_close: Callable[[], bool] | None = None,
-) -> bool:
+    priority: Priority = Priority.CRITICAL,
+) -> bool | None:
     """Best-effort: comment on and close the GitHub PR attached to this report.
 
     Called when a report is suppressed, snoozed, or resolved without its PR — the open PR shouldn't linger. Only acts on a PR
     that is still open: an already-closed or merged PR is left untouched (no comment, no close), so
     we never leave a confusing "closing this PR" note on a PR that shipped months ago. Leaves an
-    explanatory comment, then closes the PR. Returns True when the PR was closed, False when there
-    was nothing to close or the close couldn't be completed. Never raises: the state transition
-    must succeed regardless.
+    explanatory comment, then closes the PR. Returns True when closed, None when no close is
+    needed, and False on failure. Batch rate limits propagate so scheduled delivery can back off.
     """
     try:
         if not SignalReport.objects.filter(id=report_id, team_id=team_id).exists():
@@ -423,7 +483,7 @@ def _close_implementation_pr(
                 report_id=str(report_id),
                 actor_kind=pr.actor_kind,
             )
-            return False
+            return None
         pr_url = pr.url
 
         parsed = GitHubIntegrationBase.parse_pull_request_url(pr_url)
@@ -439,10 +499,10 @@ def _close_implementation_pr(
                 report_id=str(report_id),
                 pr_url=pr_url,
             )
-            return False
+            return None
 
         github = GitHubIntegration.first_for_team_repository(
-            team_id, parsed.repository, source="signals_implementation_pr", priority=Priority.CRITICAL
+            team_id, parsed.repository, source="signals_implementation_pr", priority=priority
         )
         if github is None:
             logger.info(
@@ -479,7 +539,7 @@ def _close_implementation_pr(
                 state=pr_status.get("state"),
                 merged=pr_status.get("merged"),
             )
-            return False
+            return None if pr_status.get("state") == "closed" or pr_status.get("merged") else False
 
         if expected_head_sha is not None and pr_status.get("head_sha") != expected_head_sha:
             return False
@@ -531,6 +591,10 @@ def _close_implementation_pr(
             pr_state="closed",
         )
         return True
+    except (GitHubEgressBudgetExhausted, GitHubRateLimitError):
+        if priority == Priority.BATCH:
+            raise
+        return False
     except Exception:
         logger.exception("close_implementation_pr_unexpected_error", report_id=str(report_id))
         return False
@@ -544,26 +608,37 @@ def close_implementation_pr_for_report(
     actor_user_id: int | None = None,
     pr_url: str | None = None,
     replacement_pr_url: str | None = None,
+    comment_marker: str | None = None,
+    before_close: Callable[[], bool] | None = None,
+    priority: Priority = Priority.CRITICAL,
+    require_all: bool = False,
 ) -> bool:
     try:
         if not SignalReport.objects.filter(team_id=team_id, id=report_id).exists():
             return False
         closed = False
+        failed = False
         for pr in fetch_implementation_prs_for_reports([str(report_id)], team_id=team_id).get(str(report_id), []):
             if pr_url is not None and pr.url != pr_url:
                 continue
-            closed = (
-                _close_implementation_pr(
-                    team_id,
-                    report_id,
-                    reason=reason,
-                    pr=pr,
-                    actor_user_id=actor_user_id,
-                    replacement_pr_url=replacement_pr_url,
-                )
-                or closed
+            outcome = _close_implementation_pr(
+                team_id,
+                report_id,
+                reason=reason,
+                pr=pr,
+                actor_user_id=actor_user_id,
+                replacement_pr_url=replacement_pr_url,
+                comment_marker=comment_marker,
+                before_close=before_close,
+                priority=priority,
             )
-        return closed
+            closed = outcome is True or closed
+            failed = outcome is False or failed
+        return not failed if require_all else closed
+    except (GitHubEgressBudgetExhausted, GitHubRateLimitError):
+        if priority == Priority.BATCH:
+            raise
+        return False
     except Exception:
         logger.exception("close_implementation_pr_lookup_failed", report_id=str(report_id))
         return False

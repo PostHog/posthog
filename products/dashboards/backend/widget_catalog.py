@@ -73,8 +73,9 @@ def get_widget_product_access_denied_message(required_product_access: str) -> st
 
 
 def get_default_widget_layouts(widget_type: str) -> dict[str, dict[str, int]]:
-    width = 6
-    height = 5
+    spec = WIDGET_SPECS.get(widget_type)
+    width = spec.default_width if spec else 6
+    height = spec.default_height if spec else 5
     return {
         "sm": {"x": 0, "y": 0, "w": width, "h": height},
         "xs": {"x": 0, "y": 0, "w": width, "h": height},

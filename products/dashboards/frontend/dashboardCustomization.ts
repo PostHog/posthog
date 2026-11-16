@@ -2,7 +2,7 @@ import { cloneLayoutItem, horizontalCompactor, noCompactor } from 'react-grid-la
 import type { Compactor, Layout, LayoutItem } from 'react-grid-layout'
 import { fastVerticalCompactor } from 'react-grid-layout/extras'
 
-import type { DashboardTileSpacing } from '~/types'
+import type { DashboardTileSpacing, TileGroupDisplay } from '~/types'
 
 export const DashboardGridCompaction = {
     Vertical: 'vertical',
@@ -28,10 +28,22 @@ export const DASHBOARD_TILE_SPACING_LABELS: Record<DashboardTileSpacing, string>
     wide: 'Wide',
 }
 
+const OFFERED_TILE_SPACINGS: DashboardTileSpacing[] = ['tight', 'condensed', 'standard']
+
+// Relaxed and wide are no longer offered, but dashboards already using one keep it and still see it checked
+export function getTileSpacingChoices(current: DashboardTileSpacing): DashboardTileSpacing[] {
+    return OFFERED_TILE_SPACINGS.includes(current) ? OFFERED_TILE_SPACINGS : [...OFFERED_TILE_SPACINGS, current]
+}
+
 export const DASHBOARD_GRID_COMPACTION_LABELS: Record<DashboardGridCompaction, string> = {
     [DashboardGridCompaction.Vertical]: 'Stack tiles upward',
     [DashboardGridCompaction.Horizontal]: 'Stack tiles to the left',
     [DashboardGridCompaction.Stable]: 'Free-form placement',
+}
+
+export const TILE_GROUP_DISPLAY_LABELS: Record<TileGroupDisplay, string> = {
+    sections: 'Sections',
+    tabs: 'Tabs',
 }
 
 type GridOccupancy = Map<number, Array<LayoutItem | undefined>>

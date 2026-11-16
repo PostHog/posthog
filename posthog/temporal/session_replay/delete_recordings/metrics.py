@@ -1,5 +1,4 @@
 import typing
-import datetime as dt
 
 from django.conf import settings
 
@@ -13,7 +12,7 @@ from temporalio.worker import (
     WorkflowInterceptorClassInput,
 )
 
-from posthog.temporal.common.metrics import ExecutionTimeRecorder, get_metric_meter
+from posthog.temporal.common.metrics import ExecutionTimeRecorder, get_metric_meter, record_schedule_to_start_latency
 
 # ---------------------------------------------------------------------------
 # Histogram bucket config (imported by common/worker.py for PrometheusConfig)
@@ -109,16 +108,12 @@ class _DeleteRecordingsActivityInterceptor(ActivityInboundInterceptor):
         if activity_type not in DELETE_RECORDINGS_ACTIVITY_TYPES:
             return await super().execute_activity(input)
 
-        scheduled_time = activity_info.scheduled_time
-        started_time = activity_info.started_time
-        if scheduled_time and started_time:
-            schedule_to_start_ms = int((started_time - scheduled_time).total_seconds() * 1000)
-            meter = get_metric_meter()
-            meter.create_histogram_timedelta(
-                name="delete_recordings_activity_schedule_to_start_latency",
-                description="Time between activity scheduling and start",
-                unit="ms",
-            ).record(dt.timedelta(milliseconds=schedule_to_start_ms))
+        record_schedule_to_start_latency(
+            "delete_recordings_activity_schedule_to_start_latency",
+            scheduled_time=activity_info.scheduled_time,
+            started_time=activity_info.started_time,
+            description="Time between activity scheduling and start",
+        )
 
         with ExecutionTimeRecorder(
             "delete_recordings_activity_execution_latency",

@@ -10,12 +10,18 @@ from parameterized import parameterized
 from rest_framework import status
 
 from posthog.constants import AvailableFeature
+from posthog.models import User
 from posthog.models.activity_logging.activity_log import ActivityLog
-from posthog.models.organization import OrganizationMembership
+from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.team import Team
 from posthog.models.utils import generate_random_token_personal, hash_key_value
-from posthog.rate_limit import ClickHouseBurstRateThrottle, HogQLQueryThrottle
+from posthog.rate_limit import (
+    ClickHouseBurstRateThrottle,
+    HogQLQueryThrottle,
+    MetricSearchBurstRateThrottle,
+    MetricWriteBurstRateThrottle,
+)
 
 from products.access_control.backend.models.access_control import AccessControl
 from products.data_catalog.backend.facade.api import DESCRIPTION_TOO_LONG_MESSAGE, MAX_DESCRIPTION_LENGTH
@@ -26,6 +32,7 @@ from products.data_catalog.backend.logic.metrics import (
     BULK_SKIP_NOT_FOUND,
     METRIC_BULK_MAX,
     approve_metric,
+    bulk_change_metric_owner,
     soft_delete_metric,
     upsert_metric,
 )
@@ -34,7 +41,6 @@ from products.data_catalog.backend.presentation.serializers import (
     MetricBulkNamesRequestSerializer,
     MetricRunQuerySerializer,
     MetricRunRequestSerializer,
-    MetricSerializer,
 )
 from products.product_analytics.backend.facade.models import Insight
 
@@ -132,6 +138,49 @@ class TestMetricAPI(APIBaseTest):
         assert self.client.get(f"{self.url}mrr/").status_code == status.HTTP_404_NOT_FOUND
         assert self.client.get(f"{self.url}arr/").status_code == status.HTTP_200_OK
 
+    @parameterized.expand(
+        [
+            ("reassign_to_member", "new.owner@example.com", status.HTTP_200_OK, "new.owner@example.com"),
+            ("clear", None, status.HTTP_200_OK, None),
+            ("reject_outsider", "outsider@example.com", status.HTTP_400_BAD_REQUEST, "user1@posthog.com"),
+        ]
+    )
+    def test_patch_owner_keeps_approval(
+        self, _name: str, owner: str | None, expected_status: int, expected_owner: str | None
+    ) -> None:
+        User.objects.create_and_join(self.organization, "new.owner@example.com", None)
+        User.objects.create_and_join(Organization.objects.create(name="Other"), "outsider@example.com", None)
+        self.client.post(self.url, {"name": "mrr", "description": "v1"}, format="json")
+        self.client.post(f"{self.url}mrr/approve/")
+
+        response = self.client.patch(f"{self.url}mrr/", {"owner": owner}, format="json")
+
+        assert response.status_code == expected_status, response.json()
+        body = self.client.get(f"{self.url}mrr/").json()
+        assert body["owner"] == expected_owner
+        assert body["status"] == MetricStatus.APPROVED
+
+    @parameterized.expand(
+        [
+            ("member", {"owner": "new.owner@example.com"}, status.HTTP_201_CREATED, "new.owner@example.com"),
+            ("explicit_null", {"owner": None}, status.HTTP_201_CREATED, None),
+            ("omitted_defaults_to_caller", {}, status.HTTP_201_CREATED, "user1@posthog.com"),
+            ("reject_outsider", {"owner": "outsider@example.com"}, status.HTTP_400_BAD_REQUEST, None),
+        ]
+    )
+    def test_create_assigns_owner(
+        self, _name: str, owner_payload: dict, expected_status: int, expected_owner: str | None
+    ) -> None:
+        User.objects.create_and_join(self.organization, "new.owner@example.com", None)
+        User.objects.create_and_join(Organization.objects.create(name="Other"), "outsider@example.com", None)
+
+        response = self.client.post(self.url, {"name": "mrr", "description": "v1", **owner_payload}, format="json")
+
+        assert response.status_code == expected_status, response.json()
+        created = Metric.objects.for_team(self.team.id).filter(name="mrr").select_related("owner").first()
+        assert (created.owner.email if created and created.owner else None) == expected_owner
+        assert (created is not None) == (expected_status == status.HTTP_201_CREATED)
+
     def test_create_after_delete_starts_fresh(self) -> None:
         created = self.client.post(
             self.url, {"name": "mrr", "description": "v1", "definition": _HOGQL}, format="json"
@@ -212,8 +261,10 @@ class TestMetricAPI(APIBaseTest):
         )
 
         names = [row["name"] for row in self.client.get(self.url).json()["results"]]
+        searched = [row["name"] for row in self.client.get(self.url, {"search": "hidden, allowed"}).json()["results"]]
 
         assert names == ["allowed"]
+        assert searched == ["allowed"]
         assert self.client.get(f"{self.url}hidden/").status_code == status.HTTP_404_NOT_FOUND
         for overwrite in (False, True):
             conflict = self.client.post(
@@ -482,7 +533,15 @@ class TestMetricLifecycleAPI(APIBaseTest):
         assert response.status_code == status.HTTP_200_OK, response.json()
         assert [metric["name"] for metric in response.json()["approved"]] == ["mrr"]
 
-    def test_bulk_approve_computes_drift_in_a_single_insight_query(self) -> None:
+    @parameterized.expand(
+        [
+            ("bulk_approve", "bulk_approve", {}),
+            ("bulk_change_owner", "bulk/change_owner", {"owner": None}),
+        ]
+    )
+    def test_bulk_action_computes_drift_in_a_single_insight_query(
+        self, _name: str, url_path: str, extra_payload: dict
+    ) -> None:
         # Same N+1 guard as the list view: drift must not fan out into one insight lookup per metric.
         names = []
         for index in range(3):
@@ -496,7 +555,7 @@ class TestMetricLifecycleAPI(APIBaseTest):
                 source_insight_short_id=insight.short_id,
             )
         with CaptureQueriesContext(connection) as ctx:
-            response = self.client.post(f"{self.url}bulk_approve/", {"names": names}, format="json")
+            response = self.client.post(f"{self.url}{url_path}/", {"names": names, **extra_payload}, format="json")
         assert response.status_code == status.HTTP_200_OK, response.json()
         insight_queries = [q for q in ctx.captured_queries if "posthog_dashboarditem" in q["sql"]]
         assert len(insight_queries) == 1, insight_queries
@@ -530,6 +589,46 @@ class TestMetricLifecycleAPI(APIBaseTest):
         theirs.refresh_from_db()
         assert theirs.deleted is False
 
+    def test_bulk_change_owner_keeps_approval_and_skips_unknown_ones(self) -> None:
+        User.objects.create_and_join(self.organization, "new.owner@example.com", None)
+        approved = upsert_metric(team=self.team, user=self.user, name="mrr", description="d")
+        approve_metric(approved, self.user)
+        upsert_metric(team=self.team, user=self.user, name="arr", description="d")
+        theirs = self._other_team_metric("theirs")
+
+        response = self.client.post(
+            f"{self.url}bulk/change_owner/",
+            {"names": ["mrr", "arr", "theirs", "unheard_of"], "owner": "new.owner@example.com"},
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        body = response.json()
+        assert [(metric["name"], metric["owner"], metric["status"]) for metric in body["updated"]] == [
+            ("mrr", "new.owner@example.com", MetricStatus.APPROVED),
+            ("arr", "new.owner@example.com", MetricStatus.PROPOSED),
+        ]
+        assert {skip["name"] for skip in body["skipped"]} == {"theirs", "unheard_of"}
+        theirs.refresh_from_db()
+        assert theirs.owner_id != User.objects.get(email="new.owner@example.com").id
+
+    def test_bulk_change_owner_skips_a_metric_renamed_after_name_resolution(self) -> None:
+        renamed = upsert_metric(team=self.team, user=self.user, name="arr", description="d")
+
+        change = bulk_change_metric_owner(
+            team_id=self.team.id, names_by_id={renamed.id: "mrr"}, owner_id=None, user_id=self.user.id
+        )
+
+        assert change.updated_ids == []
+        assert change.skipped_ids == [renamed.id]
+        renamed.refresh_from_db()
+        assert renamed.owner_id == self.user.id
+
+    def test_bulk_change_owner_path_leaves_a_metric_of_that_name_reachable(self) -> None:
+        upsert_metric(team=self.team, user=self.user, name="bulk_change_owner", description="d")
+
+        assert self.client.get(f"{self.url}bulk_change_owner/").status_code == status.HTTP_200_OK
+
     @parameterized.expand(
         [
             (
@@ -546,6 +645,8 @@ class TestMetricLifecycleAPI(APIBaseTest):
             ),
             ("delete_read_only", "bulk_delete", ["data_catalog:read"], status.HTTP_403_FORBIDDEN),
             ("delete_with_write_scope", "bulk_delete", ["data_catalog:write"], status.HTTP_200_OK),
+            ("change_owner_read_only", "bulk/change_owner", ["data_catalog:read"], status.HTTP_403_FORBIDDEN),
+            ("change_owner_with_write_scope", "bulk/change_owner", ["data_catalog:write"], status.HTTP_200_OK),
         ]
     )
     def test_bulk_actions_enforce_token_scopes(
@@ -553,7 +654,9 @@ class TestMetricLifecycleAPI(APIBaseTest):
     ) -> None:
         upsert_metric(team=self.team, user=self.user, name="mrr", description="d", definition=_HOGQL)
         self.client.logout()
-        response = self.client.post(f"{self.url}{url_path}/", {"names": ["mrr"]}, format="json", **self._bearer(scopes))
+        response = self.client.post(
+            f"{self.url}{url_path}/", {"names": ["mrr"], "owner": None}, format="json", **self._bearer(scopes)
+        )
         assert response.status_code == expected, response.json()
 
     def test_bulk_approve_rejects_an_over_cap_batch(self) -> None:
@@ -616,6 +719,26 @@ class TestMetricRunThrottles(APIBaseTest):
             response = self.client.post(f"{self.url}purchases/run/")
         assert response.status_code == status.HTTP_429_TOO_MANY_REQUESTS
 
+    @parameterized.expand(
+        [
+            ("search", MetricSearchBurstRateThrottle, "get", {"search": "revenue"}, status.HTTP_429_TOO_MANY_REQUESTS),
+            ("plain_list", MetricSearchBurstRateThrottle, "get", {}, status.HTTP_200_OK),
+            ("create", MetricWriteBurstRateThrottle, "post", {"name": "mrr", "description": "d"}, 429),
+            ("search_is_not_a_write", MetricWriteBurstRateThrottle, "get", {"search": "revenue"}, status.HTTP_200_OK),
+        ]
+    )
+    @patch("products.data_catalog.backend.logic.metric_embeddings.posthoganalytics.feature_enabled", return_value=False)
+    def test_search_and_write_limits_apply_only_to_their_requests(
+        self, _name: str, throttle_class: type, method: str, data: dict[str, str], expected: int, _flag: MagicMock
+    ) -> None:
+        deny, wait = self._denied(throttle_class)
+        with deny, wait:
+            if method == "post":
+                response = self.client.post(self.url, data, format="json")
+            else:
+                response = self.client.get(self.url, data)
+        assert response.status_code == expected
+
     def test_markdown_metric_keeps_default_throttles(self) -> None:
         upsert_metric(
             team=self.team,
@@ -656,13 +779,6 @@ class TestMetricRunInputValidation(SimpleTestCase):
         assert serializer.is_valid() is valid
         if not valid:
             assert "refresh" in serializer.errors
-
-    @parameterized.expand([(0.0, True), (1.0, True), (-0.5, False), (1.5, False)])
-    def test_confidence_bounds(self, value: float, valid: bool) -> None:
-        serializer = MetricSerializer(data={"name": "mrr", "description": "d", "confidence": value})
-        assert serializer.is_valid() is valid, serializer.errors
-        if not valid:
-            assert "confidence" in serializer.errors
 
 
 class TestMetricBulkNamesValidation(SimpleTestCase):

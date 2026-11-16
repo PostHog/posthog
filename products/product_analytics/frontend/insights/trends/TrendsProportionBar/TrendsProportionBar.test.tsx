@@ -2,7 +2,7 @@ import '@testing-library/jest-dom'
 
 import { cleanup, waitFor } from '@testing-library/react'
 
-import { getHogChart, setupJsdom, setupSyncRaf } from '@posthog/quill-charts/testing'
+import { getChart, setupJsdom, setupSyncRaf } from '@posthog/quill-charts/testing'
 
 import { NodeKind } from '~/queries/schema/schema-general'
 import { buildTrendsQuery, renderInsight } from '~/test/insight-testing'
@@ -54,7 +54,7 @@ describe('TrendsProportionBar', () => {
             timeout: 5000,
         })
 
-        expect(getHogChart(container).legendItems()).toEqual(expectedRows)
+        expect(getChart(container).legendItems()).toEqual(expectedRows)
     })
 
     it('floors a negative part at 0 in the total below the bar, matching what the bar renders', async () => {
@@ -91,6 +91,6 @@ describe('TrendsProportionBar', () => {
             timeout: 5000,
         })
 
-        expect(getHogChart(container).legendItems()).toHaveLength(1)
+        expect(getChart(container).legendItems()).toHaveLength(1)
     })
 })

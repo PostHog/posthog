@@ -15,7 +15,7 @@ import { stripScoutPrefix } from '../../utils/scoutRunsWindow'
 import { KIND_TAG_TYPE, scratchpadKindOf } from '../../utils/scratchpadKeys'
 
 /**
- * One scratchpad entry, as the scout page's memory panel shows it. Shares the collapse/expand
+ * One scratchpad entry, as a row of the scout page's Learned list. Shares the collapse/expand
  * grammar of the scout emission cards: a header (chevron · kind · key · expiry · updated time) that
  * stays visible, a 2-line preview when collapsed, the full body plus an attribution footer (which
  * scout created it, when, and how long it's been carried forward) when open.
@@ -27,7 +27,7 @@ import { KIND_TAG_TYPE, scratchpadKindOf } from '../../utils/scratchpadKeys'
  * the storage key drops out. Every entry there belongs to that scout, so a truncated key says less
  * than the name the scout gave the learning.
  *
- * The fleet-wide panel uses a ledger table instead; this card is the compact per-scout shape.
+ * The fleet-wide panel uses a ledger table instead; this row is the compact per-scout shape.
  */
 export function ScratchpadEntryCard({
     entry,
@@ -57,11 +57,11 @@ export function ScratchpadEntryCard({
         entry.created_at && entry.updated_at ? dayjs(entry.updated_at).diff(dayjs(entry.created_at), 'day') : 0
 
     return (
-        <div className="flex flex-col rounded border border-primary bg-bg-light">
+        <div className="flex flex-col border-b border-primary last:border-b-0">
             <button
                 type="button"
                 onClick={() => toggleEntry(entry.key)}
-                className="flex items-center gap-2 px-3 py-2 text-left"
+                className="flex items-center gap-2 px-3 py-2 text-left transition-colors hover:bg-surface-secondary"
                 aria-expanded={expanded}
             >
                 <IconChevronDown

@@ -21,6 +21,8 @@ This skill covers two jobs:
 1. Add platform alerting to a product by composing the shared lifecycle, destination, delivery, scheduling, email, and frontend primitives.
 2. Extend the alerts platform when a reusable capability, option, or advanced behavior belongs in shared infrastructure.
 
+For Slack message layout, cards, Markdown, and visual checks, use [formatting-slack-messages](../formatting-slack-messages/SKILL.md).
+
 ## Route first
 
 | Request                                                                                                                                      | Path         | Read                                                                                       |

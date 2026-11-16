@@ -86,7 +86,7 @@ class Command(BaseCommand):
             sys.exit(1)
 
         if sys.stdin.isatty():
-            logger.warning("Not running migration-specific checks. See .github/workflows/ci-backend.yml for usage.")
+            logger.warning("Not running migration-specific checks. See .depot/workflows/ci-backend.yml for usage.")
             return
 
         migration_path_re = re.compile(r"^[a-z]+/clickhouse/migrations/[0-9]+_[a-zA-Z_0-9]+\.py$")

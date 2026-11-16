@@ -1,6 +1,7 @@
 import re
+import time
 import dataclasses
-from collections.abc import Iterator
+from collections.abc import Iterable, Iterator
 from contextlib import contextmanager
 from typing import ClassVar, cast
 
@@ -12,7 +13,10 @@ from structlog.types import FilteringBoundLogger
 
 from posthog.dataclasses import frozen
 
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.file_parsing import FILE_PATH_COLUMN
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.file_parsing import (
+    FILE_PATH_COLUMN,
+    uses_brotli_compression,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store.errors import (
     ACCESS_DENIED_ERROR,
     DELTA_UNSUPPORTED_ERROR,
@@ -22,6 +26,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.obj
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store.settings import (
     DELTA_BATCH_ROWS,
+    DELTA_MISSING_RETRY_DELAYS_SECONDS,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import ReplaceScope
 
@@ -112,6 +117,7 @@ class DeltaRead:
         yielded = False
         try:
             for file_name, scan_fragments in scans:
+                self._refuse_brotli(scan_fragments if scan_fragments is not None else self.dataset.get_fragments())
                 for batch in self._scanner(scan_fragments, batch_rows).to_batches():
                     if batch.num_rows:
                         yielded = True
@@ -128,6 +134,15 @@ class DeltaRead:
             # An empty snapshot still has to reach the pipeline as a schema, or the table is dropped and
             # never recreated.
             yield self._tagged(self.dataset.schema.empty_table(), with_version, with_file_names, None)
+
+    def _refuse_brotli(self, fragments: Iterable[ds.Fragment]) -> None:
+        for fragment in fragments:
+            parquet_fragment = cast(ds.ParquetFileFragment, fragment)
+            if uses_brotli_compression(parquet_fragment.metadata):
+                raise ObjectStorageError(
+                    f"{FILE_PARSE_ERROR} '{parquet_fragment.path}' in the Delta table '{self.table_name}': Brotli "
+                    "compression isn't supported. Write the table with Snappy, Gzip, or Zstd compression instead."
+                )
 
     def _scanner(self, fragments: list[ds.FileFragment] | None, batch_rows: int) -> ds.Scanner:
         dataset: ds.Dataset = self.dataset
@@ -186,7 +201,18 @@ def plan_delta_read(
     the stored rows don't name their files.
     """
     with _delta_errors(table_name):
-        table = DeltaTable(uri, storage_options=storage_options)
+        # A writer that replaces the table deletes its folder and writes it again, so a missing
+        # table can come back seconds later.
+        for attempt, delay in enumerate(DELTA_MISSING_RETRY_DELAYS_SECONDS, start=1):
+            try:
+                table = DeltaTable(uri, storage_options=storage_options)
+                break
+            except TableNotFoundError:
+                if logger is not None:
+                    logger.info("Delta table not found, retrying", table=table_name, attempt=attempt)
+                time.sleep(delay)
+        else:
+            table = DeltaTable(uri, storage_options=storage_options)
         version = table.version()
         cursor = ObjectStorageDeltaCursor(version=version, table_id=str(table.metadata().id), file_names=by_file)
         dataset = cast(ds.FileSystemDataset, table.to_pyarrow_dataset())
@@ -256,3 +282,9 @@ def iter_delta_tables(
 ) -> Iterator[pa.Table]:
     """Stream one whole Delta snapshot."""
     yield from plan_delta_read(uri, storage_options, table_name, logger=logger).iter_tables(batch_rows)
+
+
+def check_delta_table(uri: str, storage_options: dict[str, str], table_name: str) -> None:
+    """Load the table's `_delta_log`, which needs the same read access as a sync, without reading data."""
+    with _delta_errors(table_name):
+        DeltaTable(uri, storage_options=storage_options, without_files=True)

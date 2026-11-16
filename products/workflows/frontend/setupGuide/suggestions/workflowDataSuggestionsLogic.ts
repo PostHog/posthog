@@ -42,7 +42,7 @@ const POLL_REQUEST_TIMEOUT_MS = 10_000
 const BUILD_FAILED_MESSAGE = "We couldn't build this workflow. Try again, or start from a template."
 
 // pinned: analytics property values for the `workflows data suggestion*` events - renaming breaks dashboards
-export type WorkflowDataSuggestionsSurface = 'empty_state' | 'onboarding_wizard'
+export type WorkflowDataSuggestionsSurface = 'empty_state' | 'onboarding_wizard' | 'email_domain_wizard'
 
 export interface WorkflowDataSuggestionsLogicProps {
     surface: WorkflowDataSuggestionsSurface
@@ -94,6 +94,9 @@ export interface workflowDataSuggestionsLogicActions {
         aiResult: DataSuggestionsResponseApi | null
         payload?: any
     }
+    reportCardsShown: (shownSuggestionIds?: string[]) => {
+        shownSuggestionIds: string[] | undefined
+    }
     setBuildingKey: (key: string | null) => {
         key: string | null
     }
@@ -139,6 +142,8 @@ export const workflowDataSuggestionsLogic = kea<workflowDataSuggestionsLogicType
     })),
     actions({
         giveUpPolling: true,
+        // Without ids every loaded suggestion counts as shown.
+        reportCardsShown: (shownSuggestionIds?: string[]) => ({ shownSuggestionIds }),
         startSuggestion: (card: SuggestionCard) => ({ card }),
         setBuildingKey: (key: string | null) => ({ key }),
     }),
@@ -217,17 +222,27 @@ export const workflowDataSuggestionsLogic = kea<workflowDataSuggestionsLogicType
                 }, 'poll')
                 return
             }
-            if (aiResult?.status === 'ready' && aiResult.suggestions.length > 0) {
-                // pinned: analytics event name - renaming breaks dashboards
-                posthog.capture('workflows data suggestions shown', {
-                    surface: props.surface,
-                    source: aiResult.suggestions.some((suggestion) => suggestion.premade) ? 'premade' : 'ai',
-                    trigger_events: aiResult.suggestions.map((suggestion) => suggestion.trigger_event),
-                    stages: aiResult.suggestions.map((suggestion) => suggestion.stage),
-                })
-            }
         }
         return {
+            // The logic can load before its cards are on screen, so the component that renders them reports the view.
+            reportCardsShown: ({ shownSuggestionIds }) => {
+                const aiResult = values.aiResult
+                const shown =
+                    aiResult?.status === 'ready'
+                        ? aiResult.suggestions.filter(
+                              (suggestion) => !shownSuggestionIds || shownSuggestionIds.includes(suggestion.id)
+                          )
+                        : []
+                if (shown.length > 0) {
+                    // pinned: analytics event name - renaming breaks dashboards
+                    posthog.capture('workflows data suggestions shown', {
+                        surface: props.surface,
+                        source: shown.some((suggestion) => suggestion.premade) ? 'premade' : 'ai',
+                        trigger_events: shown.map((suggestion) => suggestion.trigger_event),
+                        stages: shown.map((suggestion) => suggestion.stage),
+                    })
+                }
+            },
             loadAiResultSuccess: ({ aiResult }) => {
                 cache.pollDeadline = Date.now() + POLL_DEADLINE_MS
                 handleResult(aiResult)

@@ -27,7 +27,7 @@ from products.conversations.evals.seeders import provision_eval_team, seed_case,
 from products.posthog_ai.eval_harness.config import BaseEvalCase
 from products.posthog_ai.eval_harness.harness.context import EvalContext
 from products.posthog_ai.eval_harness.harness.requirements import SuiteKind
-from products.posthog_ai.eval_harness.one_shot import OneShotPublicEval
+from products.posthog_ai.eval_harness.one_shot import OneShotEval
 
 SUITE_KIND = SuiteKind.ONE_SHOT
 
@@ -60,7 +60,7 @@ async def eval_support_reply(ctx: EvalContext) -> None:
         finally:
             await asyncio.to_thread(lambda: teardown_eval_team(eval_team=eval_team))
 
-    await OneShotPublicEval(
+    await OneShotEval(
         experiment_name="support-reply-pipeline",
         offline_suite=offline_suite(
             "conversations/eval_support_reply::eval_support_reply",

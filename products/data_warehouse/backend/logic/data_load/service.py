@@ -41,6 +41,7 @@ from posthog.temporal.common.schedule import (
     pause_schedule,
     schedule_exists,
     trigger_schedule,
+    trigger_schedule_buffer_one,
     unpause_schedule,
     update_schedule,
 )
@@ -214,9 +215,13 @@ def trigger_external_data_source_workflow(external_data_source: ExternalDataSour
     trigger_schedule(temporal, schedule_id=str(external_data_source.id))
 
 
-def trigger_external_data_workflow(external_data_schema: ExternalDataSchema):
+def trigger_external_data_workflow(external_data_schema: ExternalDataSchema, *, buffer_one: bool = False):
     temporal = sync_connect()
-    trigger_schedule(temporal, schedule_id=str(external_data_schema.id))
+    if buffer_one:
+        # The schedule skips a trigger while a run is open, and a cancelled run stays open until it closes.
+        trigger_schedule_buffer_one(temporal, str(external_data_schema.id))
+    else:
+        trigger_schedule(temporal, schedule_id=str(external_data_schema.id))
 
 
 async def a_trigger_external_data_workflow(external_data_schema: ExternalDataSchema):
@@ -441,15 +446,6 @@ def is_any_external_data_schema_paused(team_id: int) -> bool:
     )
 
 
-def is_cdc_enabled_for_team(team: Team) -> bool:
-    return feature_enabled_or_false(
-        "dwh-postgres-cdc",
-        str(team.organization_id),
-        groups={"organization": str(team.organization_id)},
-        group_properties={"organization": {"id": str(team.organization_id)}},
-    )
-
-
 def is_custom_source_ai_builder_enabled_for_team(team: Team) -> bool:
     return feature_enabled_or_false(
         "dwh-custom-source-ai-builder",
@@ -619,13 +615,17 @@ def trigger_cdc_extraction_schedule(source_id: str) -> bool:
     return True
 
 
-def cdc_extraction_schedule_exists(source_id: str) -> bool:
-    """Whether the source's CDC extraction schedule is there.
+@async_to_sync
+async def cdc_extraction_schedule_exists(source_id: str, timeout: timedelta | None = None) -> bool:
+    """Whether the source's CDC extraction schedule is there. A paused schedule exists.
 
     Recreating a missing one is the caller's job, as it is for the trigger: building a schedule
-    reads the source row, and this boundary takes ids.
+    reads the source row, and this boundary takes ids. Raises `TimeoutError` when Temporal does
+    not answer within `timeout`.
     """
-    return external_data_workflow_exists(_get_cdc_extraction_schedule_id(source_id))
+    async with asyncio.timeout(timeout.total_seconds() if timeout else None):
+        temporal = await async_connect()
+        return await a_schedule_exists(temporal, schedule_id=_get_cdc_extraction_schedule_id(source_id))
 
 
 def delete_cdc_extraction_schedule(source_id: str) -> None:

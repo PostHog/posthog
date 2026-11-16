@@ -24,7 +24,7 @@ Run on the latest Claude Opus and GPT Sol models, one runtime per run:
 
 from __future__ import annotations
 
-from products.posthog_ai.eval_harness.base import SandboxedPublicEval
+from products.posthog_ai.eval_harness.base import SandboxedEval
 from products.posthog_ai.eval_harness.config import SandboxedEvalCase
 from products.posthog_ai.eval_harness.harness.context import EvalContext
 from products.posthog_ai.eval_harness.scorers import NoToolCall
@@ -92,7 +92,7 @@ async def eval_chart_not_table(ctx: EvalContext) -> None:
         ),
     ]
 
-    await SandboxedPublicEval(
+    await SandboxedEval(
         experiment_name="sandboxed-chart-not-table-cli",
         offline_suite=offline_suite(
             "product_analytics/eval_chart_not_table::eval_chart_not_table",

@@ -5,6 +5,8 @@ from typing import Optional
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
+from django.conf import settings
+
 from parameterized import parameterized
 from rest_framework.exceptions import APIException
 
@@ -12,8 +14,10 @@ from posthog.hogql.errors import ExposedHogQLError, InternalHogQLError, QueryErr
 
 from posthog.errors import ExposedCHQueryError
 from posthog.exceptions import ClickHouseQueryMemoryLimitExceeded, ClickHouseQueryTimeOut
+from posthog.ph_client import PH_EU_HOST, PH_US_HOST
 
 from products.subscriptions.backend.facade.contracts import PromptRejectedError
+from products.subscriptions.backend.logic.report_text import ReportDocument, ReportLinkItem, ReportText, ReportTextItem
 from products.subscriptions.backend.models.subscription import AIQueryPlanStatus
 from products.subscriptions.backend.temporal.ai_subscription.charts import (
     ChartFailureReason,
@@ -24,6 +28,8 @@ from products.subscriptions.backend.temporal.ai_subscription.charts import (
 from products.subscriptions.backend.temporal.ai_subscription.report_pipeline import (
     _MAX_CONCURRENT_STEPS,
     QUERY_FAILED_PREFIX,
+    QUERY_RETURNED_NO_ROWS,
+    WINDOW_TOKEN_HINT,
     AiReportStageError,
     PlanExecution,
     QueryStepDiagnostic,
@@ -45,19 +51,23 @@ from products.subscriptions.backend.temporal.ai_subscription.spec_generator impo
     AI_QUERY_PLAN_VERSION,
     ReportWindow,
     StoredPlanInvalidError,
+    ai_subscription_llm_tracing,
 )
 from products.subscriptions.backend.temporal.types import safe_error_message, safe_query_error_details
 
 from ee.hogai.context.insight.query_executor import FormattedQueryResult
+from ee.hogai.llm import MaxCallbackHandler
 from ee.hogai.tool_errors import MaxToolRetryableError
 
 _RP = "products.subscriptions.backend.temporal.ai_subscription.report_pipeline"
+_SG = "products.subscriptions.backend.temporal.ai_subscription.spec_generator"
 _SG = "products.subscriptions.backend.temporal.ai_subscription.spec_generator"
 # slo_operation emits through posthoganalytics.capture; patch that boundary to inspect the SLO events.
 _SLO_CAPTURE = "posthog.slo.events.posthoganalytics.capture"
 
 _WINDOW_END = datetime(2026, 6, 29, 16, 0, tzinfo=UTC)
-_RESPONSE: dict = {"results": [], "columns": []}
+_RESPONSE: dict = {"results": [[1]], "columns": ["count()"]}
+_EMPTY_RESPONSE: dict = {"results": [], "columns": ["count()"]}
 
 
 @pytest.fixture(autouse=True)
@@ -81,6 +91,15 @@ _OK_RUN = PlanExecution(
     failed_count=0,
     diagnostics=[QueryStepDiagnostic("s", "SELECT count() FROM events", True, None)],
     charts=[],
+)
+_NO_ROWS_STEP = f"### s0\n\n_{QUERY_RETURNED_NO_ROWS}._"
+_FAILED_STEP = f"### s1\n\n_{QUERY_FAILED_PREFIX} — metric not computed, not empty data._"
+_NO_ROWS_RUN = PlanExecution(
+    rendered=[_NO_ROWS_STEP],
+    failed_count=0,
+    diagnostics=[QueryStepDiagnostic("s0", "SELECT 1", True, None)],
+    charts=[],
+    no_rows_count=1,
 )
 
 
@@ -212,9 +231,17 @@ async def test_planner_failure_wrapped_with_stage(_mock_bep: object) -> None:
 @patch(f"{_RP}.MaxChatOpenAI")
 @patch(f"{_RP}._run_steps", new_callable=AsyncMock)
 @patch(f"{_RP}.build_enriched_prompt")
+@pytest.mark.parametrize("url_case", ["short", "large_enum", "oversized_url"])
 async def test_successful_report_emits_slo_success(
-    mock_bep: MagicMock, mock_run: AsyncMock, mock_chat: MagicMock, mock_capture: MagicMock
+    mock_bep: MagicMock, mock_run: AsyncMock, mock_chat: MagicMock, mock_capture: MagicMock, url_case: str
 ) -> None:
+    source_urls: tuple[str, ...] = ("https://example.com/reports/weekly?view=traffic#pages",)
+    expected_urls = list(source_urls)
+    if url_case == "large_enum":
+        source_urls = tuple(f"https://example.com/{index:03}/" + "a" * 2000 for index in range(100))
+        expected_urls = list(source_urls[:29])
+    elif url_case == "oversized_url":
+        source_urls = ("https://example.com/" + "a" * 60000, *source_urls)
     mock_bep.return_value = _spec(steps=2)
     mock_run.return_value = PlanExecution(
         rendered=["### s0\n\nok", "### s1\n\nok"],
@@ -224,12 +251,20 @@ async def test_successful_report_emits_slo_success(
             QueryStepDiagnostic(description="s1", hogql="SELECT 2", ok=True, error_type=None),
         ],
         charts=[],
+        source_urls=source_urls,
     )
-    mock_chat.return_value.invoke.return_value = MagicMock(content="# Report")
+    mock_chat.return_value.with_structured_output.return_value.invoke.return_value = ReportDocument(
+        topic=None,
+        sections=[],
+        custom_layout=[ReportText(items=[ReportTextItem(kind="text", text="# Report")])],
+    )
 
     result = await generate_ai_report(team=MagicMock(), user=MagicMock(), prompt="x", window=_test_window())
 
     assert result.markdown == "# Report"
+    assert mock_chat.return_value.with_structured_output.call_args.kwargs["strict"] is True
+    schema = mock_chat.return_value.with_structured_output.call_args.args[0]
+    assert schema["$defs"]["ReportLinkItem"]["properties"]["url"]["enum"] == expected_urls
     props = _slo_completed(mock_capture)
     assert props["operation"] == "ai_subscription_prompt_generation"
     assert props["outcome"] == "success"
@@ -255,7 +290,11 @@ async def test_degraded_report_still_synthesizes(
         ],
         charts=[],
     )
-    mock_chat.return_value.invoke.return_value = MagicMock(content="# Weekly report")
+    mock_chat.return_value.with_structured_output.return_value.invoke.return_value = ReportDocument(
+        topic=None,
+        sections=[],
+        custom_layout=[ReportText(items=[ReportTextItem(kind="text", text="# Weekly report")])],
+    )
 
     result = await generate_ai_report(team=MagicMock(), user=MagicMock(), prompt="x", window=_test_window())
 
@@ -272,6 +311,59 @@ async def test_degraded_report_still_synthesizes(
     assert props["degraded"] is True
     assert props["failed_steps"] == 1
     assert props["query_coverage"] == 0.0
+
+
+def _handler_trace_and_session(config: object) -> tuple[str, str]:
+    assert isinstance(config, dict)
+    (handler,) = config["callbacks"]
+    assert isinstance(handler, MaxCallbackHandler)
+    assert handler.trace_id is not None
+    return str(handler.trace_id), handler.properties["$ai_session_id"]
+
+
+@patch(_SLO_CAPTURE)
+@patch(f"{_SG}.is_privacy_mode_enabled", return_value=False)
+@patch(f"{_SG}.posthoganalytics.default_client", MagicMock(privacy_mode=False))
+@patch(f"{_RP}.MaxChatOpenAI")
+@patch(f"{_RP}._run_steps", new_callable=AsyncMock)
+@patch(f"{_RP}.build_enriched_prompt")
+async def test_llm_calls_in_one_report_run_share_a_session_but_not_a_trace(
+    mock_bep: MagicMock, mock_run: AsyncMock, mock_chat: MagicMock, _mock_privacy: MagicMock, _mock_capture: MagicMock
+) -> None:
+    team, user = MagicMock(id=7), MagicMock(distinct_id="user-1")
+    planner_ids: list[tuple[str, str]] = []
+
+    def _plan(**kwargs: object) -> EnrichedPromptSpec:
+        _, config = ai_subscription_llm_tracing(team=team, user=user, stage="plan", trace_correlation_id=None)
+        planner_ids.append(_handler_trace_and_session(config))
+        return _spec(steps=1)
+
+    mock_bep.side_effect = _plan
+    mock_run.return_value = PlanExecution(
+        rendered=["### s0\n\nok"],
+        failed_count=0,
+        diagnostics=[QueryStepDiagnostic(description="s0", hogql="SELECT 1", ok=True, error_type=None)],
+        charts=[],
+    )
+    synthesis = mock_chat.return_value.with_structured_output.return_value
+    synthesis.invoke.return_value = ReportDocument(
+        topic=None,
+        sections=[],
+        custom_layout=[ReportText(items=[ReportTextItem(kind="text", text="# Report")])],
+    )
+
+    for _ in range(2):
+        await generate_ai_report(team=team, user=user, prompt="x", window=_test_window())
+
+    synthesis_ids = [_handler_trace_and_session(call.kwargs["config"]) for call in synthesis.invoke.call_args_list]
+    run_ids = list(zip(planner_ids, synthesis_ids))
+    # AI credit billing joins each generation to every $ai_trace with its trace ID, so a shared trace ID
+    # bills the run once per LLM call.
+    trace_ids = [trace_id for run in run_ids for trace_id, _ in run]
+    assert len(set(trace_ids)) == len(trace_ids) == 4
+    sessions_per_run = [{session_id for _, session_id in run} for run in run_ids]
+    assert [len(sessions) for sessions in sessions_per_run] == [1, 1]
+    assert sessions_per_run[0] != sessions_per_run[1]
 
 
 @parameterized.expand(
@@ -305,7 +397,7 @@ async def test_synthesis_failure_wrapped_with_stage(
         diagnostics=[QueryStepDiagnostic(description="s0", hogql="SELECT 1", ok=True, error_type=None)],
         charts=[],
     )
-    mock_chat.return_value.invoke.side_effect = RuntimeError("synth boom")
+    mock_chat.return_value.with_structured_output.return_value.invoke.side_effect = RuntimeError("synth boom")
 
     with pytest.raises(AiReportStageError) as exc_info:
         await generate_ai_report(team=MagicMock(), user=MagicMock(), prompt="x", window=_test_window())
@@ -357,6 +449,63 @@ async def test_request_hogql_fix_returns_none_on_wrong_type(mock_chat: MagicMock
     assert result is None
 
 
+@pytest.mark.parametrize("org_privacy_mode", [False, True])
+@patch("products.subscriptions.backend.temporal.ai_subscription.spec_generator.is_privacy_mode_enabled")
+@patch("products.subscriptions.backend.temporal.ai_subscription.spec_generator.posthoganalytics.default_client")
+@patch(f"{_RP}.MaxChatOpenAI")
+async def test_request_hogql_fix_traces_call_as_billable_subscriptions_usage(
+    mock_chat: MagicMock, mock_client: MagicMock, mock_privacy_mode: MagicMock, org_privacy_mode: bool
+) -> None:
+    mock_client.privacy_mode = False
+    mock_privacy_mode.return_value = org_privacy_mode
+    structured = mock_chat.return_value.with_structured_output.return_value
+    structured.invoke.return_value = HogQLFix(fixed_hogql="SELECT 2")
+    await _arequest_hogql_fix(
+        original_hogql="SELECT 1",
+        error_message="boom",
+        step_description="d",
+        context_blob="c",
+        team=MagicMock(id=7),
+        user=MagicMock(distinct_id="user-1"),
+        trace_correlation_id=42,
+    )
+
+    assert mock_chat.call_args.kwargs["posthog_properties"]["ai_product"] == "subscriptions"
+    (handler,) = structured.invoke.call_args.kwargs["config"]["callbacks"]
+    assert isinstance(handler, MaxCallbackHandler)
+    assert handler.privacy_mode is org_privacy_mode
+    assert handler._groups["instance"] == settings.SITE_URL
+    assert handler.properties == {
+        "ai_product": "subscriptions",
+        "feature": "ai_subscription",
+        "stage": "query_fix",
+        "subscription_id": 42,
+        "team_id": 7,
+    }
+
+
+@pytest.mark.parametrize("region,expected_host", [("EU", PH_EU_HOST), ("US", PH_US_HOST)])
+@patch(f"{_SG}.is_privacy_mode_enabled", return_value=False)
+def test_cloud_subscription_traces_capture_to_the_deployment_region(
+    _mock_privacy_mode: MagicMock, region: str, expected_host: str
+) -> None:
+    with (
+        patch(f"{_SG}.is_cloud", return_value=True),
+        patch(f"{_SG}.get_instance_region", return_value=region),
+        patch(f"{_SG}.posthoganalytics.default_client", MagicMock(host=PH_US_HOST, privacy_mode=False)),
+        patch.dict(f"{_SG}._regional_analytics_clients", clear=True),
+    ):
+        _, config = ai_subscription_llm_tracing(
+            team=MagicMock(id=7), user=MagicMock(distinct_id="user-1"), stage="synthesis", trace_correlation_id=None
+        )
+
+    callbacks = config["callbacks"]
+    assert isinstance(callbacks, list)
+    (handler,) = callbacks
+    assert isinstance(handler, MaxCallbackHandler)
+    assert handler._ph_client.host == expected_host
+
+
 @patch(f"{_RP}.resolve_prompt", return_value="Fix this query. Intent: {{{description}}} Error: {{{error}}}")
 @patch(f"{_RP}.MaxChatOpenAI")
 async def test_request_hogql_fix_grounds_prompt_in_project_schema(
@@ -388,6 +537,7 @@ async def test_run_steps_non_retryable_error_degrades_to_placeholder(mock_execut
         _spec(steps=1), MagicMock(), MagicMock(), _test_window(), None, charts_enabled_for_team=True
     )
     assert execution.failed_count == 1
+    assert execution.no_rows_count == 0
     assert "Query failed to run" in execution.rendered[0]
     assert execution.diagnostics[0].ok is False
     assert execution.diagnostics[0].error_type == "RuntimeError"
@@ -430,6 +580,85 @@ async def test_run_steps_keeps_wrapped_error_out_of_recipient_copy_and_records_s
     mock_hogql_fix.assert_awaited_once()
 
 
+@pytest.mark.parametrize(
+    "error,expected_code,expected_message",
+    [
+        pytest.param(
+            MaxToolRetryableError(
+                "Unable to resolve field: plan_name", error_type="validation", error_code="hogql_unresolved_field"
+            ),
+            "hogql_unresolved_field",
+            "Unable to resolve field: plan_name",
+            id="hogql_input_error",
+        ),
+        pytest.param(
+            MaxToolRetryableError(
+                "Cannot parse 'jane@example.com' as DateTime",
+                error_type="validation",
+                error_code="cannot_parse_datetime",
+            ),
+            "cannot_parse_datetime",
+            "ClickHouse rejected the query with error CANNOT_PARSE_DATETIME.",
+            id="clickhouse_rejection_uses_curated_text",
+        ),
+        pytest.param(
+            MaxToolRetryableError("Code: 999. boom on host ch-1", error_type="internal", error_code="internal_error"),
+            None,
+            None,
+            id="internal_error",
+        ),
+        pytest.param(MaxToolRetryableError("something failed"), None, None, id="no_error_code"),
+        pytest.param(
+            MaxToolRetryableError(
+                "Code: 6. DB::Exception: Cannot parse 'jane@example.com' on ch-internal-3",
+                error_type="internal",
+                error_code="unhandled_dbexception",
+            ),
+            None,
+            None,
+            id="raw_unhandled_error_stays_generic",
+        ),
+        pytest.param(
+            MaxToolRetryableError(
+                "Unable to resolve field: plan_name", error_type="internal", error_code="hogql_unresolved_field"
+            ),
+            None,
+            None,
+            id="input_code_on_an_internal_error_stays_generic",
+        ),
+        pytest.param(
+            MaxToolRetryableError(
+                "Unknown table `plans\x00`.", error_type="validation", error_code="hogql_unknown_table"
+            ),
+            "hogql_unknown_table",
+            "Unknown table `plans`.",
+            id="nul_is_stripped",
+        ),
+    ],
+)
+@patch(f"{_RP}.AssistantQueryExecutor")
+@patch(f"{_RP}._arequest_hogql_fix", new_callable=AsyncMock, return_value=None)
+async def test_run_steps_records_owner_safe_reason_for_an_async_query_failure(
+    mock_hogql_fix: AsyncMock,
+    mock_executor_cls: MagicMock,
+    error: MaxToolRetryableError,
+    expected_code: str | None,
+    expected_message: str | None,
+) -> None:
+    mock_executor_cls.return_value.arun_format_and_capture = AsyncMock(side_effect=error)
+
+    execution = await _run_steps(
+        _spec(steps=1), MagicMock(), MagicMock(), _test_window(), None, charts_enabled_for_team=True
+    )
+
+    cause = "" if expected_message else " (MaxToolRetryableError)"
+    assert execution.rendered[0] == f"### s0\n\n_{QUERY_FAILED_PREFIX}{cause} — metric not computed, not empty data._"
+    assert execution.diagnostics[0].error_code == expected_code
+    assert execution.diagnostics[0].human_readable_error == expected_message
+    assert mock_hogql_fix.await_args is not None
+    assert mock_hogql_fix.await_args.kwargs["error_message"] == (expected_message or "MaxToolRetryableError")
+
+
 @patch(f"{_RP}._arequest_hogql_fix", new_callable=AsyncMock)
 @patch(f"{_RP}.AssistantQueryExecutor")
 async def test_run_steps_forwards_exposed_query_error_message_to_fix(
@@ -465,14 +694,272 @@ async def test_synthesis_prompt_carries_the_failure_marker(
         ],
         charts=[],
     )
-    mock_chat.return_value.invoke.return_value = MagicMock(content="# Report")
+    mock_chat.return_value.with_structured_output.return_value.invoke.return_value = ReportDocument(
+        topic=None,
+        sections=[],
+        custom_layout=[ReportText(items=[ReportTextItem(kind="text", text="# Report")])],
+    )
 
     await generate_ai_report(team=MagicMock(), user=MagicMock(), prompt="x", window=_test_window())
 
-    (messages,) = mock_chat.return_value.invoke.call_args[0]
+    (messages,) = mock_chat.return_value.with_structured_output.return_value.invoke.call_args[0]
     system_message = messages[0][1]
     assert QUERY_FAILED_PREFIX in system_message  # {{{failure_marker}}} substituted from the constant
     assert "{{{" not in system_message  # no placeholder left unrendered
+
+
+@pytest.mark.parametrize(
+    "hogql,error_message",
+    [
+        pytest.param(
+            "SELECT count() FROM events WHERE timestamp >= toDateTime('{{D-2}} 00:00:00', 'UTC')",
+            ("The query uses `{{D-2}}`, which the report doesn't fill in. " + WINDOW_TOKEN_HINT),
+            id="double_brace_in_date",
+        ),
+        pytest.param(
+            "SELECT count() FROM events WHERE timestamp >= toDateTime('{D-1} 00:00:00','UTC')",
+            ("The query uses `{D-1}`, which the report doesn't fill in. " + WINDOW_TOKEN_HINT),
+            id="single_brace_in_date",
+        ),
+        pytest.param(
+            "SELECT count() FROM events WHERE timestamp >= toDateTime('<prior_day_start>', 'UTC')",
+            ("The query uses `<prior_day_start>`, which the report doesn't fill in. " + WINDOW_TOKEN_HINT),
+            id="angle_brackets_in_date",
+        ),
+        pytest.param(
+            "SELECT count() FROM events WHERE timestamp >= toDateTime\n    ('{D-1} 00:00:00', 'UTC')",
+            ("The query uses `{D-1}`, which the report doesn't fill in. " + WINDOW_TOKEN_HINT),
+            id="whitespace_before_parenthesis",
+        ),
+        pytest.param(
+            "SELECT count() FROM events WHERE day = toDate('{{utc_report_yesterday}}') AND {{date_range}}",
+            ("The query uses `{{utc_report_yesterday}}`, which the report doesn't fill in. " + WINDOW_TOKEN_HINT),
+            id="unknown_next_to_known",
+        ),
+        pytest.param(
+            "SELECT count() FROM events WHERE timestamp >= toDateTime('{{D-1}}') AND timestamp < toDate('{D-1}')",
+            ("The query uses `{{D-1}}`, `{D-1}`, which the report doesn't fill in. " + WINDOW_TOKEN_HINT),
+            id="double_and_single_brace_with_one_name",
+        ),
+        pytest.param(
+            "SELECT count() FROM events WHERE timestamp >= {{yesterday_start}}",
+            ("The query uses `{{yesterday_start}}`, which the report doesn't fill in. " + WINDOW_TOKEN_HINT),
+            id="double_brace_outside_quotes",
+        ),
+        pytest.param(
+            "SELECT count() FROM events WHERE timestamp >= {{date_range}} AND timestamp < {{window_end}}",
+            (
+                "The query compares a value with `{{date_range}}`, which is a whole time filter, not a timestamp. "
+                + WINDOW_TOKEN_HINT
+            ),
+            id="filter_token_used_as_timestamp",
+        ),
+        pytest.param(
+            "SELECT count() FROM events WHERE timestamp >= toDateTime('{{window_start}}') AND {{date_range}}",
+            (
+                "The query puts `{{window_start}}` inside quotes, where the report can't fill it in. "
+                + WINDOW_TOKEN_HINT
+            ),
+            id="known_token_inside_quotes",
+        ),
+        pytest.param(
+            "SELECT count() FROM events WHERE timestamp >= toDateTime('{{D-1}}') AND timestamp < toDateTime('{{window_end}}')",
+            (
+                "The query uses `{{D-1}}`, which the report doesn't fill in. "
+                "The query puts `{{window_end}}` inside quotes, where the report can't fill it in. " + WINDOW_TOKEN_HINT
+            ),
+            id="invented_and_quoted_tokens",
+        ),
+    ],
+)
+@patch(f"{_RP}._arequest_hogql_fix", new_callable=AsyncMock)
+@patch(f"{_RP}.AssistantQueryExecutor")
+async def test_run_steps_sends_an_invented_placeholder_to_the_fixer_without_running_it(
+    mock_executor_cls: MagicMock, mock_fix: AsyncMock, hogql: str, error_message: str
+) -> None:
+    mock_executor_cls.return_value.arun_format_and_capture = AsyncMock(
+        return_value=FormattedQueryResult(formatted="formatted table", fallback_used=False, response=_RESPONSE)
+    )
+    mock_fix.return_value = "SELECT count() FROM events WHERE {{date_range}}"
+    spec = EnrichedPromptSpec(
+        cleaned_prompt="p",
+        context_blob="c",
+        plan=QueryPlan(overall_intent="i", steps=[QueryPlanStep(description="s", hogql=hogql)]),
+    )
+    window = _test_window()
+
+    execution = await _run_steps(spec, MagicMock(), MagicMock(), window, None, charts_enabled_for_team=True)
+
+    assert mock_fix.await_args is not None
+    assert mock_fix.await_args.kwargs["error_message"] == error_message
+    (executed,) = [
+        call.args[0].query for call in mock_executor_cls.return_value.arun_format_and_capture.await_args_list
+    ]
+    assert executed == f"SELECT count() FROM events WHERE {window.window_filter_sql}"
+    assert execution.failed_count == 0
+
+
+@pytest.mark.parametrize(
+    "response,expected_rendered,expected_no_rows",
+    [
+        pytest.param(_RESPONSE, "### s0\n\nformatted table", 0, id="rows"),
+        pytest.param(_EMPTY_RESPONSE, f"### s0\n\n_{QUERY_RETURNED_NO_ROWS}._", 1, id="no_rows"),
+        pytest.param(
+            {
+                **_EMPTY_RESPONSE,
+                "warnings": [{"type": "access_control", "message": "Results may exclude restricted events."}],
+            },
+            f"### s0\n\n[Access control]\n- Results may exclude restricted events.\n\n_{QUERY_RETURNED_NO_ROWS}._",
+            1,
+            id="no_rows_keeps_query_warnings",
+        ),
+    ],
+)
+@patch(f"{_RP}.AssistantQueryExecutor")
+async def test_run_steps_marks_a_step_that_returned_no_rows(
+    mock_executor_cls: MagicMock, response: dict, expected_rendered: str, expected_no_rows: int
+) -> None:
+    mock_executor_cls.return_value.arun_format_and_capture = AsyncMock(
+        return_value=FormattedQueryResult(formatted="formatted table", fallback_used=False, response=response)
+    )
+    execution = await _run_steps(
+        _spec(steps=1), MagicMock(), MagicMock(), _test_window(), None, charts_enabled_for_team=True
+    )
+    assert execution.rendered == [expected_rendered]
+    assert execution.no_rows_count == expected_no_rows
+    assert execution.failed_count == 0
+
+
+@pytest.mark.parametrize(
+    "hogql",
+    [
+        pytest.param(
+            "SELECT count() FROM events WHERE {{date_range}} AND timestamp < {{window_end}} "
+            "AND timestamp >= {{compare_window_start}}",
+            id="known_tokens",
+        ),
+        pytest.param(
+            "SELECT countIf(timestamp >= {{window_start}}) AS current, countIf(timestamp < {{window_start}}) AS previous "
+            "FROM events WHERE {{compare_date_range}}",
+            id="growth_pattern",
+        ),
+        pytest.param(
+            "SELECT JSONExtractString('{\"name\": 1}', 'name') FROM events WHERE {{date_range}}", id="json_literal"
+        ),
+        pytest.param(
+            "SELECT count() FROM events WHERE match(properties.$current_url, '[a-z]{2,8}') AND {{date_range}}",
+            id="regex_quantifier",
+        ),
+        pytest.param("SELECT toDate('2026{10}20') FROM events WHERE {{date_range}}", id="brace_date_separator"),
+        pytest.param(
+            "SELECT count() FROM events WHERE properties.template = 'Hi {{first_name}}, it''s {{day}}' AND {{date_range}}",
+            id="double_brace_in_string_value",
+        ),
+        pytest.param(
+            "SELECT count() FROM events WHERE {{date_range}} /* {{unused}} */ -- AND timestamp >= toDateTime('{D-1}')",
+            id="tokens_in_comments",
+        ),
+    ],
+)
+@patch(f"{_RP}._arequest_hogql_fix", new_callable=AsyncMock)
+@patch(f"{_RP}.AssistantQueryExecutor")
+async def test_run_steps_runs_queries_without_invented_placeholders(
+    mock_executor_cls: MagicMock, mock_fix: AsyncMock, hogql: str
+) -> None:
+    mock_executor_cls.return_value.arun_format_and_capture = AsyncMock(
+        return_value=FormattedQueryResult(formatted="formatted table", fallback_used=False, response=_RESPONSE)
+    )
+    spec = EnrichedPromptSpec(
+        cleaned_prompt="p",
+        context_blob="c",
+        plan=QueryPlan(overall_intent="i", steps=[QueryPlanStep(description="s", hogql=hogql)]),
+    )
+
+    execution = await _run_steps(spec, MagicMock(), MagicMock(), _test_window(), None, charts_enabled_for_team=True)
+
+    assert execution.failed_count == 0
+    mock_fix.assert_not_awaited()
+
+
+@pytest.mark.parametrize(
+    "run_result,include_manage_link,expected_report,synthesizes",
+    [
+        pytest.param(
+            _NO_ROWS_RUN,
+            True,
+            "> ⚠️ None of the queries in this report found any data for this period, so there is nothing to "
+            "summarize. Use the Manage subscription link to review the generated queries.\n\n" + _NO_ROWS_STEP,
+            False,
+            id="every_step_empty",
+        ),
+        pytest.param(
+            PlanExecution(
+                rendered=[_NO_ROWS_STEP, _FAILED_STEP],
+                failed_count=1,
+                diagnostics=[
+                    QueryStepDiagnostic("s0", "SELECT 1", True, None),
+                    QueryStepDiagnostic("s1", "SELECT bad", False, "ExposedHogQLError"),
+                ],
+                charts=[],
+                no_rows_count=1,
+            ),
+            False,
+            "> ⚠️ None of the queries in this report found any data for this period, so there is nothing to "
+            "summarize.\n\n" + _NO_ROWS_STEP + "\n\n" + _FAILED_STEP,
+            False,
+            id="empty_and_failed_without_manage_link",
+        ),
+        pytest.param(
+            PlanExecution(
+                rendered=["### s0\n\nok", _NO_ROWS_STEP],
+                failed_count=0,
+                diagnostics=[
+                    QueryStepDiagnostic("s0", "SELECT 1", True, None),
+                    QueryStepDiagnostic("s1", "SELECT 2", True, None),
+                ],
+                charts=[],
+                no_rows_count=1,
+            ),
+            True,
+            "# Report",
+            True,
+            id="one_step_with_rows_still_synthesizes",
+        ),
+    ],
+)
+@patch(_SLO_CAPTURE)
+@patch(f"{_RP}.MaxChatOpenAI")
+@patch(f"{_RP}._run_steps", new_callable=AsyncMock)
+@patch(f"{_RP}.build_enriched_prompt")
+async def test_synthesis_runs_only_when_a_step_returned_rows(
+    mock_bep: MagicMock,
+    mock_run: AsyncMock,
+    mock_chat: MagicMock,
+    mock_capture: MagicMock,
+    run_result: PlanExecution,
+    include_manage_link: bool,
+    expected_report: str,
+    synthesizes: bool,
+) -> None:
+    mock_bep.return_value = _spec(steps=len(run_result.rendered))
+    mock_run.return_value = run_result
+    mock_chat.return_value.with_structured_output.return_value.invoke.return_value = ReportDocument(
+        topic=None,
+        sections=[],
+        custom_layout=[ReportText(items=[ReportTextItem(kind="text", text="# Report")])],
+    )
+
+    result = await generate_ai_report(
+        team=MagicMock(),
+        user=MagicMock(),
+        prompt="x",
+        window=_test_window(),
+        include_manage_link=include_manage_link,
+    )
+
+    assert result.markdown == expected_report
+    assert mock_chat.return_value.with_structured_output.return_value.invoke.called is synthesizes
+    assert _slo_completed(mock_capture)["no_rows_steps"] == run_result.no_rows_count
 
 
 @patch(f"{_RP}._arequest_hogql_fix", new_callable=AsyncMock)
@@ -624,7 +1111,11 @@ async def test_frozen_plan_reused_skips_planner_and_event_selection(
         diagnostics=[QueryStepDiagnostic("s0", "SELECT 1", True, None)],
         charts=[],
     )
-    mock_chat.return_value.invoke.return_value = MagicMock(content="# Report")
+    mock_chat.return_value.with_structured_output.return_value.invoke.return_value = ReportDocument(
+        topic=None,
+        sections=[],
+        custom_layout=[ReportText(items=[ReportTextItem(kind="text", text="# Report")])],
+    )
 
     result = await generate_ai_report(
         team=MagicMock(), user=MagicMock(), prompt="x", window=_test_window(), ai_query_plan=_frozen_plan()
@@ -656,7 +1147,11 @@ async def test_unfrozen_run_returns_plan_to_persist(
         diagnostics=[QueryStepDiagnostic("s0", "SELECT 1", True, None)],
         charts=[],
     )
-    mock_chat.return_value.invoke.return_value = MagicMock(content="# Report")
+    mock_chat.return_value.with_structured_output.return_value.invoke.return_value = ReportDocument(
+        topic=None,
+        sections=[],
+        custom_layout=[ReportText(items=[ReportTextItem(kind="text", text="# Report")])],
+    )
 
     result = await generate_ai_report(team=MagicMock(), user=MagicMock(), prompt="x", window=_test_window())
 
@@ -669,16 +1164,19 @@ async def test_unfrozen_run_returns_plan_to_persist(
 
 
 @pytest.mark.parametrize(
-    "total_steps,failed_count,should_freeze",
+    "total_steps,failed_count,coverage_complete,should_freeze",
     [
-        (12, 0, True),  # all succeeded
-        (12, 1, False),  # a single step failed — re-plan rather than replay one broken query every run
-        (12, 6, False),  # half failed
-        (12, 12, False),  # all failed
-        (1, 1, False),  # the single step failed
+        (12, 0, True, True),  # all succeeded
+        (12, 1, True, False),  # a single step failed — re-plan rather than replay one broken query every run
+        (12, 6, True, False),  # half failed
+        (12, 12, True, False),  # all failed
+        (1, 1, True, False),  # the single step failed
+        (12, 0, False, False),  # all succeeded, but the plan still misses a coverage item
     ],
 )
-def test_plan_to_freeze_requires_no_failures(total_steps: int, failed_count: int, should_freeze: bool) -> None:
+def test_plan_to_freeze_requires_no_failures(
+    total_steps: int, failed_count: int, coverage_complete: bool, should_freeze: bool
+) -> None:
     # A frozen plan replays verbatim until AI_QUERY_PLAN_VERSION bumps, so a plan with ANY failed step must
     # NOT be frozen — otherwise a subscription whose generation was partly broken keeps re-sending the
     # broken queries instead of re-planning. Guards against the freeze bar loosening back to allowing
@@ -697,6 +1195,7 @@ def test_plan_to_freeze_requires_no_failures(total_steps: int, failed_count: int
         total_steps=total_steps,
         relevant_events=["export created"],
         trace_correlation_id=None,
+        coverage_complete=coverage_complete,
     )
     if should_freeze:
         assert result == {
@@ -745,7 +1244,11 @@ async def test_freeze_carries_post_fix_hogql(
         ]
     )
     mock_fix.return_value = fixed_hogql
-    mock_chat.return_value.invoke.return_value = MagicMock(content="# Report")
+    mock_chat.return_value.with_structured_output.return_value.invoke.return_value = ReportDocument(
+        topic=None,
+        sections=[],
+        custom_layout=[ReportText(items=[ReportTextItem(kind="text", text="# Report")])],
+    )
 
     result = await generate_ai_report(team=MagicMock(), user=MagicMock(), prompt="x", window=_test_window())
 
@@ -823,6 +1326,7 @@ async def test_run_steps_substitutes_fresh_window_into_placeholder_sql(mock_exec
         pytest.param(_spec_with_window_placeholder(), _ALL_FAILED_RUN, id="all_failed"),
         # No window placeholder: freezing would cement an unbounded, window-less scan forever.
         pytest.param(_spec(steps=1), _OK_RUN, id="missing_window_placeholder"),
+        pytest.param(_spec_with_window_placeholder(), _NO_ROWS_RUN, id="no_step_found_data"),
     ],
 )
 @patch(_SLO_CAPTURE)
@@ -839,7 +1343,11 @@ async def test_unfreezable_plans_are_not_frozen(
 ) -> None:
     mock_bep.return_value = spec
     mock_run.return_value = run_result
-    mock_chat.return_value.invoke.return_value = MagicMock(content="# Report")
+    mock_chat.return_value.with_structured_output.return_value.invoke.return_value = ReportDocument(
+        topic=None,
+        sections=[],
+        custom_layout=[ReportText(items=[ReportTextItem(kind="text", text="# Report")])],
+    )
 
     result = await generate_ai_report(team=MagicMock(), user=MagicMock(), prompt="x", window=_test_window())
 
@@ -864,7 +1372,11 @@ async def test_stale_stored_plan_self_heals_and_records_planner_update(
         diagnostics=[QueryStepDiagnostic("s0", "SELECT 1", True, None)],
         charts=[],
     )
-    mock_chat.return_value.invoke.return_value = MagicMock(content="# Report")
+    mock_chat.return_value.with_structured_output.return_value.invoke.return_value = ReportDocument(
+        topic=None,
+        sections=[],
+        custom_layout=[ReportText(items=[ReportTextItem(kind="text", text="# Report")])],
+    )
 
     result = await generate_ai_report(
         team=MagicMock(),
@@ -1033,7 +1545,11 @@ async def test_a_report_ships_when_every_chart_render_fails(
     mock_bep.return_value = _spec_with_window_placeholder()
     mock_run.return_value = _charted_run()
     mock_render.return_value = ([], [ChartRenderFailure(step_index=0, reason=ChartFailureReason.RENDER_FAILED)])
-    mock_chat.return_value.invoke.return_value = MagicMock(content="# Report")
+    mock_chat.return_value.with_structured_output.return_value.invoke.return_value = ReportDocument(
+        topic=None,
+        sections=[],
+        custom_layout=[ReportText(items=[ReportTextItem(kind="text", text="# Report")])],
+    )
 
     result = await generate_ai_report(team=MagicMock(), user=MagicMock(), prompt="x", window=_test_window())
 
@@ -1072,7 +1588,11 @@ async def test_only_a_spec_invalid_chart_drop_blocks_freezing(
     mock_bep.return_value = _spec_with_window_placeholder()
     mock_run.return_value = _charted_run(chart_dropped_reason=reason)
     mock_render.return_value = ([], [])
-    mock_chat.return_value.invoke.return_value = MagicMock(content="# Report")
+    mock_chat.return_value.with_structured_output.return_value.invoke.return_value = ReportDocument(
+        topic=None,
+        sections=[],
+        custom_layout=[ReportText(items=[ReportTextItem(kind="text", text="# Report")])],
+    )
 
     result = await generate_ai_report(team=MagicMock(), user=MagicMock(), prompt="x", window=_test_window())
 
@@ -1113,7 +1633,11 @@ async def test_charts_render_only_for_a_flagged_team_that_includes_them(
     mock_run.return_value = _charted_run()
     mock_enabled.return_value = enabled
     mock_render.return_value = ([], [])
-    mock_chat.return_value.invoke.return_value = MagicMock(content="# Report")
+    mock_chat.return_value.with_structured_output.return_value.invoke.return_value = ReportDocument(
+        topic=None,
+        sections=[],
+        custom_layout=[ReportText(items=[ReportTextItem(kind="text", text="# Report")])],
+    )
 
     await generate_ai_report(
         team=MagicMock(), user=MagicMock(), prompt="x", window=_test_window(), include_charts=include_charts
@@ -1150,7 +1674,11 @@ async def test_only_the_most_important_charts_are_rendered(
         charts=candidates,
     )
     mock_render.return_value = ([], [])
-    mock_chat.return_value.invoke.return_value = MagicMock(content="# Report")
+    mock_chat.return_value.with_structured_output.return_value.invoke.return_value = ReportDocument(
+        topic=None,
+        sections=[],
+        custom_layout=[ReportText(items=[ReportTextItem(kind="text", text="# Report")])],
+    )
 
     with patch(f"{_RP}.MAX_CHARTS_PER_REPORT", 2):
         await generate_ai_report(team=MagicMock(), user=MagicMock(), prompt="x", window=_test_window())
@@ -1205,7 +1733,11 @@ async def test_the_report_only_mentions_truncation_when_charts_were_cut(
         charts=candidates,
     )
     mock_render.return_value = (rendered, [])
-    mock_chat.return_value.invoke.return_value = MagicMock(content="# Report")
+    mock_chat.return_value.with_structured_output.return_value.invoke.return_value = ReportDocument(
+        topic=None,
+        sections=[],
+        custom_layout=[ReportText(items=[ReportTextItem(kind="text", text="# Report")])],
+    )
 
     with patch(f"{_RP}.MAX_CHARTS_PER_REPORT", cap):
         result = await generate_ai_report(team=MagicMock(), user=MagicMock(), prompt="x", window=_test_window())
@@ -1220,3 +1752,31 @@ async def test_the_report_only_mentions_truncation_when_charts_were_cut(
         assert mock_truncated.call_args.kwargs["selected"] == cap
     else:
         mock_truncated.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    "label,url,expected_label",
+    [
+        ("Checkout", "https://example.com/checkout?source=campaign", "Checkout"),
+        ("https://example.com/project/1/dashboard/12", "https://example.com/project/1/dashboard/12", "dashboard/12"),
+        ("https://example.com/login?next=/checkout", "https://example.com/login?next=/checkout", "login"),
+        ("`https://example.com/project/1/dashboard/12`", "https://example.com/project/1/dashboard/12", "dashboard/12"),
+    ],
+)
+def test_report_link_labels_preserve_destinations(label: str, url: str, expected_label: str) -> None:
+    text = ReportText(items=[ReportLinkItem(kind="link", text=label, url=url)])
+    assert text.render() == f"[{expected_label}]({url})"
+
+
+@patch(f"{_RP}.AssistantQueryExecutor")
+async def test_run_steps_preserves_original_link_destinations(mock_executor_cls: MagicMock) -> None:
+    url = "https://example.com/reports/weekly?view=traffic#pages"
+    mock_executor_cls.return_value.arun_format_and_capture = AsyncMock(
+        return_value=FormattedQueryResult(
+            formatted="formatted table",
+            fallback_used=False,
+            response={"results": [[url, 12], [url, 8], ["/reports/weekly", 2]], "columns": ["url", "views"]},
+        )
+    )
+    execution = await _run_steps(_spec(steps=1), MagicMock(), MagicMock(), _test_window(), None)
+    assert execution.source_urls == (url,)

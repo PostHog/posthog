@@ -31,6 +31,7 @@ class RunReport(BaseModel):
     runtime: str
     model: str
     reasoning_effort: str | None
+    service_tier: str | None = None
     provider: str
     trials: int
     suite_ids: list[str]
@@ -39,4 +40,9 @@ class RunReport(BaseModel):
     duration_seconds: float
     revision: str | None = None
     worktree_dirty: bool | None = None
+    skills_sha256: str | None = None
+    skills_manifest_path: str | None = None
+    skills_source_sha256: str | None = None
+    skills_archive_path: str | None = None
+    ai_gateway_generations_path: str | None = None
     experiments: dict[str, ExperimentReport] = Field(default_factory=dict)

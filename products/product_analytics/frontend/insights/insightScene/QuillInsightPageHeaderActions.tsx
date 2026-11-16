@@ -1,22 +1,31 @@
 import { useActions, useValues } from 'kea'
+import { router } from 'kea-router'
 
-import { IconPlus } from '@posthog/icons'
-import { Button } from '@posthog/quill'
+import { IconBell, IconPlus, IconShare, IconWarning } from '@posthog/icons'
+import {
+    Button,
+    DropdownMenuItem,
+    DropdownMenuSub,
+    DropdownMenuSubContent,
+    DropdownMenuSubTrigger,
+} from '@posthog/quill'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
-import { InsightSubscribeProminentButton } from 'lib/components/Scenes/InsightSubscribeProminentButton'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { insightDataLogic } from 'scenes/insights/insightDataLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightSceneLogic } from 'scenes/insights/insightSceneLogic'
 import { getOverrideWarningPropsForButton } from 'scenes/insights/utils'
+import { urls } from 'scenes/urls'
 
-import { isBIVisualizationNode } from '~/queries/utils'
+import { SceneTitleSecondaryActions } from '~/layout/scenes/components/SceneTitleSecondaryActions'
 import { AccessControlLevel, AccessControlResourceType, InsightLogicProps, ItemMode } from '~/types'
 
 import { insightModalsLogic } from 'products/product_analytics/frontend/insights/insightScene/insightModalsLogic'
+import { urlForSubscriptions } from 'products/subscriptions/frontend/components/Subscriptions/utils'
 
+import { InsightShareMenu, useInsightShareItems } from './InsightShareMenu'
 import { openInsightEditor } from './openInsightEditor'
+import { QuillInsightMonitorButton } from './QuillInsightMonitorButton'
 import { QuillInsightSaveButton } from './QuillInsightSaveButton'
 
 export function QuillInsightPageHeaderActions({
@@ -44,7 +53,8 @@ export function QuillInsightPageHeaderActions({
     const { openAddToDashboardModal, saveAndAddToDashboard } = useActions(insightModalsLogic(insightLogicProps))
     const { query, queryChanged } = useValues(insightDataLogic(insightProps))
     const { cancelChanges } = useActions(insightDataLogic(insightProps))
-    const biEnabled = useFeatureFlag('SQL_EDITOR_BI_MODE')
+    const shareItems = useInsightShareItems(insight)
+    const { push } = useActions(router)
 
     const overrideWarning = getOverrideWarningPropsForButton(query, filtersOverride, variablesOverride)
 
@@ -73,21 +83,65 @@ export function QuillInsightPageHeaderActions({
             )}
 
             {insightMode !== ItemMode.Edit && isPersistedInsight && (
-                <Button
-                    variant="outline"
-                    data-attr="insight-add-to-dashboard-prominent-button"
-                    onClick={() => openAddToDashboardModal()}
+                <SceneTitleSecondaryActions
+                    menu={
+                        <>
+                            {shareItems && (
+                                <DropdownMenuSub>
+                                    <DropdownMenuSubTrigger data-attr="insight-more-menu-share">
+                                        <IconShare />
+                                        Share
+                                    </DropdownMenuSubTrigger>
+                                    <DropdownMenuSubContent>
+                                        {shareItems.map(({ label, icon, onClick, dataAttr }) => (
+                                            <DropdownMenuItem key={dataAttr} onClick={onClick} data-attr={dataAttr}>
+                                                {icon}
+                                                {label}
+                                            </DropdownMenuItem>
+                                        ))}
+                                    </DropdownMenuSubContent>
+                                </DropdownMenuSub>
+                            )}
+                            <DropdownMenuItem
+                                data-attr="insight-more-menu-add-to-dashboard"
+                                onClick={() => openAddToDashboardModal()}
+                            >
+                                <IconPlus />
+                                Add to dashboard
+                            </DropdownMenuItem>
+                            {canCreateAlertForInsight && (
+                                <DropdownMenuItem
+                                    data-attr="insight-more-menu-alerts"
+                                    onClick={() => push(urls.insightAlerts(insight.short_id!))}
+                                >
+                                    <IconWarning />
+                                    Alerts
+                                </DropdownMenuItem>
+                            )}
+                            <DropdownMenuItem
+                                data-attr="insight-more-menu-subscriptions"
+                                onClick={() => push(urlForSubscriptions({ insightShortId: insight.short_id! }))}
+                            >
+                                <IconBell />
+                                Subscriptions
+                            </DropdownMenuItem>
+                        </>
+                    }
                 >
-                    <IconPlus />
-                    Add to dashboard
-                </Button>
-            )}
-
-            {insightMode !== ItemMode.Edit && isPersistedInsight && (
-                <InsightSubscribeProminentButton
-                    insightShortId={insight.short_id!}
-                    canCreateAlert={canCreateAlertForInsight}
-                />
+                    <InsightShareMenu insight={insight} />
+                    <Button
+                        variant="outline"
+                        data-attr="insight-add-to-dashboard-prominent-button"
+                        onClick={() => openAddToDashboardModal()}
+                    >
+                        <IconPlus />
+                        Add to dashboard
+                    </Button>
+                    <QuillInsightMonitorButton
+                        insightShortId={insight.short_id!}
+                        canCreateAlert={canCreateAlertForInsight}
+                    />
+                </SceneTitleSecondaryActions>
             )}
 
             {insightMode !== ItemMode.Edit ? (
@@ -104,11 +158,6 @@ export function QuillInsightPageHeaderActions({
                                 typeof overrideWarning.tooltip === 'function'
                                     ? overrideWarning.tooltip()
                                     : overrideWarning.tooltip
-                            }
-                            disabledReason={
-                                isBIVisualizationNode(query) && !biEnabled
-                                    ? 'Business intelligence is not enabled for this project'
-                                    : undefined
                             }
                             data-attr="insight-edit-button"
                         >

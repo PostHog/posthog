@@ -35,6 +35,7 @@ export const CyclotronJobInputSchemaTypeSchema = z.object({
         'task_repository',
         'task_mcp_installations',
         'signals_scout',
+        'posthog_survey',
         'replay_vision_scan',
         'task_skills',
     ]),
@@ -148,6 +149,18 @@ export const CyclotronInvocationQueueParametersFetchSchema = z.object({
 
 export const MAX_WORKFLOW_EMAIL_SENDERS = 10
 
+export const MAX_EMAIL_ATTACHMENTS = 10
+
+export const EmailAttachmentMetadataSchema = z.object({
+    filename: z.string(),
+    contentType: z.string().optional(),
+    contentId: z.string().optional(),
+    sizeBytes: z.number().int().nonnegative(),
+    sha256: z.string(),
+})
+
+export type EmailAttachmentMetadata = z.infer<typeof EmailAttachmentMetadataSchema>
+
 export const CyclotronInvocationQueueParametersEmailSchema = z.object({
     type: z.literal('email'),
     to: z.object({
@@ -170,6 +183,8 @@ export const CyclotronInvocationQueueParametersEmailSchema = z.object({
     // Emails authored through the API or MCP often carry html only.
     text: z.string().optional(),
     html: z.string(),
+    attachments: z.array(EmailAttachmentMetadataSchema).max(MAX_EMAIL_ATTACHMENTS).optional(),
+    template: z.object({ template_uuid: z.string().optional(), template_key: z.string().optional() }).optional(),
 })
 
 export const CyclotronInvocationQueueParametersSendPushNotificationSchema = z.object({

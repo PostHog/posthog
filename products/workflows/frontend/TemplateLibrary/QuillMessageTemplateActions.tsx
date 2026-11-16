@@ -14,6 +14,7 @@ export function QuillMessageTemplateActions({
     sendTestDisabledReason,
     saveDisabledReason,
     duplicateDisabledReason,
+    editDisabledReason,
     templateChanged,
     saving,
     onSendTest,
@@ -27,6 +28,7 @@ export function QuillMessageTemplateActions({
     sendTestDisabledReason?: string
     saveDisabledReason?: string
     duplicateDisabledReason?: string
+    editDisabledReason?: string
     templateChanged: boolean
     saving: boolean
     onSendTest: () => void
@@ -67,7 +69,11 @@ export function QuillMessageTemplateActions({
                     <IconEllipsis />
                 </DropdownMenuTrigger>
                 <DropdownMenuContent align="end">
-                    <DropdownMenuItem data-attr="save-as-new-template" onClick={onSaveAsNew}>
+                    <DropdownMenuItem
+                        data-attr="save-as-new-template"
+                        disabledReason={editDisabledReason}
+                        onClick={onSaveAsNew}
+                    >
                         Save as new template
                     </DropdownMenuItem>
                     {!isNew && (
@@ -83,6 +89,7 @@ export function QuillMessageTemplateActions({
                             <DropdownMenuItem
                                 data-attr="delete-message-template"
                                 variant="destructive"
+                                disabledReason={editDisabledReason}
                                 onClick={onDelete}
                             >
                                 Delete

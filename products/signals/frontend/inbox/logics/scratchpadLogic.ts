@@ -15,10 +15,13 @@ import { isReportUnreachable, rememberUnreachableReport } from '../utils/unreach
 // Search reruns the server-side ILIKE on every keystroke; debounce so typing doesn't
 // fire a request per character.
 const SEARCH_DEBOUNCE_MS = 300
-// `list` caps at 1000 newest-first with no pagination wrapper — pull the whole window in
-// one read and filter it client-side. Older memory arrives through `loadOlderEntries`, which
-// walks the endpoint's `date_to` cursor a page at a time.
+// `list` caps at 1000 newest-first with no pagination wrapper. Search and one scout's entries
+// are narrow reads, so they take the whole cap in one read and filter it client-side.
 export const SCRATCHPAD_FETCH_LIMIT = 1000
+// The unfiltered window is the wide read: on a busy project 1000 previews cost Postgres megabytes
+// per panel open. Fetch a smaller first page, and let `loadOlderEntries` walk the endpoint's
+// `date_to` cursor for older memory a page at a time.
+export const SCRATCHPAD_WINDOW_PAGE_SIZE = 200
 // Bodies are an unbounded TextField clamped at 50k chars on write, so a full-fat window of
 // 1000 entries is a payload nobody needs: the ledger renders a one-line clamp until you open it.
 // Pull previews for the list and fetch the one body you expand. Sized well past one line so
@@ -94,8 +97,8 @@ export function entriesForSkill(
 
 /**
  * How wide a span the loaded rows actually cover, e.g. "last 8 h". The header needs this because
- * 1,000 rows is a cap, not a total: on a busy project the window closes after a few hours, and a
- * bare "1,000 entries" reads as the whole memory.
+ * a page of rows is a cap, not a total: on a busy project the window closes after a few hours, and
+ * a bare "200 entries" reads as the whole memory.
  */
 export function describeLoadedSpan(entries: ScratchpadEntryApi[] | null): string | null {
     const stamps = (entries ?? []).map((entry) => entry.updated_at).filter((stamp): stamp is string => !!stamp)
@@ -406,7 +409,7 @@ export const scratchpadLogic = kea<scratchpadLogicType>([
                         signalsScoutScratchpadSearch(
                             String(teamId),
                             {
-                                limit: SCRATCHPAD_FETCH_LIMIT,
+                                limit: SCRATCHPAD_WINDOW_PAGE_SIZE,
                                 content_max_chars: SCRATCHPAD_PREVIEW_CHARS,
                                 ...dateFromParam(values.timeFilter),
                             },
@@ -538,7 +541,7 @@ export const scratchpadLogic = kea<scratchpadLogicType>([
         // still answer after a reload started, and this is bumped at dispatch, so the listener
         // sees the invalidation without waiting for the fresh page to arrive.
         windowGeneration: [0, { loadEntries: (state: number) => state + 1 }],
-        // Pages walked back past the 1,000-row cap with the endpoint's `date_to` cursor. A fresh
+        // Pages walked back past the first page with the endpoint's `date_to` cursor. A fresh
         // first page invalidates them: it may already carry rows these pages hold.
         olderEntries: [
             [] as ScratchpadEntryApi[],
@@ -573,7 +576,7 @@ export const scratchpadLogic = kea<scratchpadLogicType>([
         hasMoreOlderEntries: [
             false,
             {
-                loadEntriesSuccess: (_, { entries }) => entries.length >= SCRATCHPAD_FETCH_LIMIT,
+                loadEntriesSuccess: (_, { entries }) => entries.length >= SCRATCHPAD_WINDOW_PAGE_SIZE,
                 appendOlderEntries: (_, { hasMore }) => hasMore,
                 // A reload drops the walked pages, so the control goes with them until the fresh
                 // first page says whether anything older is left.
@@ -660,7 +663,9 @@ export const scratchpadLogic = kea<scratchpadLogicType>([
         recentlyLearnedCountCapped: [
             (s) => [s.entries, s.recentlyLearnedCount],
             (entries: ScratchpadEntryApi[] | null, recentlyLearnedCount: number): boolean =>
-                entries !== null && entries.length >= SCRATCHPAD_FETCH_LIMIT && recentlyLearnedCount === entries.length,
+                entries !== null &&
+                entries.length >= SCRATCHPAD_WINDOW_PAGE_SIZE &&
+                recentlyLearnedCount === entries.length,
         ],
         // What the ledger filters over: the search hits while a search is typed, the whole loaded
         // window otherwise. Null while the applicable set is still loading.
@@ -845,7 +850,7 @@ export const scratchpadLogic = kea<scratchpadLogicType>([
             }
             try {
                 const page = await signalsScoutScratchpadSearch(String(teamId), {
-                    limit: SCRATCHPAD_FETCH_LIMIT,
+                    limit: SCRATCHPAD_WINDOW_PAGE_SIZE,
                     content_max_chars: SCRATCHPAD_PREVIEW_CHARS,
                     date_to: cursor,
                     ...dateFromParam(values.timeFilter),
@@ -861,7 +866,7 @@ export const scratchpadLogic = kea<scratchpadLogicType>([
                 const seen = new Set(loaded.map((entry) => entry.key))
                 actions.appendOlderEntries(
                     page.filter((entry) => !seen.has(entry.key)),
-                    page.length >= SCRATCHPAD_FETCH_LIMIT
+                    page.length >= SCRATCHPAD_WINDOW_PAGE_SIZE
                 )
             } catch {
                 actions.loadOlderEntriesFailure()

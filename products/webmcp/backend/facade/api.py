@@ -18,9 +18,12 @@ def is_available() -> bool:
     return get_mcp_server_url() is not None
 
 
-def get_exec_tool(user_id: int, team_id: int) -> contracts.ExecTool:
-    return McpServerClient.for_user(User.objects.get(id=user_id), team_id).get_exec_tool()
-
-
 def run_exec(input: contracts.RunExecInput) -> contracts.ExecResult:
     return McpServerClient.for_user(User.objects.get(id=input.user_id), input.team_id).call_exec(input.command)
+
+
+def call_tool(input: contracts.CallToolInput) -> contracts.ToolCallResult:
+    """Call one MCP tool by name as the user and return its JSON result."""
+    return McpServerClient.for_user(User.objects.get(id=input.user_id), input.team_id).call_tool(
+        input.tool, input.arguments
+    )

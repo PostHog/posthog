@@ -51,9 +51,6 @@ class EvalSuite:
     kind: SuiteKind = SuiteKind.SANDBOXED
     """How the suite's cases execute, from the module-level ``SUITE_KIND``."""
 
-    no_send_logs: bool = False
-    """Module-level ``NO_SEND_LOGS`` lets preflight check credentials before suite setup."""
-
     @property
     def id(self) -> str:
         return f"{self.domain}/{self.module_name}::{self.fn_name}"
@@ -115,9 +112,6 @@ def _collect_suites(module: ModuleType, domain: str, module_name: str, dotted: s
     kind = getattr(module, "SUITE_KIND", SuiteKind.SANDBOXED)
     if not isinstance(kind, SuiteKind):
         raise SuiteDiscoveryError(f"{dotted}.SUITE_KIND must be a SuiteKind member, got {kind!r}")
-    no_send_logs = getattr(module, "NO_SEND_LOGS", False)
-    if not isinstance(no_send_logs, bool):
-        raise SuiteDiscoveryError(f"{dotted}.NO_SEND_LOGS must be a bool, got {no_send_logs!r}")
     multi_turn = bool(getattr(module, MULTI_TURN_MODULE_MARKER, False))
     collected: list[EvalSuite] = []
     for fn_name, fn in vars(module).items():
@@ -130,11 +124,7 @@ def _collect_suites(module: ModuleType, domain: str, module_name: str, dotted: s
         if multi_turn:
             # The dataclass is frozen, so carry the marker on the function.
             setattr(fn, MULTI_TURN_MODULE_MARKER, True)
-        collected.append(
-            EvalSuite(
-                domain=domain, module_name=module_name, fn_name=fn_name, fn=fn, kind=kind, no_send_logs=no_send_logs
-            )
-        )
+        collected.append(EvalSuite(domain=domain, module_name=module_name, fn_name=fn_name, fn=fn, kind=kind))
     return collected
 
 

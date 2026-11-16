@@ -22,6 +22,8 @@ export const CanvasesListParams = () => zod.object({
         ),
 })
 
+export const canvasesListQueryLimitMax = 1000
+
 export const CanvasesListQueryParams = () => zod.object({
     channel: zod.string().optional().describe('Only return canvases in this channel.'),
     created_by: zod.string().optional().describe('Only return canvases created by the user with this UUID.'),
@@ -29,7 +31,7 @@ export const CanvasesListQueryParams = () => zod.object({
         .enum(['component', 'freeform', 'grid'])
         .optional()
         .describe('Only return canvases of this kind. kind=component lists the component store.'),
-    limit: zod.number().optional().describe('Number of results to return per page.'),
+    limit: zod.number().max(canvasesListQueryLimitMax).optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
     ordering: zod
         .enum(['-created_at', '-updated_at'])
@@ -236,6 +238,8 @@ export const CanvasesCommentsRetrieveQueryParams = () => zod.object({
  * changes for viewers. Promote the version with `promote` to make it live.
  * The response reports how the draft's declared capabilities widen the
  * current head's, so growth in access can be reviewed before it ships.
+ * Only the canvas creator can stage a draft that adds capabilities, because
+ * a draft preview runs with the draft's capabilities.
  * No version guard applies: a draft conflicts with nothing.
  */
 export const CanvasesDraftCreateParams = () => zod.object({
@@ -277,6 +281,10 @@ export const canvasesDraftCreateBodyProjectOneCapabilitiesOnePosthogStateMax = 2
 export const canvasesDraftCreateBodyProjectOneCapabilitiesOnePosthogActionsItemMax = 64
 
 export const canvasesDraftCreateBodyProjectOneCapabilitiesOnePosthogActionsMax = 32
+
+export const canvasesDraftCreateBodyProjectOneCapabilitiesOnePosthogToolsItemMax = 200
+
+export const canvasesDraftCreateBodyProjectOneCapabilitiesOnePosthogToolsMax = 32
 
 export const canvasesDraftCreateBodyProjectOneCapabilitiesOnePosthogAgentRequestsDefault = false
 export const canvasesDraftCreateBodyProjectOneCapabilitiesOneNetworkOriginsItemMax = 2048
@@ -427,6 +435,17 @@ export const CanvasesDraftCreateBody = () => zod
                                 .describe(
                                     "Registered action verbs the canvas may invoke via ph.actions (e.g. 'annotations.create', 'tasks.create'). Each executes as the viewer; declaring one shows it in the promote review."
                                 ),
+                            tools: zod
+                                .array(
+                                    zod
+                                        .string()
+                                        .max(canvasesDraftCreateBodyProjectOneCapabilitiesOnePosthogToolsItemMax)
+                                )
+                                .max(canvasesDraftCreateBodyProjectOneCapabilitiesOnePosthogToolsMax)
+                                .optional()
+                                .describe(
+                                    "PostHog MCP tools the canvas may run via ph.tools (e.g. 'feature-flag-get-definition', 'feature-flag-set-release-condition-rollout'). Each runs as the viewer; declaring one shows it in the promote review."
+                                ),
                             agentRequests: zod
                                 .boolean()
                                 .default(canvasesDraftCreateBodyProjectOneCapabilitiesOnePosthogAgentRequestsDefault),
@@ -536,6 +555,10 @@ export const canvasesEditCreateBodyCapabilitiesOnePosthogActionsItemMax = 64
 
 export const canvasesEditCreateBodyCapabilitiesOnePosthogActionsMax = 32
 
+export const canvasesEditCreateBodyCapabilitiesOnePosthogToolsItemMax = 200
+
+export const canvasesEditCreateBodyCapabilitiesOnePosthogToolsMax = 32
+
 export const canvasesEditCreateBodyCapabilitiesOnePosthogAgentRequestsDefault = false
 export const canvasesEditCreateBodyCapabilitiesOneNetworkOriginsItemMax = 2048
 
@@ -622,6 +645,13 @@ export const CanvasesEditCreateBody = () => zod
                         .optional()
                         .describe(
                             "Registered action verbs the canvas may invoke via ph.actions (e.g. 'annotations.create', 'tasks.create'). Each executes as the viewer; declaring one shows it in the promote review."
+                        ),
+                    tools: zod
+                        .array(zod.string().max(canvasesEditCreateBodyCapabilitiesOnePosthogToolsItemMax))
+                        .max(canvasesEditCreateBodyCapabilitiesOnePosthogToolsMax)
+                        .optional()
+                        .describe(
+                            "PostHog MCP tools the canvas may run via ph.tools (e.g. 'feature-flag-get-definition', 'feature-flag-set-release-condition-rollout'). Each runs as the viewer; declaring one shows it in the promote review."
                         ),
                     agentRequests: zod
                         .boolean()
@@ -1152,6 +1182,10 @@ export const canvasesPublishCreateBodyProjectOneCapabilitiesOnePosthogActionsIte
 
 export const canvasesPublishCreateBodyProjectOneCapabilitiesOnePosthogActionsMax = 32
 
+export const canvasesPublishCreateBodyProjectOneCapabilitiesOnePosthogToolsItemMax = 200
+
+export const canvasesPublishCreateBodyProjectOneCapabilitiesOnePosthogToolsMax = 32
+
 export const canvasesPublishCreateBodyProjectOneCapabilitiesOnePosthogAgentRequestsDefault = false
 export const canvasesPublishCreateBodyProjectOneCapabilitiesOneNetworkOriginsItemMax = 2048
 
@@ -1302,6 +1336,17 @@ export const CanvasesPublishCreateBody = () => zod
                                 .optional()
                                 .describe(
                                     "Registered action verbs the canvas may invoke via ph.actions (e.g. 'annotations.create', 'tasks.create'). Each executes as the viewer; declaring one shows it in the promote review."
+                                ),
+                            tools: zod
+                                .array(
+                                    zod
+                                        .string()
+                                        .max(canvasesPublishCreateBodyProjectOneCapabilitiesOnePosthogToolsItemMax)
+                                )
+                                .max(canvasesPublishCreateBodyProjectOneCapabilitiesOnePosthogToolsMax)
+                                .optional()
+                                .describe(
+                                    "PostHog MCP tools the canvas may run via ph.tools (e.g. 'feature-flag-get-definition', 'feature-flag-set-release-condition-rollout'). Each runs as the viewer; declaring one shows it in the promote review."
                                 ),
                             agentRequests: zod
                                 .boolean()
@@ -1607,6 +1652,10 @@ export const canvasesValidateCreateBodyProjectOneCapabilitiesOnePosthogActionsIt
 
 export const canvasesValidateCreateBodyProjectOneCapabilitiesOnePosthogActionsMax = 32
 
+export const canvasesValidateCreateBodyProjectOneCapabilitiesOnePosthogToolsItemMax = 200
+
+export const canvasesValidateCreateBodyProjectOneCapabilitiesOnePosthogToolsMax = 32
+
 export const canvasesValidateCreateBodyProjectOneCapabilitiesOnePosthogAgentRequestsDefault = false
 export const canvasesValidateCreateBodyProjectOneCapabilitiesOneNetworkOriginsItemMax = 2048
 
@@ -1755,6 +1804,17 @@ export const CanvasesValidateCreateBody = () => zod
                                 .optional()
                                 .describe(
                                     "Registered action verbs the canvas may invoke via ph.actions (e.g. 'annotations.create', 'tasks.create'). Each executes as the viewer; declaring one shows it in the promote review."
+                                ),
+                            tools: zod
+                                .array(
+                                    zod
+                                        .string()
+                                        .max(canvasesValidateCreateBodyProjectOneCapabilitiesOnePosthogToolsItemMax)
+                                )
+                                .max(canvasesValidateCreateBodyProjectOneCapabilitiesOnePosthogToolsMax)
+                                .optional()
+                                .describe(
+                                    "PostHog MCP tools the canvas may run via ph.tools (e.g. 'feature-flag-get-definition', 'feature-flag-set-release-condition-rollout'). Each runs as the viewer; declaring one shows it in the promote review."
                                 ),
                             agentRequests: zod
                                 .boolean()

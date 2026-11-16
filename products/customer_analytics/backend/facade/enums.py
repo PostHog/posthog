@@ -1,9 +1,15 @@
 from posthog.enums import LabeledStrEnum
 
 
+class AccountPersonsSortDirection(LabeledStrEnum):
+    ASC = "asc", "Ascending"
+    DESC = "desc", "Descending"
+
+
 class AccountPropertyPinKind(LabeledStrEnum):
     CUSTOM_PROPERTY = "custom_property", "Custom property"
     RELATIONSHIP = "relationship", "Relationship"
+    ACCOUNT_FIELD = "account_field", "Account field"
 
 
 # Mirrors OPTION_COLOR_TOKENS in the frontend's customPropertyTypes.ts (DataColorToken presets).
@@ -64,6 +70,7 @@ class OwnershipRoleDiagnostic(LabeledStrEnum):
 
 
 __all__ = [
+    "AccountPersonsSortDirection",
     "AccountPropertyPinKind",
     "AccountViewVisibility",
     "CustomPropertyOptionColor",

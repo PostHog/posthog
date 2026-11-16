@@ -116,17 +116,26 @@ def test_table_from_py_list_keeps_the_key_order_of_the_rows():
     assert table.column_names == ["zeta", "alpha", "mid", "beta", "omega", "gamma", "delta", "late"]
 
 
-def test_table_from_py_list_numeric_column_with_non_numeric_value_raises_named_error():
+@pytest.mark.parametrize(
+    "masked_columns,shows_cells",
+    [
+        pytest.param(None, True, id="unmasked"),
+        pytest.param(["Revenue"], False, id="masked_column_hides_its_cells"),
+    ],
+)
+def test_table_from_py_list_numeric_column_with_non_numeric_value_raises_named_error(
+    masked_columns: list[str] | None, shows_cells: bool
+):
     with pytest.raises(TypeError) as exc_info:
-        table_from_py_list([{"revenue": 1.5}, {"revenue": "N/A"}, {"revenue": ""}])
+        table_from_py_list([{"revenue": 1.5}, {"revenue": "N/A"}, {"revenue": ""}], masked_columns=masked_columns)
 
     message = str(exc_info.value)
     # Preserves the original phrase so source non-retryable matching still fires
     assert "must be real number, not str" in message
-    # Names the column and shows the offending text and blank cells
+    # Names the column, and shows the offending text and blank cells unless the column is masked
     assert "revenue" in message
-    assert "N/A" in message
-    assert "<blank>" in message
+    assert ("N/A" in message) is shows_cells
+    assert ("<blank>" in message) is shows_cells
     # The message must stay matched by an Any_Source_Errors entry so the schema is paused with
     # guidance instead of retrying the same non-numeric cells forever, on every source.
     assert [key for key in Any_Source_Errors if key in message]
@@ -701,23 +710,27 @@ def test_table_from_py_list_list_of_ranges_is_json_of_range_text():
     assert table.column("column").to_pylist() == ['["[1,2)","[3,4]"]']
 
 
-def test_normalize_table_column_names_prevents_collisions():
-    # Create a table with columns that would collide when normalized
-    table = pa.table({"foo___bar": ["value1"], "foo_bar": ["value2"], "another___field": ["value3"]})
+@pytest.mark.parametrize(
+    "source_columns,expected_columns",
+    [
+        (
+            ["foo___bar", "foo_bar", "another___field"],
+            {"_foo_bar": "foo___bar", "foo_bar": "foo_bar", "another_field": "another___field"},
+        ),
+        (["id", ""], {"id": "id", "unnamed_column": ""}),
+        (["id", "   "], {"id": "id", "unnamed_column": "   "}),
+        (["", " "], {"unnamed_column": "", "_unnamed_column": " "}),
+        (["unnamed_column", ""], {"unnamed_column": "unnamed_column", "_unnamed_column": ""}),
+    ],
+)
+def test_normalize_table_column_names(source_columns: list[str], expected_columns: dict[str, str]):
+    table = pa.table([pa.array([f"value of {name!r}"]) for name in source_columns], names=source_columns)
 
     normalized_table = normalize_table_column_names(table)
 
-    # First column gets normalized
-    assert "foo_bar" in normalized_table.column_names
-    # Second column that would collide gets underscore prefix
-    assert "_foo_bar" in normalized_table.column_names
-    # Non-colliding column gets normalized
-    assert "another_field" in normalized_table.column_names
-
-    # Verify the data is preserved
-    assert normalized_table.column("foo_bar").to_pylist() == ["value2"]
-    assert normalized_table.column("_foo_bar").to_pylist() == ["value1"]
-    assert normalized_table.column("another_field").to_pylist() == ["value3"]
+    assert sorted(normalized_table.column_names) == sorted(expected_columns)
+    for normalized_name, source_name in expected_columns.items():
+        assert normalized_table.column(normalized_name).to_pylist() == [f"value of {source_name!r}"]
 
 
 def test_table_from_py_list_with_rescaling_decimal_data_loss_error():

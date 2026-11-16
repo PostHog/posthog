@@ -89,7 +89,6 @@ def test_harness_tears_down_infrastructure_before_draining_uploads(
                 fn_name="eval_test",
                 fn=suite,
                 kind=SuiteKind.ONE_SHOT,
-                no_send_logs=True,
             )
         ],
     )

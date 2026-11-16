@@ -104,7 +104,12 @@ class TestScoreDefinitionsApi(APIBaseTest):
 
         response = self.client.patch(
             f"{self._endpoint()}{definition.id}/",
-            {"name": "Updated quality", "description": "Updated description", "archived": True},
+            {
+                "name": "Updated quality",
+                "short_name": "  Quality  ",
+                "description": "Updated description",
+                "archived": True,
+            },
             format="json",
         )
 
@@ -112,6 +117,7 @@ class TestScoreDefinitionsApi(APIBaseTest):
         definition.refresh_from_db()
         current_version = self._current_version(definition)
         self.assertEqual(definition.name, "Updated quality")
+        self.assertEqual(definition.short_name, "Quality")
         self.assertEqual(definition.created_by, original_author)
         self.assertEqual(response.data["updated_by"]["id"], self.user.id)
         self.assertEqual(definition.description, "Updated description")
@@ -228,6 +234,7 @@ class TestScoreDefinitionsApi(APIBaseTest):
                 "scorer_id": str(definition.id),
                 "scorer_name": "Quality",
                 "scorer_kind": "categorical",
+                "calculation": "reported",
                 "has_description": False,
                 "archived": False,
                 "version": 1,
@@ -244,6 +251,7 @@ class TestScoreDefinitionsApi(APIBaseTest):
             f"{self._endpoint()}{definition.id}/new_version/",
             {
                 "name": "Updated scorer",
+                "short_name": "Quality",
                 "description": "Updated description",
                 "base_version": 1,
                 "config": {
@@ -266,6 +274,7 @@ class TestScoreDefinitionsApi(APIBaseTest):
         self.assertEqual(current_version.version, 2)
         self.assertEqual(response.data["updated_by"]["id"], self.user.id)
         self.assertEqual((definition.name, definition.description), ("Updated scorer", "Updated description"))
+        self.assertEqual(definition.short_name, "Quality")
         self.assertEqual(definition.versions.count(), 2)
         self.assertEqual(definition.versions.get(version=1).config, original_config)
         self.assertEqual(
@@ -299,11 +308,12 @@ class TestScoreDefinitionsApi(APIBaseTest):
         self.assertEqual(first.data["count"], 2)
         self.assertEqual([row["version"] for row in first.data["results"]], [2])
         definition.create_new_version(config={"min": -1, "max": 1}, created_by=self.user)
-        second = self.client.get(endpoint, {"limit": 1, "cursor": first.data["next_cursor"]})
+        second = self.client.get(first.data["next"])
         self.assertEqual(second.status_code, status.HTTP_200_OK)
         self.assertEqual(second.data["count"], 3)
         self.assertEqual([row["id"] for row in second.data["results"]], [str(original.id)])
         self.assertIsNone(second.data["next_cursor"])
+        self.assertIsNone(second.data["next"])
 
         historical = self.client.get(f"{endpoint}{original.id}/")
         self.assertEqual(historical.status_code, status.HTTP_200_OK)
@@ -588,7 +598,8 @@ class TestScoreDefinitionsApi(APIBaseTest):
         self.assertIn(str(active.id), ids)
         self.assertNotIn(str(archived.id), ids)
 
-    def test_list_supports_search_kind_archived_and_ordering(self):
+    @parameterized.expand(["resolved", "resolution"])
+    def test_list_supports_search_kind_archived_and_ordering(self, search: str) -> None:
         active = self._create_definition(name="Quality", kind="categorical")
         archived = self._create_definition(
             name="Resolved",
@@ -596,10 +607,12 @@ class TestScoreDefinitionsApi(APIBaseTest):
             archived=True,
         )
 
+        archived.short_name = "Resolution"
+        archived.save(update_fields=["short_name"])
         response = self.client.get(
             self._endpoint(),
             {
-                "search": "resolved",
+                "search": search,
                 "kind": "boolean",
                 "archived": "true",
                 "order_by": "name",
@@ -638,6 +651,7 @@ class TestScoreDefinitionsApi(APIBaseTest):
                 "scorer_id": str(definition.id),
                 "scorer_name": "Updated quality",
                 "scorer_kind": "categorical",
+                "calculation": "reported",
                 "has_description": True,
                 "archived": True,
                 "version": 1,
@@ -679,6 +693,7 @@ class TestScoreDefinitionsApi(APIBaseTest):
             "scorer_id": str(definition.id),
             "scorer_name": definition.name,
             "scorer_kind": definition.kind,
+            "calculation": "reported",
             "has_description": update_metadata,
             "archived": False,
             "version": 2,

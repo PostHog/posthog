@@ -1,5 +1,5 @@
-import { buildUsageLimitApproachingMessage, buildUsageLimitReachedMessage } from 'scenes/billing/billing-utils'
-import type { BillingAlertConfig } from 'scenes/billing/billingLogic'
+import type { BillingAlertConfig } from 'lib/logic/billing/billingLogic'
+import { buildUsageLimitApproachingMessage, buildUsageLimitReachedMessage } from 'lib/logic/billing/usageLimits'
 
 import type { FakeBillingAlert } from './superpowersLogic'
 
@@ -28,14 +28,6 @@ export function buildFakeBillingAlert(fake: FakeBillingAlert): BillingAlertConfi
                 status: 'info',
                 title: "Your free trial for the Teams plan ends in 3 days. Your service will continue without interruption, and you'll be charged for the Teams plan.",
                 message: 'Questions? Reach out to sales at sales@posthog.com.',
-            }
-        case 'suspended':
-            return {
-                kind: 'deactivated',
-                status: 'error',
-                title: 'Your organization has been temporarily suspended.',
-                message: 'Please contact support to reactivate it.',
-                contactSupport: true,
             }
         case 'none':
             return null

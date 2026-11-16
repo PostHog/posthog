@@ -19,6 +19,8 @@ import type {
     DataQualityChecksListParams,
     DataQualityChecksOutputSchemaRetrieveParams,
     DataQualityChecksScheduleRetrieveParams,
+    DataQualityChecksSubjectsListParams,
+    DataQualityFailingCheckCountApi,
     DataQualityMetricSubjectApi,
     DataQualityOutputSchemaApi,
     DataQualityRunRequestApi,
@@ -243,6 +245,23 @@ export const dataQualityChecksCheckTypesList = async (
     })
 }
 
+export const getDataQualityChecksFailingCountRetrieveUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/data_quality_checks/failing_count/`
+}
+
+/**
+ * How many enabled checks you can see last reported a failure, across the project.
+ */
+export const dataQualityChecksFailingCountRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<DataQualityFailingCheckCountApi> => {
+    return apiMutator<DataQualityFailingCheckCountApi>(getDataQualityChecksFailingCountRetrieveUrl(projectId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
 export const getDataQualityChecksHealthListUrl = (projectId: string, params?: DataQualityChecksHealthListParams) => {
     const normalizedParams = new URLSearchParams()
 
@@ -393,18 +412,34 @@ export const dataQualityChecksSchedulesList = async (
     })
 }
 
-export const getDataQualityChecksSubjectsListUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/data_quality_checks/subjects/`
+export const getDataQualityChecksSubjectsListUrl = (
+    projectId: string,
+    params?: DataQualityChecksSubjectsListParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/data_quality_checks/subjects/?${stringifiedParams}`
+        : `/api/projects/${projectId}/data_quality_checks/subjects/`
 }
 
 /**
- * Everything in this project you can author a check on, with each subject's columns.
+ * Everything in this project you can author a check on, with each subject's columns. Filter by subject_type or search, and page with limit and offset.
  */
 export const dataQualityChecksSubjectsList = async (
     projectId: string,
+    params?: DataQualityChecksSubjectsListParams,
     options?: RequestInit
 ): Promise<DataQualitySubjectApi[]> => {
-    return apiMutator<DataQualitySubjectApi[]>(getDataQualityChecksSubjectsListUrl(projectId), {
+    return apiMutator<DataQualitySubjectApi[]>(getDataQualityChecksSubjectsListUrl(projectId, params), {
         ...options,
         method: 'GET',
     })

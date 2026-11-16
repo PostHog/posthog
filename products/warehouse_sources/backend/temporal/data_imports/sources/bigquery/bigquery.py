@@ -58,7 +58,8 @@ from structlog.types import FilteringBoundLogger
 
 from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
-from posthog.models.integration import GoogleCloudServiceAccountIntegration, Integration
+from posthog.integrations import IntegrationManager, IntegrationNotFound
+from posthog.models.integration import GoogleCloudServiceAccountIntegration
 from posthog.models.integration.google_cloud import (
     GOOGLE_SERVICE_ACCOUNT_INVALID_TOKEN_URI_ERROR,
     InvalidGoogleTokenUriError,
@@ -79,6 +80,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.helpers 
     incremental_type_to_operator,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import UNVERSIONED_API_VERSION
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.credentials_service import get_secret
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.grpc import make_tracked_channel
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import (
     DEFAULT_RETRY,
@@ -681,7 +683,7 @@ def _impersonated_credentials(service_account_email: str, team_id: int) -> googl
         verify_impersonated_service_account_ownership,
     )
 
-    if not settings.BATCH_EXPORT_BIGQUERY_STS_AUDIENCE_FIELD or not settings.BATCH_EXPORT_BIGQUERY_SERVICE_ACCOUNT:
+    if not settings.BATCH_EXPORT_BIGQUERY_STS_AUDIENCE_FIELD or not get_secret("BATCH_EXPORT_BIGQUERY_SERVICE_ACCOUNT"):
         raise BigQueryAuthResolutionError(BIGQUERY_IMPERSONATION_UNAVAILABLE_ERROR)
 
     # The ownership check below authenticates with PostHog's own credentials. If this worker cannot
@@ -715,13 +717,10 @@ def _impersonated_credentials(service_account_email: str, team_id: int) -> googl
 
 
 def _resolve_auth_from_integration(integration_id: int, team_id: int) -> BigQueryAuthInfo:
-    integration = Integration.objects.filter(
-        id=integration_id,
-        team_id=team_id,
-        kind=Integration.IntegrationKind.GOOGLE_CLOUD_SERVICE_ACCOUNT,
-    ).first()
-    if integration is None:
-        raise BigQueryAuthResolutionError(BIGQUERY_INTEGRATION_NOT_FOUND_ERROR)
+    try:
+        integration = IntegrationManager.google_cloud_service_account.credentials.get(team_id, integration_id)
+    except IntegrationNotFound:
+        raise BigQueryAuthResolutionError(BIGQUERY_INTEGRATION_NOT_FOUND_ERROR) from None
 
     google_cloud_integration = GoogleCloudServiceAccountIntegration(integration)
     if google_cloud_integration.has_key():

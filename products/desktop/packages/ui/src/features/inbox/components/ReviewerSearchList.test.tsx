@@ -1,5 +1,5 @@
 import type { SignalReport } from "@posthog/shared/types";
-import { render, screen } from "@testing-library/react";
+import { act, fireEvent, render, screen } from "@testing-library/react";
 import userEvent from "@testing-library/user-event";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -9,6 +9,7 @@ const mocks = vi.hoisted(() => ({
   trackResult: vi.fn(),
   refetchAvailable: vi.fn(),
   availableError: false,
+  reviewerQueries: [] as string[],
 }));
 
 vi.mock("@posthog/ui/features/auth/authClient", () => ({
@@ -26,24 +27,27 @@ vi.mock("@posthog/ui/features/inbox/hooks/useInboxReports", () => ({
     isError: false,
     refetch: vi.fn(),
   }),
-  useInboxAvailableSuggestedReviewers: () => ({
-    data: mocks.availableError
-      ? undefined
-      : {
-          count: 1,
-          results: [
-            {
-              uuid: "reviewer-1",
-              name: "Ada Lovelace",
-              email: "ada@example.com",
-              github_login: "ada",
-            },
-          ],
-        },
-    isFetching: false,
-    isError: mocks.availableError,
-    refetch: mocks.refetchAvailable,
-  }),
+  useInboxAvailableSuggestedReviewers: (options: { query: string }) => {
+    mocks.reviewerQueries.push(options.query);
+    return {
+      data: mocks.availableError
+        ? undefined
+        : {
+            count: 1,
+            results: [
+              {
+                uuid: "reviewer-1",
+                name: "Ada Lovelace",
+                email: "ada@example.com",
+                github_login: "ada",
+              },
+            ],
+          },
+      isFetching: false,
+      isError: mocks.availableError,
+      refetch: mocks.refetchAvailable,
+    };
+  },
   useUpdateSuggestedReviewers: () => ({
     mutate: mocks.updateReviewers,
     isPending: false,
@@ -73,6 +77,7 @@ describe("ReviewerSearchList", () => {
   beforeEach(() => {
     vi.clearAllMocks();
     mocks.availableError = false;
+    mocks.reviewerQueries = [];
   });
 
   it("assigns the first reviewer when the report has no reviewer artefact", async () => {
@@ -83,6 +88,8 @@ describe("ReviewerSearchList", () => {
     expect(mocks.updateReviewers).toHaveBeenCalledWith(
       {
         content: [{ user_uuid: "reviewer-1" }],
+        action: "add",
+        targets: [{ user_uuid: "reviewer-1" }],
         optimisticReviewers: [
           expect.objectContaining({
             github_login: "ada",
@@ -119,5 +126,22 @@ describe("ReviewerSearchList", () => {
 
     expect(mocks.refetchAvailable).toHaveBeenCalledOnce();
     expect(screen.queryByText("No users found.")).toBeNull();
+  });
+
+  it("debounces server-side reviewer searches", () => {
+    vi.useFakeTimers();
+    try {
+      render(<ReviewerSearchList report={report} surface="context_menu" />);
+
+      fireEvent.change(screen.getByLabelText("Search users"), {
+        target: { value: "Ada" },
+      });
+      expect(mocks.reviewerQueries).not.toContain("Ada");
+
+      act(() => vi.advanceTimersByTime(300));
+      expect(mocks.reviewerQueries).toContain("Ada");
+    } finally {
+      vi.useRealTimers();
+    }
   });
 });

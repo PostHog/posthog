@@ -2,6 +2,7 @@ import type { Decorator } from '@storybook/react'
 import { setupWorker } from 'msw/browser'
 
 import { handlers, toPaginatedResponse } from '~/mocks/handlers'
+import { routeHandlers } from '~/mocks/routeHandlers'
 import { HTTP_METHODS, MockSignature, Mocks, mocksToHandlers } from '~/mocks/utils'
 import type { AppContext } from '~/types'
 
@@ -20,8 +21,7 @@ const storybookDefaultMocks: Mocks = {
 
 // Default handlers ensure no request is unhandled by msw. Handlers listed first take precedence.
 export const worker: ReturnType<typeof setupWorker> = setupWorker(
-    ...mocksToHandlers(storybookDefaultMocks),
-    ...handlers
+    routeHandlers([...mocksToHandlers(storybookDefaultMocks), ...handlers])
 )
 
 export const useStorybookMocks = (mocks: Mocks): void => worker.use(...mocksToHandlers(mocks))

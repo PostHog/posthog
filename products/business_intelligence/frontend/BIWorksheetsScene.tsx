@@ -5,13 +5,10 @@ import { LemonBanner, LemonButton, LemonInput, LemonSegmentedButton, LemonTable,
 import { Button } from '@posthog/quill'
 
 import { MemberSelectMultiplePopover } from 'lib/components/MemberSelectMultiplePopover'
-import { NotFound } from 'lib/components/NotFound'
 import { TZLabel } from 'lib/components/TZLabel'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { useSceneAgentPanel } from 'scenes/max/useSceneAgentPanel'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -29,7 +26,6 @@ const LIBRARY_CONTEXT = buildBIAgentContext()
 export const scene: SceneExport = { component: BIWorksheetsScene, logic: biWorksheetsLogic }
 
 export function BIWorksheetsScene(): JSX.Element {
-    const { featureFlags } = useValues(featureFlagLogic)
     const { worksheets, worksheetsLoading, search, page, recent, createdBy, favorited, error } =
         useValues(biWorksheetsLogic)
     const { setSearch, setPage, setRecent, setCreatedBy, setFavorited, loadWorksheets } = useActions(biWorksheetsLogic)
@@ -38,17 +34,14 @@ export function BIWorksheetsScene(): JSX.Element {
     useSceneAgentPanel({
         sceneKey: 'business-intelligence',
         contextItems: LIBRARY_CONTEXT,
-        active: !!featureFlags[FEATURE_FLAGS.SQL_EDITOR_BI_MODE],
+        active: true,
         autoOpen: false,
         headlines: ['Build a worksheet from a catalog metric', 'What would you like to explore?'],
     })
-    if (!featureFlags[FEATURE_FLAGS.SQL_EDITOR_BI_MODE]) {
-        return <NotFound object="page" />
-    }
     return (
         <SceneContent>
             <SceneTitleSection
-                name="Business Intelligence"
+                name="Business intelligence"
                 description="Explore your data with visual worksheets."
                 resourceType={{ type: 'business_intelligence' }}
                 actions={
@@ -67,6 +60,19 @@ export function BIWorksheetsScene(): JSX.Element {
                     )
                 }
             />
+            <LemonBanner type="info" dismissKey="business-intelligence-beta-banner">
+                <div className="flex flex-col gap-2 @md:flex-row @md:items-center @md:justify-between">
+                    <p>Business intelligence is in beta. Tell us what you'd like to see here, or report any issues.</p>
+                    {/* Keep one trigger: survey 01a187ee-3e6e-0000-0213-c128d6009577 selects the first matching element. */}
+                    <LemonButton
+                        type="secondary"
+                        id="business-intelligence-feedback-button"
+                        data-attr="business-intelligence-feedback-button"
+                    >
+                        Send feedback
+                    </LemonButton>
+                </div>
+            </LemonBanner>
             <BIStarters />
             <div className="flex flex-wrap items-center gap-2">
                 <LemonInput

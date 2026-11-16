@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { invokeCanvasAction } from "./invokeCanvasAction";
+import { invokeCanvasAction, invokeCanvasTool } from "./invokeCanvasAction";
 
 const input = {
   id: "canvas-1",
@@ -59,5 +59,56 @@ describe("invokeCanvasAction", () => {
     );
     expect(confirm).not.toHaveBeenCalled();
     expect(invoke).toHaveBeenCalledWith(input);
+  });
+
+  describe("invokeCanvasTool", () => {
+    const writeTool = {
+      name: "feature-flag-enable",
+      summary: "Enable feature flag",
+      read_only: false,
+      destructive: false,
+    };
+    const readTool = {
+      ...writeTool,
+      name: "feature-flag-get-definition",
+      read_only: true,
+    };
+
+    it.each([
+      // A canvas must not change data from a load or render.
+      [writeTool, false, true, "changes data"],
+      [writeTool, true, false, "Canvas tool call canceled"],
+      [writeTool, true, true, null],
+      [readTool, false, false, null],
+    ])(
+      "runs %o from a gesture %s with approval %s",
+      async (tool, fromGesture, allowed, error) => {
+        const confirm = vi.fn().mockReturnValue(allowed);
+        const invoke = vi
+          .fn()
+          .mockResolvedValue({ tool: tool.name, result: {} });
+        const call = { id: "canvas-1", tool: tool.name, arguments: { id: 7 } };
+        const result = invokeCanvasTool(
+          call,
+          fromGesture,
+          async () => [writeTool, readTool],
+          confirm,
+          invoke,
+        );
+        if (error) {
+          await expect(result).rejects.toThrow(error);
+          expect(invoke).not.toHaveBeenCalled();
+        } else {
+          await expect(result).resolves.toEqual({
+            tool: tool.name,
+            result: {},
+          });
+          expect(invoke).toHaveBeenCalledWith(call);
+        }
+        if (confirm.mock.calls.length > 0) {
+          expect(confirm).toHaveBeenCalledWith(tool, call.arguments);
+        }
+      },
+    );
   });
 });

@@ -5,10 +5,12 @@ from __future__ import annotations
 import uuid
 import logging
 import datetime
+from typing import TYPE_CHECKING
 
 from django.conf import settings
 from django.db import transaction
 from django.test import override_settings
+from django.utils import timezone
 
 from posthog.clickhouse.client import sync_execute
 from posthog.models import Organization, OrganizationMembership, Team, User
@@ -17,11 +19,14 @@ from posthog.models.group.sql import COPY_GROUPS_BETWEEN_TEAMS
 from posthog.models.person.sql import COPY_PERSON_DISTINCT_ID2S_BETWEEN_TEAMS, COPY_PERSONS_BETWEEN_TEAMS
 from posthog.persons_db import persons_db_connection
 
-from products.dashboards.backend.models import Dashboard, DashboardTile
+from products.dashboards.backend.facade.contracts import DashboardRef
+from products.dashboards.backend.facade.testing import create_dashboard, create_insight_tile
 from products.demo.backend.facade.api import HedgeboxMatrix, MatrixManager, infer_taxonomy_for_team
 from products.posthog_ai.backend.models.assistant import CoreMemory
 from products.product_analytics.backend.facade.models import Insight
 
+if TYPE_CHECKING:
+    from products.posthog_ai.eval_harness.harness.django_env import NullDbBlocker
 logger = logging.getLogger(__name__)
 
 EVAL_SEED = "b1ef3c66-5f43-488a-98be-6b46d92fbcef"
@@ -29,6 +34,9 @@ EVAL_USER_FULL_NAME = "Karen Smith"
 
 MASTER_ORG_NAME = "Hedgebox Master Seed"
 MASTER_USER_EMAIL = "eval-master-seed@posthog.test"
+# The simulation ends its event history at generation time, so an older master leaves cases about
+# "yesterday" or "the last 7 days" with no events.
+MASTER_DEMO_MAX_AGE = datetime.timedelta(days=1)
 
 
 def _build_hedgebox_matrix() -> HedgeboxMatrix:
@@ -120,8 +128,8 @@ def create_demo_org_team_user(django_db_blocker) -> tuple[Organization, Team, Us
 def ensure_master_demo_team(django_db_blocker) -> int:
     """Ensure a master Hedgebox demo team exists with events in both PSQL and CH.
 
-    Reuses the master team across sessions when it has CH events. Rebuilds from
-    scratch when either side is empty. Returns the master team id (autoincrement,
+    Reuses the master team across sessions when it has CH events and is less than
+    ``MASTER_DEMO_MAX_AGE`` old. Rebuilds from scratch when it is older or either side is empty. Returns the master team id (autoincrement,
     not ``MatrixManager.MASTER_TEAM_ID`` — we own this team's lifecycle).
     """
 
@@ -135,7 +143,14 @@ def ensure_master_demo_team(django_db_blocker) -> int:
                     "SELECT count() FROM events WHERE team_id = %(team_id)s",
                     {"team_id": team.id},
                 )[0][0]
-                if ch_event_count > 0:
+                if team.created_at < timezone.now() - MASTER_DEMO_MAX_AGE:
+                    logger.warning(
+                        "Master demo team id=%d was generated at %s, more than %s ago; regenerating",
+                        team.id,
+                        team.created_at.isoformat(),
+                        MASTER_DEMO_MAX_AGE,
+                    )
+                elif ch_event_count > 0:
                     if not settings.OBJECT_STORAGE_ENABLED or _master_warehouse_ready(team):
                         logger.info("Reusing master demo team id=%d (events=%d)", team.id, ch_event_count)
                         return team.id
@@ -164,6 +179,23 @@ def ensure_master_demo_team(django_db_blocker) -> int:
                 "Check object storage connectivity and the captured setup errors."
             )
         return team.id
+
+
+def create_empty_eval_project(django_db_blocker: NullDbBlocker, *, label: str) -> tuple[Team, User]:
+    suffix = uuid.uuid4().hex[:8]
+    with django_db_blocker.unblock(), transaction.atomic():
+        org = Organization.objects.create(name=f"Hedgebox ({label}-{suffix})")
+        user = User.objects.create_and_join(
+            org,
+            f"eval-{label}-{suffix}@posthog.test",
+            None,
+            EVAL_USER_FULL_NAME,
+            OrganizationMembership.Level.ADMIN,
+            theme_mode="system",
+            role_at_organization="engineering",
+        )
+        team = Team.objects.create(organization=org, is_demo=True)
+    return team, user
 
 
 def copy_demo_data_to_new_team(
@@ -278,7 +310,7 @@ class DashboardWithInsightsFixture:
 
     def __init__(
         self,
-        dashboard: Dashboard,
+        dashboard: DashboardRef,
         insight_dau: Insight,
         insight_funnel: Insight,
         insight_retention: Insight,
@@ -391,27 +423,30 @@ def create_dashboard_with_insights(
     )
 
     # Create the dashboard
-    dashboard = Dashboard.objects.create(
-        team=team,
+    dashboard = DashboardRef(
+        id=create_dashboard(
+            team_id=team.id,
+            name="Growth Dashboard",
+            description="Dashboard for tracking growth metrics",
+            created_by_id=user.id,
+        ),
         name="Growth Dashboard",
-        description="Dashboard for tracking growth metrics",
-        created_by=user,
     )
 
     # Add tiles to dashboard
-    DashboardTile.objects.create(
-        dashboard=dashboard,
-        insight=insight_dau,
+    create_insight_tile(
+        dashboard_id=dashboard.id,
+        insight_id=insight_dau.id,
         layouts={"lg": {"x": 0, "y": 0, "w": 6, "h": 4}},
     )
-    DashboardTile.objects.create(
-        dashboard=dashboard,
-        insight=insight_funnel,
+    create_insight_tile(
+        dashboard_id=dashboard.id,
+        insight_id=insight_funnel.id,
         layouts={"lg": {"x": 6, "y": 0, "w": 6, "h": 4}},
     )
-    DashboardTile.objects.create(
-        dashboard=dashboard,
-        insight=insight_retention,
+    create_insight_tile(
+        dashboard_id=dashboard.id,
+        insight_id=insight_retention.id,
         layouts={"lg": {"x": 0, "y": 4, "w": 6, "h": 4}},
     )
 

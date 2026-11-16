@@ -25,8 +25,8 @@ ANSWER = json.dumps(
     {
         "profile": "## Funnels\n- Builds the signup funnel.",
         "headline": "Builds the signup funnel.",
-        "focus_areas": [{"topic": "signup funnel", "strength": "high", "last_seen": "2026-10-18"}],
-        "products": ["product_analytics"],
+        "themes": [{"label": "Signup funnel", "mode": "building", "strength": "high", "refs": ["o1"]}],
+        "modes": ["building"],
         "recent_shift": None,
     }
 )

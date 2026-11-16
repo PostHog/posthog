@@ -470,10 +470,12 @@ class ContentAutopilotProposalListSerializer(ContentAutopilotProposalBaseSeriali
             "evidence",
             "validation_report",
             "file_path",
+            "target_url",
             "created_at",
             "updated_at",
         ]
         read_only_fields = fields
+        extra_kwargs = {"target_url": {"help_text": "Existing or intended public URL."}}
 
     @extend_schema_field(serializers.CharField)
     def get_file_path(self, proposal: ContentAutopilotProposal) -> str:
@@ -513,6 +515,7 @@ class ContentAutopilotOpportunitySerializer(serializers.ModelSerializer):
             "profile_id",
             "run_id",
             "proposal_id",
+            "aeo_prompt_id",
             "kind",
             "title",
             "score",
@@ -530,6 +533,7 @@ class ContentAutopilotOpportunitySerializer(serializers.ModelSerializer):
             "profile_id": {"help_text": "Site profile this opportunity belongs to."},
             "run_id": {"help_text": "Latest run that drafted this opportunity."},
             "proposal_id": {"help_text": "Latest proposal drafted for this opportunity."},
+            "aeo_prompt_id": {"help_text": "Tracked AI visibility prompt this opportunity came from."},
             "kind": {"help_text": "Type of visibility gap."},
             "title": {"help_text": "The prompt the site isn't cited for."},
             "score": {"help_text": "Priority from 0 to 1. Higher means a clearer, more consistent gap."},

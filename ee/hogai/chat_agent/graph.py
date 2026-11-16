@@ -122,7 +122,7 @@ class AssistantGraph(AgentLoopGraph):
         self._graph.add_edge(AssistantNodeName.START, AssistantNodeName.SLASH_COMMAND_HANDLER)
         self._graph.add_conditional_edges(
             AssistantNodeName.SLASH_COMMAND_HANDLER,
-            slash_command_handler.arouter,
+            slash_command_handler.arouter,  # type: ignore[arg-type]
         )
 
         return self

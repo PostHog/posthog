@@ -2,6 +2,8 @@ import { getCurrentTeamId } from 'lib/utils/getAppContext'
 
 import { apiMutator } from '../../../frontend/src/lib/api-orval-mutator'
 import {
+    businessKnowledgeDocumentsSearchList,
+    businessKnowledgeDocumentsWindowList,
     businessKnowledgeLibrariesCreate,
     businessKnowledgeLibrariesDestroy,
     businessKnowledgeLibrariesList,
@@ -21,19 +23,25 @@ import {
     businessKnowledgeSourcesTextRetrieve,
 } from './generated/api'
 import type {
+    BusinessKnowledgeDocumentsSearchListParams,
+    BusinessKnowledgeDocumentsWindowListParams,
     BusinessKnowledgeSourcesListAddedBy,
     BusinessKnowledgeSourcesListParams,
     BusinessKnowledgeSourcesListSourceType,
     CrawlModeEnumApi,
+    KnowledgeDocumentWindowApi,
     KnowledgeLibraryApi,
+    KnowledgeSearchResultApi,
     KnowledgeSourceApi,
     PlaygroundChatApi,
-    PlaygroundChatListApi,
+    PaginatedPlaygroundChatListListApi,
     SandboxQuestionApi,
     KnowledgeSourceDocumentApi,
 } from './generated/api.schemas'
 
 export type { KnowledgeSourceApi as KnowledgeSourceDTOApi }
+
+export const PLAYGROUND_CHAT_PAGE_SIZE = 100
 
 // TODO: replace with generated types once the backend exposes URL source serializers
 export type RefreshIntervalValue = 'manual' | '1h' | '6h' | '24h' | '7d'
@@ -143,8 +151,11 @@ export async function deleteSource(id: string): Promise<void> {
     await businessKnowledgeSourcesDestroy(String(getCurrentTeamId()), id)
 }
 
-export async function listPlaygroundChats(): Promise<PlaygroundChatListApi[]> {
-    return await businessKnowledgePlaygroundChatsList(String(getCurrentTeamId()))
+export async function listPlaygroundChats(offset: number = 0): Promise<PaginatedPlaygroundChatListListApi> {
+    return await businessKnowledgePlaygroundChatsList(String(getCurrentTeamId()), {
+        limit: PLAYGROUND_CHAT_PAGE_SIZE,
+        offset,
+    })
 }
 
 export async function createPlaygroundChat(): Promise<PlaygroundChatApi> {
@@ -162,6 +173,19 @@ export async function askPlaygroundChat(chatId: string, question: string): Promi
 
 export async function deletePlaygroundChat(chatId: string): Promise<void> {
     await businessKnowledgePlaygroundChatsDestroy(String(getCurrentTeamId()), chatId)
+}
+
+export async function searchKnowledge(
+    params: BusinessKnowledgeDocumentsSearchListParams
+): Promise<KnowledgeSearchResultApi[]> {
+    return await businessKnowledgeDocumentsSearchList(String(getCurrentTeamId()), params)
+}
+
+export async function getDocumentWindow(
+    documentId: string,
+    params: BusinessKnowledgeDocumentsWindowListParams
+): Promise<KnowledgeDocumentWindowApi[]> {
+    return await businessKnowledgeDocumentsWindowList(String(getCurrentTeamId()), documentId, params)
 }
 
 export async function refreshSource(id: string): Promise<KnowledgeSourceApi> {

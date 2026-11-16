@@ -1,11 +1,19 @@
-import { cleanup, render, screen, waitFor, within } from '@testing-library/react'
+import { cleanup, fireEvent, render, screen, waitFor, within } from '@testing-library/react'
 import userEvent from '@testing-library/user-event'
 import { useState } from 'react'
 
+import type { RadialSlicePayload } from '@posthog/quill-charts'
+
+import { BIField } from '~/queries/schema/schema-business-intelligence'
 import { VisualizationNode, HogQLQueryResponse, NodeKind } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
+import { renderDataVisualization } from '~/test/insight-testing'
 import { ChartDisplayType } from '~/types'
 
+import { buildBIQuery, DEFAULT_BI_CONFIG } from 'products/business_intelligence/frontend/biEditorTypes'
+
+import type { SqlChartProps } from './Components/Charts/SqlChart'
+import { buildPieSeries, buildPieSlices } from './Components/Charts/sqlPieGraphAdapter'
 import { DataTableVisualization } from './DataVisualization'
 
 type LemonTableMockProps = {
@@ -25,6 +33,25 @@ jest.mock('@posthog/lemon-ui', () => ({
         mockLemonTable(props)
         return null
     },
+}))
+
+jest.mock('./Components/Charts/PartOfWholeChart', () => ({
+    PartOfWholeChart: ({ xData, yData, onSliceClick }: SqlChartProps): JSX.Element => (
+        <button
+            onClick={() =>
+                onSliceClick?.({ series: buildPieSeries(buildPieSlices(xData, yData))[0] } as RadialSlicePayload)
+            }
+        >
+            First slice
+        </button>
+    ),
+}))
+
+jest.mock('./Components/Charts/SqlChart', () => ({
+    ...jest.requireActual('./Components/Charts/SqlChart'),
+    SqlChart: ({ goalLines }: SqlChartProps): JSX.Element => (
+        <div>{`Chart with goal lines: ${(goalLines ?? []).map((line) => line.label).join(', ')}`}</div>
+    ),
 }))
 
 describe('DataTableVisualization', () => {
@@ -51,6 +78,72 @@ describe('DataTableVisualization', () => {
 
     afterEach(() => {
         cleanup()
+    })
+
+    it.each([
+        { breakdown: false, alias: false },
+        { breakdown: true, alias: false },
+        { breakdown: false, alias: true },
+        { breakdown: true, alias: true },
+    ])('keeps the raw pie selection with breakdown=$breakdown and alias=$alias', async ({ breakdown, alias }) => {
+        const field = (name: string): BIField => ({
+            id: name,
+            name,
+            expression: name,
+            type: 'string',
+            source: { table: 'events' },
+        })
+        const region = field('region')
+        const regionColumn = 'region'
+        const config = {
+            ...DEFAULT_BI_CONFIG,
+            source: region.source,
+            chartType: ChartDisplayType.ActionsPie,
+            rows: [breakdown ? field('segment') : region],
+            columns: breakdown ? [region] : [],
+            memberAliases: alias ? [{ field: region, aliases: [{ value: 'west', label: 'West coast' }] }] : [],
+        }
+        renderDataVisualization({
+            embedded: true,
+            context: { dashboardResultMenu: true },
+            query: {
+                ...buildBIQuery(config)!.node,
+                kind: NodeKind.BIVisualizationNode,
+                config,
+                chartSettings: {
+                    xAxis: { column: breakdown ? 'segment' : regionColumn },
+                    yAxis: [{ column: 'count' }],
+                    ...(breakdown ? { seriesBreakdownColumn: regionColumn } : {}),
+                },
+            },
+            response: breakdown
+                ? {
+                      columns: ['segment', regionColumn, 'count'],
+                      types: [
+                          ['segment', 'String'],
+                          [regionColumn, 'String'],
+                          ['count', 'Int64'],
+                      ],
+                      results: [['first', 'west', 2]],
+                  }
+                : {
+                      columns: [regionColumn, 'count'],
+                      types: [
+                          [regionColumn, 'String'],
+                          ['count', 'Int64'],
+                      ],
+                      results: [['west', 2]],
+                  },
+        })
+        fireEvent.contextMenu(await screen.findByText('First slice'))
+        const menu = await screen.findByRole('menu')
+        const link = within(menu).getByText('Open in SQL editor').closest('a')!
+        const openedQuery = JSON.parse(new URL(link.href).searchParams.get('open_query')!)
+        expect(openedQuery.source.query).toContain("region = 'west'")
+        expect(openedQuery.source.query).not.toContain("region = 'West coast'")
+        fireEvent.click(screen.getByText('First slice'))
+        expect(screen.queryByRole('menu')).toBeNull()
+        await screen.findByText('Explore this result')
     })
 
     it.each([false, true])('opens and closes settings in the correct panel (hosted: %s)', async (hosted) => {
@@ -92,6 +185,35 @@ describe('DataTableVisualization', () => {
         expect(within(hosted ? host : container).getByText('Add rule')).toBeTruthy()
         await userEvent.click(screen.getByLabelText('Visualization settings'))
         expect(screen.queryByText('Conditional formatting')).toBeNull()
+    })
+
+    it('switches a read-only tile between table and chart and keeps the chart goal lines', async () => {
+        const chartQuery: VisualizationNode = {
+            ...query,
+            display: ChartDisplayType.ActionsLineGraph,
+            chartSettings: { goalLines: [{ label: 'Target', value: 1 }] },
+        }
+        const renderTile = (tileQuery: VisualizationNode): JSX.Element => (
+            <DataTableVisualization
+                uniqueKey="data-visualization-switch"
+                query={tileQuery}
+                setQuery={jest.fn()}
+                cachedResults={cachedResults}
+                readOnly
+                embedded
+            />
+        )
+
+        const { rerender } = render(renderTile(query))
+        await waitFor(() => expect(mockLemonTable).toHaveBeenCalled())
+
+        rerender(renderTile(chartQuery))
+        expect(await screen.findByText('Chart with goal lines: Target')).toBeTruthy()
+
+        mockLemonTable.mockClear()
+        rerender(renderTile(query))
+        await waitFor(() => expect(mockLemonTable).toHaveBeenCalled())
+        expect(screen.queryByText(/Chart with goal lines/)).toBeNull()
     })
 
     test.each([

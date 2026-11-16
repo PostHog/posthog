@@ -17,7 +17,7 @@ import {
     LogsColumnConfig,
     LogsColumnType,
     columnLabel,
-    customColumnFilterType,
+    customColumnFilterTarget,
 } from 'products/logs/frontend/components/LogsViewer/config/columns'
 import { logsViewerLogic } from 'products/logs/frontend/components/LogsViewer/logsViewerLogic'
 import { AttributeCell } from 'products/logs/frontend/components/VirtualizedLogsList/cells/AttributeCell'
@@ -399,20 +399,23 @@ export function createConfiguredColumn(params: {
               ? (log: ParsedLogMessage): JSX.Element => (
                     <IdentityCell log={log} type={identityType} width={totalWidth} />
                 )
-              : (log: ParsedLogMessage): JSX.Element => (
-                    <AttributeCell
-                        attributeKey={semanticKey}
-                        value={getBuiltInValue ? getBuiltInValue(log) : customColumnValue(log, alias)}
-                        // Raw map: the stringified copy drops a `__proto__` key that the server still reads
-                        filterType={
-                            config.type === 'custom'
-                                ? customColumnFilterType(config, log.originalLog.attributes, log.resource_attributes)
-                                : undefined
-                        }
-                        width={totalWidth}
-                        timestamp={log.timestamp}
-                    />
-                )
+              : (log: ParsedLogMessage): JSX.Element => {
+                    // Raw map: the stringified copy drops a `__proto__` key that the server still reads
+                    const filterTarget =
+                        config.type === 'custom'
+                            ? customColumnFilterTarget(config, log.originalLog.attributes, log.resource_attributes)
+                            : undefined
+                    return (
+                        <AttributeCell
+                            attributeKey={semanticKey}
+                            value={getBuiltInValue ? getBuiltInValue(log) : customColumnValue(log, alias)}
+                            filterKey={filterTarget?.key}
+                            filterType={filterTarget?.type}
+                            width={totalWidth}
+                            timestamp={log.timestamp}
+                        />
+                    )
+                }
 
     return {
         key: `col:${config.id}`,

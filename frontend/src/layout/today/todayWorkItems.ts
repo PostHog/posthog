@@ -179,7 +179,16 @@ export function chatItem(conversation: ConversationDetail): TodayWorkItem {
         status: null,
         channel: null,
         createdById: conversation.user?.id ?? null,
-        author: null,
+        author: conversation.user
+            ? {
+                  id: conversation.user.id,
+                  uuid: conversation.user.uuid,
+                  distinct_id: conversation.user.distinct_id,
+                  first_name: conversation.user.first_name,
+                  last_name: conversation.user.last_name ?? '',
+                  email: conversation.user.email,
+              }
+            : null,
         latestRunId: null,
         runEnvironment: null,
         originProduct: null,
@@ -265,6 +274,36 @@ export function buildRecentItems(
     ]
         .sort((first, second) => timeOf(second) - timeOf(first))
         .slice(0, limit)
+}
+
+export interface TodayRecentTasksPage {
+    tasks: TaskListItemApi[]
+    hasMore: boolean
+}
+
+export function refreshRecentTasks(
+    fetched: TaskListItemApi[],
+    fetchedHasMore: boolean,
+    current: TaskListItemApi[],
+    currentHasMore: boolean,
+    requested: number
+): TodayRecentTasksPage {
+    if (!fetchedHasMore || current.length <= requested) {
+        return { tasks: fetched, hasMore: fetchedHasMore }
+    }
+    return { tasks: appendRecentTasks(fetched, current), hasMore: currentHasMore }
+}
+
+export function appendRecentTasks(loaded: TaskListItemApi[], page: TaskListItemApi[]): TaskListItemApi[] {
+    const seenIds = new Set(loaded.map((task) => task.id))
+    const added = page.filter((task) => {
+        if (seenIds.has(task.id)) {
+            return false
+        }
+        seenIds.add(task.id)
+        return true
+    })
+    return [...loaded, ...added]
 }
 
 export interface TodaySessionReadRequest {

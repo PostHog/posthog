@@ -128,10 +128,27 @@ RUNS_FAILED_AGED_OUT_TOTAL = Counter(
 OLDEST_UNCLAIMED_BATCH_SECONDS = Gauge(
     "warehouse_pg_queue_oldest_unclaimed_batch_seconds",
     "Age of the oldest queue batch no consumer has picked up yet, counting only batches a "
-    "consumer could still pick up (0 = none waiting). Batches whose run already holds a failed "
-    "batch are excluded — the claim query refuses those, so their age is not queue lag; they are "
-    "counted by warehouse_pg_queue_blocked_batches instead. "
+    "free loader slot could claim now (0 = none waiting). Batches whose (team_id, schema_id) "
+    "group already has a batch executing are excluded: they wait behind their own group, not "
+    "for a slot, and warehouse_pg_queue_oldest_serialized_batch_seconds reports them. Batches "
+    "whose run already holds a failed batch are excluded too: the claim query refuses those, so "
+    "their age is not queue lag, and warehouse_pg_queue_blocked_batches counts them. "
     "Sampled on the reconcile cadence; saturates at the freshness probe window.",
+    multiprocess_mode="liveall",
+)
+
+# The population the age gauge above excludes because its group is busy. The loader
+# claims one batch per (team, schema) group at a time, so one slow batch or a long
+# full refresh holds the rest of its group back while slots stay idle. This gauge
+# keeps that wait apart from the age gauge above, so one slow group does not read
+# as a fleet-wide stall.
+OLDEST_SERIALIZED_BATCH_SECONDS = Gauge(
+    "warehouse_pg_queue_oldest_serialized_batch_seconds",
+    "Age of the oldest queue batch no consumer has picked up yet whose (team_id, schema_id) "
+    "group already has a batch executing, so it waits for its own group and not for a slot "
+    "(0 = none waiting). Same blocked-batch exclusion as "
+    "warehouse_pg_queue_oldest_unclaimed_batch_seconds. Sampled on the reconcile cadence; "
+    "NaN when the freshness probe times out.",
     multiprocess_mode="liveall",
 )
 
@@ -152,8 +169,8 @@ BLOCKED_BATCHES = Gauge(
 # them: alert on groups, diagnose on age.
 BACKLOGGED_GROUPS = Gauge(
     "warehouse_pg_queue_backlogged_groups",
-    "Distinct (team_id, schema_id) groups whose oldest claimable batch is older than the "
-    "backlog threshold. Sampled on the reconcile cadence.",
+    "Distinct (team_id, schema_id) groups with no batch executing whose oldest claimable "
+    "batch is older than the backlog threshold. Sampled on the reconcile cadence.",
     multiprocess_mode="liveall",
 )
 
@@ -229,6 +246,7 @@ DEPTH_PROBE_TIMEOUTS_TOTAL = Counter(
 
 QUEUE_SAMPLE_GAUGES: tuple[Gauge, ...] = (
     OLDEST_UNCLAIMED_BATCH_SECONDS,
+    OLDEST_SERIALIZED_BATCH_SECONDS,
     BLOCKED_BATCHES,
     BACKLOGGED_GROUPS,
     CLAIMABLE_BATCHES,

@@ -1,26 +1,72 @@
 import { useActions, useValues } from 'kea'
 import { useMemo } from 'react'
 
-import { LemonCalendarSelectInput, LemonSearchableSelect } from '@posthog/lemon-ui'
+import { LemonCalendarSelectInput, LemonSearchableSelect, LemonSwitch, Link } from '@posthog/lemon-ui'
 
 import { dayjs } from 'lib/dayjs'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonRadio } from 'lib/lemon-ui/LemonRadio'
+import { preflightLogic } from 'lib/logic/preflightLogic'
+import { pluralize } from 'lib/utils/strings'
 import { timeZoneLabel } from 'lib/utils/timezones'
-import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
+import { teamLogic } from 'scenes/teamLogic'
+import { urls } from 'scenes/urls'
 
 import { SendDayPicker } from '../../SendCalendar/SendDayPicker'
+import { describeRule, sendingRule } from '../../SendCalendar/sendSpacing'
 import { EmailSendingRateLimitPicker } from '../../Workflows/hogflows/steps/components/EmailSendingRateLimitPicker'
 import { RecurringSchedulePicker } from '../../Workflows/hogflows/steps/components/RecurringSchedulePicker'
 import { broadcastWizardLogic } from '../broadcastWizardLogic'
+import { BroadcastRateLimitSuggestion } from './BroadcastRateLimitSuggestion'
 
-function SendingRateLimit(): JSX.Element {
-    const { emailRateLimit } = useValues(broadcastWizardLogic)
+function SendingRateLimit(): JSX.Element | null {
+    const { emailRateLimit, channel } = useValues(broadcastWizardLogic)
     const { setEmailRateLimit } = useActions(broadcastWizardLogic)
 
+    if (channel !== 'email') {
+        return null
+    }
     return (
         <div className="max-w-160">
             <EmailSendingRateLimitPicker value={emailRateLimit} onChange={setEmailRateLimit} />
+            <BroadcastRateLimitSuggestion />
+        </div>
+    )
+}
+
+function SkipFrequencyCap(): JSX.Element | null {
+    const { emailSettings, channel } = useValues(broadcastWizardLogic)
+    const { setEmailSettings } = useActions(broadcastWizardLogic)
+    const { currentTeam } = useValues(teamLogic)
+    const config = currentTeam?.workflows_config
+
+    // Transactional email is never capped, and without a cap there is nothing to skip.
+    if (
+        channel !== 'email' ||
+        emailSettings.messageCategoryType === 'transactional' ||
+        !config?.marketing_frequency_cap_max_messages ||
+        !config?.marketing_frequency_cap_window_days
+    ) {
+        return null
+    }
+    const holdHours = config.marketing_frequency_cap_hold_hours
+    return (
+        <div className="flex flex-col gap-1 max-w-160">
+            <LemonSwitch
+                label="Send even if people reached your frequency cap"
+                checked={emailSettings.skipFrequencyCap}
+                onChange={(skipFrequencyCap) => setEmailSettings({ skipFrequencyCap })}
+                data-attr="broadcast-skip-frequency-cap"
+            />
+            <span className="text-secondary text-sm">
+                Your{' '}
+                <Link to={urls.settings('environment-workflows', 'workflows-frequency-cap')} target="_blank">
+                    frequency cap
+                </Link>{' '}
+                is {describeRule(sendingRule(config))}. People over it{' '}
+                {holdHours ? `wait up to ${pluralize(holdHours, 'hour')}, then get skipped` : 'get skipped'}. With this
+                on, they get this email when it sends, and it doesn't count toward the cap. Use it for time-sensitive
+                email, like an event invite. People who unsubscribed still don't get it.
+            </span>
         </div>
     )
 }
@@ -56,6 +102,8 @@ export function BroadcastScheduleStep(): JSX.Element {
         recurringRepeating,
         effectiveTimezone,
         stepValidationErrors,
+        channel,
+        rateLimitMessage,
     } = useValues(broadcastWizardLogic)
     const {
         setScheduleMode,
@@ -65,12 +113,13 @@ export function BroadcastScheduleStep(): JSX.Element {
         setRecurringRepeating,
         setScheduleTimezone,
     } = useActions(broadcastWizardLogic)
-    const showSendCalendar = useFeatureFlag('WORKFLOWS_SEND_CALENDAR')
 
     return (
         <div className="flex flex-col gap-4">
             <div>
-                <h2 className="m-0 text-xl font-semibold">When should this email go out?</h2>
+                <h2 className="m-0 text-xl font-semibold">
+                    When should this {channel === 'push' ? 'notification' : 'email'} go out?
+                </h2>
                 <p className="m-0 text-secondary">Send it right away, pick a time, or set up a repeating schedule.</p>
             </div>
 
@@ -109,7 +158,7 @@ export function BroadcastScheduleStep(): JSX.Element {
                 </div>
             )}
 
-            {scheduleMode === 'later' && showSendCalendar ? <SendDayPicker /> : null}
+            {scheduleMode === 'later' ? <SendDayPicker /> : null}
 
             {scheduleMode === 'recurring' && (
                 <div className="max-w-160">
@@ -128,13 +177,17 @@ export function BroadcastScheduleStep(): JSX.Element {
                 </div>
             )}
 
+            <SkipFrequencyCap />
+
             <SendingRateLimit />
 
-            {stepValidationErrors.schedule.map((error) => (
-                <div key={error} className="text-danger text-xs">
-                    {error}
-                </div>
-            ))}
+            {stepValidationErrors.schedule
+                .filter((error) => error !== rateLimitMessage)
+                .map((error) => (
+                    <div key={error} className="text-danger text-xs">
+                        {error}
+                    </div>
+                ))}
         </div>
     )
 }

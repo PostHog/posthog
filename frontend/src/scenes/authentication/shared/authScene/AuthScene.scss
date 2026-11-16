@@ -10,7 +10,7 @@
     --primary-3000-button-border-hover: var(--primary-3000-button-border-hover-light);
     --color-text-warning: var(--color-text-primary);
 
-    // The four blocks below are the only things that repaint these: one per referrer, per theme.
+    // The two blocks that repaint these backdrop tokens are this one and its dark-theme twin below.
     --auth-scene-backdrop-top: #eef4fa;
     --auth-scene-backdrop-mid: #dbe8f4;
     --auth-scene-backdrop-bottom: #c4d8ea;
@@ -54,19 +54,8 @@
     }
 }
 
-// Continues the green posthog.com just showed the visitor.
-.AuthScene--fromWebsite {
-    --auth-scene-backdrop-top: #cfe0ae;
-    --auth-scene-backdrop-mid: #b5cd8f;
-    --auth-scene-backdrop-bottom: #9dbb78;
-    --auth-scene-backdrop-glow: rgb(255 253 240 / 45%);
-    --auth-scene-backdrop-ink: rgb(45 74 22 / 65%);
-    --auth-scene-card-shadow: rgb(30 50 10 / 25%);
-}
-
 // The backdrop and the card are both opaque, so dark mode has to repaint them. Without this the
-// scene keeps its light sheets under the light-on-dark text the app tokens switch to. The card
-// and the ink are the same whatever the visitor came from, so only the ramp splits again below.
+// scene keeps its light sheets under the light-on-dark text the app tokens switch to.
 [theme='dark'] .AuthScene {
     --auth-scene-backdrop-top: #16232f;
     --auth-scene-backdrop-mid: #101a24;
@@ -80,16 +69,6 @@
     --auth-scene-card-ink-muted: var(--color-text-secondary);
     --auth-scene-note-bg: var(--color-bg-fill-primary);
     --auth-scene-note-border: var(--color-border-primary);
-}
-
-// Reads as the same green the website showed, dimmed for a dark room. It has to follow the block
-// above, because the two selectors have equal specificity.
-[theme='dark'] .AuthScene--fromWebsite {
-    --auth-scene-backdrop-top: #1b2a10;
-    --auth-scene-backdrop-mid: #14200b;
-    --auth-scene-backdrop-bottom: #0d1707;
-    --auth-scene-backdrop-glow: rgb(157 187 120 / 12%);
-    --auth-scene-backdrop-ink: rgb(207 224 174 / 65%);
 }
 
 // A band that sits flush inside a card, such as a sticky section header. It repeats the card's
@@ -178,6 +157,16 @@
 @media (prefers-reduced-motion: reduce) {
     .AuthScene__caret {
         animation: none;
+    }
+}
+
+// The snapshot runner zeroes animation durations, and headless Chromium can then paint an animation's
+// first keyframe. Turn these off there, so a snapshot shows the card, caret and progress bar at rest.
+.storybook-test-runner {
+    .AuthScene__column,
+    .AuthScene__caret,
+    .AuthScene__progress-fill {
+        animation: none !important;
     }
 }
 

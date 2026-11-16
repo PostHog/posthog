@@ -164,6 +164,9 @@ const alertDestinationsDelete = (): ToolBase<ReturnType<typeof AlertDestinations
         if (params.hog_function_ids !== undefined) {
             body['hog_function_ids'] = params.hog_function_ids
         }
+        if (params.destination_ids !== undefined) {
+            body['destination_ids'] = params.destination_ids
+        }
         const result = await context.api.request<unknown>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/alerts/${encodeURIComponent(String(params.id))}/destinations/delete/`,
@@ -226,6 +229,9 @@ const alertSimulate = (): ToolBase<ReturnType<typeof AlertSimulateSchema>, Schem
         }
         if (params.config !== undefined) {
             body['config'] = params.config
+        }
+        if (params.alert !== undefined) {
+            body['alert'] = params.alert
         }
         const result = await context.api.request<Schemas.AlertSimulateResponse>({
             method: 'POST',

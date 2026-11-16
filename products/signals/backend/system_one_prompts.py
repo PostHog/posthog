@@ -10,6 +10,7 @@ import posthoganalytics
 from posthoganalytics.ai.prompts import PromptResult, Prompts
 
 from posthog.dataclasses import frozen
+from posthog.llm.managed_decision_model import prompt_key_configured
 
 logger = structlog.get_logger(__name__)
 
@@ -111,7 +112,7 @@ def _parse_prompt(result: PromptResult, fallback: SystemOnePrompt) -> SystemOneP
 
 
 def fetch_prompt(fallback: SystemOnePrompt, *, version: int | None = None) -> SystemOnePrompt | None:
-    if not posthoganalytics.personal_api_key:
+    if not prompt_key_configured():
         return None
     result = Prompts(posthoganalytics, capture_errors=True).get(
         fallback.name,

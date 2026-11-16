@@ -15,7 +15,7 @@ recovering on a later call does not flip the score.
 
 from __future__ import annotations
 
-from products.posthog_ai.eval_harness.base import SandboxedPrivateEval
+from products.posthog_ai.eval_harness.base import SandboxedEval
 from products.posthog_ai.eval_harness.config import SandboxedEvalCase
 from products.posthog_ai.eval_harness.harness.context import EvalContext
 from products.posthog_ai.eval_harness.scorers import RequiredToolCall
@@ -26,8 +26,6 @@ from products.posthog_ai.evals.experiments.scorers import (
 )
 from products.posthog_ai.evals.experiments.seeders import ROLLOUT_EXPERIMENT_NAME, seed_running_experiment
 from products.posthog_ai.evals.offline_config import offline_suite
-
-NO_SEND_LOGS = True
 
 
 async def eval_metric_schema_discovery(ctx: EvalContext) -> None:
@@ -54,8 +52,7 @@ async def eval_metric_schema_discovery(ctx: EvalContext) -> None:
         ),
     ]
 
-    await SandboxedPrivateEval(
-        no_send_logs=NO_SEND_LOGS,
+    await SandboxedEval(
         experiment_name="sandboxed-experiments-metric-schema-discovery-cli",
         send_to_posthog=True,
         offline_suite=offline_suite(

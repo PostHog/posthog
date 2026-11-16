@@ -1,8 +1,4 @@
-import { useActions, useValues } from 'kea'
-
 import * as selfDrivingPng from '@posthog/brand/hoggies/png/self-driving'
-import { IconArrowRight } from '@posthog/icons'
-import { LemonButton } from '@posthog/lemon-ui'
 
 import { pngHoggie } from 'lib/brand/hoggies'
 import { ProductEmptyState } from 'lib/components/ProductEmptyState/ProductEmptyState'
@@ -11,38 +7,15 @@ import { IconSelfDriving } from 'lib/lemon-ui/icons'
 
 import { ProductKey } from '~/queries/schema/schema-general'
 
-import { inboxSetupLogic } from '../../logics/inboxSetupLogic'
-import { InboxQuickSetupAction } from './InboxQuickSetupAction'
+import { InboxGithubAccessExplanation } from './InboxGithubAccessExplanation'
 import { InboxReportPreview } from './InboxReportPreview'
+import { InboxSetupActions } from './InboxSetupActions'
 
 const HedgehogSelfDriving = pngHoggie(selfDrivingPng)
 
-function SetUpSelfDrivingAction(): JSX.Element {
-    const { continueFromWelcome } = useActions(inboxSetupLogic)
-    const { isQuickSetup } = useValues(inboxSetupLogic)
-
-    if (isQuickSetup) {
-        return <InboxQuickSetupAction />
-    }
-
-    return (
-        <LemonButton
-            type="primary"
-            status="alt"
-            sideIcon={<IconArrowRight />}
-            className="self-start"
-            onClick={continueFromWelcome}
-            // pinned: data-attr - the welcome funnel and test selectors match on this string
-            data-attr="inbox-setup-welcome-continue"
-        >
-            Set up Self-Driving
-        </LemonButton>
-    )
-}
-
 const INBOX_SETUP_EMPTY_STATE: ProductEmptyStateConfig = {
     productKey: ProductKey.SELF_DRIVING,
-    productName: 'Self-Driving',
+    productName: 'Self-driving',
     icon: <IconSelfDriving />,
     accentColor: 'var(--color-product-self-driving-light)',
     accentColorDark: 'var(--color-product-self-driving-dark)',
@@ -54,7 +27,8 @@ const INBOX_SETUP_EMPTY_STATE: ProductEmptyStateConfig = {
             lead: 'AI does the research for you. Get reports with evidence and next steps. Ship fixes with your agent of choice, or let PostHog do it for you.',
         },
     },
-    PrimaryAction: SetUpSelfDrivingAction,
+    PrimaryAction: InboxSetupActions,
+    FooterActions: InboxGithubAccessExplanation,
     docsUrl: 'https://posthog.com/docs/self-driving',
     previewLabel: 'Example report',
     previewClassName: 'items-center [&>*]:w-full [&>*]:max-w-120',
@@ -65,7 +39,7 @@ const INBOX_SETUP_EMPTY_STATE: ProductEmptyStateConfig = {
 
 /**
  * Rendered by the inbox's own takeover gate rather than the scene-level one: the setup flow it opens
- * lives inside the same scene, and the control variant still shows the wizard takeover.
+ * lives inside the same scene.
  */
 export function InboxSetupEmptyState(): JSX.Element {
     return <ProductEmptyState config={INBOX_SETUP_EMPTY_STATE} mode="needs-setup" />

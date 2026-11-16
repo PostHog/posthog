@@ -385,6 +385,8 @@ pub struct Config {
     /// the event, and the producer refuses it anyway. A deployment that has not
     /// raised its producer cap wants a lower value than this default; the boot
     /// warning says so when the two are out of order.
+    ///
+    /// Must equal `AI_MAX_EVENT_BYTES_DEFAULT`, or `tests/ai_event_limits_parity.rs` fails.
     #[envconfig(default = "8388608")] // 8MiB
     pub ai_max_event_bytes: u64,
 
@@ -414,16 +416,20 @@ pub struct Config {
     pub continuous_profiling: ContinuousProfilingConfig,
 
     /// Maximum compressed (wire) body size the v1 endpoint will accept (bytes).
-    #[envconfig(default = "10485760")]
-    pub capture_v1_max_compressed_body_bytes: usize,
+    /// Unset, it is 10 MiB, or `router::AI_BODY_SIZE` on capture-ai.
+    pub capture_v1_max_compressed_body_bytes: Option<usize>,
 
     /// Maximum decompressed body size the v1 endpoint will accept (bytes).
-    #[envconfig(default = "52428800")]
-    pub capture_v1_max_decompressed_body_bytes: usize,
+    /// Unset, it is 50 MiB, or `router::AI_BODY_SIZE` on capture-ai.
+    pub capture_v1_max_decompressed_body_bytes: Option<usize>,
 
     /// Batch size threshold for parallel scatter-gather serialization; 0 disables fanout.
     #[envconfig(default = "8")]
     pub capture_v1_scatter_gather_min_batch: usize,
+
+    /// Turn off only where every consumer of the capture topics applies the outbound `options`.
+    #[envconfig(default = "true")]
+    pub capture_v1_legacy_property_splice: bool,
 
     // --- Ingestion warnings emitter (fire-and-forget, best-effort) ---
     // Warnings go out as `$$client_ingestion_warning` events through a

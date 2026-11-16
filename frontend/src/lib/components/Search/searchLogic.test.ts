@@ -110,9 +110,9 @@ describe('searchLogic', () => {
     })
 
     it.each([
-        ['materialized views', 'dataManagementItems', 'Models'],
-        ['data modeling', 'dataManagementItems', 'Models'],
-        ['batch exports', 'dataManagementItems', 'Destinations Batch exports'],
+        ['materialized views', 'productsItems', 'Models'],
+        ['data modeling', 'productsItems', 'Models'],
+        ['batch exports', 'productsItems', 'Destinations Batch exports'],
         ['insights', 'productsItems', 'Product analytics'],
         ['semantic layer', 'productsItems', 'Data catalog'],
         ['Semantic Layer', 'productsItems', 'Data catalog'],
@@ -165,11 +165,16 @@ describe('searchLogic', () => {
         expect(rows.map((item) => item.href)).not.toContain('/metrics?activeTab=sql')
     })
 
-    it('lists Error tracking first in Products for "errors"', async () => {
-        await searchOnceProductsLoad('errors')
+    it.each([
+        ['errors', 'tools', 'Error tracking'],
+        ['support', 'tools', 'Support'],
+        ['my tickets', 'tools', 'Your tickets'],
+        ['log out', 'actions', 'Log out'],
+    ])('for "%s" lists first in %s: %s', async (search, key, name) => {
+        await searchOnceProductsLoad(search)
 
-        const products = logic.values.allCategories.find((category) => category.key === 'tools')
-        expect(products?.items[0]?.name).toBe('Error tracking')
+        const category = logic.values.allCategories.find((category) => category.key === key)
+        expect(category?.items[0]?.name).toBe(name)
     })
 
     it('lists the Tabs group above Settings', async () => {

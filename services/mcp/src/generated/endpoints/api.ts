@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 14 enabled ops
+ * PostHog API - MCP 12 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -187,6 +187,9 @@ export const EndpointsLogsRetrieveParams = () => zod.object({
 export const endpointsLogsRetrieveQueryLimitDefault = 50
 export const endpointsLogsRetrieveQueryLimitMax = 500
 
+export const endpointsLogsRetrieveQueryOffsetDefault = 0
+export const endpointsLogsRetrieveQueryOffsetMin = 0
+
 export const EndpointsLogsRetrieveQueryParams = () => zod.object({
     after: zod.iso
         .datetime({ offset: true })
@@ -212,6 +215,11 @@ export const EndpointsLogsRetrieveQueryParams = () => zod.object({
         .max(endpointsLogsRetrieveQueryLimitMax)
         .default(endpointsLogsRetrieveQueryLimitDefault)
         .describe('Maximum number of log entries to return (1-500, default 50).'),
+    offset: zod
+        .number()
+        .min(endpointsLogsRetrieveQueryOffsetMin)
+        .default(endpointsLogsRetrieveQueryOffsetDefault)
+        .describe('Number of log entries to skip before the first returned entry (default 0).'),
     search: zod.string().min(1).optional().describe('Case-insensitive substring search across log messages.'),
 })
 
@@ -250,27 +258,6 @@ export const EndpointsMaterializationStatusRetrieveParams = () => zod.object({
 export const EndpointsMaterializationStatusRetrieveQueryParams = () => zod.object({
     version: zod.number().optional().describe('Endpoint version to act on. Defaults to the current version.'),
 })
-
-/**
- * Ask AI to rewrite the endpoint's query into a semantically equivalent form that can be materialized. Only applicable to SQL (HogQL) endpoints that currently fail the materialization checks. The suggestion is validated against the live checks before being returned; nothing is saved. Requires the organization's AI data processing approval.
- */
-export const EndpointsMaterializationSuggestionCreateParams = () => zod.object({
-    name: zod.string(),
-    project_id: zod
-        .string()
-        .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
-        ),
-})
-
-export const EndpointsMaterializationSuggestionCreateBody = () => zod
-    .object({
-        version: zod
-            .number()
-            .nullish()
-            .describe('Endpoint version to suggest a fix for. Defaults to the latest version.'),
-    })
-    .describe('Request body for the AI materialization-fix suggestion action.')
 
 /**
  * Get OpenAPI 3.0 specification for this endpoint. Use this to generate typed SDK clients.
@@ -473,8 +460,7 @@ export const EndpointsRunCreateBody = () => zod.object({
                         ),
                         zod.null(),
                     ])
-                    .optional()
-                    .describe('Metric label matchers ANDed into every metrics tile. Other tiles ignore them.'),
+                    .optional(),
                 metricVariables: zod
                     .union([
                         zod.array(
@@ -2242,15 +2228,4 @@ export const EndpointsLastExecutionTimesCreateParams = () => zod.object({
 
 export const EndpointsLastExecutionTimesCreateBody = () => zod.object({
     names: zod.array(zod.string()),
-})
-
-/**
- * Get the source code of the live materialization checks, plus the rewrite contract. Lets an agent rewrite a rejected endpoint query itself: fetch these conditions, produce a semantically equivalent query that passes every check, update the endpoint with it, then confirm via materialization_status. The source is read from the running system, so it always matches the checks this instance enforces.
- */
-export const EndpointsMaterializationConditionsRetrieveParams = () => zod.object({
-    project_id: zod
-        .string()
-        .describe(
-            "Project ID of the project you're trying to access. To find the ID of the project, make a call to \/api\/projects\/."
-        ),
 })

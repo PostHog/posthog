@@ -15,7 +15,7 @@ If you add an import to one of those modules, check that `--list` still runs.
 
 ## Concurrency
 
-The Braintrust-specific knobs below (`timeout`, `max_concurrency`, `QUIET_REPORTER`, `update`) are applied in one place — `BraintrustEngine.run_experiment` in [`../engines/braintrust.py`](../engines/braintrust.py), the sole `EvalEngine` implementation — and documented as obligations in its docstring. `_BaseEvalRun.run()` only hands the engine the cases, task, scorers, and metadata. A future engine (e.g. a PostHog-native one) owns its own equivalents.
+The Braintrust-specific knobs below (`timeout`, `max_concurrency`, `QUIET_REPORTER`, `no_send_logs=True`) are applied in one place — `BraintrustEngine.run_experiment` in [`../engines/braintrust.py`](../engines/braintrust.py), the sole `EvalEngine` implementation — and documented as obligations in its docstring. `_BaseEvalRun.run()` only hands the engine the cases, task, scorers, and metadata. A future engine (e.g. a PostHog-native one) owns its own equivalents.
 
 - **Never give Braintrust a `timeout`.** `EvalAsync`'s timeout wraps the whole task invocation, including time queued on our concurrency semaphores, so it would kill cases that never started. The budget belongs in the `asyncio.wait_for` inside the slot.
 - **Never let Braintrust's `max_concurrency` bind.** It is set to the case count so that the harness's own semaphores are the only limiters.
@@ -29,6 +29,7 @@ The Braintrust-specific knobs below (`timeout`, `max_concurrency`, `QUIET_REPORT
 
 `_BaseEvalRun.run()` builds an `ExperimentSpec` (cases, task, scorers, flags, metadata) and hands it to `ctx.engine.run_experiment`, which returns an engine-neutral `ExperimentResult` ([`../engines/types.py`](../engines/types.py)).
 The engine is resolved once per run by `engines/registry.resolve_engine()` and shared via `EvalContext.engine`; there is no `--engine` flag until a second engine exists.
+`BraintrustEngine` always runs locally with `no_send_logs=True`, without authentication or uploads to Braintrust.
 `BraintrustEngine` ([`../engines/braintrust.py`](../engines/braintrust.py)) is the only implementation and the sole runtime module that knows braintrust exists, alongside the deferred autoevals judge substrate in `../scorers/`.
 
 Every engine owes the run base these obligations, pinned by the conformance suite ([`../test/test_engine_conformance.py`](../test/test_engine_conformance.py)):
@@ -37,9 +38,9 @@ Every engine owes the run base these obligations, pinned by the conformance suit
 - Persist `hooks.metadata` mutations onto `CaseResult.metadata`.
 - Turn a task exception into `CaseResult.error` (a string) and exclude that case from aggregates.
 - Preserve `score=None` per-case and exclude it from the means — `None` is "skipped", `0.0` is "failed".
-- Print nothing to the shared stdout (braintrust's `QUIET_REPORTER` is how it stays quiet), and accumulate history under a stable `project_name`.
+- Print nothing to the shared stdout (braintrust's `QUIET_REPORTER` is how it stays quiet), and use a stable `project_name` for local summaries.
 
-A new engine implements the `EvalEngine` protocol ([`../engines/base.py`](../engines/base.py)) — `name`, `supports_public_experiments`, `required_env()`, `run_experiment(spec)` — registers in `engines/registry.py`, joins the conformance fixture list, and must pass it unchanged.
+A new engine implements the `EvalEngine` protocol ([`../engines/base.py`](../engines/base.py)) — `name`, `required_env()`, `run_experiment(spec)` — registers in `engines/registry.py`, joins the conformance fixture list, and must pass it unchanged.
 
 ## Terminal output
 
@@ -131,7 +132,7 @@ Env loading follows the same before-`django.setup()` rule: `__main__` loads the 
 The explicit `SANDBOX_PROVIDER` / `PERSONHOG_ADDR` assignments come after the load, so they trump any env file on every path.
 
 `setup_django()` also forces `SELF_CAPTURE=0` before `django.setup()`. The ASGI app must not re-enable the global SDK with the local development personal API key during evals; eval trace emission uses the harness's explicit regional client instead.
-Required variables are then validated by `env_preflight.validate_eval_env()` at the top of `lifecycle.run()`, before any infrastructure boots — add new hard env requirements to the per-kind env models there (`SandboxEvalEnv`, `OneShotEvalEnv`), or, for engine-specific keys, to the engine's `required_env()` (`BRAINTRUST_API_KEY` lives on `BraintrustEngine`), which `lifecycle` threads in via the `engine_env` argument — not as ad-hoc checks scattered through bootstrap.
+Required variables are then validated by `env_preflight.validate_eval_env()` at the top of `lifecycle.run()`, before any infrastructure boots — add new hard env requirements to the per-kind env models there (`SandboxEvalEnv`, `OneShotEvalEnv`), or, for engine-specific keys, to the engine's `required_env()`, which `lifecycle` threads in via the `engine_env` argument — not as ad-hoc checks scattered through bootstrap.
 
 ## pytest
 
