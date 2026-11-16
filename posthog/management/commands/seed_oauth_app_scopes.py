@@ -3,13 +3,8 @@ from typing import Any
 from django.core.management.base import BaseCommand, CommandError, CommandParser
 
 from posthog.models.oauth import OAuthApplication
-from posthog.scopes import (
-    ALL_SCOPES,
-    DEFAULT_CEILING_SENTINEL,
-    OAUTH_SCOPES_HIDDEN,
-    PRIVILEGED_SCOPES,
-    effective_ceiling,
-)
+from posthog.scopes.ceilings import DEFAULT_CEILING_SENTINEL, effective_ceiling
+from posthog.scopes.exposure import ALL_SCOPES, OAUTH_SCOPES_HIDDEN, PRIVILEGED_SCOPES
 
 
 def parse_scope_list(raw: str) -> list[str]:

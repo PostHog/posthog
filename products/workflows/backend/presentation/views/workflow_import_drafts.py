@@ -18,7 +18,7 @@ from posthog.event_usage import EventSource
 from posthog.helpers.impersonation import is_impersonated
 from posthog.models import Team, User
 from posthog.permissions import get_authenticator_scopes
-from posthog.scopes import scopes_not_covered
+from posthog.scopes.checks import scopes_not_covered
 
 from products.access_control.backend.facade.contracts import ObjectAccessRef
 from products.access_control.backend.facade.user_access_control import UserAccessControl
