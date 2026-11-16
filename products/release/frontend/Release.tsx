@@ -26,6 +26,8 @@ import { ReleaseHistory } from './ReleaseHistory'
 import { ReleaseLinkedCard } from './ReleaseLinkedCard'
 import { ReleaseLoadError } from './ReleaseLoadError'
 import { releaseLogic } from './releaseLogic'
+import { ReleaseMergeButton } from './ReleaseMergeButton'
+import { ReleaseMergeIntoDialog } from './ReleaseMergeIntoDialog'
 import { ReleasePartialLoadWarning } from './ReleasePartialLoadWarning'
 import { ReleaseScheduleButton } from './ReleaseScheduleButton'
 import { ReleaseScheduleDialog } from './ReleaseScheduleDialog'
@@ -129,7 +131,8 @@ function ReleaseContent({ id }: ReleaseSceneProps): JSX.Element {
                 onNameChange={(name) => updateRelease(row.id, { name })}
                 onDescriptionChange={(description) => updateRelease(row.id, { description })}
                 actions={
-                    <div data-quill>
+                    <div data-quill className="flex items-center gap-2">
+                        <ReleaseMergeButton row={row} />
                         <ReleaseScheduleButton row={row} />
                     </div>
                 }
@@ -149,6 +152,7 @@ function ReleaseContent({ id }: ReleaseSceneProps): JSX.Element {
                     </div>
                 </div>
                 <ReleaseScheduleDialog />
+                <ReleaseMergeIntoDialog />
             </div>
         </SceneContent>
     )
