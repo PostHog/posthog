@@ -7,9 +7,10 @@ from posthog.test.base import APIBaseTest
 from rest_framework import status
 
 from posthog.cloud_utils import is_cloud
-from posthog.models import Tag
+from posthog.models import Tag, TaggedItem
+from posthog.models.tagged_item_registry import content_type_id_for_legacy_field
 
-from products.actions.backend.models.action import Action
+from products.actions.backend.facade.testing import create_action
 
 # Testing enterprise properties of actions here (i.e., tagging).
 
@@ -76,13 +77,14 @@ class TestActionApi(APIBaseTest):
         assert not is_cloud()
 
         tag = Tag.objects.create(name="tag", team=self.team)
+        action_content_type_id = content_type_id_for_legacy_field("action")
         for i in range(20):
-            action = Action.objects.create(team=self.team, name=f"action_{i}")
-            action.tagged_items.create(tag=tag)
+            action = create_action(team=self.team, name=f"action_{i}")
+            TaggedItem.objects.create(tag=tag, content_type_id=action_content_type_id, object_id=action.id)
 
         # base request queries + the single bulk access-control preload (one query covering all
         # actions, replacing the previous per-action access-control lookups)
-        with self.assertNumQueries(14):
+        with self.assertNumQueries(12):
             response = self.client.get(f"/api/projects/{self.team.id}/actions")
         self.assertEqual(response.json()["results"][0]["tags"][0], "tag")
         self.assertEqual(response.status_code, status.HTTP_200_OK)

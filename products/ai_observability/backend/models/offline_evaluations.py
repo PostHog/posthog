@@ -144,6 +144,11 @@ class OfflineExperimentItem(OfflinePayloadOwner):
         ]
         indexes = [
             models.Index(fields=["experiment", "id"], name="aio_offline_item_exp_idx"),
+            models.Index(
+                fields=["payload_expires_at", "id"],
+                condition=Q(payload_state="available"),
+                name="aio_item_payload_expiry_idx",
+            ),
         ]
 
 
@@ -173,6 +178,7 @@ class OfflineEvaluationResult(OfflinePayloadOwner, UUIDModel):
     error_code = models.CharField(max_length=128, null=True, blank=True)
     evaluator_trace_id = models.CharField(max_length=255, null=True, blank=True)
     evaluated_at = models.DateTimeField(null=True, blank=True)
+    input_result_ids = ArrayField(models.UUIDField(), null=True, blank=True)
 
     class Meta:
         db_table = "llm_analytics_offlineevaluationresult"
@@ -215,6 +221,11 @@ class OfflineEvaluationResult(OfflinePayloadOwner, UUIDModel):
         indexes = [
             models.Index(
                 fields=["team", "scorer_version", "-accepted_at", "id"], name="aio_offline_result_history_idx"
+            ),
+            models.Index(
+                fields=["payload_expires_at", "id"],
+                condition=Q(payload_state="available"),
+                name="aio_result_payload_expiry_idx",
             ),
         ]
 

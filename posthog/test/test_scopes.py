@@ -17,10 +17,12 @@ from posthog.scopes import (
     OAUTH_SCOPES_HIDDEN,
     PRIVILEGED_SCOPES,
     PROJECT_SECRET_API_KEY_ALLOWED_API_SCOPE_ACTION,
+    RISKY_SCOPE_WARNINGS,
     UNPRIVILEGED_SCOPES,
     clamp_scopes_to_ceiling,
     downgrade_scopes_to_read_only,
     effective_ceiling,
+    filter_self_registered_ceiling,
     filter_to_unprivileged_scopes,
     get_oauth_scopes_supported,
     get_scope_descriptions,
@@ -363,6 +365,7 @@ class TestNarrowScopesToCeiling(SimpleTestCase):
             ("empty_ceiling_is_noop", ["query:read", "insight:write"], [], ["query:read", "insight:write"]),
             ("narrows_to_tightened_ceiling", ["query:read", "insight:write"], ["query:read"], ["query:read"]),
             ("no_overlap_returns_none", ["insight:write"], ["query:read"], None),
+            ("read_half_of_a_write_ceiling_survives", ["insight:read"], ["insight:write"], ["insight:read"]),
             ("wildcard_left_untouched", ["*"], ["query:read"], ["*"]),
             (
                 "always_allowed_survive_narrowing",
@@ -513,6 +516,27 @@ class TestFilterToUnprivilegedScopes(SimpleTestCase):
         ]
 
 
+class TestFilterSelfRegisteredCeiling(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("oidc_only_kept", ["openid", "profile", "email"], ["openid", "profile", "email"]),
+            ("oidc_only_deduped", ["email", "openid", "email"], ["email", "openid"]),
+            ("oidc_dropped_next_to_resource", ["openid", "insight:read"], ["insight:read"]),
+            ("oidc_kept_when_resources_all_dropped", ["openid", "llm_gateway:read"], ["openid"]),
+            ("introspection_is_not_an_identity_scope", ["introspection"], []),
+            ("nothing_grantable", ["llm_gateway:read", "garbage"], []),
+            ("empty_in_empty_out", [], []),
+        ]
+    )
+    def test_resolution(self, _name: str, given: list[str], expected: list[str]) -> None:
+        assert filter_self_registered_ceiling(given) == expected
+
+    def test_oidc_only_ceiling_grants_no_resource_scope(self) -> None:
+        ceiling = filter_self_registered_ceiling(["openid", "profile", "email"])
+        assert effective_ceiling(ceiling) == frozenset({"openid", "profile", "email"})
+        assert clamp_scopes_to_ceiling({"openid", "email", "insight:read"}, ceiling) == ["email", "openid"]
+
+
 class TestProjectSecretAPIKeyScopeParity(SimpleTestCase):
     # The settings scope picker builds its checkboxes from the frontend copy of this list,
     # so a scope added on the backend alone is allowed by the API but has no UI to grant it.
@@ -528,3 +552,10 @@ class TestProjectSecretAPIKeyScopeParity(SimpleTestCase):
         frontend_scopes = set(re.findall(r"'([a-z_]+:[a-z]+)'", match.group(1)))
         backend_scopes = {f"{obj}:{action}" for obj, action in PROJECT_SECRET_API_KEY_ALLOWED_API_SCOPE_ACTION}
         assert frontend_scopes == backend_scopes
+
+
+class TestRiskyScopeWarnings(SimpleTestCase):
+    def test_every_risky_scope_warning_names_a_grantable_scope(self) -> None:
+        stale = sorted(set(RISKY_SCOPE_WARNINGS) - UNPRIVILEGED_SCOPES)
+
+        assert not stale, f"{stale} have a risky-scope warning but are no longer grantable. Remove them."

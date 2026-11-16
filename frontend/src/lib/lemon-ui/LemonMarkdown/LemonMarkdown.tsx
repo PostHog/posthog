@@ -1,18 +1,26 @@
 import './LemonMarkdown.scss'
 
 import clsx from 'clsx'
-import React, { memo, useMemo } from 'react'
+import React, { Suspense, memo, useMemo } from 'react'
 import ReactMarkdown, { type Components, defaultUrlTransform } from 'react-markdown'
 import remarkBreaks from 'remark-breaks'
 import remarkGfm from 'remark-gfm'
 
 import { CodeSnippet, getLanguage, Language } from 'lib/components/CodeSnippet'
-import { RichContentMention } from 'lib/components/RichContentEditor/RichContentNodeMention'
 import { LemonCheckbox } from 'lib/lemon-ui/LemonCheckbox'
+import { lazyWithRetry } from 'lib/utils/retryImport'
 import { isTrustedPostHogUrl } from 'lib/utils/trustedUrl'
 
 import { Link } from '../Link'
+import { remarkLiteralHtml } from './literalHtml'
 import remarkMentions from './mention'
+
+// lemon-ui must not statically import app code, and the mention chip reads members from membersLogic.
+const RichContentMention = lazyWithRetry(() =>
+    import('lib/components/RichContentEditor/RichContentMention').then((module) => ({
+        default: module.RichContentMention,
+    }))
+)
 
 /**
  * Link target that places a chart inline in prose, e.g. `[Daily signups](chart:signups-drop)`.
@@ -91,6 +99,8 @@ export interface LemonMarkdownProps {
      * from the source, which has to out-guess the inline, reference, autolink and image-fallback forms.
      */
     disableLinks?: boolean
+    /** Whether raw HTML shows as the text that was typed instead of being dropped. For text a person wrote. */
+    literalHtml?: boolean
     className?: string
     wrapCode?: boolean
     /**
@@ -164,6 +174,7 @@ const LemonMarkdownRenderer = memo(function LemonMarkdownRenderer({
     disableImages = false,
     disableLinks = false,
     disableMentions = false,
+    literalHtml = false,
     wrapCode = false,
     codeMaxLines,
     generateHeadingIds = false,
@@ -270,7 +281,11 @@ const LemonMarkdownRenderer = memo(function LemonMarkdownRenderer({
             ),
             span: ({ className, ...props }: any): JSX.Element => {
                 if (className === 'ph-mention') {
-                    return <RichContentMention id={Number(props['data-mention-id'])} />
+                    return (
+                        <Suspense fallback={<span className="bg-fill-highlight-100 px-1 rounded font-medium">@</span>}>
+                            <RichContentMention id={Number(props['data-mention-id'])} />
+                        </Suspense>
+                    )
                 }
                 return <span className={className} {...props} />
             },
@@ -363,9 +378,15 @@ const LemonMarkdownRenderer = memo(function LemonMarkdownRenderer({
     // remark-breaks: a single newline becomes a line break, so prose authored without the arcane
     // two-trailing-spaces hard-break rule (e.g. agent-written report summaries) renders with the
     // line breaks the author intended.
+    // remarkLiteralHtml runs before remark-breaks, so that a newline in converted HTML becomes a line break.
     const remarkPlugins = useMemo(
-        () => (disableMentions ? [remarkGfm, remarkBreaks] : [remarkGfm, remarkBreaks, remarkMentions]),
-        [disableMentions]
+        () => [
+            ...(literalHtml ? [remarkLiteralHtml] : []),
+            remarkGfm,
+            remarkBreaks,
+            ...(disableMentions ? [] : [remarkMentions]),
+        ],
+        [disableMentions, literalHtml]
     )
 
     return (
@@ -383,6 +404,7 @@ function LemonMarkdownComponent({
     disableImages = false,
     disableLinks = false,
     disableMentions = false,
+    literalHtml = false,
     wrapCode = false,
     codeMaxLines,
     generateHeadingIds = false,
@@ -400,6 +422,7 @@ function LemonMarkdownComponent({
                 disableImages={disableImages}
                 disableLinks={disableLinks}
                 disableMentions={disableMentions}
+                literalHtml={literalHtml}
                 wrapCode={wrapCode}
                 codeMaxLines={codeMaxLines}
                 generateHeadingIds={generateHeadingIds}

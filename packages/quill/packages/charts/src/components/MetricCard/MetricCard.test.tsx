@@ -24,13 +24,16 @@ describe('MetricCard', () => {
     })
 
     describe('with sparkline (data + theme)', () => {
-        it('shows the last data point and label by default', () => {
+        it.each([
+            { name: 'a theme prop', theme: THEME },
+            { name: 'no theme prop', theme: undefined },
+        ])('shows the sparkline, last data point and label by default with $name', ({ theme }) => {
             const { container } = renderChart(
                 <MetricCard
                     title="Total"
                     data={[100, 200, 300, 400]}
                     labels={LABELS}
-                    theme={THEME}
+                    theme={theme}
                     formatValue={(v) => `$${Math.round(v)}`}
                 />
             )

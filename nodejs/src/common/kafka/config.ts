@@ -1,6 +1,7 @@
 import { ConsumerGlobalConfig, GlobalConfig } from 'node-rdkafka'
 
 import { defaultConfig } from '../config/config'
+import { isSensitiveKafkaKey } from './sensitive-keys'
 
 export const RDKAFKA_LOG_LEVEL_MAPPING = {
     NOTHING: 0,
@@ -45,6 +46,23 @@ export function parseEnvToRdkafkaConfig(
 
                 let parsedValue: string | number | boolean = value
 
+                const rdkafkaKey = key.replace(prefix, '').replace(/_/g, '.').toLowerCase()
+                if (
+                    rdkafkaKey.startsWith('sasl.') ||
+                    rdkafkaKey.endsWith('.pem') ||
+                    rdkafkaKey.includes('password') ||
+                    rdkafkaKey.includes('secret') ||
+                    rdkafkaKey === 'security.protocol'
+                ) {
+                    acc[rdkafkaKey] =
+                        rdkafkaKey === 'security.protocol'
+                            ? value.toLowerCase()
+                            : rdkafkaKey === 'sasl.mechanism' || rdkafkaKey === 'sasl.mechanisms'
+                              ? value.toUpperCase()
+                              : value
+                    return acc
+                }
+
                 // parse value to a number if it is one
                 const numberValue = Number(value)
                 if (!isNaN(numberValue)) {
@@ -58,7 +76,6 @@ export function parseEnvToRdkafkaConfig(
                     parsedValue = false
                 }
 
-                const rdkafkaKey = key.replace(prefix, '').replace(/_/g, '.').toLowerCase()
                 acc[rdkafkaKey] = parsedValue
                 return acc
             },
@@ -71,6 +88,12 @@ export const getKafkaConfigFromEnv = (target: KafkaConfigTarget): GlobalConfig =
     // That said we also want to be able to add defaults on the global config object
     // So what we do is we first find all values from the default config object and then in addition we add the env ones.
     return parseEnvToRdkafkaConfig(`KAFKA_${target}_`, { skipKeysInDefaultConfig: true })
+}
+
+export function redactKafkaConfig(config: GlobalConfig): Record<string, unknown> {
+    return Object.fromEntries(
+        Object.entries(config).map(([key, value]) => [key, isSensitiveKafkaKey(key) ? '***' : value])
+    )
 }
 
 /**

@@ -11,6 +11,7 @@ from posthog.dataclasses import frozen
 from posthog.models import User
 from posthog.scopes import APIScopeObject
 
+from products.data_modeling.backend.facade.contracts import SavedQueryDefinition
 from products.notifications.backend.facade.api import (
     NotificationData,
     NotificationType,
@@ -22,7 +23,7 @@ from ..facade.contracts import AssigneeCannotActError, SuggestionNotOpenError
 from ..facade.enums import WarehouseSuggestionKind, WarehouseSuggestionStatus, WarehouseSuggestionSubjectKind
 from ..models import WarehouseSuggestion
 from .access import CATALOG_KINDS, can_take
-from .candidates.base import CandidateContext
+from .flags import is_warehouse_suggestions_enabled
 from .payloads import payload_from_json
 
 if TYPE_CHECKING:
@@ -45,10 +46,10 @@ Assignments = Mapping[User, Sequence[WarehouseSuggestion]]
 
 
 def assign_surfaced(
-    context: CandidateContext, team: "Team", surfaced: Sequence[WarehouseSuggestion]
+    team: "Team", surfaced: Sequence[WarehouseSuggestion], saved_queries: Mapping[UUID, SavedQueryDefinition]
 ) -> dict[User, list[WarehouseSuggestion]]:
     """Assign each unassigned surfaced view suggestion to the view's creator, when they can accept it."""
-    creators = _view_creators(context, surfaced)
+    creators = _view_creators(saved_queries, surfaced)
     assigned: defaultdict[User, list[WarehouseSuggestion]] = defaultdict(list)
     for row in surfaced:
         assignee = _surfaced_assignee(team, row, creators.get(row.subject_id))
@@ -100,6 +101,8 @@ def _assignable_user(team: "Team", suggestion: WarehouseSuggestion, assignee_id:
 
 
 def notify_surfaced(team: "Team", assigned: Assignments, run_id: str) -> None:
+    if not is_warehouse_suggestions_enabled(team):
+        return
     for assignee, rows in assigned.items():
         _notify(
             team,
@@ -123,12 +126,14 @@ def notify_assigned(team: "Team", suggestion: WarehouseSuggestion, assignee: Use
     )
 
 
-def _view_creators(context: CandidateContext, rows: Sequence[WarehouseSuggestion]) -> dict[UUID, User]:
+def _view_creators(
+    saved_queries: Mapping[UUID, SavedQueryDefinition], rows: Sequence[WarehouseSuggestion]
+) -> dict[UUID, User]:
     creator_ids = {
         row.subject_id: definition.created_by_id
         for row in rows
         if row.subject_kind == WarehouseSuggestionSubjectKind.SAVED_QUERY
-        and (definition := context.inventory.saved_queries.get(row.subject_id)) is not None
+        and (definition := saved_queries.get(row.subject_id)) is not None
         and definition.created_by_id is not None
     }
     users = User.objects.in_bulk(set(creator_ids.values()))

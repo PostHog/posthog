@@ -12,7 +12,7 @@ It is exercised locally via management commands, and it is also used by the prod
   - If multiple eligible repos pass the source-visibility check: spawns a sandbox agent that uses `gh` CLI to explore candidates and pick the best match. Uses `PostHog/.github` as a small dummy repo for the sandbox clone, since the agent only needs `gh` CLI access (not the repo itself).
   - Output: `RepoSelectionResult(repository: str | None, reason: str)`.
   - Persisted as a `repo_selection` artefact on the report (by the caller activity, not here).
-  - On re-promotion, the activity reuses the previous artefact instead of re-running selection.
+  - On re-promotion, the activity reuses the previous artefact only when current source-visibility rules allow it. Data-only research preserves a saved target only while those rules allow it; implementation dispatch rechecks them too. Expired visibility requires refresh; a failed refresh cannot confirm privacy.
   - A source repository is the agent's default when eligible. Code ownership, applicable routing rules, and past corrections can override it; matching paths alone do not establish ownership. Equally plausible candidates favor the source. See `source_repository.py`.
   - Before the shortcut or agent runs, a source not confirmed public restricts destinations to itself when eligible or to confirmed-private candidates. Missing or non-boolean visibility is unconfirmed. The restricted candidates also govern result validation.
 - `source_repository.py`
@@ -95,8 +95,9 @@ This module is intentionally prompt-orchestration only.
 Production persistence is handled outside `run_multi_turn_research()`, in the caller activity, so this module stays isolated from report DB writes.
 Monitoring metric definitions are offered only with `signals-report-monitoring` enabled. The shared writer validates the reference period, scaling policy, and baseline period. Disabled research contexts omit stored Monitoring definitions. When metrics are enabled, the research, presentation, and verification prompts prefer supported metric checks and evidence-backed shorter windows. Read [Monitoring metric definitions](../../../../docs/internal/signals-pr-lifecycle.md#monitoring-metric-definitions) when changing this contract; execution and final outcomes ship separately.
 
-Fix verification is best-effort. Generation failures do not fail completed research, but cancellation still does.
-Presentation receives the current follow-up checks as untrusted evidence. When verification proposes metric checks, it can return a separate `checks_summary` with Expected impact prose aligned with those goals and baselines, preserving other sections and chart markers. The transition applies that summary only if the matching check reconciliation succeeds. Omitted waits inherit the referenced check’s wait before generating the verification note. Invalid optional check specs leave the presentation summary and existing checks intact.
+Fix verification allows five submissions in the same session: the initial proposal and up to four corrections with the latest field-level errors. Exhausted authoring failures preserve completed research and existing checks, but cancellation still fails the run. Settlement records the authoring outcome and a visible failure note. Failed authoring blocks automatic no-check resolution until a valid plan is saved; existing applicable checks can still enter Monitoring.
+Monitoring minimum sample requirements use `config.monitoring.purpose: minimum_evidence` with a fixed raw-count threshold. Missing the threshold requests assessment after the fixed soak and cannot fail the implementation.
+Presentation receives the current follow-up checks as untrusted evidence. Verification can return a separate `checks_summary` with Expected impact prose aligned with the proposed goals and baselines, preserving other sections and chart markers. Settlement applies it only after successful check reconciliation. Omitted waits inherit the referenced check’s wait before generating the verification note.
 
 ### Charts
 
@@ -233,3 +234,5 @@ Renders a concise timeline of: prompts, tool calls, tool outputs, agent messages
 - **If you change any command or the flow, update this file to match**
 
 Fix verification may revise only the Expected impact section of the presentation summary; validation preserves all other sections and chart links.
+With Monitoring enabled, verification guidance and proposed-check notes use the entire fixed window from the recorded Monitoring start through the soak deadline. PR completion uses the latest implementation PR merge timestamp; manual entry uses the time Monitoring starts.
+Read [Verification plans](../../../../docs/internal/signals-pr-lifecycle.md#verification-plans) when changing these timing instructions.

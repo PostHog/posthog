@@ -14,9 +14,9 @@ use crate::{
     context::AppContext,
     emit::Emitter,
     error::{
-        extract_retry_after_from_error, get_user_message, is_rate_limited_error, is_timeout_error,
-        is_transient_network_error, is_transient_object_store_error, is_transient_server_error,
-        UserError,
+        extract_retry_after_from_error, get_user_message, is_oob_domain_error,
+        is_rate_limited_error, is_timeout_error, is_transient_network_error,
+        is_transient_object_store_error, is_transient_server_error, UserError,
     },
     extractor::detect_compression_magic,
     job::{backoff::format_backoff_messages, config::SinkConfig},
@@ -53,7 +53,24 @@ fn decide_on_error(
     current_attempt: u32,
     user_message: &str,
 ) -> ErrorHandlingDecision {
-    if is_rate_limited_error(err) {
+    if is_oob_domain_error(err) {
+        // The host is on the out-of-band domain denylist, so the resolver refusal is permanent.
+        // A retry always fails the same way, so pause the job rather than back off without limit.
+        let error_msg = match current_date_range {
+            Some(dr) => format!("{err:#} (Date range: {dr})"),
+            None => format!("{err:#}"),
+        };
+        let display_msg = match current_date_range {
+            Some(dr) => format!(
+                "PostHog can't import from this URL. Use a different source URL. (Date range: {dr})"
+            ),
+            None => "PostHog can't import from this URL. Use a different source URL.".to_string(),
+        };
+        ErrorHandlingDecision::Pause {
+            error_msg,
+            display_msg,
+        }
+    } else if is_rate_limited_error(err) {
         let mut delay = policy.next_delay(current_attempt);
         if let Some(ra) = extract_retry_after_from_error(err) {
             delay = std::cmp::min(ra, policy.max_delay);
@@ -793,7 +810,8 @@ impl Job {
         self.shutdown_guard()?;
         txn.emit(&parsed.data).await?;
         // Save the advanced offset and a pending-commit marker before the sink commit. After a crash
-        // between the two, the next claim finds the marker and pauses the job for review.
+        // between the two, the next claim finds the marker and sends the chunk again, or pauses the
+        // job for review after `MAX_INTERRUPTED_SENDS` interruptions or an offset mismatch.
         self.shutdown_guard()?;
         info!(job_id = %self.job_id, "Beginning PG part commit");
         if self
@@ -915,10 +933,18 @@ impl Job {
         };
         model_state.events_emitted = model_state.events_emitted.saturating_add(events as u64);
 
+        let from_offset = new_offset.saturating_sub(consumed as u64);
+        let interrupted = model
+            .recovered_commit
+            .take()
+            .filter(|recovered| recovered.key == key && recovered.from_offset == from_offset)
+            .map_or(0, |recovered| recovered.interrupted);
         model.pending_commit = Some(model::PendingCommit {
             key: key.to_string(),
-            from_offset: new_offset.saturating_sub(consumed as u64),
+            from_offset,
             to_offset: new_offset,
+            interrupted,
+            events: events as u64,
         });
 
         let written = model.save_progress(&self.context.db, true, true).await?;
@@ -1088,6 +1114,45 @@ mod tests {
             error_message,
             "Failed to fetch and parse chunk for date range 2023-01-01 00:00 UTC to 2023-01-01 01:00 UTC: Mock error"
         );
+    }
+
+    #[tokio::test]
+    async fn test_decide_on_error_pause_for_oob_domain() {
+        // A refused out-of-band host reaches this classifier wrapped in a reqwest error. The
+        // refusal is permanent, so the job must pause rather than retry it as a network error.
+        common_dns::oob_domains::force_cloud();
+
+        let client = Client::builder()
+            .dns_resolver(std::sync::Arc::new(common_dns::PublicIPv4Resolver {}))
+            .build()
+            .unwrap();
+        let err = client
+            .get("http://probe.oast.live/")
+            .send()
+            .await
+            .unwrap_err();
+        let err = anyhow::Error::from(err);
+
+        assert!(crate::error::is_oob_domain_error(&err));
+
+        let decision = decide_on_error(
+            &err,
+            None,
+            crate::job::backoff::BackoffPolicy::new(
+                std::time::Duration::from_secs(60),
+                2.0,
+                std::time::Duration::from_secs(3600),
+            ),
+            0,
+            "An unknown error occurred",
+        );
+
+        match decision {
+            ErrorHandlingDecision::Pause { display_msg, .. } => {
+                assert!(display_msg.contains("can't import"));
+            }
+            _ => panic!("expected pause for an out-of-band domain refusal"),
+        }
     }
 
     #[tokio::test]
@@ -1319,6 +1384,7 @@ mod tests {
                 secrets: std::collections::HashMap::new(),
             },
             was_leased: false,
+            recovered_commit: None,
             backoff_attempt: 5,
             backoff_until: None,
             pending_commit: None,
@@ -1665,6 +1731,30 @@ mod tests {
             }))
         }
 
+        fn one_event_per_chunk() -> Arc<ParserFn> {
+            Arc::new(Box::new(|bytes: Vec<u8>| {
+                let inner = common_types::CapturedEvent {
+                    uuid: Uuid::now_v7(),
+                    distinct_id: "user".to_string(),
+                    session_id: None,
+                    ip: "127.0.0.1".to_string(),
+                    data: "{}".to_string(),
+                    now: chrono::Utc::now().to_rfc3339(),
+                    sent_at: None,
+                    token: "token".to_string(),
+                    event: "event".to_string(),
+                    timestamp: chrono::Utc::now(),
+                    is_cookieless_mode: false,
+                    historical_migration: true,
+                    options: None,
+                };
+                Ok(Parsed {
+                    consumed: bytes.len(),
+                    data: vec![InternallyCapturedEvent { team_id: 1, inner }],
+                })
+            }))
+        }
+
         fn make_handle() -> lifecycle::Handle {
             let mut manager = lifecycle::Manager::builder("test")
                 .with_trap_signals(false)
@@ -1690,6 +1780,21 @@ mod tests {
             B: Fn(usize, Uuid, Arc<AppContext>) -> BF,
             BF: Future<Output = ()>,
         {
+            run_job_after_claim(None, consume_all(), on_send, before_process, fail_sends).await
+        }
+
+        async fn run_job_after_claim<H, B, BF>(
+            recovered: Option<serde_json::Value>,
+            transform: Arc<ParserFn>,
+            on_send: H,
+            before_process: B,
+            fail_sends: bool,
+        ) -> Run
+        where
+            H: FnOnce(Uuid, PgPool) -> Option<SendHook>,
+            B: Fn(usize, Uuid, Arc<AppContext>) -> BF,
+            BF: Future<Output = ()>,
+        {
             let context = test_db::context().await;
             let parts: Vec<String> = (1..=3).map(|n| format!("part-{n}")).collect();
             let state = JobState {
@@ -1704,14 +1809,24 @@ mod tests {
                 trial: None,
                 events_emitted: 0,
             };
-            let row = test_db::JobRowFixture {
+            let mut row = test_db::JobRowFixture {
                 status: JobStatus::Running,
                 lease_id: "lease-from-claim",
                 state: state.clone(),
                 sink: serde_json::json!({"type": "capture", "send_rate": SEND_RATE}),
                 pending_commit: None,
             };
+            if recovered.is_some() {
+                row.state.parts[0].current_offset = PART_BYTES as u64;
+                row.state.events_emitted = 1;
+                row.pending_commit = recovered;
+            }
             let id = test_db::insert_job(&context.db, &row).await;
+            let mut model = test_db::claimed_model(id, &row);
+            assert!(!model
+                .recover_interrupted_commit(context.clone())
+                .await
+                .unwrap());
             let sends = Arc::new(std::sync::Mutex::new(Vec::new()));
             let aborts = Arc::new(std::sync::atomic::AtomicUsize::new(0));
             let mut next = Some(Job {
@@ -1720,9 +1835,9 @@ mod tests {
                 job_id: id,
                 chunk_size: PART_BYTES,
                 state: Mutex::new(state),
-                model: Mutex::new(test_db::claimed_model(id, &row)),
+                model: Mutex::new(model),
                 source: Box::new(MemorySource { parts }),
-                transform: consume_all(),
+                transform,
                 sink: Mutex::new(Box::new(RecordingEmitter {
                     send_rate: SEND_RATE,
                     sends: sends.clone(),
@@ -1786,6 +1901,53 @@ mod tests {
         }
 
         async fn no_op(_step: usize, _id: Uuid, _context: Arc<AppContext>) {}
+
+        #[tokio::test]
+        async fn test_resent_chunk_keeps_its_interruption_count() {
+            let markers = Arc::new(std::sync::Mutex::new(Vec::new()));
+            let recorded = markers.clone();
+            let run = run_job_after_claim(
+                Some(serde_json::json!(
+                    {"key": "part-1", "from_offset": 0, "to_offset": PART_BYTES, "interrupted": 1, "events": 1}
+                )),
+                one_event_per_chunk(),
+                move |id, pool| {
+                    let hook: SendHook = Arc::new(move |_index| {
+                        let (pool, recorded) = (pool.clone(), recorded.clone());
+                        Box::pin(async move {
+                            let marker = test_db::read_job(&pool, id).await.pending_commit.unwrap();
+                            recorded
+                                .lock()
+                                .unwrap()
+                                .push((marker["interrupted"].clone(), marker["events"].clone()));
+                        })
+                    });
+                    Some(hook)
+                },
+                no_op,
+                false,
+            )
+            .await;
+
+            run.result.unwrap();
+            assert_eq!(
+                *markers.lock().unwrap(),
+                vec![
+                    (serde_json::json!(2), serde_json::json!(1)),
+                    (serde_json::json!(0), serde_json::json!(1)),
+                    (serde_json::json!(0), serde_json::json!(1))
+                ],
+                "only the re-sent chunk carries the count, so a crash loop on it reaches the cap"
+            );
+            let stored = test_db::read_job(&run.context.db, run.id).await;
+            assert_eq!(stored.status, "completed");
+            assert_eq!(
+                stored.state.events_emitted, 3,
+                "the re-sent chunk's events count once"
+            );
+            assert_eq!(stored.pending_commit, None);
+            test_db::delete_job(&run.context.db, run.id).await;
+        }
 
         #[tokio::test]
         async fn test_send_rate_change_applies_from_the_next_chunk() {
@@ -2119,6 +2281,7 @@ mod tests {
                 backoff_until: None,
                 pending_commit: None,
                 was_leased: false,
+                recovered_commit: None,
             }
         }
 

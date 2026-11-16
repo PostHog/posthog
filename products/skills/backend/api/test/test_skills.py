@@ -21,6 +21,7 @@ from posthog.models import Team, User
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.models.organization import OrganizationMembership
+from posthog.test.id_jag import id_jag_access_token
 
 from products.access_control.backend.models.access_control import AccessControl
 from products.signals.backend.models import SignalScoutRun
@@ -101,7 +102,14 @@ class TestLLMSkillAPI(APIBaseTest):
 
     # --- Create ---
 
-    def test_create_skill_succeeds(self):
+    @parameterized.expand([("session",), ("id_jag",)])
+    def test_create_skill_succeeds(self, credential: str):
+        if credential == "id_jag":
+            self.client.logout()
+            self.client.credentials(
+                HTTP_AUTHORIZATION=f"Bearer {id_jag_access_token(self.user, self.organization, 'llm_skill:write')}"
+            )
+
         response = self.client.post(
             self._url(),
             data={
@@ -132,7 +140,13 @@ class TestLLMSkillAPI(APIBaseTest):
                 "license": "Apache-2.0",
                 "compatibility": "Requires Python 3.12+",
                 "allowed_tools": ["Bash", "Read"],
-                "metadata": {"author": "test-org", "version": "1.0"},
+                "metadata": {
+                    "author": "test-org",
+                    "version": "1.0",
+                    "seeded_by": "example-harness",
+                    "canonical_hash": "example-hash",
+                    "source": "example-source",
+                },
             },
             format="json",
         )
@@ -143,6 +157,7 @@ class TestLLMSkillAPI(APIBaseTest):
         assert data["compatibility"] == "Requires Python 3.12+"
         assert data["allowed_tools"] == ["Bash", "Read"]
         assert data["metadata"] == {"author": "test-org", "version": "1.0"}
+        assert LLMSkill.objects.get(team=self.team, name="full-skill").metadata == data["metadata"]
 
     @parameterized.expand(
         [
@@ -734,6 +749,63 @@ class TestLLMSkillAPI(APIBaseTest):
 
         assert response.status_code == status.HTTP_200_OK
         assert [result["name"] for result in response.json()["results"]] == ([name] if should_match else [])
+
+    def test_search_skills_matches_body_and_file_words_through_each_write_path(self):
+        body_skill = self.create_skill(name="body-words", description="Body.", body="# Guide\nRun a query.")
+        file_skill = self.create_skill(name="file-words", description="File.", body="# Guide")
+        LLMSkillFile.objects.bulk_create(
+            [
+                LLMSkillFile(
+                    skill=file_skill,
+                    path="references/guide.md",
+                    content="Studied cohorts.",
+                    content_type="text/markdown",
+                ),
+                LLMSkillFile(
+                    skill=file_skill, path="scripts/run.py", content="print('cohorts')", content_type="text/x-python"
+                ),
+            ]
+        )
+
+        def indexed_paths() -> list[str]:
+            with connection.cursor() as cursor:
+                cursor.execute(
+                    "SELECT path FROM llm_analytics_llmskillfile WHERE skill_id = %s AND search_vector IS NOT NULL "
+                    "ORDER BY path",
+                    [file_skill.id],
+                )
+                return [row[0] for row in cursor.fetchall()]
+
+        def search(query: str) -> list[tuple[str, list[str]]]:
+            response = self.client.get(self._url(f"search?query={query}"))
+            assert response.status_code == status.HTTP_200_OK, response.content
+            return [
+                (result["name"], [match["excerpt"] for match in result["matches"]])
+                for result in response.json()["results"]
+            ]
+
+        assert search("running") == [("body-words", ["Run a query."])]
+        assert search("studies") == [("file-words", ["Studied cohorts."])]
+        assert indexed_paths() == ["references/guide.md"]
+
+        LLMSkillFile.objects.filter(skill=file_skill, path="scripts/run.py").update(path="scripts/run.md")
+        LLMSkillFile.objects.filter(skill=file_skill, path="references/guide.md").update(content_type="text/plain")
+        assert indexed_paths() == ["references/guide.md", "scripts/run.md"]
+        LLMSkillFile.objects.filter(skill=file_skill, path="references/guide.md").update(path="references/guide.txt")
+        assert indexed_paths() == ["scripts/run.md"]
+
+        LLMSkill.objects.filter(pk=body_skill.pk).update(body="# Guide\nNothing relevant.")
+
+        assert search("running") == []
+
+    def test_search_skills_saves_and_searches_a_body_past_the_vector_size_limit(self):
+        unique_tokens = " ".join(uuid.UUID(int=index).hex for index in range(30_000))
+        self.create_skill(name="large-body", description="Large.", body=f"Onboarding checklist.\n{unique_tokens}")
+
+        response = self.client.get(self._url("search?query=onboarding"))
+
+        assert response.status_code == status.HTTP_200_OK, response.content
+        assert [result["name"] for result in response.json()["results"]] == ["large-body"]
 
     def test_search_skills_does_not_stem_singular_s_words(self):
         self.create_skill(name="statue", description="Sculpture reference.", body="# Statue")
@@ -3500,12 +3572,18 @@ class TestSkillContentDigests(APIBaseTest):
             # A jsonb column keeps object keys sorted by length and then bytewise, so these come
             # back in neither the written order nor alphabetical order. The digest is stamped
             # before the insert, so it has to describe bytes that do not depend on that order.
-            metadata={"seeded_by": "review_hog", "source": "products/skills", "nested": {"z": "1", "a": "2"}},
+            metadata={
+                "seeded_by": "example-harness",
+                "canonical_hash": "example-hash",
+                "source": "example-source",
+                "nested": {"z": "1", "a": "2"},
+            },
             files=[{"path": "references/guide.md", "content": "# Guía ✅"}],
         )
 
         # `create_skill` returns the stored row, which is what the store renders its SKILL.md from.
         assert created.skill_md_sha256 == self._digest_of(created.rendered_skill_md())
+        assert created.metadata == {"nested": {"z": "1", "a": "2"}}
         assert created.skill_md_size == len(created.rendered_skill_md().encode())
         created_file = LLMSkillFile.objects.get(skill=created)
         assert created_file.content_sha256 == self._digest_of("# Guía ✅")

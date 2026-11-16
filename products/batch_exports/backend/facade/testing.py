@@ -32,8 +32,6 @@ from .api import _to_backfill_summary, _to_detail, _to_run_summary
 if TYPE_CHECKING:
     from temporalio.client import Client
 
-    from products.batch_exports.backend.service import NoOpInputs
-
 
 def create_batch_export(
     team_id: int,
@@ -198,14 +196,3 @@ def list_backfills(
         "-created_at"
     )[:limit]
     return [_to_backfill_summary(backfill) for backfill in backfills]
-
-
-def build_noop_inputs(*, arg: str, team_id: int, batch_export_id: str) -> "NoOpInputs":
-    """Build the inputs of the no-op workflow, which core uses to exercise the payload codec.
-
-    A builder rather than a re-export of the class: ``NoOpInputs`` lives in ``service.py``,
-    which is not a wiring location, so handing the class out would be a facade leak.
-    """
-    from products.batch_exports.backend.service import NoOpInputs
-
-    return NoOpInputs(arg=arg, team_id=team_id, batch_export_id=batch_export_id)

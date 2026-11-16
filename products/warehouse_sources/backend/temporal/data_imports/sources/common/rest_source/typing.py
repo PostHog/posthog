@@ -366,6 +366,11 @@ class EndpointResourceBase(ResourceBase, total=False):
     # ``build_dependent_resource`` only after the warehouse table resolves, so it names the parent
     # the run actually read rather than the one its config asked for.
     parent_source: Optional[FanoutParentSource]
+    # Set on a resumable fan-out child to save where the parent listing stands, so a resume starts
+    # there instead of paging the parent from the start. Only for sources that store the fan-out
+    # state they receive unchanged: the state gains a `parent` key and keeps two pages of `completed`.
+    # Ignored when the source passes `on_parent_error`.
+    resume_parent_pagination: Optional[bool]
 
 
 class EndpointResource(EndpointResourceBase, total=False):

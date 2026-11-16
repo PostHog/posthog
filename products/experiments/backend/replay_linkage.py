@@ -82,8 +82,9 @@ from products.experiments.backend.hogql_queries.precompute_policy import (
     experiment_has_min_runtime_for_precomputation,
     experiment_precompute_ttl_schedule,
     has_uncalculated_cohorts,
+    precompute_person_resolution_enabled,
 )
-from products.experiments.backend.models.experiment import Experiment
+from products.experiments.backend.models.experiment import Experiment, experiment_variants
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
 from products.experiments.backend.session_exposure import SessionExposure, resolve_session_exposure
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
@@ -98,6 +99,9 @@ COHORT_NOT_CALCULATED_MESSAGE = (
     "Try again when the cohort is ready."
 )
 EXPERIMENT_HAS_NO_FLAG_MESSAGE = "This experiment has no feature flag, so exposures can't be resolved."
+RULE_LINKED_EXPOSURES_UNAVAILABLE_MESSAGE = (
+    "This experiment runs on a feature flag rule, and its exposures can't be matched to recordings yet."
+)
 # Written to stand alone next to the scope control's disabled in-session option, which is how the
 # tab surfaces them via :func:`resolve_in_session_exposure_semantics`.
 IN_SESSION_EXPOSURE_UNMATCHABLE_REASON = (
@@ -277,7 +281,7 @@ def _requestable_variant_keys(experiment: Experiment) -> list[str]:
     excluded_variants = set(experiment.excluded_variants or [])
     return [
         variant_definition["key"]
-        for variant_definition in experiment.feature_flag.variants or []
+        for variant_definition in experiment_variants(experiment) or []
         if variant_definition.get("key") and variant_definition["key"] not in excluded_variants
     ]
 
@@ -301,6 +305,8 @@ def targetable_experiments(team: Team, *, experiment_ids: Sequence[int]) -> list
     for experiment in experiments:
         flag = getattr(experiment, "feature_flag", None)
         if flag is None or experiment.start_date is None:
+            continue
+        if experiment.is_rule_linked:
             continue
         if (flag.filters or {}).get("aggregation_group_type_index") is not None:
             continue
@@ -346,6 +352,9 @@ def _validated_scope(
         raise ValidationError(EXPERIMENT_HAS_NO_FLAG_MESSAGE)
     if require_launched and experiment.start_date is None:
         raise ValidationError("This experiment hasn't launched, so it has no exposed sessions yet.")
+    if experiment.is_rule_linked:
+        # The exposure filters here read the legacy exposure events, which such an experiment does not count.
+        raise ValidationError(RULE_LINKED_EXPOSURES_UNAVAILABLE_MESSAGE)
     if (flag.filters or {}).get("aggregation_group_type_index") is not None:
         raise ValidationError(
             "This experiment aggregates by group, so its exposures can't be matched to persons' recordings."
@@ -437,6 +446,7 @@ def resolve_exposure_linkage(
         breakdowns=(),
         only_count_matured_users=False,
         cuped_config=CupedQueryConfig(),
+        resolve_precomputed_persons=precompute_person_resolution_enabled(team),
         activation_config=exposure_params.activation_config,
     )
     read = _resolve_exposure_read(team, experiment, context)
@@ -480,8 +490,8 @@ def _resolve_exposure_read(team: Team, experiment: Experiment, context: Experime
     """
     config = get_or_create_team_extension(team, TeamExperimentsConfig)
     # Below the minimum runtime the analysis skips precomputation too: the scan window is
-    # hours wide (cheap on any team), and the current-day cache TTL would hide exposures
-    # from the tab for up to 15 minutes right when users watch it most.
+    # hours wide (cheap on any team), and the current-day cache TTL would hide new
+    # exposures from the tab until it expires, right when users watch it most.
     if not _precomputation_covers_full_window(config, experiment):
         tag_queries(experiment_exposures_path="direct_scan")
         return _ExposureRead(preaggregation_job_ids=None, live_scan_max_memory_bytes=None)

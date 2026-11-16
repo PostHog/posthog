@@ -188,7 +188,9 @@ tools:
             usage/spend read access: owners always, admins when owner-only billing is off, or members only when
             owner-only billing is off and the org has the member read-only billing usage/spend flag enabled. This member
             grant applies only to usage/spend, not billing-overview-get or billing admin actions. Use this to
-            investigate cost spikes, compare spend across periods, or attribute spend to specific products or teams.
+            investigate cost spikes, compare spend across periods, or attribute spend to specific products or teams. Use
+            the returned pricing_reset_dates to locate pricing resets; these organization-wide usage dates can differ
+            from the subscription renewal date.
         param_overrides:
             team_ids:
                 input_schema: BillingTeamIdsSchema
@@ -251,7 +253,8 @@ tools:
             products or projects. For spend so far this period call billing-spend-summary-get, and for quantities call
             billing-usage-timeseries-get. Needs an API key or OAuth token with organization access, because a key
             limited to specific projects gets a 403. Beta: behind the organization-billing-api flag, and the output
-            shape may change while it is.
+            shape may change while it is. Use the returned pricing_reset_dates to locate pricing resets; these
+            organization-wide usage dates can differ from the subscription renewal date.
         param_overrides:
             team_ids:
                 description: >

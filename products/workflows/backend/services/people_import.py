@@ -20,7 +20,6 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.clickhouse.client.connection import Workload
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
 from posthog.dataclasses import frozen
-from posthog.models import PropertyDefinition
 from posthog.models.person.util import (
     get_distinct_ids_for_persons,
     get_person_ids_and_uuids_by_uuids,
@@ -32,6 +31,7 @@ from posthog.storage import object_storage
 
 from products.access_control.backend.property_access_control import get_non_writable_property_names
 from products.cohorts.backend.models.cohort import Cohort
+from products.event_definitions.backend.models import PropertyDefinition
 from products.workflows.backend.facade.contracts import PeopleImportInvalid, PeopleImportSummary
 
 logger = get_logger(__name__)

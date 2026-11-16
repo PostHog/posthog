@@ -1,0 +1,18 @@
+{
+  "exitCode": 0,
+  "requests": [
+    {
+      "method": "GET",
+      "path": "/api/projects/1/event_definitions/python/",
+      "headers": {
+        "authorization": "Bearer phx_<key>",
+        "content-type": "application/json"
+      },
+      "status": 200
+    }
+  ],
+  "files": {
+    "posthog.json": "utf8:{\n  \"languages\": {\n    \"python\": {\n      \"event_count\": 2,\n      \"output_path\": \"posthog_typed.py\",\n      \"schema_hash\": \"hash-python\",\n      \"updated_at\": \"<time>\"\n    }\n  }\n}",
+    "posthog_typed.py": "utf8:/**\n * GENERATED FILE - DO NOT EDIT\n * Language: python\n */\nexport type EventName = \"sign up\" | \"café ☕\"\n// end"
+  }
+}

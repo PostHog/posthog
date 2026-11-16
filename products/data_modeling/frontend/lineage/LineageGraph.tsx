@@ -8,6 +8,7 @@ import {
     FitViewOptions,
     MiniMap,
     type Node,
+    type NodeTypes,
     Panel,
     ReactFlow,
     ReactFlowProvider,
@@ -31,26 +32,27 @@ import {
 import { IconArchive, IconExpand45, IconRefresh } from '@posthog/icons'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
-import { DataModelingEdge, DataModelingNode } from '~/types'
+import { DataModelingNode } from '~/types'
 
 import { ElkDirection } from './autolayout'
 import { LINEAGE_MIN_ZOOM, lineageFitTarget } from './lineageFit'
 import { LineageGraphLoading } from './LineageGraphLoading'
 import { lineageGraphLogic } from './lineageGraphLogic'
+import { LineageEdge, LineageGraphNode } from './lineageHiddenNodes'
 import { LINEAGE_NODE_TYPES, LineageNodeCallbacks, LineageNodeState, LineageVariant } from './LineageNode'
 import { lineageCone } from './lineageSelection'
 import { useNodesMeasured } from './useNodesMeasured'
 
 export type { LineageVariant, LineageNodeState, LineageNodeCallbacks } from './LineageNode'
 
-const EMPTY_NODES: DataModelingNode[] = []
-const EMPTY_EDGES: DataModelingEdge[] = []
+const EMPTY_NODES: LineageGraphNode[] = []
+const EMPTY_EDGES: LineageEdge[] = []
 const FOCUSED_NODES_MAX_ZOOM = 2
 const CURRENT_NODE_MAX_ZOOM = 1
 
 export interface LineageGraphProps {
-    nodes: DataModelingNode[]
-    edges: DataModelingEdge[]
+    nodes: LineageGraphNode[]
+    edges: LineageEdge[]
     /** Highlighted "you are here" node, rendered with a target marker + accent border */
     currentNodeId?: string
     variant?: LineageVariant
@@ -82,6 +84,7 @@ export interface LineageGraphProps {
     selectable?: boolean
     /** Caller-specific chrome (legend, layout toggle) rendered over the canvas */
     panels?: ReactNode
+    nodeTypes?: NodeTypes
 }
 
 function LineageGraphContent(props: LineageGraphProps): JSX.Element {
@@ -330,6 +333,7 @@ function LineageGraphContent(props: LineageGraphProps): JSX.Element {
                 direction={props.direction ?? 'RIGHT'}
                 fitViewOptions={props.fitViewOptions}
                 variant={props.variant ?? 'full'}
+                nodeTypes={props.nodeTypes ?? LINEAGE_NODE_TYPES}
             />
         )
     }
@@ -341,7 +345,7 @@ function LineageGraphContent(props: LineageGraphProps): JSX.Element {
             defaultNodes={decoratedNodes}
             edges={decoratedEdges}
             onPaneClick={props.selectable ? () => setSelectedNodeId(null) : undefined}
-            nodeTypes={LINEAGE_NODE_TYPES}
+            nodeTypes={props.nodeTypes ?? LINEAGE_NODE_TYPES}
             nodesDraggable={props.nodesDraggable ?? false}
             onNodeDragStop={(_, node) => {
                 lastNodeDrag.current = { nodeId: node.id, stoppedAt: Date.now() }

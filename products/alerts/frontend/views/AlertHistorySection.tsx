@@ -1,8 +1,9 @@
 import { useActions, useValues } from 'kea'
-import { useMemo } from 'react'
+import { useLayoutEffect, useMemo, useRef, useState } from 'react'
 
 import { IconGraph, IconNotebook } from '@posthog/icons'
 import {
+    LemonButton,
     LemonSegmentedButton,
     LemonSkeleton,
     LemonTable,
@@ -18,6 +19,7 @@ import { EmptyMessage } from 'lib/components/EmptyMessage/EmptyMessage'
 import { TZLabel } from 'lib/components/TZLabel'
 import { dayjs } from 'lib/dayjs'
 import { IconOpenInNew } from 'lib/lemon-ui/icons'
+import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { formatDate } from 'lib/utils/datetime'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 import { capitalizeFirstLetter } from 'lib/utils/strings'
@@ -27,7 +29,8 @@ import { DetectorType } from '~/queries/schema/schema-general'
 import { AlertStateIndicator } from 'products/alerts/frontend/components/AlertDefinition'
 import { AlertHistoryChart } from 'products/alerts/frontend/views/AlertHistoryChart'
 
-import { alertLogic, CHART_CHECKS_LIMIT, TABLE_CHECKS_PAGE_SIZE } from '../logic/alertLogic'
+import { alertLogic, CHART_CHECKS_LIMIT, detectorHasAnomalyScore, TABLE_CHECKS_PAGE_SIZE } from '../logic/alertLogic'
+import { formatForecastRange, getForecastCheckDetail } from '../logic/forecastRules'
 import { isAnyRowHogQLConfig } from '../types'
 import type { AlertCheck, AlertType, InvestigationVerdict } from '../types'
 import { isFailedDelivery, summarizeDeliveries } from '../utils'
@@ -50,12 +53,30 @@ const VERDICT_CONFIG: Record<InvestigationVerdict, { label: string; className: s
     },
 }
 
-function InvestigationCell({ check }: { check: AlertCheck }): JSX.Element {
+function InvestigationCell({ check, alertId }: { check: AlertCheck; alertId: AlertType['id'] }): JSX.Element {
+    const logic = alertLogic({ alertId })
+    const { expandedInvestigationChecks } = useValues(logic)
+    const { toggleInvestigationSummary } = useActions(logic)
+    const expanded = !!expandedInvestigationChecks[check.id]
+    const summaryRef = useRef<HTMLDivElement>(null)
+    const [isClamped, setIsClamped] = useState(false)
     const status = check.investigation_status
     const shortId = check.investigation_notebook_short_id
     const summary = check.investigation_summary?.trim() || null
     const verdict = check.investigation_verdict ?? null
     const suppressed = !!check.notification_suppressed_by_agent
+
+    useLayoutEffect(() => {
+        const element = summaryRef.current
+        if (!element || expanded) {
+            return
+        }
+        const measure = (): void => setIsClamped(element.scrollHeight > element.clientHeight)
+        measure()
+        const observer = new ResizeObserver(measure)
+        observer.observe(element)
+        return () => observer.disconnect()
+    }, [summary, expanded])
 
     if (status === 'done') {
         const verdictCfg = verdict ? VERDICT_CONFIG[verdict] : null
@@ -68,17 +89,33 @@ function InvestigationCell({ check }: { check: AlertCheck }): JSX.Element {
                         </LemonTag>
                     </Tooltip>
                 )}
-                <Tooltip title={summary || undefined}>
-                    <div className="text-sm leading-normal line-clamp-2 text-muted">
-                        {verdictCfg && (
-                            <Tooltip title={verdictCfg.tooltip}>
-                                <span className={`font-semibold ${verdictCfg.className}`}>{verdictCfg.label}</span>
-                            </Tooltip>
+                {verdictCfg && (
+                    <Tooltip title={verdictCfg.tooltip}>
+                        <span className={`font-semibold ${verdictCfg.className}`}>{verdictCfg.label}</span>
+                    </Tooltip>
+                )}
+                {summary && (
+                    <>
+                        <div
+                            ref={summaryRef}
+                            className={`text-sm leading-normal text-muted ${expanded ? '' : 'line-clamp-2'}`}
+                        >
+                            <LemonMarkdown disableImages="all" disableLinks disableMentions lowKeyHeadings>
+                                {summary}
+                            </LemonMarkdown>
+                        </div>
+                        {(expanded || isClamped) && (
+                            <LemonButton
+                                type="tertiary"
+                                size="xsmall"
+                                onClick={() => toggleInvestigationSummary(check.id)}
+                                aria-expanded={expanded}
+                            >
+                                {expanded ? 'Show less' : 'Show more'}
+                            </LemonButton>
                         )}
-                        {verdictCfg && summary && <span> — </span>}
-                        {summary && <span>{summary}</span>}
-                    </div>
-                </Tooltip>
+                    </>
+                )}
                 {shortId && (
                     <Link to={`/notebooks/${shortId}`} className="inline-flex items-center gap-1 text-sm">
                         <IconNotebook /> View notebook <IconOpenInNew className="text-xs" />
@@ -154,6 +191,9 @@ export function AlertHistorySection({
     const isAnyRowSqlAlert = isAnyRowHogQLConfig(alert?.config)
     // Only the AI detector reports a reason, so no other alert type gets an always-empty column.
     const isLLMDetectorAlert = alert?.detector_config?.type === DetectorType.LLM
+    const showScoreColumn = detectorHasAnomalyScore(alert?.detector_config)
+    // Past forecast checks keep their forecast after the alert moves to another detector.
+    const showForecastColumns = alertHistoryChecksSortedDesc.some((check) => getForecastCheckDetail(check) !== null)
     // Past AI checks keep their reason after the alert moves to another detector.
     const showWhyColumn =
         isLLMDetectorAlert ||
@@ -192,8 +232,8 @@ export function AlertHistorySection({
                 },
             })
         }
-        // The AI detector has no score. Its checks read as fired or not fired, with a kind and a reason.
-        if (alertHistoryIsAnomalyDetection && !isLLMDetectorAlert) {
+        // The AI and forecast detectors have no score. Their checks read as fired or not fired.
+        if (showScoreColumn) {
             columns.push({
                 title: 'Score',
                 align: 'right',
@@ -203,6 +243,26 @@ export function AlertHistorySection({
                     return lastScore != null ? lastScore.toFixed(3) : '—'
                 },
             })
+        }
+        if (showForecastColumns) {
+            columns.push(
+                {
+                    title: 'Expected',
+                    align: 'right',
+                    render: (_value, check) => {
+                        const detail = getForecastCheckDetail(check)
+                        return detail ? humanFriendlyNumber(detail.expected) : '—'
+                    },
+                },
+                {
+                    title: 'Forecast range',
+                    align: 'right',
+                    render: (_value, check) => {
+                        const detail = getForecastCheckDetail(check)
+                        return detail ? formatForecastRange(detail) : '—'
+                    },
+                }
+            )
         }
         if (alertHistoryChecksSortedDesc.some((check) => typeof check.triggered_metadata?.kind === 'string')) {
             columns.push({
@@ -235,7 +295,7 @@ export function AlertHistorySection({
         if (investigationAgentEnabled) {
             columns.push({
                 title: 'Investigation',
-                render: (_value, check) => <InvestigationCell check={check} />,
+                render: (_value, check) => <InvestigationCell check={check} alertId={alertId} />,
             })
         }
         if (isAnyRowSqlAlert) {
@@ -295,10 +355,11 @@ export function AlertHistorySection({
         })
         return columns
     }, [
-        alertHistoryIsAnomalyDetection,
+        alertId,
         investigationAgentEnabled,
         isAnyRowSqlAlert,
-        isLLMDetectorAlert,
+        showScoreColumn,
+        showForecastColumns,
         showWhyColumn,
         alertHistoryChecksSortedDesc,
     ])

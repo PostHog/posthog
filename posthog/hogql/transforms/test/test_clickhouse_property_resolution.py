@@ -23,10 +23,10 @@ from posthog.hogql.property_access_types import RestrictedProperty
 from posthog.hogql.property_metadata import PropertyMetadata
 from posthog.hogql.transforms.clickhouse_property_resolution import (
     MAX_MATERIALIZED_LIKE_PATTERN_LENGTH,
-    _is_json_verbatim,
     clickhouse_property_resolution,
 )
 from posthog.hogql.transforms.property_types import PropertySwapper
+from posthog.hogql.utils import is_json_verbatim
 
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.events_json import TEMPORARY_PROPERTIES_JSON_TYPE
@@ -53,7 +53,7 @@ class TestJSONVerbatimValues(SimpleTestCase):
     @example("plain_value-1")
     @hypothesis_settings(max_examples=100, deadline=None)
     def test_accepted_values_survive_json_encoding(self, value: str) -> None:
-        if not _is_json_verbatim(value):
+        if not is_json_verbatim(value):
             return
         assert value in json.dumps({"key": value})
         assert value in json.dumps({"key": value}, ensure_ascii=False)
@@ -164,6 +164,62 @@ class TestNativeJSONPropertyComparisons(SimpleTestCase):
         expected = [None] * len(values) if restricted else [True, True, False, False, *([None] * (len(values) - 4))]
         assert [row[0] for row in rows] == [
             (value, int(value is True), int(value is False), int(value is None)) for value in [*expected, None]
+        ]
+
+    @parameterized.expand(
+        [
+            ("event", "properties", "value", "properties.value", False),
+            ("event_after_grouping", "properties", "value", "properties.value", True),
+            ("person", "person_properties", "value", "poe.properties.value", False),
+            ("flag", "properties", "$feature/value", "properties.`$feature/value`", False),
+        ]
+    )
+    def test_boolean_constants_compare_with_untyped_properties_as_text(
+        self, _name: str, column: str, key: str, property_expr: str, grouped: bool
+    ) -> None:
+        context = HogQLContext(
+            use_new_events_schema=True,
+            property_metadata=PropertyMetadata(),
+            database=Database(),
+            apply_events_retention_floor=False,
+        )
+        context.property_swapper = PropertySwapper("UTC", {}, {}, {}, context, False)
+        prepared = prepare_ast_for_printing(
+            parse_select(
+                f"SELECT tuple({property_expr} = true, true = {property_expr}, {property_expr} = false, "
+                f"{property_expr} != true) FROM events" + (f" GROUP BY {property_expr}" if grouped else "")
+            ),
+            context,
+            "clickhouse",
+        )
+        assert isinstance(prepared, ast.SelectQuery)
+        printed = print_prepared_ast(prepared.select[0], context, "clickhouse")
+
+        def document(value: object) -> dict[str, object]:
+            if value is None:
+                return {}
+            if not key.startswith("$feature/"):
+                return {key: value}
+            # The cleaner stores a boolean flag as its text, and a variant named "true" or "false" under a sentinel.
+            stored = str(value).lower() if isinstance(value, bool) else f"${value}" if value != "TRUE" else value
+            return {"$feature_flags": {key.removeprefix("$feature/"): stored}}
+
+        values: list[object] = [True, "true", False, "false", "TRUE", None]
+        rows = sync_execute(
+            f"SELECT {printed} FROM (SELECT CAST(arrayJoin(%(documents)s), %(json_type)s) AS {column}) AS events",
+            {
+                **context.values,
+                "documents": [json.dumps(document(value)) for value in values],
+                "json_type": EVENTS_PROPERTIES_JSON_TYPE() if column == "properties" else PERSON_PROPERTIES_JSON_TYPE(),
+            },
+        )
+        assert [row[0] for row in rows] == [
+            (1, 1, 0, 0),
+            (1, 1, 0, 0),
+            (0, 0, 1, 1),
+            (0, 0, 1, 1),
+            (0, 0, 0, 1),
+            (0, 0, 0, 1),
         ]
 
     @parameterized.expand(

@@ -27,6 +27,7 @@ from products.replay_vision.backend.consent import is_ai_data_processing_approve
 from products.replay_vision.backend.distinct_ids import replay_vision_distinct_id
 from products.replay_vision.backend.gemini_client import AI_PRODUCT, replay_gemini_client
 from products.replay_vision.backend.models.replay_observation import ReplayObservation
+from products.replay_vision.backend.models.replay_observation_rank import ReplayObservationRank
 from products.replay_vision.backend.models.replay_scanner import PromptValence, ReplayScanner, ScannerType
 from products.replay_vision.backend.models.replay_scanner_semantics import (
     THEME_FIRST_RENAME_AT,
@@ -226,16 +227,16 @@ def _naming_context(team_id: int, theme_id: uuid.UUID) -> tuple[ReplayScanner, l
     theme = ReplayScannerSearchTheme.objects.for_team(team_id).filter(id=theme_id).select_related("scanner").first()
     if theme is None:
         return None
-    rows = (
-        # The window keeps the walk to recent rows of the scanner, since the JSON key has no index of its own.
-        ReplayObservation.objects.filter(
-            team_id=team_id,
-            scanner_id=theme.scanner_id,
-            created_at__gte=theme.last_member_at - THEME_ACTIVE_WINDOW,
-            watch_rank__theme=str(theme_id),
-        )
+    member_ids = (
+        ReplayObservationRank.objects.for_team(team_id)
+        .filter(search_theme_id=theme_id)
         .order_by("-created_at")
-        .values_list("scanner_result", flat=True)[:THEME_NAME_SAMPLES]
+        .values("observation_id")[:THEME_NAME_SAMPLES]
+    )
+    rows = (
+        ReplayObservation.objects.filter(team_id=team_id, id__in=member_ids)
+        .order_by("-created_at")
+        .values_list("scanner_result", flat=True)
     )
     samples = [
         text[:_SAMPLE_CHARS] for result in rows if (text := explanation_text((result or {}).get("model_output") or {}))
@@ -276,9 +277,7 @@ async def name_theme(team_id: int, theme_id: uuid.UUID, now: datetime) -> str | 
     scanner, samples = context
     prompt = (scanner.scanner_config or {}).get("prompt") if isinstance(scanner.scanner_config, dict) else None
     try:
-        client = await replay_gemini_client(
-            team_id, properties={"ai_product": AI_PRODUCT, "feature": "name_search_theme"}
-        )
+        client = replay_gemini_client(properties={"ai_product": AI_PRODUCT, "feature": "name_search_theme"})
         try:
             response = await client.models.generate_content(
                 model=_THEME_MODEL,
@@ -295,7 +294,6 @@ async def name_theme(team_id: int, theme_id: uuid.UUID, now: datetime) -> str | 
                 posthog_distinct_id=replay_vision_distinct_id(team_id),
                 posthog_trace_id=str(uuid.uuid4()),
                 posthog_properties={"$ai_span_name": "name_search_theme", "team_id": team_id},
-                posthog_groups={"project": str(team_id)},
             )
         finally:
             await client.aclose()

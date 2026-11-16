@@ -44,6 +44,9 @@ class CustomerioAppApi:
     def segments(self) -> list[dict[str, Any]]:
         return list(self._get("/segments").get("segments") or [])
 
+    def snippets(self) -> list[dict[str, Any]]:
+        return list(self._get("/snippets").get("snippets") or [])
+
     def _paged(self, path: str, key: str) -> list[dict[str, Any]]:
         items: list[dict[str, Any]] = []
         start: str | None = None

@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import { combineUrl } from 'kea-router'
 
 import { IconPencil, IconPlus, IconRefresh, IconTrash } from '@posthog/icons'
 import { LemonButton, LemonTable, LemonTableColumns, Link, Spinner, Tooltip } from '@posthog/lemon-ui'
@@ -47,7 +48,10 @@ function bindsAView(source: CustomPropertySourceApi): boolean {
 // binding, or when the caller can't view what it reads.
 function sourceRunsUrl(source: CustomPropertySourceApi): string | null {
     if (bindsAView(source)) {
-        return source.saved_query ? urls.sqlEditor({ view_id: source.saved_query }) : null
+        // The view's page is keyed by its data modeling node; `lookup` lets it resolve from the saved query id.
+        return source.saved_query
+            ? combineUrl(urls.nodeDetail(source.saved_query, 'materialization'), { lookup: 'saved_query' }).url
+            : null
     }
     if (!source.external_data_source || !source.external_data_schema) {
         return null
@@ -202,7 +206,7 @@ function WarehouseProfilePropertiesSetting({ targetType }: { targetType: 'person
         },
         {
             title: 'Next sync',
-            tooltip: "When the table's warehouse sync is next due. Approximate — it drifts if the schedule was paused.",
+            tooltip: "When the table's or view's next sync is due. Approximate — it drifts if the schedule was paused.",
             render: (_, definition) =>
                 definition.source?.next_sync_at ? (
                     <TZLabel time={definition.source.next_sync_at} className="text-secondary" />
@@ -297,6 +301,7 @@ function WarehouseProfilePropertiesSetting({ targetType }: { targetType: 'person
                                 loading={runsLoadingBySourceId[definition.source.id] ?? false}
                                 loadFailed={runsLoadFailedBySourceId[definition.source.id] ?? false}
                                 targetType={targetType}
+                                logSourceId={definition.source.external_data_schema ?? definition.source.saved_query}
                                 searchTerm={runsSearchBySourceId[definition.source.id] ?? ''}
                                 entryCount={runsCountBySourceId[definition.source.id] ?? 0}
                                 currentPage={Math.floor((runsOffsetBySourceId[definition.source.id] ?? 0) / 20) + 1}

@@ -65,11 +65,18 @@ class SessionQueryRunner(AnalyticsQueryRunner[SessionQueryResponse]):
     cached_response: CachedSessionQueryResponse
     paginator: HogQLHasMorePaginator
 
-    def __init__(self, *args: Any, for_evaluation: bool = False, **kwargs: Any) -> None:
+    def __init__(
+        self,
+        *args: Any,
+        for_evaluation: bool = False,
+        bypass_property_access_control: bool = False,
+        **kwargs: Any,
+    ) -> None:
         # Online evaluations need a time-bounded primary query and no events fallback: an
         # aged-out session must surface as "expired", not as a stripped events scan whose rows
         # lack input/output_choices, which would have the judge grade an empty transcript.
         self.for_evaluation = for_evaluation
+        self._bypass_property_access_control = bypass_property_access_control
         super().__init__(*args, **kwargs)
         limit = self.query.limit
         if self.limit_context == LimitContext.EXPORT:
@@ -105,7 +112,12 @@ class SessionQueryRunner(AnalyticsQueryRunner[SessionQueryResponse]):
                 timings=self.timings,
                 modifiers=self.modifiers,
                 limit_context=self.limit_context,
-                context=HogQLContext(team_id=self.team.pk, user=self.user, database=database),
+                context=HogQLContext(
+                    team_id=self.team.pk,
+                    user=self.user,
+                    database=database,
+                    restricted_properties=set() if self._bypass_property_access_control else None,
+                ),
             )
 
         if not query_result.results and not self.for_evaluation:
@@ -133,7 +145,11 @@ class SessionQueryRunner(AnalyticsQueryRunner[SessionQueryResponse]):
                     modifiers=self.modifiers,
                     limit_context=self.limit_context,
                     context=HogQLContext(
-                        team_id=self.team.pk, user=self.user, use_new_events_schema=events_schema, database=database
+                        team_id=self.team.pk,
+                        user=self.user,
+                        use_new_events_schema=events_schema,
+                        database=database,
+                        restricted_properties=set() if self._bypass_property_access_control else None,
                     ),
                 )
 
@@ -289,6 +305,8 @@ class SessionQueryRunner(AnalyticsQueryRunner[SessionQueryResponse]):
         # with a plain read. Keyed only when on, so plain reads keep their cache entries.
         if self.for_evaluation:
             payload["for_evaluation"] = True
+        if self._bypass_property_access_control:
+            payload["bypass_property_access_control"] = True
         return payload
 
     def cache_target_age(self, last_refresh: Optional[datetime], lazy: bool = False) -> Optional[datetime]:

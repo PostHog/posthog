@@ -15,9 +15,9 @@ import { subscriptions } from 'kea-subscriptions'
 import posthog from 'posthog-js'
 
 import api from 'lib/api'
-import { membersLogic } from 'scenes/organization/membersLogic'
 import { userLogic } from 'scenes/userLogic'
 
+import { membersLogic } from '~/models/membersLogic'
 import { toolbarConfigLogic } from '~/toolbar/shared/toolbarConfigLogic'
 import { toolbarFetch } from '~/toolbar/shared/toolbarFetch'
 import { HedgehogConfig, MinimalHedgehogConfig } from '~/types'
@@ -124,10 +124,12 @@ export type hedgehogModeLogicType = MakeLogicType<
 
 export const hedgehogModeLogic = kea<hedgehogModeLogicType>([
     path(['hedgehog', 'hedgehogModeLogic']),
-    connect({
+    // A function, because this module is in an import cycle with userLogic. An object is built when the
+    // module loads, and userLogic is undefined then if its module is still loading.
+    connect(() => ({
         values: [userLogic, ['user'], membersLogic, ['members']],
         actions: [membersLogic, ['ensureAllMembersLoaded']],
-    }),
+    })),
     actions({
         setHedgehogMode: (hedgeHogMode: HedgehogModeInterface) => ({ hedgeHogMode }),
         setHedgehogModeEnabled: (enabled: boolean) => ({ enabled }),

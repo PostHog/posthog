@@ -4,7 +4,8 @@ from typing import Any
 import pytest
 from posthog.test.base import ClickhouseTestMixin
 
-from products.actions.backend.models.action import Action
+from products.actions.backend.facade.contracts import Action
+from products.actions.backend.facade.testing import create_action
 from products.cdp.backend.api.hooks import create_zapier_hog_function, valid_domain
 from products.cdp.backend.filters import RUNTIME_CONTRACT
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
@@ -23,7 +24,7 @@ class TestHooksAPI(ClickhouseTestMixin, APILicensedTest):
 
     def setUp(self):
         super().setUp()
-        self.action = Action.objects.create(
+        self.action = create_action(
             team=self.team,
             name="Test Action",
             steps_json=[

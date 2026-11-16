@@ -10,6 +10,16 @@ class AddedBy(models.TextChoices):
     LEARNED = "learned", "Learned"
 
 
+class SearchMatch(models.TextChoices):
+    """Why a chunk is in a search result. Query output only, not a stored column."""
+
+    KEYWORD = "keyword", "Keyword"
+    SEMANTIC = "semantic", "Semantic"
+    BOTH = "both", "Keyword and semantic"
+    # A neighbour of a matching chunk, returned so the match reads in context.
+    CONTEXT = "context", "Surrounding context"
+
+
 class SourceType(models.TextChoices):
     TEXT = "text", "Text"
     # Reserved for Stage 2 / Stage 3 — declared up front so the DB choice
@@ -120,6 +130,11 @@ class LearningRunStatus(models.TextChoices):
     RUNNING = "running", "Running"
     COMPLETED = "completed", "Completed"
     FAILED = "failed", "Failed"
+
+
+class LearningBackfillStatus(models.TextChoices):
+    RUNNING = "running", "Reading past tickets"
+    COMPLETED = "completed", "Read every past ticket"
 
 
 class LearningRunResult(models.TextChoices):

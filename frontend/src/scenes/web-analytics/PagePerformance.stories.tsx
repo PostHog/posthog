@@ -91,7 +91,7 @@ const CANDIDATES = {
 const trend = (label: string, values: number[]): Record<string, unknown> => ({
     results: [
         {
-            action: { id: label, name: label, type: 'events', order: 0 },
+            order: 0,
             label,
             data: values,
             days: BUCKETS,
@@ -176,7 +176,7 @@ const handlers = (
 
 const meta: Meta = {
     component: App,
-    title: 'Scenes-App/Web Analytics/Search & AI',
+    title: 'Scenes-App/Web Analytics/AI traffic',
     parameters: {
         layout: 'fullscreen',
         viewMode: 'story',

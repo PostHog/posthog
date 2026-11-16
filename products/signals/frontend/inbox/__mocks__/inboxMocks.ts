@@ -529,7 +529,7 @@ export function mockTaskRun(taskId: string, runId: string): any {
 }
 
 /**
- * A single-message agent run log as JSONL — what the `/runs/:runId/logs` endpoint returns (one
+ * A single-message agent run log as JSONL — what the `/runs/:runId/log_entries` endpoint returns (one
  * `StoredLogEntry` per line). One `agent_message` frame so the run viewer renders a single assistant
  * bubble instead of the "conversation backing run not found" error.
  */

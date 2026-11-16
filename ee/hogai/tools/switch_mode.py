@@ -1,5 +1,5 @@
 import asyncio
-from typing import TYPE_CHECKING, Literal, Self, cast
+from typing import TYPE_CHECKING, Any, Literal, Self, cast
 
 from langchain_core.runnables import RunnableConfig
 from pydantic import BaseModel, Field, create_model
@@ -164,7 +164,7 @@ class SwitchModeTool(MaxTool):
             "SwitchModeToolArgs",
             __base__=BaseModel,
             new_mode=(
-                ModeKind,
+                cast(Any, ModeKind),
                 Field(description="The name of the mode to switch to."),
             ),
         )

@@ -1,8 +1,9 @@
 import { CapturedPersonsModal } from 'lib/components/ResultMenu/personsModalCapture'
+import { hogql } from 'lib/utils/hogql'
 import { BREAKDOWN_OTHER_STRING_LABEL } from 'scenes/insights/utils'
 
+import { isActorsQuery, isInsightVizNode } from '~/queries/schema/node-guards'
 import { ActorsQuery, InsightQueryNode, InsightVizNode, NodeKind } from '~/queries/schema/schema-general'
-import { hogql, isActorsQuery, isInsightVizNode } from '~/queries/utils'
 import { DashboardTile, FilterLogicalOperator, HogQLPropertyFilter, PropertyFilterType } from '~/types'
 
 const FILTER_LABEL = 'Dashboard result selection'

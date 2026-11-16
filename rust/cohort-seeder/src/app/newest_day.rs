@@ -156,8 +156,8 @@ mod tests {
     use super::*;
     use crate::domain::row_filter::test_catalog::{catalog, event_is, hash, Leaf};
     use crate::domain::{
-        Boundary, ClaimEpoch, EventNameSet, Lookback, PinnedCondition, SChunkMs, TriggerKind,
-        UtcMillis,
+        Boundary, ClaimEpoch, EventNameSet, Lookback, PinnedCondition, SChunkMs, ScanTable,
+        TriggerKind, UtcMillis,
     };
 
     const SLIDING: &str = "aaaaaaaaaaaaaaaa";
@@ -193,6 +193,7 @@ mod tests {
                 hash: SLIDING,
                 body: event_is("$pageview"),
             }]),
+            flag_calls_table: ScanTable::Events,
         }
     }
 

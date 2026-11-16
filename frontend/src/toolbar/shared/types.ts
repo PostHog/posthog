@@ -127,7 +127,7 @@ export interface WebExperimentVariant {
     conditions?: {
         url?: string
         urlMatchType?: WebExperimentUrlMatchType
-        utm: {
+        utm?: {
             utm_source?: string
             utm_medium?: string
             utm_campaign?: string

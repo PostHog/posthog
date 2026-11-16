@@ -1,3 +1,4 @@
+import datetime as dt
 import dataclasses
 
 import pytest
@@ -37,7 +38,7 @@ async def _make_node(team, dag, name):
     return node, saved_query
 
 
-async def _run(team, dag, skipped_nodes):
+async def _run(team, dag, skipped_nodes, run_started_at=None):
     env = ActivityEnvironment()
     env.info = dataclasses.replace(env.info, workflow_id=WORKFLOW_ID, workflow_run_id="run-1")
     await env.run(
@@ -47,6 +48,7 @@ async def _run(team, dag, skipped_nodes):
             dag_id=str(dag.id),
             engine=DataModelingJobEngine.CLICKHOUSE,
             skipped_nodes=skipped_nodes,
+            run_started_at=run_started_at,
         ),
     )
 
@@ -59,7 +61,16 @@ async def adag_local(ateam):
 
 
 class TestRecordSkippedDataModelingJobs:
-    async def test_writes_a_skip_row_naming_every_blocking_upstream(self, ateam, adag_local):
+    @pytest.mark.parametrize(
+        "built_by_another_run,expected_error",
+        [
+            (False, "Skipped because upstream views orders_daily and customers_daily are failing."),
+            (True, "Skipped because another run is already building this view."),
+        ],
+    )
+    async def test_writes_a_skip_row_naming_why_it_was_skipped(
+        self, ateam, adag_local, built_by_another_run: bool, expected_error: str
+    ):
         blocked, blocked_query = await _make_node(ateam, adag_local, "rollup_daily")
         parent_a, _ = await _make_node(ateam, adag_local, "orders_daily")
         parent_b, _ = await _make_node(ateam, adag_local, "customers_daily")
@@ -68,7 +79,9 @@ class TestRecordSkippedDataModelingJobs:
             ateam,
             adag_local,
             [
-                SkippedDataModelingNode(
+                SkippedDataModelingNode(node_id=str(blocked.id), built_by_another_run=True)
+                if built_by_another_run
+                else SkippedDataModelingNode(
                     node_id=str(blocked.id),
                     failed_upstream_node_ids=[str(parent_a.id), str(parent_b.id)],
                     failed_upstream_total=2,
@@ -83,7 +96,7 @@ class TestRecordSkippedDataModelingJobs:
         assert job.status == DataModelingJobStatus.SKIPPED
         assert job.rows_materialized == 0
         assert job.parent_workflow_id == WORKFLOW_ID
-        assert job.error == "Skipped because upstream views orders_daily and customers_daily are failing."
+        assert job.error == expected_error
 
     async def test_counts_the_upstreams_it_cannot_name(self, ateam, adag_local):
         blocked, blocked_query = await _make_node(ateam, adag_local, "rollup_daily")
@@ -125,3 +138,30 @@ class TestRecordSkippedDataModelingJobs:
             lambda: DataModelingJob.objects.filter(saved_query_id=blocked_query.id).count()
         )()
         assert count == 1
+
+    async def test_records_a_skip_when_an_earlier_run_left_a_job_under_the_same_parent(self, ateam, adag_local):
+        blocked, blocked_query = await _make_node(ateam, adag_local, "rollup_daily")
+        earlier = await database_sync_to_async(DataModelingJob.objects.create)(
+            team=ateam,
+            saved_query=blocked_query,
+            status=DataModelingJobStatus.COMPLETED,
+            engine=DataModelingJobEngine.CLICKHOUSE,
+            workflow_id="child",
+            workflow_run_id="child-run",
+            parent_workflow_id=WORKFLOW_ID,
+        )
+        run_started_at = (earlier.created_at + dt.timedelta(minutes=1)).isoformat()
+
+        await _run(
+            ateam,
+            adag_local,
+            [SkippedDataModelingNode(node_id=str(blocked.id), built_by_another_run=True)],
+            run_started_at,
+        )
+
+        statuses = await database_sync_to_async(
+            lambda: sorted(
+                DataModelingJob.objects.filter(saved_query_id=blocked_query.id).values_list("status", flat=True)
+            )
+        )()
+        assert statuses == sorted([DataModelingJobStatus.COMPLETED, DataModelingJobStatus.SKIPPED])

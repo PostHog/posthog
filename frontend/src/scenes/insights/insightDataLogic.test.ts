@@ -25,6 +25,7 @@ import { insightsModel } from '~/models/insightsModel'
 import { examples } from '~/queries/examples'
 import { getDefaultQuery } from '~/queries/nodes/InsightViz/utils'
 import { performQuery } from '~/queries/query'
+import { setLatestVersionsOnQuery } from '~/queries/schema/query-versions'
 import { BIVisualizationNode } from '~/queries/schema/schema-business-intelligence'
 import {
     DataVisualizationNode,
@@ -35,7 +36,6 @@ import {
     ResultCustomizationBy,
     TrendsQuery,
 } from '~/queries/schema/schema-general'
-import { setLatestVersionsOnQuery } from '~/queries/utils'
 import { initKeaTests } from '~/test/init'
 import { ChartDisplayType, FilterLogicalOperator, FunnelVizType, InsightShortId, InsightType } from '~/types'
 

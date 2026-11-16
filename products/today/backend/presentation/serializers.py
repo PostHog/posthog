@@ -9,6 +9,9 @@ from ..facade.contracts import (
     CodeFile,
     FigureMark,
     FigureQuote,
+    HiddenPulseNumber,
+    HiddenPulseNumbers,
+    HighlightExperimentResult,
     HighlightItem,
     HighlightMetric,
     HighlightMover,
@@ -23,6 +26,7 @@ from ..facade.contracts import (
     PullRequestLink,
     PulsePin,
     PulsePins,
+    PulseSlot,
     RecordingTarget,
     ReportKeyClauses,
     ReportPage,
@@ -42,6 +46,7 @@ from ..facade.enums import (
     HighlightUnit,
     ImpactNumberKey,
     KeyClauseRole,
+    PulseSlotStatus,
 )
 
 
@@ -292,6 +297,23 @@ class HighlightMoverSerializer(DataclassSerializer):
         dataclass = HighlightMover
 
 
+class HighlightExperimentResultSerializer(DataclassSerializer):
+    metric_name = serializers.CharField(help_text="Name of the primary metric of the experiment.")
+    variant = serializers.CharField(help_text="Key of the variant the number compares with the control.")
+    control = serializers.CharField(help_text="Key of the control variant.")
+    variants = serializers.IntegerField(help_text="How many variants the experiment tests against the control.")
+    significant = serializers.BooleanField(help_text="Whether the difference of `variant` is significant.")
+    favorable = serializers.BooleanField(
+        help_text="Whether `variant` moves the metric toward its goal: up, or down for a metric that should decrease."
+    )
+    exposures = serializers.IntegerField(
+        help_text="How many people the result counts across every variant, or groups for an experiment on groups."
+    )
+
+    class Meta:
+        dataclass = HighlightExperimentResult
+
+
 class PulsePinSerializer(DataclassSerializer):
     key = serializers.CharField(
         max_length=200,
@@ -312,12 +334,46 @@ class PulsePinSerializer(DataclassSerializer):
 
 
 MAX_PINS_IN_REQUEST = 20
+MAX_HIDDEN_IN_REQUEST = 50
+
+
+class HiddenPulseNumberSerializer(DataclassSerializer):
+    key = serializers.CharField(
+        help_text="Key of the hidden number: a key metric setting such as signup_event, or insight:<short_id>."
+    )
+    name = serializers.CharField(help_text="Current name of the number.")
+
+    class Meta:
+        dataclass = HiddenPulseNumber
+
+
+class HiddenPulseNumbersSerializer(DataclassSerializer):
+    hidden = HiddenPulseNumberSerializer(
+        many=True,
+        help_text="Numbers the person hid from the key numbers, oldest first. Numbers the person can no longer see are left out.",
+    )
+
+    class Meta:
+        dataclass = HiddenPulseNumbers
+
+
+class SetHiddenPulseNumbersSerializer(serializers.Serializer):
+    keys = serializers.ListField(
+        child=serializers.CharField(max_length=200),
+        max_length=MAX_HIDDEN_IN_REQUEST,
+        help_text=f"Keys of every number to hide, oldest first. Replaces the hidden numbers. At most {MAX_HIDDEN_IN_REQUEST} keys.",
+    )
 
 
 class PulsePinsSerializer(DataclassSerializer):
     pins = PulsePinSerializer(
         many=True,
         help_text=f"Numbers the person keeps at the start of the key numbers, in order. Suggestions fill the free places. Only the first 4 distinct keys are kept. At most {MAX_PINS_IN_REQUEST} entries.",
+    )
+    hidden = HiddenPulseNumberSerializer(
+        many=True,
+        read_only=True,
+        help_text="Numbers the person hid from the key numbers, oldest first. Suggestions skip them. Change them with the hidden numbers endpoint.",
     )
 
     class Meta:
@@ -331,7 +387,7 @@ class PulsePinsSerializer(DataclassSerializer):
 
 class HighlightMetricSerializer(DataclassSerializer):
     key = serializers.CharField(
-        help_text="Stable key of the metric: a key metric setting such as signup_event, or insight:<short_id>."
+        help_text="Stable key of the metric: a key metric setting such as signup_event, insight:<short_id>, or experiment:<id>."
     )
     name = serializers.CharField(help_text="Name of the key metric or of the insight, for example Sign-ups.")
     value = serializers.FloatField(
@@ -367,7 +423,7 @@ class HighlightMetricSerializer(DataclassSerializer):
     reason = serializers.ChoiceField(
         choices=HighlightMetricReason.choices,
         allow_null=True,
-        help_text="Why the pulse suggests the metric: `routine` for an insight the person opens often, `dashboard` for a tile of a dashboard they open often, `key_metric` for a key metric of the project, `popular` for an insight that many people in the project open. Null for metrics computed before this field existed.",
+        help_text="Why the pulse suggests the metric: `routine` for an insight the person opens often, `dashboard` for a tile of a dashboard they open often, `key_metric` for a key metric of the project, shown only when the person has no numbers of their own, `popular` for an insight that many people in the project open, `watched` for an insight the person gets an alert or a subscription for, `built` for an insight the person created or edited recently, `experiment` for a running experiment the person created, `agent` for an insight the person's AI agents read on several days, `evaluation` for the pass rate of an evaluation the person created. Null for metrics computed before this field existed.",
     )
     dashboard_name = serializers.CharField(
         allow_null=True,
@@ -392,6 +448,10 @@ class HighlightMetricSerializer(DataclassSerializer):
     movers = HighlightMoverSerializer(
         many=True,
         help_text="For an insight with several series, the series that changed most last period, biggest change first. Empty otherwise.",
+    )
+    experiment = HighlightExperimentResultSerializer(
+        allow_null=True,
+        help_text="The primary metric result of an experiment. Then `value` is the change of `variant` against the control, in percent, and `series` is empty. Null for other metrics.",
     )
 
     class Meta:
@@ -439,10 +499,36 @@ class HighlightPinSerializer(DataclassSerializer):
         dataclass = HighlightPin
 
 
+class PulseSlotSerializer(DataclassSerializer):
+    reason = serializers.ChoiceField(
+        choices=HighlightMetricReason.choices,
+        allow_null=True,
+        required=False,
+        help_text="Why this number is selected, when known before its value arrives.",
+    )
+    key = serializers.CharField(help_text="Stable key of the selected number.")
+    name = serializers.CharField(help_text="Title available before the number is computed.")
+    status = serializers.ChoiceField(choices=PulseSlotStatus.choices, help_text="Loading state of this number.")
+    url = serializers.CharField(allow_null=True, help_text="Path to the source, relative to the project.")
+    interval = serializers.ChoiceField(
+        choices=HighlightInterval.choices, allow_null=True, help_text="Measurement interval, when known."
+    )
+
+    class Meta:
+        dataclass = PulseSlot
+
+
+class HighlightsQuerySerializer(serializers.Serializer):
+    refresh = serializers.BooleanField(
+        default=False,
+        help_text="Retry failed sources. An active computation is reused.",
+    )
+
+
 class HighlightsSerializer(DataclassSerializer):
     status = serializers.ChoiceField(
         choices=HighlightsStatus.choices,
-        help_text="`ready` when the content is fresh. `computing` while new highlights are being computed: the content is the last ready highlights of the day, or empty, so poll again every 2 seconds until the status changes. `failed` when the last computation failed: the content is the last ready highlights of the day, or empty.",
+        help_text="`ready` when the content is fresh. `computing` while new highlights are being computed: the content includes available results and, when enabled, pending number details. Otherwise it is the last ready highlights of the day, or empty. Poll again every 2 seconds until the status changes. `failed` when the last computation failed: the content is the last ready highlights of the day, or empty.",
     )
     generated_at = serializers.DateTimeField(
         allow_null=True, help_text="When the content was computed. Null when no highlights were computed yet today."
@@ -452,6 +538,12 @@ class HighlightsSerializer(DataclassSerializer):
         help_text="Midnight at the end of `day` in the project's timezone, when the next day's highlights start. Load them again then."
     )
     pulse = HighlightMetricSerializer(many=True, help_text="Key metrics of the project from its settings.")
+    pulse_slots = PulseSlotSerializer(
+        many=True,
+        allow_null=True,
+        required=False,
+        help_text="Selected numbers in stable display order, including unfinished numbers. Ready values are in pulse. Null only in results stored before every computation listed its numbers.",
+    )
     items = HighlightItemSerializer(
         many=True,
         help_text="Up to 6 items, the highest scores across sources, in display order: by `priority`, then by `score`, highest first.",

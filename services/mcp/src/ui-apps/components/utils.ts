@@ -102,8 +102,8 @@ export function formatTooltipDate(dateStr: string, interval?: string): string {
     return time ? `${day} ${time}` : day
 }
 
-export function getSeriesLabel(item: { label?: string; action?: { name?: string } }, index: number): string {
-    return item.label || item.action?.name || `Series ${index + 1}`
+export function getSeriesLabel(item: { label?: string }, index: number): string {
+    return item.label || `Series ${index + 1}`
 }
 
 export function buildProportionBarSeries(results: TrendsResultItem[], getColor: (index: number) => string): Series[] {

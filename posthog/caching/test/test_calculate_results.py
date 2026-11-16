@@ -93,7 +93,7 @@ class TestCalculateForQueryBasedInsight(BaseTest):
         assert insight_result.result == "ERROR: nope"
 
     def test_plain_dict_results_pass_through_without_copying(self):
-        series = {"data": [1.0, 2.0], "label": "series", "action": {"order": 0}}
+        series = {"data": [1.0, 2.0], "label": "series", "order": 0}
         response = CachedTrendsQueryResponse(
             results=[series],
             is_cached=True,

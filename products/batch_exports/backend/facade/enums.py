@@ -86,8 +86,15 @@ class IncrementalMode(LabeledStrEnum):
 
 
 # this is what is used by the Team model
-# (we could use common_timezones instead; this has 433 timezones vs 596 for all_timezones)
+# (we could use common_timezones instead, which leaves out deprecated aliases)
 TIMEZONES = [(tz, tz) for tz in pytz.all_timezones]
+
+
+# nosemgrep: tuple-return-prefer-dataclass -- Django's `choices` contract is (value, label) pairs.
+def timezone_choices() -> list[tuple[str, str]]:
+    # Callable so a pytz release that adds a zone doesn't generate a no-op migration.
+    return TIMEZONES
+
 
 S3_FAMILY_TYPES: frozenset[str] = frozenset(
     {BatchExportDestinationType.AWS_S3, BatchExportDestinationType.S3_COMPATIBLE}
@@ -107,6 +114,18 @@ OBJECT_STORAGE_DESTINATIONS: frozenset[str] = frozenset(
         BatchExportDestinationType.AZURE_BLOB,
         BatchExportDestinationType.FILE_DOWNLOAD,
     }
+)
+
+# The integration kinds that a batch export destination can use for credentials.
+BATCH_EXPORT_INTEGRATION_KINDS: tuple[str, ...] = (
+    "aws-redshift",
+    "aws-s3",
+    "azure-blob",
+    "databricks",
+    "google-cloud-service-account",
+    "postgresql",
+    "s3-compatible",
+    "snowflake",
 )
 
 S3_SUPPORTED_COMPRESSIONS: dict[str, list[str]] = {

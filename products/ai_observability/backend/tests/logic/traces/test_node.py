@@ -122,3 +122,24 @@ def test_error(_name: str, properties: dict[str, Any], expected: str | None) -> 
 )
 def test_metadata(_name: str, properties: dict[str, Any], expected: NodeMetadata) -> None:
     assert node_event("$ai_generation", properties).metadata == expected
+
+
+@parameterized.expand(
+    [
+        ("generation", "$ai_generation", {"$ai_input": MESSAGES, "$ai_output": "Done"}, MESSAGES, "Done"),
+        ("nothing captured", "$ai_generation", {}, None, None),
+        ("trace state first", "$ai_trace", {"$ai_input_state": {"q": 1}, "$ai_input": "x"}, {"q": 1}, None),
+    ]
+)
+def test_input_and_output_read_through_the_io_keys(
+    _name: str, event: str, properties: dict[str, Any], expected_input: object, expected_output: object
+) -> None:
+    node = node_event(event, properties)
+
+    assert (node.input, node.output) == (expected_input, expected_output)
+
+
+def test_custom_properties_drop_dollar_names() -> None:
+    event = node_event("$ai_generation", {"$ai_input": MESSAGES, "$ai_provider": "openai", "plan": "pro", "seats": 3})
+
+    assert event.custom_properties == {"plan": "pro", "seats": 3}

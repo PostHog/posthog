@@ -92,7 +92,7 @@ def schedule_pull_request_ready_push(pull_request: SignalReportPullRequest, *, p
 
 
 def notify_report_visible(*, team_id: int, report_id: str) -> list[int]:
-    """Push the new report to its suggested reviewers. Returns the user ids a push was queued for.
+    """Push an unaddressed new report to its suggested reviewers. Returns the queued user ids.
 
     A report with no reviewer that resolves to a project member pushes to nobody, rather than to
     the whole team.
@@ -103,7 +103,7 @@ def notify_report_visible(*, team_id: int, report_id: str) -> list[int]:
         .select_related("team")
         .first()
     )
-    if report is None:
+    if report is None or report.latest_already_addressed is True:
         return []
     reviewer_ids = resolve_org_suggested_reviewer_user_ids(team_id=team_id, report_ids=[str(report.id)]).get(
         str(report.id), set()
@@ -191,7 +191,10 @@ def notify_report_task_update(
     task = task_run.task
     reports = list(
         SignalReport.objects.filter(team_id=task.team_id)
-        .filter(Q(id=task.signal_report_id) | SignalReport.reports_for_task_ids_filter([task.id], team_id=task.team_id))
+        .filter(
+            Q(id=task.signal_report_source_id)
+            | SignalReport.reports_for_task_ids_filter([task.id], team_id=task.team_id)
+        )
         .select_related("team")
         .order_by("created_at", "id")
     )
