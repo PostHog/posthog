@@ -27,6 +27,7 @@ from posthog.models.organization import Organization
 from posthog.models.user import User
 
 from products.ai_gateway.backend.facade.api import sweep_ineligible_dev_token_owners
+from products.ai_gateway.backend.logic import live_token_hashes
 from products.ai_gateway.backend.models import DevGatewayToken
 
 _POST = "products.ai_gateway.backend.logic.requests.post"
@@ -713,6 +714,23 @@ class TestDevTokens(_DevGatewaySettings):
 
         assert not User.objects.filter(pk=user_id).exists()
         post.assert_not_called()
+
+    @override_settings(DEV_GATEWAY_URL="", DEV_GATEWAY_MINT_KEY="", DEV_GATEWAY_TEAM_ID=0)
+    def test_unconfigured_instance_has_no_token_hashes_and_refuses_revoke(self):
+        assert live_token_hashes(self.user.pk) == []
+
+        response = self.client.post(f"{URL}revoke/", {})
+
+        assert response.status_code == 503
+        assert response.json()["code"] == "unconfigured"
+
+    def test_a_failing_hash_lookup_does_not_abort_the_user_delete(self):
+        user_id = self.user.pk
+
+        with patch("products.ai_gateway.backend.logic.live_token_hashes", side_effect=RuntimeError("boom")):
+            self.user.delete()
+
+        assert not User.objects.filter(pk=user_id).exists()
 
     def test_a_broker_failure_does_not_fail_the_deactivation(self):
         self._live_token()
