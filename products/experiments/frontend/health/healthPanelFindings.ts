@@ -30,7 +30,6 @@ export type HealthPanelFinding = Pick<
 export interface HealthFindingGroup {
     finding: HealthPanelFinding
     effects: HealthPanelFinding[]
-    /** The most severe of the finding and its effects. */
     severity: HealthPanelFinding['severity']
 }
 
@@ -114,6 +113,10 @@ export function healthFindingGroups(findings: HealthPanelFinding[] | null): Heal
             return { finding, effects, severity }
         })
     return groups.sort((a, b) => SEVERITY_ORDER[a.severity] - SEVERITY_ORDER[b.severity])
+}
+
+export function healthFindingEffects(finding: HealthPanelFinding, groups: HealthFindingGroup[]): HealthPanelFinding[] {
+    return groups.find((group) => group.finding === finding)?.effects ?? []
 }
 
 /** The groups the header chip counts: one per cause, so a cause with three findings is one issue to fix. */

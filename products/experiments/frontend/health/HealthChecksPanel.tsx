@@ -19,7 +19,7 @@ import { HealthFindingDetail } from './HealthFindingDetail'
 import { HealthFindingListItem } from './HealthFindingListItem'
 import { HealthOverviewDetail } from './HealthOverviewDetail'
 import { type HealthPanelCheck, listedHealthChecks } from './healthPanelChecks'
-import { type HealthPanelFinding, healthFindingGroups } from './healthPanelFindings'
+import { type HealthPanelFinding, healthFindingEffects, healthFindingGroups } from './healthPanelFindings'
 import { type HealthPanelSelection, healthFindingKey, resolveHealthPanelSelection } from './healthPanelSelection'
 
 export function HealthChecksPanel({
@@ -59,8 +59,6 @@ export function HealthChecksPanel({
         groups.map((group) => group.finding),
         listedChecks
     )
-    const selectedGroup =
-        selection.kind === 'finding' ? groups.find((group) => group.finding === selection.finding) : null
     const units = aggregationLabel(experiment.feature_flag?.filters?.aggregation_group_type_index, true).plural
     const exposureCheckKeys = new Set<string>(exposures?.health_checks?.map(({ key }) => key))
     const exposureCheckedAt = exposureAnswerComputedAt(exposures)
@@ -177,7 +175,7 @@ export function HealthChecksPanel({
                     {selection.kind === 'finding' ? (
                         <HealthFindingDetail
                             finding={selection.finding}
-                            effects={selectedGroup?.effects ?? []}
+                            effects={healthFindingEffects(selection.finding, groups)}
                             check={checks.find(({ key }) => key === selection.finding.check) ?? null}
                             units={units}
                             exposures={exposures}

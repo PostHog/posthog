@@ -590,7 +590,6 @@ def _mismatch(
 @frozen
 class _ConditionsChangeCause:
     move: VariantMove
-    # The sample ratio test of the users first exposed after the day of the change.
     p_value_after: float
 
 

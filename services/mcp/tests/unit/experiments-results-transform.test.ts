@@ -359,6 +359,7 @@ describe('transformExperimentResults', () => {
                     code: 'split_changed_mid_run' as const,
                     check: 'split_changed_mid_run' as const,
                     severity: 'warning' as const,
+                    caused_by: null,
                 },
             ],
             checks: [

@@ -105,7 +105,6 @@ class MultipleVariantCause:
     """A flag change that explains the users exposed to more than one variant."""
 
     move: VariantMove
-    # The users in more than one variant who were first exposed before the day of the change.
     multiple_before: int
     # The users in more than one variant among those first exposed after the day of the change, on the 0-100 scale.
     share_after: float
