@@ -13630,12 +13630,12 @@ Today (12): `calls`, `contacts`, `deals`, `leads`, `notes`, `orders`, `pipelines
 
 Diffed against: <https://developer.zendesk.com/api-reference/sales-crm/resources/introduction/>
 
-- [ ] `associated_contacts (GET /v2/deals/{deal_id}/associated_contacts)` — the deal-to-contact junction table; without it you cannot attribute deals to the contacts involved (high)
-- [ ] `line_items (GET /v2/orders/{order_id}/line_items)` — per-order product lines with quantity, price and discount - the revenue detail behind orders we already sync (high)
-- [ ] `loss_reasons` — lookup table resolving the loss_reason_id already present on deals; required for any win/loss analysis (high)
-- [ ] `deal_sources` — lookup table resolving deals.source_id; unlocks pipeline-by-source attribution (high)
-- [ ] `lead_sources` — lookup table resolving leads.source_id; unlocks lead-source attribution (high)
-- [ ] `lead_conversions` — the lead-to-contact/deal transition record - the only way to build a conversion funnel across the objects we already sync (high)
+- [x] `associated_contacts (GET /v2/deals/{deal_id}/associated_contacts)` — the deal-to-contact junction table; without it you cannot attribute deals to the contacts involved (high)
+- [x] `line_items (GET /v2/orders/{order_id}/line_items)` — per-order product lines with quantity, price and discount - the revenue detail behind orders we already sync (high)
+- [x] `loss_reasons` — lookup table resolving the loss_reason_id already present on deals; required for any win/loss analysis (high)
+- [x] `deal_sources` — lookup table resolving deals.source_id; unlocks pipeline-by-source attribution (high)
+- [x] `lead_sources` — lookup table resolving leads.source_id; unlocks lead-source attribution (high)
+- [x] `lead_conversions` — the lead-to-contact/deal transition record - the only way to build a conversion funnel across the objects we already sync (high)
 - [ ] `custom_fields` — field-definition lookup that names and types the custom_fields blobs on contacts, deals and leads (medium)
 - [ ] `deal_unqualified_reasons` — lookup resolving the unqualified_reason_id on deals (medium)
 - [ ] `lead_unqualified_reasons` — lookup resolving the unqualified_reason_id on leads (medium)
