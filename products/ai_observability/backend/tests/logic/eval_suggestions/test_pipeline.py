@@ -14,7 +14,7 @@ from django.utils import timezone
 import httpx
 import openai
 from anthropic import APIConnectionError
-from anthropic.types import ToolUseBlock, Usage
+from anthropic.types import TextBlock, Usage
 from parameterized import parameterized
 
 from posthog.hogql_queries.ai.utils import HEAVY_PROPERTY_NAMES
@@ -223,11 +223,11 @@ def _judge_replies(judge_fails: set[int]) -> Callable[..., MagicMock]:
     return reply
 
 
-def _tool_reply(name: str, tool_input: dict[str, Any]) -> MagicMock:
+def _json_reply(answer: dict[str, Any]) -> MagicMock:
     return MagicMock(
-        content=[ToolUseBlock(id="toolu_1", name=name, input=tool_input, type="tool_use")],
+        content=[TextBlock(text=json.dumps(answer), type="text")],
         usage=Usage(input_tokens=1000, output_tokens=500),
-        stop_reason="tool_use",
+        stop_reason="end_turn",
     )
 
 
@@ -329,8 +329,8 @@ class TestPipeline(ClickhouseTestMixin, APIBaseTest):
         }
         client = MagicMock()
         client.messages.create.side_effect = [
-            _tool_reply("pick_call_types", {"exclude": False, "picked": [{"id": "T1", "why": "answers users"}]}),
-            _tool_reply("propose_cards", {"product": "a shop", "themes": [], "cards": [card]}),
+            _json_reply({"exclude": False, "picked": [{"id": "T1", "why": "answers users"}]}),
+            _json_reply({"product": "a shop", "themes": [], "cards": [card]}),
         ]
         judge = MagicMock(spec=openai.OpenAI)
         judge.chat.completions.create.side_effect = _judge_replies(judge_fails)
@@ -490,7 +490,7 @@ class TestReviewBudget(BaseTest):
         connection_reset = APIConnectionError(request=httpx.Request("POST", "https://gateway.example.com"))
         client = MagicMock()
         client.messages.create.side_effect = [
-            _tool_reply("pick_call_types", {"exclude": False, "picked": []}),
+            _json_reply({"exclude": False, "picked": []}),
             *[connection_reset] * call_review.ATTEMPTS,
         ]
 
@@ -500,7 +500,7 @@ class TestReviewBudget(BaseTest):
                 paid_call(failed, client, request, budget)
             refused_call = paid_call(refused, client, request, budget)
 
-        assert call is not None and call.tool_input == {"exclude": False, "picked": []}
+        assert call is not None and call.answer == {"exclude": False, "picked": []}
         assert refused_call is None
         spent = dict(EvalSuggestionRun.objects.for_team(self.team.pk).values_list("id", "cost_usd"))
         assert spent[served.id] == pytest.approx(served_cost)
