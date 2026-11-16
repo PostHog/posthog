@@ -1320,13 +1320,19 @@ async def test_run_steps_substitutes_fresh_window_into_placeholder_sql(mock_exec
 
 
 @pytest.mark.parametrize(
-    "spec,run_result",
+    "spec,run_result,prompt",
     [
         # All steps failed: freezing would replay a broken plan every delivery instead of re-planning.
-        pytest.param(_spec_with_window_placeholder(), _ALL_FAILED_RUN, id="all_failed"),
+        pytest.param(_spec_with_window_placeholder(), _ALL_FAILED_RUN, "x", id="all_failed"),
         # No window placeholder: freezing would cement an unbounded, window-less scan forever.
-        pytest.param(_spec(steps=1), _OK_RUN, id="missing_window_placeholder"),
-        pytest.param(_spec_with_window_placeholder(), _NO_ROWS_RUN, id="no_step_found_data"),
+        pytest.param(_spec(steps=1), _OK_RUN, "x", id="missing_window_placeholder"),
+        pytest.param(_spec_with_window_placeholder(), _NO_ROWS_RUN, "x", id="no_step_found_data"),
+        pytest.param(
+            _spec_with_window_placeholder(),
+            _OK_RUN,
+            "Run exactly: SELECT count() FROM ci_jobs WHERE created_at >= today() - INTERVAL 21 DAY",
+            id="prompt_sets_own_date_bounds",
+        ),
     ],
 )
 @patch(_SLO_CAPTURE)
@@ -1340,6 +1346,7 @@ async def test_unfreezable_plans_are_not_frozen(
     _mock_capture: MagicMock,
     spec: EnrichedPromptSpec,
     run_result: tuple,
+    prompt: str,
 ) -> None:
     mock_bep.return_value = spec
     mock_run.return_value = run_result
@@ -1349,7 +1356,7 @@ async def test_unfreezable_plans_are_not_frozen(
         custom_layout=[ReportText(items=[ReportTextItem(kind="text", text="# Report")])],
     )
 
-    result = await generate_ai_report(team=MagicMock(), user=MagicMock(), prompt="x", window=_test_window())
+    result = await generate_ai_report(team=MagicMock(), user=MagicMock(), prompt=prompt, window=_test_window())
 
     assert result.plan_to_persist is None
     assert result.query_plan_status == AIQueryPlanStatus.NOT_FROZEN
