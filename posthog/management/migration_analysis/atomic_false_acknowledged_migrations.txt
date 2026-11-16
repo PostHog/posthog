@@ -64,3 +64,7 @@ signals.0230_monitoring_research_delivery_indexes
 # ignores rows the unique constraint already holds.
 business_knowledge.0029_backfill_knowledge_run_citations
 skills.0012_backfill_skill_search_vectors
+# Appends a scope to mirror PSAK rows in batches and commits each batch alone, because live
+# auth updates last_used_at on those rows. Re-running adds nothing: each batch excludes rows
+# that already carry the scope.
+posthog.1436_grant_mirror_account_write
