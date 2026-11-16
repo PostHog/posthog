@@ -105,6 +105,9 @@ def _create_task_artifact(
     return f"http://testserver/api/projects/{project}/tasks/{task.id}/runs/{run.id}/artifacts/file-1/download/"
 
 
+RELEASES_ENABLED = "products.release.backend.facade.api.releases_enabled"
+
+
 class TestParsePosthogResourceLink:
     @parameterized.expand(
         [
@@ -161,6 +164,12 @@ class TestParsePosthogResourceLink:
             ("replay", "https://us.posthog.com/project/42/replay/0192f0a0", None, None),
             ("opted_out", "https://us.posthog.com/project/42/insights/abc123?unfurl=false", None, None),
             ("unrelated", "https://example.com/foo", None, None),
+            (
+                "release",
+                "https://us.posthog.com/project/42/releases/01a1e3b0-9c9e-7b9e-a277-845822d7e162",
+                "release",
+                "01a1e3b0-9c9e-7b9e-a277-845822d7e162",
+            ),
         ]
     )
     def test_parse(self, _name: str, url: str, kind: str | None, object_id: str | None) -> None:
@@ -961,6 +970,15 @@ class TestHandlePosthogLinkUnfurl(APIBaseTest):
                     questions=[{"type": "open", "question": "Why?"}],
                 )
                 return f"{base}/surveys/{survey.pk}", ["Checkout NPS", "*Draft*", "1 question", "1. Why?"]
+            case "release":
+                flag = FeatureFlag.objects.create(team=self.team, key="checkout-v2", created_by=self.user, active=True)
+                with patch(RELEASES_ENABLED, return_value=True):
+                    release_id = self.client.post(
+                        f"/api/projects/{self.team.pk}/releases/",
+                        {"name": "Checkout v2", "description": "One-page checkout", "feature_flag_ids": [flag.pk]},
+                        format="json",
+                    ).json()["id"]
+                return f"{base}/releases/{release_id}", ["Release", "Checkout v2", "1 flag", "checkout-v2 · Active"]
             case "cohort":
                 cohort = Cohort.objects.create(team=self.team, name="Power users", count=1200)
                 return f"{base}/cohorts/{cohort.pk}", ["Power users", "1,200 persons"]
@@ -1101,6 +1119,7 @@ class TestHandlePosthogLinkUnfurl(APIBaseTest):
                 "task",
                 "task_artifact",
                 "task_artifacts_tab",
+                "release",
             )
         ]
     )
@@ -1152,6 +1171,34 @@ class TestHandlePosthogLinkUnfurl(APIBaseTest):
         self._unfurl_links([url])
 
         mock_client.chat_unfurl.assert_not_called()
+
+    @patch("products.slack_app.backend.api.resolve_slack_user")
+    @patch("products.slack_app.backend.slack_link_unfurl.SlackIntegration")
+    def test_release_card_hides_flags_the_sharer_cannot_view(
+        self, mock_slack_integration_class: MagicMock, mock_resolve: MagicMock
+    ) -> None:
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save()
+        flag = FeatureFlag.objects.create(team=self.team, key="secret-pricing", created_by=self.user, active=True)
+        with patch(RELEASES_ENABLED, return_value=True):
+            self.client.post(f"/api/projects/{self.team.pk}/releases/import_all/")
+            release_id = self.client.get(f"/api/projects/{self.team.pk}/releases/").json()["results"][0]["id"]
+        AccessControl.objects.create(
+            team=self.team, resource="feature_flag", resource_id=str(flag.pk), access_level="none"
+        )
+        member = User.objects.create_and_join(self.organization, "release-viewer@posthog.com", "password")
+        mock_resolve.return_value = MagicMock(user=member)
+        mock_client = MagicMock()
+        mock_slack_integration_class.return_value.client = mock_client
+        url = f"http://testserver/project/{self.team.pk}/releases/{release_id}"
+
+        self._unfurl_links([url])
+
+        text = self._unfurl_text(mock_client.chat_unfurl.call_args.kwargs["unfurls"][url])
+        assert "Release of a restricted flag" in text
+        assert "secret" not in text.lower()
 
     @patch("products.slack_app.backend.api.resolve_slack_user")
     @patch("products.slack_app.backend.slack_link_unfurl.SlackIntegration")

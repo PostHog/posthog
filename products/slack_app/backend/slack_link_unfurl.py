@@ -57,6 +57,7 @@ from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.notebooks.backend.models import Notebook
 from products.product_analytics.backend.facade.api import insights_including_soft_deleted_for_team
 from products.product_analytics.backend.facade.models import Insight
+from products.release.backend.facade import api as releases_api
 from products.signals.backend.facade.reports import get_report_card, may_read_reports
 from products.slack_app.backend.analytics import capture_slack_event
 from products.slack_app.backend.logic.feature_tips.features import SlackFeature
@@ -119,6 +120,7 @@ _UNFURL_TEMPLATES: dict[str, tuple[str, ...]] = {
     "cohort": OBJECT_URL_TEMPLATES["cohort"],
     "error": OBJECT_URL_TEMPLATES["error"],
     "report": ("/inbox/{tab}/{id}", *OBJECT_URL_TEMPLATES["report"]),
+    "release": ("/releases/{id}",),
 }
 
 _KIND_EMOJI: dict[str, str] = {
@@ -134,6 +136,7 @@ _KIND_EMOJI: dict[str, str] = {
     "survey": "📝",
     "cohort": "👥",
     "error": "🐞",
+    "release": "🚀",
     ADHOC_INSIGHT_KIND: "📈",
 }
 
@@ -1109,6 +1112,37 @@ def _survey_card(ctx: _UnfurlContext, ref: str, url: str) -> _UnfurlCard | _Skip
     )
 
 
+def _release_card(ctx: _UnfurlContext, ref: str, url: str) -> _UnfurlCard | _SkipReason:
+    release_id = _uuid(ref)
+    if release_id is None:
+        return "not_found"
+    try:
+        release = releases_api.get_summary(ctx.team.pk, release_id)
+    except releases_api.ReleaseNotFoundError:
+        return "not_found"
+    flags = FeatureFlag.objects.filter(team_id=ctx.team.pk, pk__in=release.feature_flag_ids, deleted=False)
+    visible = [flag for flag in flags if ctx.uac.check_access_level_for_object(flag, required_level="viewer")]
+    hidden = len(visible) < len(flags)
+    counts = [
+        (len(visible), "flag"),
+        (release.survey_count, "survey"),
+        (release.insight_count, "insight"),
+        (release.broadcast_count, "broadcast"),
+    ]
+    lines = [f"{flag.key} · {'Active' if flag.active else 'Disabled'}" for flag in visible]
+    return _UnfurlCard(
+        label="Release",
+        title=releases_api.RESTRICTED_NAME if release.auto_named and hidden else release.name,
+        details=(
+            *(_count(value, noun) for value, noun in counts if value),
+            *((f"Owner {release.owner_first_name}",) if release.owner_first_name else ()),
+        ),
+        chart="\n".join(_capped_lines(lines)) or None,
+        body=release.description or None,
+        timestamp=release.updated_at,
+    )
+
+
 def _cohort_card(ctx: _UnfurlContext, ref: str, url: str) -> _UnfurlCard | _SkipReason:
     cohort = Cohort.objects.filter(team_id=ctx.team.pk, pk=ref, deleted=False).first() if ref.isdigit() else None
     if not cohort:
@@ -1177,6 +1211,7 @@ _CARD_BUILDERS: dict[str, Callable[[_UnfurlContext, str, str], _UnfurlCard | _Sk
     "cohort": _cohort_card,
     "error": _error_card,
     "report": _report_card,
+    "release": _release_card,
 }
 
 
