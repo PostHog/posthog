@@ -1,7 +1,12 @@
 import type { UserBasicApi, WorkflowStatsRowApi } from 'products/workflows/frontend/generated/api.schemas'
 
-import { buildWorkflowListRows } from './workflowListRows'
+import { findFacet } from './FacetSearchBar/facetQuery'
+import { buildWorkflowListFacets } from './workflowListFacets'
+import { WorkflowListRow, buildWorkflowListRows } from './workflowListRows'
 import { FIXTURE_USERS, buildWorkflowRow } from './workflowsListV2Fixtures'
+
+const valuesOf = (facetKey: string, row: WorkflowListRow): string[] =>
+    findFacet(buildWorkflowListFacets([]), facetKey)!.getValues(row)
 
 describe('buildWorkflowListRows', () => {
     it.each<[string, string, UserBasicApi | null, string[]]>([
@@ -22,6 +27,8 @@ describe('buildWorkflowListRows', () => {
         ['a co-owner is not the owner', 'Co-owner: @sam', FIXTURE_USERS.ada, ['ada']],
         ['a previous owner is not the owner', 'Previous owner: @jo', FIXTURE_USERS.ada, ['ada']],
         ['a bullet line counts', 'Sends reminders.\n- Owner: @kim', FIXTURE_USERS.lin, ['kim']],
+        ['a star bullet counts', '* Owner: @kim', FIXTURE_USERS.lin, ['kim']],
+        ['an indented line counts', 'Sends reminders\n  Owner: @kim', FIXTURE_USERS.lin, ['kim']],
         ['an owner in parentheses counts', 'Weekly digest (owner: @kim)', FIXTURE_USERS.ada, ['kim']],
         ['the creator gives their first name', '', FIXTURE_USERS.ada, ['ada']],
         ['the creator without a first name gives their email name', '', FIXTURE_USERS.lin, ['lin.ops']],
@@ -33,6 +40,7 @@ describe('buildWorkflowListRows', () => {
         )
 
         expect(row.owners).toEqual(owners)
+        expect(valuesOf('owner', row)).toEqual(owners)
     })
 
     it.each<[string, WorkflowStatsRowApi[] | null, object]>([
@@ -54,6 +62,26 @@ describe('buildWorkflowListRows', () => {
         const [row] = buildWorkflowListRows([buildWorkflowRow({ id: 'wf' })], metrics)
 
         expect(row).toMatchObject(expected)
+    })
+
+    it.each([
+        ['a failed run', [{ workflow_id: 'wf', succeeded: 10, failed: 1 }], ['failing']],
+        ['only succeeded runs', [{ workflow_id: 'wf', succeeded: 10, failed: 0 }], ['healthy']],
+        ['a row with no runs', [{ workflow_id: 'wf', succeeded: 0, failed: 0 }], ['idle']],
+        ['no row for the workflow', [], ['idle']],
+        ['metrics not loaded', null, []],
+    ])('health facet with %s', (_, metrics, expected) => {
+        const [row] = buildWorkflowListRows([buildWorkflowRow({ id: 'wf' })], metrics)
+        expect(valuesOf('health', row)).toEqual(expected)
+    })
+
+    it.each([
+        ['an event trigger', { type: 'event' }, ['event']],
+        ['no trigger', null, []],
+        ['a trigger without a type', {}, []],
+    ])('trigger facet from %s', (_, trigger, expected) => {
+        const [row] = buildWorkflowListRows([buildWorkflowRow({ id: 'wf', trigger })], null)
+        expect(valuesOf('trigger', row)).toEqual(expected)
     })
 
     it('puts the most recently updated workflow first', () => {

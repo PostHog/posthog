@@ -127,6 +127,12 @@ export const hogFlowsCreateBodyActionsItemConfigTwoEventsItemFiltersOneSourceDef
 export const HogFlowsCreateBody = () => zod
     .object({
         _create_in_folder: zod.string().optional().describe('Project folder for a newly created workflow.'),
+        folder: zod
+            .string()
+            .optional()
+            .describe(
+                "Project folder to create the workflow in, such as 'Campaigns\/Retention'. Read only when creating a workflow."
+            ),
         name: zod.string().max(hogFlowsCreateBodyNameMax).nullish().describe('Workflow name.'),
         description: zod.string().default(hogFlowsCreateBodyDescriptionDefault).describe('Optional description.'),
         tags: zod

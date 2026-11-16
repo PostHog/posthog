@@ -15,7 +15,7 @@ import hooks_workflowsDataSuggestionsCreate from '@/tools/workflows/dataSuggesti
 
 const BroadcastsCreateSchema = () => {
     const HogFlowsCreateBody = orvalSchemas.HogFlowsCreateBody()
-    return HogFlowsCreateBody.omit({ _create_in_folder: true })
+    return HogFlowsCreateBody.omit({ _create_in_folder: true, folder: true })
 }
 
 const broadcastsCreate = (): ToolBase<ReturnType<typeof BroadcastsCreateSchema>, WithPostHogUrl<Schemas.HogFlow>> => ({
@@ -112,6 +112,9 @@ const workflowsCreate = (): ToolBase<ReturnType<typeof WorkflowsCreateSchema>, W
             async (context: Context, params: z.infer<ReturnType<typeof WorkflowsCreateSchema>>) => {
                 const projectId = await context.stateManager.getProjectId()
                 const body: Record<string, unknown> = {}
+                if (params.folder !== undefined) {
+                    body['folder'] = params.folder
+                }
                 if (params.name !== undefined) {
                     body['name'] = params.name
                 }
