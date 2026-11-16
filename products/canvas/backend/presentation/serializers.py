@@ -152,22 +152,28 @@ class CanvasSerializer(UserAccessControlSerializerMixin, serializers.Serializer)
                 resource="canvas", id=str(obj.id), team_id=obj.team_id, created_by_id=obj.created_by_id
             )
         level = super().get_user_access_level(obj)
-        if level == "editor" and isinstance(obj, ObjectAccessRef) and obj.id not in self._edit_canvas_ids():
+        if level == "editor" and isinstance(obj, ObjectAccessRef) and not self._can_edit(obj.id):
             # The space rule narrows editing beyond the object-level grant, so don't offer edit controls that 404.
             return "viewer"
         return level
 
-    def _edit_canvas_ids(self) -> set[str]:
-        """Ids the viewer may edit, computed once per request and kept on the view."""
+    def _can_edit(self, canvas_id: str) -> bool:
+        """Whether the viewer may edit the canvas, answered for the whole page being serialised at once.
+
+        The answers stay on the view, so a list costs one query however many rows it holds.
+        """
         view = self.context.get("view")
         viewer_for = getattr(view, "_viewer", None)
         if view is None or viewer_for is None:
-            return set()
-        cached = getattr(view, "_canvas_edit_ids", None)
-        if cached is None:
-            cached = editable_canvas_ids(viewer_for())
-            view._canvas_edit_ids = cached
-        return cached
+            return False
+        answers: dict[str, bool] = view.__dict__.setdefault("_canvas_edit_answers", {})
+        if canvas_id not in answers:
+            siblings = self.parent.instance if isinstance(self.parent, serializers.ListSerializer) else [self.instance]
+            batch = {canvas_id, *(str(row.id) for row in siblings or [] if isinstance(row, CanvasRecord))}
+            unanswered = batch - answers.keys()
+            editable = editable_canvas_ids(viewer_for(), unanswered)
+            answers.update({pending: pending in editable for pending in unanswered})
+        return answers[canvas_id]
 
 
 class CanvasCreateSerializer(serializers.Serializer):

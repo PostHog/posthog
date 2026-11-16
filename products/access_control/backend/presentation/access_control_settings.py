@@ -549,15 +549,16 @@ class AccessControlSettingsViewSetMixin(_GenericViewSet):
                 resource="project"
             )
         )
+        rows = self._rows_on_visible_objects(team, rows)
         if not rows:
             return Response(AccessControlObjectRulesResponseSerializer({"results": []}).data)
 
         ids_by_resource: dict[str, list[str]] = defaultdict(list)
         for ac in rows:
             ids_by_resource[ac.resource].append(ac.resource_id)
-        # Names resolve for every rule, including objects the caller cannot access themselves:
-        # rules lists show what is configured, while the picker search and the rule write are the
-        # surfaces that hide inaccessible objects
+        # Names resolve for every rule on an object the product lets the caller open, including
+        # ones their access level hides: rules lists show what is configured, while the picker
+        # search and the rule write are the surfaces that hide those
         names_by_resource = {
             resource: resolve_object_names(resource, ids, team.id) for resource, ids in ids_by_resource.items()
         }
@@ -792,14 +793,40 @@ class AccessControlSettingsViewSetMixin(_GenericViewSet):
             build_serializer=self._rule_serializer_builder(team, user_access_control, target, data),
         )
 
-    def _only_visible_objects(self, team: Team, resource: str, objects: QuerySet) -> QuerySet:
+    def _rows_on_visible_objects(self, team: Team, rows: list[AccessControl]) -> list[AccessControl]:
+        """Drops rules on objects a product's own visibility rule hides from the requester, such as a canvas in another member's space."""
+        ids_by_resource: dict[str, set[str]] = defaultdict(set)
+        for ac in rows:
+            ids_by_resource[ac.resource].add(str(ac.resource_id))
+        hidden: set[tuple[str, str]] = set()
+        for resource, ids in ids_by_resource.items():
+            display = display_model(resource)
+            visible_ids = self._visible_ids_subquery(team, resource)
+            if display is None or visible_ids is None:
+                continue
+            try:
+                visible = {
+                    str(pk)
+                    for pk in display.model._base_manager.filter(team_id=team.id, pk__in=ids)
+                    .filter(pk__in=visible_ids)
+                    .values_list("pk", flat=True)
+                }
+            except (ValueError, DjangoValidationError):
+                visible = set()
+            hidden.update((resource, resource_id) for resource_id in ids - visible)
+        return [ac for ac in rows if (ac.resource, str(ac.resource_id)) not in hidden]
+
+    def _visible_ids_subquery(self, team: Team, resource: str) -> QuerySet | None:
         user = self.request.user
-        visible = visible_object_ids(
+        return visible_object_ids(
             resource,
             team_id=team.id,
             user_id=user.id if isinstance(user, User) else None,
             sandboxed=is_sandbox_oauth_request(self.request),
         )
+
+    def _only_visible_objects(self, team: Team, resource: str, objects: QuerySet) -> QuerySet:
+        visible = self._visible_ids_subquery(team, resource)
         return objects if visible is None else objects.filter(pk__in=visible)
 
     def _visible_object(

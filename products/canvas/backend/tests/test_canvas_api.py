@@ -1064,6 +1064,13 @@ class TestCanvasObjectAccessControl(CanvasAPIBaseTest):
             )
             assert rule.status_code == expected, rule.json()
 
+        AccessControl.objects.create(
+            team=self.team, resource="canvas", resource_id=str(private.id), access_level="viewer"
+        )
+        listed = self.client.get(f"{settings}/access_control_default_objects")
+        assert listed.status_code == status.HTTP_200_OK, listed.json()
+        assert [row["name"] for row in listed.json()["results"]] == ["Team board"]
+
 
 class TestCanvasSourceAndPublish(CanvasAPIBaseTest):
     def test_source_of_unpublished_canvas_is_synthetic_and_blank(self):
