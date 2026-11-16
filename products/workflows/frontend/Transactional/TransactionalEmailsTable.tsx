@@ -18,7 +18,6 @@ import { LemonTable, LemonTableColumn } from 'lib/lemon-ui/LemonTable'
 import { createdByColumn, updatedAtColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
 import { LemonTableLink } from 'lib/lemon-ui/LemonTable/LemonTableLink'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -40,7 +39,6 @@ const COLUMN_BREAKPOINTS = { 0: 'narrow', 760: 'wide' } as const
 export function TransactionalEmailsTable(): JSX.Element {
     const {
         hasNoEmails,
-        codeEmails,
         transactionalTemplatesFailed,
         filteredTransactionalEmails,
         transactionalTemplatesLoading,
@@ -52,15 +50,8 @@ export function TransactionalEmailsTable(): JSX.Element {
     const { setFilters, saveTransactionalTags } = useActions(transactionalEmailsLogic)
     const { currentTeam } = useValues(teamLogic)
     const sendFromCodeEnabled = useFeatureFlag('WORKFLOWS_EMAIL_FROM_CODE')
-    const { receivedFeatureFlags } = useValues(featureFlagLogic)
     const [guideOpen, setGuideOpen] = useState(false)
-    const codeEmailsSettled = !transactionalTemplatesLoading && (transactionalTemplatesFailed || codeEmails !== null)
-    useSendFromCodeGuideLink({
-        surface: hasNoEmails ? 'transactional_empty' : 'transactional',
-        settled: receivedFeatureFlags && (!sendFromCodeEnabled || codeEmailsSettled),
-        offered: sendFromCodeEnabled && codeEmailsSettled && !transactionalTemplatesFailed && codeEmails?.length === 0,
-        onOpen: hasNoEmails ? undefined : () => setGuideOpen(true),
-    })
+    useSendFromCodeGuideLink(() => setGuideOpen(true))
     const { ref: widthRef, size } = useResizeBreakpoints(COLUMN_BREAKPOINTS, { initialSize: 'wide' })
     const wide = size === 'wide'
     // Same check as the "New transactional email" button: changing a template needs Editor access.
