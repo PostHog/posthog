@@ -18,6 +18,9 @@ FEATURE_FLAG = "llm-analytics-eval-suggestions"
 SHADOW_FEATURE_FLAG = "llm-analytics-eval-suggestions-shadow"
 # Tags the paid model calls in the gateway's analytics.
 AI_PRODUCT = "aio_eval_suggestions"
+REVIEW_CALLS = 70
+# The review's text grows with its calls, so a payload typo cannot push it past the review model's context.
+MAX_REVIEW_CALLS = 200
 
 
 @frozen
@@ -27,6 +30,7 @@ class SuggestionSettings:
     llm_budget_usd_per_run: float = 20.0
     max_teams_per_run: int = 2000
     max_concurrent_teams: int = 4
+    review_calls: int = REVIEW_CALLS
 
 
 def parse_settings(payload: Any) -> SuggestionSettings:
@@ -60,6 +64,7 @@ def parse_settings(payload: Any) -> SuggestionSettings:
         llm_budget_usd_per_run=float(positive("llm_budget_usd_per_run", defaults.llm_budget_usd_per_run)),
         max_teams_per_run=count("max_teams_per_run", defaults.max_teams_per_run),
         max_concurrent_teams=count("max_concurrent_teams", defaults.max_concurrent_teams),
+        review_calls=min(count("review_calls", defaults.review_calls), MAX_REVIEW_CALLS),
     )
 
 
