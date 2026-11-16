@@ -16,14 +16,14 @@ export function TagRuleModal(): JSX.Element {
     return (
         <RuleModal
             logic={tagRuleModalLogic}
-            ruleLabel="tag"
+            ruleLabel="label"
             description="New issues get this label when their first exception matches the filters. The rule applies to new issues only. Deleting it removes the label from every issue."
             pageKey="tag-rule-modal"
             taxonomicGroupTypes={[TaxonomicFilterGroupType.EventProperties]}
             saveDisabledReason={saveDisabledReason}
             suffix={(issuesLink, dateRangeLabel) => (
                 <>
-                    across {issuesLink} would have matched this tag rule in the last {dateRangeLabel}
+                    across {issuesLink} would have matched this label rule in the last {dateRangeLabel}
                 </>
             )}
             extraFields={
