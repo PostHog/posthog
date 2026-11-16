@@ -21,7 +21,11 @@ Classic tool-result messages do not carry a success or failure flag. Activity tr
 Pending approvals and clarification forms pause reconnection until the person responds.
 The classic chat hook exposes form questions from both streamed replies and history, with submit and dismiss methods.
 Form responses send no new chat message; they resume the conversation with the selected answers or a dismissal.
+Single selections and composite fields use string answers, and multiple selections use string arrays.
+Composite answers use each field's ID as the key; skipped questions contribute no answer keys.
+Slider fields use bounded numeric inputs on mobile, preserving the server's min, max, and step.
 Notebook artifacts retain their Markdown and chart blocks, with links to saved notebooks and a web fallback for other content.
+Their Copy action includes the combined notebook text and chart links.
 Chart previews use supplied results when available. Saved insight previews read `insights/{id}/`;
 supported generated chart and SQL previews use `query/` when they need results.
 They use the same native renderers as Views and retain an action to open the chart or insight on the web.

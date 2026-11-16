@@ -507,8 +507,20 @@ describe('classic conversation events', () => {
             { text: 'A conclusion.' },
             { text: '[View notebook](https://app.example.com/project/42/notebooks/report-1)' },
         ])
-        data.content.is_saved = false
-        const draft = classicThreadItems(classicHistory([data], null), 'https://app.example.com/project/42')[0]
-        expect(draft && 'text' in draft ? draft.text : '').not.toContain('[View notebook]')
+        const items = classicThreadItems(state, 'https://app.example.com/project/42')
+        const chart = items.find((item) => item.kind === 'visualization')
+        expect(items.at(-1)).toMatchObject({
+            copyText: `# Report\n\nA synthetic summary.\n\n[View chart](${chart?.kind === 'visualization' ? chart.webUrl : ''})\n\nOpen this report on the web to view this content.\n\nA conclusion.\n\n[View notebook](https://app.example.com/project/42/notebooks/report-1)`,
+        })
+        const draftData = {
+            ...data,
+            content: { ...data.content, is_saved: false, blocks: data.content.blocks.slice(0, 2) },
+        }
+        const draft = classicThreadItems(classicHistory([draftData], null), 'https://app.example.com/project/42').at(-1)
+        expect(draft).toMatchObject({
+            kind: 'visualization',
+            copyText: expect.stringContaining('# Report\n\nA synthetic summary.'),
+        })
+        expect(draft && 'copyText' in draft ? draft.copyText : '').not.toContain('[View notebook]')
     })
 })

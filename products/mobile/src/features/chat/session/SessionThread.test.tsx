@@ -181,6 +181,25 @@ describe('SessionThread', () => {
         expect(JSON.stringify(capture.mock.calls)).not.toContain('SELECT 1')
     })
 
+    test.each(['assistant', 'visualization'] as const)(
+        'copies updated notebook text from its final %s item',
+        async (kind) => {
+            const copy = jest.spyOn(Clipboard, 'setStringAsync').mockResolvedValue(true)
+            jest.spyOn(visualizations, 'ChatVisualization').mockImplementation(({ children }) => <>{children}</>)
+            const thread = (copyText: string): ReactElement => {
+                const item: SessionThreadItem =
+                    kind === 'assistant'
+                        ? { kind, id: 'notebook', text: 'View notebook', complete: true, copyText }
+                        : { kind, id: 'notebook', title: 'Draft notebook chart', copyText }
+                return <SessionThread session={session({ items: [item] })} onRetryHistory={jest.fn()} />
+            }
+            const view = render(thread('Original report'))
+            view.rerender(thread('# Updated report\n\n[View chart](https://example.com/chart)'))
+            await act(async () => fireEvent.press(screen.getByLabelText('Copy message text')))
+            expect(copy).toHaveBeenCalledWith('# Updated report\n\n[View chart](https://example.com/chart)')
+        }
+    )
+
     test('renders visualization items between the surrounding messages', () => {
         jest.spyOn(visualizations, 'ChatVisualization').mockImplementation(({ title }) => (
             <Text testID="inline-chart-preview">{title}</Text>

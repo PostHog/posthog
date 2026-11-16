@@ -53,7 +53,7 @@ const AssistantRow = memo(
                 <ChatMarkdown text={item.text} streaming={!item.complete} projectUrl={item.projectUrl} />
                 {actions ? (
                     <View style={styles.actions}>
-                        <CopyMessageButton text={item.text} messageRole="assistant" />
+                        <CopyMessageButton text={item.copyText ?? item.text} messageRole="assistant" />
                         {feedback ? (
                             <MessageFeedbackActions
                                 key={`${feedback.sessionId}:${feedback.traceId ?? feedback.turnIndex}`}
@@ -68,6 +68,7 @@ const AssistantRow = memo(
     },
     (previous, next) =>
         previous.item.text === next.item.text &&
+        previous.item.copyText === next.item.copyText &&
         previous.item.timestamp === next.item.timestamp &&
         previous.item.complete === next.item.complete &&
         previous.item.projectUrl === next.item.projectUrl &&
@@ -200,7 +201,14 @@ function SessionThreadBody({
                         result={item.result}
                         webUrl={item.webUrl}
                     >
-                        {feedback ? <MessageFeedbackActions target={feedback} /> : null}
+                        {(replyActions.has(item.id) && item.copyText) || feedback ? (
+                            <View style={styles.actions}>
+                                {replyActions.has(item.id) && item.copyText ? (
+                                    <CopyMessageButton text={item.copyText} messageRole="assistant" />
+                                ) : null}
+                                {feedback ? <MessageFeedbackActions target={feedback} /> : null}
+                            </View>
+                        ) : null}
                     </ChatVisualization>
                 )
             }

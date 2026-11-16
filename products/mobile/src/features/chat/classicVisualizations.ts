@@ -92,6 +92,19 @@ function convertVisualizations(
             ...feedback,
         })
     }
+    const last = items.at(-1)
+    if (last?.kind === 'assistant' || last?.kind === 'visualization') {
+        last.copyText = items
+            .map((item) =>
+                item.kind === 'assistant'
+                    ? item.text
+                    : item.kind === 'visualization' && item.webUrl
+                      ? `[View ${item.shortId ? 'insight' : 'chart'}](${item.webUrl})`
+                      : ''
+            )
+            .filter(Boolean)
+            .join('\n\n')
+    }
     return items.length
         ? items
         : [{ kind: 'assistant', id, text: 'This report has no content yet.', complete: true, projectUrl, ...feedback }]
