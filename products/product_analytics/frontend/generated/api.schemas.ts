@@ -334,23 +334,17 @@ export interface EventsRetentionApi {
 }
 
 export interface EventsTableApi {
-    /**
-     * The events table this project chose: true for the new table, false for the old table, null while the project has made no choice.
-     * @nullable
-     */
-    readonly use_new_events_table: boolean | null
-    /** Whether this project's queries read the new events table now, by its own choice or because PostHog moved it. */
+    /** Whether this project opted in to the new events table before PostHog moves it there. */
+    readonly use_new_events_table: boolean
+    /** Whether this project's queries read the new events table now, because it opted in or because PostHog moved it. */
     readonly reads_new_events_table: boolean
-    /** Whether this project can choose its events table. While false, a save is refused. */
+    /** Whether this project can opt in or undo its opt-in. False once PostHog has moved the project, which can't be undone, and while opting in is not open yet. While false, a save is refused. */
     readonly can_choose: boolean
 }
 
 export interface EventsTableUpdateApi {
-    /**
-     * True to read the new events table, false to read the old table, null to drop the project's choice and follow PostHog's rollout. A change reaches every query within about a minute.
-     * @nullable
-     */
-    use_new_events_table: boolean | null
+    /** True to move this project to the new events table before PostHog moves it. False to undo that. A change reaches every query within about a minute. */
+    use_new_events_table: boolean
 }
 
 export type InsightVizNodeApiKind = (typeof InsightVizNodeApiKind)[keyof typeof InsightVizNodeApiKind]

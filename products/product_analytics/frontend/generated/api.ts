@@ -543,7 +543,7 @@ export const getEventsTableRetrieveUrl = (projectId: string) => {
 }
 
 /**
- * Returns which events table this project's queries read, the choice the project made for itself, and whether the project can choose yet.
+ * Returns which events table this project's queries read, whether the project opted in early, and whether it can still choose.
  * @summary Get the events table a project reads
  */
 export const eventsTableRetrieve = async (projectId: string, options?: RequestInit): Promise<EventsTableApi> => {
@@ -558,7 +558,7 @@ export const getEventsTableUpdateUrl = (projectId: string) => {
 }
 
 /**
- * Switches this project's queries to the new events table or back to the old one. The switch deletes nothing and can be reversed. Batch exports are not affected. Organization admins only.
+ * Moves this project's queries to the new events table before PostHog moves it, or undoes that. Once PostHog has moved the project, it can't switch back. The switch deletes nothing. Organization admins only.
  * @summary Choose the events table a project reads
  */
 export const eventsTableUpdate = async (

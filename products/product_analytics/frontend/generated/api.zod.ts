@@ -246,15 +246,14 @@ export const EventsRetentionUpdateBody = /* @__PURE__ */ zod.object({
 })
 
 /**
- * Switches this project's queries to the new events table or back to the old one. The switch deletes nothing and can be reversed. Batch exports are not affected. Organization admins only.
+ * Moves this project's queries to the new events table before PostHog moves it, or undoes that. Once PostHog has moved the project, it can't switch back. The switch deletes nothing. Organization admins only.
  * @summary Choose the events table a project reads
  */
 export const EventsTableUpdateBody = /* @__PURE__ */ zod.object({
     use_new_events_table: zod
         .boolean()
-        .nullable()
         .describe(
-            "True to read the new events table, false to read the old table, null to drop the project's choice and follow PostHog's rollout. A change reaches every query within about a minute."
+            'True to move this project to the new events table before PostHog moves it. False to undo that. A change reaches every query within about a minute.'
         ),
 })
 
