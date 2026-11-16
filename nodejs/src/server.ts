@@ -56,6 +56,7 @@ import {
     CyclotronJobQueueRateLimitedPostgresV2,
     sesRateLimitedQueueOptions,
 } from './cdp/services/job-queue/job-queue-rate-limited-postgres-v2'
+import { createAttachmentQuotaValkeyPool } from './cdp/services/messaging/attachment-quota-valkey-pool'
 import { createFrequencyCapValkeyPool } from './cdp/services/messaging/frequency-cap-valkey-pool'
 import { hasEmailSigningKey } from './cdp/services/messaging/helpers/tracking-code'
 import { SandboxEmailEvents } from './cdp/services/messaging/sandbox/sandbox-email-events'
@@ -275,6 +276,7 @@ export class PluginServer implements NodeServer {
                     {
                         ...cdpDeps!,
                         idempotencyValkey: createIdempotencyValkeyPool(this.config),
+                        attachmentQuotaValkey: createAttachmentQuotaValkeyPool(this.config),
                         emailValidationValkey: createSesRateLimiterValkeyPool(this.config, 'email-mx-validation', {
                             optional: true,
                         }),

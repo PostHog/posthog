@@ -269,6 +269,12 @@ export type CdpConfig = ClickhouseConfig & {
     CDP_EMAIL_ATTACHMENTS_MEMORY_BUDGET_FRACTION: number
     CDP_EMAIL_ATTACHMENTS_TEAMS: string
     CDP_EMAIL_ATTACHMENTS_UPLOAD_MAX_BYTES_PER_TEAM_DAY: number
+    // Valkey that counts the upload bytes of each team for each UTC day. While the host is unset, the
+    // count goes to the idempotency Valkey.
+    CDP_EMAIL_ATTACHMENTS_QUOTA_VALKEY_HOST: string
+    CDP_EMAIL_ATTACHMENTS_QUOTA_VALKEY_PORT: number
+    CDP_EMAIL_ATTACHMENTS_QUOTA_VALKEY_PASSWORD: string
+    CDP_EMAIL_ATTACHMENTS_QUOTA_VALKEY_TLS: boolean
     CDP_EMAIL_SOFT_BOUNCE_EVENT_TIME_TEAMS: string
 
     // Destination migration diffing
@@ -557,6 +563,10 @@ export function getDefaultCdpConfig(): CdpConfig {
         CDP_EMAIL_ATTACHMENTS_MEMORY_BUDGET_FRACTION: 0.5,
         CDP_EMAIL_ATTACHMENTS_TEAMS: '',
         CDP_EMAIL_ATTACHMENTS_UPLOAD_MAX_BYTES_PER_TEAM_DAY: 50_000_000_000,
+        CDP_EMAIL_ATTACHMENTS_QUOTA_VALKEY_HOST: isTestEnv() || isDevEnv() ? '127.0.0.1' : '',
+        CDP_EMAIL_ATTACHMENTS_QUOTA_VALKEY_PORT: isTestEnv() || isDevEnv() ? 6390 : 6379,
+        CDP_EMAIL_ATTACHMENTS_QUOTA_VALKEY_PASSWORD: '',
+        CDP_EMAIL_ATTACHMENTS_QUOTA_VALKEY_TLS: false,
         CDP_EMAIL_SOFT_BOUNCE_EVENT_TIME_TEAMS: '',
 
         // Destination migration diffing

@@ -194,6 +194,8 @@ export type CdpApiConfig = PluginsServerConfig
 export type CdpApiDeps = CdpConsumerBaseDeps & {
     /** Holds caller-supplied idempotency keys. Null or unset makes the store report itself unavailable. */
     idempotencyValkey?: RedisV2 | null
+    /** Counts each team's attachment upload bytes per UTC day. Null or unset counts in the idempotency Valkey. */
+    attachmentQuotaValkey?: RedisV2 | null
 }
 
 // Null means the cohort asks to wait but its deadline is unreadable. Queuing it unparked would send to a
@@ -451,10 +453,14 @@ export class CdpApi {
             'transactional-email',
             config.CDP_IDEMPOTENCY_VALKEY_ENABLED
         )
-        this.attachmentUploads = new AttachmentUploads(services.attachmentStore, deps.idempotencyValkey ?? null, {
-            teams: config.CDP_EMAIL_ATTACHMENTS_TEAMS,
-            maxBytesPerTeamDay: config.CDP_EMAIL_ATTACHMENTS_UPLOAD_MAX_BYTES_PER_TEAM_DAY,
-        })
+        this.attachmentUploads = new AttachmentUploads(
+            services.attachmentStore,
+            deps.attachmentQuotaValkey ?? deps.idempotencyValkey ?? null,
+            {
+                teams: config.CDP_EMAIL_ATTACHMENTS_TEAMS,
+                maxBytesPerTeamDay: config.CDP_EMAIL_ATTACHMENTS_UPLOAD_MAX_BYTES_PER_TEAM_DAY,
+            }
+        )
         // The same workers that wake parked steps wake parked batch resolvers, so they share the
         // key. The audience keeps a step-resume token from waking a batch, and the reverse.
         this.resumeBatchJwt = new ScopedServiceJwt(

@@ -80,6 +80,7 @@ import {
 } from './services/hogflows/transactional-email'
 import { CyclotronJobQueuePostgresV2 } from './services/job-queue/job-queue-postgres-v2'
 import { SEND_NEEDS_FILES_FOR_MS } from './services/messaging/attachment-horizon'
+import { createAttachmentQuotaValkeyPool } from './services/messaging/attachment-quota-valkey-pool'
 import {
     ATTACHMENT_LIFETIME_MS,
     DAY_MS,
@@ -6015,7 +6016,7 @@ describe('CDP API', () => {
                 ...getDefaultCdpConfig(),
                 CDP_EMAIL_ATTACHMENTS_S3_PREFIX: `attachments-api-test/${Date.now()}`,
             })!
-            redis = createIdempotencyValkeyPool(hub)!
+            redis = createAttachmentQuotaValkeyPool(hub)!
         })
 
         beforeEach(async () => {
@@ -6152,30 +6153,68 @@ describe('CDP API', () => {
             expect(await unauthorizedCount()).toBe(before + 1)
         })
 
+        const unansweringIdempotencyValkey = () =>
+            createIdempotencyValkeyPool({
+                ...hub,
+                CDP_IDEMPOTENCY_VALKEY_HOST: '127.0.0.1',
+                CDP_IDEMPOTENCY_VALKEY_PORT: 9,
+            })
+        const attachmentQuotaValkeyWithHost = (host: string) =>
+            createAttachmentQuotaValkeyPool({ ...hub, CDP_EMAIL_ATTACHMENTS_QUOTA_VALKEY_HOST: host })
+
         it.each([
-            ['answers upload with the idempotency Valkey as its counter', true, 200],
-            ['answers delivery_unavailable without the idempotency Valkey', false, 503],
-        ])('on a cdp-api built from its settings, %s', async (_name, withValkey, status) => {
-            const builtApi = new CdpApi(
-                { ...hub, CDP_EMAIL_ATTACHMENTS_TEAMS: `${teamId}` },
-                { ...cdpDeps, idempotencyValkey: withValkey ? createIdempotencyValkeyPool(hub) : null },
-                { hogQueue: createMockJobQueue(), hogflowQueue: createMockJobQueue() }
-            )
-            const builtApp = setupExpressApp()
-            builtApp.use('/', builtApi.router())
-            const builtServer = builtApp.listen(0, () => {})
+            [
+                'answers upload with the attachment quota Valkey as its counter, not the idempotency Valkey',
+                () => attachmentQuotaValkeyWithHost('127.0.0.1'),
+                unansweringIdempotencyValkey,
+                200,
+            ],
+            [
+                'answers upload with the attachment quota Valkey and no idempotency Valkey',
+                () => attachmentQuotaValkeyWithHost('127.0.0.1'),
+                () => null,
+                200,
+            ],
+            [
+                'answers upload with the idempotency Valkey as its counter while no attachment quota Valkey host is set',
+                () => attachmentQuotaValkeyWithHost(''),
+                () => createIdempotencyValkeyPool(hub),
+                200,
+            ],
+            [
+                'answers delivery_unavailable without either Valkey',
+                () => attachmentQuotaValkeyWithHost(''),
+                () => null,
+                503,
+            ],
+        ])(
+            'on a cdp-api built from its settings, %s',
+            async (_name, attachmentQuotaValkey, idempotencyValkey, status) => {
+                const builtApi = new CdpApi(
+                    { ...hub, CDP_EMAIL_ATTACHMENTS_TEAMS: `${teamId}` },
+                    {
+                        ...cdpDeps,
+                        attachmentQuotaValkey: attachmentQuotaValkey(),
+                        idempotencyValkey: idempotencyValkey(),
+                    },
+                    { hogQueue: createMockJobQueue(), hogflowQueue: createMockJobQueue() }
+                )
+                const builtApp = setupExpressApp()
+                builtApp.use('/', builtApi.router())
+                const builtServer = builtApp.listen(0, () => {})
 
-            try {
-                const res = await supertest(builtApp)
-                    .post(`/api/projects/${teamId}/transactional_email/attachments/uploads`)
-                    .set({ Authorization: `Bearer ${mintUploadTokenAsTheDjangoRouteDoes(teamId)}` })
-                    .send(asked(pdf()))
+                try {
+                    const res = await supertest(builtApp)
+                        .post(`/api/projects/${teamId}/transactional_email/attachments/uploads`)
+                        .set({ Authorization: `Bearer ${mintUploadTokenAsTheDjangoRouteDoes(teamId)}` })
+                        .send(asked(pdf()))
 
-                expect(res.status).toBe(status)
-            } finally {
-                builtServer.close()
+                    expect(res.status).toBe(status)
+                } finally {
+                    builtServer.close()
+                }
             }
-        })
+        )
 
         it('lets a request that fits through while larger requests at the same time are refused', async () => {
             const uploads = uploadsFor(`${teamId}`, { maxBytesPerTeamDay: 100 })
@@ -6232,10 +6271,10 @@ describe('CDP API', () => {
                 'the upload counter does not answer',
                 () =>
                     uploadsFor(`${teamId}`, {
-                        counter: createIdempotencyValkeyPool({
+                        counter: createAttachmentQuotaValkeyPool({
                             ...hub,
-                            CDP_IDEMPOTENCY_VALKEY_HOST: '127.0.0.1',
-                            CDP_IDEMPOTENCY_VALKEY_PORT: 9,
+                            CDP_EMAIL_ATTACHMENTS_QUOTA_VALKEY_HOST: '127.0.0.1',
+                            CDP_EMAIL_ATTACHMENTS_QUOTA_VALKEY_PORT: 9,
                         }),
                     }),
             ],
