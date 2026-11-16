@@ -121,6 +121,8 @@ class Links:
 class FieldGroup:
     title: str
     field_names: tuple[str, ...]
+    # Lays the fields out side by side on a wide screen, for a group of short inputs.
+    inline: bool = False
 
 
 @frozen
@@ -143,8 +145,8 @@ class Filters:
         if sorted(grouped) != sorted(expected):
             raise ValueError(f"Filter groups must name each form field once. Fields: {expected}, groups: {grouped}")
 
-    def bound_groups(self) -> list[tuple[str, list["BoundField"]]]:
-        return [(group.title, [self.form[name] for name in group.field_names]) for group in self.groups]
+    def bound_groups(self) -> list[tuple[FieldGroup, list["BoundField"]]]:
+        return [(group, [self.form[name] for name in group.field_names]) for group in self.groups]
 
 
 @frozen
