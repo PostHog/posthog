@@ -70,7 +70,7 @@ function CategoryScope(): JSX.Element | null {
 }
 
 function StatusRow(): JSX.Element | null {
-    const { snapshot, isComputing } = useValues(mcpClusteringLogic)
+    const { snapshot, isComputing, snapshotLoading, hasSnapshot } = useValues(mcpClusteringLogic)
     const { recompute } = useActions(mcpClusteringLogic)
 
     if (snapshot.status === 'error') {
@@ -78,11 +78,14 @@ function StatusRow(): JSX.Element | null {
     }
     if (isComputing) {
         return (
-            <div className="flex items-center gap-2 text-sm text-muted">
+            <div className="flex min-h-6 items-center gap-2 text-sm text-muted">
                 <Spinner />
                 Embedding intents and clustering. This usually takes 30 to 60 seconds.
             </div>
         )
+    }
+    if (snapshotLoading && !hasSnapshot) {
+        return <Skeleton className="h-6 w-64" />
     }
     if (!snapshot.last_computed_at) {
         return null

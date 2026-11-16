@@ -62,7 +62,6 @@ export function ClusterScorecards({ loading }: { loading: boolean }): JSX.Elemen
                         type="button"
                         data-attr={`mcp-clustering-scorecard-${card.filter}`}
                         aria-pressed={isActive}
-                        disabled={loading}
                         onClick={() => setClusterFilter(isActive ? 'all' : card.filter)}
                         className="w-full text-left"
                     >
