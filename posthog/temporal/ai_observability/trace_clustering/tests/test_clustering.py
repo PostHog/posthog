@@ -36,7 +36,7 @@ from posthog.temporal.ai_observability.trace_clustering.clustering import (  # n
 
 class TestPerformHDBSCANClustering:
     def test_minimum_allows_two_groups_but_does_not_guarantee_them(self):
-        from products.ai_observability.backend.logic.clustering.constants import MIN_CLUSTERING_ITEMS
+        from products.ai_observability.backend.facade.clustering_runtime import MIN_CLUSTERING_ITEMS
 
         half = MIN_CLUSTERING_ITEMS // 2
         embeddings = np.concatenate([np.full((half, 2), -10.0), np.full((half, 2), 10.0)])

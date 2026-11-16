@@ -4,7 +4,7 @@ from datetime import timedelta
 
 from temporalio.common import RetryPolicy
 
-from products.ai_observability.backend.logic.clustering.constants import MIN_CLUSTERING_ITEMS, TRACE_LOOKBACK_DAYS
+from products.ai_observability.backend.facade.clustering_runtime import MIN_CLUSTERING_ITEMS, TRACE_LOOKBACK_DAYS
 
 # Clustering parameters
 DEFAULT_LOOKBACK_DAYS = TRACE_LOOKBACK_DAYS

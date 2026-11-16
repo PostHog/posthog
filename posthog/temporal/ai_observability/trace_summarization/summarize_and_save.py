@@ -194,7 +194,7 @@ def _format_summary_for_embedding(summary_result: SummarizationResponse) -> str:
 @temporalio.activity.defn
 async def summarize_and_save_activity(input: SummarizeAndSaveInput) -> SummarizationActivityResult:
     """Read text_repr from Redis, call LLM, save event, embed, and clean up."""
-    from products.ai_observability.backend.temporal.clustering_execution import require_current_job
+    from products.ai_observability.backend.facade.clustering_runtime import require_current_job
 
     is_generation = input.generation_id is not None
     log = logger.bind(

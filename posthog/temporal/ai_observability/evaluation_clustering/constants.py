@@ -4,7 +4,7 @@ from datetime import timedelta
 
 from temporalio.common import RetryPolicy
 
-from products.ai_observability.backend.logic.clustering.constants import MIN_CLUSTERING_ITEMS
+from products.ai_observability.backend.facade.clustering_runtime import MIN_CLUSTERING_ITEMS
 
 # Stage A (sampler): window + offset + caps
 SAMPLER_WINDOW_MINUTES = 60

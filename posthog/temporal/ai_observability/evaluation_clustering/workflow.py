@@ -32,7 +32,7 @@ from posthog.temporal.ai_observability.trace_clustering.metrics import (
 )
 from posthog.temporal.common.base import PostHogWorkflow
 
-from products.ai_observability.backend.logic.clustering.scope import scope_key
+from products.ai_observability.backend.facade.clustering_runtime import scope_key
 
 logger = structlog.get_logger(__name__)
 

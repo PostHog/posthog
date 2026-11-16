@@ -52,7 +52,7 @@ from posthog.temporal.ai_observability.trace_clustering.models import (
 from posthog.temporal.common.errors import NonReportableApplicationError
 from posthog.temporal.common.heartbeat import Heartbeater
 
-from products.ai_observability.backend.temporal.clustering_execution import require_current_job
+from products.ai_observability.backend.facade.clustering_runtime import require_current_job
 
 logger = structlog.get_logger(__name__)
 

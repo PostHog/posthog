@@ -85,7 +85,7 @@ class TestSummarizeAndSaveActivity:
     async def test_obsolete_job_does_not_request_a_summary(self, mock_team, change):
         from asgiref.sync import sync_to_async
 
-        from products.ai_observability.backend.logic.clustering.scope import scope_key
+        from products.ai_observability.backend.facade.clustering_runtime import scope_key
         from products.ai_observability.backend.models.clustering_config import ClusteringConfig
         from products.ai_observability.backend.models.clustering_job import ClusteringJob
 

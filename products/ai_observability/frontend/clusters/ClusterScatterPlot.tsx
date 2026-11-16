@@ -48,7 +48,7 @@ export function ClusterScatterPlot(): JSX.Element {
     const handlePointClick = (point: ScatterPointDatum<ClusterScatterMeta>): void => {
         const meta = point.meta
         if (meta?.itemId) {
-            const cluster = sortedClusters.find((cluster) => cluster.cluster_id === meta.clusterId)
+            const cluster = filteredSortedClusters.find((cluster) => cluster.cluster_id === meta.clusterId)
             const info = cluster?.traces[meta.itemId]
             if (info) {
                 const row = toClusterTraceDrawerRow(

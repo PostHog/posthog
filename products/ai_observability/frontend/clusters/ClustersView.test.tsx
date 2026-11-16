@@ -1,8 +1,10 @@
 import '@testing-library/jest-dom'
 
-import { cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
+import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
+
+import { findChart, getChartTooltip, setupChartTests } from '@posthog/quill-charts/testing'
 
 import api from 'lib/api'
 import { ProductEmptyStateGate } from 'lib/components/ProductEmptyState/ProductEmptyStateGate'
@@ -10,11 +12,12 @@ import { teamLogic } from 'scenes/teamLogic'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
-import { AccessControlLevel, AccessControlResourceType } from '~/types'
+import { AccessControlLevel, AccessControlResourceType, PropertyFilterType, PropertyOperator } from '~/types'
 
 import { clustersEmptyState } from '../emptyState/clustersEmptyState'
 import { traceDrawerLogic } from '../redesign/trace/traceDrawerLogic'
 import { clusteringConfigLogic } from './clusteringConfigLogic'
+import { clustersLogic } from './clustersLogic'
 import { ClustersView } from './ClustersView'
 
 describe('ClustersView', () => {
@@ -69,6 +72,8 @@ describe('ClustersView', () => {
 })
 
 describe('cluster setup and jobs', () => {
+    setupChartTests()
+
     let query: jest.SpyInstance
     let config: { enabled: boolean; event_filters: []; created_at: string; updated_at: string }
 
@@ -143,7 +148,12 @@ describe('cluster setup and jobs', () => {
         }
     )
 
-    it('navigates only through the cluster a member was opened from', async () => {
+    it.each<['table' | 'map', boolean]>([
+        ['table', false],
+        ['table', true],
+        ['map', false],
+        ['map', true],
+    ])('navigates through the visible cluster members from the %s (filtered=%s)', async (source, filtered) => {
         const clusters = [0, 1].map((clusterId) => ({
             cluster_id: clusterId,
             title: `Cluster ${clusterId}`,
@@ -157,7 +167,14 @@ describe('cluster setup and jobs', () => {
                     const id = `trace-${clusterId}-${rank}`
                     return [
                         id,
-                        { trace_id: id, rank, distance_to_centroid: 0, x: 0, y: 0, timestamp: '2026-01-07T12:00:00Z' },
+                        {
+                            trace_id: id,
+                            rank,
+                            distance_to_centroid: 0,
+                            x: clusterId ? rank * 2 - 1 : rank / 4,
+                            y: clusterId ? rank * 2 - 1 : rank / 4,
+                            timestamp: '2026-01-07T12:00:00Z',
+                        },
                     ]
                 })
             ),
@@ -179,16 +196,44 @@ describe('cluster setup and jobs', () => {
                   ]
                 : String(sql).includes('as run_id')
                   ? [[runId, '2026-01-07', '2026-01-07T12:00:00Z']]
-                  : [],
+                  : String(sql).includes('SELECT DISTINCT')
+                    ? [['trace-0-0'], ['trace-1-0'], ['trace-1-1']]
+                    : [],
         }))
         router.actions.push(`/ai-observability/clusters/${runId}`)
         render(<ClustersView />)
-        fireEvent.click((await screen.findAllByTitle('Show more'))[0])
-        fireEvent.click((await screen.findAllByText('Trace trace-0-'))[0])
-        expect(traceDrawerLogic({ listId: 'clusters' }).values.rows.map((row) => row.traceId)).toEqual([
-            'trace-0-0',
-            'trace-0-1',
-        ])
+        await screen.findByText('Cluster 0')
+        if (filtered) {
+            await act(async () => {
+                await expectLogic(clustersLogic, () =>
+                    clustersLogic.actions.setPropertyFilters([
+                        {
+                            type: PropertyFilterType.Event,
+                            key: 'environment',
+                            value: 'production',
+                            operator: PropertyOperator.Exact,
+                        },
+                    ])
+                ).toFinishAllListeners()
+            })
+        }
+        if (source === 'map') {
+            const chart = await findChart({ seriesCount: 2 })
+            await waitFor(() => {
+                fireEvent.mouseMove(chart.element, { clientX: 400, clientY: 200 })
+                expect(getChartTooltip()).not.toBeNull()
+            })
+            fireEvent.click(chart.element)
+        } else {
+            fireEvent.click((await screen.findAllByTitle('Show more'))[0])
+            fireEvent.click((await screen.findAllByText('Trace trace-0-'))[0])
+        }
+        const drawer = traceDrawerLogic({ listId: 'clusters' })
+        await waitFor(() => expect(drawer.values.openTraceId).toBe('trace-0-0'))
+        expect(drawer.values.rows.map((row) => row.traceId)).toEqual(
+            filtered ? ['trace-0-0'] : ['trace-0-0', 'trace-0-1']
+        )
+        expect(drawer.values.nextTrace?.traceId ?? null).toBe(filtered ? null : 'trace-0-1')
     })
 
     it('shows setup only while disabled and a separate waiting page after enabling', async () => {
