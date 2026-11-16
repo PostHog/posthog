@@ -1,0 +1,45 @@
+import uuid
+from datetime import timedelta
+
+from posthog.test.base import BaseTest, ClickhouseTestMixin
+from unittest.mock import patch
+
+from django.utils import timezone
+
+from posthog.models.ai_events.test_util import bulk_create_ai_events
+
+from products.ai_observability.backend.logic.eval_suggestions import call_review_queries
+from products.ai_observability.backend.logic.eval_suggestions.profile_queries import ProfileWindow
+
+
+class TestCallReviewQueries(ClickhouseTestMixin, BaseTest):
+    def test_stored_copies_of_a_call_count_and_fill_each_cap_once(self) -> None:
+        end = timezone.now() - timedelta(minutes=30)
+        bulk_create_ai_events(
+            [
+                {
+                    "event": "$ai_generation",
+                    "event_uuid": event_uuid,
+                    "distinct_id": "user-1",
+                    "team_id": self.team.pk,
+                    "timestamp": end - timedelta(hours=1),
+                    "properties": {
+                        "$ai_trace_id": f"trace-{index}",
+                        "$ai_model": "example-model-mini",
+                        "$ai_prompt_name": "support-reply",
+                        "$ai_input": [{"role": "user", "content": "Where is my refund?"}],
+                        "$ai_output_choices": [{"role": "assistant", "content": "It was sent."}],
+                    },
+                }
+                for index, event_uuid in enumerate([str(uuid.uuid4()) for _ in range(3)])
+                for _copy in range(2)
+            ]
+        )
+        window = ProfileWindow(start=end - timedelta(days=1), end=end)
+
+        call_types = call_review_queries.load_call_types(self.team, window, 1000)
+        with patch.object(call_review_queries, "CANDIDATES_PER_CALL_TYPE", 2):
+            calls = call_review_queries.load_review_calls(self.team, window, 1000, call_types)
+
+        assert [(call_type.key, call_type.calls) for call_type in call_types] == [("prompt_name:support-reply", 3)]
+        assert len({call.event_uuid for call in calls}) == len(calls) == 2

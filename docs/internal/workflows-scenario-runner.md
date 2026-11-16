@@ -58,6 +58,7 @@ pnpm --dir nodejs exec tsx tests/scenarios/cloud/main.ts cleanup <cloud profile>
 
 - **Who runs it:** a person with write access to the dev AWS account, on a machine with the `aws` CLI and the `nodejs` package installed. Not a worktree box.
 - **Before the first run:** the dev baseline infrastructure is applied, and the cloud profile names a measured runner profile kept outside this repository.
+- **Run host disk:** the host launches from the baseline's launch template, which sets its root disk and requires IMDSv2. The profile's `baseline` names that template by `hostLaunchTemplateId` and a version number in `hostLaunchTemplateVersion`, and `hostRootVolumeGb` repeats the template's root disk size, which prices the disk.
 - **Which card:** a card id under `tests/scenarios/cards`, committed at the run's commit, because the host runs the cards of that commit. The controller reads the card at that commit and loads it with the runner profile before it leases anything, so a card that is missing there or does not load costs nothing. The run manifest names the card, and the host reads it from there.
 - **What a run does:** the controller admits the run against its cost cap and leases it for a fixed time. It creates the run stack, prepares the database, starts the card on the run host and waits for it. Then it tears the stack down and publishes the scorecard.
 - **If the controller dies:** schedules registered before the first billable resource delete the stack. `cleanup` tears down a run by hand.
@@ -196,9 +197,9 @@ Each card is drawn from a failure class on the delivery path.
 | Card                            | Traffic                                               | Valves                                                                                                                                          | Invariants                                                                                  | Failure class                                |
 | ------------------------------- | ----------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------- | -------------------------------------------- |
 | `smoke`                         | `event_email`, `event_webhook`, `transactional_email` | none                                                                                                                                            | `at_least_once`, `duplicate_sends` (gate 0), `refused_at_intake` (gate 0)                   | Baseline: proves the judging loop            |
-| `email-worker-killed`           | `event_email`, `transactional_email`                  | `role.kill` on the email worker, `when` 1 job runs on `email`                                                                                   | `at_least_once`, `duplicate_sends` (gate 3), `refused_at_intake`                            | A worker dying mid-batch                     |
-| `hogflow-worker-frozen`         | `event_email`, `event_webhook`                        | `role.freeze` on the hogflow worker for 60 seconds, `when` 1 job runs on `hogflow`                                                              | `at_least_once`, `duplicate_sends` (gate 4), `refused_at_intake`                            | A frozen pod losing sends                    |
-| `pg-connections-dropped`        | `event_email`, `event_webhook`                        | `pg.drop_connections` share 1 for 5 seconds, `when` 1 job runs on `hogflow`                                                                     | `at_least_once`, `duplicate_sends` (gate 4), `refused_at_intake`                            | A dropped Postgres connection stranding jobs |
+| `email-worker-killed`           | `event_email`, `transactional_email`                  | `role.kill` on the email worker, `when` 1 job runs on `email`                                                                                   | `at_least_once`, `duplicate_sends` (gate 0), `refused_at_intake`                            | A worker dying mid-batch                     |
+| `hogflow-worker-frozen`         | `event_email`, `event_webhook`                        | `role.freeze` on the hogflow worker for 60 seconds, `when` 1 job runs on `hogflow`                                                              | `at_least_once`, `duplicate_sends` (gate 0), `refused_at_intake`                            | A frozen pod losing sends                    |
+| `pg-connections-dropped`        | `event_email`, `event_webhook`                        | `pg.drop_connections` share 1, swept every 100 ms for 60 seconds from 10 seconds, in a 90-second drive                                          | `at_least_once`, `duplicate_sends` (gate 0), `refused_at_intake`                            | A dropped Postgres connection stranding jobs |
 | `destination-errors`            | `event_webhook`                                       | `dest.status` 503 share 0.5, then 429 share 0.5, then 400 count 5, each for 10 seconds, 21 seconds apart                                        | `at_least_once`, `duplicate_sends` (gate 0), `refused_at_intake`                            | Destination 429 and 503 retry storms         |
 | `ses-throttled`                 | `event_email`, `transactional_email`                  | `ses.throttle` 1 per second for 60 seconds                                                                                                      | `at_least_once`, `duplicate_sends` (gate 0), `refused_at_intake`                            | SES throttling                               |
 | `ses-bounce-suppresses`         | `bounce_followup`                                     | `ses.reject` with type `bounce` on every send, for 2 minutes                                                                                    | `at_least_once`, `duplicate_sends` (gate 0), `refused_at_intake`, `bounced_suppressed`      | Dropped SES feedback, so no suppression      |
@@ -449,7 +450,7 @@ invariants:
   - name: duplicate_sends
   - name: refused_at_intake
 gates:
-  duplicate_sends: 3
+  duplicate_sends: 0
   refused_at_intake: 0
 measure:
   - name: role_cpu_seconds
@@ -465,7 +466,6 @@ It rejects:
 
 - unknown valve, traffic kind, invariant, measurement and bar names, and parameters or doses that fail their definition's schema;
 - ramp steps that do not add up to `drive.for`;
-- a `pg.drop_connections` entry scheduled by `at`: the main pools close idle connections quickly, so it waits for running jobs with `when`;
 - `bounced_suppressed` on a card with no `ses.reject` entry of type `bounce`, because only a hard bounce blocks transactional email;
 - a card whose traffic is answered at its intake rather than on Kafka, such as `transactional_email`, without `refused_at_intake`, because such a unit counts as offered whatever its intake answered;
 - a profile setting no role or the load producer reads, and traffic rates that fail their kind's profile schema.
@@ -503,8 +503,9 @@ export interface Runner {
 - **Status rules.**
   - `invalid` when a dependency the card did not break went away (Postgres, Kafka, Redis, the SES rate limiter's Valkey, PersonHog, the edge), the Cyclotron writer was interrupted without a valve, a valve was never observed, a valve was applied and never released or did not fail back, fewer than `minOffered` of the target units counted as offered, a traffic kind could not offer a unit it requires, the run was interrupted, or the evidence could not be written. The run could not judge, so each of these outranks a failed invariant, except a valve that was never observed.
   - `failed` when the stack did not converge, any invariant failed, or a Node role exited without a valve causing it, even if every delivery later arrives.
+    A role that exits with a code, not a signal, while a valve with `roleExitGraceMs` holds, or up to that grace after its release, counts as caused by it. `pg.drop_connections` sets 5 seconds: a consumer that loses its connection mid-write exits on purpose, restarts and replays. A signal, such as a SIGKILL or an out-of-memory kill, still fails the run, and so does any exit after a valve that failed to apply.
     An unexplained exit, a failed invariant or a stack that did not converge outranks a valve that was never observed: the run fails, and the reason also lists every unobserved valve.
-    An exit while a database valve (`postgres` or `cyclotron`) was applied still fails the run, and its reason names that valve.
+    An exit while another database valve, such as `pg.failover` on `cyclotron`, was applied still fails the run, and its reason names that valve.
   - **Cyclotron interrupted without a valve.** The writer probe failing 5 times in a row, or once with a SQLSTATE of class `08` or `57P01`, in a write that ended before the first valve's intent or began after the drive and every release ended. When no valve applied, every write counts. A failure inside a valve's phases belongs to the valve and is measured, not judged. An isolated timeout is not an interruption.
   - `passed` otherwise.
 - **Exit code.** The status's code, or 3 when the scorecard variables are set and the scorecard was not read back. A run interrupted after the capture keeps the status's code. Evidence files that could not be written make the run `invalid`, exit 2.
@@ -556,7 +557,7 @@ export type RoleHandle = { name: Role; url: string; metricsUrl: string }
 - **Actuation.** Each action is observed within 10 seconds or not at all.
   - `kill` sends `SIGKILL` to the role's process group and is observed when the old process is gone.
   - `freeze` sends `SIGSTOP` and is observed when `/proc/<pid>/stat` shows state `T`.
-  - `pg.terminate` runs `pg_terminate_backend` on the `share` of role backends, rounded up, on every Postgres server the role settings name with a `postgres://` or `postgresql://` URL, such as a read replica. Loopback names and the default port count as one server. It is observed when at least one backend was terminated.
+  - `pg.terminate` runs `pg_terminate_backend` on the `share` of role backends, rounded up, on every Postgres server the role settings name with a `postgres://` or `postgresql://` URL, such as a read replica. Loopback names and the default port count as one server. It sweeps again every 100 milliseconds until release, so `for` is the length of the outage and few writes finish between sweeps. It is observed when a sweep terminated at least one backend. A sweep that fails after the first ends the outage, and the release reports the failure.
   - `edge.fault` holds a fault rule on the edge with `ProviderEdge.hold` and lifts it on release. It is observed when the edge first answered a request with it inside the 10-second window, and stops waiting when the hold ends.
 - **Consumer lag.** `groupLag(group)` reads a consumer group's total lag with `rpk group describe`.
 - **Connection drops spare the runner.** Every role starts with `PGAPPNAME=scenario-<role>`, which node-postgres uses for pools that set no `application_name`, Cyclotron's pools included. `pg.terminate` only terminates backends whose `application_name` is a role's mode or starts with `scenario-`; the runner's own connections use another name.
@@ -632,6 +633,7 @@ export type ValveDefinition = Definition & {
   // Definition holds the name and the params schema
   target: z.ZodType<string>
   strandsRunningJobs: boolean // re-check `when` after apply
+  roleExitGraceMs?: number // a role exit with a code while applied, or this long after release, is the valve's
   journalsIntent?: true // the actuation records its own intent, right before its request
   apply(context: ValveContext, target: string, dose: unknown, holdMs: number): Promise<Actuation>
 }
@@ -694,7 +696,7 @@ export interface Judge {
   open(seed: Pick<SeedState, 'teamIds'>): Promise<void>
   record(unit: JournalEntry): void // synchronous; never blocks the generator
   converge(withinMs: number, signal: AbortSignal): Promise<Convergence>
-  check(invariants: Named[], gates: Record<string, number>): Promise<InvariantResult[]>
+  check(invariants: Named[], gates: Record<string, number>, run: { janitorResets: number }): Promise<InvariantResult[]>
   evidence(): { journal: JournalEntry[]; truth: TruthRecord[]; fetchRetries: number } // journal.json and truth.json
 }
 
@@ -717,7 +719,9 @@ export type InvariantResult = {
 
     A retried SES code that answers every attempt still counts as missed.
 
-  - `duplicate_sends`: 2xx answers per unit and action beyond one, at or under `gates.duplicate_sends`. Rejected attempts are evidence, not duplicates.
+  - `duplicate_sends`: 2xx answers per unit and action beyond one, at or under the jobs the janitor reset during the run plus `gates.duplicate_sends`. Rejected attempts are evidence, not duplicates.
+    A lease queue replays a job whose holder stalled after its send landed, so each reset allows one resend. One unit can take more than one: a job can be reset again, and an email unit passes through a hogflow job and an email job.
+    The runner reads the resets from the janitor's `cdp_cyclotron_v2_janitor_stalled` counter in the sampled metrics, summed over its replicas and restarts, and passes them to the Judge as `janitorResets`. The counter also counts jobs that stalled before they sent, so the bound is loose on a card that stalls many jobs; the scorecard's `janitor_resets` shows how loose.
   - `bounced_suppressed`: every unit whose send the `ses.reject` fault bounced has a follow-up that cdp-api refused with 422 `recipient_suppressed`. A follow-up that was not sent, was accepted, could not reach cdp-api or got another answer fails it, and so does a bounced unit with no follow-up.
     It also fails a unit whose follow-up was not sent though its send did not bounce. Two cases are let off: the fault refused the send outright, or the edge took the send without a fault after the run's last bounce, which needs a bounce earlier in the run.
   - `refused_at_intake`: refusals and transport errors the unit did not expect, at or under `gates.refused_at_intake`.
@@ -812,6 +816,7 @@ The versions are tree hashes at `HEAD`, so nobody bumps them by hand; `head_dirt
 | `units_offered`     | number or null  | Role intake calls whatever and whenever they answered, and events Kafka acknowledged before the drive ended                                                                                                                                |
 | `converged`         | boolean or null | Whether the stack converged within `convergeWithin`                                                                                                                                                                                        |
 | `unfinished_jobs`   | number or null  | Jobs still unfinished when convergence ended                                                                                                                                                                                               |
+| `janitor_resets`    | number or null  | Jobs the janitor reset while the run was sampled; `duplicate_sends` allows one resend for each, `null` when the run stopped first                                                                                                          |
 | `valve_timeline`    | array           | One entry per valve: valve, target, and requested, applied, observed and released times, or an error                                                                                                                                       |
 | `bars`              | array           | One entry per bar: its name, unit and whether it passed, with the breaking point (the step's scale and start, units offered per second with events counted once Kafka acknowledged them, the queue and the value) or why it was not judged |
 | `evidence_dir`      | string          | The evidence directory on the box that ran the card                                                                                                                                                                                        |

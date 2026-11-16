@@ -94,15 +94,6 @@ function checkNames(card: Card, definitions: Definitions): string[] {
     ]
 }
 
-function checkSchedules(card: Card): string[] {
-    return card.valves.flatMap((entry, i) => {
-        if (entry.at !== undefined && entry.valve === 'pg.drop_connections') {
-            return [`valves.${i}.at: pg.drop_connections waits for running jobs, so it takes when, not at`]
-        }
-        return []
-    })
-}
-
 type Settings = Record<string, unknown>
 
 function checkSuppression(card: Card): string[] {
@@ -189,7 +180,6 @@ function check(cardPath: string, read: Read, profileFor: (card: Card) => Profile
 
     const problems = [
         ...checkNames(card, DEFINITIONS),
-        ...checkSchedules(card),
         ...checkSuppression(card),
         ...checkIntakeVerdict(card),
         ...('profile' in loaded ? checkProfile(card, loaded.profile, DEFINITIONS, defaults) : loaded.problems),
