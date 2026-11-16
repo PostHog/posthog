@@ -39,7 +39,8 @@ export function ClustersWaitingForData({ onDocs }: { onDocs: () => void }): JSX.
                     </div>
                 </dl>
                 <p className="text-secondary mb-6">
-                    These minimums apply after filtering. Enough data alone doesn't guarantee a cluster.
+                    These minimums apply after filtering. Enough data alone doesn't guarantee a cluster. The items also
+                    need to be similar enough in content to form a group.
                 </p>
 
                 <div className="flex items-center gap-3 flex-wrap">
