@@ -3,14 +3,17 @@ name: writing-posthog-support-tickets
 description: >
   Prepare the content of a support ticket to PostHog so an engineer can act on it
   without a follow-up question. Use when you are about to write a ticket, a bug
-  report or a support message to PostHog for the person you are helping, and when
-  they ask you to report a problem to PostHog or to write it up for them. Resolves
-  the experiment, flag, insight, dashboard, error or replay they are asking about
-  to a real link through the PostHog MCP tools, instead of describing it. Then
-  writes the ticket in six short parts: what they want, why, what they tried, what
-  blocks them, the links, and the exact error. Replaces a pasted debugging
-  transcript with a short, specific report, and redacts credentials that hide in
-  quoted error text.
+  report or a support message to PostHog for the person you are helping, when they
+  ask you to report a problem or write it up for them, and when a person reaches
+  support after an AI assistant tried and could not solve the problem. Resolves the
+  experiment, flag, insight, dashboard, error or replay they are asking about to a
+  real link through the PostHog MCP tools, instead of describing it. Then writes the
+  ticket in six short parts: what they want, why, what they tried, what blocks them,
+  the links, and the exact error. After an AI conversation it adds three more: the
+  question in the person's own words, what the assistant already answered, and where
+  the assistant stopped. Replaces a pasted debugging transcript or a wall of
+  assistant replies with a short, specific report, and redacts credentials that hide
+  in quoted error text.
 ---
 
 # Writing a support ticket to PostHog
@@ -24,6 +27,10 @@ Use it. Resolve what they are asking about instead of describing it.
 
 This skill covers what goes in the ticket.
 The person decides whether to contact support, and the person sends the ticket.
+That holds even when an assistant wrote every word of it.
+
+Most people reach support after an assistant already tried.
+"When an AI conversation came first" below carries the three extra fields that case needs.
 
 ## Step 1: gather before you write
 
@@ -96,6 +103,57 @@ Write it in the person's voice, because they are the one who sends it.
 Leave out any part you have nothing real to put in.
 An empty heading is worse than a missing one.
 
+## When an AI conversation came first
+
+A person reaches support after an assistant tried and could not solve the problem.
+That conversation is the reason the ticket exists, and it is also what makes these tickets unreadable.
+The ticket arrives carrying the assistant's replies, and the question sits buried inside them.
+
+The six parts still carry the ticket.
+Add three fields, and drop one thing.
+
+1. **The question, quoted.** One line in the person's own words, taken from the conversation. The engineer needs what was asked, not your reading of it.
+2. **Already answered.** One or two sentences on what the assistant told them. An engineer who repeats a wrong answer, or contradicts a right one, costs the person their confidence in both.
+3. **Where this stopped.** What the assistant ruled out, and the first thing it could not determine.
+
+"Where this stopped" is not "why this needs support".
+That part names what nobody outside the account can see.
+This one names where the assistant ran out of moves, which is what keeps an engineer from repeating work already done.
+
+Never reproduce the assistant's replies.
+Link the conversation and let the engineer open it.
+A ticket that repeats them buries the question, which is the fault this shape exists to prevent.
+
+Use this shape:
+
+```markdown
+**What I want:** <one or two sentences>
+
+**I asked:** "<one quoted line>"
+
+**Already answered:** <what the assistant told me>
+
+**What I tried:**
+
+- <step, and what it showed>
+
+**Where this stopped:** <the first thing the assistant could not determine>
+
+**Why this needs support:** <what I cannot see or change from outside>
+
+**Links:**
+
+- Conversation: <url>
+- Replay: <url>
+
+**Error:**
+
+<exact text, top frames only>
+```
+
+Keep it in the person's voice, like any other ticket, because they still send it.
+Stay under 250 words, including the quoted question.
+
 ## Step 3: cut it down
 
 A long ticket is the most common fault in one an agent writes.
@@ -107,6 +165,7 @@ Cut these before you hand it over:
 - Greetings, apologies and sign-offs.
 - Whole event payloads and full stack traces. The top frames carry the information.
 - Code written during the session, unless it reproduces the problem on its own.
+- The assistant's own replies, when a conversation came first. Link the conversation instead.
 
 A good ticket is usually under 200 words, plus the error block.
 
@@ -129,6 +188,9 @@ When your tool list holds a PostHog support draft tool, save the ticket as a dra
 Otherwise give them the finished text and ask them to send it from the in-app support form, which attaches their project and recent session for them.
 When they are not in the app, point them at https://posthog.com/support.
 
+Tell them nothing is sent until they send it.
+Do not promise a response time.
+
 Say which links you could not resolve, so they can fill those in before they send it.
 
 ## Before you hand it over, check
@@ -138,3 +200,9 @@ Say which links you could not resolve, so they can fill those in before they sen
 - "Why this needs support" says something the engineer cannot work out alone.
 - No credential survived the quoting.
 - It reads in one screen.
+
+When a conversation came first, also check:
+
+- The question appears in the person's own words, not only in your summary.
+- The assistant's replies are linked, not pasted.
+- "Where this stopped" names one thing the assistant could not determine.
