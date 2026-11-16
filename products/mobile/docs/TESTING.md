@@ -98,7 +98,7 @@ Use Xcode 27.1 or newer with an iPhone Duo runtime. Capture matching native befo
 
 ### Repeatable screenshot comparisons
 
-Use `.argent/flows/screenshot-capture.yaml` to capture Inbox, Report, Handoff, Chat with the keyboard,
+Use `.argent/flows/screenshot-capture.yaml` to capture Home, Inbox, Report, Handoff, Chat with the keyboard,
 and Views from repository demo data. It launches the production app identity on either platform:
 `com.posthog.code.mobile` on iOS and `com.posthog.mobile` on Android. It leaves Views open.
 `.argent/flows/screenshot-landscape.yaml` continues from there on iOS and captures the same surfaces after rotation.
@@ -213,6 +213,16 @@ record the provider substitutions and do not claim live data or replay playback 
 Capture every distinct screen on the open Duo, then repeat affected screens in portrait and on the closed cover.
 Keep matching ordinary-phone screenshots for each changed screen. Record unreachable states as missing coverage.
 After returning from chat, rotate a report and check that its footer stays attached to the content with one compose action.
+
+### Live states in the demo
+
+The demo's Live shows web traffic. To capture Live's App only, Quiet or Not set up state (see [LIVE.md](LIVE.md#no-web-traffic)), start a development bundle with `EXPO_PUBLIC_DEMO_LIVE_STATE` set to `app_only`, `quiet` or `not_set_up`, for example:
+
+```sh
+EXPO_PUBLIC_DEMO_MODE=1 EXPO_PUBLIC_DEMO_LIVE_STATE=quiet pnpm web --clear
+```
+
+Release builds ignore it. Open Views once before Live, so Meanwhile can show the pins' numbers from the cache.
 
 ## Chat navigation and header
 
@@ -333,7 +343,7 @@ Also perform real push delivery checks on physical Android and iOS devices befor
 The flow needs no account, because every build shows **Try the demo** on the sign-in screen.
 The flow:
 
-1. taps **Try the demo** on the sign-in screen,
+1. taps **Try the demo** on the sign-in screen, lands on Home (Live) and opens Inbox from the bottom bar,
 2. opens "Report load time", opens and closes the hand-off sheet,
 3. resolves the report as fixed outside PostHog and checks that its inbox row is gone,
 4. opens "3,721 errors", taps **Needs your answer**, picks an answer in the decision sheet, then taps Undo, reopens the question and closes its sheet,
@@ -364,7 +374,7 @@ Prepare the development build:
 2. Open the developer menu (Device, Shake in the Simulator menu, or ⌃⌘Z) and turn off:
    - **Tools button**. The floating gear covers the inbox More button.
    - **Fast refresh**. When files change, its "Refreshing..." banner covers the Back and Close buttons.
-3. Demo mode must be off. If the app opens on the inbox, open Settings and tap **Exit demo**.
+3. Demo mode must be off. If the app opens on Home or another tab, open Settings and tap **Exit demo**.
 
 Then run the flow from `products/mobile`, because Argent looks for `.argent/flows` in the current directory:
 
@@ -403,7 +413,7 @@ DO_NOT_TRACK=1 npm install --prefix /tmp/mobile-argent-tools --no-audit --no-fun
 export PATH="/tmp/mobile-argent-tools/node_modules/.bin:$PATH"
 bash scripts/ci-argent-build.sh /tmp/mobile-argent-build /tmp/mobile-argent-artifacts
 bash scripts/ci-argent.sh \
-    /tmp/mobile-argent-build/Build/Products/Release-iphonesimulator/PostHog.app \
+    /tmp/mobile-argent-build/Build/Products/Release-iphonesimulator/PostHogApp.app \
     /tmp/mobile-argent-artifacts
 ```
 
@@ -457,3 +467,101 @@ Argent's `argent-create-flow` skill describes the rules. Replay the whole flow b
 - **A `visible` check passes while a sheet covers the screen.**
   The screen under a sheet stays in the accessibility tree. Check that the sheet is `hidden` first, as the flow does.
 - **iOS asks "Open in PostHog?"** after `xcrun simctl openurl`. Tap Open. The question does not come every time.
+
+## Native replay prototype
+
+Recording is off unless `EXPO_PUBLIC_POSTHOG_REPLAY=1` and an analytics project key are set.
+It runs only in internal iOS/Android builds, after demo hydration, while signed out in demo mode.
+Leaving demo mode or signing in stops recording, including pending starts. Live and sign-in UI
+also has a root `ph-no-capture` mask. Store builds and Expo web cannot start this recorder.
+
+The `@posthog/react-native-plugin` dependency autolinks as a native module. It is not an Expo
+config plugin; do not add it to `app.config.ts`'s `plugins` array. Run `pnpm ios` or `pnpm android`
+to rebuild with it. An OTA update cannot add native modules. Expo Go cannot record.
+Enable **Record user sessions** in the project receiving the app's own usage analytics.
+Use a dedicated test project and fixture data for validation.
+
+The SDK configuration masks text, inputs, images and sandboxed iOS views, disables touch
+coordinates, and disables recording logs and network telemetry. Native push autocapture and
+rage-click capture are also off; the app keeps its existing Expo notification integration. The
+iOS Info.plist switch disables the SDK push-open hook before JavaScript starts. Remote project settings still
+control whether recording starts. `startSessionRecording()` resolving does not prove recording
+is active: the SDK can retry while waiting for remote configuration. Check the received recording.
+
+The workspace patch for `@posthog/react-native-plugin@2.12.7` keeps native automatic recording disabled, including when the React Native SDK initializes replay for a manual start.
+Explicit starts still record, but an explicit stop prevents delayed remote configuration, session changes or event triggers from restarting capture.
+The patch covers the plugin's JavaScript entry points and leaves its native code unchanged.
+Keep this patch until the React Native SDK preserves manual-only recording through native initialization; `src/lib/demoReplay.sdk.test.ts` checks that boundary with the real SDK and verifies that stopping cancels pending retries when configuration arrives later.
+
+On both iOS and Android, before allowing live-data capture:
+
+1. Launch with the replay variable absent and confirm no recording. Repeat in a store build
+   with the variable set. Neither may record.
+2. In an internal build with the variable set, enter **Try the demo**, navigate for at least
+   ten seconds, scroll a report and open a chat. Confirm a native replay arrives in the test project.
+3. Inspect snapshots for masked text, passwords, images and system pickers. Test keyboard entry,
+   a Mermaid WebView and a Skia chart. Native text masking cannot establish that custom-rendered
+   content is masked. Demo fixtures are the only permitted content for this prototype.
+4. Leave demo mode while remote configuration is delayed, and sign in. Confirm recording stops,
+   never restarts after remote configuration arrives, and the live root stays masked.
+5. Background, foreground, terminate and relaunch. Verify SDK session rotation and recordings
+   agree. Check the underlying Android API 26+ and iOS 13+ requirements against the app's higher
+   deployment targets. Native build success alone does not validate capture or privacy.
+
+See [React Native replay installation](https://posthog.com/docs/session-replay/installation/react-native)
+and [privacy controls](https://posthog.com/docs/session-replay/privacy).
+
+## Web/mobile handoff prototype
+
+The shared handoff protocol lives in `shared/handoffProtocol.ts`. Its local TypeScript configuration lets Storybook build it without installing Expo. The browser integration lives in `frontend/src/lib/utils/webMobileHandoff.ts` at the repository root.
+
+This prototype correlates separate sessions. It does not produce one recording spanning web and
+native. Identity (`distinct_id`), authentication, analytics sessions (`$session_id`) and the
+random `handoff_id` are separate. No identity or session setter is called during a handoff.
+
+The installed React Native SDK 4.84.2 can read and rotate sessions, but cannot bootstrap or set
+an existing session ID through its public API. The native replay plugin starts with the React
+Native SDK's own session ID. Overriding `$session_id` on a capture would therefore misrepresent
+recording continuity. The web SDK supports `bootstrap.sessionID`, but accepting one from an
+unsigned deep link would not establish a trusted same-user session. This prototype keeps both
+SDKs' session management intact. The handoff opt-in enables `enablePersistSessionIdAcrossRestart`
+on native, so returning to native can retain its existing session within the SDK's idle and
+maximum-duration limits, even after a process restart. That does not transfer the web session.
+
+For an end-to-end check, run the web app with the `mobile-session-handoff` feature flag enabled,
+and an internal native build with `EXPO_PUBLIC_POSTHOG_HANDOFF=1`. Both clients must send to the
+same test analytics project to query correlation together. The handoff flag is independent of
+recording: a correlation event does not prove that either session has a replay.
+
+1. Sign in to the same PostHog host in the native app. Open an insight, chart detail, view,
+   or chat link in the browser. Only HTTPS links inside the signed-in host and current
+   `/project/<id>/` are decorated. External links, other regions/projects, OAuth and existing
+   fragment links keep their navigation unchanged. The source event carries `handoff_id`.
+2. The web app removes the fragment marker before SDK initialization and emits
+   `web_session_handoff_received` when its flag is enabled. Match its `handoff_id` to
+   `mobile_session_handoff_started`. Compare the events' SDK-assigned `$session_id` values:
+   they are distinct, and neither identity has changed because of the link.
+3. To exercise web-to-native from a local test page in the running PostHog web app, add a normal
+   anchor with `href="posthog-dev://inbox"` (or `posthog-preview://inbox`) using browser developer
+   tools. Click it. The page's delegated click handler adds a marker and emits
+   `web_session_handoff_started`. Native strips the marker and emits
+   `mobile_session_handoff_received`, including on cold start. No new web navigation button
+   is shipped by this prototype. Production `posthog://` links are excluded.
+4. Return to the original client and confirm its own session continues within SDK timeouts.
+   After expiration, confirm its SDK starts a new session. Log out and switch accounts;
+   authentication and normal identity reset must remain independent of the handoff.
+5. Try disabled flags, an expired marker, duplicate markers and an OAuth callback. They must
+   not alter identity, authentication or session state. Existing routing must still work.
+
+Markers contain a random UUID and send time, expire after two minutes, and travel in the
+fragment rather than a query or referrer. No token, user ID, source session ID, report title or
+message enters the marker. Correlation is unverified diagnostic metadata: never use it for
+access control, identity merging, or session adoption. Device clocks must agree; future markers
+are rejected. URL fragments can still be observed by local browser scripts and history.
+
+True cross-platform continuation needs a supported React Native session bootstrap/setter,
+verified native-recorder synchronization, trusted account/project-bound exchange, and player
+validation for mixed web/native recordings. No SDK internals or persisted session storage are
+modified here. See [SDK bootstrapping](https://posthog.com/docs/libraries/bootstrapping),
+[session semantics](https://posthog.com/docs/data/sessions), and
+[React Native bootstrap support request](https://github.com/PostHog/posthog-js/issues/4978).

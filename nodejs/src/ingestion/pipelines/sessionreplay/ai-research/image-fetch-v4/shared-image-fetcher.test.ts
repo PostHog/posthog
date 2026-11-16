@@ -34,6 +34,24 @@ describe('SharedImageFetcher', () => {
     })
 
     it.each([
+        ['one after the other', false],
+        ['at the same time', true],
+    ])('shares a response whose body the fetcher abandoned, for jobs %s', async (_timing, together) => {
+        const abandoned: ImageFetchResult = { ...OK, bytes: undefined }
+        const inner = { fetch: jest.fn((_url: string, _options: ImageFetchOptions) => Promise.resolve(abandoned)) }
+        const fetcher = new SharedImageFetcher(inner)
+
+        const first = fetcher.fetch(IMAGE_URL, options(false))
+        if (!together) {
+            await first
+        }
+        const results = await Promise.all([first, fetcher.fetch(IMAGE_URL, options(false))])
+
+        expect(results).toEqual([abandoned, abandoned])
+        expect(inner.fetch).toHaveBeenCalledTimes(1)
+    })
+
+    it.each([
         ['more entries than its cap', Buffer.from('png'), 64 * 1024 * 1024, 2],
         ['empty images whose URLs and headers outgrow its size', Buffer.alloc(0), 3_000, 100],
     ])('evicts the oldest image when it holds %s', async (_name, bytes, maxBytes, maxEntries) => {

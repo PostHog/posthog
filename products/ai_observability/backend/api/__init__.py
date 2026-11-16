@@ -3,6 +3,7 @@ from .clustering import AIObservabilityClusteringRunViewSet
 from .clustering_config import ClusteringConfigViewSet
 from .clustering_job import ClusteringJobViewSet
 from .datasets import DatasetItemViewSet, DatasetViewSet
+from .eval_suggestions import EvalSuggestionViewSet
 from .evaluation_backfills import EvaluationBackfillViewSet
 from .evaluation_config import EvaluationConfigViewSet
 from .evaluation_directories import EvaluationDirectoryViewSet
@@ -40,6 +41,7 @@ __all__ = [
     "DatasetViewSet",
     "DatasetItemViewSet",
     "EvaluationViewSet",
+    "EvalSuggestionViewSet",
     "EvaluationBackfillViewSet",
     "EvaluationDirectoryViewSet",
     "EvaluationReportViewSet",

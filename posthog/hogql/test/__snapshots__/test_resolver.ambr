@@ -23,6 +23,7 @@
                     table_type: {
                       table: {
                         description: "Every analytics event captured for the project. The central fact table for product analytics.",
+                        events_retention_field: "timestamp",
                         fields: {
                           $group_0: {
                             description: None,
@@ -252,6 +253,7 @@
                         hidden: False,
                         inherit_profile_spill: False,
                         name: None,
+                        person_id_pushdown_default: False,
                         top_level_settings: None,
                         workload: None
                       }
@@ -438,6 +440,7 @@
                             hidden: False,
                             inherit_profile_spill: False,
                             name: None,
+                            person_id_pushdown_default: False,
                             top_level_settings: None,
                             workload: None
                           },
@@ -516,6 +519,7 @@
                             hidden: False,
                             inherit_profile_spill: False,
                             name: None,
+                            person_id_pushdown_default: False,
                             top_level_settings: None,
                             workload: None
                           },
@@ -594,6 +598,7 @@
                             hidden: False,
                             inherit_profile_spill: False,
                             name: None,
+                            person_id_pushdown_default: False,
                             top_level_settings: None,
                             workload: None
                           },
@@ -672,6 +677,7 @@
                             hidden: False,
                             inherit_profile_spill: False,
                             name: None,
+                            person_id_pushdown_default: False,
                             top_level_settings: None,
                             workload: None
                           },
@@ -750,6 +756,7 @@
                             hidden: False,
                             inherit_profile_spill: False,
                             name: None,
+                            person_id_pushdown_default: False,
                             top_level_settings: None,
                             workload: None
                           },
@@ -828,6 +835,7 @@
                             hidden: False,
                             inherit_profile_spill: False,
                             name: None,
+                            person_id_pushdown_default: False,
                             top_level_settings: None,
                             workload: None
                           },
@@ -906,6 +914,7 @@
                             hidden: False,
                             inherit_profile_spill: False,
                             name: None,
+                            person_id_pushdown_default: False,
                             top_level_settings: None,
                             workload: None
                           },
@@ -984,6 +993,7 @@
                             hidden: False,
                             inherit_profile_spill: False,
                             name: None,
+                            person_id_pushdown_default: False,
                             top_level_settings: None,
                             workload: None
                           },
@@ -1780,6 +1790,7 @@
                                     hidden: False,
                                     inherit_profile_spill: False,
                                     name: None,
+                                    person_id_pushdown_default: False,
                                     top_level_settings: None,
                                     workload: None
                                   },
@@ -1868,6 +1879,7 @@
                             hidden: False,
                             inherit_profile_spill: False,
                             name: None,
+                            person_id_pushdown_default: False,
                             top_level_settings: None,
                             workload: None
                           },
@@ -2309,6 +2321,7 @@
             table_type: {
               table: {
                 description: "Every analytics event captured for the project. The central fact table for product analytics.",
+                events_retention_field: "timestamp",
                 fields: {
                   $group_0: {
                     description: None,
@@ -2542,6 +2555,7 @@
                 hidden: False,
                 inherit_profile_spill: False,
                 name: None,
+                person_id_pushdown_default: False,
                 top_level_settings: None,
                 workload: None
               }
@@ -2776,6 +2790,7 @@
                                 hidden: False,
                                 inherit_profile_spill: False,
                                 name: None,
+                                person_id_pushdown_default: False,
                                 top_level_settings: None,
                                 workload: None
                               },
@@ -2867,6 +2882,7 @@
                         hidden: False,
                         inherit_profile_spill: False,
                         name: None,
+                        person_id_pushdown_default: False,
                         top_level_settings: None,
                         workload: None
                       },
@@ -3235,6 +3251,7 @@
                     hidden: False,
                     inherit_profile_spill: False,
                     name: None,
+                    person_id_pushdown_default: False,
                     top_level_settings: None,
                     workload: None
                   },
@@ -3332,6 +3349,7 @@
                     hidden: False,
                     inherit_profile_spill: False,
                     name: None,
+                    person_id_pushdown_default: False,
                     top_level_settings: None,
                     workload: None
                   },
@@ -3429,6 +3447,7 @@
                     hidden: False,
                     inherit_profile_spill: False,
                     name: None,
+                    person_id_pushdown_default: False,
                     top_level_settings: None,
                     workload: None
                   },
@@ -3526,6 +3545,7 @@
                     hidden: False,
                     inherit_profile_spill: False,
                     name: None,
+                    person_id_pushdown_default: False,
                     top_level_settings: None,
                     workload: None
                   },
@@ -3623,6 +3643,7 @@
                     hidden: False,
                     inherit_profile_spill: False,
                     name: None,
+                    person_id_pushdown_default: False,
                     top_level_settings: None,
                     workload: None
                   },
@@ -3720,6 +3741,7 @@
                     hidden: False,
                     inherit_profile_spill: False,
                     name: None,
+                    person_id_pushdown_default: False,
                     top_level_settings: None,
                     workload: None
                   },
@@ -3817,6 +3839,7 @@
                     hidden: False,
                     inherit_profile_spill: False,
                     name: None,
+                    person_id_pushdown_default: False,
                     top_level_settings: None,
                     workload: None
                   },
@@ -3914,6 +3937,7 @@
                     hidden: False,
                     inherit_profile_spill: False,
                     name: None,
+                    person_id_pushdown_default: False,
                     top_level_settings: None,
                     workload: None
                   },
@@ -4145,6 +4169,7 @@
                   hidden: False,
                   inherit_profile_spill: False,
                   name: None,
+                  person_id_pushdown_default: False,
                   top_level_settings: None,
                   workload: None
                 }
@@ -4843,6 +4868,7 @@
                         hidden: False,
                         inherit_profile_spill: False,
                         name: None,
+                        person_id_pushdown_default: False,
                         top_level_settings: None,
                         workload: None
                       }
@@ -5325,6 +5351,7 @@
                         table_type: {
                           table: {
                             description: "Every analytics event captured for the project. The central fact table for product analytics.",
+                            events_retention_field: "timestamp",
                             fields: {
                               $group_0: {
                                 description: None,
@@ -5554,6 +5581,7 @@
                             hidden: False,
                             inherit_profile_spill: False,
                             name: None,
+                            person_id_pushdown_default: False,
                             top_level_settings: None,
                             workload: None
                           }
@@ -5740,6 +5768,7 @@
                                 hidden: False,
                                 inherit_profile_spill: False,
                                 name: None,
+                                person_id_pushdown_default: False,
                                 top_level_settings: None,
                                 workload: None
                               },
@@ -5818,6 +5847,7 @@
                                 hidden: False,
                                 inherit_profile_spill: False,
                                 name: None,
+                                person_id_pushdown_default: False,
                                 top_level_settings: None,
                                 workload: None
                               },
@@ -5896,6 +5926,7 @@
                                 hidden: False,
                                 inherit_profile_spill: False,
                                 name: None,
+                                person_id_pushdown_default: False,
                                 top_level_settings: None,
                                 workload: None
                               },
@@ -5974,6 +6005,7 @@
                                 hidden: False,
                                 inherit_profile_spill: False,
                                 name: None,
+                                person_id_pushdown_default: False,
                                 top_level_settings: None,
                                 workload: None
                               },
@@ -6052,6 +6084,7 @@
                                 hidden: False,
                                 inherit_profile_spill: False,
                                 name: None,
+                                person_id_pushdown_default: False,
                                 top_level_settings: None,
                                 workload: None
                               },
@@ -6130,6 +6163,7 @@
                                 hidden: False,
                                 inherit_profile_spill: False,
                                 name: None,
+                                person_id_pushdown_default: False,
                                 top_level_settings: None,
                                 workload: None
                               },
@@ -6208,6 +6242,7 @@
                                 hidden: False,
                                 inherit_profile_spill: False,
                                 name: None,
+                                person_id_pushdown_default: False,
                                 top_level_settings: None,
                                 workload: None
                               },
@@ -6286,6 +6321,7 @@
                                 hidden: False,
                                 inherit_profile_spill: False,
                                 name: None,
+                                person_id_pushdown_default: False,
                                 top_level_settings: None,
                                 workload: None
                               },
@@ -6368,6 +6404,7 @@
                         table_type: {
                           table: {
                             description: "Every analytics event captured for the project. The central fact table for product analytics.",
+                            events_retention_field: "timestamp",
                             fields: {
                               $group_0: {
                                 description: None,
@@ -6597,6 +6634,7 @@
                             hidden: False,
                             inherit_profile_spill: False,
                             name: None,
+                            person_id_pushdown_default: False,
                             top_level_settings: None,
                             workload: None
                           }
@@ -6783,6 +6821,7 @@
                                 hidden: False,
                                 inherit_profile_spill: False,
                                 name: None,
+                                person_id_pushdown_default: False,
                                 top_level_settings: None,
                                 workload: None
                               },
@@ -6861,6 +6900,7 @@
                                 hidden: False,
                                 inherit_profile_spill: False,
                                 name: None,
+                                person_id_pushdown_default: False,
                                 top_level_settings: None,
                                 workload: None
                               },
@@ -6939,6 +6979,7 @@
                                 hidden: False,
                                 inherit_profile_spill: False,
                                 name: None,
+                                person_id_pushdown_default: False,
                                 top_level_settings: None,
                                 workload: None
                               },
@@ -7017,6 +7058,7 @@
                                 hidden: False,
                                 inherit_profile_spill: False,
                                 name: None,
+                                person_id_pushdown_default: False,
                                 top_level_settings: None,
                                 workload: None
                               },
@@ -7095,6 +7137,7 @@
                                 hidden: False,
                                 inherit_profile_spill: False,
                                 name: None,
+                                person_id_pushdown_default: False,
                                 top_level_settings: None,
                                 workload: None
                               },
@@ -7173,6 +7216,7 @@
                                 hidden: False,
                                 inherit_profile_spill: False,
                                 name: None,
+                                person_id_pushdown_default: False,
                                 top_level_settings: None,
                                 workload: None
                               },
@@ -7251,6 +7295,7 @@
                                 hidden: False,
                                 inherit_profile_spill: False,
                                 name: None,
+                                person_id_pushdown_default: False,
                                 top_level_settings: None,
                                 workload: None
                               },
@@ -7329,6 +7374,7 @@
                                 hidden: False,
                                 inherit_profile_spill: False,
                                 name: None,
+                                person_id_pushdown_default: False,
                                 top_level_settings: None,
                                 workload: None
                               },
@@ -8128,6 +8174,7 @@
                                       hidden: False,
                                       inherit_profile_spill: False,
                                       name: None,
+                                      person_id_pushdown_default: False,
                                       top_level_settings: None,
                                       workload: None
                                     },
@@ -8216,6 +8263,7 @@
                               hidden: False,
                               inherit_profile_spill: False,
                               name: None,
+                              person_id_pushdown_default: False,
                               top_level_settings: None,
                               workload: None
                             },
@@ -8780,6 +8828,7 @@
                                           hidden: False,
                                           inherit_profile_spill: False,
                                           name: None,
+                                          person_id_pushdown_default: False,
                                           top_level_settings: None,
                                           workload: None
                                         },
@@ -8868,6 +8917,7 @@
                                   hidden: False,
                                   inherit_profile_spill: False,
                                   name: None,
+                                  person_id_pushdown_default: False,
                                   top_level_settings: None,
                                   workload: None
                                 },
@@ -9544,6 +9594,7 @@
             table_type: {
               table: {
                 description: "Every analytics event captured for the project. The central fact table for product analytics.",
+                events_retention_field: "timestamp",
                 fields: {
                   $group_0: {
                     description: None,
@@ -9773,6 +9824,7 @@
                 hidden: False,
                 inherit_profile_spill: False,
                 name: None,
+                person_id_pushdown_default: False,
                 top_level_settings: None,
                 workload: None
               }
@@ -10007,6 +10059,7 @@
                                 hidden: False,
                                 inherit_profile_spill: False,
                                 name: None,
+                                person_id_pushdown_default: False,
                                 top_level_settings: None,
                                 workload: None
                               },
@@ -10098,6 +10151,7 @@
                         hidden: False,
                         inherit_profile_spill: False,
                         name: None,
+                        person_id_pushdown_default: False,
                         top_level_settings: None,
                         workload: None
                       },
@@ -10466,6 +10520,7 @@
                     hidden: False,
                     inherit_profile_spill: False,
                     name: None,
+                    person_id_pushdown_default: False,
                     top_level_settings: None,
                     workload: None
                   },
@@ -10563,6 +10618,7 @@
                     hidden: False,
                     inherit_profile_spill: False,
                     name: None,
+                    person_id_pushdown_default: False,
                     top_level_settings: None,
                     workload: None
                   },
@@ -10660,6 +10716,7 @@
                     hidden: False,
                     inherit_profile_spill: False,
                     name: None,
+                    person_id_pushdown_default: False,
                     top_level_settings: None,
                     workload: None
                   },
@@ -10757,6 +10814,7 @@
                     hidden: False,
                     inherit_profile_spill: False,
                     name: None,
+                    person_id_pushdown_default: False,
                     top_level_settings: None,
                     workload: None
                   },
@@ -10854,6 +10912,7 @@
                     hidden: False,
                     inherit_profile_spill: False,
                     name: None,
+                    person_id_pushdown_default: False,
                     top_level_settings: None,
                     workload: None
                   },
@@ -10951,6 +11010,7 @@
                     hidden: False,
                     inherit_profile_spill: False,
                     name: None,
+                    person_id_pushdown_default: False,
                     top_level_settings: None,
                     workload: None
                   },
@@ -11048,6 +11108,7 @@
                     hidden: False,
                     inherit_profile_spill: False,
                     name: None,
+                    person_id_pushdown_default: False,
                     top_level_settings: None,
                     workload: None
                   },
@@ -11145,6 +11206,7 @@
                     hidden: False,
                     inherit_profile_spill: False,
                     name: None,
+                    person_id_pushdown_default: False,
                     top_level_settings: None,
                     workload: None
                   },
@@ -11242,6 +11304,7 @@
               table_type: {
                 table: {
                   description: "Every analytics event captured for the project. The central fact table for product analytics.",
+                  events_retention_field: "timestamp",
                   fields: {
                     $group_0: {
                       description: None,
@@ -11471,6 +11534,7 @@
                   hidden: False,
                   inherit_profile_spill: False,
                   name: None,
+                  person_id_pushdown_default: False,
                   top_level_settings: None,
                   workload: None
                 }
@@ -11706,6 +11770,7 @@
                                 hidden: False,
                                 inherit_profile_spill: False,
                                 name: None,
+                                person_id_pushdown_default: False,
                                 top_level_settings: None,
                                 workload: None
                               },
@@ -11797,6 +11862,7 @@
                         hidden: False,
                         inherit_profile_spill: False,
                         name: None,
+                        person_id_pushdown_default: False,
                         top_level_settings: None,
                         workload: None
                       },
@@ -12165,6 +12231,7 @@
                     hidden: False,
                     inherit_profile_spill: False,
                     name: None,
+                    person_id_pushdown_default: False,
                     top_level_settings: None,
                     workload: None
                   },
@@ -12262,6 +12329,7 @@
                     hidden: False,
                     inherit_profile_spill: False,
                     name: None,
+                    person_id_pushdown_default: False,
                     top_level_settings: None,
                     workload: None
                   },
@@ -12359,6 +12427,7 @@
                     hidden: False,
                     inherit_profile_spill: False,
                     name: None,
+                    person_id_pushdown_default: False,
                     top_level_settings: None,
                     workload: None
                   },
@@ -12456,6 +12525,7 @@
                     hidden: False,
                     inherit_profile_spill: False,
                     name: None,
+                    person_id_pushdown_default: False,
                     top_level_settings: None,
                     workload: None
                   },
@@ -12553,6 +12623,7 @@
                     hidden: False,
                     inherit_profile_spill: False,
                     name: None,
+                    person_id_pushdown_default: False,
                     top_level_settings: None,
                     workload: None
                   },
@@ -12650,6 +12721,7 @@
                     hidden: False,
                     inherit_profile_spill: False,
                     name: None,
+                    person_id_pushdown_default: False,
                     top_level_settings: None,
                     workload: None
                   },
@@ -12747,6 +12819,7 @@
                     hidden: False,
                     inherit_profile_spill: False,
                     name: None,
+                    person_id_pushdown_default: False,
                     top_level_settings: None,
                     workload: None
                   },
@@ -12844,6 +12917,7 @@
                     hidden: False,
                     inherit_profile_spill: False,
                     name: None,
+                    person_id_pushdown_default: False,
                     top_level_settings: None,
                     workload: None
                   },
@@ -12942,6 +13016,7 @@
                 table_type: {
                   table: {
                     description: "Every analytics event captured for the project. The central fact table for product analytics.",
+                    events_retention_field: "timestamp",
                     fields: {
                       $group_0: {
                         description: None,
@@ -13171,6 +13246,7 @@
                     hidden: False,
                     inherit_profile_spill: False,
                     name: None,
+                    person_id_pushdown_default: False,
                     top_level_settings: None,
                     workload: None
                   }
@@ -13247,6 +13323,7 @@
                 table_type: {
                   table: {
                     description: "Every analytics event captured for the project. The central fact table for product analytics.",
+                    events_retention_field: "timestamp",
                     fields: {
                       $group_0: {
                         description: None,
@@ -13480,6 +13557,7 @@
                     hidden: False,
                     inherit_profile_spill: False,
                     name: None,
+                    person_id_pushdown_default: False,
                     top_level_settings: None,
                     workload: None
                   }
@@ -13575,6 +13653,7 @@
                     hidden: False,
                     inherit_profile_spill: False,
                     name: None,
+                    person_id_pushdown_default: False,
                     top_level_settings: None,
                     workload: None
                   }
@@ -13900,6 +13979,7 @@
             table_type: {
               table: {
                 description: "Every analytics event captured for the project. The central fact table for product analytics.",
+                events_retention_field: "timestamp",
                 fields: {
                   $group_0: {
                     description: None,
@@ -14129,6 +14209,7 @@
                 hidden: False,
                 inherit_profile_spill: False,
                 name: None,
+                person_id_pushdown_default: False,
                 top_level_settings: None,
                 workload: None
               }
@@ -14241,6 +14322,7 @@
               table_type: {
                 table: {
                   description: "Every analytics event captured for the project. The central fact table for product analytics.",
+                  events_retention_field: "timestamp",
                   fields: {
                     $group_0: {
                       description: None,
@@ -14470,6 +14552,7 @@
                   hidden: False,
                   inherit_profile_spill: False,
                   name: None,
+                  person_id_pushdown_default: False,
                   top_level_settings: None,
                   workload: None
                 }
@@ -14586,6 +14669,7 @@
                 table_type: {
                   table: {
                     description: "Every analytics event captured for the project. The central fact table for product analytics.",
+                    events_retention_field: "timestamp",
                     fields: {
                       $group_0: {
                         description: None,
@@ -14815,6 +14899,7 @@
                     hidden: False,
                     inherit_profile_spill: False,
                     name: None,
+                    person_id_pushdown_default: False,
                     top_level_settings: None,
                     workload: None
                   }
@@ -14971,6 +15056,7 @@
                         table_type: {
                           table: {
                             description: "Every analytics event captured for the project. The central fact table for product analytics.",
+                            events_retention_field: "timestamp",
                             fields: {
                               $group_0: {
                                 description: None,
@@ -15200,6 +15286,7 @@
                             hidden: False,
                             inherit_profile_spill: False,
                             name: None,
+                            person_id_pushdown_default: False,
                             top_level_settings: None,
                             workload: None
                           }
@@ -15362,6 +15449,7 @@
             table_type: {
               table: {
                 description: "Every analytics event captured for the project. The central fact table for product analytics.",
+                events_retention_field: "timestamp",
                 fields: {
                   $group_0: {
                     description: None,
@@ -15591,6 +15679,7 @@
                 hidden: False,
                 inherit_profile_spill: False,
                 name: None,
+                person_id_pushdown_default: False,
                 top_level_settings: None,
                 workload: None
               }
@@ -15661,6 +15750,7 @@
                     hidden: False,
                     inherit_profile_spill: False,
                     name: None,
+                    person_id_pushdown_default: False,
                     top_level_settings: None,
                     workload: None
                   },
@@ -15725,6 +15815,7 @@
               table_type: {
                 table: {
                   description: "Every analytics event captured for the project. The central fact table for product analytics.",
+                  events_retention_field: "timestamp",
                   fields: {
                     $group_0: {
                       description: None,
@@ -15954,6 +16045,7 @@
                   hidden: False,
                   inherit_profile_spill: False,
                   name: None,
+                  person_id_pushdown_default: False,
                   top_level_settings: None,
                   workload: None
                 }
@@ -16026,6 +16118,7 @@
                     hidden: False,
                     inherit_profile_spill: False,
                     name: None,
+                    person_id_pushdown_default: False,
                     top_level_settings: None,
                     workload: None
                   },
@@ -16089,6 +16182,7 @@
             table_type: {
               table: {
                 description: "Every analytics event captured for the project. The central fact table for product analytics.",
+                events_retention_field: "timestamp",
                 fields: {
                   $group_0: {
                     description: None,
@@ -16318,6 +16412,7 @@
                 hidden: False,
                 inherit_profile_spill: False,
                 name: None,
+                person_id_pushdown_default: False,
                 top_level_settings: None,
                 workload: None
               }
@@ -16373,6 +16468,7 @@
                   hidden: False,
                   inherit_profile_spill: False,
                   name: None,
+                  person_id_pushdown_default: False,
                   top_level_settings: None,
                   workload: None
                 },
@@ -16436,6 +16532,7 @@
               table_type: {
                 table: {
                   description: "Every analytics event captured for the project. The central fact table for product analytics.",
+                  events_retention_field: "timestamp",
                   fields: {
                     $group_0: {
                       description: None,
@@ -16665,6 +16762,7 @@
                   hidden: False,
                   inherit_profile_spill: False,
                   name: None,
+                  person_id_pushdown_default: False,
                   top_level_settings: None,
                   workload: None
                 }
@@ -16722,6 +16820,7 @@
                   hidden: False,
                   inherit_profile_spill: False,
                   name: None,
+                  person_id_pushdown_default: False,
                   top_level_settings: None,
                   workload: None
                 },
@@ -16805,6 +16904,7 @@
                 hidden: False,
                 inherit_profile_spill: False,
                 name: None,
+                person_id_pushdown_default: False,
                 top_level_settings: None,
                 workload: None
               }
@@ -16897,6 +16997,7 @@
               table_type: {
                 table: {
                   description: "Every analytics event captured for the project. The central fact table for product analytics.",
+                  events_retention_field: "timestamp",
                   fields: {
                     $group_0: {
                       description: None,
@@ -17126,6 +17227,7 @@
                   hidden: False,
                   inherit_profile_spill: False,
                   name: None,
+                  person_id_pushdown_default: False,
                   top_level_settings: None,
                   workload: None
                 }
@@ -17199,6 +17301,7 @@
                   table_type: {
                     table: {
                       description: "Every analytics event captured for the project. The central fact table for product analytics.",
+                      events_retention_field: "timestamp",
                       fields: {
                         $group_0: {
                           description: None,
@@ -17428,6 +17531,7 @@
                       hidden: False,
                       inherit_profile_spill: False,
                       name: None,
+                      person_id_pushdown_default: False,
                       top_level_settings: None,
                       workload: None
                     }
@@ -17523,6 +17627,7 @@
             table_type: {
               table: {
                 description: "Every analytics event captured for the project. The central fact table for product analytics.",
+                events_retention_field: "timestamp",
                 fields: {
                   $group_0: {
                     description: None,
@@ -17752,6 +17857,7 @@
                 hidden: False,
                 inherit_profile_spill: False,
                 name: None,
+                person_id_pushdown_default: False,
                 top_level_settings: None,
                 workload: None
               }
@@ -17815,6 +17921,7 @@
                                 hidden: False,
                                 inherit_profile_spill: False,
                                 name: None,
+                                person_id_pushdown_default: False,
                                 top_level_settings: None,
                                 workload: None
                               },
@@ -17906,6 +18013,7 @@
                         hidden: False,
                         inherit_profile_spill: False,
                         name: None,
+                        person_id_pushdown_default: False,
                         top_level_settings: None,
                         workload: None
                       },

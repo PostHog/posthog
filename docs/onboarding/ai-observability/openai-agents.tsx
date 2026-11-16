@@ -18,7 +18,7 @@ export const getOpenAIAgentsSteps = (ctx: OnboardingComponentsContext): StepDefi
                     <CodeBlock
                         language="bash"
                         code={dedent`
-                            pip install posthog
+                            pip install "posthog<8"
                         `}
                     />
                 </>

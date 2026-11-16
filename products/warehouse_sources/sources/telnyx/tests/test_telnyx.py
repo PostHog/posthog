@@ -1,6 +1,8 @@
 from datetime import date, datetime
 from typing import Any
 
+import pytest
+
 from products.warehouse_sources.sources.sdk.testing import ScriptedResponse, SourceDriver, always, scripted_network
 from products.warehouse_sources.sources.telnyx._config import TelnyxSourceConfig
 from products.warehouse_sources.sources.telnyx.source import TelnyxSource
@@ -69,6 +71,51 @@ class TestTelnyxSourceResumeBehavior:
 
         assert result.requests[0].param("filter[created_at][gte]") == "1970-01-01T00:00:00Z"
         assert result.requests[0].param("sort") == "created_at"
+
+    @pytest.mark.parametrize(
+        ("endpoint", "expected_path", "expected_query"),
+        [
+            (
+                "MessagingDetailRecords",
+                "/v2/detail_records",
+                {"filter[record_type]": "messaging", "page[size]": "50", "sort": "created_at", "page[number]": "1"},
+            ),
+            (
+                "PhoneNumbers",
+                "/v2/phone_numbers",
+                {"page[size]": "250", "sort": "phone_number", "page[number]": "1"},
+            ),
+            ("MessagingProfiles", "/v2/messaging_profiles", {"page[size]": "250", "page[number]": "1"}),
+            ("Connections", "/v2/connections", {"page[size]": "250", "sort": "created_at", "page[number]": "1"}),
+            ("Conferences", "/v2/conferences", {"page[size]": "250", "page[number]": "1"}),
+        ],
+    )
+    def test_full_refresh_request_shape(
+        self, endpoint: str, expected_path: str, expected_query: dict[str, str]
+    ) -> None:
+        result = self._driver().run(endpoint, [_page({"data": [{"id": "1"}], "meta": {"total_pages": 1}})])
+
+        assert result.paths == [expected_path]
+        assert {name: values[0] for name, values in result.queries[0].items()} == expected_query
+
+    @pytest.mark.parametrize(
+        ("endpoint", "secret_field"),
+        [("MessagingProfiles", "v1_secret"), ("PhoneNumbers", "external_pin")],
+    )
+    def test_credential_fields_are_dropped(self, endpoint: str, secret_field: str) -> None:
+        result = self._driver().run(
+            endpoint,
+            [
+                _page(
+                    {
+                        "data": [{"id": "r1", "name": "Alerts", secret_field: "fake-secret"}, {"id": "r2"}],
+                        "meta": {"total_pages": 1},
+                    }
+                )
+            ],
+        )
+
+        assert result.rows == [{"id": "r1", "name": "Alerts"}, {"id": "r2"}]
 
 
 class TestValidateCredentials:

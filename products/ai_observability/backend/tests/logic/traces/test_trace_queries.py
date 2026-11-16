@@ -268,7 +268,7 @@ class TestLoadTraceNode(TraceEventsMixin, ClickhouseTestMixin, BaseTest):
     def test_merges_the_heavy_columns_back_into_the_properties(self) -> None:
         self._ingest(
             NODE,
-            {"$ai_input": QUESTION, "$ai_output_choices": ANSWER, "$ai_model": "gpt-4.1-mini"},
+            {"$ai_input": QUESTION, "$ai_output_choices": ANSWER, "$ai_model": "gpt-6-luna"},
             event="$ai_generation",
         )
 
@@ -277,7 +277,7 @@ class TestLoadTraceNode(TraceEventsMixin, ClickhouseTestMixin, BaseTest):
         assert row is not None
         assert (row.uuid, row.event) == (NODE, "$ai_generation")
         assert (row.properties["$ai_input"], row.properties["$ai_output_choices"]) == (QUESTION, ANSWER)
-        assert row.properties["$ai_model"] == "gpt-4.1-mini"
+        assert row.properties["$ai_model"] == "gpt-6-luna"
 
     @parameterized.expand(
         [

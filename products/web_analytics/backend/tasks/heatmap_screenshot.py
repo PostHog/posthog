@@ -46,6 +46,34 @@ HEATMAP_SCREENSHOT_STUCK_THRESHOLD_SECONDS = HEATMAP_SCREENSHOT_TIME_LIMIT + 60
 HEATMAP_SCREENSHOT_STUCK_SAMPLE_SIZE = 20
 PAGE_HTTP_STATUS_MAX_RETRIES = 2
 
+# Browserless' scrollPage stops only when document.body.scrollHeight is reached, so on pages where body is
+# taller than the window can scroll (CSS zoom, fixed-height body) it loops until the session times out.
+# This stops when the window stops moving or when its budget runs out, so infinite-scroll pages also finish.
+# It runs as the waitForFunction predicate, which goes over CDP: an injected <script> tag is blocked by a
+# page's CSP. Browserless can call the predicate more than once, so it reuses one scroll per page.
+HEATMAP_SCROLL_BUDGET_MS = 20_000
+HEATMAP_SCROLL_WAIT_TIMEOUT_MS = HEATMAP_SCROLL_BUDGET_MS + 10_000
+HEATMAP_SCROLL_FN = f"""async () => {{
+    window.__phHeatmapScroll = window.__phHeatmapScroll || new Promise((resolve) => {{
+        const deadline = Date.now() + {HEATMAP_SCROLL_BUDGET_MS};
+        let lastY = -1;
+        let stillSteps = 0;
+        const step = () => {{
+            window.scrollBy(0, Math.floor(window.innerHeight / 2));
+            stillSteps = window.pageYOffset === lastY ? stillSteps + 1 : 0;
+            lastY = window.pageYOffset;
+            if (stillSteps >= 3 || Date.now() >= deadline) {{
+                window.scrollTo(0, 0);
+                setTimeout(resolve, 500);
+                return;
+            }}
+            setTimeout(step, 100);
+        }};
+        step();
+    }});
+    await window.__phHeatmapScroll;
+}}"""
+
 HEATMAP_SCREENSHOT_SUCCEEDED = Counter(
     "heatmap_screenshot_task_succeeded",
     "A heatmap screenshot task succeeded",
@@ -449,7 +477,7 @@ def _browserless_screenshot(
     source: str = "heatmap_screenshot",
 ) -> tuple[bytes, int | None]:
     # Render one width via the Browserless /screenshot REST API. viewport.width sets the captured width;
-    # scrollPage triggers lazy-loaded content and blockConsentModals dismisses cookie banners server-side.
+    # HEATMAP_SCROLL_FN triggers lazy-loaded content and blockConsentModals dismisses cookie banners server-side.
     body: dict[str, object] = {
         "url": page_url,
         "options": {"fullPage": True, "type": "jpeg", "quality": 70},
@@ -461,7 +489,8 @@ def _browserless_screenshot(
             "hasTouch": width < 500,
         },
         "gotoOptions": {"waitUntil": "networkidle2", "timeout": 30_000},
-        "scrollPage": True,
+        "scrollPage": False,
+        "waitForFunction": {"fn": HEATMAP_SCROLL_FN, "timeout": HEATMAP_SCROLL_WAIT_TIMEOUT_MS},
         "bestAttempt": True,
     }
     if cookies and settings.HEATMAP_BROWSERLESS_SCREENSHOT_COOKIES_ENABLED:

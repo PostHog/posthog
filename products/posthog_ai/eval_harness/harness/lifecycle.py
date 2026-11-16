@@ -7,6 +7,7 @@ import asyncio
 import hashlib
 import logging
 import tempfile
+import threading
 import subprocess
 from collections.abc import Sequence
 from contextlib import AsyncExitStack, ExitStack
@@ -86,6 +87,7 @@ from .temporal_env import (
 )
 
 logger = logging.getLogger(__name__)
+TRACE_SHUTDOWN_TIMEOUT_SECONDS = 5.0
 
 
 def eval_feature_enabled(
@@ -108,6 +110,15 @@ def _git(*args: str) -> str | None:
     except (OSError, subprocess.SubprocessError):
         return None
     return result.stdout.strip()
+
+
+def _shutdown_trace_client(client: Posthog) -> None:
+    # SDK shutdown drains without a deadline; telemetry must not hold up infrastructure cleanup.
+    worker = threading.Thread(target=client.shutdown, name="eval-trace-shutdown", daemon=True)
+    worker.start()
+    worker.join(timeout=TRACE_SHUTDOWN_TIMEOUT_SECONDS)
+    if worker.is_alive():
+        logger.warning("Trace shutdown timed out; continuing cleanup. Pending traces may be lost.")
 
 
 def _worktree_dirty() -> bool | None:
@@ -457,9 +468,10 @@ class SandboxedEvalHarness:
             # publicly reachable before any settings pointing at them are computed.
             self.provider.start(self._stack)
 
-        self._posthog_client = get_client("US")
+        # The harness uses TEST for its database, but this client captures eval traces deliberately.
+        self._posthog_client = get_client("US", disabled=bool(os.environ.get("OPT_OUT_CAPTURE", False)))
         if self._posthog_client is not None:
-            self._stack.callback(self._posthog_client.shutdown)
+            self._stack.callback(_shutdown_trace_client, self._posthog_client)
 
         if Infra.AI_GATEWAY in required:
             assert self._demo_data is not None and self._database is not None

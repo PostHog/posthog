@@ -201,7 +201,7 @@ export const devModeLogic = kea<devModeLogicType>([
         canMint: [
             (s) => [s.usage, s.remainingUsd],
             (usage: DevTokenUsageApi | null, remainingUsd: number | null): boolean =>
-                !!usage && remainingUsd !== null && remainingUsd >= Number(usage.token_cap_usd),
+                !!usage && remainingUsd !== null && remainingUsd >= Number(usage.token_cap_min_usd ?? 0),
         ],
     }),
     listeners(({ actions, values }) => ({

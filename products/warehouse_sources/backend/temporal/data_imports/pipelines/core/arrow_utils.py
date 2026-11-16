@@ -1294,8 +1294,8 @@ def relax_batch_nullability(pa_table: pa.Table) -> pa.Table:
 def raise_on_nullability_drift(pa_table: pa.Table, delta_schema: deltalake.Schema) -> None:
     """Stop the sync when a batch has nulls in a column the table declares non-nullable.
 
-    delta-rs cannot write a null into a non-nullable column, and deltalake 1.6.1 has no operation to
-    relax an existing column to nullable in place. So a source that starts emitting nulls in a
+    delta-rs cannot write a null into a non-nullable column, and this path does not relax an existing
+    column to nullable in place. So a source that starts emitting nulls in a
     column the table created non-nullable is a schema change under the table, and the only fix is to
     reset and fully re-sync it -- which recreates the column as nullable. Surfaced as
     SchemaColumnTypeChangedException, the same reset-and-re-sync signal the decimal-widening path

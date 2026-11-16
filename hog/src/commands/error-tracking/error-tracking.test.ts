@@ -14,6 +14,7 @@ import { tmpdir } from 'node:os'
 import { basename, join } from 'node:path'
 import { z } from 'zod'
 
+import { EXIT_FAILURE, EXIT_SUCCESS, EXIT_USAGE } from '@/core/errors'
 import { cleanUp, cssTargets } from '@/error-tracking/cleanup'
 import { contentHash, SymbolDataType, writeSymbolData } from '@/error-tracking/container'
 import { nativeCandidates } from '@/error-tracking/native/package'
@@ -40,6 +41,70 @@ const UploadOutput = z.looseObject({
 })
 
 describe('hog error-tracking upload', () => {
+    test('release without git or complete coordinates returns null without a request', async () => {
+        const result = await runHog(['et', 'release', '--release-version', 'abc123', '-o', 'json'], {
+            env: { CLAUDECODE: '1' },
+            cwd: project({}),
+            useDisk: true,
+        })
+        expect(result.exitCode).toBe(EXIT_SUCCESS)
+        expect(result.json()).toBeNull()
+        expect(result.requests).toEqual([])
+    })
+
+    test.each(['inject', 'upload', 'process'] as const)(
+        '%s skips an incomplete release without git and warns once',
+        async (command) => {
+            const folder = project({
+                'dist/a.js': 'a();\n//# debugId=11111111-2222-4333-8444-555555555555\n//# sourceMappingURL=a.js.map\n',
+                'dist/a.js.map': JSON.stringify({
+                    version: 3,
+                    sources: ['a.ts'],
+                    names: [],
+                    mappings: 'AAAA',
+                    debugId: '11111111-2222-4333-8444-555555555555',
+                }),
+            })
+            const result = await runHog(
+                ['et', command, 'dist', '--release-mode', 'symbol-set', '--release-version', 'abc123', '--dry-run'],
+                { env: { CLAUDECODE: '1' }, cwd: folder, useDisk: true }
+            )
+            expect(result.exitCode).toBe(EXIT_SUCCESS)
+            const report = result.json(z.looseObject({ warnings: z.array(z.string()) }))
+            expect(
+                report.warnings.filter((warning) => warning.includes('Sourcemaps will upload without a release.'))
+            ).toHaveLength(1)
+            expect(result.requests).toEqual([])
+        }
+    )
+
+    test.each([
+        ['clone', ['packager.map', 'composed.map']],
+        ['upload', ['composed.map']],
+    ])('%s warns when a Hermes release cannot be resolved', async (command, paths) => {
+        const map = {
+            version: 3,
+            sources: ['a.ts'],
+            names: [],
+            mappings: 'AAAA',
+            chunk_id: '11111111-2222-4333-8444-555555555555',
+        }
+        const folder = project({
+            'packager.map': JSON.stringify(map),
+            'composed.map': JSON.stringify({ ...map, x_hermes_function_offsets: { '0': [0] } }),
+        })
+        const result = await runHog(
+            ['et', command, ...paths, '--release-mode', 'symbol-set', '--release-version', 'abc123', '--dry-run'],
+            { env: { CLAUDECODE: '1' }, cwd: folder, useDisk: true }
+        )
+        expect(result.exitCode).toBe(EXIT_SUCCESS)
+        const report = result.json(z.looseObject({ warnings: z.array(z.string()) }))
+        expect(
+            report.warnings.filter((warning) => warning.includes('Sourcemaps will upload without a release.'))
+        ).toHaveLength(1)
+        expect(result.requests).toEqual([])
+    })
+
     test.each([
         ['the map ID from posthog.json', [], 'map-1'],
         ['--map-id over the one in posthog.json', ['--map-id', 'map-2'], 'map-2'],
@@ -60,7 +125,7 @@ describe('hog error-tracking upload', () => {
             useDisk: true,
         })
 
-        expect(result.exitCode).toBe(0)
+        expect(result.exitCode).toBe(EXIT_SUCCESS)
         expect(result.json()).toEqual({
             dryRun: true,
             release: { name: 'app', version: '2.0', id: null },
@@ -101,7 +166,7 @@ describe('hog error-tracking upload', () => {
             useDisk: true,
         })
 
-        expect(result.exitCode).toBe(0)
+        expect(result.exitCode).toBe(EXIT_SUCCESS)
         expect(result.json()).toMatchObject({
             dryRun: true,
             injected: [{ path: 'dist/a.js', action: 'injected' }],
@@ -158,7 +223,7 @@ describe('hog error-tracking upload', () => {
         const before = readFileSync(join(folder, untouched), 'utf8')
         const result = await runHog(['et', 'inject'], { env: { CLAUDECODE: '1' }, cwd: folder, useDisk: true })
 
-        expect(result.exitCode).toBe(0)
+        expect(result.exitCode).toBe(EXIT_SUCCESS)
         expect(result.json(UploadOutput).skipped).toEqual([
             { path: expect.stringMatching(/dist\/a\.js$/), reason: expect.stringContaining(reason) },
         ])
@@ -185,7 +250,7 @@ describe('hog error-tracking upload', () => {
             useDisk: true,
         })
 
-        expect(result.exitCode).toBe(0)
+        expect(result.exitCode).toBe(EXIT_SUCCESS)
         const reasons = Object.fromEntries(
             result.json(UploadOutput).skipped.map((skip) => [basename(skip.path), skip.reason])
         )
@@ -234,7 +299,7 @@ describe('hog error-tracking upload', () => {
         chmodSync(join(folder, 'dist/a.js.map'), 0o444)
         const result = await runHog(['et', 'inject', 'dist'], { env: { CLAUDECODE: '1' }, cwd: folder, useDisk: true })
 
-        expect(result.exitCode).toBe(1)
+        expect(result.exitCode).toBe(EXIT_FAILURE)
         expect(readFileSync(join(folder, 'dist/a.js'), 'utf8')).toBe(bundle)
     })
 
@@ -275,7 +340,7 @@ describe('hog error-tracking upload', () => {
             cwd: folder,
             useDisk: true,
         })
-        expect(result.exitCode).toBe(0)
+        expect(result.exitCode).toBe(EXIT_SUCCESS)
         expect(result.json(UploadOutput).symbolSets).toEqual([
             expect.objectContaining({ path: composed, kind: 'hermes' }),
         ])
@@ -289,7 +354,7 @@ describe('hog error-tracking upload', () => {
             cwd: folder,
             useDisk: true,
         })
-        expect(result.exitCode).toBe(1)
+        expect(result.exitCode).toBe(EXIT_FAILURE)
         expect(result.error()).toMatchObject({ code: 'no_hermes_maps' })
     })
 
@@ -311,17 +376,23 @@ describe('hog error-tracking upload', () => {
             'other uploads go ahead when no native file is usable',
             readFileSync(join(NATIVE, 'linux/checkout-no-debug')),
             ['mapping.txt', '--map-id', 'map-1'],
-            0,
+            EXIT_SUCCESS,
             'map-1',
         ],
         [
             'the failure names every skipped native file',
             readFileSync(join(NATIVE, 'linux/checkout-no-debug')),
             [],
-            1,
+            EXIT_FAILURE,
             'bin/native: ',
         ],
-        ['a Mach-O load command smaller than its header is skipped', ZERO_CMDSIZE, [], 1, 'smaller than its header'],
+        [
+            'a Mach-O load command smaller than its header is skipped',
+            ZERO_CMDSIZE,
+            [],
+            EXIT_FAILURE,
+            'smaller than its header',
+        ],
     ])('upload: %s', async (_name, binary, paths, exitCode, expected) => {
         const folder = project({ 'mapping.txt': SMALL_MAPPING })
         mkdirSync(join(folder, 'bin'))
@@ -333,8 +404,33 @@ describe('hog error-tracking upload', () => {
         })
         expect(result.exitCode).toBe(exitCode)
         expect(
-            exitCode === 0 ? JSON.stringify(result.json(UploadOutput).symbolSets) : result.error().message
+            exitCode === EXIT_SUCCESS ? JSON.stringify(result.json(UploadOutput).symbolSets) : result.error().message
         ).toContain(expected)
+    })
+
+    test.each([
+        ['nothing is skipped', false, '• Uploaded 0 symbol sets, 1 already present'],
+        ['a native file has no debug info', true, '! Uploaded 0 symbol sets, 1 already present, 1 skipped'],
+    ])('upload marks the result partial only when a file is unusable: %s', async (_name, withNative, summary) => {
+        const folder = project({ 'mapping.txt': SMALL_MAPPING })
+        mkdirSync(join(folder, 'bin'))
+        if (withNative) {
+            writeFileSync(join(folder, 'bin/native'), readFileSync(join(NATIVE, 'linux/checkout-no-debug')))
+        }
+
+        const result = await runHog(['et', 'upload', 'bin', 'mapping.txt', '--map-id', 'map-1'], {
+            env: { ...TEST_CREDENTIALS, NO_COLOR: '1' },
+            stdoutIsTTY: true,
+            cwd: folder,
+            useDisk: true,
+            respond: (url) =>
+                url.endsWith('/bulk_check_upload')
+                    ? { status: 200, body: { chunk_ids_to_upload: [] } }
+                    : { status: 404, body: { detail: 'Not found.' } },
+        })
+
+        expect(result.exitCode).toBe(EXIT_SUCCESS)
+        expect(result.stdout.split('\n')[0]).toBe(summary)
     })
 
     test.each([
@@ -358,12 +454,12 @@ describe('hog error-tracking upload', () => {
         })
 
         if (linkOutside) {
-            expect(result.exitCode).toBe(0)
+            expect(result.exitCode).toBe(EXIT_SUCCESS)
             expect(result.json(UploadOutput).symbolSets).toEqual([
                 expect.objectContaining({ path: 'apple/Shop.app.dSYM', status: 'planned' }),
             ])
         } else {
-            expect(result.exitCode).toBe(1)
+            expect(result.exitCode).toBe(EXIT_FAILURE)
             expect(result.error()).toMatchObject({
                 code: 'no_debug_symbols',
                 message: expect.stringContaining('apple/Shop.app.dSYM: '),
@@ -392,7 +488,7 @@ describe('hog error-tracking upload', () => {
                 cwd: folder,
                 useDisk: true,
             })
-            expect(result.exitCode).toBe(0)
+            expect(result.exitCode).toBe(EXIT_SUCCESS)
             return result.json(UploadOutput).symbolSets[0]!.contentHash
         }
         try {
@@ -426,11 +522,16 @@ describe('hog error-tracking upload', () => {
     })
 
     test.each([
-        ['a ProGuard mapping without a map ID', ['mapping.txt'], 2, 'map_id_required'],
-        ['a file hog cannot place', ['notes.txt'], 1, 'unknown_artifact'],
-        ['no paths and no posthog.json', [], 2, 'no_paths'],
-        ['--force with --skip-on-conflict', ['mapping.txt', '--force', '--skip-on-conflict'], 2, 'usage_error'],
-        ['a concurrency below 1', ['mapping.txt', '--concurrency', '0'], 2, 'usage_error'],
+        ['a ProGuard mapping without a map ID', ['mapping.txt'], EXIT_USAGE, 'map_id_required'],
+        ['a file hog cannot place', ['notes.txt'], EXIT_FAILURE, 'unknown_artifact'],
+        ['no paths and no posthog.json', [], EXIT_USAGE, 'no_paths'],
+        [
+            '--force with --skip-on-conflict',
+            ['mapping.txt', '--force', '--skip-on-conflict'],
+            EXIT_USAGE,
+            'usage_error',
+        ],
+        ['a concurrency below 1', ['mapping.txt', '--concurrency', '0'], EXIT_USAGE, 'usage_error'],
     ])('%s fails with a hint', async (_name, paths, exitCode, code) => {
         const folder = project({ 'mapping.txt': SMALL_MAPPING, 'notes.txt': 'hello' })
         const result = await runHog(['et', 'upload', '--dry-run', ...paths], {
@@ -440,6 +541,48 @@ describe('hog error-tracking upload', () => {
         })
         expect(result.exitCode).toBe(exitCode)
         expect(result.error()).toMatchObject({ code, hint: expect.any(String) })
+    })
+
+    test.each([
+        ['a proxy error page', 502, '<html>Bad gateway for BODY_SECRET</html>', '.'],
+        [
+            'a PostHog error',
+            400,
+            JSON.stringify({
+                type: 'validation_error',
+                code: 'invalid',
+                detail: 'Release is locked.',
+                extra: 'BODY_SECRET',
+            }),
+            ': Release is locked.',
+        ],
+    ])('a refused upload start shows only the path and the detail of %s', async (_name, status, body, ending) => {
+        const folder = project({
+            'posthog.json': JSON.stringify({ errorTracking: { sources: [{ path: 'build', mapId: 'map-1' }] } }),
+            'build/mapping.txt': SMALL_MAPPING,
+        })
+
+        const result = await runHog(['et', 'upload'], {
+            env: { ...TEST_CREDENTIALS, CLAUDECODE: '1' },
+            cwd: folder,
+            useDisk: true,
+            respond: (url) => {
+                if (url.endsWith('/bulk_check_upload')) {
+                    return { status: 200, body: { chunk_ids_to_upload: ['map-1'] } }
+                }
+                if (url.endsWith('/bulk_start_upload')) {
+                    return { status, body }
+                }
+                return { status: 404, body: { detail: 'Not found.' } }
+            },
+        })
+
+        expect(result.exitCode).toBe(EXIT_FAILURE)
+        expect(result.error()).toMatchObject({
+            code: 'upload_failed',
+            message: `PostHog didn't start the upload: PostHog answered ${status} for /api/projects/7/error_tracking/symbol_sets/bulk_start_upload${ending}`,
+        })
+        expect(result.stderr + result.stdout).not.toContain('BODY_SECRET')
     })
 
     function dsymWithBadChecksum(): Buffer {
@@ -466,7 +609,7 @@ describe('hog error-tracking upload', () => {
             cwd: folder,
             useDisk: true,
         })
-        expect(result.exitCode).toBe(1)
+        expect(result.exitCode).toBe(EXIT_FAILURE)
         expect(result.error()).toMatchObject({ code: 'invalid_symbol_set', message: expect.stringContaining(message) })
     })
 
@@ -483,7 +626,7 @@ describe('hog error-tracking upload', () => {
             useDisk: true,
         })
 
-        expect(result.exitCode).toBe(0)
+        expect(result.exitCode).toBe(EXIT_SUCCESS)
         expect(result.stdout).not.toContain('\u001b')
         expect(result.stdout).toContain('evil\\x1b]52;c;cGF5\\x07')
     })
@@ -499,7 +642,7 @@ describe('hog error-tracking upload', () => {
                 useDisk: true,
             })
 
-            expect(result.exitCode).toBe(1)
+            expect(result.exitCode).toBe(EXIT_FAILURE)
             expect(result.error()).toMatchObject({ code: 'invalid_info_plist' })
         }
     )
@@ -514,9 +657,69 @@ describe('hog error-tracking upload', () => {
             respond: () => ({ status, body: { detail: 'Not allowed.' } }),
         })
 
-        expect(result.exitCode).toBe(1)
+        expect(result.exitCode).toBe(EXIT_FAILURE)
         expect(result.error()).toMatchObject({ code, hint: expect.any(String) })
     })
+
+    test.each([
+        [
+            'a presigned PUT',
+            {
+                presigned_put_url:
+                    'https://storage.example.com/symbolsets/chunk?X-Amz-Credential=ASIAEXAMPLEKEYID%2F20261104%2Fus-east-1%2Fs3%2Faws4_request&X-Amz-Security-Token=SESSIONTOKEN&X-Amz-Signature=SIGNATURE',
+            },
+            '<Error><Code>SignatureDoesNotMatch</Code><Message>The request signature we calculated does not match the signature you provided.</Message><AWSAccessKeyId>ASIAEXAMPLEKEYID</AWSAccessKeyId><CanonicalRequest>PUT\n/symbolsets/chunk\nX-Amz-Security-Token=SESSIONTOKEN&amp;X-Amz-Signature=SIGNATURE</CanonicalRequest><RequestId>REQ123</RequestId></Error>',
+            'Code=SignatureDoesNotMatch RequestId=REQ123',
+        ],
+        [
+            'a presigned POST policy',
+            {
+                presigned_url: {
+                    url: 'https://storage.example.com/symbolsets/chunk',
+                    fields: { key: 'symbolsets/chunk', 'x-amz-security-token': 'SESSIONTOKEN' },
+                },
+            },
+            '<Error><Code>AccessDenied</Code><Message>Invalid according to Policy: Policy Condition failed: [eq, $x-amz-security-token, SESSIONTOKEN]</Message><RequestId>REQ123</RequestId></Error>',
+            'Code=AccessDenied RequestId=REQ123',
+        ],
+    ])(
+        'an object storage error on %s keeps the presigned credentials out of the error',
+        async (_name, target, storageError, summary) => {
+            const folder = project({
+                'posthog.json': JSON.stringify({ errorTracking: { sources: [{ path: 'build', mapId: 'map-1' }] } }),
+                'build/mapping.txt': SMALL_MAPPING,
+            })
+
+            const result = await runHog(['et', 'upload'], {
+                env: { ...TEST_CREDENTIALS, CLAUDECODE: '1' },
+                cwd: folder,
+                useDisk: true,
+                respond: (url) => {
+                    if (url.startsWith('https://storage.example.com/')) {
+                        return { status: 403, body: storageError }
+                    }
+                    if (url.endsWith('/bulk_check_upload')) {
+                        return { status: 200, body: { chunk_ids_to_upload: ['map-1'] } }
+                    }
+                    if (url.endsWith('/bulk_start_upload')) {
+                        return { status: 200, body: { id_map: { 'map-1': { ...target, symbol_set_id: 'set-1' } } } }
+                    }
+                    return { status: 404, body: { detail: 'Not found.' } }
+                },
+            })
+
+            expect(result.exitCode).toBe(EXIT_FAILURE)
+            expect(result.error()).toMatchObject({
+                code: 'upload_failed',
+                message: expect.stringContaining(
+                    `Object storage answered 403 for https://storage.example.com/symbolsets/chunk (${summary}).`
+                ),
+            })
+            for (const secret of ['ASIAEXAMPLEKEYID', 'SESSIONTOKEN', 'SIGNATURE']) {
+                expect(result.stderr + result.stdout).not.toContain(secret)
+            }
+        }
+    )
 
     test.each([
         ['...dSYM', 'linux', 'symbol_set'],

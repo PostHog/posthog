@@ -1,3 +1,4 @@
+from collections.abc import Mapping
 from dataclasses import replace
 
 from unittest import TestCase
@@ -22,22 +23,34 @@ SCREEN = ExposureSegmentDimension.SCREEN
 MISMATCH = "The distribution of users across variants doesn't match your configured rollout percentages (p < 0.001)."
 NO_LOCATION = f"{MISMATCH} This may indicate issues with randomization or data collection."
 NEXT_STEP = "Check that the code there sends the exposure for every user in every variant."
+OWN_PAGE = (
+    "When each variant has its own page or site, users who leave before their variant's exposure is sent are missing "
+    "from that variant, which can cause this. Send the exposure at the same point in every variant, before any "
+    "redirect."
+)
 
 
-def _segment(dimension: ExposureSegmentDimension, value: str, control: int, test: int) -> ExposureSegment:
-    return ExposureSegment(dimension=dimension, value=value, exposed_by_variant={"control": control, "test": test})
+def _segment(
+    dimension: ExposureSegmentDimension, value: str, control: int, test: int, blue: int | None = None
+) -> ExposureSegment:
+    exposed = {"control": control, "test": test, **({"blue": blue} if blue is not None else {})}
+    return ExposureSegment(dimension=dimension, value=value, exposed_by_variant=exposed)
 
 
 def _version(library: str, version: str, control: int, test: int) -> ExposureSegment:
     return replace(_segment(LIBRARY_VERSION, version, control, test), library=library)
 
 
-def _exposures(segments: tuple[ExposureSegment, ...] | None) -> ExposureTotals:
+def _exposures(
+    segments: tuple[ExposureSegment, ...] | None,
+    exposed: Mapping[str, int] | None = None,
+    expected: Mapping[str, float] | None = None,
+) -> ExposureTotals:
     return ExposureTotals(
-        total_exposures={"control": 600, "test": 900},
+        total_exposures=exposed or {"control": 600, "test": 900},
         multiple_variant_handling=MultipleVariantHandling.EXCLUDE,
         sample_ratio_mismatch_p_value=0.00001,
-        sample_ratio_expected={"control": 750, "test": 750},
+        sample_ratio_expected=expected or {"control": 750, "test": 750},
         daily_exposures={},
         hours_since_launch=72,
         counts_groups=False,
@@ -142,6 +155,57 @@ class TestSrmSegments(TestCase):
                 f'{MISMATCH} The mismatch comes from users first exposed on the screen "Checkout". {NEXT_STEP}',
             ),
             (
+                "a_page_that_one_variant_reaches",
+                (
+                    _segment(LIBRARY, "web", 900, 600),
+                    _segment(PAGE, "/plans", 895, 105),
+                    _segment(PAGE, "/plans-redesign", 5, 495),
+                ),
+                "variant_segments",
+                f'{MISMATCH} Users first exposed on the page "/plans-redesign" are almost all in "test", so the '
+                f"variants send their exposures from different places. {OWN_PAGE}",
+                {"control": 900, "test": 600},
+            ),
+            (
+                "a_page_of_the_variant_in_excess",
+                (
+                    _segment(LIBRARY, "web", 600, 900),
+                    _segment(PAGE, "/plans", 595, 405),
+                    _segment(PAGE, "/plans-redesign", 5, 495),
+                ),
+                None,
+                NO_LOCATION,
+            ),
+            (
+                "a_page_far_from_an_uneven_split",
+                (
+                    _segment(LIBRARY, "web", 7600, 2400),
+                    _segment(PAGE, "/pricing", 2850, 2150),
+                    _segment(PAGE, "/checkout", 2375, 125),
+                    _segment(PAGE, "/cart", 2375, 125),
+                ),
+                None,
+                NO_LOCATION,
+                {"control": 7600, "test": 2400},
+                {"control": 8000, "test": 2000},
+            ),
+            (
+                "the_largest_page_of_each_short_variant",
+                (
+                    _segment(LIBRARY, "web", 600, 1500, 600),
+                    _segment(PAGE, "/tour-new", 5, 1490, 5),
+                    _segment(PAGE, "/tour-b", 5, 5, 590),
+                    _segment(PAGE, "/tour", 390, 5, 5),
+                    _segment(PAGE, "/tour-fr", 200, 0, 0),
+                ),
+                "variant_segments",
+                f'{MISMATCH} Users first exposed on the page "/tour-b" are almost all in "blue", and users first '
+                f'exposed on the page "/tour" are almost all in "control", so the variants send their exposures from '
+                f"different places. {OWN_PAGE}",
+                {"control": 600, "test": 1500, "blue": 600},
+                {"control": 900, "test": 900, "blue": 900},
+            ),
+            (
                 "the_same_skew_everywhere",
                 (_segment(LIBRARY, "web", 96900, 93100), _segment(LIBRARY, "posthog-node", 5100, 4900)),
                 "uniform",
@@ -164,9 +228,15 @@ class TestSrmSegments(TestCase):
         ]
     )
     def test_names_the_segment_with_the_mismatch(
-        self, _name: str, segments: tuple[ExposureSegment, ...] | None, reason: str | None, detail: str
+        self,
+        _name: str,
+        segments: tuple[ExposureSegment, ...] | None,
+        reason: str | None,
+        detail: str,
+        exposed: Mapping[str, int] | None = None,
+        expected: Mapping[str, float] | None = None,
     ) -> None:
-        outcome = srm(replace(RUNNING_CONTEXT, exposures=_exposures(segments)))
+        outcome = srm(replace(RUNNING_CONTEXT, exposures=_exposures(segments, exposed, expected)))
 
         assert isinstance(outcome, ExperimentHealthFinding)
         self.assertEqual(
@@ -339,6 +409,18 @@ class TestSrmCauses(TestCase):
                 (None, True),
                 f'{MISMATCH} The mismatch comes from users whose first exposure was sent by the "posthog-node" '
                 f"library. {NEXT_STEP}",
+            ),
+            (
+                "override_and_a_page_per_variant",
+                [_pinned_to("test"), EVERYONE],
+                False,
+                (
+                    _segment(LIBRARY, "web", 600, 900),
+                    _segment(PAGE, "/plans", 590, 5),
+                    _segment(PAGE, "/plans-redesign", 10, 895),
+                ),
+                ("some_conditions_pinned", True),
+                PINNED_TEST,
             ),
             (
                 "override_of_the_other_variant",

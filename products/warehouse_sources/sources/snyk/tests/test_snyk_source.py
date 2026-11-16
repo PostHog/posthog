@@ -48,12 +48,15 @@ class TestSnykSource:
             ("organizations", False),
             ("projects", False),
             ("targets", False),
+            ("container_images", False),
             ("issues", True),
+            ("org_audit_logs", True),
+            ("group_audit_logs", True),
         ]
     )
-    def test_only_issues_advertises_incremental(self, endpoint: str, expected: bool) -> None:
-        # Issues is the only endpoint with a documented server-side timestamp filter
-        # (updated_after / created_after); the others must stay full refresh.
+    def test_only_server_filtered_endpoints_advertise_incremental(self, endpoint: str, expected: bool) -> None:
+        # Only issues (updated_after / created_after) and the audit log search (from) have a
+        # documented server-side timestamp filter; the others must stay full refresh.
         schemas = {s.name: s for s in self.source.get_schemas(MagicMock(), team_id=self.team_id)}
         assert schemas[endpoint].supports_incremental is expected
         assert schemas[endpoint].supports_append is expected
