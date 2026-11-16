@@ -29,6 +29,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.typings import SourceInputs, SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs.mssql import MSSQLSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.mssql.mssql import (
+    _DEAD_CONNECTION_ERROR,
     _DEADLOCK_VICTIM_ERROR,
     _SSH_HANDSHAKE_EOF_ERROR,
     _TABLE_NOT_FOUND_ERROR,
@@ -171,7 +172,10 @@ class MSSQLSource(
             # 20017 case above — the driver's own retry loop tried to reuse a connection that
             # died between opening and the query running — just surfaced through a different
             # internal code path. A fresh connection from the next Temporal retry resolves it.
-            "Not connected to any MS SQL server",
+            # Also matched by `_is_transient_connection_error` so schema discovery (and
+            # `validate_credentials`, which shares it) retries in-process instead of surfacing
+            # this as captured error-tracking noise.
+            _DEAD_CONNECTION_ERROR,
             # DB-Lib error 20047, the same DBPROCESS-death class raised directly (see
             # `_is_transient_connection_error` in mssql.py): the TDS connection died mid-stream
             # during the row read itself, past the point `retry_on_transient_connection_error`
