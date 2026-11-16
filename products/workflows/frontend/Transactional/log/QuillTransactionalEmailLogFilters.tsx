@@ -26,12 +26,12 @@ export function QuillTransactionalEmailLogFilters({
     emailOptions,
     statusOptions,
 }: {
-    emailOptions: readonly FilterOption[]
+    emailOptions?: readonly FilterOption[]
     statusOptions: readonly FilterOption<EmailDeliveryStatusEnumApi>[]
 }): JSX.Element {
     const { filters, pageLoading } = useValues(transactionalEmailLogLogic)
     const { setFilters, refresh } = useActions(transactionalEmailLogLogic)
-    const menuFiltersOn = filters.workflowId !== null || filters.status !== null
+    const menuFiltersOn = (!!emailOptions && filters.workflowId !== null) || filters.status !== null
 
     return (
         <div className="flex flex-wrap items-center gap-2">
@@ -55,14 +55,16 @@ export function QuillTransactionalEmailLogFilters({
             <DropdownMenu>
                 <FilterMenuTrigger active={menuFiltersOn} dataAttr="transactional-email-log-filter-menu" />
                 <DropdownMenuContent align="start" className="min-w-64">
-                    <FilterRadioSubMenu
-                        label="Email"
-                        options={[{ value: ANY, label: 'All emails' }, ...emailOptions]}
-                        value={filters.workflowId ?? ANY}
-                        defaultValue={ANY}
-                        onChange={(value) => setFilters({ workflowId: value === ANY ? null : value })}
-                        dataAttr="transactional-email-log-email-filter"
-                    />
+                    {emailOptions && (
+                        <FilterRadioSubMenu
+                            label="Email"
+                            options={[{ value: ANY, label: 'All emails' }, ...emailOptions]}
+                            value={filters.workflowId ?? ANY}
+                            defaultValue={ANY}
+                            onChange={(value) => setFilters({ workflowId: value === ANY ? null : value })}
+                            dataAttr="transactional-email-log-email-filter"
+                        />
+                    )}
                     <FilterRadioSubMenu<EmailDeliveryStatusEnumApi | typeof ANY>
                         label="Status"
                         options={[{ value: ANY, label: 'Any status' }, ...statusOptions]}

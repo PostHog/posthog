@@ -1,5 +1,6 @@
 import { MakeLogicType, actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+import { router } from 'kea-router'
 import posthog from 'posthog-js'
 
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -16,7 +17,7 @@ import type {
     TransactionalEmailLogEntryApi,
 } from 'products/messaging/frontend/generated/api.schemas'
 
-import { templatePageUrl, transactionalEmailUrl } from '../transactionalEmailUrl'
+import { templatePageUrl, transactionalEmailSendsUrl } from '../transactionalEmailUrl'
 import { ActivityPerson, PersonActivity } from './emailActivity'
 import { fetchActivityPerson, fetchOtherEmails, fetchPersonActivity } from './emailActivityQueries'
 
@@ -122,7 +123,8 @@ export interface transactionalEmailLogEntryLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         emailPageUrl: (
             email: TransactionalEmailLogDetailApi | null | undefined,
-            featureFlags: FeatureFlagsSet
+            featureFlags: FeatureFlagsSet,
+            searchParams: Record<string, any>
         ) => string | null
         breadcrumbs: (messageId: string) => Breadcrumb[]
     }
@@ -241,10 +243,14 @@ export const transactionalEmailLogEntryLogic = kea<transactionalEmailLogEntryLog
     })),
     selectors({
         emailPageUrl: [
-            (s) => [s.email, s.featureFlags],
-            (email: TransactionalEmailLogDetailApi | null | undefined, featureFlags: FeatureFlagsSet): string | null =>
+            (s) => [s.email, s.featureFlags, router.selectors.searchParams],
+            (
+                email: TransactionalEmailLogDetailApi | null | undefined,
+                featureFlags: FeatureFlagsSet,
+                searchParams: Record<string, unknown>
+            ): string | null =>
                 featureFlags[FEATURE_FLAGS.WORKFLOWS_EMAIL_SEND_LINKS]
-                    ? transactionalEmailUrl(email)
+                    ? transactionalEmailSendsUrl(email, searchParams)
                     : templatePageUrl(email?.template_id),
         ],
         breadcrumbs: [

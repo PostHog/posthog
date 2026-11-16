@@ -130,6 +130,33 @@ describe('transactionalEmailLogLogic', () => {
         expect(router.values.searchParams).toEqual({ tab: 'sends' })
     })
 
+    it("lists only one email's sends on its own page, with the other filters read from and written to that page", async () => {
+        router.actions.push('/transactional/code-emails/code-1', { tab: 'sends', status: 'bounced', date_from: '-3d' })
+        const scoped = transactionalEmailLogLogic({ workflowId: 'flow-1' })
+        scoped.mount()
+        await expectLogic(scoped).toFinishAllListeners()
+
+        expect(requests.at(-1)).toEqual({
+            ...LAST_WEEK,
+            date_from: '2026-03-12T00:00:00.000Z',
+            status: 'bounced',
+            workflow_id: 'flow-1',
+            offset: '0',
+        })
+
+        scoped.actions.setFilters({ workflowId: null, status: null })
+        await expectLogic(scoped).toFinishAllListeners()
+
+        expect(requests.at(-1)).toEqual({
+            ...LAST_WEEK,
+            date_from: '2026-03-12T00:00:00.000Z',
+            workflow_id: 'flow-1',
+            offset: '0',
+        })
+        expect(router.values.searchParams).toEqual({ tab: 'sends', date_from: '-3d' })
+        scoped.unmount()
+    })
+
     it.each([
         ['page=4', '150'],
         ['page=0', '0'],

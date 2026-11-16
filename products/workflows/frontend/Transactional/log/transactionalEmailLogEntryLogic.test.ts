@@ -1,3 +1,4 @@
+import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
 import { FEATURE_FLAGS } from 'lib/constants'
@@ -143,11 +144,16 @@ describe('transactionalEmailLogEntryLogic', () => {
             'with the flag on',
             true,
             { code_email_id: 'code-1', template_id: null },
-            urls.transactionalCodeEmail('code-1'),
+            `${urls.transactionalCodeEmail('code-1')}?tab=sends&status=bounced`,
         ],
-        ['with the flag on', true, { code_email_id: null, template_id: 'tpl-1' }, urls.transactionalTemplate('tpl-1')],
+        [
+            'with the flag on',
+            true,
+            { code_email_id: null, template_id: 'tpl-1' },
+            `${urls.transactionalTemplate('tpl-1')}?tab=sends&status=bounced`,
+        ],
         ['with the flag on', true, { code_email_id: null, template_id: null }, null],
-    ])('links a send %s from %j to %s', async (_name, sendLinks, email, emailPageUrl) => {
+    ])('links a send opened from bounced sends %s from %j to %s', async (_name, sendLinks, email, emailPageUrl) => {
         if (sendLinks !== undefined) {
             featureFlagLogic.mount()
             featureFlagLogic.actions.setFeatureFlags(sendLinks ? [FEATURE_FLAGS.WORKFLOWS_EMAIL_SEND_LINKS] : [], {
@@ -155,6 +161,7 @@ describe('transactionalEmailLogEntryLogic', () => {
             })
         }
         sends['msg-1'] = { ...SEND, ...email }
+        router.actions.push(urls.transactionalEmailLogEntry('msg-1'), { status: 'bounced' })
         await open('msg-1')
         expect(logic.values.emailPageUrl).toEqual(emailPageUrl)
     })
