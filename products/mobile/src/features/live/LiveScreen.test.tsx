@@ -110,10 +110,10 @@ describe('LiveScreen', () => {
         }
     )
 
-    test('keeps the location retry card while the location result is unknown', () => {
+    test('shows a loading indicator while the location result is unknown', () => {
         mockFeed = feed()
         const view = render(screen())
-        expect(view.getByTestId('live-map-not-loaded')).toBeTruthy()
+        expect(view.getByTestId('live-map-loading')).toBeTruthy()
         view.unmount()
     })
 
@@ -127,9 +127,19 @@ describe('LiveScreen', () => {
         }
         const view = render(screen())
         expect(view.getByTestId('live-loading')).toBeTruthy()
-        expect(view.queryByTestId('live-map-not-loaded')).toBeNull()
-        expect(view.queryByTestId('live-activity-not-loaded')).toBeNull()
+        expect(view.queryByTestId('live-map-loading')).toBeNull()
+        expect(view.queryByTestId('live-activity-loading')).toBeNull()
         expect(view.queryByTestId('live-paused-banner')).toBeNull()
+        view.unmount()
+    })
+
+    test.each([true, false])('retains values with a refresh indicator only while reading=%s', (reading) => {
+        mockFeed = { ...feed(), reading }
+        const view = render(screen())
+        expect(view.getByText('Home')).toBeTruthy()
+        expect(!!view.queryByTestId('live-updating')).toBe(reading)
+        expect(view.getByTestId('live-stat-users-online-loading')).toBeTruthy()
+        expect(view.queryByText("Couldn't load this yet. Live tries again every 30 seconds.")).toBeNull()
         view.unmount()
     })
 
@@ -164,7 +174,7 @@ describe('LiveScreen', () => {
         expect(view.getByTestId('live-stat-dau').props.children).toBe('342')
         expect(view.getByTestId('live-stat-wau').props.children).toBe('1,846')
         expect(view.getByTestId('live-stat-installs-week').props.children).toBe('193')
-        expect(view.getByTestId('live-stat-screenviews')).toBeTruthy()
+        expect(view.getByTestId('live-stat-screenviews-loading')).toBeTruthy()
         expect(view.getByText('Where users are')).toBeTruthy()
         expect(view.getByText('Platforms')).toBeTruthy()
         expect(view.getByText('iOS')).toBeTruthy()
@@ -185,7 +195,7 @@ describe('LiveScreen', () => {
         expect(view.getByTestId('live-top-pages')).toBeTruthy()
         expect(view.getByTestId('live-top-screens')).toBeTruthy()
         expect(view.getByTestId('live-mobile-metrics')).toBeTruthy()
-        expect(view.getByTestId('live-stat-dau').props.children).toBe('–')
+        expect(view.getByTestId('live-stat-dau-loading')).toBeTruthy()
         view.unmount()
     })
 
