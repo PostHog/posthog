@@ -403,57 +403,41 @@ class MatrixManager:
     def _wait_for_analytics_data(self, team_id: int) -> None:
         from posthog.models.person.sql import GET_PERSON_COUNT_FOR_TEAM, GET_PERSON_DISTINCT_ID2_COUNT_FOR_TEAM
 
-        MAX_WAIT_ITERATIONS = 600
+        expected_counts = [
+            ("Persons", GET_PERSON_COUNT_FOR_TEAM, self._persons_created),
+            ("Person distinct IDs", GET_PERSON_DISTINCT_ID2_COUNT_FOR_TEAM, self._person_distinct_ids_created),
+            ("Events", "SELECT count() FROM events WHERE team_id = %(team_id)s", self._events_created),
+            (
+                "Native events",
+                "SELECT count() FROM events_json WHERE team_id = %(team_id)s AND event != '$feature_flag_called'",
+                self._native_events_created,
+            ),
+            ("Groups", "SELECT count() FROM groups WHERE team_id = %(team_id)s", self._groups_created),
+        ]
+        MAX_WAIT_ITERATIONS = 600  # 600 * 0.5s = 300 seconds
         for i in range(MAX_WAIT_ITERATIONS):
-            person_count: int = sync_execute(GET_PERSON_COUNT_FOR_TEAM, {"team_id": team_id})[0][0]
-            person_distinct_id_count: int = sync_execute(GET_PERSON_DISTINCT_ID2_COUNT_FOR_TEAM, {"team_id": team_id})[
-                0
-            ][0]
-            persons_ready = person_count >= self._persons_created
-            person_distinct_ids_ready = person_distinct_id_count >= self._person_distinct_ids_created
-            [[event_count]] = sync_execute(
-                "SELECT count() FROM events WHERE team_id = %(team_id)s", {"team_id": team_id}
+            counts = [
+                (label, sync_execute(count_sql, {"team_id": team_id})[0][0], expected)
+                for label, count_sql, expected in expected_counts
+            ]
+            progress = ". ".join(
+                f"{label}: {'✔' if found >= expected else '✘'} {found}/{expected}" for label, found, expected in counts
             )
-            [[native_event_count]] = sync_execute(
-                "SELECT count() FROM events_json WHERE team_id = %(team_id)s AND event != %(excluded_event)s",
-                {"team_id": team_id, "excluded_event": EVENT_FEATURE_FLAG_CALLED},
-            )
-            events_ready = event_count >= self._events_created and native_event_count >= self._native_events_created
-            [[group_count]] = sync_execute(
-                "SELECT count() FROM groups WHERE team_id = %(team_id)s", {"team_id": team_id}
-            )
-            groups_ready = group_count >= self._groups_created
-            persons_progress = f"{'✔' if persons_ready else '✘'} {person_count}/{self._persons_created}"
-            person_distinct_ids_progress = f"{'✔' if person_distinct_ids_ready else '✘'} {person_distinct_id_count}/{self._person_distinct_ids_created}"
-            event_progress = (
-                f"Events: {event_count}/{self._events_created}. "
-                f"Native events: {native_event_count}/{self._native_events_created}. "
-                f"Groups: {group_count}/{self._groups_created}"
-            )
-            if persons_ready and person_distinct_ids_ready and events_ready and groups_ready:
+            if all(found >= expected for _, found, expected in counts):
                 if self.print_steps:
                     print(
-                        f"Source data fully loaded into ClickHouse after {i * 0.5:.1f}s. "
-                        f"Persons: {persons_progress}. Person distinct IDs: {person_distinct_ids_progress}. {event_progress}.\n"
+                        f"Source data fully loaded into ClickHouse after {i * 0.5:.1f}s. {progress}.\n"
                         "Setting up project..."
                     )
                 break
             if self.print_steps:
-                print(
-                    "Waiting for analytics data to land in ClickHouse... "
-                    f"Persons: {persons_progress}. Person distinct IDs: {person_distinct_ids_progress}. {event_progress}."
-                )
+                print(f"Waiting for analytics data to land in ClickHouse... {progress}.")
             elif i % 20 == 0 and i > 0:
-                print(
-                    f"Still waiting for ClickHouse sync... {i * 0.5:.0f}s elapsed. "
-                    f"Persons: {persons_progress}. Person distinct IDs: {person_distinct_ids_progress}. {event_progress}."
-                )
+                print(f"Still waiting for ClickHouse sync... {i * 0.5:.0f}s elapsed. {progress}.")
             sleep(0.5)
         else:
             raise TimeoutError(
-                f"Analytics data did not land in ClickHouse after {MAX_WAIT_ITERATIONS * 0.5}s. "
-                f"Expected {self._persons_created} persons and {self._person_distinct_ids_created} distinct IDs, "
-                f"got {person_count} persons and {person_distinct_id_count} distinct IDs. {event_progress}."
+                f"Analytics data did not land in ClickHouse after {MAX_WAIT_ITERATIONS * 0.5}s. {progress}."
             )
 
     @classmethod
