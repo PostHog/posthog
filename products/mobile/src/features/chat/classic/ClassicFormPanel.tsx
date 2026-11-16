@@ -9,6 +9,7 @@ import { inputReset, radii, type } from '@/ui/tokens'
 import { openReplyUrl } from '../webLinks'
 import {
     type ClassicFormAnswers,
+    type ClassicFormDraft,
     type ClassicFormField,
     classicFormComplete,
     classicFormQuestions,
@@ -19,24 +20,40 @@ import type { ClassicForm } from './classicMessages'
 
 interface ClassicFormPanelProps {
     form: ClassicForm
+    draft?: ClassicFormDraft
+    onDraftChange: (draft: ClassicFormDraft) => void
     pending: boolean
     webUrl?: string
     onSubmit: (answers: ClassicFormAnswers) => Promise<boolean>
     onDismiss: () => Promise<boolean>
 }
 
-export function ClassicFormPanel({ form, pending, webUrl, onSubmit, onDismiss }: ClassicFormPanelProps): ReactElement {
+export function ClassicFormPanel({
+    form,
+    draft,
+    onDraftChange,
+    pending,
+    webUrl,
+    onSubmit,
+    onDismiss,
+}: ClassicFormPanelProps): ReactElement {
     const { colors, scheme } = useTheme()
     const styles = useStyles()
     const questions = useMemo(() => classicFormQuestions(form), [form])
-    const [answers, setAnswers] = useState<ClassicFormAnswers>(() => initialClassicFormAnswers(questions ?? []))
-    const [custom, setCustom] = useState<Record<string, string>>({})
-    const [skipped, setSkipped] = useState<ReadonlySet<string>>(new Set())
+    const [answers, setAnswers] = useState<ClassicFormAnswers>(() => ({
+        ...initialClassicFormAnswers(questions ?? []),
+        ...draft?.answers,
+    }))
+    const [custom, setCustom] = useState<Record<string, string>>(() => draft?.custom ?? {})
+    const [skipped, setSkipped] = useState<ReadonlySet<string>>(() => new Set(draft?.skipped))
     const [busy, setBusy] = useState(false)
     const locked = useRef(false)
     const disabled = pending || busy
     const activeQuestions = questions?.filter((question) => !skipped.has(question.id)) ?? []
     const complete = questions !== null && classicFormComplete(activeQuestions, answers)
+    useEffect(() => {
+        onDraftChange({ answers, custom, skipped: [...skipped] })
+    }, [answers, custom, skipped, onDraftChange])
     useEffect(() => {
         const defaults = initialClassicFormAnswers(questions ?? [])
         setAnswers((current) =>
@@ -56,6 +73,7 @@ export function ClassicFormPanel({ form, pending, webUrl, onSubmit, onDismiss }:
         if (locked.current || disabled || (!dismiss && !complete)) return
         locked.current = true
         setBusy(true)
+        onDraftChange({ answers, custom, skipped: [...skipped] })
         try {
             const accepted = dismiss
                 ? await onDismiss()
@@ -107,7 +125,10 @@ export function ClassicFormPanel({ form, pending, webUrl, onSubmit, onDismiss }:
                                             ? selected.filter((item) => item !== option.value)
                                             : [...selected, option.value]
                                     )
-                                else change(field.id, option.value)
+                                else {
+                                    setCustom((current) => ({ ...current, [field.id]: '' }))
+                                    change(field.id, option.value)
+                                }
                             }}
                         >
                             <Text style={styles.label}>
@@ -132,9 +153,9 @@ export function ClassicFormPanel({ form, pending, webUrl, onSubmit, onDismiss }:
                                 field.label || (field.type === 'multi_select' ? 'Other answers' : 'Your answer')
                             }
                             value={
-                                field.type === 'multi_select'
+                                field.type === 'multi_select' || field.type === 'select'
                                     ? (custom[field.id] ?? '')
-                                    : typeof value === 'string' && !predefined.has(value)
+                                    : typeof value === 'string'
                                       ? value
                                       : ''
                             }
@@ -148,7 +169,11 @@ export function ClassicFormPanel({ form, pending, webUrl, onSubmit, onDismiss }:
                                             .map((item) => item.trim())
                                             .filter(Boolean),
                                     ])
-                                } else change(field.id, text)
+                                } else {
+                                    if (field.type === 'select')
+                                        setCustom((current) => ({ ...current, [field.id]: text }))
+                                    change(field.id, text)
+                                }
                             }}
                             placeholder={
                                 field.placeholder ??

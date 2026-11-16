@@ -83,6 +83,137 @@ function formScreen(): React.ReactElement {
 }
 
 describe('classic chat draft recovery', () => {
+    test('keeps a custom single-select answer while typing through a predefined option prefix', async () => {
+        jest.mocked(useChatDraft).mockReturnValue({
+            draft: { text: '', reportIds: [] },
+            ready: true,
+        } as unknown as ReturnType<typeof useChatDraft>)
+        const chat = formChat([
+            { id: 'region', title: 'Region', question: 'Which region?', options: [{ value: 'US' }] },
+        ])
+        chat.submitForm = jest.fn(async () => false)
+        jest.mocked(useClassicChat).mockReturnValue(chat)
+        render(formScreen())
+        for (const letter of 'USA') {
+            const input = screen.getByLabelText('Your answer')
+            fireEvent.changeText(input, `${input.props.value}${letter}`)
+        }
+        expect(screen.getByDisplayValue('USA')).toBeTruthy()
+        await act(async () => fireEvent.press(screen.getByLabelText('Submit answers')))
+        expect(chat.submitForm).toHaveBeenCalledWith({ region: 'USA' })
+        fireEvent.press(screen.getByLabelText('US'))
+        expect(screen.getByLabelText('Your answer')).toHaveDisplayValue('')
+    })
+
+    test.each([
+        ['only the lowercase option', ['signup'], false],
+        ['both case-distinct options', ['Signup', 'signup'], false],
+        ['both options with custom answers enabled', ['Signup', 'signup'], true],
+    ] as const)('preserves exact predefined multi-select values for %s', async (_name, selected, allowCustom) => {
+        jest.mocked(useChatDraft).mockReturnValue({
+            draft: { text: '', reportIds: [] },
+            ready: true,
+        } as unknown as ReturnType<typeof useChatDraft>)
+        const chat = formChat([
+            {
+                id: 'events',
+                title: 'Events',
+                question: 'Which events?',
+                type: 'multi_select',
+                options: [{ value: 'Signup' }, { value: 'signup' }],
+                allow_custom_answer: allowCustom,
+            },
+        ])
+        chat.submitForm = jest.fn(async () => false)
+        jest.mocked(useClassicChat).mockReturnValue(chat)
+        render(formScreen())
+        for (const option of selected) fireEvent.press(screen.getByLabelText(option))
+        await act(async () => fireEvent.press(screen.getByLabelText('Submit answers')))
+        expect(chat.submitForm).toHaveBeenCalledWith({ events: [...selected] })
+    })
+
+    test('restores the same interrupt draft after an accepted resume temporarily removes the form', async () => {
+        jest.mocked(useChatDraft).mockReturnValue({
+            draft: { text: '', reportIds: [] },
+            ready: true,
+        } as unknown as ReturnType<typeof useChatDraft>)
+        const chat = formChat([
+            { id: 'region', title: 'Region', question: 'Which region?', options: [{ value: 'US' }] },
+            {
+                id: 'events',
+                title: 'Events',
+                question: 'Which events?',
+                type: 'multi_select',
+                options: [{ value: 'Signup' }],
+            },
+            { id: 'details', title: 'Details', question: 'Any details?' },
+        ])
+        let finish!: (accepted: boolean) => void
+        chat.submitForm = jest.fn(
+            () =>
+                new Promise<boolean>((resolve) => {
+                    finish = resolve
+                })
+        )
+        jest.mocked(useClassicChat).mockReturnValue(chat)
+        const view = render(formScreen())
+        fireEvent.changeText(screen.getByPlaceholderText('Or type your answer'), 'Canada')
+        fireEvent.press(screen.getByLabelText('Signup'))
+        fireEvent.changeText(screen.getByLabelText('Other answers'), 'Activation\nInvite')
+        fireEvent.press(screen.getByLabelText('Skip question: Details'))
+        fireEvent.press(screen.getByLabelText('Submit answers'))
+
+        jest.mocked(useClassicChat).mockReturnValue({ ...chat, form: null, working: true })
+        view.rerender(formScreen())
+        expect(screen.queryByTestId('classic-form')).toBeNull()
+        await act(async () => finish(true))
+        jest.mocked(useClassicChat).mockReturnValue(chat)
+        view.rerender(formScreen())
+
+        expect(screen.getByDisplayValue('Canada')).toBeTruthy()
+        expect(screen.getByLabelText('Signup')).toBeChecked()
+        expect(screen.getByDisplayValue('Activation\nInvite')).toBeTruthy()
+        expect(screen.getByLabelText('Answer question: Details')).toBeTruthy()
+        await act(async () => {
+            fireEvent.press(screen.getByLabelText('Submit answers'))
+            finish(false)
+        })
+        expect(chat.submitForm).toHaveBeenLastCalledWith({
+            region: 'Canada',
+            events: ['Signup', 'Activation', 'Invite'],
+        })
+
+        const pendingForm = chat.form
+        if (!pendingForm) throw new Error('Expected a pending form')
+        jest.mocked(useClassicChat).mockReturnValue({ ...chat, form: { ...pendingForm, id: 'next-interrupt' } })
+        view.rerender(formScreen())
+        expect(screen.queryByDisplayValue('Canada')).toBeNull()
+        expect(screen.getByLabelText('Signup')).not.toBeChecked()
+        expect(screen.getByLabelText('Skip question: Details')).toBeTruthy()
+
+        fireEvent.changeText(screen.getByPlaceholderText('Or type your answer'), 'New draft')
+        jest.mocked(useClassicChat).mockReturnValue({
+            ...chat,
+            form: null,
+            working: true,
+            state: {
+                ...chat.state,
+                messages: [
+                    ...chat.state.messages,
+                    {
+                        id: 'form-result',
+                        complete: true,
+                        data: { type: 'tool', tool_call_id: 'next-interrupt', content: 'Answered' },
+                    },
+                ],
+            },
+        })
+        view.rerender(formScreen())
+        jest.mocked(useClassicChat).mockReturnValue({ ...chat, form: { ...pendingForm, id: 'next-interrupt' } })
+        view.rerender(formScreen())
+        expect(screen.queryByDisplayValue('New draft')).toBeNull()
+    })
+
     test('answers native form selections and composite fields, retaining values after a failed submission', async () => {
         jest.mocked(useChatDraft).mockReturnValue({
             draft: { text: '', reportIds: [] },

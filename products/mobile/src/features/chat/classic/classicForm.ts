@@ -25,6 +25,12 @@ export interface ClassicFormQuestion {
 
 export type ClassicFormAnswers = Record<string, string | string[]>
 
+export interface ClassicFormDraft {
+    answers: ClassicFormAnswers
+    custom: Record<string, string>
+    skipped: readonly string[]
+}
+
 function fieldFrom(data: Record<string, unknown>, composite: boolean): ClassicFormField | null {
     if (typeof data.id !== 'string' || !data.id.trim()) return null
     const rawType = data.type ?? (composite ? undefined : 'select')
@@ -108,12 +114,20 @@ export function submittedClassicFormAnswers(
                 const value = answers[field.id]
                 if (value === undefined) return []
                 if (!Array.isArray(value)) return [[field.id, value]]
+                const predefined = new Set(field.options.map((option) => option.value))
+                const exactSelections = new Set(value.filter((item) => predefined.has(item)))
                 const unique = new Map<string, string>()
                 for (const item of value) {
-                    const canonical =
-                        field.options.find((option) => option.value.toLowerCase() === item.trim().toLowerCase())
-                            ?.value ?? item.trim()
-                    if (!unique.has(canonical.toLowerCase())) unique.set(canonical.toLowerCase(), canonical)
+                    const matching = (option: ClassicFormField['options'][number]): boolean =>
+                        option.value.toLowerCase() === item.trim().toLowerCase()
+                    const canonical = predefined.has(item)
+                        ? item
+                        : (field.options.find((option) => exactSelections.has(option.value) && matching(option))
+                              ?.value ??
+                          field.options.find(matching)?.value ??
+                          item.trim())
+                    const key = predefined.has(canonical) ? `option:${canonical}` : `custom:${canonical.toLowerCase()}`
+                    if (!unique.has(key)) unique.set(key, canonical)
                 }
                 return [[field.id, [...unique.values()]]]
             })
