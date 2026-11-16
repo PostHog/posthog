@@ -12,7 +12,6 @@ import {
 } from '@posthog/lemon-ui'
 
 import { OperatorValueSelectProps } from 'lib/components/PropertyFilters/components/OperatorValueSelect'
-import { taxonomicFilterGroupTypeToEntityType } from 'scenes/insights/filters/ActionFilter/ActionFilterRow/ActionFilterRow'
 
 import { AnyDataNode } from '~/queries/schema/schema-general'
 import { EntityTypes, UniversalFilterValue, UniversalFiltersGroup } from '~/types'
@@ -29,7 +28,13 @@ import {
 } from '../TaxonomicFilter/types'
 import { UniversalFilterButton } from './UniversalFilterButton'
 import { universalFiltersLogic } from './universalFiltersLogic'
-import { isActionFilter, isEditableFilter, isEntityFilter, isEventFilter } from './utils'
+import {
+    isActionFilter,
+    isEditableFilter,
+    isEntityFilter,
+    isEventFilter,
+    taxonomicFilterGroupTypeToEntityType,
+} from './utils'
 
 export type UniversalFiltersProps = {
     rootKey: string

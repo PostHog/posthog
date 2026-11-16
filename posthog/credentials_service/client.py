@@ -15,7 +15,9 @@ Three behaviours are load-bearing:
 
 2. **A failure is a failure.** With no cache there is no last known good, so an
    unreachable service raises rather than quietly serving something stale. The service
-   needs an availability SLO before the environment variables come out.
+   needs an availability SLO before the environment variables come out. The one exception
+   is a transport blip: a dropped connection or a gateway status gets a fresh attempt
+   first, because the request is a read and repeating it changes nothing.
 
 3. **Environment fallback only when the client is off.** Flag disabled, a flag check that
    errored, or the deployment not fully configured means "read `os.environ` as before". That
@@ -61,6 +63,16 @@ RESOLVE_PATH = "/v1/secrets/resolve"
 TOKEN_TTL = timedelta(minutes=5)
 REQUEST_TIMEOUT_SECONDS = 5
 
+# The service is a Node server with the default 5 second keep-alive timeout, and the pooled
+# `requests` connection has no idle limit of its own. A request sent on a connection the server
+# is closing at that moment fails with `RemoteDisconnected`. urllib3 drops the broken connection,
+# so the next attempt opens a new one. The request is a read, so a repeat is safe even when the
+# service saw the first attempt. A read timeout is not retried: the service answered nothing in
+# 5 seconds, and two more waits of the same length would only delay the failure.
+REQUEST_ATTEMPTS = 3
+RETRY_BACKOFF_SECONDS = 0.1
+RETRYABLE_STATUS_CODES = frozenset({502, 503, 504})
+
 # Rollout gate. Evaluated per call, so it can be turned off without a deploy if the
 # service misbehaves. posthoganalytics evaluates locally when a personal API key is
 # configured; if that ever stops being true this becomes a network hop on the credential
@@ -72,6 +84,12 @@ CREDENTIALS_SERVICE_FETCH_COUNTER = Counter(
     "posthog_credentials_service_fetch_total",
     "Credential fetches from the credentials service, by outcome",
     labelnames=["outcome"],
+)
+
+CREDENTIALS_SERVICE_RETRY_COUNTER = Counter(
+    "posthog_credentials_service_retry_total",
+    "Credentials service requests sent again after a dropped connection or a gateway status",
+    labelnames=["reason"],
 )
 
 CREDENTIALS_SERVICE_ENV_FALLBACK_COUNTER = Counter(
@@ -177,6 +195,16 @@ def credentials_service_enabled() -> bool:
     return _disabled_reason() is None
 
 
+def _retry_reason(error: BaseException) -> str | None:
+    """The retry counter label for a failure worth another attempt, or None to fail now."""
+    if isinstance(error, requests.ConnectionError):
+        return "connection_error"
+    status_code = getattr(getattr(error, "response", None), "status_code", None)
+    if status_code in RETRYABLE_STATUS_CODES:
+        return str(status_code)
+    return None
+
+
 def _log_resolve(
     url: str,
     keys: list[str],
@@ -186,6 +214,7 @@ def _log_resolve(
     response: Any = None,
     body: dict[str, Any] | None = None,
     error: BaseException | None = None,
+    attempt: int = 1,
 ) -> None:
     """One structured line per credential request. Never raises.
 
@@ -227,6 +256,7 @@ def _log_resolve(
             "states": states,
             "version_ids": versions,
             "missing": missing,
+            "attempt": attempt,
         }
 
         if error is not None or (status_code is not None and status_code >= 400):
@@ -330,25 +360,37 @@ class CredentialsServiceClient:
         started = time.monotonic()
         headers = self._auth_headers(keys, caller)
         url = f"{settings.CREDENTIALS_SERVICE_URL.rstrip('/')}{RESOLVE_PATH}"
-        try:
-            response = self._session.post(url, headers=headers, timeout=REQUEST_TIMEOUT_SECONDS)
-            response.raise_for_status()
-            # ValueError covers a body that is not JSON. Modern `requests` raises its own
-            # JSONDecodeError (a RequestException), but the stdlib/simplejson ValueError still
-            # surfaces on older paths, and nothing else in this block raises one.
-            body: dict[str, Any] = response.json()
-        except (requests.RequestException, ValueError) as e:
-            CREDENTIALS_SERVICE_FETCH_COUNTER.labels(outcome="unreachable").inc()
-            CREDENTIALS_SERVICE_REQUEST_DURATION.labels(caller=str(caller), result="error").observe(
+        attempt = 1
+        while True:
+            try:
+                response = self._session.post(url, headers=headers, timeout=REQUEST_TIMEOUT_SECONDS)
+                response.raise_for_status()
+                # ValueError covers a body that is not JSON. Modern `requests` raises its own
+                # JSONDecodeError (a RequestException), but the stdlib/simplejson ValueError still
+                # surfaces on older paths, and nothing else in this block raises one.
+                body: dict[str, Any] = response.json()
+            except (requests.RequestException, ValueError) as e:
+                error_response = getattr(e, "response", None)
+                retry_reason = _retry_reason(e)
+                if retry_reason is not None and attempt < REQUEST_ATTEMPTS:
+                    CREDENTIALS_SERVICE_RETRY_COUNTER.labels(reason=retry_reason).inc()
+                    _log_resolve(url, keys, caller, started, response=error_response, error=e, attempt=attempt)
+                    time.sleep(RETRY_BACKOFF_SECONDS * attempt)
+                    attempt += 1
+                    continue
+                CREDENTIALS_SERVICE_FETCH_COUNTER.labels(outcome="unreachable").inc()
+                CREDENTIALS_SERVICE_REQUEST_DURATION.labels(caller=str(caller), result="error").observe(
+                    time.monotonic() - started
+                )
+                _log_resolve(url, keys, caller, started, response=error_response, error=e, attempt=attempt)
+                raise CredentialsServiceUnreachableError(
+                    f"The credentials service did not answer a credential request after {attempt} attempt(s): {e}"
+                ) from e
+            CREDENTIALS_SERVICE_REQUEST_DURATION.labels(caller=str(caller), result="ok").observe(
                 time.monotonic() - started
             )
-            _log_resolve(url, keys, caller, started, response=getattr(e, "response", None), error=e)
-            raise CredentialsServiceUnreachableError(
-                f"The credentials service did not answer a credential request: {e}"
-            ) from e
-        CREDENTIALS_SERVICE_REQUEST_DURATION.labels(caller=str(caller), result="ok").observe(time.monotonic() - started)
-        _log_resolve(url, keys, caller, started, response=response, body=body)
-        return body
+            _log_resolve(url, keys, caller, started, response=response, body=body, attempt=attempt)
+            return body
 
     def _auth_headers(self, keys: list[str], caller: CredentialsCaller) -> dict[str, str]:
         token = encode_jwt(

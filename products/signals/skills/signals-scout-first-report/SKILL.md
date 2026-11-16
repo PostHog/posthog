@@ -12,11 +12,11 @@ metadata:
 
 # Find the first useful report
 
-Run one bounded investigation of this project's existing data. Publish at most one report that helps the customer take a worthwhile action now. Returning no report is a successful outcome when the evidence does not justify one. Aim to finish within five minutes; the run has a ten-minute ceiling.
+Run one bounded investigation of this project's existing data. Publish at most one report that helps the customer take a worthwhile action now. Returning no report is a successful outcome when the evidence does not justify one. Aim to finish within five minutes; the run has a 20-minute ceiling.
 
 ## Orient and decide whether there is enough data
 
-Start from the First-report project context supplied at the end of the run prompt: configured products, observed volumes and history, warehouse tables, and saved analyses. Fetch the full project profile only if missing or stale context blocks a promising investigation. Configured products do not prove usage. Unknown or failed checks do not prove absence. A new connection may contain substantial history, and a warehouse-only project is worth investigating. Resolve a promising unknown with a bounded query rather than rediscovering the entire project.
+Start from the ranked PostHog sources in the First-report project context at the end of the run prompt. Configured sources do not prove usable data, and unlisted sources are not proven empty. Verify a promising unknown with a bounded query. Fetch the full project profile only if missing or stale context blocks an investigation. When warehouse tables are connected, discover relevant tables on demand; a new connection may contain substantial history, and a warehouse-only project is worth investigating.
 
 A handful of isolated observations without useful history usually calls for `insufficient_data`. Confirm any promising alternative source, then finish with the specific missing evidence. Missing pageviews, identities, sessions, or downstream events in a small sample do not prove broken tracking. Intentional server-side capture or limited instrumentation can explain them. Small samples can establish a directly observed defect, such as failed deliveries with an explicit error, but cannot establish a population-wide conversion or retention regression.
 
@@ -24,7 +24,15 @@ This one-time investigation takes precedence over recurring patrol and watchlist
 
 ## Choose a finding that is worth acting on
 
-Look briefly across populated products, then investigate the strongest few leads. Saved funnels, dashboards, active experiments, and business metrics help identify important workflows. Search wherever evidence supports: product conversion and retention, errors and failing flows, replay friction, latency, AI cost or failures, warehouse freshness, revenue and billing, experiments, flags, or surveys. A persistent problem can be valuable without a recent anomaly.
+Prioritize available sources by their likely usefulness:
+
+1. **Error tracking:** high-impact issues, failing user flows, and affected users.
+2. **Logs, traces, and metrics:** unnoticed failures, diagnostic evidence, and reliability or performance regressions.
+3. **Product analytics and dashboards:** meaningful outcome changes and data drops. Use activity logs to find analyses the team has been creating or changing, then inspect their queries and results to understand which workflows matter.
+4. **AI observability:** unusual agent behavior, failed or repeated tool calls, and unexpected cost or latency.
+5. **Session recordings:** UX/UI struggles. Recordings can consume many tokens, so start with aggregates and inspect a small, targeted sample when it can answer a concrete question.
+
+This order is a starting point, not a requirement to exhaust each source. Follow the strongest evidence. When a lead looks promising, combine sources to validate it and establish impact: connect an error to logs or traces, measure affected users and outcomes in product analytics, or inspect relevant recordings to understand the user experience. Match users, sessions, trace IDs, and time windows where available; coincident changes alone do not establish causation. Use connected warehouse data when it can establish business impact. A persistent problem can be valuable without a recent anomaly.
 
 Rank evidence of impact ahead of the size of a percentage change. Prefer a directly observed user-facing failure with affected users or worse outcomes over an unexplained volume cliff. When both coexist, investigate the failure; the data gap may limit what you can say about recovery.
 

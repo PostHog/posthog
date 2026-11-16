@@ -15,7 +15,7 @@ from posthog.models.activity_logging.activity_log import ActivityLog
 
 from products.approvals.backend.exceptions import ApprovalRequired
 from products.approvals.backend.models import ApprovalPolicy, ChangeRequest
-from products.experiments.backend.models.experiment import Experiment
+from products.experiments.backend.facade.testing import create_experiment
 from products.feature_flags.backend.encrypted_flag_payloads import REDACTED_PAYLOAD_VALUE, flag_payload_codec
 from products.feature_flags.backend.facade.api import (
     _redact_unchanged_encrypted_payloads,
@@ -42,6 +42,7 @@ from products.feature_flags.backend.facade.filters import (
     set_holdout,
     set_release_condition_rollout,
     strip_group_cohort_restriction,
+    without_payloads,
 )
 from products.feature_flags.backend.facade.rules import ExperimentRuleConfig, HoldoutRef, experiment_rule_from_filters
 from products.feature_flags.backend.models.feature_flag import FeatureFlag, build_scheduled_change_serializer_data
@@ -94,7 +95,7 @@ class TestFeatureFlagFacadeGatedWrites(APIBaseTest):
     ) -> None:
         flag = self._create_flag(active=True)
         if owned_by_experiment:
-            Experiment.objects.create(team=self.team, name="Owner", feature_flag=flag)
+            create_experiment(team_id=self.team.id, feature_flag_id=flag.id, name="Owner")
         if action_key is not None:
             ApprovalPolicy.objects.create(
                 organization=self.organization,
@@ -1222,6 +1223,7 @@ TRANSFORMS = [
     ("set_release_condition_rollout", lambda filters: set_release_condition_rollout(filters, 0, 10)),
     ("_leads_with_unconditional_rollout", _leads_with_unconditional_rollout),
     ("roll_out_to_everyone", roll_out_to_everyone),
+    ("without_payloads", without_payloads),
 ]
 
 

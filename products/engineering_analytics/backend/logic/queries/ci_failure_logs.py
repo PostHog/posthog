@@ -101,7 +101,7 @@ def _group_jobs(rows: list[tuple]) -> list[CIJobFailureLog]:
 def _legacy_run_ids(*, curated: CuratedGitHubSource, run_ids: list[int]) -> list[str]:
     # Old records did not stamp an engine. Keep them only for IDs with one engine in the source.
     response = curated.run(
-        f"SELECT id FROM {curated.run_source()} AS r WHERE id IN {{run_ids}} "
+        f"SELECT id FROM {curated.run_source(live=True)} AS r WHERE id IN {{run_ids}} "
         "GROUP BY id HAVING uniq(ci_engine) = 1 LIMIT 1000000",
         query_type="engineering_analytics.failure_logs_legacy_identity",
         placeholders={"run_ids": ast.Constant(value=run_ids)},

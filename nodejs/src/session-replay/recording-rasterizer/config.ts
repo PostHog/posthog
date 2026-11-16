@@ -34,6 +34,10 @@ export const config = {
     tunerTargetMemoryUsage: parseFraction(process.env.TUNER_TARGET_MEMORY_USAGE, 0.7),
     tunerTargetCpuUsage: parseFraction(process.env.TUNER_TARGET_CPU_USAGE, 0.9),
     tunerRampThrottleMs: parsePositiveInt(process.env.TUNER_RAMP_THROTTLE_MS, 10_000),
+    // On SIGTERM (deploy, scale-down, node replacement) the worker waits this long for in-flight renders before
+    // the SDK cancels them. The SDK default is 0, which cancels every running render at once. Keep it below the
+    // pod's terminationGracePeriodSeconds (1800s in prod) so the process still exits before it is killed.
+    shutdownGraceTimeMs: parsePositiveInt(process.env.SHUTDOWN_GRACE_TIME_MS, 25 * 60 * 1000),
     browserRecycleAfter: parsePositiveInt(process.env.BROWSER_RECYCLE_AFTER, 100),
     // Browsers held warm beyond this are closed on release: each idle Chromium pins 100-250MB RSS,
     // and a pod that once ran at full concurrency would otherwise keep that footprint forever.
@@ -62,7 +66,6 @@ export const config = {
 
     // Recording API. The dev recording-api listens on 6741 (bin/temporal-recording-rasterizer-worker).
     recordingApiBaseUrl: process.env.RECORDING_API_BASE_URL || 'http://localhost:6741',
-    recordingApiSecret: process.env.INTERNAL_API_SECRET || '',
     // The listing hits ClickHouse through recording-api, so internalFetch's 3s default aborts it under load.
     blockListingTimeoutMs: parsePositiveInt(process.env.BLOCK_LISTING_TIMEOUT_MS, 30_000),
     // Renders above this many compressed bytes fail permanently instead of loading the pod into its

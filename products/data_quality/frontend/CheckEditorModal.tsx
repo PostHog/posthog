@@ -20,9 +20,8 @@ import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonTable, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import type { CodeEditorProps } from 'lib/monaco/CodeEditor'
 import { CodeEditorResizeable } from 'lib/monaco/CodeEditorResizable'
+import { escapePropertyAsHogQLIdentifier } from 'lib/utils/hogql'
 import { urls } from 'scenes/urls'
-
-import { escapePropertyAsHogQLIdentifier } from '~/queries/utils'
 
 import type { DataQualitySubjectRef } from './checksApi'
 import { checkTypeLabel, subjectTypeLabel } from './checksConstants'

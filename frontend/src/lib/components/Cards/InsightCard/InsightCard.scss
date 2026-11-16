@@ -11,6 +11,10 @@
     border-radius: var(--radius);
     transition: border 200ms ease;
 
+    &:has([data-bi-filter-status='unaffected']) {
+        opacity: 0.3;
+    }
+
     &--highlighted {
         border-color: var(--color-accent);
         outline: 1px solid var(--color-accent);

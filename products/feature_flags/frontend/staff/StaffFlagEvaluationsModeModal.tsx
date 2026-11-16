@@ -22,8 +22,8 @@ const FLAG_CALL_READERS =
 
 const MODE_DESCRIPTIONS: Record<FlagEvaluationsModeEnumApi, string> = {
     0: `${FLAG_CALL_READERS} read the events table.`,
-    1: `${FLAG_CALL_READERS} read the flag_evaluations table, and the table is available in SQL. While the FLAG_EVALUATIONS_READS_FORCE_EVENTS instance setting is on, they read the events table instead.`,
-    2: `${FLAG_CALL_READERS} read the flag_evaluations table, and the table is available in SQL. For teams in the ingestion allowlist, ingestion also stops writing $feature_flag_called to the events table.`,
+    1: `${FLAG_CALL_READERS} read the flag_evaluations table. While the FLAG_EVALUATIONS_READS_FORCE_EVENTS instance setting is on, they read the events table instead.`,
+    2: `${FLAG_CALL_READERS} read the flag_evaluations table. For teams in the ingestion allowlist, ingestion also stops writing $feature_flag_called to the events table.`,
 }
 
 export function StaffFlagEvaluationsModeModal(): JSX.Element {

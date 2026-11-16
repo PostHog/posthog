@@ -7,7 +7,7 @@ import { LemonButton, Spinner } from '@posthog/lemon-ui'
 
 import { pngHoggie } from 'lib/brand/hoggies'
 import { useHogfetti } from 'lib/components/Hogfetti/Hogfetti'
-import { billingLogic } from 'scenes/billing/billingLogic'
+import { billingLogic } from 'lib/logic/billing/billingLogic'
 import { PlatformAddonComparison } from 'scenes/billing/PlatformAddonComparison'
 import { reportOnboardingStepCompleted, reportOnboardingStepSkipped } from 'scenes/onboarding/onboardingUsage'
 
@@ -26,7 +26,6 @@ type OnboardingUpgradeStepProps = {
 
 export const OnboardingUpgradeStep: OnboardingStepComponentType<OnboardingUpgradeStepProps> = ({ product }) => {
     const { billing, billingLoading } = useValues(billingLogic)
-    const { flowVariant } = useValues(onboardingLogic)
     const { goToNextStep } = useActions(onboardingLogic)
 
     if (billingLoading) {
@@ -45,11 +44,11 @@ export const OnboardingUpgradeStep: OnboardingStepComponentType<OnboardingUpgrad
     const activeAddon = trialAddon ?? platformProduct?.addons?.find((addon) => addon.subscribed)
 
     const skipPlatformPackages = (): void => {
-        reportOnboardingStepSkipped(OnboardingStepKey.PLANS, flowVariant)
+        reportOnboardingStepSkipped(OnboardingStepKey.PLANS)
         goToNextStep()
     }
     const continueFromPlatformPackages = (): void => {
-        reportOnboardingStepCompleted(OnboardingStepKey.PLANS, flowVariant)
+        reportOnboardingStepCompleted(OnboardingStepKey.PLANS)
         goToNextStep()
     }
 

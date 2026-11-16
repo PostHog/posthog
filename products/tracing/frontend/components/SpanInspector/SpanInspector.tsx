@@ -70,9 +70,8 @@ export function SpanInspector({
     const { featureFlags } = useValues(featureFlagLogic)
 
     // Metrics correlate to a trace via exemplars, so the tab only exists where the metrics
-    // product does: its own flag, plus the metrics feature and view access.
-    const showMetricsTab =
-        !!featureFlags[FEATURE_FLAGS.TRACING_METRICS_TAB] && !!featureFlags[FEATURE_FLAGS.METRICS] && canViewMetrics()
+    // product does: the metrics feature and view access.
+    const showMetricsTab = !!featureFlags[FEATURE_FLAGS.METRICS] && canViewMetrics()
 
     // Only DB spans carry a query; the Query tab appears only when one is present.
     const queryText = getQueryText(span)
@@ -162,7 +161,7 @@ export function SpanInspector({
                               content: <TraceOperationsTab key={span.trace_id} span={span} {...operations} />,
                           }
                         : null,
-                    // Conditional: needs the metrics product (flag + access) and its own flag.
+                    // Conditional: needs the metrics product (flag + access).
                     showMetricsTab
                         ? {
                               key: 'metrics',

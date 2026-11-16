@@ -1,10 +1,10 @@
+import { breakdownProperties, hasTrendsFormula } from 'lib/components/ChartFilter/chartDisplayOptions'
 import { getResultOrder, getResultSeries } from 'scenes/insights/utils/resultSeries'
 
 import type { AnyResponseType, TrendsQuery } from '~/queries/schema/schema-general'
 import { ChartDisplayType, type TrendResult } from '~/types'
 
 import { hasTrendsChartData } from '../shared/hasTrendsChartData'
-import { breakdownProperties, hasTrendsFormula } from './chartDisplayOptions'
 import { sampleBoxPlotRows, sampleCalendarHeatmapRows, sampleWorldMapRows } from './chartPreviewSamples'
 
 export interface ChartPreviewData {

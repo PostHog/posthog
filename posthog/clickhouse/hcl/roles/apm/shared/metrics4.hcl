@@ -219,7 +219,6 @@ database "posthog" {
     column "histogram_bounds" { type = "Array(Float64)" }
     column "_topic" { type = "String" }
     column "timestamp_arr" { type = "Array(DateTime64(6))" }
-    column "observed_timestamp_arr" { type = "Array(DateTime64(6))" }
     column "value_arr" { type = "Array(Float64)" }
     column "count_arr" { type = "Array(UInt64)" }
     column "histogram_counts_arr" { type = "Array(Array(UInt64))" }

@@ -109,3 +109,31 @@ export const TotalExcludesOverlay: Story = {
         await playHoverAtFraction(canvasElement, 0.5)
     },
 }
+
+/** `config.tooltip.mode: 'single'` lists only the series nearest the cursor, here the middle line.
+ *  `sortedByValue: 'asc'` would order a full list lowest first. */
+export const SingleSeriesMode: Story = {
+    render: () => {
+        const theme = useReactiveTheme()
+        const series: Series[] = [
+            { key: 'p50', label: 'p50', color: '', data: [120, 140, 130, 160, 150, 170, 155] },
+            { key: 'p90', label: 'p90', color: '', data: [220, 260, 240, 300, 280, 320, 290] },
+            { key: 'p99', label: 'p99', color: '', data: [400, 460, 430, 520, 480, 560, 510] },
+        ]
+        return (
+            <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', height: '100vh' }}>
+                <Stage>
+                    <LineChart
+                        series={series}
+                        labels={DAYS}
+                        config={{ ...CONFIG, tooltip: { mode: 'single' } }}
+                        theme={theme}
+                    />
+                </Stage>
+            </div>
+        )
+    },
+    play: async ({ canvasElement }) => {
+        await playHoverAtFraction(canvasElement, 0.5, 0.55)
+    },
+}

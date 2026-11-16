@@ -90,6 +90,7 @@ fn delete_response(row: &OpRow) -> Result<DeletePersonsResponse, Status> {
             DeletePersonResult {
                 person_id: record.person_id,
                 outcome: outcome.into(),
+                person_version: record.person_version,
             }
         })
         .collect();

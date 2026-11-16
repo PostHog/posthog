@@ -16,7 +16,7 @@ from products.review_hog.backend.reviewer.review_design import (
     REVIEW_DESIGN_REASON_KILL_SWITCH,
     REVIEW_DESIGN_SINGLE_AGENT,
 )
-from products.signals.backend.enums import ReportPriority
+from products.signals.backend.facade.taxonomy import ReportPriority
 from products.tasks.backend.facade.run_config import (
     ReasoningEffort,
     RuntimeAdapter,
@@ -328,14 +328,14 @@ _TIER_BY_PRIORITY: dict[ReportPriority, ReviewTier] = {
 }
 
 
-# The trigger sources (`temporal/types.py`) that carry an explicit ask for a review: a label, the
-# CLI, the Code review scene and its MCP tool (both stamped `ui`, so an agent driving the MCP
+# The trigger sources (`temporal/types.py`) that carry an explicit ask for a review: a Stamphog handoff,
+# the CLI, the Code review scene and its MCP tool (both stamped `ui`, so an agent driving the MCP
 # tool on someone's behalf counts as that person asking), or an `@posthog review` comment. Inbox
 # and automatic authored-PR triggers fire without a per-PR request. A trigger from this set on an inbox-created report lifts its tier
 # (`upsert_review_report`). Spelled out here because persistence cannot import the temporal
 # package (its `__init__` imports the activities, which import persistence); `test_constants.py`
 # locks the set to the trigger constants.
-HUMAN_TRIGGER_SOURCES = frozenset({"label", "manual", "ui", "comment"})
+HUMAN_TRIGGER_SOURCES = frozenset({"stamphog", "label", "manual", "ui", "comment"})
 
 
 def select_review_tier(*, agent_pr: bool, signal_priority: ReportPriority | None) -> ReviewTier:

@@ -24,14 +24,22 @@ import { FlattenedFunnelStepByBreakdown } from '~/types'
 import { funnelDataLogic } from '../funnelDataLogic'
 import { funnelPersonsModalLogic } from '../funnelPersonsModalLogic'
 import { getVisibilityKey } from '../funnelUtils'
-import { getActionFilterFromFunnelStep, getSignificanceFromBreakdownStep } from '../shared/funnelStepTableUtils'
+import { getFunnelStepEntity } from '../shared/funnelStepSeries'
+import { getSignificanceFromBreakdownStep } from '../shared/funnelStepTableUtils'
 import { ValueInspectorButton } from '../shared/ValueInspectorButton'
 
 export function FunnelStepsTable(): JSX.Element | null {
     const { insightProps, insightLoading, editingDisabledReason } = useValues(insightLogic)
     const { breakdownFilter } = useValues(insightVizDataLogic(insightProps))
-    const { steps, flattenedBreakdowns, hiddenLegendBreakdowns, getFunnelsColor, isStepOptional, breakdownSorting } =
-        useValues(funnelDataLogic(insightProps))
+    const {
+        steps,
+        querySource,
+        flattenedBreakdowns,
+        hiddenLegendBreakdowns,
+        getFunnelsColor,
+        isStepOptional,
+        breakdownSorting,
+    } = useValues(funnelDataLogic(insightProps))
     const { setHiddenLegendBreakdowns, toggleLegendBreakdownVisibility, setBreakdownSorting } = useActions(
         funnelDataLogic(insightProps)
     )
@@ -207,7 +215,7 @@ export function FunnelStepsTable(): JSX.Element | null {
                     size="small"
                 >
                     <EntityFilterInfo
-                        filter={getActionFilterFromFunnelStep(step)}
+                        filter={getFunnelStepEntity(querySource, stepIndex, step)}
                         isOptional={isStepOptional(stepIndex + 1)}
                     />
                 </LemonRow>

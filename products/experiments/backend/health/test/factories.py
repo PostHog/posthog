@@ -27,6 +27,8 @@ RUNNING_CONTEXT = HealthContext(
     flag_called=None,
     flag_called_during_run=None,
     flag_called_after_end=None,
+    flag_last_called_at=None,
+    other_experiments_on_flag=(),
     team_has_active_flag=None,
     baseline_variant_key=None,
     primary_metric_count=1,
@@ -37,13 +39,19 @@ RUNNING_CONTEXT = HealthContext(
         custom_event=None, required_flag_key="flag", variant_property="$feature_flag_response", flag_key_filters=()
     ),
     events_received={},
+    exposure_properties_received={},
+    exposure_cohorts=(),
     exposures=None,
     flag_history=None,
     condition_set_traffic=None,
     pause_history=None,
     primary_metric=None,
+    only_count_matured_users=False,
+    primary_metric_windows=None,
     excluded_variant_keys=frozenset(),
     metric_compiles=None,
+    latest_calculation=None,
+    exposure_filters_without_column=None,
 )
 
 

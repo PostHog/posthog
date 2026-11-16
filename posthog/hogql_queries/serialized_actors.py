@@ -39,7 +39,7 @@ class SerializedPerson(CommonActor):
     type: Literal["person"]
     last_seen_at: Optional[datetime]
     uuid: Union[uuid.UUID, str]
-    is_identified: Optional[bool]
+    is_identified: bool
     name: str
     distinct_ids: list[str]
     matched_fields: NotRequired[list[str]]

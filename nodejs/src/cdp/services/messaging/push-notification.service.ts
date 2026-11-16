@@ -700,7 +700,10 @@ export class PushNotificationService {
             const err = normalizeFcmError(status, body, fetchError)
             // Keep the raw provider response available for deep debugging, at debug level so it doesn't
             // clutter the workflow log — the user-facing explanation is the normalized message below.
-            addLog('debug', `FCM response ${status ?? '(none)'}: ${stringifyBody(body)}`)
+            // FCM can quote the rejected message back, so a protected push never logs it.
+            if (result.invocation.hogFunction.metadata?.sensitive !== true) {
+                addLog('debug', `FCM response ${status ?? '(none)'}: ${stringifyBody(body)}`)
+            }
             if (err.unregistered) {
                 return { sent: false, unregistered: true, message: err.message }
             }
@@ -830,10 +833,11 @@ export class PushNotificationService {
         addLog: ReturnType<typeof createAddLogFunction>
     ): Promise<{ sent: boolean; unregistered?: boolean; message?: string; error?: PushSendError }> {
         const payload = params.payload
+        const silent = payload.delivery === 'silent'
         const headers: Record<string, string> = {
             Authorization: `bearer ${apns.jwt}`,
             'apns-topic': apns.bundleId,
-            'apns-push-type': 'alert',
+            'apns-push-type': silent ? 'background' : 'alert',
         }
         if (payload.collapseKey) {
             headers['apns-collapse-id'] = payload.collapseKey
@@ -841,7 +845,10 @@ export class PushNotificationService {
         if (payload.ttlSeconds !== undefined) {
             headers['apns-expiration'] = String(Math.floor(Date.now() / 1000) + payload.ttlSeconds)
         }
-        if (payload.apns?.interruptionLevel) {
+        if (silent) {
+            // APNs rejects a background push sent at priority 10.
+            headers['apns-priority'] = '5'
+        } else if (payload.apns?.interruptionLevel) {
             headers['apns-priority'] = payload.apns.interruptionLevel === 'passive' ? '5' : '10'
         }
 
@@ -890,7 +897,9 @@ export class PushNotificationService {
 
         if (!fetchResponse || (status && status >= 400)) {
             const err = normalizeApnsError(status, body, fetchError)
-            addLog('debug', `APNs response ${status ?? '(none)'}: ${stringifyBody(body)}`)
+            if (result.invocation.hogFunction.metadata?.sensitive !== true) {
+                addLog('debug', `APNs response ${status ?? '(none)'}: ${stringifyBody(body)}`)
+            }
             // Apple signals a dead token with 410 / reason "Unregistered". Prune it and skip rather than
             // retrying a token that will never work; other reasons are surfaced as failures.
             if (err.unregistered) {
@@ -1098,7 +1107,11 @@ export class PushNotificationService {
     }
 
     private buildApnsPayload(payload: PushNotificationPayloadType): Record<string, unknown> {
-        const alert: Record<string, unknown> = { title: payload.title }
+        if (payload.delivery === 'silent') {
+            // Apple drops a background push whose `aps` carries anything the user would see or hear.
+            return { ...(payload.data ?? {}), aps: { 'content-available': 1 } }
+        }
+        const alert: Record<string, unknown> = { title: payload.title ?? '' }
         if (payload.body) {
             alert.body = payload.body
         }
@@ -1193,17 +1206,20 @@ export class PushNotificationService {
     }
 
     private buildFcmMessage(token: string, payload: PushNotificationPayloadType): Record<string, unknown> {
-        const notification: Record<string, string> = { title: payload.title }
-        if (payload.body) {
-            notification.body = payload.body
-        }
-        if (payload.image) {
-            notification.image = payload.image
-        }
+        const delivery = payload.delivery ?? 'notification'
+        const message: Record<string, unknown> = { token }
 
-        const message: Record<string, unknown> = {
-            token,
-            notification,
+        // Without a notification block Android hands the message to the app's own handler, even in the
+        // background, instead of drawing it itself.
+        if (delivery === 'notification') {
+            const notification: Record<string, string> = { title: payload.title ?? '' }
+            if (payload.body) {
+                notification.body = payload.body
+            }
+            if (payload.image) {
+                notification.image = payload.image
+            }
+            message.notification = notification
         }
 
         if (payload.data) {
@@ -1242,52 +1258,68 @@ export class PushNotificationService {
                 if (payload.android.clickAction) {
                     androidNotification.click_action = payload.android.clickAction
                 }
-                if (Object.keys(androidNotification).length > 0) {
+                if (delivery === 'notification' && Object.keys(androidNotification).length > 0) {
                     android.notification = androidNotification
                 }
             }
             message.android = android
         }
 
-        // APNS overrides (for iOS devices via FCM)
-        if (payload.apns) {
+        if (delivery === 'silent') {
+            const headers: Record<string, string> = { 'apns-push-type': 'background', 'apns-priority': '5' }
+            if (payload.collapseKey) {
+                headers['apns-collapse-id'] = payload.collapseKey
+            }
+            if (payload.ttlSeconds !== undefined) {
+                headers['apns-expiration'] = String(Math.floor(Date.now() / 1000) + payload.ttlSeconds)
+            }
+            message.apns = { headers, payload: { aps: { 'content-available': 1 } } }
+            return { message }
+        }
+
+        // APNS overrides (for iOS devices via FCM). Android data-only still shows the notification on iOS,
+        // and with no notification block to build it from the alert has to be spelled out here.
+        if (payload.apns || delivery === 'android_data_only') {
+            const apnsOverrides = payload.apns ?? {}
             const aps: Record<string, unknown> = {}
-            if (payload.apns.sound) {
-                aps.sound = payload.apns.sound
+            if (apnsOverrides.sound) {
+                aps.sound = apnsOverrides.sound
             }
-            if (payload.apns.badge !== undefined) {
-                aps.badge = payload.apns.badge
+            if (apnsOverrides.badge !== undefined) {
+                aps.badge = apnsOverrides.badge
             }
-            if (payload.apns.category) {
-                aps.category = payload.apns.category
+            if (apnsOverrides.category) {
+                aps.category = apnsOverrides.category
             }
-            if (payload.apns.threadId) {
-                aps['thread-id'] = payload.apns.threadId
+            if (apnsOverrides.threadId) {
+                aps['thread-id'] = apnsOverrides.threadId
             }
-            if (payload.apns.interruptionLevel) {
-                aps['interruption-level'] = payload.apns.interruptionLevel
+            if (apnsOverrides.interruptionLevel) {
+                aps['interruption-level'] = apnsOverrides.interruptionLevel
             }
-            if (payload.apns.relevanceScore !== undefined) {
-                aps['relevance-score'] = payload.apns.relevanceScore
+            if (apnsOverrides.relevanceScore !== undefined) {
+                aps['relevance-score'] = apnsOverrides.relevanceScore
             }
-            if (payload.apns.subtitle) {
+            if (apnsOverrides.subtitle || delivery === 'android_data_only') {
                 // FCM's message.notification has no `subtitle`. For an iOS device delivered via FCM the
                 // subtitle must live in the APNS alert; include title/body so overriding the alert keeps them.
                 aps.alert = {
-                    title: payload.title,
+                    title: payload.title ?? '',
                     ...(payload.body ? { body: payload.body } : {}),
-                    subtitle: payload.apns.subtitle,
+                    ...(apnsOverrides.subtitle ? { subtitle: apnsOverrides.subtitle } : {}),
                 }
             }
-            if (payload.apns.mutableContent) {
+            const dataOnlyImage = delivery === 'android_data_only' ? payload.image : undefined
+            if (apnsOverrides.mutableContent || dataOnlyImage) {
                 aps['mutable-content'] = 1
             }
-            if (payload.apns.targetContentId) {
-                aps['target-content-id'] = payload.apns.targetContentId
+            if (apnsOverrides.targetContentId) {
+                aps['target-content-id'] = apnsOverrides.targetContentId
             }
 
             message.apns = {
                 payload: { aps },
+                ...(dataOnlyImage ? { fcm_options: { image: dataOnlyImage } } : {}),
             }
 
             // Set collapse ID via APNS header if collapseKey is set

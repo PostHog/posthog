@@ -3,6 +3,7 @@
 import json
 from typing import Any
 
+from django.conf import settings
 from django.core.cache import cache
 
 import structlog
@@ -10,7 +11,7 @@ from openai.types.shared_params import ResponseFormatJSONSchema
 from slack_sdk import WebClient
 
 from posthog.dataclasses import frozen
-from posthog.llm.gateway_client import build_openai_client
+from posthog.llm.gateway_client import build_ai_gateway_openai_client
 from posthog.llm.semantic_enrichment import extract_json_object
 from posthog.slack.channels import clip_text
 
@@ -198,8 +199,8 @@ def request_reply_suggestions(
         properties["task_id"] = attribution.task_id
     if attribution.run_id:
         properties["run_id"] = attribution.run_id
-    client = build_openai_client(
-        product="slack_app_routing",
+    client = build_ai_gateway_openai_client(
+        settings.AI_GATEWAY_API_KEY,
         ai_product="slack_app_routing",
         trace_id=attribution.trace_id,
         session_id=attribution.session_id,

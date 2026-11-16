@@ -120,18 +120,44 @@ def test_llm_analytics_ch_user_routing(client_from_pool, product, kind, tag_id, 
 
 
 @pytest.mark.parametrize(
-    "tagged_ch_user,feature,requested_ch_user,expected_ch_user",
+    "tagged_ch_user,feature,service_name,requested_ch_user,expected_ch_user",
     [
-        (ClickHouseUser.ALERTS_PLATFORM_INSIGHT, None, ClickHouseUser.DEFAULT, ClickHouseUser.ALERTS_PLATFORM_INSIGHT),
-        (None, None, ClickHouseUser.DEFAULT, ClickHouseUser.DEFAULT),
-        (ClickHouseUser.ALERTS_PLATFORM_INSIGHT, None, ClickHouseUser.META, ClickHouseUser.META),
-        (ClickHouseUser.EXPERIMENTS, Feature.CACHE_WARMUP, ClickHouseUser.DEFAULT, ClickHouseUser.EXPERIMENTS),
-        (None, Feature.CACHE_WARMUP, ClickHouseUser.DEFAULT, ClickHouseUser.CACHE_WARMUP),
+        (
+            ClickHouseUser.ALERTS_PLATFORM_INSIGHT,
+            None,
+            None,
+            ClickHouseUser.DEFAULT,
+            ClickHouseUser.ALERTS_PLATFORM_INSIGHT,
+        ),
+        (None, None, None, ClickHouseUser.DEFAULT, ClickHouseUser.DEFAULT),
+        (ClickHouseUser.ALERTS_PLATFORM_INSIGHT, None, None, ClickHouseUser.META, ClickHouseUser.META),
+        (ClickHouseUser.EXPERIMENTS, Feature.CACHE_WARMUP, None, ClickHouseUser.DEFAULT, ClickHouseUser.EXPERIMENTS),
+        (None, Feature.CACHE_WARMUP, None, ClickHouseUser.DEFAULT, ClickHouseUser.CACHE_WARMUP),
+        (
+            ClickHouseUser.ALERTS_PLATFORM_INSIGHT,
+            None,
+            "temporal-worker-max-ai",
+            ClickHouseUser.DEFAULT,
+            ClickHouseUser.ALERTS_PLATFORM_INSIGHT,
+        ),
+        (None, None, "temporal-worker-max-ai", ClickHouseUser.DEFAULT, ClickHouseUser.MAX_AI),
     ],
 )
-def test_tagged_ch_user_routing(client_from_pool, tagged_ch_user, feature, requested_ch_user, expected_ch_user):
+def test_tagged_ch_user_routing(
+    client_from_pool: MagicMock,
+    tagged_ch_user: ClickHouseUser | None,
+    feature: Feature | None,
+    service_name: str | None,
+    requested_ch_user: ClickHouseUser,
+    expected_ch_user: ClickHouseUser,
+) -> None:
     with tags_context(
-        product=Product.PRODUCT_ANALYTICS, feature=feature, kind="temporal", id="alerts", ch_user=tagged_ch_user
+        product=Product.PRODUCT_ANALYTICS,
+        feature=feature,
+        kind="temporal",
+        id="alerts",
+        ch_user=tagged_ch_user,
+        service_name=service_name,
     ):
         sync_execute("SELECT 1", flush=False, ch_user=requested_ch_user)
 

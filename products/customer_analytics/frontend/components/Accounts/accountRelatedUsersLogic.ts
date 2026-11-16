@@ -19,9 +19,9 @@ import { Sorting } from '@posthog/lemon-ui'
 import api, { CountedPaginatedResponse } from 'lib/api'
 import { OrganizationMembershipLevel } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { hogql } from 'lib/utils/hogql'
 
 import { HogQLQueryResponse, NodeKind } from '~/queries/schema/schema-general'
-import { hogql } from '~/queries/utils'
 import { OrganizationMemberType, Region } from '~/types'
 
 import { CUSTOMER_ANALYTICS_DEFAULT_QUERY_TAGS } from '../../constants'

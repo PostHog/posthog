@@ -1,12 +1,10 @@
 // The app-facing entry point for the PostHog logo. Always import from `lib/brand` — never
 // `@posthog/brand/logo` directly. The raw package is presentation-only (its gradient wordmark
-// is hard-coded `#111`, so it is neither theme- nor holiday-aware); this module is the single
-// choke point that adapts it to dark mode and to the holiday season, so those behaviors can't
-// drift per-consumer.
+// is hard-coded `#111`, so it isn't theme-aware); this module is the single choke point that
+// adapts it to dark mode, so that behavior can't drift per-consumer.
 import { Logo as BrandLogo } from '@posthog/brand/logo'
 import type { LogoProps, LogomarkProps } from '@posthog/brand/logo'
 
-import { currentHoliday } from 'lib/holidays'
 import { cn } from 'lib/utils/css-classes'
 
 /**
@@ -56,37 +54,21 @@ export function Logo({ variant, className, size, ...props }: AppLogoProps): JSX.
 }
 
 /**
- * The hedgehog logomark, theme-aware like {@link Logo}, and dressed for the current holiday
- * unless a `holiday` is passed explicitly (stories pass one to keep snapshots deterministic).
- * `size` sets the height (see {@link LogoSize}); `jumpOnClick` and other package props pass through.
+ * The hedgehog logomark, theme-aware like {@link Logo}. `size` sets the height (see {@link LogoSize});
+ * `jumpOnClick` and other package props pass through.
  */
-export function Logomark({ variant, className, holiday, size, ...props }: AppLogomarkProps): JSX.Element {
-    const resolvedHoliday = holiday ?? currentHoliday()
+export function Logomark({ variant, className, size, ...props }: AppLogomarkProps): JSX.Element {
     const height = size ? LOGO_SIZE_HEIGHTS[size] : undefined
     if (variant) {
-        return (
-            <BrandLogo.Logomark
-                variant={variant}
-                holiday={resolvedHoliday}
-                height={height}
-                className={className}
-                {...props}
-            />
-        )
+        return <BrandLogo.Logomark variant={variant} height={height} className={className} {...props} />
     }
 
     return (
         <>
-            <BrandLogo.Logomark
-                holiday={resolvedHoliday}
-                height={height}
-                className={cn('dark:hidden', className)}
-                {...props}
-            />
+            <BrandLogo.Logomark height={height} className={cn('dark:hidden', className)} {...props} />
             <BrandLogo.Logomark
                 variant="mono"
                 color="white"
-                holiday={resolvedHoliday}
                 height={height}
                 className={cn('hidden dark:block', className)}
                 {...props}

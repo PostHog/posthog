@@ -4,6 +4,7 @@ import { TestAccountFilterSwitch } from 'lib/components/TestAccountFiltersSwitch
 import { filterTestAccountsDefaultsLogic } from 'scenes/settings/environment/filterTestAccountDefaultsLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
+import { isActorsQuery, isHogQLQuery } from '~/queries/schema/node-guards'
 import {
     ActorsQuery,
     DataNode,
@@ -12,7 +13,7 @@ import {
     SessionsQuery,
     TracesQuery,
 } from '~/queries/schema/schema-general'
-import { isActorsQuery, isEventsQuery, isHogQLQuery, isSessionsQuery, isTracesQuery } from '~/queries/utils'
+import { isEventsQuery, isSessionsQuery, isTracesQuery } from '~/queries/utils'
 
 interface TestAccountFiltersProps {
     query: DataNode

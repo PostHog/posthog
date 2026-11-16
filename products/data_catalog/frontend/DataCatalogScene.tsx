@@ -84,7 +84,7 @@ export function DataCatalogScene(): JSX.Element {
             <SceneContent>
                 <SceneTitleSection
                     name="Data catalog"
-                    description="Review and manage governed metrics, certifications, and relationships for your data."
+                    description="Define each metric once. PostHog AI and agents compute it from the definition you approve here."
                     resourceType={{ type: 'data_warehouse' }}
                     actions={
                         todayRailNav ? (

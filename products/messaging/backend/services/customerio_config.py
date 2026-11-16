@@ -3,7 +3,7 @@ from typing import IO, Any
 from django.utils import timezone
 
 from posthog.dataclasses import frozen
-from posthog.models.integration import Integration
+from posthog.integrations import IntegrationManager, IntegrationNotFound, IntegrationReader, IntegrationRecord
 
 from products.messaging.backend.models.optout_sync_config import OptOutSyncConfig
 from products.messaging.backend.services.customerio_import_service import CustomerIOImportService
@@ -23,8 +23,9 @@ class ConfigIncomplete(Exception):
     pass
 
 
-def import_from_customerio(team_id: int, app_api_key: str | None, created_by_id: int | None) -> dict[str, Any]:
-    integration = Integration.objects.filter(team_id=team_id, kind="customerio-app").first()
+def resolve_app_api_key(team_id: int, app_api_key: str | None) -> str:
+    """The App API key to import with: the one sent, or the stored one when none is sent."""
+    integration = IntegrationManager.customerio_app.token.find(team_id)
     api_key = app_api_key or (integration.sensitive_config.get("app_api_key") if integration else None)
 
     if not api_key:
@@ -33,18 +34,39 @@ def import_from_customerio(team_id: int, app_api_key: str | None, created_by_id:
     if integration and app_api_key:
         raise ConfigConflict("Integration already exists. Delete it first to use a different key.")
 
+    return api_key
+
+
+def save_app_integration(team_id: int, api_key: str, created_by_id: int | None) -> IntegrationRecord:
+    """Store the App API key on first use and link it to the sync config. Returns the stored integration."""
+    integration = IntegrationManager.customerio_app.token.find(team_id)
     if not integration:
-        integration = Integration.objects.create(
-            team_id=team_id,
-            kind="customerio-app",
+        integration = IntegrationManager.customerio_app.token.create(
+            team_id,
+            external_id=None,
+            config={},
             sensitive_config={"app_api_key": api_key},
             created_by_id=created_by_id,
-            errors="",
         )
 
     config, _ = OptOutSyncConfig.objects.get_or_create(team_id=team_id)
-    config.app_integration = integration
+    config.app_integration_id = integration.id
     config.save(update_fields=["app_integration"])
+    return integration
+
+
+def stored_app_api_key(team_id: int, integration_id: int) -> str | None:
+    try:
+        integration = IntegrationManager.customerio_app.token.get(team_id, integration_id)
+    except IntegrationNotFound:
+        return None
+    return integration.sensitive_config.get("app_api_key")
+
+
+def import_from_customerio(team_id: int, app_api_key: str | None, created_by_id: int | None) -> dict[str, Any]:
+    api_key = resolve_app_api_key(team_id, app_api_key)
+    save_app_integration(team_id, api_key, created_by_id)
+    config = OptOutSyncConfig.objects.get(team_id=team_id)
 
     # Run import synchronously
     result = CustomerIOImportService(team_id=team_id, api_key=api_key, created_by_id=created_by_id).import_api_data()
@@ -105,8 +127,13 @@ def sync_config_state(team_id: int) -> dict[str, Any]:
     }
 
 
+def _delete_integrations(accessor: IntegrationReader, team_id: int) -> None:
+    for integration in accessor.list(team_id):
+        accessor.delete(team_id, integration.id, ignore_usages=True)
+
+
 def remove_app_config(team_id: int) -> None:
-    Integration.objects.filter(team_id=team_id, kind="customerio-app").delete()
+    _delete_integrations(IntegrationManager.customerio_app.any, team_id)
     try:
         config = OptOutSyncConfig.objects.get(team_id=team_id)
         config.app_integration = None
@@ -119,7 +146,7 @@ def remove_app_config(team_id: int) -> None:
 def save_webhook_config(
     team_id: int, signing_secret: str | None, enabled: bool, created_by_id: int | None
 ) -> SavedConfig:
-    integration = Integration.objects.filter(team_id=team_id, kind="customerio-webhook").first()
+    integration = IntegrationManager.customerio_webhook.token.find(team_id)
 
     if integration and signing_secret:
         raise ConfigConflict("Integration already exists. Delete it first to use a different secret.")
@@ -128,16 +155,16 @@ def save_webhook_config(
         raise ConfigIncomplete("Webhook signing secret is required to enable sync.")
 
     if not integration and signing_secret:
-        integration = Integration.objects.create(
-            team_id=team_id,
-            kind="customerio-webhook",
+        integration = IntegrationManager.customerio_webhook.token.create(
+            team_id,
+            external_id=None,
+            config={},
             sensitive_config={"webhook_signing_secret": signing_secret},
             created_by_id=created_by_id,
-            errors="",
         )
 
     config, _ = OptOutSyncConfig.objects.get_or_create(team_id=team_id)
-    config.webhook_integration = integration
+    config.webhook_integration_id = integration.id if integration else None
     config.webhook_enabled = enabled
     config.save(update_fields=["webhook_integration", "webhook_enabled"])
 
@@ -148,7 +175,7 @@ def save_webhook_config(
 
 
 def remove_webhook_config(team_id: int) -> None:
-    Integration.objects.filter(team_id=team_id, kind="customerio-webhook").delete()
+    _delete_integrations(IntegrationManager.customerio_webhook.any, team_id)
     try:
         config = OptOutSyncConfig.objects.get(team_id=team_id)
         config.webhook_integration = None
@@ -162,7 +189,7 @@ def save_track_config(
     team_id: int, site_id: str | None, api_key: str | None, region: str, enabled: bool, created_by_id: int | None
 ) -> SavedConfig:
     has_new_creds = bool(site_id and api_key)
-    integration = Integration.objects.filter(team_id=team_id, kind="customerio-track").first()
+    integration = IntegrationManager.customerio_track.token.find(team_id)
 
     if integration and has_new_creds:
         raise ConfigConflict("Integration already exists. Delete it first to use different credentials.")
@@ -171,17 +198,16 @@ def save_track_config(
         raise ConfigIncomplete("Site ID and API key are required to enable outbound sync.")
 
     if not integration and has_new_creds:
-        integration = Integration.objects.create(
-            team_id=team_id,
-            kind="customerio-track",
-            sensitive_config={"site_id": site_id, "api_key": api_key},
+        integration = IntegrationManager.customerio_track.token.create(
+            team_id,
+            external_id=None,
             config={"region": region},
+            sensitive_config={"site_id": site_id, "api_key": api_key},
             created_by_id=created_by_id,
-            errors="",
         )
 
     config, _ = OptOutSyncConfig.objects.get_or_create(team_id=team_id)
-    config.track_integration = integration
+    config.track_integration_id = integration.id if integration else None
     config.track_enabled = enabled
     config.save(update_fields=["track_integration", "track_enabled"])
 
@@ -194,7 +220,7 @@ def save_track_config(
 
 
 def remove_track_config(team_id: int) -> None:
-    Integration.objects.filter(team_id=team_id, kind="customerio-track").delete()
+    _delete_integrations(IntegrationManager.customerio_track.any, team_id)
     try:
         config = OptOutSyncConfig.objects.get(team_id=team_id)
         config.track_integration = None

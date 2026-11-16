@@ -1,6 +1,10 @@
 from typing import TYPE_CHECKING
 
+from unittest.mock import MagicMock
+
 from django.utils.timezone import now
+
+import grpc
 
 from posthog.clickhouse.client import sync_execute
 from posthog.models.person.sql import BULK_INSERT_PERSON_DISTINCT_ID2
@@ -10,6 +14,12 @@ from posthog.test.persons import add_distinct_id, create_person
 
 if TYPE_CHECKING:
     from posthog.models.team import Team
+
+
+def rpc_error(code: grpc.StatusCode) -> grpc.RpcError:
+    error = grpc.RpcError()
+    error.code = MagicMock(return_value=code)
+    return error
 
 
 class DivergenceFixturesMixin:

@@ -1,0 +1,35 @@
+{
+  "exitCode": 0,
+  "requests": [
+    {
+      "method": "GET",
+      "path": "/api/projects/1/error_tracking/symbol_sets/?ref=3f161e6c-fc03-5fe2-a9e9-08e5ae65fd15&limit=1",
+      "headers": {
+        "authorization": "Bearer phx_<key>",
+        "content-type": "application/json"
+      },
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/api/projects/1/error_tracking/symbol_sets/0192f0a0-0000-7000-8000-00000000000c/download/",
+      "headers": {
+        "authorization": "Bearer phx_<key>",
+        "content-type": "application/json"
+      },
+      "status": 200
+    },
+    {
+      "method": "GET",
+      "path": "/s3/get/0192f0a0-0000-7000-8000-00000000000c",
+      "headers": {
+        "authorization": "<none>"
+      },
+      "status": 200
+    }
+  ],
+  "files": {
+    "out/3f161e6c-fc03-5fe2-a9e9-08e5ae65fd15.js": "utf8:a();\n//# chunkId=x",
+    "out/3f161e6c-fc03-5fe2-a9e9-08e5ae65fd15.js.map": "utf8:{\"version\":3,\"sources\":[\"a.ts\"],\"names\":[],\"mappings\":\"AAAA\"}"
+  }
+}

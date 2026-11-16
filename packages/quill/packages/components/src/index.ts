@@ -9,6 +9,16 @@
 // in every app.
 
 export { DataTable, type DataTableProps } from './data-table'
+export {
+    FilterCheckboxSubMenu,
+    FilterClearItem,
+    FilterMenuTrigger,
+    type FilterOption,
+    FilterRadioSubMenu,
+    FilterSearchSubMenu,
+    FilterSubMenu,
+    filterSummary,
+} from './filter-menu'
 export { DateTimePicker, type DateTimePickerProps, type DateTimeValue, type DateFormatOrder } from './date-time-picker'
 export { DatePicker, type DatePickerProps } from './date-picker'
 export { quickRanges, CUSTOM_RANGE, type DateTimeRange, type DateTimeRangeName } from './date-time-ranges'

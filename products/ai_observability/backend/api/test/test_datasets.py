@@ -22,7 +22,7 @@ from posthog.models.utils import generate_random_token_personal, hash_key_value
 from products.ai_observability.backend.api.dataset_exports import DATASET_EXPORT_STUCK_MESSAGE
 from products.ai_observability.backend.dataset_service import create_dataset
 from products.ai_observability.backend.models.datasets import Dataset, DatasetItem, DatasetItemVersion, DatasetRevision
-from products.exports.backend.facade.api import DATASET_EXPORT_KIND, ExportedAsset
+from products.exports.backend.facade.api import DATASET_EXPORT_KIND, JSONL_EXPORT_FORMAT, ExportedAsset
 
 
 class TestDatasetsApi(APIBaseTest):
@@ -67,6 +67,73 @@ class TestDatasetsApi(APIBaseTest):
             response = self.client.get(self.datasets_url)
 
         self.assertEqual(response.status_code, status.HTTP_403_FORBIDDEN)
+
+    def test_lists_do_not_refresh_usage_but_snapshot_reads_do(self) -> None:
+        dataset = self._create_dataset()
+        first = self._create_item(dataset["id"])
+        self._create_item(dataset["id"], input="Second item")
+        old = now() - timedelta(days=27)
+        datasets = Dataset.objects.for_team(self.team.id, canonical=True).filter(id=dataset["id"])
+        revisions = DatasetRevision.objects.for_team(self.team.id, canonical=True).filter(dataset_id=dataset["id"])
+        datasets.update(last_used_at=old, archived=True)
+        revisions.update(last_used_at=old)
+
+        response = self.client.get(self.datasets_url, {"archived": "true"})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertTrue(response.data["results"][0]["expiring_soon"])
+        response = self.client.get(f"{self.datasets_url}{dataset['id']}/revisions/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertTrue(all(revision["expiring_soon"] for revision in response.data["results"]))
+        self.assertEqual(datasets.get().last_used_at, old)
+        self.assertTrue(all(revision.last_used_at == old for revision in revisions))
+
+        response = self.client.get(self.items_url, {"dataset": dataset["id"], "revision": first["dataset_revision"]})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        last_used_at = datasets.get().last_used_at
+        revision_last_used_at = revisions.get(revision=first["dataset_revision"]).last_used_at
+        assert last_used_at is not None
+        assert revision_last_used_at is not None
+        self.assertGreater(last_used_at, old)
+        self.assertGreater(revision_last_used_at, old)
+        self.assertEqual(revisions.get(revision=2).last_used_at, old)
+
+    def test_expired_snapshots_and_datasets_are_unavailable(self) -> None:
+        dataset = self._create_dataset()
+        first = self._create_item(dataset["id"])
+        self._create_item(dataset["id"], input="Second item")
+        asset = ExportedAsset.objects.create(
+            team=self.team,
+            created_by=self.user,
+            export_format=JSONL_EXPORT_FORMAT,
+            export_context={"kind": DATASET_EXPORT_KIND, "dataset_id": dataset["id"], "dataset_revision": 1},
+            content=b'{"input":"Expired snapshot"}\n',
+        )
+        DatasetRevision.objects.for_team(self.team.id, canonical=True).filter(id=first["dataset_revision_id"]).update(
+            expired_at=now()
+        )
+        for url, query in [
+            (self.items_url, {"dataset": dataset["id"], "revision": 1}),
+            (f"{self.items_url}{first['id']}/", {"revision": 1}),
+            (f"{self.datasets_url}{dataset['id']}/exports/{asset.id}/content/", {}),
+        ]:
+            self.assertEqual(self.client.get(url, query).status_code, status.HTTP_404_NOT_FOUND)
+        revisions = self.client.get(f"{self.datasets_url}{dataset['id']}/revisions/")
+        self.assertEqual([revision["revision"] for revision in revisions.data["results"]], [2])
+        Dataset.objects.for_team(self.team.id, canonical=True).filter(id=dataset["id"]).update(expired_at=now())
+        self.assertEqual(self.client.get(f"{self.datasets_url}{dataset['id']}/").status_code, status.HTTP_404_NOT_FOUND)
+        self.assertEqual(
+            self.client.get(self.items_url, {"dataset": dataset["id"]}).status_code, status.HTTP_404_NOT_FOUND
+        )
+        self.assertEqual(self.client.get(f"{self.items_url}{first['id']}/").status_code, status.HTTP_404_NOT_FOUND)
+
+    def test_dataset_detail_renews_usage_and_hides_expiring_soon(self) -> None:
+        dataset = self._create_dataset()
+        Dataset.objects.for_team(self.team.id, canonical=True).filter(id=dataset["id"]).update(
+            last_used_at=now() - timedelta(days=88)
+        )
+        response = self.client.get(f"{self.datasets_url}{dataset['id']}/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertFalse(response.data["expiring_soon"])
 
     @patch("products.ai_observability.backend.api.datasets.report_user_action")
     def test_dataset_lifecycle_and_name_uniqueness(self, report_action: Mock) -> None:

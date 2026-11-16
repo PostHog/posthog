@@ -18,9 +18,11 @@ import posthog from 'posthog-js'
 import { ApiConfig } from 'lib/api'
 import { ApiError } from 'lib/api-error'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { userHasAccess } from 'lib/utils/accessControlUtils'
+import { isNotNil } from 'lib/utils/guards'
 import { EMPTY_INCREMENTAL_DRAFT, IncrementalConfigDraft } from 'scenes/data-warehouse/editor/IncrementalConfigFields'
 
-import { DataModelingSyncInterval } from '~/types'
+import { AccessControlLevel, AccessControlResourceType, DataModelingSyncInterval } from '~/types'
 
 import {
     warehouseSavedQueriesCheckIncrementalCreate,
@@ -47,12 +49,13 @@ import type { WarehouseSuggestionDismissalReasonEnumApi } from './generated/api.
 import { INTERVAL_SECONDS, intervalForSeconds } from './refreshIntervals'
 import { subjectUrl } from './subjectUrl'
 import {
-    MonthlySaving,
+    MAIN_SAVING_KINDS,
     SavingsSummary,
     isMaterializePayload,
+    mainSaving,
     monthlySaving,
     notNowCondition,
-    savesTime,
+    savingSplit,
 } from './suggestionCopy'
 
 export type StripState = 'loading' | 'error' | 'hidden' | 'warming_up' | 'not_eligible' | 'active' | 'all_done'
@@ -69,11 +72,25 @@ export interface WarehouseSuggestionsLogicProps {
 }
 
 export const ROW_LEAVE_MS = 150
-const KIND_ORDER: Record<string, number> = { certify: 0, deprecate: 1 }
+const CATALOG_EDIT_ACCESS_REASON = 'You need edit access to the data catalog'
 
-const SURFACE_KINDS: Record<SuggestionSurface, string[]> = {
-    models: ['materialize', 'unmaterialize'],
-    catalog: ['certify', 'deprecate'],
+function canEditDataCatalog(): boolean {
+    return userHasAccess(AccessControlResourceType.DataCatalog, AccessControlLevel.Editor)
+}
+
+export function catalogEditBlockedReason(): string | undefined {
+    return canEditDataCatalog() ? undefined : CATALOG_EDIT_ACCESS_REASON
+}
+
+const KIND_ORDER: Record<string, number> = {
+    certify: MAIN_SAVING_KINDS.length,
+    deprecate: MAIN_SAVING_KINDS.length + 1,
+}
+
+const SHOWN_ON_SURFACE: Record<SuggestionSurface, (suggestion: WarehouseSuggestionApi) => boolean> = {
+    models: ({ kind, subject_kind }) =>
+        kind === 'materialize' || kind === 'unmaterialize' || (kind === 'deprecate' && subject_kind === 'saved_query'),
+    catalog: ({ kind }) => kind === 'certify' || kind === 'deprecate',
 }
 const VIEW_ON_MODEL_PAGE_KINDS = ['materialize', 'unmaterialize']
 const CONFLICT_STATUS = 409
@@ -86,10 +103,14 @@ const ACCEPTED_MESSAGES: Record<string, (suggestion: WarehouseSuggestionApi) => 
     unmaterialize: ({ payload }) =>
         `Stopped materializing ${payload.subject_name}. Each read now computes it from its query.`,
     certify: ({ payload }) => `Certified ${payload.subject_name}.`,
-    deprecate: ({ payload, created_asset }) =>
-        created_asset?.stopped_materialization === true
+    deprecate: ({ payload, created_asset }) => {
+        if (created_asset?.saved_query_id) {
+            return `Deleted ${payload.subject_name}.`
+        }
+        return created_asset?.stopped_materialization === true
             ? `Marked ${payload.subject_name} as deprecated and stopped its refreshes.`
-            : `Marked ${payload.subject_name} as deprecated.`,
+            : `Marked ${payload.subject_name} as deprecated.`
+    },
 }
 const ACCEPT_OPTION_FIELDS = new Set([
     'refresh_interval_seconds',
@@ -110,11 +131,11 @@ function assignedMessage({ assignee }: WarehouseSuggestionApi): string {
 }
 
 function suggestionWorth(suggestion: WarehouseSuggestionApi): [number, number] {
-    const saving = monthlySaving(suggestion.payload)
-    if (!saving) {
+    const main = mainSaving(suggestion.payload)
+    if (!main) {
         return [KIND_ORDER[suggestion.kind] ?? 0, 0]
     }
-    return savesTime(saving) ? [0, -saving.seconds] : [1, -saving.bytes]
+    return [MAIN_SAVING_KINDS.indexOf(main.kind), -main.amount]
 }
 
 function compareSuggestions(a: WarehouseSuggestionApi, b: WarehouseSuggestionApi): number {
@@ -168,6 +189,19 @@ function changedRefreshOptions(
     return options
 }
 
+function deprecateOptions(
+    suggestion: WarehouseSuggestionApi,
+    { deleteView, keepMaterialized }: { deleteView: boolean; keepMaterialized: boolean }
+): AcceptWarehouseSuggestionApi | undefined {
+    if (suggestion.kind !== 'deprecate') {
+        return undefined
+    }
+    if (deleteView) {
+        return { delete_view: true }
+    }
+    return keepMaterialized ? { keep_materialized: true } : undefined
+}
+
 async function fetchIncrementalCheck(viewId: string): Promise<IncrementalEligibilityApi | null> {
     try {
         const view = await warehouseSavedQueriesRetrieve(projectId(), viewId)
@@ -194,6 +228,7 @@ export interface warehouseSuggestionsLogicValues {
     acceptConfirmSuggestion: WarehouseSuggestionApi | null
     acceptConfirmSuggestionId: string | null
     actionsInFlight: Record<string, boolean>
+    deleteView: boolean
     featureForbidden: boolean
     hiddenSuggestionIds: string[]
     incrementalCheck: IncrementalEligibilityApi | null
@@ -354,6 +389,9 @@ export interface warehouseSuggestionsLogicActions {
         id: string
         inFlight: boolean
     }
+    setDeleteView: (deleteView: boolean) => {
+        deleteView: boolean
+    }
     setKeepMaterialized: (keepMaterialized: boolean) => {
         keepMaterialized: boolean
     }
@@ -461,6 +499,7 @@ export const warehouseSuggestionsLogic: LogicWrapper<warehouseSuggestionsLogicTy
             closeAcceptConfirm: true,
             confirmAccept: true,
             acceptSuggestionFailed: (id: string) => ({ id }),
+            setDeleteView: (deleteView: boolean) => ({ deleteView }),
             setKeepMaterialized: (keepMaterialized: boolean) => ({ keepMaterialized }),
             setMaterializeError: (error: string | null) => ({ error }),
             setMaterializeInterval: (interval: DataModelingSyncInterval | null) => ({ interval }),
@@ -555,6 +594,14 @@ export const warehouseSuggestionsLogic: LogicWrapper<warehouseSuggestionsLogicTy
                     closeAcceptConfirm: () => false,
                 },
             ],
+            deleteView: [
+                false,
+                {
+                    setDeleteView: (_, { deleteView }) => deleteView,
+                    openAcceptConfirm: () => false,
+                    closeAcceptConfirm: () => false,
+                },
+            ],
             materializeInterval: [
                 null as DataModelingSyncInterval | null,
                 {
@@ -609,7 +656,7 @@ export const warehouseSuggestionsLogic: LogicWrapper<warehouseSuggestionsLogicTy
                             (suggestion) =>
                                 suggestion.surfaced_at !== null &&
                                 !hiddenIds.includes(suggestion.id) &&
-                                SURFACE_KINDS[surface].includes(suggestion.kind)
+                                SHOWN_ON_SURFACE[surface](suggestion)
                         )
                         .sort(compareSuggestions)
                     return groupedByKind(byWorth).flatMap((group) => group.suggestions)
@@ -627,15 +674,24 @@ export const warehouseSuggestionsLogic: LogicWrapper<warehouseSuggestionsLogicTy
             savingsSummary: [
                 (s) => [s.surfaceSuggestions],
                 (open: WarehouseSuggestionApi[]): SavingsSummary => {
-                    const savings = open
-                        .map(({ payload }) => monthlySaving(payload))
-                        .filter((saving): saving is MonthlySaving => saving !== null)
+                    const savings = open.flatMap(({ payload }) => {
+                        const saving = monthlySaving(payload)
+                        return saving ? [{ saving, split: savingSplit(payload) }] : []
+                    })
+                    const splits = savings.map((entry) => entry.split).filter(isNotNil)
                     return {
                         views: savings.length,
                         saving: {
-                            seconds: sum(savings.map((saving) => saving.seconds)),
-                            bytes: sum(savings.map((saving) => saving.bytes)),
+                            seconds: sum(savings.map((entry) => entry.saving.seconds)),
+                            bytes: sum(savings.map((entry) => entry.saving.bytes)),
                         },
+                        split:
+                            splits.length === savings.length
+                                ? {
+                                      waiting: sum(splits.map((split) => split.waiting)),
+                                      background: sum(splits.map((split) => split.background)),
+                                  }
+                                : null,
                     }
                 },
             ],
@@ -759,14 +815,19 @@ export const warehouseSuggestionsLogic: LogicWrapper<warehouseSuggestionsLogicTy
                     })
                 },
                 openAcceptConfirm: ({ id }) => {
+                    if (values.acceptConfirmSuggestion?.kind === 'deprecate' && !canEditDataCatalog()) {
+                        actions.setDeleteView(true)
+                    }
                     posthog.capture('warehouse suggestion confirm opened', {
                         suggestion_id: id,
                         kind: values.acceptConfirmSuggestion?.kind,
+                        surface: props.surface,
                     })
                 },
                 closeAcceptConfirm: (_, __, ___, previousState) => {
                     posthog.capture('warehouse suggestion confirm cancelled', {
                         suggestion_id: selectors.acceptConfirmSuggestionId(previousState),
+                        surface: props.surface,
                     })
                 },
                 confirmAccept: () => {
@@ -774,8 +835,7 @@ export const warehouseSuggestionsLogic: LogicWrapper<warehouseSuggestionsLogicTy
                     if (!suggestion) {
                         return
                     }
-                    const keepMaterialized = suggestion.kind === 'deprecate' && values.keepMaterialized
-                    actions.acceptSuggestion(suggestion.id, keepMaterialized ? { keep_materialized: true } : undefined)
+                    actions.acceptSuggestion(suggestion.id, deprecateOptions(suggestion, values))
                 },
                 openReview: () => {
                     posthog.capture('warehouse suggestion review opened', {
@@ -848,7 +908,9 @@ export const warehouseSuggestionsLogic: LogicWrapper<warehouseSuggestionsLogicTy
                     }
                     actions.setActionInFlight(id, true)
                     try {
-                        const accepted = await warehouseSuggestionsAcceptCreate(projectId(), id, options)
+                        const accepted = await warehouseSuggestionsAcceptCreate(projectId(), id, options, {
+                            surface: props.surface,
+                        })
                         actions.hideSuggestion(id)
                         actions.suggestionAccepted(accepted)
                         props.onAccepted?.(accepted)
@@ -875,7 +937,12 @@ export const warehouseSuggestionsLogic: LogicWrapper<warehouseSuggestionsLogicTy
                     actions.setActionInFlight(id, true)
                     actions.hideSuggestion(id)
                     try {
-                        await warehouseSuggestionsDismissCreate(project, id, { reason, note })
+                        await warehouseSuggestionsDismissCreate(
+                            project,
+                            id,
+                            { reason, note },
+                            { surface: props.surface }
+                        )
                         lemonToast.success(dismissedMessage(reason, kind), {
                             toastId: `warehouse-suggestion-dismissed-${id}`,
                             button: {
