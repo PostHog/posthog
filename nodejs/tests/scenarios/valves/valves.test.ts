@@ -1,4 +1,5 @@
 import { SESv2Client, SendEmailCommand } from '@aws-sdk/client-sesv2'
+import { randomUUID } from 'crypto'
 import { once } from 'events'
 import { mkdtempSync, rmSync } from 'fs'
 import os from 'os'
@@ -10,9 +11,11 @@ import { internalFetch } from '~/common/utils/request'
 import { waitForExpect } from '~/tests/helpers/expectations'
 
 import { ValveEntry } from '../cards/schema'
-import { Actuation } from '../environment/environment'
+import { FakeCloud, FakeCloudOptions } from '../cloud/fake-cloud'
+import { Actuation, createEnvironment } from '../environment/environment'
 import { Role } from '../environment/roles'
 import { Queue } from '../probe/cyclotron-probe'
+import type { WriterSample } from '../probe/writer-probe'
 import { ProviderEdge, TruthPage, startProviderEdge } from '../provider-edge'
 import { ValveContext, createValves } from './valves'
 
@@ -60,13 +63,14 @@ function stackOf({
 
     const context: ValveContext = {
         teams: [OUR_TEAM],
+        commits: () => [],
         environment: {
             actuate: (action): Promise<Actuation> => {
                 if (finishesJobsFirst) {
                     jobs.splice(0)
                 }
-                if (action.kind === 'edge.fault') {
-                    return Promise.reject(new Error('this stack has no provider edge'))
+                if (action.kind === 'edge.fault' || action.kind === 'rds.failover') {
+                    return Promise.reject(new Error(`this stack does not model ${action.kind}`))
                 }
                 if (action.kind === 'pg.terminate') {
                     const dropped = Math.ceil(action.share * roleSessions)
@@ -200,6 +204,116 @@ const throttle = (rate: number, holdFor: string): ValveEntry => ({
 const RUNNING_ON_EMAIL = { name: 'running_on_queue' as const, params: { queue: 'email' as const, atLeast: 2 } }
 
 describe('valves', () => {
+    const FAILOVER: ValveEntry = { valve: 'pg.failover', target: 'cyclotron', dose: {}, at: '0ms', for: '10m' }
+    const STAGES = [
+        { name: 'cluster_writer', at: expect.any(String) },
+        { name: 'sql_writer', at: expect.any(String) },
+        { name: 'first_probe_commit', at: expect.any(String) },
+    ]
+
+    const runClusterOf = (options: Partial<FakeCloudOptions> = {}, stalls?: string) => {
+        const cloud = new FakeCloud({
+            now: () => new Date(),
+            failover: { takesMs: 20 },
+            liveReaderAcu: { maxima: [1, 1, 1, 1, 1] },
+            ...options,
+        })
+        let stalled: () => void = () => undefined
+        const stalledOnce = new Promise<void>((resolve) => (stalled = resolve))
+        const aws = {
+            call: (args: string[]): Promise<unknown> =>
+                args[0] === stalls ? (stalled(), new Promise(() => undefined)) : cloud.call(args),
+            text: (args: string[]): Promise<string> => cloud.text(args),
+        }
+        const run = cloud.runCluster(randomUUID())
+        const writerNow = (): string => cloud.writerOf(run.cluster)!
+        const samples: WriterSample[] = []
+        const commits = (): WriterSample[] => {
+            samples.push({ at: Date.now(), monoMs: 0, ok: true, latencyMs: 0, instance: writerNow() })
+            return samples
+        }
+        const environment = createEnvironment({
+            aws,
+            failover: {
+                identity: () => Promise.resolve({ instance: writerNow(), inRecovery: false }),
+                pollMs: 5,
+                observeWithinMs: 30_000,
+            },
+        })
+        return { cloud, ...run, writerNow, commits, environment, stalledOnce }
+    }
+
+    it.each<[string, Partial<FakeCloudOptions>, boolean, Record<string, unknown>]>([
+        [
+            'fails the run cluster over and back, and journals each recovery stage',
+            {},
+            true,
+            {
+                intentAt: expect.any(String),
+                appliedAt: expect.any(String),
+                observedAt: expect.any(String),
+                releasedAt: expect.any(String),
+                observations: STAGES,
+                releaseIntentAt: expect.any(String),
+                releaseObservations: STAGES,
+            },
+        ],
+        [
+            'records no intent for a failover its preconditions refused',
+            { liveReaderAcu: { maxima: [1, 1, 2, 1, 1] } },
+            true,
+            { error: expect.stringMatching(/^pg\.failover refused: .* was above 1 ACU/) },
+        ],
+        ['refuses a failover outside a run host', {}, false, { error: 'pg.failover runs only on a run host' }],
+    ])('%s', async (_story, options, onRunHost, recorded) => {
+        const valves = createValves({ pollMs: 5 })
+        const { context } = stackOf()
+        const run = runClusterOf(options)
+
+        await valves.start([FAILOVER], {
+            ...context,
+            commits: run.commits,
+            manifest: onRunHost ? run.manifest : undefined,
+            environment: run.environment,
+        })
+        await waitForExpect(
+            () => expect(valves.timeline()[0].observedAt ?? valves.timeline()[0].error).toBeDefined(),
+            2000,
+            5
+        )
+        await valves.releaseAll()
+
+        expect(valves.timeline()).toEqual([
+            { valve: 'pg.failover', target: 'cyclotron', requestedAt: expect.any(String), ...recorded },
+        ])
+        expect(run.writerNow()).toBe(run.writer)
+    })
+
+    it('stops waiting for a failover precondition that never answers once the valves release', async () => {
+        const valves = createValves({ pollMs: 5 })
+        const { context } = stackOf()
+        const run = runClusterOf({}, 'sts')
+
+        await valves.start([FAILOVER], {
+            ...context,
+            commits: run.commits,
+            manifest: run.manifest,
+            environment: run.environment,
+        })
+        await run.stalledOnce
+        await valves.releaseAll()
+
+        expect(valves.timeline()).toEqual([
+            {
+                valve: 'pg.failover',
+                target: 'cyclotron',
+                requestedAt: expect.any(String),
+                error: expect.stringMatching(/^pg\.failover refused: AWS had not answered when the apply stopped/),
+            },
+        ])
+        expect(run.cloud.promotions).toEqual([])
+    })
+
     it('kills the role an entry names once its offset passes, and records every step', async () => {
         const valves = createValves({ pollMs: 5 })
         const stack = stackOf()
@@ -215,6 +329,7 @@ describe('valves', () => {
                 valve: 'role.kill',
                 target: EMAIL_WORKER,
                 requestedAt: expect.any(String),
+                intentAt: expect.any(String),
                 appliedAt: expect.any(String),
                 observedAt: expect.any(String),
                 releasedAt: expect.any(String),
@@ -532,7 +647,7 @@ describe('valves', () => {
     it.each<[string, StackSetup]>([
         ['a slow apply returns', { applyTakesMs: 100 }],
         ['observing lasts until the hold ends', { applyTakesMs: 100, observesUntilHoldEnds: true }],
-    ])('holds an entry for its duration from the moment apply returns, when %s', async (_story, setup) => {
+    ])('records the intent before apply and holds from the moment apply returns, when %s', async (_story, setup) => {
         const valves = createValves({ pollMs: 5 })
         const stack = stackOf(setup)
 
@@ -540,9 +655,10 @@ describe('valves', () => {
         await waitForExpect(() => expect(valves.timeline()[0].releasedAt).toBeDefined(), 2000, 5)
         await valves.releaseAll()
 
-        const { appliedAt, observedAt, releasedAt, error } = valves.timeline()[0]
+        const { intentAt, appliedAt, observedAt, releasedAt, error } = valves.timeline()[0]
         const applyReturnedAt = stack.applyReturnedAt()
         expect({ observedAt, error }).toEqual({ observedAt: expect.any(String), error: undefined })
+        expect(applyReturnedAt! - Date.parse(intentAt!)).toBeGreaterThanOrEqual(95)
         expect(Date.parse(appliedAt!)).toBeGreaterThanOrEqual(applyReturnedAt!)
         expect(Date.parse(releasedAt!) - applyReturnedAt!).toBeGreaterThanOrEqual(195)
     })

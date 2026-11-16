@@ -92,7 +92,8 @@ class EvalSuggestion(UUIDModel):
     draft = models.JSONField(default=dict)
     filters = models.JSONField(default=list)
     rollout_percentage = models.FloatField(default=100)
-    # Only Hog checks carry a rate, because only they are measured exactly. Judges stay "possible".
+    # Hog checks carry the rate measured on the sample, and reviewed judges the count the review model made.
+    # Other judges stay "possible".
     measured_failure_rate = models.FloatField(null=True, blank=True)
     sample_size = models.PositiveIntegerField(null=True, blank=True)
     # [{"trace_id": str, "reason": str}], one line each.

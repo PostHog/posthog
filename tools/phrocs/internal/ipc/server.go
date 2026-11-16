@@ -194,8 +194,8 @@ func dispatch(req request, mgr *process.Manager) any {
 	case "status_all":
 		procs := mgr.Procs()
 		result := make(map[string]any, len(procs))
-		for _, p := range procs {
-			result[p.Name] = p.Snapshot()
+		for i, snap := range process.Snapshots(procs) {
+			result[procs[i].Name] = snap
 		}
 		return map[string]any{"ok": true, "processes": result}
 
