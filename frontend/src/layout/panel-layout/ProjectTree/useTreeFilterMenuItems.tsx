@@ -10,6 +10,7 @@ import { fileSystemTypes } from '~/products'
 import { FileSystemType } from '~/types'
 
 import { ProjectTreeLogicProps, projectTreeLogic } from './projectTreeLogic'
+import { isFileTypeFilterEnabled } from './utils'
 
 const missingProductTypes: { value: string; label: string; flag?: string }[] = [
     { value: 'destination', label: 'Destinations' },
@@ -48,9 +49,7 @@ export function useTreeFilterMenuItems(logicProps: ProjectTreeLogicProps): Lemon
         },
         {
             items: productTypesMapped
-                .filter(
-                    (productType) => !productType.flag || featureFlags[productType.flag as keyof typeof featureFlags]
-                )
+                .filter((productType) => isFileTypeFilterEnabled(productType, featureFlags))
                 .map((productType) => {
                     const active = searchFilters.fileType === productType.value
                     return {

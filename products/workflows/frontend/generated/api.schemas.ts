@@ -753,6 +753,8 @@ export interface HogFlowScheduleApi {
  */
 export interface HogFlowApi {
     readonly id: string
+    /** Project folder for a newly created workflow. */
+    _create_in_folder?: string
     /**
      * Workflow name.
      * @maxLength 400
@@ -869,6 +871,8 @@ export type HogFlowUpdateApiActionRedirects = { [key: string]: string } | null
  */
 export interface HogFlowUpdateApi {
     readonly id: string
+    /** Project folder for a newly created workflow. */
+    _create_in_folder?: string
     /**
      * Workflow name.
      * @maxLength 400
@@ -978,6 +982,8 @@ export type PatchedHogFlowUpdateApiActionRedirects = { [key: string]: string } |
  */
 export interface PatchedHogFlowUpdateApi {
     readonly id?: string
+    /** Project folder for a newly created workflow. */
+    _create_in_folder?: string
     /**
      * Workflow name.
      * @maxLength 400
@@ -2014,6 +2020,18 @@ export interface BroadcastConversionCandidatesApi {
     readonly has_more: boolean
     /** The most recently updated candidates, at most 100. */
     readonly results: readonly BroadcastConversionCandidateApi[]
+}
+
+export interface HogFlowBulkDeleteRequestApi {
+    /** IDs of the archived workflows to delete permanently. */
+    ids: string[]
+}
+
+export interface HogFlowBulkDeleteResponseApi {
+    /** Number of workflows deleted. */
+    deleted: number
+    /** IDs of the deleted workflows. A workflow that is not archived, or that you cannot edit, is skipped. */
+    deleted_ids: string[]
 }
 
 /**

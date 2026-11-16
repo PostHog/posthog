@@ -15,7 +15,7 @@ import hooks_workflowsDataSuggestionsCreate from '@/tools/workflows/dataSuggesti
 
 const BroadcastsCreateSchema = () => {
     const HogFlowsCreateBody = orvalSchemas.HogFlowsCreateBody()
-    return HogFlowsCreateBody
+    return HogFlowsCreateBody.omit({ _create_in_folder: true })
 }
 
 const broadcastsCreate = (): ToolBase<ReturnType<typeof BroadcastsCreateSchema>, WithPostHogUrl<Schemas.HogFlow>> => ({
@@ -100,7 +100,7 @@ const workflowsConvertToBroadcast = (): ToolBase<
 
 const WorkflowsCreateSchema = () => {
     const HogFlowsCreateBody = orvalSchemas.HogFlowsCreateBody()
-    return HogFlowsCreateBody
+    return HogFlowsCreateBody.omit({ _create_in_folder: true })
 }
 
 const workflowsCreate = (): ToolBase<ReturnType<typeof WorkflowsCreateSchema>, WithPostHogUrl<Schemas.HogFlow>> =>
@@ -1038,7 +1038,9 @@ const workflowsTestRun = (): ToolBase<ReturnType<typeof WorkflowsTestRunSchema>,
 const WorkflowsUpdateSchema = () => {
     const HogFlowsPartialUpdateBody = orvalSchemas.HogFlowsPartialUpdateBody()
     const HogFlowsPartialUpdateParams = orvalSchemas.HogFlowsPartialUpdateParams()
-    return HogFlowsPartialUpdateParams.omit({ project_id: true }).extend(HogFlowsPartialUpdateBody.shape)
+    return HogFlowsPartialUpdateParams.omit({ project_id: true }).extend(
+        HogFlowsPartialUpdateBody.omit({ _create_in_folder: true }).shape
+    )
 }
 
 const workflowsUpdate = (): ToolBase<ReturnType<typeof WorkflowsUpdateSchema>, WithPostHogUrl<Schemas.HogFlowUpdate>> =>

@@ -2181,6 +2181,14 @@ export const fileSystemTypes = {
         iconColor: ['var(--color-product-feature-flags-light)', 'var(--color-product-feature-flags-dark)'],
         filterKey: 'feature_flag',
     },
+    hog_flow: {
+        flag: FEATURE_FLAGS.WORKFLOWS_LIST_V2,
+        name: 'Workflow',
+        iconType: 'workflows',
+        iconColor: ['var(--color-product-workflows-light)'] as FileSystemIconColor,
+        href: (ref: string) => urls.workflow(ref, 'workflow'),
+        listHref: () => urls.workflows(),
+    },
     insight: {
         name: 'Insight',
         iconType: 'product_analytics',
@@ -2196,6 +2204,13 @@ export const fileSystemTypes = {
         href: (ref: string) => urls.businessIntelligenceWorksheet(ref),
         listHref: () => urls.businessIntelligence(),
         filterKey: 'insight',
+    },
+    message_template: {
+        flag: FEATURE_FLAGS.WORKFLOWS_LIST_V2,
+        name: 'Email template',
+        iconType: 'broadcasts',
+        href: (ref: string) => urls.workflowsLibraryTemplate(ref),
+        listHref: () => urls.workflows('library'),
     },
     notebook: {
         name: 'Notebook',

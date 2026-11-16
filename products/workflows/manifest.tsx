@@ -151,6 +151,21 @@ export const manifest: ProductManifest = {
             listHref: () => urls.workflows(),
             filterKey: 'workflows',
         },
+        message_template: {
+            flag: FEATURE_FLAGS.WORKFLOWS_LIST_V2,
+            name: 'Email template',
+            iconType: 'broadcasts',
+            href: (ref: string) => urls.workflowsLibraryTemplate(ref),
+            listHref: () => urls.workflows('library'),
+        },
+        hog_flow: {
+            flag: FEATURE_FLAGS.WORKFLOWS_LIST_V2,
+            name: 'Workflow',
+            iconType: 'workflows',
+            iconColor: ['var(--color-product-workflows-light)'] as FileSystemIconColor,
+            href: (ref: string) => urls.workflow(ref, 'workflow'),
+            listHref: () => urls.workflows(),
+        },
     },
     treeItemsProducts: [
         {

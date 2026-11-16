@@ -1,10 +1,19 @@
 import '@testing-library/jest-dom'
 
 import { fireEvent, screen, waitFor } from '@testing-library/react'
+import { expectLogic } from 'kea-test-utils'
 
+import { projectTreeDataLogic } from '~/layout/panel-layout/ProjectTree/projectTreeDataLogic'
+import { useMocks } from '~/mocks/jest'
+import { initKeaTests } from '~/test/init'
 import { AccessControlLevel, AccessControlResourceType, AppContext } from '~/types'
 
-import { archiveDisabledReason, confirmCreateAsBroadcast, summaryActions } from './broadcastLifecycle'
+import {
+    archiveDisabledReason,
+    confirmCreateAsBroadcast,
+    moveWorkflowsToBroadcasts,
+    summaryActions,
+} from './broadcastLifecycle'
 
 const TITLE = 'Track this send as a broadcast?'
 
@@ -120,6 +129,49 @@ describe('broadcastLifecycle', () => {
 
             await expect(result).resolves.toBe(choice)
             await waitFor(() => expect(screen.queryByText(TITLE)).not.toBeInTheDocument())
+        })
+    })
+
+    describe('moveWorkflowsToBroadcasts', () => {
+        it('drops only the moved workflows from the project tree', async () => {
+            useMocks({
+                get: {
+                    '/api/projects/:team_id/file_system/': {
+                        count: 2,
+                        users: [],
+                        results: ['moves', 'stays'].map((ref) => ({
+                            id: `file-${ref}`,
+                            path: `Unfiled/Workflows/${ref}`,
+                            type: 'hog_flow',
+                            ref,
+                        })),
+                    },
+                },
+                post: {
+                    '/api/projects/:team_id/hog_flows/:id/convert_to_broadcast/': ({ params }) =>
+                        params.id === 'stays'
+                            ? [
+                                  400,
+                                  {
+                                      detail: 'Only a workflow that sends one email to a batch audience can become a broadcast.',
+                                  },
+                              ]
+                            : [200, { id: params.id, origin_product: 'broadcasts' }],
+                },
+            })
+            initKeaTests()
+            const tree = projectTreeDataLogic()
+            tree.mount()
+            await expectLogic(tree).toDispatchActions(['loadFolderSuccess'])
+
+            await expect(moveWorkflowsToBroadcasts('1', ['moves', 'stays'])).resolves.toBe(1)
+
+            const workflowsInTree = Object.values(tree.values.folders)
+                .flat()
+                .filter((entry) => entry.type === 'hog_flow')
+                .map((entry) => entry.ref)
+            expect(workflowsInTree).toEqual(['stays'])
+            tree.unmount()
         })
     })
 })

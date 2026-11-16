@@ -1,3 +1,4 @@
+import { waitFor } from '@testing-library/react'
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
@@ -11,14 +12,60 @@ import { urls } from 'scenes/urls'
 
 import { breadcrumbsLogic } from '~/layout/navigation/Breadcrumbs/breadcrumbsLogic'
 import { useMocks } from '~/mocks/jest'
+import { FileSystemEntry } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 
 import { panelLayoutLogic } from '../panelLayoutLogic'
 import { MovedItem, projectTreeDataLogic } from './projectTreeDataLogic'
-import { projectTreeLogic } from './projectTreeLogic'
+import { projectTreeLogic, refreshTreeItem } from './projectTreeLogic'
 
 // pluralize() joins the count to the unit with a non-breaking space, which no reader can see in an assertion.
 const toastText = (message: unknown): string => String(message).replace(/\u00a0/g, ' ')
+
+class FakeFileSystemServer {
+    private heldRefRead: (() => void) | null = null
+    private holdingNextRefRead = false
+
+    constructor(private rows: FileSystemEntry[]) {
+        jest.spyOn(api.fileSystem, 'list').mockImplementation(async (params) => this.list(params ?? {}))
+        jest.spyOn(api.fileSystem, 'move').mockImplementation(async (id: string, newPath: string) => {
+            this.rename(id, newPath)
+            return {} as any
+        })
+        jest.spyOn(api.fileSystem, 'delete').mockImplementation(async (id: string) => {
+            this.rows = this.rows.filter((row) => row.id !== id)
+            return { deleted: [] } as any
+        })
+    }
+
+    rename(id: string, path: string): void {
+        this.rows = this.rows.map((row) => (row.id === id ? { ...row, path } : row))
+    }
+
+    holdNextRefRead(): void {
+        this.holdingNextRefRead = true
+    }
+
+    releaseHeldRefRead(): void {
+        this.heldRefRead?.()
+    }
+
+    private list(params: { ref?: string; parent?: string }): Promise<any> {
+        const results = params.ref
+            ? this.rows.filter((row) => row.ref === params.ref)
+            : params.parent
+              ? this.rows.filter((row) => row.path.startsWith(`${params.parent}/`))
+              : []
+        const response = { count: results.length, users: [], results, has_more: false }
+        if (params.ref && this.holdingNextRefRead) {
+            this.holdingNextRefRead = false
+            return new Promise((resolve) => {
+                this.heldRefRead = () => resolve(response)
+            })
+        }
+        return Promise.resolve(response)
+    }
+}
 
 describe('projectTreeDataLogic', () => {
     let logic: ReturnType<typeof projectTreeDataLogic.build>
@@ -622,6 +669,42 @@ describe('projectTreeDataLogic', () => {
         }).toFinishAllListeners()
 
         expect(error).toHaveBeenCalledWith('Error moving item: Error: nope')
+    })
+
+    it.each([
+        {
+            change: 'deleted',
+            act: (entry: FileSystemEntry): void => logic.actions.deleteItem(entry, 'test'),
+            expectedPaths: [] as string[],
+        },
+        {
+            change: 'moved',
+            act: (entry: FileSystemEntry): void => logic.actions.moveItem(entry, 'Archive/Flow', true, 'test'),
+            expectedPaths: ['Archive/Flow'],
+        },
+    ])('shows a file $change while its save refresh is in flight only where it now is', async (testCase) => {
+        jest.spyOn(lemonToast, 'success').mockReturnValue('' as any)
+        const server = new FakeFileSystemServer([
+            { id: 'file1', ref: 'flow1', type: 'hog_flow', path: 'Reports/Flow' } as FileSystemEntry,
+        ])
+        await expectLogic(logic, () => logic.actions.loadFolder('Reports')).toFinishAllListeners()
+        const shownFile = logic.values.folders['Reports'].find((entry) => entry.id === 'file1') as FileSystemEntry
+
+        server.rename('file1', 'Reports/Flow two')
+        server.holdNextRefRead()
+        refreshTreeItem('hog_flow', 'flow1')
+        testCase.act(shownFile)
+        await waitFor(() =>
+            expect(logic.values.folders['Reports']?.some((entry) => entry.id === 'file1') ?? false).toBe(false)
+        )
+        server.releaseHeldRefRead()
+        await expectLogic(logic).toFinishAllListeners()
+
+        const shownPaths = Object.values(logic.values.folders)
+            .flat()
+            .filter((entry) => entry.id === 'file1')
+            .map((entry) => entry.path)
+        expect(shownPaths).toEqual(testCase.expectedPaths)
     })
 
     it('deleteSavedItem does not crash when the parent folder is not loaded (lazy store)', () => {

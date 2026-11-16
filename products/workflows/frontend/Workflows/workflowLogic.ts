@@ -40,6 +40,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
+import { isTreeItemLoaded, refreshTreeItem } from '~/layout/panel-layout/ProjectTree/projectTreeLogic'
 import { AccessControlLevel, AccessControlResourceType, HogFunctionTemplateType, IntegrationType } from '~/types'
 
 import { integrationsList } from 'products/integrations/frontend/generated/api'
@@ -3606,6 +3607,12 @@ export type workflowLogicType = MakeLogicType<
     workflowLogicMeta
 >
 
+function refreshLoadedTreeWorkflow(id: string | undefined): void {
+    if (id && isTreeItemLoaded('hog_flow', id)) {
+        refreshTreeItem('hog_flow', id)
+    }
+}
+
 function getSaveQueue(
     cache: Record<string, any>,
     values: workflowLogicType['values'],
@@ -4976,6 +4983,7 @@ export const workflowLogic = kea<workflowLogicType>([
             }
         },
         saveWorkflowSuccess: async ({ originalWorkflow }) => {
+            refreshLoadedTreeWorkflow(originalWorkflow.id)
             // What this save was dispatched with. A manual save queued behind an auto-save used to
             // relabel the auto-save here, so the auto-save also ran the manual-only work below: a
             // second toast, and a second schedule write that can leave a duplicate schedule.
