@@ -24,7 +24,7 @@ import { ReleaseRow } from './releaseUtils'
 const NO_OWNER = 'none'
 
 export function ReleaseOwnerPicker({ row }: { row: ReleaseRow }): JSX.Element {
-    const { user } = useValues(releaseLogic)
+    const { user, releasesLoading } = useValues(releaseLogic)
     const { updateRelease } = useActions(releaseLogic)
     const { meFirstMembers } = useValues(membersLogic)
     const { ensureAllMembersLoaded } = useActions(membersLogic)
@@ -33,8 +33,10 @@ export function ReleaseOwnerPicker({ row }: { row: ReleaseRow }): JSX.Element {
     const ownerId = row.owner?.id ?? null
 
     useEffect(() => {
-        setPendingOwnerId(undefined)
-    }, [ownerId])
+        if (!releasesLoading) {
+            setPendingOwnerId(undefined)
+        }
+    }, [ownerId, releasesLoading])
 
     const optionLabels = new Map<string, string>([
         ...meFirstMembers.map((member): [string, string] => [
@@ -99,7 +101,7 @@ export function ReleaseOwnerPicker({ row }: { row: ReleaseRow }): JSX.Element {
                         <span className="truncate">{row.owner.first_name}</span>
                     </>
                 ) : (
-                    'Assign owner'
+                    <span>Assign owner</span>
                 )}
             </ComboboxTrigger>
             <ComboboxContent anchor={triggerRef} align="end" className="w-64">
