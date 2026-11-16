@@ -25,7 +25,10 @@ from posthog.permissions import get_authenticator_scopes
 from posthog.scopes import scopes_not_covered
 
 from products.feature_flags.backend.facade.api import existing_flag_ids
-from products.feature_flags.backend.facade.release_candidates import list_release_import_flags
+from products.feature_flags.backend.facade.release_candidates import (
+    list_release_catalog_flags,
+    list_release_import_flags,
+)
 from products.product_analytics.backend.facade.api import existing_insight_ids, insight_summaries
 from products.surveys.backend.facade.api import existing_survey_ids, survey_summaries
 from products.workflows.backend.facade.api import (
@@ -40,6 +43,8 @@ from ..facade import api, contracts
 from .serializers import (
     BroadcastOptionSerializer,
     BroadcastSearchQuerySerializer,
+    CatalogFlagsQuerySerializer,
+    CatalogFlagsResponseSerializer,
     ImportAllResponseSerializer,
     MergeReleasesSerializer,
     ReleaseSerializer,
@@ -54,7 +59,7 @@ BROADCAST_SEARCH_LIMIT = 50
 class ReleaseViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     scope_object = "feature_flag"
     requires_resource_level_access = True
-    scope_object_read_actions = ["list", "retrieve", "broadcast_search"]
+    scope_object_read_actions = ["list", "retrieve", "broadcast_search", "catalog_flags"]
     scope_object_write_actions = ["create", "update", "partial_update", "destroy", "import_all", "merge"]
     serializer_class = ReleaseSerializer
     pagination_class = FacadeLimitOffsetPagination
@@ -283,6 +288,24 @@ class ReleaseViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             request=request,
         )
         return Response(ReleaseSerializer(dto).data)
+
+    @validated_request(
+        query_serializer=CatalogFlagsQuerySerializer,
+        responses={200: OpenApiResponse(response=CatalogFlagsResponseSerializer)},
+    )
+    @action(detail=False, methods=["get"], pagination_class=None)
+    def catalog_flags(self, request: ValidatedRequest, **kwargs) -> Response:
+        """List the project's feature flags the caller can see, newest first, with only the fields a list shows."""
+        query = request.validated_query_data
+        flags, has_more = list_release_catalog_flags(
+            team_id=self.team_id,
+            project_id=self.team.project_id,
+            access_control=self.user_access_control,
+            search=query.get("search", "").strip(),
+            limit=query["limit"],
+            offset=query["offset"],
+        )
+        return Response(CatalogFlagsResponseSerializer({"results": flags, "has_more": has_more}).data)
 
     @extend_schema(request=None, responses={201: ImportAllResponseSerializer})
     @action(detail=False, methods=["post"], pagination_class=None)

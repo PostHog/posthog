@@ -170,6 +170,7 @@ export const productScenes: Record<string, () => Promise<any>> = {
     Pulse: () => import('../../products/pulse/frontend/PulseScene'),
     ReleaseCalendar: () => import('../../products/release/frontend/ReleaseCalendar'),
     Releases: () => import('../../products/release/frontend/ReleaseList'),
+    ReleaseAll: () => import('../../products/release/frontend/ReleaseAll'),
     Release: () => import('../../products/release/frontend/Release'),
     ReplayVision: () => import('../../products/replay_vision/frontend/replay_scanners/ReplayScannersScene'),
     ReplayVisionScanner: () => import('../../products/replay_vision/frontend/replay_scanners/ReplayScanner'),

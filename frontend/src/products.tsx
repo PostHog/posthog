@@ -300,7 +300,8 @@ export const productRoutes: Record<string, [string, string]> = {
     '/tasks': ['TaskTracker', 'taskTracker'],
     '/tasks/:taskId': ['TaskTracker', 'taskDetail'],
     '/pulse': ['Pulse', 'pulse'],
-    '/releases': ['ReleaseCalendar', 'releases'],
+    '/releases': ['ReleaseAll', 'releases'],
+    '/releases/calendar': ['ReleaseCalendar', 'releaseCalendar'],
     '/releases/list': ['Releases', 'releaseList'],
     '/releases/:id': ['Release', 'release'],
     '/replay-vision': ['ReplayVision', 'replayVision'],
@@ -1188,6 +1189,7 @@ export const productConfiguration: Record<string, any> = {
         description: 'One row for each release, with its flags, experiments and early access.',
     },
     Releases: { name: 'Releases', projectBased: true },
+    ReleaseAll: { name: 'View all', projectBased: true },
     Release: { name: 'Release', projectBased: true },
     ReplayVision: {
         name: 'Replay vision',
@@ -1950,6 +1952,7 @@ export const productUrls = {
     productTour: (id: string): string => `/product_tours/${id}`,
     pulse: (): string => '/pulse',
     releases: (): string => '/releases',
+    releaseCalendar: (): string => '/releases/calendar',
     releaseList: (): string => '/releases/list',
     release: (id: string): string => `/releases/${id}`,
     replay: (

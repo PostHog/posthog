@@ -401,6 +401,38 @@ class TestReleaseAPI(APIBaseTest):
         assert response.status_code == expected, response.json()
         assert Release.objects.unscoped().filter(team=self.team).count() == 2
 
+    def test_catalog_flags_lists_visible_flags_newest_first_with_search_and_paging(self) -> None:
+        older = self._flag("checkout-copy")
+        newer = self._flag("checkout-button")
+        self._flag("pricing-page")
+        archived = self._flag("checkout-archived")
+        self.client.patch(
+            f"/api/projects/{self.team.id}/feature_flags/{archived}/",
+            {"archived": True, "active": False},
+            format="json",
+        )
+        deleted = self._flag("checkout-deleted")
+        self.client.patch(f"/api/projects/{self.team.id}/feature_flags/{deleted}/", {"deleted": True}, format="json")
+
+        first = self.client.get(self._url("catalog_flags/"), {"search": "checkout", "limit": 1}).json()
+        second = self.client.get(self._url("catalog_flags/"), {"search": "checkout", "limit": 1, "offset": 1}).json()
+
+        assert [flag["id"] for flag in first["results"]] == [newer]
+        assert first["has_more"] is True
+        assert [flag["id"] for flag in second["results"]] == [older]
+        assert second["has_more"] is False
+
+    def test_catalog_flags_hides_flags_the_caller_cannot_see(self) -> None:
+        visible = self._flag("checkout-visible")
+        hidden = self._flag("checkout-hidden")
+        self._restrict_as_admin(f"feature_flags/{hidden}")
+        self.client.force_login(self._create_user("member@example.com"))
+
+        response = self.client.get(self._url("catalog_flags/"))
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert [flag["id"] for flag in response.json()["results"]] == [visible]
+
     def test_update_of_a_missing_release_returns_404(self) -> None:
         response = self.client.patch(
             self._url("00000000-0000-0000-0000-000000000000/"), {"name": "Renamed"}, format="json"
