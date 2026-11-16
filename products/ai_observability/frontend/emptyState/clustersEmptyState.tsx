@@ -6,16 +6,14 @@ import type { SceneProductEmptyState } from 'lib/components/ProductEmptyState/ty
 
 import { ProductKey } from '~/queries/schema/schema-general'
 
-import { ClustersEnableButton } from '../clusters/ClustersEnableButton'
+import { ClustersSetupActions } from '../clusters/ClustersSetupActions'
 import { ClustersPreview } from './ClustersPreview'
 import { clustersSetupLogic } from './clustersSetupLogic'
-import { ClustersWaitingState } from './ClustersWaitingState'
 
 const HedgehogScientist = pngHoggie(scientistPng)
 
 export const clustersEmptyState: SceneProductEmptyState = {
     statusLogic: clustersSetupLogic,
-    components: { 'waiting-for-data': ClustersWaitingState },
     config: {
         productKey: ProductKey.LLM_CLUSTERS,
         productName: 'Clusters',
@@ -30,14 +28,14 @@ export const clustersEmptyState: SceneProductEmptyState = {
                 lead: 'Group similar traces, generations, and evaluations to see what people ask for and where things go wrong.',
             },
             'waiting-for-data': {
-                headline: 'Waiting for the first clustering run',
-                lead: 'Keep sending traces, generations, or evaluations. You can review which data your jobs include while you wait.',
+                headline: 'Clustering is enabled',
+                lead: 'Your scheduled jobs will look for groups as new data arrives. Each job needs at least 10 eligible items. Review your jobs and their filters while you wait.',
             },
         },
-        PrimaryAction: ClustersEnableButton,
+        PrimaryAction: ClustersSetupActions,
         docsUrl: 'https://posthog.com/docs/ai-observability/clusters',
         manualSetupUrl: 'https://posthog.com/docs/ai-observability/installation',
-        previewLabel: 'Clusters, once your traces are grouped',
+        previewLabel: 'Example: conversations grouped by topic',
         Preview: ClustersPreview,
     },
 }

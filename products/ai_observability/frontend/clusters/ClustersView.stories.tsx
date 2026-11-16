@@ -54,7 +54,6 @@ const meta: Meta<typeof ClustersView> = {
         mswDecorator({
             get: {
                 '/api/environments/:team_id/llm_analytics/clustering_config/': config,
-                '/api/environments/:team_id/llm_analytics/clustering_config/progress/': [],
                 '/api/environments/:team_id/llm_analytics/clustering_jobs/': { results: [] },
             },
             post: {

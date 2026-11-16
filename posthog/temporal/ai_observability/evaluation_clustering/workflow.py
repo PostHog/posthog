@@ -1,6 +1,5 @@
 """Per-job workflows for evaluation clustering (Stage A sampler + Stage B clustering stub)."""
 
-from dataclasses import replace
 from datetime import datetime, timedelta
 
 import structlog
@@ -33,7 +32,7 @@ from posthog.temporal.ai_observability.trace_clustering.metrics import (
 )
 from posthog.temporal.common.base import PostHogWorkflow
 
-from products.ai_observability.backend.temporal.clustering_execution import clustering_execution
+from products.ai_observability.backend.logic.clustering.scope import scope_key
 
 logger = structlog.get_logger(__name__)
 
@@ -72,16 +71,6 @@ class AIObservabilityEvaluationSamplerWorkflow(PostHogWorkflow):
 
     @workflow.run
     async def run(self, inputs: SamplerWorkflowInputs) -> SamplerWorkflowResult:
-        async with clustering_execution(
-            inputs.team_id, inputs.job_id, "evaluation", inputs.event_filters, inputs.execution_id
-        ) as execution_id:
-            if execution_id is None:
-                return SamplerWorkflowResult(
-                    team_id=inputs.team_id, job_id=inputs.job_id, sampled=0, embedded=0, window_start="", window_end=""
-                )
-            return await self._run(replace(inputs, execution_id=execution_id))
-
-    async def _run(self, inputs: SamplerWorkflowInputs) -> SamplerWorkflowResult:
         if inputs.window_start and inputs.window_end:
             window_start = inputs.window_start
             window_end = inputs.window_end
@@ -101,7 +90,7 @@ class AIObservabilityEvaluationSamplerWorkflow(PostHogWorkflow):
                 window_end=window_end,
                 max_samples=max_samples,
                 event_filters=inputs.event_filters,
-                execution_id=inputs.execution_id,
+                job_scope=scope_key("evaluation", inputs.event_filters) if inputs.job_id else "",
             ),
             start_to_close_timeout=SAMPLER_ACTIVITY_TIMEOUT,
             schedule_to_close_timeout=SAMPLER_ACTIVITY_SCHEDULE_TO_CLOSE,
@@ -148,16 +137,6 @@ class AIObservabilityEvaluationClusteringWorkflow(PostHogWorkflow):
 
     @workflow.run
     async def run(self, inputs: SamplerWorkflowInputs) -> SamplerWorkflowResult:
-        async with clustering_execution(
-            inputs.team_id, inputs.job_id, "evaluation", inputs.event_filters, inputs.execution_id
-        ) as execution_id:
-            if execution_id is None:
-                return SamplerWorkflowResult(
-                    team_id=inputs.team_id, job_id=inputs.job_id, sampled=0, embedded=0, window_start="", window_end=""
-                )
-            return await self._run(replace(inputs, execution_id=execution_id))
-
-    async def _run(self, inputs: SamplerWorkflowInputs) -> SamplerWorkflowResult:
         # Lazy imports inside the workflow keep numpy / sklearn / umap / langgraph
         # off the workflow-side import graph (Temporal doesn't like heavy I/O
         # libs reaching workflow code).
@@ -210,7 +189,7 @@ class AIObservabilityEvaluationClusteringWorkflow(PostHogWorkflow):
                 job_id=inputs.job_id,
                 job_name=inputs.job_name,
                 max_samples=inputs.max_samples if inputs.max_samples is not None else CLUSTERING_MAX_SAMPLES,
-                execution_id=inputs.execution_id,
+                job_scope=scope_key("evaluation", inputs.event_filters) if inputs.job_id else "",
                 window_start=window_start,
                 window_end=window_end,
             ),
@@ -272,7 +251,7 @@ class AIObservabilityEvaluationClusteringWorkflow(PostHogWorkflow):
                 session_id=f"{trace_id}:session",
                 clustering_run_id=compute_result.clustering_run_id,
                 clustering_job_id=inputs.job_id,
-                execution_id=inputs.execution_id,
+                job_scope=scope_key("evaluation", inputs.event_filters) if inputs.job_id else "",
             ),
             start_to_close_timeout=LLM_ACTIVITY_TIMEOUT,
             schedule_to_close_timeout=LLM_SCHEDULE_TO_CLOSE_TIMEOUT,
@@ -320,7 +299,7 @@ class AIObservabilityEvaluationClusteringWorkflow(PostHogWorkflow):
                 eval_metadata=metadata_result.metadata,
                 job_id=inputs.job_id,
                 job_name=inputs.job_name,
-                execution_id=inputs.execution_id,
+                job_scope=scope_key("evaluation", inputs.event_filters) if inputs.job_id else "",
                 cluster_metrics=cluster_metrics,
             ),
             start_to_close_timeout=EMIT_ACTIVITY_TIMEOUT,
@@ -338,5 +317,4 @@ class AIObservabilityEvaluationClusteringWorkflow(PostHogWorkflow):
             embedded=emit_result.metrics.num_clusters,
             window_start=window_start,
             window_end=window_end,
-            clustering_run_id=emit_result.clustering_run_id,
         )

@@ -322,15 +322,15 @@ The coordinator workflow (`llma-trace-clustering-coordinator`) runs on a schedul
 
 Clustering eligibility comes from `ClusteringConfig.enabled` and organization AI data processing consent.
 The `llm-analytics-clustering-workflows` feature flag (distinct ID `internal_llma_team_discovery`)
-retains `skip_team_ids` as an operational exclusion for scheduled and first runs, and
+retains `skip_team_ids` as an operational exclusion for scheduled runs, and
 `discovery_lookback_days` for coordinators without an explicit window. Legacy guaranteed-team
 and random-sampling settings no longer enable projects. Discovery failures stop dispatch rather
 than falling back to an allowlist.
 
-Scheduled and first runs atomically claim the same job before processing. They require at least
-10 items; first runs cap both preparation and clustering at 100 items. First-run polling stops
-after 24 hours and leaves the job enabled for scheduled runs. Embedding reads require the job's
-current filter and analysis-level scope, and paid work and emission recheck the active claim.
+Scheduled runs require at least 10 prepared items. Enabling clustering saves the setting without
+starting an immediate run. Existing schedules retain their overlap policies. Embedding reads
+require the job's current filter and analysis-level scope. Paid work and emission recheck project
+eligibility and whether the job is still enabled with the same scope.
 
 ## Configuration
 

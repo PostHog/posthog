@@ -23,7 +23,6 @@ describe('ClustersView', () => {
         useMocks({
             get: {
                 '/api/projects/:teamId/llm_analytics/clustering_config/': () => config,
-                '/api/projects/:teamId/llm_analytics/clustering_config/progress/': [],
             },
             post: {
                 '/api/projects/:teamId/llm_analytics/clustering_config/set_enabled/': async ({ request }) => {
@@ -50,7 +49,7 @@ describe('ClustersView', () => {
             fireEvent.click(toggle)
             await waitFor(() => expect(config.enabled).toBe(false))
             expect(
-                await screen.findByText('Clustering is off. Enable it to start new runs for this project.')
+                await screen.findByText('Clustering is off. Enable it to include this project in scheduled runs.')
             ).toBeVisible()
             const disabledToggle = screen.getByLabelText('Clustering disabled')
             expect(disabledToggle).not.toBeChecked()
@@ -78,7 +77,6 @@ describe('cluster setup and jobs', () => {
         useMocks({
             get: {
                 '/api/projects/:teamId/llm_analytics/clustering_config/': () => config,
-                '/api/projects/:teamId/llm_analytics/clustering_config/progress/': [],
                 '/api/projects/:teamId/llm_analytics/clustering_jobs/': {
                     results: [{ id: 1, name: 'All traces', analysis_level: 'trace', event_filters: [], enabled: true }],
                 },
@@ -126,6 +124,9 @@ describe('cluster setup and jobs', () => {
         'keeps existing jobs and job creation reachable from the %s',
         async (page) => {
             config.enabled = true
+            await expectLogic(clusteringConfigLogic, () =>
+                clusteringConfigLogic.actions.loadConfig()
+            ).toFinishAllListeners()
             render(
                 page === 'cluster list' ? (
                     <ClustersView />

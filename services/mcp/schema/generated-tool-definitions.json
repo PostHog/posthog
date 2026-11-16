@@ -9541,7 +9541,7 @@
         }
     },
     "llma-clustering-config-set-enabled": {
-        "description": "Enable or disable automated clustering for the current project. Enabling requires organization AI data processing consent and queues first runs for enabled jobs. Disabling stops active work and future runs.",
+        "description": "Enable or disable automated clustering for the current project. Enabling requires organization AI data processing consent. Enabled jobs run on the existing schedule. Disabling prevents future processing and keeps historical results.",
         "category": "AI observability",
         "feature": "llm_analytics",
         "summary": "Enable or disable clustering",
@@ -9630,21 +9630,6 @@
             "readOnlyHint": true
         }
     },
-    "llma-clustering-job-retry": {
-        "description": "Start or retry an enabled clustering job by job_id. The project must have clustering enabled and AI data processing consent. Active jobs are left running. A project may start up to 10 first runs per hour.",
-        "category": "AI observability",
-        "feature": "llm_analytics",
-        "summary": "Retry a clustering job",
-        "title": "Retry a clustering job",
-        "required_scopes": ["ai_observability_clusters:write"],
-        "api_operations": ["POST /api/projects/{project_id}/llm_analytics/clustering_config/retry/"],
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": false,
-            "openWorldHint": true,
-            "readOnlyHint": false
-        }
-    },
     "llma-clustering-job-update": {
         "description": "Partially update a scheduled AI observability clustering job. Use this to rename a job, switch enabled status, adjust event_filters, or change the analysis level (trace, generation, or evaluation).",
         "category": "AI observability",
@@ -9658,21 +9643,6 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": false
-        }
-    },
-    "llma-clustering-progress-get": {
-        "description": "Read each enabled job's first-run status, eligible and prepared item counts, and failure reason. First runs require 10 items and check every 30 minutes for 24 hours before handing off to scheduled runs.",
-        "category": "AI observability",
-        "feature": "llm_analytics",
-        "summary": "Get clustering progress",
-        "title": "Get clustering progress",
-        "required_scopes": ["ai_observability_clusters:read"],
-        "api_operations": ["GET /api/projects/{project_id}/llm_analytics/clustering_config/progress/"],
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": true
         }
     },
     "llma-dataset-archive": {

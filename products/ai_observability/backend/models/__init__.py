@@ -1,6 +1,5 @@
 from .clustering_config import ClusteringConfig
 from .clustering_job import ClusteringJob
-from .clustering_run import ClusteringRun
 from .datasets import Dataset, DatasetItem, DatasetItemVersion, DatasetRevision
 from .eval_suggestions import EvalSuggestion, EvalSuggestionRun, EvalSuggestionTeamState
 from .evaluation_backfill import EvaluationBackfill
@@ -31,7 +30,6 @@ __all__ = [
     "AIObservabilityChecklistItemState",
     "ClusteringConfig",
     "ClusteringJob",
-    "ClusteringRun",
     "EvalSuggestion",
     "EvalSuggestionRun",
     "EvalSuggestionTeamState",

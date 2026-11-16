@@ -58,7 +58,7 @@ from posthog.temporal.ai_observability.trace_clustering.models import (
 from posthog.temporal.common.heartbeat import Heartbeater
 
 from products.ai_observability.backend.logic.clustering.constants import EVALUATION_LOOKBACK_DAYS
-from products.ai_observability.backend.temporal.clustering_execution import require_current_execution
+from products.ai_observability.backend.temporal.clustering_execution import require_current_job
 
 logger = structlog.get_logger(__name__)
 
@@ -72,7 +72,7 @@ class EvaluationClusteringComputeInputs:
     job_id: str
     job_name: str
     max_samples: int = CLUSTERING_MAX_SAMPLES
-    execution_id: str = ""
+    job_scope: str = ""
     embedding_normalization: str = "l2"
     dimensionality_reduction_method: str = "umap"
     dimensionality_reduction_ndims: int = trace_constants.DEFAULT_UMAP_N_COMPONENTS
@@ -136,7 +136,7 @@ class GenerateEvaluationLabelsInputs:
     session_id: str = ""
     clustering_run_id: str = ""
     clustering_job_id: str = ""
-    execution_id: str = ""
+    job_scope: str = ""
 
     @property
     def properties_to_log(self) -> dict[str, Any]:
@@ -178,7 +178,7 @@ class EmitEvaluationClusterEventsInputs:
     clustering_params: ClusteringParams | None = None
     job_id: str = ""
     job_name: str = ""
-    execution_id: str = ""
+    job_scope: str = ""
     cluster_metrics: dict[int, ClusterAggregateMetrics] = field(default_factory=dict)
 
 
@@ -262,7 +262,7 @@ def _compute_sync(inputs: EvaluationClusteringComputeInputs) -> EvaluationCluste
     embeddings_window_end = window_end_dt
     embeddings_window_start = window_start_dt
 
-    job_scope = require_current_execution(inputs.team_id, inputs.execution_id)
+    job_scope = require_current_job(inputs.team_id, inputs.job_id, inputs.job_scope)
     eval_ids, embeddings_map = fetch_evaluation_embeddings(
         team=team,
         job_id=inputs.job_id,
@@ -379,7 +379,7 @@ async def fetch_evaluation_metadata_activity(
 
 
 def _label_sync(inputs: GenerateEvaluationLabelsInputs) -> GenerateEvaluationLabelsOutputs:
-    require_current_execution(inputs.team_id, inputs.execution_id)
+    require_current_job(inputs.team_id, inputs.clustering_job_id, inputs.job_scope)
     items = _items_from_eval_ids(inputs.eval_ids, inputs.eval_metadata)
     labels = generate_evaluation_cluster_labels(
         team_id=inputs.team_id,
@@ -423,7 +423,7 @@ async def compute_evaluation_cluster_aggregates_activity(
 
 
 def _emit_sync(inputs: EmitEvaluationClusterEventsInputs) -> ClusteringResult:
-    require_current_execution(inputs.team_id, inputs.execution_id)
+    require_current_job(inputs.team_id, inputs.job_id, inputs.job_scope)
     # Build cluster items using the metadata join so each member carries the
     # real target_trace_id — without this, frontend navigation fall-backs
     # (scatter plot clicks, list-item links before the summary resolves) would

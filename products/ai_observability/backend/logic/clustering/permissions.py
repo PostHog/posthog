@@ -27,7 +27,7 @@ def can_access_clustering_filters(team_id: int, user: User, filters: list[dict[s
     context = HogQLContext(
         team_id=team_id,
         restricted_properties=restrictions,
-        # Queued runs can execute after the project moves to native JSON.
+        # Saved filters must remain safe when the project moves to native JSON.
         use_new_events_schema=True,
     )
     property_tables = {

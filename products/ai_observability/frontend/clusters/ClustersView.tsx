@@ -15,7 +15,6 @@ import { clusteringConfigLogic } from './clusteringConfigLogic'
 import { ClusteringEnabledSwitch } from './ClusteringEnabledSwitch'
 import { ClusteringJobsButton } from './ClusteringJobsButton'
 import { clusteringJobsLogic } from './clusteringJobsLogic'
-import { ClusteringProgress } from './ClusteringProgress'
 import { ClusterScatterPlot } from './ClusterScatterPlot'
 import { clustersLogic } from './clustersLogic'
 import { ClustersTable } from './ClustersTable'
@@ -51,9 +50,10 @@ export function ClustersView(): JSX.Element {
     return (
         <div className="space-y-4 @container">
             {!configLoading && !config.enabled && (
-                <LemonBanner type="info">Clustering is off. Enable it to start new runs for this project.</LemonBanner>
+                <LemonBanner type="info">
+                    Clustering is off. Enable it to include this project in scheduled runs.
+                </LemonBanner>
             )}
-            <ClusteringProgress compact />
             <div className="flex items-center justify-between gap-2 flex-wrap">
                 <div className="flex items-center gap-2 flex-wrap">
                     <LemonSegmentedButton
@@ -177,7 +177,7 @@ export function ClustersView(): JSX.Element {
                         : currentRun
                           ? 'No clusters match the current filters.'
                           : config.enabled
-                            ? 'No clustering runs yet. Results will appear here after the first automatic run.'
+                            ? 'No clustering runs yet. Scheduled analysis needs at least 10 eligible items. Check your jobs and their filters to see what’s included.'
                             : 'No clustering runs yet. Enable clustering to start finding patterns in your data.'}
                 </div>
             )}

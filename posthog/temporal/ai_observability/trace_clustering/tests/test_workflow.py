@@ -348,7 +348,7 @@ class TestLabelingWorkflowWiring:
             patch("posthog.temporal.ai_observability.trace_clustering.workflow.record_noise_points"),
             patch("posthog.temporal.ai_observability.trace_clustering.workflow.record_clusters_generated"),
         ):
-            await DailyTraceClusteringWorkflow()._run(
+            await DailyTraceClusteringWorkflow().run(
                 ClusteringWorkflowInputs(team_id=1, job_id="job-1", job_name="Job 1")
             )
 

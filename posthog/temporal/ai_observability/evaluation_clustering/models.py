@@ -22,7 +22,7 @@ class SamplerActivityInputs:
     window_end: str  # ISO
     max_samples: int
     event_filters: list[dict[str, Any]] = field(default_factory=list)
-    execution_id: str = ""
+    job_scope: str = ""
 
 
 @dataclass
@@ -35,7 +35,7 @@ class SamplerActivityResult:
     embedded: int  # we enqueue one Kafka message per sampled row, this is the count produced
 
 
-@frozen
+@dataclass
 class SamplerWorkflowInputs:
     """Inputs for the per-job sampler child workflow."""
 
@@ -48,14 +48,13 @@ class SamplerWorkflowInputs:
     # Mostly useful for tests and for manual replays.
     window_start: str | None = None
     window_end: str | None = None
-    execution_id: str = ""
 
     @property
     def properties_to_log(self) -> dict[str, Any]:
         return {"team_id": self.team_id, "job_id": self.job_id, "job_name": self.job_name}
 
 
-@frozen
+@dataclass
 class SamplerWorkflowResult:
     """Result from a single per-job sampler workflow run."""
 
@@ -65,7 +64,6 @@ class SamplerWorkflowResult:
     embedded: int
     window_start: str
     window_end: str
-    clustering_run_id: str = ""
 
 
 @dataclass

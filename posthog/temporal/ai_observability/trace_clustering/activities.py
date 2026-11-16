@@ -52,7 +52,7 @@ from posthog.temporal.ai_observability.trace_clustering.models import (
 from posthog.temporal.common.errors import NonReportableApplicationError
 from posthog.temporal.common.heartbeat import Heartbeater
 
-from products.ai_observability.backend.temporal.clustering_execution import require_current_execution
+from products.ai_observability.backend.temporal.clustering_execution import require_current_job
 
 logger = structlog.get_logger(__name__)
 
@@ -97,7 +97,7 @@ def _perform_clustering_compute(inputs: ClusteringActivityInputs) -> ClusteringC
             analysis_level=inputs.analysis_level,
         )
 
-    job_scope = require_current_execution(inputs.team_id, inputs.execution_id)
+    job_scope = require_current_job(inputs.team_id, inputs.job_id, inputs.job_scope)
     item_ids, embeddings_map, batch_run_ids_map = fetch_item_embeddings_for_clustering(
         team=team,
         window_start=window_start,
@@ -343,7 +343,7 @@ async def perform_clustering_compute_activity(inputs: ClusteringActivityInputs) 
 
 
 def _generate_cluster_labels(inputs: GenerateLabelsActivityInputs) -> GenerateLabelsActivityOutputs:
-    require_current_execution(inputs.team_id, inputs.execution_id)
+    require_current_job(inputs.team_id, inputs.clustering_job_id, inputs.job_scope)
     """LLM labeling implementation called by the activity.
 
     Uses a LangGraph agent that can iteratively explore cluster structure
@@ -392,7 +392,7 @@ async def generate_cluster_labels_activity(inputs: GenerateLabelsActivityInputs)
 
 
 def _emit_cluster_events(inputs: EmitEventsActivityInputs) -> ClusteringResult:
-    require_current_execution(inputs.team_id, inputs.execution_id)
+    require_current_job(inputs.team_id, inputs.job_id, inputs.job_scope)
     """Event emission implementation called by the activity."""
     clusters = emit_cluster_events(
         team_id=inputs.team_id,

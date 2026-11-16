@@ -4,7 +4,6 @@ from datetime import date, datetime, timedelta
 from functools import partial
 from itertools import batched
 from typing import IO, Any, Final
-from uuid import UUID
 
 from django.utils.timezone import now
 
@@ -119,14 +118,6 @@ from ..logic.traces.tree import TreeNode
 from ..logic.traces.usage import Usage
 from ..temporal.trace_summary_client import start_trace_summary
 from . import contracts
-from .clustering_contracts import (
-    ClusteringExecutionClaim,
-    ClusteringExecutionRequest,
-    ClusteringJobProgress,
-    ClusteringRunContext,
-    ClusteringRunRef,
-    ClusteringRunUpdate,
-)
 
 
 class TraceNotFoundError(Exception):
@@ -935,78 +926,22 @@ def create_parser_recipe(team: Team, user: User, name: str, source: str) -> str:
     return save_team_recipe(team.pk, user, name=name, source=source)
 
 
-def request_first_clustering_runs(
-    team_id: int, user: User, retry_job_id: UUID | None = None, *, job_id: UUID | None = None
-) -> None:
-    from ..logic.clustering.runs import request_first_runs
-
-    request_first_runs(team_id, user, retry_job_id, job_id=job_id)
-
-
-def clustering_job_progress(team_id: int, user: User) -> list[ClusteringJobProgress]:
-    from ..logic.clustering.run_queries import load_job_progress
-
-    return load_job_progress(team_id, user)
-
-
-def cancel_clustering_job_runs(team_id: int, job_id: UUID | None = None) -> None:
-    from ..logic.clustering.execution import cancel_runs
-
-    cancel_runs(team_id, job_id)
-
-
 def eligible_clustering_team_ids(team_ids: list[int] | None = None) -> set[int]:
     from ..logic.clustering.eligibility import eligible_clustering_team_ids as eligible
 
     return eligible(team_ids)
 
 
-def acquire_clustering_execution(request: ClusteringExecutionRequest) -> ClusteringExecutionClaim | None:
-    from ..logic.clustering.execution import acquire_execution
+def is_current_clustering_job(team_id: int, job_id: str, job_scope: str) -> bool:
+    from ..logic.clustering.execution import is_current_job
 
-    return acquire_execution(request)
-
-
-def clustering_execution_scope(ref: ClusteringRunRef) -> str | None:
-    from ..logic.clustering.execution import execution_scope
-
-    return execution_scope(ref)
+    return is_current_job(team_id, job_id, job_scope)
 
 
 def validate_clustering_filters(team_id: int, user: User, filters: list[dict[str, Any]]) -> None:
     from ..logic.clustering.permissions import validate_clustering_filters as validate
 
     validate(team_id, user, filters)
-
-
-def clustering_run_context(ref: ClusteringRunRef) -> ClusteringRunContext | None:
-    from ..logic.clustering.runs import get_run_context
-
-    return get_run_context(ref)
-
-
-def update_clustering_run(update: ClusteringRunUpdate) -> None:
-    from ..logic.clustering.runs import update_run
-
-    update_run(update)
-
-
-def clustering_ready_items(team_id: int, context: ClusteringRunContext, start: datetime, end: datetime) -> int:
-    from ..logic.clustering.run_queries import count_ready_items
-
-    return count_ready_items(team_id, context, start, end)
-
-
-def clustering_eligible_evaluations(team_id: int, context: ClusteringRunContext, start: datetime, end: datetime) -> int:
-    from ..logic.clustering.run_queries import count_eligible_evaluations
-
-    return count_eligible_evaluations(team_id, context, start, end)
-
-
-def clustering_trace_candidates(team_id: int, context: ClusteringRunContext, start: datetime, end: datetime) -> int:
-    from ..logic.clustering.run_queries import count_trace_candidates
-
-    return count_trace_candidates(team_id, context, start, end)
 
 
 def plan_eval_suggestions() -> contracts.EvalSuggestionsPlan:

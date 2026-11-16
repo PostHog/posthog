@@ -7,14 +7,21 @@ import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { clusteringConfigLogic } from './clusteringConfigLogic'
+import { ClusteringEnabledSwitch } from './ClusteringEnabledSwitch'
+import { ClusteringJobsButton } from './ClusteringJobsButton'
 
-export function ClustersEnableButton(): JSX.Element | null {
+export function ClustersSetupActions(): JSX.Element {
     const { config, configLoading, dataProcessingAccepted, dataProcessingApprovalDisabledReason } =
         useValues(clusteringConfigLogic)
     const { setEnabled } = useActions(clusteringConfigLogic)
 
     if (config.enabled) {
-        return null
+        return (
+            <div className="flex items-center gap-4 flex-wrap">
+                <ClusteringJobsButton />
+                <ClusteringEnabledSwitch />
+            </div>
+        )
     }
     return (
         <AccessControlAction

@@ -85,15 +85,10 @@ async def fetch_all_clustering_jobs_activity(
 
     def _fetch_jobs() -> dict[int, list[JobConfig]]:
         from products.ai_observability.backend.models.clustering_job import ClusteringJob
-        from products.ai_observability.backend.models.clustering_run import ACTIVE_CLUSTERING_RUN_STATUSES
 
-        jobs = (
-            ClusteringJob.objects.filter(
-                team_id__in=inputs.team_ids, enabled=True, team__clustering_config__enabled=True
-            )
-            .exclude(first_runs__status__in=ACTIVE_CLUSTERING_RUN_STATUSES)
-            .order_by("created_at")
-        )
+        jobs = ClusteringJob.objects.filter(
+            team_id__in=inputs.team_ids, enabled=True, team__clustering_config__enabled=True
+        ).order_by("created_at")
         result: dict[int, list[JobConfig]] = {}
         for job in jobs:
             result.setdefault(job.team_id, []).append(

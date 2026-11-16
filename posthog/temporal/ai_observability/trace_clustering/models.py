@@ -25,7 +25,7 @@ class ClusterItem:
     generation_id: str | None = None  # Only set for generation-level clustering
 
 
-@frozen
+@dataclass
 class ClusteringWorkflowInputs:
     """Input parameters for the daily trace clustering workflow.
 
@@ -53,7 +53,6 @@ class ClusteringWorkflowInputs:
     event_filters: list[dict[str, Any]] = field(default_factory=list)
     job_id: str = ""  # empty = no job (legacy/manual run without a job)
     job_name: str = ""
-    execution_id: str = ""
 
     @property
     def properties_to_log(self) -> dict[str, Any]:
@@ -84,7 +83,7 @@ class ClusteringActivityInputs:
     # Optional property filters to scope which traces are included in clustering
     event_filters: list[dict[str, Any]] = field(default_factory=list)
     job_id: str = ""
-    execution_id: str = ""
+    job_scope: str = ""
     job_name: str = ""
 
     @property
@@ -278,7 +277,7 @@ class GenerateLabelsActivityInputs:
     session_id: str = ""
     clustering_run_id: str = ""
     clustering_job_id: str = ""
-    execution_id: str = ""
+    job_scope: str = ""
 
     @property
     def properties_to_log(self) -> dict[str, Any]:
@@ -331,7 +330,7 @@ class EmitEventsActivityInputs:
     batch_run_ids: dict[str, str] = field(default_factory=dict)  # item_id -> batch_run_id for linking to summaries
     clustering_params: ClusteringParams | None = None  # Params used for this run
     job_id: str = ""  # empty = no job (legacy/manual run without a job)
-    execution_id: str = ""
+    job_scope: str = ""
     job_name: str = ""
     cluster_metrics: dict[int, ClusterAggregateMetrics] = field(default_factory=dict)
 

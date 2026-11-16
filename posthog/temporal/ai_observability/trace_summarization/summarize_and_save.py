@@ -194,7 +194,7 @@ def _format_summary_for_embedding(summary_result: SummarizationResponse) -> str:
 @temporalio.activity.defn
 async def summarize_and_save_activity(input: SummarizeAndSaveInput) -> SummarizationActivityResult:
     """Read text_repr from Redis, call LLM, save event, embed, and clean up."""
-    from products.ai_observability.backend.temporal.clustering_execution import require_current_execution
+    from products.ai_observability.backend.temporal.clustering_execution import require_current_job
 
     is_generation = input.generation_id is not None
     log = logger.bind(
@@ -215,7 +215,7 @@ async def summarize_and_save_activity(input: SummarizeAndSaveInput) -> Summariza
         model_enum = OpenAIModel(input.model) if input.model else None
 
         t0 = time.monotonic()
-        job_scope = await on_asyncify_pool(require_current_execution)(input.team_id, input.execution_id)
+        job_scope = await on_asyncify_pool(require_current_job)(input.team_id, input.job_id, input.job_scope)
         summary_result = await on_asyncify_pool(summarize)(
             text_repr=text_repr,
             team_id=input.team_id,
@@ -237,7 +237,7 @@ async def summarize_and_save_activity(input: SummarizeAndSaveInput) -> Summariza
         )
 
         # Step 3: Save event to ClickHouse
-        await on_asyncify_pool(require_current_execution)(input.team_id, input.execution_id)
+        await on_asyncify_pool(require_current_job)(input.team_id, input.job_id, input.job_scope)
         team = await on_asyncify_pool(Team.objects.get)(id=input.team_id)
         t0 = time.monotonic()
         save_ctx = SaveSummaryEventContext(

@@ -1,7 +1,6 @@
 """Daily trace clustering workflow."""
 
 import json
-from dataclasses import replace
 from datetime import timedelta
 
 import structlog
@@ -54,7 +53,7 @@ from posthog.temporal.ai_observability.trace_clustering.models import (
 )
 from posthog.temporal.common.base import PostHogWorkflow
 
-from products.ai_observability.backend.temporal.clustering_execution import clustering_execution
+from products.ai_observability.backend.logic.clustering.scope import scope_key
 
 logger = structlog.get_logger(__name__)
 
@@ -156,22 +155,6 @@ class DailyTraceClusteringWorkflow(PostHogWorkflow):
 
     @workflow.run
     async def run(self, inputs: ClusteringWorkflowInputs) -> ClusteringResult:
-        async with clustering_execution(
-            inputs.team_id, inputs.job_id, inputs.analysis_level, inputs.event_filters, inputs.execution_id
-        ) as execution_id:
-            if execution_id is None:
-                return ClusteringResult(
-                    clustering_run_id="",
-                    team_id=inputs.team_id,
-                    timestamp=workflow.now().isoformat(),
-                    window_start="",
-                    window_end="",
-                    clusters=[],
-                    metrics=ClusteringMetrics(total_items_analyzed=0, num_clusters=0, duration_seconds=0.0),
-                )
-            return await self._run(replace(inputs, execution_id=execution_id))
-
-    async def _run(self, inputs: ClusteringWorkflowInputs) -> ClusteringResult:
         """
         Execute the daily trace clustering workflow.
 
@@ -210,7 +193,7 @@ class DailyTraceClusteringWorkflow(PostHogWorkflow):
                     event_filters=inputs.event_filters,
                     job_id=inputs.job_id,
                     job_name=inputs.job_name,
-                    execution_id=inputs.execution_id,
+                    job_scope=scope_key(inputs.analysis_level, inputs.event_filters) if inputs.job_id else "",
                 )
             ],
             start_to_close_timeout=COMPUTE_ACTIVITY_TIMEOUT,
@@ -261,7 +244,7 @@ class DailyTraceClusteringWorkflow(PostHogWorkflow):
                     session_id=f"{trace_id}:session",
                     clustering_run_id=compute_result.clustering_run_id,
                     clustering_job_id=inputs.job_id,
-                    execution_id=inputs.execution_id,
+                    job_scope=scope_key(inputs.analysis_level, inputs.event_filters) if inputs.job_id else "",
                 )
             ],
             start_to_close_timeout=LLM_ACTIVITY_TIMEOUT,
@@ -324,7 +307,7 @@ class DailyTraceClusteringWorkflow(PostHogWorkflow):
                     ),
                     job_id=inputs.job_id,
                     job_name=inputs.job_name,
-                    execution_id=inputs.execution_id,
+                    job_scope=scope_key(inputs.analysis_level, inputs.event_filters) if inputs.job_id else "",
                     cluster_metrics=cluster_metrics,
                 )
             ],

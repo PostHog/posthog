@@ -140,17 +140,13 @@ See [AI data processing consent](#ai-data-processing-consent).
 
 The coordinator runs hourly via Temporal schedule (configured in `schedule.py`). Verify at http://localhost:8233 → schedule: `llma-trace-summarization-coordinator-schedule`.
 
-### First run after enabling clustering
+### Opt-in and scheduled processing
 
-Clustering is opt-in. Enabling it queues an `ai-observability-clustering-first-run` workflow for each enabled job, without waiting for a scheduled cycle. The workflow checks for at least 10 eligible items in the job's window: 7 days for traces and generations, or 3 days for evaluations. Generation sampling takes the last generation from each trace. Evaluation sampling excludes numeric and categorical results. Saved job filters apply to these checks.
+Clustering is opt-in. Enabling it saves the project setting and adds missing default jobs within the project's 10-job limit. Preparation and clustering use the existing schedules; enabling or editing a job does not start an immediate run or backfill historical traces.
 
-Jobs below the minimum check every 30 minutes for up to 24 hours, even when the page is closed, then hand off to scheduled runs. Trace readiness first checks a capped list of candidate IDs, reading full trace sizes only once enough candidates exist. Jobs with enough eligible data prepare and cluster up to 100 items. Ten items allow the algorithm to run; they do not guarantee groups. HDBSCAN can classify all items as outliers.
+Scheduled preparation samples recent windows. Clustering requires at least 10 prepared items within its lookback: 7 days for traces and generations, or 3 days for evaluations. Generation sampling takes the last generation from each trace. Evaluation sampling excludes numeric and categorical results. Ten items permit clustering but do not guarantee groups; HDBSCAN can classify all items as outliers.
 
-`ClusteringRun` stores first attempts, retries, and scheduled execution claims. A Celery dispatcher runs every 10 seconds, retries queued deliveries after a minute using the same Temporal workflow ID, and checks active executions for termination, timeout, or failure. Enabling clustering returns after persisting the request and adds defaults only within the project's 10-job limit. Each project can start at most 10 first-run attempts per hour; deleting jobs does not reset this budget. Create and scope changes admit only the affected job. Renaming does not start work. Repeated enable requests reuse active attempts; retry creates a new attempt after a failure.
-
-Runs retain the requesting user and a snapshot of their filters. Filter references must be accessible to that user before admission and at each stage check. Progress is hidden from readers who cannot access those filters. The `progress` action reads the stored records without querying ClickHouse or starting work. Completed records include the result ID so the page can keep checking for up to five minutes after completion while the emitted result reaches ClickHouse.
-
-First and scheduled runs share one active execution claim per job, including when a coordinator has already fetched its job list. Scope changes and disabling clustering cancel active workflows. Workers recheck access before paid work and result emission. Embeddings carry a hash of the job's analysis level and filters, including in their document ID, so a changed job cannot consume another scope's data. Historical unversioned embeddings are refreshed by preparation before new runs can use them.
+Workers check project opt-in, AI data processing consent, and the job's current enabled state and scope before paid work and result emission. Disabling a job or changing its scope prevents subsequent processing; an already-issued provider request cannot be undone. Embedding metadata and document IDs include a hash of the job's analysis level and filters so jobs do not consume data prepared for an obsolete scope. Existing unversioned embeddings are excluded from scoped runs.
 
 ### Team Discovery
 

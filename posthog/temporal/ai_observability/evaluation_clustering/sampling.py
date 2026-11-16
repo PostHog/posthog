@@ -102,7 +102,7 @@ def _parse_iso(ts: str) -> datetime:
 
 
 def _sample_and_embed_sync(inputs: SamplerActivityInputs) -> SamplerActivityResult:
-    from products.ai_observability.backend.temporal.clustering_execution import require_current_execution
+    from products.ai_observability.backend.temporal.clustering_execution import require_current_job
 
     try:
         team = Team.objects.get(
@@ -114,7 +114,7 @@ def _sample_and_embed_sync(inputs: SamplerActivityInputs) -> SamplerActivityResu
         )
         return SamplerActivityResult(team_id=inputs.team_id, job_id=inputs.job_id, sampled=0, embedded=0)
 
-    job_scope = require_current_execution(inputs.team_id, inputs.execution_id)
+    job_scope = require_current_job(inputs.team_id, inputs.job_id, inputs.job_scope)
     window_start = _parse_iso(inputs.window_start)
     window_end = _parse_iso(inputs.window_end)
 
@@ -203,7 +203,7 @@ def _sample_and_embed_sync(inputs: SamplerActivityInputs) -> SamplerActivityResu
 
     embedded = 0
     for row in rows:
-        require_current_execution(inputs.team_id, inputs.execution_id)
+        require_current_job(inputs.team_id, inputs.job_id, inputs.job_scope)
         event_uuid = row[0]
         eval_id = row[5]
         content = _compose_evaluation_text(

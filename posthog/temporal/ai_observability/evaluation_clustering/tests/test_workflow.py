@@ -45,12 +45,6 @@ from posthog.temporal.ai_observability.shared_activities import FetchAllClusteri
 from posthog.temporal.ai_observability.team_discovery import TeamDiscoveryInput
 from posthog.temporal.ai_observability.trace_clustering.models import ClusteringMetrics, ClusteringResult, ClusterLabel
 
-from products.ai_observability.backend.facade.clustering_contracts import (
-    ClusteringExecutionClaim,
-    ClusteringExecutionRequest,
-    ClusteringRunUpdate,
-)
-
 
 class TestEvaluationJobsForTeam:
     def test_picks_only_evaluation_level_jobs(self):
@@ -122,20 +116,12 @@ async def _run_sampler_with_mock_activity(
 
     task_queue = str(uuid.uuid4())
 
-    @activity.defn(name="acquire_clustering_execution_activity")
-    async def acquire(request: ClusteringExecutionRequest) -> ClusteringExecutionClaim:
-        return ClusteringExecutionClaim(run_id="scheduled-test", owned=True)
-
-    @activity.defn(name="finish_clustering_execution_activity")
-    async def finish(update: ClusteringRunUpdate) -> None:
-        pass
-
     async with await WorkflowEnvironment.start_time_skipping() as env:
         async with Worker(
             env.client,
             task_queue=task_queue,
             workflows=[AIObservabilityEvaluationSamplerWorkflow],
-            activities=[mock_activity, acquire, finish],
+            activities=[mock_activity],
             workflow_runner=UnsandboxedWorkflowRunner(),
         ):
             await env.client.execute_workflow(
@@ -338,7 +324,7 @@ class TestClusteringWorkflowWiring:
             patch("posthog.temporal.ai_observability.evaluation_clustering.workflow.record_noise_points"),
             patch("posthog.temporal.ai_observability.evaluation_clustering.workflow.record_clusters_generated"),
         ):
-            await AIObservabilityEvaluationClusteringWorkflow()._run(
+            await AIObservabilityEvaluationClusteringWorkflow().run(
                 SamplerWorkflowInputs(team_id=1, job_id="job-1", job_name="Job 1", max_samples=max_samples)
             )
 

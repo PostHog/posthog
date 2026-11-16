@@ -28563,81 +28563,6 @@ export namespace Schemas {
     }
 
     /**
-     * * `queued` - Queued
-     * * `waiting` - Waiting for data
-     * * `preparing` - Preparing data
-     * * `clustering` - Finding clusters
-     * * `completed` - Completed
-     * * `failed` - Failed
-     * * `canceled` - Stopped
-     * * `scheduled` - Waiting for scheduled runs
-     */
-    export type ClusteringRunStatusEnum = typeof ClusteringRunStatusEnum[keyof typeof ClusteringRunStatusEnum];
-
-
-    export const ClusteringRunStatusEnum = {
-      Queued: 'queued',
-      Waiting: 'waiting',
-      Preparing: 'preparing',
-      Clustering: 'clustering',
-      Completed: 'completed',
-      Failed: 'failed',
-      Canceled: 'canceled',
-      Scheduled: 'scheduled',
-    } as const;
-
-    export interface ClusteringJobProgress {
-      /** The clustering job whose first run is tracked. */
-      job_id: string;
-      /** Job name. */
-      name: string;
-      /** Items grouped by this job.
-       *
-       * * `trace` - trace
-       * * `generation` - generation
-       * * `evaluation` - evaluation */
-      analysis_level: ClusteringAnalysisLevelEnum;
-      /** Whether the job only includes items matching saved filters. */
-      has_filters: boolean;
-      /** Minimum eligible items needed to attempt clustering. */
-      minimum: number;
-      /** Number of recent days searched for eligible items. */
-      lookback_days: number;
-      /** First-run processing state, or null before a run has been requested.
-       *
-       * * `queued` - Queued
-       * * `waiting` - Waiting for data
-       * * `preparing` - Preparing data
-       * * `clustering` - Finding clusters
-       * * `completed` - Completed
-       * * `failed` - Failed
-       * * `canceled` - Stopped
-       * * `scheduled` - Waiting for scheduled runs */
-      status: ClusteringRunStatusEnum | null;
-      /**
-         * Eligible items found, capped at the minimum; null while checking.
-         * @nullable
-         */
-      eligible_count: number | null;
-      /** Items prepared for clustering in this run. */
-      prepared_count: number;
-      /**
-         * Groups found, excluding outliers; null until finished.
-         * @nullable
-         */
-      cluster_count: number | null;
-      /** Stable failure code, without internal error details. */
-      failure_reason: string;
-      /**
-         * When the worker last updated this run.
-         * @nullable
-         */
-      updated_at: string | null;
-      /** The completed result to wait for in clustering queries. */
-      result_run_id: string;
-    }
-
-    /**
      * * `hdbscan` - hdbscan
      * * `kmeans` - kmeans
      */
@@ -28648,11 +28573,6 @@ export namespace Schemas {
       Hdbscan: 'hdbscan',
       Kmeans: 'kmeans',
     } as const;
-
-    export interface ClusteringRetry {
-      /** Failed clustering job to retry. */
-      job_id: string;
-    }
 
     export type ClusteringRunRequestEventFiltersItem = { [key: string]: unknown };
 

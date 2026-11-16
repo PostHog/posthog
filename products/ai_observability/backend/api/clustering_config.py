@@ -19,8 +19,7 @@ from posthog.permissions import AccessControlPermission
 from ..facade.api import validate_clustering_filters
 from ..logic.clustering.constants import MAX_JOBS_PER_TEAM
 from ..models.clustering_config import ClusteringConfig
-from ..models.clustering_job import DEFAULT_LEVEL_SPECS, ClusteringAnalysisLevel, ClusteringJob
-from ..models.clustering_run import ClusteringRunStatus
+from ..models.clustering_job import DEFAULT_LEVEL_SPECS, ClusteringJob
 from .metrics import llma_track_latency
 
 
@@ -57,36 +56,6 @@ class ClusteringConfigSetEnabledSerializer(serializers.Serializer):
     enabled = serializers.BooleanField(help_text="Enable or disable automated clustering for this project.")
 
 
-class ClusteringJobProgressSerializer(serializers.Serializer):
-    job_id = serializers.UUIDField(help_text="The clustering job whose first run is tracked.")
-    name = serializers.CharField(help_text="Job name.")
-    analysis_level = serializers.ChoiceField(
-        choices=ClusteringAnalysisLevel.choices, help_text="Items grouped by this job."
-    )
-    has_filters = serializers.BooleanField(help_text="Whether the job only includes items matching saved filters.")
-    minimum = serializers.IntegerField(help_text="Minimum eligible items needed to attempt clustering.")
-    lookback_days = serializers.IntegerField(help_text="Number of recent days searched for eligible items.")
-    status = serializers.ChoiceField(
-        choices=ClusteringRunStatus.choices,
-        allow_null=True,
-        help_text="First-run processing state, or null before a run has been requested.",
-    )
-    eligible_count = serializers.IntegerField(
-        allow_null=True, help_text="Eligible items found, capped at the minimum; null while checking."
-    )
-    prepared_count = serializers.IntegerField(help_text="Items prepared for clustering in this run.")
-    cluster_count = serializers.IntegerField(
-        allow_null=True, help_text="Groups found, excluding outliers; null until finished."
-    )
-    failure_reason = serializers.CharField(help_text="Stable failure code, without internal error details.")
-    updated_at = serializers.DateTimeField(allow_null=True, help_text="When the worker last updated this run.")
-    result_run_id = serializers.CharField(help_text="The completed result to wait for in clustering queries.")
-
-
-class ClusteringRetrySerializer(serializers.Serializer):
-    job_id = serializers.UUIDField(help_text="Failed clustering job to retry.")
-
-
 class ClusteringConfigViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     """Team-level clustering configuration (event filters for automated pipelines)."""
 
@@ -97,8 +66,6 @@ class ClusteringConfigViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     @extend_schema(request=ClusteringConfigSetEnabledSerializer, responses={200: ClusteringConfigSerializer})
     @action(detail=False, methods=["post"], required_scopes=["ai_observability_clusters:write"])
     def set_enabled(self, request: Request, **kwargs) -> Response:
-        from ..facade.api import cancel_clustering_job_runs, request_first_clustering_runs
-
         serializer = ClusteringConfigSetEnabledSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         enabled = serializer.validated_data["enabled"]
@@ -129,9 +96,6 @@ class ClusteringConfigViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                     ][: max(0, MAX_JOBS_PER_TEAM - len(existing_levels))],
                     ignore_conflicts=True,
                 )
-                request_first_clustering_runs(self.team_id, cast(User, request.user))
-            else:
-                cancel_clustering_job_runs(self.team_id)
         report_user_action(
             request.user,
             "llma clustering enabled changed",
@@ -140,42 +104,6 @@ class ClusteringConfigViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
             request=request,
         )
         return Response(ClusteringConfigSerializer(config).data)
-
-    @extend_schema(responses={200: ClusteringJobProgressSerializer(many=True)})
-    @action(detail=False, methods=["get"], required_scopes=["ai_observability_clusters:read"])
-    def progress(self, request: Request, **kwargs) -> Response:
-        from ..facade.api import clustering_job_progress
-
-        return Response(
-            ClusteringJobProgressSerializer(
-                clustering_job_progress(self.team_id, cast(User, request.user)), many=True
-            ).data
-        )
-
-    @extend_schema(request=ClusteringRetrySerializer, responses={200: ClusteringJobProgressSerializer(many=True)})
-    @action(detail=False, methods=["post"], required_scopes=["ai_observability_clusters:write"])
-    def retry(self, request: Request, **kwargs) -> Response:
-        from ..facade.api import clustering_job_progress, request_first_clustering_runs
-
-        serializer = ClusteringRetrySerializer(data=request.data)
-        serializer.is_valid(raise_exception=True)
-        if not self.team.organization.is_ai_data_processing_approved:
-            return Response(
-                {"detail": "Accept AI data processing before retrying clustering."}, status=status.HTTP_400_BAD_REQUEST
-            )
-        request_first_clustering_runs(self.team_id, cast(User, request.user), serializer.validated_data["job_id"])
-        report_user_action(
-            request.user,
-            "llma clustering first run retried",
-            {"job_id": str(serializer.validated_data["job_id"])},
-            team=self.team,
-            request=request,
-        )
-        return Response(
-            ClusteringJobProgressSerializer(
-                clustering_job_progress(self.team_id, cast(User, request.user)), many=True
-            ).data
-        )
 
     @extend_schema(responses={200: ClusteringConfigSerializer})
     @llma_track_latency("llma_clustering_config_list")

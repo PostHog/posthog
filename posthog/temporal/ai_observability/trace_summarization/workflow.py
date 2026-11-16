@@ -12,7 +12,6 @@ The summaries and embeddings serve as inputs for clustering and semantic search.
 
 import asyncio
 from collections.abc import Coroutine
-from dataclasses import replace
 from datetime import timedelta
 from typing import Any
 
@@ -69,9 +68,9 @@ from posthog.temporal.ai_observability.trace_summarization.sampling import sampl
 from posthog.temporal.ai_observability.trace_summarization.summarize_and_save import summarize_and_save_activity
 from posthog.temporal.common.base import PostHogWorkflow
 
+from products.ai_observability.backend.logic.clustering.scope import scope_key
 from products.ai_observability.backend.summarization.budget import batch_text_repr_budget
 from products.ai_observability.backend.summarization.models import OpenAIModel, SummarizationMode
-from products.ai_observability.backend.temporal.clustering_execution import clustering_execution
 
 logger = structlog.get_logger(__name__)
 
@@ -117,7 +116,7 @@ class BatchTraceSummarizationWorkflow(PostHogWorkflow):
         max_length: int,
         job_id: str,
         job_name: str,
-        execution_id: str,
+        job_scope: str,
     ) -> SummarizationActivityResult:
         """Process a single trace or generation with semaphore-controlled concurrency."""
         async with semaphore:
@@ -167,7 +166,7 @@ class BatchTraceSummarizationWorkflow(PostHogWorkflow):
                     text_repr_length=fetch_result.text_repr_length,
                     job_id=job_id,
                     job_name=job_name,
-                    execution_id=execution_id,
+                    job_scope=job_scope,
                 ),
                 activity_id=f"llma-summarize-{item_suffix}-{idx}",
                 start_to_close_timeout=SUMMARIZE_AND_SAVE_START_TO_CLOSE_TIMEOUT,
@@ -178,14 +177,6 @@ class BatchTraceSummarizationWorkflow(PostHogWorkflow):
 
     @temporalio.workflow.run
     async def run(self, inputs: BatchSummarizationInputs) -> BatchSummarizationResult:
-        async with clustering_execution(
-            inputs.team_id, inputs.job_id, inputs.analysis_level, inputs.event_filters, inputs.execution_id
-        ) as execution_id:
-            if execution_id is None:
-                return BatchSummarizationResult(batch_run_id="", metrics=BatchSummarizationMetrics())
-            return await self._run(replace(inputs, execution_id=execution_id))
-
-    async def _run(self, inputs: BatchSummarizationInputs) -> BatchSummarizationResult:
         """
         Execute batch summarization workflow.
 
@@ -240,7 +231,6 @@ class BatchTraceSummarizationWorkflow(PostHogWorkflow):
             event_filters=inputs.event_filters,
             job_id=inputs.job_id,
             job_name=inputs.job_name,
-            execution_id=inputs.execution_id,
         )
 
         semaphore = asyncio.Semaphore(inputs.batch_size)
@@ -272,7 +262,7 @@ class BatchTraceSummarizationWorkflow(PostHogWorkflow):
                 max_length=batch_text_repr_budget(inputs.model),
                 job_id=inputs.job_id,
                 job_name=inputs.job_name,
-                execution_id=inputs.execution_id,
+                job_scope=scope_key(inputs.analysis_level, inputs.event_filters) if inputs.job_id else "",
             )
             for idx, item in enumerate(items)
         ]
