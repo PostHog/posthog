@@ -39,6 +39,10 @@ Unsaved new chats hide both right-side controls until the first message creates 
 Model, Mode, and attachment options still open as overlays.
 The protocol below follows the web's `taskTrackerSceneLogic.ts`, `runInteractionLogic.ts` and `runStreamLogic.ts` in `products/posthog_ai/frontend`.
 
+Messages show their recorded time beside the copy and feedback actions, in the device’s local time and 12-hour or 24-hour clock format.
+A date label appears above the first dated message and whenever the local calendar day changes.
+Messages without a valid recorded timestamp leave these labels hidden.
+
 ## Files
 
 | File                                                 | Role                                                                                                                                                                                                                                    |

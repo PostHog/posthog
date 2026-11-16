@@ -1,8 +1,8 @@
-import { memo, type ReactElement, type ReactNode, useCallback, useMemo, useRef } from 'react'
+import { Fragment, memo, type ReactElement, type ReactNode, useCallback, useMemo, useRef } from 'react'
 import type { ScrollViewInstance } from 'react-native'
 import { type NativeScrollEvent, type NativeSyntheticEvent, ScrollView, Text, View } from 'react-native'
-
 import { PullRequestCard } from '@/features/handoff/PullRequestCard'
+import { formatMonthDay, isoDay } from '@/lib/dates'
 import { WarningIcon } from '@/ui/icons/WarningIcon'
 import { LoadingView, StateView } from '@/ui/StateView'
 import { createStyles, useColors } from '@/ui/theme'
@@ -14,6 +14,7 @@ import { ChatProgressLine } from '../ChatProgressLine'
 import { CopyMessageButton } from '../CopyMessageButton'
 import { type ChatFeedbackContext, type ChatReplyActions, chatReplyActions } from '../chatFeedback'
 import { MessageFeedbackActions } from '../MessageFeedbackActions'
+import { MessageTime } from '../MessageTime'
 import { UserBubble } from '../UserBubble'
 import { ActivityGroupRow } from './ActivityGroupRow'
 import { NoticeRow } from './NoticeRow'
@@ -58,6 +59,7 @@ const AssistantRow = memo(
                                 target={feedback}
                             />
                         ) : null}
+                        <MessageTime timestamp={item.timestamp} />
                     </View>
                 ) : null}
             </View>
@@ -65,6 +67,7 @@ const AssistantRow = memo(
     },
     (previous, next) =>
         previous.item.text === next.item.text &&
+        previous.item.timestamp === next.item.timestamp &&
         previous.item.complete === next.item.complete &&
         previous.item.projectUrl === next.item.projectUrl &&
         Boolean(previous.actions) === Boolean(next.actions) &&
@@ -145,7 +148,14 @@ export function SessionThread({
     const renderItem = (item: SessionDisplayItem): ReactNode => {
         switch (item.kind) {
             case 'user':
-                return <UserBubble key={item.id} text={item.text} attachments={item.attachments} />
+                return (
+                    <UserBubble
+                        key={item.id}
+                        text={item.text}
+                        timestamp={item.timestamp}
+                        attachments={item.attachments}
+                    />
+                )
             case 'assistant':
                 return <AssistantRow key={item.id} item={item} actions={replyActions.get(item.id)} />
             case 'activity':
@@ -168,6 +178,7 @@ export function SessionThread({
         }
     }
 
+    let previousDay: string | undefined
     const status = statusLine(session)
     const isEmpty = displayItems.length === 0 && !session.decision
     const pullRequests = session.pullRequests ?? (session.pullRequest ? [session.pullRequest] : [])
@@ -193,7 +204,23 @@ export function SessionThread({
             testID="session-thread"
         >
             {isEmpty ? <Text style={styles.quiet}>The agent hasn't said anything yet.</Text> : null}
-            {displayItems.map(renderItem)}
+            {displayItems.map((item) => {
+                const timestamp = item.kind === 'user' || item.kind === 'assistant' ? item.timestamp : undefined
+                const date = timestamp ? new Date(timestamp) : null
+                const day = date && Number.isFinite(date.getTime()) ? isoDay(date) : undefined
+                const showDate = day !== undefined && day !== previousDay
+                if (day) previousDay = day
+                return (
+                    <Fragment key={item.id}>
+                        {showDate && date ? (
+                            <Text style={styles.quiet} testID="chat-date">
+                                {formatMonthDay(date)}, {date.getFullYear()}
+                            </Text>
+                        ) : null}
+                        {renderItem(item)}
+                    </Fragment>
+                )
+            })}
             {pullRequests.length > 0 ? <PullRequestCard pullRequests={pullRequests} /> : null}
             {status ? <ChatProgressLine text={status} /> : null}
             {shouldShowRunError(session.items, session.runStatus, session.runError) ? (
