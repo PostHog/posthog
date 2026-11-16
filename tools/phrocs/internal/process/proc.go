@@ -27,6 +27,8 @@ const flushInterval = 16 * time.Millisecond
 const stopGracePeriod = 3 * time.Second
 const defaultShell = "/bin/bash"
 
+var eraseScrollbackSeq = []byte("\x1b[3J")
+
 // Autorestart backoff: when a proc with autorestart crashes, it's restarted
 // after an exponential delay that grows with each consecutive rapid crash, so a
 // crash-looping proc backs off instead of thrashing. After maxRestartAttempts
@@ -110,7 +112,6 @@ type Snapshot struct {
 	Ready    bool   `json:"ready"`
 	ExitCode *int   `json:"exit_code"`
 
-	// Nil until the first metrics sample arrives (~5s after start).
 	StartedAt        time.Time  `json:"started_at"`
 	ReadyAt          *time.Time `json:"ready_at,omitempty"`
 	StartupDurationS *float64   `json:"startup_duration_s,omitempty"`
@@ -138,6 +139,7 @@ type Process struct {
 
 	mu        sync.Mutex
 	emulator  *vt.SafeEmulator // virtual terminal emulator for output
+	history   []string         // rendered lines moved out of the emulator scrollback, oldest first
 	ptmx      *os.File         // pty master; nil when using pipes
 	stdinPipe *os.File         // write end of stdin pipe; nil when using PTY
 	hasPrompt bool             // true when last PTY output had no trailing \n (likely waiting for input)
@@ -274,13 +276,9 @@ func (p *Process) Lines() []string {
 	if p.emulator == nil {
 		return nil
 	}
-	result := []string{}
-	sb := p.emulator.Scrollback()
-	if sb != nil {
-		for i := range sb.Len() {
-			result = append(result, trimRowPadding(sb.Line(i).Render()))
-		}
-	}
+	p.drainScrollbackLocked()
+	result := make([]string, len(p.history), len(p.history)+p.emulator.Height())
+	copy(result, p.history)
 	screen := p.emulator.Render()
 	screenLines := strings.Split(screen, "\n")
 	for i, line := range screenLines {
@@ -295,6 +293,24 @@ func (p *Process) Lines() []string {
 	return result
 }
 
+// drainScrollbackLocked moves scrolled-off lines into p.history so each one
+// is rendered once. The emulator scrollback has the same cap as p.history, so
+// a line lost between two calls would have fallen out of p.history anyway.
+// Must be called with p.mu held.
+func (p *Process) drainScrollbackLocked() {
+	sb := p.emulator.Scrollback()
+	if sb == nil || sb.Len() == 0 {
+		return
+	}
+	for i := range sb.Len() {
+		p.history = append(p.history, trimRowPadding(sb.Line(i).Render()))
+	}
+	sb.Clear()
+	if p.maxLines > 0 && len(p.history) > p.maxLines {
+		p.history = p.history[len(p.history)-p.maxLines:]
+	}
+}
+
 // The emulator pads every rendered row with spaces to the terminal width.
 func trimRowPadding(line string) string {
 	return strings.TrimRight(line, " ")
@@ -305,6 +321,7 @@ func trimRowPadding(line string) string {
 func (p *Process) resetEmulatorLocked(w, h int) {
 	p.emulator = vt.NewSafeEmulator(w, h)
 	p.emulator.SetScrollbackSize(p.maxLines)
+	p.history = nil
 }
 
 // ClearLines empties the scrollback buffer and active screen.
@@ -331,8 +348,28 @@ func ptr[T any](v T) *T { return &v }
 // Returns a consistent point-in-time view of the process.
 // If the process is running, metrics are sampled on the spot.
 func (p *Process) Snapshot() Snapshot {
-	p.sampleMetrics()
+	return Snapshots([]*Process{p})[0]
+}
 
+// Snapshots returns a snapshot of each process in order, sharing one read of
+// the host process table.
+func Snapshots(procs []*Process) []Snapshot {
+	var tree processTree
+	for _, p := range procs {
+		if p.IsRunning() {
+			tree = loadProcessTree()
+			break
+		}
+	}
+	snaps := make([]Snapshot, len(procs))
+	for i, p := range procs {
+		p.sampleMetrics(tree)
+		snaps[i] = p.snapshot()
+	}
+	return snaps
+}
+
+func (p *Process) snapshot() Snapshot {
 	p.mu.Lock()
 	defer p.mu.Unlock()
 
@@ -364,7 +401,7 @@ func (p *Process) Snapshot() Snapshot {
 }
 
 // sampleMetrics collects resource usage for the process tree and stores it.
-func (p *Process) sampleMetrics() {
+func (p *Process) sampleMetrics(tree processTree) {
 	p.mu.Lock()
 	pid := 0
 	if p.cmd != nil && p.cmd.Process != nil {
@@ -382,7 +419,7 @@ func (p *Process) sampleMetrics() {
 		return
 	}
 
-	all := collectProcessTree(ps)
+	all := tree.withDescendants(ps)
 
 	var rssBytes uint64
 	var cpuPct, cpuTime float64
@@ -445,7 +482,8 @@ func (p *Process) buildCmd() *exec.Cmd {
 	return cmd
 }
 
-// It's safe to call Start concurrently as running process is a no-op
+// Start is a no-op while the process is pending or running, so concurrent
+// calls start at most one child.
 func (p *Process) Start(send func(tea.Msg)) error {
 	return p.startInternal(send, false)
 }
@@ -457,7 +495,9 @@ func (p *Process) Start(send func(tea.Msg)) error {
 // race with a concurrent manual start.
 func (p *Process) startInternal(send func(tea.Msg), isAutoRestart bool) error {
 	p.mu.Lock()
-	if p.status == StatusRunning {
+	// A second start while pending would replace p.cmd and orphan the first
+	// child, which then keeps its ports after phrocs quits.
+	if p.status.IsRunning() {
 		p.mu.Unlock()
 		return nil
 	}
@@ -505,8 +545,15 @@ func (p *Process) startInternal(send func(tea.Msg), isAutoRestart bool) error {
 
 	ptmx, err := pty.Start(cmd)
 	if err != nil {
-		// Use combined stdout/stderr pipe when PTY allocation fails
-		return p.startWithPipe(cmd, send)
+		// pty.Start can fail inside cmd.Start, and an exec.Cmd cannot be
+		// started twice, so the pipe fallback needs a fresh command.
+		pipeCmd := p.buildCmd()
+		pipeCmd.Env = cmd.Env
+		if pipeErr := p.startWithPipe(pipeCmd, send); pipeErr != nil {
+			p.failStart(pipeErr, send)
+			return pipeErr
+		}
+		return nil
 	}
 
 	// Set the PTY size immediately so the child process sees the correct
@@ -665,6 +712,23 @@ func (p *Process) startWithPipe(cmd *exec.Cmd, send func(tea.Msg)) error {
 	}()
 
 	return nil
+}
+
+// failStart writes the spawn error into the output, because the TUI and IPC
+// callers run Start in a goroutine and drop its error.
+func (p *Process) failStart(err error, send func(tea.Msg)) {
+	p.mu.Lock()
+	if p.status == StatusPending {
+		p.status = StatusCrashed
+	}
+	if p.logFile != nil {
+		_ = p.logFile.Close()
+		p.logFile = nil
+	}
+	finalStatus := p.status
+	p.mu.Unlock()
+	p.writeNotice(fmt.Sprintf("[phrocs] could not start %s: %v\r\n", p.Name, err), send)
+	send(StatusMsg{Name: p.Name, Status: finalStatus})
 }
 
 // handleExit updates process status after cmd.Wait returns and triggers
@@ -840,6 +904,11 @@ func (p *Process) readLoop(r io.Reader, outChannel chan tea.Msg) {
 			if p.emulator != nil {
 				_, _ = p.emulator.Write(data)
 			}
+			// The emulator clears its own scrollback on ED 3, but lines
+			// already moved to p.history are outside its reach.
+			if bytes.Contains(data, eraseScrollbackSeq) {
+				p.history = nil
+			}
 			logFile := p.logFile
 			// Detect interactive prompts: if the chunk doesn't end with \n,
 			// the process likely wrote a partial line and is waiting for input.
@@ -883,36 +952,39 @@ func (p *Process) startMetricsSampler(pid int, send func(tea.Msg)) {
 			continue
 		}
 
-		p.sampleMetrics()
+		p.sampleMetrics(loadProcessTree())
 		send(MetricsMsg{})
 	}
 }
 
-// collectProcessTree returns ps and all its descendants.
-func collectProcessTree(root *gops.Process) []*gops.Process {
+// processTree indexes every host process by parent PID. Building it reads the
+// parent of every process on the machine, so build it once per request.
+type processTree struct {
+	childrenOf map[int32][]*gops.Process
+}
+
+func loadProcessTree() processTree {
+	tree := processTree{childrenOf: make(map[int32][]*gops.Process)}
 	allProcs, err := gops.Processes()
 	if err != nil {
-		return []*gops.Process{root}
+		return tree
 	}
-
-	// Build parent → children index
-	byPID := make(map[int32]*gops.Process, len(allProcs))
-	childrenOf := make(map[int32][]*gops.Process)
 	for _, p := range allProcs {
-		byPID[p.Pid] = p
 		ppid, err := p.Ppid()
 		if err == nil && ppid > 0 {
-			childrenOf[ppid] = append(childrenOf[ppid], p)
+			tree.childrenOf[ppid] = append(tree.childrenOf[ppid], p)
 		}
 	}
+	return tree
+}
 
-	// BFS from root
+func (t processTree) withDescendants(root *gops.Process) []*gops.Process {
 	result := []*gops.Process{root}
 	queue := []*gops.Process{root}
 	for len(queue) > 0 {
 		cur := queue[0]
 		queue = queue[1:]
-		for _, child := range childrenOf[cur.Pid] {
+		for _, child := range t.childrenOf[cur.Pid] {
 			result = append(result, child)
 			queue = append(queue, child)
 		}
@@ -956,7 +1028,7 @@ func (p *Process) killProcessGroup() {
 	// Walk the full process tree to catch any descendants that escaped the
 	// process group (e.g. pnpm spawns node as a detached child).
 	if ps, err := gops.NewProcess(int32(pid)); err == nil {
-		for _, proc := range collectProcessTree(ps) {
+		for _, proc := range loadProcessTree().withDescendants(ps) {
 			_ = proc.SendSignal(sig)
 		}
 	}
