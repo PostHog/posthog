@@ -733,7 +733,7 @@ class TestPartitionPolicy:
                 **config,
             },
         )
-        schema.partition_policy = policy
+        schema.partition_policy = ExternalDataSchema.PartitionPolicy(policy)
         schema.save(update_fields=["partition_policy"])
         return schema
 
@@ -858,7 +858,7 @@ class TestPartitionPolicy:
                 "primary_key_columns": ["id"],
             },
         )
-        schema.partition_policy = policy
+        schema.partition_policy = ExternalDataSchema.PartitionPolicy(policy)
         schema.save(update_fields=["partition_policy"])
         if oom_triggered:
             for _ in range(3):

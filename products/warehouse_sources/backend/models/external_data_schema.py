@@ -25,7 +25,7 @@ from posthog.models.activity_logging.model_activity import ModelActivityMixin
 from posthog.models.utils import CreatedMetaFields, DeletedMetaFields, UpdatedMetaFields, UUIDTModel, sane_repr
 from posthog.sync import database_sync_to_async
 
-from products.warehouse_sources.backend.facade.contracts import UnsupportedSyncTypeError
+from products.warehouse_sources.backend.facade.contracts import PartitionPolicy, UnsupportedSyncTypeError
 from products.warehouse_sources.backend.temporal.data_imports.naming_convention import NamingConvention
 from products.warehouse_sources.backend.temporal.data_imports.retry_limits import (
     MAX_RESUMABLE_SOURCE_RETRIES_PRODUCTION,
@@ -296,15 +296,6 @@ FAILURE_STREAK_LAST_FAILED_AT_KEY = "last_failed_at"
 INCREMENTAL_HISTORY_KEY = "incremental_history"
 
 
-class PartitionPolicy(models.TextChoices):
-    """How the automatic repartition controller trades query speed against sync speed for one table."""
-
-    AUTO = "auto", "Auto"
-    PREFER_QUERY_SPEED = "prefer_query_speed", "Prefer query speed"
-    PREFER_SYNC_SPEED = "prefer_sync_speed", "Prefer sync speed"
-    MANUAL = "manual", "Manual"
-
-
 class ExternalDataSchema(  # nosemgrep: semgrep.rules.security.prefer-uuid7-django-pk -- grandfathered UUIDT primary key
     ModelActivityMixin, CreatedMetaFields, UpdatedMetaFields, UUIDTModel, DeletedMetaFields
 ):
@@ -354,8 +345,8 @@ class ExternalDataSchema(  # nosemgrep: semgrep.rules.security.prefer-uuid7-djan
     partition_policy = models.CharField(
         max_length=32,
         choices=PartitionPolicy.choices,
-        default=PartitionPolicy.AUTO,
-        db_default=PartitionPolicy.AUTO,
+        default=PartitionPolicy.AUTO.value,
+        db_default=PartitionPolicy.AUTO.value,
         help_text="How PostHog partitions this table's synced data. `auto` balances query and sync speed. "
         "`prefer_query_speed` keeps fewer, larger partitions. `prefer_sync_speed` keeps smaller partitions and "
         "never merges them. `manual` keeps the current layout until someone repartitions the table.",

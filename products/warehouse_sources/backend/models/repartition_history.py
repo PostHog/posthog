@@ -7,14 +7,7 @@ from posthog.dataclasses import frozen
 from posthog.models.scoping.root_mixin import TeamScopedRootMixin
 from posthog.models.utils import UUIDModel, sane_repr
 
-
-class RepartitionStatus(models.TextChoices):
-    FLAGGED = "flagged", "Flagged"
-    RUNNING = "running", "Running"
-    COMPLETED = "completed", "Completed"
-    FAILED = "failed", "Failed"
-    SKIPPED = "skipped", "Skipped"
-
+from products.warehouse_sources.backend.facade.contracts import RepartitionStatus
 
 TERMINAL_REPARTITION_STATUSES = frozenset(
     {RepartitionStatus.COMPLETED, RepartitionStatus.FAILED, RepartitionStatus.SKIPPED}

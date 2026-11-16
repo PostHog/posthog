@@ -7,14 +7,14 @@ so both paths validate the scheme and check the partition budget the same way.
 import math
 import time
 import statistics
-from collections.abc import Sequence
+from collections.abc import Callable, Sequence
 from datetime import datetime
-from enum import StrEnum
 from typing import TYPE_CHECKING, Any, Literal, assert_never, cast, get_args
 
 from django.db.models import Q
 
 import deltalake
+import structlog
 
 from posthog.dataclasses import frozen
 from posthog.temporal.common.client import sync_connect
@@ -22,7 +22,7 @@ from posthog.temporal.utils import ExternalDataWorkflowInputs
 
 from products.data_warehouse.backend.facade.api import pause_external_data_schedule, unpause_external_data_schedule
 from products.warehouse_sources.backend.ad_hoc_sync import is_schedule_paused, start_external_data_workflow
-from products.warehouse_sources.backend.facade.contracts import RepartitionRequest
+from products.warehouse_sources.backend.facade.contracts import RepartitionRefusal, RepartitionRequest
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.models.external_data_schema import (
     ExternalDataSchema,
@@ -60,6 +60,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.typ
 if TYPE_CHECKING:
     from posthog.models import Team
 
+logger = structlog.get_logger(__name__)
+
 # Source of truth lives in pipeline.typings. Re-deriving here keeps the choices in sync if a new format or mode is
 # ever added.
 PARTITION_FORMAT_CHOICES: tuple[str, ...] = get_args(PartitionFormat)
@@ -71,22 +73,14 @@ RepartitionTrigger = Literal["admin", "user"]
 HISTORY_LIMIT = 50
 # The jobs the sync stats read, newest first, so one busy table cannot make the request slow.
 SYNC_STATS_JOB_LIMIT = 2000
+# The most md5 buckets a customer can ask for. More buckets always pass the size check, but past the row count
+# each bucket holds about one row, and every later merge touches every bucket.
+MAX_USER_PARTITION_COUNT = 1024
 
 
 def partitioning_controls_enabled_for_team(team: "Team") -> bool:
     """Whether the team can choose partitioning policies and repartition tables. Reads no row."""
     return is_loaded_team_flag_enabled(team, WAREHOUSE_PARTITIONING_CONTROLS_FLAG)
-
-
-class RepartitionRefusal(StrEnum):
-    INVALID_SCHEME = "invalid_scheme"
-    OVER_BUDGET = "over_budget"
-    UNKNOWN_SIZE = "unknown_size"
-    READ_FAILED = "read_failed"
-    UNSUPPORTED = "unsupported"
-    BUSY = "busy"
-    COOLDOWN = "cooldown"
-    PAUSE_FAILED = "pause_failed"
 
 
 @frozen
@@ -177,6 +171,8 @@ def build_repartition_target(
             return "partition_count is required."
         if request.partition_count < 1:
             return "partition_count must be at least 1."
+        if trigger_reason == "user" and request.partition_count > MAX_USER_PARTITION_COUNT:
+            return f"partition_count must be at most {MAX_USER_PARTITION_COUNT}."
         if keys:
             staged["partitioning_keys_override"] = keys
             label_bits.append(f"keys={keys}")
@@ -372,23 +368,24 @@ def stage_repartition(
     if budget is not None:
         return RepartitionOutcome(refusal=budget[0], message=budget[1])
 
-    outcome = _pause_save_and_resync(schema, staged, refuse_if_busy=is_user)
+    def record_flagged() -> None:
+        props = base_event_props(schema, schema.source, None)
+        props.update(
+            {
+                "trigger_reason": trigger_reason,
+                "partition_mode_after": staged.target["partition_mode"],
+                "partition_format_after": staged.target["partition_format"],
+                "partition_count_after": staged.target["partition_count"],
+                "partition_size_after": staged.target["partition_size"],
+                "partition_keys_after": staged.target["partition_keys"],
+                "max_partition_bytes_before": schema.max_partition_bytes,
+            }
+        )
+        capture_repartition_event("warehouse_repartition_flagged", props, requested_by_id=requested_by_id)
+
+    outcome = _pause_save_and_resync(schema, staged, is_user=is_user, on_staged=record_flagged)
     if not outcome.ok:
         return outcome
-
-    props = base_event_props(schema, schema.source, None)
-    props.update(
-        {
-            "trigger_reason": trigger_reason,
-            "partition_mode_after": staged.target["partition_mode"],
-            "partition_format_after": staged.target["partition_format"],
-            "partition_count_after": staged.target["partition_count"],
-            "partition_size_after": staged.target["partition_size"],
-            "partition_keys_after": staged.target["partition_keys"],
-            "max_partition_bytes_before": schema.max_partition_bytes,
-        }
-    )
-    capture_repartition_event("warehouse_repartition_flagged", props, requested_by_id=requested_by_id)
 
     if is_user and schema.partition_policy != PartitionPolicy.MANUAL:
         schema.partition_policy = PartitionPolicy.MANUAL
@@ -397,19 +394,25 @@ def stage_repartition(
 
 
 def _pause_save_and_resync(
-    schema: ExternalDataSchema, staged: StagedRepartition, *, refuse_if_busy: bool
+    schema: ExternalDataSchema, staged: StagedRepartition, *, is_user: bool, on_staged: Callable[[], None]
 ) -> RepartitionOutcome:
-    # Pause the schedule, stage the target, and trigger a single non-billable run whose pre-extraction activity
-    # repartitions in place from S3 (no source pull) before syncing.
+    # Pause the schedule, stage the target, and trigger a single run whose pre-extraction activity repartitions in
+    # place from S3 before syncing. A staff run is non-billable. A customer's run imports new rows like any sync,
+    # so it is billed like one.
     #
     # Pause first so the scheduled workflow doesn't race with this one (Temporal's "OnlyOne" overlap policy is
     # per-schedule, not across schedule + ad-hoc workflow). If the schedule was already paused by hand, skip
     # auto-unpause so this does not undo that.
+    def error_detail(e: Exception) -> str:
+        # Customers get the error type only: Temporal errors can name internal hosts.
+        return type(e).__name__ if is_user else str(e)
+
     try:
         client = sync_connect()
     except Exception as e:
+        logger.exception("repartition_temporal_connect_failed", schema_id=str(schema.id))
         return RepartitionOutcome(
-            refusal=RepartitionRefusal.PAUSE_FAILED, message=f"Failed to connect to Temporal: {e}."
+            refusal=RepartitionRefusal.PAUSE_FAILED, message=f"Failed to connect to Temporal: {error_detail(e)}."
         )
 
     was_paused = is_schedule_paused(client, str(schema.id))
@@ -419,8 +422,10 @@ def _pause_save_and_resync(
             pause_external_data_schedule(str(schema.id))
             paused_now = True
         except Exception as e:
+            logger.exception("repartition_schedule_pause_failed", schema_id=str(schema.id))
             return RepartitionOutcome(
-                refusal=RepartitionRefusal.PAUSE_FAILED, message=f"Failed to pause schedule before resync: {e}."
+                refusal=RepartitionRefusal.PAUSE_FAILED,
+                message=f"Failed to pause schedule before resync: {error_detail(e)}.",
             )
 
     workflow_id = f"{schema.id}-admin-repartition-{int(time.time())}"
@@ -428,7 +433,7 @@ def _pause_save_and_resync(
 
     def stage(config: dict[str, Any]) -> None:
         # Under the row lock, so two requests cannot both stage a target.
-        if refuse_if_busy and _is_busy(config):
+        if is_user and _is_busy(config):
             raise _Busy
         config["repartition_pending"] = staged.target
         # Read by `resume_schedule_after_ad_hoc_run` when the run completes.
@@ -444,26 +449,32 @@ def _pause_save_and_resync(
             refusal=RepartitionRefusal.BUSY, message="A repartition is already queued or running for this table."
         )
 
+    # Before the run starts, so the worker's first transition finds this row and its requester.
+    on_staged()
+
     inputs = ExternalDataWorkflowInputs(
         team_id=schema.team_id,
         external_data_source_id=schema.source.id,
         external_data_schema_id=schema.id,
-        billable=False,
+        billable=is_user,
         reset_pipeline=None,
     )
     try:
         start_external_data_workflow(client, workflow_id, inputs)
     except Exception as e:
+        logger.exception("repartition_workflow_start_failed", schema_id=str(schema.id))
         # Best-effort rollback of the pause taken above. Without this, a failed workflow start leaves the schedule
         # paused forever (the marker is read by the workflow at completion, and there's no workflow if start
-        # failed) and the marker orphaned in sync_type_config. The target stays staged for the next sync.
+        # failed) and the marker orphaned in sync_type_config. The marker stays while the schedule is still
+        # paused, so a later run can still resume it. The target stays staged for the next sync.
         if paused_now:
-            _unpause_quietly(schema)
-            _restore_marker(schema, None)
+            if _unpause_quietly(schema):
+                _restore_marker(schema, None)
         elif previous_marker:
             _restore_marker(schema, previous_marker)
         return RepartitionOutcome(
-            message=f"Saved {staged.label}, but failed to trigger run: {e}. The next sync runs the repartition."
+            message=f"Saved {staged.label}, but failed to trigger run: {error_detail(e)}. "
+            "The next sync runs the repartition."
         )
 
     pause_note = (
@@ -471,19 +482,21 @@ def _pause_save_and_resync(
         if paused_now
         else " Schedule was already paused; leaving it paused."
     )
+    run_note = "in-place repartition" if is_user else "non-billable in-place repartition (no source pull)"
     return RepartitionOutcome(
-        message=f"{staged.label}. Triggered non-billable in-place repartition (no source pull) "
-        f"(workflow_id={workflow_id}).{pause_note}",
+        message=f"{staged.label}. Triggered {run_note} (workflow_id={workflow_id}).{pause_note}",
         workflow_id=workflow_id,
         run_started=True,
     )
 
 
-def _unpause_quietly(schema: ExternalDataSchema) -> None:
+def _unpause_quietly(schema: ExternalDataSchema) -> bool:
     try:
         unpause_external_data_schedule(str(schema.id))
     except Exception:
-        pass
+        logger.exception("repartition_schedule_unpause_failed", schema_id=str(schema.id))
+        return False
+    return True
 
 
 def _restore_marker(schema: ExternalDataSchema, marker: str | None) -> None:

@@ -7079,6 +7079,7 @@ class TestExternalDataSchemaPartitioning(APIBaseTest):
                 "invalid_scheme",
             ),
             ("md5_needs_a_count", {}, {"partition_mode": "md5"}, None, 400, "invalid_scheme"),
+            ("md5_count_over_the_cap", {}, {"partition_count": 1025}, None, 400, "invalid_scheme"),
             # Merging four buckets into one puts 1,220 bytes in one partition against a 1,000 byte budget.
             ("over_budget", {}, {"partition_count": 1}, {"0": 600, "1": 600, "2": 10, "3": 10}, 400, "over_budget"),
             (
@@ -7154,11 +7155,51 @@ class TestExternalDataSchemaPartitioning(APIBaseTest):
         assert (pending["trigger_reason"], pending["partition_count"], pending["partition_keys"]) == ("user", 8, ["id"])
         assert schema.partition_policy == "manual"
         start.assert_called_once()
-        assert start.call_args.args[2].billable is False
+        assert start.call_args.args[2].billable is True
         row = ExternalDataSchemaRepartition.objects.for_team(self.team.pk).get(schema=schema)
         assert (row.status, row.trigger_reason, row.requested_by_id) == ("flagged", "user", self.user.pk)
         assert row.scheme_after["count"] == 8
         assert (second.status_code, second.json()["code"]) == (409, "busy")
+
+    def test_repartition_is_refused_while_the_team_is_over_its_billing_limit(self) -> None:
+        schema = self._schema()
+
+        with (
+            self._flag(),
+            self._repartition_boundaries({"0": 100}) as start,
+            mock.patch(
+                "products.warehouse_sources.backend.presentation.views.external_data_schema.is_any_external_data_schema_paused",
+                return_value=True,
+            ),
+        ):
+            response = self.client.post(self._url(schema, "repartition/"), data={"partition_count": 8}, format="json")
+
+        assert (response.status_code, response.json()["code"]) == (400, "unsupported")
+        start.assert_not_called()
+        schema.refresh_from_db()
+        assert schema.repartition_pending is None
+
+    @parameterized.expand([("user", True), ("admin", False)])
+    def test_partitioning_history_shows_the_requester_only_for_user_repartitions(
+        self, trigger_reason: str, shown: bool
+    ) -> None:
+        schema = self._schema()
+        ExternalDataSchemaRepartition.objects.for_team(self.team.pk).create(
+            team_id=self.team.pk,
+            schema=schema,
+            status="flagged",
+            trigger_reason=trigger_reason,
+            requested_by=self.user,
+        )
+
+        with self._flag():
+            response = self.client.get(self._url(schema, "partitioning/"))
+
+        assert response.status_code == 200, response.json()
+        requested_by = response.json()["repartitions"][0]["requested_by"]
+        assert (requested_by is not None) == shown
+        if shown:
+            assert requested_by["id"] == self.user.pk
 
     def test_partitioning_history_excludes_jobs_that_ran_a_rewrite_from_the_sync_stats(self) -> None:
         schema = self._schema()

@@ -1165,6 +1165,7 @@ describe('Tool Filtering - Feature Flags', () => {
             'platform-alerts-source-warehouse',
             'dwh-custom-source-ai-builder',
             'workflows-bulk-suppressions-mcp',
+            'warehouse-partitioning-controls',
         ]
         expect(allFlags).toEqual(expect.arrayContaining(branchFlags))
         // The flags branches add are asserted on the line above and held out of the list and

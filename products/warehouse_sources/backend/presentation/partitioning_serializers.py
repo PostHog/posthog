@@ -1,12 +1,14 @@
 """Serializers for the partitioning policy, the repartition history and "repartition now"."""
 
+from typing import Any
+
 from django.db import models
 
 from rest_framework import serializers
 
 from posthog.api.shared import UserBasicSerializer
 
-from products.warehouse_sources.backend.facade.partitioning import PartitionPolicy, RepartitionStatus
+from products.warehouse_sources.backend.facade.contracts import PartitionPolicy, RepartitionStatus
 
 PARTITION_POLICY_HELP_TEXT = (
     "Beta, available only when the partitioning controls feature is on for the project. How PostHog lays out "
@@ -96,6 +98,13 @@ class RepartitionHistoryRowSerializer(serializers.Serializer):
     )
     created_at = serializers.DateTimeField(help_text="When the row was created.")
     finished_at = serializers.DateTimeField(allow_null=True, help_text="When it reached an outcome.")
+
+    def to_representation(self, instance: Any) -> dict[str, Any]:
+        data = super().to_representation(instance)
+        # Admin rows record the PostHog staff user, who must not be shown to the customer.
+        if data.get("trigger_reason") != "user":
+            data["requested_by"] = None
+        return data
 
 
 class SyncStatsWindowSerializer(serializers.Serializer):

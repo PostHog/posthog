@@ -52,6 +52,8 @@ from products.warehouse_sources.backend.facade.contracts import (
     HistoryAccessRulesNotAllowedError,
     HistoryTableDropRefusedError,
     LegacyHistoryTableError,
+    PartitionPolicy,
+    RepartitionRefusal,
     RepartitionRequest,
     UndecryptedConfigError,
 )
@@ -80,8 +82,6 @@ from products.warehouse_sources.backend.facade.models import (
     update_sync_type_config_keys,
 )
 from products.warehouse_sources.backend.facade.partitioning import (
-    PartitionPolicy,
-    RepartitionRefusal,
     partitioning_controls_enabled_for_team,
     partitioning_history,
     partitioning_summary,
@@ -3435,6 +3435,15 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         instance: ExternalDataSchema = self.get_object()
         if not partitioning_controls_enabled_for_team(self.team):
             raise PermissionDenied(PARTITIONING_CONTROLS_UNAVAILABLE)
+        # The run imports new rows like any sync, so it gets the same billing limit gate as reload and resync.
+        if is_any_external_data_schema_paused(instance.team_id):
+            return Response(
+                {
+                    "detail": "Monthly sync limit reached. Please increase your billing limit to resume syncing.",
+                    "code": RepartitionRefusal.UNSUPPORTED.value,
+                },
+                status=REPARTITION_REFUSAL_STATUS[RepartitionRefusal.UNSUPPORTED],
+            )
         data = request.validated_data
         outcome = stage_repartition(
             instance,
