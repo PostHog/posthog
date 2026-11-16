@@ -9,12 +9,14 @@ from posthog.dataclasses import frozen
 
 from products.wizard.backend.facade.enums import (
     WizardRunDispatchStatus,
+    WizardRunEnvironment,
     WizardRunErrorCode,
     WizardRunStatus,
     WizardWorkerCleanupStatus,
 )
 from products.wizard.backend.facade.errors import IllegalStatusTransitionError, WizardRunNotFoundError
 from products.wizard.backend.logic.reconciliation.config import (
+    LOCAL_RUN_INACTIVITY_TIMEOUT,
     RECONCILIATION_BATCH_SIZE,
     RECONCILIATION_DISPATCH_TIME_BUDGET_SECONDS,
 )
@@ -123,11 +125,17 @@ def reconcile_pending_cancellations() -> ReconciliationSummary:
 
 
 def reconcile_expired_runs() -> ReconciliationSummary:
+    now = timezone.now()
     expired = list(
         WizardRun.objects.unscoped()
+        .filter(status__in=(WizardRunStatus.CREATED.value, WizardRunStatus.RUNNING.value))
         .filter(
-            status__in=(WizardRunStatus.CREATED.value, WizardRunStatus.RUNNING.value),
-            deadline_at__lte=timezone.now(),
+            Q(deadline_at__lte=now)
+            | Q(
+                environment=WizardRunEnvironment.LOCAL.value,
+                deadline_at__isnull=True,
+                updated_at__lte=now - LOCAL_RUN_INACTIVITY_TIMEOUT,
+            )
         )
         .values_list("team_id", "id", "workflow_id")[:RECONCILIATION_BATCH_SIZE]
     )
