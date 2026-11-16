@@ -2,18 +2,83 @@ import { RedisV2 } from '~/common/redis/redis-v2'
 
 import { createCdpReaderRedisPool, createCdpValkeyShadowPools } from './cdp-services'
 
-const mockReaderPool: RedisV2 = {
-    useClient: jest.fn((_opts, cb) => cb({ ping: () => Promise.resolve('PONG') } as any)),
-    usePipeline: jest.fn(),
+type FakeRedisServer = {
+    password: string
+    data: Record<string, string>
+    pingError?: Error
+    commands: string[]
 }
 
-jest.mock('~/common/redis/redis-v2', () => ({
-    createRedisV2PoolFromConfig: jest.fn(() => mockReaderPool),
-}))
-
-const { createRedisV2PoolFromConfig } = require('~/common/redis/redis-v2') as {
-    createRedisV2PoolFromConfig: jest.Mock
+type FakeRedisNetwork = {
+    servers: Map<string, FakeRedisServer>
+    connections: string[]
 }
+
+jest.mock('ioredis', () => {
+    const network: FakeRedisNetwork = { servers: new Map(), connections: [] }
+
+    class FakeRedis {
+        static network = network
+        private readonly address: string
+
+        constructor(
+            host: string,
+            private readonly options: { port?: number; password?: string }
+        ) {
+            this.address = `${host}:${options.port ?? 6379}`
+            network.connections.push(this.address)
+        }
+
+        on(): this {
+            return this
+        }
+
+        defineCommand(): void {}
+
+        async info(): Promise<string> {
+            await this.server()
+            return ''
+        }
+
+        async ping(): Promise<string> {
+            const server = await this.server()
+            server.commands.push('PING')
+            if (server.pingError) {
+                throw server.pingError
+            }
+            return 'PONG'
+        }
+
+        async get(key: string): Promise<string | null> {
+            const server = await this.server()
+            server.commands.push('GET')
+            return server.data[key] ?? null
+        }
+
+        quit(): Promise<string> {
+            return Promise.resolve('OK')
+        }
+
+        disconnect(): void {}
+
+        private async server(): Promise<FakeRedisServer> {
+            const server = network.servers.get(this.address)
+            if (!server) {
+                // ioredis keeps reconnecting to an unreachable address, so its commands never settle.
+                return new Promise(() => {})
+            }
+            await new Promise((resolve) => setImmediate(resolve))
+            if (server.password !== this.options.password) {
+                throw new Error('WRONGPASS invalid username-password pair or user is disabled.')
+            }
+            return server
+        }
+    }
+
+    return FakeRedis
+})
+
+const { network } = jest.requireMock<{ network: FakeRedisNetwork }>('ioredis')
 
 const mockWriterPool = { useClient: jest.fn(), usePipeline: jest.fn() } as unknown as RedisV2
 
@@ -25,55 +90,52 @@ const baseConfig = {
     CDP_REDIS_READER_PORT: 6379,
     REDIS_URL: 'rediss://:password@fallback-host:6379',
     REDIS_POOL_MIN_SIZE: 1,
-    REDIS_POOL_MAX_SIZE: 4,
+    // With one connection, a command a test sends waits until the startup ping has finished.
+    REDIS_POOL_MAX_SIZE: 1,
 }
 
+const readerConfig = { ...baseConfig, CDP_REDIS_READER_HOST: 'cdp-reader.internal', CDP_REDIS_READER_PORT: 6380 }
+
+const readSource = (pool: RedisV2): Promise<string | null> =>
+    pool.useClient({ name: 'test-read', deadlineMs: 1000 }, (client) => client.get('source'))
+
+const serverAt = (address: string): FakeRedisServer => {
+    const server = network.servers.get(address)
+    if (!server) {
+        throw new Error(`no fake Redis server at ${address}`)
+    }
+    return server
+}
+
+beforeEach(() => {
+    network.connections.length = 0
+    network.servers.clear()
+    network.servers.set('cdp-writer.internal:6379', { password: 'secret', data: { source: 'writer' }, commands: [] })
+    network.servers.set('cdp-reader.internal:6380', { password: 'secret', data: { source: 'reader' }, commands: [] })
+})
+
 describe('createCdpReaderRedisPool', () => {
-    beforeEach(() => {
-        jest.clearAllMocks()
+    it('reads from the reader host when CDP_REDIS_READER_HOST is set', async () => {
+        const reader = createCdpReaderRedisPool(readerConfig, mockWriterPool, 'test-redis')
+
+        await expect(readSource(reader)).resolves.toBe('reader')
     })
 
-    it('creates a dedicated reader pool when CDP_REDIS_READER_HOST is set', () => {
-        const config = { ...baseConfig, CDP_REDIS_READER_HOST: 'cdp-reader.internal', CDP_REDIS_READER_PORT: 6380 }
+    it('pings the reader before it serves the first command', async () => {
+        const reader = createCdpReaderRedisPool(readerConfig, mockWriterPool, 'test-redis')
 
-        const result = createCdpReaderRedisPool(config, mockWriterPool, 'test-redis')
+        await readSource(reader)
 
-        expect(result).toBe(mockReaderPool)
-        expect(createRedisV2PoolFromConfig).toHaveBeenCalledWith({
-            connection: {
-                url: 'cdp-reader.internal',
-                options: { port: 6380, password: 'secret' },
-                name: 'test-redis-reader',
-            },
-            poolMinSize: 1,
-            poolMaxSize: 4,
-        })
-    })
-
-    it('runs a startup health check ping on the reader pool', async () => {
-        const config = { ...baseConfig, CDP_REDIS_READER_HOST: 'cdp-reader.internal', CDP_REDIS_READER_PORT: 6380 }
-
-        createCdpReaderRedisPool(config, mockWriterPool, 'test-redis')
-
-        // Let the non-blocking ping resolve
-        await Promise.resolve()
-
-        expect(mockReaderPool.useClient).toHaveBeenCalledWith(
-            { name: 'startup-ping', timeout: 5000 },
-            expect.any(Function)
-        )
+        expect(serverAt('cdp-reader.internal:6380').commands).toEqual(['PING', 'GET'])
     })
 
     it('logs an error if the reader health check fails', async () => {
-        const pingError = new Error('connection refused')
-        ;(mockReaderPool.useClient as jest.Mock).mockRejectedValueOnce(pingError)
+        const pingError = new Error('LOADING Redis is loading the dataset in memory')
+        serverAt('cdp-reader.internal:6380').pingError = pingError
         const logSpy = jest.spyOn(require('~/common/utils/logger').logger, 'error')
-        const config = { ...baseConfig, CDP_REDIS_READER_HOST: 'bad-host.internal', CDP_REDIS_READER_PORT: 6380 }
 
-        createCdpReaderRedisPool(config, mockWriterPool, 'test-redis')
-
-        // Let the rejected promise and .catch handler run
-        await new Promise((r) => setImmediate(r))
+        const reader = createCdpReaderRedisPool(readerConfig, mockWriterPool, 'test-redis')
+        await readSource(reader)
 
         expect(logSpy).toHaveBeenCalledWith(
             '🔌',
@@ -88,7 +150,7 @@ describe('createCdpReaderRedisPool', () => {
         const result = createCdpReaderRedisPool(config, mockWriterPool, 'test-redis')
 
         expect(result).toBe(mockWriterPool)
-        expect(createRedisV2PoolFromConfig).not.toHaveBeenCalled()
+        expect(network.connections).toEqual([])
     })
 
     it('does not leak credentials from REDIS_URL in fallback log', () => {
@@ -120,14 +182,10 @@ describe('createCdpValkeyShadowPools', () => {
         REDIS_POOL_MAX_SIZE: 4,
     }
 
-    beforeEach(() => {
-        jest.clearAllMocks()
-    })
-
     it('throws when CDP_VALKEY_HOST is unset', () => {
         expect(() => createCdpValkeyShadowPools({ ...valkeyConfig, CDP_VALKEY_HOST: '' }, 'test-valkey')).toThrow(
             'CDP_VALKEY_HOST is required'
         )
-        expect(createRedisV2PoolFromConfig).not.toHaveBeenCalled()
+        expect(network.connections).toEqual([])
     })
 })
