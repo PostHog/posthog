@@ -21,6 +21,7 @@ from products.ai_observability.backend.logic.eval_suggestions.config import Sugg
         ),
         ("fractional_counts_fall_back", {"max_concurrent_teams": 0.5, "max_teams_per_run": 0.9}, SuggestionSettings()),
         ("review_calls_capped", {"review_calls": 5000}, SuggestionSettings(review_calls=config.MAX_REVIEW_CALLS)),
+        ("review_calls_never_below_default", {"review_calls": 20}, SuggestionSettings()),
     ]
 )
 def test_flag_payload_settings(_name: str, payload: object, expected: SuggestionSettings) -> None:
