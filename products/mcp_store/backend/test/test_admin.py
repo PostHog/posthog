@@ -28,3 +28,7 @@ class TestMCPGatewayServerAdmin(BaseTest):
         assert response.status_code == 302, response.content
         server.refresh_from_db()
         assert (server.description, server.is_team_enabled) == ("New text", True)
+
+        delete_url = reverse("admin:mcp_store_mcpgatewayserver_delete", args=[server.pk])
+        assert self.client.post(delete_url, {"post": "yes"}).status_code == 403
+        assert MCPGatewayServer.objects.for_team(self.team.id).filter(pk=server.pk).exists()

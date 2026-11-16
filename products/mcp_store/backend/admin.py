@@ -201,6 +201,11 @@ class MCPGatewayServerAdmin(admin.ModelAdmin):
     def has_add_permission(self, request: HttpRequest) -> bool:
         return False
 
+    # A delete cascades to the team's revocations, agent grants and tool policies, and a team that turned the server
+    # off gets it back through its default posture. The gateway API removes a server safely instead.
+    def has_delete_permission(self, request: HttpRequest, obj: MCPGatewayServer | None = None) -> bool:
+        return False
+
     def get_queryset(self, request: HttpRequest) -> QuerySet[MCPGatewayServer]:
         # Admin has no team context; MCPGatewayServer's default manager is fail-closed.
         return MCPGatewayServer.objects.unscoped().select_related("team", "template")
