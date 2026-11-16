@@ -606,6 +606,19 @@ describe('API helper', () => {
     })
 
     describe('events table header', () => {
+        type PageModules = { pageApi: typeof api; pageFetchEventSource: typeof fetchEventSourceModule }
+
+        function loadPage(url: string): PageModules {
+            window.history.replaceState({}, '', url)
+            let modules: PageModules | undefined
+            jest.isolateModules(() => {
+                const apiModule = require('lib/api')
+                apiModule.ApiConfig.setCurrentTeamId(2)
+                modules = { pageApi: apiModule.default, pageFetchEventSource: require('@microsoft/fetch-event-source') }
+            })
+            return modules!
+        }
+
         afterEach(() => {
             window.history.replaceState({}, '', '/')
         })
@@ -613,27 +626,26 @@ describe('API helper', () => {
         it.each([
             {
                 request: 'a query',
-                send: async (): Promise<Record<string, string>> => {
-                    await api.create('/api/environments/2/query/', { query: {} })
+                send: async ({ pageApi }: PageModules): Promise<Record<string, string>> => {
+                    await pageApi.create('/api/environments/2/query/', { query: {} })
                     return fakeFetch.mock.calls[0][1].headers
                 },
             },
             {
                 request: 'the dashboard tile stream',
-                send: async (): Promise<Record<string, string>> => {
+                send: async ({ pageApi, pageFetchEventSource }: PageModules): Promise<Record<string, string>> => {
                     const fetchEventSourceSpy = jest
-                        .spyOn(fetchEventSourceModule, 'fetchEventSource')
+                        .spyOn(pageFetchEventSource, 'fetchEventSource')
                         .mockReturnValueOnce(new Promise<void>(() => {}))
-                    await api.dashboards.streamTiles(5, {}, jest.fn(), jest.fn(), jest.fn())
-                    const headers = fetchEventSourceSpy.mock.calls[0][1].headers as Record<string, string>
-                    fetchEventSourceSpy.mockRestore()
-                    return headers
+                    await pageApi.dashboards.streamTiles(5, {}, jest.fn(), jest.fn(), jest.fn())
+                    return fetchEventSourceSpy.mock.calls[0][1].headers as Record<string, string>
                 },
             },
-        ])("sends the page's events table with $request", async ({ send }) => {
-            window.history.replaceState({}, '', '/dashboard/5?ph_new_events_schema=0')
+        ])('sends the table the page loaded with on $request after the page rewrites its URL', async ({ send }) => {
+            const page = loadPage('/sql?ph_new_events_schema=0')
+            window.history.replaceState({}, '', '/sql')
 
-            const headers = await send()
+            const headers = await send(page)
 
             expect(headers['X-PostHog-New-Events-Schema']).toEqual('0')
         })
