@@ -6,7 +6,7 @@ import { toolbarPosthogJS } from '~/toolbar/shared/toolbarPosthogJS'
 import { withTokenRefresh } from './toolbarAuth'
 import { toolbarConfigLogic } from './toolbarConfigLogic'
 import { ToolbarRequestError } from './toolbarRequestError'
-import { safeFetch } from './utils'
+import { safeFetch, ToolbarRouteScope, toolbarScopedPath } from './utils'
 
 /**
  * Low-level authenticated transport for the toolbar — the single place that knows how
@@ -22,6 +22,12 @@ import { safeFetch } from './utils'
  * `lemonToast` (and therefore out of `toolbarApi`'s import graph) also lets those widely
  * imported logics depend on the transport without pulling the toast layer into test setup.
  */
+/** The API path for the project the toolbar's token is scoped to, or null when the toolbar has no session. */
+export function toolbarApiPath(scope: ToolbarRouteScope, path: string): string | null {
+    const project = toolbarConfigLogic.findMounted()?.values.project
+    return project ? toolbarScopedPath(project, scope, path) : null
+}
+
 export async function toolbarFetch(
     url: string,
     method: string = 'GET',
@@ -173,7 +179,8 @@ export async function toolbarUploadMedia(file: File): Promise<{ id: string; url:
     // Fail fast when there's no session to begin with — don't route through
     // toolbarFetch (which would return a stub 401 and trip tokenExpired
     // telemetry / toasts for a user who was never authenticated).
-    if (!toolbarConfigLogic.findMounted()?.values.accessToken) {
+    const uploadPath = toolbarApiPath('project', 'uploaded_media/')
+    if (!toolbarConfigLogic.findMounted()?.values.accessToken || !uploadPath) {
         throw new ToolbarRequestError('Toolbar not authenticated', 401)
     }
 
@@ -183,7 +190,7 @@ export async function toolbarUploadMedia(file: File): Promise<{ id: string; url:
     const formData = new FormData()
     formData.append('image', file)
 
-    const response = await toolbarFetch('/api/projects/@current/uploaded_media/', 'POST', formData)
+    const response = await toolbarFetch(uploadPath, 'POST', formData)
 
     if (response.status === 401) {
         // Session was valid at start but expired and refresh failed.

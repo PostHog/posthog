@@ -13,6 +13,7 @@ import type { ElementSelectorType } from '~/toolbar/shared/experiments/elementSe
 import type { FlagComparison, FlagComparisonFailureReason } from '~/toolbar/shared/flags/flagComparisonLogic'
 import type { FlagInfo } from '~/toolbar/shared/flags/flagInfo'
 import type { ActionForm, WebExperimentForm } from '~/toolbar/shared/types'
+import type { ToolbarProject } from '~/toolbar/shared/utils'
 import type { WebVitalsMetrics } from '~/toolbar/shared/web-vitals/webVitalsToolbarLogic'
 import type { ActionStepType, ElementType } from '~/types'
 
@@ -81,6 +82,7 @@ export interface PageToolbarTokens {
     accessToken: string
     refreshToken: string | null
     clientId: string
+    project: ToolbarProject
 }
 
 export interface PageToolbarSession extends PageToolbarTokens {
