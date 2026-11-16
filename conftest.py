@@ -437,3 +437,13 @@ def _query_cache_raw_redis_uses_fakeredis(monkeypatch):
 
     monkeypatch.setattr(storage, "query_cache_raw_client", lambda: redis.get_client())
     monkeypatch.setattr(storage, "query_cache_read_client", lambda: redis.get_client())
+
+
+# The guard fails the test at teardown rather than inside the query, so application code that catches exceptions
+# or runs inside transaction.atomic cannot swallow the failure or change its control flow.
+@pytest.fixture(autouse=True)
+def _fail_on_outer_row_sql_patterns():
+    from posthog.test.sql_pattern_guard import fail_on_outer_row_patterns  # noqa: PLC0415 — Django must be ready first
+
+    with fail_on_outer_row_patterns():
+        yield

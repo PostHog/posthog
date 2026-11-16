@@ -40,6 +40,10 @@ rules:
       owners: team-product-analytics
     - match: '/templates/surveys/'
       owners: conversations
+    - match:
+          - '/test/sql_pattern_guard.py'
+          - '/test/test_sql_pattern_guard.py'
+      owners: team-devex
     - match: '/warehouse/'
       owners: team-data-stack
     - match: '*llm_gateway*'
