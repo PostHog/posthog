@@ -1102,6 +1102,36 @@ def write_owned_cadence(
     configuration.save(update_fields=[*_CADENCE_FIELDS, "next_check_at", "updated_at"])
 
 
+def write_native_cadence(
+    configuration: PlatformAlertConfiguration,
+    *,
+    check_interval_minutes: int,
+    recurrence_unit: str | None,
+    now: datetime,
+) -> None:
+    """Writes a cadence an edit chose onto an alert with no source row, locked by the caller.
+
+    A changed cadence makes the alert due a minute out, and its next check moves it onto the new
+    cadence's grid. Waiting out the old cadence would leave an alert moved from hourly to every minute
+    unchecked for up to an hour. A snooze still defers the check to its end.
+    """
+    if recurrence_unit is not None:
+        to_recurrence_interval(recurrence_unit)
+    if (
+        configuration.check_interval_minutes == check_interval_minutes
+        and configuration.recurrence_unit == recurrence_unit
+    ):
+        return
+    configuration.check_interval_minutes = check_interval_minutes
+    configuration.recurrence_unit = recurrence_unit
+    # A minute out for the reason `write_owned_cadence` gives.
+    due = now + _HANDOVER_FENCE
+    if configuration.snooze_until is not None and configuration.snooze_until > due:
+        due = configuration.snooze_until
+    configuration.next_check_at = due
+    configuration.save(update_fields=["check_interval_minutes", "recurrence_unit", "next_check_at", "updated_at"])
+
+
 _HANDOVER_FENCE: Final = timedelta(minutes=1)
 
 

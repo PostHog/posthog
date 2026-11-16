@@ -93,13 +93,16 @@ def events_route_scope(modifiers: "HogQLQueryModifiers") -> Iterator[None]:
 
 # A staff person's browser sends this cookie to read events_json on every request, impersonated sessions included.
 NEW_EVENTS_SCHEMA_COOKIE = "ph_new_events_schema"
-_person_switch: ContextVar[bool] = ContextVar("new_events_schema_person_switch", default=False)
+# One browser tab sends this header, "1" for events_json and "0" for the legacy table, and it wins over the cookie,
+# so two tabs of one browser can show the two tables side by side.
+NEW_EVENTS_SCHEMA_HEADER = "X-PostHog-New-Events-Schema"
+_person_switch: ContextVar[bool | None] = ContextVar("new_events_schema_person_switch", default=None)
 
 
 @contextmanager
-def new_events_schema_for_request() -> Iterator[None]:
-    """Every events read inside the block targets events_json, unless its query's modifier says otherwise."""
-    token = _person_switch.set(True)
+def new_events_schema_for_request(enabled: bool = True) -> Iterator[None]:
+    """Every events read inside the block targets the chosen table, unless its query's modifier says otherwise."""
+    token = _person_switch.set(enabled)
     try:
         yield
     finally:
@@ -193,7 +196,7 @@ def project_moved_to_new_events_table(team_id: int | None) -> bool:
 
 
 def project_reads_new_events_table(team_id: int | None) -> bool:
-    """Whether the project reads events_json when no query modifier or staff cookie says otherwise.
+    """Whether the project reads events_json when no query modifier or staff switch says otherwise.
 
     A project reads events_json once it opts in or is moved. An opt-in only moves a project early: a project that
     staff or the rollout moved cannot go back by itself.
@@ -207,10 +210,11 @@ def use_new_events_schema(team_id: int | None = None, modifiers: "HogQLQueryModi
     """Whether events reads target the native JSON events table (events_json) instead of the legacy events table.
 
     Three switches, each wider than the one before it: the query's useNewEventsSchema modifier, for one query;
-    a staff person's cookie, for every request from that browser (see new_events_schema_for_request); and the
-    project's table, for a project everywhere, background jobs included (see project_reads_new_events_table).
-    The instance settings and the projects' opt-ins are cached for up to 60s per worker. Nested reads
-    inherit the running query's choice unless their own modifier overrides it.
+    a staff person's tab header or browser cookie, for every request from that tab or browser, which can also pin
+    the legacy table (see new_events_schema_for_request); and the project's table, for a project everywhere,
+    background jobs included (see project_reads_new_events_table). The instance settings and the projects' opt-ins
+    are cached for up to 60s per worker. Nested reads inherit the running query's choice unless their own modifier
+    overrides it.
     Code running inside a query should prefer HogQLContext.uses_new_events_schema(), which
     resolves this once so a mid-query flip can't mix schemas.
     """
@@ -219,8 +223,9 @@ def use_new_events_schema(team_id: int | None = None, modifiers: "HogQLQueryModi
     route = get_events_route()
     if route is not None and route.useNewEventsSchema is not None:
         return route.useNewEventsSchema
-    if _person_switch.get():
-        return True
+    person_switch = _person_switch.get()
+    if person_switch is not None:
+        return person_switch
     if settings.TEST and settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
         return True
     return project_reads_new_events_table(team_id)
