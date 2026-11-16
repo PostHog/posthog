@@ -11,12 +11,10 @@ import { UnavailableStep } from './steps/UnavailableStep'
 import { VerifyingStep } from './steps/VerifyingStep'
 
 export interface EmailDomainStepsProps {
-    /** Keeps the domain choices of the page and of a modal apart. */
     domainLogicKey: string
     onDomainCreated: EmailDomainWizardLogicProps['onCreated']
 }
 
-/** The step of the sending domain setup that fits its phase. The page and the setup modal both render it. */
 export function EmailDomainSteps({ domainLogicKey, onDomainCreated }: EmailDomainStepsProps): JSX.Element {
     const { phase } = useValues(emailDomainLogic)
     switch (phase) {
