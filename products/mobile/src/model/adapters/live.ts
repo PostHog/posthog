@@ -1,14 +1,19 @@
 import type { HogQLResponseApi, LivePathsResponseApi, LiveStatsApi } from '@/api/live'
 import { isRecord } from '@/lib/records'
-import type {
-    LiveActivity,
-    LiveBreakdown,
-    LiveBreakdownKind,
-    LiveBreakdownRow,
-    LiveEventKind,
-    LiveEventRow,
-    LiveMinute,
-    LiveRankedRow,
+import {
+    type LiveActivity,
+    type LiveBreakdown,
+    type LiveBreakdownKind,
+    type LiveBreakdownRow,
+    type LiveEventKind,
+    type LiveEventRow,
+    type LiveMinute,
+    type LivePathsMode,
+    type LiveProjectState,
+    type LiveRankedRow,
+    type LiveSnapshot,
+    type LiveWorld,
+    UNKNOWN_BREAKDOWN,
 } from '@/model/live'
 
 import { countryFlag, countryName } from './webAnalyticsBreakdowns'
@@ -21,6 +26,7 @@ const BREAKDOWN_TOP_ROWS = 6
 export const DIRECT_REFERRER = '$direct'
 const OTHER = 'Other'
 const BREAKDOWN_PLACEHOLDER = '$$_posthog_breakdown_'
+const COUNTRY_CODE = /^[A-Z]{2}$/
 
 function rowsOf(response: unknown): unknown[][] {
     const results = isRecord(response) ? (response as HogQLResponseApi).results : undefined
@@ -44,25 +50,42 @@ export function liveMinuteStarts(now: number): number[] {
     return Array.from({ length: LIVE_MINUTES }, (_, index) => current - (LIVE_MINUTES - 1 - index) * MINUTE_MS)
 }
 
-/** Chart rows are [epoch milliseconds, visitors, first-time-in-window visitors, pageviews]. */
+/** Chart rows are [epoch milliseconds, visitors, first-time-in-window visitors, pageviews, screenviews]. */
 export function liveActivity(response: unknown, now: number): LiveActivity {
     const byMinute = new Map(rowsOf(response).map((row) => [numberOf(row[0]), row]))
     let uniqueVisitors = 0
     let pageviews = 0
+    let screenviews = 0
     const minutes = liveMinuteStarts(now).map((at): LiveMinute => {
-        const [, userCount, newCount, pageviewCount] = byMinute.get(at) ?? []
+        const [, userCount, newCount, pageviewCount, screenviewCount] = byMinute.get(at) ?? []
         const users = numberOf(userCount)
         const newUsers = numberOf(newCount)
         const views = numberOf(pageviewCount)
+        const screens = numberOf(screenviewCount)
+        screenviews += screens
         uniqueVisitors += newUsers
         pageviews += views
-        return { at, users, newUsers, returningUsers: users - newUsers, pageviews: views }
+        return { at, users, newUsers, returningUsers: users - newUsers, pageviews: views, screenviews: screens }
     })
-    return { minutes, uniqueVisitors, pageviews }
+    return { minutes, uniqueVisitors, pageviews, screenviews }
+}
+
+export function livePathTotal(response: unknown): number | null {
+    const value = rowsOf(response)[0]?.[2]
+    const total = typeof value === 'string' ? Number(value) : value
+    return typeof total === 'number' && Number.isFinite(total) && total >= 0 ? total : null
 }
 
 export function livePathCounts(response: unknown): Map<string, number> {
     const counts = new Map<string, number>()
+    const hogqlRows = rowsOf(response)
+    if (hogqlRows.length > 0) {
+        for (const row of hogqlRows) {
+            const name = textOf(row[0])
+            if (name) counts.set(name, numberOf(row[1]))
+        }
+        return counts
+    }
     const results = isRecord(response) ? (response as LivePathsResponseApi).results : undefined
     for (const result of Array.isArray(results) ? results : []) {
         const path = textOf(result?.breakdown_value)
@@ -120,16 +143,37 @@ const STAT_LABELS: Record<LiveBreakdownKind, string> = {
     devices: 'unique devices',
     browsers: 'unique browsers',
     countries: 'unique visitors',
+    platforms: 'unique users',
 }
 
-/** Browsers and countries keep their top six and add the rest up as "Other", which always comes last. */
-export function liveBreakdown(response: unknown, kind: LiveBreakdownKind): LiveBreakdown {
+interface Counted {
+    key: string
+    count: number
+}
+
+/** A breakdown job's `[[[[key, count], …]]]` answer, most first. */
+function breakdownCounts(response: unknown): Counted[] {
     const counts = rowsOf(response)[0]?.[0]
-    const counted = (Array.isArray(counts) ? counts : [])
+    return (Array.isArray(counts) ? counts : [])
         .filter((entry): entry is [string, unknown] => Array.isArray(entry) && typeof entry[0] === 'string')
         .map(([key, count]) => ({ key, count: numberOf(count) }))
         .filter((entry) => entry.count > 0)
         .sort((a, b) => b.count - a.count || (a.key < b.key ? -1 : 1))
+}
+
+function countryRow({ key, count }: Counted, total: number): LiveBreakdownRow {
+    return {
+        key,
+        label: countryName(key),
+        flag: countryFlag(key) || null,
+        count,
+        percent: total > 0 ? (count / total) * 100 : 0,
+    }
+}
+
+/** Browsers and countries keep their top six and add the rest up as "Other", which always comes last. */
+export function liveBreakdown(response: unknown, kind: LiveBreakdownKind): LiveBreakdown {
+    const counted = breakdownCounts(response)
     const total = counted.reduce((sum, entry) => sum + entry.count, 0)
     const limited =
         kind === 'devices' || counted.length <= BREAKDOWN_TOP_ROWS
@@ -142,15 +186,23 @@ export function liveBreakdown(response: unknown, kind: LiveBreakdownKind): LiveB
                   },
               ]
     const rows = limited.map(
-        ({ key, count }): LiveBreakdownRow => ({
-            key,
-            label: kind === 'countries' && key !== OTHER ? countryName(key) : key,
-            flag: kind === 'countries' && key !== OTHER ? countryFlag(key) || null : null,
-            count,
-            percent: total > 0 ? (count / total) * 100 : 0,
-        })
+        (entry): LiveBreakdownRow =>
+            kind === 'countries' && entry.key !== OTHER
+                ? countryRow(entry, total)
+                : { ...entry, label: entry.key, flag: null, percent: total > 0 ? (entry.count / total) * 100 : 0 }
     )
     return { statLabel: STAT_LABELS[kind], total, rows }
+}
+
+/** Every country of the `geo` job, with no "Other" row, so the map colors each one. */
+export function liveWorld(response: unknown): LiveWorld {
+    const counted = breakdownCounts(response).filter(({ key }) => COUNTRY_CODE.test(key))
+    const total = counted.reduce((sum, entry) => sum + entry.count, 0)
+    return {
+        total,
+        countries: counted.map((entry) => countryRow(entry, total)),
+        counts: Object.fromEntries(counted.map(({ key, count }) => [key, count])),
+    }
 }
 
 const EVENT_LABELS: Record<string, string> = {
@@ -204,4 +256,68 @@ export function liveUsersOnlineFromQuery(response: unknown): number | null {
     }
     const value = numberOf(first)
     return value >= 0 ? Math.round(value) : null
+}
+
+/** Screens when the window has visitors and no pageviews, as a project with only app events has. */
+export function livePathsMode(activity: LiveActivity | null): LivePathsMode {
+    return activity !== null && activity.pageviews === 0 && activity.minutes.some((minute) => minute.users > 0)
+        ? 'screens'
+        : 'pages'
+}
+
+/**
+ * Mobile and mixed profiles keep their daily and weekly metrics visible when the live window is empty.
+ * Without that profile evidence, screen events distinguish an app from a temporarily quiet website.
+ */
+export function liveProjectState(
+    snapshot: LiveSnapshot,
+    project: { ingestedEvent: boolean | null } | null
+): LiveProjectState {
+    if (project?.ingestedEvent === false) {
+        return 'not_set_up'
+    }
+    if (snapshot.profile?.kind === 'mobile') {
+        return 'app_only'
+    }
+    if (snapshot.profile?.kind === 'mixed') {
+        return 'web'
+    }
+    const { activity, events, topPages } = snapshot
+    if (!activity) {
+        return 'web'
+    }
+    const visitors = activity.minutes.some((minute) => minute.users > 0)
+    const quiet =
+        !visitors &&
+        events?.length === 0 &&
+        topPages?.length === 0 &&
+        snapshot.topReferrers?.length === 0 &&
+        [snapshot.devices, snapshot.browsers, snapshot.countries].every((breakdown) => breakdown?.total === 0)
+    if (quiet) {
+        return 'quiet'
+    }
+    const listsScreens = snapshot.topPagesMode === 'screens' && (topPages?.length ?? 0) > 0
+    const sawScreen = events?.some((event) => event.kind === 'screen') ?? false
+    return activity.pageviews === 0 && (listsScreens || sawScreen) ? 'app_only' : 'web'
+}
+
+function onlyUnknown(breakdown: LiveBreakdown | null): boolean {
+    return breakdown?.rows.length === 1 && breakdown.rows[0]?.key === UNKNOWN_BREAKDOWN
+}
+
+/**
+ * The breakdown card's segments. Devices or Browsers drop out when their only row is "Unknown", as for app events,
+ * which carry no browser. With both gone and no countries, the card has nothing to show.
+ */
+export function liveBreakdownKinds(
+    snapshot: Pick<LiveSnapshot, 'devices' | 'browsers' | 'countries'>
+): LiveBreakdownKind[] {
+    const kinds: LiveBreakdownKind[] = []
+    if (!onlyUnknown(snapshot.devices)) {
+        kinds.push('devices')
+    }
+    if (!onlyUnknown(snapshot.browsers)) {
+        kinds.push('browsers')
+    }
+    return kinds.length === 0 && snapshot.countries?.rows.length === 0 ? [] : [...kinds, 'countries']
 }

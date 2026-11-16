@@ -18,6 +18,7 @@ from products.warehouse_sources.sources.google_analytics.google_analytics import
     RUNREPORT_MAX_RETRIES,
     GoogleAnalyticsQuotaExceededError,
     GoogleAnalyticsResumeConfig,
+    GoogleAnalyticsServerError,
     _convert_metric_value,
     _credentials,
     _get_integration,
@@ -32,7 +33,12 @@ from products.warehouse_sources.sources.google_analytics.google_analytics import
 )
 from products.warehouse_sources.sources.google_analytics.source import GoogleAnalyticsSource
 from products.warehouse_sources.sources.sdk import IntegrationNotFound
-from products.warehouse_sources.sources.sdk.testing import RecordedRequest, ScriptedResponse, SourceDriver
+from products.warehouse_sources.sources.sdk.testing import (
+    RecordedRequest,
+    ScriptedResponse,
+    SourceDriver,
+    error_message_matches,
+)
 
 TODAY = dt.date(2026, 4, 30)
 
@@ -345,12 +351,16 @@ def test_run_report_raises_connection_drop_after_exhausting_retries(monkeypatch,
     assert session.post.call_count == RUNREPORT_MAX_RETRIES + 1
 
 
-def test_run_report_raises_http_error_after_exhausting_server_error_retries(monkeypatch):
+@pytest.mark.parametrize("status_code", [409, 503])
+def test_run_report_raises_retryable_error_after_exhausting_server_error_retries(monkeypatch, status_code):
     monkeypatch.setattr(ga.time, "sleep", lambda _: None)
     session = mock.MagicMock()
-    session.post.return_value = _fake_response(503)
+    session.post.return_value = _fake_response(status_code)
 
-    with pytest.raises(requests.HTTPError):
+    # A 5xx or 409 that never clears must raise a retryable error, not a bare HTTPError, so
+    # `GoogleAnalyticsSource.get_retryable_errors` keeps this Google-side outage out of error
+    # tracking while Temporal still retries the activity.
+    with pytest.raises(GoogleAnalyticsServerError) as exc:
         _run_report(
             session=session,
             property_id="123",
@@ -362,6 +372,33 @@ def test_run_report_raises_http_error_after_exhausting_server_error_retries(monk
         )
 
     assert session.post.call_count == RUNREPORT_MAX_RETRIES + 1
+    assert error_message_matches(str(exc.value), GoogleAnalyticsSource().get_retryable_errors())
+
+
+def test_run_report_retries_conflict_then_succeeds(monkeypatch):
+    # 409 is Google's ABORTED code for a concurrency conflict on their end (e.g. another runReport
+    # already in flight for the same property), not a problem with our request — it clears on its
+    # own, so it must back off and retry inline like a 5xx rather than failing the chunk outright.
+    monkeypatch.setattr(ga.time, "sleep", lambda _: None)
+    payload = {"rows": [], "rowCount": 0}
+    session = mock.MagicMock()
+    session.post.side_effect = [
+        _fake_response(409),
+        _fake_response(200, payload),
+    ]
+
+    result = _run_report(
+        session=session,
+        property_id="123",
+        start_date="2026-04-01",
+        end_date="2026-04-30",
+        dimensions=["date"],
+        metrics=["totalUsers"],
+        offset=0,
+    )
+
+    assert result == payload
+    assert session.post.call_count == 2
 
 
 def _report_payload(dates: list[str], users: list[int], row_count: int | None = None) -> dict:

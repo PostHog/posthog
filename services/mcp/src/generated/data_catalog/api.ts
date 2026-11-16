@@ -77,7 +77,12 @@ export const DataCatalogMetricsListQueryParams = () => zod.object({
     definition_kind: zod.string().optional().describe('Only metrics with this query node kind.'),
     limit: zod.number().optional().describe('Number of results to return per page.'),
     offset: zod.number().optional().describe('The initial index from which to return the results.'),
-    search: zod.string().optional().describe('A search term.'),
+    search: zod
+        .string()
+        .optional()
+        .describe(
+            "Find metrics for a measure instead of reading the whole catalog. Send the user's words, the likely metric name, and the spelled-out form of an acronym, separated by commas, such as 'mrr, monthly recurring revenue'. Results come best match first, 10 by default, and match_reason says why each one matched. Words match by stem in the name, display name, description, and definition. Synonyms do not match unless the metric's text contains them."
+        ),
     status: zod.string().optional().describe('Only metrics with this review status.'),
 })
 

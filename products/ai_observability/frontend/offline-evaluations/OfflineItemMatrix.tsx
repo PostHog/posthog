@@ -120,7 +120,9 @@ export function OfflineItemMatrix(props: OfflineExperimentLogicProps): JSX.Eleme
                         <OfflineResultTag result={result} scorer={scorer} />
                     </LemonButton>
                 ) : (
-                    <span className="text-muted text-xs">No result</span>
+                    <span className="text-muted text-xs">
+                        {scorer.calculation === 'composite' ? 'Not requested' : 'No result'}
+                    </span>
                 )
             },
         })),

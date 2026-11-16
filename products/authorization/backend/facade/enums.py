@@ -182,7 +182,6 @@ class ResourceType(StrEnum):
     TRANSACTIONAL_EMAIL = "transactional_email"
     UPLOADED_MEDIA = "uploaded_media"
     USER = "user"
-    USER_INTERVIEW = "user_interview"
     VISION_ACTION = "vision_action"
     VISUAL_REVIEW = "visual_review"
     WEBHOOK = "webhook"

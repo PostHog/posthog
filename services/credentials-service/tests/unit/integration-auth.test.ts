@@ -1,7 +1,7 @@
 import { Hono } from 'hono'
 import { SignJWT } from 'jose'
 import { type KeyObject, generateKeyPairSync } from 'node:crypto'
-import { mkdtemp, rm, writeFile } from 'node:fs/promises'
+import { mkdir, mkdtemp, rm, writeFile } from 'node:fs/promises'
 import { tmpdir } from 'node:os'
 import { join } from 'node:path'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
@@ -576,6 +576,27 @@ describe('integration public keys', () => {
             await keys.reload()
 
             expect(keys.entries().map(([deployment]) => deployment)).toEqual([WEB])
+        })
+
+        it('keeps the previous keys when one file cannot be read', async () => {
+            const dir = await mkdtemp(join(tmpdir(), 'integration-keys-'))
+            dirs.push(dir)
+            await writeFile(join(dir, `${WEB}.pub`), webPem)
+            await writeFile(join(dir, `${CDP}.pub`), publicPem(generateKeyPairSync('ed25519').publicKey))
+            const keys = new IntegrationKeyLoader(dir)
+            await keys.load()
+
+            // A directory named like a key file fails to read, the same as a file that is unreadable.
+            await rm(join(dir, `${CDP}.pub`))
+            await mkdir(join(dir, `${CDP}.pub`))
+            await keys.reload()
+
+            expect(
+                keys
+                    .entries()
+                    .map(([deployment]) => deployment)
+                    .sort()
+            ).toEqual([WEB, CDP].sort())
         })
     })
 })

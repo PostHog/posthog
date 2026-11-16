@@ -30,7 +30,7 @@ const meta: Meta<typeof ScoutDetailView> = {
         layout: 'fullscreen',
         viewMode: 'story',
         mockDate: '2026-06-11',
-        featureFlags: { [FEATURE_FLAGS.PRODUCT_AUTONOMY]: true },
+        featureFlags: { [FEATURE_FLAGS.PRODUCT_AUTONOMY]: true, [FEATURE_FLAGS.PHAI_SANDBOX_MODE]: true },
         testOptions: { waitForLoadersToDisappear: false },
     },
     decorators: [
@@ -97,7 +97,7 @@ const trialsDecorators: Decorator[] = [
 
 export const ScoutPageTrials: Story = {
     parameters: {
-        featureFlags: [FEATURE_FLAGS.PRODUCT_AUTONOMY, FEATURE_FLAGS.SCOUT_TRIALS],
+        featureFlags: [FEATURE_FLAGS.PHAI_SANDBOX_MODE, FEATURE_FLAGS.PRODUCT_AUTONOMY, FEATURE_FLAGS.SCOUT_TRIALS],
     },
     args: { skillName: trialFixtureConfig.skill_name },
     decorators: [
@@ -112,7 +112,7 @@ export const ScoutPageTrials: Story = {
 
 export const ScoutPageTrialsNarrow: Story = {
     parameters: {
-        featureFlags: [FEATURE_FLAGS.PRODUCT_AUTONOMY, FEATURE_FLAGS.SCOUT_TRIALS],
+        featureFlags: [FEATURE_FLAGS.PHAI_SANDBOX_MODE, FEATURE_FLAGS.PRODUCT_AUTONOMY, FEATURE_FLAGS.SCOUT_TRIALS],
     },
     args: { skillName: trialFixtureConfig.skill_name },
     decorators: [

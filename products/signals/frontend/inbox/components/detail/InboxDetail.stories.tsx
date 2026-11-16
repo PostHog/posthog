@@ -183,6 +183,7 @@ const meta: Meta = {
         viewMode: 'story',
         mockDate: '2026-06-11',
         featureFlags: {
+            [FEATURE_FLAGS.PHAI_SANDBOX_MODE]: true,
             [FEATURE_FLAGS.SIGNALS_REPORT_METRICS]: true,
             [FEATURE_FLAGS.SIGNALS_REPORT_MONITORING]: true,
         },
@@ -273,6 +274,16 @@ export const ReportReadyToImplement: Story = {
             />
         </Frame>
     ),
+}
+
+export const ReportWithoutPostHogAiAccess: Story = {
+    ...ReportReadyToImplement,
+    parameters: {
+        featureFlags: {
+            ...ReportReadyToImplement.parameters?.featureFlags,
+            [FEATURE_FLAGS.PHAI_SANDBOX_MODE]: false,
+        },
+    },
 }
 
 export const ReportImplementButtonInHeader: Story = {
@@ -517,6 +528,25 @@ export const ReportWithFollowUpMetricHidden: Story = {
             [FEATURE_FLAGS.SIGNALS_REPORT_MONITORING]: false,
         },
     },
+}
+
+export const ReportReadyToMonitor: Story = {
+    parameters: {
+        mockDate: '2026-08-29',
+        testOptions: { snapshotBrowsers: [] },
+    },
+    render: () => (
+        <Frame>
+            <ReportDetail
+                report={makeReport({
+                    ...reportTabReports[0],
+                    title: 'Creating an API key does nothing when validation fails',
+                    metrics: reportMetricsFixture.slice(0, 1),
+                    monitoring_started_at: null,
+                })}
+            />
+        </Frame>
+    ),
 }
 
 export const ReportFollowUpPending: Story = {

@@ -185,6 +185,7 @@ class ExperimentQueryBuilder:
         only_count_matured_users: bool = False,
         cuped_config: CupedQueryConfig | None = None,
         activation_config: ExperimentEventExposureConfig | ActionsNode | None = None,
+        feature_flag_rule_id: str | None = None,
     ):
         self.team = team
         self.metric = metric
@@ -225,6 +226,7 @@ class ExperimentQueryBuilder:
             resolve_precomputed_persons=precompute_person_resolution_enabled(team),
             activation_config=self.activation_config,
             read_exposure_copies=metric is None or not metric_reads_flag_call(team, metric),
+            feature_flag_rule_id=feature_flag_rule_id,
         )
 
     # Experiment queries group by (variant, breakdown_values), so the row count is

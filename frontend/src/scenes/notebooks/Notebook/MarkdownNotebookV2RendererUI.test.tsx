@@ -4,8 +4,6 @@ import { expectLogic } from 'kea-test-utils'
 import { useState } from 'react'
 
 import api from 'lib/api'
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { initKeaTests } from '~/test/init'
 import { AccessControlLevel } from '~/types'
@@ -55,9 +53,6 @@ describe('MarkdownNotebookV2Renderer UI', () => {
     beforeEach(async () => {
         localStorage.clear()
         initKeaTests()
-        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.REVAMPED_PY_NOTEBOOKS], {
-            [FEATURE_FLAGS.REVAMPED_PY_NOTEBOOKS]: true,
-        })
         jest.spyOn(api, 'stream').mockResolvedValue(undefined as any)
 
         const logicProps: NotebookLogicProps = { shortId: SHORT_ID, mode: 'notebook', cachedNotebook }

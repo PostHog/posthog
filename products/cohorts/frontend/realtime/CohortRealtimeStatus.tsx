@@ -78,8 +78,9 @@ function rowContent(realtime: CohortRealtimeReadinessApi): RowContent | null {
                 label: <span className="text-secondary">Unavailable</span>,
                 tooltip: (
                     <div>
-                        Feature flags can't target this cohort yet because PostHog hasn't prepared it. Contact support
-                        if this doesn't change.
+                        {realtime.reason === 'too_large_to_build'
+                            ? "Feature flags can't target this cohort yet. The events in its criteria happen too often for PostHog to prepare it automatically. Contact support to have it prepared."
+                            : "Feature flags can't target this cohort yet because PostHog hasn't prepared it. Contact support if this doesn't change."}
                     </div>
                 ),
             }

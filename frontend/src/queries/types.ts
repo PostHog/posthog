@@ -94,6 +94,8 @@ export interface QueryContext<Q extends QuerySchema = QuerySchema> {
     dataTableExpectedTotalRows?: number
     compactDataTableToolbar?: boolean
     dataTableToolbarClassName?: string
+    /** Rendered between the toolbar and the results table, e.g. a chart scoped by the toolbar's filters. */
+    dataTableBelowToolbar?: ReactNode
     dataTableExportIconOnly?: boolean
     dataTableHideLoadNextWhenComplete?: boolean
     hideRecordingButton?: boolean
