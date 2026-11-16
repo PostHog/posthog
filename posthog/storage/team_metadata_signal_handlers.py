@@ -29,6 +29,10 @@ from products.feature_flags.backend.models.team_feature_flag_policy_config impor
 
 logger = structlog.get_logger(__name__)
 
+# The refresh and verification jobs both run hourly. The verification job stops at its 40-minute hard limit.
+# The refresh job has no time limit. One hour assumes that a refresh run ends within its period.
+RETIRED_TOKEN_RECLEAR_DELAY_SECONDS = 60 * 60
+
 
 def _record_enqueue_failure() -> None:
     HYPERCACHE_SIGNAL_UPDATE_COUNTER.labels(
@@ -133,6 +137,15 @@ def enqueue_retired_token_metadata_clear_on_commit(team_id: int, api_token: str)
         _enqueue_or_record_failure(
             lambda: clear_team_metadata_cache_for_token_task.delay(api_token),
             "Failed to enqueue retired token metadata clear",
+            team_id=team_id,
+        )
+        # A refresh or verification run that loaded the team before the commit writes the entry back.
+        # The second clear runs after those runs finish.
+        _enqueue_or_record_failure(
+            lambda: clear_team_metadata_cache_for_token_task.apply_async(
+                args=[api_token], countdown=RETIRED_TOKEN_RECLEAR_DELAY_SECONDS
+            ),
+            "Failed to enqueue delayed retired token metadata clear",
             team_id=team_id,
         )
 

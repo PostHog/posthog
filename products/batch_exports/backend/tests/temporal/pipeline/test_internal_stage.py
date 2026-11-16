@@ -161,6 +161,37 @@ async def test_insert_into_stage_activity_executes_the_expected_query_for_events
     )
 
 
+@pytest.mark.parametrize("use_native_schema", [False, True])
+async def test_insert_into_stage_activity_reads_native_events_for_workflows(
+    mock_clickhouse_client,
+    activity_environment,
+    ateam,
+    use_native_schema: bool,
+):
+    insert_inputs = BatchExportInsertIntoInternalStageInputs(
+        team_id=ateam.pk,
+        batch_export_id=str(uuid.uuid4()),
+        data_interval_start=(TEST_DATA_INTERVAL_END - dt.timedelta(hours=1)).isoformat(),
+        data_interval_end=TEST_DATA_INTERVAL_END.isoformat(),
+        exclude_events=None,
+        include_events=None,
+        run_id=None,
+        batch_export_model=BatchExportEventsModel(),
+        backfill_details=None,
+        is_workflows=True,
+        destination_default_fields=None,
+    )
+
+    with override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=use_native_schema):
+        await activity_environment.run(insert_into_internal_stage_activity, insert_inputs)
+
+    if use_native_schema:
+        mock_clickhouse_client.expect_select_from_table("events_json")
+    else:
+        mock_clickhouse_client.expect_select_from_table("events")
+        assert "events_json" not in mock_clickhouse_client.calls[0].query
+
+
 @pytest.mark.parametrize("interval", ["day"], indirect=True)
 @pytest.mark.parametrize(
     "model",

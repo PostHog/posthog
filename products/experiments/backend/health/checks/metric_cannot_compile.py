@@ -19,11 +19,13 @@ from products.experiments.backend.facade.contracts import (
     ExperimentHealthFindingCode,
     ExperimentHealthFindingSeverity,
     ExperimentHealthMetricCompileErrorKind,
+    ExperimentHealthValueKey,
 )
 from products.experiments.backend.health.context import HealthContext, MetricCompileFailure
 from products.experiments.backend.health.skips import (
     NOT_ON_ARCHIVED,
     CheckOutcome,
+    CheckValues,
     no_calculated_metric,
     not_applicable,
     not_checked,
@@ -58,6 +60,17 @@ class _Wording:
 _COMPOUND_AGGREGATION = "must be a single aggregation"
 _MAX_EVIDENCE_MESSAGE_LENGTH = 300
 _ELEMENT_LABELS = {"selector": "CSS selector", "tag_name": "tag name", "href": "link target", "text": "text"}
+
+
+def metric_compile_values(ctx: HealthContext) -> CheckValues:
+    compiles = ctx.metric_compiles
+    if ctx.archived or compiles is None or compiles.exposure_query_fails or compiles.metric_count == 0:
+        return {}
+    return {
+        ExperimentHealthValueKey.METRIC_COUNT: compiles.metric_count,
+        ExperimentHealthValueKey.INVALID_METRIC_COUNT: len(compiles.failures),
+        ExperimentHealthValueKey.UNCHECKED_METRIC_COUNT: compiles.unknown_count + compiles.no_access_count,
+    }
 
 
 def metric_cannot_compile(ctx: HealthContext) -> CheckOutcome:

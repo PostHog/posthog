@@ -113,6 +113,22 @@ from products.tasks.backend.facade.repo_activity import RepositoryCommitActivity
 logger = structlog.get_logger(__name__)
 
 
+@shared_task(ignore_result=True)
+def emit_report_ready_event_task(team_id: int, report_id: str, known_source_products: list[str] | None = None) -> None:
+    """Produce `$signals_report_ready` off the request path. Its ClickHouse lookup must not hold the request that
+    moved the report, and a bulk state change commits its reports one at a time. No retry: a produce is not
+    idempotent, and a duplicate nudge costs a consumer more than a missed one."""
+    from products.signals.backend.receivers import _is_safety_suppressed  # noqa: PLC0415
+    from products.signals.backend.report_ready_event import emit_report_ready_event  # noqa: PLC0415
+
+    emit_report_ready_event(
+        team_id=team_id,
+        report_id=report_id,
+        is_safety_suppressed=_is_safety_suppressed,
+        known_source_products=known_source_products,
+    )
+
+
 @shared_task(ignore_result=True, autoretry_for=(Exception,), retry_backoff=True, max_retries=5)
 @with_team_scope()
 def refresh_report_implementation_pr_cache(
@@ -444,6 +460,7 @@ def link_report_tracker_issues(self, team_id: int, task_id: str, pr_url: str) ->
                         SignalReportTrackerIssue.Status.PENDING,
                     ),
                     pr_linked_at__isnull=True,
+                    closed_at__isnull=True,
                 )
                 .exists()
             )

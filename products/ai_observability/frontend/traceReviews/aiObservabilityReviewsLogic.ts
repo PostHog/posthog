@@ -235,6 +235,7 @@ export const aiObservabilityReviewsLogic = kea<aiObservabilityReviewsLogicType>(
 
                     const response = await aiObservabilityScoreDefinitionsList(String(ApiConfig.getCurrentTeamId()), {
                         archived: false,
+                        calculation: 'reported',
                         order_by: 'name',
                         limit: 1000,
                     })

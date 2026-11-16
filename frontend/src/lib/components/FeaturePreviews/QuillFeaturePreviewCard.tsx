@@ -54,7 +54,7 @@ export function QuillFeaturePreviewCard({ feature, flagsHonored, warning }: Quil
 
     return (
         <Card id={flagKey} size="sm">
-            {imageUrl && <QuillFeaturePreviewImage feature={feature} className="mx-3 h-32" />}
+            {imageUrl && <QuillFeaturePreviewImage feature={feature} className="mx-3 aspect-[3/1]" />}
             <CardHeader>
                 <CardTitle className="min-w-0">
                     <label htmlFor={switchId} className={flagsHonored ? 'cursor-pointer' : 'cursor-default'}>
@@ -84,9 +84,10 @@ export function QuillFeaturePreviewCard({ feature, flagsHonored, warning }: Quil
                 )}
                 {isFeedbackActive && <QuillFeaturePreviewFeedbackForm feature={feature} />}
             </CardContent>
-            <CardFooter className="flex flex-wrap items-center gap-1">
+            <CardFooter className="flex flex-wrap items-center gap-1 py-1.5">
                 {!isFeedbackActive && (
                     <Button
+                        size="sm"
                         onClick={() => beginEarlyAccessFeatureFeedback(flagKey)}
                         data-attr="feature-preview-give-feedback"
                     >
@@ -95,13 +96,13 @@ export function QuillFeaturePreviewCard({ feature, flagsHonored, warning }: Quil
                     </Button>
                 )}
                 {documentationUrl && (
-                    <Button render={<LinkPrimitive to={documentationUrl} target="_blank" />}>
+                    <Button size="sm" render={<LinkPrimitive to={documentationUrl} target="_blank" />}>
                         Learn more
                         <IconExternal />
                     </Button>
                 )}
                 <Button
-                    size="icon"
+                    size="icon-sm"
                     className="ms-auto"
                     aria-label="Copy link to this preview"
                     tooltip="Copy link to this preview"

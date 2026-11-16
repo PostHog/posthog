@@ -1,3 +1,4 @@
+pub mod adaptive_ingestion;
 pub mod alerting;
 pub mod grouping;
 pub mod http_pipeline;

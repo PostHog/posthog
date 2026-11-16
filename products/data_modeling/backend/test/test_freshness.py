@@ -4,12 +4,11 @@ from unittest import TestCase
 
 from parameterized import parameterized
 
+from products.data_modeling.backend.facade.contracts import UnsatisfiableFrequencyError, UnsupportedFrequencyTargetError
 from products.data_modeling.backend.logic.freshness import (
     SCHEDULABLE_BUCKETS,
     STREAMING,
     InvalidTarget,
-    UnsatisfiableFrequencyError,
-    UnsupportedFrequencyTargetError,
     all_consumer_ceilings,
     all_source_floors,
     clamp_to_source_floor,
@@ -125,10 +124,9 @@ class TestValidateFrequencyTarget(TestCase):
             ("on_imported_floor_ok", "a", H6, [("src", "a")], {}, {"src": H6}, True),
             # exactly on a descendant ceiling -> ok (bounds are inclusive at both ends)
             ("on_descendant_ceiling_ok", "a", M15, [("a", "ep")], {"ep": M15}, {}, True),
-            # floor 6h > ceiling 15min: no target is accepted, at either end of the range
-            ("unsatisfiable_rejects_floor_end", "a", H6, [("src", "a"), ("a", "ep")], {"ep": M15}, {"src": H6}, False),
+            ("crossed_bounds_accept_the_floor", "a", H6, [("src", "a"), ("a", "ep")], {"ep": M15}, {"src": H6}, True),
             (
-                "unsatisfiable_rejects_ceiling_end",
+                "crossed_bounds_reject_finer_than_the_floor",
                 "a",
                 M15,
                 [("src", "a"), ("a", "ep")],
@@ -219,6 +217,7 @@ class TestValidateFrequencyTarget(TestCase):
             ("ceiling", DAY, [("a", "ep")], {"ep": M15}, {}, "15 minutes"),
             # rejected on the floor: the message must name what the sources can actually deliver
             ("floor", M15, [("src", "a")], {}, {"src": H6}, "6 hours"),
+            ("crossed_ceiling", DAY, [("src", "a"), ("a", "ep")], {"ep": M15}, {"src": H6}, "Pick 6 hours instead"),
         ]
     )
     def test_rejection_names_the_frequency_to_pick_instead(
@@ -234,23 +233,6 @@ class TestValidateFrequencyTarget(TestCase):
         # ceiling, and nothing is slower than a 30day floor.
         assert "or faster" not in message
         assert "or slower" not in message
-
-    def test_crossed_bounds_name_both_sides_and_suggest_no_cadence(self):
-        # 6h source under a 15min endpoint: every cadence is illegal, so a "pick X instead"
-        # here would name a value the picker cannot offer.
-        with self.assertRaises(UnsatisfiableFrequencyError) as raised:
-            validate_declared_target(
-                node_id="a",
-                target=H6,
-                edges=[("src", "a"), ("a", "ep")],
-                declared_targets={"ep": M15},
-                source_intervals={"src": H6},
-                names={"src": "stripe_invoices", "ep": "daily_revenue"},
-            )
-        message = str(raised.exception)
-        self.assertIn("stripe_invoices", message)
-        self.assertIn("daily_revenue", message)
-        self.assertNotIn("Pick ", message)
 
     # sources sync this fast, model tiers do not run this fast
     @parameterized.expand([("one_minute", timedelta(minutes=1)), ("five_minutes", M5)])
@@ -319,9 +301,9 @@ class TestComputeTargetBounds(TestCase):
         self.assertIsNone(bounds.floor)
         self.assertTrue(all(option.allowed for option in options.values()))
 
-    def test_crossed_bounds_leave_nothing_pickable(self):
+    def test_crossed_bounds_leave_only_the_floor_pickable(self):
         bounds, _ = self._options(declared_targets={"ep": M15})
-        self.assertFalse(bounds.satisfiable)
+        self.assertEqual(bounds.allowed, (H6,))
 
 
 class TestMaxDataAge(TestCase):
@@ -376,6 +358,12 @@ class TestIntersectTargetBounds(TestCase):
         assert bounds.floor is not None
         self.assertEqual(bounds.floor.blocker, "src")
         self.assertFalse(options[M15].allowed)
+
+    def test_a_cadence_one_dag_relaxes_to_stays_blocked_by_another(self):
+        bounds, _ = self._fold(
+            ([("src", "a"), ("a", "ep")], {"ep": M15}, {"src": H6}), ([("slow", "a")], {}, {"slow": H12})
+        )
+        self.assertFalse(bounds.satisfiable)
 
     def test_no_bounds_anywhere_allows_everything(self):
         bounds, options = self._fold(([("free", "a")], {}, {"free": STREAMING}))
@@ -481,6 +469,13 @@ class TestFindInvalidTargets(TestCase):
                 {"a": M15},
                 {"src": H6},
                 [InvalidTarget(node_id="a", declared=M15, source_floor=H6, consumer_ceiling=None)],
+            ),
+            (
+                "slow_lineage_ancestor_under_a_faster_consumer_is_valid",
+                [("slow", "a"), ("a", "ep"), ("fast", "ep")],
+                {"a": H6, "ep": M15},
+                {"slow": H6, "fast": STREAMING},
+                [],
             ),
             # everything within bounds -> nothing flagged
             (

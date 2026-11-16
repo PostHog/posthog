@@ -1,7 +1,10 @@
 import { router } from 'kea-router'
+import { expectLogic } from 'kea-test-utils'
 
+import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
+import { issueTagDefinitionsLogic } from '../IssueFilters/issueTagDefinitionsLogic'
 import { issueQueryOptionsLogic } from './issueQueryOptionsLogic'
 
 const LOGIC_KEY = 'test'
@@ -82,6 +85,63 @@ describe('issueQueryOptionsLogic', () => {
         router.actions.push('/error_tracking')
 
         expect(logic.values.severity).toBeNull()
+    })
+
+    // The query schema forbids unknown fields and a non-boolean applied state, so a malformed tag filter fails the
+    // whole list with a 400.
+    // Each case starts from another filter, because a rejected or missing value must clear the filter already set.
+    it.each([
+        ['an applied filter', { key: 'cause_in_trace', applied: true }, { key: 'cause_in_trace', applied: true }],
+        [
+            'a not applied filter with an extra field',
+            { key: 'cause_in_trace', applied: false, label: 'Cause' },
+            { key: 'cause_in_trace', applied: false },
+        ],
+        ['a bare key', 'cause_in_trace', null],
+        ['no applied state', { key: 'cause_in_trace' }, null],
+        ['an applied state that is not a boolean', { key: 'cause_in_trace', applied: 'yes' }, null],
+        ['an empty key', { key: '', applied: true }, null],
+        ['no tag filter', undefined, null],
+    ])('applies a tag filter from the URL with %s', (_, issueTag, expected) => {
+        const logic = mountLogic()
+        router.actions.push('/error_tracking', { issueTag: { key: 'other_tag', applied: true } })
+        router.actions.push('/error_tracking', { issueTag })
+        expect(logic.values.issueTag).toEqual(expected)
+    })
+
+    // The query ignores a tag that is not enabled, so a filter on one must not stay on screen as if it applied.
+    it.each([
+        ['clears a filter on a tag that is not enabled', 'before', 'other_tag', null],
+        ['keeps a filter on an enabled tag', 'before', 'cause_in_trace', { key: 'cause_in_trace', applied: true }],
+        ['clears a filter on a tag that is not enabled', 'after', 'other_tag', null],
+        ['keeps a filter on an enabled tag', 'after', 'cause_in_trace', { key: 'cause_in_trace', applied: true }],
+    ])('%s when the link opens %s the tag definitions load', async (_, linkOpens, enabledKey, expected) => {
+        useMocks({
+            get: {
+                '/api/projects/:team_id/error_tracking/issues/tag_definitions/': {
+                    results: [{ key: enabledKey, label: 'A tag', description: 'What the tag means.' }],
+                },
+            },
+        })
+        router.actions.push('/error_tracking')
+        const logic = mountLogic()
+        const openLink = (): void => {
+            router.actions.push('/error_tracking', { issueTag: { key: 'cause_in_trace', applied: true } })
+        }
+        if (linkOpens === 'before') {
+            openLink()
+        }
+
+        await expectLogic(issueTagDefinitionsLogic, () => {
+            issueTagDefinitionsLogic.mount()
+        })
+            .toDispatchActions(['loadIssueTagDefinitionsSuccess'])
+            .toFinishAllListeners()
+        if (linkOpens === 'after') {
+            openLink()
+        }
+
+        expect(logic.values.issueTag).toEqual(expected)
     })
 
     // A malformed assignee reaches the query, which the backend rejects with a 400. It renders as

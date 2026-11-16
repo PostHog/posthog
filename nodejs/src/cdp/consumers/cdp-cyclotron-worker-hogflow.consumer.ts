@@ -1,5 +1,3 @@
-import { DateTime } from 'luxon'
-
 import { HogFlow } from '~/cdp/schema/hogflow'
 import {
     hogFlowPersonLookup,
@@ -13,7 +11,7 @@ import { PluginsServerConfig } from '~/types'
 import { JobQueue } from '../services/job-queue/job-queue.interface'
 import { CyclotronJobInvocation, CyclotronJobInvocationHogFlow, CyclotronJobInvocationResult } from '../types'
 import { convertToHogFunctionFilterGlobal } from '../utils/hog-function-filtering'
-import { createInvocationResult } from '../utils/invocation-utils'
+import { createCanceledInvocationResult } from '../utils/invocation-utils'
 import { CdpConsumerBaseDeps } from './cdp-base.consumer'
 import { CdpCyclotronWorker } from './cdp-cyclotron-worker.consumer'
 
@@ -35,41 +33,9 @@ export class CdpCyclotronWorkerHogFlow extends CdpCyclotronWorker {
     ): Promise<CyclotronJobInvocationResult[]> {
         const { loadedInvocations, canceledResults } = await this.loadHogFlows(invocations)
         const executed = await Promise.all(loadedInvocations.map((item) => this.hogFlowExecutor.execute(item)))
-        return [...canceledResults, ...executed]
-    }
-
-    /**
-     * Terminate an invocation as canceled through the normal result pipeline, so the
-     * terminal lifecycle row, app metric, and run log all land. A bare cyclotron
-     * status flip would leave the run showing 'running' in the Invocations UI forever.
-     */
-    private buildCanceledResult(
-        item: CyclotronJobInvocation,
-        message: string,
-        hogFlow?: HogFlow
-    ): CyclotronJobInvocationResult {
-        // The monitoring services identify a workflow result by the presence of `hogFlow`, and use
-        // it to key the terminal lifecycle row as `hog_flow` and to fill the row's trigger fields.
-        // Without it the row keys as `hog_function`; because `function_kind` is part of the
-        // ReplacingMergeTree key, that row could never collapse the `running` row (written as
-        // `hog_flow`), leaving the run stuck at 'running' in the Invocations tab. When the live flow
-        // is gone (deleted, or its lookup failed) we still know its id, which is `item.functionId`,
-        // so attach a minimal stub carrying just that so the row still keys as `hog_flow`. Only `id`
-        // is read off this object on the cancellation path.
-        const resolvedFlow = hogFlow ?? ({ id: item.functionId } as HogFlow)
-        const invocation = { ...item, hogFlow: resolvedFlow }
-        const result = createInvocationResult(invocation, {}, { finished: true })
-        result.canceled = true
-        result.logs.push({ level: 'info', timestamp: DateTime.now(), message })
-        result.metrics.push({
-            team_id: item.teamId,
-            app_source_id: item.parentRunId ?? item.functionId,
-            instance_id: (item.state as CyclotronJobInvocationHogFlow['state'] | null)?.currentAction?.id,
-            metric_kind: 'other',
-            metric_name: 'canceled',
-            count: 1,
-        })
-        return result
+        const results = [...canceledResults, ...executed]
+        results.forEach(countPendingTrigger)
+        return results
     }
 
     protected async hogFlowsFor(invocations: CyclotronJobInvocation[]): Promise<Record<HogFlow['id'], HogFlow | null>> {
@@ -91,7 +57,7 @@ export class CdpCyclotronWorkerHogFlow extends CdpCyclotronWorker {
                 // (deleted) or a lookup error still cancels.
                 if (item.cancelRequestedAt) {
                     const hogFlow = await this.hogFlowManager.getHogFlow(item.functionId).catch(() => null)
-                    canceledResults.push(this.buildCanceledResult(item, 'Run canceled', hogFlow ?? undefined))
+                    canceledResults.push(createCanceledInvocationResult(item, 'Run canceled', hogFlow ?? undefined))
                     return
                 }
 
@@ -118,7 +84,7 @@ export class CdpCyclotronWorkerHogFlow extends CdpCyclotronWorker {
                     })
 
                     canceledResults.push(
-                        this.buildCanceledResult(item, 'Run canceled: the workflow is no longer active', hogFlow)
+                        createCanceledInvocationResult(item, 'Run canceled: the workflow is no longer active', hogFlow)
                     )
 
                     return
@@ -208,4 +174,25 @@ export class CdpCyclotronWorkerHogFlow extends CdpCyclotronWorker {
 
         return { loadedInvocations, canceledResults }
     }
+}
+
+// The transactional email API and the intake consumer queue runs that skip the trigger pipeline, so the worker counts
+// them as triggered when it first runs them.
+// The flag is cleared on the state that the job queue persists, so a throttled or rate-limited reschedule of the
+// same job does not count it again. A canceled run counts too, because the API accepted it.
+export function countPendingTrigger(result: CyclotronJobInvocationResult): void {
+    const state = result.invocation.state as CyclotronJobInvocationHogFlow['state'] | null | undefined
+    if (!state?.triggerMetricPending) {
+        return
+    }
+    delete state.triggerMetricPending
+    result.metrics.push({
+        team_id: result.invocation.teamId,
+        app_source_id: result.invocation.functionId,
+        metric_kind: 'other',
+        metric_name: 'triggered',
+        count: 1,
+        // A send can wait past the hour it was queued, and `conversion_by_start` files the run under that hour.
+        timestamp: result.invocation.queueCreatedAt,
+    })
 }

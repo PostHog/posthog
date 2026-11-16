@@ -23,6 +23,10 @@ ENDPOINTS: dict[str, TeamupFitnessEndpoint] = {
     "offering_types": TeamupFitnessEndpoint(path="offering_types"),
     "lead_sources": TeamupFitnessEndpoint(path="crm/lead_sources"),
     "payment_subscriptions": TeamupFitnessEndpoint(path="payment_subscriptions"),
+    "membership_payment_plans": TeamupFitnessEndpoint(path="membership_payment_plans"),
+    "customer_membership_holds": TeamupFitnessEndpoint(path="customer_membership_holds"),
+    "discount_codes": TeamupFitnessEndpoint(path="discount_codes"),
+    "crm_status_changes": TeamupFitnessEndpoint(path="crm/status_changes", partition_key="created_at"),
 }
 
 AUTH_ERROR = "TeamUp rejected the M2M token. Create a new token in your TeamUp business dashboard."

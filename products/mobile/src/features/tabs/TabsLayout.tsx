@@ -1,6 +1,8 @@
 import { type BottomTabBarProps, Tabs } from 'expo-router/js-tabs'
-import { type ReactElement, useEffect, useLayoutEffect } from 'react'
+import { type ReactElement, useEffect, useLayoutEffect, useRef } from 'react'
 import { Platform, View } from 'react-native'
+import { useInboxHasUnread } from '@/features/inbox/useInboxUnread'
+import { trackLiveOpened } from '@/features/live/analytics'
 import { useViewsOpenedEvent } from '@/features/views/list/useViewsOpenedEvent'
 import { useToasts } from '@/features/views/ViewsToast'
 import { track } from '@/lib/analytics'
@@ -33,11 +35,17 @@ function TabBar({ state, navigateToTab }: BottomTabBarProps): ReactElement {
     // The bar stays mounted across tab switches, so it counts each open once, unlike a focus effect in the screen,
     // which also fires when a pushed report, Settings or the chat sheet closes. The pinned lists count their own opens,
     // because the same screens also open pushed from Views.
+    // The open event reads the dot as it was when the tab changed, so the dot is not an effect dependency.
+    const inboxUnread = useInboxHasUnread()
+    const inboxUnreadRef = useRef(inboxUnread)
+    inboxUnreadRef.current = inboxUnread
     useEffect(() => {
-        if (tab === 'chats') {
+        if (tab === 'live') {
+            trackLiveOpened({ from: 'tab', chrome: 'tab' })
+        } else if (tab === 'chats') {
             track('mobile_chats_opened')
         } else if (tab === 'inbox') {
-            track('mobile_inbox_opened')
+            track('mobile_inbox_opened', { had_unread: inboxUnreadRef.current })
         }
     }, [tab])
     useViewsOpenedEvent(focused === 'views')
@@ -77,6 +85,8 @@ function CustomTabsLayout(): ReactElement {
                             sceneStyle: { backgroundColor: colors.background },
                         }}
                     >
+                        {/* Home is first, so Android back from another tab returns to it. */}
+                        <Tabs.Screen name="live" />
                         <Tabs.Screen name="inbox" />
                         <Tabs.Screen name="chats" />
                         <Tabs.Screen name="views" />
@@ -84,7 +94,6 @@ function CustomTabsLayout(): ReactElement {
                         <Tabs.Screen name="errors" />
                         <Tabs.Screen name="replay" />
                         <Tabs.Screen name="web-analytics" />
-                        <Tabs.Screen name="live" />
                     </Tabs>
                     <TabsChrome />
                 </SceneFrame>

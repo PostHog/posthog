@@ -6,7 +6,7 @@ steps:
     - echo: Views
     - tool: screenshot
       args: { scale: 1, includeImageInContext: false, rotation: LandscapeLeft }
-    - tap: { id: inbox-nav-home }
+    - tap: { id: nav-inbox }
     - await: { visible: { id: inbox-screen } }
     - await: { idle: true }
     - echo: Inbox

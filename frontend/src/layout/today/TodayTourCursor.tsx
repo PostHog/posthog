@@ -6,9 +6,6 @@ import { useReducedMotion } from '@posthog/quill'
 import { TodayTourPoint, centerOf } from './todayTourGeometry'
 import { TodayTourStep, todayTourLogic } from './todayTourLogic'
 
-// pinned: the data-attrs of the rail tiles (TodayRail), the "More" tile and its switch item (TodayMoreMenu).
-const MORE_TILE = '[data-attr="help-menu-button"]'
-const NAV_SWITCH_ITEM = '[data-attr="more-menu-nav-switch-button"]'
 const SIDEBAR = '.TodayShell__sidebar'
 
 // The cursor art's own colors, not theme tokens: it is an illustration and looks the same in both themes.
@@ -34,14 +31,14 @@ function travelMs(from: TodayTourPoint, to: TodayTourPoint): number {
 }
 
 function targetSelector(step: TodayTourStep): string {
-    return step.kind === 'switch' ? MORE_TILE : `[data-attr="today-rail-${step.pane}"]`
+    if (step.pane === 'settings') {
+        return '[data-attr="today-settings"]'
+    }
+    return `[data-attr="today-rail-${step.pane}"]`
 }
 
 /** What the cursor rests on while the card shows. `null` is the middle of the page. */
 function restSelector(step: TodayTourStep): string | null {
-    if (step.kind === 'switch') {
-        return NAV_SWITCH_ITEM
-    }
     return step.pointsAt === 'sidebar' ? SIDEBAR : null
 }
 
@@ -213,10 +210,6 @@ export function TodayTourCursor(): JSX.Element {
                 rest = { x: rect.right - REST_INSET_PX, y: rect.top + Math.min(rect.height / 2, 200) }
             }
             await moveTo(rest)
-            if (tourStep.kind === 'switch') {
-                // Focus is how a menu marks the row under the pointer, so the item lights up as if hovered.
-                restOn?.focus({ preventScroll: true })
-            }
             revealTourStep(rest)
         }
 

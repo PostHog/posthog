@@ -32,6 +32,21 @@ export interface KnowledgeDocumentWindowApi {
 }
 
 /**
+ * * `keyword` - Keyword
+ * * `semantic` - Semantic
+ * * `both` - Keyword and semantic
+ * * `context` - Surrounding context
+ */
+export type SearchMatchEnumApi = (typeof SearchMatchEnumApi)[keyof typeof SearchMatchEnumApi]
+
+export const SearchMatchEnumApi = {
+    Keyword: 'keyword',
+    Semantic: 'semantic',
+    Both: 'both',
+    Context: 'context',
+} as const
+
+/**
  * One ranked chunk from a business knowledge search.
  *
  * Output-only — the rows come from the ``search_knowledge_for_team`` logic
@@ -60,6 +75,18 @@ export interface KnowledgeSearchResultApi {
     readonly is_generated: boolean
     /** Fetched page URL. Empty for text and file sources. */
     readonly url: string
+    /** Why this chunk is in the result. `both`: the chunk matched the query words and the query meaning, the strongest evidence. `semantic`: it matched the meaning only. `keyword`: it shares words with the query, which can be a weak match for a long question. `context`: it did not match; it is a neighbour of a matching chunk, returned so the match reads in context.
+     *
+     * * `keyword` - Keyword
+     * * `semantic` - Semantic
+     * * `both` - Keyword and semantic
+     * * `context` - Surrounding context */
+    readonly matched_by: SearchMatchEnumApi
+    /**
+     * Semantic similarity between the query and this chunk, from 0 to 1, higher is closer. Null when the semantic index did not return this chunk.
+     * @nullable
+     */
+    readonly similarity: number | null
 }
 
 export interface KnowledgeGapSuggestionApi {
@@ -580,6 +607,13 @@ export interface KnowledgeSourceApi {
     readonly always_include: boolean
     /** Libraries this source belongs to. Empty when the source is in none. */
     readonly library_ids: readonly string[]
+    /** Number of support agent runs that cited this source. */
+    readonly cited_run_count: number
+    /**
+     * When a support agent run last cited this source. Null when none has.
+     * @nullable
+     */
+    readonly last_cited_at: string | null
 }
 
 export interface PaginatedKnowledgeSourceListApi {
@@ -663,6 +697,46 @@ export interface KnowledgeAvailabilityApi {
     readonly has_sources: boolean
     /** True when this environment has at least one GitHub repository selected. */
     readonly has_repositories: boolean
+}
+
+export interface DailyCitedRunsApi {
+    /** Day, in UTC. */
+    readonly date: string
+    /** Support agent runs that cited knowledge on this day. */
+    readonly cited_run_count: number
+}
+
+export interface SourceUsageApi {
+    /** ID of the knowledge source. */
+    readonly source_id: string
+    /** Name of the knowledge source. */
+    readonly name: string
+    /** True when the source was learned from a past support ticket. */
+    readonly is_generated: boolean
+    /** Support agent runs that cited this source in the period. */
+    readonly cited_run_count: number
+    /** When a run last cited this source in the period. */
+    readonly last_cited_at: string
+}
+
+/**
+ * How much support agent runs used the knowledge base in a period.
+ */
+export interface KnowledgeUsageApi {
+    /** Number of days the report covers, today included. */
+    readonly days: number
+    /** Support agent runs that cited at least one knowledge source. */
+    readonly cited_run_count: number
+    /** Runs that cited at least one source learned from a past support ticket. */
+    readonly learned_cited_run_count: number
+    /** Knowledge sources in the project. */
+    readonly source_count: number
+    /** Knowledge sources that at least one run cited in the period. */
+    readonly cited_source_count: number
+    /** One entry per day, oldest first. */
+    readonly daily: readonly DailyCitedRunsApi[]
+    /** The most cited sources in the period, most cited first. */
+    readonly top_sources: readonly SourceUsageApi[]
 }
 
 export type BusinessKnowledgeDocumentsWindowListParams = {
@@ -816,4 +890,13 @@ export type BusinessKnowledgeSourcesDocumentsListParams = {
 
 export type BusinessKnowledgeSourcesTextRetrieve200 = {
     text?: string
+}
+
+export type BusinessKnowledgeSourcesUsageRetrieveParams = {
+    /**
+     * Number of days to report, counting back from today. From 1 to 90.
+     * @minimum 1
+     * @maximum 90
+     */
+    days?: number
 }

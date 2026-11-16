@@ -15,6 +15,7 @@ import { UserType } from '~/types'
 import { PROPOSED_TABLES_FILTER, TABLES_FILTER_PARAM } from './catalogTableRows'
 import { existingMetricFromNameConflict, metricCount, metricDisplayName } from './common'
 import { createMetricAsUser, MetricSaveAction, toastCreatedMetric } from './createMetricAsUser'
+import { refreshDataCatalogAttention } from './dataCatalogAttentionLogic'
 import {
     dataCatalogMetricsApproveCreate,
     dataCatalogMetricsBulkApproveCreate,
@@ -417,6 +418,7 @@ export const metricsLogic = kea<metricsLogicType>([
         ],
     }),
     listeners(({ values, actions }) => ({
+        loadMetricsSuccess: () => refreshDataCatalogAttention(),
         toggleStage: ({ stage }) => {
             posthog.capture('data catalog stage card clicked', { stage, status: values.filters.status })
         },

@@ -1,10 +1,15 @@
+import json
 import uuid
 from datetime import UTC, datetime, timedelta
+from io import StringIO
+from pathlib import Path
 from types import SimpleNamespace
 from typing import cast
 
 import pytest
+import time_machine
 
+from django.core.management import call_command
 from django.test import SimpleTestCase, override_settings
 
 import jwt
@@ -14,17 +19,22 @@ from cryptography.hazmat.primitives.asymmetric import rsa
 from parameterized import parameterized
 
 from products.tasks.backend.logic.services.connection_token import (
+    AGENT_EGRESS_AUDIENCE,
+    AGENT_EGRESS_ISSUER,
     SANDBOX_CONNECTION_AUDIENCE,
     SANDBOX_EVENT_INGEST_AUDIENCE,
     SANDBOX_JWT_STATE_KID_KEY,
     STREAM_READ_AUDIENCE,
+    AgentEgressTokenPayload,
     _compute_kid,
     _derive_public_key_pem,
+    _encode_agent_egress_token,
     create_sandbox_connection_token,
     create_sandbox_event_ingest_token,
     create_stream_read_token,
     get_primary_sandbox_jwt_kid,
     get_sandbox_jwt_public_key,
+    get_sandbox_jwt_public_key_bundle,
     reset_sandbox_jwt_key_cache,
     validate_sandbox_event_ingest_token,
     validate_stream_read_token,
@@ -270,6 +280,132 @@ class TestSandboxJwtRotation(SimpleTestCase):
         self.assertEqual(payload.team_id, 1)
         self.assertEqual(get_primary_sandbox_jwt_kid(), KID_A)
         self.assertEqual(get_sandbox_jwt_public_key(), _derive_public_key_pem(KEY_A))
+
+    @parameterized.expand(
+        [
+            ("derived", KEY_A, None, None),
+            ("explicit_primary", KEY_A, _derive_public_key_pem(KEY_B), None),
+            ("public_overlap", None, _derive_public_key_pem(KEY_A), None),
+            ("explicit_secondary", None, None, _derive_public_key_pem(KEY_A).replace("\n", "\\n")),
+        ]
+    )
+    @override_settings(SANDBOX_JWT_PRIVATE_KEY=KEY_B)
+    def test_exports_both_public_keys_for_rotation(
+        self, _name: str, secondary_private_key: str | None, public_key: str | None, secondary_public_key: str | None
+    ) -> None:
+        output = StringIO()
+        with override_settings(
+            SANDBOX_JWT_PRIVATE_KEY_SECONDARY=secondary_private_key,
+            SANDBOX_JWT_PUBLIC_KEY=public_key,
+            SANDBOX_JWT_PUBLIC_KEY_SECONDARY=secondary_public_key,
+        ):
+            call_command("export_sandbox_jwt_public_keys", stdout=output)
+
+        self.assertEqual(
+            json.loads(output.getvalue()),
+            {
+                _compute_kid(_derive_public_key_pem(KEY_B)): _derive_public_key_pem(KEY_B),
+                KID_A: _derive_public_key_pem(KEY_A),
+            },
+        )
+        self.assertNotIn("PRIVATE KEY", output.getvalue())
+
+    @override_settings(
+        SANDBOX_JWT_PRIVATE_KEY=None,
+        SANDBOX_JWT_PRIVATE_KEY_SECONDARY=None,
+        SANDBOX_JWT_PUBLIC_KEY=_derive_public_key_pem(KEY_A).replace("\n", "\\n"),
+        SANDBOX_JWT_PUBLIC_KEY_SECONDARY=_derive_public_key_pem(KEY_B),
+    )
+    def test_public_key_bundle_needs_no_private_key(self) -> None:
+        self.assertEqual(
+            get_sandbox_jwt_public_key_bundle(),
+            {
+                KID_A: _derive_public_key_pem(KEY_A),
+                _compute_kid(_derive_public_key_pem(KEY_B)): _derive_public_key_pem(KEY_B),
+            },
+        )
+
+    @parameterized.expand([("private_pem", KEY_A), ("no_keys", None)])
+    @override_settings(
+        SANDBOX_JWT_PRIVATE_KEY=None,
+        SANDBOX_JWT_PRIVATE_KEY_SECONDARY=None,
+        SANDBOX_JWT_PUBLIC_KEY_SECONDARY=None,
+    )
+    def test_public_key_export_rejects_invalid_configuration(self, _name: str, public_key: str | None) -> None:
+        output = StringIO()
+        with override_settings(SANDBOX_JWT_PUBLIC_KEY=public_key), self.assertRaises(ValueError):
+            call_command("export_sandbox_jwt_public_keys", stdout=output)
+        self.assertEqual(output.getvalue(), "")
+
+    @override_settings(
+        SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY,
+        SANDBOX_JWT_PRIVATE_KEY_SECONDARY=None,
+        SANDBOX_JWT_PUBLIC_KEY=None,
+        SANDBOX_JWT_PUBLIC_KEY_SECONDARY=None,
+    )
+    def test_egress_token_matches_go_fixture(self) -> None:
+        fixture_path = (
+            Path(__file__).parents[2] / "services/egress-proxy/internal/identity/testdata/python-capability.json"
+        )
+        fixture = json.loads(fixture_path.read_text())
+        registration = fixture["registration"]
+        kid = get_primary_sandbox_jwt_kid()
+        run = TaskRun(
+            id=uuid.UUID(registration["run_id"]),
+            team_id=registration["team_id"],
+            state={SANDBOX_JWT_STATE_KID_KEY: kid},
+        )
+        payload = AgentEgressTokenPayload(
+            actor_id=registration["actor_id"],
+            actor_epoch=registration["actor_epoch"],
+            execution_id=uuid.UUID(registration["execution_id"]),
+            relay_key_sha256=registration["relay_key_sha256"],
+        )
+
+        with time_machine.travel(fixture["now"], tick=False):
+            token = _encode_agent_egress_token(run, payload)
+
+        self.assertEqual(token, fixture["token"])
+        self.assertEqual(get_sandbox_jwt_public_key_bundle(), fixture["keys"])
+
+    @override_settings(
+        SANDBOX_JWT_PRIVATE_KEY=KEY_B,
+        SANDBOX_JWT_PRIVATE_KEY_SECONDARY=KEY_A,
+        SANDBOX_JWT_PUBLIC_KEY=None,
+        SANDBOX_JWT_PUBLIC_KEY_SECONDARY=None,
+    )
+    def test_egress_token_keeps_run_signing_key_during_rotation(self) -> None:
+        run = _fake_run({SANDBOX_JWT_STATE_KID_KEY: KID_A})
+        payload = AgentEgressTokenPayload(
+            actor_id=7, actor_epoch=1, execution_id=uuid.uuid4(), relay_key_sha256="r" * 43
+        )
+        token = _encode_agent_egress_token(run, payload)
+
+        claims = jwt.decode(
+            token,
+            _derive_public_key_pem(KEY_A),
+            algorithms=["RS256"],
+            audience=AGENT_EGRESS_AUDIENCE,
+            issuer=AGENT_EGRESS_ISSUER,
+        )
+        self.assertEqual(jwt.get_unverified_header(token)["kid"], KID_A)
+        self.assertEqual(claims["exp"] - claims["iat"], 300)
+        self.assertEqual(claims["sub"], str(run.id))
+
+        with override_settings(SANDBOX_JWT_PRIVATE_KEY_SECONDARY=None):
+            reset_sandbox_jwt_key_cache()
+            with self.assertRaisesRegex(ValueError, "signing key is unavailable"):
+                _encode_agent_egress_token(run, payload)
+
+    @parameterized.expand([(None,), ("",), ("removed",), (["invalid"],)])
+    @override_settings(SANDBOX_JWT_PRIVATE_KEY=KEY_A, SANDBOX_JWT_PRIVATE_KEY_SECONDARY=None)
+    def test_egress_token_requires_a_registered_signing_key(self, kid: object) -> None:
+        run = _fake_run({SANDBOX_JWT_STATE_KID_KEY: kid})
+        payload = AgentEgressTokenPayload(
+            actor_id=7, actor_epoch=1, execution_id=uuid.uuid4(), relay_key_sha256="r" * 43
+        )
+        with self.assertRaisesRegex(ValueError, "signing key is unavailable"):
+            _encode_agent_egress_token(run, payload)
 
 
 _RUN_ID = "11111111-1111-1111-1111-111111111111"

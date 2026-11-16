@@ -2,7 +2,6 @@ import { describe, expect, it } from 'vitest'
 
 import { PROVIDER_SPECS, providerSpec } from '@/providers'
 import { buildAuthorizeUrl, pkceChallenge, pythonUrlencode } from '@/providers/authorize'
-import { applyOverrides } from '@/providers/overrides'
 import type { AuthorizeSpec, ProviderSpec } from '@/providers/schema'
 
 // The expected URLs come from `OauthIntegration.authorize_url` (posthog/models/integration/oauth.py)
@@ -15,7 +14,7 @@ const VERIFIER = 'dBjftJeZ4CVP-mB92K27uhbUJU1p1r_wW1gFWFOEjXk'
 const CHALLENGE = 'E9Melhoa2OwvFrEMTJguCHaoeK1t8URWbuGJSstw-cM'
 
 const SLACK_SCOPES =
-    'app_mentions%3Aread%2Cassistant%3Awrite%2Ccanvases%3Awrite%2Cchannels%3Ahistory%2Cchannels%3Amanage%2Cchannels%3Aread%2Cchat%3Awrite%2Cchat%3Awrite.customize%2Ccommands%2Cfiles%3Aread%2Cfiles%3Awrite%2Cgroups%3Ahistory%2Cgroups%3Aread%2Cim%3Ahistory%2Clinks%3Aread%2Clinks%3Awrite%2Cmpim%3Ahistory%2Cmpim%3Aread%2Creactions%3Aread%2Creactions%3Awrite%2Cteam%3Aread%2Cusers%3Aread%2Cusers%3Aread.email'
+    'app_mentions%3Aread%2Cassistant%3Awrite%2Ccanvases%3Aread%2Ccanvases%3Awrite%2Cchannels%3Ahistory%2Cchannels%3Ajoin%2Cchannels%3Amanage%2Cchannels%3Aread%2Cchat%3Awrite%2Cchat%3Awrite.customize%2Ccommands%2Cfiles%3Aread%2Cfiles%3Awrite%2Cgroups%3Ahistory%2Cgroups%3Aread%2Cim%3Ahistory%2Clinks%3Aread%2Clinks%3Awrite%2Cmpim%3Ahistory%2Cmpim%3Aread%2Creactions%3Aread%2Creactions%3Awrite%2Cteam%3Aread%2Cusers%3Aread%2Cusers%3Aread.email'
 
 function redirect(kind: string): string {
     return `redirect_uri=https%3A%2F%2Fus.posthog.com%2Fintegrations%2F${kind}%2Fcallback`
@@ -71,15 +70,6 @@ describe('authorize URL', () => {
     it('has a golden URL for every kind with an authorize leg', () => {
         const withAuthorize = PROVIDER_SPECS.filter((spec) => spec.authorize).map((spec) => spec.kind)
         expect(Object.keys(GOLDEN).sort()).toEqual(withAuthorize.sort())
-    })
-
-    it('asks for the in-review Slack scopes only in dev', () => {
-        const dev = applyOverrides(providerSpec('slack') as ProviderSpec, { environment: 'dev' })
-        expect(build('slack', dev)).toBe(
-            `https://slack.com/oauth/v2/authorize?${standard('slack', `${SLACK_SCOPES}%2Ccanvases%3Aread%2Cchannels%3Ajoin`)}`
-        )
-        const prod = applyOverrides(providerSpec('slack') as ProviderSpec, { environment: 'prod-us' })
-        expect(build('slack', prod)).toBe(GOLDEN['slack'])
     })
 
     // Help Scout drops everything after the first `&` of a state it gets back, so the state goes hex.

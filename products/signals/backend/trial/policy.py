@@ -10,12 +10,11 @@ from django.utils import timezone
 
 import structlog
 import posthoganalytics
-from rest_framework.exceptions import APIException, PermissionDenied
+from rest_framework.exceptions import APIException
 
 from posthog.dataclasses import frozen
 from posthog.models.organization import Organization, OrganizationMembership
 from posthog.models.team.team import Team
-from posthog.models.user import User
 from posthog.temporal.common.errors import NonReportableError
 
 from products.signals.backend.trial.funding import TrialFunding
@@ -167,15 +166,11 @@ class TrialPolicy:
     def claim(
         self, *, user_id: int, limits: TrialLimits = STANDARD_TRIAL_LIMITS, api_scopes: list[str] | None = None
     ) -> SignalTrialGrant:
-        from products.signals.backend.models import SignalScoutConfig  # noqa: PLC0415 -- model registration cycle
-
         self.check_enabled()
         existing = self.grant()
         if existing is not None:
             return existing
         with transaction.atomic():
-            # Scout writers acquire their config before the organization lock too.
-            list(SignalScoutConfig.objects.for_team(self.team_id, canonical=True).select_for_update().order_by("id"))
             lock_organization_trial(self.organization_id)
             existing = self.grant()
             if existing is not None:
@@ -189,7 +184,6 @@ class TrialPolicy:
                 allowance_microusd=limits.allowance_microusd,
                 report_limit=limits.report_limit,
             )
-            self._pause_excess_scouts(grant, api_scopes=api_scopes)
             transaction.on_commit(
                 lambda: logger.info(
                     "signals_trial_claimed",
@@ -199,36 +193,6 @@ class TrialPolicy:
                 )
             )
             return grant
-
-    def _pause_excess_scouts(self, grant: SignalTrialGrant, *, api_scopes: list[str] | None) -> None:
-        from products.signals.backend.models import SignalScoutConfig  # noqa: PLC0415 -- model registration cycle
-        from products.signals.backend.scout_harness.lifecycle_lock import (
-            user_holds_scout_lifecycle_claims,  # noqa: PLC0415 -- lifecycle permissions depend on Signals models
-        )
-
-        configs = list(
-            SignalScoutConfig.objects.for_team(self.team_id, canonical=True)
-            .filter(enabled=True)
-            .order_by("created_at", "id")
-        )
-        excess = configs[grant.scout_limit :]
-        if excess and api_scopes is not None and not {"*", "signal_scout:write"}.intersection(api_scopes):
-            raise PermissionDenied("Starting this trial would pause scouts and requires signal_scout:write access.")
-        locked = [config for config in excess if config.lifecycle_locked]
-        if locked:
-            team = Team.objects.get(pk=self.team_id)
-            user = User.objects.get(pk=grant.claimed_by_id)
-            if not user_holds_scout_lifecycle_claims(team=team, configs=locked, user=user):
-                raise PermissionDenied(
-                    "Starting this trial would pause a locked scout. Only the person its runs act as or a project admin can do that."
-                )
-        for config in excess:
-            config.status = SignalScoutConfig.Status.PAUSED_BY_SYSTEM
-            config.enabled = False
-            config.pause_reason = SignalScoutConfig.PauseReason.TRIAL_SCOUT_LIMIT
-            config.status_changed_at = timezone.now()
-            config.status_changed_by_id = None
-            config.save(update_fields=["status", "enabled", "pause_reason", "status_changed_at", "status_changed_by"])
 
     @contextmanager
     def locked_grant(self, grant_id: UUID) -> Iterator[SignalTrialGrant]:
