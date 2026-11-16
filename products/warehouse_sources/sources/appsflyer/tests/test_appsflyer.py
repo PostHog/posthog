@@ -5,7 +5,6 @@ from unittest import mock
 
 import requests
 
-from products.warehouse_sources.backend.temporal.data_imports.external_data_job import _non_retryable_error_message
 from products.warehouse_sources.sources.appsflyer._config import AppsFlyerSourceConfig
 from products.warehouse_sources.sources.appsflyer.appsflyer import (
     CHUNK_SIZE,
@@ -32,6 +31,7 @@ from products.warehouse_sources.sources.sdk.testing import (
     ScriptedResponse,
     SourceDriver,
     always,
+    error_message_matches,
     scripted_network,
 )
 
@@ -303,9 +303,12 @@ class TestNotFoundRejection:
 
         assert result.raised is not None
         error = f"{type(result.raised).__name__}: {result.raised}"
-        message = _non_retryable_error_message(AppsFlyerSource().get_non_retryable_errors(), error)
-        assert message is not None
-        assert expected_copy in message
+        messages = [
+            message
+            for pattern, message in AppsFlyerSource().get_non_retryable_errors().items()
+            if message and error_message_matches(error, [pattern])
+        ]
+        assert messages and expected_copy in messages[0]
 
 
 class TestRawAndMasterWindows:
