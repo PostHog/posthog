@@ -3170,39 +3170,53 @@ TREE_READ_PATHS: list[tuple[str, str, dict[str, str]]] = [
 ]
 
 
-KNOWN_PER_ROW_TREE_SUBQUERIES = {
-    # Postgres may run this select-list EXISTS once per row, but only for the objects the NOT EXISTS anti-join kept,
-    # and an index on (team_id, type, ref) serves each run.
-    "unfiled_already_saved_annotation": 'AS "already_saved"',
-}
+UNFILED_ALREADY_SAVED_SELECT = 'AS "already_saved"'
+PATTERN_FROM_A_COLUMN = re.compile(r"\s!?~~?\*?\s+(?!')")
+PLAN_CONDITIONS = ("Filter", "Join Filter", "Index Cond", "Recheck Cond", "Hash Cond", "Merge Cond")
+
+
+def _plan_nodes(node: Mapping[str, Any]) -> Iterable[Mapping[str, Any]]:
+    yield node
+    for child in node.get("Plans", []):
+        yield from _plan_nodes(child)
 
 
 def _scans_file_system(node: Mapping[str, Any]) -> bool:
-    return node.get("Relation Name") == "posthog_filesystem" or any(
-        _scans_file_system(child) for child in node.get("Plans", [])
-    )
+    return any(child.get("Relation Name") == "posthog_filesystem" for child in _plan_nodes(node))
 
 
-def _subplans(node: Mapping[str, Any]) -> Iterable[Mapping[str, Any]]:
-    if node.get("Parent Relationship") == "SubPlan":
-        yield node
-    for child in node.get("Plans", []):
-        yield from _subplans(child)
+def _names_marked_hashed_by_their_parent(plan: Mapping[str, Any]) -> set[str]:
+    return set(re.findall(r"hashed (SubPlan \d+)", json.dumps(plan)))
 
 
-def _per_row_file_system_subplans(plan: Mapping[str, Any]) -> list[Mapping[str, Any]]:
-    # Postgres runs a SubPlan once per outer row unless it hashes it, and an InitPlan once per statement.
-    # EXPLAIN names a hashed SubPlan "SubPlan N" like any other and marks it only where its parent reads it,
-    # as "hashed SubPlan N" in a Filter or, with VERBOSE, an Output.
-    hashed = set(re.findall(r"hashed (SubPlan \d+)", json.dumps(plan)))
-    return [node for node in _subplans(plan) if node["Subplan Name"] not in hashed and _scans_file_system(node)]
+def _select_list_subplan_names(plan: Mapping[str, Any]) -> set[str]:
+    return {
+        name
+        for node in _plan_nodes(plan)
+        for expression in node.get("Output", [])
+        for name in re.findall(r"SubPlan \d+", expression)
+    }
 
 
-def _select_list_subplan_names(node: Mapping[str, Any]) -> set[str]:
-    names = {name for expression in node.get("Output", []) for name in re.findall(r"SubPlan \d+", expression)}
-    for child in node.get("Plans", []):
-        names |= _select_list_subplan_names(child)
-    return names
+def _per_row_tree_scans(sql: str, plan: Mapping[str, Any]) -> list[Mapping[str, Any]]:
+    hashed = _names_marked_hashed_by_their_parent(plan)
+    per_row_subplans = [
+        node
+        for node in _plan_nodes(plan)
+        if node.get("Parent Relationship") == "SubPlan"
+        and node["Subplan Name"] not in hashed
+        and _scans_file_system(node)
+    ]
+    if UNFILED_ALREADY_SAVED_SELECT in sql:
+        select_list = _select_list_subplan_names(plan) & {node["Subplan Name"] for node in per_row_subplans}
+        if len(select_list) == 1:
+            per_row_subplans = [node for node in per_row_subplans if node["Subplan Name"] not in select_list]
+    column_patterns = [
+        node
+        for node in _plan_nodes(plan)
+        if any(PATTERN_FROM_A_COLUMN.search(node.get(condition, "")) for condition in PLAN_CONDITIONS)
+    ]
+    return per_row_subplans + column_patterns
 
 
 class TestFileSystemReadPlans(APIBaseTest):
@@ -3258,17 +3272,18 @@ class TestFileSystemReadPlans(APIBaseTest):
     def test_tree_reads_run_no_per_row_subquery_over_the_tree(
         self, _name: str, flag_enabled: bool, action: str, params: dict[str, str]
     ) -> None:
-        # CaptureQueriesContext keeps only the interpolated SQL, and EXPLAIN needs the statement with its typed params.
         statements: list[tuple[str, Any]] = []
 
-        def capture(execute: Callable[..., Any], sql: str, sql_params: Any, many: bool, context: Any) -> Any:
+        def capture_with_typed_params(
+            execute: Callable[..., Any], sql: str, sql_params: Any, many: bool, context: Any
+        ) -> Any:
             if not many:
                 statements.append((sql, sql_params))
             return execute(sql, sql_params, many, context)
 
         with (
             patch("posthoganalytics.feature_enabled", return_value=flag_enabled),
-            connection.execute_wrapper(capture),
+            connection.execute_wrapper(capture_with_typed_params),
         ):
             response = self.client.get(f"/api/projects/{self.team.id}/file_system/{action}", params)
         self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
@@ -3285,16 +3300,9 @@ class TestFileSystemReadPlans(APIBaseTest):
                 cursor.execute(f"EXPLAIN (FORMAT JSON, VERBOSE) {sql}", sql_params)
                 row = cursor.fetchone()
                 assert row is not None
-                plan = row[0][0]["Plan"]
-                allowed = (
-                    _select_list_subplan_names(plan)
-                    if any(marker in sql for marker in KNOWN_PER_ROW_TREE_SUBQUERIES.values())
-                    else set()
-                )
                 offenders.extend(
                     f"{sql}\n{sql_params}\n{json.dumps(node, indent=2)}"
-                    for node in _per_row_file_system_subplans(plan)
-                    if node["Subplan Name"] not in allowed
+                    for node in _per_row_tree_scans(sql, row[0][0]["Plan"])
                 )
         if offenders:
             flag_state = "on" if flag_enabled else "off"
