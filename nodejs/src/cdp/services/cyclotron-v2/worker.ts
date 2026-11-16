@@ -88,6 +88,49 @@ const NODE_PG_CONNECTION_LOST_MESSAGE = /^Connection terminated|is not queryable
 type ReleaseDb = Pool | Client
 type ReleaseAttempt = (db: ReleaseDb) => Promise<{ rowCount: number | null }>
 
+class ReleaseRetrySlots {
+    private free: number
+    private readonly waiters: (() => void)[] = []
+
+    constructor(size: number) {
+        this.free = size
+    }
+
+    acquire(waitMs: number): Promise<(() => void) | null> {
+        if (this.free > 0) {
+            this.free--
+            return Promise.resolve(this.releaser())
+        }
+        return new Promise((resolve) => {
+            const grant = (): void => {
+                clearTimeout(timer)
+                resolve(this.releaser())
+            }
+            const timer = setTimeout(() => {
+                this.waiters.splice(this.waiters.indexOf(grant), 1)
+                resolve(null)
+            }, waitMs)
+            this.waiters.push(grant)
+        })
+    }
+
+    private releaser(): () => void {
+        let released = false
+        return () => {
+            if (released) {
+                return
+            }
+            released = true
+            const next = this.waiters.shift()
+            if (next) {
+                next()
+            } else {
+                this.free++
+            }
+        }
+    }
+}
+
 function isConnectionLost(error: unknown): boolean {
     if (!(error instanceof Error)) {
         return false
@@ -299,6 +342,7 @@ export class CyclotronV2Worker {
     private readonly ownershipReadTimeoutMs: number
     private readonly boundedFairDequeue: boolean
     private readonly assignEmailDequeueSeq: (teamId: number) => Promise<string>
+    private readonly releaseRetrySlots: ReleaseRetrySlots
 
     constructor(private config: CyclotronV2WorkerConfig) {
         this.pool = createCyclotronPool('worker', {
@@ -307,6 +351,9 @@ export class CyclotronV2Worker {
             idleTimeoutMillis: config.pool.idleTimeoutMs ?? 30000,
         })
         this.assignEmailDequeueSeq = batchEmailDequeueSeqs(this.pool)
+        // One dropped query can fail a whole batch at once, such as every
+        // email slot reservation a team coalesced into it.
+        this.releaseRetrySlots = new ReleaseRetrySlots(config.pool.maxConnections ?? 10)
         this.queueName = config.queueName
         this.batchMaxSize = config.batchMaxSize ?? 100
         this.pollDelayMs = config.pollDelayMs ?? 50
@@ -471,6 +518,7 @@ export class CyclotronV2Worker {
     protected wrapJob(row: RawJobRow): CyclotronV2DequeuedJob {
         const pool = this.pool
         const dbUrl = this.config.pool.dbUrl
+        const releaseRetrySlots = this.releaseRetrySlots
         const assignEmailDequeueSeq = this.assignEmailDequeueSeq
         let reservedEmailDequeueSeq: Promise<string> | null = null
         const reserveEmailDequeueSeqOnce = (db: ReleaseDb): Promise<string> => {
@@ -524,12 +572,17 @@ export class CyclotronV2Worker {
         // The retry runs outside the worker pool with the remaining heartbeat
         // budget as its statement timeout, so Postgres cancels a retry that
         // stalls, and a stalled retry never holds a client that dequeues,
-        // heartbeats and shutdown need.
+        // heartbeats and shutdown need. At most the pool's size of retries
+        // run at once; the rest wait for a slot until the deadline.
         const retryOnOwnConnection = async (attempt: ReleaseAttempt): Promise<{ rowCount: number | null }> => {
-            const remainingMs = Math.max(
-                1,
-                Math.ceil(releaseWriteHeartbeatLimitMs - (Date.now() - (releaseStartedAt ?? Date.now())))
-            )
+            const deadline = (releaseStartedAt ?? Date.now()) + releaseWriteHeartbeatLimitMs
+            const freeSlot = await releaseRetrySlots.acquire(deadline - Date.now())
+            if (!freeSlot) {
+                throw new Error(
+                    `Release write retry for job ${row.id} found no free connection before the heartbeat limit`
+                )
+            }
+            const remainingMs = Math.max(1, Math.ceil(deadline - Date.now()))
             const client = new Client({
                 connectionString: dbUrl,
                 connectionTimeoutMillis: remainingMs,
@@ -547,6 +600,7 @@ export class CyclotronV2Worker {
                 return result
             } finally {
                 void client.end().catch(() => undefined)
+                freeSlot()
             }
         }
 

@@ -5216,6 +5216,54 @@ describe('Cyclotron V2', () => {
                 expect({ status: row.status, lock_id: row.lock_id }).toEqual({ status: 'available', lock_id: null })
             })
 
+            it('opens no more retry connections than the worker pool holds when one dropped slot reservation fails a batch', async () => {
+                const ids = await manager.bulkCreateJobs(
+                    Array.from({ length: 4 }, () => ({ teamId: 1, queueName: 'email' }))
+                )
+                const worker = createWorker('email', {
+                    pool: { dbUrl: DROP_DB_URL, maxConnections: 2 },
+                    batchMaxSize: 4,
+                    releaseWriteRetry: true,
+                    releaseWriteHeartbeatLimitMs: 1000,
+                })
+                stops.push(() => worker.disconnect())
+                const jobs = await dequeueOneBatch(worker)
+                let defers!: Promise<PromiseSettledResult<void>[]>
+                let mostRetriesWaiting = 0
+
+                const outcome = await interruptReleaseWrite(
+                    async () => {
+                        defers = Promise.allSettled(jobs.map((job) => job.defer({ scheduledAt: new Date() })))
+                        if ((await defers).some((result) => result.status === 'rejected')) {
+                            throw new Error('a defer failed')
+                        }
+                    },
+                    {
+                        lock: ['SELECT counter FROM cyclotron_email_team_seq WHERE team_id = $1 FOR UPDATE', [1]],
+                        beforeRetry: async (holder) => {
+                            let settled = false
+                            void defers.then(() => (settled = true))
+                            while (!settled) {
+                                mostRetriesWaiting = Math.max(mostRetriesWaiting, await backendsWaitingOnLocks())
+                            }
+                            await holder.query('ROLLBACK')
+                        },
+                    }
+                )
+
+                expect({ jobs: jobs.length, outcome, mostRetriesWaiting }).toEqual({
+                    jobs: 4,
+                    outcome: 'rejected',
+                    mostRetriesWaiting: 2,
+                })
+                const rows = await Promise.all(ids.map((id) => queryJob(id)))
+                expect(rows.map((row) => row.status)).toEqual(['running', 'running', 'running', 'running'])
+
+                const laterId = await manager.createJob({ teamId: 1, queueName: 'email' })
+                const [laterJob] = await dequeueOneBatch(worker)
+                expect(await interruptReleaseWrite(() => laterJob.ack(), { lock: jobRow(laterId) })).toBe('released')
+            }, 10_000)
+
             const OTHER_WORKER_LOCK = '01a1e3aa-0000-7000-8000-000000000001'
 
             it.each([
