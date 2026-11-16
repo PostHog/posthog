@@ -77,6 +77,8 @@ const exited = (role: Role, second: number, byValve = false, replica = 0): RoleE
     byValve,
 })
 
+const exitedWithError = (role: Role, second: number): RoleExit => ({ ...exited(role, second), code: 1, signal: null })
+
 describe('statusOf', () => {
     it.each<[string, Partial<Verdict>, string, string]>([
         ['every invariant held', {}, 'passed', 'every invariant held'],
@@ -259,22 +261,28 @@ describe('statusOf', () => {
             `${HOGFLOW_WORKER} exited (SIGKILL) without a valve causing it, while pg.failover on cyclotron was applied`,
         ],
         [
-            "a role crashed while the roles' Postgres connections were dropped",
-            { timeline: [dropped(10, 40)], exits: [exited(HOGFLOW_WORKER, 25)] },
+            "a role exited with an error while the roles' Postgres connections were dropped",
+            { timeline: [dropped(10, 40)], exits: [exitedWithError(HOGFLOW_WORKER, 25)] },
             'passed',
             'every invariant held',
         ],
         [
-            'a role crashed just after the connection drop released',
-            { timeline: [dropped(10, 40)], exits: [exited(HOGFLOW_WORKER, 44)] },
+            'a role exited with an error just after the connection drop released',
+            { timeline: [dropped(10, 40)], exits: [exitedWithError(HOGFLOW_WORKER, 44)] },
             'passed',
             'every invariant held',
         ],
         [
-            'a role crashed well after the connection drop released',
-            { timeline: [dropped(10, 40)], exits: [exited(HOGFLOW_WORKER, 46)] },
+            'a role exited with an error well after the connection drop released',
+            { timeline: [dropped(10, 40)], exits: [exitedWithError(HOGFLOW_WORKER, 46)] },
             'failed',
-            `${HOGFLOW_WORKER} exited (SIGKILL) without a valve causing it`,
+            `${HOGFLOW_WORKER} exited (code 1) without a valve causing it`,
+        ],
+        [
+            'a role was killed by a signal while the connections were dropped',
+            { timeline: [dropped(10, 40)], exits: [exited(HOGFLOW_WORKER, 25)] },
+            'failed',
+            `${HOGFLOW_WORKER} exited (SIGKILL) without a valve causing it, while pg.drop_connections on postgres was applied`,
         ],
         [
             'a dependency went away',

@@ -1651,6 +1651,11 @@ describe('scenario environment', () => {
                 void reconnected.ended.then(() => (reconnectedDropped = true))
                 await waitForExpect(() => expect(reconnectedDropped).toBe(true), 5_000)
                 await actuation.release()
+                const afterRelease = await connect(cyclotronUrl, 'cdp-cyclotron-worker-hogflow')
+                sessions.push(afterRelease)
+                await expect(
+                    Promise.race([afterRelease.ended.then(() => 'dropped'), nextTimers(1_000).then(() => 'kept')])
+                ).resolves.toBe('kept')
             } finally {
                 await Promise.all(sessions.map(({ client }) => client.end().catch(() => undefined)))
             }

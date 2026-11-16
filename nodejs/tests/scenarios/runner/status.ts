@@ -6,7 +6,7 @@ import type { BarResult } from '../judge/bars'
 import type { Convergence, InvariantResult } from '../judge/judge'
 import { Baseline, DriveWindow, MIN_BASELINE_SECONDS, phasesOf } from '../judge/measurements'
 import type { WriterSample } from '../probe/writer-probe'
-import type { ValveTimelineEntry } from '../valves/valves'
+import { VALVES, ValveTimelineEntry } from '../valves/valves'
 
 export type Status = 'passed' | 'failed' | 'invalid'
 
@@ -104,26 +104,34 @@ const DATABASE_TARGETS = new Set(['postgres', 'cyclotron'])
 const SUSTAINED_FAILURES = 5
 const CONNECTION_LOST = /^(08...|57P01)$/
 
-const appliedDuring = ({ intentAt, appliedAt, releasedAt }: ValveTimelineEntry, at: string, graceMs = 0): boolean => {
+const ROLE_EXIT_GRACE_MS = new Map(
+    VALVES.flatMap(({ name, roleExitGraceMs }) => (roleExitGraceMs === undefined ? [] : [[name, roleExitGraceMs]]))
+)
+
+const appliedWithin = (
+    { intentAt, appliedAt, releasedAt }: ValveTimelineEntry,
+    at: string,
+    graceMs: number
+): boolean => {
     const from = intentAt ?? appliedAt
+    const time = Date.parse(at)
     return (
         from !== undefined &&
-        from <= at &&
-        (releasedAt === undefined || Date.parse(at) <= Date.parse(releasedAt) + graceMs)
+        Date.parse(from) <= time &&
+        (releasedAt === undefined || time <= Date.parse(releasedAt) + graceMs)
     )
 }
 
-// A role whose Postgres connection is dropped mid-write exits on purpose and restarts with nothing lost.
-// The grace covers an exit from the last sweep that lands just after the release.
-const CONNECTION_DROP_EXIT_GRACE_MS = 5000
-
-const causedByConnectionDrop = (exit: RoleExit, timeline: ValveTimelineEntry[]): boolean =>
-    timeline.some(
-        (entry) => entry.valve === 'pg.drop_connections' && appliedDuring(entry, exit.at, CONNECTION_DROP_EXIT_GRACE_MS)
-    )
+const exitedByValve = (exit: RoleExit, timeline: ValveTimelineEntry[]): boolean =>
+    exit.byValve ||
+    (exit.signal === null &&
+        timeline.some((entry) => {
+            const graceMs = ROLE_EXIT_GRACE_MS.get(entry.valve)
+            return graceMs !== undefined && appliedWithin(entry, exit.at, graceMs)
+        }))
 
 function unexpectedExit(exit: RoleExit, timeline: ValveTimelineEntry[]): string {
-    const applied = timeline.filter((entry) => DATABASE_TARGETS.has(entry.target) && appliedDuring(entry, exit.at))
+    const applied = timeline.filter((entry) => DATABASE_TARGETS.has(entry.target) && appliedWithin(entry, exit.at, 0))
     return [
         `${nameOf(exit)} exited (${exit.signal ?? `code ${exit.code}`}) without a valve causing it`,
         ...applied.map(({ valve, target }) => `while ${valve} on ${target} was applied`),
@@ -197,9 +205,7 @@ export function statusOf({
     if (interrupted !== undefined) {
         return { status: 'invalid', statusReason: interrupted }
     }
-    const crashes = exits
-        .filter((exit) => !exit.byValve && !causedByConnectionDrop(exit, timeline))
-        .map((exit) => unexpectedExit(exit, timeline))
+    const crashes = exits.filter((exit) => !exitedByValve(exit, timeline)).map((exit) => unexpectedExit(exit, timeline))
     const unobserved = [
         ...timeline
             .filter(({ observedAt }) => observedAt === undefined)

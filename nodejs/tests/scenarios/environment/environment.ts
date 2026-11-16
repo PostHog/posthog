@@ -1,3 +1,4 @@
+import { once } from 'events'
 import { existsSync, mkdirSync, realpathSync } from 'fs'
 import os from 'os'
 import path from 'path'
@@ -128,6 +129,10 @@ export type EnvironmentOptions = {
 async function holdConnectionsDropped(sweep: () => Promise<number>): Promise<Actuation> {
     let terminated = await sweep()
     let failure: unknown
+    const settled = Promise.withResolvers<void>()
+    if (terminated > 0) {
+        settled.resolve()
+    }
     const released = new AbortController()
     const sweeping = (async () => {
         while (!released.signal.aborted) {
@@ -139,14 +144,18 @@ async function holdConnectionsDropped(sweep: () => Promise<number>): Promise<Act
                 terminated += await sweep()
             } catch (error) {
                 failure = error
+                settled.resolve()
                 return
+            }
+            if (terminated > 0) {
+                settled.resolve()
             }
         }
     })()
     return {
         async observed(holdEnds) {
-            while (terminated === 0 && failure === undefined && holdEnds !== undefined && !holdEnds.aborted) {
-                await sleep(DROP_SWEEP_EVERY_MS, undefined, { signal: holdEnds }).catch(() => undefined)
+            if (holdEnds !== undefined && !holdEnds.aborted) {
+                await Promise.race([settled.promise, once(holdEnds, 'abort')])
             }
             return terminated > 0
         },
