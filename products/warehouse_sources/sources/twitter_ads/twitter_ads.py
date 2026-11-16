@@ -1,6 +1,14 @@
+import math
+import time
 from collections.abc import Iterator
-from datetime import UTC, date, datetime, time, timedelta
-from typing import Any
+from datetime import (
+    UTC,
+    date,
+    datetime,
+    time as datetime_time,
+    timedelta,
+)
+from typing import TYPE_CHECKING, Any
 from urllib.parse import quote
 from zoneinfo import ZoneInfo
 
@@ -9,12 +17,15 @@ from requests_oauthlib import OAuth1
 from structlog.types import FilteringBoundLogger
 
 from products.warehouse_sources.sources.sdk import (
+    DEFAULT_RETRY,
+    BoundedRetry,
     IntegrationRecord,
     ResumableSourceManager,
     SourceResponse,
     credentials_service,
     frozen,
     make_tracked_session,
+    request_deadline,
 )
 from products.warehouse_sources.sources.twitter_ads.settings import (
     API_VERSION,
@@ -36,6 +47,36 @@ from products.warehouse_sources.sources.twitter_ads.settings import (
     VIDEO_METRICS,
     conversion_column,
 )
+
+if TYPE_CHECKING:
+    from urllib3.response import HTTPResponse
+
+
+# Synchronous analytics has a 15-minute rate window; leave a minute for the request after reset.
+# https://docs.x.com/x-ads-api/fundamentals/rate-limiting
+_REQUEST_RETRY_BUDGET_SECONDS = 16 * 60
+
+
+class _TwitterAdsRetry(BoundedRetry):
+    def get_retry_after(self, response: HTTPResponse) -> float | None:
+        if retry_after := response.headers.get("Retry-After"):
+            return self.parse_retry_after(retry_after)
+        if response.status == 429:
+            for header in ("x-account-rate-limit-reset", "x-rate-limit-reset"):
+                try:
+                    reset_at = float(response.headers.get(header, ""))
+                except ValueError:
+                    continue
+                if math.isfinite(reset_at):
+                    return max(0.0, reset_at - datetime.now(UTC).timestamp())
+        return None
+
+    def _requested_wait(self, response: HTTPResponse | None) -> float:
+        # Use the same delay for admission and sleeping, so the deadline rejects an excessive reset.
+        if self.respect_retry_after_header and response is not None:
+            if retry_after := self.get_retry_after(response):
+                return retry_after
+        return self.get_backoff_time()
 
 
 @frozen
@@ -71,7 +112,7 @@ def _account_midnight(day: date, account_timezone: ZoneInfo) -> datetime:
     window sends an hour past midnight across a daylight-saving boundary, which X answers with a
     400 rather than a shifted result.
     """
-    return datetime.combine(day, time.min, account_timezone).astimezone(UTC)
+    return datetime.combine(day, datetime_time.min, account_timezone).astimezone(UTC)
 
 
 def _utc_param(moment: datetime) -> str:
@@ -168,12 +209,23 @@ class TwitterAdsClient:
         consumer_secret = consumer["TWITTER_ADS_CONSUMER_SECRET"]
         if not consumer_key or not consumer_secret:
             raise ValueError(MISSING_APP)
-        self.session = make_tracked_session(allow_redirects=False, redact_values=(token, secret, consumer_secret))
+        self.session = make_tracked_session(
+            allow_redirects=False,
+            redact_values=(token, secret, consumer_secret),
+            retry=_TwitterAdsRetry(
+                total=DEFAULT_RETRY.total,
+                backoff_factor=DEFAULT_RETRY.backoff_factor,
+                status_forcelist=DEFAULT_RETRY.status_forcelist,
+                allowed_methods=DEFAULT_RETRY.allowed_methods,
+                raise_on_status=False,
+            ),
+        )
         self.session.auth = OAuth1(consumer_key, consumer_secret, token, secret)
         self.base_url = f"https://ads-api.x.com/{api_version}"
 
     def get(self, path: str, params: dict[str, str | int] | None = None) -> dict[str, Any]:
-        response = self.session.get(f"{self.base_url}/{path}", params=params, timeout=60)
+        with request_deadline(time.monotonic() + _REQUEST_RETRY_BUDGET_SECONDS):
+            response = self.session.get(f"{self.base_url}/{path}", params=params, timeout=60)
         try:
             response.raise_for_status()
         except requests.HTTPError as error:

@@ -376,6 +376,61 @@ def test_stats_rejection_recovers_all_rows_and_resumes(
     assert len(stats_requests) == 2 * len(PLACEMENTS) * (15 if narrowing == "day" else 3)
 
 
+@pytest.mark.parametrize(
+    "reset_headers",
+    [
+        {"x-rate-limit-reset": 900},
+        {"x-account-rate-limit-reset": 900, "x-rate-limit-reset": 1800},
+        {"x-account-rate-limit-reset": "invalid", "x-rate-limit-reset": 900},
+        {"Retry-After": 900, "x-account-rate-limit-reset": 1800},
+    ],
+)
+def test_stats_daily_fallback_waits_for_rate_limit_reset(
+    client: TwitterAdsClient, reset_headers: dict[str, str | int]
+) -> None:
+    timezone = "Asia/Kolkata"
+    now = datetime(2025, 11, 12, 12, tzinfo=UTC)
+    reset_at = now + timedelta(seconds=900)
+    headers = {
+        header: str(value if header == "Retry-After" or isinstance(value, str) else int(now.timestamp()) + value)
+        for header, value in reset_headers.items()
+    }
+    limited_attempts: list[datetime] = []
+
+    def answer(request: RecordedRequest) -> ScriptedResponse:
+        clock.move_to(now + timedelta(seconds=network.elapsed))
+        metadata = stats_metadata(request, timezone)
+        if metadata is not None:
+            return metadata
+        start = datetime.fromisoformat(str(request.param("start_time"))).astimezone(ZoneInfo(timezone)).date()
+        end = datetime.fromisoformat(str(request.param("end_time"))).astimezone(ZoneInfo(timezone)).date()
+        if "," in str(request.param("entity_ids")) or (end - start).days > 1:
+            return ScriptedResponse(status=400, json={"errors": [{"code": "INVALID_PARAMETER", "parameter": "entity"}]})
+        if (
+            request.param("entity_ids") == "one"
+            and start == date(2025, 11, 1)
+            and request.param("placement") == PLACEMENTS[0]
+        ):
+            limited_attempts.append(datetime.now(UTC))
+            if datetime.now(UTC) < reset_at:
+                return ScriptedResponse(status=429, headers=headers, json={"errors": [{"code": "TOO_MANY_REQUESTS"}]})
+        return stats_success(request, timezone)
+
+    with time_machine.travel(now, tick=False) as clock, scripted_network(answer) as network:
+        manager = ResumableSourceManager(source_inputs("campaign_stats"), TwitterAdsResumeConfig)
+        resource = twitter_ads_source(client, "account", "campaign_stats", manager, date(2025, 10, 31), MagicMock())
+        rows = []
+        for page in sync_items(resource):
+            rows.extend(page)
+            manager.confirm()
+            manager.commit()
+        checkpoint = manager.load_state()
+    assert limited_attempts == [now, reset_at]
+    assert len(rows) == 2 * 12 * len(PLACEMENTS)
+    assert len({(row["entity_id"], row["date"], row["placement"]) for row in rows}) == len(rows)
+    assert checkpoint is not None and checkpoint.complete
+
+
 @pytest.mark.parametrize("narrowing", ["batch", "entity", "day"])
 def test_stats_shutdown_after_window_does_not_reimport_written_rows(client: TwitterAdsClient, narrowing: str) -> None:
     timezone = "Asia/Kolkata"
@@ -411,6 +466,20 @@ def test_stats_shutdown_after_window_does_not_reimport_written_rows(client: Twit
 
     assert len(written) == 2 * 12 * len(PLACEMENTS)
     assert len({(row["entity_id"], row["date"], row["placement"]) for row in written}) == len(written)
+
+
+@pytest.mark.parametrize("reset,expected_attempts", [("1731500000", 1), ("inf", 4), ("invalid", 4)])
+def test_rate_limit_reset_cannot_hold_request_indefinitely(
+    client: TwitterAdsClient, reset: str, expected_attempts: int
+) -> None:
+    def answer(request: RecordedRequest) -> ScriptedResponse:
+        return ScriptedResponse(status=429, headers={"x-rate-limit-reset": reset}, json={"errors": []})
+
+    with time_machine.travel("2024-01-01T00:00:00Z", tick=False), scripted_network(answer) as network:
+        with pytest.raises(requests.HTTPError, match="429 Client Error"):
+            client.get("stats/accounts/account")
+    assert len(network.requests_log) == expected_attempts
+    assert network.elapsed <= 3
 
 
 @pytest.mark.parametrize(

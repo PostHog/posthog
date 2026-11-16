@@ -362,6 +362,8 @@ X Ads retries a stats request rejected with `INVALID_PARAMETER (entity)` for eac
 Successful responses can still be imported, but the resume checkpoint advances only after every entity and placement in the window succeeds.
 If X rejects a single entity and day, the sync reports that some stats could not be imported and asks the user to contact support.
 The sync retries before it is disabled; this error does not mean that the first failure disables it immediately.
+For `429` responses, the client honors `Retry-After`, then X's account-level or user-level reset timestamp, within a 16-minute request budget.
+This covers X's [15-minute analytics rate window](https://docs.x.com/x-ads-api/fundamentals/rate-limiting) without adding another retry layer.
 
 Meta Ads requests `video_play_actions` and `video_thruplay_watched_actions` on its campaign, ad set, ad, and supported breakdown statistics tables.
 Hourly statistics and `ad_stats_by_link_url` exclude both fields because these breakdowns do not support them.
