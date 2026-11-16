@@ -15,6 +15,7 @@ import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import type { CodeEmailApi } from 'products/messaging/frontend/generated/api.schemas'
 
+import { sendFromCodeGuideUrl } from './sendFromCode/sendFromCodeGuideUrl'
 import { transactionalEmailsLogic } from './transactionalEmailsLogic'
 import { TransactionalEmailsTable } from './TransactionalEmailsTable'
 
@@ -217,19 +218,45 @@ describe('TransactionalEmailsTable', () => {
 
     it.each([
         ['leads with the Wizard command once it is offered', true, false, true],
-        ['shows only the snippet until the Wizard command is offered', false, false, false],
-        ['shows only the snippet on a self-hosted instance the Wizard cannot reach', true, true, false],
-    ])('%s', async (_case, wizardOffered, selfHosted, wizardShown) => {
+        ['leads with the agent prompt until the Wizard command is offered', false, false, false],
+        ['leads with the agent prompt on a self-hosted instance the Wizard cannot reach', true, true, false],
+    ])('%s, with the code one click away', async (_case, wizardOffered, selfHosted, wizardShown) => {
         const { container } = renderWithCodeSends({}, { wizardOffered, selfHosted })
         await waitFor(() => {
-            expect(screen.getByText('Node.js')).toBeInTheDocument()
+            expect(container.querySelector('[data-attr=send-from-code-copy-agent-prompt]')).toBeInTheDocument()
             expect(
                 container
                     .querySelector('[data-attr=wizard-command-block]')
                     ?.textContent?.includes('transactional-email') ?? false
             ).toBe(wizardShown)
         })
-        expect(screen.queryByText('Or add the send yourself') !== null).toBe(wizardShown)
+        expect(screen.queryByText('Or use your own coding agent') !== null).toBe(wizardShown)
+        expect(container.querySelector('[data-attr=send-from-code-snippet]')).not.toBeInTheDocument()
+
+        fireEvent.click(container.querySelector('[data-attr=send-from-code-show-code]')!)
+
+        expect(container.querySelector('[data-attr=send-from-code-snippet]')).toHaveTextContent('Node.js')
+    })
+
+    it('opens the guide when the domain-ready card links to it', async () => {
+        renderWithCodeSends({
+            '/api/projects/:team_id/messaging_templates/': {
+                results: [
+                    {
+                        id: 'template-1',
+                        name: 'Receipt',
+                        transactional_hog_flow_id: 'flow-1',
+                        has_draft: false,
+                        tags: [],
+                    },
+                ],
+            },
+        })
+        await screen.findByText(/Your code can send any email/)
+        act(() => router.actions.push(sendFromCodeGuideUrl()))
+
+        expect(await screen.findByText('Send an email from your code')).toBeInTheDocument()
+        expect(router.values.searchParams).toEqual({})
     })
 
     it('offers sending from code only once the templates loaded', async () => {

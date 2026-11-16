@@ -16,6 +16,7 @@ import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
 import type { DataSuggestionApi } from '../../generated/api.schemas'
+import { sendFromCodeGuideUrl } from '../../Transactional/sendFromCode/sendFromCodeGuideUrl'
 import { FakeEmailDomainBackend } from './__mocks__/fakeEmailDomainBackend'
 import { EmailDomainScene } from './EmailDomainScene'
 
@@ -403,7 +404,7 @@ describe('EmailDomainScene', () => {
         expectStep(/You can send from/)
         expect(element('email-domain-ready-back-to-origin')).toHaveAttribute(
             'href',
-            expect.stringMatching(new RegExp(`${urls.transactional()}$`))
+            expect.stringContaining(sendFromCodeGuideUrl())
         )
 
         cleanup()

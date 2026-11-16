@@ -1,0 +1,44 @@
+export interface SendFromCodePromptInput {
+    projectToken: string
+    host: string
+    appHost: string | null
+    secretKeysUrl: string
+    from: string | null
+}
+
+const DOCS_URL = 'https://posthog.com/docs/workflows/transactional-emails'
+
+/** A prompt a person pastes into their coding agent to add the first email send to their server code. */
+export function sendFromCodePrompt({
+    projectToken,
+    host,
+    appHost,
+    secretKeysUrl,
+    from,
+}: SendFromCodePromptInput): string {
+    return [
+        'Add the first transactional email send to our server code with PostHog.',
+        '',
+        'Facts',
+        `- PostHog project token: ${projectToken}`,
+        `- PostHog host: ${host}`,
+        ...(appHost ? [`- PostHog app host, passed as appHost in Node.js and app_host in Python: ${appHost}`] : []),
+        '- The secret API key is read from the env var POSTHOG_PROJECT_SECRET_API_KEY. It needs the transactional_email:write scope.',
+        `  If it is not set, ask me to create one at ${secretKeysUrl} and add it to our env file. Never commit it and never send it to the browser.`,
+        from
+            ? `- Send from ${from}. Its domain is verified in PostHog.`
+            : '- Leave out the from address. No sending domain is verified in PostHog yet.',
+        '',
+        'Steps',
+        '1. Find the place in our server code where the first email belongs, such as right after sign-up or a password reset request. If more than one place fits, ask me.',
+        `2. Install posthog-node@^5.62.0 for Node.js or posthog>=7.84.0 for Python. For another language, follow ${DOCS_URL}`,
+        '3. Create the PostHog client with the project token, the host and the secret key, then call emails.send with:',
+        '   - a template_key that names the email, such as "welcome". Each key shows up in PostHog with its own metrics.',
+        "   - the recipient's address as to, and their PostHog distinct_id",
+        '   - a subject and the html body',
+        '   - an idempotency key that is new for each email, such as the sign-up id plus the template key',
+        '4. Do not wrap the send in your own retry loop. PostHog retries delivery. Send again only when the call gets no answer at all, and then with the same idempotency key.',
+        '5. Handle the error the send returns. Do not let a failed send break the request that triggered it.',
+        '6. Show me the diff and tell me how to trigger the send once, so I can see it arrive in PostHog.',
+    ].join('\n')
+}
