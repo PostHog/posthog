@@ -37,6 +37,7 @@ const RESULT: RunResult = {
     origin: 'local-agent',
     units: { targetUnits: 60, offeredUnits: 58 },
     convergence: { converged: true, unfinishedJobs: 0, unrecorded: [], tookMs: 4000 },
+    janitorResets: 2,
     invariants: [
         {
             name: 'at_least_once',
@@ -132,6 +133,7 @@ describe('scorecard', () => {
                     units_offered: 58,
                     converged: true,
                     unfinished_jobs: 0,
+                    janitor_resets: 2,
                     inv_at_least_once_passed: false,
                     inv_at_least_once_observed: 2,
                     inv_at_least_once_gate: null,

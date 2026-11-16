@@ -4,7 +4,7 @@ import { z } from 'zod'
 
 import { internalFetch } from '~/common/utils/request'
 
-import type { Named } from '../cards'
+import type { CdpRole, Named } from '../cards'
 import type { Definition } from '../cards/definitions'
 import type { ObservationName } from '../environment/failover'
 import { ReplicaOf, nameOf } from '../environment/identity'
@@ -24,6 +24,7 @@ export type MetricSample = {
     processed: Record<string, number>
     pgClientErrors: number
     consumerLoopErrors: number
+    janitorStalled: number
     lateness: Record<string, Record<string, number>>
 }
 
@@ -45,7 +46,7 @@ type Measured = { key?: string; incomplete?: true } & Value
 
 export type Measurement = { name: string; unit: string } & Measured
 
-export type MeasureEvidence = JudgeEvidence &
+export type MeasureEvidence = Omit<JudgeEvidence, 'janitorResets'> &
     Readonly<Sampled> &
     Readonly<Probed> & { sampledFrom: number; drive: DriveWindow; timeline: readonly ValveTimelineEntry[] }
 
@@ -83,8 +84,15 @@ const increaseOf = (ofReplica: readonly MetricSample[], read: Counter, since: nu
         return sum + read(lifetime.at(-1)!) - (startedWhileSampled ? 0 : read(lifetime[0]))
     }, 0)
 
-const cpuSecondsOf = (ofReplica: readonly MetricSample[], sampledFrom: number): number =>
-    increaseOf(ofReplica, ({ cpuSeconds }) => cpuSeconds, sampledFrom)
+const increaseAcrossReplicas = (replicas: readonly MetricSample[][], read: Counter, since: number): number =>
+    replicas.reduce((sum, ofReplica) => sum + increaseOf(ofReplica, read, since), 0)
+
+const JANITOR: z.infer<typeof CdpRole> = 'cdp-cyclotron-v2-janitor'
+
+export function janitorResetsOf({ samples, sampledFrom }: Pick<Sampled, 'samples'> & { sampledFrom: number }): number {
+    const replicas = replicasOf(byRole(samples).get(JANITOR) ?? [])
+    return increaseAcrossReplicas(replicas, ({ janitorStalled }) => janitorStalled, sampledFrom)
+}
 
 export const roleCpuSeconds: MeasurementDefinition = {
     name: 'role_cpu_seconds',
@@ -92,10 +100,10 @@ export const roleCpuSeconds: MeasurementDefinition = {
     unit: 's',
     measure: ({ samples, missed, sampledFrom }) =>
         [...byRole(samples)].map(([role, ofRole]) => {
-            const replicas = [...Map.groupBy(ofRole, ({ replica }) => replica).values()]
+            const replicas = replicasOf(ofRole)
             return {
                 key: role,
-                value: replicas.reduce((sum, ofReplica) => sum + cpuSecondsOf(ofReplica, sampledFrom), 0),
+                value: increaseAcrossReplicas(replicas, ({ cpuSeconds }) => cpuSeconds, sampledFrom),
                 ...(replicas.some((ofReplica) => lostCpu(ofReplica, missed)) ? { incomplete: true as const } : {}),
             }
         }),
@@ -546,6 +554,7 @@ export function sampleOf({ role, replica }: Target, at: number, text: string): M
               processed: processedOf(text),
               pgClientErrors: totalOf(text, 'cdp_cyclotron_v2_pg_client_errors_total'),
               consumerLoopErrors: totalOf(text, 'cdp_cyclotron_v2_consumer_loop_errors_total'),
+              janitorStalled: totalOf(text, 'cdp_cyclotron_v2_janitor_stalled'),
               lateness: latenessOf(text),
           }
 }
