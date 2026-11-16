@@ -658,6 +658,9 @@ def get_clickhouse_row_count(
         mv_inner_lookups: dict[str, str] = {}  # mv_name -> uuid (for .inner_id.<uuid>)
 
         for row in result.result_rows:
+            # Some ClickHouse-compatible servers return system.tables rows narrower than the select.
+            if len(row) < 5:
+                continue
             name, total_rows, engine, uuid_val, create_query = row[0], row[1], row[2], row[3], row[4]
             if total_rows is not None:
                 counts[name] = int(total_rows)
@@ -1265,7 +1268,7 @@ def _get_partition_settings(
         logger.debug(f"_get_partition_settings: failed: {e}")
         return None
 
-    if not result.result_rows:
+    if not result.result_rows or len(result.result_rows[0]) != 2:
         return None
 
     total_rows, total_bytes = result.result_rows[0]
