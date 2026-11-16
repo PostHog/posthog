@@ -632,6 +632,68 @@ def test_table_size_runs_only_as_the_fallback_while_ducklake_copy_always_runs(
 
 
 @pytest.mark.django_db
+@pytest.mark.parametrize(
+    "has_table,rows_synced,expect_statistics,expect_enrichment",
+    [
+        pytest.param(False, 5, False, False, id="no_table"),
+        pytest.param(True, 0, False, True, id="zero_rows_stats_within_weekly_cap"),
+        pytest.param(True, 5, True, True, id="rows_written_stats_past_daily_interval"),
+    ],
+)
+def test_statistics_and_enrichment_start_only_when_the_child_has_work(
+    team, has_table, rows_synced, expect_statistics, expect_enrichment, _no_close_old_connections
+):
+    from datetime import timedelta
+
+    from django.utils import timezone
+
+    from products.warehouse_sources.backend.models.column_statistics import WarehouseColumnStatistics
+    from products.warehouse_sources.backend.models.credential import DataWarehouseCredential
+    from products.warehouse_sources.backend.models.table import DataWarehouseTable
+    from products.warehouse_sources.backend.temporal.data_imports.post_import_job import (
+        SEMANTIC_ENRICHMENT_STEP,
+        TABLE_STATISTICS_STEP,
+        PostImportWorkflowInputs,
+        resolve_post_import_context_activity,
+    )
+
+    team.organization.is_ai_data_processing_approved = True
+    team.organization.save()
+    source, schema, job = _create_job(
+        team,
+        status=ExternalDataJob.Status.COMPLETED,
+        schema_snapshot={"last_synced_at": "2026-07-01T00:00:00+00:00"},
+        schema_last_synced_at=None,
+        rows_synced=rows_synced,
+    )
+    if has_table:
+        credential = DataWarehouseCredential.objects.create(access_key="k", access_secret="s", team=team)
+        table = DataWarehouseTable.objects.create(
+            name="stripe_customer",
+            format="Parquet",
+            team=team,
+            credential=credential,
+            url_pattern="https://bucket.s3/data/*",
+            columns={"email": {"clickhouse": "Nullable(String)"}},
+        )
+        schema.table = table
+        schema.save()
+        WarehouseColumnStatistics.objects.for_team(team.id).create(
+            team=team, table=table, column_name="email", computed_at=timezone.now() - timedelta(days=2)
+        )
+
+    ctx = resolve_post_import_context_activity(
+        PostImportWorkflowInputs(
+            team_id=team.pk, job_id=str(job.id), schema_id=str(schema.id), source_id=str(source.id)
+        )
+    )
+
+    assert ctx.steps is not None
+    assert (TABLE_STATISTICS_STEP in ctx.steps) is expect_statistics
+    assert (SEMANTIC_ENRICHMENT_STEP in ctx.steps) is expect_enrichment
+
+
+@pytest.mark.django_db
 @pytest.mark.parametrize("case", ["job_deleted", "job_not_completed"])
 def test_resolve_context_skips_all_steps_when_job_is_gone_or_not_completed(team, case, _no_close_old_connections):
     # A cancelled job (Completed write suppressed after the final batch) or a deleted job

@@ -125,18 +125,20 @@ class TestStatisticsStale:
     @parameterized.expand(
         [
             # Guards against re-profiling a freshly-computed table on every sync (the bug we're fixing).
-            ("recent_not_stale", dt.timedelta(hours=1), False),
+            ("recent_not_stale", dt.timedelta(hours=1), True, False),
             # Guards against never recomputing once a row exists.
-            ("older_than_interval_stale", dt.timedelta(hours=25), True),
+            ("older_than_interval_stale", dt.timedelta(hours=25), True, True),
+            ("no_rows_written_waits_past_daily_interval", dt.timedelta(days=2), False, False),
+            ("no_rows_written_stale_past_weekly_cap", dt.timedelta(days=8), False, True),
         ]
     )
-    def test_staleness_by_recency(self, _name: str, age: dt.timedelta, expected: bool) -> None:
+    def test_staleness_by_recency(self, _name: str, age: dt.timedelta, rows_written: bool, expected: bool) -> None:
         team = _team()
         table = _table(team)
         WarehouseColumnStatistics.objects.for_team(team.id).create(
             team=team, table=table, column_name="amount", computed_at=timezone.now() - age
         )
-        assert _statistics_stale(team.id, table) is expected
+        assert _statistics_stale(team.id, table, rows_written=rows_written) is expected
 
 
 @pytest.mark.django_db
@@ -179,6 +181,13 @@ class TestEnrichmentPending:
             columns={"amount": {}, "_dlt_id": {}, "_dlt_load_id": {}, "_ph_debug": {}, "_ph_partition_key": {}},
         )
         self._annotate(team, table, "amount")
+        assert _enrichment_pending(team.id, table, _schema(team, table, description="present")) is False
+
+    def test_not_pending_when_renamed_columns_are_annotated_under_hogql_names(self) -> None:
+        team = _team()
+        table = _table(team, columns={"created": {}, "customer": {}})
+        self._annotate(team, table, "created_at")
+        self._annotate(team, table, "customer_id")
         assert _enrichment_pending(team.id, table, _schema(team, table, description="present")) is False
 
     def test_pending_when_table_description_missing(self) -> None:
