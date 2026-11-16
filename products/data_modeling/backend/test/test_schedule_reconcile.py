@@ -589,7 +589,7 @@ class TestMaybeReconcileDag(BaseTest):
             apply_saved_query_frequency_target(node.saved_query, saved)
 
         node.refresh_from_db()
-        self.assertEqual(target_before_plan_floor_clamp(node), expected)
+        self.assertEqual(target_before_plan_floor_clamp(node.properties), expected)
 
     def test_a_pin_on_its_own_keeps_the_stored_target(self):
         node = _saved_query_node(self.team, DAG.get_or_create_default(self.team), "mv", NodeType.MAT_VIEW)
@@ -645,7 +645,7 @@ class TestMaybeReconcileDag(BaseTest):
         capture = background_capture.return_value
         node.refresh_from_db()
         self.assertEqual((get_declared_target(node), get_declared_pin(node)), (expected, True))
-        self.assertEqual(target_before_plan_floor_clamp(node), saved if expected != saved else None)
+        self.assertEqual(target_before_plan_floor_clamp(node.properties), saved if expected != saved else None)
         self.assertEqual((rewritten, reconcile.call_count), (1, 1) if expected != saved else (0, 0))
         if expected != saved:
             self.assertEqual(reconcile.call_args.kwargs["graph"].declared_targets[str(node.id)], expected)

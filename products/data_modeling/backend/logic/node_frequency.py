@@ -195,7 +195,7 @@ def stage_plan_floor_clamp(node: Node, *, plan_floor: timedelta, at: datetime) -
 
     A node rewritten again keeps the first cadence it replaced, which is the one a person chose.
     """
-    previous = target_before_plan_floor_clamp(node) or get_declared_target(node)
+    previous = target_before_plan_floor_clamp(node.properties) or get_declared_target(node)
     stage_declared_target(node, plan_floor)
     frequency = node.properties[_SYSTEM_KEY][_FREQUENCY_KEY]
     frequency[_PLAN_CLAMP_KEY] = {
@@ -209,9 +209,9 @@ def drop_plan_floor_clamp(node: Node) -> None:
     (node.properties or {}).get(_SYSTEM_KEY, {}).get(_FREQUENCY_KEY, {}).pop(_PLAN_CLAMP_KEY, None)
 
 
-def target_before_plan_floor_clamp(node: Node) -> timedelta | None:
+def target_before_plan_floor_clamp(properties: Mapping[str, Any] | None) -> timedelta | None:
     """The cadence a plan floor rewrite replaced, or None when the node's target was not rewritten."""
-    clamp = (node.properties or {}).get(_SYSTEM_KEY, {}).get(_FREQUENCY_KEY, {}).get(_PLAN_CLAMP_KEY) or {}
+    clamp = (properties or {}).get(_SYSTEM_KEY, {}).get(_FREQUENCY_KEY, {}).get(_PLAN_CLAMP_KEY) or {}
     seconds = clamp.get("previous_target_seconds")
     return timedelta(seconds=seconds) if seconds is not None else None
 

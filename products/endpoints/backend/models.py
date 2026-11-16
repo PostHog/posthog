@@ -329,10 +329,10 @@ class EndpointVersion(UpdatedMetaFields, models.Model):
     def _target_seconds_before_plan_floor_clamp(self) -> int | None:
         from products.data_modeling.backend.facade.models import Node
 
-        for node in Node.objects.filter(team_id=self.saved_query.team_id, saved_query_id=self.saved_query_id).only(
-            "properties"
-        ):
-            previous = target_before_plan_floor_clamp(node)
+        for node in Node.objects.filter(
+            team_id=self.team_id or self.endpoint.team_id, saved_query_id=self.saved_query_id
+        ).only("properties"):
+            previous = target_before_plan_floor_clamp(node.properties)
             if previous is not None:
                 return int(previous.total_seconds())
         return None
