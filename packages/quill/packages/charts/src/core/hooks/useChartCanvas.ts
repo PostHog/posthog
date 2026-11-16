@@ -121,10 +121,8 @@ export function useChartCanvas(options: UseChartCanvasOptions): UseChartCanvasRe
         )
         canvases.forEach((canvas) => canvas.addEventListener('contextrestored', onContextRestored))
 
-        // Pinch-zoom, scrolling and a move to a screen with another pixel ratio change the raster
-        // scale without resizing anything the ResizeObserver watches. Repaint only when the backing
-        // size would change, so a zoom does not redraw the off-screen charts, whose scale stays at
-        // the pixel ratio.
+        // Pinch-zoom, scrolling and a screen move change the raster scale without a resize the
+        // ResizeObserver sees. Repaint only when the backing size changes, so a zoom skips off-screen charts.
         const repaintIfRasterScaleChanged = (): void => {
             const rect = rectRef.current
             const canvas = canvasRef.current
@@ -133,9 +131,8 @@ export function useChartCanvas(options: UseChartCanvasOptions): UseChartCanvasRe
             }
         }
 
-        // Chrome fires `visualViewport` resize for a pinch-zoom and for a move between screens. Wait
-        // for it to settle, because a repaint per gesture frame redraws every on-screen chart at a
-        // growing backing size.
+        // Chrome fires `visualViewport` resize for a pinch-zoom and a screen move. Wait for it to settle,
+        // because a repaint per gesture frame redraws every on-screen chart at a growing size.
         const viewport = window.visualViewport
         let zoomSettleTimer: ReturnType<typeof setTimeout> | undefined
         const onViewportResize = (): void => {
@@ -144,7 +141,6 @@ export function useChartCanvas(options: UseChartCanvasOptions): UseChartCanvasRe
         }
         viewport?.addEventListener('resize', onViewportResize)
 
-        // Without IntersectionObserver every chart counts as on screen.
         let visibility: IntersectionObserver | null = null
         if (typeof IntersectionObserver === 'function') {
             visibility = new IntersectionObserver((entries) => {

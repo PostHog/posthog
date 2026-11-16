@@ -15,13 +15,6 @@ function backingSize(cssSize: number, dpr: number): number {
     return Math.round(cssSize * dpr)
 }
 
-/** Size a canvas to `rect` at `dpr`, touching `width`/`height` only when they actually change.
- *  Returns whether the backing store was reallocated — i.e. whether the bitmap was wiped and a
- *  repaint is now mandatory.
- *
- *  Assigning `canvas.width` or `canvas.height` resets the bitmap to transparent black and
- *  reallocates it, even when the assigned value is identical to the current one. Callers sync on
- *  every paint, so a redundant assignment would reallocate the bitmap on every frame. */
 function backingDimensions(rect: SizeRect, dpr: number): { width: number; height: number } {
     // Chromium and Firefox paint nothing into a canvas with a side over 32,767 backing pixels. A
     // very tall chart (a retention grid with hundreds of cohorts) lowers its ratio to stay under
@@ -32,13 +25,18 @@ function backingDimensions(rect: SizeRect, dpr: number): { width: number; height
     return { width: backingSize(rect.width, ratio), height: backingSize(rect.height, ratio) }
 }
 
-/** Whether `syncCanvasSize` would reallocate this canvas, so a caller can skip a repaint that
- *  would draw the same bitmap again. */
 export function canvasSizeIsStale(canvas: HTMLCanvasElement, rect: SizeRect, dpr: number): boolean {
     const { width, height } = backingDimensions(rect, dpr)
     return canvas.width !== width || canvas.height !== height
 }
 
+/** Size a canvas to `rect` at `dpr`, touching `width`/`height` only when they actually change.
+ *  Returns whether the backing store was reallocated — i.e. whether the bitmap was wiped and a
+ *  repaint is now mandatory.
+ *
+ *  Assigning `canvas.width` or `canvas.height` resets the bitmap to transparent black and
+ *  reallocates it, even when the assigned value is identical to the current one. Callers sync on
+ *  every paint, so a redundant assignment would reallocate the bitmap on every frame. */
 export function syncCanvasSize(canvas: HTMLCanvasElement, rect: SizeRect, dpr: number): boolean {
     const { width, height } = backingDimensions(rect, dpr)
     let resized = false

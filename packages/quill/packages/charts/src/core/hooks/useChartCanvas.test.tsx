@@ -122,7 +122,6 @@ describe('useChartCanvas', () => {
         expect([overlay.width, overlay.height]).toEqual([0, 0])
     })
 
-    // A move to a screen with another pixel ratio fires the same `visualViewport` resize as a pinch-zoom.
     it.each([
         ['repaints an on-screen chart at the pinch-zoom scale', true, 2, 1, mockRect.width * 2, 1],
         ['skips the repaint for an off-screen chart under pinch-zoom', false, 2, 1, mockRect.width, 0],

@@ -1,21 +1,15 @@
 import { type SizeRect, syncCanvasSize } from '../canvas-size'
 import type { ChartDimensions } from '../types'
 
-// Upper bound on the backing store a zoomed chart may allocate (about 8 MB of RGBA per canvas).
-// A larger budget showed no visible gain on dashboard-sized charts at 3x pinch-zoom.
+// About 8 MB of RGBA per canvas. A larger budget gave no visible gain on dashboard charts at 3x zoom.
 const MAX_ZOOMED_CANVAS_PIXELS = 2_000_000
 
-/** Canvases whose chart is in the viewport. `useChartCanvas` keeps this set current. Only these
- *  canvases get the extra zoom resolution, so the memory a pinch-zoom costs grows with the charts
- *  in view and not with the charts on the page. */
+/** Canvases in the viewport. Only these get zoom resolution, so zoom memory follows the charts in view. */
 export const onScreenCanvases = new WeakSet<HTMLCanvasElement>()
 
-/** Backing pixels per CSS pixel. Pinch-zoom magnifies the page without changing `devicePixelRatio`;
- *  it shows up only as `visualViewport.scale`. The browser re-rasterises text, SVG and DOM at the
- *  zoomed scale but magnifies a canvas bitmap, so a chart rasterised at `devicePixelRatio` alone
- *  turns blocky next to sharp text. Zoom raises the ratio for an on-screen canvas up to a pixel
- *  budget, and the ratio never falls below `devicePixelRatio`, so an unzoomed chart sizes exactly
- *  as before. */
+/** Backing pixels per CSS pixel. Pinch-zoom changes `visualViewport.scale` and not `devicePixelRatio`.
+ *  The browser re-rasterises text at the zoomed scale but magnifies a canvas bitmap, so an on-screen
+ *  chart takes `devicePixelRatio × zoom`, up to a pixel budget. */
 export function canvasRasterScale(rect: SizeRect, canvas: HTMLCanvasElement): number {
     const dpr = window.devicePixelRatio || 1
     if (!onScreenCanvases.has(canvas)) {
