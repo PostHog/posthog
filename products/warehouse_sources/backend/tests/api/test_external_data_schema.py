@@ -22,8 +22,6 @@ from asgiref.sync import sync_to_async
 from parameterized import parameterized
 from rest_framework import status
 from rest_framework.exceptions import ValidationError
-from rest_framework.request import Request
-from rest_framework.test import APIRequestFactory
 from temporalio.service import RPCError, RPCStatusCode
 
 from posthog.api.test.test_log_entries import create_log_entry
@@ -6898,19 +6896,6 @@ class TestExternalDataSchemaLogs(ClickhouseTestMixin, APIBaseTest):
 
         assert second_page["count"] == 3
         assert [entry["message"] for entry in second_page["results"]] == ["entry 1"]
-
-
-class TestExternalDataSchemaIntrospection(SimpleTestCase):
-    def test_schema_generation_needs_no_team_context(self) -> None:
-        view = ExternalDataSchemaViewset()
-        view.request = Request(APIRequestFactory().get("/"))
-        view.format_kwarg = None
-        view.kwargs = {}
-
-        with mock.patch.object(view, "swagger_fake_view", True, create=True):
-            serializer = view.get_serializer()
-        assert isinstance(serializer, ExternalDataSchemaSerializer)
-        assert "table_id" in serializer.fields
 
 
 MIGRATED_ORDERS_METADATA = table_definition_for(

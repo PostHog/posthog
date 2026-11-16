@@ -425,6 +425,14 @@ _CONNECTION_DROPPED_ERROR_SUBSTRINGS = (
     # substring alone still classifies the whole thing. Same transient wake class as the other Neon
     # entries here; a fresh connect after a short backoff succeeds once the compute finishes waking.
     "taking longer than expected to become active",
+    # A Neon-style proxy refuses a connect with "FATAL:  no primary available for branch <branch-id>"
+    # when the branch's compute endpoint has no primary assigned yet — observed moments after the
+    # same branch dropped a connection with "failed to connect to upstream" and an SSL EOF, i.e.
+    # during a brief compute failover/promotion window, not a customer-facing restriction like the
+    # permanent "branch is hibernated" / "connection not allowed for branch" entries in
+    # `get_non_retryable_errors`. A fresh connect after backoff succeeds once Neon finishes assigning
+    # a primary. Match the stable phrase and exclude the volatile branch id.
+    "no primary available for branch",
 )
 
 # Supavisor (Supabase's connection pooler) doesn't surface a dropped upstream connection with a

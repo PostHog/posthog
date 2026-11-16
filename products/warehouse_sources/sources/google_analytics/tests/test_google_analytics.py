@@ -375,6 +375,47 @@ def test_run_report_raises_retryable_error_after_exhausting_server_error_retries
     assert error_message_matches(str(exc.value), GoogleAnalyticsSource().get_retryable_errors())
 
 
+@pytest.mark.parametrize(
+    "status_code,expected_error,expected_message_fragment",
+    [
+        (429, GoogleAnalyticsQuotaExceededError, "ran out of API quota"),
+        (409, GoogleAnalyticsServerError, "temporarily unavailable"),
+        (500, GoogleAnalyticsServerError, "temporarily unavailable"),
+        (502, GoogleAnalyticsServerError, "temporarily unavailable"),
+        (503, GoogleAnalyticsServerError, "temporarily unavailable"),
+        (504, GoogleAnalyticsServerError, "temporarily unavailable"),
+    ],
+)
+def test_exhausted_run_report_errors_get_customer_facing_copy(
+    monkeypatch, status_code, expected_error, expected_message_fragment
+):
+    monkeypatch.setattr(ga.time, "sleep", lambda _: None)
+    session = mock.MagicMock()
+    session.post.return_value = _fake_response(status_code)
+
+    with pytest.raises(expected_error) as exc:
+        _run_report(
+            session=session,
+            property_id="987654321",
+            start_date="2026-04-01",
+            end_date="2026-04-30",
+            dimensions=["date"],
+            metrics=["totalUsers"],
+            offset=0,
+        )
+
+    source = GoogleAnalyticsSource()
+    error = str(exc.value)
+    assert error_message_matches(error, source.get_retryable_errors())
+    assert not error_message_matches(error, source.get_non_retryable_errors())
+    messages = [message for key, message in source.get_retry_exhausted_errors().items() if key in error]
+    assert len(messages) == 1
+    assert expected_message_fragment in messages[0]
+    assert "987654321" not in messages[0]
+    assert str(status_code) not in messages[0]
+    assert "(retryable)" not in messages[0]
+
+
 def test_run_report_retries_conflict_then_succeeds(monkeypatch):
     # 409 is Google's ABORTED code for a concurrency conflict on their end (e.g. another runReport
     # already in flight for the same property), not a problem with our request — it clears on its
