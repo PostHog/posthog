@@ -210,7 +210,13 @@ class TestGetRowsFanOut:
         ]
         # After the first parent completes, state points at the second parent's start so a resume
         # skips the first parent entirely.
-        assert result.saved_states == [ZendutyResumeConfig(next_url=None, **{resume_field: parent_ids[1]})]
+        assert result.saved_states == [
+            ZendutyResumeConfig(
+                parent_page_url=f"https://www.zenduty.com{parent_path}?page_size=100",
+                next_url=None,
+                **{resume_field: parent_ids[1]},
+            )
+        ]
 
     @parameterized.expand(_FAN_OUT_CASES)
     def test_resume_skips_completed_parents(
@@ -227,7 +233,11 @@ class TestGetRowsFanOut:
         result = _driver().run(
             endpoint,
             [parents, ScriptedResponse(json={"results": [{"unique_id": "child-2"}], "next": None})],
-            resume_state=ZendutyResumeConfig(next_url=None, **{resume_field: parent_ids[1]}),
+            resume_state=ZendutyResumeConfig(
+                parent_page_url=f"https://www.zenduty.com{parent_path}?page_size=100",
+                next_url=None,
+                **{resume_field: parent_ids[1]},
+            ),
         )
         assert result.raised is None
         assert result.paths == [parent_path, child_paths[1]]
@@ -250,7 +260,51 @@ class TestGetRowsFanOut:
             {"unique_id": "r-1", "_zenduty_incident_number": 7},
             {"unique_id": "r-2", "_zenduty_incident_number": 7},
         ]
-        assert result.saved_states == [ZendutyResumeConfig(next_url=second, incident_number=7)]
+        assert result.saved_states == [
+            ZendutyResumeConfig(
+                parent_page_url="https://www.zenduty.com/api/incidents/?page_size=100",
+                next_url=second,
+                incident_number=7,
+            )
+        ]
+
+    def test_checkpoints_the_next_parent_page_and_resumes_there(self) -> None:
+        page_2 = "https://www.zenduty.com/api/incidents/?page=2"
+        result = _driver().run(
+            "incident_alerts",
+            [
+                ScriptedResponse(json={"results": [{"incident_number": 7}], "next": page_2}),
+                ScriptedResponse(json=[{"unique_id": "a-1"}]),
+                ScriptedResponse(json={"results": [{"incident_number": 9}], "next": None}),
+                ScriptedResponse(json=[{"unique_id": "a-2"}]),
+            ],
+        )
+        assert result.raised is None
+        assert result.paths == [
+            "/api/incidents/",
+            "/api/incidents/7/alerts/",
+            "/api/incidents/",
+            "/api/incidents/9/alerts/",
+        ]
+        assert result.rows == [
+            {"unique_id": "a-1", "_zenduty_incident_number": 7},
+            {"unique_id": "a-2", "_zenduty_incident_number": 9},
+        ]
+        assert result.saved_states == [ZendutyResumeConfig(parent_page_url=page_2)]
+
+        # A resume starts at the saved parent page and never reads the earlier ones again.
+        resumed = _driver().run(
+            "incident_alerts",
+            [
+                ScriptedResponse(json={"results": [{"incident_number": 9}], "next": None}),
+                ScriptedResponse(json=[{"unique_id": "a-2"}]),
+            ],
+            resume_state=ZendutyResumeConfig(parent_page_url=page_2),
+        )
+        assert resumed.raised is None
+        assert resumed.paths == ["/api/incidents/", "/api/incidents/9/alerts/"]
+        assert resumed.params("page") == ["2", None]
+        assert resumed.rows == [{"unique_id": "a-2", "_zenduty_incident_number": 9}]
 
     def test_no_parents_yields_nothing(self) -> None:
         result = _driver().run("services", [ScriptedResponse(json={"results": [], "next": None})])

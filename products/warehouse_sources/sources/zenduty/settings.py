@@ -1,7 +1,7 @@
 from dataclasses import dataclass, field
 
 
-@dataclass
+@dataclass(frozen=True)
 class ZendutyEndpointConfig:
     name: str
     # Path relative to https://www.zenduty.com. Fan-out paths carry the parent's placeholder

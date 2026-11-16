@@ -32,9 +32,10 @@ class ZendutyRetryableError(Exception):
 class ZendutyResumeConfig:
     # The next page URL (DRF returns absolute `next` URLs that already carry the page cursor).
     next_url: str | None = None
-    # For fan-out endpoints, the parent whose child collection was in progress (the field named by
-    # the parent's `path_param`). On resume we skip parents already fully walked and pick this one
-    # back up at `next_url`.
+    # For fan-out endpoints: the parent list page that holds the parent in progress, and that parent
+    # (the field named by the parent's `path_param`). A resume starts at that page, skips the parents
+    # before it, and picks it back up at `next_url`. No parent id means the start of the page.
+    parent_page_url: str | None = None
     team_id: str | None = None
     incident_number: int | None = None
 
@@ -117,33 +118,16 @@ def _fetch_page(session: requests.Session, url: str, headers: dict[str, str], lo
         raise ZendutyRetryableError(f"Zenduty returned a non-JSON body: status={response.status_code}, url={url}")
 
 
-def _list_parent_ids(
-    session: requests.Session,
-    headers: dict[str, str],
-    logger: FilteringBoundLogger,
-    page_size: int,
-    parent: ZendutyFanOutParent,
-    resumable_source_manager: ResumableSourceManager[ZendutyResumeConfig],
-) -> list[str | int]:
-    """Enumerate the ids of every parent row — the parents a fan-out endpoint iterates over.
-
-    No rows are held while it runs, so each page is a safe point.
-    """
-    url: str | None = _initial_url(ZENDUTY_ENDPOINTS[parent.endpoint].path, page_size)
+def _parent_ids(rows: list[dict[str, Any]], parent: ZendutyFanOutParent) -> list[str | int]:
     parent_ids: list[str | int] = []
-    while url:
-        data = _fetch_page(session, url, headers, logger)
-        rows, next_url = _extract_items_and_next(data)
-        for row in rows:
-            parent_id = row.get(parent.id_field)
-            # Team ids are UUID strings, incident numbers are integers. Keep the type so the injected
-            # column joins to the parent table.
-            if (isinstance(parent_id, str) and parent_id) or (
-                isinstance(parent_id, int) and not isinstance(parent_id, bool)
-            ):
-                parent_ids.append(parent_id)
-        resumable_source_manager.safe_point()
-        url = _ensure_zenduty_url(next_url) if next_url else None
+    for row in rows:
+        parent_id = row.get(parent.id_field)
+        # Team ids are UUID strings, incident numbers are integers. Keep the type so the injected
+        # column joins to the parent table.
+        if (isinstance(parent_id, str) and parent_id) or (
+            isinstance(parent_id, int) and not isinstance(parent_id, bool)
+        ):
+            parent_ids.append(parent_id)
     return parent_ids
 
 
@@ -182,43 +166,56 @@ def _paginate_fan_out(
     resume: ZendutyResumeConfig | None,
     page_size: int,
 ) -> Iterator[list[dict[str, Any]]]:
-    parent_ids = _list_parent_ids(session, headers, logger, page_size, parent, resumable_source_manager)
-    if not parent_ids:
-        return
-
-    start_index = 0
-    resume_url: str | None = None
+    # Parent pages are streamed, not listed up front, so a resume of a large incident history
+    # starts at the saved parent page instead of reading every parent page again.
     resume_parent_id = getattr(resume, parent.path_param) if resume else None
-    if resume and resume_parent_id is not None and resume_parent_id in parent_ids:
-        start_index = parent_ids.index(resume_parent_id)
-        resume_url = resume.next_url
+    page_url: str | None = _initial_url(ZENDUTY_ENDPOINTS[parent.endpoint].path, page_size)
+    if resume and resume.parent_page_url:
+        page_url = resume.parent_page_url
+    else:
+        resume_parent_id = None
 
-    def _state(next_url: str | None, parent_id: Any) -> ZendutyResumeConfig:
-        return ZendutyResumeConfig(next_url=next_url, **{parent.path_param: parent_id})
+    def _state(page: str, parent_id: Any, next_url: str | None) -> ZendutyResumeConfig:
+        return ZendutyResumeConfig(parent_page_url=page, next_url=next_url, **{parent.path_param: parent_id})
 
-    for idx in range(start_index, len(parent_ids)):
-        parent_id = parent_ids[idx]
-        url = (
-            resume_url
-            if (idx == start_index and resume_url)
-            else _initial_url(config.path.format(**{parent.path_param: parent_id}), page_size)
-        )
-        while True:
-            data = _fetch_page(session, url, headers, logger)
-            rows, next_url = _extract_items_and_next(data)
-            if rows:
-                yield [{**row, parent.injected_field: parent_id} for row in rows]
-            if next_url:
-                resumable_source_manager.save_state(_state(_ensure_zenduty_url(next_url), parent_id))
+    while page_url:
+        data = _fetch_page(session, page_url, headers, logger)
+        parent_rows, next_page = _extract_items_and_next(data)
+        next_page_url = _ensure_zenduty_url(next_page) if next_page else None
+        parent_ids = _parent_ids(parent_rows, parent)
+        resumable_source_manager.safe_point()
+
+        start_index = 0
+        child_url: str | None = None
+        if resume_parent_id is not None and resume_parent_id in parent_ids:
+            start_index = parent_ids.index(resume_parent_id)
+            child_url = resume.next_url if resume else None
+        resume_parent_id = None
+
+        for idx in range(start_index, len(parent_ids)):
+            parent_id = parent_ids[idx]
+            url: str | None = child_url or _initial_url(config.path.format(**{parent.path_param: parent_id}), page_size)
+            child_url = None
+            while url:
+                data = _fetch_page(session, url, headers, logger)
+                rows, next_url = _extract_items_and_next(data)
+                if next_url:
+                    state: ZendutyResumeConfig | None = _state(page_url, parent_id, _ensure_zenduty_url(next_url))
+                elif idx + 1 < len(parent_ids):
+                    # Parent done: point at the next parent so a resume skips completed parents.
+                    state = _state(page_url, parent_ids[idx + 1], None)
+                elif next_page_url:
+                    state = _state(next_page_url, None, None)
+                else:
+                    state = None
+                if state:
+                    resumable_source_manager.save_state(state)
+                if rows:
+                    yield [{**row, parent.injected_field: parent_id} for row in rows]
                 resumable_source_manager.safe_point()
                 url = next_url
-                continue
-            # Parent done — checkpoint at the next parent's start so a resume skips completed parents
-            # instead of re-walking them.
-            if idx + 1 < len(parent_ids):
-                resumable_source_manager.save_state(_state(None, parent_ids[idx + 1]))
-            resumable_source_manager.safe_point()
-            break
+
+        page_url = next_page_url
 
 
 def get_rows(
