@@ -248,7 +248,7 @@ def test_only_a_registry_name_and_version_reach_the_scanner(ecosystem, name, ver
     assert scanner.Package(ecosystem, name, version).scannable is scannable
 
 
-LEFT_PAD =scanner.Package("npm", "left-pad", "1.3.1")
+LEFT_PAD = scanner.Package("npm", "left-pad", "1.3.1")
 TARBALL = scanner.Package("npm", "tarball-dep", "https://example.com/tarball-dep.tgz")
 
 
