@@ -166,7 +166,7 @@ def _statistics_gate(gate: PostImportGateContext) -> bool:
     table = gate.schema.table
     if gate.team is None or table is None:
         return False
-    return _statistics_stale(gate.team_id, table, rows_written=gate.job.rows_synced != 0)
+    return _statistics_stale(gate.team_id, table, schema_id=gate.schema.id)
 
 
 def _always(gate: PostImportGateContext) -> bool:

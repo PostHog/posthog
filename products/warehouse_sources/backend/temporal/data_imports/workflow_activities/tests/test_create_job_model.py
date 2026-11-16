@@ -125,20 +125,33 @@ class TestStatisticsStale:
     @parameterized.expand(
         [
             # Guards against re-profiling a freshly-computed table on every sync (the bug we're fixing).
-            ("recent_not_stale", dt.timedelta(hours=1), True, False),
+            ("recent_not_stale", dt.timedelta(hours=1), [5], False),
             # Guards against never recomputing once a row exists.
-            ("older_than_interval_stale", dt.timedelta(hours=25), True, True),
-            ("no_rows_written_waits_past_daily_interval", dt.timedelta(days=2), False, False),
-            ("no_rows_written_stale_past_weekly_cap", dt.timedelta(days=8), False, True),
+            ("older_than_interval_stale", dt.timedelta(hours=25), [5], True),
+            ("no_rows_written_since_computation", dt.timedelta(days=2), [0, 0], False),
+            ("earlier_sync_wrote_rows_since_computation", dt.timedelta(days=2), [5, 0], True),
+            ("row_count_unknown", dt.timedelta(days=2), [None], True),
+            ("no_rows_written_past_weekly_cap", dt.timedelta(days=8), [0], True),
         ]
     )
-    def test_staleness_by_recency(self, _name: str, age: dt.timedelta, rows_written: bool, expected: bool) -> None:
+    def test_staleness_by_recency(
+        self, _name: str, age: dt.timedelta, rows_synced_since: list[int | None], expected: bool
+    ) -> None:
         team = _team()
         table = _table(team)
+        schema = _schema(team, table)
         WarehouseColumnStatistics.objects.for_team(team.id).create(
             team=team, table=table, column_name="amount", computed_at=timezone.now() - age
         )
-        assert _statistics_stale(team.id, table, rows_written=rows_written) is expected
+        for rows_synced in rows_synced_since:
+            ExternalDataJob.objects.create(
+                team=team,
+                pipeline=schema.source,
+                schema=schema,
+                status=ExternalDataJob.Status.COMPLETED,
+                rows_synced=rows_synced,
+            )
+        assert _statistics_stale(team.id, table, schema_id=schema.id) is expected
 
 
 @pytest.mark.django_db

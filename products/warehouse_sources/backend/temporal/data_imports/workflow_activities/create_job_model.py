@@ -111,7 +111,7 @@ class V2PipelineRemovedError(NonReportableError):
     """
 
 
-def _statistics_stale(team_id: int, table: DataWarehouseTable | None, rows_written: bool = True) -> bool:
+def _statistics_stale(team_id: int, table: DataWarehouseTable | None, schema_id: uuid.UUID | None = None) -> bool:
     """Whether column statistics need recomputing: no stats yet, or the freshest column row is older
     than the recompute interval. Mirrors compute_table_statistics' own skip check so we don't spawn a
     child that would immediately no-op on every sync."""
@@ -131,10 +131,19 @@ def _statistics_stale(team_id: int, table: DataWarehouseTable | None, rows_writt
     )
     if latest is None:
         return True
-    # With no rows written the Delta version is unchanged, and the activity's version_unchanged skip
-    # records nothing, so only the maximum interval (a forced recompute) gives the child work.
-    interval = MIN_RECOMPUTE_INTERVAL if rows_written else MAX_RECOMPUTE_INTERVAL
-    return (timezone.now() - latest) >= interval
+    age = timezone.now() - latest
+    if age < MIN_RECOMPUTE_INTERVAL:
+        return False
+    if schema_id is None or age >= MAX_RECOMPUTE_INTERVAL:
+        return True
+    # With no rows written since the last computation the Delta version is unchanged, and the
+    # activity's version_unchanged skip records nothing, so only the maximum interval gives it work.
+    # A `None` row count predates row counting, so it counts as written.
+    return (
+        ExternalDataJob.objects.filter(team_id=team_id, schema_id=schema_id, created_at__gte=latest)
+        .exclude(rows_synced=0)
+        .exists()
+    )
 
 
 def _enrichment_pending(team_id: int, table: DataWarehouseTable | None, schema: ExternalDataSchema) -> bool:
