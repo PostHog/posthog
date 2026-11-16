@@ -161,6 +161,57 @@ describe('providerImportLogic', () => {
         toastError.mockRestore()
     })
 
+    it("keeps a refused start out of another tool's form", async () => {
+        const toastError = jest.spyOn(lemonToast, 'error')
+        useMocks({ post: { '/api/projects/:team_id/messaging_provider_imports/': () => [400, { detail: 'Bad key' }] } })
+        await expectLogic(logic, () => logic.actions.openImportModal()).toFinishAllListeners()
+        const resend = { ...PROVIDER_OPTION, key: 'resend', label: 'Resend', retains_credentials: false }
+        logic.actions.loadImportProvidersSuccess([PROVIDER_OPTION, resend] as any)
+        logic.actions.selectProvider('customerio')
+
+        logic.actions.startImport({ apiKey: 'app-key' })
+        logic.actions.selectProvider('resend')
+        logic.actions.setImportFormValue('api_key', 'a-resend-key')
+        await expectLogic(logic).toDispatchActions(['startImportFailure'])
+
+        expect(logic.values.importError).toBeNull()
+        expect(logic.values.importForm.api_key).toBe('a-resend-key')
+        expect(toastError).toHaveBeenCalledWith('Bad key')
+        toastError.mockRestore()
+    })
+
+    it('keeps a run started while a refresh was in flight', async () => {
+        let olderRunRequested: () => void = () => {}
+        const fetchingOlderRun = new Promise<void>((resolve) => {
+            olderRunRequested = resolve
+        })
+        let finishOlderRun: () => void = () => {}
+        const olderRunFinished = new Promise<void>((resolve) => {
+            finishOlderRun = resolve
+        })
+        useMocks({
+            get: {
+                '/api/projects/:team_id/messaging_provider_imports/': () => [200, []],
+                '/api/projects/:team_id/messaging_provider_imports/:id/': async () => {
+                    olderRunRequested()
+                    await olderRunFinished
+                    return [200, importRun('completed')]
+                },
+            },
+        })
+        await expectLogic(logic).toFinishAllListeners()
+        logic.actions.setTrackedImportRunIds(['run-1'])
+
+        logic.actions.loadImportRuns()
+        await fetchingOlderRun
+        logic.actions.startImportSuccess({ ...importRun('running'), id: 'run-2' })
+        finishOlderRun()
+        await expectLogic(logic).toDispatchActions(['loadImportRunsSuccess', 'loadImportRunsSuccess'])
+
+        expect(logic.values.importRuns?.map((run) => run.id)).toEqual(['run-2', 'run-1'])
+        expect(logic.values.trackedImportRunIds).toEqual(['run-2'])
+    })
+
     it('asks which tool to import from only when there is more than one', async () => {
         await expectLogic(logic).toFinishAllListeners()
         expect(logic.values.selectedProvider?.key).toBe('customerio')

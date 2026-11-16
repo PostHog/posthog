@@ -62,6 +62,7 @@ export interface providerImportLogicValues {
     showImportFormErrors: boolean
     startedImportRun: ProviderImportRunApi | null
     startedImportRunLoading: boolean
+    startingProviderKey: string | null
     trackedImportRunIds: string[]
 }
 
@@ -130,6 +131,9 @@ export interface providerImportLogicActions {
     }
     setShowImportAgainForm: (show: boolean) => {
         show: boolean
+    }
+    setStartingProviderKey: (providerKey: string | null) => {
+        providerKey: string | null
     }
     setTrackedImportRunIds: (runIds: string[]) => {
         runIds: string[]
@@ -219,6 +223,7 @@ export const providerImportLogic = kea<providerImportLogicType>([
         toggleImportStep: (step: string) => ({ step }),
         setTrackedImportRunIds: (runIds: string[]) => ({ runIds }),
         setShowImportAgainForm: (show: boolean) => ({ show }),
+        setStartingProviderKey: (providerKey: string | null) => ({ providerKey }),
     }),
     loaders(({ values }) => ({
         importRuns: [
@@ -239,7 +244,15 @@ export const providerImportLogic = kea<providerImportLogicType>([
                             })
                         )
                     )
-                    return [...runs, ...fetched.filter((run): run is ProviderImportRunApi => run !== null)]
+                    const loaded = [...runs, ...fetched.filter((run): run is ProviderImportRunApi => run !== null)]
+                    // A run started while this request was in flight isn't in its response, so keep it and its polling.
+                    const startedMeanwhile = (values.importRuns ?? []).filter(
+                        (run) =>
+                            values.trackedImportRunIds.includes(run.id) &&
+                            !missing.includes(run.id) &&
+                            !loaded.some((loadedRun) => loadedRun.id === run.id)
+                    )
+                    return [...startedMeanwhile, ...loaded]
                 },
             },
         ],
@@ -282,8 +295,6 @@ export const providerImportLogic = kea<providerImportLogicType>([
             {
                 setImportError: (_, { error }) => error,
                 startImport: () => null,
-                startImportFailure: (_, { errorObject }) =>
-                    errorObject?.detail ?? "Couldn't start the import. Check your API key and try again.",
                 resetImport: () => null,
                 selectProvider: () => null,
             },
@@ -304,11 +315,17 @@ export const providerImportLogic = kea<providerImportLogicType>([
                 startImportSuccess: (runIds, { startedImportRun }) => [...runIds, startedImportRun.id],
             },
         ],
+        // The tool a start request was sent for, so its answer can't land in another tool's form.
+        startingProviderKey: [
+            null as string | null,
+            {
+                setStartingProviderKey: (_, { providerKey }) => providerKey,
+            },
+        ],
         showImportAgainForm: [
             false,
             {
                 setShowImportAgainForm: (_, { show }) => show,
-                startImportSuccess: () => false,
                 selectProvider: () => false,
                 closeImportModal: () => false,
             },
@@ -388,22 +405,31 @@ export const providerImportLogic = kea<providerImportLogicType>([
             // A key belongs to one tool, so it must not travel to the next one picked.
             actions.resetImportForm()
         },
+        startImport: () => {
+            actions.setStartingProviderKey(values.selectedProvider?.key ?? null)
+        },
         startImportSuccess: ({ startedImportRun }) => {
             // Show the new run at once, so a failed first refresh still shows progress and keeps polling.
             actions.loadImportRunsSuccess([
                 startedImportRun,
                 ...(values.importRuns ?? []).filter((run) => run.id !== startedImportRun.id),
             ])
-            actions.resetImportForm()
+            if (values.selectedProvider?.key === startedImportRun.provider) {
+                actions.resetImportForm()
+                actions.setShowImportAgainForm(false)
+            }
         },
         startImportFailure: ({ errorObject }) => {
             // A 409 means an import is already running, so show its progress instead of only an error.
             if (errorObject?.status === 409) {
                 actions.loadImportRuns()
             }
-            // The window shows the error, so a person who already closed it would never see it.
-            if (!values.isImportModalOpen) {
-                lemonToast.error(values.importError ?? "Couldn't start the import.")
+            const error = errorObject?.detail ?? "Couldn't start the import. Check your API key and try again."
+            if (values.isImportModalOpen && values.selectedProvider?.key === values.startingProviderKey) {
+                actions.setImportError(error)
+            } else {
+                // The error belongs to a window that's closed or showing another tool, so it would never be seen.
+                lemonToast.error(error)
             }
         },
         loadImportRunsSuccess: ({ importRuns }) => {
