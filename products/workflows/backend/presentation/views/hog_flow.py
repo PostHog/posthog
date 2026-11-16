@@ -89,7 +89,8 @@ from posthog.plugins.plugin_server_api import (
 from posthog.scopes import scopes_not_covered
 from posthog.synthetic_user import SyntheticUser
 from posthog.user_permissions import UserPermissions
-from posthog.utils import relative_date_parse_with_delta_mapping
+from posthog.utils import absolute_uri, relative_date_parse_with_delta_mapping
+from posthog.uuidt import UUIDT
 
 from products.access_control.backend.facade.contracts import ObjectAccessRef
 from products.access_control.backend.facade.user_access_control import UserAccessControl, visible_teams_for_user
@@ -154,6 +155,7 @@ from products.tasks.backend.facade.workflow_tasks import (
 from products.workflows.backend.facade.activity import (
     bulk_delete_archived_workflows,
     log_workflow_activity,
+    log_workflow_batch_run_activity,
     log_workflow_schedule_activity,
     log_workflow_test_run,
     record_workflow_test_run_origins,
@@ -168,6 +170,7 @@ from products.workflows.backend.facade.api import (
     seed_new_email_steps_with_utm_defaults,
 )
 from products.workflows.backend.facade.batch_jobs import (
+    batch_run_may_send_after_failed_dispatch,
     create_batch_job,
     get_audience_snapshot_page,
     get_batch_job,
@@ -280,6 +283,7 @@ from products.workflows.backend.facade.sandbox_email import (
     check_sandbox_sender_available,
     has_verified_own_sender,
     own_only_settings,
+    own_sender_verification,
     provision_sandbox_sender,
     require_sandbox_runtime,
     sandbox_adoption_enabled,
@@ -3723,6 +3727,9 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
     def _stages_draft(self) -> bool:
         # stage_draft rides the raw request body rather than being a serializer field, mirroring
         # base_updated_at (see perform_update, which does the actual draft routing off it).
+        # Only perform_update honors the flag; every other action writes the live row whatever the body says.
+        if getattr(self.context.get("view"), "action", None) not in ("update", "partial_update"):
+            return False
         request = self.context.get("request")
         return bool(request is not None and getattr(request, "data", None) and request.data.get("stage_draft"))
 
@@ -4064,6 +4071,15 @@ class HogFlowSerializer(HogFlowMinimalSerializer):
             # instance's in place). Route them through validated_data so the write re-strips them into
             # encrypted_inputs rather than persisting recovered secrets to the live actions blob.
             data["actions"] = actions
+
+        if status == HogFlowState.ACTIVE and not is_draft and get_team is not None:
+            live_flow = instance or self.context.get("instance")
+            activating = live_flow is None or live_flow.status != HogFlowState.ACTIVE
+            # Internal rewrites (UTM apply, refresh command) must not fail on a sender that broke after going live,
+            # and an MCP edit that stages a draft gets this check when it's published.
+            user_save = getattr(self.context.get("view"), "action", None) in WORKFLOW_SAVE_ACTIONS
+            if activating or ("actions" in data and user_save and not self.context.get("stages_draft")):
+                _refuse_unusable_email_senders(actions, team_id=get_team().id)
 
         # The trigger is derived from the actions. We can trust the action level validation and pull it out
         trigger_actions = [action for action in actions if action.get("type") == "trigger"]
@@ -4428,6 +4444,52 @@ def _patched_sender_ids(email_patch: Any) -> list[Any]:
     sender = email_patch.get("from") if isinstance(email_patch, dict) else None
     rotation = (sender.get("integrationIds") if isinstance(sender, dict) else None) or []
     return [_patched_sender_id(email_patch), *(rotation if isinstance(rotation, list) else [rotation])]
+
+
+def _email_step_sender_ids(action: dict) -> list[str | None]:
+    config = action.get("config") or {}
+    if action.get("type") != "function_email" and config.get("template_id") != "template-email":
+        return []
+    email_input = (config.get("inputs") or {}).get("email")
+    value = email_input.get("value") if isinstance(email_input, dict) else None
+    sender = value.get("from") if isinstance(value, dict) else None
+    if not isinstance(sender, dict):
+        return []
+    # The send path picks from the rotation alone when one is set.
+    rotation = sender.get("integrationIds")
+    configured = rotation if isinstance(rotation, list) and rotation else [sender.get("integrationId")]
+    # JSON can carry an id as 42.0, which the send path reads as sender 42.
+    configured = [int(value) if isinstance(value, float) and value.is_integer() else value for value in configured]
+    # The send path loads a sender only from a JSON number, so an id stored as text, such as "42", names none.
+    return [
+        str(sender_id) if isinstance(sender_id, int) else None
+        for sender_id in configured
+        if sender_id not in (None, "")
+    ]
+
+
+def _refuse_unusable_email_senders(actions: list[dict], *, team_id: int) -> None:
+    named = [(step_action, _email_step_sender_ids(step_action)) for step_action in actions]
+    if not any(sender_ids for _, sender_ids in named):
+        return
+    verification = own_sender_verification(team_id)
+    problems: list[str] = []
+    for step_action, sender_ids in named:
+        for sender_id in sender_ids:
+            if sender_id is not None and verification.get(sender_id):
+                continue
+            step = step_action.get("name") or "Email"
+            if sender_id in verification:
+                url = absolute_uri(f"/project/{team_id}/workflows/channels/email/{sender_id}")
+                problems.append(
+                    f'The "{step}" step sends from a sender whose domain isn\'t verified yet, so its emails '
+                    f"would fail. Verify the domain at {url}, or choose a verified sender."
+                )
+            else:
+                problems.append(f"The \"{step}\" step's email sender can't be found. Choose another sender.")
+            break
+    if problems:
+        raise serializers.ValidationError({"actions": " ".join(problems)})
 
 
 def _all_verified(sender_ids: list[Any], verified: frozenset[int]) -> bool:
@@ -6150,7 +6212,7 @@ class HogFlowViewSet(
             )
 
     def _validate_locked_content(
-        self, state: WorkflowEditState, data: dict, enforce_graph_structure: bool = False
+        self, state: WorkflowEditState, data: dict, enforce_graph_structure: bool = False, stages_draft: bool = False
     ) -> dict:
         # Runs inside the write's row lock, against the locked row the service passes in.
         serializer = self.get_serializer(state, data=data, partial=True)
@@ -6158,9 +6220,16 @@ class HogFlowViewSet(
             # The surgical endpoints are the paths where structural corruption would be newly introduced,
             # so they enforce graph validation as a hard error (unlike the lenient full-save path).
             serializer.context["enforce_graph_structure"] = True
+        serializer.context["stages_draft"] = stages_draft
         serializer.is_valid(raise_exception=True)
         self._set_up_defaulted_sandbox_sender(serializer)
         return serializer.validated_data
+
+    def _stages_surgical_edit(self, state: WorkflowEditState) -> bool:
+        # Mirrors the routing in edit_workflow_content, which stages these edits with stage_if_protected.
+        return self._is_mcp_request(self.request) and (
+            state.status == HogFlowState.ACTIVE or state.disabled_from_active is True
+        )
 
     def _set_up_defaulted_sandbox_sender(self, serializer: serializers.BaseSerializer) -> None:
         if serializer.context.get(SETS_UP_SANDBOX_SENDER):
@@ -6182,7 +6251,10 @@ class HogFlowViewSet(
         def edit(state: WorkflowEditState, base_actions: list[dict], base_edges: list[dict]) -> dict:
             new_actions, new_edges = apply_graph_operations(base_actions, base_edges, operations)
             return self._validate_locked_content(
-                state, {"actions": new_actions, "edges": new_edges}, enforce_graph_structure=True
+                state,
+                {"actions": new_actions, "edges": new_edges},
+                enforce_graph_structure=True,
+                stages_draft=self._stages_surgical_edit(state),
             )
 
         try:
@@ -6257,9 +6329,7 @@ class HogFlowViewSet(
         # the apply conflicts.
         rendered: Optional[_RenderedActionEmailDesign] = None
         if operations:
-            predicts_draft = self._is_mcp_request(request) and (
-                unlocked.status == HogFlowState.ACTIVE or unlocked.disabled_from_active
-            )
+            predicts_draft = self._stages_surgical_edit(unlocked)
             if predicts_draft and unlocked.draft:
                 render_base = list(unlocked.draft.get("actions") or [])
             else:
@@ -6277,7 +6347,12 @@ class HogFlowViewSet(
             )
             if sender == "sandbox":
                 provision_sandbox_sender(self.team, cast(User, request.user))
-            return self._validate_locked_content(state, {"actions": new_actions}, enforce_graph_structure=True)
+            return self._validate_locked_content(
+                state,
+                {"actions": new_actions},
+                enforce_graph_structure=True,
+                stages_draft=self._stages_surgical_edit(state),
+            )
 
         # Same staleness and draft contract as /graph, but no action-redirect refresh or timing
         # reschedule: an email edit can't delete steps or change timing config.
@@ -7915,16 +7990,39 @@ class HogFlowViewSet(
                 raise exceptions.ValidationError(realtime_cohort_cant_finish_error(audience_cohort))
             self._require_replay_vision_caller_access(request, self._edit_state().actions)
 
-            batch_job = create_batch_job(
-                team_id=self.team_id,
-                hog_flow_id=hog_flow.id,
-                created_by_id=cast(User, request.user).id,
-                variables=serializer.validated_data.get("variables", {}),
-                status=serializer.validated_data.get("status"),
-                # The consumer fans out to the trigger's stored filters, so snapshot those on the job -
-                # caller-supplied filters are never what actually runs.
-                filters=hog_flow.trigger_filters,
-            )
+            batch_job_id = UUIDT()
+
+            def log_start() -> None:
+                log_workflow_batch_run_activity(
+                    actor=self._activity_actor(),
+                    workflow_id=hog_flow.id,
+                    name=hog_flow.name,
+                    activity="batch_run_started",
+                    batch_job_id=batch_job_id,
+                    filters=hog_flow.trigger_filters,
+                )
+
+            try:
+                batch_job = create_batch_job(
+                    batch_job_id=batch_job_id,
+                    team_id=self.team_id,
+                    hog_flow_id=hog_flow.id,
+                    created_by_id=cast(User, request.user).id,
+                    variables=serializer.validated_data.get("variables", {}),
+                    status=serializer.validated_data.get("status"),
+                    # The consumer fans out to the trigger's stored filters, so snapshot those on the job -
+                    # caller-supplied filters are never what actually runs.
+                    filters=hog_flow.trigger_filters,
+                )
+            except Exception as error:
+                # Saving dispatches the run, and a dispatch that times out after the plugin server queued it
+                # raises here while the run still sends.
+                if batch_run_may_send_after_failed_dispatch(
+                    team_id=self.team_id, hog_flow_id=hog_flow.id, batch_job_id=batch_job_id, dispatch_error=error
+                ):
+                    log_start()
+                raise
+            log_start()
             self._report_workflow_action("hog_flow_batch_job_created", hog_flow, {"batch_job_id": str(batch_job.id)})
             return Response(HogFlowBatchJobSerializer(batch_job).data)
         else:
@@ -7991,14 +8089,21 @@ class HogFlowViewSet(
             if data["done"]:
                 break
 
-        if data["done"]:
-            # Conditional so a completion that landed mid-cancel wins over the flip; the
-            # resolver's own terminal write absorbs the reverse race.
-            set_batch_job_status(
-                team_id=self.team_id,
+        # Conditional so a completion that landed mid-cancel wins over the flip; the
+        # resolver's own terminal write absorbs the reverse race.
+        if data["done"] and set_batch_job_status(
+            team_id=self.team_id,
+            batch_job_id=batch_job.id,
+            status=HogFlowBatchJobState.CANCELLED,
+            from_statuses=non_terminal,
+        ):
+            log_workflow_batch_run_activity(
+                actor=self._activity_actor(),
+                workflow_id=hog_flow.id,
+                name=hog_flow.name,
+                activity="batch_run_stopped",
                 batch_job_id=batch_job.id,
-                status=HogFlowBatchJobState.CANCELLED,
-                from_statuses=non_terminal,
+                filters=batch_job.filters,
             )
 
         batch_job = get_batch_job(team_id=self.team_id, hog_flow_id=hog_flow.id, batch_job_id=str(batch_job.id))
