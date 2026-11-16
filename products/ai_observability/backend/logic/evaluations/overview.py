@@ -432,7 +432,7 @@ def pass_rate_overview(rows: Sequence[contracts.EvaluationResult], bucket_count:
     compared: list[tuple[float, float]] = []
     for row in rows:
         summary = row.summary
-        if not isinstance(summary, contracts.PassRateSummary) or not row.enabled:
+        if not isinstance(summary, contracts.PassRateSummary):
             continue
         rate = pass_rate(summary.passed, summary.failed)
         if rate is None:
@@ -469,12 +469,11 @@ def pass_rate_overview(rows: Sequence[contracts.EvaluationResult], bucket_count:
 
 
 def overview_totals(rows: Sequence[contracts.EvaluationResult], bucket_count: int) -> contracts.OverviewTotals:
-    """Totals for the metric cards at the top of the overview."""
-    active = [row for row in rows if row.enabled]
+    """Totals for the metric cards at the top of the overview, paused evaluations' results included."""
     # Only evaluations with results in both periods, so a new or newly silent evaluation does not read as a change.
-    both = [row for row in active if row.graded_count > 0 and row.previous_graded_count is not None]
+    both = [row for row in rows if row.graded_count > 0 and row.previous_graded_count is not None]
     sentiment = None
-    for row in active:
+    for row in rows:
         if isinstance(row.summary, contracts.SentimentSummary) and row.graded_count > 0:
             summary = row.summary
             sentiment = contracts.OverviewSentiment(
@@ -484,15 +483,13 @@ def overview_totals(rows: Sequence[contracts.EvaluationResult], bucket_count: in
             )
             break
     return contracts.OverviewTotals(
-        graded=sum(row.graded_count for row in active),
+        graded=sum(row.graded_count for row in rows),
         graded_comparison=contracts.PeriodComparison(
             current=sum(row.graded_count for row in both),
             previous=sum(row.previous_graded_count or 0 for row in both),
         )
         if both
         else None,
-        graded_trend=[sum(row.trend.volume[index] for row in active) for index in range(bucket_count)]
-        if active
-        else [],
+        graded_trend=[sum(row.trend.volume[index] for row in rows) for index in range(bucket_count)] if rows else [],
         sentiment=sentiment,
     )

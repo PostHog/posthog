@@ -19,3 +19,7 @@ def decode_trace_id_segment(segment: str) -> str:
         return base64.urlsafe_b64decode(segment + "=" * (-len(segment) % 4)).decode("utf-8")
     except (binascii.Error, UnicodeDecodeError) as error:
         raise MalformedTraceIdSegmentError(segment) from error
+
+
+def encode_trace_id_segment(trace_id: str) -> str:
+    return base64.urlsafe_b64encode(trace_id.encode("utf-8")).decode("ascii").rstrip("=")

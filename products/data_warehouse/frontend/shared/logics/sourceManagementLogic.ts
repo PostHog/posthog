@@ -14,7 +14,7 @@ import { loaders } from 'kea-loaders'
 import { router, urlToAction } from 'kea-router'
 import posthog from 'posthog-js'
 
-import api from 'lib/api'
+import api, { ApiConfig } from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { createFuse, Fuse } from 'lib/utils/fuseSearch'
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
@@ -28,11 +28,14 @@ import {
     ExternalDataSourceSchema,
 } from '~/types'
 
+import { warehouseTablesList } from 'products/data_warehouse/frontend/generated/api'
+
 import type { PaginatedResponse } from '../../../../../frontend/src/lib/api'
 import type { DatabaseSchemaQueryResponse } from '../../../../../frontend/src/queries/schema/schema-general'
 import type { ExternalDataSourceRevenueAnalyticsConfig } from '../../../../../frontend/src/types'
 import type { SourceConfigResponseApi } from '../../../../warehouse_sources/frontend/generated/api.schemas'
 import { availableSourcesLogic } from '../../scenes/NewSourceScene/availableSourcesLogic'
+import { sourceTypeLabel } from '../fileUploadSources'
 import { joinsDataLogic } from './joinsDataLogic'
 import { sourcesDataLogic } from './sourcesDataLogic'
 
@@ -80,6 +83,8 @@ export interface sourceManagementLogicValues {
     managedSearchTerm: string
     managedSources: ExternalDataSource[]
     managedSourcesFuse: Fuse<ExternalDataSource>
+    pendingSelfManagedTableIds: string[]
+    pendingSelfManagedTableIdsLoading: boolean
     schemaReloadingById: Record<string, boolean>
     schemas: null
     schemasLoading: boolean
@@ -159,6 +164,21 @@ export interface sourceManagementLogicActions {
     deleteSource: (source: ExternalDataSource) => {
         source: ExternalDataSource
     }
+    loadPendingSelfManagedTableIds: () => any
+    loadPendingSelfManagedTableIdsFailure: (
+        error: string,
+        errorObject?: any
+    ) => {
+        error: string
+        errorObject?: any
+    }
+    loadPendingSelfManagedTableIdsSuccess: (
+        pendingSelfManagedTableIds: string[],
+        payload?: any
+    ) => {
+        pendingSelfManagedTableIds: string[]
+        payload?: any
+    }
     refreshSelfManagedTableSchema: (tableId: string) => {
         tableId: string
     }
@@ -176,6 +196,9 @@ export interface sourceManagementLogicActions {
     }
     setSearchTerm: (searchTerm: string) => {
         searchTerm: string
+    }
+    sourceDeleted: (source: ExternalDataSource) => {
+        source: ExternalDataSource
     }
     sourceLoadingFinished: (source: ExternalDataSource) => {
         source: ExternalDataSource
@@ -201,7 +224,8 @@ export interface sourceManagementLogicActions {
 export interface sourceManagementLogicMeta {
     __keaTypeGenInternalSelectorTypes: {
         selfManagedTables: (
-            dataWarehouseTables: DatabaseSchemaDataWarehouseTable[]
+            dataWarehouseTables: DatabaseSchemaDataWarehouseTable[],
+            pendingSelfManagedTableIds: string[]
         ) => DatabaseSchemaDataWarehouseTable[]
         filteredSelfManagedTables: (
             selfManagedTables: DatabaseSchemaDataWarehouseTable[],
@@ -258,6 +282,7 @@ export const sourceManagementLogic = kea<sourceManagementLogicType>([
     })),
     actions({
         deleteSource: (source: ExternalDataSource) => ({ source }),
+        sourceDeleted: (source: ExternalDataSource) => ({ source }),
         reloadSource: (source: ExternalDataSource) => ({ source }),
         sourceLoadingFinished: (source: ExternalDataSource) => ({ source }),
         schemaLoadingFinished: (schema: ExternalDataSourceSchema) => ({ schema }),
@@ -268,6 +293,27 @@ export const sourceManagementLogic = kea<sourceManagementLogicType>([
         setDirectSearchTerm: (directSearchTerm: string) => ({ directSearchTerm }),
     }),
     loaders(({ actions, values }) => ({
+        pendingSelfManagedTableIds: [
+            [] as string[],
+            {
+                loadPendingSelfManagedTableIds: async () => {
+                    const ids: string[] = []
+                    const limit = 1000
+                    for (let offset = 0; ; offset += limit) {
+                        const response = await warehouseTablesList(String(ApiConfig.getCurrentProjectId()), {
+                            pending_source: true,
+                            include_columns: false,
+                            limit,
+                            offset,
+                        })
+                        ids.push(...response.results.map((table) => table.id))
+                        if (!response.next || response.results.length === 0) {
+                            return ids
+                        }
+                    }
+                },
+            },
+        ],
         schemas: [
             null,
             {
@@ -343,9 +389,14 @@ export const sourceManagementLogic = kea<sourceManagementLogicType>([
     })),
     selectors({
         selfManagedTables: [
-            (s) => [s.dataWarehouseTables],
-            (dataWarehouseTables: DatabaseSchemaDataWarehouseTable[]): DatabaseSchemaDataWarehouseTable[] => {
-                return dataWarehouseTables.filter((table) => !table.source)
+            (s) => [s.dataWarehouseTables, s.pendingSelfManagedTableIds],
+            (
+                dataWarehouseTables: DatabaseSchemaDataWarehouseTable[],
+                pendingSelfManagedTableIds: string[]
+            ): DatabaseSchemaDataWarehouseTable[] => {
+                // A table that a managed source will import on its first sync is listed under that source instead.
+                const pendingIds = new Set(pendingSelfManagedTableIds)
+                return dataWarehouseTables.filter((table) => !table.source && !pendingIds.has(table.id))
             },
         ],
         filteredSelfManagedTables: [
@@ -405,7 +456,7 @@ export const sourceManagementLogic = kea<sourceManagementLogicType>([
                     keys: [
                         {
                             name: 'label',
-                            getFn: (source) => availableSources?.[source.source_type]?.label ?? source.source_type,
+                            getFn: (source) => sourceTypeLabel(source.source_type, availableSources),
                         },
                         'source_type',
                         'prefix',
@@ -485,7 +536,9 @@ export const sourceManagementLogic = kea<sourceManagementLogicType>([
                 // Only on success: a transient list failure resolves to an empty page, so reloading
                 // after a delete that failed offline would blank a list of sources that still exist.
                 actions.loadSources()
+                actions.loadPendingSelfManagedTableIds()
                 posthog.capture('source deleted', { sourceType: source.source_type })
+                actions.sourceDeleted(source)
             } catch (e) {
                 lemonToast.error("We couldn't delete this source. Refresh the page and try again.")
                 posthog.captureException(e)
@@ -574,6 +627,7 @@ export const sourceManagementLogic = kea<sourceManagementLogicType>([
             }
         }
         actions.loadSources()
+        actions.loadPendingSelfManagedTableIds()
     }),
     beforeUnmount(() => {
         // Disposables plugin handles cleanup automatically

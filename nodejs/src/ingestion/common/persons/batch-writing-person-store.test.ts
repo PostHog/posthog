@@ -178,6 +178,7 @@ describe('BatchWritingPersonStore', () => {
             releaseLifecycleMarks: jest.fn().mockResolvedValue(undefined),
             isPersonLive: jest.fn().mockResolvedValue(true),
             readMergeRows: jest.fn().mockResolvedValue([]),
+            readPerson: jest.fn().mockResolvedValue(undefined),
             updatePersonsBatch: jest.fn().mockResolvedValue(new Map()),
             addDistinctId: jest.fn().mockResolvedValue([]),
             moveDistinctIds: jest.fn().mockResolvedValue({ success: true, messages: [], distinctIdsMoved: [] }),

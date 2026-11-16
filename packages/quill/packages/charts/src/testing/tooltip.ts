@@ -1,4 +1,4 @@
-import { waitFor } from '@testing-library/react'
+import { act, fireEvent, waitFor } from '@testing-library/react'
 
 /** Stable selector for the chart tooltip portal — quill-charts renders this on
  *  the document root via FloatingPortal, so it can't be found inside the chart
@@ -38,6 +38,8 @@ export interface DefaultTooltipAccessor extends ChartTooltipAccessor {
     swatchColors(): string[]
     /** Formatted total-row value, or undefined when no total row is shown. */
     total(): string | undefined
+    /** Click the series row with this label. Throws when no row has the label. */
+    clickRow(seriesLabel: string): void
 }
 
 const seriesLabelOf = (row: HTMLElement): string =>
@@ -67,6 +69,15 @@ export function createDefaultTooltipAccessor(element: HTMLElement): DefaultToolt
         total(): string | undefined {
             const total = element.querySelector('[data-attr="hog-chart-tooltip-total"]')
             return total?.querySelector('[data-attr="hog-chart-tooltip-value"]')?.textContent ?? undefined
+        },
+        clickRow(seriesLabel: string): void {
+            const row = rowEls().find((r) => seriesLabelOf(r) === seriesLabel)
+            if (!row) {
+                throw new Error(`No tooltip row labelled "${seriesLabel}"`)
+            }
+            act(() => {
+                fireEvent.click(row)
+            })
         },
     })
 }

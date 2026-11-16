@@ -4,6 +4,9 @@ from uuid import UUID
 from django.db import transaction
 from django.utils import timezone
 
+from posthog.paging import Page, PageRequest
+from posthog.queryset_paging import select_page
+
 from products.workflows.backend.facade.contracts import (
     WorkflowDraftChanged,
     WorkflowDraftExists,
@@ -18,21 +21,17 @@ from products.workflows.backend.services.hog_flow_writes import field_values
 from products.workflows.backend.services.workflow_proposals import unstage_proposals_for_flow
 
 
-def count_revisions(hog_flow_id: UUID) -> int:
-    return HogFlowRevision.objects.filter(hog_flow_id=hog_flow_id).count()
-
-
-def list_revisions(hog_flow_id: UUID, *, offset: int, limit: int) -> list[WorkflowRevisionSummary]:
+def list_revisions(hog_flow_id: UUID, page: PageRequest) -> Page[WorkflowRevisionSummary]:
     # Content is fetched per version via get_revision, so the list stays light.
     revisions = (
         HogFlowRevision.objects.filter(hog_flow_id=hog_flow_id)
         .order_by("-version")
         .select_related("created_by")
-        .defer("content")[offset : offset + limit]
+        .defer("content")
     )
-    return [
-        WorkflowRevisionSummary(version=r.version, created_at=r.created_at, created_by=r.created_by) for r in revisions
-    ]
+    return select_page(revisions, page).map(
+        lambda r: WorkflowRevisionSummary(version=r.version, created_at=r.created_at, created_by=r.created_by)
+    )
 
 
 def get_revision(*, hog_flow_id: UUID, version: int) -> WorkflowRevision | None:

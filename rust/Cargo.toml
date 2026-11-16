@@ -14,6 +14,7 @@ members = [
   "cohort-stream-processor",
   "common/alloc",
   "common/assignment-coordination",
+  "common/cohort-team-access",
   "common/k8s-awareness",
   "common/keyed-stash",
   "common/cache",
@@ -59,6 +60,8 @@ members = [
   "kafka-assigner",
   "kafka-assigner-proto",
   "ingestion-consumer",
+  "ingestion-framework",
+  "logs-ingestion",
   "ingestion-control-plane",
   "ingestion-worker-proto",
   "kafka-deduplicator",
@@ -127,6 +130,15 @@ debug = "line-tables-only"
 # that hold its resource object and async context frame.
 [profile.release.package.neon]
 debug-assertions = true
+
+# Dependency debug info doubles the size of a dev target dir.
+[profile.dev]
+debug = "line-tables-only"
+
+[profile.dev.package."*"]
+debug = false
+# Cargo strips proc-macro dylibs when debug is off, and dyld rejects them after Apple ld-27106 links them.
+strip = false
 
 # The stateright model checker exhaustively explores millions of protocol
 # states; its hot loop (state hashing, BTreeMap clones) is ~11x slower
@@ -257,7 +269,7 @@ aws-smithy-runtime-api = { version = "1.11.5", features = ["client"] }
 aws-smithy-http-client = { version = "1.1.11", features = ["rustls-aws-lc"] }
 mockall = "0.13.0"
 moka = { version = "0.12.15", features = ["sync", "future"] }
-posthog-rs = { version = "0.27.1", features = ["async-client", "capture-v1"] }
+posthog-rs = { version = "0.30.0", features = ["async-client", "capture-v1"] }
 redis = { version = "0.32.7", features = [
   "tokio-comp",
   "cluster",

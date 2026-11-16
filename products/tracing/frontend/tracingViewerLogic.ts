@@ -145,11 +145,13 @@ export interface tracingViewerLogicActions {
         options?:
             | {
                   fullRange?: boolean
+                  groupByEndpoint?: boolean
               }
             | null
             | undefined
     ) => {
         fullRange?: boolean
+        groupByEndpoint?: boolean
     } | null // tracingDataLogic
     fetchSpanTree: (params: { serviceName: string; spanName: string }) => {
         serviceName: string

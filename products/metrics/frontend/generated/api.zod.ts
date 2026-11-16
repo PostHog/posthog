@@ -318,7 +318,6 @@ export const MetricsDashboardImportsValidateCreateBody = /* @__PURE__ */ zod.obj
 
 export const metricsQueryCreateBodyQueryOneMetricNameMax = 255
 
-export const metricsQueryCreateBodyQueryOneAggregationDefault = `sum`
 export const metricsQueryCreateBodyQueryOneQuantileMin = 0
 export const metricsQueryCreateBodyQueryOneQuantileMax = 1
 
@@ -350,6 +349,8 @@ export const metricsQueryCreateBodyQueryOneClausesItemGroupByItemKeyMax = 255
 export const metricsQueryCreateBodyQueryOneClausesItemGroupByItemScopeDefault = `auto`
 export const metricsQueryCreateBodyQueryOneFormulaMax = 512
 
+export const metricsQueryCreateBodyQueryOnePromqlMax = 8192
+
 export const MetricsQueryCreateBody = /* @__PURE__ */ zod.object({
     query: zod
         .object({
@@ -378,9 +379,9 @@ export const MetricsQueryCreateBody = /* @__PURE__ */ zod.object({
                 .describe(
                     '\* `none` - none\n\* `sum` - sum\n\* `avg` - avg\n\* `count` - count\n\* `min` - min\n\* `max` - max\n\* `p95` - p95\n\* `rate` - rate\n\* `increase` - increase\n\* `histogram_quantile` - histogram_quantile'
                 )
-                .default(metricsQueryCreateBodyQueryOneAggregationDefault)
+                .optional()
                 .describe(
-                    "Aggregation applied per time bucket, always across series rather than across raw samples. 'sum', 'avg', 'min', 'max' and 'p95' reduce each series to its last sample in the bucket and then combine those, so the result does not scale with the scrape rate; 'count' is the number of series that reported. 'rate' (per-second) and 'increase' are counter-aware: per-series deltas with Prometheus counter-reset handling, temporality-aware (delta-temporality samples count as-is). 'histogram_quantile' interpolates from OTel histogram buckets and requires 'quantile'. 'none' skips the aggregation and returns one series per label set, at most 100, using each series' last sample per bucket; it cannot be combined with 'groupBy'.\n\n\* `none` - none\n\* `sum` - sum\n\* `avg` - avg\n\* `count` - count\n\* `min` - min\n\* `max` - max\n\* `p95` - p95\n\* `rate` - rate\n\* `increase` - increase\n\* `histogram_quantile` - histogram_quantile"
+                    "Defaults to 'sum'. Aggregation applied per time bucket, always across series rather than across raw samples. 'sum', 'avg', 'min', 'max' and 'p95' reduce each series to its last sample in the bucket and then combine those, so the result does not scale with the scrape rate; 'count' is the number of series that reported. 'rate' (per-second) and 'increase' are counter-aware: per-series deltas with Prometheus counter-reset handling, temporality-aware (delta-temporality samples count as-is). 'histogram_quantile' interpolates from OTel histogram buckets and requires 'quantile'. 'none' skips the aggregation and returns one series per label set, at most 100, using each series' last sample per bucket; it cannot be combined with 'groupBy'.\n\n\* `none` - none\n\* `sum` - sum\n\* `avg` - avg\n\* `count` - count\n\* `min` - min\n\* `max` - max\n\* `p95` - p95\n\* `rate` - rate\n\* `increase` - increase\n\* `histogram_quantile` - histogram_quantile"
                 ),
             rangeFunction: zod
                 .union([
@@ -598,6 +599,13 @@ export const MetricsQueryCreateBody = /* @__PURE__ */ zod.object({
                 .nullish()
                 .describe(
                     "Arithmetic over clause names evaluated server-side per grid point, e.g. '(a - b) \/ a'. Supports + - \* \/ and parentheses; division by zero yields 0. When set, only the formula result series are returned."
+                ),
+            promql: zod
+                .string()
+                .max(metricsQueryCreateBodyQueryOnePromqlMax)
+                .nullish()
+                .describe(
+                    "PromQL expression, run as a range query over the request's time grid, e.g. 'sum by (job) (rate(http_requests_total[5m]))'. Use it to run an alert or runbook expression as written. Mutually exclusive with 'metricName' and 'clauses'; put label selectors and grouping in the expression instead of 'filters' and 'groupBy'. In PromQL, service.name is service_name and other label names with dots need quotes. A bucket that a series did not report is null, not zero."
                 ),
             dateFrom: zod
                 .string()
@@ -850,4 +858,70 @@ export const MetricsVariableOptionsCreateBody = /* @__PURE__ */ zod.object({
         .max(metricsVariableOptionsCreateBodyDateToMax)
         .nullish()
         .describe('End of the window that options come from, in the same format as dateFrom. Defaults to now.'),
+})
+
+/**
+ * Add a notification destination to a metrics alert. It hears the transitions in `event_kinds`. A PagerDuty destination opens an incident when the alert fires and resolves it when the alert resolves.
+ */
+export const metricsAlertsDestinationsCreateBodyPagerdutySeverityDefault = `critical`
+export const metricsAlertsDestinationsCreateBodyPagerdutyRegionDefault = `us`
+
+export const MetricsAlertsDestinationsCreateBody = /* @__PURE__ */ zod.object({
+    type: zod
+        .enum(['slack', 'webhook', 'teams', 'discord', 'pagerduty'])
+        .describe(
+            '\* `slack` - Slack\n\* `webhook` - Webhook\n\* `teams` - Microsoft Teams\n\* `discord` - Discord\n\* `pagerduty` - PagerDuty'
+        )
+        .describe(
+            'Notification destination type.\n\n\* `slack` - Slack\n\* `webhook` - Webhook\n\* `teams` - Microsoft Teams\n\* `discord` - Discord\n\* `pagerduty` - PagerDuty'
+        ),
+    slack_workspace_id: zod
+        .number()
+        .optional()
+        .describe('Integration ID for the Slack workspace. Required when type=slack.'),
+    slack_channel_id: zod.string().optional().describe('Slack channel ID. Required when type=slack.'),
+    slack_channel_name: zod.string().optional().describe('Human-readable channel name for display.'),
+    webhook_url: zod.url().optional().describe('HTTPS endpoint to post to. Required for webhook, teams and discord.'),
+    pagerduty_routing_key: zod
+        .string()
+        .optional()
+        .describe('Integration key of a PagerDuty Events API v2 integration. Required when type=pagerduty.'),
+    pagerduty_severity: zod
+        .enum(['critical', 'error', 'warning', 'info'])
+        .describe('\* `critical` - critical\n\* `error` - error\n\* `warning` - warning\n\* `info` - info')
+        .default(metricsAlertsDestinationsCreateBodyPagerdutySeverityDefault)
+        .describe(
+            'Severity PagerDuty records on the incident. Used when type=pagerduty.\n\n\* `critical` - critical\n\* `error` - error\n\* `warning` - warning\n\* `info` - info'
+        ),
+    pagerduty_region: zod
+        .enum(['us', 'eu'])
+        .describe('\* `us` - us\n\* `eu` - eu')
+        .default(metricsAlertsDestinationsCreateBodyPagerdutyRegionDefault)
+        .describe('PagerDuty service region of the account. Used when type=pagerduty.\n\n\* `us` - us\n\* `eu` - eu'),
+    event_kinds: zod
+        .array(
+            zod
+                .enum(['firing', 'resolved', 'errored', 'broken'])
+                .describe(
+                    '\* `firing` - firing\n\* `resolved` - resolved\n\* `errored` - errored\n\* `broken` - broken'
+                )
+        )
+        .min(1)
+        .optional()
+        .describe(
+            "The alert transitions to send about. Defaults to every kind, or to firing and resolved for PagerDuty, which then hears each incident's trigger and resolve."
+        ),
+})
+
+/**
+ * Delete notification destinations of a metrics alert.
+ */
+export const metricsAlertsDestinationsDeleteCreateBodyDestinationIdsMax = 100
+
+export const MetricsAlertsDestinationsDeleteCreateBody = /* @__PURE__ */ zod.object({
+    destination_ids: zod
+        .array(zod.uuid())
+        .min(1)
+        .max(metricsAlertsDestinationsDeleteCreateBodyDestinationIdsMax)
+        .describe('IDs of the destinations to delete, as the list endpoint returns them.'),
 })

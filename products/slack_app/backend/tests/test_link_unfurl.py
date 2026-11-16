@@ -36,7 +36,8 @@ from products.conversations.backend.models.ticket import Ticket
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
 from products.error_tracking.backend.facade import testing as error_tracking_testing
-from products.experiments.backend.models.experiment import Experiment
+from products.experiments.backend.facade.contracts import StoredArmResult, StoredPrimaryResult
+from products.experiments.backend.facade.testing import create_experiment
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.notebooks.backend.models import Notebook
 from products.product_analytics.backend.facade.models import Insight
@@ -48,6 +49,7 @@ from products.slack_app.backend.services.slack_scopes import REQUIRED_SLACK_SCOP
 from products.slack_app.backend.slack_link_unfurl import (
     _card_blocks,
     _date_range,
+    _experiment_chart,
     _flag_chart,
     _insight_resource_label,
     _question_list,
@@ -283,6 +285,42 @@ class TestCardText:
     def test_question_list_numbers_and_caps_questions(self) -> None:
         questions = [{"question": f"Question {index}"} for index in range(7)]
         assert _question_list(questions) == "1. Question 0\n2. Question 1\n3. Question 2\n+ 4 more"
+
+    @parameterized.expand(
+        [
+            (
+                "variant_without_data",
+                "funnel",
+                0.2,
+                (0.25, None),
+                ["control  ████████████████░░░░  20.0%", "empty    ░░░░░░░░░░░░░░░░░░░░  —"],
+            ),
+            ("negative_means", "mean", -10.0, (-5.0, -20.0), ["control    -10.00", "test       -5.00"]),
+        ]
+    )
+    def test_experiment_chart_shows_measured_values_only(
+        self,
+        _name: str,
+        metric_type: str,
+        control: float,
+        means: tuple[float | None, float | None],
+        expected: list[str],
+    ) -> None:
+        stats = StoredPrimaryResult(
+            metric_name="Metric",
+            metric_type=metric_type,
+            proportion=metric_type == "funnel",
+            goal=None,
+            baseline=StoredArmResult(key="control", number_of_samples=100, mean=control),
+            variants=(
+                StoredArmResult(key="test", number_of_samples=100, mean=means[0]),
+                StoredArmResult(key="empty", number_of_samples=0, mean=means[1]),
+            ),
+        )
+
+        lines = (_experiment_chart(stats) or "").splitlines()
+
+        assert all(line in lines for line in expected)
 
 
 @pytest.mark.django_db
@@ -914,8 +952,8 @@ class TestHandlePosthogLinkUnfurl(APIBaseTest):
                 return f"{base}/feature_flags/{flag.pk}", ["new-checkout", "*Active*", "25% of users"]
             case "experiment":
                 flag = FeatureFlag.objects.create(team=self.team, key="button-color", created_by=self.user)
-                experiment = Experiment.objects.create(team=self.team, name="Button color", feature_flag=flag)
-                return f"{base}/experiments/{experiment.pk}", ["Button color", "*Draft*"]
+                experiment_id = create_experiment(team_id=self.team.pk, name="Button color", feature_flag_id=flag.pk)
+                return f"{base}/experiments/{experiment_id}", ["Button color", "*Draft*"]
             case "survey":
                 survey = Survey.objects.create(
                     team=self.team,
@@ -1149,18 +1187,95 @@ class TestHandlePosthogLinkUnfurl(APIBaseTest):
         self, mock_slack_integration_class: MagicMock, mock_resolve: MagicMock
     ) -> None:
         flag = FeatureFlag.objects.create(team=self.team, key="paused-test", created_by=self.user, active=False)
-        experiment = Experiment.objects.create(
-            team=self.team, name="Paused test", feature_flag=flag, start_date=timezone.now(), status="running"
+        experiment_id = create_experiment(
+            team_id=self.team.pk, name="Paused test", feature_flag_id=flag.pk, start_date=timezone.now()
         )
         mock_resolve.return_value = MagicMock(user=self.user)
         mock_client = MagicMock()
         mock_slack_integration_class.return_value.client = mock_client
-        url = f"http://testserver/project/{self.team.pk}/experiments/{experiment.pk}"
+        url = f"http://testserver/project/{self.team.pk}/experiments/{experiment_id}"
 
         self._unfurl_links([url])
 
         text = self._unfurl_text(mock_client.chat_unfurl.call_args.kwargs["unfurls"][url])
         assert "*Paused*" in text
+
+    @parameterized.expand(
+        [
+            (
+                "winner",
+                True,
+                0.15,
+                True,
+                ["Split 50/50", "*Winner so far: test.* +15.0% vs control.", "20.0%", "23.0%  +15.0% ✓"],
+            ),
+            (
+                "too_early",
+                True,
+                None,
+                None,
+                ["Split 50/50", "*Too early to call.* 10,400 exposed so far.", "23.0%  +15.0%"],
+            ),
+            ("no_result", False, None, None, ["50%"]),
+        ]
+    )
+    @patch("products.slack_app.backend.api.resolve_slack_user")
+    @patch("products.slack_app.backend.slack_link_unfurl.SlackIntegration")
+    def test_experiment_card_shows_the_stored_primary_result_or_the_split(
+        self,
+        _name: str,
+        has_result: bool,
+        change: float | None,
+        significant: bool | None,
+        expected: list[str],
+        mock_slack_integration_class: MagicMock,
+        mock_resolve: MagicMock,
+    ) -> None:
+        flag = FeatureFlag.objects.create(
+            team=self.team,
+            key="checkout-copy",
+            created_by=self.user,
+            filters={
+                "groups": [{"properties": [], "rollout_percentage": 100}],
+                "multivariate": {
+                    "variants": [
+                        {"key": "control", "rollout_percentage": 50},
+                        {"key": "test", "rollout_percentage": 50},
+                    ]
+                },
+            },
+        )
+        experiment_id = create_experiment(
+            team_id=self.team.pk,
+            name="Checkout copy",
+            feature_flag_id=flag.pk,
+            metrics=[{"kind": "ExperimentMetric", "metric_type": "funnel", "name": "Completed checkout"}],
+        )
+        stored = StoredPrimaryResult(
+            metric_name="Completed checkout",
+            metric_type="funnel",
+            proportion=True,
+            goal=None,
+            baseline=StoredArmResult(key="control", number_of_samples=5200, mean=0.2),
+            variants=(
+                StoredArmResult(key="test", number_of_samples=5200, mean=0.23, change=change, significant=significant),
+            ),
+        )
+        mock_resolve.return_value = MagicMock(user=self.user)
+        mock_client = MagicMock()
+        mock_slack_integration_class.return_value.client = mock_client
+        url = f"http://testserver/project/{self.team.pk}/experiments/{experiment_id}"
+
+        with patch(
+            "products.slack_app.backend.slack_link_unfurl.experiments_facade.get_stored_primary_result",
+            return_value=stored if has_result else None,
+        ):
+            self._unfurl_links([url])
+
+        text = self._unfurl_text(mock_client.chat_unfurl.call_args.kwargs["unfurls"][url])
+        assert "Metric: Completed checkout" in text
+        for fragment in expected:
+            assert fragment in text
 
     @staticmethod
     def _assert_slack_accepts(unfurl: dict) -> None:

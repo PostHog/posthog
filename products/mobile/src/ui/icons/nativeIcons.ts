@@ -1,0 +1,15 @@
+export const nativeIcons = {
+    home: require('./native/home.png'),
+    chats: require('./native/chats.png'),
+    views: require('./native/views.png'),
+    errors: require('./native/errors.png'),
+    replay: require('./native/replay.png'),
+    compose: require('./native/compose.png'),
+    filter: require('./native/filter.png'),
+    more: require('./native/more.png'),
+    back: require('./native/back.png'),
+    next: require('./native/next.png'),
+    external: require('./native/external.png'),
+    close: require('./native/close.png'),
+    done: require('./native/done.png'),
+}

@@ -24,8 +24,6 @@ import { UNFILED_DASHBOARDS_FOLDER } from 'scenes/dashboard/dashboardConstants'
 import { DASHBOARD_CANNOT_EDIT_MESSAGE } from 'scenes/dashboard/DashboardHeader'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { dashboardsLogic } from 'scenes/dashboard/dashboards/dashboardsLogic'
-import { deleteDashboardLogic } from 'scenes/dashboard/deleteDashboardLogic'
-import { duplicateDashboardLogic } from 'scenes/dashboard/duplicateDashboardLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { emptySceneParams } from 'scenes/scenes'
 import { Scene } from 'scenes/sceneTypes'
@@ -35,6 +33,8 @@ import { urls } from 'scenes/urls'
 import { dashboardsModel, nameCompareFunction } from '~/models/dashboardsModel'
 import { AccessControlLevel, AccessControlResourceType, DashboardBasicType, DashboardType } from '~/types'
 
+import { deleteDashboardLogic } from '../deleteDashboardLogic'
+import { duplicateDashboardLogic } from '../duplicateDashboardLogic'
 import { DashboardsFiltersBar } from './DashboardsFiltersBar'
 
 function BulkMoveToFolderButton({
@@ -196,6 +196,7 @@ export function DashboardsTable({
         {
             title: 'Folder',
             dataIndex: 'folder' as keyof DashboardType,
+            width: 160,
             render: function Render(folder: DashboardType['folder']) {
                 // Unfiled dashboards live in the default `Unfiled/Dashboards` folder — that's not a folder
                 // the user chose, so show nothing rather than a filter affordance.
@@ -216,16 +217,24 @@ export function DashboardsTable({
                 )
             },
         } as LemonTableColumn<DashboardType, keyof DashboardType | undefined>,
-        createdByColumn<DashboardType>() as LemonTableColumn<DashboardType, keyof DashboardType | undefined>,
-        createdAtColumn<DashboardType>() as LemonTableColumn<DashboardType, keyof DashboardType | undefined>,
-        atColumn<DashboardType>('last_accessed_at', 'Last accessed at') as LemonTableColumn<
-            DashboardType,
-            keyof DashboardType | undefined
-        >,
-        atColumn<DashboardType>('last_viewed_at', 'You last viewed') as LemonTableColumn<
-            DashboardType,
-            keyof DashboardType | undefined
-        >,
+        // Fixed-layout table: columns without a width split the leftover space, which clips their
+        // nowrap headers on narrower screens. Size every column so the table scrolls instead.
+        {
+            ...createdByColumn<DashboardType>(),
+            width: 160,
+        } as LemonTableColumn<DashboardType, keyof DashboardType | undefined>,
+        {
+            ...createdAtColumn<DashboardType>(),
+            width: 120,
+        } as LemonTableColumn<DashboardType, keyof DashboardType | undefined>,
+        {
+            ...atColumn<DashboardType>('last_accessed_at', 'Last accessed at'),
+            width: 180,
+        } as LemonTableColumn<DashboardType, keyof DashboardType | undefined>,
+        {
+            ...atColumn<DashboardType>('last_viewed_at', 'You last viewed'),
+            width: 180,
+        } as LemonTableColumn<DashboardType, keyof DashboardType | undefined>,
         hideActions
             ? {}
             : {

@@ -34,7 +34,6 @@ import { toolCallsTotal } from '@/hono/metrics'
 import type { ResolvedState } from '@/hono/request-state-resolver'
 import { ToolCatalog } from '@/hono/tool-catalog'
 import { ToolExecutor } from '@/hono/tool-executor'
-import { MCP_NO_DATA_INSTALL_NOTICE_FLAG } from '@/lib/no-data-guard'
 import { getPostHogClient } from '@/lib/posthog'
 import { MAX_CAPTURED_DESCRIPTION_LENGTH } from '@/tools/toolDefinitions'
 
@@ -199,16 +198,11 @@ describe('ToolExecutor analytics capture', () => {
     })
 
     it.each(['direct', 'exec'])(
-        'keeps a %s switch-project call on the project its variant was evaluated for',
+        'keeps a %s switch-project call on the project its flags were evaluated for',
         async (mode) => {
             const capture = vi.spyOn(getPostHogClient(), 'captureToolCall').mockImplementation(() => {})
-            const source = { organizationId: 'org-1', projectId: '1', projectUuid: 'uuid-1', projectHasData: false }
-            const destination = {
-                organizationId: 'org-1',
-                projectId: '2',
-                projectUuid: 'uuid-2',
-                projectHasData: false,
-            }
+            const source = { organizationId: 'org-1', projectId: '1', projectUuid: 'uuid-1' }
+            const destination = { organizationId: 'org-1', projectId: '2', projectUuid: 'uuid-2' }
             let active = source
             const tool = {
                 name: 'switch-project',
@@ -233,8 +227,6 @@ describe('ToolExecutor analytics capture', () => {
                 useSingleExec: mode === 'exec',
                 suppressAnalytics: false,
                 analyticsContext: source,
-                projectHasData: source.projectHasData,
-                toolFeatureFlags: { [MCP_NO_DATA_INSTALL_NOTICE_FLAG]: 'warn' },
                 reqCtx: { ...baseState.reqCtx, safelyGetAnalyticsContext: vi.fn(async () => active) } as any,
             })
 
@@ -253,9 +245,6 @@ describe('ToolExecutor analytics capture', () => {
             expect(event.groups).toEqual({ organization: 'org-1', project: 'uuid-1' })
             expect(event.properties).toMatchObject({
                 $mcp_project_id: '1',
-                mcp_project_has_data: false,
-                mcp_no_data_action: 'none',
-                [`$feature/${MCP_NO_DATA_INSTALL_NOTICE_FLAG}`]: 'warn',
             })
         }
     )

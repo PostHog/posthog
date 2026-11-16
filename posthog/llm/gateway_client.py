@@ -479,6 +479,7 @@ def build_ai_gateway_openai_client(
     api_key: str,
     ai_product: str,
     trace_id: str | None = None,
+    session_id: str | None = None,
     properties: Mapping[str, str] | None = None,
     distinct_id: str | None = None,
 ) -> OpenAI:
@@ -496,6 +497,7 @@ def build_ai_gateway_openai_client(
         default_headers=ai_gateway_headers(
             ai_product=ai_product,
             trace_id=trace_id,
+            session_id=session_id,
             properties=properties,
             distinct_id=distinct_id,
         ),

@@ -805,6 +805,7 @@ class TestSummarizationByID(ClickhouseTestMixin, APIBaseTest):
         if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
             self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND, response.data)
             self.assertIn("message content for this event is no longer available", response.data["detail"])
+            self.assertEqual(response.data["code"], "content_expired")
             mock_summarize.assert_not_called()
         else:
             self.assertEqual(response.status_code, status.HTTP_200_OK, response.data)

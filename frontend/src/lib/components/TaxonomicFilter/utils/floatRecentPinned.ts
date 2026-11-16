@@ -31,8 +31,7 @@ export function pinnedSourceKey(item: TaxonomicDefinitionTypes): string | null {
 // float to the top, then pinned, then everything else keeps its order. The list stays flat
 // and deduped — each item appears once, because we reorder the group's own results in place
 // rather than prepending copies. `keyOf` keys a group result the same way recent/pinned
-// entries are keyed (via `groupItemKey`) so the tiers line up. Shared by the legacy
-// `infiniteListLogic` and the rebuild `useGroupList`.
+// entries are keyed (via `groupItemKey`) so the tiers line up.
 //
 // A present synthetic aggregate row (e.g. "All events", whose value is null) leads and keeps
 // its place — a promoted real item never displaces the group's own catch-all row. Skeletons

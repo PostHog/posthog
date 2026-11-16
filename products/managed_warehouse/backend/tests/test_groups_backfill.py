@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from collections.abc import Iterator
 from datetime import UTC, datetime, timedelta
 from pathlib import Path
@@ -21,6 +22,8 @@ from posthog.clickhouse.client.connection import get_client_from_pool
 from posthog.dags.events_backfill_to_duckling import DUCKLAKE_ALIAS, DucklingBackfillConfig, DucklingTarget
 
 from products.managed_warehouse.backend.facade.contracts import (
+    DuckLakeDayReplacement,
+    DuckLakeTableReplacement,
     ManagedWarehouseTableNames,
     ManagedWarehouseTeamMembership,
 )
@@ -28,6 +31,7 @@ from products.managed_warehouse.dags.groups_backfill import (
     GROUPS_JOB_NAME,
     GROUPS_REFRESH_DATE_TAG,
     GROUPS_SNAPSHOT_TAG,
+    GROUPS_TRINO_COLUMN_TYPES,
     MAX_TEAMS_PER_TICK,
     RETRY_BASE_SECONDS,
     duckling_groups_backfill,
@@ -45,9 +49,10 @@ if TYPE_CHECKING:
     from dagster import RunRequest
 
 
+@pytest.mark.parametrize("for_trino", [False, True])
 @pytest.mark.parametrize("partition_date", [None, datetime(2025, 1, 1), datetime(2025, 1, 2), datetime(2025, 1, 3)])
 def test_groups_snapshot_deduplicates_keys_within_each_team_and_group_type(
-    monkeypatch: pytest.MonkeyPatch, partition_date: datetime | None
+    monkeypatch: pytest.MonkeyPatch, partition_date: datetime | None, for_trino: bool
 ) -> None:
     monkeypatch.setattr(settings, "CLICKHOUSE_USE_HTTP", False)
     table_name = f"test_groups_snapshot_{uuid4().hex}"
@@ -79,10 +84,11 @@ def test_groups_snapshot_deduplicates_keys_within_each_team_and_group_type(
                     (7, 0, "tied", '{"name":"last insert"}', created, latest, 1),
                 ],
             )
-            query = groups_snapshot_select_sql(7, partition_date).replace(
+            query = groups_snapshot_select_sql(7, partition_date, for_trino=for_trino).replace(
                 "FROM groups FINAL", f"FROM {table_name} FINAL"
             )
             rows = client.execute(query)
+            described = {str(row[0]): str(row[1]) for row in client.execute(f"DESCRIBE ({query})")}
         finally:
             client.execute(f"DROP TABLE {table_name}")
     expected = [
@@ -90,9 +96,20 @@ def test_groups_snapshot_deduplicates_keys_within_each_team_and_group_type(
         (7, 0, "tied", '{"name":"last insert"}', created, latest),
         (7, 1, "company", '{"name":"another type"}', created, latest),
     ]
-    assert sorted(row[:6] for row in rows) == [
+    assert sorted((*row[:4], row[4].replace(tzinfo=None), row[5]) for row in rows) == [
         row for row in expected if partition_date is None or row[5] == partition_date
     ]
+    if for_trino:
+        # add_files refuses any type conversion, so these must be the types DuckLake writes for the Trino columns.
+        assert described == {
+            "team_id": "Int64",
+            "group_type_index": "Int16",
+            "group_key": "String",
+            "group_properties": "String",
+            "created_at": "DateTime64(6, 'UTC')",
+            "_timestamp": "DateTime64(6)",
+            "_inserted_at": "DateTime64(6)",
+        }
 
 
 @pytest.mark.parametrize("memory_override", [None, 20 * 1024**3])
@@ -286,6 +303,118 @@ def test_groups_backfill_cleans_only_its_partition_and_replays_registration(
     metadata = context.add_output_metadata.call_args.args[0]
     assert metadata["files_registered"] == expected_files
     assert metadata["export_mode"] == ("daily" if daily else "full")
+
+
+class _FakeGroupsCatalog:
+    def __init__(self) -> None:
+        self.tables: list[tuple[str, dict[str, str]]] = []
+        self.registered: list[tuple[str, list[str], DuckLakeDayReplacement | DuckLakeTableReplacement | None]] = []
+
+    def ensure_table(
+        self, table: str, columns: dict[str, str], *, drop_first: bool, create_if_missing: bool, validate: bool
+    ) -> None:
+        self.tables.append((table, dict(columns)))
+
+    def register_files(
+        self,
+        table: str,
+        files: list[str],
+        *,
+        import_id: str,
+        replacement: DuckLakeDayReplacement | DuckLakeTableReplacement | None,
+    ) -> int:
+        self.registered.append((table, list(files), replacement))
+        return len(files)
+
+
+@pytest.mark.parametrize(
+    "partition_key,replacement",
+    [
+        ("7", DuckLakeTableReplacement()),
+        ("7_2025-12-31", DuckLakeDayReplacement(column="_timestamp", day=datetime(2025, 12, 31).date())),
+    ],
+)
+@time_machine.travel(datetime(2026, 1, 1, tzinfo=UTC), tick=False)
+def test_groups_backfill_registers_through_trino_without_duckgres(
+    partition_key: str, replacement: DuckLakeDayReplacement | DuckLakeTableReplacement
+) -> None:
+    inserts, catalog, connect_catalog, context = _run_groups_through_trino(partition_key, DucklingBackfillConfig())
+
+    connect_catalog.assert_called_with("org", canary=False, team_id=7)
+    assert catalog.tables == [("groups_team_7", GROUPS_TRINO_COLUMN_TYPES)]
+    [(table, files, registered_replacement)] = catalog.registered
+    assert (table, registered_replacement) == ("groups_team_7", replacement)
+    [insert] = inserts
+    export_path = re.search(r"s3\('([^']+)'", insert)
+    assert export_path is not None
+    assert files == [
+        export_path[1].replace("https://bkt.s3.us-east-1.amazonaws.com/", "s3://bkt/").replace("{_partition_id}", "0")
+    ]
+    assert "toInt16(group_type_index) AS group_type_index" in insert
+    assert "toDateTime64(created_at, 6, 'UTC') AS created_at" in insert
+    assert context.add_output_metadata.call_args.args[0]["files_registered"] == 1
+
+
+@time_machine.travel(datetime(2026, 1, 1, tzinfo=UTC), tick=False)
+def test_groups_backfill_opts_in_to_trino_when_the_org_is_not_on_the_flag() -> None:
+    _, catalog, connect_catalog, _ = _run_groups_through_trino(
+        "7", DucklingBackfillConfig(register_through_trino=True), org_on_flag=False
+    )
+
+    connect_catalog.assert_called()
+    assert catalog.registered
+
+
+@pytest.mark.parametrize("partition_key", ["7", "7_2025-12-31"])
+@time_machine.travel(datetime(2026, 1, 1, tzinfo=UTC), tick=False)
+def test_groups_export_only_writes_the_trino_types_without_registering(partition_key: str) -> None:
+    inserts, catalog, connect_catalog, _ = _run_groups_through_trino(
+        partition_key, DucklingBackfillConfig(skip_ducklake_registration=True)
+    )
+
+    connect_catalog.assert_not_called()
+    assert catalog.registered == []
+    [insert] = inserts
+    assert "toInt16(group_type_index) AS group_type_index" in insert
+    assert "toDateTime64(created_at, 6, 'UTC') AS created_at" in insert
+
+
+def _run_groups_through_trino(
+    partition_key: str, config: DucklingBackfillConfig, org_on_flag: bool = True
+) -> tuple[list[str], _FakeGroupsCatalog, MagicMock, MagicMock]:
+    target = DucklingTarget(team_id=7, organization_id="org", bucket="bkt", bucket_region="us-east-1")
+    inserts: list[str] = []
+
+    def execute(query: str, params: object = None, settings: object = None) -> list[tuple[object, ...]]:
+        if "INSERT INTO FUNCTION" in query:
+            inserts.append(query)
+            return []
+        if "'One'" in query:
+            return [("0.parquet",)]
+        return [(10,)]
+
+    client = MagicMock()
+    client.execute.side_effect = execute
+    cluster = MagicMock()
+    cluster.any_host_by_role.side_effect = lambda fn, **_: MagicMock(result=MagicMock(return_value=fn(client)))
+    catalog = _FakeGroupsCatalog()
+    context = MagicMock()
+    context.partition_key = partition_key
+    context.run.run_id = "synthetic-run"
+    with (
+        patch("products.managed_warehouse.dags.groups_backfill._resolve_duckling_target", return_value=target),
+        patch("products.managed_warehouse.dags.groups_backfill.resolve_groups_table", return_value="groups_team_7"),
+        patch("products.managed_warehouse.dags.groups_backfill.backfills_through_trino", return_value=org_on_flag),
+        patch("products.managed_warehouse.dags.groups_backfill._DuckgresSession") as duckgres,
+        patch("products.managed_warehouse.dags.groups_backfill.record_duckling_backfill_workload"),
+        patch("posthog.dags.events_backfill_to_duckling._get_cluster", return_value=cluster),
+        patch("posthog.dags.events_backfill_to_duckling.connect_backfill_catalog") as connect_catalog,
+    ):
+        connect_catalog.return_value.__enter__.return_value = catalog
+        run_groups_backfill(context, config)
+
+    duckgres.assert_not_called()
+    return inserts, catalog, connect_catalog, context
 
 
 _NOW = datetime(2026, 1, 1, tzinfo=UTC)
@@ -585,3 +714,23 @@ def test_preview_clears_inherited_snapshot_tag(config: dict[str, bool], partitio
 def test_delete_tables_refuses_legacy_shared_table(lake: psycopg.Connection[tuple[object, ...]]) -> None:
     with pytest.raises(ValueError, match="shared groups table"):
         ensure_groups_table(lake, "groups", DucklingBackfillConfig(delete_tables=True))
+
+
+@pytest.mark.parametrize(
+    "alter,accepted",
+    [
+        ("ALTER COLUMN group_type_index SET DATA TYPE SMALLINT", True),
+        ("ALTER COLUMN group_type_index SET DATA TYPE INTEGER", False),
+        ("ADD COLUMN extra INTEGER", False),
+    ],
+)
+def test_groups_table_check_accepts_only_the_converted_group_type_index(
+    lake: psycopg.Connection[tuple[object, ...]], alter: str, accepted: bool
+) -> None:
+    lake.execute(f"ALTER TABLE {DUCKLAKE_ALIAS}.posthog.groups_production {alter}")
+
+    if accepted:
+        ensure_groups_table(lake, "groups_production", DucklingBackfillConfig())
+    else:
+        with pytest.raises(ValueError, match="schema mismatch"):
+            ensure_groups_table(lake, "groups_production", DucklingBackfillConfig())

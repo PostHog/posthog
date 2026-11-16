@@ -12,29 +12,13 @@ import { OverviewTab } from '../player-meta/overviewTabs'
 import { playerMetaLogic } from '../player-meta/playerMetaLogic'
 import { TTLWarning } from '../player-meta/PlayerMetaTopSettings'
 import { sessionRecordingPlayerLogic } from '../sessionRecordingPlayerLogic'
+import { OVERVIEW_SNAPSHOT_SCOPE } from './overviewSnapshotScope'
 import { PlayerSidebarExperimentsSection } from './PlayerSidebarExperimentsSection'
 import { playerSidebarLogic } from './playerSidebarLogic'
 import { PlayerSidebarOverviewDeviceTab } from './PlayerSidebarOverviewDeviceTab'
 import { PlayerSidebarOverviewOtherWatchers } from './PlayerSidebarOverviewOtherWatchers'
 import { PlayerSidebarOverviewPersonTab } from './PlayerSidebarOverviewPersonTab'
 import { PlayerSidebarOverviewSessionTab } from './PlayerSidebarOverviewSessionTab'
-
-const SNAPSHOT_SCOPE: string[] = [
-    'session_recording_opt_in',
-    'session_recording_sample_rate',
-    'session_recording_minimum_duration_milliseconds',
-    'session_recording_linked_flag',
-    'session_recording_network_payload_capture_config',
-    'session_recording_masking_config',
-    'session_recording_url_trigger_config',
-    'session_recording_url_blocklist_config',
-    'session_recording_event_trigger_config',
-    'session_recording_retention_period',
-    'session_recording_trigger_match_type_config',
-    'session_recording_trigger_groups',
-    'session_replay_config',
-    'recording_domains',
-]
 
 const OVERVIEW_TAB_OPTIONS: { value: OverviewTab; label: string; 'data-attr': string }[] = [
     { value: 'session', label: 'Session', 'data-attr': 'replay-overview-tab-session' },
@@ -103,7 +87,7 @@ export function PlayerSidebarOverviewTab(): JSX.Element {
                     {
                         key: 'replay-settings',
                         header: 'Settings at the time of the recording',
-                        content: <SettingsSnapshot at={snapshotAt} scope={SNAPSHOT_SCOPE} title="" />,
+                        content: <SettingsSnapshot at={snapshotAt} scope={OVERVIEW_SNAPSHOT_SCOPE} title="" />,
                     },
                 ]}
             />

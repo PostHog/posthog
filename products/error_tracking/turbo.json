@@ -14,6 +14,7 @@
                 "backend/temporal/**",
                 "backend/tasks/**",
                 "backend/webhook_consumers.py",
+                "backend/data_freshness.py",
                 "backend/models.py",
                 "backend/migrations/**"
             ],

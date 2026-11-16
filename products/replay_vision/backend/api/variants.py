@@ -10,10 +10,10 @@ from posthog.api.documentation import PostHogAutoSchema
 from posthog.api.routing import TeamAndOrgViewSetMixin
 
 from products.replay_vision.backend.api.observations import ReplayObservationSerializer
+from products.replay_vision.backend.api.scout_permissions import ScoutDataAccessPermission
 from products.replay_vision.backend.experiment_variants import experiment_variants_readout
 from products.replay_vision.backend.models.replay_scanner import ScannerType
 from products.replay_vision.backend.scanner_access import scanner_for_recording_derived_read
-from products.signals.backend.scout_harness.views import ScoutCanonicalTeamAccessPermission
 
 
 class VariantsExperimentSerializer(serializers.Serializer):
@@ -152,7 +152,7 @@ class ReplayScannerVariantsViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
     # The variant analysis is read from the scout's canonical-team records, so access is checked
     # against that team and not just the environment in the URL.
     # Appended to the standard stack by `TeamAndOrgViewSetMixin.get_permissions`.
-    permission_classes = [ScoutCanonicalTeamAccessPermission]
+    permission_classes = [ScoutDataAccessPermission]
     schema = _ReadoutSchema()
     scope_object = "replay_scanner"
     required_scopes = ["replay_scanner:read", "session_recording:read"]

@@ -233,6 +233,7 @@ class TestSandboxAPI(APIBaseTest):
         task = Task.objects.get(id=body["task_id"])
         run = TaskRun.objects.get(id=body["run_id"])
         assert task.origin_product == Task.OriginProduct.BUSINESS_KNOWLEDGE
+        assert task.profile == "business_knowledge"
         assert task.internal is True
         assert task.repository is None
         assert task.created_by_id == self.user.id

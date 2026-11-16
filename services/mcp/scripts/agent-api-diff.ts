@@ -1,4 +1,4 @@
-#!/usr/bin/env tsx
+#!/usr/bin/env node
 /**
  * Summarizes what a PR changes for agents: tools added or removed, top-level params,
  * scopes, annotations and input schema size. Reads the tool schema snapshots and the
@@ -11,7 +11,7 @@
  * Callers must not read empty output as "no change" unless the exit code is 0.
  *
  * Usage:
- *   pnpm --filter=@posthog/mcp exec tsx scripts/agent-api-diff.ts [--base-ref HEAD^1] [--base-dir <dir>]
+ *   node services/mcp/scripts/agent-api-diff.ts [--base-ref HEAD^1] [--base-dir <dir>]
  */
 import { spawnSync } from 'node:child_process'
 import * as fs from 'node:fs'
@@ -19,9 +19,9 @@ import * as os from 'node:os'
 import * as path from 'node:path'
 import { parseArgs } from 'node:util'
 
-import { diffToolSurfaces, loadToolSurface, renderAgentApiDiff } from './lib/agent-api-diff'
+import { diffToolSurfaces, loadToolSurface, renderAgentApiDiff } from './lib/agent-api-diff.ts'
 
-const REPO_ROOT = path.resolve(__dirname, '../../..')
+const REPO_ROOT = path.resolve(import.meta.dirname, '../../..')
 const TRACKED_PATHS = ['services/mcp/schema', 'services/mcp/tests/unit/__snapshots__/tool-schemas']
 
 const EXIT_UNAVAILABLE = 3

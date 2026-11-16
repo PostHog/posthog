@@ -34,9 +34,7 @@ class TestEmitEvaluationClusterEvents:
         cluster_labels = {0: ClusterLabel(title="Factuality failures", description="- shared hallucination pattern")}
         item_timestamps = {"e1": "2026-04-15T12:00:00Z", "e2": "2026-04-15T12:05:00Z"}
 
-        with patch(
-            "posthog.temporal.ai_observability.evaluation_clustering.event_emission.create_event"
-        ) as mock_create_event:
+        with patch("posthog.temporal.ai_observability.generated_event_usage.create_event") as mock_create_event:
             clusters = emit_evaluation_cluster_events(
                 team_id=mock_team.id,
                 clustering_run_id="run-1",
@@ -93,9 +91,7 @@ class TestEmitEvaluationClusterEvents:
             )
         }
 
-        with patch(
-            "posthog.temporal.ai_observability.evaluation_clustering.event_emission.create_event"
-        ) as mock_create_event:
+        with patch("posthog.temporal.ai_observability.generated_event_usage.create_event") as mock_create_event:
             clusters = emit_evaluation_cluster_events(
                 team_id=mock_team.id,
                 clustering_run_id="run-1",

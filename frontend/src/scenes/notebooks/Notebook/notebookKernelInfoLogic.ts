@@ -16,7 +16,9 @@ import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
 import { ApiConfig } from 'lib/api'
+import { ApiError } from 'lib/api-error'
 import { FEATURE_FLAGS } from 'lib/constants'
+import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { FeatureFlagsSet, featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
 import { notebooksKernelComputeOptionsRetrieve } from 'products/notebooks/frontend/generated/api'
@@ -27,6 +29,18 @@ import type {
 
 import { PythonKernelExecuteResponse } from '../Nodes/pythonExecution'
 import type { NotebookLogicMode } from './notebookLogic'
+
+/** A refused kernel start can stay refused for up to an hour, so "try again" copy would mislead the user. */
+export function kernelActionErrorMessage(error: unknown, fallback: string): string {
+    if (!(error instanceof ApiError) || error.status !== 429) {
+        return fallback
+    }
+    // The default throttle text counts raw seconds. A sandbox limit sends a sentence written for the user.
+    if (error.detail && !error.detail.startsWith('Request was throttled')) {
+        return error.detail
+    }
+    return `Too many kernel starts and restarts. Try again ${error.formattedRetryAfter ?? 'later'}.`
+}
 
 /** A DuckDB object a SQL node can currently SELECT from, as reported by the kernel's last run. */
 export type NotebookKernelFrame = {
@@ -667,6 +681,8 @@ export const notebookKernelInfoLogic = kea<notebookKernelInfoLogicType>([
         startKernel: async () => {
             try {
                 await api.notebooks.kernelStart(props.shortId)
+            } catch (error) {
+                lemonToast.error(kernelActionErrorMessage(error, 'The kernel could not be started. Try again.'))
             } finally {
                 actions.loadKernelInfo()
             }
@@ -681,6 +697,8 @@ export const notebookKernelInfoLogic = kea<notebookKernelInfoLogicType>([
         restartKernel: async () => {
             try {
                 await api.notebooks.kernelRestart(props.shortId)
+            } catch (error) {
+                lemonToast.error(kernelActionErrorMessage(error, 'The kernel could not be restarted. Try again.'))
             } finally {
                 actions.loadKernelInfo()
             }

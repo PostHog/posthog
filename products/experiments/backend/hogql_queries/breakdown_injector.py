@@ -29,7 +29,9 @@ class BreakdownInjector:
     def __init__(
         self,
         breakdowns: list[Breakdown],
-        metric: Union[ExperimentFunnelMetric, ExperimentMeanMetric, ExperimentRatioMetric, ExperimentRetentionMetric],
+        metric: Union[
+            ExperimentFunnelMetric, ExperimentMeanMetric, ExperimentRatioMetric, ExperimentRetentionMetric, None
+        ] = None,
     ):
         self.breakdowns = breakdowns
         self.metric = metric

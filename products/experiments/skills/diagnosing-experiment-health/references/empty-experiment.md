@@ -428,7 +428,9 @@ status from Step 1:
 - `stopped` — the results end at the end date.
 
 Then check where the project keeps its flag calls: `project-get` returns `flag_evaluations_mode`.
-At 2, `$feature_flag_called` no longer arrives in `events` for the projects that setting covers, and an experiment that counts that event gains no exposures, without a warning.
+At 2, `$feature_flag_called` no longer arrives in `events` for the projects that setting covers.
+The default exposure keeps counting from the `$experiment_exposure` copies ("Which event, which property" in `diagnostic-snapshot.md`).
+An exposure or activation config that is an action with a `$feature_flag_called` step can stop gaining exposures, without a warning.
 That is no fault of the SDK or of the application: say so, and point the user to PostHog support.
 
 Then read the flag's change history, before any conclusion about the application:

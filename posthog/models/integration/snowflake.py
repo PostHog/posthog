@@ -4,6 +4,7 @@ import re
 
 from django.db import transaction
 
+from posthog.integrations.contracts import IntegrationRecord
 from posthog.models.user import User
 from posthog.models.utils import IntegrityError
 
@@ -46,12 +47,12 @@ class SnowflakeIntegration:
     user: str
     authentication_type: str
 
-    def __init__(self, integration: model.Integration) -> None:
+    def __init__(self, integration: IntegrationRecord) -> None:
         if integration.kind != model.Integration.IntegrationKind.SNOWFLAKE:
             raise SnowflakeIntegrationError(
                 f"Integration provided is not a Snowflake integration (got kind='{integration.kind}')"
             )
-        self.integration = integration
+        self.integration = model.integration_model(integration)
         try:
             self.account = integration.config["account"]
             self.user = integration.config["user"]

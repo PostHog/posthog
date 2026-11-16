@@ -62,6 +62,13 @@ impl KafkaEmitter {
 
 #[async_trait]
 impl Emitter for KafkaEmitter {
+    fn set_send_rate(&mut self, send_rate: u64) {
+        if send_rate != self.send_rate {
+            info!(old = self.send_rate, new = send_rate, "send rate changed");
+            self.send_rate = send_rate;
+        }
+    }
+
     async fn begin_write<'a>(&'a mut self) -> Result<Box<dyn Transaction<'a> + 'a>, Error> {
         let txn = self.producer.begin()?;
         Ok(Box::new(KafkaEmitterTransaction {
@@ -129,6 +136,13 @@ impl<'a> Transaction<'a> for KafkaEmitterTransaction<'a> {
         unboxed.inner.commit()?;
         info!("committed transaction");
         Ok(to_sleep)
+    }
+
+    // Records already produced stay in an open transaction until it ends. Leaving it open holds
+    // back read_committed consumers of the topic until the broker times it out.
+    async fn abort(self: Box<Self>) -> Result<(), Error> {
+        self.inner.abort()?;
+        Ok(())
     }
 }
 

@@ -1,0 +1,24 @@
+{
+  "exitCode": 0,
+  "requests": [
+    {
+      "method": "GET",
+      "path": "/api/projects/1/error_tracking/releases/hash/1a090dd726e5233c41faaa8e3cdd0d85f295c741f72d295ca5bfac0b9a78d3bb86b23b73148563c49bd81c11d0b8782285a24420156dfddec37f4cb239e4705f",
+      "headers": {
+        "authorization": "Bearer phx_<key>",
+        "content-type": "application/json"
+      },
+      "status": 404
+    },
+    {
+      "method": "POST",
+      "path": "/api/projects/1/error_tracking/releases",
+      "headers": {
+        "authorization": "Bearer phx_<key>",
+        "content-type": "application/json"
+      },
+      "body": "{\"metadata\":{\"git\":{\"branch\":\"main\",\"commit_id\":\"c0ffee00c0ffee00c0ffee00c0ffee00c0ffee00\",\"remote_url\":\"https://github.com/PostHog/example-app.git\",\"repo_name\":\"example-app\"}},\"hash_id\":\"1a090dd726e5233c41faaa8e3cdd0d85f295c741f72d295ca5bfac0b9a78d3bb86b23b73148563c49bd81c11d0b8782285a24420156dfddec37f4cb239e4705f\",\"version\":\"c0ffee00c0ffee00c0ffee00c0ffee00c0ffee00\",\"project\":\"example-app\"}",
+      "status": 201
+    }
+  ]
+}
