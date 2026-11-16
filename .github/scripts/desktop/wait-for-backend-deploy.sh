@@ -41,7 +41,7 @@ EXIT_ERROR=1
 EXIT_TIMED_OUT=3
 DEPLOYMENTS_PER_PAGE=30
 MAX_DEPLOYMENT_PAGES=2
-STATUSES_PER_PAGE=10
+STATUSES_PER_PAGE=100
 
 # Bash arithmetic evaluates a variable's value as an expression, which can run a command.
 require_whole_number() {
@@ -84,16 +84,22 @@ list_deployments() {
 }
 
 # Prints the sha of the live deployment, or nothing when no listed deployment
-# has a trusted `success` as its newest status. An empty answer holds the
-# release. Returns 1 on an API failure.
+# has a trusted `success` as its newest status, or when a record's newest
+# trusted status cannot be read. An empty answer holds the release. Returns 1 on
+# an API failure.
 find_live_sha() {
-    local environment="$1" deployments id sha state
+    local environment="$1" deployments id sha statuses state
     deployments=$(list_deployments "$environment") || return 1
     while read -r id sha; do
         [ -n "$id" ] || continue
         # The newest trusted status counts. A status from another creator on top of it changes nothing.
-        state=$(gh api "repos/$REPOSITORY/deployments/$id/statuses?per_page=$STATUSES_PER_PAGE" |
-            jq -r --arg creator "$TRUSTED_CREATOR" '[.[] | select(.creator.login == $creator)][0].state // ""') || return 1
+        statuses=$(gh api "repos/$REPOSITORY/deployments/$id/statuses?per_page=$STATUSES_PER_PAGE") || return 1
+        state=$(jq -r --arg creator "$TRUSTED_CREATOR" '[.[] | select(.creator.login == $creator)][0].state // ""' <<<"$statuses") || return 1
+        # A full page without a trusted status can hide the newest trusted one. The record is then
+        # unknown, and an older record must not count as live, so the release holds.
+        if [ -z "$state" ] && [ "$(jq 'length' <<<"$statuses")" -ge "$STATUSES_PER_PAGE" ]; then
+            return 0
+        fi
         if [ "$state" = "success" ]; then
             echo "$sha"
             return 0

@@ -70,7 +70,7 @@ register_page() {
             '{id: ($id | tonumber), sha: $sha, updated_at: "2026-11-13T10:\($minute):00Z", creator: {login: $by}}'
         jq -n --arg states "$states" --arg by "${status_by:-$trusted}" \
             '$states | split(",") | map(split("@") | {state: .[0], creator: {login: (.[1] // $by)}})' \
-            >"$fixtures/repos_PostHog_posthog_deployments_${id}_statuses_per_page_10.json"
+            >"$fixtures/repos_PostHog_posthog_deployments_${id}_statuses_per_page_100.json"
     done | jq -s . >"$fixtures/repos_PostHog_posthog_deployments_environment_${environment}_task_deploy_per_page_30_page_${page}.json"
 }
 
@@ -135,6 +135,13 @@ register_page "$workdir/forged" prod-us 1 \
     "43:$c4:61:success:someone-else" "41:$c4:60:success::someone-else" "42:$c1:50:success"
 register_page "$workdir/forged" prod-eu 1 "44:$c4:10:success"
 assert_result "a success from another creator does not count" "$workdir/forged" 3 "prod-us: live ${c1:0:12}, contains: no"
+
+# A full page of foreign statuses can bury the trusted success, so the record is unknown and the
+# older live record must not count.
+buried=$(printf 'inactive@someone-else,%.0s' $(seq 1 100))
+register_page "$workdir/buried" prod-us 1 "62:$c1:59:${buried%,}" "61:$c4:10:success"
+register_page "$workdir/buried" prod-eu 1 "63:$c4:10:success"
+assert_result "a status page full of foreign statuses holds the release" "$workdir/buried" 3 "prod-us: no live deployment found"
 
 register_page "$workdir/api-failure" prod-us 1 "15:$c4:10:success"
 touch "$workdir/api-failure/repos_PostHog_posthog_deployments_environment_prod-eu_task_deploy_per_page_30_page_1.fail"
