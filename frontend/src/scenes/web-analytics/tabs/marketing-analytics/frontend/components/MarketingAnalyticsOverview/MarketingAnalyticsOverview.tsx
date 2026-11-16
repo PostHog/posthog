@@ -13,6 +13,7 @@ import {
 } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
 import { MarketingAnalyticsNotReady } from '~/scenes/marketing-analytics/MarketingAnalyticsNotReady'
+import { marketingAnalyticsPrecomputeLogic } from '~/scenes/marketing-analytics/marketingAnalyticsPrecomputeLogic'
 
 import { adPerformanceMetricKey } from 'products/marketing_analytics/frontend/adPerformanceMetrics'
 import { AdPerformanceOverviewMetrics } from 'products/marketing_analytics/frontend/overview/AdPerformanceOverviewMetrics'
@@ -37,15 +38,19 @@ export function MarketingAnalyticsOverview(props: {
     const { onData, loadPriority, dataNodeCollectionId } = props.context.insightProps ?? {}
     const [_key] = useState(() => `MarketingAnalyticsOverview.${uniqueNode++}`)
     const key = props.uniqueKey ? String(props.uniqueKey) : _key
-    const logic = dataNodeLogic({
+    const dataNodeLogicProps = {
         query: props.query,
         key,
         cachedResults: props.cachedResults,
         loadPriority,
         onData,
         dataNodeCollectionId: dataNodeCollectionId ?? key,
-    })
+    }
+    const logic = dataNodeLogic(dataNodeLogicProps)
     const { response, responseLoading, responseError, responseErrorObject, queryId } = useValues(logic)
+    const { notReady: precomputeNotReady, autoRefreshing } = useValues(
+        marketingAnalyticsPrecomputeLogic(dataNodeLogicProps)
+    )
     const { conversion_goals } = useValues(marketingAnalyticsSettingsLogic)
     useAttachedLogic(logic, props.attachTo)
 
@@ -73,15 +78,16 @@ export function MarketingAnalyticsOverview(props: {
           })
         : []
 
+    // A cold precompute window comes back as an empty result, which the metric grid would render as a row
+    // of blanks. Say it is still being prepared instead. Checked before errors, so a failed background re-read
+    // keeps the banner instead of showing an error card.
+    if (precomputeNotReady) {
+        return <MarketingAnalyticsNotReady autoRefreshing={autoRefreshing} />
+    }
+
     const hasResults = overviewItems.length > 0
     if (responseError && !responseLoading && !hasResults) {
         return <InsightErrorState title={responseError} queryId={responseErrorObject?.queryId ?? queryId} />
-    }
-
-    // A cold precompute window comes back as an empty result, which the metric grid would render as a row
-    // of blanks. Say it is still being prepared instead.
-    if (!responseLoading && marketingOverviewQueryResponse?.precomputeNotReady) {
-        return <MarketingAnalyticsNotReady />
     }
 
     // Combine validation warnings with any backend warnings (e.g. skipped conversion goals)
