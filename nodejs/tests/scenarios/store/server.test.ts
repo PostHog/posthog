@@ -209,6 +209,17 @@ describe('run store', () => {
             400,
         ],
         [
+            'series labels that are not strings',
+            (runId) => ({
+                body: {
+                    scorecard: scorecardFixture(runId),
+                    series: [{ ...seriesOf('offered', [1]), labels: { process: 1 } }],
+                },
+                headers: AUTHORIZED,
+            }),
+            400,
+        ],
+        [
             'adapters that are not a list of names',
             (runId) => ({ body: { scorecard: scorecardFixture(runId, { adapters: 'example' }) }, headers: AUTHORIZED }),
             400,
