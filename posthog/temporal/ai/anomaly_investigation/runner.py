@@ -171,9 +171,8 @@ class _InvestigationRunner:
 
             tool_calls = getattr(response, "tool_calls", None) or []
             if not tool_calls and _stopped_at_max_tokens(response):
-                # LangChain drops a tool call cut off mid-arguments, so this turn looks like a
-                # final answer with no report. Leave it out of the history: it can still hold a
-                # partial tool_use block, which the API rejects without a matching tool_result.
+                # LangChain drops a tool call cut off at the token limit. Leave this turn out of the
+                # history, because a partial tool_use block in it makes the API reject the next request.
                 logger.warning("anomaly_investigation.max_tokens_stop", extra={"tool_calls_used": self.tool_calls_used})
                 return (
                     await self._finalize_report(
@@ -191,8 +190,7 @@ class _InvestigationRunner:
         return self._finish_investigation()
 
     async def _finalize_report(self, reason: str) -> InvestigationRunResult | None:
-        # No tool_use block in flight so we can send a plain HumanMessage rather
-        # than stubbing pending tool_result pairs.
+        # No tool_use block is in flight, so a plain HumanMessage needs no tool_result stubs.
         self.messages.append(
             HumanMessage(
                 content=(
