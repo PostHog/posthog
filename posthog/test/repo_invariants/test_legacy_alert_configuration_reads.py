@@ -21,7 +21,11 @@ LEGACY_STRING = re.compile(
     r"\b(posthog_alertconfiguration|logs_logsalertconfiguration)\b"
     r"|^(alerts\.AlertConfiguration|logs\.LogsAlertConfiguration)$"
 )
-SOURCE_MARKERS = ("AlertConfiguration", "alert_configuration", "alertconfiguration")
+# LogsAlertCheck.alert and LogsAlertEvent.alert point at the logs row. `alert` is too common a name to
+# match everywhere, so it counts only in a file that uses one of these models.
+LOGS_ROW_CHILDREN = ("LogsAlertCheck", "LogsAlertEvent")
+LOGS_ROW_LOOKUP = re.compile(r"(?:^|__)alert(?:__|$)")
+SOURCE_MARKERS = ("AlertConfiguration", "alert_configuration", "alertconfiguration", *LOGS_ROW_CHILDREN)
 SCOPE_NODES = (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)
 
 # Code that may read a legacy insight or logs alert row. A key is a file, or a file and a scope in it
@@ -145,6 +149,12 @@ class _Reader:
             for alias in node.names
             if alias.name in LEGACY_MODELS and alias.asname
         }
+        self.uses_logs_row_children = any(
+            isinstance(node, ast.Name) and node.id in LOGS_ROW_CHILDREN for node in ast.walk(tree)
+        ) or any(
+            isinstance(node, ast.ImportFrom) and any(alias.name in LOGS_ROW_CHILDREN for alias in node.names)
+            for node in ast.walk(tree)
+        )
 
     def is_read(self, node: ast.AST) -> bool:
         if id(node) in self.annotations:
@@ -156,12 +166,18 @@ class _Reader:
             return self._model_is_read(node, parent)
         if isinstance(node, ast.Attribute) and node.attr in RELATED_ATTRIBUTES:
             return True
+        if isinstance(node, ast.Attribute) and node.attr == "alert":
+            return self.uses_logs_row_children and isinstance(node.ctx, ast.Load)
         if isinstance(node, ast.keyword) and node.arg is not None:
+            if self.uses_logs_row_children and node.arg.startswith("alert__"):
+                return True
             return bool(LOOKUP.search(node.arg))
         if isinstance(node, ast.Constant) and isinstance(node.value, str):
             if isinstance(parent, ast.Expr):
                 return False
             if node.value in {"alert_configuration", "alert_configurations"}:
+                return self._names_a_relation(parent)
+            if self.uses_logs_row_children and LOGS_ROW_LOOKUP.search(node.value):
                 return self._names_a_relation(parent)
             return bool(LEGACY_STRING.search(node.value) or LOOKUP.search(node.value))
         return False
@@ -294,6 +310,10 @@ def test_legacy_alert_configurations_are_read_only_by_listed_code() -> None:
         ("from m import AlertConfiguration as LegacyAlert\nLegacyAlert.objects.all()", ["<module>"]),
         ("User.objects.prefetch_related('alert_configurations')", ["<module>"]),
         ("User.objects.filter(alert_configurations__enabled=True)", ["<module>"]),
+        ("LogsAlertEvent.objects.select_related('alert').first().alert.name", ["<module>", "<module>"]),
+        ("from m import LogsAlertCheck\nchecks.filter(alert__team_id=1)", ["<module>"]),
+        ("result.alert.name", []),
+        ("Prefetch('alert')", []),
         ("Prefetch('insight__alertconfiguration_set')", ["<module>"]),
         ("class S:\n    class Meta:\n        model = AlertConfiguration", ["S.Meta"]),
         ("LogsAlertConfiguration(team_id=1, name='x')", ["<module>"]),
