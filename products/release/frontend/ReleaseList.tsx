@@ -161,7 +161,10 @@ function sortRows(rows: ReleaseRow[], sorting: SortingState): ReleaseRow[] {
 
 const NARROW_WIDTH = 640
 
-function narrowColumns(width: number): ColumnDef<ReleaseRow>[] {
+const SELECTION_COLUMN_WIDTH = 40
+
+function narrowColumns(width: number, selectable: boolean): ColumnDef<ReleaseRow>[] {
+    const nameWidth = width - 26 - (selectable ? SELECTION_COLUMN_WIDTH : 0)
     return [
         {
             id: 'name',
@@ -169,7 +172,7 @@ function narrowColumns(width: number): ColumnDef<ReleaseRow>[] {
             accessorKey: 'name',
             meta: { expand: true },
             cell: ({ row }) => (
-                <div className="flex min-w-0 items-center gap-3" style={{ width: width - 26 }}>
+                <div className="flex min-w-0 items-center gap-3" style={{ width: nameWidth }}>
                     <div className="flex min-w-0 flex-1 flex-col items-start">
                         <ReleaseNameLink row={row.original} />
                         <Text size="xs" variant="muted" className="w-full truncate px-2">
@@ -195,7 +198,10 @@ function ReleaseListContent(): JSX.Element {
     const [container, setContainer] = useState<HTMLDivElement | null>(null)
     const { width = 0 } = useResizeObserver<HTMLDivElement>({ ref: container })
     const narrow = width > 0 && width < NARROW_WIDTH
-    const columns = useMemo(() => (narrow ? narrowColumns(width) : COLUMNS), [narrow, width])
+    const columns = useMemo(
+        () => (narrow ? narrowColumns(width, canEditReleases) : COLUMNS),
+        [narrow, width, canEditReleases]
+    )
     const [sorting, setSorting] = useState<SortingState>([])
     const sortedRows = useMemo(() => sortRows(filteredRows, sorting), [filteredRows, sorting])
     const { visible, sentinel } = useInfiniteRows(sortedRows.length)
