@@ -1117,6 +1117,7 @@ jobs:
                   org-slug: posthog-inc
                   test-collection-id: kF88Gx2u # e2e-playwright
                   cli-version: '0.15.4'
+                  use-cache: false
                   quarantine: true
                   previous-step-outcome: ${{ steps.playwright-tests.outcome }}
                   token: ${{ secrets.TRUNK_API_TOKEN }}
