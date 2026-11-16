@@ -78,6 +78,34 @@ const TWO_GROUPS: SessionThreadItem[] = [
 ]
 
 describe('SessionThread', () => {
+    test('separates local calendar days and hides missing or invalid times', () => {
+        const items: SessionThreadItem[] = [
+            {
+                kind: 'user',
+                id: 'one',
+                text: 'First question',
+                timestamp: new Date(2026, 10, 14, 23, 59).toISOString(),
+            },
+            {
+                kind: 'assistant',
+                id: 'two',
+                text: 'First answer',
+                complete: true,
+                timestamp: new Date(2026, 10, 14, 23, 59).toISOString(),
+            },
+            { kind: 'user', id: 'three', text: 'Next day', timestamp: new Date(2026, 10, 15, 0, 1).toISOString() },
+            { kind: 'user', id: 'four', text: 'No timestamp' },
+            { kind: 'user', id: 'five', text: 'Invalid timestamp', timestamp: 'invalid' },
+        ]
+        render(<SessionThread session={session({ items })} onRetryHistory={jest.fn()} />)
+        expect(screen.getAllByTestId('chat-date')).toHaveLength(2)
+        expect(screen.getByText('Nov 14, 2026')).toBeTruthy()
+        expect(screen.getByText('Nov 15, 2026')).toBeTruthy()
+        expect(screen.getAllByText(/^(23:59|11:59 PM)$/)).toHaveLength(2)
+        expect(screen.getByText(/^(00:01|12:01 AM)$/)).toBeTruthy()
+        expect(screen.queryByText(/NaN|Invalid Date/)).toBeNull()
+    })
+
     const capture = jest.fn()
 
     beforeEach(() => {

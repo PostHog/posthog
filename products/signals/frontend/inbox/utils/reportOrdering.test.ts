@@ -66,7 +66,7 @@ describe('compareSignalReports', () => {
         rows.sort(compareSignalReports('created_at', 'desc'))
         expect(rows.map((r) => r.id)).toEqual(['fractional', 'whole-second'])
     })
-    it('orders a model sort by the probability and puts unscored and stale reports last', () => {
+    it('orders a model sort by the probability, stale scores included, and puts unscored reports last', () => {
         const ranking = (probability: number, status: 'scored' | 'stale' = 'scored'): SignalReport['ranking'] => ({
             status,
             model: 'report_embeddings@2026-06-01',
@@ -80,6 +80,6 @@ describe('compareSignalReports', () => {
             report('high', { ranking: ranking(0.5) }),
         ]
         rows.sort(compareSignalReports('ranking_fix', 'desc'))
-        expect(rows.map((r) => r.id)).toEqual(['high', 'low', 'unscored', 'stale-high'])
+        expect(rows.map((r) => r.id)).toEqual(['stale-high', 'high', 'low', 'unscored'])
     })
 })

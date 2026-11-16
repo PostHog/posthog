@@ -16,7 +16,7 @@ describe('writer probe', () => {
     })
 
     it('commits one row per sample on its own table, loses its connection when its backend is terminated, and reconnects', async () => {
-        const probe = await createWriterProbe(SCHEMA.url, APPLICATION_NAME)
+        const probe = await createWriterProbe(SCHEMA.url, { applicationName: APPLICATION_NAME })
         try {
             const before = await probe.sample()
             await withPostgres(

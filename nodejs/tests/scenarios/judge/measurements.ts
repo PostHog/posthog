@@ -4,8 +4,9 @@ import { z } from 'zod'
 
 import { internalFetch } from '~/common/utils/request'
 
-import type { Named } from '../cards'
+import type { CdpRole, Named } from '../cards'
 import type { Definition } from '../cards/definitions'
+import type { ObservationName } from '../environment/failover'
 import { ReplicaOf, nameOf } from '../environment/identity'
 import type { QueueCounts } from '../probe/cyclotron-probe'
 import type { WriterSample } from '../probe/writer-probe'
@@ -23,6 +24,8 @@ export type MetricSample = {
     processed: Record<string, number>
     pgClientErrors: number
     consumerLoopErrors: number
+    janitorStalled: number
+    lateness: Record<string, Record<string, number>>
 }
 
 export type MissedScrape = { role: string; replica: number; at: number }
@@ -43,7 +46,7 @@ type Measured = { key?: string; incomplete?: true } & Value
 
 export type Measurement = { name: string; unit: string } & Measured
 
-export type MeasureEvidence = JudgeEvidence &
+export type MeasureEvidence = Omit<JudgeEvidence, 'janitorResets'> &
     Readonly<Sampled> &
     Readonly<Probed> & { sampledFrom: number; drive: DriveWindow; timeline: readonly ValveTimelineEntry[] }
 
@@ -81,8 +84,15 @@ const increaseOf = (ofReplica: readonly MetricSample[], read: Counter, since: nu
         return sum + read(lifetime.at(-1)!) - (startedWhileSampled ? 0 : read(lifetime[0]))
     }, 0)
 
-const cpuSecondsOf = (ofReplica: readonly MetricSample[], sampledFrom: number): number =>
-    increaseOf(ofReplica, ({ cpuSeconds }) => cpuSeconds, sampledFrom)
+const increaseAcrossReplicas = (replicas: readonly MetricSample[][], read: Counter, since: number): number =>
+    replicas.reduce((sum, ofReplica) => sum + increaseOf(ofReplica, read, since), 0)
+
+const JANITOR: z.infer<typeof CdpRole> = 'cdp-cyclotron-v2-janitor'
+
+export function janitorResetsOf({ samples, sampledFrom }: Pick<Sampled, 'samples'> & { sampledFrom: number }): number {
+    const replicas = replicasOf(byRole(samples).get(JANITOR) ?? [])
+    return increaseAcrossReplicas(replicas, ({ janitorStalled }) => janitorStalled, sampledFrom)
+}
 
 export const roleCpuSeconds: MeasurementDefinition = {
     name: 'role_cpu_seconds',
@@ -90,10 +100,10 @@ export const roleCpuSeconds: MeasurementDefinition = {
     unit: 's',
     measure: ({ samples, missed, sampledFrom }) =>
         [...byRole(samples)].map(([role, ofRole]) => {
-            const replicas = [...Map.groupBy(ofRole, ({ replica }) => replica).values()]
+            const replicas = replicasOf(ofRole)
             return {
                 key: role,
-                value: replicas.reduce((sum, ofReplica) => sum + cpuSecondsOf(ofReplica, sampledFrom), 0),
+                value: increaseAcrossReplicas(replicas, ({ cpuSeconds }) => cpuSeconds, sampledFrom),
                 ...(replicas.some((ofReplica) => lostCpu(ofReplica, missed)) ? { incomplete: true as const } : {}),
             }
         }),
@@ -149,11 +159,12 @@ export type Phase = { from: number; to: number }
 export type Phases = { baseline: Phase; valve?: Phase; failback?: Phase }
 
 export function phasesOf(drive: DriveWindow, timeline: readonly ValveTimelineEntry[]): Phases {
-    const applied = timeline.flatMap(({ intentAt, releasedAt }) =>
-        intentAt === undefined
+    const applied = timeline.flatMap(({ intentAt, releaseIntentAt, releasedAt }) => {
+        const released = releaseIntentAt ?? releasedAt
+        return intentAt === undefined
             ? []
-            : [{ intent: Date.parse(intentAt), released: releasedAt === undefined ? Infinity : Date.parse(releasedAt) }]
-    )
+            : [{ intent: Date.parse(intentAt), released: released === undefined ? Infinity : Date.parse(released) }]
+    })
     if (applied.length === 0) {
         return { baseline: { from: drive.startedAt, to: drive.endedAt } }
     }
@@ -397,13 +408,37 @@ const inPhase = (
     },
 })
 
+function sinceIntent(timeline: readonly ValveTimelineEntry[], name: ObservationName): Measured[] | undefined {
+    const journalled = timeline.find(({ intentAt, observations }) => intentAt !== undefined && observations)
+    if (journalled === undefined) {
+        return undefined
+    }
+    const observation = journalled.observations!.find((candidate) => candidate.name === name)
+    return observation === undefined
+        ? [{ value: null, censored: true }]
+        : [{ value: seconds(Date.parse(observation.at) - Date.parse(journalled.intentAt!)) }]
+}
+
+const observed = (name: string, observation: ObservationName): MeasurementDefinition => ({
+    name,
+    params: z.object({}).strict(),
+    unit: 's',
+    measure: ({ timeline }) => sinceIntent(timeline, observation) ?? [],
+})
+
 export const RECOVERY_MEASUREMENTS: MeasurementDefinition[] = [
+    observed('seconds_to_cluster_writer', 'cluster_writer'),
+    observed('seconds_to_sql_writer', 'sql_writer'),
     inPhase('writer_unavailable_seconds', 's', 'valve', ({ writer }, phase) => writerUnavailable(writer, phase)),
     inPhase('failback_writer_unavailable_seconds', 's', 'failback', ({ writer }, phase) =>
         writerUnavailable(writer, phase)
     ),
-    inPhase('seconds_to_first_probe_commit', 's', 'valve', ({ writer }, phase) =>
-        firstCommitAfterFailure(writer, phase)
+    inPhase(
+        'seconds_to_first_probe_commit',
+        's',
+        'valve',
+        ({ writer, timeline }, phase) =>
+            sinceIntent(timeline, 'first_probe_commit') ?? firstCommitAfterFailure(writer, phase)
     ),
     inPhase('queue_lag_peak_seconds', 's', 'valve', ({ queue }, phase) => {
         const ages = counted(queue)
@@ -492,6 +527,17 @@ function processedOf(text: string): Record<string, number> {
     return processed
 }
 
+function latenessOf(text: string): Record<string, Record<string, number>> {
+    const lateness: Record<string, Record<string, number>> = {}
+    for (const { labels, value } of seriesOf(text, 'cdp_cyclotron_job_lateness_seconds_bucket')) {
+        if (labels.queue !== undefined && labels.le !== undefined) {
+            const buckets = (lateness[labels.queue] ??= {})
+            buckets[labels.le] = (buckets[labels.le] ?? 0) + value
+        }
+    }
+    return lateness
+}
+
 export function sampleOf({ role, replica }: Target, at: number, text: string): MetricSample | undefined {
     const startedAt = gauge(text, 'process_start_time_seconds')
     const cpuSeconds = gauge(text, 'process_cpu_seconds_total')
@@ -508,6 +554,8 @@ export function sampleOf({ role, replica }: Target, at: number, text: string): M
               processed: processedOf(text),
               pgClientErrors: totalOf(text, 'cdp_cyclotron_v2_pg_client_errors_total'),
               consumerLoopErrors: totalOf(text, 'cdp_cyclotron_v2_consumer_loop_errors_total'),
+              janitorStalled: totalOf(text, 'cdp_cyclotron_v2_janitor_stalled'),
+              lateness: latenessOf(text),
           }
 }
 

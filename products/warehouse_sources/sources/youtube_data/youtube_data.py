@@ -34,6 +34,9 @@ RESPONSE_ACTIONS: list[ResponseAction] = [
     {"status_code": 403, "content": "quotaExceeded", "action": "raise", "message": QUOTA_ERROR},
     {"status_code": 403, "content": "dailyLimitExceeded", "action": "raise", "message": QUOTA_ERROR},
     {"status_code": 403, "content": "commentsDisabled", "action": "raise", "message": COMMENTS_ERROR},
+    # Google answers a bad or expired API key with a 400, not a 401.
+    {"status_code": 400, "content": "API_KEY_INVALID", "action": "raise", "message": AUTH_ERROR},
+    {"status_code": 400, "content": "API_KEY_EXPIRED", "action": "raise", "message": AUTH_ERROR},
     {"status_code": 400, "action": "raise", "message": REQUEST_ERROR},
     {"status_code": 401, "action": "raise", "message": AUTH_ERROR},
     {"status_code": 403, "action": "raise", "message": ACCESS_ERROR},

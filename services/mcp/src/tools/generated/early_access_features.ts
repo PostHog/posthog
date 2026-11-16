@@ -88,6 +88,7 @@ const earlyAccessFeatureList = (): ToolBase<
                 ids: params.ids,
                 limit: params.limit,
                 offset: params.offset,
+                search: params.search,
             },
         })
         return await withPostHogUrl(context, result, '/early_access_features')

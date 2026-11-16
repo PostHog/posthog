@@ -48,6 +48,7 @@ class TestFindPublishedRecords(SimpleTestCase):
                 True,
             ),
             ("spf_without_ses_include", SPF, '"v=spf1 include:_spf.google.com ~all"', False),
+            ("spf_version_without_space", SPF, '"v=spf1\tinclude:amazonses.com ~all"', False),
             ("cname_in_upper_case", DKIM, "DK1.DKIM.AMAZONSES.COM.", True),
             ("mx_with_other_priority", MAIL_FROM_MX, "20 feedback-smtp.us-east-1.amazonses.com.", False),
             ("existing_strict_dmarc", DMARC, '"v=DMARC1; p=reject; rua=mailto:dmarc@example.com"', True),
@@ -62,6 +63,14 @@ class TestFindPublishedRecords(SimpleTestCase):
 
         with world.installed():
             assert (record in find_published_records(DOMAIN, [record]).records) is expected
+
+    def test_spf_split_across_two_records_is_not_published(self) -> None:
+        world = EmailDomainWorld()
+        world.dns.add_zone("example.com", nameservers={"ns1.example-dns.net": "34.120.0.1"})
+        world.dns.publish_txt(DOMAIN, "v=spf1 include:_spf.google.com ~all", "v=spf1 include:amazonses.com ~all")
+
+        with world.installed():
+            assert SPF not in find_published_records(DOMAIN, [SPF]).records
 
     def test_finds_every_record_while_holding_at_most_the_lookup_limit_in_flight(self) -> None:
         records = [
