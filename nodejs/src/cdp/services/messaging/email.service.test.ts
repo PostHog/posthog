@@ -444,15 +444,30 @@ describe('EmailService', () => {
                     config: {},
                 })
             })
-            it('should validate if the integration is not found', async () => {
-                invocation.queueParameters = createEmailParams({
-                    from: { integrationId: 100 },
-                })
-                const result = await service.executeSendEmail(invocation)
-                expect(result.error).toMatchInlineSnapshot(
-                    `"Email integration not found. The sender configured for this step no longer exists — select a new sender in the workflow's email step."`
-                )
-            })
+            it.each([
+                ['the integration is not found', false, 100],
+                ['the integration belongs to another team', true, 1],
+            ])(
+                'should fail when %s and label it for Prometheus as an unverified sender',
+                async (_name, fromOtherTeam, integrationId) => {
+                    if (fromOtherTeam) {
+                        invocation.teamId = 100
+                    }
+                    invocation.queueParameters = createEmailParams({
+                        from: { integrationId },
+                    })
+                    const result = await service.executeSendEmail(invocation)
+                    expect(result.error).toMatchInlineSnapshot(
+                        `"Email integration not found. The sender configured for this step no longer exists — select a new sender in the workflow's email step."`
+                    )
+                    expect(result.metrics).toEqual([
+                        expect.objectContaining({
+                            metric_name: 'email_failed',
+                            prometheus_metric_name: 'email_sender_unverified',
+                        }),
+                    ])
+                }
+            )
             it.each([
                 ['slack', 3],
                 ['email_sandbox', 5],
@@ -463,16 +478,6 @@ describe('EmailService', () => {
                 const result = await service.executeSendEmail(invocation)
                 expect(result.error).toMatchInlineSnapshot(
                     `"The integration configured for this step is not an email channel — select an email sender in the workflow's email step."`
-                )
-            })
-            it('should validate if the integration is not the correct team', async () => {
-                invocation.teamId = 100
-                invocation.queueParameters = createEmailParams({
-                    from: { integrationId: 1 },
-                })
-                const result = await service.executeSendEmail(invocation)
-                expect(result.error).toMatchInlineSnapshot(
-                    `"Email integration not found. The sender configured for this step no longer exists — select a new sender in the workflow's email step."`
                 )
             })
             it.each([
