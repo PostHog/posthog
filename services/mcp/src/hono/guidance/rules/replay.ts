@@ -9,8 +9,24 @@ const DIAGNOSIS = [
     'Without the skill, query the events with `execute-sql` for `$recording_status`, `$session_recording_start_reason`, `$replay_sample_rate` and `$sdk_debug_recording_script_not_loaded`.',
 ].join(' ')
 
-function lookupIn(call: GuidanceCall): 'session_ids' | 'person_uuid' | 'properties' | 'none' {
-    return (['session_ids', 'person_uuid', 'properties'] as const).find((name) => hasArg(call, name)) ?? 'none'
+function filtersIn(call: GuidanceCall): string[] {
+    const testAccounts = call.args?.filter_test_accounts
+    return [
+        ...(hasArg(call, 'properties') ? ['properties'] : []),
+        ...(testAccounts === true || testAccounts === 'true' ? ['filter_test_accounts'] : []),
+    ]
+}
+
+// The filters come first, because a lookup that also filters can miss a recording that exists.
+function lookupIn(call: GuidanceCall): 'no_ids' | 'filters' | 'session_ids' | 'person_uuid' | 'none' {
+    const sessionIds = call.args?.session_ids
+    if (Array.isArray(sessionIds) && sessionIds.length === 0) {
+        return 'no_ids'
+    }
+    if (filtersIn(call).length > 0) {
+        return 'filters'
+    }
+    return (['session_ids', 'person_uuid'] as const).find((name) => hasArg(call, name)) ?? 'none'
 }
 
 function replayRule(rule: {
@@ -18,7 +34,7 @@ function replayRule(rule: {
     recordingEnabled: boolean
     matches?: (call: GuidanceCall) => boolean
     requiresTool?: string[]
-    text: string
+    text: GuidanceRule['text']
 }): GuidanceRule {
     return emptyResultRule({
         id: rule.id,
@@ -76,14 +92,18 @@ const rules: GuidanceRule[] = [
     replayRule({
         id: 'replay-empty-to-filters',
         recordingEnabled: true,
-        matches: (call) => lookupIn(call) === 'properties',
+        matches: (call) => lookupIn(call) === 'filters',
         requiresTool: ['read-data-schema'],
-        text: [
-            'Session recording is on for this project, but no recording matched the `properties` filters in this date range.',
-            'A filter with a wrong property name, value or `type` also matches nothing.',
-            '`read-data-schema` lists the property names and values.',
-            '`type` is where the property is stored: `person`, `session`, `event` or `recording`.',
-        ].join(' '),
+        text: (call) =>
+            [
+                'Session recording is on for this project, but no recording matched this query in this date range.',
+                `This call filtered on ${filtersIn(call)
+                    .map((filter) => `\`${filter}\``)
+                    .join(' and ')}, so a recording that these filters exclude can still exist.`,
+                'A `properties` filter with a wrong property name, value or `type` also matches nothing.',
+                '`read-data-schema` lists the property names and values.',
+                '`type` is where the property is stored: `person`, `session`, `event` or `recording`.',
+            ].join(' '),
     }),
     replayRule({
         id: 'replay-empty-to-range',
