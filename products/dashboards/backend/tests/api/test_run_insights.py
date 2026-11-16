@@ -29,7 +29,7 @@ from posthog.models.team import Team
 from products.access_control.backend.models.access_control import AccessControl
 from products.actions.backend.facade.testing import create_action
 from products.dashboards.backend.access import DashboardAccessMethod
-from products.dashboards.backend.constants import RUN_INSIGHTS_MIN_TILE_CHARS
+from products.dashboards.backend.constants import RUN_INSIGHTS_MAX_ERROR_CHARS, RUN_INSIGHTS_MIN_TILE_CHARS
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile, Text
 from products.dashboards.backend.presentation.views.dashboard import DashboardsViewSet
@@ -262,6 +262,17 @@ class TestDashboardRunInsights(APIBaseTest):
 
         self.assertIsNone(insight["result"])
         self.assertEqual(insight["error"], "The `metrics` feature flag is not enabled")
+
+    @patch("posthog.caching.calculate_results.calculate_for_query_based_insight")
+    def test_a_long_error_is_held_to_its_cap_in_optimized_output(self, mock_calculate: MagicMock) -> None:
+        mock_calculate.side_effect = ValueError("x" * (RUN_INSIGHTS_MAX_ERROR_CHARS * 4))
+        dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dash"})
+        self.dashboard_api.create_insight({"name": "A", "query": _trends_query_dict(), "dashboards": [dashboard_id]})
+
+        insight = self._run(dashboard_id, output_format="optimized")["results"][0]["insight"]
+
+        self.assertEqual(len(insight["error"]), RUN_INSIGHTS_MAX_ERROR_CHARS)
+        self.assertTrue(insight["error"].endswith("…"))
 
     def test_tile_ids_runs_only_the_selected_tiles(self) -> None:
         dashboard_id, _ = self.dashboard_api.create_dashboard({"name": "dash"})
