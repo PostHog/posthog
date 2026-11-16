@@ -382,12 +382,10 @@ class TrinoPrinter(PostgresPrinter):
             return
         count = self._validate_row_count(limit, "LIMIT")
         if node.order_by and not node.limit_percent and count + offset > TRINO_MAX_LIMIT:
-            if len(self.stack) > 1:
-                self._unsupported(
-                    "TRINO_SORTED_LIMIT_TOO_LARGE",
-                    f"A sorted LIMIT plus OFFSET above {TRINO_MAX_LIMIT} is only supported on the outermost query in Trino mode.",
-                    node,
-                )
+            if node.offset is None and len(self.stack) > 1:
+                # Trino drops the ORDER BY of a subquery unless OFFSET or LIMIT sits next to it, and it refuses a
+                # sorted LIMIT above its cap. OFFSET 0 keeps the sort without cutting any row.
+                clauses.append("OFFSET 0 ROWS")
             return
         if node.limit_percent:
             self._unsupported("TRINO_LIMIT_PERCENT_UNSUPPORTED", "LIMIT PERCENT is not supported in Trino mode.")

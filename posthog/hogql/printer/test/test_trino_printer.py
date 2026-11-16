@@ -2025,6 +2025,12 @@ def test_percentage_limit_rounds_up(percentage: int, offset: int, expected: list
             [(0, "a")],
         ),
         (
+            "WITH rows AS (SELECT 3 AS id UNION ALL SELECT 1 UNION ALL SELECT 2), "
+            "kept AS (SELECT id FROM rows ORDER BY id DESC LIMIT 9999999999 OFFSET 1) "
+            "SELECT count(), min(id) FROM kept",
+            [(2, 1)],
+        ),
+        (
             "WITH l AS (SELECT 1 AS k UNION ALL SELECT 2), "
             "r AS (SELECT 1 AS k, 10 AS v, 1 AS live UNION ALL SELECT 1, 20, 2 UNION ALL SELECT 2, 30, 0) "
             "SELECT l.k, count(r.v) AS matches FROM l LEFT ANY JOIN r ON l.k = r.k AND r.live "
@@ -2203,26 +2209,25 @@ def test_rejects_invalid_trino_cast_types(type_name: str) -> None:
         # An unsorted LIMIT has no cap in Trino and can cut a nested result, so it stays.
         ("SELECT user_id FROM users LIMIT 2147483648", "LIMIT 2147483648"),
         ("SELECT count() FROM (SELECT user_id FROM users LIMIT 2147483648)", "LIMIT 2147483648)"),
+        # Trino keeps the ORDER BY of a subquery only next to OFFSET or LIMIT, so a dropped LIMIT leaves OFFSET 0.
+        (
+            "SELECT count() FROM (SELECT user_id FROM users ORDER BY user_id LIMIT 2147483648)",
+            "ASC OFFSET 0 ROWS)",
+        ),
+        (
+            "SELECT count() FROM (SELECT user_id FROM users ORDER BY user_id LIMIT 2147483647 OFFSET 1)",
+            "ASC OFFSET 1 ROWS)",
+        ),
+        (
+            "SELECT count() FROM (SELECT user_id FROM users ORDER BY user_id LIMIT 9999999999 WITH TIES)",
+            "ASC OFFSET 0 ROWS)",
+        ),
     ],
 )
 def test_prints_trino_limit_syntax(query: str, expected_suffix: str) -> None:
     sql, _ = prepare_and_print_ast(parse_select(query), _context_with_trino_table(), "trino")
 
     assert sql.endswith(expected_suffix)
-
-
-@pytest.mark.parametrize(
-    "query",
-    [
-        "SELECT count() FROM (SELECT user_id FROM users ORDER BY user_id LIMIT 2147483648)",
-        "SELECT count() FROM (SELECT user_id FROM users ORDER BY user_id LIMIT 2147483647 OFFSET 1)",
-    ],
-)
-def test_rejects_nested_sorted_limit_above_trino_cap(query: str) -> None:
-    with pytest.raises(TrinoLoweringError) as error:
-        prepare_and_print_ast(parse_select(query), _context_with_trino_table(), "trino")
-
-    assert error.value.feature_code == "TRINO_SORTED_LIMIT_TOO_LARGE"
 
 
 @pytest.mark.parametrize(
