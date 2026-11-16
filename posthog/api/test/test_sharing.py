@@ -1659,11 +1659,6 @@ class TestExportCacheKeyFlow(APIBaseTest):
         self, _name: str, is_renderer: bool, mock_calculate: MagicMock
     ) -> None:
         dashboard = Dashboard.objects.create(team=self.team, name="Export filters", filters={"date_from": "-7d"})
-        self.insight.query = {
-            "kind": "InsightVizNode",
-            "source": {"kind": "TrendsQuery", "series": [{"kind": "EventsNode", "event": "$pageview"}]},
-        }
-        self.insight.save(update_fields=["query"])
         DashboardTile.objects.create(dashboard=dashboard, insight=self.insight)
         self._calculated_result(mock_calculate)
         selected_filters = {"date_from": "-90d", "date_to": "2026-01-01"}
@@ -1682,7 +1677,7 @@ class TestExportCacheKeyFlow(APIBaseTest):
             selected_filters if is_renderer else {"date_from": "-7d"}
         )
         exported_query = _exported_data(response)["dashboard"]["tiles"][0]["insight"]["query"]
-        assert exported_query["source"]["dateRange"]["date_from"] == ("-90d" if is_renderer else "-7d")
+        assert exported_query["source"]["after"] == ("-90d" if is_renderer else "-7d")
         dashboard.refresh_from_db()
         assert dashboard.filters == {"date_from": "-7d"}
 
