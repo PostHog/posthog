@@ -670,8 +670,7 @@ class HealthContext:
     # Whether the team has an active flag, which posthog-js needs to request flags on page load. None when not read:
     # it is read only for a draft whose flag has no recorded call.
     team_has_active_flag: bool | None
-    # None when not read, and when the read fails. Only the exposure query reads it, and only for a running experiment,
-    # because a limit in force now says nothing about an earlier run.
+    # None when not read, and when the read fails. Only the exposure query reads it, and only for a running experiment.
     events_billing_limit: EventsBillingLimit | None
     # The baseline set in the experiment's settings. None when unset: the analysis then picks a variant of the flag.
     baseline_variant_key: str | None
