@@ -70,15 +70,19 @@ class ReportText(BaseModel):
     def render(self, *, styled: bool = True) -> str:
         parts: list[str] = []
         previous_text = ""
+        previous_kind = ""
         for item in self.items:
             if (
                 previous_text
                 and item.text
                 and not previous_text[-1].isspace()
                 and not item.text[0].isspace()
+                and item.text[0] not in ".,;:!?)]}"
+                and previous_text[-1] not in "([{"
                 # A space inside an emphasis marker, as in "** Total **", stops it rendering as bold.
-                and item.text[0] not in ".,;:!?)]}*_~"
-                and previous_text[-1] not in "([{*_~"
+                # Only text items carry markers, so a value such as "~30%" still gets its space.
+                and not (item.kind == "text" and item.text[0] in "*_~")
+                and not (previous_kind == "text" and previous_text[-1] in "*_~")
             ):
                 parts.append(" ")
             if item.kind == "link" and item.url:
@@ -90,11 +94,10 @@ class ReportText(BaseModel):
                     except ValueError:
                         label = "Page"
                 parts.append(f"[{label}]({item.url})")
-            elif item.kind == "change":
-                triangle = "▲" if item.direction == "increase" else "▼"
-                parts.append(_inline_code(item.text, prefix=f"{triangle} ") if styled else f"{triangle} {item.text}")
             elif not styled:
-                parts.append(item.text)
+                parts.append(f"{_change_prefix(item)}{item.text}")
+            elif item.kind == "change":
+                parts.append(_inline_code(item.text, prefix=_change_prefix(item)))
             elif item.kind in ("name", "value"):
                 parts.append(_inline_code(item.text))
             elif item.kind == "time":
@@ -102,6 +105,7 @@ class ReportText(BaseModel):
             else:
                 parts.append(item.text)
             previous_text = item.text
+            previous_kind = item.kind
         return "".join(parts)
 
     def render_bullet(self) -> str:
@@ -109,6 +113,12 @@ class ReportText(BaseModel):
         if not content:
             return ""
         return f"- {content}"
+
+
+def _change_prefix(item: ReportTextItem | ReportLinkItem | ReportChangeItem) -> str:
+    if not isinstance(item, ReportChangeItem):
+        return ""
+    return "▲ " if item.direction == "increase" else "▼ "
 
 
 def _wrap(text: str, marker: str, prefix: str = "") -> str:
@@ -203,7 +213,7 @@ REPORT_TEXT_INSTRUCTIONS = """Return structured text items. The renderer applies
 - Use change items only for differences, not absolute values, dates, incomplete periods, or funnel step drop-offs. If the baseline or change is uncertain, use plain text. An increase is not automatically good and a decrease is not automatically bad.
 - Use kind=time for every date, clock time, duration, and reporting window, even when it contains numbers.
 - Use kind=text for connecting words, punctuation, and Markdown structure. Never include event names, measured values, or dates inside a text item.
-- Do not include bold, italic, or underline markers in item text. Keep each styled item to the relevant name, value, or time expression.
+- Outside a user's fixed template, do not include bold, italic, or underline markers in item text. Keep each styled item to the relevant name, value, or time expression.
 - Preserve sentence order, spaces, and line breaks across items. Write complete sentences; do not rearrange a sentence to group items by kind.
 - Keep inline code and code blocks literal; do not style their contents.
 - Review every mention before returning the report. Use the same kind for the same item throughout the report."""

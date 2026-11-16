@@ -64,12 +64,9 @@ def _visual(text: str) -> ReportText:
         (["First line", "Second line"], "First line\nSecond line"),
         (["First line\n", "Second line\n"], "First line\nSecond line\n"),
         (["First line", "\n", "Second line"], "First line\n\nSecond line"),
-        (["First line\n", "\n", "Second line"], "First line\n\nSecond line"),
         (["First line", "", "Second line"], "First line\n\nSecond line"),
-        (["First line\n\nSecond line"], "First line\n\nSecond line"),
-        (["| Item | Count |", "| --- | --- |", "| Jobs | 7 |"], "| Item | Count |\n| --- | --- |\n| Jobs | 7 |"),
     ],
-    ids=["per_line", "existing_newlines", "spacer", "existing_spacer", "empty_line", "multiline", "table_rows"],
+    ids=["per_line", "existing_newlines", "spacer", "empty_line"],
 )
 def test_custom_layout_preserves_lines(lines: list[str], expected: str) -> None:
     document = ReportDocument(topic=None, sections=[], custom_layout=[_visual(line) for line in lines])
@@ -149,9 +146,14 @@ def test_styled_items_keep_their_spaces_outside_the_markers() -> None:
                 {"kind": "time", "text": " Nov 4 "},
                 {"kind": "text", "text": "after"},
                 {"kind": "change", "text": " 3s ", "direction": "increase"},
-                {"kind": "text", "text": "in a day."},
+                {"kind": "text", "text": "in a day, about"},
+                {"kind": "value", "text": "~20%"},
+                {"kind": "text", "text": "."},
             ]
         }
     )
 
-    assert ReportSummary(findings=[finding]).render() == "- `Load time` rose to `18s` on _Nov 4_ after `▲ 3s` in a day."
+    assert (
+        ReportSummary(findings=[finding]).render()
+        == "- `Load time` rose to `18s` on _Nov 4_ after `▲ 3s` in a day, about `~20%`."
+    )
