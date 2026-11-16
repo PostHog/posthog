@@ -2210,15 +2210,7 @@ class SignalScratchpadViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         pagination_class=None,
     )
     def forget(self, request: Request, **kwargs) -> Response:
-        data = request.validated_data
-        private = trial_store_for_request(request, _canonical_team_id(self))
-        with trial_state_errors():
-            removed = (
-                private.forget(key=data["key"])
-                if private is not None
-                else forget(team_id=_canonical_team_id(self), key=data["key"])
-            )
-        return Response(ForgetResponseSerializer({"deleted": removed}).data)
+        return self._forget_key(request, request.validated_data["key"])
 
     @validated_request(
         request_serializer=ForgetRequestSerializer,
@@ -2246,13 +2238,13 @@ class SignalScratchpadViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             self,
             "Deleting scout memories requires editor access to skills, since the scratchpad steers the scout agents.",
         )
-        data = request.validated_data
+        return self._forget_key(request, request.validated_data["key"])
+
+    def _forget_key(self, request: Request, key: str) -> Response:
         private = trial_store_for_request(request, _canonical_team_id(self))
         with trial_state_errors():
             removed = (
-                private.forget(key=data["key"])
-                if private is not None
-                else forget(team_id=_canonical_team_id(self), key=data["key"])
+                private.forget(key=key) if private is not None else forget(team_id=_canonical_team_id(self), key=key)
             )
         return Response(ForgetResponseSerializer({"deleted": removed}).data)
 
