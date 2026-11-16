@@ -167,6 +167,4 @@ class FileSystemSyncMixin(Model):
         else:
             raise ValueError("Either 'type' or 'type__startswith' must be provided")
 
-        # Filter on the EXISTS directly: annotating it first copies it into the select list,
-        # where Postgres plans it as a separate per-row subquery over posthog_filesystem.
         return qs.annotate(ref_id=Cast(F(ref_field), output_field=CharField())).filter(~Exists(already_saved))
