@@ -103,9 +103,11 @@ class ClickHouseConnectionError(Exception):
 # that isn't a ClickHouse response — a proxy/load-balancer landing page, or a
 # different service listening on the host/port — splits into a different shape, so
 # the driver raises a bare `ValueError` ("too many values to unpack") before we ever
-# run a query. The endpoint isn't serving the ClickHouse HTTP interface, so a retry
-# replays the identical failure; we surface it as a connection error rather than
-# leaking the cryptic ValueError.
+# run a query. A body that is a single integer line, or an empty body, is not a
+# sequence at all, so the same unpack raises `TypeError` ("'int' object is not
+# iterable") instead. The endpoint isn't serving the ClickHouse HTTP interface, so a
+# retry replays the identical failure; we surface it as a connection error rather
+# than leaking the cryptic driver error.
 NOT_A_CLICKHOUSE_HTTP_RESPONSE = (
     "The host answered but did not return a valid ClickHouse response, so it isn't serving the "
     "ClickHouse HTTP interface on that host/port. Check the host, port, and HTTPS setting "
@@ -410,7 +412,7 @@ def _get_client(
                 time.sleep(wait)
                 continue
             raise ClickHouseConnectionError(message) from e
-        except ValueError as e:
+        except (ValueError, TypeError) as e:
             # The construction-time server probe got a response it couldn't parse as a
             # ClickHouse handshake (see NOT_A_CLICKHOUSE_HTTP_RESPONSE). Deterministic, so
             # never retryable — don't spend the transient-retry budget on it.
