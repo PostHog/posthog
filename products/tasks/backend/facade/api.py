@@ -3370,6 +3370,9 @@ _PROTECTED_RUN_STATE_KEYS = frozenset(
         "interaction_origin",
         "slack_actor_user_id",
         "slack_actor_slack_user_id",
+        # The Slack app edits and deletes this message without checking which thread it is in, so a
+        # forged ts would let a caller rewrite or remove any bot message in the channel.
+        "slack_progress_message_ts",
         # Names the autoresearch training run this TaskRun finalizes when it ends (training.ingestion).
         "autoresearch_training_run_id",
         # Set only when the agent's `finish` call saves its report. A forged marker would stop the
