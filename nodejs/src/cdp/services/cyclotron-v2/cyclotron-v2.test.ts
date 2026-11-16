@@ -1824,7 +1824,7 @@ describe('Cyclotron V2', () => {
             it('gives up on a claim that waits on a locked key once the statement timeout passes', async () => {
                 const id = uuidv7()
                 const holder = await assertPool.connect()
-                const bounded = createManager({ pool: { dbUrl: DB_URL, statementTimeoutMs: 200 } })
+                const bounded = createManager({ claimStatementTimeoutMs: 200 })
                 try {
                     await holder.query('BEGIN')
                     await holder.query(
@@ -1836,6 +1836,10 @@ describe('Cyclotron V2', () => {
                     await expect(bounded.createJobsIdempotently([keyed(id, 'a')])).rejects.toThrow(
                         'canceling statement due to statement timeout'
                     )
+                    // PgBouncer refuses a statement_timeout startup parameter, so the limit must stay inside the claim.
+                    const pool = (bounded as unknown as { pool: Pool }).pool
+                    const { rows } = await pool.query<{ statement_timeout: string }>('SHOW statement_timeout')
+                    expect(rows).toEqual([{ statement_timeout: '0' }])
                 } finally {
                     await holder.query('ROLLBACK')
                     holder.release()

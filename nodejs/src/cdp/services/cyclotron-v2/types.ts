@@ -18,8 +18,8 @@ export type CyclotronV2PoolConfig = {
     dbUrl: string
     maxConnections?: number
     idleTimeoutMs?: number
-    // Bound how long one query, or the wait for a connection, can take. Unset means no limit.
-    statementTimeoutMs?: number
+    // Bound the wait for a connection. Unset means no limit. No statement timeout here: pg sends it as a startup
+    // parameter, and PgBouncer refuses the connection.
     connectionTimeoutMs?: number
 }
 
@@ -140,6 +140,8 @@ export type CyclotronV2ManagerConfig = {
     depthCheckIntervalMs?: number
     backgroundDepthCheck?: boolean
     idempotencyKeyLookupTimeoutMs?: number
+    // Bound each statement of the idempotent claim transaction, set with SET LOCAL. Unset means no limit.
+    claimStatementTimeoutMs?: number
     // Knobs for rescheduleParkedJobs — see that method for semantics.
     rescheduleFloorSeconds?: number
     rescheduleWakeRatePerSecond?: number
