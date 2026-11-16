@@ -329,7 +329,7 @@ See [DATA.md](DATA.md) for the endpoint map and every adapter rule.
   of this section describes the dormant behavior.
 - **Live is not a pin.** It is Home, so `NAV_PINS` has Errors, Sessions and Web analytics, and a saved Live pin is
   dropped when the list loads.
-- **Errors, Sessions, Web analytics and Live are Views rows.** The Browse group lists Dashboards, Insights, Web analytics, Live, Sessions, Errors. Sessions replaces the old Recordings row, which opened the web. Live is also Home, so its Browse row switches to the Home tab instead of pushing a second Live screen (`browseRoutes.ts`).
+- **Errors, Sessions and Web analytics are Views rows.** The Browse group lists Dashboards, Insights, Web analytics, Sessions, Errors. Sessions replaces the old Recordings row, which opened the web. Live is Home, so it has no Browse row.
 - **A pin adds one slot after Views.** Long-press the Browse row, or use the pushed screen's More menu (More sheet on Web analytics), for "Pin to navigation". Both changes confirm with the Views toast and Undo.
 - **One user slot.** Five 44pt slots and the labelled Chat button do not fit a 375pt or 393pt phone: about 199pt and 217pt are left for 220pt of slots. Four fit everywhere, so the pill has Home, Chats, Views and one pin. Pinning another list replaces the pin, the toast says "Pinned, replacing Errors" (or "Web analytics", the longest label), and Undo puts the old pin back. The store keeps a list (`MAX_NAV_PINS`), so a larger cap needs no change to the saved format.
 - **A device preference.** `navPinStore` keeps the pins in AsyncStorage for every project, and sign-out keeps them, like the pin hint: they hold no account data.

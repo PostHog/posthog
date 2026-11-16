@@ -38,15 +38,21 @@ function problemsOf(error: z.ZodError, prefix: string): string[] {
     )
 }
 
-function readYaml(file: string, label: string): { value: unknown } | { problem: string } {
-    if (!existsSync(file)) {
-        return { problem: `${label}: no file at ${file}` }
-    }
+type Read = { value: unknown } | { problem: string }
+
+function parseYaml(text: () => string, label: string): Read {
     try {
-        return { value: parse(readFileSync(file, 'utf8'), { maxAliasCount: 0 }) }
+        return { value: parse(text(), { maxAliasCount: 0 }) }
     } catch (error) {
         return { problem: `${label}: ${(error as Error).message}` }
     }
+}
+
+function readYaml(file: string, label: string): Read {
+    if (!existsSync(file)) {
+        return { problem: `${label}: no file at ${file}` }
+    }
+    return parseYaml(() => readFileSync(file, 'utf8'), label)
 }
 
 function sha256(value: unknown): string {
@@ -75,13 +81,18 @@ function checkNames(card: Card, definitions: Definitions): string[] {
         ...card.measure.flatMap((entry, i) =>
             checkNamed('measurement', `measure.${i}`, entry, definitions.measurements)
         ),
+        ...card.bars.flatMap((entry, i) => checkNamed('bar', `bars.${i}`, entry, definitions.bars)),
         ...card.valves.flatMap((entry, i) => {
             const definition = definitions.valves.find(({ name }) => name === entry.valve)
             if (!definition) {
                 return [`valves.${i}.valve: unknown valve ${entry.valve}`]
             }
+            const target = definition.target.safeParse(entry.target)
             const dose = definition.params.safeParse(entry.dose)
-            return dose.success ? [] : problemsOf(dose.error, `valves.${i}.dose`)
+            return [
+                ...(target.success ? [] : problemsOf(target.error, `valves.${i}.target`)),
+                ...(dose.success ? [] : problemsOf(dose.error, `valves.${i}.dose`)),
+            ]
         }),
     ]
 }
@@ -167,12 +178,17 @@ function checkProfile(card: Card, profile: Profile, definitions: Definitions, de
     ]
 }
 
-function loadProfile(card: Card, profilePath: string | undefined): { profile: Profile } | { problems: string[] } {
+type ProfileRead = { profile: Profile } | { problems: string[] }
+
+function loadProfile(card: Card, profilePath: string | undefined): ProfileRead {
     const file = profilePath ?? path.join(PROFILES_DIR, `${card.profile}.yaml`)
     if (profilePath === undefined && !existsSync(file)) {
         return { problems: [`profile: no shipped profile ${card.profile}; pass its file with --profile`] }
     }
-    const read = readYaml(file, 'profile')
+    return readProfile(file)
+}
+
+function profileOf(read: Read): ProfileRead {
     if ('problem' in read) {
         return { problems: [read.problem] }
     }
@@ -180,9 +196,34 @@ function loadProfile(card: Card, profilePath: string | undefined): { profile: Pr
     return profile.success ? { profile: profile.data } : { problems: problemsOf(profile.error, 'profile') }
 }
 
+export function readProfile(file: string): ProfileRead {
+    return profileOf(readYaml(file, 'profile'))
+}
+
 export function load(cardPath: string, options: LoadOptions = {}): LoadedCard {
+    return check(cardPath, readYaml(cardPath, 'card'), (card) => loadProfile(card, options.profilePath), options)
+}
+
+export function loadText(
+    label: string,
+    { card, profile }: { card: string; profile: string },
+    options: Pick<LoadOptions, 'definitions'> = {}
+): LoadedCard {
+    return check(
+        label,
+        parseYaml(() => card, 'card'),
+        () => profileOf(parseYaml(() => profile, 'profile')),
+        options
+    )
+}
+
+function check(
+    cardPath: string,
+    read: Read,
+    profileFor: (card: Card) => ProfileRead,
+    options: Pick<LoadOptions, 'definitions'>
+): LoadedCard {
     const definitions = options.definitions ?? DEFINITIONS
-    const read = readYaml(cardPath, 'card')
     if ('problem' in read) {
         throw new CardError(cardPath, [read.problem])
     }
@@ -191,7 +232,7 @@ export function load(cardPath: string, options: LoadOptions = {}): LoadedCard {
         throw new CardError(cardPath, problemsOf(parsed.error, ''))
     }
     const card = parsed.data
-    const loaded = loadProfile(card, options.profilePath)
+    const loaded = profileFor(card)
     const defaults = getDefaultConfig() as unknown as Settings
     const config = overrideConfigWithEnv(defaults, 'profile' in loaded ? loaded.profile.settings : {})
 

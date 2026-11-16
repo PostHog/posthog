@@ -54,6 +54,7 @@ class RelationshipStatus(StrEnum):
 
 # Gates every catalog usage surface. While it is off, the usage endpoints answer 404.
 USAGE_FLAG_KEY = "data-catalog-usage"
+EFFECTIVENESS_FLAG_KEY = "data-catalog-effectiveness"
 
 # The `source` that scheduled agents (scouts) stamp on the run event and on `$ai_generation`.
 # A scout can run one metric many times a day, so usage counts keep scouts apart from every

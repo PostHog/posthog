@@ -48,7 +48,10 @@ from products.signals.backend.models import (
     SignalTeamConfig,
     SignalUserAutonomyConfig,
 )
-from products.signals.backend.report_content_gates import organization_inbox_slack_section_blocks_enabled
+from products.signals.backend.report_content_gates import (
+    organization_inbox_slack_section_blocks_enabled,
+    organization_inbox_slack_state_buttons_enabled,
+)
 from products.signals.backend.report_generation.research import ActionabilityChoice
 from products.signals.backend.report_generation.resolve_reviewers import (
     enrich_reviewer_dicts_with_org_members,
@@ -71,7 +74,11 @@ from products.signals.backend.slack_notification_targets import is_slack_member_
 from products.signals.backend.slack_report_threads import record_report_slack_thread
 from products.signals.backend.task_run_artefacts import SIGNALS_PRODUCT, TASK_RUN_TYPE_IMPLEMENTATION
 from products.signals.backend.typed_report_links import incoming_links
-from products.slack_app.backend.facade.api import slack_followup_invite, slack_report_implementation_button
+from products.slack_app.backend.facade.api import (
+    slack_followup_invite,
+    slack_report_implementation_button,
+    slack_report_state_followup_blocks,
+)
 from products.tasks.backend.facade import api as tasks_facade
 
 # Actionability values shown in the inbox Reports tab. Slack notifications mirror that tab, so a
@@ -637,6 +644,32 @@ def _build_reviewer_routes(
     return table.routes()
 
 
+def _post_state_buttons_followup(
+    slack: SlackIntegration, report: SignalReport, route: _ChannelRoute, *, channel: str, thread_ts: str
+) -> None:
+    """Reply under the notification with Resolve, Dismiss and Remove me buttons, keeping them off the message itself.
+
+    Best-effort: the notification is already delivered, so a failed reply only costs the buttons.
+    """
+    if not organization_inbox_slack_state_buttons_enabled(report.team.organization_id):
+        return
+    blocks = slack_report_state_followup_blocks(
+        integration_id=route.integration.id,
+        report_id=str(report.id),
+        team_id=report.team_id,
+        offer_remove_reviewer=bool(route.users or route.owner_users),
+    )
+    try:
+        slack.client.chat_postMessage(
+            channel=channel, thread_ts=thread_ts, blocks=blocks, text="Resolve or dismiss this report"
+        )
+    except Exception:
+        logger.exception(
+            "Failed to post the Slack state buttons for a signals inbox item",
+            extra={"report_id": str(report.id), "team_id": report.team_id},
+        )
+
+
 def _deliver_route_notification(
     report: SignalReport,
     route: _ChannelRoute,
@@ -707,6 +740,9 @@ def _deliver_route_notification(
                 channel=str(posted_channel or channel_id),
                 thread_ts=str(thread_ts),
                 kind=SignalReportSlackThread.Kind.INBOX_NOTIFICATION,
+            )
+            _post_state_buttons_followup(
+                slack, report, route, channel=str(posted_channel or channel_id), thread_ts=str(thread_ts)
             )
     except Exception:
         logger.exception("Failed to deliver signals inbox-item Slack notification", extra=log_context)

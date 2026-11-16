@@ -1369,7 +1369,7 @@ export interface HogQLQueryModifiersApi {
     optimizeProjections?: boolean | null
     /** HogQL parser backend; absent → `rust_py_with_cpp_shadow` (rust-py is primary, cpp runs as a sampled shadow). `*_shadow` modes return the primary result and sample-compare against the other parser, reporting divergences without failing the request. The `rust_py_*` modes drive the same hand-rolled Rust parser as `rust_*` but build `posthog.hogql.ast` dataclass instances directly via PyO3, skipping the JSON round-trip. */
     parserMode?: ParserModeApi | null
-    /** Push an `id IN (SELECT person_id FROM <left table> WHERE …)` predicate into the joined persons subquery, so the latest-version lookup only reads persons that the outer query's left-table filters can reach. Applies only to a persons join from the query's own FROM table. */
+    /** Push an `id IN (SELECT person_id FROM <left table> WHERE …)` predicate into the joined persons subquery, so the latest-version lookup only reads persons that the outer query's left-table filters can reach. Applies only to a persons join from the query's own FROM table. Unset, it applies to a persons join from `posthog.flag_evaluations` or from the union of events and flag_evaluations, and to no other join. */
     personIdPushdown?: boolean | null
     personsArgMaxVersion?: PersonsArgMaxVersionApi | null
     personsJoinMode?: PersonsJoinModeApi | null
@@ -2119,6 +2119,7 @@ export interface ResultCustomizationByValueApi {
     color?: DataColorTokenApi | null
     customColor?: string | null
     hidden?: boolean | null
+    label?: string | null
 }
 
 export interface ResultCustomizationByPositionApi {
@@ -4718,6 +4719,17 @@ export const ErrorTrackingIssueStatusApi = {
     Suppressed: 'suppressed',
 } as const
 
+export interface ErrorTrackingIssueTagApi {
+    /** What the tag means, for a tooltip. */
+    description: string
+    /** Key of the tag definition. */
+    key: string
+    /** Short name of the tag. */
+    label: string
+    /** The tagger that applied the tag: `jev` for AI, `manual` for a person. Issue detail sets it, list results send null. */
+    source?: string | null
+}
+
 export interface ErrorTrackingIssueApi {
     aggregations?: ErrorTrackingIssueAggregationsApi | null
     assignee?: ErrorTrackingIssueAssigneeApi | null
@@ -4735,6 +4747,8 @@ export interface ErrorTrackingIssueApi {
     severity?: ErrorTrackingQueryIssueSeverityApi | null
     source?: string | null
     status: ErrorTrackingIssueStatusApi
+    /** The enabled tags that are applied to the issue, on issue list results and issue detail. Null or absent when the project has no enabled tag. */
+    tags?: ErrorTrackingIssueTagApi[] | null
 }
 
 export interface Response14Api {
@@ -4787,6 +4801,8 @@ export interface ErrorTrackingCorrelatedIssueApi {
     population: PopulationApi
     severity?: ErrorTrackingQueryIssueSeverityApi | null
     status: ErrorTrackingIssueStatusApi
+    /** The enabled tags that are applied to the issue, on issue list results and issue detail. Null or absent when the project has no enabled tag. */
+    tags?: ErrorTrackingIssueTagApi[] | null
 }
 
 export interface Response15Api {
@@ -7470,6 +7486,13 @@ export interface MarketingAnalyticsAggregatedQueryApi {
     webQueryModifiers?: WebAnalyticsQueryModifiersApi | null
 }
 
+export interface ErrorTrackingIssueTagFilterApi {
+    /** True matches the issues the tag is applied to. False matches every other issue. */
+    applied: boolean
+    /** Key of the tag definition. */
+    key: string
+}
+
 export type ErrorTrackingOrderByApi = (typeof ErrorTrackingOrderByApi)[keyof typeof ErrorTrackingOrderByApi]
 
 export const ErrorTrackingOrderByApi = {
@@ -7543,6 +7566,8 @@ export interface ErrorTrackingQueryApi {
     groupTypeIndex?: number | null
     /** Filter to a specific error tracking issue by ID. */
     issueId?: string | null
+    /** Filter by whether one issue tag is applied. Ignored when issue tags or this tag are off for the project. */
+    issueTag?: ErrorTrackingIssueTagFilterApi | null
     kind?: 'ErrorTrackingQuery'
     limit?: number | null
     /** Modifiers used when performing the query */
