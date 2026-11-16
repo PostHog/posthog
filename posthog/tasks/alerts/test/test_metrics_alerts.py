@@ -454,17 +454,6 @@ class TestMetricsAlerts(APIBaseTest, ClickhouseTestMixin):
         )
         assert detail_response.status_code == (200 if visible else 404), detail_response.json()
 
-        # Thresholds (nested under the insight) embed full alerts including check values, so they
-        # must be gated the same way.
-        thresholds_response = self.client.get(
-            f"/api/projects/{self.team.id}/insights/{insight['id']}/thresholds", HTTP_AUTHORIZATION=authorization
-        )
-        assert thresholds_response.status_code == 200, thresholds_response.json()
-        threshold_alert_ids = {
-            nested["id"] for result in thresholds_response.json()["results"] for nested in result.get("alerts", [])
-        }
-        assert (alert["id"] in threshold_alert_ids) is visible
-
     @parameterized.expand(
         [
             (

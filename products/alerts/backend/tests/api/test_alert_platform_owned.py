@@ -27,7 +27,6 @@ from posthog.models.user import User
 from posthog.schema_enums import AlertCalculationInterval, AlertState
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
-from products.access_control.backend.models.access_control import AccessControl
 from products.alerts.backend.evaluation.detector import _earlier_flags, _saved_alert_flags
 from products.alerts.backend.facade.api import (
     WATCHED_ROWS_PER_INSIGHT,
@@ -587,50 +586,6 @@ class TestPlatformOwnedInsightAlert(ClickhouseTestMixin, APIBaseTest):
             return [alert["id"] for alert in response.json()["results"]]
 
         assert (listed(matching), listed(missing)) == ([str(self.alert.id)], [])
-
-    @parameterized.expand(
-        [
-            ("list", "list", None),
-            ("retrieve", "retrieve", None),
-            ("threshold_insight_hidden", "list", "threshold"),
-            ("alert_moved_to_a_hidden_insight", "list", "alert"),
-        ]
-    )
-    def test_the_thresholds_endpoint_shows_a_moved_alert_from_its_copy(
-        self, _name: str, action: str, hidden: str | None
-    ) -> None:
-        assert self.alert.threshold is not None
-        threshold_insight_id = self.alert.insight_id
-        AlertConfiguration.objects.filter(id=self.alert.id).update(name="Drifted")
-        copy_threshold = self.alert.threshold.configuration
-        row_threshold = {"type": "absolute", "bounds": {"upper": 999.0}}
-        Threshold.objects.filter(id=self.alert.threshold.id).update(configuration=row_threshold, name="Revenue bound")
-        if hidden is not None:
-            self.organization.available_product_features = [
-                {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
-            ]
-            self.organization.save()
-            self.organization_membership.level = OrganizationMembership.Level.MEMBER
-            self.organization_membership.save()
-            hidden_insight_id = threshold_insight_id
-            if hidden == "alert":
-                # An edit can move an alert to another insight and keep its threshold.
-                hidden_insight_id = Insight.objects.create(team=self.team, query=self.alert.insight.query).id
-                AlertConfiguration.objects.filter(id=self.alert.id).update(insight_id=hidden_insight_id)
-            AccessControl.objects.create(
-                resource="insight", resource_id=hidden_insight_id, team=self.team, access_level="none"
-            )
-        url = f"/api/projects/{self.team.id}/insights/{threshold_insight_id}/thresholds/"
-
-        response = self.client.get(url if action != "retrieve" else f"{url}{self.alert.threshold_id}/")
-
-        assert response.status_code == status.HTTP_200_OK, response.json()
-        thresholds = [response.json()] if action == "retrieve" else response.json()["results"]
-        assert [
-            (threshold["configuration"], alert["name"], alert["threshold"]["configuration"], alert["threshold"]["name"])
-            for threshold in thresholds
-            for alert in threshold["alerts"]
-        ] == ([(row_threshold, self.alert.name, copy_threshold, "Revenue bound")] if hidden is None else [])
 
     @parameterized.expand(
         [

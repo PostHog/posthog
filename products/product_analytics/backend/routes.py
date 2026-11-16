@@ -1,7 +1,6 @@
 from posthog.api import sharing
 from posthog.api.routing import RouterRegistry
 
-import products.alerts.backend.presentation.views.alert as alert
 from products.product_analytics.backend.presentation.events_retention import (
     EventsRetentionViewSet,
     OrganizationEventsRetentionViewSet,
@@ -28,14 +27,6 @@ def register_routes(routers: RouterRegistry) -> None:
         r"explanations",
         InsightExplanationViewSet,
         "project_insight_explanations",
-        ["team_id", "insight_id"],
-    )
-
-    # ThresholdViewSet is owned by the alerts product but nests under insights.
-    insights_router.register(
-        "thresholds",
-        alert.ThresholdViewSet,
-        "project_insight_thresholds",
         ["team_id", "insight_id"],
     )
 
