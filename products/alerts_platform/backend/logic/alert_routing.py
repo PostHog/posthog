@@ -25,7 +25,7 @@ from products.alerts_platform.backend.facade.contracts import (
     StoredAlertRoute,
     UnknownAlertRouting,
 )
-from products.alerts_platform.backend.logic import alert_routes
+from products.alerts_platform.backend.logic import alert_routes, destination_handoff
 from products.alerts_platform.backend.logic.alert_destinations import validate_destination_data, validate_event_kinds
 from products.alerts_platform.backend.logic.rule_metadata import InvalidRuleMetadata, validate_labels
 from products.alerts_platform.backend.models import AlertReceiver, AlertRoute
@@ -71,6 +71,7 @@ def update_receiver(*, team_id: int, receiver_id: UUID, edit: AlertReceiverEdit)
         row = AlertReceiver.objects.for_team(team_id).select_for_update().filter(id=receiver_id).first()
         if row is None:
             raise UnknownAlertRouting()
+        before = destination_handoff.snapshot(team_id, routes_only=True)
         if edit.name is not None:
             row.name = _valid_name(edit.name)
         if edit.data is not None:
@@ -85,14 +86,18 @@ def update_receiver(*, team_id: int, receiver_id: UUID, edit: AlertReceiverEdit)
                 row.save()
         except IntegrityError as error:
             raise _duplicate_name(row.name) from error
+        destination_handoff.hand_over_after_commit(before)
     return _stored_receiver(row, AlertRoute.objects.for_team(team_id).filter(receiver_id=row.id).count())
 
 
 def delete_receiver(*, team_id: int, receiver_id: UUID) -> None:
     """Deletes the receiver and every route that sends to it."""
-    deleted, _ = AlertReceiver.objects.for_team(team_id).filter(id=receiver_id).delete()
-    if not deleted:
-        raise UnknownAlertRouting()
+    with transaction.atomic():
+        before = destination_handoff.snapshot(team_id, routes_only=True)
+        deleted, _ = AlertReceiver.objects.for_team(team_id).filter(id=receiver_id).delete()
+        if not deleted:
+            raise UnknownAlertRouting()
+        destination_handoff.hand_over_after_commit(before)
 
 
 def list_routes(*, team_id: int) -> tuple[StoredAlertRoute, ...]:
@@ -114,6 +119,7 @@ def create_route(*, team_id: int, edit: AlertRouteEdit) -> StoredAlertRoute:
     validate_event_kinds(event_kinds)
     try:
         with transaction.atomic():
+            before = destination_handoff.snapshot(team_id, routes_only=True)
             row = AlertRoute.objects.for_team(team_id).create(
                 team_id=team_id,
                 receiver_id=edit.receiver_id,
@@ -121,6 +127,7 @@ def create_route(*, team_id: int, edit: AlertRouteEdit) -> StoredAlertRoute:
                 event_kinds=[kind.value for kind in event_kinds],
                 enabled=True if edit.enabled is None else edit.enabled,
             )
+            destination_handoff.hand_over_after_commit(before)
     except IntegrityError as error:
         # The receiver was deleted after the check above. Postgres checks the foreign key at commit,
         # which is the exit of this block.
@@ -136,6 +143,7 @@ def update_route(*, team_id: int, route_id: UUID, edit: AlertRouteEdit) -> Store
             row = AlertRoute.objects.for_team(team_id).select_for_update().filter(id=route_id).first()
             if row is None:
                 raise UnknownAlertRouting()
+            before = destination_handoff.snapshot(team_id, routes_only=True)
             if edit.receiver_id is not None:
                 _check_receiver(team_id, edit.receiver_id)
                 row.receiver_id = edit.receiver_id
@@ -149,15 +157,19 @@ def update_route(*, team_id: int, route_id: UUID, edit: AlertRouteEdit) -> Store
                 # nosemgrep: platform-alert-state-direct-mutation (a routing row's own switch, not an alert's lifecycle)
                 row.enabled = edit.enabled
             row.save()
+            destination_handoff.hand_over_after_commit(before)
     except IntegrityError as error:
         raise _unknown_receiver() from error
     return _stored_route(row)
 
 
 def delete_route(*, team_id: int, route_id: UUID) -> None:
-    deleted, _ = AlertRoute.objects.for_team(team_id).filter(id=route_id).delete()
-    if not deleted:
-        raise UnknownAlertRouting()
+    with transaction.atomic():
+        before = destination_handoff.snapshot(team_id, routes_only=True)
+        deleted, _ = AlertRoute.objects.for_team(team_id).filter(id=route_id).delete()
+        if not deleted:
+            raise UnknownAlertRouting()
+        destination_handoff.hand_over_after_commit(before)
 
 
 def _valid_name(name: str) -> str:

@@ -1,0 +1,158 @@
+"""Sends the incident actions an edit owes the incident managers it moved firings between.
+
+Deliveries always follow the current routes and destinations. When an edit moves a firing group onto
+an incident manager, it hears the trigger now, so the resolve it gets later closes something. When an
+edit moves one off an incident manager, it hears the resolve, or its incident would stay open.
+
+What each send says comes from the history row that opened the firing, which is the row its trigger
+was sent from. Nothing new is written to history: a handoff is not a check, and a history or
+comparison read must not see a second firing.
+"""
+
+from collections.abc import Sequence
+from dataclasses import replace
+from typing import cast
+
+import structlog
+
+from posthog.dataclasses import frozen
+from posthog.models import Team
+from posthog.utils import absolute_uri
+
+from products.alerts_platform.backend.delivery.dispatch import deliver
+from products.alerts_platform.backend.delivery.evaluation import _TRANSPORTS
+from products.alerts_platform.backend.delivery.pagerduty import source_incident_key
+from products.alerts_platform.backend.delivery.thread_store import DatabaseThreadStore, ThreadBusy
+from products.alerts_platform.backend.delivery.transport import (
+    DeliveryError,
+    DestinationMisconfigured,
+    RefusedEverywhere,
+)
+from products.alerts_platform.backend.facade.contracts import (
+    AlertDeliveryRequest,
+    AlertDestinationData,
+    HandoffSend,
+    IncidentAction,
+    MessageLink,
+)
+from products.alerts_platform.backend.facade.enums import PlatformAlertState
+from products.alerts_platform.backend.logic.alert_destinations import INCIDENT_DESTINATION_TYPES
+from products.alerts_platform.backend.logic.platform_alert_events import opening_transitions
+from products.alerts_platform.backend.logic.platform_reads import rule_metadata
+from products.alerts_platform.backend.models import AlertDestination, AlertReceiver, PlatformAlert
+
+logger = structlog.get_logger(__name__)
+
+
+@frozen
+class HandoffTarget:
+    send: HandoffSend
+    data: AlertDestinationData
+
+
+def deliver_handoff(request: AlertDeliveryRequest) -> int:
+    """Sends a handoff the delivery workflow carries, to destinations read now by id. A gained
+    destination that was disabled or removed since is skipped."""
+    own_ids = [send.destination_id for send in request.handoff if not send.routed]
+    routed_ids = [send.destination_id for send in request.handoff if send.routed]
+    own = {
+        str(row_id): (config, enabled)
+        for row_id, config, enabled in AlertDestination.objects.for_team(request.team_id)
+        .filter(configuration_id=request.configuration_id, id__in=own_ids)
+        .values_list("id", "config", "enabled")
+    }
+    routed = {
+        str(row_id): (config, enabled)
+        for row_id, config, enabled in AlertReceiver.objects.for_team(request.team_id)
+        .filter(id__in=routed_ids)
+        .values_list("id", "config", "enabled")
+    }
+    targets: list[HandoffTarget] = []
+    for send in request.handoff:
+        found = (routed if send.routed else own).get(send.destination_id)
+        if found is None or (send.gained and not found[1]):
+            continue
+        targets.append(HandoffTarget(send=send, data=cast(AlertDestinationData, found[0])))
+    return send_handoff(request, targets)
+
+
+def send_handoff(request: AlertDeliveryRequest, targets: Sequence[HandoffTarget]) -> int:
+    """How many destinations were sent to. Raises like a routed delivery, so the activity retries,
+    and the thread claims skip a destination already sent to."""
+    team = Team.objects.filter(id=request.team_id).first()
+    if team is None or not targets:
+        return 0
+    still_firing = {
+        (grouping_key, started_at)
+        for grouping_key, started_at in PlatformAlert.objects.for_team(request.team_id)
+        .filter(configuration_id=request.configuration_id, state=PlatformAlertState.FIRING)
+        .values_list("grouping_key", "firing_started_at")
+    }
+    # A firing that ended before this ran already sent its resolve to the destinations of that
+    # moment, so a trigger now would open an incident nothing closes.
+    targets = [
+        target
+        for target in targets
+        if not target.send.gained or (target.send.grouping_key, target.send.episode_started_at) in still_firing
+    ]
+    announced = opening_transitions(
+        request.team_id,
+        request.configuration_id,
+        source=request.source,
+        episodes={target.send.grouping_key: target.send.episode_started_at for target in targets},
+    )
+    if announced is None:
+        return 0
+    announced = replace(announced, rule=rule_metadata(request.team_id, request.configuration_id))
+    opening = {transition.grouping_key: transition for transition in announced.transitions}
+
+    thread_store = DatabaseThreadStore(request.team_id)
+    project = MessageLink(label=team.name, url=absolute_uri(f"/project/{team.id}"))
+    sent = 0
+    busy: list[str] = []
+    failures: list[str] = []
+    retryable = False
+    for target in targets:
+        transition = opening.get(target.send.grouping_key)
+        transport_class = _TRANSPORTS.get(target.data.get("type"))
+        if transition is None or transport_class is None or target.data.get("type") not in INCIDENT_DESTINATION_TYPES:
+            continue
+        action = IncidentAction.TRIGGER if target.send.gained else IncidentAction.RESOLVE
+        try:
+            deliver(
+                transport=transport_class(),
+                thread_store=thread_store,
+                team_id=request.team_id,
+                configuration_id=request.configuration_id,
+                evaluation_key=request.evaluation_key,
+                target=target.data,
+                destination_id=target.send.destination_id,
+                announcement=replace(announced, transitions=(transition,)),
+                incident_action=action,
+                source_alert_url=request.source_alert_url,
+                source_incident_key=source_incident_key(request.destination_alert_id),
+                project=project,
+            )
+        except ThreadBusy as error:
+            busy.append(str(error))
+        except DeliveryError as error:
+            failures.append(str(error))
+            retryable = retryable or not isinstance(error, DestinationMisconfigured)
+        except Exception as error:
+            # Named by class only, because an exception's text can carry a credential URL.
+            failures.append(type(error).__name__)
+            retryable = True
+        else:
+            sent += 1
+    if busy:
+        raise ThreadBusy("; ".join([*busy, *failures]))
+    if failures:
+        failed = DeliveryError if retryable else RefusedEverywhere
+        raise failed(f"{len(failures)} handoff send(s) failed: " + "; ".join(failures))
+    logger.info(
+        "alerts_platform_handoff_delivered",
+        configuration_id=request.configuration_id,
+        evaluation_key=request.evaluation_key,
+        sent=sent,
+    )
+    return sent

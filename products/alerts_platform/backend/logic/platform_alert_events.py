@@ -13,7 +13,7 @@ batch and the engine only remembers a bounded window of them.
 
 import json
 import hashlib
-from collections.abc import Collection, Sequence
+from collections.abc import Collection, Mapping, Sequence
 from dataclasses import field, fields
 from datetime import UTC, datetime
 from enum import StrEnum
@@ -392,6 +392,88 @@ def read_announcement(
         if read.status is not AnnouncementStatus.MISSING:
             return read
     return AnnouncementRead(status=AnnouncementStatus.MISSING)
+
+
+_OPENING_ROWS_SQL = f"""
+SELECT {_ANNOUNCEMENT_COLUMNS}, evaluation_key
+FROM {PLATFORM_ALERT_EVENTS_TABLE}
+WHERE team_id = %(team_id)s
+  AND configuration_id = %(configuration_id)s
+  AND has(%(grouping_keys)s, grouping_key)
+  AND state = %(firing)s
+  AND previous_state != %(firing)s
+  AND episode_started_at IS NOT NULL
+ORDER BY grouping_key, occurred_at
+"""
+
+
+def opening_transitions(
+    team_id: int, configuration_id: str, *, source: SourceKind, episodes: Mapping[str, datetime]
+) -> EvaluationAnnouncement | None:
+    """The rows that opened these firings, by grouping key and firing start, as the announcement their
+    trigger was sent from. A group whose opening row is absent is left out: its trigger was read from
+    that row, so no destination heard it either. None when no group has one."""
+    if not episodes:
+        return None
+    tag_queries(product=Product.PLATFORM_AND_SUPPORT, feature=Feature.ALERTING)
+    rows = _execute(
+        _OPENING_ROWS_SQL,
+        {
+            "team_id": team_id,
+            "configuration_id": configuration_id,
+            "grouping_keys": list(episodes),
+            "firing": PlatformAlertState.FIRING.value,
+        },
+        team_id=team_id,
+    )
+    found: dict[str, AnnouncedTransition] = {}
+    alert_name, consecutive_failures = "", 0
+    for (
+        grouping_key,
+        kind,
+        episode_started_at,
+        value,
+        labels,
+        condition_snapshot,
+        source_config_snapshot,
+        error_message,
+        occurred_at,
+        source_detail,
+        row_alert_name,
+        row_consecutive_failures,
+        row_evaluation_key,
+    ) in rows:
+        if grouping_key in found or _utc(episode_started_at) != _utc(episodes[grouping_key]):
+            continue
+        found[grouping_key] = AnnouncedTransition(
+            grouping_key=grouping_key,
+            kind=AlertEventKind(kind),
+            episode_started_at=episode_started_at,
+            value=value,
+            labels=dict(labels or {}),
+            condition=_snapshot(condition_snapshot),
+            source_config=_snapshot(source_config_snapshot),
+            error_message=error_message or None,
+            occurred_at=occurred_at,
+            evaluation_key=row_evaluation_key,
+            source_detail=_snapshot(source_detail),
+            configuration_id=configuration_id,
+        )
+        alert_name, consecutive_failures = row_alert_name, row_consecutive_failures
+    if not found:
+        return None
+    return EvaluationAnnouncement(
+        configuration_id=configuration_id,
+        source=source,
+        alert_name=alert_name,
+        consecutive_failures=consecutive_failures,
+        transitions=tuple(found.values()),
+    )
+
+
+def _utc(moment: datetime) -> datetime:
+    # History rows come back from ClickHouse without a zone, and their times are UTC.
+    return moment.replace(tzinfo=UTC) if moment.tzinfo is None else moment.astimezone(UTC)
 
 
 def announced_kinds(

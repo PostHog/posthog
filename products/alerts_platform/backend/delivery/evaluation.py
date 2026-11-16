@@ -218,6 +218,9 @@ def deliver_evaluation(request: AlertDeliveryRequest) -> DeliveryOutcome:
     # A source that still owns its alert sends its own message, so the platform sends nothing for it.
     if not request.owned_by_platform:
         return DeliveryOutcome(live=False, sent=0, skipped_without_transport=0)
+    # A handoff has no evaluation to read, and `deliver_routes` sends it with the routed receivers.
+    if request.handoff:
+        return DeliveryOutcome(live=True, sent=0, skipped_without_transport=0)
     team = Team.objects.filter(id=request.team_id).first()
     if team is None:
         return DeliveryOutcome(live=False, sent=0, skipped_without_transport=0)

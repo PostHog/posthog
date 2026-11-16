@@ -1,0 +1,213 @@
+from collections.abc import Callable
+from dataclasses import replace
+from datetime import UTC, datetime
+from typing import Any, cast
+
+from posthog.test.base import APIBaseTest, ClickhouseTestMixin
+from unittest.mock import MagicMock, patch
+
+from parameterized import parameterized
+
+from posthog.models.scoping import team_scope
+
+from products.alerts_platform.backend.delivery import evaluation
+from products.alerts_platform.backend.facade import api as platform_api
+from products.alerts_platform.backend.facade.contracts import (
+    ROUTING_FLAG,
+    AlertDestinationData,
+    AlertEventKind,
+    AlertRouteEdit,
+    DestinationType,
+    IncidentAction,
+    NativeAlertLifecycle,
+    NewAlertDestination,
+    SourceConfigSpec,
+    SourceKind,
+)
+from products.alerts_platform.backend.facade.enums import PlatformAlertOwner, PlatformAlertState
+from products.alerts_platform.backend.logic import alert_routing, platform_writes
+from products.alerts_platform.backend.logic.platform_alert_events import insert_events
+from products.alerts_platform.backend.logic.platform_lifecycle import event_row
+from products.alerts_platform.backend.models import AlertReceiver, AlertRoute, PlatformAlert, PlatformAlertConfiguration
+from products.alerts_platform.backend.temporal import web_start
+from products.alerts_platform.backend.tests.test_delivery_evaluation import PagingTransport, RecordingTransport
+from products.alerts_platform.backend.tests.test_native_alerts import _edit, _WatchedRows
+
+FIRING_STARTED = datetime(2026, 11, 16, 9, 0, tzinfo=UTC)
+
+_TYPES: dict[str, DestinationType] = {
+    "pagerduty": DestinationType.PAGERDUTY,
+    "incident_io": DestinationType.INCIDENT_IO,
+    "slack": DestinationType.SLACK,
+}
+
+
+class IncidentIoTransport(RecordingTransport):
+    provider = "incident_io"
+
+    def channel_target(self, target: AlertDestinationData) -> str:
+        return str(target.get("incident_io_alert_source_config_id", ""))
+
+
+def _data(kind: str, address: str) -> AlertDestinationData:
+    if kind == "pagerduty":
+        return cast(AlertDestinationData, {"type": DestinationType.PAGERDUTY, "pagerduty_routing_key": address})
+    if kind == "incident_io":
+        return cast(
+            AlertDestinationData,
+            {
+                "type": DestinationType.INCIDENT_IO,
+                "incident_io_alert_source_config_id": address,
+                "incident_io_secret": "test-secret",
+            },
+        )
+    return cast(
+        AlertDestinationData, {"type": DestinationType.SLACK, "slack_workspace_id": 1, "slack_channel_id": address}
+    )
+
+
+class TestDestinationHandoff(ClickhouseTestMixin, APIBaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        RecordingTransport.sends = []
+        spec = SourceConfigSpec(
+            model=_WatchedRows,
+            validate=lambda edit: None,
+            check_in_team=MagicMock(),
+            incident_event_ids={
+                IncidentAction.TRIGGER: "$x_alert_incident_opened",
+                IncidentAction.RESOLVE: "$x_alert_incident_closed",
+            },
+            native=NativeAlertLifecycle(check_interval_minutes=5, remove_destinations=MagicMock()),
+        )
+        for patcher in (
+            patch("products.alerts_platform.backend.logic.source_configs.spec", return_value=spec),
+            patch(
+                "products.alerts_platform.backend.delivery.team_flags.posthoganalytics.feature_enabled",
+                side_effect=lambda key, *args, **kwargs: key == ROUTING_FLAG,
+            ),
+            patch.dict(
+                evaluation._TRANSPORTS,
+                {
+                    DestinationType.SLACK: RecordingTransport,
+                    DestinationType.PAGERDUTY: PagingTransport,
+                    DestinationType.INCIDENT_IO: IncidentIoTransport,
+                },
+            ),
+            # The workflow runs the same two sends, so the test runs them inline.
+            patch.object(web_start, "deliver", side_effect=web_start.deliver_inline),
+        ):
+            patcher.start()
+            self.addCleanup(patcher.stop)
+
+        with team_scope(self.team.id):
+            self.configuration_id = platform_writes.create_configuration(
+                team_id=self.team.id, source_kind=SourceKind.LOGS, edit=_edit(), created_by_id=self.user.id
+            ).id
+            PlatformAlertConfiguration.objects.filter(id=self.configuration_id).update(
+                labels={"team": "infra"}, destinations_owner=PlatformAlertOwner.PLATFORM
+            )
+            configuration = PlatformAlertConfiguration.objects.get(id=self.configuration_id)
+            alert, _ = PlatformAlert.objects.update_or_create(
+                team=self.team,
+                configuration=configuration,
+                grouping_key="",
+                defaults={"state": PlatformAlertState.FIRING, "firing_started_at": FIRING_STARTED},
+            )
+        insert_events(
+            self.team.id,
+            [
+                event_row(
+                    configuration,
+                    alert=alert,
+                    evaluation_key="opening-check",
+                    kind=AlertEventKind.FIRING.value,
+                    previous_state=PlatformAlertState.NOT_FIRING.value,
+                    state=PlatformAlertState.FIRING.value,
+                    episode_started_at=FIRING_STARTED,
+                    consecutive_failures=0,
+                    now=FIRING_STARTED,
+                )
+            ],
+        )
+
+    def _receiver(self, kind: str, address: str, team_label: str | None) -> AlertReceiver:
+        receiver = AlertReceiver.objects.for_team(self.team.id).create(
+            team=self.team, name=address, type=_TYPES[kind], config=_data(kind, address)
+        )
+        if team_label is not None:
+            AlertRoute.objects.for_team(self.team.id).create(
+                team=self.team,
+                receiver=receiver,
+                matchers=[{"label": "team", "op": "=", "value": team_label}],
+                event_kinds=["firing", "resolved"],
+            )
+        return receiver
+
+    def _sends(self) -> list[tuple[str, IncidentAction | None, AlertEventKind]]:
+        return sorted(
+            (
+                (channel, message.incident_action, message.transition.kind)
+                for channel, message in RecordingTransport.sends
+            ),
+            key=str,
+        )
+
+    def _route_edit(self, kind: str) -> None:
+        old = self._receiver(kind, "old", "infra")
+        new = self._receiver(kind, "new", None)
+        route = AlertRoute.objects.for_team(self.team.id).get(receiver=old)
+        alert_routing.update_route(team_id=self.team.id, route_id=route.id, edit=AlertRouteEdit(receiver_id=new.id))
+
+    def _receiver_delete(self, kind: str) -> None:
+        old = self._receiver(kind, "old", "infra")
+        alert_routing.delete_receiver(team_id=self.team.id, receiver_id=old.id)
+
+    def _label_edit(self, kind: str) -> None:
+        self._receiver(kind, "old", "infra")
+        self._receiver(kind, "new", "billing")
+        with team_scope(self.team.id):
+            platform_writes.update_configuration(
+                team_id=self.team.id,
+                source_kinds=[SourceKind.LOGS.value],
+                configuration_id=self.configuration_id,
+                change=lambda current: replace(current, labels={"team": "billing"}),
+            )
+
+    def _destination_add(self, kind: str) -> None:
+        platform_api.create_alert_destinations(
+            team_id=self.team.id,
+            configuration_id=self.configuration_id,
+            destinations=[NewAlertDestination(data=_data(kind, "new"), event_kinds=(AlertEventKind.FIRING,))],
+        )
+
+    _FIRING = AlertEventKind.FIRING
+    _TRIGGER_NEW = ("new", IncidentAction.TRIGGER, _FIRING)
+    _RESOLVE_OLD = ("old", IncidentAction.RESOLVE, _FIRING)
+
+    @parameterized.expand(
+        [
+            ("route_edit_pagerduty", "_route_edit", "pagerduty", [_TRIGGER_NEW, _RESOLVE_OLD]),
+            ("receiver_delete_pagerduty", "_receiver_delete", "pagerduty", [_RESOLVE_OLD]),
+            ("label_edit_pagerduty", "_label_edit", "pagerduty", [_TRIGGER_NEW, _RESOLVE_OLD]),
+            ("label_edit_incident_io", "_label_edit", "incident_io", [_TRIGGER_NEW, _RESOLVE_OLD]),
+            ("destination_add_pagerduty", "_destination_add", "pagerduty", [_TRIGGER_NEW]),
+            # A message destination keeps no incident, so a move sends it nothing.
+            ("label_edit_slack", "_label_edit", "slack", []),
+        ]
+    )
+    def test_an_edit_mid_firing_hands_the_firing_over(
+        self, _name: str, edit: str, kind: str, expected: list[tuple[str, Any, AlertEventKind]]
+    ) -> None:
+        with self.captureOnCommitCallbacks(execute=True):
+            cast(Callable[[str], None], getattr(self, edit))(kind)
+
+        assert self._sends() == sorted(expected, key=str)
+
+    def test_a_firing_that_ended_before_the_edit_is_not_handed_over(self) -> None:
+        PlatformAlert.objects.for_team(self.team.id).update(state=PlatformAlertState.NOT_FIRING, firing_started_at=None)
+
+        with self.captureOnCommitCallbacks(execute=True):
+            self._route_edit("pagerduty")
+
+        assert self._sends() == []

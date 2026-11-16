@@ -948,6 +948,24 @@ class EvaluationAnnouncement:
 
 
 @frozen
+class HandoffSend:
+    """One send a routing or destination edit owes a destination about a group that is firing.
+
+    A destination that gains the firing hears it now, so its later resolve has something to close. An
+    incident manager that loses it hears the resolve, so the incident does not stay open. The
+    destination is named by id and read when the send runs, so no credential travels on the payload.
+    """
+
+    grouping_key: str
+    # The firing the send concerns, which names the incident and the Slack thread.
+    episode_started_at: datetime
+    # An `AlertDestination` id, or an `AlertReceiver` id when `routed`.
+    destination_id: str
+    routed: bool
+    gained: bool
+
+
+@frozen
 class AlertDeliveryRequest:
     """Where to find what one evaluation decided, rather than a copy of it.
 
@@ -992,6 +1010,9 @@ class AlertDeliveryRequest:
     # and which of them one activity sends. The workflow sets `part`.
     parts: int = 1
     part: int = 0
+    # Set on a delivery that hands firings over after an edit moved them between destinations. It
+    # reads the rows that opened those firings instead of `evaluation_key`, and writes no history.
+    handoff: tuple[HandoffSend, ...] = ()
 
     def to_stored(self) -> dict[str, Any]:
         return asdict(self)
