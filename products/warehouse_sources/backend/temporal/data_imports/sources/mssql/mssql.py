@@ -216,6 +216,20 @@ def _is_tempdb_log_full_error(error: BaseException) -> bool:
     return _TEMPDB_LOG_FULL_ERROR in message
 
 
+# pymssql's own message, raised by `Cursor.fetchone`/`fetchmany` when the last `execute()` left no
+# result-set header to read. `sp_spaceused` hits this for an object type it can't report on (e.g.
+# an external table): SQL Server emits a non-fatal warning and returns without running its SELECT,
+# so `execute()` succeeds but leaves nothing to fetch. Table stats are best-effort, so this is
+# skipped like the other known pymssql quirks above rather than captured as tracked noise.
+_NO_RESULTSET_ERROR = "Statement not executed or executed statement has no resultset"
+
+
+def _is_no_resultset_error(error: BaseException) -> bool:
+    """True for pymssql's `fetchone`/`fetchmany` error when the executed statement had no result set."""
+    message = " ".join(str(arg) for arg in error.args) if error.args else str(error)
+    return _NO_RESULTSET_ERROR in message
+
+
 # SQL Server error 1205 — this session was picked as the deadlock victim and its transaction was
 # rolled back to break a lock cycle with a concurrent process. SQL Server's own guidance is to
 # rerun the transaction: lock contention is momentary, so re-running the identical query usually
@@ -1222,10 +1236,14 @@ class MSSQLImplementation(SQLSourceImplementation[MSSQLSourceConfig, pymssql.Con
         except Exception as e:
             # A transient connection death recovers on the next sync attempt with a fresh
             # connection (see `retry_on_transient_connection_error`); a tempdb-log-full error
-            # recovers once the other session's transaction ends; table stats are best-effort, so
-            # both are skipped rather than captured as tracked noise.
-            if isinstance(e, pymssql.Error) and (_is_transient_connection_error(e) or _is_tempdb_log_full_error(e)):
-                logger.debug(f"fetch_table_stats: known self-recovering MSSQL error, returning None: {e}")
+            # recovers once the other session's transaction ends; a no-resultset error means
+            # `sp_spaceused` can't report on this object at all and will say so again next time;
+            # table stats are best-effort, so all three are skipped rather than captured as
+            # tracked noise.
+            if isinstance(e, pymssql.Error) and (
+                _is_transient_connection_error(e) or _is_tempdb_log_full_error(e) or _is_no_resultset_error(e)
+            ):
+                logger.debug(f"fetch_table_stats: known MSSQL/pymssql quirk, returning None: {e}")
                 return None
             logger.debug(f"fetch_table_stats: Error: {e}. Returning None", exc_info=e)
             capture_exception(e)

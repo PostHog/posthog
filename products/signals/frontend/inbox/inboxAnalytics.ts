@@ -354,7 +354,7 @@ interface RankingPillProperties {
     pill_fix: number | null
 }
 
-/** The lifts the person saw on the report's pill. A list without pills, or a stale or unscored report, shows none. */
+/** The lifts the person saw on the report's pill. A list without pills, or an unscored report, shows none. */
 function rankingPillProperties(report: SignalReport, rankingPill: boolean): RankingPillProperties {
     const lifts = rankingPill ? rankingPillLifts(report) : null
     return {

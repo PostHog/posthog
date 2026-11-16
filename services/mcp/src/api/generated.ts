@@ -7191,6 +7191,59 @@ export namespace Schemas {
       snippet: string | null;
     }
 
+    /**
+     * * `owned` - Owned
+     * * `watched` - Watched
+     */
+    export type SummaryObjectRelationEnum = typeof SummaryObjectRelationEnum[keyof typeof SummaryObjectRelationEnum];
+
+
+    export const SummaryObjectRelationEnum = {
+      Owned: 'owned',
+      Watched: 'watched',
+    } as const;
+
+    export interface ActivitySummarySearchObject {
+      /** `owned` when the member changed the object, `watched` when they opened it on many days.
+       *
+       * * `owned` - Owned
+       * * `watched` - Watched */
+      relation: SummaryObjectRelationEnum;
+      /** The object type, such as `insight` or `dashboard`. */
+      type: string;
+      /** The short id for an insight, a notebook or a replay playlist, else the primary key. */
+      id: string;
+      /** The object name. */
+      name: string;
+      /**
+         * Days the member changed the object. Set on an owned object only.
+         * @nullable
+         */
+      edit_days: number | null;
+      /**
+         * Days the member opened the object. Set on a watched object only.
+         * @nullable
+         */
+      open_days: number | null;
+      /**
+         * The last day of the change or the view, as YYYY-MM-DD.
+         * @nullable
+         */
+      last_at: string | null;
+      /**
+         * True when someone else created the watched object. Null on an owned object.
+         * @nullable
+         */
+      not_theirs: boolean | null;
+    }
+
+    export interface ActivitySummarySearchProducts {
+      /** Products the member changed something in, the most active first. */
+      works_in: ActivitySummaryProductEnum[];
+      /** Products the member only opened, the most opened first. */
+      visits: ActivitySummaryProductEnum[];
+    }
+
     export interface ActivitySummarySearchHit {
       /** The member. Use it in `suggested_reviewers`. */
       user_uuid: string;
@@ -7210,6 +7263,8 @@ export namespace Schemas {
       score: number | null;
       /** Why this member matched. */
       matched_on: ActivitySummarySearchMatch[];
+      /** The member's owned and watched objects that matched the object filter, or whose name matched a query term. */
+      objects: ActivitySummarySearchObject[];
       /**
          * One or two sentences about what the member works on in this project.
          * @nullable
@@ -7219,6 +7274,8 @@ export namespace Schemas {
       themes: ActivitySummaryTheme[];
       /** How the member works in this project overall, the main mode first. */
       modes: ActivitySummaryModeEnum[];
+      /** The products the member works in or visits. */
+      products: ActivitySummarySearchProducts;
       /**
          * When this summary was written.
          * @nullable
@@ -7236,6 +7293,8 @@ export namespace Schemas {
     export interface ActivitySummarySearchResult {
       /** The matching members, best match first. */
       results: ActivitySummarySearchHit[];
+      /** All the members that matched, before `offset` and `limit`. */
+      total: number;
       /** False when the search used keywords only: a `keyword` search, a request with no query, or a `hybrid` search whose vector search failed. */
       semantic_used: boolean;
       /** Members with access to the project and no summary yet. The search cannot find them. */
@@ -12423,6 +12482,7 @@ export namespace Schemas {
       valueColumn?: string | null;
       xAxisColumn?: string | null;
       xAxisLabel?: string | null;
+      xAxisSortOrder?: HeatmapSortOrder | null;
       yAxisColumn?: string | null;
       yAxisLabel?: string | null;
     }
@@ -22524,6 +22584,41 @@ export namespace Schemas {
       products: ProductSpend[];
     }
 
+    /**
+     * * `type` - type
+     * * `team` - team
+     * * `multiple` - multiple
+     */
+    export type BreakdownTypeEnum = typeof BreakdownTypeEnum[keyof typeof BreakdownTypeEnum];
+
+
+    export const BreakdownTypeEnum = {
+      Type: 'type',
+      Team: 'team',
+      Multiple: 'multiple',
+    } as const;
+
+    export interface BillingTimeSeriesPoint {
+      id?: number;
+      label?: string;
+      data?: number[];
+      dates?: string[];
+      breakdown_type?: BreakdownTypeEnum | null;
+      breakdown_value?: unknown;
+    }
+
+    export interface BillingSpendTimeSeriesResponse {
+      status?: string;
+      type?: string;
+      customer_id?: number;
+      results: BillingTimeSeriesPoint[];
+      team_id_options?: number[];
+      next?: string;
+      total_count?: number;
+      /** Usage dates (YYYY-MM-DD) in the requested range where the organization's known reported billing-period assignment changes. These dates can differ from subscription renewal dates. Organization-wide, even on filtered or project-scoped responses, and independent of interval and pagination. An empty or omitted list does not establish whether a renewal occurred. */
+      pricing_reset_dates?: string[];
+    }
+
     export interface Trial {
       type: string;
       status: string;
@@ -22570,29 +22665,6 @@ export namespace Schemas {
     export interface BillingTeamOptionsResponse {
       /** Project ids that appear in the organization's usage reports. */
       team_id_options: number[];
-    }
-
-    /**
-     * * `type` - type
-     * * `team` - team
-     * * `multiple` - multiple
-     */
-    export type BreakdownTypeEnum = typeof BreakdownTypeEnum[keyof typeof BreakdownTypeEnum];
-
-
-    export const BreakdownTypeEnum = {
-      Type: 'type',
-      Team: 'team',
-      Multiple: 'multiple',
-    } as const;
-
-    export interface BillingTimeSeriesPoint {
-      id?: number;
-      label?: string;
-      data?: number[];
-      dates?: string[];
-      breakdown_type?: BreakdownTypeEnum | null;
-      breakdown_value?: unknown;
     }
 
     export interface BillingTimeSeriesResponse {
@@ -26669,6 +26741,43 @@ export namespace Schemas {
       evidence?: CapabilityStateEvidence;
     }
 
+    export interface CatalogFlag {
+      /** ID of the feature flag. */
+      id: number;
+      /** Key of the feature flag. */
+      key: string;
+      /** True when the flag is enabled. */
+      active: boolean;
+      /** When the flag was created. */
+      created_at: string;
+    }
+
+    export interface CatalogFlagsResponse {
+      /** Flags the caller can see, newest first. */
+      results: CatalogFlag[];
+      /** True when more flags follow this page. */
+      has_more: boolean;
+    }
+
+    export interface CatalogRelease {
+      /** ID of the release. */
+      id: string;
+      /** Name of the release. */
+      name: string;
+      /** When the release was created. */
+      created_at: string;
+    }
+
+    export interface CatalogReleasesResponse {
+      /** Releases of the project, newest first. */
+      results: CatalogRelease[];
+      /**
+         * Pass as cursor to fetch the next page. Null when no more releases follow.
+         * @nullable
+         */
+      next_cursor: string | null;
+    }
+
     export interface CatalogueEntry {
       /** A raw utm_source value seen in the window */
       raw_utm_source: string;
@@ -28970,6 +29079,7 @@ export namespace Schemas {
      * * `static` - Static
      * * `person_properties` - Person properties
      * * `daily` - Daily
+     * * `off` - Off
      * * `building` - Building
      * * `rebuilding` - Rebuilding
      * * `ready` - Ready
@@ -28982,6 +29092,7 @@ export namespace Schemas {
       Static: 'static',
       PersonProperties: 'person_properties',
       Daily: 'daily',
+      Off: 'off',
       Building: 'building',
       Rebuilding: 'rebuilding',
       Ready: 'ready',
@@ -29034,11 +29145,12 @@ export namespace Schemas {
     } as const;
 
     export interface CohortRealtimeReadiness {
-      /** Whether feature flags can target this cohort now. `ready`: they can, and they see membership changes within about a minute. `building` / `rebuilding`: PostHog is preparing the cohort from past events, and flags cannot target it yet. `needs_attention`: the cohort qualifies but nothing is preparing it. `daily`: its criteria are not supported in realtime, so its membership only comes from the once-a-day calculation. `person_properties`: it matches on person properties, which flags read directly, so they can always target it. `static`: it is a fixed list of people.
+      /** Whether feature flags can target this cohort now. `ready`: they can, and they see membership changes within about a minute. `building` / `rebuilding`: PostHog is preparing the cohort from past events, and flags cannot target it yet. `needs_attention`: the cohort qualifies but nothing is preparing it. `off`: the cohort qualifies and realtime is off for it, so feature flags cannot target it until it is turned on. `daily`: its criteria are not supported in realtime, so its membership only comes from the once-a-day calculation. `person_properties`: it matches on person properties, which flags read directly, so they can always target it. `static`: it is a fixed list of people.
        *
        * * `static` - Static
        * * `person_properties` - Person properties
        * * `daily` - Daily
+       * * `off` - Off
        * * `building` - Building
        * * `rebuilding` - Rebuilding
        * * `ready` - Ready
@@ -29116,6 +29228,8 @@ export namespace Schemas {
       readonly condition_type: CohortConditionTypeFlags | null;
       /** Whether feature flags can target this cohort, and the progress of the build that gets it there. Null outside the realtime cohort flag targeting rollout, on projects the realtime pipeline does not cover, and for cohorts that match on neither events nor person properties, which nothing in the flag API decides on. */
       readonly realtime: CohortRealtimeReadiness | null;
+      /** Whether realtime is on for this cohort, so PostHog keeps its membership current for feature flags and workflows. Send true when you create a cohort to turn realtime on for it. It stays false when the project has no realtime cohorts or the cohort's criteria can't be realtime. For an existing cohort, use the `realtime` endpoint to turn it on or off. */
+      realtime_enabled?: boolean;
       readonly experiment_set: readonly number[];
       /** How this row matched the `search` query parameter: `exact` (the term is a case-insensitive substring of a searched field) or `similar` (a fuzzy trigram match, returned only when no exact match exists). Null when the list is not filtered by `search`. */
       readonly search_match_type: SearchMatchTypeEnum | null;
@@ -29294,6 +29408,11 @@ export namespace Schemas {
       next: string | null;
       /** @nullable */
       previous: string | null;
+    }
+
+    export interface CohortRealtimeRequest {
+      /** True turns realtime on for the cohort and for every realtime cohort it includes as criteria, and starts preparing them from past events. False turns realtime off. PostHog refuses that while a feature flag, an active workflow, or another cohort with realtime on reads the cohort. */
+      enabled: boolean;
     }
 
     export interface CohortUsedInCohort {
@@ -33504,6 +33623,13 @@ export namespace Schemas {
     export interface CustomizationRequest {
       /** The layout for the selected context. For analytics_sidebar, the sections of the Analytics pane, from top to bottom. Each section holds links, buttons, metrics and lists. Links and buttons open PostHog pages or this project's insights, dashboards and notebooks, never other sites. A section whose items show nothing, such as an empty pinned list, is hidden. The layout replaces the whole fragment, so send every section to keep. */
       layout: AnalyticsFragmentLayout;
+    }
+
+    export interface DailyCitedRuns {
+      /** Day, in UTC. */
+      readonly date: string;
+      /** Support agent runs that cited knowledge on this day. */
+      readonly cited_run_count: number;
     }
 
     export type DashboardFilters = { [key: string]: unknown };
@@ -44474,12 +44600,12 @@ export namespace Schemas {
       /** Percentage (0-100) of matching units the evaluation runs on. */
       readonly rollout_percentage: number;
       /**
-         * Share (0-1) of sampled traces that fail the check. Only Hog checks are measured; null otherwise.
+         * Share (0-1) of sampled traces or generations, per the draft's target, that fail the check. Null when nothing measured it.
          * @nullable
          */
       readonly measured_failure_rate: number | null;
       /**
-         * Traces the failure rate was measured on. Null when there is no rate.
+         * Traces or generations, per the draft's target, that the failure rate was measured on. Null when there is no rate.
          * @nullable
          */
       readonly sample_size: number | null;
@@ -47743,6 +47869,8 @@ export namespace Schemas {
      * * `changed_setting` - The flag setting that a change of the bucketing changed, as the flag page names it
      * * `before` - What a change of the feature flag changed, as it was before the change, in words
      * * `after` - What a change of the feature flag changed, as it was after the change, in words
+     * * `before_filters` - The feature flag's release conditions before a change, as the flag stores them: an object with the groups and the aggregation_group_type_index of its filters. Null when they don't fit the size limit of the check's rows. The flag's history shows them in full
+     * * `after_filters` - The feature flag's release conditions after a change, as the flag stores them, like before_filters
      * * `flag_service_call_percentage` - Of the feature flag's calls since traffic_since_at that returned a variant, the share that the flag service evaluated. Only these calls name the release condition that served them, so local evaluation and bootstrapped values count in no condition
      * * `event` - The name of an event that the check looked up
      * * `event_received` - Whether the project has received the event. Null when PostHog keeps no record of the event name
@@ -47804,6 +47932,8 @@ export namespace Schemas {
       ChangedSetting: 'changed_setting',
       Before: 'before',
       After: 'after',
+      BeforeFilters: 'before_filters',
+      AfterFilters: 'after_filters',
       FlagServiceCallPercentage: 'flag_service_call_percentage',
       Event: 'event',
       EventReceived: 'event_received',
@@ -47887,6 +48017,8 @@ export namespace Schemas {
        * * `changed_setting` - The flag setting that a change of the bucketing changed, as the flag page names it
        * * `before` - What a change of the feature flag changed, as it was before the change, in words
        * * `after` - What a change of the feature flag changed, as it was after the change, in words
+       * * `before_filters` - The feature flag's release conditions before a change, as the flag stores them: an object with the groups and the aggregation_group_type_index of its filters. Null when they don't fit the size limit of the check's rows. The flag's history shows them in full
+       * * `after_filters` - The feature flag's release conditions after a change, as the flag stores them, like before_filters
        * * `flag_service_call_percentage` - Of the feature flag's calls since traffic_since_at that returned a variant, the share that the flag service evaluated. Only these calls name the release condition that served them, so local evaluation and bootstrapped values count in no condition
        * * `event` - The name of an event that the check looked up
        * * `event_received` - Whether the project has received the event. Null when PostHog keeps no record of the event name
@@ -47951,6 +48083,8 @@ export namespace Schemas {
        * * `changed_setting` - The flag setting that a change of the bucketing changed, as the flag page names it
        * * `before` - What a change of the feature flag changed, as it was before the change, in words
        * * `after` - What a change of the feature flag changed, as it was after the change, in words
+       * * `before_filters` - The feature flag's release conditions before a change, as the flag stores them: an object with the groups and the aggregation_group_type_index of its filters. Null when they don't fit the size limit of the check's rows. The flag's history shows them in full
+       * * `after_filters` - The feature flag's release conditions after a change, as the flag stores them, like before_filters
        * * `flag_service_call_percentage` - Of the feature flag's calls since traffic_since_at that returned a variant, the share that the flag service evaluated. Only these calls name the release condition that served them, so local evaluation and bootstrapped values count in no condition
        * * `event` - The name of an event that the check looked up
        * * `event_received` - Whether the project has received the event. Null when PostHog keeps no record of the event name
@@ -47982,7 +48116,11 @@ export namespace Schemas {
      */
     export type ExperimentHealthCheckResultValues = {[key: string]: string | number | boolean | null};
 
-    export type ExperimentHealthCheckResultRowsItem = {[key: string]: string | number | boolean | null};
+    export type ExperimentHealthCheckResultRowsItem = {[key: string]: string | number | boolean | {
+      groups: { [key: string]: unknown }[];
+      /** @nullable */
+      aggregation_group_type_index: number | null;
+    } | null};
 
     export interface ExperimentHealthCheckResult {
       /** Stable identifier of the check. A check can report several finding codes, so the key is not a finding code.
@@ -48033,7 +48171,7 @@ export namespace Schemas {
       values: ExperimentHealthCheckResultValues;
       /** How the check decides. The same for every experiment and every status. Null for a check without a numeric rule. */
       rule: ExperimentHealthCheckRule | null;
-      /** What the check read per variant, metric or feature flag change, one object each, with the keys and units of `values`. For example, the significance check gives each variant's difference and the smallest difference its sample can detect. Empty when the check reads no such list. */
+      /** What the check read per variant, metric or feature flag change, one object each, with the keys and units of `values`. For example, the significance check gives each variant's difference and the smallest difference its sample can detect. A release condition change also gives the conditions as the flag stores them, in before_filters and after_filters. Empty when the check reads no such list. */
       rows: ExperimentHealthCheckResultRowsItem[];
     }
 
@@ -65779,6 +65917,18 @@ export namespace Schemas {
     }
 
     /**
+     * * `rolled` - Rolled
+     * * `deleted` - Deleted
+     */
+    export type KeyActionOutcomeEnum = typeof KeyActionOutcomeEnum[keyof typeof KeyActionOutcomeEnum];
+
+
+    export const KeyActionOutcomeEnum = {
+      Rolled: 'rolled',
+      Deleted: 'deleted',
+    } as const;
+
+    /**
      * * `problem` - Problem
      * * `cause` - Cause
      * * `fix` - Fix
@@ -66054,6 +66204,13 @@ export namespace Schemas {
       readonly always_include: boolean;
       /** Libraries this source belongs to. Empty when the source is in none. */
       readonly library_ids: readonly string[];
+      /** Number of support agent runs that cited this source. */
+      readonly cited_run_count: number;
+      /**
+         * When a support agent run last cited this source. Null when none has.
+         * @nullable
+         */
+      readonly last_cited_at: string | null;
     }
 
     /**
@@ -66083,6 +66240,39 @@ export namespace Schemas {
        * * `safe` - Safe
        * * `unsafe` - Unsafe */
       readonly safety_verdict: SafetyVerdictEnum;
+    }
+
+    export interface SourceUsage {
+      /** ID of the knowledge source. */
+      readonly source_id: string;
+      /** Name of the knowledge source. */
+      readonly name: string;
+      /** True when the source was learned from a past support ticket. */
+      readonly is_generated: boolean;
+      /** Support agent runs that cited this source in the period. */
+      readonly cited_run_count: number;
+      /** When a run last cited this source in the period. */
+      readonly last_cited_at: string;
+    }
+
+    /**
+     * How much support agent runs used the knowledge base in a period.
+     */
+    export interface KnowledgeUsage {
+      /** Number of days the report covers, today included. */
+      readonly days: number;
+      /** Support agent runs that cited at least one knowledge source. */
+      readonly cited_run_count: number;
+      /** Runs that cited at least one source learned from a past support ticket. */
+      readonly learned_cited_run_count: number;
+      /** Knowledge sources in the project. */
+      readonly source_count: number;
+      /** Knowledge sources that at least one run cited in the period. */
+      readonly cited_source_count: number;
+      /** One entry per day, oldest first. */
+      readonly daily: readonly DailyCitedRuns[];
+      /** The most cited sources in the period, most cited first. */
+      readonly top_sources: readonly SourceUsage[];
     }
 
     export interface KustomerConversationSignalExtra {
@@ -67635,6 +67825,19 @@ export namespace Schemas {
       title: string | null;
       /** Current report status (e.g. `potential`, `ready`, `resolved`). */
       status: string;
+    }
+
+    export interface LinkedSurveyDTO {
+      id: string;
+      name: string;
+      created_at: string;
+      /** @nullable */
+      start_date: string | null;
+      /** @nullable */
+      end_date: string | null;
+      /** @nullable */
+      linked_flag_id: number | null;
+      archived: boolean;
     }
 
     /**
@@ -69590,6 +69793,24 @@ export namespace Schemas {
       RollupRaw: 'rollup+raw',
       Raw: 'raw',
     } as const;
+
+    export interface LogsSigningSecret {
+      /**
+         * Raw secret that a server uses to sign log requests (HMAC). Null until one exists.
+         * @nullable
+         */
+      readonly secret: string | null;
+      /**
+         * When the secret last changed, or null when no secret exists yet.
+         * @nullable
+         */
+      readonly updated_at: string | null;
+      /**
+         * Until when the previous secret stays valid after a rotation, or null when no grace period is active.
+         * @nullable
+         */
+      readonly previous_secret_valid_until: string | null;
+    }
 
     /**
      * Filter criteria — subset of LogsViewerFilters. May contain severityLevels, serviceNames, searchTerm, filterGroup, dateRange, and other keys.
@@ -72009,6 +72230,20 @@ export namespace Schemas {
     export interface MemberProjectAccessResponse {
       /** One entry per visible organization member. */
       results: MemberProjectAccess[];
+    }
+
+    export interface MergeReleases {
+      /**
+         * IDs of the releases to merge into this one. Their flags, broadcasts, surveys and insights move to this release, then they are deleted.
+         * @minItems 1
+         * @maxItems 100
+         */
+      release_ids: string[];
+      /**
+         * New name for the merged release. Keeps the current name when left out.
+         * @maxLength 255
+         */
+      name?: string;
     }
 
     export type MessageContextualTools = { [key: string]: unknown };
@@ -76578,6 +76813,8 @@ export namespace Schemas {
     }
 
     export interface OrganizationPersonalAPIKey {
+      /** Unique ID of the key. */
+      readonly id: string;
       /** The organization member who owns this key. */
       readonly owner: OrganizationPersonalAPIKeyOwner;
       /** Masked, display-safe hint of the key value (e.g. 'phx_***1234'). Not the secret. The owner sees the same masked value in their own settings, so it can be used to identify a key. */
@@ -76586,6 +76823,8 @@ export namespace Schemas {
       readonly scopes: readonly string[];
       /** Where the key's scopes apply within this organization. */
       readonly access_scope: OrganizationPersonalAPIKeyAccessScope;
+      /** Whether the key also works in at least one other organization its owner belongs to. */
+      readonly reaches_other_organizations: boolean;
       /**
          * When the key was last used to authenticate, if ever.
          * @nullable
@@ -76593,6 +76832,35 @@ export namespace Schemas {
       readonly last_used_at: string | null;
       /** When the key was created. */
       readonly created_at: string;
+    }
+
+    export interface OrganizationPersonalAPIKeyActionResult {
+      /** What happened to the key. 'rolled': the key has a new secret that nobody sees, and the old secret no longer works anywhere. 'deleted': the key no longer exists and cannot be used in any organization.
+       *
+       * * `rolled` - Rolled
+       * * `deleted` - Deleted */
+      outcome: KeyActionOutcomeEnum;
+    }
+
+    export interface OrganizationPersonalAPIKeyBulkActionResult {
+      /** Number of keys that got a new secret that nobody sees. Their old secrets no longer work anywhere. */
+      rolled: number;
+      /** Number of keys that no longer exist. */
+      deleted: number;
+      /** Number of keys left unchanged because they were rolled at or after 'skip_rolled_since'. */
+      skipped: number;
+      /** Number of keys that an error left unchanged. Run the action again to change them. */
+      failed: number;
+      /** When the roll of all keys started. A retry returns the 'skip_rolled_since' it was given. */
+      started_at: string;
+    }
+
+    export interface OrganizationPersonalAPIKeyRollAllRequest {
+      /**
+         * Leave keys alone that were rolled at or after this time. To retry a roll of all keys without rolling its keys again, pass the 'started_at' that the earlier attempt returned.
+         * @nullable
+         */
+      skip_rolled_since?: string | null;
     }
 
     export interface OrganizationRemoveBlockedMembersResponse {
@@ -77249,6 +77517,17 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: BillingAlertEvent[];
+    }
+
+    export interface PaginatedBillingSpendTimeSeriesList {
+      count: number;
+      /** @nullable */
+      next: string | null;
+      /** @nullable */
+      previous: string | null;
+      results: BillingTimeSeriesPoint[];
+      /** Usage dates (YYYY-MM-DD) in the requested range where the organization's known reported billing-period assignment changes. These dates can differ from subscription renewal dates. Organization-wide, even on filtered or project-scoped responses, and independent of interval and pagination. An empty or omitted list does not establish whether a renewal occurred. */
+      pricing_reset_dates?: string[];
     }
 
     export interface PaginatedBillingTimeSeriesPointList {
@@ -79178,6 +79457,8 @@ export namespace Schemas {
     }
 
     export interface ReleaseDTO {
+      /** ID, name, dates, targeting flag and archived state of each linked survey the caller can see. */
+      readonly surveys: readonly LinkedSurveyDTO[];
       /** ID, short ID, name and dates of each linked insight the caller can see, including deleted ones. */
       readonly insights: readonly LinkedInsightDTO[];
       /** ID, name and status of each linked broadcast the caller can see. Deleted broadcasts are left out. */
@@ -79702,6 +79983,7 @@ export namespace Schemas {
 
     /**
      * * `self_driving` - Self-driving
+     * * `bot_admission` - Bot author
      * * `manual` - Manual
      * * `reviewhog_clean` - Clean PostHog Review
      * * `label` - Label
@@ -79712,6 +79994,7 @@ export namespace Schemas {
 
     export const ReviewTriggerEnum = {
       SelfDriving: 'self_driving',
+      BotAdmission: 'bot_admission',
       Manual: 'manual',
       ReviewhogClean: 'reviewhog_clean',
       Label: 'label',
@@ -79839,6 +80122,7 @@ export namespace Schemas {
       /** What caused this run to exist: self-driving inbox provenance, a manual request through the API, a clean PostHog Review run (a silent review that posts only an approval), the repo's trigger label, or the repo reviewing every PR event.
        *
        * * `self_driving` - Self-driving
+       * * `bot_admission` - Bot author
        * * `manual` - Manual
        * * `reviewhog_clean` - Clean PostHog Review
        * * `label` - Label
@@ -81266,7 +81550,7 @@ export namespace Schemas {
     }
 
     export interface ReportRanking {
-      /** scored: the predictions describe the current text. stale: the title or summary changed after the text the model read, so the predictions describe the old text and the model sorts and filters treat the report as unscored. unscored: the model has not scored the report yet, or skipped it. This does not mean a low score. not_available: you cannot see the ranking model's output, so every other field is empty.
+      /** scored: the predictions describe the current text. stale: the title or summary changed after the text the model read, so the predictions describe the old text. The model sorts and filters still use them. unscored: the model has not scored the report yet, or skipped it. This does not mean a low score. not_available: you cannot see the ranking model's output, so every other field is empty.
        *
        * * `scored` - scored
        * * `stale` - stale
@@ -87470,6 +87754,8 @@ export namespace Schemas {
       readonly condition_type?: CohortConditionTypeFlags | null;
       /** Whether feature flags can target this cohort, and the progress of the build that gets it there. Null outside the realtime cohort flag targeting rollout, on projects the realtime pipeline does not cover, and for cohorts that match on neither events nor person properties, which nothing in the flag API decides on. */
       readonly realtime?: CohortRealtimeReadiness | null;
+      /** Whether realtime is on for this cohort, so PostHog keeps its membership current for feature flags and workflows. Send true when you create a cohort to turn realtime on for it. It stays false when the project has no realtime cohorts or the cohort's criteria can't be realtime. For an existing cohort, use the `realtime` endpoint to turn it on or off. */
+      realtime_enabled?: boolean;
       readonly experiment_set?: readonly number[];
       /** How this row matched the `search` query parameter: `exact` (the term is a case-insensitive substring of a searched field) or `similar` (a fuzzy trigram match, returned only when no exact match exists). Null when the list is not filtered by `search`. */
       readonly search_match_type?: SearchMatchTypeEnum | null;
@@ -92595,6 +92881,26 @@ export namespace Schemas {
       Number1: 1,
     } as const;
 
+    /**
+     * * `off` - Off
+     * * `serving` - Serving
+     */
+    export type RealtimeCohortsAccessEnum = typeof RealtimeCohortsAccessEnum[keyof typeof RealtimeCohortsAccessEnum];
+
+
+    export const RealtimeCohortsAccessEnum = {
+      Off: 'off',
+      Serving: 'serving',
+    } as const;
+
+    export interface TeamRealtimeCohorts {
+      /** `serving` when the request's user sees realtime cohorts in this project: whether feature flags can target each cohort, and the control to turn realtime on and off for it. `off` otherwise.
+       *
+       * * `off` - Off
+       * * `serving` - Serving */
+      access: RealtimeCohortsAccessEnum;
+    }
+
     export interface TeamRevenueAnalyticsConfig {
       base_currency?: BaseCurrencyEnum;
       events?: unknown;
@@ -93579,6 +93885,8 @@ export namespace Schemas {
          */
       readonly user_access_level?: string | null;
       readonly managed_viewsets?: PatchedProjectBackwardCompatManagedViewsets;
+      /** Realtime cohorts as the request's user sees them in this project. */
+      readonly realtime_cohorts?: TeamRealtimeCohorts;
       /** Which table this project's feature flag usage data is read from. PostHog sets it for the whole organization. 0 reads the events table. 1 and 2 read the flag_evaluations table. */
       readonly flag_evaluations_mode?: FlagEvaluationsModeEnum;
       /** Host the PostHog SDKs send events to, set as their `api_host` option. It is `https://us.i.posthog.com` on US Cloud, `https://eu.i.posthog.com` on EU Cloud, and the instance URL when self-hosted. */
@@ -100059,6 +100367,8 @@ export namespace Schemas {
          */
       readonly user_access_level: string | null;
       readonly managed_viewsets: ProjectBackwardCompatManagedViewsets;
+      /** Realtime cohorts as the request's user sees them in this project. */
+      readonly realtime_cohorts: TeamRealtimeCohorts;
       /** Which table this project's feature flag usage data is read from. PostHog sets it for the whole organization. 0 reads the events table. 1 and 2 read the flag_evaluations table. */
       readonly flag_evaluations_mode: FlagEvaluationsModeEnum;
       /** Host the PostHog SDKs send events to, set as their `api_host` option. It is `https://us.i.posthog.com` on US Cloud, `https://eu.i.posthog.com` on EU Cloud, and the instance URL when self-hosted. */
@@ -102160,6 +102470,8 @@ export namespace Schemas {
      */
     export interface PullRequestChecksResponse {
       readonly checks: readonly PullRequestCheck[];
+      /** True when GitHub reports that the pull request conflicts with its base branch. False while GitHub is still computing it. */
+      readonly has_conflict: boolean;
     }
 
     /**
@@ -108625,6 +108937,7 @@ export namespace Schemas {
     /**
      * * `get_it_merged` - Get it merged
      * * `make_it_green` - Make it green
+     * * `resolve_conflicts` - Resolve conflicts
      * * `suggested_prompt` - Suggested prompt
      * * `ask` - Ask
      */
@@ -108634,6 +108947,7 @@ export namespace Schemas {
     export const ReportTaskActionKindEnum = {
       GetItMerged: 'get_it_merged',
       MakeItGreen: 'make_it_green',
+      ResolveConflicts: 'resolve_conflicts',
       SuggestedPrompt: 'suggested_prompt',
       Ask: 'ask',
     } as const;
@@ -115883,10 +116197,11 @@ export namespace Schemas {
      * One report action that starts an agent run, with whether the report offers it now.
      */
     export interface SignalReportTaskAction {
-      /** The action. `get_it_merged` fixes CI on the report's open, approved pull request and merges it. `make_it_green` fixes failing CI on the report's open pull request and stops without merging it. `suggested_prompt` sends one of the prompts the report suggests.
+      /** The action. `get_it_merged` fixes CI on the report's open, approved pull request and merges it. `make_it_green` fixes failing CI and resolves merge conflicts on the report's open pull request, and stops without merging it. `resolve_conflicts` updates the report's open pull request from its base branch, resolves the conflicts, pushes, and stops without merging it or fixing unrelated CI. `suggested_prompt` sends one of the prompts the report suggests.
        *
        * * `get_it_merged` - Get it merged
        * * `make_it_green` - Make it green
+       * * `resolve_conflicts` - Resolve conflicts
        * * `suggested_prompt` - Suggested prompt
        * * `ask` - Ask */
       action: ReportTaskActionKindEnum;
@@ -115927,6 +116242,7 @@ export namespace Schemas {
        *
        * * `get_it_merged` - Get it merged
        * * `make_it_green` - Make it green
+       * * `resolve_conflicts` - Resolve conflicts
        * * `suggested_prompt` - Suggested prompt
        * * `ask` - Ask */
       action: ReportTaskActionKindEnum;
@@ -115936,7 +116252,7 @@ export namespace Schemas {
          */
       suggested_prompt_index?: number;
       /**
-         * Your own request for the run. Required for `ask`, where it is the question or the work you want done on the report. Optional for `get_it_merged` and `make_it_green`, where it replaces the action's fixed request and keeps its instructions and gates: pass it when you know something the report does not, such as a merge order, a failure that is already on the base branch, or an expected conflict. Not accepted for `suggested_prompt`.
+         * Your own request for the run. Required for `ask`, where it is the question or the work you want done on the report. Optional for `get_it_merged`, `make_it_green`, and `resolve_conflicts`, where it replaces the action's fixed request and keeps its instructions and gates: pass it when you know something the report does not, such as a merge order, a failure that is already on the base branch, or an expected conflict. Not accepted for `suggested_prompt`.
          * @maxLength 2000
          */
       message?: string;
@@ -123592,6 +123908,11 @@ export namespace Schemas {
       template_id: string | null;
       /** The template's name. Empty when it was deleted. */
       template_name: string;
+      /**
+         * The email sent from code under a `template_key`, for a send that has no template. Null otherwise.
+         * @nullable
+         */
+      code_email_id: string | null;
       /** The domain the email was sent from. Empty before it was sent. */
       sending_domain: string;
       /** Whether the recipient opened the email. */
@@ -123642,6 +123963,11 @@ export namespace Schemas {
       template_id: string | null;
       /** The template's name. Empty when it was deleted. */
       template_name: string;
+      /**
+         * The email sent from code under a `template_key`, for a send that has no template. Null otherwise.
+         * @nullable
+         */
+      code_email_id: string | null;
       /** The domain the email was sent from. Empty before it was sent. */
       sending_domain: string;
       /** Whether the recipient opened the email. */
@@ -123676,6 +124002,16 @@ export namespace Schemas {
       key: string;
       /** The template name or the sending domain. Empty for a deleted template. */
       label: string;
+      /**
+         * The template that sent this row's emails. Null for a deleted template, emails sent from code, and a sending domain.
+         * @nullable
+         */
+      template_id: string | null;
+      /**
+         * The email sent from code under a `template_key`, for a row of sends that have no template. Null otherwise.
+         * @nullable
+         */
+      code_email_id: string | null;
       /** Emails that reached the email provider. */
       sent: number;
       /** Emails the recipient's mail server accepted. */
@@ -134077,6 +134413,15 @@ export namespace Schemas {
       text?: string;
     };
 
+    export type BusinessKnowledgeSourcesUsageRetrieveParams = {
+    /**
+     * Number of days to report, counting back from today. From 1 to 90.
+     * @minimum 1
+     * @maximum 90
+     */
+    days?: number;
+    };
+
     export type CanvasesListParams = {
     /**
      * Only return canvases in this channel.
@@ -136484,6 +136829,10 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    /**
+     * Case-insensitive match on the feature name.
+     */
+    search?: string;
     };
 
     export type ElementsListParams = {
@@ -143726,6 +144075,44 @@ export namespace Schemas {
     search?: string;
     };
 
+    export type ReleasesCatalogFlagsRetrieveParams = {
+    /**
+     * How many flags to return, at most 100.
+     * @minimum 1
+     * @maximum 100
+     */
+    limit?: number;
+    /**
+     * How many flags to skip, newest first.
+     * @minimum 0
+     */
+    offset?: number;
+    /**
+     * Part of the flag key or name to match.
+     * @maxLength 200
+     */
+    search?: string;
+    };
+
+    export type ReleasesCatalogReleasesRetrieveParams = {
+    /**
+     * next_cursor of the previous page.
+     * @maxLength 100
+     */
+    cursor?: string;
+    /**
+     * How many releases to return, at most 100.
+     * @minimum 1
+     * @maximum 100
+     */
+    limit?: number;
+    /**
+     * Part of the release name to match.
+     * @maxLength 200
+     */
+    search?: string;
+    };
+
     export type ReviewHogRepositoryOverviewRetrieveParams = {
     /**
      * The GitHub App installation to list.
@@ -144277,6 +144664,12 @@ export namespace Schemas {
 
     export type SignalsActivitySummaryMembersSearchParams = {
     /**
+     * Only members with a theme or an object seen in this many days.
+     * @minimum 1
+     * @maximum 365
+     */
+    active_since_days?: number;
+    /**
      * Members to leave out, such as people you already checked.
      */
     exclude_user_uuids?: string[];
@@ -144290,6 +144683,45 @@ export namespace Schemas {
      * @maximum 25
      */
     limit?: number;
+    /**
+     * Only members who work in this mode, overall or on one of their themes.
+     *
+     * * `building` - Building
+     * * `analyzing` - Analyzing
+     * * `monitoring` - Monitoring
+     * * `investigating` - Investigating
+     * * `operating` - Operating
+     * * `experimenting` - Experimenting
+     * @minLength 1
+     */
+    mode?: SignalsActivitySummaryMembersSearchMode;
+    /**
+     * Only members who changed or often open this object. Requires `object_type`. Use the short id for an insight, a notebook or a replay playlist (the id in its URL, such as `aBc123Xy`), and the numeric or UUID primary key for every other type.
+     * @minLength 1
+     * @maxLength 64
+     */
+    object_id?: string;
+    /**
+     * With `object_type` or `object_id`: `owned` matches members who changed the object, `watched` members who opened it on many days, and `any` both.
+     *
+     * * `any` - Any
+     * * `owned` - Owned
+     * * `watched` - Watched
+     * @minLength 1
+     */
+    object_relation?: SignalsActivitySummaryMembersSearchObjectRelation;
+    /**
+     * Only members who changed or often open an object of this type, such as `insight`, `dashboard`, `feature_flag`, `experiment`, `notebook` or `hog_function`. Combine with `object_id` for one object.
+     * @minLength 1
+     * @maxLength 64
+     */
+    object_type?: string;
+    /**
+     * The number of results to skip, for the next page. Compare with `total`.
+     * @minimum 0
+     * @maximum 500
+     */
+    offset?: number;
     /**
      * Only members who work in or visit this product.
      *
@@ -144338,7 +144770,33 @@ export namespace Schemas {
      * @minLength 1
      */
     search_mode?: SignalsActivitySummaryMembersSearchSearchMode;
+    /**
+     * Only these members. With no query, this reads their summaries directly.
+     * @maxItems 25
+     */
+    user_uuids?: string[];
     };
+
+    export type SignalsActivitySummaryMembersSearchMode = typeof SignalsActivitySummaryMembersSearchMode[keyof typeof SignalsActivitySummaryMembersSearchMode];
+
+
+    export const SignalsActivitySummaryMembersSearchMode = {
+      Building: 'building',
+      Analyzing: 'analyzing',
+      Monitoring: 'monitoring',
+      Investigating: 'investigating',
+      Operating: 'operating',
+      Experimenting: 'experimenting',
+    } as const;
+
+    export type SignalsActivitySummaryMembersSearchObjectRelation = typeof SignalsActivitySummaryMembersSearchObjectRelation[keyof typeof SignalsActivitySummaryMembersSearchObjectRelation];
+
+
+    export const SignalsActivitySummaryMembersSearchObjectRelation = {
+      Any: 'any',
+      Owned: 'owned',
+      Watched: 'watched',
+    } as const;
 
     export type SignalsActivitySummaryMembersSearchProduct = typeof SignalsActivitySummaryMembersSearchProduct[keyof typeof SignalsActivitySummaryMembersSearchProduct];
 
@@ -144563,11 +145021,11 @@ export namespace Schemas {
      */
     ranking_id?: string;
     /**
-     * Comma-separated <outcome>:<lift> pairs, e.g. fix:2,open:1.5. Keeps reports whose served ranking lift is at least the value for every named outcome. Outcomes: open, action, fix. Read inbox-ranking-outcomes-list for what each outcome means. Unscored and stale reports never match. Needs staff or the inbox model sort rollout: other users get a 400.
+     * Comma-separated <outcome>:<lift> pairs, e.g. fix:2,open:1.5. Keeps reports whose served ranking lift is at least the value for every named outcome. Outcomes: open, action, fix. Read inbox-ranking-outcomes-list for what each outcome means. A report edited after its last score matches on that score. Unscored reports never match. Needs staff or the inbox model sort rollout: other users get a 400.
      */
     ranking_min_lift?: string;
     /**
-     * Comma-separated <outcome>:<probability> pairs, e.g. fix:0.3. Keeps reports whose served ranking probability is at least the value for every named outcome. Outcomes: open, action, fix. Read inbox-ranking-outcomes-list for what each outcome means. Unscored and stale reports never match. Needs staff or the inbox model sort rollout: other users get a 400.
+     * Comma-separated <outcome>:<probability> pairs, e.g. fix:0.3. Keeps reports whose served ranking probability is at least the value for every named outcome. Outcomes: open, action, fix. Read inbox-ranking-outcomes-list for what each outcome means. A report edited after its last score matches on that score. Unscored reports never match. Needs staff or the inbox model sort rollout: other users get a 400.
      */
     ranking_min_probability?: string;
     /**
@@ -144587,7 +145045,7 @@ export namespace Schemas {
      */
     search?: string;
     /**
-     * Inbox sort preset: priority, recommended, personal, last_updated, newest, or oldest. Ignored when ordering is supplied. recommended resolves per user to a ranker: the priority order, or the open, action or fix outcome of the served ranking model, highest score first, with unscored and stale reports in priority order after the scored ones, or your stored personal ranking, as personal gives it, then the priority order. The response's ranker field names the one used, and its ranking_pill field says whether to show score pills. personal puts the reports of a stored personal ranking first, by rank, then the reports it folded, then every other report in your recommended order. With scope=teammate it reads the teammate's stored ranking, else yours. It only reads the stored ranking and never starts a build. With no stored personal ranking, or a teammate outside the organization, it is the recommended order, or the priority order when recommended gives you the personal ranking.
+     * Inbox sort preset: priority, recommended, personal, last_updated, newest, or oldest. Ignored when ordering is supplied. recommended resolves per user to a ranker: the priority order, or the open, action or fix outcome of the served ranking model, highest score first, with unscored reports in priority order after the scored ones, or your stored personal ranking, as personal gives it, then the priority order. The response's ranker field names the one used, and its ranking_pill field says whether to show score pills. personal puts the reports of a stored personal ranking first, by rank, then the reports it folded, then every other report in your recommended order. With scope=teammate it reads the teammate's stored ranking, else yours. It only reads the stored ranking and never starts a build. With no stored personal ranking, or a teammate outside the organization, it is the recommended order, or the priority order when recommended gives you the personal ranking.
      */
     sort?: string;
     /**
@@ -144847,11 +145305,11 @@ export namespace Schemas {
      */
     priority?: string;
     /**
-     * Comma-separated <outcome>:<lift> pairs, e.g. fix:2,open:1.5. Keeps reports whose served ranking lift is at least the value for every named outcome. Outcomes: open, action, fix. Read inbox-ranking-outcomes-list for what each outcome means. Unscored and stale reports never match. Needs staff or the inbox model sort rollout: other users get a 400.
+     * Comma-separated <outcome>:<lift> pairs, e.g. fix:2,open:1.5. Keeps reports whose served ranking lift is at least the value for every named outcome. Outcomes: open, action, fix. Read inbox-ranking-outcomes-list for what each outcome means. A report edited after its last score matches on that score. Unscored reports never match. Needs staff or the inbox model sort rollout: other users get a 400.
      */
     ranking_min_lift?: string;
     /**
-     * Comma-separated <outcome>:<probability> pairs, e.g. fix:0.3. Keeps reports whose served ranking probability is at least the value for every named outcome. Outcomes: open, action, fix. Read inbox-ranking-outcomes-list for what each outcome means. Unscored and stale reports never match. Needs staff or the inbox model sort rollout: other users get a 400.
+     * Comma-separated <outcome>:<probability> pairs, e.g. fix:0.3. Keeps reports whose served ranking probability is at least the value for every named outcome. Outcomes: open, action, fix. Read inbox-ranking-outcomes-list for what each outcome means. A report edited after its last score matches on that score. Unscored reports never match. Needs staff or the inbox model sort rollout: other users get a 400.
      */
     ranking_min_probability?: string;
     /**
@@ -145360,7 +145818,7 @@ export namespace Schemas {
      */
     status?: string;
     /**
-     * Filter by what caused the run. Leave it unset to include runs from every trigger. 'all' is not a wildcard: it matches only runs in repos that review every pull request event. The other values: 'label' (the repo's trigger label opted the PR in), 'manual' (someone requested the review through the API or MCP), 'reviewhog_clean' (a clean PostHog Review run started a silent review, which posts only an approval), and 'self_driving' (stamphog reviewed a bot-authored PR from the inbox).
+     * Filter by what caused the run. Leave it unset to include runs from every trigger. 'all' is not a wildcard: it matches only runs in repos that review every pull request event. The other values: 'label' (the repo's trigger label opted the PR in), 'manual' (someone requested the review through the API or MCP), 'reviewhog_clean' (a clean PostHog Review run started a silent review, which posts only an approval), 'self_driving' (stamphog reviewed a bot-authored PR from the inbox), and 'bot_admission' (the repo policy names the bot that authored the PR).
      */
     trigger?: StamphogReviewRunsListTrigger;
     };
@@ -145370,6 +145828,7 @@ export namespace Schemas {
 
     export const StamphogReviewRunsListTrigger = {
       All: 'all',
+      BotAdmission: 'bot_admission',
       Label: 'label',
       Manual: 'manual',
       ReviewhogClean: 'reviewhog_clean',
@@ -146692,6 +147151,12 @@ export namespace Schemas {
      * @minimum 0
      */
     offset?: number;
+    /**
+     * Only sends whose delivery status has this reason, such as `soft` for a soft bounce or `sending_paused` for a send skipped while sending was paused.
+     * @minLength 1
+     * @maxLength 64
+     */
+    reason?: string;
     /**
      * A `message_id` for an exact match, or part of the recipient's email address.
      */

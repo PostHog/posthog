@@ -534,7 +534,11 @@ class TestScoutTrialTaskVisibility(BaseTaskAPITest):
         with (
             patch("products.tasks.backend.models.TaskRun.heartbeat_workflow"),
             patch.object(object_storage, "read", side_effect=lambda key, **_kwargs: log_objects.get(key)),
-            patch.object(object_storage, "write", side_effect=log_objects.__setitem__),
+            patch.object(
+                object_storage,
+                "append",
+                side_effect=lambda key, content, **_kwargs: log_objects.__setitem__(key, content.decode()),
+            ),
             patch.object(object_storage, "tag"),
         ):
             response = client.post(f"{base}append_log/", {"entries": [entry]}, format="json")
@@ -8823,6 +8827,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
                 "interaction_origin": "slack",
                 "slack_actor_user_id": self.user.id,
                 "slack_actor_slack_user_id": "U_ORIGINAL_ACTOR",
+                "slack_progress_message_ts": "1700000000.000100",
                 "run_source": "manual",
             },
         )
@@ -8836,7 +8841,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
         # scopes) via pending_dispatch, or repoint the run at a costlier model (which for a run
         # routed to an unbilled gateway product is free spend). Nor can a caller stamp a
         # workflow-owned terminal reason marker, which would make a genuine FAILED run read as a
-        # timeout and skip its Slack error card, or forge the Slack actor or run source. Non-protected
+        # timeout and skip its Slack error card, or forge the Slack actor, run source, or progress card ts. Non-protected
         # keys still merge.
         response = self.client.patch(
             f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/",
@@ -8921,6 +8926,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
                     "interaction_origin": "desktop",
                     "slack_actor_user_id": credential_target.id,
                     "slack_actor_slack_user_id": "U_OTHER_ACTOR",
+                    "slack_progress_message_ts": "1700000000.999999",
                     "run_source": "signal_report",
                     "dev_stack_preview": {"port": 8080, "sandbox_id": "sb-real"},
                     "scratch": "ok",
@@ -8993,6 +8999,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
         assert run.state["interaction_origin"] == "slack"
         assert run.state["slack_actor_user_id"] == self.user.id
         assert run.state["slack_actor_slack_user_id"] == "U_ORIGINAL_ACTOR"
+        assert run.state["slack_progress_message_ts"] == "1700000000.000100"
         assert run.state["run_source"] == "manual"
         assert run.state["scratch"] == "ok"  # non-protected keys still merge
         assert run.state["systemPrompt"] == system_prompt
