@@ -15,6 +15,7 @@ in `products/slack_app/backend/api.py` are the ones that actually call
 
 from __future__ import annotations
 
+import concurrent.futures
 from collections.abc import Iterable, Mapping, Sequence
 from dataclasses import dataclass, replace
 from datetime import datetime, time, timedelta
@@ -29,7 +30,7 @@ import structlog
 from posthog.models.integration import SLACK_INTEGRATION_KINDS, SlackIntegration
 from posthog.models.organization import OrganizationMembership
 from posthog.models.user import User
-from posthog.models.user_integration import UserIntegration
+from posthog.models.user_integration import UserIntegration, revoke_slack_user_token
 from posthog.slack.formatting import escape_slack_mrkdwn
 from posthog.templatetags.posthog_assets import absolute_asset_url
 from posthog.user_permissions import UserPermissions
@@ -887,7 +888,10 @@ def _posthog_account_button(account_state: AccountState) -> dict | None:
                 "title": {"type": "plain_text", "text": "Disconnect your PostHog account?"},
                 "text": {
                     "type": "mrkdwn",
-                    "text": "@PostHog will fall back to matching your Slack email against PostHog users until you link again.",
+                    "text": (
+                        "@PostHog will fall back to matching your Slack email against PostHog users until you link "
+                        "again. PostHog tasks also lose the Slack access that came with the link."
+                    ),
                 },
                 "confirm": {"type": "plain_text", "text": "Disconnect"},
                 "deny": {"type": "plain_text", "text": "Cancel"},
@@ -2882,6 +2886,12 @@ def _apply_project_pick(
     )
 
 
+# One Slack identity can hold several PostHog links in a multi-organization workspace. Bounded, so a slow Slack
+# cannot pile up threads across clicks.
+_REVOKE_EXECUTOR = concurrent.futures.ThreadPoolExecutor(max_workers=4, thread_name_prefix="slack-unlink-revoke")
+REVOKE_BUDGET_SECONDS = 2.0
+
+
 def _unlink_user_account(integration: WorkspaceIntegration, slack_user_id: str) -> None:
     # Scope across every org connected to this Slack workspace, not just the
     # one for the integration the click happened to land on — for multi-org
@@ -2894,12 +2904,21 @@ def _unlink_user_account(integration: WorkspaceIntegration, slack_user_id: str) 
     )
     if not candidate_user_ids:
         return
-    UserIntegration.objects.filter(
-        kind=UserIntegration.IntegrationKind.SLACK,
-        integration_id=slack_user_id,
-        config__slack_team_id=slack_team_id,
-        user_id__in=candidate_user_ids,
-    ).delete()
+    links = list(
+        UserIntegration.objects.filter(
+            kind=UserIntegration.IntegrationKind.SLACK,
+            integration_id=slack_user_id,
+            config__slack_team_id=slack_team_id,
+            user_id__in=candidate_user_ids,
+        )
+    )
+    if not links:
+        return
+    # Slack allows three seconds for the click, so the revokes run together under one budget. A revoke that Slack
+    # does not answer in time finishes in its thread; the rows go either way.
+    pending = [_REVOKE_EXECUTOR.submit(revoke_slack_user_token, link) for link in links]
+    UserIntegration.objects.filter(id__in=[link.id for link in links]).delete()
+    concurrent.futures.wait(pending, timeout=REVOKE_BUDGET_SECONDS)
 
 
 def _workspace_org_ids(slack_team_id: str) -> set:

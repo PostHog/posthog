@@ -754,6 +754,8 @@
     'is_running',
     'is_stopped',
     'launched_at',
+    'live_objects',
+    'objects',
     'repository',
     'save',
     'start_date',

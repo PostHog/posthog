@@ -158,8 +158,8 @@ from products.alerts.backend.facade.api import delete_insight_alerts
 from products.alerts.backend.presentation.views.insight_alerts import (
     insight_alerts_hidden,
     insight_alerts_prefetch,
-    native_insight_alerts,
     serialize_insight_alerts,
+    shown_insight_alerts,
 )
 from products.dashboards.backend.facade.access import (
     DashboardAccessMethod,
@@ -1245,24 +1245,23 @@ class InsightSerializer(InsightBasicSerializer):
             return []
 
         # Only the insight API prefetches alerts. Other callers embed none.
-        alerts = getattr(insight, "_prefetched_alerts", None)
-        if alerts is None:
+        if not hasattr(insight, "_prefetched_alerts"):
             return []
-        return serialize_insight_alerts([*alerts, *self._native_alerts(insight)], self.context)
+        return serialize_insight_alerts(self._shown_alerts(insight), self.context)
 
-    def _native_alerts(self, insight: Insight) -> list[Any]:
-        """The insight's alerts with no insight row. The first call reads them for every insight in the
-        response at once and keeps them in the context, so a page costs one read."""
-        loaded: dict[int, list[Any]] = self.context.setdefault("_native_insight_alerts", {})
+    def _shown_alerts(self, insight: Insight) -> list[Any]:
+        """The insight's alerts as the alert API shows them. The first call reads them for every insight in
+        the response at once and keeps them in the context, so a page costs one read."""
+        loaded: dict[int, list[Any]] = self.context.setdefault("_shown_insight_alerts", {})
         if insight.id not in loaded:
             parent = self.parent
             response = self.context.get("insights_in_response") or (
                 parent.instance if isinstance(parent, serializers.ListSerializer) and parent.instance else [insight]
             )
-            batch = [each for each in response if hasattr(each, "_prefetched_alerts")] or [insight]
-            native = native_insight_alerts(batch)
-            loaded.update({each.id: native.get(each.id, []) for each in batch})
-            loaded.setdefault(insight.id, native.get(insight.id, []))
+            batch = [each for each in response if hasattr(each, "_prefetched_alerts")]
+            if insight not in batch:
+                batch.append(insight)
+            loaded.update(shown_insight_alerts(batch, {each.id: each._prefetched_alerts for each in batch}))
         return loaded[insight.id]
 
     @extend_schema_field(InsightFilterOverrideContext)  # type: ignore[arg-type]

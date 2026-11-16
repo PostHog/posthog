@@ -8,7 +8,7 @@ import { useStorybookMocks } from '~/mocks/browser'
 
 import type { WarehouseSuggestionApi, WarehouseSuggestionStatusApi } from '../generated/api.schemas'
 import { warehouseSuggestionsLogic } from '../warehouseSuggestionsLogic'
-import { QuillCertificationSuggestionsDialogs } from './QuillCertificationSuggestionsDialogs'
+import { QuillDeprecateSuggestionModal } from './QuillDeprecateSuggestionModal'
 import { SuggestedCertificationsTable } from './SuggestedCertificationsTable'
 
 const LIST_URL = '/api/projects/:team_id/warehouse_suggestions/'
@@ -109,7 +109,7 @@ function TableStory({
             {catalogDialogs ? (
                 <BindLogic logic={warehouseSuggestionsLogic} props={{ surface: 'catalog' }}>
                     <div data-quill>
-                        <QuillCertificationSuggestionsDialogs />
+                        <QuillDeprecateSuggestionModal />
                     </div>
                 </BindLogic>
             ) : (
@@ -198,19 +198,6 @@ const catalogDialogSnapshot = (width: number): Story['parameters'] => ({
     featureFlags: [FEATURE_FLAGS.TODAY_RAIL_NAV, FEATURE_FLAGS.DATA_CATALOG_RESTRUCTURE],
     testOptions: { viewport: { width, height: 900 }, snapshotBrowsers: [] },
 })
-
-export const CatalogReviewDialog: Story = {
-    args: {
-        catalogDialogs: true,
-        reviewOpen: true,
-        results: [
-            suggestion('1', 'certify', 'saved_query', 'customer_monthly_revenue'),
-            suggestion('2', 'certify', 'table', 'stripe_charges'),
-            suggestion('3', 'deprecate', 'saved_query', 'old_marketing_rollup', false),
-        ],
-    },
-    parameters: catalogDialogSnapshot(1300),
-}
 
 export const CatalogDeprecateDialog: Story = {
     args: {

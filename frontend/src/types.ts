@@ -113,6 +113,7 @@ import type { InsightFilterOverrideContextApi } from 'products/product_analytics
 import type { AIPromptConfigApi, DeliveryConfigApi } from 'products/subscriptions/frontend/generated/api.schemas'
 import type { TaskRuntimeEnumApi } from 'products/tasks/frontend/generated/api.schemas'
 import type {
+    ExternalDataSchemaApi,
     ExternalDataSchemaApiAvailableColumnsItem,
     ExternalDataSchemaApiAvailableColumnsItemSensitivity,
     IncrementalSyncBlockedReasonEnumApi,
@@ -5324,6 +5325,8 @@ export interface AppContext {
     oauth_consent_access_controls_apply?: boolean
     /** The scope set `/authorize` resolved for this request; the consent screen must render this, not the URL's `scope`. */
     oauth_scope_resolution?: OAuthScopeResolution
+    /** Set when the client requested `ema_issuer:manage`: the consent screen asks which organization will trust the client's issuer. */
+    oauth_ema_issuer_consent?: OAuthEmaIssuerConsent
     /** The user's configured homepage for the current team, bootstrapped so navigation can honor it on first paint. */
     homepage?: SceneTab | null
 }
@@ -5718,8 +5721,10 @@ export type IntegrationKind = (typeof INTEGRATION_KINDS)[number]
 export enum SlackIntegrationScope {
     APP_MENTIONS_READ = 'app_mentions:read',
     ASSISTANT_WRITE = 'assistant:write',
+    CANVASES_READ = 'canvases:read',
     CANVASES_WRITE = 'canvases:write',
     CHANNELS_HISTORY = 'channels:history',
+    CHANNELS_JOIN = 'channels:join',
     CHANNELS_MANAGE = 'channels:manage',
     CHANNELS_READ = 'channels:read',
     CHAT_WRITE = 'chat:write',
@@ -5745,13 +5750,11 @@ export const SLACK_INTEGRATION_SCOPES = Object.values(SlackIntegrationScope)
 
 // Scopes that wait on Slack app review. Only DEV and local development request them, because the
 // US and EU apps reject them with `invalid_scope`. Move a scope to SlackIntegrationScope when Slack approves it.
+// Empty while no scope waits on review. Keep it for the next scope that needs review.
 /** @schemaEnum */
-export enum SlackIntegrationScopeInReview {
-    CANVASES_READ = 'canvases:read',
-    CHANNELS_JOIN = 'channels:join',
-}
+export enum SlackIntegrationScopeInReview {}
 
-export const SLACK_INTEGRATION_SCOPES_IN_REVIEW = Object.values(SlackIntegrationScopeInReview)
+export const SLACK_INTEGRATION_SCOPES_IN_REVIEW: string[] = Object.values(SlackIntegrationScopeInReview)
 
 export function slackRequestedScopes(includeInReview: boolean): string[] {
     return includeInReview
@@ -6212,6 +6215,7 @@ export enum ActivityScope {
     REVIEW_REPOSITORY = 'ReviewRepository',
     REVIEW_PROJECT_SETTINGS = 'ReviewProjectSettings',
     REVIEW_INSTALLATION_CLAIM = 'ReviewInstallationClaim',
+    RECOMMENDATION_RESOLUTION = 'RecommendationResolution',
 }
 
 export type CommentType = {
@@ -6754,6 +6758,8 @@ export interface ExternalDataSourceSchema extends SimpleExternalDataSourceSchema
     api_version_deprecation?: ExternalDataSourceApiVersionDeprecation | null
     /** The requesting user's effective access level for this table (inherits the source). */
     user_access_level?: AccessControlLevel
+    live_query_enabled?: ExternalDataSchemaApi['live_query_enabled']
+    live_query_unavailable_reason?: ExternalDataSchemaApi['live_query_unavailable_reason']
 }
 
 /** Lightweight parent-source summary embedded in the single-schema retrieve endpoint. */
@@ -6761,6 +6767,7 @@ export interface ExternalDataSchemaSourceSummary {
     id: string
     source_type: ExternalDataSourceType
     access_method?: ExternalDataSource['access_method']
+    direct_query_enabled?: boolean
     supports_column_selection?: boolean
     supports_row_filters?: boolean
     requires_exact_column_metadata?: boolean
@@ -7991,9 +7998,27 @@ export interface ProjectTreeRef {
     ref: string | null
 }
 
+export type OAuthEmaIssuerConsentOrganization = {
+    id: string
+    name: string
+    verified_domains: string[]
+    /** Why this organization can't trust the client's issuer, or null when it can. */
+    disabled_reason: string | null
+}
+
+export type OAuthEmaIssuerConsent = {
+    scope: string
+    organizations: OAuthEmaIssuerConsentOrganization[]
+}
+
 export type OAuthMcpConsentContext = {
     is_mcp_resource: boolean
     scopes?: string[]
+}
+
+export type OAuthGrantAccess = {
+    scoped_teams: number[]
+    scoped_organizations: string[]
 }
 
 export type OAuthScopeResolution = {
@@ -8001,10 +8026,10 @@ export type OAuthScopeResolution = {
     scopes: string[]
     /** Whether the client sent no usable `scope` (omitted, or cut off mid-token), so the server picked the set. */
     was_defaulted: boolean
-    /** Scopes of `scopes` the user granted this app before, which a step-up keeps. Shown as granted and not removable. */
+    /** Scopes of `scopes` the user granted this app before for `earlier_access`, which a step-up there keeps. Shown as granted and not removable. */
     already_granted_scopes?: string[]
     /** Where the newest earlier grant applies. A step-up pre-selects it, so the token keeps its projects. Both lists empty means all of them. */
-    earlier_access?: { scoped_teams: number[]; scoped_organizations: string[] }
+    earlier_access?: OAuthGrantAccess
 }
 
 export type OAuthApplicationPublicMetadata = {

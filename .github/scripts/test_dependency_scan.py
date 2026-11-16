@@ -117,19 +117,18 @@ GO_HEAD = (
 )
 
 
+PNPM_ADDED = {
+    ("npm", "@scope/added", "2.0.0-beta.1"),
+    ("npm", "left-pad", "1.3.1"),
+    ("npm", "tarball-dep", "https://example.com/tarball-dep.tgz"),
+}
+
+
 @pytest.mark.parametrize(
     "filename,base,head,expected",
     [
-        (
-            "pnpm-lock.yaml",
-            PNPM_BASE,
-            PNPM_HEAD,
-            {
-                ("npm", "@scope/added", "2.0.0-beta.1"),
-                ("npm", "left-pad", "1.3.1"),
-                ("npm", "tarball-dep", "https://example.com/tarball-dep.tgz"),
-            },
-        ),
+        ("pnpm-lock.yaml", PNPM_BASE, PNPM_HEAD, PNPM_ADDED),
+        ("pnpm-lock.yaml", PNPM_BASE, PNPM_HEAD.replace("\npackages:\n", "\npackages: # comment\n"), PNPM_ADDED),
         ("pnpm-lock.yaml", "", PNPM_BASE, {("npm", "@scope/kept", "1.0.0"), ("npm", "left-pad", "1.3.0")}),
         ("uv.lock", UV_BASE, UV_HEAD, {("pypi", "bumped", "2.1.0")}),
         ("Cargo.lock", CARGO_BASE, CARGO_HEAD, {("crates", "added", "0.4.2")}),
@@ -223,3 +222,19 @@ def test_the_gate_is_clean_only_when_every_added_package_was_scanned_below_high_
     findings = [scanner.Finding(LEFT_PAD, label, 0.0, ()) for label in labels]
 
     assert scanner.is_clean(findings, skipped) is clean
+
+
+@pytest.mark.parametrize(
+    "errors,label",
+    [
+        ({}, "no_risks_detected"),
+        ({"npm-install-script": "rule failed to run"}, "not_scanned"),
+    ],
+)
+def test_a_package_that_makes_a_rule_fail_is_not_scanned(monkeypatch, errors, label):
+    report = {"errors": errors, "results": {}, "risk_score": {"label": "no_risks_detected", "score": 0.0}}
+    monkeypatch.setattr(scanner, "GUARDDOG", [sys.executable, "-c", f"print({json.dumps(report)!r})"])
+
+    finding = scanner.scan(scanner.Package("npm", "left-pad", "1.3.1"))
+
+    assert finding.label == label

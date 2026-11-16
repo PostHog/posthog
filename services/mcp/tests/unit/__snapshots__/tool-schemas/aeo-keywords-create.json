@@ -1,0 +1,18 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "keywords": {
+            "description": "Keywords to add. Each is lowercased and its whitespace collapsed. Blank entries, entries longer than 100 characters, and keywords the project already tracks are skipped. A project tracks at most 200 keywords.",
+            "items": {
+                "description": "One keyword or phrase, at most 100 characters once whitespace is collapsed.",
+                "maxLength": 200,
+                "type": "string"
+            },
+            "maxItems": 200,
+            "minItems": 1,
+            "type": "array"
+        }
+    },
+    "required": ["keywords"],
+    "type": "object"
+}

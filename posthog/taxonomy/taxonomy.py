@@ -2974,12 +2974,12 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         },
         "$mcp_error_code": {
             "label": "MCP error code",
-            "description": "Machine-readable code for the leaf failure mode of an errored MCP tool call: the API's validation error code, or the exec dispatcher's rejection reason. Carries error codes only, never caller-supplied values. Only set when $mcp_is_error is true.",
+            "description": "Machine-readable code for the leaf failure mode of an errored MCP tool call: the API's error code (validation errors and other 4xx responses), or the exec dispatcher's rejection reason. Carries error codes only, never caller-supplied values. Only set when $mcp_is_error is true.",
             "examples": ["invalid", "required", "unknown_tool", "invalid_json"],
         },
         "$mcp_error_field": {
             "label": "MCP error field",
-            "description": "Field path the PostHog API's validation error pointed at, with array indexes normalized to N so one failure mode groups to one value. Only set for validation failures.",
+            "description": "Field path the PostHog API's error pointed at, with array indexes normalized to N so one failure mode groups to one value. Only set when the API error body names a field, such as validation failures.",
             "examples": ["actions__N__inputs__email", "query"],
         },
         "$mcp_validation_fields": {

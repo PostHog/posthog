@@ -527,6 +527,7 @@ def _scored_facts_day(rows: list[tuple[str, str]]) -> bytes:
 
 def test_the_scored_facts_side_input_reads_each_report_only_once_it_was_scored():
     objects = {
+        partition_object_key(PREFIX, SCORED_FACTS_TABLE, "2026-10-18"): _scored_facts_day([]),
         partition_object_key(PREFIX, SCORED_FACTS_TABLE, "2026-10-19"): _scored_facts_day(
             [("r0", "2026-10-19T10:00:00+00:00")]
         ),
