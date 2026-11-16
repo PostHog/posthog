@@ -617,8 +617,8 @@ class TestLivingArtifacts(TestCase):
         self.assertFalse(TaskArtifact.objects.for_team(self.team.id).exists())
 
     def _create_mapping_with_full_scopes(self) -> None:
-        # Scopes granted (the DEV-install shape) so these tests prove the feature flag
-        # gates canvas/file delivery even where the in-review scopes are available.
+        # Scopes granted so these tests prove the feature flag
+        # gates canvas/file delivery even where the scopes are available.
         integration = Integration.objects.create(
             team=self.team,
             kind="slack",

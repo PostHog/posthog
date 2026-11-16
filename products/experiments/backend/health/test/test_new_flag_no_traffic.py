@@ -19,13 +19,22 @@ from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.feature_flags.backend.models.organization_feature_flags_config import OrganizationFeatureFlagsConfig
 
 FULL_ACCESS = ExperimentHealthReaderAccess(
-    can_read_flag_history=True, can_query_events=True, denied_event_properties=frozenset()
+    can_read_flag_history=True,
+    can_query_events=True,
+    denied_event_properties=frozenset(),
+    restricted_properties=frozenset(),
 )
 NO_QUERIES = ExperimentHealthReaderAccess(
-    can_read_flag_history=True, can_query_events=False, denied_event_properties=frozenset()
+    can_read_flag_history=True,
+    can_query_events=False,
+    denied_event_properties=frozenset(),
+    restricted_properties=frozenset(),
 )
 FLAG_PROPERTY_DENIED = ExperimentHealthReaderAccess(
-    can_read_flag_history=True, can_query_events=True, denied_event_properties=frozenset({"$feature_flag"})
+    can_read_flag_history=True,
+    can_query_events=True,
+    denied_event_properties=frozenset({"$feature_flag"}),
+    restricted_properties=frozenset(),
 )
 Status = ExperimentHealthCheckStatus
 

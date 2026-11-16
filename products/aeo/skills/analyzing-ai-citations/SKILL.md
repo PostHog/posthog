@@ -38,7 +38,7 @@ papercuts that make the first query fail.
 | `posthog:aeo-prompts-archive`        | Archive a prompt (write; ask the user first)                                             |
 | `posthog:external-data-sources-list` | Find the Search Console source and its table names                                       |
 | `posthog:read-data-schema`           | Discover event and action properties before joining to traffic (not warehouse tables)    |
-| `posthog:generate-app-url`           | Links back to the Prompts tab under `/web/content-autopilot`                             |
+| `posthog:generate-app-url`           | Links back to the Prompts tab under `/web/ai-visibility`                                 |
 
 ## Before you start
 
@@ -208,8 +208,8 @@ crawler hits need `$http_log`) are in [ai-traffic-join](./references/ai-traffic-
 ## Links back to the UI
 
 Build links with `generate-app-url`, never by hand. The prompt set and each prompt's detail
-live under `/web/content-autopilot` (Prompts tab):
-`generate-app-url {url: "/web/content-autopilot"}`.
+live under `/web/ai-visibility` (Prompts tab):
+`generate-app-url {url: "/web/ai-visibility"}`.
 
 ## References
 

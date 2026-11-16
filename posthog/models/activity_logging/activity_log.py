@@ -155,6 +155,7 @@ ActivityScope = Literal[
     "ReviewRepository",
     "ReviewProjectSettings",
     "ReviewInstallationClaim",
+    "RecommendationResolution",
 ]
 ChangeAction = Literal[
     "changed", "created", "deleted", "merged", "split", "exported", "revoked", "logged_in", "logged_out", "copied"
@@ -504,6 +505,7 @@ field_name_overrides: dict[AuditableScope, dict[str, str]] = {
     },
     "ExternalDataSchema": {
         "should_sync": "enabled",
+        "live_query_enabled": "live queries",
         "masked_columns": "masked columns",
         "full_refresh_interval_days": "full refresh interval (days)",
         "full_refresh_time_of_day": "full refresh time (UTC)",
@@ -786,6 +788,8 @@ activity_visibility_restrictions: list[dict[str, Any]] = [
 
 field_exclusions: dict[AuditableScope, list[str]] = {
     "AccountView": ["version"],
+    # These fields copy warehouse data, and the activity log does not check warehouse access.
+    "RecommendationResolution": ["subject", "subject_hash", "customer_id", "campaign_id", "resolved_at"],
     "TicketMacro": ["usage_count", "last_used_at"],
     # Tiles are edited through their own endpoint, so diffing the reverse relation only reads every tile row.
     "CrossProjectDashboard": ["tiles", "organization"],
@@ -1563,19 +1567,31 @@ def log_activity(
     # for that connection's commit and is dropped when it rolls back. `None` uses the default one.
     using: str | None = None,
     strict: bool = False,
+    # The actor belongs to an organization other than the row's, and the row's organization must
+    # not learn who acted. The row stores no user, no impersonation flag and nothing the request
+    # recorded. `is_system=False` keeps it from reading as a change that PostHog made.
+    external_actor: bool = False,
 ) -> ActivityLog | None:
-    if client is None:
-        client = activity_storage.get_client()
-    if ip_address is None:
-        ip_address = activity_storage.get_ip_address()
-    credential = activity_storage.get_credential()
-    if credential is None and activity_storage.is_request_scoped():
-        # The request was anonymous, or an authentication class that records no credential verified
-        # it. Say so, so that the row does not read like one written outside a request.
-        credential = ActivityCredential(type="unattributed")
-    if detail.trigger is None:
-        # A product that sets its own trigger already says what drove the write.
-        detail = _with_request_trigger(detail)
+    credential: ActivityCredential | None
+    if external_actor:
+        user = None
+        was_impersonated = False
+        client = None
+        ip_address = None
+        credential = None
+    else:
+        if client is None:
+            client = activity_storage.get_client()
+        if ip_address is None:
+            ip_address = activity_storage.get_ip_address()
+        credential = activity_storage.get_credential()
+        if credential is None and activity_storage.is_request_scoped():
+            # The request was anonymous, or an authentication class that records no credential verified
+            # it. Say so, so that the row does not read like one written outside a request.
+            credential = ActivityCredential(type="unattributed")
+        if detail.trigger is None:
+            # A product that sets its own trigger already says what drove the write.
+            detail = _with_request_trigger(detail)
     if was_impersonated and user is None:
         logger.warn(
             "activity_log.failed_to_write_to_activity_log",
@@ -1602,7 +1618,7 @@ def log_activity(
             "team_id": team_id,
             "user": user,
             "was_impersonated": was_impersonated,
-            "is_system": user is None,
+            "is_system": user is None and not external_actor,
             "item_id": str(item_id) if item_id is not None else None,
             "scope": scope,
             "activity": activity,
@@ -1666,6 +1682,7 @@ class LogActivityEntry(TypedDict, total=False):
     client: Optional[str]
     ip_address: Optional[str]
     force_save: bool
+    external_actor: bool
 
 
 def update_activity_context(row: ActivityLog, **fields: Any) -> None:

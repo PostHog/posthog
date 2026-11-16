@@ -3304,6 +3304,27 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
             [],
         )
 
+    def test_hogql_filter_on_the_event_name(self):
+        user = "test_hogql_filter_on_the_event_name-user"
+        create_person(team=self.team, distinct_ids=[user])
+        rageclick_session = f"rageclick-{uuid4()}"
+        pageview_session = f"pageview-{uuid4()}"
+        for session_id, event in ((rageclick_session, "$rageclick"), (pageview_session, "$pageview")):
+            create_event(
+                distinct_id=user,
+                timestamp=self.an_hour_ago,
+                team=self.team,
+                event_name=event,
+                properties={"$session_id": session_id, "$window_id": str(uuid4())},
+            )
+            produce_replay_summary(
+                distinct_id=user, session_id=session_id, first_timestamp=self.an_hour_ago, team_id=self.team.id
+            )
+
+        self._assert_query_matches_session_ids(
+            {"properties": [{"key": "event = '$rageclick'", "type": "hogql"}]}, [rageclick_session]
+        )
+
     @snapshot_clickhouse_queries
     def test_event_filter_with_hogql_person_properties(self):
         user = "test_event_filter_with_hogql_properties-user"

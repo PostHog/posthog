@@ -860,6 +860,7 @@ const TEAM_PROPERTIES_MAPPING: Record<
     managed_viewsets: () => null,
     flag_evaluations_mode: () => null,
     flag_calls_only_in_flag_evaluations: () => null,
+    realtime_cohorts: () => null,
     workflows_config: () => null,
 }
 

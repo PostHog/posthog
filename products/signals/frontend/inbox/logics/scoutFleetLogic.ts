@@ -49,6 +49,7 @@ import type { CommunitySkillScoutConfigApi } from 'products/skills/frontend/gene
 
 import {
     captureScoutAction,
+    captureScoutChatStartFailed,
     captureScoutChatStarted,
     captureScoutConfigChanged,
     captureScoutToolsSaveResult,
@@ -96,17 +97,49 @@ const SCOUT_RECENCY_TIMESTAMPS: Record<
     last_run: (config) => config.last_run_at,
 }
 
-/** When a refused scout chat may start again, from the `Retry-After` of the server's daily-cap 429. */
-function scoutChatRetryAtFromError(error: unknown): number | null {
-    if (!(error instanceof ApiError) || error.status !== 429 || error.code !== 'throttled') {
-        return null
-    }
-    const seconds = Number(error.headers?.get('Retry-After'))
-    return Number.isSafeInteger(seconds) && seconds > 0 ? Date.now() + seconds * 1000 : null
+// `setTimeout` fires at once when the delay is longer than this. A reset further out sets no timer,
+// so the chats stay disabled until the page reloads.
+const MAX_TIMEOUT_MS = 2 ** 31 - 1
+
+export interface ScoutChatRefusal {
+    reason: string
+    retryAt: number | null
 }
 
-function scoutChatLimitReason(retryAt: number): string {
-    return `You've reached today's limit for scout chats. Try again after ${dayjs(retryAt).format('h:mm A')}.`
+/**
+ * Why the server refused a scout chat, and when it may start again. Covers the daily cap and the
+ * team's PostHog Desktop usage and billing limits, which refuse every scout chat until they lift.
+ */
+function scoutChatRefusalFromError(error: unknown): ScoutChatRefusal | null {
+    if (!(error instanceof ApiError) || error.status !== 429) {
+        return null
+    }
+    if (error.code === 'throttled') {
+        const seconds = Number(error.headers?.get('Retry-After'))
+        if (!Number.isSafeInteger(seconds) || seconds <= 0) {
+            return null
+        }
+        const retryAt = Date.now() + seconds * 1000
+        return {
+            reason: `You've reached today's limit for scout chats. Try again after ${formatRetryAt(retryAt)}.`,
+            retryAt,
+        }
+    }
+    if (
+        error.code === 'usage_limit_exceeded' ||
+        error.code === 'posthog_code_billing_limit_exceeded' ||
+        error.data?.type === 'billing_limit'
+    ) {
+        const message = error.data?.error || error.detail || "You've reached your PostHog Desktop usage limit."
+        const resetAt = error.data?.reset_at ? dayjs(error.data.reset_at) : null
+        const retryAt = resetAt?.isValid() && resetAt.isAfter(dayjs()) ? resetAt.valueOf() : null
+        return { reason: retryAt ? `${message} Try again after ${formatRetryAt(retryAt)}.` : message, retryAt }
+    }
+    return null
+}
+
+function formatRetryAt(retryAt: number): string {
+    return dayjs(retryAt).format(dayjs(retryAt).isSame(dayjs(), 'day') ? 'h:mm A' : 'MMM D [at] h:mm A')
 }
 
 function compareByRecency(firstTimestamp: string | null, secondTimestamp: string | null): number {
@@ -364,7 +397,7 @@ export interface scoutFleetLogicValues {
     runsWindowLoading: boolean
     scoutBannerMessage: string | null
     scoutChatDisabledReason: string | null
-    scoutChatRetryAt: number | null
+    scoutChatRefusal: ScoutChatRefusal | null
     scoutConfigs: SignalScoutConfig[] | null
     scoutConfigsLoading: boolean
     scoutEnabledFilter: ScoutEnabledFilter
@@ -559,8 +592,8 @@ export interface scoutFleetLogicActions {
     setRunNotePopoverConfigId: (configId: string | null) => {
         configId: string | null
     }
-    setScoutChatRetryAt: (retryAt: number | null) => {
-        retryAt: number | null
+    setScoutChatRefusal: (refusal: ScoutChatRefusal | null) => {
+        refusal: ScoutChatRefusal | null
     }
     setScoutEnabledFilter: (filter: ScoutEnabledFilter) => {
         filter: ScoutEnabledFilter
@@ -650,7 +683,7 @@ export interface scoutFleetLogicMeta {
         ) => string | null
         scoutChatDisabledReason: (
             aiConsentDisabledReason: string | null,
-            scoutChatRetryAt: number | null
+            scoutChatRefusal: ScoutChatRefusal | null
         ) => string | null
         rollups: (scoutRuns: SignalScoutRunSummary[]) => Map<string, ScoutRollup>
         scoutRunsCoverFleet: (scoutConfigs: SignalScoutConfigApi[] | null) => boolean
@@ -774,7 +807,7 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
         }),
         startScoutChatTaskSuccess: true,
         startScoutChatTaskFailure: true,
-        setScoutChatRetryAt: (retryAt: number | null) => ({ retryAt }),
+        setScoutChatRefusal: (refusal: ScoutChatRefusal | null) => ({ refusal }),
         setScoutFleetSyncOutcome: (outcome: ScoutFleetSyncOutcome) => ({ outcome }),
     }),
 
@@ -1041,10 +1074,10 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
                 startScoutChatTaskFailure: () => null,
             },
         ],
-        scoutChatRetryAt: [
-            null as number | null,
+        scoutChatRefusal: [
+            null as ScoutChatRefusal | null,
             {
-                setScoutChatRetryAt: (_, { retryAt }) => retryAt,
+                setScoutChatRefusal: (_, { refusal }) => refusal,
             },
         ],
         // The enabled, tag, owner, and sort choices persist like the report list's filters, so a new
@@ -1230,11 +1263,12 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
             (dataProcessingAccepted: boolean, dataProcessingApprovalDisabledReason: string | null): string | null =>
                 aiConsentDisabledReason(dataProcessingAccepted, dataProcessingApprovalDisabledReason),
         ],
-        // Every scout chat entry point shares one per-user daily cap, so one refusal disables them all.
+        // Every scout chat entry point shares the daily cap and the team's usage limits, so one
+        // refusal disables them all.
         scoutChatDisabledReason: [
-            (s) => [s.aiConsentDisabledReason, s.scoutChatRetryAt],
-            (aiConsentDisabledReason: string | null, scoutChatRetryAt: number | null): string | null =>
-                aiConsentDisabledReason ?? (scoutChatRetryAt !== null ? scoutChatLimitReason(scoutChatRetryAt) : null),
+            (s) => [s.aiConsentDisabledReason, s.scoutChatRefusal],
+            (aiConsentDisabledReason: string | null, scoutChatRefusal: ScoutChatRefusal | null): string | null =>
+                aiConsentDisabledReason ?? scoutChatRefusal?.reason ?? null,
         ],
         rollups: [
             (s) => [s.scoutRuns],
@@ -1796,14 +1830,24 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
                 actions.startScoutChatTaskSuccess()
                 router.actions.push(urls.taskDetail(task.task_id))
             } catch (error: any) {
-                const retryAt = scoutChatRetryAtFromError(error)
-                if (retryAt !== null) {
-                    lemonToast.error(scoutChatLimitReason(retryAt))
-                    actions.setScoutChatRetryAt(retryAt)
-                    cache.disposables.add(() => {
-                        const timeout = setTimeout(() => actions.setScoutChatRetryAt(null), retryAt - Date.now())
-                        return () => clearTimeout(timeout)
-                    }, 'scoutChatRetry')
+                const refusal = scoutChatRefusalFromError(error)
+                captureScoutChatStartFailed({
+                    chatType,
+                    surface: 'fleet_list',
+                    status: error?.status ?? null,
+                    code: error?.code ?? null,
+                    limited: refusal !== null,
+                })
+                if (refusal) {
+                    lemonToast.error(refusal.reason)
+                    actions.setScoutChatRefusal(refusal)
+                    const { retryAt } = refusal
+                    if (retryAt !== null && retryAt - Date.now() <= MAX_TIMEOUT_MS) {
+                        cache.disposables.add(() => {
+                            const timeout = setTimeout(() => actions.setScoutChatRefusal(null), retryAt - Date.now())
+                            return () => clearTimeout(timeout)
+                        }, 'scoutChatRetry')
+                    }
                 } else {
                     lemonToast.error(error?.detail || error?.message || `Failed to start ${taskLabel}`)
                 }

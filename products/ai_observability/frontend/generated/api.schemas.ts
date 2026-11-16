@@ -2777,12 +2777,12 @@ export interface EvalSuggestionApi {
     /** Percentage (0-100) of matching units the evaluation runs on. */
     readonly rollout_percentage: number
     /**
-     * Share (0-1) of sampled traces that fail the check. Only Hog checks are measured; null otherwise.
+     * Share (0-1) of sampled traces or generations, per the draft's target, that fail the check. Null when nothing measured it.
      * @nullable
      */
     readonly measured_failure_rate: number | null
     /**
-     * Traces the failure rate was measured on. Null when there is no rate.
+     * Traces or generations, per the draft's target, that the failure rate was measured on. Null when there is no rate.
      * @nullable
      */
     readonly sample_size: number | null
@@ -4866,6 +4866,11 @@ export interface PatchedEvaluationReportUpdateApi {
     readonly created_at?: string
 }
 
+export interface EvaluationReportGenerateResponseApi {
+    /** Server time of the request. The new report is the first run created after it. */
+    requested_at: string
+}
+
 export interface EvaluationReportSectionApi {
     /** Agent-generated section heading. */
     title?: string
@@ -5040,7 +5045,7 @@ export interface EvaluationReportMetricsApi {
      */
     previous_result_rates?: EvaluationReportMetricsApiPreviousResultRates
     /**
-     * Pass percentage excluding N/A. With no applicable results, numeric and categorical reports return null; boolean reports return 0.
+     * Pass percentage excluding N/A. Null when no results passed or failed.
      * @nullable
      */
     pass_rate?: number | null
@@ -5091,6 +5096,28 @@ export const EvaluationReportRunDeliveryStatusEnumApi = {
     Failed: 'failed',
 } as const
 
+/**
+ * * `slack` - Slack
+ * * `email` - Email
+ */
+export type EvaluationReportRunDestinationTypeEnumApi =
+    (typeof EvaluationReportRunDestinationTypeEnumApi)[keyof typeof EvaluationReportRunDestinationTypeEnumApi]
+
+export const EvaluationReportRunDestinationTypeEnumApi = {
+    Slack: 'slack',
+    Email: 'email',
+} as const
+
+export interface EvaluationReportDestinationApi {
+    /** Destination kind: 'slack' or 'email'.
+     *
+     * * `slack` - Slack
+     * * `email` - Email */
+    type: EvaluationReportRunDestinationTypeEnumApi
+    /** Slack channel name or email address. */
+    name: string
+}
+
 export interface EvaluationReportRunApi {
     /** UUID of this report run. */
     readonly id: string
@@ -5114,6 +5141,8 @@ export interface EvaluationReportRunApi {
     readonly delivery_status: EvaluationReportRunDeliveryStatusEnumApi
     /** Delivery error messages. Empty when all configured deliveries succeeded. */
     readonly delivery_errors: readonly string[]
+    /** Slack channels and email addresses this report was addressed to, including any that failed (see delivery_errors). Empty for reports sent before this was recorded. */
+    readonly delivery_destinations: readonly EvaluationReportDestinationApi[]
     /** When this report run was created. */
     readonly created_at: string
 }

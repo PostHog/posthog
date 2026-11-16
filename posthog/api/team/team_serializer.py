@@ -4,6 +4,7 @@ from typing import Any, Literal, cast
 from uuid import UUID
 
 from django.conf import settings
+from django.db import models
 from django.utils import timezone
 
 from drf_spectacular.utils import extend_schema_field
@@ -52,6 +53,7 @@ from products.feature_flags.backend.facade.flags import (
     flag_calls_only_in_flag_evaluations,
     get_flag_evaluations_read_mode,
 )
+from products.feature_flags.backend.realtime_targeting import is_realtime_cohort_flag_targeting_enabled
 from products.feature_flags.backend.session_recording_links import locked_replay_gate_write
 
 from . import (
@@ -95,6 +97,29 @@ def _flag_evaluations_read_mode(context: dict[str, Any], organization_id: UUID) 
     return modes[organization_id]
 
 
+class RealtimeCohortsAccess(models.TextChoices):
+    OFF = "off", "Off"
+    SERVING = "serving", "Serving"
+
+
+class TeamRealtimeCohortsSerializer(serializers.Serializer):
+    access = serializers.ChoiceField(
+        choices=RealtimeCohortsAccess.choices,
+        help_text="`serving` when the request's user sees realtime cohorts in this project: whether feature flags "
+        "can target each cohort, and the control to turn realtime on and off for it. `off` otherwise.",
+    )
+
+
+def realtime_cohorts_for_request(request: Request | None, team: Team) -> dict[str, str]:
+    serving = is_realtime_cohort_flag_targeting_enabled(request, team=team, only_evaluate_locally=True)
+    return {"access": RealtimeCohortsAccess.SERVING if serving else RealtimeCohortsAccess.OFF}
+
+
+REALTIME_COHORTS_FIELD_SCHEMA = TeamRealtimeCohortsSerializer(
+    help_text="Realtime cohorts as the request's user sees them in this project."
+)
+
+
 class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin, UserAccessControlSerializerMixin):
     instance: Team | None
     _group_types_cache: list[dict[str, Any]] | None = None
@@ -117,6 +142,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             "they can only be read from the flag_evaluations table."
         )
     )
+    realtime_cohorts = serializers.SerializerMethodField()
     available_setup_task_ids = serializers.SerializerMethodField()
     api_host = serializers.SerializerMethodField(
         help_text=(
@@ -183,6 +209,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             "managed_viewsets",
             "flag_evaluations_mode",
             "flag_calls_only_in_flag_evaluations",
+            "realtime_cohorts",
             "available_setup_task_ids",
             "api_host",
         )
@@ -209,6 +236,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
             "managed_viewsets",
             "flag_evaluations_mode",
             "flag_calls_only_in_flag_evaluations",
+            "realtime_cohorts",
             "available_setup_task_ids",
             "api_host",
         )
@@ -225,7 +253,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
         if not instance.organization.is_feature_available(AvailableFeature.DATA_COLOR_THEMES):
             with tracer.start_as_current_span("team_serializer.default_data_theme_fallback"):
                 representation["default_data_theme"] = live_events._default_data_color_theme_id()
-        settings_validation.hide_secret_api_tokens_from_unscoped_caller(representation, self.context.get("request"))
+        settings_validation.hide_secret_api_tokens(representation)
 
         return hide_team_secrets_from_workload_tokens(representation, self.context.get("request"))
 
@@ -287,6 +315,10 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
 
     def get_flag_calls_only_in_flag_evaluations(self, obj: Team) -> bool:
         return flag_calls_only_in_flag_evaluations(obj, _flag_evaluations_read_mode(self.context, obj.organization_id))
+
+    @extend_schema_field(REALTIME_COHORTS_FIELD_SCHEMA)
+    def get_realtime_cohorts(self, obj: Team) -> dict[str, str]:
+        return realtime_cohorts_for_request(self.context.get("request"), obj)
 
     @extend_schema_field(
         # nosemgrep: choices-need-a-class -- an existing list, moved here unchanged from posthog/api/team.py

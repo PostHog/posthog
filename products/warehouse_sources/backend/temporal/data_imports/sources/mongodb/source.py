@@ -82,6 +82,18 @@ _MONGO_UNSUPPORTED_FILE_OPTION_MESSAGE = (
     "sign in with a username and password, and try again."
 )
 
+_MONGO_GSSAPI_UNSUPPORTED_MESSAGE = (
+    "Your connection string sets authMechanism=GSSAPI, which signs in with Kerberos. PostHog "
+    "doesn't support that authentication mechanism. Sign in with a username and password "
+    "instead, and try again."
+)
+
+_MONGO_AWS_AUTH_UNSUPPORTED_MESSAGE = (
+    "Your connection string sets authMechanism=MONGODB-AWS, which signs in with AWS IAM "
+    "credentials. PostHog doesn't support that authentication mechanism. Sign in with a "
+    "username and password instead, and try again."
+)
+
 _MONGO_HOST_UNRESOLVED_MESSAGE = (
     "The MongoDB host could not be resolved. Check that the cluster address in your connection "
     "string is spelled correctly."
@@ -173,6 +185,19 @@ _SRV_DNS_NAME_NOT_FOUND_MARKER = "The DNS query name does not exist"
 # below the driver's minimum (pymongo 4.15 dropped MongoDB 4.0). The variable parts are the
 # address and version numbers; this fragment stays fixed.
 _SERVER_TOO_OLD_MARKER = "version of PyMongo requires at least"
+
+# pymongo raises this exact, fixed ConfigurationError when the connection string sets
+# authMechanism=GSSAPI (Kerberos sign-in) but the optional pykerberos/winkerberos package isn't
+# installed. We don't bundle that package — GSSAPI also needs a Kerberos ticket or keytab from
+# the connecting machine that we have no way to supply either way — so the mechanism never works,
+# a connection string choice the user must change rather than a transient failure a retry clears.
+_GSSAPI_AUTH_UNSUPPORTED_MARKER = "must be installed to use GSSAPI authentication"
+
+# pymongo raises this exact, fixed ConfigurationError message when the connection string sets
+# authMechanism=MONGODB-AWS (AWS IAM credential auth) but the optional pymongo-auth-aws package
+# isn't installed. We don't bundle that package, so the mechanism never works — a connection
+# string choice the user must change, not a transient failure that a retry could clear.
+_MONGO_AWS_AUTH_UNSUPPORTED_MARKER = "MONGODB-AWS authentication requires pymongo-auth-aws"
 
 
 @SourceRegistry.register
@@ -278,6 +303,7 @@ class MongoDBSource(ResumableSource[MongoDBSourceConfig, MongoResumeConfig], Val
         return {
             _SERVER_TOO_OLD_MARKER: _MONGO_SERVER_TOO_OLD_MESSAGE,
             UNSUPPORTED_FILE_OPTION_ERROR: _MONGO_UNSUPPORTED_FILE_OPTION_MESSAGE,
+            _GSSAPI_AUTH_UNSUPPORTED_MARKER: _MONGO_GSSAPI_UNSUPPORTED_MESSAGE,
             # pymongo raises InvalidURI("Username and password must be escaped according to RFC 3986,
             # use urllib.parse.quote_plus") before any network call when the credentials in the
             # connection string contain unescaped reserved characters (e.g. ':', '/', '@', '%' in the
@@ -347,6 +373,7 @@ class MongoDBSource(ResumableSource[MongoDBSourceConfig, MongoResumeConfig], Val
             # MongoDB OperationFailure code 125 (CommandFailed): an Atlas Data Federation / Online
             # Archive data source still names a cluster that no longer exists in the project.
             "not found in project": _MONGO_CLUSTER_NOT_FOUND_MESSAGE,
+            _MONGO_AWS_AUTH_UNSUPPORTED_MARKER: _MONGO_AWS_AUTH_UNSUPPORTED_MESSAGE,
         }
 
     def get_retryable_errors(self) -> set[str]:
@@ -409,6 +436,12 @@ class MongoDBSource(ResumableSource[MongoDBSourceConfig, MongoResumeConfig], Val
         # getMore was killed before yielding anything (resuming immediately would hit the same cap
         # in a tight loop). A fresh Temporal retry isn't bound by that same in-flight time budget, so
         # it is self-recovering and must not flood error tracking on every no-progress getMore.
+        #
+        # OperationFailure code 16500 (codeName 'RequestRateTooLarge') comes from Azure Cosmos DB's
+        # API for MongoDB when the cluster's provisioned throughput is exceeded — the Cosmos DB
+        # equivalent of an HTTP 429. The errmsg itself says the request made no changes and to retry
+        # later (RetryAfterMs), so this is the cluster's own backpressure signal, not a PostHog bug
+        # or a customer credential/config problem; a later Temporal retry recovers once load drops.
         return {
             "The resolution lifetime expired",
             "connection pool paused",
@@ -419,6 +452,7 @@ class MongoDBSource(ResumableSource[MongoDBSourceConfig, MongoResumeConfig], Val
             "Connection reset by peer",
             "connection closed (configured timeouts:",
             "operation exceeded time limit",
+            "RequestRateTooLarge",
         }
 
     def get_retry_exhausted_errors(self) -> dict[str, str]:
@@ -565,6 +599,10 @@ class MongoDBSource(ResumableSource[MongoDBSourceConfig, MongoResumeConfig], Val
                 return False, _MONGO_SERVER_TOO_OLD_MESSAGE
             if "must be escaped according to RFC 3986" in message:
                 return False, _MONGO_UNESCAPED_CREDENTIALS_MESSAGE
+            if _GSSAPI_AUTH_UNSUPPORTED_MARKER in message:
+                return False, _MONGO_GSSAPI_UNSUPPORTED_MESSAGE
+            if _MONGO_AWS_AUTH_UNSUPPORTED_MARKER in message:
+                return False, _MONGO_AWS_AUTH_UNSUPPORTED_MESSAGE
             capture_exception(e)
             return False, _MONGO_CONNECT_FAILED_MESSAGE
         except Exception as e:

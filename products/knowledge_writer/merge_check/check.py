@@ -4,18 +4,23 @@ from anthropic import Anthropic, APIError
 from ..backend.facade.contracts import CriterionResult, MergeCheckReport
 from ..backend.settings import DocsSource
 from .deadline import CheckDeadline
-from .facts import extract_facts, verify_quotes
+from .facts import MergeFacts, extract_facts, verify_quotes
 from .gates import decide_with_rules, fact_gates, gate_row, rule_gates, with_existing_docs_pull_requests
-from .gather import MergeEvidence, gather_merge
-from .judge import Decision, Variant, decide_with_judge
+from .gather import DocsPage, MergeEvidence, gather_merge
+from .judge import Decision, Variant, decide_with_judge, single_line
 from .sources import (
     GitHubReader,
     LandedChange,
     merged_pull_request,
     reached_default_branch,
-    read_numbered_pull_request,
     read_page_sources,
+    read_pull_request,
 )
+
+NOT_ON_DEFAULT_BRANCH_REASON = "not_on_default_branch"
+NO_PULL_REQUEST_REASON = "no_pull_request"
+DOCS_SOURCE_UNCONFIGURED_REASON = "docs_source_unconfigured"
+UNDECIDED_REASONS = frozenset({NOT_ON_DEFAULT_BRANCH_REASON, NO_PULL_REQUEST_REASON, DOCS_SOURCE_UNCONFIGURED_REASON})
 
 
 class MergeNotConfirmed(Exception):
@@ -66,21 +71,21 @@ def merge_reports_by_variant(
     deadline: CheckDeadline | None = None,
 ) -> dict[Variant, MergeCheckReport]:
     commit_sha = change.after
-    listed = read_numbered_pull_request(github, change)
+    listed = read_pull_request(github, change.repository, change.pull_request_number)
     if not reached_default_branch(github, change.repository, listed, commit_sha):
         if not is_final_attempt:
             raise MergeNotOnDefaultBranch(commit_sha)
         return dict.fromkeys(
-            variants, no_docs_report(change, title=listed.get("title") or "", reason="not_on_default_branch")
+            variants, no_docs_report(change, title=listed.get("title") or "", reason=NOT_ON_DEFAULT_BRANCH_REASON)
         )
     pull_request = merged_pull_request(listed, commit_sha)
     if pull_request is None and not is_final_attempt:
         raise MergeNotConfirmed(commit_sha)
     if pull_request is None:
-        return dict.fromkeys(variants, no_docs_report(change, title="", reason="no_pull_request"))
+        return dict.fromkeys(variants, no_docs_report(change, title="", reason=NO_PULL_REQUEST_REASON))
     if source is None:
         return dict.fromkeys(
-            variants, no_docs_report(change, title=pull_request.title, reason="docs_source_unconfigured")
+            variants, no_docs_report(change, title=pull_request.title, reason=DOCS_SOURCE_UNCONFIGURED_REASON)
         )
     evidence = gather_merge(
         change,
@@ -149,7 +154,7 @@ def merge_reports_by_variant(
             else decide_with_judge(anthropic_client, evidence, page_text_by_key=page_text_by_key, deadline=deadline)
         )
         report_by_variant[variant] = decided_report(
-            evidence, decision, gate_rows=gate_rows, low_confidence=low_confidence
+            evidence, decision, facts=facts, gate_rows=gate_rows, low_confidence=low_confidence
         )
     return report_by_variant
 
@@ -158,6 +163,7 @@ def decided_report(
     evidence: MergeEvidence,
     decision: Decision,
     *,
+    facts: MergeFacts | None,
     gate_rows: tuple[CriterionResult, ...],
     low_confidence: bool,
 ) -> MergeCheckReport:
@@ -181,9 +187,20 @@ def decided_report(
         criteria=criteria,
         change_kind=decision.change_kind,
         page_urls=tuple(page_by_key[key].url for key in decision.page_keys if key in page_by_key),
-        evidence=f"{evidence.url}\n{decision.reason}",
+        evidence="\n".join([evidence.url, *finding_lines(page_by_key, facts, decision)]),
     )
     return with_existing_docs_pull_requests(report, evidence)
+
+
+def finding_lines(page_by_key: dict[str, DocsPage], facts: MergeFacts | None, decision: Decision) -> list[str]:
+    changed_pages = facts.changed_pages if facts is not None else []
+    page_lines = [
+        f'- {page_by_key[page.page_path].url} ({page.change_kind}): "{single_line(page.quote)}"'
+        for page in changed_pages
+        if page.page_path in decision.page_keys and page.page_path in page_by_key
+    ]
+    sentence_lines = [f'- outdated: "{single_line(sentence)}"' for sentence in decision.verified_sentences]
+    return [*page_lines, *sentence_lines]
 
 
 def commit_url_for(change: LandedChange) -> str:

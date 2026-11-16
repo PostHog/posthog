@@ -2212,7 +2212,7 @@ class TestSavedQuery(APIBaseTest):
         ]
         self.organization.save(update_fields=["available_product_features"])
         upstream = self._create_view("upstream_view", "select 1 as old_id")
-        downstream = self._create_view("downstream_view", "select * from upstream_view")
+        downstream = self._create_view("downstream_view", "select old_id from upstream_view")
         editor = self._create_user("editor@example.com")
         AccessControl.objects.create(
             team=self.team,
@@ -2247,14 +2247,21 @@ class TestSavedQuery(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("explicit_field", "select toString(removed_value) as value from upstream_view"),
-            ("star", "select * from upstream_view"),
+            ("direct", None, "select toString(removed_value) as value from upstream_view"),
+            ("exclude_removed", None, "select * exclude (removed_value) from upstream_view"),
+            (
+                "through_star",
+                "select * from upstream_view",
+                "select toString(removed_value) as value from passthrough_view",
+            ),
         ]
     )
     def test_update_requires_confirmation_when_a_removed_column_breaks_a_downstream_view(
-        self, _name: str, downstream_sql: str
+        self, _name: str, passthrough_sql: str | None, downstream_sql: str
     ) -> None:
         upstream = self._create_view("upstream_view", "select 1 as removed_value, 2 as kept_value")
+        if passthrough_sql is not None:
+            self._create_view("passthrough_view", passthrough_sql)
         self._create_view("downstream_view", downstream_sql)
         url = f"/api/environments/{self.team.id}/warehouse_saved_queries/{upstream['id']}"
         body = {
@@ -2277,14 +2284,23 @@ class TestSavedQuery(APIBaseTest):
         self.assertEqual(confirmed.status_code, 200, confirmed.content)
         self.assertEqual(DataWarehouseSavedQuery.objects.get(pk=upstream["id"]).column_order, ["kept_value"])
 
-    def test_update_does_not_require_confirmation_when_downstream_views_use_only_retained_columns(self) -> None:
-        upstream = self._create_view("upstream_view", "select 1 as removed_value, 2 as kept_value")
-        self._create_view("downstream_view", "select kept_value from upstream_view")
+    @parameterized.expand(
+        [
+            ("explicit_retained_field", "select kept_value from upstream_view"),
+            ("star", "select * from upstream_view"),
+            ("star_exclude_retained_field", "select * exclude (excluded_value) from upstream_view"),
+        ]
+    )
+    def test_update_does_not_require_confirmation_when_downstream_views_still_resolve(
+        self, _name: str, downstream_sql: str
+    ) -> None:
+        upstream = self._create_view("upstream_view", "select 1 as removed_value, 2 as kept_value, 3 as excluded_value")
+        self._create_view("downstream_view", downstream_sql)
 
         response = self.client.patch(
             f"/api/environments/{self.team.id}/warehouse_saved_queries/{upstream['id']}",
             {
-                "query": {"kind": "HogQLQuery", "query": "select 2 as kept_value"},
+                "query": {"kind": "HogQLQuery", "query": "select 2 as kept_value, 3 as excluded_value"},
                 "edited_history_id": upstream["latest_history_id"],
             },
             format="json",

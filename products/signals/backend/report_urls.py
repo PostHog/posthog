@@ -32,10 +32,14 @@ class ReportLinkAction(StrEnum):
     IMPLEMENT = "implement"
 
 
+def _bare_report_path(team_id: int, report_id: str | UUID) -> str:
+    return f"/project/{team_id}/inbox/reports/{report_id}"
+
+
 def report_path(
     team_id: int, report_id: str | UUID, source: ReportLinkSource, action: ReportLinkAction | None = None
 ) -> str:
-    path = f"/project/{team_id}/inbox/reports/{report_id}?link_source={source.value}"
+    path = f"{_bare_report_path(team_id, report_id)}?link_source={source.value}"
     return f"{path}&link_action={action.value}" if action else path
 
 
@@ -43,3 +47,8 @@ def build_report_url(
     team_id: int, report_id: str | UUID, source: ReportLinkSource, action: ReportLinkAction | None = None
 ) -> str:
     return absolute_uri(report_path(team_id, report_id, source, action))
+
+
+def build_bare_report_url(team_id: int, report_id: str | UUID) -> str:
+    """The report's URL without a `link_source`, for payloads that leave PostHog to a system we do not know."""
+    return absolute_uri(_bare_report_path(team_id, report_id))
