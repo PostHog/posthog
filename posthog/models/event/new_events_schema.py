@@ -207,16 +207,17 @@ def project_reads_new_events_table(team_id: int | None) -> bool:
 
 
 def use_new_events_schema(team_id: int | None = None, modifiers: "HogQLQueryModifiers | None" = None) -> bool:
-    """Whether events reads target the native JSON events table (events_json) instead of the legacy events table.
+    """Whether an events read uses the new events table (events_json) instead of the old one.
 
-    Three switches, each wider than the one before it: the query's useNewEventsSchema modifier, for one query;
-    a staff person's tab header or browser cookie, for every request from that tab or browser, which can also pin
-    the legacy table (see new_events_schema_for_request); and the project's table, for a project everywhere,
-    background jobs included (see project_reads_new_events_table). The instance settings and the projects' opt-ins
-    are cached for up to 60s per worker. Nested reads inherit the running query's choice unless their own modifier
-    overrides it.
-    Code running inside a query should prefer HogQLContext.uses_new_events_schema(), which
-    resolves this once so a mid-query flip can't mix schemas.
+    Checked in this order. The first one that is set wins:
+
+    1. The query's own useNewEventsSchema modifier.
+    2. The table of the query this read runs inside.
+    3. A staff person's tab header or browser cookie (new_events_schema_for_request).
+    4. The project's table (project_reads_new_events_table).
+
+    A changed setting or opt-in reaches a worker within a minute. Inside a query, use
+    HogQLContext.uses_new_events_schema(): it decides once, so a query cannot mix the two tables.
     """
     if modifiers is not None and modifiers.useNewEventsSchema is not None:
         return modifiers.useNewEventsSchema
