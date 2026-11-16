@@ -57,25 +57,44 @@ describe('sessionEventsDataLogic', () => {
         teamLogic.actions.loadCurrentTeamSuccess({ ...MOCK_DEFAULT_TEAM, flag_calls_only_in_flag_evaluations: value })
     }
 
+    const relatedRow = (uuid: string, event: string): any[] => [
+        uuid,
+        event,
+        '2024-01-01T00:02:00Z',
+        '',
+        null,
+        null,
+        null,
+        'distinct-id',
+    ]
+
     const mockQueries = ({
-        flagEvaluationsFails,
-        flagEvaluationsRows,
+        eventsFails = false,
+        flagEvaluationsFails = false,
         eventsRows,
+        flagEvaluationsRows,
     }: {
-        flagEvaluationsFails: boolean
-        flagEvaluationsRows: any[][]
+        eventsFails?: boolean
+        flagEvaluationsFails?: boolean
         eventsRows: (query: string) => any[][]
+        flagEvaluationsRows: (query: string) => any[][]
     }): void => {
         jest.spyOn(api, 'queryHogQL').mockImplementation(async (query: string) => {
-            if (query.includes('posthog.flag_evaluations')) {
-                if (flagEvaluationsFails) {
-                    throw new Error('timeout')
-                }
-                return { results: flagEvaluationsRows } as any
+            const readsFlagEvaluations = query.includes('posthog.flag_evaluations')
+            if (readsFlagEvaluations ? flagEvaluationsFails : eventsFails) {
+                throw new Error('timeout')
             }
-            return { results: eventsRows(query) } as any
+            return { results: readsFlagEvaluations ? flagEvaluationsRows(query) : eventsRows(query) } as any
         })
     }
+
+    // A load can trigger a preload that repeats the failing read, so this compares which features reported, not how often.
+    const reportedFailures = (): string[] =>
+        Array.from(
+            new Set(
+                jest.mocked(posthog.captureException).mock.calls.map(([, properties]) => (properties as any)?.feature)
+            )
+        )
 
     afterEach(() => {
         logic.unmount()
@@ -112,24 +131,36 @@ describe('sessionEventsDataLogic', () => {
     })
 
     // flag_evaluations holds every flag call. The events table holds only the copy written before the move, `both`.
+    // `server-flag-call` has no session id, so only the person's related flag calls include it.
     it.each([
         {
             flagCallsOnlyInFlagEvaluations: true,
             flagEvaluationsFails: false,
-            expectedIds: ['pageview', 'both', 'flag-evaluation-only'],
+            expectedIds: ['pageview', 'both', 'flag-evaluation-only', 'server-flag-call'],
+            expectedFailures: [],
         },
-        { flagCallsOnlyInFlagEvaluations: true, flagEvaluationsFails: true, expectedIds: ['pageview', 'both'] },
-        { flagCallsOnlyInFlagEvaluations: false, flagEvaluationsFails: false, expectedIds: ['pageview', 'both'] },
+        {
+            flagCallsOnlyInFlagEvaluations: true,
+            flagEvaluationsFails: true,
+            expectedIds: ['pageview', 'both'],
+            expectedFailures: ['session-recording-flag-evaluations'],
+        },
+        {
+            flagCallsOnlyInFlagEvaluations: false,
+            flagEvaluationsFails: false,
+            expectedIds: ['pageview', 'both'],
+            expectedFailures: [],
+        },
     ])(
         'lists the session events when flagCallsOnlyInFlagEvaluations is $flagCallsOnlyInFlagEvaluations and the flag_evaluations read fails: $flagEvaluationsFails',
-        async ({ flagCallsOnlyInFlagEvaluations, flagEvaluationsFails, expectedIds }) => {
+        async ({ flagCallsOnlyInFlagEvaluations, flagEvaluationsFails, expectedIds, expectedFailures }) => {
             setFlagCallsOnlyInFlagEvaluations(flagCallsOnlyInFlagEvaluations)
             mockQueries({
                 flagEvaluationsFails,
-                flagEvaluationsRows: [
-                    row('both', '$feature_flag_called'),
-                    row('flag-evaluation-only', '$feature_flag_called'),
-                ],
+                flagEvaluationsRows: (query) =>
+                    query.includes('empty(session_id)')
+                        ? [relatedRow('server-flag-call', '$feature_flag_called')]
+                        : [row('both', '$feature_flag_called'), row('flag-evaluation-only', '$feature_flag_called')],
                 eventsRows: (query) =>
                     query.includes('$session_id =')
                         ? [row('pageview', '$pageview'), row('both', '$feature_flag_called')]
@@ -141,33 +172,70 @@ describe('sessionEventsDataLogic', () => {
             }).toDispatchActions(['loadEventsSuccess'])
 
             expect(logic.values.sessionEventsData?.map((e) => e.id)).toEqual(expectedIds)
+            expect(reportedFailures()).toEqual(expectedFailures)
         }
     )
 
     it.each([
         {
+            flagCallsOnlyInFlagEvaluations: true,
+            eventsFails: false,
             flagEvaluationsFails: false,
             expectedProperties: [
                 { $current_url: 'https://example.com/' },
                 { $feature_flag: 'from-events' },
                 { $feature_flag: 'from-flag-evaluations' },
             ],
+            expectedFullyLoaded: [true, true, true],
+            expectedFailures: [],
         },
         {
+            flagCallsOnlyInFlagEvaluations: true,
+            eventsFails: false,
             flagEvaluationsFails: true,
             expectedProperties: [{ $current_url: 'https://example.com/' }, { $feature_flag: 'from-events' }, {}],
+            expectedFullyLoaded: [true, true, true],
+            expectedFailures: ['session-recording-flag-evaluations'],
+        },
+        {
+            flagCallsOnlyInFlagEvaluations: true,
+            eventsFails: true,
+            flagEvaluationsFails: false,
+            expectedProperties: [
+                {},
+                { $feature_flag: 'from-flag-evaluations' },
+                { $feature_flag: 'from-flag-evaluations' },
+            ],
+            expectedFullyLoaded: [true, true, true],
+            expectedFailures: ['session-recording-load-full-event-data'],
+        },
+        {
+            flagCallsOnlyInFlagEvaluations: false,
+            eventsFails: false,
+            flagEvaluationsFails: false,
+            expectedProperties: [{ $current_url: 'https://example.com/' }, { $feature_flag: 'from-events' }, {}],
+            expectedFullyLoaded: [true, true, false],
+            expectedFailures: [],
         },
     ])(
-        'loads full properties from both tables, preferring the events copy, when the flag_evaluations read fails: $flagEvaluationsFails',
-        async ({ flagEvaluationsFails, expectedProperties }) => {
-            setFlagCallsOnlyInFlagEvaluations(true)
+        'loads full properties when flagCallsOnlyInFlagEvaluations is $flagCallsOnlyInFlagEvaluations, the events read fails: $eventsFails, and the flag_evaluations read fails: $flagEvaluationsFails',
+        async ({
+            flagCallsOnlyInFlagEvaluations,
+            eventsFails,
+            flagEvaluationsFails,
+            expectedProperties,
+            expectedFullyLoaded,
+            expectedFailures,
+        }) => {
+            setFlagCallsOnlyInFlagEvaluations(flagCallsOnlyInFlagEvaluations)
             const pageview = makeEvent('pageview')
             const flagCallInBoth = makeEvent('both', '$feature_flag_called')
             const flagCall = makeEvent('flag-evaluation-only', '$feature_flag_called')
             logic.actions.loadEventsSuccess([pageview, flagCallInBoth, flagCall])
             mockQueries({
+                eventsFails,
                 flagEvaluationsFails,
-                flagEvaluationsRows: [
+                flagEvaluationsRows: () => [
                     [JSON.stringify({ $feature_flag: 'from-flag-evaluations' }), 'both'],
                     [JSON.stringify({ $feature_flag: 'from-flag-evaluations' }), 'flag-evaluation-only'],
                 ],
@@ -182,6 +250,8 @@ describe('sessionEventsDataLogic', () => {
             }).toDispatchActions(['loadFullEventDataSuccess'])
 
             expect(logic.values.sessionEventsData?.map((e) => e.properties)).toEqual(expectedProperties)
+            expect(logic.values.sessionEventsData?.map((e) => e.fullyLoaded)).toEqual(expectedFullyLoaded)
+            expect(reportedFailures()).toEqual(expectedFailures)
         }
     )
 })

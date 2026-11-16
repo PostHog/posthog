@@ -27,7 +27,7 @@ export function storesFlagCallsOutsideEvents(team: TeamPublicType | TeamType | n
  * Whether the events table that the team's queries read holds none of its new flag calls. Unlike
  * storesFlagCallsOutsideEvents, it is also true for a team that reads the native JSON events table.
  */
-export function storesNoNewFlagCallsInEvents(team: TeamPublicType | TeamType | null): boolean {
+export function flagCallsOnlyInFlagEvaluations(team: TeamPublicType | TeamType | null): boolean {
     return !!team?.flag_calls_only_in_flag_evaluations
 }
 
