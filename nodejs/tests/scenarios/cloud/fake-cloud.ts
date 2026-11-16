@@ -73,6 +73,7 @@ type Stack = {
         Resources: Record<string, { Type: string; Condition?: string; Properties: Record<string, unknown> }>
     }
     resources: Resource[]
+    deniedHost?: boolean
 }
 
 const DELETED_STATES = new Set(['gone', 'terminated', 'deleted'])
@@ -85,6 +86,7 @@ const EXIT_INVALID = 2
 const INVOCATION_LAG_MS = 20_000
 const SYSTEMD_STOP_TIMEOUT_MS = 90_000
 const DEFAULT_DELIVERY_TIMEOUT_S = 3600
+const HOST_LAUNCH_TEMPLATE = { id: 'lt-0000000000000000a', version: '1' }
 const FAILOVER_CARD = 'cyclotron-failover-under-load'
 const FAILOVER_AFTER_MS = 15 * MINUTE_MS
 const STATUSES = ['passed', 'failed', 'invalid', 'passed']
@@ -125,6 +127,7 @@ export type FakeCloudOptions = {
     averageStatuses?: string[]
     liveReaderAcu?: { maxima: (number | null)[]; lagMinutes?: number }
     failover?: { takesMs?: number; showsAfterMs?: number }
+    hostLaunchTemplate?: { id: string; version: string }
 }
 
 function actionOf(service: string, operation: string): string {
@@ -343,6 +346,10 @@ export class FakeCloud implements Aws {
     private provision(stack: Stack): void {
         const sub = (value: unknown): string =>
             String(value).replace(/\$\{(\w+)\}/g, (_, name: string) => stack.parameters[name])
+        const resolved = (value: unknown): unknown =>
+            typeof value === 'object' && value !== null && 'Ref' in value
+                ? stack.parameters[(value as { Ref: string }).Ref]
+                : value
         const id = stack.parameters.RunId
         const runTag = stack.runTag
         for (const [logicalId, { Type, Condition, Properties }] of Object.entries(stack.template.Resources)) {
@@ -397,6 +404,10 @@ export class FakeCloud implements Aws {
                     seeded: this.backlogSeeded(),
                 })
             } else if (Type === 'AWS::EC2::Instance') {
+                if (!this.launchesFromHostTemplate(Properties, resolved)) {
+                    stack.deniedHost = true
+                    continue
+                }
                 const instanceId = `i-${randomUUID().replace(/-/g, '').slice(0, 17)}`
                 const volumeId = `vol-${randomUUID().replace(/-/g, '').slice(0, 17)}`
                 created.push(
@@ -715,7 +726,7 @@ export class FakeCloud implements Aws {
             return
         }
         stack.settlesAt = Infinity
-        if (stack.status === 'CREATE_IN_PROGRESS' && this.options.rollsBack === 'create') {
+        if (stack.status === 'CREATE_IN_PROGRESS' && (this.options.rollsBack === 'create' || stack.deniedHost)) {
             this.removeResources(stack, ({ type }) => !(this.options.outlives ?? []).includes(type))
             this.stacks.delete(name)
         } else if (stack.status === 'CREATE_IN_PROGRESS') {
@@ -760,6 +771,22 @@ export class FakeCloud implements Aws {
             }
             this.stacks.delete(name)
         }
+    }
+
+    // The baseline's stack service role launches a run host only from its launch template, unchanged, so a host
+    // that adds or overrides a disk is denied and the stack create rolls back.
+    private launchesFromHostTemplate(
+        properties: Record<string, unknown>,
+        resolved: (value: unknown) => unknown
+    ): boolean {
+        const { id, version } = this.options.hostLaunchTemplate ?? HOST_LAUNCH_TEMPLATE
+        const template = (properties.LaunchTemplate ?? {}) as Record<string, unknown>
+        return (
+            resolved(template.LaunchTemplateId) === id &&
+            resolved(template.Version) === version &&
+            properties.BlockDeviceMappings === undefined &&
+            properties.Volumes === undefined
+        )
     }
 
     private removeResources(stack: Stack, removed: (resource: Resource) => boolean): void {

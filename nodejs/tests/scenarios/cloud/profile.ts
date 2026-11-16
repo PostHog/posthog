@@ -61,6 +61,8 @@ export const CloudProfile = z
                 hostSubnet: Name,
                 hostSecurityGroup: Name,
                 hostInstanceProfile: Name,
+                hostLaunchTemplateId: Name,
+                hostLaunchTemplateVersion: Name,
             })
             .strict(),
         engineVersion: Name,

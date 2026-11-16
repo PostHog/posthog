@@ -15,6 +15,8 @@ export const PROFILE = {
         hostSubnet: 'subnet-0000000000000000a',
         hostSecurityGroup: 'sg-0000000000000000b',
         hostInstanceProfile: 'test-host',
+        hostLaunchTemplateId: 'lt-0000000000000000a',
+        hostLaunchTemplateVersion: '1',
     },
     engineVersion: '16.4',
     writerClass: 'db.r8g.2xlarge',

@@ -40,10 +40,12 @@ Parameters:
         Type: AWS::EC2::SecurityGroup::Id
     HostInstanceProfile:
         Type: String
+    HostLaunchTemplate:
+        Type: String
+    HostLaunchTemplateVersion:
+        Type: String
     HostClass:
         Type: String
-    HostEbsGb:
-        Type: Number
     HostImage:
         Type: AWS::EC2::Image::Id
 
@@ -129,6 +131,11 @@ Resources:
         DeletionPolicy: Delete
         UpdateReplacePolicy: Delete
         Properties:
+            LaunchTemplate:
+                LaunchTemplateId:
+                    Ref: HostLaunchTemplate
+                Version:
+                    Ref: HostLaunchTemplateVersion
             ImageId:
                 Ref: HostImage
             InstanceType:
@@ -143,16 +150,6 @@ Resources:
                 Ref: HostInstanceProfile
             InstanceInitiatedShutdownBehavior: terminate
             PropagateTagsToVolumeOnCreation: true
-            MetadataOptions:
-                HttpTokens: required
-            BlockDeviceMappings:
-                - DeviceName: /dev/sda1
-                  Ebs:
-                      VolumeType: gp3
-                      VolumeSize:
-                          Ref: HostEbsGb
-                      DeleteOnTermination: true
-                      Encrypted: true
             UserData:
                 Fn::Base64:
                     Fn::Sub: |
