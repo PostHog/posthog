@@ -18,7 +18,9 @@ import {
 import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 
 import { linkSuggestionsKey, releaseLogic } from './releaseLogic'
-import { RelatedKind, releaseRelatedLogic } from './releaseRelatedLogic'
+import type { RelatedKind } from './releaseRelated'
+import { releaseRelatedLogic } from './releaseRelatedLogic'
+import { linkedKeys } from './releaseTracks'
 import { LinkCandidate, ReleaseRow } from './releaseUtils'
 
 interface Option {
@@ -62,12 +64,7 @@ export function ReleaseAddLinkCombobox({ row }: { row: ReleaseRow }): JSX.Elemen
     const related = relatedByRelease[row.id]
     const linkSuggestions = linkSuggestionsFor === linkSuggestionsKey(row) ? loadedSuggestions : []
     const linkSearchResults = linkSearchFailed ? [] : loadedResults
-    const linked = new Set([
-        ...row.flags.map((flag) => `flag:${flag.id}`),
-        ...row.broadcasts.map((broadcast) => `broadcast:${broadcast.id}`),
-        ...(related?.surveys ?? []).map((survey) => `survey:${survey.id}`),
-        ...(related?.insights ?? []).map((insight) => `insight:${insight.id}`),
-    ])
+    const linked = linkedKeys(row, related)
     const candidates = new Map<string, Option>()
     for (const candidate of [...linkSuggestions, ...linkSearchResults]) {
         if (!linked.has(candidate.key)) {

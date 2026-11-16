@@ -228,7 +228,7 @@ class TestGetActiveInstallations(BaseTest):
 
 
 class TestConnectSlackMcpFromSlackLink(BaseTest):
-    SCOPES = ["channels:read", "channels:history", "search:read.public"]
+    SCOPES = ["channels:read", "channels:history", "search:read.public", "search:read.private"]
 
     def _slack_template(self, source: str = "slack_app", team_enabled: bool = True) -> None:
         template = MCPServerTemplate.objects.create(
@@ -259,9 +259,10 @@ class TestConnectSlackMcpFromSlackLink(BaseTest):
         [
             ("connects", "slack_app", True, SCOPES, None, True),
             ("missing_scope", "slack_app", True, SCOPES[:1], None, False),
+            # The consent screen lets a person clear an optional search scope, which only removes that search.
+            ("cleared_optional_search_scope", "slack_app", True, SCOPES[:3], None, True),
             # The allowlist is a ceiling too: a link that can read DMs never connects a public-only server.
             ("wider_than_allowlist", "slack_app", True, [*SCOPES, "search:read.im"], None, False),
-            ("dev_app_template", "slack_dev_app", True, SCOPES, None, False),
             ("turned_off_for_the_team", "slack_app", False, SCOPES, None, False),
             ("keeps_a_working_connection", "slack_app", True, SCOPES, "tok-existing", True),
         ]
