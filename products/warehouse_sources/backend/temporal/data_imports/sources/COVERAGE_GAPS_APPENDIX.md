@@ -13310,7 +13310,7 @@ Note: Static endpoint list, no dynamic table discovery. Deliberately excluded va
 
 ## Wix — **thin**
 
-Today (9): `blog_categories`, `blog_posts`, `bookings`, `contacts`, `members`, `order_transactions`, `orders`, `products`, `store_categories`
+Today (13): `blog_categories`, `blog_posts`, `bookings`, `contacts`, `inventory_items`, `members`, `order_fulfillments`, `order_transactions`, `orders`, `pricing_plan_orders`, `pricing_plans`, `products`, `store_categories`
 
 Diffed against: <https://dev.wix.com/docs/api-reference/business-solutions/e-commerce.md>
 
@@ -13318,10 +13318,10 @@ Diffed against: <https://dev.wix.com/docs/api-reference/business-solutions/e-com
 - [x] `Blog categories (GET /blog/v3/categories)` — resolve categoryIds on synced blog posts for content reporting (high)
 - [x] `Order transactions (GET /ecom/v1/payments/orders/{orderId})` — analyze individual payments and refunds to reconcile collected revenue with orders (high)
 - [x] `Extended bookings (POST /_api/bookings-reader/v2/extended-bookings/query)` — analyze appointments, cancellations, customer demand, and service revenue (high)
-- [ ] `Pricing plan orders (GET /pricing-plans/v2/orders)` — analyze paid subscriptions, renewals, cancellations, and customer access periods (high)
-- [ ] `Inventory items (POST /stores/v3/inventory-items/query)` — analyze stock by location and variant beyond the default-location summary on products (medium)
-- [ ] `Order fulfillments (GET /ecom/v1/fulfillments/orders/{orderId})` — analyze shipment details, partial fulfillment, and delivery performance by order (medium)
-- [ ] `Pricing plans (POST /pricing-plans/v3/plans/query)` — describe subscription offers and compare prices and benefits across plans (medium)
+- [x] `Pricing plan orders (GET /pricing-plans/v2/orders)` — analyze paid subscriptions, renewals, cancellations, and customer access periods (high)
+- [x] `Inventory items (POST /stores/v3/inventory-items/query)` — analyze stock by location and variant beyond the default-location summary on products (medium)
+- [x] `Order fulfillments (GET /ecom/v1/fulfillments/orders/{orderId})` — analyze shipment details, partial fulfillment, and delivery performance by order (medium)
+- [x] `Pricing plans (POST /pricing-plans/v3/plans/query)` — describe subscription offers and compare prices and benefits across plans (medium)
 
 Note: Read the official eCommerce operation index and linked Stores, Blog, Bookings, and Pricing Plans pages. Parsed each page's REST schema for its method and URL, including POST queries that read collections. Order transactions and fulfillments require order loops; catalog categories require a tree reference. Excluded write operations, permissions, delivery configuration, and uploads.
 
