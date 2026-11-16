@@ -339,14 +339,16 @@ class TestCreatePostHogCodeTaskForRepoActivity(TestCase):
 
     @parameterized.expand(
         [
-            ("report_notification_thread", True, False, None, False),
-            ("report_implementation", True, True, None, False),
-            ("implementation_mapping_failure", True, True, "mapping", False),
-            ("implementation_registration_failure", True, True, "registration", False),
-            ("mapping_failure", True, False, "mapping", False),
-            ("association_failure", True, False, "association", False),
-            ("ordinary_thread", False, False, None, False),
-            ("implementation_repository_refresh", True, True, None, True),
+            ("report_notification_thread", True, False, None, False, "channel"),
+            ("report_thread_in_direct_message", True, False, None, False, "im"),
+            ("report_thread_in_private_channel", True, False, None, False, "group"),
+            ("report_implementation", True, True, None, False, "channel"),
+            ("implementation_mapping_failure", True, True, "mapping", False, "channel"),
+            ("implementation_registration_failure", True, True, "registration", False, "channel"),
+            ("mapping_failure", True, False, "mapping", False, "channel"),
+            ("association_failure", True, False, "association", False, "channel"),
+            ("ordinary_thread", False, False, None, False, "channel"),
+            ("implementation_repository_refresh", True, True, None, True, "channel"),
         ]
     )
     @patch("products.tasks.backend.facade.temporal.dispatch_task_processing_workflow")
@@ -358,6 +360,7 @@ class TestCreatePostHogCodeTaskForRepoActivity(TestCase):
         implementation,
         failure_stage,
         refresh_repository,
+        channel_type,
         mock_slack_cls,
         _mock_execute_workflow,
     ):
@@ -390,6 +393,7 @@ class TestCreatePostHogCodeTaskForRepoActivity(TestCase):
             )
 
         inputs = _make_inputs(self.integration.id, self.user.id)
+        inputs = replace(inputs, event={**inputs.event, "channel_type": channel_type})
         if implementation:
             inputs = replace(inputs, report_implementation_message_ts="1234.5678")
         if refresh_repository:
@@ -467,6 +471,13 @@ class TestCreatePostHogCodeTaskForRepoActivity(TestCase):
             report_id=report.id, type=SignalReportArtefact.ArtefactType.TASK_RUN, task_id=task.id
         )
         assert work_log.count() == int(from_report_thread)
+        if from_report_thread and not implementation and failure_stage is None:
+            action = SignalReportAction.objects.for_team(self.team.id).get(report_id=report.id)
+            if channel_type != "channel":
+                assert action.metadata == {}
+            else:
+                assert action.metadata["task_id"] == str(task.id)
+                assert "do something" in action.metadata["question"]
         from products.signals.backend.scout_harness.inactivity import _engaged_report_ids
 
         assert (
@@ -1079,6 +1090,24 @@ class TestForwardPostHogCodeFollowupActivity(TestCase):
         # through to new-task creation.
         assert result is True
         _assert_quota_denial_posted(mock_slack_instance, "C123", "1234.5678")
+
+    @patch(
+        "products.tasks.backend.task_run_sync.posthoganalytics.get_feature_flag_payload",
+        return_value={"slack": "enforce"},
+    )
+    @patch("products.tasks.backend.facade.api.signal_task_run_user_message")
+    @patch("posthog.models.integration.SlackIntegration")
+    def test_followup_to_a_done_task_is_refused_before_delivery(self, mock_slack_cls, mock_signal, _mock_payload):
+        self._create_mapping()
+        self.Task.objects.filter(pk=self.task.pk).update(profile="slack", status="done", status_reason="closed")
+        mock_slack_cls.return_value = MagicMock()
+
+        result = forward_posthog_code_followup_activity(
+            _make_inputs(self.integration.id, self.user.id), "C123", "1234.5678", "U_ALICE", "do something", "1234.5679"
+        )
+
+        assert result is True
+        mock_signal.assert_not_called()
 
     @parameterized.expand(
         [

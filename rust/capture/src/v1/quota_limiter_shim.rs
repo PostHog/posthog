@@ -18,8 +18,8 @@ const SCOPED_CHECKS: &[ScopedCheck] = &[
 
 /// Apply billing quota limits to a batch of events in-place.
 ///
-/// Checks global limiter first (short-circuit), then scoped limiters.
-/// Returns `Error::BillingLimitExceeded` when every event is limited.
+/// As in legacy `check_and_filter`, scoped events answer only to their own quota.
+/// Returns `Error::BillingLimitExceeded` when no event is left `Ok`.
 /// Expects at least one `Ok` event — all-dropped batches should
 /// short-circuit in `process_batch` before reaching here.
 pub async fn apply_quota_limits(
@@ -31,66 +31,83 @@ pub async fn apply_quota_limits(
         return Ok(());
     }
 
-    // --- Global check — short-circuit ---
-    if limiter
+    let events_limited = limiter
         .is_quota_limited_v1(token, &QuotaResource::Events)
-        .await
-    {
-        counter!(CAPTURE_V1_EVENTS_QUOTA_LIMITED, "resource" => "events")
-            .increment(events.len() as u64);
-        return Err(Error::BillingLimitExceeded);
+        .await;
+    let mut scoped_limited = [false; SCOPED_CHECKS.len()];
+    for (limited, (resource, _)) in scoped_limited.iter_mut().zip(SCOPED_CHECKS) {
+        *limited = limiter.is_quota_limited_v1(token, resource).await;
+    }
+    if !events_limited && !scoped_limited.contains(&true) {
+        return Ok(());
     }
 
-    // --- Scoped checks ---
-    let mut all_non_ok = true;
-    for (resource, predicate) in SCOPED_CHECKS {
-        if !limiter.is_quota_limited_v1(token, resource).await {
+    let mut dropped: [u64; SCOPED_CHECKS.len() + 1] = [0; SCOPED_CHECKS.len() + 1];
+    for ev in events.iter_mut() {
+        if ev.result != EventResult::Ok {
             continue;
         }
+        let Some(slot) = quota_drop_slot(ev, events_limited, &scoped_limited) else {
+            continue;
+        };
+        ev.result = EventResult::Drop;
+        ev.details = Some(over_quota_details(slot_resource(slot)));
+        dropped[slot] += 1;
+    }
 
-        let resource_tag = resource.as_str();
-        let mut count: u64 = 0;
-        for ev in events.iter_mut() {
-            if ev.result != EventResult::Ok {
-                continue;
-            }
-            // Gateway-verified events are wallet-billed, not AIO-billed, so they
-            // must not be dropped by the llm_events quota.
-            if *resource == QuotaResource::LLMEvents && ev.is_gateway_verified {
-                continue;
-            }
-            let info = EventInfo {
-                name: ev.event_name(),
-                has_product_tour_id: ev.has_property("product_tour_id"),
-            };
-            if predicate(info) {
-                ev.result = EventResult::Drop;
-                ev.details = Some(match resource {
-                    QuotaResource::Exceptions => "exceptions_over_quota",
-                    QuotaResource::Surveys => "survey_responses_over_quota",
-                    QuotaResource::LLMEvents => "llm_events_over_quota",
-                    _ => "over_quota",
-                });
-                count += 1;
-            }
-        }
-        if count > 0 {
-            counter!(CAPTURE_V1_EVENTS_QUOTA_LIMITED, "resource" => resource_tag).increment(count);
+    for (slot, count) in dropped.iter().enumerate() {
+        if *count > 0 {
+            counter!(CAPTURE_V1_EVENTS_QUOTA_LIMITED, "resource" => slot_resource(slot).as_str())
+                .increment(*count);
         }
     }
 
-    // If every event is now non-Ok, the whole batch is limited
-    for ev in events.iter() {
-        if ev.result == EventResult::Ok {
-            all_non_ok = false;
-            break;
-        }
-    }
-    if all_non_ok {
+    if events.iter().all(|ev| ev.result != EventResult::Ok) {
         return Err(Error::BillingLimitExceeded);
     }
 
     Ok(())
+}
+
+const EVENTS_SLOT: usize = SCOPED_CHECKS.len();
+
+fn slot_resource(slot: usize) -> &'static QuotaResource {
+    const EVENTS: &QuotaResource = &QuotaResource::Events;
+    SCOPED_CHECKS
+        .get(slot)
+        .map_or(EVENTS, |(resource, _)| resource)
+}
+
+fn quota_drop_slot(
+    ev: &WrappedEvent,
+    events_limited: bool,
+    scoped_limited: &[bool; SCOPED_CHECKS.len()],
+) -> Option<usize> {
+    let info = EventInfo {
+        name: ev.event_name(),
+        has_product_tour_id: ev.has_property("product_tour_id"),
+    };
+    let Some(slot) = SCOPED_CHECKS
+        .iter()
+        .position(|(_, predicate)| predicate(info))
+    else {
+        return events_limited.then_some(EVENTS_SLOT);
+    };
+    // Wallet-billed: skip llm_events but not the events quota, like the legacy AI and OTel paths.
+    if SCOPED_CHECKS[slot].0 == QuotaResource::LLMEvents && ev.is_gateway_verified {
+        return events_limited.then_some(EVENTS_SLOT);
+    }
+    scoped_limited[slot].then_some(slot)
+}
+
+fn over_quota_details(resource: &QuotaResource) -> &'static str {
+    match resource {
+        QuotaResource::Exceptions => "exceptions_over_quota",
+        QuotaResource::Surveys => "survey_responses_over_quota",
+        QuotaResource::LLMEvents => "llm_events_over_quota",
+        QuotaResource::Events => "events_over_quota",
+        _ => "over_quota",
+    }
 }
 
 #[cfg(test)]
@@ -216,8 +233,8 @@ mod tests {
             body_chunk_read_timeout_ms: None,
             body_read_chunk_size_kb: 256,
             continuous_profiling: ContinuousProfilingConfig::default(),
-            capture_v1_max_compressed_body_bytes: 10 * 1024 * 1024,
-            capture_v1_max_decompressed_body_bytes: 50 * 1024 * 1024,
+            capture_v1_max_compressed_body_bytes: None,
+            capture_v1_max_decompressed_body_bytes: None,
             capture_v1_scatter_gather_min_batch: 8,
             capture_v1_legacy_property_splice: true,
             capture_ingestion_warnings_enabled: false,
@@ -374,7 +391,7 @@ mod tests {
     // -----------------------------------------------------------------------
 
     #[tokio::test]
-    async fn global_limit_returns_error_without_marking_events() {
+    async fn global_limit_keeps_scoped_events_and_drops_the_rest() {
         let limiter = build_limiter("tok", true, &[]).await;
         let mut events = vec![
             make_event("$pageview", None),
@@ -384,15 +401,19 @@ mod tests {
         ];
 
         let result = apply_quota_limits(&limiter, "tok", &mut events).await;
-        assert!(result.is_err());
+        assert!(result.is_ok());
 
-        // Global limit short-circuits without mutating events
-        assert_eq!(ok_event_names(&events).len(), 4);
-        assert!(quota_dropped_event_names(&events).is_empty());
+        assert_eq!(
+            ok_event_names(&events),
+            vec!["$ai_generation", "$exception", "survey sent"]
+        );
+        let pv = find_unique_by_name(&events, "$pageview");
+        assert_eq!(pv.result, EventResult::Drop);
+        assert_eq!(pv.details, Some("events_over_quota"));
     }
 
     #[tokio::test]
-    async fn global_limit_preserves_all_event_states() {
+    async fn global_limit_returns_error_when_no_event_remains() {
         let limiter = build_limiter("tok", true, &[]).await;
         let bad = make_event("bad_event", None);
         let bad_uuid = bad.uuid;
@@ -403,14 +424,12 @@ mod tests {
         bad_ev.details = Some("invalid_event_name");
 
         let result = apply_quota_limits(&limiter, "tok", &mut events).await;
-        assert!(result.is_err());
+        assert!(matches!(result, Err(Error::BillingLimitExceeded)));
 
-        // Global limit short-circuits — no events are mutated
-        let pv = find_unique_by_name(&events, "$pageview");
-        assert_eq!(pv.result, EventResult::Ok);
-        assert_eq!(pv.details, None);
-
-        // Pre-existing Drop event also untouched
+        assert_eq!(
+            find_unique_by_name(&events, "$pageview").details,
+            Some("events_over_quota")
+        );
         let bad_ev = events.iter().find(|e| e.uuid == bad_uuid).unwrap();
         assert_eq!(bad_ev.result, EventResult::Drop);
         assert_eq!(bad_ev.details, Some("invalid_event_name"));
@@ -645,8 +664,7 @@ mod tests {
     // -----------------------------------------------------------------------
 
     #[tokio::test]
-    async fn global_limit_short_circuits_before_scoped() {
-        // Global limited, plus scoped exception limited
+    async fn global_and_scoped_limits_drop_everything_and_return_error() {
         let limiter = build_limiter("tok", true, &[QuotaResource::Exceptions]).await;
         let mut events = vec![
             make_event("$pageview", None),
@@ -654,13 +672,147 @@ mod tests {
         ];
 
         let result = apply_quota_limits(&limiter, "tok", &mut events).await;
-        assert!(result.is_err());
+        assert!(matches!(result, Err(Error::BillingLimitExceeded)));
 
-        // Global short-circuits without marking — scoped limiters never run
-        for ev in &events {
-            assert_eq!(ev.result, EventResult::Ok);
-            assert_eq!(ev.details, None);
-        }
+        assert_eq!(
+            find_unique_by_name(&events, "$pageview").details,
+            Some("events_over_quota")
+        );
+        assert_eq!(
+            find_unique_by_name(&events, "$exception").details,
+            Some("exceptions_over_quota")
+        );
+    }
+
+    #[tokio::test]
+    async fn global_limit_applies_each_scoped_quota_on_its_own() {
+        let limiter = build_limiter("tok", true, &[QuotaResource::LLMEvents]).await;
+        let mut events = vec![
+            make_event("$pageview", None),
+            make_event("$ai_generation", None),
+            make_event("survey sent", None),
+            make_event("$exception", None),
+        ];
+
+        let result = apply_quota_limits(&limiter, "tok", &mut events).await;
+        assert!(result.is_ok());
+
+        assert_eq!(ok_event_names(&events), vec!["$exception", "survey sent"]);
+        assert_eq!(
+            find_unique_by_name(&events, "$pageview").details,
+            Some("events_over_quota")
+        );
+        assert_eq!(
+            find_unique_by_name(&events, "$ai_generation").details,
+            Some("llm_events_over_quota")
+        );
+    }
+
+    #[tokio::test]
+    async fn global_limit_drops_product_tour_survey_events() {
+        // Product tours are not survey responses, so only the events quota applies.
+        let limiter = build_limiter("tok", true, &[]).await;
+        let tour = make_event("survey sent", Some("tour-123"));
+        let tour_uuid = tour.uuid;
+        let mut events = vec![make_event("survey sent", None), tour];
+
+        let result = apply_quota_limits(&limiter, "tok", &mut events).await;
+        assert!(result.is_ok());
+
+        let tour = events.iter().find(|e| e.uuid == tour_uuid).unwrap();
+        assert_eq!(tour.result, EventResult::Drop);
+        assert_eq!(tour.details, Some("events_over_quota"));
+        assert_eq!(ok_event_names(&events), vec!["survey sent"]);
+    }
+
+    #[tokio::test]
+    async fn global_limit_drops_gateway_verified_events() {
+        let limiter = build_limiter("tok", true, &[]).await;
+        let verified = make_verified_event("$ai_generation");
+        let verified_uuid = verified.uuid;
+        let mut events = vec![verified, make_event("$ai_generation", None)];
+
+        let result = apply_quota_limits(&limiter, "tok", &mut events).await;
+        assert!(result.is_ok());
+
+        let verified = events.iter().find(|e| e.uuid == verified_uuid).unwrap();
+        assert_eq!(verified.result, EventResult::Drop);
+        assert_eq!(verified.details, Some("events_over_quota"));
+        assert_eq!(ok_event_names(&events), vec!["$ai_generation"]);
+    }
+
+    #[tokio::test]
+    async fn global_and_llm_limits_drop_verified_and_plain_ai_events() {
+        let limiter = build_limiter("tok", true, &[QuotaResource::LLMEvents]).await;
+        let verified = make_verified_event("$ai_generation");
+        let verified_uuid = verified.uuid;
+        let mut events = vec![verified, make_event("$ai_span", None)];
+
+        let result = apply_quota_limits(&limiter, "tok", &mut events).await;
+        assert!(matches!(result, Err(Error::BillingLimitExceeded)));
+
+        let verified = events.iter().find(|e| e.uuid == verified_uuid).unwrap();
+        assert_eq!(verified.details, Some("events_over_quota"));
+        assert_eq!(
+            find_unique_by_name(&events, "$ai_span").details,
+            Some("llm_events_over_quota")
+        );
+    }
+
+    #[tokio::test]
+    async fn quota_counter_counts_only_events_each_quota_dropped() {
+        use metrics_util::debugging::{DebugValue, DebuggingRecorder};
+
+        let limiter = build_limiter("tok", true, &[QuotaResource::Exceptions]).await;
+        let pre_dropped = make_event("bad_event", None);
+        let pre_dropped_uuid = pre_dropped.uuid;
+        let mut events = vec![
+            make_event("$pageview", None),
+            make_event("click", None),
+            make_event("$exception", None),
+            make_event("survey sent", None),
+            pre_dropped,
+        ];
+        events
+            .iter_mut()
+            .find(|e| e.uuid == pre_dropped_uuid)
+            .unwrap()
+            .result = EventResult::Drop;
+
+        let recorder = DebuggingRecorder::new();
+        let snapshotter = recorder.snapshotter();
+        let result = {
+            let _guard = metrics::set_default_local_recorder(&recorder);
+            apply_quota_limits(&limiter, "tok", &mut events).await
+        };
+        assert!(result.is_ok());
+
+        let counts: std::collections::HashMap<String, u64> = snapshotter
+            .snapshot()
+            .into_vec()
+            .into_iter()
+            .filter(|(key, _, _, _)| key.key().name() == CAPTURE_V1_EVENTS_QUOTA_LIMITED)
+            .filter_map(|(key, _, _, value)| {
+                let resource = key
+                    .key()
+                    .labels()
+                    .find(|l| l.key() == "resource")?
+                    .value()
+                    .to_string();
+                match value {
+                    DebugValue::Counter(v) => Some((resource, v)),
+                    _ => None,
+                }
+            })
+            .collect();
+        // The pre-dropped event and the kept survey are not counted.
+        assert_eq!(
+            counts,
+            std::collections::HashMap::from([
+                ("events".to_string(), 2),
+                ("exceptions".to_string(), 1),
+            ])
+        );
     }
 
     // -----------------------------------------------------------------------

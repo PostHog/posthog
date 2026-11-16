@@ -18,6 +18,7 @@ from parameterized import parameterized
 from temporalio import activity
 from temporalio.client import WorkflowFailureError
 from temporalio.common import RetryPolicy
+from temporalio.converter import DataConverter
 from temporalio.exceptions import ApplicationError
 from temporalio.service import RPCError
 from temporalio.testing import WorkflowEnvironment
@@ -52,6 +53,7 @@ from products.review_hog.backend.temporal.activities import (
     LoadValidationInput,
     PublishInput,
     PublishResult,
+    RecordTurnMarkerInput,
     ResolveActingUserResult,
     ReviewChunkInput,
     ReviewMeta,
@@ -158,6 +160,7 @@ async def _run_full_review_pr_workflow(
     review_design: str = "pipeline",
     lens_chunk_count: int = 0,
     lens_chunks_capped: bool = False,
+    devex_lens: bool = False,
     fail_lens_units: frozenset[tuple[str, int]] = frozenset(),
     fail_main_session: bool = False,
     coordinator: bool = False,
@@ -173,8 +176,9 @@ async def _run_full_review_pr_workflow(
     workflow_max_attempts: int | None = None,
     publish_posts: bool = True,
     fail_nudge: bool = False,
+    fail_finish: bool = False,
     marks_ready: bool = False,
-    fail_silent_stamphog: bool = False,
+    answered_by_queue: bool = False,
 ) -> dict:
     # Runs the real ReviewPRWorkflow with activity stand-ins, recording what fanned out + published.
     # already_published / empty_diff drive the early-exit gates; acting_user_id None means the author
@@ -251,6 +255,7 @@ async def _run_full_review_pr_workflow(
             review_design=review_design,
             lens_chunk_count=lens_chunk_count,
             lens_chunks_capped=lens_chunks_capped,
+            devex_lens=devex_lens,
             coordinator=coordinator,
             zero_change_skip=zero_change_skip,
             delta_band=delta_band,
@@ -299,9 +304,11 @@ async def _run_full_review_pr_workflow(
         return None
 
     marker_calls: dict[str, ReviewHogMarker | None] = {}
+    devex_lens_calls: list[tuple[str, bool]] = []
 
     @activity.defn(name="record_turn_marker_activity")
-    async def record_marker(input) -> ReviewHogMarker:
+    async def record_marker(input: RecordTurnMarkerInput) -> ReviewHogMarker:
+        devex_lens_calls.append(("marker", input.devex_lens))
         return _TURN_MARKER
 
     @activity.defn(name="split_chunks_activity")
@@ -374,6 +381,7 @@ async def _run_full_review_pr_workflow(
     @activity.defn(name="dedup_activity")
     async def dedup(input: SandboxStageInput) -> DedupResult:
         _saw_design("dedup", input.review_design)
+        devex_lens_calls.append(("dedup", input.devex_lens))
         if fail_dedup:
             raise ApplicationError("sandbox layer down", non_retryable=True)
         dedup_attempts.append(1)
@@ -463,7 +471,7 @@ async def _run_full_review_pr_workflow(
     @activity.defn(name="finish_standard_automatic_turn_activity")
     async def finish_standard_automatic_turn(input: FinishedStandardAutomaticTurn) -> None:
         finished_turns.append(input)
-        if fail_silent_stamphog:
+        if fail_finish:
             raise ApplicationError("stamphog unavailable", non_retryable=True)
 
     silent_stamphog_calls: list[SilentStamphogRequest] = []
@@ -471,8 +479,6 @@ async def _run_full_review_pr_workflow(
     @activity.defn(name="start_silent_stamphog_activity")
     async def silent_stamphog(input: SilentStamphogRequest) -> None:
         silent_stamphog_calls.append(input)
-        if fail_silent_stamphog:
-            raise ApplicationError("stamphog unavailable", non_retryable=True)
 
     # Records the analytics events' run_index and the turn's trigger — the completion-rate
     # denominator and the per-tier split rely on them; all three captures are swallowed best-effort
@@ -576,6 +582,7 @@ async def _run_full_review_pr_workflow(
                         review_mode=review_mode,
                         requested_head_sha="sha1",
                         marks_ready=marks_ready,
+                        answered_by_queue=answered_by_queue,
                     ),
                     id=str(uuid.uuid4()),
                     task_queue=task_queue,
@@ -621,6 +628,7 @@ async def _run_full_review_pr_workflow(
         "modes": mode_calls,
         "efforts": effort_calls,
         "markers": marker_calls,
+        "devex_lens": devex_lens_calls,
         "designs": design_calls,
         "single_agent": single_agent_calls,
         "lens": lens_calls,
@@ -751,70 +759,97 @@ async def test_review_pr_workflow_nudges_stamphog_when_the_turn_ends(
     assert recorded["nudges"] == [("o/r", 7, "sha1")]
 
 
-def _finished_turn(*, marks_ready: bool) -> FinishedStandardAutomaticTurn:
-    return FinishedStandardAutomaticTurn(
-        team_id=1,
-        report_id="rep-1",
-        repository="o/r",
-        pr_number=7,
-        head_sha="sha1",
-        run_index=1,
-        lens_chunks_capped=True,
-        delta_review=False,
-        marks_ready=marks_ready,
-    )
-
-
+_FINISHED_TURN = FinishedStandardAutomaticTurn(
+    team_id=1,
+    report_id="rep-1",
+    repository="o/r",
+    pr_number=7,
+    head_sha="sha1",
+    run_index=1,
+    lens_chunks_capped=True,
+    delta_review=False,
+    marks_ready=False,
+)
 _SILENT_STAMPHOG = SilentStamphogRequest(team_id=1, repository="o/r", pr_number=7, head_sha="sha1")
 
 
 @pytest.mark.asyncio
 @pytest.mark.parametrize(
-    "review_mode, marks_ready, already_completed, fail_dedup, fail_silent_stamphog, expected_finished, expected_silent",
+    "review_mode, already_completed, fail_dedup, fail_finish, expected_finished",
     [
-        pytest.param("flash", True, False, False, False, [_finished_turn(marks_ready=True)], [], id="ready-turn"),
-        pytest.param(
-            "flash",
-            True,
-            False,
-            False,
-            True,
-            [_finished_turn(marks_ready=True)],
-            [],
-            id="raising-finish-keeps-the-turn",
-        ),
-        pytest.param("flash", False, False, False, False, [_finished_turn(marks_ready=False)], [], id="draft-turn"),
-        pytest.param("flash", True, False, True, False, [], [], id="failed-turn"),
-        pytest.param("full", True, False, False, False, [], [], id="deep-turn"),
-        pytest.param("flash", True, True, False, False, [], [_SILENT_STAMPHOG], id="ready-at-an-already-reviewed-head"),
-        pytest.param(
-            "flash", True, True, False, True, [], [_SILENT_STAMPHOG], id="raising-silent-start-keeps-the-skip"
-        ),
-        pytest.param("flash", False, True, False, False, [], [], id="push-at-an-already-reviewed-head"),
+        pytest.param("flash", False, False, False, [_FINISHED_TURN], id="flash-turn"),
+        pytest.param("flash", False, False, True, [_FINISHED_TURN], id="raising-finish-keeps-the-turn"),
+        pytest.param("flash", False, True, False, [], id="failed-turn"),
+        pytest.param("full", False, False, False, [], id="deep-turn"),
+        pytest.param("flash", True, False, False, [], id="already-reviewed-head"),
     ],
 )
-async def test_review_pr_workflow_records_automatic_standard_coverage_and_starts_silent_stamphog_when_ready(
+async def test_review_pr_workflow_records_automatic_standard_coverage(
     review_mode: str,
-    marks_ready: bool,
     already_completed: bool,
     fail_dedup: bool,
-    fail_silent_stamphog: bool,
+    fail_finish: bool,
     expected_finished: list[FinishedStandardAutomaticTurn],
-    expected_silent: list[SilentStamphogRequest],
 ):
     recorded = await _run_full_review_pr_workflow(
         publish=True,
         review_mode=review_mode,
         trigger_source="automatic",
         review_authored_prs=True,
-        marks_ready=marks_ready,
         already_completed=already_completed,
         fail_dedup=fail_dedup,
-        fail_silent_stamphog=fail_silent_stamphog,
+        fail_finish=fail_finish,
         lens_chunks_capped=True,
     )
     assert recorded["failed"] is fail_dedup
     assert recorded["finished_turns"] == expected_finished
+
+
+def test_a_finish_payload_scheduled_before_the_change_still_asks_for_the_hand_off():
+    old_payload = {
+        "team_id": 1,
+        "report_id": "rep-1",
+        "repository": "o/r",
+        "pr_number": 7,
+        "head_sha": "sha1",
+        "run_index": 1,
+        "lens_chunks_capped": False,
+        "delta_review": False,
+        "marks_ready": True,
+    }
+    converter = DataConverter.default.payload_converter
+    [turn] = converter.from_payloads(converter.to_payloads([old_payload]), [FinishedStandardAutomaticTurn])
+    assert turn.marks_ready is True
+
+
+@pytest.mark.asyncio
+@pytest.mark.parametrize(
+    "answered_by_queue, marks_ready, already_completed, expected_hand_off, expected_silent",
+    [
+        pytest.param(False, True, False, [True], [], id="older-queue-ready-turn-hands-off-itself"),
+        pytest.param(False, False, False, [False], [], id="older-queue-draft-turn"),
+        pytest.param(True, True, False, [False], [], id="queue-answers-for-a-ready-turn"),
+        pytest.param(False, True, True, [], [_SILENT_STAMPHOG], id="older-queue-ready-at-a-reviewed-head"),
+        pytest.param(True, True, True, [], [], id="queue-answers-for-a-reviewed-head"),
+    ],
+)
+async def test_review_pr_workflow_hands_off_itself_only_when_the_queue_does_not_answer(
+    answered_by_queue: bool,
+    marks_ready: bool,
+    already_completed: bool,
+    expected_hand_off: list[bool],
+    expected_silent: list[SilentStamphogRequest],
+):
+    recorded = await _run_full_review_pr_workflow(
+        publish=True,
+        review_mode="flash",
+        trigger_source="automatic",
+        review_authored_prs=True,
+        marks_ready=marks_ready,
+        answered_by_queue=answered_by_queue,
+        already_completed=already_completed,
+    )
+    assert [turn.marks_ready for turn in recorded["finished_turns"]] == expected_hand_off
     assert recorded["silent_stamphog"] == expected_silent
 
 
@@ -825,7 +860,6 @@ async def test_review_pr_workflow_tells_the_finalize_that_an_automatic_follow_up
         review_mode="flash",
         trigger_source="automatic",
         review_authored_prs=True,
-        marks_ready=True,
         automatic_reviewed_head_sha="sha0",
         gate_delta_review=True,
     )
@@ -1023,6 +1057,7 @@ async def test_review_pr_workflow_runs_a_delta_turn_only_when_the_gate_plans_one
         review_mode="flash",
         review_design="single_agent",
         lens_chunk_count=3,
+        devex_lens=True,
         trigger_source="automatic",
         run_index=3,
         review_authored_prs=True,
@@ -1037,7 +1072,9 @@ async def test_review_pr_workflow_runs_a_delta_turn_only_when_the_gate_plans_one
     assert recorded["gate_arms"] == [(True, True)]
     assert recorded["main_delta"] == [baseline]
     assert set(recorded["lens_delta"]) == {baseline}
-    assert len(recorded["lens"]) == (2 if expect_delta else 6)
+    assert len(recorded["lens"]) == (2 if expect_delta else 7)
+    assert (("devex", 1) in recorded["lens"]) is not expect_delta
+    assert recorded["devex_lens"] == [("marker", not expect_delta), ("dedup", not expect_delta)]
     assert recorded["track_p1"] == [(True, True, expect_delta)]
 
 

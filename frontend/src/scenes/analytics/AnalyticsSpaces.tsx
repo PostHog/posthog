@@ -30,12 +30,12 @@ import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
+import { SidebarPinButton } from '~/layout/today/sidebar/SidebarPinButton'
 
 import { todayAnalyticsLogic } from 'products/today/frontend/analytics/todayAnalyticsLogic'
 import { TodayAnalyticsNewFolderDialog } from 'products/today/frontend/analytics/TodayAnalyticsNewFolderDialog'
 
 import { AnalyticsCreateModals } from './AnalyticsCreateModals'
-import { AnalyticsPinButton } from './AnalyticsPinButton'
 import { AnalyticsSearchInput } from './AnalyticsSearchInput'
 import { AnalyticsSpaceGlyph } from './AnalyticsSpaceGlyph'
 import { AnalyticsSpace, analyticsSpacesLogic } from './analyticsSpacesLogic'
@@ -109,7 +109,7 @@ function SpaceRow({ space }: { space: AnalyticsSpace }): JSX.Element {
             </ItemContent>
             <SpaceCounts space={space} className="hidden shrink-0 @3xl/analytics:flex" />
             <ItemActions className="relative z-10 shrink-0 self-center">
-                <AnalyticsPinButton
+                <SidebarPinButton
                     target={{ type: 'folder', ref: space.path, name: space.name }}
                     size="icon"
                     // pinned: tracking API, do not rename.

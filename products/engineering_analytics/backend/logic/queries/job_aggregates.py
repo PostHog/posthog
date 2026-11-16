@@ -1,16 +1,4 @@
-"""Curated query: per-job aggregates for one workflow over a window.
-
-The workflow page's jobs table: one row per de-sharded job name (the matrix "(G/N)"
-suffix stripped in SQL with the same rule the frontend's jobGroups uses), with queue
-p50 (created -> started, where runner-capacity problems hide), duration percentiles
-(successful jobs only — the shared DURATION_PERCENTILE_CONDITION population),
-failure rate, retry pressure, run share (conditional jobs skip — "runs in 31% of
-runs"), and billable cost, all from one scan of the per-job cost source. The
-run-share denominator comes from a cheap runs count.
-
-Unexpanded ``${{ matrix.* }}`` template names (skipped matrices) are collapsed for
-grouping the same way the frontend does.
-"""
+"""Curated query: per-job aggregates for one workflow over a window, one row per de-sharded job name."""
 
 from datetime import datetime
 
@@ -34,9 +22,8 @@ _LIMIT = 200
 # NULL != 'skipped' is NULL, which quantileIf drops; the ifNull keeps still-running jobs in the sample.
 _QUEUED_JOB_CONDITION = "ifNull(conclusion, '') != 'skipped'"
 
-# De-shard + de-template in SQL so grouping happens server-side over millions of job rows.
-# Mirrors jobGroups.stripShardSuffix / collapseTemplates on the frontend and
-# master_failures.strip_shard_suffix in Python — keep the three in sync.
+# Mirrors jobGroups.stripShardSuffix and collapseTemplates on the frontend and
+# master_failures.strip_shard_suffix in Python. Keep the three in sync.
 _JOB_NAME_TEMPLATE = (
     "replaceRegexpOne(replaceRegexpAll(__NAME__, '\\\\$\\\\{\\\\{[^}]*\\\\}\\\\}', '…'),"
     " '\\\\s*\\\\((\\\\d+)/(\\\\d+)\\\\)(\\\\))?$', '\\\\3')"
@@ -44,13 +31,9 @@ _JOB_NAME_TEMPLATE = (
 
 
 def _job_name_expr(column: str) -> str:
-    """The de-shard/de-template expression over ``column`` — the raw ``name`` in the jobs source, or
-    the cost source's ``job_name`` (which is that same ``name``, renamed by the cost builder)."""
     return _JOB_NAME_TEMPLATE.replace("__NAME__", column)
 
 
-# One scan of the shared per-job cost source. It joins each job to its run, so the run-scope filters can
-# read the run's attributes, and the job stats and the billable cost read the same rows.
 _AGGREGATE_SELECT = f"""
     SELECT
         {_job_name_expr("job_name")} AS job_group,
@@ -95,10 +78,8 @@ def query_job_aggregates(
     branch: str | None,
     run_scope: WorkflowHealthRunScope = WorkflowHealthRunScope.ALL,
 ) -> list[WorkflowJobAggregate]:
-    # The query windows the job's OWN created_at, but it EXCLUDES re-run copies, and a copy is only
-    # recognisable while its original attempt is still in the scan: a re-run a day or more after the
-    # original push would otherwise pull the copy inside the window, drop the original below a tight
-    # floor, and count the copy as an execution. So take the wide floor, same as the cost surfaces.
+    # A re-run copy is recognisable only while its original attempt is in the scan, so the scan takes
+    # the wide created_at floor. A tight floor would drop the original and count the copy as an execution.
     cost_source = curated.job_cost_source(created_floor=True, since=date_from)
     if cost_source is None:
         return []
@@ -109,8 +90,6 @@ def query_job_aggregates(
         "date_from": ast.Constant(value=date_from),
         "job_created_floor": run_windowed_job_created_floor_constant(date_from),
     }
-    # Each clause registers its own placeholder. The job template windows the job's created_at, and the
-    # run-count template the run's run_started_at.
     date_to_clause = date_to_filter_clause(date_to, placeholders, column="created_at")
     runs_date_to_clause = date_to_filter_clause(date_to, placeholders, column="run_started_at")
     branch_clause = branch_filter_clause(branch, placeholders, column="head_branch")
@@ -165,8 +144,8 @@ def query_job_aggregates(
                 p95_seconds=opt_float(p95_seconds),
                 failure_rate=opt_float(failure_rate),
                 retry_job_count=retry_job_count,
-                # No costed job (every instance github-hosted, non-Linux, or still queued) leaves the cost
-                # unknown rather than billing a not-yet-finished or non-billable job as $0.
+                # With no costed job (every instance github-hosted, non-Linux, or still queued) the cost is
+                # unknown, because $0 would misreport an unfinished or non-billable job.
                 billable_minutes=float(billable_seconds or 0.0) / 60 if costed_jobs else None,
                 estimated_cost_usd=float(cost_sum or 0.0) if costed_jobs else None,
             )

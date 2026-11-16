@@ -176,7 +176,9 @@ Connect your Instagram account, then pick the professional account you want to s
         `refresh_access_token` is a no-op while the current token has more than 7 days left.
         """
         integration = self.get_oauth_integration(integration_id, team_id)
-        InstagramIntegration(integration).refresh_access_token()
+        adapter = InstagramIntegration(integration)
+        adapter.refresh_access_token()
+        integration = adapter.integration
 
         if integration.errors == ERROR_TOKEN_REFRESH_FAILED or not integration.access_token:
             raise ValueError("Failed to refresh the Instagram connection")

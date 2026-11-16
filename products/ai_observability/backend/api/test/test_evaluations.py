@@ -188,8 +188,16 @@ class TestModelConfigurationSerializer(SimpleTestCase):
             ("explicit_null_clears_level", {"evaluation_config": {"reasoning_level": None}}, {}),
             ("level_change", {"evaluation_config": {"reasoning_level": "minimal"}}, {"reasoning_level": "minimal"}),
             (
-                "unsupported_model_rejected",
+                "model_change_drops_unsupported_level",
                 {"model_configuration": {"provider": "gemini", "model": "gemini-2.5-flash"}},
+                {},
+            ),
+            (
+                "explicit_level_on_unsupported_model_rejected",
+                {
+                    "model_configuration": {"provider": "gemini", "model": "gemini-2.5-flash"},
+                    "evaluation_config": {"reasoning_level": "high"},
+                },
                 None,
             ),
             (

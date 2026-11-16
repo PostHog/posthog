@@ -204,6 +204,10 @@ class TestTraceViewSet(ClickhouseTestMixin, APIBaseTest):
                 ("trace", ""),
                 ("node", f"nodes/{encode_segment('trace-1')}/"),
                 ("raw node", f"nodes/{encode_segment('trace-1')}/raw/"),
+                (
+                    "dataset item",
+                    f"nodes/{encode_segment('trace-1')}/dataset_item/?timestamp_hint=2026-09-01T10:00:00Z",
+                ),
                 ("evaluations", "evaluations/"),
                 ("clusters", "clusters/?created_at=2026-09-01T10:00:00Z"),
                 ("search", "search/?q=invoice"),

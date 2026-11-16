@@ -424,18 +424,11 @@ async function expectStoryToMatchSnapshot(
     // Allow ResizeObserver callbacks to fire and React to re-render with updated dimensions
     await page.waitForTimeout(300)
 
-    const {
-        waitForLoadersToDisappear = true,
-        waitForSelector,
-        waitForSelectorTimeout,
-    } = storyContext.parameters?.testOptions ?? {}
+    const { waitForSelector, waitForSelectorTimeout } = storyContext.parameters?.testOptions ?? {}
 
-    if (waitForLoadersToDisappear) {
-        // The timeout allows loaders and toasts to disappear - toasts usually signify something wrong
-        // Timeout is 5000ms by default, but increased to 10000ms for stories with async data loading (Dashboards, Max)
-        // to account for slower CI environments while still catching stuck elements
-        const timeout = context.id.includes('dashboards') || context.id.includes('max') ? 10000 : 5000
-        await waitForEveryLoaderHidden(page, timeout)
+    const loaderWaitTimeout = getLoaderWaitTimeout(context, storyContext)
+    if (loaderWaitTimeout !== null) {
+        await waitForEveryLoaderHidden(page, loaderWaitTimeout)
     }
 
     if (typeof waitForSelector === 'string') {
@@ -455,6 +448,22 @@ async function expectStoryToMatchSnapshot(
     }
 }
 
+/** The loader wait timeout for the story, or null when the story shows a loader on purpose. */
+function getLoaderWaitTimeout(context: TestContext, storyContext: StoryContext): number | null {
+    const { waitForLoadersToDisappear = true } = storyContext.parameters?.testOptions ?? {}
+    if (!waitForLoadersToDisappear) {
+        return null
+    }
+    // The timeout allows loaders and toasts to disappear - toasts usually signify something wrong
+    // Timeout is 5000ms by default, but increased to 10000ms for stories with async data loading (Dashboards, Max)
+    // to account for slower CI environments while still catching stuck elements
+    return context.id.includes('dashboards') || context.id.includes('max') ? 10000 : 5000
+}
+
+function locateVisibleLoaders(page: Page): Locator {
+    return page.locator(LOADER_SELECTORS.join(',')).filter({ visible: true })
+}
+
 /**
  * Wait until no loader on the page is visible.
  *
@@ -466,7 +475,7 @@ async function expectStoryToMatchSnapshot(
  * toolbar stories render their loaders.
  */
 async function waitForEveryLoaderHidden(page: Page, timeout: number): Promise<void> {
-    const visibleLoaders = page.locator(LOADER_SELECTORS.join(',')).filter({ visible: true })
+    const visibleLoaders = locateVisibleLoaders(page)
     try {
         await visibleLoaders.first().waitFor({ state: 'hidden', timeout })
     } catch (error) {
@@ -541,6 +550,12 @@ async function takeSnapshotWithTheme(
     // Wait until we're sure we've finished loading everything
     const { skipIframeWait = false } = storyContext.parameters?.testOptions ?? {}
     await waitForPageReady(page, skipIframeWait)
+    // A request can start after the wait in expectStoryToMatchSnapshot, for example one that waits for
+    // earlier mocked calls and a debounce, so its loader can show up between the two themes.
+    const loaderWaitTimeout = getLoaderWaitTimeout(context, storyContext)
+    if (loaderWaitTimeout !== null) {
+        await waitForEveryLoaderHidden(page, loaderWaitTimeout)
+    }
     // check if all images have width, unless purposefully skipped
     if (!allowImagesWithoutWidth) {
         // A lazy image far below the fold stays unfetched until it nears the viewport, and the
@@ -705,6 +720,7 @@ async function doTakeSnapshotWithTheme(
         context: TestContext,
         browser: SupportedBrowserName,
         theme: SnapshotTheme,
+        loaderWaitTimeout: number | null,
         targetSelector?: string
     ) => Promise<void>
     if (storyContext.parameters?.layout === 'fullscreen') {
@@ -724,28 +740,36 @@ async function doTakeSnapshotWithTheme(
         check = expectStoryToMatchComponentSnapshot
     }
 
-    await check(page, context, browser, theme, snapshotTargetSelector)
+    await check(page, context, browser, theme, getLoaderWaitTimeout(context, storyContext), snapshotTargetSelector)
 }
 
 async function expectStoryToMatchViewportSnapshot(
     page: Page,
     context: TestContext,
     browser: SupportedBrowserName,
-    theme: SnapshotTheme
+    theme: SnapshotTheme,
+    loaderWaitTimeout: number | null
 ): Promise<void> {
-    await expectLocatorToMatchStorySnapshot(page, context, browser, theme)
+    await expectLocatorToMatchStorySnapshot(page, context, browser, theme, loaderWaitTimeout)
 }
 
 async function expectStoryToMatchSceneSnapshot(
     page: Page,
     context: TestContext,
     browser: SupportedBrowserName,
-    theme: SnapshotTheme
+    theme: SnapshotTheme,
+    loaderWaitTimeout: number | null
 ): Promise<void> {
     // If the `main` element isn't present, let's use `body` - this is needed in logged-out screens.
     // We use .last(), because the order of selector matches is based on the order of elements in the DOM,
     // and not the order of the selectors in the query.
-    await expectLocatorToMatchStorySnapshot(page.locator('body, main').last(), context, browser, theme)
+    await expectLocatorToMatchStorySnapshot(
+        page.locator('body, main').last(),
+        context,
+        browser,
+        theme,
+        loaderWaitTimeout
+    )
 }
 
 async function expectStoryToMatchComponentSnapshot(
@@ -753,6 +777,7 @@ async function expectStoryToMatchComponentSnapshot(
     context: TestContext,
     browser: SupportedBrowserName,
     theme: SnapshotTheme,
+    loaderWaitTimeout: number | null,
     targetSelector: string = '#storybook-root'
 ): Promise<void> {
     await page.evaluate(() => {
@@ -782,7 +807,7 @@ async function expectStoryToMatchComponentSnapshot(
     // Widening the root for a popover can resize a chart again.
     await waitForChartCanvasesPainted(page)
 
-    await expectLocatorToMatchStorySnapshot(page.locator(targetSelector), context, browser, theme, {
+    await expectLocatorToMatchStorySnapshot(page.locator(targetSelector), context, browser, theme, loaderWaitTimeout, {
         omitBackground: true,
     })
 }
@@ -792,9 +817,10 @@ async function expectLocatorToMatchStorySnapshot(
     context: TestContext,
     browser: SupportedBrowserName,
     theme: SnapshotTheme,
+    loaderWaitTimeout: number | null,
     options?: LocatorScreenshotOptions
 ): Promise<void> {
-    const image = await takeSettledSnapshotImage(locator, context, theme, options)
+    const image = await takeSettledSnapshotImage(locator, context, theme, loaderWaitTimeout, options)
     let customSnapshotIdentifier = `${context.id}--${theme}`
     if (browser !== 'chromium') {
         customSnapshotIdentifier += `--${browser}`
@@ -816,21 +842,33 @@ async function expectLocatorToMatchStorySnapshot(
  * Captures until two screenshots in a row match, the way Playwright's `toHaveScreenshot` does.
  * Between captures the chart paint and animation finish run again, so a page that changed after the
  * waits is captured again once it settles.
+ *
+ * A match alone does not prove the page is done: the 0 ms animations freeze a spinner, so two captures
+ * of a loading state match too. So unless the story opts out of the loader wait, each capture waits
+ * for loaders first, and a capture is kept only when no loader shows after it.
  */
 async function takeSettledSnapshotImage(
     locator: Locator | Page,
     context: TestContext,
     theme: SnapshotTheme,
+    loaderWaitTimeout: number | null,
     options?: LocatorScreenshotOptions
 ): Promise<Buffer> {
     const page = 'page' in locator ? locator.page() : locator
+    if (loaderWaitTimeout !== null) {
+        await waitForEveryLoaderHidden(page, loaderWaitTimeout)
+    }
     let previous = await takeSnapshotImage(locator, context, options)
     for (let capture = 2; capture <= MAX_SNAPSHOT_CAPTURES; capture++) {
         await page.waitForTimeout(RECAPTURE_SETTLE_MS)
         await waitForChartCanvasesPainted(page)
         await finishAnimations(page)
+        if (loaderWaitTimeout !== null) {
+            await waitForEveryLoaderHidden(page, loaderWaitTimeout)
+        }
         const image = await takeSnapshotImage(locator, context, options)
-        if (image.equals(previous)) {
+        const loaderShowed = loaderWaitTimeout !== null && (await locateVisibleLoaders(page).count()) > 0
+        if (image.equals(previous) && !loaderShowed) {
             return image
         }
         previous = image

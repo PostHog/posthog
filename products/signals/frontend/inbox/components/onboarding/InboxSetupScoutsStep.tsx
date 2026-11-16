@@ -13,7 +13,7 @@ import { AutonomySettingGroup } from '../config/AutonomySettingGroup'
 import { useScoutCreateDisabledReason } from '../config/scouts/ScoutCreateModalHost'
 
 export function InboxSetupScoutsStep(): JSX.Element {
-    const { draft, saving, scoutChoices, scoutsLoading } = useValues(inboxSetupLogic)
+    const { draft, saving, scoutChoices, scoutLimit, scoutsLoading } = useValues(inboxSetupLogic)
     const { toggleSuggestion } = useActions(inboxSetupLogic)
     const { batchStatus } = useValues(scoutSuggestionsLogic)
     const creationDisabledReason = useScoutCreateDisabledReason()
@@ -73,7 +73,7 @@ export function InboxSetupScoutsStep(): JSX.Element {
                                     ? 'Saving setup'
                                     : !selectedIds.has(item.id)
                                       ? (creationDisabledReason ??
-                                        (draft.suggestions.length >= 5 ? 'Select up to five scouts' : undefined))
+                                        (draft.suggestions.length >= scoutLimit.limit ? scoutLimit.reason : undefined))
                                       : undefined
                             }
                             onClick={() => toggleSuggestion(item)}

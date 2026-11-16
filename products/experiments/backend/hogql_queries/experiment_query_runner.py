@@ -43,7 +43,11 @@ from products.ai_observability.backend.facade.api import mentions_evaluation_pas
 from products.analytics_platform.backend.lazy_computation.lazy_computation_executor import LazyComputationResult
 from products.experiments.backend.facade.enums import ExposuresPath, PrecomputeSkipReason
 from products.experiments.backend.hogql_queries import MULTIPLE_VARIANT_KEY, get_baseline_variant_key
-from products.experiments.backend.hogql_queries.base_query_utils import experiment_window, experiment_window_end
+from products.experiments.backend.hogql_queries.base_query_utils import (
+    experiment_window,
+    experiment_window_end,
+    rule_for_query,
+)
 from products.experiments.backend.hogql_queries.cuped_config import get_cuped_config
 from products.experiments.backend.hogql_queries.error_handling import experiment_error_handler
 from products.experiments.backend.hogql_queries.experiment_actors_query import build_experiment_actors_query
@@ -67,6 +71,7 @@ from products.experiments.backend.hogql_queries.utils import (
     get_experiment_query_debug,
     get_experiment_stats_method,
     get_frequentist_experiment_result,
+    get_overall_variant_results,
     get_variant_results,
     split_baseline_and_test_variants,
 )
@@ -80,7 +85,7 @@ from products.experiments.backend.metric_resolution import (
     metric_uses_warehouse_native_source,
 )
 from products.experiments.backend.metric_utils import get_default_metric_title
-from products.experiments.backend.models.experiment import Experiment
+from products.experiments.backend.models.experiment import Experiment, exposure_flag_key
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
 from products.experiments.backend.warehouse_timestamp_validation import enforce_warehouse_metric_timestamp_types
 
@@ -155,8 +160,12 @@ class ExperimentQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
         # covers the full [start, end_date] window, or [start, now] while the experiment runs.
         self.as_of = as_of if as_of is not None else (self.experiment.end_date or datetime.now(UTC))
         self.feature_flag = self.experiment.feature_flag
-        self.feature_flag_key = self.feature_flag.key_without_tombstone()
-        self.group_type_index = self.feature_flag.aggregation_group_type_index
+        rule = rule_for_query(self.experiment)
+        self.feature_flag_key = exposure_flag_key(self.feature_flag, rule)
+        self.feature_flag_rule_id = rule.rule_id if rule is not None else None
+        self.group_type_index = (
+            rule.assign_variant_by if rule is not None else self.feature_flag.aggregation_group_type_index
+        )
         self.entity_key = get_entity_key(self.group_type_index)
 
         # Holdout is intentionally not appended: holdout users were never exposed to
@@ -164,9 +173,8 @@ class ExperimentQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
         # self.experiment.holdout is still readable for code paths that need it
         # (e.g. the Distribution table on the Variants tab).
         excluded_variants = set(self.experiment.excluded_variants or [])
-        self.variants = [
-            variant["key"] for variant in self.feature_flag.variants if variant["key"] not in excluded_variants
-        ]
+        flag_variants = rule.variants if rule is not None else self.feature_flag.variants
+        self.variants = [variant["key"] for variant in flag_variants if variant["key"] not in excluded_variants]
 
         stats_config = self.experiment.stats_config or {}
         self.baseline_variant_key = get_baseline_variant_key(stats_config, self.variants)
@@ -234,6 +242,7 @@ class ExperimentQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
             precomputation_mode=self.query.precomputation_mode,
             is_data_warehouse_query=self.is_data_warehouse_query,
             group_type_index=self.group_type_index,
+            is_rule_linked=self.feature_flag_rule_id is not None,
         )
 
     def _ensure_exposures_precomputed(self, builder: ExperimentQueryBuilder) -> LazyComputationResult:
@@ -314,6 +323,7 @@ class ExperimentQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
             only_count_matured_users=self.experiment.only_count_matured_users,
             cuped_config=self.cuped_config,
             activation_config=exposure_params.activation_config,
+            feature_flag_rule_id=self.feature_flag_rule_id,
         )
 
     def _get_experiment_query(self) -> ast.SelectQuery:
@@ -574,10 +584,13 @@ class ExperimentQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
     @experiment_error_handler
     def _calculate(self) -> ExperimentQueryResponse:
         self._refuse_warehouse_sources()
-        variant_results = self._prepare_variant_results()
+        sorted_results, columns = self._evaluate_experiment_query()
+        variant_results = self._add_missing_variants(get_variant_results(sorted_results, columns))
 
         if self._has_breakdown(variant_results):
-            breakdown_results, variants = self._process_breakdown_results(variant_results)
+            breakdown_results = self._process_breakdown_results(variant_results)
+            overall_variant_results = self._add_missing_variants(get_overall_variant_results(sorted_results, columns))
+            variants = aggregate_variants_across_breakdowns(overall_variant_results)
         else:
             breakdown_results = None
             variants = [v for _, v in variant_results]
@@ -592,11 +605,6 @@ class ExperimentQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
         result.is_precomputed = self._is_precomputed
 
         return result
-
-    def _prepare_variant_results(self) -> list[tuple[tuple[str, ...] | None, ExperimentStatsBase]]:
-        sorted_results, columns = self._evaluate_experiment_query()
-        variant_results = get_variant_results(sorted_results, columns)
-        return self._add_missing_variants(variant_results)
 
     def _has_breakdown(self, variant_results: list[tuple[tuple[str, ...] | None, ExperimentStatsBase]]) -> bool:
         return any(bv is not None for bv, _ in variant_results)
@@ -625,16 +633,12 @@ class ExperimentQueryRunner(ExperimentResultsCacheMixin, QueryRunner):
 
     def _process_breakdown_results(
         self, variant_results: list[tuple[tuple[str, ...] | None, ExperimentStatsBase]]
-    ) -> tuple[list[ExperimentBreakdownResult], list[ExperimentStatsBase]]:
+    ) -> list[ExperimentBreakdownResult]:
         breakdown_tuples = sorted({bv for bv, _ in variant_results if bv is not None})
 
-        breakdown_results = [
+        return [
             self._compute_breakdown_statistics(breakdown_tuple, variant_results) for breakdown_tuple in breakdown_tuples
         ]
-
-        aggregated_variants = aggregate_variants_across_breakdowns(variant_results)
-
-        return breakdown_results, aggregated_variants
 
     def _compute_breakdown_statistics(
         self,

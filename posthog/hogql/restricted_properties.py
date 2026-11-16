@@ -88,6 +88,18 @@ WEB_DIMENSIONAL_MIRRORED_COLUMNS: dict[str, tuple[str, ...]] = {
     "region_name": ("$geoip_subdivision_1_name",),
     "mat_metadata_loggedIn": ("metadata.loggedIn",),
     "mat_metadata_backend": ("metadata.backend",),
+    # Channel type is derived from these, and a custom rule matching a URL substring can encode its content.
+    "channel_type": (
+        "utm_source",
+        "utm_medium",
+        "utm_campaign",
+        "$referring_domain",
+        "$current_url",
+        "$pathname",
+        "gclid",
+        "fbclid",
+        "gad_source",
+    ),
 }
 
 

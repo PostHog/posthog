@@ -1,5 +1,6 @@
 import { beforeAll, describe, expect, it } from 'vitest'
 
+import { serverDetailOf } from '@/lib/errors'
 import {
     TEST_ORG_ID,
     TEST_PROJECT_ID,
@@ -191,7 +192,7 @@ describe('Persons', { concurrent: false }, () => {
                 })
                 expect(result).toBeTruthy()
             } catch (error: any) {
-                expect(error.message).toMatch(/Unable to delete property|500/)
+                expect(`${error.message}\n${serverDetailOf(error) ?? ''}`).toMatch(/Unable to delete property|500/)
             }
         })
     })
