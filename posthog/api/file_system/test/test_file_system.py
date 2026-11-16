@@ -1704,6 +1704,21 @@ class TestFileSystemAPIAdvancedPermissions(APIBaseTest):
         self.assertEqual([item["ref"] for item in response.json()], [self.file_a.ref])
 
     @patch("posthoganalytics.feature_enabled", return_value=True)
+    def test_move_own_entry_leaves_denied_item_entry_in_place(self, mock_flag: MagicMock) -> None:
+        self._create_access_control(resource="dashboard", resource_id=self.file_b.ref, access_level="none")
+        own_entry = FileSystem.objects.create(
+            team=self.team, path="Mine/FileB", depth=2, type="dashboard", ref=self.file_b.ref, created_by=self.user
+        )
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/file_system/{own_entry.id}/move", {"new_path": "Elsewhere/FileB"}
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        self.file_b.refresh_from_db()
+        self.assertEqual(self.file_b.path, "Docs/FileB")
+
+    @patch("posthoganalytics.feature_enabled", return_value=True)
     def test_list_excludes_items_with_none_access(self, mock_flag):
         self._create_access_control(resource="dashboard", resource_id=self.file_b.ref, access_level="none")
         # The user is not staff, not the creator of file_b => 'none' should exclude it
@@ -2633,6 +2648,64 @@ class TestMoveRepairsLeftoverHogFunctions(APIBaseTest):
     # ------------------------------------------------------------------ #
     #  TEST
     # ------------------------------------------------------------------ #
+    @parameterized.expand(
+        [
+            # Moving the item carries its other default-surface entry; the shortcut and desktop entry stay.
+            (
+                "item",
+                "web",
+                ["Experiments/Q4/Weekly signups"] * 2 + ["Favorites/Weekly signups", "Desk/Weekly signups"],
+            ),
+            # Moving a shortcut moves only the shortcut, never the item it points at.
+            (
+                "shortcut",
+                "shortcut",
+                ["Unfiled/Insights/Weekly signups"] * 2 + ["Experiments/Q4/Weekly signups", "Desk/Weekly signups"],
+            ),
+        ]
+    )
+    def test_move_item_entry(self, _name: str, moved: str, expected_paths: list[str]) -> None:
+        entries = {
+            "legacy": FileSystem.objects.create(
+                team=self.team,
+                path="Unfiled/Insights/Weekly signups",
+                depth=3,
+                type="insight",
+                ref="abc123",
+                surface=None,
+            ),
+            "web": FileSystem.objects.create(
+                team=self.team,
+                path="Unfiled/Insights/Weekly signups",
+                depth=3,
+                type="insight",
+                ref="abc123",
+                surface="web",
+            ),
+            "shortcut": FileSystem.objects.create(
+                team=self.team,
+                path="Favorites/Weekly signups",
+                depth=2,
+                type="insight",
+                ref="abc123",
+                surface="web",
+                shortcut=True,
+            ),
+            "desktop": FileSystem.objects.create(
+                team=self.team, path="Desk/Weekly signups", depth=2, type="insight", ref="abc123", surface="desktop"
+            ),
+        }
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/file_system/{entries[moved].id}/move",
+            {"new_path": "Experiments/Q4/Weekly signups"},
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        for entry in entries.values():
+            entry.refresh_from_db()
+        self.assertEqual([entry.path for entry in entries.values()], expected_paths)
+
     def test_move_recreates_folder_for_leftover_items(self):
         move_url = f"/api/projects/{self.team.id}/file_system/{self.folder_t1.id}/move"
         response = self.client.post(move_url, {"new_path": "SharedRenamed"})
