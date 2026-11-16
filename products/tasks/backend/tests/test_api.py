@@ -8823,6 +8823,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
                 "interaction_origin": "slack",
                 "slack_actor_user_id": self.user.id,
                 "slack_actor_slack_user_id": "U_ORIGINAL_ACTOR",
+                "slack_progress_message_ts": "1700000000.000100",
                 "run_source": "manual",
             },
         )
@@ -8836,7 +8837,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
         # scopes) via pending_dispatch, or repoint the run at a costlier model (which for a run
         # routed to an unbilled gateway product is free spend). Nor can a caller stamp a
         # workflow-owned terminal reason marker, which would make a genuine FAILED run read as a
-        # timeout and skip its Slack error card, or forge the Slack actor or run source. Non-protected
+        # timeout and skip its Slack error card, or forge the Slack actor, run source, or progress card ts. Non-protected
         # keys still merge.
         response = self.client.patch(
             f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/",
@@ -8891,6 +8892,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
                     "timed_out_inactivity": True,
                     "timed_out_wall_clock": True,
                     "sandbox_gone": True,
+                    "stopped_before_turn_closed": True,
                     # implementation provenance is what the self-driving review carve-outs trust
                     "ai_stage": "implementation",
                     # a forged agent name bills this run's spend to another agent
@@ -8920,6 +8922,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
                     "interaction_origin": "desktop",
                     "slack_actor_user_id": credential_target.id,
                     "slack_actor_slack_user_id": "U_OTHER_ACTOR",
+                    "slack_progress_message_ts": "1700000000.999999",
                     "run_source": "signal_report",
                     "dev_stack_preview": {"port": 8080, "sandbox_id": "sb-real"},
                     "scratch": "ok",
@@ -8969,6 +8972,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
         assert run.state["pending_external_followups_checkpoint"] == {"generation": 8}
         assert "timed_out_inactivity" not in run.state  # caller cannot forge a timeout reason
         assert "timed_out_wall_clock" not in run.state
+        assert "stopped_before_turn_closed" not in run.state
         assert run.state["sandbox_gone"] is False
         assert run.state["ai_stage"] == "research"  # cannot forge implementation provenance
         assert run.state["self_driving_head_branch"] == "posthog-self-driving/real-3f9a2c"
@@ -8991,6 +8995,7 @@ class TestTaskRunAPI(BaseTaskAPITest):
         assert run.state["interaction_origin"] == "slack"
         assert run.state["slack_actor_user_id"] == self.user.id
         assert run.state["slack_actor_slack_user_id"] == "U_ORIGINAL_ACTOR"
+        assert run.state["slack_progress_message_ts"] == "1700000000.000100"
         assert run.state["run_source"] == "manual"
         assert run.state["scratch"] == "ok"  # non-protected keys still merge
         assert run.state["systemPrompt"] == system_prompt

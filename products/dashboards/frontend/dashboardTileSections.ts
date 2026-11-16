@@ -6,7 +6,7 @@ import { objectsEqual } from 'lib/utils/objects'
 import { pluralize } from 'lib/utils/strings'
 import { BREAKPOINT_COLUMN_COUNTS } from 'scenes/dashboard/dashboardUtils'
 
-import type { DashboardLayoutSize, DashboardTile } from '~/types'
+import type { DashboardLayoutSize, DashboardTile, TileGroupDisplay } from '~/types'
 
 import type { DashboardGridCompactor } from './dashboardCustomization'
 import type { DashboardTileGroupApi } from './generated/api.schemas'
@@ -20,6 +20,13 @@ export type SectionLayouts = Partial<Record<DashboardLayoutSize, Layout>>
 export interface TileGroupMoveOptions {
     targets: { sectionKey: string; label: string }[]
     canTakeOut: boolean
+}
+
+export type TileGroupMoveDirection = 'up' | 'down'
+
+export interface TileGroupMoveDirections {
+    canMoveUp: boolean
+    canMoveDown: boolean
 }
 
 export function getTileGroupLabel(group: DashboardTileGroupApi, tileCount: number): string {
@@ -91,8 +98,9 @@ export function getDashboardSections({
         if (last?.kind === 'tiles') {
             last.tiles.push(tile)
         } else {
-            // Named after the group above it, so the key holds when the band's own tiles reorder.
-            const key = last ? `tiles-after-${last.groupKey}` : 'tiles-start'
+            // Numbered among the bands outside any group, so the key holds when the band's own tiles reorder
+            // and when a group moves past the band.
+            const key = `tiles-${sections.filter((section) => section.kind === 'tiles').length}`
             sections.push({ kind: 'tiles', key, tiles: [tile] })
         }
     }
@@ -245,6 +253,88 @@ export function getTileGroupMoveOptions(sections: DashboardSection[]): Record<nu
             return section.tiles.map((tile) => [tile.id, options])
         })
     )
+}
+
+// Only the next band or tab can trade places, because empty groups always come last and the tab of tiles
+// outside any group always comes first. A band with no tiles has no rows to trade, and in tabs a group
+// trades places only with another group.
+function getTileGroupSwapIndex(
+    sections: DashboardSection[],
+    groupKey: string,
+    direction: TileGroupMoveDirection,
+    groupDisplay: TileGroupDisplay
+): number {
+    const index = sections.findIndex((section) => section.kind === 'group' && section.groupKey === groupKey)
+    const swapIndex = index + (direction === 'up' ? -1 : 1)
+    const neighbour = sections[swapIndex]
+    if (index < 0 || sections[index].tiles.length === 0 || !neighbour?.tiles.length) {
+        return -1
+    }
+    if (groupDisplay === 'tabs' && neighbour.kind !== 'group') {
+        return -1
+    }
+    return swapIndex
+}
+
+/** Empty when fewer than two bands or tabs can trade places, so no group shows move buttons that can never act. */
+export function getTileGroupMoveDirections(
+    sections: DashboardSection[],
+    groupDisplay: TileGroupDisplay
+): Record<string, TileGroupMoveDirections> {
+    const reorderable = sections.filter(
+        (section) => section.tiles.length > 0 && (groupDisplay === 'sections' || section.kind === 'group')
+    )
+    if (reorderable.length < 2) {
+        return {}
+    }
+    return Object.fromEntries(
+        sections.flatMap((section) =>
+            section.kind === 'group'
+                ? [
+                      [
+                          section.groupKey,
+                          {
+                              canMoveUp: getTileGroupSwapIndex(sections, section.groupKey, 'up', groupDisplay) >= 0,
+                              canMoveDown: getTileGroupSwapIndex(sections, section.groupKey, 'down', groupDisplay) >= 0,
+                          },
+                      ],
+                  ]
+                : []
+        )
+    )
+}
+
+/**
+ * `sections` are the bands or tabs as the dashboard shows them. Every tile keeps its place inside its own band or tab,
+ * so only their order changes.
+ */
+export function getLayoutAfterTileGroupMove({
+    layout,
+    sections,
+    groupKey,
+    direction,
+    groupDisplay,
+    compactor,
+}: {
+    layout: Layout
+    sections: DashboardSection[]
+    groupKey: string
+    direction: TileGroupMoveDirection
+    groupDisplay: TileGroupDisplay
+    compactor: Compactor
+}): Layout | null {
+    const index = sections.findIndex((section) => section.kind === 'group' && section.groupKey === groupKey)
+    const swapIndex = getTileGroupSwapIndex(sections, groupKey, direction, groupDisplay)
+    if (swapIndex < 0) {
+        return null
+    }
+    const sectionLayouts = sections.map(
+        (section) => getSectionLayouts({ sm: layout }, section.tiles, compactor).sm ?? []
+    )
+    const reordered = [...sectionLayouts]
+    reordered[index] = sectionLayouts[swapIndex]
+    reordered[swapIndex] = sectionLayouts[index]
+    return stackSectionLayouts(reordered)
 }
 
 export function getDropCell({

@@ -51,12 +51,19 @@ const activitySummarySearch = (): ToolBase<
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/signals/activity_summary_members/search/`,
             query: {
+                active_since_days: params.active_since_days,
                 exclude_user_uuids: params.exclude_user_uuids,
                 include_profile: params.include_profile,
                 limit: params.limit,
+                mode: params.mode,
+                object_id: params.object_id,
+                object_relation: params.object_relation,
+                object_type: params.object_type,
+                offset: params.offset,
                 product: params.product,
                 query: params.query,
                 search_mode: params.search_mode,
+                user_uuids: params.user_uuids,
             },
         })
         return result

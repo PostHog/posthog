@@ -6,6 +6,7 @@ import {
     groupRecommendations,
     reconcileResolutionOverrides,
     recommendationsShownState,
+    summarizeImpact,
     unresolved,
     withResolutionOverrides,
 } from './recommendations'
@@ -148,6 +149,55 @@ describe('recommendations', () => {
             ['nothing connected', { connectedSourceCount: 0, selectedSourceCount: 0 }, 'no_connected_source'],
         ] as const)('%s', (_, overrides, expected) => {
             expect(recommendationsShownState({ ...loaded, ...overrides })).toEqual(expected)
+        })
+    })
+
+    describe('summarizeImpact', () => {
+        const campaignRow = (
+            rule: MarketingAnalyticsRecommendation['rule'],
+            campaign: string,
+            impact: number,
+            impactDirection: MarketingAnalyticsRecommendation['impactDirection']
+        ): MarketingAnalyticsRecommendation =>
+            recommendation({ rule, level: 'campaign', subject: campaign, impact, impactDirection })
+
+        it.each([
+            {
+                name: 'a reviewed campaign counts its savings once',
+                rows: [
+                    campaignRow('review_campaign', 'Generic', 1000, 'save'),
+                    recommendation({ subject: 'waste', campaign: 'Generic', impact: 300 }),
+                    campaignRow('brand_leak', 'Generic', 200, 'save'),
+                    recommendation({ subject: 'other', campaign: 'Other', impact: 50 }),
+                ],
+                expected: [{ direction: 'save', currency: 'USD', amount: 1050 }],
+            },
+            {
+                name: 'two budget raises on one campaign count once, and new keywords add up',
+                rows: [
+                    campaignRow('scale_campaign', 'Generic', 900, 'invest'),
+                    campaignRow('budget_constrained', 'Generic', 600, 'invest'),
+                    recommendation({
+                        rule: 'keyword_gap',
+                        subject: 'funnel',
+                        campaign: 'Generic',
+                        impact: 100,
+                        impactDirection: 'invest',
+                    }),
+                ],
+                expected: [{ direction: 'invest', currency: 'USD', amount: 1000 }],
+            },
+            {
+                name: 'keep and zero amounts stay out',
+                rows: [
+                    campaignRow('brand_overlap', 'Brand', 5000, 'keep'),
+                    recommendation({ rule: 'striking_distance', subject: 'page', impact: 0, impactDirection: 'gain' }),
+                    recommendation({ subject: 'waste', impact: 40 }),
+                ],
+                expected: [{ direction: 'save', currency: 'USD', amount: 40 }],
+            },
+        ])('$name', ({ rows, expected }) => {
+            expect(summarizeImpact(rows)).toEqual(expected)
         })
     })
 })

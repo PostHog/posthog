@@ -58,6 +58,8 @@ export const productScenes: Record<string, () => Promise<any>> = {
     BusinessKnowledge: () => import('../../products/business_knowledge/frontend/scenes/sources/BusinessKnowledgeScene'),
     BusinessKnowledgePlayground: () =>
         import('products/business_knowledge/frontend/scenes/playground/BusinessKnowledgePlaygroundScene'),
+    BusinessKnowledgeUsage: () =>
+        import('../../products/business_knowledge/frontend/scenes/usage/BusinessKnowledgeUsageScene'),
     BusinessKnowledgeSettings: () =>
         import('../../products/business_knowledge/frontend/scenes/settings/BusinessKnowledgeSettingsScene'),
     BusinessKnowledgeSource: () =>
@@ -68,6 +70,7 @@ export const productScenes: Record<string, () => Promise<any>> = {
     Transformations: () => import('../../frontend/src/scenes/data-pipelines/TransformationsScene'),
     EventFiltering: () => import('../../frontend/src/scenes/data-pipelines/event-filtering/EventFilterScene'),
     CohortsStaffTools: () => import('../../products/cohorts/frontend/staff/CohortsStaffToolsScene'),
+    SupportOverview: () => import('../../products/conversations/frontend/scenes/overview/SupportOverviewScene'),
     SupportTickets: () => import('../../products/conversations/frontend/scenes/tickets/SupportTicketsScene'),
     SupportTicketDetail: () => import('../../products/conversations/frontend/scenes/ticket/SupportTicketScene'),
     SupportSettings: () => import('../../products/conversations/frontend/scenes/settings/SupportSettingsScene'),
