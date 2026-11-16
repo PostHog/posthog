@@ -8,7 +8,8 @@ import { internalFetch } from '~/common/utils/request'
 
 import { scratchSchema } from '../environment/stack'
 import { SCHEMA_VERSION } from '../scorecard/scorecard'
-import { INGEST_PATH, RUNS_PATH, RunningStore, startStore } from './server'
+import { INGEST_PATH, RUNS_PATH } from './routes'
+import { RunningStore, startStore } from './server'
 
 const TOKEN = 'test-run-token'
 const AUTHORIZED = { Authorization: `Bearer ${TOKEN}` }
@@ -86,7 +87,11 @@ describe('run store', () => {
 
     it('reads back exactly what was posted', async () => {
         const runId = randomUUID()
-        const series = [seriesOf('offered', [3, 4]), { ...seriesOf('lag', [1]), points: [{ at: 1, value: null }] }]
+        const series = [
+            { ...seriesOf('offered', [3, 4]), labels: { process: 'worker-a' } },
+            { ...seriesOf('offered', [5]), labels: { process: 'worker-b' } },
+            { ...seriesOf('lag', [1]), points: [{ at: 1, value: null }] },
+        ]
         const topology = { nodes: ['a', 'b'], edges: [['a', 'b']] }
         const manifest = { adapters: [{ id: 'example', owner: 'example-team' }] }
 
@@ -112,7 +117,7 @@ describe('run store', () => {
                 receivedAt: expect.any(String),
                 updatedAt: expect.any(String),
                 scorecard: scorecardFixture(runId),
-                series,
+                series: series.map((named) => ({ labels: {}, ...named })),
                 topology,
                 manifest,
             },
@@ -201,6 +206,28 @@ describe('run store', () => {
         [
             'a series that is not a list of named series',
             (runId) => ({ body: { scorecard: scorecardFixture(runId), series: { flow: [1] } }, headers: AUTHORIZED }),
+            400,
+        ],
+        [
+            'a series point whose value is a string',
+            (runId) => ({
+                body: {
+                    scorecard: scorecardFixture(runId),
+                    series: [{ ...seriesOf('offered', [1]), points: [{ at: 1, value: '3' }] }],
+                },
+                headers: AUTHORIZED,
+            }),
+            400,
+        ],
+        [
+            'series labels that are not strings',
+            (runId) => ({
+                body: {
+                    scorecard: scorecardFixture(runId),
+                    series: [{ ...seriesOf('offered', [1]), labels: { process: 1 } }],
+                },
+                headers: AUTHORIZED,
+            }),
             400,
         ],
         [

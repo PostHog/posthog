@@ -107,6 +107,8 @@ describe('scorecard', () => {
                 timestamp: '2026-01-05T10:02:30.500Z',
                 properties: {
                     schema_version: 1,
+                    adapters: ['workflows'],
+                    owners: [],
                     run_id: RUN_ID,
                     card_id: 'smoke',
                     card_version: 2,

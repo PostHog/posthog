@@ -797,6 +797,8 @@ A property is added without a version change; a rename, a removal or a change of
 | `head_dirty`        | boolean or null | Whether the `nodejs` package has uncommitted changes                                                                                                                       |
 | `origin`            | string          | Who started the run: `local-agent`                                                                                                                                         |
 | `target`            | string          | Where it ran: `local`                                                                                                                                                      |
+| `adapters`          | string list     | The adapters the run drove: `workflows`                                                                                                                                    |
+| `owners`            | string list     | The teams whose adapters ran; empty until adapters declare owners                                                                                                          |
 | `fingerprint`       | string or null  | SHA-256 of `target`, `host_cpu`, `host_memory_gb`, the three versions and `seed`. Runs compare only within one fingerprint and card hash. `null` when a version is unknown |
 | `host_cpu`          | string          | CPU model and count, as `<model> x <count>`                                                                                                                                |
 | `host_memory_gb`    | number          | Total memory, rounded to whole gigabytes                                                                                                                                   |
@@ -857,24 +859,24 @@ The runner works without it and reports `recorded: false`.
 ## Run store
 
 The run store keeps every run, local or cloud, in one place.
-The runners report to it and the hosted viewer reads from it; both land in later changes.
+The runners report to it, and the hosted viewer reads from it in a later change.
 It is one Node HTTP service over Postgres, in `store/`, and it runs nowhere in production.
 The scorecard event stays the durable record: everything in the store can be rebuilt from scorecard events and the evidence bucket.
 The store names no product: a run lists the adapters it drove, and each series names its adapter, so a new adapter needs no store change.
 
 **What a run stores**, keyed by `run_id`:
 
-| Column                                                                           | Holds                                                                                                    |
-| -------------------------------------------------------------------------------- | -------------------------------------------------------------------------------------------------------- |
-| `scorecard`                                                                      | The scorecard properties as posted, schema version 1 or 2 as given, with the run id lowercased           |
-| `adapters`                                                                       | The scorecard's `adapters`: the ids of the adapters the run drove, empty when it names none              |
-| `owners`                                                                         | The scorecard's `owners`: the teams whose adapters ran, empty when it names none                         |
-| `card_id`, `status`, `target`, `head_sha`, `card_hash`, `started_at`, `ended_at` | Copied from the scorecard, so lists filter and sort without reading the JSON                             |
-| `evidence_dir`                                                                   | The scorecard's `evidence_dir`: a path on the box for a local run, an S3 prefix for a cloud run          |
-| `host`                                                                           | The box that reported the run, when the report names it                                                  |
-| `series`                                                                         | Named series for the viewer, each `{ adapter, name, unit, points: [{ at, value }] }`; never raw evidence |
-| `topology`                                                                       | The systems the run saw, when the report has them                                                        |
-| `manifest`                                                                       | The run's merged adapter manifest, when the report has it, so an old run still draws after it changes    |
+| Column                                                                           | Holds                                                                                                                                                                                                                               |
+| -------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `scorecard`                                                                      | The scorecard properties as posted, schema version 1 or 2 as given, with the run id lowercased                                                                                                                                      |
+| `adapters`                                                                       | The scorecard's `adapters`: the ids of the adapters the run drove, empty when it names none                                                                                                                                         |
+| `owners`                                                                         | The scorecard's `owners`: the teams whose adapters ran, empty when it names none                                                                                                                                                    |
+| `card_id`, `status`, `target`, `head_sha`, `card_hash`, `started_at`, `ended_at` | Copied from the scorecard, so lists filter and sort without reading the JSON                                                                                                                                                        |
+| `evidence_dir`                                                                   | The scorecard's `evidence_dir`: a path on the box for a local run, an S3 prefix for a cloud run                                                                                                                                     |
+| `host`                                                                           | The box that reported the run, when the report names it                                                                                                                                                                             |
+| `series`                                                                         | Named series for the viewer, each `{ adapter, name, unit, labels, points: [{ at, value }] }`; `labels` maps strings to strings, default `{}`, and keeps apart series that share a name, such as one per process; never raw evidence |
+| `topology`                                                                       | The systems the run saw, when the report has them                                                                                                                                                                                   |
+| `manifest`                                                                       | The run's merged adapter manifest, when the report has it, so an old run still draws after it changes                                                                                                                               |
 
 **Routes**
 
@@ -906,6 +908,25 @@ Once a store runs somewhere, a change is a new statement at the end of the list,
 Changes only add, because the old revision keeps serving while a new one starts.
 On `SIGTERM` it stops taking connections and finishes the requests in flight before it exits.
 It holds at most 5 database connections and stops any statement after 25 seconds.
+
+**Report runs to it**
+
+The local runner and the cloud controller post each run to the store after they publish its scorecard event, when `SCENARIO_STORE_URL` is set and `~/.config/posthog/scenario-runs/store-token` holds the run token.
+They post the event's properties as the scorecard, and a local run adds the host name of its box.
+The event and the store post are two independent writes from one payload, so the event stays the durable record when the store is down.
+A failed report prints `store: <problem>`, or a warning from the cloud controller, and never changes the status or the exit code.
+Without `SCENARIO_STORE_URL` the runner posts nothing and prints `store: not reported, SCENARIO_STORE_URL is not set`.
+
+`publish` posts saved runs from the state directory, such as runs the store missed:
+
+```bash
+pnpm --dir nodejs exec tsx tests/scenarios/main.ts publish <run id or run directory>...
+pnpm --dir nodejs exec tsx tests/scenarios/main.ts publish --all
+```
+
+It posts the scorecard event each run saved in its `scorecard.json`, and names `workflows` as the adapter of a run saved before runs named their adapters.
+`--all` skips run directories without a scorecard.
+It exits 3 when a run is not stored, and 2 when `SCENARIO_STORE_URL` is not set.
 
 ## Decisions
 
