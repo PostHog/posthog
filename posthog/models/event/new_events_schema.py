@@ -1,3 +1,4 @@
+import time
 from collections.abc import Iterator
 from contextlib import contextmanager
 from contextvars import ContextVar
@@ -5,10 +6,15 @@ from typing import TYPE_CHECKING, Any
 
 from django.conf import settings
 
+import posthoganalytics
+
+from posthog.cloud_utils import is_cloud
 from posthog.models.instance_setting import get_instance_setting
 
 if TYPE_CHECKING:
     from posthog.schema import HogQLQueryModifiers
+
+    from posthog.models.team import Team
 
 
 # TODO: Remove the route helpers in this block after the events cluster migration is complete.
@@ -100,14 +106,110 @@ def new_events_schema_for_request() -> Iterator[None]:
         _person_switch.reset(token)
 
 
+def _allowlisted_team_ids() -> set[int]:
+    raw = str(get_instance_setting("CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA_TEAMS") or "")
+    return {int(part) for part in raw.split(",") if part.strip()}
+
+
+# Staff set the share of projects that read events_json, and the projects to keep on the legacy table, in this
+# flag's release conditions. The conditions can filter on the person property project_id.
+EVENTS_TABLE_ROLLOUT_FLAG = "new-events-table-rollout"
+# While this flag is off for a project, the project cannot choose its events table and a stored choice is ignored,
+# so turning the flag off puts every project back on the staff switches and the rollout.
+EVENTS_TABLE_SELF_SERVE_FLAG = "new-events-table-self-serve"
+
+_PROJECT_CHOICES_TTL_SECONDS = 60
+_project_choices: tuple[float, dict[int, bool]] | None = None
+
+
+def _flag_enabled_for_project(flag: str, team_id: int) -> bool:
+    # The flag is evaluated in this process and keyed on the project id, so the query path makes no network call.
+    if not is_cloud():
+        return False
+    return bool(
+        posthoganalytics.feature_enabled(
+            flag,
+            str(team_id),
+            person_properties={"project_id": str(team_id)},
+            only_evaluate_locally=True,
+            send_feature_flag_events=False,
+        )
+    )
+
+
+def clear_project_events_table_choices() -> None:
+    global _project_choices
+    _project_choices = None
+
+
+def _project_events_table_choices() -> dict[int, bool]:
+    # One cached map for every project, as get_instance_setting caches one value per key. A lookup per project
+    # would add a database read to the first query of each project on each worker.
+    global _project_choices
+    if _project_choices is not None and time.monotonic() - _project_choices[0] < _PROJECT_CHOICES_TTL_SECONDS:
+        return _project_choices[1]
+
+    # Deferred: this module is imported at django.setup(), before the models load.
+    from posthog.models.team.team_events_table_config import TeamEventsTableConfig  # noqa: PLC0415
+
+    choices: dict[int, bool] = dict(
+        TeamEventsTableConfig.objects.filter(use_new_events_table__isnull=False).values_list(
+            "team_id", "use_new_events_table"
+        )
+    )
+    _project_choices = (time.monotonic(), choices)
+    return choices
+
+
+def project_can_choose_events_table(team_id: int) -> bool:
+    return _flag_enabled_for_project(EVENTS_TABLE_SELF_SERVE_FLAG, team_id)
+
+
+def project_events_table_choice(team_id: int) -> bool | None:
+    """The table the project chose for itself: True for events_json, False for events, None for no choice."""
+    if not project_can_choose_events_table(team_id):
+        return None
+    return _project_events_table_choices().get(team_id)
+
+
+def set_project_events_table_choice(team: "Team", use_new_events_table: bool | None) -> None:
+    """Store the project's choice. Other workers read it once their cached choices expire, within a minute."""
+    # Deferred: this module is imported at django.setup(), before the models load.
+    from posthog.models.team.extensions import get_or_create_team_extension  # noqa: PLC0415
+    from posthog.models.team.team_events_table_config import TeamEventsTableConfig  # noqa: PLC0415
+
+    config = get_or_create_team_extension(team, TeamEventsTableConfig)
+    config.use_new_events_table = use_new_events_table
+    config.save(update_fields=["use_new_events_table"])
+    clear_project_events_table_choices()
+
+
+def project_reads_new_events_table(team_id: int | None) -> bool:
+    """Whether the project reads events_json when no query modifier or staff cookie says otherwise.
+
+    The first of these that has an answer decides: the project's own choice, CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA
+    for every project, CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA_TEAMS for a listed project, then the rollout flag.
+    Callers that pass no project, such as usage reports, follow CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA alone.
+    """
+    if team_id is not None:
+        choice = project_events_table_choice(team_id)
+        if choice is not None:
+            return choice
+    if get_instance_setting("CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA"):
+        return True
+    if team_id is None:
+        return False
+    return team_id in _allowlisted_team_ids() or _flag_enabled_for_project(EVENTS_TABLE_ROLLOUT_FLAG, team_id)
+
+
 def use_new_events_schema(team_id: int | None = None, modifiers: "HogQLQueryModifiers | None" = None) -> bool:
     """Whether events reads target the native JSON events table (events_json) instead of the legacy events table.
 
-    Four switches, each wider than the one before it: the query's useNewEventsSchema modifier, for one query;
-    a staff person's cookie, for every request from that browser (see new_events_schema_for_request);
-    CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA_TEAMS, for a project everywhere, background jobs included; and
-    CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA, for every project. The instance settings are cached for up to 60s
-    per worker. Nested reads inherit the running query's choice unless their own modifier overrides it.
+    Three switches, each wider than the one before it: the query's useNewEventsSchema modifier, for one query;
+    a staff person's cookie, for every request from that browser (see new_events_schema_for_request); and the
+    project's table, for a project everywhere, background jobs included (see project_reads_new_events_table).
+    The instance settings and the projects' own choices are cached for up to 60s per worker. Nested reads
+    inherit the running query's choice unless their own modifier overrides it.
     Code running inside a query should prefer HogQLContext.uses_new_events_schema(), which
     resolves this once so a mid-query flip can't mix schemas.
     """
@@ -120,9 +222,7 @@ def use_new_events_schema(team_id: int | None = None, modifiers: "HogQLQueryModi
         return True
     if settings.TEST and settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
         return True
-    if get_instance_setting("CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA"):
-        return True
-    return team_id is not None and team_id in _allowlisted_team_ids()
+    return project_reads_new_events_table(team_id)
 
 
 def events_read_table(use_new_events_schema: bool) -> str:
@@ -155,8 +255,3 @@ def events_read_settings(use_new_events_schema: bool) -> dict[str, int]:
     printed against.
     """
     return dict(EVENTS_JSON_READ_SETTINGS) if use_new_events_schema else {}
-
-
-def _allowlisted_team_ids() -> set[int]:
-    raw = str(get_instance_setting("CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA_TEAMS") or "")
-    return {int(part) for part in raw.split(",") if part.strip()}
