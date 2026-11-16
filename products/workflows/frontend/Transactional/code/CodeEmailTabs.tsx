@@ -17,7 +17,7 @@ import { codeEmailLogic } from './codeEmailLogic'
 
 export function CodeEmailTabs({ codeEmail }: { codeEmail: CodeEmailApi }): JSX.Element {
     const { tab } = useValues(codeEmailLogic)
-    const { setTab } = useActions(codeEmailLogic)
+    const { setTab, showRuns } = useActions(codeEmailLogic)
     const workflowProps = { id: codeEmail.hog_flow_id }
     const { originalWorkflow, workflowLoading } = useValues(workflowLogic(workflowProps))
     const { loadWorkflow } = useActions(workflowLogic(workflowProps))
@@ -50,7 +50,12 @@ export function CodeEmailTabs({ codeEmail }: { codeEmail: CodeEmailApi }): JSX.E
                         content: workflowFailed ? (
                             failedBanner
                         ) : (
-                            <WorkflowMetrics id={codeEmail.hog_flow_id} onEmailMetricClick={openEmailMetricSends} />
+                            <WorkflowMetrics
+                                id={codeEmail.hog_flow_id}
+                                {...(sendLinks
+                                    ? { onEmailMetricClick: openEmailMetricSends }
+                                    : { onShowInvocations: showRuns })}
+                            />
                         ),
                     },
                     ...(sendLinks

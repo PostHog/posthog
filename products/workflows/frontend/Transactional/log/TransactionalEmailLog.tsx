@@ -15,7 +15,13 @@ import type { TransactionalEmailLogEntryApi } from 'products/messaging/frontend/
 import { EmailDirectionToggle } from '../comingSoon/EmailDirectionToggle'
 import { TransactionalTemplatesLoadError } from '../TransactionalTemplatesLoadError'
 import { transactionalTemplatesLogic } from '../transactionalTemplatesLogic'
-import { EMAIL_STATUS_DESCRIPTION, EMAIL_STATUS_LABEL, EMAIL_STATUS_TAG, emailReasonText } from './emailLogStatus'
+import {
+    EMAIL_STATUS_DESCRIPTION,
+    EMAIL_STATUS_LABEL,
+    EMAIL_STATUS_TAG,
+    emailReasonOptions,
+    emailReasonText,
+} from './emailLogStatus'
 import { QuillTransactionalEmailLogFilters } from './QuillTransactionalEmailLogFilters'
 import { TransactionalEmailLogDateFilter } from './TransactionalEmailLogDateFilter'
 import { transactionalEmailLogLogic } from './transactionalEmailLogLogic'
@@ -74,12 +80,17 @@ function EmailLogList({ emailOptions }: { emailOptions?: { value: string; label:
         sendLinks
             ? combineUrl(urls.transactionalEmailLogEntry(email.message_id), sendFilterSearchParams).url
             : urls.transactionalEmailLogEntry(email.message_id)
+    const reasonOptions = sendLinks ? emailReasonOptions(filters.status) : null
 
     return (
         <div className="flex flex-col gap-2">
             {!oneEmail && <EmailDirectionToggle />}
             {todayRailNav ? (
-                <QuillTransactionalEmailLogFilters emailOptions={emailOptions} statusOptions={STATUS_OPTIONS} />
+                <QuillTransactionalEmailLogFilters
+                    emailOptions={emailOptions}
+                    statusOptions={STATUS_OPTIONS}
+                    reasonOptions={reasonOptions}
+                />
             ) : (
                 <div className="flex flex-wrap items-center gap-2 justify-between">
                     <div className="flex items-center gap-2 flex-1 min-w-60">
@@ -114,6 +125,16 @@ function EmailLogList({ emailOptions }: { emailOptions?: { value: string; label:
                             options={[{ value: null, label: 'Any status' }, ...STATUS_OPTIONS]}
                             data-attr="transactional-email-log-status-filter"
                         />
+                        {reasonOptions && (
+                            <LemonSelect
+                                size="small"
+                                dropdownMatchSelectWidth={false}
+                                value={filters.reason}
+                                onChange={(reason) => setFilters({ reason })}
+                                options={[{ value: null, label: 'Any reason' }, ...reasonOptions]}
+                                data-attr="transactional-email-log-reason-filter"
+                            />
+                        )}
                         <TransactionalEmailLogDateFilter />
                         <LemonButton
                             type="secondary"
@@ -134,7 +155,6 @@ function EmailLogList({ emailOptions }: { emailOptions?: { value: string; label:
                     dataAttr="transactional-email-log-templates-retry"
                 />
             )}
-            <SendReasonBanner />
             {pageFailed && (
                 <LemonBanner
                     type="error"
@@ -233,33 +253,6 @@ function EmailLogList({ emailOptions }: { emailOptions?: { value: string; label:
                 emptyState={emptySendsMessage({ pageFailed, page: filters.page, isFiltered, oneEmail })}
             />
         </div>
-    )
-}
-
-function SendReasonBanner(): JSX.Element | null {
-    const { filters } = useValues(transactionalEmailLogLogic)
-    const { setFilters } = useActions(transactionalEmailLogLogic)
-    if (!filters.reason) {
-        return null
-    }
-    return (
-        <LemonBanner
-            type="info"
-            action={{
-                children: 'Show every reason',
-                onClick: () => setFilters({ reason: null }),
-                'data-attr': 'transactional-email-log-clear-reason',
-            }}
-        >
-            Showing sends for one reason. {emailReasonText(filters.reason)}.
-            {filters.status === 'bounced' ? (
-                <span>
-                    {' '}
-                    Bounce metrics count every bounce report, including those for cc and bcc copies, so they can be
-                    higher than the number of sends listed here.
-                </span>
-            ) : null}
-        </LemonBanner>
     )
 }
 

@@ -93,6 +93,8 @@ export interface WorkflowMetricsProps extends WorkflowLogicProps {
      * The step picker is hidden because it opens the workflow.
      */
     onEmailMetricClick?: (metric: EmailMetricName, range: { dateFrom: string; dateTo: string }) => void
+    /** Like `onEmailMetricClick`, but takes the Invocations tab's filters for the clicked metric. */
+    onShowInvocations?: (searchParams: Record<string, string>) => void
 }
 
 function WorkflowRunMetrics(props: WorkflowMetricsProps): JSX.Element {
@@ -194,8 +196,13 @@ function WorkflowRunMetrics(props: WorkflowMetricsProps): JSX.Element {
         if (!invocationSearchParams) {
             return
         }
-        router.actions.push(urls.workflow(props.id, 'invocations'), invocationSearchParams)
+        if (props.onShowInvocations) {
+            props.onShowInvocations(invocationSearchParams)
+        } else {
+            router.actions.push(urls.workflow(props.id, 'invocations'), invocationSearchParams)
+        }
     }
+    const outsideEditor = !!props.onEmailMetricClick || !!props.onShowInvocations
 
     // Reflect the selected step in the URL (?action=) so it survives refresh/share/back-forward. The
     // actual params.instanceId update is applied by workflowSceneLogic's urlToAction watching this.
@@ -214,7 +221,7 @@ function WorkflowRunMetrics(props: WorkflowMetricsProps): JSX.Element {
         <div className="flex flex-col gap-2" data-attr="workflow-metrics">
             <div className="flex flex-row gap-2 flex-wrap justify-end items-center">
                 <div className="flex flex-row gap-2 items-center flex-wrap">
-                    {!props.onEmailMetricClick && (
+                    {!outsideEditor && (
                         <>
                             <span className="text-muted text-xs whitespace-nowrap">Metrics for</span>
                             <LemonSelect
@@ -227,7 +234,7 @@ function WorkflowRunMetrics(props: WorkflowMetricsProps): JSX.Element {
                             />
                         </>
                     )}
-                    {selectedAction?.type === 'function_email' && props.id && !props.onEmailMetricClick ? (
+                    {selectedAction?.type === 'function_email' && props.id && !outsideEditor ? (
                         <LemonButton
                             type="secondary"
                             size="small"
@@ -246,7 +253,7 @@ function WorkflowRunMetrics(props: WorkflowMetricsProps): JSX.Element {
                     logicKey={logicKey}
                     id={props.id ?? ''}
                     defaultRange={{ dateFrom: params.dateFrom, dateTo: params.dateTo, interval: params.interval }}
-                    onSelectAction={props.onEmailMetricClick ? undefined : (actionId) => selectMetricsAction(actionId)}
+                    onSelectAction={outsideEditor ? undefined : (actionId) => selectMetricsAction(actionId)}
                     onMetricClick={drillIntoEmailMetric}
                 />
             ) : selectedAction?.type === 'function_email' ? (
