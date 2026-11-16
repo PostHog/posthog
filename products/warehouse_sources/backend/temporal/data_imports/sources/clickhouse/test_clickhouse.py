@@ -339,6 +339,10 @@ class TestGetClickhouseRowCount:
         )
         assert counts == {"mv": 55}
 
+    def test_skips_rows_narrower_than_the_select(self):
+        counts = self._run([(None, [("short_row",), ("events", 7, "MergeTree", "u1", "CREATE ...")])])
+        assert counts == {"events": 7}
+
 
 class TestGetPrimaryKeysForSchemas:
     def _run(self, client, table_names):
@@ -1024,6 +1028,12 @@ class TestGetPartitionSettings:
             assert _get_partition_settings(client, "db", "t", self._logger()) is None
 
         assert mock_capture.called is should_capture
+
+    def test_falls_back_on_a_row_narrower_than_the_select(self):
+        client = MagicMock()
+        client.query.return_value.result_rows = [(100,)]
+
+        assert _get_partition_settings(client, "db", "t", self._logger()) is None
 
 
 class TestGetRowsBatching:
