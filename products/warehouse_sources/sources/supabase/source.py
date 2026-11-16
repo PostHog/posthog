@@ -2,6 +2,7 @@ import re
 from typing import Optional
 
 from products.warehouse_sources.sources.sdk import (
+    CERTIFICATE_ERRORS,
     SUPABASE_DIRECT_HOST_IPV4_HINT as _SUPABASE_DIRECT_HOST_IPV4_HINT,
     SUPABASE_DIRECT_HOST_RE as _SUPABASE_DIRECT_HOST_RE,
     DataWarehouseSourceCategory,
@@ -44,6 +45,13 @@ _SUPABASE_POOLER_USERNAME_AS_HOST_ERROR = (
 _SUPABASE_INVALID_CREDENTIALS_ERROR = (
     "The database rejected the username or password. Use your Supabase database password, not your "
     "account password, or reset it in your project's database settings."
+)
+
+# Supabase signs its database certificates with its own authority, which PostHog does not trust by
+# default, so the shared message can't say where to get it.
+_SUPABASE_CERTIFICATE_VERIFY_FAILED_ERROR = (
+    "PostHog could not verify your Supabase TLS certificate. Paste the certificate from SSL configuration "
+    "in your Supabase database settings into Certificate authority, or turn off verification and clear that field."
 )
 
 
@@ -349,4 +357,6 @@ class SupabaseSource(PostgresSource):
             return False, _SUPABASE_DIRECT_HOST_IPV4_HINT
         if not success and error == _INVALID_CREDENTIALS_VALIDATION_ERROR:
             return False, _SUPABASE_INVALID_CREDENTIALS_ERROR
+        if not success and error == CERTIFICATE_ERRORS["certificate verify failed"]:
+            return False, _SUPABASE_CERTIFICATE_VERIFY_FAILED_ERROR
         return success, error

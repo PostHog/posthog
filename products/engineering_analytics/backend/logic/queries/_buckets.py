@@ -1,10 +1,4 @@
-"""Shared time-bucketing helpers for the windowed trend series.
-
-The per-bucket history adapts its granularity to the window length (hour / day / week)
-so a trend keeps a readable number of points — per-day buckets are useless for a 24h
-window and far too many for a year. Used by the workflow-health sparkline and the repo
-hub's cost-per-merge series, so the two agree on grain and bucket alignment.
-"""
+"""Time bucketing shared by the windowed trend series, so they agree on grain and bucket alignment."""
 
 from datetime import date, datetime, timedelta
 from typing import Literal
@@ -19,7 +13,7 @@ _BUCKET_STEP: dict[Granularity, timedelta] = {
 
 
 def bucket_expr(granularity: Granularity, column: str = "run_started_at") -> str:
-    """ClickHouse truncation expression for ``column`` at ``granularity``. Week starts Monday (mode 1)."""
+    """ClickHouse truncation expression for ``column``. A week starts on Monday."""
     if granularity == "hour":
         return f"toStartOfHour({column})"
     if granularity == "day":
@@ -28,7 +22,6 @@ def bucket_expr(granularity: Granularity, column: str = "run_started_at") -> str
 
 
 def pick_granularity(date_from: datetime, date_to: datetime | None) -> Granularity:
-    """Hour for short windows, week for long ones — keeps the series at a readable point count."""
     end = date_to or datetime.now(tz=date_from.tzinfo)
     span = end - date_from
     if span <= timedelta(hours=48):
@@ -39,7 +32,7 @@ def pick_granularity(date_from: datetime, date_to: datetime | None) -> Granulari
 
 
 def window_buckets(date_from: datetime, date_to: datetime | None, granularity: Granularity) -> list[datetime]:
-    """Every bucket start across the window, oldest first — the zero-fill spine a sparse series maps onto."""
+    """Every bucket start across the window, oldest first, tz-naive like ``normalize_bucket``."""
     end = date_to or datetime.now(tz=date_from.tzinfo)
     start = normalize_bucket(date_from, granularity)
     end_aligned = normalize_bucket(end, granularity)
@@ -55,10 +48,9 @@ def window_buckets(date_from: datetime, date_to: datetime | None, granularity: G
 
 
 def normalize_bucket(value: datetime | date, granularity: Granularity) -> datetime:
-    """Align a timestamp to its bucket start, tz-naive, so query rows and the zero-fill spine key alike.
+    """The bucket start as a tz-naive datetime, so query rows and ``window_buckets`` key alike.
 
-    ClickHouse can hand the bucket back as a ``date`` (date/week truncation) or a ``datetime``
-    (hour truncation); widen the former so both sides key on the same type.
+    Accepts a ``date`` because ClickHouse can return one for a truncated bucket.
     """
     naive = value.replace(tzinfo=None) if isinstance(value, datetime) else datetime(value.year, value.month, value.day)
     if granularity == "hour":

@@ -119,13 +119,20 @@ Versions are ordered only within one processor worker's tenure, as the field lis
 After a restart with a clock that went back, the guard can reject a newer change as stale.
 Recording progress in the same transaction as the rows means progress never claims rows that rolled back.
 
-A change with no `last_updated`, or with a non-empty one that does not match the producer's fixed-width format, is still applied, but without ordering: it overwrites the row whatever its version, and an off-format value is counted.
+A change with no `last_updated`, or with a non-empty one that does not match the producer's fixed-width format, is still applied, but without ordering: it overwrites the row whatever its version, and `cdp_cohort_membership_versionless_changes` counts it.
 A reconcile row like that also drags its run's snapshot minimum to the lowest possible value, so that run sweeps nothing.
 The consumer checks only the format, and it skips the check for an empty string.
 So an empty string, or a value in the right format that Postgres cannot read as a timestamp, such as one with a thirteenth month, reaches the database and fails the whole batch.
 
-A message that fails validation fails the whole batch every time.
+A message whose JSON has a string `type` field is a control record, not a change.
+The consumer skips it, whatever the type, and its offset still counts toward the consumer's progress.
+Any other message that fails validation fails the whole batch every time.
 There is no dead-letter queue, so a malformed message stops the feed until it is skipped or the code is fixed.
+
+The topic's other Node readers, the workflow trigger consumer and the subscription matcher, skip a malformed message and count a parse error.
+They skip a control record without counting one.
+The Kafka tables that fill the legacy ClickHouse `cohort_membership` table read this topic too, and they store a control record as an `entered` row with a zero person id.
+So nothing may produce a control record while they still read the topic.
 
 ## Mark and sweep
 

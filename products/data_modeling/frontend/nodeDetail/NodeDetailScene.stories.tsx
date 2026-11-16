@@ -1,6 +1,7 @@
 import type { Decorator, Meta, StoryObj } from '@storybook/react'
 import { useEffect, useRef } from 'react'
 
+import { FEATURE_FLAGS } from 'lib/constants'
 import { urls } from 'scenes/urls'
 
 import { mswDecorator } from '~/mocks/browser'
@@ -376,6 +377,174 @@ export const DeletedModel: Story = {
                 get: {
                     '/api/environments/:team_id/data_modeling_nodes/:id/': () => [200, node],
                     '/api/environments/:team_id/warehouse_saved_queries/:id/': () => [404, { detail: 'Not found.' }],
+                },
+            },
+        },
+    },
+}
+
+const QUILL_PARAMETERS = {
+    featureFlags: [FEATURE_FLAGS.TODAY_RAIL_NAV, FEATURE_FLAGS.DATA_CATALOG_RESTRUCTURE],
+    testOptions: { snapshotBrowsers: [] },
+}
+
+export const QuillView: Story = {
+    parameters: QUILL_PARAMETERS,
+}
+
+export const QuillAiWrittenDescription: Story = {
+    parameters: {
+        ...QUILL_PARAMETERS,
+        msw: {
+            mocks: {
+                get: {
+                    '/api/environments/:team_id/data_modeling_nodes/:id/': () => [
+                        200,
+                        {
+                            ...node,
+                            description: 'Monthly revenue per region and channel, summed from paid orders.',
+                            description_source: 'ai_generated',
+                        },
+                    ],
+                    '/api/environments/:team_id/warehouse_saved_queries/:id/': () => [200, savedQuery],
+                },
+            },
+        },
+    },
+}
+
+export const QuillMaterializedView: Story = {
+    parameters: { ...MaterializedView.parameters, ...QUILL_PARAMETERS },
+}
+
+export const QuillSuspendedWithRunHistory: Story = {
+    parameters: { ...SuspendedWithRunHistory.parameters, ...QUILL_PARAMETERS },
+}
+
+export const QuillNarrowSuspendedWithRunHistory: Story = {
+    ...QuillSuspendedWithRunHistory,
+    decorators: NarrowView.decorators,
+}
+
+export const QuillWarehouseTable: Story = {
+    args: WarehouseTable.args,
+    parameters: { ...WarehouseTable.parameters, ...QUILL_PARAMETERS },
+}
+
+export const QuillPostHogTableDataQuality: Story = {
+    args: PostHogTable.args,
+    parameters: {
+        ...PostHogTable.parameters,
+        ...QUILL_PARAMETERS,
+        pageUrl: urls.nodeDetail('events-table-node', 'data-quality'),
+    },
+}
+
+export const QuillDeletedModel: Story = {
+    parameters: { ...DeletedModel.parameters, ...QUILL_PARAMETERS },
+}
+
+export const QuillMaterializationRefreshMode: Story = {
+    parameters: {
+        ...QUILL_PARAMETERS,
+        pageUrl: urls.nodeDetail(node.id, 'materialization'),
+        msw: {
+            mocks: {
+                get: {
+                    '/api/environments/:team_id/data_modeling_nodes/:id/': () => [200, { ...node, type: 'matview' }],
+                    '/api/environments/:team_id/warehouse_saved_queries/:id/': () => [
+                        200,
+                        { ...savedQuery, is_materialized: true, status: 'Completed', sync_frequency: '1hour' },
+                    ],
+                    '/api/projects/:team_id/data_modeling_jobs/': () => [200, { results: [], count: 0, next: null }],
+                },
+                post: {
+                    '/api/environments/:team_id/warehouse_saved_queries/check_incremental/': () => [
+                        200,
+                        {
+                            eligible: true,
+                            key_candidates: ['region'],
+                            unique_key_candidates: ['region', 'channel'],
+                            blockers: [],
+                            warnings: [],
+                        },
+                    ],
+                },
+            },
+        },
+    },
+}
+
+export const QuillNarrowMaterializationRefreshMode: Story = {
+    ...QuillMaterializationRefreshMode,
+    decorators: NarrowView.decorators,
+}
+
+export const QuillUnmaterializedRunHistory: Story = {
+    parameters: {
+        ...QUILL_PARAMETERS,
+        pageUrl: urls.nodeDetail(node.id, 'materialization'),
+        msw: {
+            mocks: {
+                get: {
+                    '/api/environments/:team_id/data_modeling_nodes/:id/': () => [200, node],
+                    '/api/environments/:team_id/warehouse_saved_queries/:id/': () => [200, savedQuery],
+                    '/api/projects/:team_id/data_modeling_jobs/': () => [200, { results: [], count: 0, next: null }],
+                },
+            },
+        },
+    },
+}
+
+export const QuillRunHistoryFailed: Story = {
+    parameters: {
+        ...QUILL_PARAMETERS,
+        pageUrl: urls.nodeDetail(node.id, 'materialization'),
+        msw: {
+            mocks: {
+                get: {
+                    '/api/environments/:team_id/data_modeling_nodes/:id/': () => [200, { ...node, type: 'matview' }],
+                    '/api/environments/:team_id/warehouse_saved_queries/:id/': () => [
+                        200,
+                        { ...savedQuery, is_materialized: true, status: 'Completed', sync_frequency: '1hour' },
+                    ],
+                    '/api/projects/:team_id/data_modeling_jobs/': () => [500, { detail: 'Server error' }],
+                },
+            },
+        },
+    },
+}
+
+export const QuillQueryWithoutColumns: Story = {
+    play: async ({ canvas, userEvent }): Promise<void> => {
+        await userEvent.click(await canvas.findByRole('button', { name: /^Columns/ }))
+    },
+    parameters: {
+        ...QUILL_PARAMETERS,
+        msw: {
+            mocks: {
+                get: {
+                    '/api/environments/:team_id/data_modeling_nodes/:id/': () => [200, node],
+                    '/api/environments/:team_id/warehouse_saved_queries/:id/': () => [
+                        200,
+                        { ...savedQuery, columns: [] },
+                    ],
+                },
+            },
+        },
+    },
+}
+
+export const QuillNoConnectedModels: Story = {
+    parameters: {
+        ...QUILL_PARAMETERS,
+        pageUrl: urls.nodeDetail(node.id, 'lineage'),
+        msw: {
+            mocks: {
+                get: {
+                    '/api/environments/:team_id/data_modeling_nodes/:id/': ({ request }: { request: Request }) =>
+                        request.url.includes('/lineage') ? [200, { nodes: [node], edges: [] }] : [200, node],
+                    '/api/environments/:team_id/warehouse_saved_queries/:id/': () => [200, savedQuery],
                 },
             },
         },

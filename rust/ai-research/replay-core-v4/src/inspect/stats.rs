@@ -2,6 +2,7 @@
 //! [`fold_session`].
 
 use super::features::SurfacingFeatures;
+use super::sketch::DistinctSketch;
 
 /// Fingerprints a block or session row keeps. A session row with this many has visited this many pages or more.
 pub const MAX_URL_FINGERPRINTS: usize = 10;
@@ -85,6 +86,10 @@ pub struct BlockStats {
     pub image_bytes: u64,
     pub images_inline: u32,
     pub image_urls: u32,
+    /// The distinct image references in the block that can have bytes: its inline images, which the recorder
+    /// stores, and its remote image URLs that the policy accepts, which the fetcher may store. A sketch, so that a
+    /// fold counts each image once however many events, blocks or sessions hold it, as the image scrub does.
+    pub image_ref_sketch: DistinctSketch,
 
     /// The bytes of the block's lines as the writer stores them before compression, with `cv` values expanded and
     /// images moved out.
@@ -136,6 +141,7 @@ impl BlockStats {
             MAX_URL_FINGERPRINTS,
         );
         union(&mut self.window_ids, &later.window_ids, MAX_WINDOW_IDS);
+        self.image_ref_sketch.merge(&later.image_ref_sketch);
         self.surfacing.merge(&later.surfacing);
         self.touch_input |= later.touch_input;
         self.set_viewport(

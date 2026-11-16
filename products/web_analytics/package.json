@@ -14,8 +14,8 @@
         "query-selector-shadow-dom": "catalog:"
     },
     "devDependencies": {
-        "@testing-library/jest-dom": "^5.17.0",
-        "@testing-library/react": "^14.3.1",
+        "@testing-library/jest-dom": "^7.0.1",
+        "@testing-library/react": "^16.3.3",
         "@types/query-selector-shadow-dom": "catalog:",
         "kea-test-utils": "catalog:"
     },

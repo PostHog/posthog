@@ -18,9 +18,9 @@ from django.db.models.functions import Coalesce
 
 from posthog.hogql import ast
 
-from posthog.models import EventProperty
 from posthog.models.team.team import Team
 
+from products.event_definitions.backend.models import EventProperty
 from products.experiments.backend.hogql_queries.exposure_query_logic import (
     DEFAULT_EXPOSURE_EVENT,
     EXPERIMENT_EXPOSURE_EVENT,

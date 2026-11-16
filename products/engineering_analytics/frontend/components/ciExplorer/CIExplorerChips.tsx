@@ -27,7 +27,6 @@ function chip(badge: JobLogBadgeApi): { text: string; type: LemonTagType } {
     }
 }
 
-/** What a job's log says a step did, a few words each. The cache keys are in the chip's tooltip. */
 export function CIExplorerChips({ badges }: { badges: JobLogBadgeApi[] }): JSX.Element {
     return (
         <>

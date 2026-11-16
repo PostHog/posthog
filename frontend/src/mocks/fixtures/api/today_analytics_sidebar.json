@@ -1,0 +1,99 @@
+{
+    "layout": {
+        "version": 1,
+        "sections": [
+            {
+                "id": "browse",
+                "items": [
+                    {
+                        "type": "link",
+                        "to": {
+                            "kind": "page",
+                            "page": "analytics_all"
+                        }
+                    },
+                    {
+                        "type": "link",
+                        "to": {
+                            "kind": "page",
+                            "page": "analytics_mine"
+                        }
+                    },
+                    {
+                        "type": "link",
+                        "to": {
+                            "kind": "page",
+                            "page": "collections"
+                        }
+                    },
+                    {
+                        "type": "link",
+                        "to": {
+                            "kind": "page",
+                            "page": "dashboards"
+                        }
+                    },
+                    {
+                        "type": "link",
+                        "to": {
+                            "kind": "page",
+                            "page": "sql_editor"
+                        }
+                    }
+                ]
+            },
+            {
+                "id": "pinned",
+                "title": "Pinned",
+                "items": [
+                    {
+                        "type": "list",
+                        "source": "pinned"
+                    }
+                ]
+            },
+            {
+                "id": "recents",
+                "title": "Recents",
+                "items": [
+                    {
+                        "type": "list",
+                        "source": "recents"
+                    }
+                ]
+            },
+            {
+                "id": "by-posthog",
+                "title": "By PostHog",
+                "icon": "posthog",
+                "items": [
+                    {
+                        "type": "list",
+                        "source": "by_posthog"
+                    }
+                ]
+            },
+            {
+                "id": "monitor",
+                "title": "Monitor",
+                "items": [
+                    {
+                        "type": "link",
+                        "to": {
+                            "kind": "page",
+                            "page": "alerts"
+                        }
+                    },
+                    {
+                        "type": "link",
+                        "to": {
+                            "kind": "page",
+                            "page": "subscriptions"
+                        }
+                    }
+                ]
+            }
+        ]
+    },
+    "customized": false
+}

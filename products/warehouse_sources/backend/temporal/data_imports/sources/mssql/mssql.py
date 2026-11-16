@@ -25,6 +25,7 @@ from structlog.types import FilteringBoundLogger
 
 from posthog.dataclasses import frozen
 from posthog.exceptions_capture import capture_exception
+from posthog.psycopg_helpers import is_resolvable_hostname
 from posthog.temporal.common.errors import NonReportableError
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.arrow_utils import (
@@ -44,7 +45,16 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.dea
     iterate_with_deadline,
     run_with_deadline,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import open_ssh_tunnel
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import (
+    DATABASE_HOST_NOT_ALLOWED_ERROR,
+    DATABASE_HOST_NOT_ALLOWED_GUIDANCE,
+    HostNotAllowedError,
+    bracket_host,
+    host_lookup_is_skipped,
+    open_ssh_tunnel,
+    resolve_safe_host,
+    unbracket_host,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql import (
     BracketIdentifierQuoter,
@@ -92,6 +102,20 @@ _T = TypeVar("_T")
 
 # FreeTDS applies this limit to the TCP connect and to the login.
 MSSQL_LOGIN_TIMEOUT_SECONDS = 5
+
+# The Azure SQL gateway routes a login on the name FreeTDS dials, so these hosts keep it. Microsoft
+# runs these zones, so a record cannot be rebound: https://learn.microsoft.com/azure/private-link/private-endpoint-dns
+# and https://docs.azure.cn/en-us/synapse-analytics/sql/connect-overview
+_AZURE_SQL_DNS_ZONES = (
+    "database.windows.net",
+    "database.usgovcloudapi.net",
+    "database.chinacloudapi.cn",
+    "sql.azuresynapse.net",
+    "sql.azuresynapse.usgovcloudapi.net",
+    "sql.azuresynapse.azure.cn",
+)
+
+_SERVER_UNREACHABLE_ERROR = "Adaptive Server is unavailable or does not exist"
 
 # The longest a metadata statement waits for a lock before SQL Server ends it with error 1222. The
 # catalog views wait behind a schema modification lock, so an open DDL transaction on the server
@@ -661,6 +685,49 @@ class MSSQLTableSetup:
     keyset: MSSQLKeyset
 
 
+def _is_azure_sql_host(host: str) -> bool:
+    name = host.lower().strip().rstrip(".")
+    return any(name.endswith(f".{zone}") for zone in _AZURE_SQL_DNS_ZONES)
+
+
+def _pinned_servers(host: str, port: int, team_id: int | None) -> list[str]:
+    """Return the `server` values pymssql may dial, in order, for the `(host, port)` the tunnel layer yielded.
+
+    A hostname is resolved and checked here, and only the approved addresses are dialled. Handing
+    FreeTDS the name would resolve it again, and a record with a short TTL can answer public for the
+    check and private for the connect. An address (the SSH tunnel's loopback bind) has no lookup to
+    race, and an Azure SQL host keeps its name, see `_AZURE_SQL_DNS_ZONES`; the tunnel layer has
+    checked both. A host the policy exempts comes back as its name.
+    """
+    addresses: tuple[str, ...] = (host,)
+    if is_resolvable_hostname(host) and not host_lookup_is_skipped() and not _is_azure_sql_host(host):
+        resolution = resolve_safe_host(host, team_id)
+        if resolution.connect_host is None:
+            raise HostNotAllowedError(
+                f"{DATABASE_HOST_NOT_ALLOWED_ERROR}: {resolution.error or DATABASE_HOST_NOT_ALLOWED_GUIDANCE}"
+            )
+        addresses = resolution.addresses or (resolution.connect_host,)
+    return [_freetds_server(address, port) for address in addresses]
+
+
+def _freetds_server(host: str, port: int) -> str:
+    # FreeTDS reads an IPv6 address only as `[address]:port`, and pymssql appends `port` only to a
+    # server without a colon.
+    bracketed = bracket_host(unbracket_host(host))
+    return f"{bracketed}:{port}" if bracketed.startswith("[") else host
+
+
+def _connect_first_reachable(servers: list[str], **connect_kwargs: Any) -> pymssql.Connection:
+    """Connect to the first of `servers` that answers, as FreeTDS does across the addresses of a name it resolves."""
+    for server in servers[:-1]:
+        try:
+            return pymssql.connect(server=server, **connect_kwargs)
+        except pymssql.OperationalError as e:
+            if _SERVER_UNREACHABLE_ERROR not in " ".join(str(arg) for arg in e.args):
+                raise
+    return pymssql.connect(server=servers[-1], **connect_kwargs)
+
+
 class MSSQLImplementation(SQLSourceImplementation[MSSQLSourceConfig, pymssql.Connection, pymssql.Cursor]):  # ty: ignore[invalid-type-arguments]
     """MSSQL driver implementation paired with `MSSQLSource`.
 
@@ -693,14 +760,11 @@ class MSSQLImplementation(SQLSourceImplementation[MSSQLSourceConfig, pymssql.Con
         The default suits metadata work. The connection that reads the rows passes
         `MSSQL_ROW_READ_LOCK_TIMEOUT_MS`.
 
-        The hostname goes to pymssql as is. `pymssql.connect` takes one `server`, which FreeTDS
-        uses both to dial and as the login server name, so there is no way to dial a pinned
-        address and log in as the configured host. The tunnel layer's host check is the control
-        on this path.
+        A direct connection dials only the addresses the host check approved, see `_pinned_servers`.
         """
         with self._ssh_tunnel_endpoint(config, team_id) as (host, port):
-            with pymssql.connect(
-                server=host,
+            with _connect_first_reachable(
+                _pinned_servers(host, port, team_id),
                 # pymssql requires port to be str
                 port=str(port),
                 database=config.database,

@@ -12,7 +12,6 @@ from products.warehouse_sources.sources.azure_devops.azure_devops import (
     _INVALID_PAT_MESSAGE,
     _ORGANIZATION_NOT_FOUND_MESSAGE,
     _UNREACHABLE_MESSAGE,
-    AZURE_DEVOPS_VERSION_7_2,
     AZURE_DEVOPS_VERSION_LEGACY,
     CLASSIFICATION_NODE_DEPTH,
     TEST_RUN_WINDOW,
@@ -72,18 +71,18 @@ class TestValidateCredentials:
     )
     def test_validate_credentials_status_mapping(self, status_code, expected):
         with scripted_network([ScriptedResponse(status=status_code)]) as network:
-            assert validate_credentials("myorg", "pat", AZURE_DEVOPS_VERSION_7_2) == expected
+            assert validate_credentials("myorg", "pat", AZURE_DEVOPS_VERSION_LEGACY) == expected
 
         assert network.requests_log[0].path == "/myorg/_apis/projects"
         assert network.requests_log[0].param("$top") == "1"
-        assert network.requests_log[0].param("api-version") == "7.2"
+        assert network.requests_log[0].param("api-version") == "7.1"
 
     @pytest.mark.parametrize("status_code", [429, 503])
     def test_validate_credentials_unexpected_status_names_the_status(self, status_code):
         # A throttled or Azure-side failure must not be reported as invalid credentials; the message
         # names the status and stays actionable.
         with scripted_network(always(ScriptedResponse(status=status_code))):
-            is_valid, error = validate_credentials("myorg", "pat", AZURE_DEVOPS_VERSION_7_2)
+            is_valid, error = validate_credentials("myorg", "pat", AZURE_DEVOPS_VERSION_LEGACY)
 
         assert is_valid is False
         assert str(status_code) in (error or "")
@@ -91,7 +90,7 @@ class TestValidateCredentials:
 
     def test_validate_credentials_rejects_bad_org_without_request(self):
         with scripted_network([]) as network:
-            assert validate_credentials("my org!", "pat", AZURE_DEVOPS_VERSION_7_2) == (
+            assert validate_credentials("my org!", "pat", AZURE_DEVOPS_VERSION_LEGACY) == (
                 False,
                 _INVALID_ORGANIZATION_MESSAGE,
             )
@@ -99,7 +98,7 @@ class TestValidateCredentials:
 
     def test_validate_credentials_reports_unreachable_on_transport_error(self):
         with scripted_network(always(requests.ConnectionError("boom"))) as network:
-            is_valid, error = validate_credentials("myorg", "pat", AZURE_DEVOPS_VERSION_7_2)
+            is_valid, error = validate_credentials("myorg", "pat", AZURE_DEVOPS_VERSION_LEGACY)
 
         assert network.requests_log[0].path == "/myorg/_apis/projects"
         assert is_valid is False
@@ -558,12 +557,13 @@ class TestAzureDevOpsSourceResponse:
 
 
 class TestApiVersionDispatch:
-    def test_wire_api_version_rejects_unknown_label(self):
+    @pytest.mark.parametrize("label", ["nope", "7.2"])
+    def test_wire_api_version_rejects_unknown_label(self, label):
         # A silent fallthrough would send no api-version and track whatever the vendor defaults to.
         with pytest.raises(ValueError):
-            wire_api_version("nope")
+            wire_api_version(label)
 
-    @pytest.mark.parametrize("version, wire", [(AZURE_DEVOPS_VERSION_LEGACY, "7.1"), (AZURE_DEVOPS_VERSION_7_2, "7.2")])
+    @pytest.mark.parametrize("version, wire", [(AZURE_DEVOPS_VERSION_LEGACY, "7.1")])
     def test_get_rows_sends_pinned_api_version_on_the_wire(self, version, wire):
         result = _driver().run("projects", [_response({"value": []})], api_version=version)
 

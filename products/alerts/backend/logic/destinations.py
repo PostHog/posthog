@@ -30,7 +30,7 @@ from products.alerts_platform.backend.facade.contracts import (
     OwnedAlertDestination,
 )
 from products.cdp.backend.facade.api import create_hog_functions
-from products.cdp.backend.facade.models import HogFunction
+from products.cdp.backend.facade.models import HogFunction, HogFunctionType
 from products.cdp.backend.internal_events import (
     InternalEventEvent,
     flush_internal_events_producer,
@@ -156,6 +156,15 @@ def owned_alert_destinations_qs(
         deleted=False,
     )
     return functions.filter(template_id__in=SPEC_BY_TEMPLATE_ID) if known_templates_only else functions
+
+
+def live_hog_function_ids(*, team_id: int, hog_function_ids: Collection[UUID]) -> frozenset[UUID]:
+    """The named HogFunctions that are not deleted, whatever their filters say."""
+    return frozenset(
+        HogFunction.objects.filter(team_id=team_id, id__in=list(hog_function_ids), deleted=False).values_list(
+            "id", flat=True
+        )
+    )
 
 
 def owned_alert_destination_ids(
@@ -316,7 +325,9 @@ def soft_delete_alert_destinations(
     alert_id: str,
     allowed_event_ids: Collection[str],
     hog_function_ids: list[UUID],
-) -> None:
+) -> dict[UUID, str | None]:
+    """Soft-deletes the alert's destinations among `hog_function_ids`, and returns each one's
+    destination type, None for a template no destination type matches."""
     unique_ids = set(hog_function_ids)
     with transaction.atomic():
         owned_rows = [
@@ -350,6 +361,27 @@ def soft_delete_alert_destinations(
 
         HogFunction.objects.filter(team_id=team_id, id__in=unique_ids).update(deleted=True, enabled=False)
         _reload_hog_functions_after_commit(team_id=team_id, hog_function_ids=unique_ids)
+    return {
+        row.hog_function_id: spec.type.value
+        if row.template_id and (spec := SPEC_BY_TEMPLATE_ID.get(row.template_id))
+        else None
+        for row in owned_rows
+        if row.hog_function_id in unique_ids
+    }
+
+
+def retire_alert_hog_functions(*, team_id: int, alert_id: str) -> None:
+    """Switches off and soft-deletes every HogFunction destination of a deleted alert, whatever its events."""
+    for hog_function in HogFunction.objects.filter(
+        team_id=team_id,
+        type=HogFunctionType.INTERNAL_DESTINATION,
+        deleted=False,
+        filters__contains={"properties": [{"key": "alert_id", "value": alert_id}]},
+    ):
+        # nosemgrep: insight-alert-state-direct-mutation (writes HogFunction.enabled, not the alert's state)
+        hog_function.enabled = False
+        hog_function.deleted = True
+        hog_function.save()
 
 
 def soft_delete_all_alert_destinations(*, team_id: int, alert_id: str, allowed_event_ids: Collection[str]) -> int:

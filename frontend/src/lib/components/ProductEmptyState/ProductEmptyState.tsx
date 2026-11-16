@@ -9,7 +9,7 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { type FeatureFlagsSet, featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { cn } from 'lib/utils/css-classes'
 import { useWizardCommand } from 'scenes/onboarding/shared/useWizardCommand'
-import { teamLogic } from 'scenes/teamLogic'
+import { isAuthenticatedTeam, teamLogic } from 'scenes/teamLogic'
 
 import { ProductEmptyStateFooter } from './ProductEmptyStateFooter'
 import { productSetupStatusLogic } from './productSetupStatusLogic'
@@ -264,11 +264,22 @@ export function ProductEmptyState({ config: baseConfig, mode, preview = false }:
                             <p className="text-secondary text-sm m-0">{text.lead}</p>
                         </div>
 
-                        {text.hint && callToAction ? (
-                            <div className="text-xs text-tertiary mt-2">{text.hint}</div>
-                        ) : null}
-
-                        {callToAction}
+                        {config.SetupCard ? (
+                            <config.SetupCard mode={mode} preview={preview}>
+                                {callToAction}
+                            </config.SetupCard>
+                        ) : (
+                            <>
+                                {primaryActionRestriction && isAuthenticatedTeam(currentTeam) && callToAction ? (
+                                    <div className="text-xs text-tertiary mt-2">
+                                        {primaryActionRestriction} Ask a project admin to set this up.
+                                    </div>
+                                ) : text.hint && callToAction ? (
+                                    <div className="text-xs text-tertiary mt-2">{text.hint}</div>
+                                ) : null}
+                                {callToAction}
+                            </>
+                        )}
 
                         {config.SetupActions ? <config.SetupActions mode={mode} preview={preview} /> : null}
 
@@ -298,14 +309,16 @@ export function ProductEmptyState({ config: baseConfig, mode, preview = false }:
                             'linear-gradient(135deg, color-mix(in oklab, var(--empty-state-accent) 16%, transparent) 0%, color-mix(in oklab, var(--empty-state-accent) 5%, transparent) 45%, transparent 80%)',
                     }}
                 >
-                    <div className="flex items-center gap-2 text-xs font-semibold text-secondary">
-                        <span
-                            className="size-2 rounded-full bg-[var(--empty-state-accent)] dark:bg-[var(--empty-state-accent-dark)] animate-pulse motion-reduce:animate-none"
-                            aria-hidden="true"
-                        />
-                        {config.previewLabel}
-                    </div>
-                    <Preview mode={mode} />
+                    {config.previewLabel ? (
+                        <div className="flex items-center gap-2 text-xs font-semibold text-secondary">
+                            <span
+                                className="size-2 rounded-full bg-[var(--empty-state-accent)] dark:bg-[var(--empty-state-accent-dark)] animate-pulse motion-reduce:animate-none"
+                                aria-hidden="true"
+                            />
+                            {config.previewLabel}
+                        </div>
+                    ) : null}
+                    <Preview mode={mode} preview={preview} />
                 </div>
             </div>
         </div>

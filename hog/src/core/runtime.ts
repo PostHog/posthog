@@ -1,13 +1,19 @@
 import { randomUUID } from 'node:crypto'
-import { access, mkdir, readdir, readFile, rename, rm, stat, writeFile } from 'node:fs/promises'
+import { access, chmod, lstat, mkdir, readdir, readFile, realpath, rename, rm, stat, writeFile } from 'node:fs/promises'
 import { homedir } from 'node:os'
-import { basename, dirname } from 'node:path'
+import { basename, dirname, join, resolve } from 'node:path'
 
-import type { ApiToolLibrary } from '@posthog/mcp/src/cli/library-types'
+import type {
+    ApiToolLibrary,
+    ApiToolLibraryOptions,
+    SkillsLibrary,
+    SkillsLibraryOptions,
+} from '@posthog/mcp/src/cli/library-types'
 
 import { HogError } from './errors'
 import { clackPrompts, type Prompts } from './prompts'
 import { DEFAULT_TELEMETRY_TOKEN } from './telemetry'
+import { TELEMETRY_WORKER_ARG } from './telemetry-worker'
 
 export type Env = Readonly<Record<string, string | undefined>>
 
@@ -57,6 +63,12 @@ export interface Runtime {
     glob: (pattern: string, cwd: string) => Promise<string[]>
     // Writes a project file, such as a generated SDK, and creates the folders above it.
     writeFile: (path: string, contents: string) => Promise<void>
+    // Where a write to `path` lands, with every link resolved. A missing file resolves inside its
+    // folder's real path. Throws for a link to a missing file, whose write could land anywhere.
+    realPath: (path: string) => Promise<string>
+    // Both replace the file with one rename, so a failed write leaves the old contents. `replaceFile`
+    // keeps an existing file's mode, and `writePrivateFile` makes the file readable only by its owner.
+    replaceFile: (path: string, contents: string) => Promise<void>
     writePrivateFile: (path: string, contents: string) => Promise<void>
     // Creates a private file unless the path exists, and resolves to false if it does, so it works as a lock.
     createFile: (path: string, contents: string) => Promise<boolean>
@@ -66,15 +78,35 @@ export interface Runtime {
     openUrl: (url: string) => Promise<boolean>
     prompts: Prompts
     secrets: Secrets
+    // Resolves to false when no process could start, and the caller then sends the batch itself.
+    sendTelemetryInBackground: ((body: string) => Promise<boolean>) | undefined
     // The project token for anonymous usage events. Undefined turns them off, as in tests.
     telemetryToken: string | undefined
     // Accepts any TLS certificate from here on, for every request, including the API tools' own.
     skipTlsVerification: () => void
-    // The MCP server's tool catalog, which `hog api` browses and calls. Loaded on first use: it is large.
-    loadApiTools: () => Promise<ApiToolLibrary>
+    // The tools `hog api` browses and calls, built in or from a downloaded catalog. Loaded on first use: it is large.
+    loadApiTools: (options?: ApiToolLibraryOptions) => Promise<ApiToolLibrary>
+    // The PostHog agent skills `hog skills read` serves. Loaded on first use, like the tool catalog.
+    loadSkills: (options: SkillsLibraryOptions) => Promise<SkillsLibrary>
 }
 
 const BROWSER_LAUNCH_MS = 1000
+
+// `pnpm --filter @posthog/mcp build:cli:library` writes both libraries, so a run from source before it fails with a hint.
+async function loadMcpLibrary<T>(load: () => Promise<T>, code: string, name: string): Promise<T> {
+    try {
+        return await load()
+    } catch (error) {
+        if ((error as { code?: string }).code === 'ERR_MODULE_NOT_FOUND') {
+            throw new HogError(
+                code,
+                `hog couldn't find ${name}.`,
+                'Run `pnpm --filter @posthog/hog build:mcp`, then run the command again.'
+            )
+        }
+        throw error
+    }
+}
 
 function browserCommand(url: string): string[] {
     switch (process.platform) {
@@ -140,6 +172,51 @@ function sleep(ms: number, signal?: AbortSignal): Promise<void> {
     })
 }
 
+// A rename is atomic, so a crash never leaves a half-written file. The temporary name is random and
+// `wx` refuses an existing path, so nobody can plant a symlink there first. `keep` keeps an existing
+// file's mode, and a new file gets the default one. The mode is set with chmod, because the umask
+// would strip bits from a mode passed to the write.
+async function writeAtomically(path: string, contents: string, mode: number | 'keep'): Promise<void> {
+    const fileMode =
+        mode === 'keep'
+            ? await stat(path).then(
+                  (stats) => stats.mode & 0o7777,
+                  () => undefined
+              )
+            : mode
+    const temporary = `${path}.${randomUUID()}.tmp`
+
+    try {
+        await writeFile(temporary, contents, { flag: 'wx', mode: fileMode === undefined ? 0o666 : 0o600 })
+        if (fileMode !== undefined) {
+            await chmod(temporary, fileMode)
+        }
+
+        await rename(temporary, path)
+    } catch (error) {
+        await rm(temporary, { force: true })
+        throw error
+    }
+}
+
+async function realPath(path: string): Promise<string> {
+    try {
+        return await realpath(path)
+    } catch (error) {
+        const missing = (error as NodeJS.ErrnoException).code === 'ENOENT'
+        if (
+            !missing ||
+            (await lstat(path).then(
+                () => true,
+                () => false
+            ))
+        ) {
+            throw error
+        }
+        return join(await realpath(dirname(path)), basename(path))
+    }
+}
+
 export function processRuntime(): Runtime {
     return {
         env: process.env,
@@ -197,18 +274,11 @@ export function processRuntime(): Runtime {
             await mkdir(dirname(path), { recursive: true })
             await writeFile(path, contents)
         },
-        // A rename is atomic, so a crash never leaves a half-written file. The temporary name is
-        // random and `wx` refuses an existing path, so nobody can plant a symlink there first.
+        realPath: (path) => realPath(resolve(path)),
+        replaceFile: (path, contents) => writeAtomically(path, contents, 'keep'),
         writePrivateFile: async (path, contents) => {
             await mkdir(dirname(path), { recursive: true, mode: 0o700 })
-            const temporary = `${path}.${randomUUID()}.tmp`
-            try {
-                await writeFile(temporary, contents, { mode: 0o600, flag: 'wx' })
-                await rename(temporary, path)
-            } catch (error) {
-                await rm(temporary, { force: true })
-                throw error
-            }
+            await writeAtomically(path, contents, 0o600)
         },
         createFile: async (path, contents) => {
             await mkdir(dirname(path), { recursive: true, mode: 0o700 })
@@ -242,24 +312,49 @@ export function processRuntime(): Runtime {
         prompts: clackPrompts(),
         secrets: bunSecrets(FROM_SOURCE ? 'com.posthog.hog.dev' : 'com.posthog.hog'),
         telemetryToken: DEFAULT_TELEMETRY_TOKEN,
+        sendTelemetryInBackground: async (body) => {
+            try {
+                const child = Bun.spawn(
+                    FROM_SOURCE
+                        ? [process.execPath, '--no-env-file', Bun.main, TELEMETRY_WORKER_ARG]
+                        : [process.execPath, TELEMETRY_WORKER_ARG],
+                    {
+                        // An inherited stdout would keep an agent reading hog's output waiting for the worker.
+                        detached: true,
+                        stdin: 'pipe',
+                        stdout: 'ignore',
+                        stderr: 'ignore',
+                        windowsHide: true,
+                        // Not the caller's folder, which it would hold open, nor a shared temp folder's bunfig.toml.
+                        cwd: dirname(process.execPath),
+                        // The environment as it is now, so the worker keeps --skip-ssl-verification.
+                        env: process.env,
+                    }
+                )
+                child.unref()
+                // Without waiting, a body larger than the pipe's buffer reaches the worker cut short.
+                child.stdin.write(body)
+                await child.stdin.end()
+                return true
+            } catch {
+                return false
+            }
+        },
         skipTlsVerification: () => {
             // Runs only for --skip-ssl-verification, posthog-cli's opt-in flag for self-hosted certificates.
             process.env.NODE_TLS_REJECT_UNAUTHORIZED = '0' // nosemgrep: trailofbits.generic.node-disable-certificate-validation.node-disable-certificate-validation
         },
-        loadApiTools: async () => {
-            try {
-                const { createApiToolLibrary } = await import('@posthog/mcp/dist/cli-library.mjs')
-                return createApiToolLibrary()
-            } catch (error) {
-                if ((error as { code?: string }).code === 'ERR_MODULE_NOT_FOUND') {
-                    throw new HogError(
-                        'api_tools_missing',
-                        "hog couldn't find the API tool catalog.",
-                        'Run `pnpm --filter @posthog/hog build:mcp`, then run the command again.'
-                    )
-                }
-                throw error
-            }
-        },
+        loadApiTools: (options) =>
+            loadMcpLibrary(
+                async () => (await import('@posthog/mcp/dist/cli-library.mjs')).createApiToolLibrary(options),
+                'api_tools_missing',
+                'the API tool catalog'
+            ),
+        loadSkills: (options) =>
+            loadMcpLibrary(
+                async () => (await import('@posthog/mcp/dist/cli-skills.mjs')).createSkillsLibrary(options),
+                'skills_missing',
+                'the skills library'
+            ),
     }
 }

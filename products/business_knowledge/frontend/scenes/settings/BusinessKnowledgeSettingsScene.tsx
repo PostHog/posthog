@@ -1,7 +1,11 @@
+import { useValues } from 'kea'
+import { router } from 'kea-router'
+
 import { NotFound } from 'lib/components/NotFound'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { SceneExport } from 'scenes/sceneTypes'
 import { Settings } from 'scenes/settings/Settings'
+import type { SettingId } from 'scenes/settings/types'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
@@ -11,6 +15,9 @@ import { BusinessKnowledgeTabs } from '../../components/BusinessKnowledgeTabs/Bu
 
 export const BUSINESS_KNOWLEDGE_SETTINGS_LOGIC_KEY = 'businessKnowledgeSettings'
 
+const DEFAULT_SETTING_ID: SettingId = 'business-knowledge-learn-from-support'
+const SETTING_IDS: SettingId[] = [DEFAULT_SETTING_ID, 'business-knowledge-github-repos']
+
 export const scene: SceneExport = {
     component: BusinessKnowledgeSettingsScene,
     productKey: ProductKey.BUSINESS_KNOWLEDGE,
@@ -18,6 +25,8 @@ export const scene: SceneExport = {
 
 export function BusinessKnowledgeSettingsScene(): JSX.Element {
     const isEnabled = useFeatureFlag('PRODUCT_BUSINESS_KNOWLEDGE')
+    const { hashParams } = useValues(router)
+    const linkedSettingId = SETTING_IDS.find((id) => id === hashParams.selectedSetting)
 
     if (!isEnabled) {
         return <NotFound object="Business knowledge" caption="This feature is not enabled for your project." />
@@ -34,7 +43,7 @@ export function BusinessKnowledgeSettingsScene(): JSX.Element {
             <Settings
                 logicKey={BUSINESS_KNOWLEDGE_SETTINGS_LOGIC_KEY}
                 sectionId="environment-business-knowledge"
-                settingId="business-knowledge-learn-from-support"
+                settingId={linkedSettingId ?? DEFAULT_SETTING_ID}
                 handleLocally
             />
         </SceneContent>

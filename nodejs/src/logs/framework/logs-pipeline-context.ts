@@ -6,6 +6,7 @@ import { retryOnDependencyUnavailableError } from '~/common/kafka/error-handling
 import { AppMetricsAggregator } from '~/common/services/app-metrics-aggregator'
 import { QuotaResource } from '~/common/services/quota-limiting.service'
 import { logger } from '~/common/utils/logger'
+import type { UnknownTokenRecorder } from '~/logs/services/unknown-token-recorder'
 import type { LogsSettings } from '~/types'
 
 import { recordLogMessageDlq } from '../ingestion-otel-metrics'
@@ -13,11 +14,13 @@ import type { InternalLogsVerifier } from '../internal-logs'
 import { logMessageDlqCounter, teamIdMatchesCsv } from '../logs-ingestion-consumer'
 import type { LogsIngestionConsumerDeps } from '../logs-ingestion-consumer'
 import type { MetricRuleSource } from '../metrics-rules/compile-metric-rules'
+import type { MetricRulesEmission } from '../metrics-rules/metric-rules-window'
 import type { MetricSeriesAdmission } from '../metrics-rules/tally'
 import { LOGS_DLQ_OUTPUT } from '../outputs/outputs'
 import type { RetentionRuleSource } from '../retention/compile-retention-rules'
 import { RETENTION_MONTH_DAYS } from '../retention/evaluate-retention'
 import type { LogsSamplingService } from '../sampling/logs-sampling.service'
+import type { SamplingRuleSource } from '../sampling/sampling-rules-cache'
 import type { LogsRateLimiterService } from '../services/logs-rate-limiter.service'
 import type { LogsIngestionMessage } from '../types'
 
@@ -30,6 +33,7 @@ export type LogsConsumerIdentity = {
     quotaResource: QuotaResource
     metricRuleSource: MetricRuleSource
     retentionRuleSource: RetentionRuleSource
+    samplingRuleSource: SamplingRuleSource
 }
 
 export type LogsFeatureGates = {
@@ -109,19 +113,22 @@ export type LogsPipelineContext = {
     deps: LogsIngestionConsumerDeps
     usageMetrics: LogsUsageMetricsQueue
     rateLimiter: Pick<LogsRateLimiterService, 'filterMessages'>
+    /** Remembers tokens that belong to no team so capture-logs can turn them away. Absent in tests. */
+    unknownTokens?: Pick<UnknownTokenRecorder, 'record'>
     samplingService: LogsSamplingService
     internalLogsVerifier: InternalLogsVerifier
     metricSeriesAdmission: MetricSeriesAdmission
+    metricRulesEmission: MetricRulesEmission
     defaultRetentionDays: (teamId: number, logsSettings: LogsSettings) => Promise<number>
 }
 
 /** Transformations write hog_function logs, which could come back here as internal logs and loop. */
 export function appliesTeamLogRules(message: LogsIngestionMessage): boolean {
-    return message.internalLogs?.teamRules ?? true
+    return message.verifiedAsInternalLogs?.teamRules ?? true
 }
 
 export function isUnbilledInternal(message: LogsIngestionMessage): boolean {
-    return message.internalLogs !== undefined && !message.internalLogs.billed
+    return message.verifiedAsInternalLogs !== undefined && !message.verifiedAsInternalLogs.billed
 }
 
 /** A failed batch replays in full and the logs table has no dedupe, so each retry here avoids duplicates. */

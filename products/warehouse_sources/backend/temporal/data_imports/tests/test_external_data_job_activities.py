@@ -5,7 +5,7 @@ import pytest
 from posthog.test.base import BaseTest
 from unittest import mock
 
-from django.test import SimpleTestCase
+from django.test import SimpleTestCase, override_settings
 
 from parameterized import parameterized
 from temporalio.exceptions import ApplicationError, CancelledError, TimeoutError, TimeoutType
@@ -38,15 +38,31 @@ from products.warehouse_sources.backend.temporal.data_imports.external_data_job 
     trigger_schedule_buffer_one_activity,
     update_external_data_job_model,
 )
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.ops import (
+    OBJECT_STORE_TRANSIENT_MESSAGE,
+)
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.core.delta.test.test_delta_errors import (
+    OWN_BUCKET,
+    OWN_BUCKET_LIST_FORBIDDEN,
+    OWN_BUCKET_REDIRECT_WITHOUT_LOCATION,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.object_store.errors import (
+    ACCESS_DENIED_ERROR,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.mongodb.source import (
+    _MONGO_NOT_AUTHORIZED_MESSAGE,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres import (
     XMIN_AS_INCREMENTAL_FIELD_ERROR,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source import (
     _CONNECTION_LIMIT_EXHAUSTED_MESSAGE,
+    _CUSTOM_ACCESS_DENIAL_ERROR,
     PostgresSource,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.redshift.source import RedshiftSource
 from products.warehouse_sources.backend.types import ExternalDataJobStatus, ExternalDataSourceType
+from products.warehouse_sources.sources.amazon_s3.source import AmazonS3Source
 
 
 class TestCustomerFacingError(SimpleTestCase):
@@ -344,8 +360,18 @@ class TestUpdateExternalDataJobModelActivity(BaseTest):
 
 # transaction=True commits the fixture rows: the activity resolves the schema through
 # database_sync_to_async_pool, whose pool-thread connection can't see a test transaction.
+@parameterized.expand(
+    [
+        ("plain text", "could not create the sync job", "could not create the sync job"),
+        # Raw driver/vendor text can carry a NUL byte, which Postgres text columns reject
+        # outright and would otherwise crash this save with a DataError.
+        ("nul byte stripped", "could not create\x00 the sync job", "could not create the sync job"),
+    ]
+)
 @pytest.mark.django_db(transaction=True)
-def test_failed_finalization_with_no_job_resets_stale_running_schema() -> None:
+def test_failed_finalization_with_no_job_resets_stale_running_schema(
+    _name: str, latest_error: str, expected_latest_error: str
+) -> None:
     # When an early activity fails before the job row is committed, no later finalization can
     # repaint the schema, so the Running status painted at trigger time would stick forever.
     org = Organization.objects.create(name="org")
@@ -363,7 +389,7 @@ def test_failed_finalization_with_no_job_resets_stale_running_schema() -> None:
         source_id=str(source.id),
         status=ExternalDataJob.Status.FAILED,
         internal_error=None,
-        latest_error="could not create the sync job",
+        latest_error=latest_error,
         workflow_run_id="run-id-with-no-job",
     )
 
@@ -382,7 +408,7 @@ def test_failed_finalization_with_no_job_resets_stale_running_schema() -> None:
     mock_capture_exception.assert_not_called()
     schema.refresh_from_db()
     assert schema.status == ExternalDataSchema.Status.FAILED
-    assert schema.latest_error == "could not create the sync job"
+    assert schema.latest_error == expected_latest_error
 
 
 # transaction=True for the same reason as the test above: the activity resolves the source through
@@ -442,6 +468,109 @@ def test_read_only_transaction_disables_the_schema_only_when_the_source_raised_i
     assert mock_update_should_sync.called is expect_disabled
     customer_message = mock_update_job_status.call_args.kwargs["latest_error"] or ""
     assert ("tries to write to your database" in customer_message) is expect_disabled
+
+
+# transaction=True for the same reason as the tests above: the activity resolves the source through
+# database_sync_to_async_pool, and the pool thread's connection can't see a test transaction.
+@parameterized.expand(
+    [
+        # Our own bucket's 403 body says "not authorized", which the Postgres row-level security
+        # entry and the MongoDB role entry both match. Neither source caused it.
+        (
+            "postgres_own_bucket_forbidden",
+            ExternalDataSourceType.POSTGRES,
+            OWN_BUCKET_LIST_FORBIDDEN,
+            False,
+            OBJECT_STORE_TRANSIENT_MESSAGE,
+        ),
+        (
+            "mongodb_own_bucket_forbidden",
+            ExternalDataSourceType.MONGODB,
+            OWN_BUCKET_LIST_FORBIDDEN,
+            False,
+            OBJECT_STORE_TRANSIENT_MESSAGE,
+        ),
+        (
+            "postgres_own_bucket_redirect",
+            ExternalDataSourceType.POSTGRES,
+            OWN_BUCKET_REDIRECT_WITHOUT_LOCATION,
+            False,
+            OBJECT_STORE_TRANSIENT_MESSAGE,
+        ),
+        # The guard must leave a genuine source-side denial alone.
+        (
+            "postgres_row_level_security_raise",
+            ExternalDataSourceType.POSTGRES,
+            "RaiseException: Access denied: No user ID provided",
+            True,
+            _CUSTOM_ACCESS_DENIAL_ERROR,
+        ),
+        (
+            "mongodb_role_not_authorized",
+            ExternalDataSourceType.MONGODB,
+            'OperationFailure: not authorized on example_db to execute command { find: "orders" }',
+            True,
+            _MONGO_NOT_AUTHORIZED_MESSAGE,
+        ),
+        (
+            "amazon_s3_customer_bucket_denied",
+            ExternalDataSourceType.AMAZONS3,
+            f"ObjectStorageError: {ACCESS_DENIED_ERROR} 's3://acme-uploads/exports/'. Check the access key "
+            "and secret, and that the key can list and read objects in this bucket.",
+            True,
+            AmazonS3Source().get_non_retryable_errors()[ACCESS_DENIED_ERROR],
+        ),
+    ]
+)
+@override_settings(DATAWAREHOUSE_BUCKET=OWN_BUCKET, BUCKET_URL=f"s3://{OWN_BUCKET}")
+@pytest.mark.django_db(transaction=True)
+def test_warehouse_bucket_error_never_disables_the_schema_or_shows_source_copy(
+    _name: str,
+    source_type: ExternalDataSourceType,
+    internal_error: str,
+    expect_disabled: bool,
+    expected_message: str,
+) -> None:
+    org = Organization.objects.create(name="org")
+    team = Team.objects.create(organization=org, name="team")
+    source = ExternalDataSource.objects.create(team=team, source_type=source_type.value)
+    schema = ExternalDataSchema.objects.create(team=team, source=source, name="table")
+    job = ExternalDataJob.objects.create(
+        team=team, pipeline=source, schema=schema, status=ExternalDataJob.Status.RUNNING, rows_synced=0
+    )
+
+    env = ActivityEnvironment()
+    inputs = UpdateExternalDataJobStatusInputs(
+        team_id=team.id,
+        job_id=str(job.id),
+        schema_id=str(schema.id),
+        source_id=str(source.id),
+        status=ExternalDataJob.Status.FAILED,
+        internal_error=internal_error,
+        latest_error=internal_error,
+    )
+
+    with (
+        mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.external_data_job.get_rows", return_value=0
+        ),
+        mock.patch("products.warehouse_sources.backend.temporal.data_imports.external_data_job.finish_row_tracking"),
+        mock.patch("products.warehouse_sources.backend.temporal.data_imports.external_data_job.capture_exception"),
+        mock.patch("posthoganalytics.capture"),
+        mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.external_data_job.update_should_sync"
+        ) as mock_update_should_sync,
+        mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.external_data_job.update_external_job_status"
+        ) as mock_update_job_status,
+    ):
+        asyncio.run(env.run(update_external_data_job_model, inputs))
+
+    assert mock_update_should_sync.called is expect_disabled
+    status_kwargs = mock_update_job_status.call_args.kwargs
+    assert status_kwargs["latest_error"] == expected_message
+    # A PostHog-side failure must not count toward the source's failure streak either.
+    assert status_kwargs["counts_as_source_failure"] is False
 
 
 # transaction=True for the same reason as the tests above: the activity resolves the source through

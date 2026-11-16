@@ -19,6 +19,8 @@ import type {
     EventDefinitionsByNameRetrieveParams,
     EventDefinitionsListParams,
     EventDefinitionsPrimaryPropertiesRetrieveParams,
+    EventDefinitionsTypescriptRetrieveParams,
+    GeneratedDefinitionsApi,
     PaginatedEnterpriseEventDefinitionListApi,
     PatchedEnterpriseEventDefinitionApi,
     PrimaryPropertiesResponseApi,
@@ -165,6 +167,29 @@ export const eventDefinitionsMetricsRetrieve = async (
     })
 }
 
+export const getEventDefinitionsStopIngestingCreateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/event_definitions/${id}/stop_ingesting/`
+}
+
+/**
+ * Drop new events with this name at ingestion, then hide the definition and schedule its delete.
+ *
+ * Adds an exact event name condition to the live event filter of each environment in the
+ * project, because the definition is shared by all of them. This never makes a team's own
+ * filter conditions live: if a filter is in dry run or turned off, or can't take one more
+ * condition, the request fails and nothing changes. Dropped events can't be recovered.
+ */
+export const eventDefinitionsStopIngestingCreate = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<EventDefinitionRecordApi> => {
+    return apiMutator<EventDefinitionRecordApi>(getEventDefinitionsStopIngestingCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
+    })
+}
+
 export const getEventDefinitionsBulkUpdateTagsCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/event_definitions/bulk_update_tags/`
 }
@@ -265,8 +290,11 @@ export const getEventDefinitionsGolangRetrieveUrl = (projectId: string) => {
     return `/api/projects/${projectId}/event_definitions/golang/`
 }
 
-export const eventDefinitionsGolangRetrieve = async (projectId: string, options?: RequestInit): Promise<void> => {
-    return apiMutator<void>(getEventDefinitionsGolangRetrieveUrl(projectId), {
+export const eventDefinitionsGolangRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<GeneratedDefinitionsApi> => {
+    return apiMutator<GeneratedDefinitionsApi>(getEventDefinitionsGolangRetrieveUrl(projectId), {
         ...options,
         method: 'GET',
     })
@@ -316,19 +344,41 @@ export const getEventDefinitionsPythonRetrieveUrl = (projectId: string) => {
     return `/api/projects/${projectId}/event_definitions/python/`
 }
 
-export const eventDefinitionsPythonRetrieve = async (projectId: string, options?: RequestInit): Promise<void> => {
-    return apiMutator<void>(getEventDefinitionsPythonRetrieveUrl(projectId), {
+export const eventDefinitionsPythonRetrieve = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<GeneratedDefinitionsApi> => {
+    return apiMutator<GeneratedDefinitionsApi>(getEventDefinitionsPythonRetrieveUrl(projectId), {
         ...options,
         method: 'GET',
     })
 }
 
-export const getEventDefinitionsTypescriptRetrieveUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/event_definitions/typescript/`
+export const getEventDefinitionsTypescriptRetrieveUrl = (
+    projectId: string,
+    params?: EventDefinitionsTypescriptRetrieveParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/event_definitions/typescript/?${stringifiedParams}`
+        : `/api/projects/${projectId}/event_definitions/typescript/`
 }
 
-export const eventDefinitionsTypescriptRetrieve = async (projectId: string, options?: RequestInit): Promise<void> => {
-    return apiMutator<void>(getEventDefinitionsTypescriptRetrieveUrl(projectId), {
+export const eventDefinitionsTypescriptRetrieve = async (
+    projectId: string,
+    params?: EventDefinitionsTypescriptRetrieveParams,
+    options?: RequestInit
+): Promise<GeneratedDefinitionsApi> => {
+    return apiMutator<GeneratedDefinitionsApi>(getEventDefinitionsTypescriptRetrieveUrl(projectId, params), {
         ...options,
         method: 'GET',
     })

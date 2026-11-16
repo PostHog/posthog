@@ -1,5 +1,9 @@
 import type { ReactNode } from 'react'
 
+import { useQuillSurface } from 'lib/components/QuillSurface/quillSurfaceContext'
+
+import { QuillInsightErrorLayout } from './QuillInsightErrorLayout'
+
 export function InsightErrorLayout({
     illustration,
     title,
@@ -13,6 +17,18 @@ export function InsightErrorLayout({
     actions?: ReactNode
     footer?: ReactNode
 }): JSX.Element {
+    const quillSurface = useQuillSurface()
+    if (quillSurface) {
+        return (
+            <QuillInsightErrorLayout
+                illustration={illustration}
+                title={title}
+                detail={detail}
+                actions={actions}
+                footer={footer}
+            />
+        )
+    }
     // pinned: tests, stories and autocapture select on both data-attr values, so do not rename them
     return (
         <div

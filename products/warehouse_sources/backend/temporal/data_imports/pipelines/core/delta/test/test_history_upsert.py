@@ -222,6 +222,19 @@ class TestHistoryUpsert:
             tagged = [commit["version"] for commit in history.history() if commit_matches(commit, tag)]
             assert tagged == [history.version()]
 
+    @pytest.mark.asyncio
+    async def test_one_call_counts_a_large_staged_batch_at_its_real_size(
+        self, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        # About 12 MB decoded, read back as several scanner slices of one row group. Counted once per slice, the
+        # rows would cross this lowered ceiling.
+        monkeypatch.setenv("DELTALITE_MAX_SOURCE_BYTES", str(40 * 1024 * 1024))
+        tables = _Tables(tmp_path)
+
+        result = await tables.run("run-1", _keys(100_000, "a" * 100, _at(1)))
+
+        assert result is not None and result.calls == 1 and result.versions_opened == 100_000
+
     @pytest.mark.parametrize(
         "limit",
         [
