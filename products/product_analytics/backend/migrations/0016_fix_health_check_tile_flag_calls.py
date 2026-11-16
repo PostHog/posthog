@@ -106,18 +106,24 @@ LEFT JOIN arriving ON all_built_in.event_name = arriving.event_name
 ORDER BY if(events_in_period = 0, 0, 1) ASC, events_in_period DESC
 LIMIT 200"""
 
-# What Insight.generate_query_metadata stores for NEW_QUERY. bulk_update skips save(), so the migration writes it.
-# Without it, filtering insights by $feature_flag_called doesn't find the rewritten copies.
-NEW_QUERY_METADATA = {
-    "events": ["$feature_flag_called", "survey dismissed", "survey sent", "survey shown"],
-    "properties": [],
-}
+# NEW_QUERY reads this event and OLD_QUERY doesn't. bulk_update skips save(), so the migration adds it to each copy's
+# query metadata. Without it, filtering insights by $feature_flag_called doesn't find the rewritten copies.
+NEW_QUERY_EVENT = "$feature_flag_called"
+
+
+def _with_new_query_event(query_metadata, updated_at):
+    # A copy's metadata also records the property filters saved on the tile, so the migration keeps it and adds only
+    # the event. A copy without metadata keeps none, so the metadata backfill generates it from the whole query.
+    if not isinstance(query_metadata, dict) or not isinstance(query_metadata.get("events"), list):
+        return query_metadata
+    events = sorted({*query_metadata["events"], NEW_QUERY_EVENT})
+    return {**query_metadata, "events": events, "updated_at": updated_at}
 
 
 def fix_health_check_tile_copies(apps, schema_editor):
     Insight = apps.get_model("product_analytics", "Insight")
     db_alias = schema_editor.connection.alias
-    query_metadata = {**NEW_QUERY_METADATA, "updated_at": timezone.now().isoformat().replace("+00:00", "Z")}
+    updated_at = timezone.now().isoformat().replace("+00:00", "Z")
     copies = Insight.objects.using(db_alias).filter(query__source__query=OLD_QUERY)
 
     # The query column has no index for this filter, so scan the table once and batch over the ids.
@@ -129,11 +135,11 @@ def fix_health_check_tile_copies(apps, schema_editor):
             copies.select_for_update(no_key=True)
             .filter(id__in=insight_ids[start : start + BATCH_SIZE])
             .order_by("id")
-            .only("id", "query")
+            .only("id", "query", "query_metadata")
         )
         for insight in insights:
             insight.query["source"]["query"] = NEW_QUERY
-            insight.query_metadata = query_metadata
+            insight.query_metadata = _with_new_query_event(insight.query_metadata, updated_at)
         Insight.objects.using(db_alias).bulk_update(insights, ["query", "query_metadata"])
 
 
