@@ -13497,8 +13497,8 @@ Today (2): `accounts`, `transactions`
 
 Diffed against: <https://docs.xendit.co/llms.txt>
 
-- [ ] `Disputes (GET /v1/disputes)` — measure dispute rates, disputed amounts, and outcomes that transaction totals cannot explain (high)
-- [ ] `Bill payment products (GET /bill-payments/v1/product)` — analyze bill payment offerings by biller, denomination, fees, availability, and revenue share (medium)
+- [x] `Disputes (GET /v1/disputes)` — measure dispute rates, disputed amounts, and outcomes that transaction totals cannot explain (high)
+- [x] `Bill payment products (GET /bill-payments/v1/product)` — analyze bill payment offerings by biller, denomination, fees, availability, and revenue share (medium)
 
 Note: Diffed the official documentation index and fetched the dispute, product, transaction, customer, and subscription cycle references. Disputes are documented at https://docs.xendit.co/apidocs/list-all-disputes-1.md; products at https://docs.xendit.co/apidocs/get-product-list.md. Customer searches require reference_id, and subscription cycles require plan IDs that no documented collection enumerates. Excluded those incomplete enumeration paths, individual payment lookups, generated reports, and webhooks.
 
