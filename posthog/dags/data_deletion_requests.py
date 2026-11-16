@@ -1392,6 +1392,21 @@ def _staged_rows(staging: _ShardStaging, months: list[str]) -> str:
     )
 
 
+def _restored_rows(staging: _ShardStaging, month: str) -> str:
+    """A filter for the cleaned rows of ``month`` that holds only uuids in memory.
+
+    The constant comparisons exclude an original as ``_staged_rows`` does: an original that shares a uuid
+    has an earlier ``_timestamp`` or a later ``inserted_at``. A legacy row with no ``inserted_at`` passes
+    the bound. Only the read-only verify uses it, so a mismatch fails the check and removes no row. The
+    caller passes ``marker``.
+    """
+    return (
+        f"_timestamp = {_CLEANED_TIMESTAMP} "
+        "AND (inserted_at IS NULL OR inserted_at <= toDateTime64(%(marker)s, 6, 'UTC')) "
+        f"AND uuid IN (SELECT uuid FROM s3({staging.data_args([month])}))"
+    )
+
+
 def _refuse_unmatchable_staged_rows(
     client: Client, staging: _ShardStaging, target: PropertyRemovalTarget, months: list[str], params: dict
 ) -> None:
@@ -1868,11 +1883,11 @@ def verify_property_removal_shard(
         expected_months = staging.unexpired_uuids(client, copied["months"], unexpired_sql, unexpired_params)
         cleaned_months: dict[str, int] = {}
         still_present = 0
-        # One month at a time, so each IN set holds one staged file, as in the reingest.
+        # One month at a time, so each IN set holds the uuids of one staged file.
         for month in sorted(copied["months"]):
             [[count, present]] = client.execute(
                 f"SELECT uniqExactIf(uuid, {unexpired_sql}), countIf({presence}) FROM {db}.{target.table} "
-                f"WHERE {in_scope} AND toYYYYMM(timestamp) = %(month)s AND {_staged_rows(staging, [month])}",
+                f"WHERE {in_scope} AND toYYYYMM(timestamp) = %(month)s AND {_restored_rows(staging, month)}",
                 {**cleaned_params, **unexpired_params, "month": int(month)},
                 settings=_LONG_QUERY_SETTINGS,
             )
