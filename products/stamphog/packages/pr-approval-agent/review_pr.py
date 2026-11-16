@@ -42,10 +42,12 @@ from gates import (
     MAX_FILES,
     MAX_LINES,
     POLICY,
+    additive_files,
     assign_tier,
     build_ownership,
     category_fully_exempt,
     classify_files,
+    deny_matches,
     dependency_manifests_without_lockfile,
     detect_deny_categories,
     detect_ownership,
@@ -201,12 +203,20 @@ class GateResult:
     details: dict = field(default_factory=dict)
 
 
-def _describe_deny_category(category: str) -> str:
-    """Name a denied category, and for an owner-only one, the teams that stamphog approves there."""
+def _describe_deny_category(category: str, files: list[str] | None = None) -> str:
+    """Name a denied category and the files that matched it, and for an owner-only one, the teams that stamphog approves there."""
+    described = category
+    if files:
+        shown = ", ".join(f"`{_sanitize_untrusted(f, max_len=120)}`" for f in files[:_DENY_FILES_SHOWN])
+        more = f" and {len(files) - _DENY_FILES_SHOWN} more" if len(files) > _DENY_FILES_SHOWN else ""
+        described += f" in {shown}{more}"
     teams = DENY_EXEMPT_AUTHOR_TEAMS.get(category)
-    if not teams:
-        return category
-    return f"{category} (stamphog approves these paths only for authors on {', '.join(teams)})"
+    if teams:
+        described += f" (stamphog approves these paths only for authors on {', '.join(teams)})"
+    return described
+
+
+_DENY_FILES_SHOWN = 3
 
 
 # ── Pipeline ─────────────────────────────────────────────────────
@@ -494,10 +504,13 @@ class Pipeline:
         pinned = pinned_files(self._attestations, pr.check_runs, pr.deny_paths, reviewed)
         unattested = sorted(set(pr.deny_paths) - pinned) if self.admitted_bot else []
         pending = pending_attestations(self._attestations, pr.check_runs, file_paths)
-        deny = detect_deny_categories(pr.deny_paths, lifted)
+        additive = additive_files(pr.files)
+        deny_files = deny_matches(pr.deny_paths, lifted, additive=additive)
+        deny = list(deny_files)
         exception_lifted = bool(POLICY.deny_exceptions) and (
-            detect_deny_categories(pr.deny_paths, lifted, apply_exceptions=False) != deny
+            detect_deny_categories(pr.deny_paths, lifted, apply_exceptions=False, additive=additive) != deny
         )
+        additions_lifted = detect_deny_categories(pr.deny_paths, lifted) != deny
         dep_manifests = dependency_manifests_without_lockfile(file_paths)
         # Deterministic first line for the manifest scripts risk: an edit to
         # scripts/lifecycle/build keys hard-denies rather than resting solely
@@ -514,6 +527,7 @@ class Pipeline:
             risky_manifests = []
         if risky_manifests and "deps_toolchain" not in deny:
             deny = sorted([*deny, "deps_toolchain"])
+            deny_files["deps_toolchain"] = risky_manifests
         denied_before_exemptions = len(deny)
         deny = [
             category
@@ -534,14 +548,16 @@ class Pipeline:
         # (tsconfig, setup.py/.cfg) that the reviewer's scripts guard covers.
         # An owner-only exemption lifts the deny, not the review: a workflow is .yml,
         # so without this it rides the allow-list to a T0 approval with no reviewer.
+        # An addition to an edit_paths file (an owners.yaml rule) is the same case.
         allow_only = (
             is_allow_listed_only(file_paths)
             and not has_dependency_changes(file_paths)
             and not dep_manifests
             and not owner_exempted
             and not exception_lifted
+            and not additions_lifted
         )
-        is_test = test_only(categories) and not owner_exempted and not exception_lifted
+        is_test = test_only(categories) and not owner_exempted and not exception_lifted and not additions_lifted
         ownership_resolvers = build_ownership(REPO_ROOT, POLICY.ownership)
         ownership = detect_ownership(file_paths, ownership_resolvers)
 
@@ -576,6 +592,7 @@ class Pipeline:
             "commit_scope": cc["scope"],
             "categories": categories,
             "deny_categories": deny,
+            "deny_files": {category: deny_files.get(category, []) for category in deny},
             "title_scrutiny_flags": title_flags,
             "lifted_files": {category: sorted(files) for category, files in sorted(lifted.items())},
             "unattested_files": unattested,
@@ -747,7 +764,8 @@ class Pipeline:
 
     def _check_deny_list(self) -> tuple[bool, str]:
         deny = self.classification["deny_categories"]
-        matches = ", ".join(_describe_deny_category(c) for c in deny)
+        deny_files = self.classification.get("deny_files") or {}
+        matches = "; ".join(_describe_deny_category(c, deny_files.get(c)) for c in deny)
         risky = self.classification.get("manifest_script_changes", [])
         if risky:
             risky_names = ", ".join(manifest_basenames(risky))
@@ -878,7 +896,9 @@ class Pipeline:
         summary = f"{tier_label} ({self.pr.lines_total}L, {len(self.pr.files)}F, {cl['breadth']}, {cl['commit_type'] or 'unknown'})"
 
         if cl["tier"] == "T2-never":
-            return False, f"classified as T2-never: {summary}"
+            # Only a deny-list match sets T2-never. Size and breadth play no part, so the
+            # message names the deny instead of the size figures.
+            return False, f"T2-never because the deny-list matched {', '.join(cl['deny_categories'])}"
         if cl["tier"] == "T0-deterministic":
             return True, f"T0 auto-approve: {summary}"
         return True, summary

@@ -111,7 +111,7 @@ class DenyCategory:
     description: str
     rationale: str
     # Only the scopes present in the policy file, preserving pattern order.
-    # Scope keys are a subset of {"any", "titles", "paths"}.
+    # Scope keys are a subset of {"any", "titles", "paths", "edit_paths"}.
     match: dict[str, tuple[str, ...]]
     exempt_author_teams: tuple[str, ...] = ()
 
@@ -327,7 +327,7 @@ _GITHUB_ACTIONS_APP_ID = 15368
 _ATTESTATION_REQUIRED_KEYS = {"name", "check", "app_id", "lifts", "paths"}
 _ATTESTATION_KEYS = _ATTESTATION_REQUIRED_KEYS | {"sibling_files", "publisher_files"}
 _BOT_AUTHOR_KEYS = {"name", "login", "id"}
-_DENY_SCOPES = {"any", "titles", "paths"}
+_DENY_SCOPES = {"any", "titles", "paths", "edit_paths"}
 _BREADTH_RULES = {"single-area", "not-cross-cutting"}
 
 # The delegation contract's delegable keys. Everything else (deny, allow, tiers)

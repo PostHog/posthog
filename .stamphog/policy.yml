@@ -37,8 +37,11 @@ deny:
                 - 'packages/owners-yaml/'
                 # Transitional: branches that predate the move still carry the resolver here.
                 - 'tools/owners/'
-                - '(?:^|/)owners\.yaml$'
                 - '(?:^|/)product\.yaml$'
+            # A change that only adds lines to an owners.yaml, such as a new rule, does not match.
+            # Changing or removing a line still does.
+            edit_paths:
+                - '(?:^|/)owners\.yaml$'
     devex_guardrails:
         description: 'The guards that keep the house patterns for API codegen, egress, ingress, product isolation, migrations, URLs and startup imports.'
         rationale: 'These files define what CI blocks, so a small edit can turn a guard off. Most are .yaml, .md, .txt or test files, and without this category they ride the allow-list or the test-only rule to a T0 auto-approve. Busy files stay out on purpose, because most edits to them are routine: tach.toml, pyproject.toml, lib/api.ts, model_crossing_uses_baseline.txt and the setup receivers baseline. owners.yaml routes those to team-devex instead.'

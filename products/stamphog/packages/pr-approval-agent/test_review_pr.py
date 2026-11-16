@@ -405,6 +405,60 @@ def test_exempt_author_workflow_pr_gets_t1_scrutiny_not_t0(
     assert pipeline.classification["tier"] == "T1-agent"
 
 
+@pytest.mark.parametrize(
+    "file, expected_tier, expected_deny",
+    [
+        pytest.param(
+            {"filename": "frontend/src/scenes/x/owners.yaml", "additions": 2, "deletions": 0, "status": "M"},
+            "T1-agent",
+            [],
+            id="added-rule",
+        ),
+        pytest.param(
+            {"filename": "frontend/src/scenes/x/owners.yaml", "additions": 5, "deletions": 0, "status": "A"},
+            "T1-agent",
+            [],
+            id="new-file",
+        ),
+        pytest.param(
+            {"filename": "frontend/src/scenes/x/owners.yaml", "additions": 1, "deletions": 1, "status": "M"},
+            "T2-never",
+            ["stamphog_policy"],
+            id="changed-line",
+        ),
+        pytest.param(
+            {"filename": "frontend/src/scenes/x/owners.yaml", "additions": 0, "deletions": 0, "status": "R100"},
+            "T2-never",
+            ["stamphog_policy"],
+            id="rename",
+        ),
+        pytest.param(
+            {"filename": ".stamphog/owners.yaml", "additions": 2, "deletions": 0, "status": "M"},
+            "T2-never",
+            ["stamphog_policy"],
+            id="added-lines-under-a-paths-pattern",
+        ),
+    ],
+)
+def test_owners_yaml_denies_only_a_change_to_an_existing_line(
+    monkeypatch: pytest.MonkeyPatch, file: dict, expected_tier: str, expected_deny: list[str]
+) -> None:
+    # An addition must not ride the .yaml allow-list to a T0 approval: it still gets an agent review.
+    monkeypatch.setattr(review_pr, "_POSTHOG_AVAILABLE", False)
+    pipeline = Pipeline(pr_number=1, repo="PostHog/posthog")
+    pr = _fake_pr(head_sha="abc123")
+    pr.files = [file]
+    pipeline.pr = pr
+
+    pipeline._classify()
+
+    assert pipeline.classification["tier"] == expected_tier
+    assert pipeline.classification["deny_categories"] == expected_deny
+    if expected_deny:
+        assert pipeline._check_deny_list() == (False, f"matches: stamphog_policy in `{file['filename']}`")
+        assert pipeline._check_tier() == (False, "T2-never because the deny-list matched stamphog_policy")
+
+
 def test_manifest_scripts_edit_hard_denies(monkeypatch: pytest.MonkeyPatch) -> None:
     # The deterministic scan is the first line against scripts/hook edits —
     # when it fires, the PR must land T2-never rather than the LLM-only path.

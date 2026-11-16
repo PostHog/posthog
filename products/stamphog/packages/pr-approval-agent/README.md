@@ -381,6 +381,11 @@ And the reviewer prompt must REFUSE on execution-bearing changes the scan can't 
 Manifest and lockfile pairing is per-ecosystem, from the `DEPENDENCY_ECOSYSTEMS` table in `gates.py`, which is the single source the deny patterns and helpers derive from.
 So a Cargo.lock bump hard-denies on its own but doesn't silence the scripts guard on an unrelated package.json edit in the same PR.
 
+A category's `match.edit_paths` patterns deny like `match.paths`, except for a file whose change only adds lines: a modified or new file with no deleted line.
+A rename, a copy, a deletion, a type change or a binary file always matches.
+A file that only `edit_paths` let through still gets an agent review, so it never rides the allow-list to a T0 approval.
+The deny-list gate message names the files that matched each category, so a refused author knows which change to look at.
+
 Code that legitimately looks like a sensitive domain without touching one gets a `deny_exceptions` rule. The removed `exempt_path_prefixes` key fails the load with a pointer to it.
 
 A deny category may also carry `exempt_author_teams`, a list of bare GitHub team slugs.

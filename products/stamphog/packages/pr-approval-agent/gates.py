@@ -154,8 +154,10 @@ def _ecosystem_for_manifest(name: str) -> str | None:
 # which reads the actual diff and can refuse when the change really does
 # touch the flagged domain.
 #
-# Three pattern lists per category:
+# Four pattern lists per category:
 #   "paths"  — matched against file paths (hard deny)
+#   "edit_paths" — matched against file paths (hard deny), except a file whose
+#              change only adds lines (see additive_files)
 #   "any"    — matched against file paths (hard deny) and the PR title
 #              (scrutiny flag only)
 #   "titles" — matched against the PR title only (scrutiny flag, never a
@@ -382,7 +384,7 @@ def _compile_patterns(
     for category, groups in defs.items():
         compiled[category] = {}
         for scope, patterns in groups.items():
-            if scope == "paths":
+            if scope in ("paths", "edit_paths"):
                 compiled[category][scope] = [_compile_pattern(p, for_paths=True) for p in patterns]
             elif scope == "titles":
                 compiled[category][scope] = [_compile_pattern(p, for_paths=False) for p in patterns]
@@ -405,7 +407,7 @@ def _compile_deny_exceptions(
     for category, rules in exceptions.items():
         scopes = defs[category]
         pattern_rules: dict[re.Pattern[str], tuple[DenyException, ...]] = {}
-        for pattern in scopes.get("paths", []) + scopes.get("any", []):
+        for pattern in scopes.get("paths", []) + scopes.get("edit_paths", []) + scopes.get("any", []):
             matching_rules = tuple(
                 rule for rule in rules if rule.keyword is None or rule.keyword.lower() == pattern.lower()
             )
@@ -538,36 +540,69 @@ def category_fully_exempt(category: str, files: list[str]) -> bool:
     return bool(files) and all(_is_exempt_path(category, f) for f in files)
 
 
+def additive_files(files: list[dict]) -> set[str]:
+    """Changed files whose change only adds lines: modified or new, with no deleted line.
+
+    A rename, a copy, a deletion, a type change and a binary file never count, so their paths stay
+    matched by `edit_paths` patterns.
+    """
+    return {
+        f["filename"]
+        for f in files
+        if f.get("status") in ("A", "M") and not f.get("binary") and int(f.get("deletions") or 0) == 0
+    }
+
+
+def deny_matches(
+    files: list[str],
+    lifted_files: Mapping[str, Collection[str]] | None = None,
+    *,
+    apply_exceptions: bool = True,
+    additive: Collection[str] = (),
+) -> dict[str, list[str]]:
+    """The files that hard-deny each matched category, keyed by category. Titles never deny.
+
+    `lifted_files` maps a deny category to files that do not count toward that category only. A lift
+    matches the exact path, because Git paths are case-sensitive and `SDK/x` is not `sdk/x`.
+    `additive` holds the files whose change only adds lines, which `edit_paths` patterns skip.
+    """
+    hits: dict[str, list[str]] = {}
+    lifted_by_category = lifted_files or {}
+
+    for category, scopes in DENY_PATTERNS.items():
+        lifted_for_category = lifted_by_category.get(category, ())
+        path_regexes = scopes.get("paths", []) + [path_rx for path_rx, _title_rx in scopes.get("any", [])]
+        edit_regexes = scopes.get("edit_paths", [])
+        exceptions = DENY_EXCEPTIONS.get(category, {}) if apply_exceptions else {}
+        matched = []
+        for f in files:
+            if f in lifted_for_category:
+                continue
+            p = f.lower()
+            regexes = path_regexes if f in additive else path_regexes + edit_regexes
+            if any(
+                rx.search(p)
+                and not any(
+                    p.startswith(rule.path_prefixes) and (not rule.extensions or p.endswith(rule.extensions))
+                    for rule in exceptions.get(rx, ())
+                )
+                for rx in regexes
+            ):
+                matched.append(f)
+        if matched:
+            hits[category] = matched
+    return dict(sorted(hits.items()))
+
+
 def detect_deny_categories(
     files: list[str],
     lifted_files: Mapping[str, Collection[str]] | None = None,
     *,
     apply_exceptions: bool = True,
+    additive: Collection[str] = (),
 ) -> list[str]:
-    """Categories hard-denied by the changed file paths. Titles never deny.
-
-    `lifted_files` maps a deny category to files that do not count toward that category only. A lift
-    matches the exact path, because Git paths are case-sensitive and `SDK/x` is not `sdk/x`.
-    """
-    hits: set[str] = set()
-    lifted_by_category = lifted_files or {}
-
-    for category, scopes in DENY_PATTERNS.items():
-        lifted_for_category = lifted_by_category.get(category, ())
-        paths_lower = [f.lower() for f in files if f not in lifted_for_category]
-        path_regexes = scopes.get("paths", []) + [path_rx for path_rx, _title_rx in scopes.get("any", [])]
-        exceptions = DENY_EXCEPTIONS.get(category, {}) if apply_exceptions else {}
-        if any(
-            rx.search(p)
-            and not any(
-                p.startswith(rule.path_prefixes) and (not rule.extensions or p.endswith(rule.extensions))
-                for rule in exceptions.get(rx, ())
-            )
-            for rx in path_regexes
-            for p in paths_lower
-        ):
-            hits.add(category)
-    return sorted(hits)
+    """Categories hard-denied by the changed file paths. See deny_matches."""
+    return list(deny_matches(files, lifted_files, apply_exceptions=apply_exceptions, additive=additive))
 
 
 def detect_title_scrutiny_flags(subject: str) -> list[str]:
