@@ -976,15 +976,6 @@ def load_property_removal_request(
     from django.utils import timezone
 
     with transaction.atomic():
-        # Every load locks all of a team's property removals in the same order, so two loads for one team
-        # run one after the other and see each other's marker.
-        team_id = DataDeletionRequest.objects.filter(pk=config.request_id).values_list("team_id", flat=True).first()
-        list(
-            DataDeletionRequest.objects.select_for_update()
-            .filter(team_id=team_id, request_type=RequestType.PROPERTY_REMOVAL)
-            .order_by("pk")
-            .values_list("pk", flat=True)
-        )
         request = (
             DataDeletionRequest.objects.select_for_update()
             .filter(
@@ -1004,27 +995,6 @@ def load_property_removal_request(
         if not request.properties and not person_properties:
             raise dagster.Failure(
                 f"Request {config.request_id} has no properties or person_properties specified.",
-            )
-
-        # A removal that started and did not complete may hold the team's rows only in its staged files, or
-        # may restore a staged copy of them. Another removal that rewrites those rows in between would lose
-        # its change when that copy comes back.
-        unfinished = [
-            str(pk)
-            for pk in DataDeletionRequest.objects.filter(
-                team_id=request.team_id,
-                request_type=RequestType.PROPERTY_REMOVAL,
-                property_removal_marker__isnull=False,
-            )
-            .exclude(pk=request.pk)
-            .exclude(status=RequestStatus.COMPLETED)
-            .order_by("created_at")
-            .values_list("pk", flat=True)
-        ]
-        if unfinished:
-            raise dagster.Failure(
-                f"Request {config.request_id} cannot start while property removal {', '.join(unfinished)} on team "
-                f"{request.team_id} is unfinished. Retry that request until it completes, then retry this one.",
             )
 
         _record_execution_attempt(request, context.run_id)
@@ -1619,9 +1589,14 @@ def _copy_property_removal_target(
 
     _sync_replica(client, target, log)
     predicate = _shard_predicate(client, deletion_request, target.deletion_target, marker_str, hogql_compiled, log)
-    inserted_at_sql = f"SELECT maxOrNull(inserted_at) FROM {db}.{target.table} WHERE {predicate.sql}"
+    inserted_at_sql = (
+        f"SELECT maxOrNull(inserted_at), toUnixTimestamp(max(_timestamp)) FROM {db}.{target.table} "
+        f"WHERE {predicate.sql}"
+    )
     log("max-inserted-at", inserted_at_sql)
-    [[inserted_at_max]] = client.execute(inserted_at_sql, predicate.params, settings=_LONG_QUERY_SETTINGS)
+    [[inserted_at_max, timestamp_max]] = client.execute(
+        inserted_at_sql, predicate.params, settings=_LONG_QUERY_SETTINGS
+    )
     copied_inserted_at_max = _datetime64_str(inserted_at_max) if inserted_at_max is not None else None
     predicate = _with_copied_inserted_at_bound(predicate, copied_inserted_at_max)
     cleaned = _cleaned_select_list(client, deletion_request, target, predicate.mat_cols, marker_str)
@@ -1666,6 +1641,9 @@ def _copy_property_removal_target(
         "months": months,
         "columns": cleaned.columns,
         "inserted_at_max": copied_inserted_at_max,
+        # Another property removal that rewrites an original after this copy moves its _timestamp past
+        # this value. The delete then rebuilds the copy rather than restore a stale one.
+        "timestamp_max": timestamp_max,
     }
     staging.finish_step(client, _COPIED, payload)
     return payload
@@ -1737,22 +1715,39 @@ def delete_property_removal_shard(
         _sync_replica(client, target, log)
         predicate = _shard_predicate(client, deletion_request, target.deletion_target, marker_str, hogql_compiled, log)
         predicate = _with_copied_inserted_at_bound(predicate, copied["inserted_at_max"])
+        # A copy that a previous version of this job wrote has no timestamp_max. The format check below
+        # rebuilds that copy.
+        timestamp_max = copied.get("timestamp_max")
+        rewritten_sql = "0" if timestamp_max is None else "countIf(_timestamp > toDateTime(%(copied_timestamp_max)s))"
         count_sql = (
-            f"SELECT toString(toYYYYMM(timestamp)) AS month, uniqExact(uuid) "
+            f"SELECT toString(toYYYYMM(timestamp)) AS month, uniqExact(uuid), {rewritten_sql} "
             f"FROM {db}.{target.table} WHERE {predicate.sql} GROUP BY month"
         )
         log("count-originals", count_sql)
-        source = dict(client.execute(count_sql, predicate.params, settings=_LONG_QUERY_SETTINGS))
+        counts = client.execute(
+            count_sql,
+            {**predicate.params, "copied_timestamp_max": timestamp_max},
+            settings=_LONG_QUERY_SETTINGS,
+        )
+        source = {month: count for month, count, _ in counts}
+        rewritten = sum(changed for _, _, changed in counts)
         originals = sum(source.values())
         previous_version = _count_rows_staged_by_previous_version(client, staging, sorted(copied["months"]), marker_str)
-        if _DELETE_STARTED not in steps and (source != staged or previous_version):
+        if _DELETE_STARTED not in steps and (source != staged or rewritten or previous_version):
             # Nothing is deleted yet, so copying again is safe. Discarding the copy's progress file
             # lets the next run of the job copy again from the current source.
             staging.discard_step(client, _COPIED)
             raise dagster.Failure(
                 description=f"[{target.mapping_key}] the originals differ from the staged copy "
-                f"(source={source}, staged={staged}, {previous_version} rows staged by a previous version of "
-                "this job). Nothing was deleted. Retry the request to copy the originals again."
+                f"(source={source}, staged={staged}, {rewritten} originals rewritten since the copy, "
+                f"{previous_version} rows staged by a previous version of this job). Nothing was deleted. "
+                "Retry the request to copy the originals again."
+            )
+        if rewritten:
+            raise dagster.Failure(
+                description=f"[{target.mapping_key}] {rewritten} originals changed after the copy, and an earlier "
+                "attempt already started deleting. Restoring the staged copy would undo that change. The staged "
+                "copy is kept. Investigate before re-running."
             )
         if source != staged:
             # An earlier attempt started the delete and may have removed some originals, so the staged
