@@ -4045,7 +4045,7 @@ describe('Workflows E2E (email queue)', () => {
         for (const job of parkedA) {
             expect(job.transition_count).toBeLessThanOrEqual(4)
         }
-        expect(await bulkEmailPickupsSince(pickupsBefore)).toEqual({ processed: 4, rate_limited: 7 })
+        expect(await bulkEmailPickupsSince(pickupsBefore)).toEqual({ processed: 4, parked: 7 })
     })
 
     it("a team over its tier cap does not hold up another team's emails", async () => {
@@ -4195,7 +4195,7 @@ describe('Workflows E2E (email queue)', () => {
             expect(new Date(job.scheduled).getTime()).toBeGreaterThan(Date.now() + 25 * 60 * 1000)
             expect(job.transition_count).toBeLessThanOrEqual(4)
         }
-        expect(await bulkEmailPickupsSince(pickupsBefore)).toEqual({ processed: 5, rate_limited: 4 })
+        expect(await bulkEmailPickupsSince(pickupsBefore)).toEqual({ processed: 5, parked: 4 })
     })
 
     it('rate-limited variant processes emails end-to-end through the dedicated bucket', async () => {

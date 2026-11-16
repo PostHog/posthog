@@ -227,8 +227,8 @@ export class HogFunctionHandler implements ActionHandler {
         if (functionResult.emailSendResult) {
             result.emailSendResult = functionResult.emailSendResult
         }
-        if (functionResult.parkedByRateLimit) {
-            result.parkedByRateLimit = true
+        if (functionResult.parked) {
+            result.parked = true
         }
 
         // Add all logs
