@@ -18,15 +18,10 @@ def list_releases(team_id: int) -> QuerySet[Release]:
     return strict_fetch(Release.objects.filter(team_id=team_id).select_related("owner").order_by("created_at", "id"))
 
 
-def list_catalog_releases(
-    team_id: int, search: str, hidden_flag_ids: Callable[[list[int]], frozenset[int]]
-) -> QuerySet[Release]:
+def list_catalog_releases(team_id: int, search: str) -> QuerySet[Release]:
     releases = Release.objects.filter(team_id=team_id)
     if search:
         releases = releases.filter(name__icontains=search)
-        generated = list(releases.filter(auto_named=True).values_list("id", "feature_flag_ids"))
-        hidden = hidden_flag_ids(sorted({flag_id for _, flag_ids in generated for flag_id in flag_ids}))
-        releases = releases.exclude(id__in=[release_id for release_id, flag_ids in generated if hidden & set(flag_ids)])
     return releases.only("id", "name", "created_at", "auto_named", "feature_flag_ids").order_by("-created_at", "-id")
 
 

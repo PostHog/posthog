@@ -144,24 +144,33 @@ def list_page(team_id: int, page: PageRequest, lookups: LinkLookups) -> Page[con
     return releases.map(lambda obj: _to_dto(obj, hidden))
 
 
+CATALOG_SCAN_BATCH = 200
+
+
 def list_catalog_page(
     team_id: int, flags: FlagVisibilityLookup, *, search: str, limit: int, offset: int
 ) -> tuple[list[contracts.CatalogReleaseDTO], bool]:
-    releases = list(
-        logic.list_catalog_releases(team_id, search, lambda flag_ids: flags(flag_ids).hidden)[
-            offset : offset + limit + 1
-        ]
-    )
-    page = releases[:limit]
-    hidden = flags(sorted({flag_id for obj in page for flag_id in obj.feature_flag_ids})).hidden
-    return [
-        contracts.CatalogReleaseDTO(
-            id=obj.id,
-            name=RESTRICTED_NAME if obj.auto_named and hidden & set(obj.feature_flag_ids) else obj.name,
-            created_at=obj.created_at,
-        )
-        for obj in page
-    ], len(releases) > limit
+    releases = logic.list_catalog_releases(team_id, search)
+    wanted = offset + limit + 1
+    eligible: list[contracts.CatalogReleaseDTO] = []
+    scanned = 0
+    while len(eligible) < wanted:
+        size = max(CATALOG_SCAN_BATCH, wanted - len(eligible))
+        batch = list(releases[scanned : scanned + size])
+        scanned += len(batch)
+        hidden = flags(sorted({flag_id for obj in batch if obj.auto_named for flag_id in obj.feature_flag_ids})).hidden
+        for obj in batch:
+            restricted = obj.auto_named and bool(hidden & set(obj.feature_flag_ids))
+            if restricted and search:
+                continue
+            eligible.append(
+                contracts.CatalogReleaseDTO(
+                    id=obj.id, name=RESTRICTED_NAME if restricted else obj.name, created_at=obj.created_at
+                )
+            )
+        if len(batch) < size:
+            break
+    return eligible[offset : offset + limit], len(eligible) > offset + limit
 
 
 def create(input: contracts.CreateReleaseInput, lookups: LinkLookups) -> contracts.ReleaseDTO:

@@ -16,6 +16,9 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { FileSystemIconType } from '~/queries/schema/schema-general'
 
 import { ReleaseAllFilter, ReleaseAllRow, ReleaseAllType, releaseAllLogic } from './releaseAllLogic'
+import { ReleaseAutoImport } from './ReleaseAutoImport'
+import { ReleaseImportFailedNotice } from './ReleaseImportFailedNotice'
+import { releaseImportLogic } from './releaseImportLogic'
 import { releaseLogic } from './releaseLogic'
 import { ReleasesGate } from './ReleasesGate'
 
@@ -126,6 +129,7 @@ function useLoadMoreSentinel(onVisible: () => void, watch: unknown): (node: Elem
 function ReleaseAllContent(): JSX.Element {
     const { renderedRows, filter, search, canShowMore, loading, showSkeleton, failedTypes } = useValues(releaseAllLogic)
     const { setFilter, setSearch, next, retry } = useActions(releaseAllLogic)
+    const { showAutoImport } = useValues(releaseImportLogic)
     const sentinel = useLoadMoreSentinel(next, `${loading}-${renderedRows.length}`)
     const searching = !!search.trim()
     const openRow = useCallback((row: ReleaseAllRow) => navigateToHref(row.href), [])
@@ -177,7 +181,10 @@ function ReleaseAllContent(): JSX.Element {
                         </Button>
                     </div>
                 )}
-                {showSkeleton ? (
+                <ReleaseImportFailedNotice />
+                {showAutoImport ? (
+                    <ReleaseAutoImport />
+                ) : showSkeleton ? (
                     <div className="flex flex-col gap-2" data-attr="release-all-loading">
                         {Array.from({ length: 8 }, (_, index) => (
                             <Skeleton key={index} className="h-9 w-full" />
