@@ -12,8 +12,12 @@ from django.conf import settings
 import structlog
 import posthoganalytics
 from playwright.sync_api import (
+    BrowserContext,
     Error as PlaywrightError,
+    Request,
+    Route,
     TimeoutError as PlaywrightTimeoutError,
+    WebSocketRoute,
     sync_playwright,
 )
 from prometheus_client import Counter, Histogram
@@ -44,7 +48,7 @@ from products.exports.backend.tasks.failure_handler import (
     classify_failure_type,
     is_reportable_export_failure,
 )
-from products.exports.backend.url_security import is_heatmap_url_allowed
+from products.exports.backend.url_security import is_heatmap_url_allowed, is_render_request_allowed
 from products.product_analytics.backend.facade.api import insight_variables_for_team, map_stale_to_latest
 
 logger = structlog.get_logger(__name__)
@@ -446,6 +450,56 @@ def _save_debug_screenshot(take_screenshot: Callable[[str], object], image_path:
         pass
 
 
+def _render_request_checker() -> Callable[[str], bool]:
+    """A check per render that resolves each origin once, because a page can send hundreds of requests to one host."""
+    verdicts: dict[tuple[str, str], bool] = {}
+
+    def is_allowed(url: str) -> bool:
+        try:
+            parsed = urlparse(url)
+        except ValueError:
+            return False
+        key = (parsed.scheme, parsed.netloc)
+        if key not in verdicts:
+            verdicts[key] = is_render_request_allowed(url)
+        return verdicts[key]
+
+    return is_allowed
+
+
+def _guard_render_requests(context: BrowserContext) -> list[str]:
+    """Stop the browser from reaching internal addresses, and return the redirect hops that tried to.
+
+    The page in the browser can come from a customer's site, and that page can redirect or
+    navigate anywhere. The returned list fills while the page loads.
+    """
+    is_allowed = _render_request_checker()
+    blocked_redirects: list[str] = []
+
+    def handle_route(route: Route) -> None:
+        if is_allowed(route.request.url):
+            route.continue_()
+        else:
+            route.abort("blockedbyclient")
+
+    def handle_web_socket(web_socket: WebSocketRoute) -> None:
+        # WebSocketRoute.close() from a sync handler blocks the render, so it is not used.
+        if is_allowed(web_socket.url):
+            web_socket.connect_to_server()
+
+    def handle_request(request: Request) -> None:
+        # Playwright calls the route handler only for the first URL of a redirect chain. When this
+        # event fires, Chromium has already sent the redirected request, so the render must fail
+        # before it takes a screenshot of the response.
+        if request.redirected_from is not None and not is_allowed(request.url):
+            blocked_redirects.append(request.url)
+
+    context.route("**/*", handle_route)
+    context.route_web_socket("**/*", handle_web_socket)
+    context.on("request", handle_request)
+    return blocked_redirects
+
+
 def _screenshot_asset_browserless(
     image_path: str,
     url_to_render: str,
@@ -476,7 +530,9 @@ def _screenshot_asset_browserless(
             context = browser.new_context(
                 device_scale_factor=2,
                 viewport={"width": screenshot_width, "height": screenshot_height},
+                service_workers="block",
             )
+            blocked_redirects = _guard_render_requests(context)
             page = context.new_page()
             posthoganalytics.tag("url_to_render", url_to_render)
 
@@ -524,6 +580,9 @@ def _screenshot_asset_browserless(
                 page.set_viewport_size({"width": width, "height": final_height})
                 # Charts redraw their canvas after a resize, so a screenshot taken at once can catch them blank.
                 page.wait_for_timeout(500)
+            if blocked_redirects:
+                logger.warning("image_exporter.blocked_redirect", blocked_url=blocked_redirects[0])
+                raise InvalidExportContext("The page redirected to an address that exports can't load")
             page.screenshot(path=image_path)
         except BrowserlessUnavailable:
             raise

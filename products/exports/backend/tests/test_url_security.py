@@ -6,7 +6,11 @@ from parameterized import parameterized
 
 from posthog.models.team import Team
 
-from products.exports.backend.url_security import UNAUTHORIZED_HEATMAP_URL_REASON, is_heatmap_url_allowed
+from products.exports.backend.url_security import (
+    UNAUTHORIZED_HEATMAP_URL_REASON,
+    is_heatmap_url_allowed,
+    is_render_request_allowed,
+)
 
 
 @override_settings(SITE_URL="https://us.posthog.com")
@@ -70,3 +74,25 @@ class TestIsHeatmapUrlAllowed(SimpleTestCase):
         assert allowed is expected_allowed
         if not expected_allowed:
             assert reason == "Screenshot heatmap URL must use the PostHog instance origin"
+
+
+@override_settings(SITE_URL="http://10.0.0.5:8000")
+class TestIsRenderRequestAllowed(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("instance_origin_on_a_private_address", "http://10.0.0.5:8000/exporter?token=x", True),
+            ("public_address", "https://1.1.1.1/page", True),
+            ("public_socket", "wss://1.1.1.1/socket", True),
+            ("inline_data", "data:image/png;base64,AAAA", True),
+            ("in_memory_blob", "blob:http://10.0.0.5:8000/9b1c", True),
+            ("blank_frame", "about:blank", True),
+            ("instance_host_on_another_port", "http://10.0.0.5:9000/", False),
+            ("cloud_metadata", "http://169.254.169.254/latest/meta-data/", False),
+            ("loopback", "http://127.0.0.1:2379/", False),
+            ("private_socket", "ws://10.0.0.7/socket", False),
+            ("local_file", "file:///etc/passwd", False),
+            ("unknown_scheme", "ftp://1.1.1.1/", False),
+        ]
+    )
+    def test_request_verdict(self, _name: str, url: str, expected: bool) -> None:
+        assert is_render_request_allowed(url) is expected

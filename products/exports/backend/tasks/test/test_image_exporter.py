@@ -1051,6 +1051,47 @@ class TestScreenshotAssetBrowserless(SimpleTestCase):
         assert isinstance(ctx.exception.__cause__, PlaywrightTimeoutError)
         assert "Timeout 30000ms exceeded" in str(ctx.exception.__cause__)
 
+    @parameterized.expand(
+        [
+            ("internal_address", "http://169.254.169.254/latest/meta-data/", True),
+            ("public_address", "https://1.1.1.1/landing", False),
+        ]
+    )
+    def test_redirect_target_decides_whether_the_render_is_kept(
+        self, _name: str, redirect_target: str, expect_rejected: bool
+    ) -> None:
+        page = MagicMock()
+        context = MagicMock()
+        context.new_page.return_value = page
+        browser = MagicMock()
+        browser.new_context.return_value = context
+        playwright_obj = MagicMock()
+        playwright_obj.chromium.connect_over_cdp.return_value = browser
+        sync_playwright_cm = MagicMock()
+        sync_playwright_cm.__enter__.return_value = playwright_obj
+
+        def load_page_that_redirects(*_args: Any, **_kwargs: Any) -> None:
+            on_request = next(call.args[1] for call in context.on.call_args_list if call.args[0] == "request")
+            on_request(MagicMock(url=redirect_target, redirected_from=MagicMock()))
+
+        page.goto.side_effect = load_page_that_redirects
+        page.evaluate.return_value = 600
+
+        with (
+            patch(
+                "products.exports.backend.tasks.image_exporter.sync_playwright",
+                return_value=sync_playwright_cm,
+            ),
+            patch.object(settings, "BROWSERLESS_CDP_URL", "wss://chrome.browserless.io"),
+        ):
+            if expect_rejected:
+                with self.assertRaises(InvalidExportContext):
+                    image_exporter._screenshot_asset_browserless("p", "u", 800, ".heatmap-exporter")
+            else:
+                image_exporter._screenshot_asset_browserless("p", "u", 800, ".heatmap-exporter")
+
+        assert page.screenshot.called is not expect_rejected
+
     def test_replay_export_finds_the_player_inside_its_frame_document(self) -> None:
         # The player can mount rrweb inside its own frame document. A selector wait or a document query
         # never looks inside a frame, so the export would time out, or measure the page without the player.
