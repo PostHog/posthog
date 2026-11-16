@@ -1,11 +1,13 @@
 from __future__ import annotations
 
 import re
+import hashlib
 
 from products.warehouse_sources.backend.temporal.data_imports.naming_convention import NamingConvention
 
 _IDENTIFIER_SANITIZE_RE = re.compile(r"[^0-9a-zA-Z]+")
 _DUCKGRES_IDENTIFIER_MAX_LENGTH = 63
+_TRUNCATED_NAME_HASH_LENGTH = 10
 
 
 def duckgres_data_imports_table_name_for_version(
@@ -28,4 +30,11 @@ def _sanitize_identifier(raw: str, *, default_prefix: str) -> str:
         cleaned = default_prefix
     if cleaned[0].isdigit():
         cleaned = f"{default_prefix}_{cleaned}"
-    return cleaned[:_DUCKGRES_IDENTIFIER_MAX_LENGTH]
+    if len(cleaned) <= _DUCKGRES_IDENTIFIER_MAX_LENGTH:
+        return cleaned
+    # Long names often share their first 63 characters, for example tables of one source with a long
+    # prefix. A plain cut maps them all to one physical table, and each sync then replaces the others.
+    # The hash of the full raw name keeps the cut names distinct and stable across runs.
+    digest = hashlib.sha256(raw.encode("utf-8")).hexdigest()[:_TRUNCATED_NAME_HASH_LENGTH]
+    keep = _DUCKGRES_IDENTIFIER_MAX_LENGTH - len(digest) - 1
+    return f"{cleaned[:keep].rstrip('_')}_{digest}"
