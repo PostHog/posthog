@@ -865,6 +865,8 @@ class ModalSandbox(AgentServerLaunchMixin):
         self._destroyed = False
 
     def _validate_agent_server_launch(self) -> None:
+        if self.config.agent_egress_probe:
+            raise RuntimeError("Egress probe sandboxes cannot launch an agent server")
         if not self._is_running_cached():
             raise RuntimeError("Sandbox not in running state.")
 
@@ -1045,6 +1047,8 @@ class ModalSandbox(AgentServerLaunchMixin):
 
     @classmethod
     def create(cls, config: SandboxConfig) -> ModalSandbox:
+        if config.agent_egress_probe:
+            SandboxConfig.model_validate(config.model_dump())
         sb: modal.Sandbox | None = None
         try:
             modal.enable_output()
@@ -1195,6 +1199,10 @@ class ModalSandbox(AgentServerLaunchMixin):
 
             if config.is_vm:
                 create_kwargs["experimental_options"] = {"vm_runtime": True}
+
+            if config.agent_egress_probe:
+                create_kwargs["experimental_options"] = {"vm_runtime": True, "vm_sidecar_memory_reserve_mib": 1024}
+                create_kwargs["outbound_cidr_allowlist"] = []
 
             if config.block_network:
                 create_kwargs["block_network"] = True
@@ -2025,7 +2033,7 @@ class ModalSandbox(AgentServerLaunchMixin):
         if returncode is None:
             return "running"
         try:
-            result = getattr(modal_synchronizer._translate_in(self._sandbox), "_result", None)
+            result = modal_synchronizer._translate_in(self._sandbox)._impl.result
             if result is not None:
                 return api_pb2.GenericResult.GenericStatus.Name(result.status).lower().removeprefix("generic_status_")
         except Exception as e:
