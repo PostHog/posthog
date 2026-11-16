@@ -215,6 +215,7 @@ describe('valves', () => {
                 valve: 'role.kill',
                 target: EMAIL_WORKER,
                 requestedAt: expect.any(String),
+                intentAt: expect.any(String),
                 appliedAt: expect.any(String),
                 observedAt: expect.any(String),
                 releasedAt: expect.any(String),
@@ -532,7 +533,7 @@ describe('valves', () => {
     it.each<[string, StackSetup]>([
         ['a slow apply returns', { applyTakesMs: 100 }],
         ['observing lasts until the hold ends', { applyTakesMs: 100, observesUntilHoldEnds: true }],
-    ])('holds an entry for its duration from the moment apply returns, when %s', async (_story, setup) => {
+    ])('records the intent before apply and holds from the moment apply returns, when %s', async (_story, setup) => {
         const valves = createValves({ pollMs: 5 })
         const stack = stackOf(setup)
 
@@ -540,9 +541,10 @@ describe('valves', () => {
         await waitForExpect(() => expect(valves.timeline()[0].releasedAt).toBeDefined(), 2000, 5)
         await valves.releaseAll()
 
-        const { appliedAt, observedAt, releasedAt, error } = valves.timeline()[0]
+        const { intentAt, appliedAt, observedAt, releasedAt, error } = valves.timeline()[0]
         const applyReturnedAt = stack.applyReturnedAt()
         expect({ observedAt, error }).toEqual({ observedAt: expect.any(String), error: undefined })
+        expect(applyReturnedAt! - Date.parse(intentAt!)).toBeGreaterThanOrEqual(95)
         expect(Date.parse(appliedAt!)).toBeGreaterThanOrEqual(applyReturnedAt!)
         expect(Date.parse(releasedAt!) - applyReturnedAt!).toBeGreaterThanOrEqual(195)
     })

@@ -22,6 +22,7 @@ from products.mcp_analytics.backend.models import MCPIntentClusteringRun, MCPInt
 PCA_BASIS_PARAM = "pca_basis"
 # Runs are stored on the project, so each run records the environment whose events it read.
 SOURCE_TEAM_PARAM = "source_team_id"
+SYNC_RESUME_PARAM = "sync_resume_from"
 
 
 @dataclass(frozen=True)
@@ -77,6 +78,8 @@ def finish_run(
     status: str,
     error_message: str = "",
     window_end: datetime | None = None,
+    sync_resume_from: datetime | None = None,
+    synchronous_writes_completed: bool = False,
     **counts: int,
 ) -> None:
     run.status = status
@@ -85,6 +88,9 @@ def finish_run(
     if window_end is not None:
         run.window_end = window_end
         update_fields.append("window_end")
+    if sync_resume_from is not None:
+        run.params[SYNC_RESUME_PARAM] = sync_resume_from.isoformat()
+        update_fields.append("params")
     for name, value in counts.items():
         setattr(run, name, value)
     run.finished_at = timezone.now()
@@ -95,7 +101,7 @@ def finish_run(
     )
     completed |= status == MCPIntentClusteringRun.Status.SUCCEEDED and (
         run.kind in (MCPIntentClusteringRun.Kind.ASSIGN, MCPIntentClusteringRun.Kind.REFIT)
-        or (run.kind == MCPIntentClusteringRun.Kind.SYNC and counts.get("n_embeddings_requested") == 0)
+        or (run.kind == MCPIntentClusteringRun.Kind.SYNC and synchronous_writes_completed)
     )
     if completed:
         run.writer_completed_at = timezone.now()

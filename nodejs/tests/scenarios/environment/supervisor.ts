@@ -4,8 +4,9 @@ import { closeSync, openSync } from 'fs'
 import path from 'path'
 import { setTimeout as sleep } from 'timers/promises'
 
+import { nameOf } from './identity'
 import { processState, signal, terminate } from './processes'
-import { Role, RoleSpec } from './roles'
+import { RoleId, RoleSpec } from './roles'
 
 const EXIT_REPORTED_WITHIN_MS = 2000
 const STATE_POLL_MS = 20
@@ -14,8 +15,7 @@ const isRunning = (child: ChildProcess): boolean => child.exitCode === null && c
 
 const EXITED_STATES = [null, 'Z', 'X']
 
-export type RoleExit = {
-    role: Role
+export type RoleExit = RoleId & {
     at: string
     code: number | null
     signal: string | null
@@ -35,23 +35,23 @@ export type SupervisorOptions = {
 export type Supervisor = {
     start(specs: RoleSpec[]): Promise<void>
     stop(): Promise<void>
-    kill(role: Role, withinMs: number): Promise<boolean>
-    freeze(role: Role, withinMs: number): { observed(): Promise<boolean>; release(): Promise<void> }
+    kill(id: RoleId, withinMs: number): Promise<boolean>
+    freeze(id: RoleId, withinMs: number): { observed(): Promise<boolean>; release(): Promise<void> }
     exits(): RoleExit[]
 }
 
 export function createSupervisor(options: SupervisorOptions): Supervisor {
-    const children = new Map<Role, ChildProcess>()
+    const children = new Map<string, ChildProcess>()
     const restarts = new Set<NodeJS.Timeout>()
     const recorded: RoleExit[] = []
     const killedByValve = new WeakSet<ChildProcess>()
     const freezes = new Map<number, number>()
     let stopping = false
 
-    const runningChild = (role: Role): ChildProcess & { pid: number } => {
-        const child = children.get(role)
+    const runningChild = (id: RoleId): ChildProcess & { pid: number } => {
+        const child = children.get(nameOf(id))
         if (child?.pid === undefined || !isRunning(child) || EXITED_STATES.includes(processState(child.pid))) {
-            throw new Error(`${role} is not running`)
+            throw new Error(`${nameOf(id)} is not running`)
         }
         return child as ChildProcess & { pid: number }
     }
@@ -67,7 +67,8 @@ export function createSupervisor(options: SupervisorOptions): Supervisor {
     }
 
     const launch = (spec: RoleSpec): ChildProcess => {
-        const log = openSync(path.join(options.logDir, `${spec.role}.log`), 'a')
+        const name = nameOf(spec)
+        const log = openSync(path.join(options.logDir, `${name}.log`), 'a')
         const child = spawn(options.command, options.args, {
             cwd: options.cwd,
             env: spec.env,
@@ -75,16 +76,17 @@ export function createSupervisor(options: SupervisorOptions): Supervisor {
             stdio: ['ignore', log, log],
         })
         closeSync(log)
-        children.set(spec.role, child)
+        children.set(name, child)
         child.once('error', (error) => {
-            if (children.get(spec.role) === child) {
-                children.delete(spec.role)
+            if (children.get(name) === child) {
+                children.delete(name)
             }
             if (stopping || child.pid !== undefined) {
                 return
             }
             recorded.push({
                 role: spec.role,
+                replica: spec.replica,
                 at: new Date().toISOString(),
                 code: null,
                 signal: null,
@@ -94,8 +96,8 @@ export function createSupervisor(options: SupervisorOptions): Supervisor {
             relaunchLater(spec)
         })
         child.once('exit', (code, signal) => {
-            if (children.get(spec.role) === child) {
-                children.delete(spec.role)
+            if (children.get(name) === child) {
+                children.delete(name)
             }
             if (stopping) {
                 return
@@ -103,6 +105,7 @@ export function createSupervisor(options: SupervisorOptions): Supervisor {
             void terminate({ groups: child.pid ? [child.pid] : [], pids: [] }, 0)
             recorded.push({
                 role: spec.role,
+                replica: spec.replica,
                 at: new Date().toISOString(),
                 code,
                 signal,
@@ -139,8 +142,8 @@ export function createSupervisor(options: SupervisorOptions): Supervisor {
             }
         },
 
-        async kill(role, withinMs) {
-            const child = runningChild(role)
+        async kill(id, withinMs) {
+            const child = runningChild(id)
             killedByValve.add(child)
             const exited = once(child, 'exit').then(([, signal]) => signal === 'SIGKILL')
             process.kill(-child.pid, 'SIGKILL')
@@ -153,8 +156,8 @@ export function createSupervisor(options: SupervisorOptions): Supervisor {
             return outcome
         },
 
-        freeze(role, withinMs) {
-            const { pid } = runningChild(role)
+        freeze(id, withinMs) {
+            const { pid } = runningChild(id)
             process.kill(-pid, 'SIGSTOP')
             freezes.set(pid, (freezes.get(pid) ?? 0) + 1)
             let released = false
