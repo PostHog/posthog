@@ -8,8 +8,13 @@ The trend is read here, as the message goes out, with a short timeout. A history
 costs the chart and nothing else, because the card is complete without it.
 """
 
-from datetime import timedelta
+import math
+from collections import OrderedDict
+from datetime import datetime, timedelta
 from typing import Any, Final
+from uuid import uuid4
+
+from django.conf import settings
 
 import structlog
 
@@ -42,38 +47,82 @@ HISTORY_STEP_SECONDS: Final = 240
 HISTORY_QUERY_SECONDS: Final = 1
 MAX_QUERY_CHARS: Final = 500
 CHART_TITLE: Final = "Last 60 min"
+# Chart reads get their own pool, so they never take a slot an evaluation needs. A full pool costs
+# the chart, not the message.
+CHART_INFLIGHT_KEY: Final = "alerts:platform:metrics:charts:inflight"
+CHART_SLOT_LEASE_SECONDS: Final = 5
+# Every group and destination of one evaluation renders from the same range query, so it runs once.
+_RESULT_CACHE_SIZE: Final = 32
+_results: OrderedDict[tuple[int, str, datetime], list[dict[str, Any]] | None] = OrderedDict()
 
 
 def _number(raw: Any) -> float | None:
     try:
-        return float(raw)
+        value = float(raw)
     except (TypeError, ValueError):
         return None
+    # NaN and infinity have no JSON form, and Slack refuses the whole message for one.
+    return value if math.isfinite(value) else None
 
 
-def _matching_series(result: list[dict[str, Any]], labels: dict[str, str]) -> list[Any] | None:
-    """The points of the series that is this group, or of the only series when the alert is ungrouped."""
-    for series in result:
-        metric = {key: value for key, value in (series.get("metric") or {}).items() if key != "__name__"}
-        if all(metric.get(key) == value for key, value in labels.items()):
-            return series.get("values") or []
-    return None
+def _points(raw: list[Any]) -> list[tuple[int, float]]:
+    return [(int(float(ts)), value) for ts, raw_value in raw if (value := _number(raw_value)) is not None]
 
 
-def fetch_history(team_id: int, transition: AnnouncedTransition) -> list[tuple[int, float]]:
-    """The group's values over the hour before the alert, oldest first. Empty on any failure."""
-    query = str(transition.source_config.get("query", ""))
-    if not query:
-        return []
+def _matching_series(result: list[dict[str, Any]], transition: AnnouncedTransition) -> list[Any] | None:
+    """The points of the series that is this group, or of the only series when the alert is ungrouped.
+
+    Several series can share the group's labels. The one whose latest value is the one the alert
+    reported is the one that fired, and when none or several match, no chart beats a wrong one.
+    """
+    labels = transition.labels
+    matches = [
+        series.get("values") or []
+        for series in result
+        if all((series.get("metric") or {}).get(key) == value for key, value in labels.items())
+    ]
+    if len(matches) <= 1:
+        return matches[0] if matches else None
+    if transition.value is None:
+        return None
+    fired = [raw for raw in matches if (points := _points(raw)) and math.isclose(points[-1][1], transition.value)]
+    return fired[0] if len(fired) == 1 else None
+
+
+def _query_range(team_id: int, query: str, end: datetime) -> list[dict[str, Any]] | None:
+    """The range query's series, or None when it could not be read. Failures are cached too."""
+    cache_key = (team_id, query, end)
+    if cache_key in _results:
+        _results.move_to_end(cache_key)
+        return _results[cache_key]
+    result = _read_range(team_id, query, end)
+    _results[cache_key] = result
+    if len(_results) > _RESULT_CACHE_SIZE:
+        _results.popitem(last=False)
+    return result
+
+
+def _read_range(team_id: int, query: str, end: datetime) -> list[dict[str, Any]] | None:
     # Imported here because registration runs from ready(), before models and the query layer load.
     from posthog.clickhouse.client.connection import ClickHouseUser  # noqa: PLC0415
     from posthog.models import Team  # noqa: PLC0415
+    from posthog.temporal.alerts.admission import hold_evaluation_slot, release_evaluation_slot  # noqa: PLC0415
 
     from products.metrics.backend.promql import snuffle_payload  # noqa: PLC0415
 
+    member = f"{team_id}:{uuid4().hex}"
+    held_until = None
     try:
+        held_until = hold_evaluation_slot(
+            member,
+            limit=settings.ALERTS_PLATFORM_METRICS_MAX_INFLIGHT_BATCHES,
+            lease_seconds=CHART_SLOT_LEASE_SECONDS,
+            key=CHART_INFLIGHT_KEY,
+        )
+        if held_until is None:
+            logger.info("metrics_alert_history_skipped_pool_full", team_id=team_id)
+            return None
         team = Team.objects.get(id=team_id)
-        end = transition.occurred_at
         payload = snuffle_payload(
             team,
             "POST",
@@ -90,14 +139,25 @@ def fetch_history(team_id: int, transition: AnnouncedTransition) -> list[tuple[i
         )
         data = payload.get("data") or {}
         if data.get("resultType") != "matrix":
-            return []
-        raw = _matching_series(data.get("result") or [], transition.labels)
+            return None
+        return data.get("result") or []
     except Exception:
         # A chart is never worth a lost notification.
         logger.warning("metrics_alert_history_failed", team_id=team_id, exc_info=True)
+        return None
+    finally:
+        if held_until is not None:
+            release_evaluation_slot(member, held_until=held_until, key=CHART_INFLIGHT_KEY)
+
+
+def fetch_history(team_id: int, transition: AnnouncedTransition) -> list[tuple[int, float]]:
+    """The group's values over the hour before the alert, oldest first. Empty on any failure."""
+    query = str(transition.source_config.get("query", ""))
+    if not query:
         return []
-    points = [(int(float(ts)), value) for ts, raw_value in raw or [] if (value := _number(raw_value)) is not None]
-    return points[-20:]
+    result = _query_range(team_id, query, transition.occurred_at)
+    raw = _matching_series(result, transition) if result else None
+    return _points(raw or [])[-20:]
 
 
 def _condition_text(transition: AnnouncedTransition) -> str | None:
@@ -125,16 +185,19 @@ def chart_block(history: list[tuple[int, float]], transition: AnnouncedTransitio
         {"name": "Value", "data": [{"label": label, "value": value} for label, (_, value) in zip(labels, history)]}
     ]
     threshold = _number(transition.condition.get("threshold"))
-    condition = _condition_text(transition)
-    if threshold is not None and condition is not None:
-        series.append(
-            {"name": f"Threshold ({condition})", "data": [{"label": label, "value": threshold} for label in labels]}
-        )
+    if threshold is not None and _condition_text(transition) is not None:
+        # Slack caps a series name at 20 characters. The condition is in the fields above the chart.
+        series.append({"name": "Threshold", "data": [{"label": label, "value": threshold} for label in labels]})
     return {
         "type": "data_visualization",
         "title": CHART_TITLE,
         "chart": {"type": "line", "series": series, "axis_config": {"categories": labels}},
     }
+
+
+def _verbatim(block: dict[str, Any]) -> dict[str, Any]:
+    block["elements"] = [{**element, "verbatim": True} for element in block["elements"]]
+    return block
 
 
 def render_metrics_slack_message(
@@ -167,7 +230,8 @@ def render_metrics_slack_message(
     if condition is not None:
         fields.append(f"*Fires when*\n{escape_slack_mrkdwn(condition)}")
 
-    blocks: list[dict[str, Any]] = [header_block(title), context_block(" · ".join(context))]
+    # Verbatim, so a bare `@channel` in an ingested label value cannot become a broadcast.
+    blocks: list[dict[str, Any]] = [header_block(title), _verbatim(context_block(" · ".join(context)))]
     if fields:
         fields_section = fields_block(fields)
         # Verbatim, so a bare `@here` in text cannot become a broadcast.
@@ -178,7 +242,8 @@ def render_metrics_slack_message(
         blocks.append(chart)
     query = clip_text(str(transition.source_config.get("query", "")), MAX_QUERY_CHARS)
     if query:
-        # Inside a code span nothing is parsed, so only the backtick that would end it is changed.
-        blocks.append(context_block(f"Query: `{query.replace('`', chr(39))}`"))
+        # The backtick that would end the code span is changed, and the rest escaped and verbatim, so a
+        # multi-line query that breaks the span still cannot ping, broadcast or disguise a link.
+        blocks.append(_verbatim(context_block(f"Query: `{escape_slack_mrkdwn(query.replace('`', chr(39)))}`")))
     blocks.append(actions_block([SlackButton(text="View metrics", url=metrics_url(team_id))]))
     return SlackMessageContent(text=escape_slack_mrkdwn(f"Metric alert ‘{name}’ is firing"), blocks=blocks)

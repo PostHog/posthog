@@ -1,6 +1,7 @@
 from datetime import UTC, datetime
 from typing import Any
 
+import pytest
 from unittest.mock import patch
 
 from products.alerts_platform.backend.facade.contracts import AlertEventKind, AnnouncedTransition, MessageLink
@@ -66,7 +67,7 @@ def test_the_chart_draws_the_threshold_as_a_second_line() -> None:
 
     assert block is not None
     series = block["chart"]["series"]
-    assert [s["name"] for s in series] == ["Value", "Threshold (> 0)"]
+    assert [s["name"] for s in series] == ["Value", "Threshold"]
     assert all(len(s["data"]) == len(HISTORY) for s in series)
     assert block["chart"]["axis_config"]["categories"][-1] == "Alert"
     assert block["chart"]["axis_config"]["categories"][0] == "20m ago"
@@ -81,3 +82,43 @@ def test_a_query_cannot_end_its_own_code_span_or_broadcast() -> None:
 
     query_line = content.blocks[-2]["elements"][0]["text"]
     assert query_line.count("`") == 2
+
+
+def _series(metric: dict[str, str], values: list[Any]) -> dict[str, Any]:
+    return {"metric": metric, "values": [[1_000_000 + 240 * index, str(value)] for index, value in enumerate(values)]}
+
+
+@pytest.mark.parametrize(
+    "labels,value,result,expected",
+    [
+        # A label set that groups by the metric name keeps it.
+        ({"__name__": "up"}, 1.0, [_series({"__name__": "up", "job": "a"}, [0, 1])], [0.0, 1.0]),
+        # Two instances share the group's labels: the one whose latest value fired is charted.
+        (
+            {"job": "a"},
+            9.0,
+            [_series({"job": "a", "instance": "1"}, [1, 2]), _series({"job": "a", "instance": "2"}, [5, 9])],
+            [5.0, 9.0],
+        ),
+        # When the reported value matches neither, no chart beats the wrong one.
+        (
+            {"job": "a"},
+            7.0,
+            [_series({"job": "a", "instance": "1"}, [1, 2]), _series({"job": "a", "instance": "2"}, [5, 9])],
+            [],
+        ),
+        # NaN and infinity have no JSON form, so they never reach Slack.
+        ({}, 1.0, [_series({}, ["NaN", 1, "+Inf", 2])], [1.0, 2.0]),
+    ],
+)
+def test_history_charts_the_series_that_fired(
+    labels: dict[str, str], value: float, result: list[dict[str, Any]], expected: list[float]
+) -> None:
+    slack._results.clear()
+    with patch.object(slack, "_read_range", return_value=result) as read:
+        history = slack.fetch_history(1, _transition(labels=labels, value=value))
+        slack.fetch_history(1, _transition(labels=labels, value=value))
+
+    assert [point for _, point in history] == expected
+    # Every group and destination of one evaluation shares one read.
+    assert read.call_count == 1
