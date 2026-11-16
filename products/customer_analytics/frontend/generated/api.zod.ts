@@ -410,6 +410,8 @@ export const AccountsCustomPropertyValuesCreateBody = /* @__PURE__ */ zod.object
 
 export const accountsNotebooksCreateBodyTitleMax = 256
 
+export const accountsNotebooksCreateBodyTagsItemMax = 255
+
 export const AccountsNotebooksCreateBody = /* @__PURE__ */ zod.object({
     title: zod
         .string()
@@ -423,7 +425,27 @@ export const AccountsNotebooksCreateBody = /* @__PURE__ */ zod.object({
             'Notebook content as a ProseMirror JSON document. On create, the server stores it as a markdown notebook.'
         ),
     text_content: zod.string().nullish().describe('Plain text representation of the notebook content for search.'),
+    tags: zod
+        .array(zod.string().max(accountsNotebooksCreateBodyTagsItemMax))
+        .optional()
+        .describe('Tag names on the notebook. On update this replaces the existing set; omit to leave tags untouched.'),
 })
+
+/**
+ * Replace the tags of an account notebook. Omit `tags` to leave them as they are.
+ */
+export const accountsNotebooksPartialUpdateBodyTagsItemMax = 255
+
+export const AccountsNotebooksPartialUpdateBody = /* @__PURE__ */ zod
+    .object({
+        tags: zod
+            .array(zod.string().max(accountsNotebooksPartialUpdateBodyTagsItemMax))
+            .optional()
+            .describe("Replaces the notebook's tags. Omit to leave them untouched."),
+    })
+    .describe(
+        "Partial update of an account notebook: tags only. The title and content are edited in the notebook itself,\nsince a note's title comes from its first line."
+    )
 
 export const AccountsRelationshipsCreateBody = /* @__PURE__ */ zod
     .object({

@@ -8,7 +8,7 @@ import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
 import { tabUiStateLogic } from 'lib/logic/tabUiStateLogic'
-import { inStorybook, inStorybookTestRunner, uuid } from 'lib/utils/dom'
+import { inStorybook, uuid } from 'lib/utils/dom'
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 import { objectsEqual } from 'lib/utils/objects'
 import { Scene } from 'scenes/sceneTypes'
@@ -607,7 +607,7 @@ export const maxLogic = kea<maxLogicType>([
                 toolHeadlines: (string | undefined)[],
                 frontendConversationId: string
             ) => {
-                if (inStorybook() || inStorybookTestRunner()) {
+                if (inStorybook()) {
                     return HEADLINES[0] // Preventing UI snapshots from being different every time
                 }
 

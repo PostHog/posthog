@@ -216,9 +216,11 @@ jobs:
 
             - name: Install system OpenSSL
               run: |
-                  sudo rm -f /etc/apt/sources.list.d/*twingate*
-                  sudo apt-get update
-                  sudo apt-get install -y libssl-dev pkg-config
+                  if ! pkg-config --exists openssl; then
+                      sudo rm -f /etc/apt/sources.list.d/*twingate*
+                      sudo apt-get update
+                      sudo apt-get install -y libssl-dev pkg-config
+                  fi
 
             # protoc and rustup both write $GITHUB_PATH, so they stay out of a
             # `parallel:` block. Concurrent writes crash the GitHub Actions runner
@@ -870,9 +872,11 @@ jobs:
 
             - name: Install system OpenSSL
               run: |
-                  sudo rm -f /etc/apt/sources.list.d/*twingate*
-                  sudo apt-get update
-                  sudo apt-get install -y libssl-dev pkg-config
+                  if ! pkg-config --exists openssl; then
+                      sudo rm -f /etc/apt/sources.list.d/*twingate*
+                      sudo apt-get update
+                      sudo apt-get install -y libssl-dev pkg-config
+                  fi
 
             # protoc and rustup both write $GITHUB_PATH, so they stay out of a
             # `parallel:` block. Concurrent writes crash the GitHub Actions runner
@@ -887,6 +891,9 @@ jobs:
                   toolchain: 1.91.1
                   components: clippy,rustfmt
 
+            - name: Check format
+              run: cargo fmt -- --check
+
             - name: Set sccache WebDAV key prefix (Cargo.lock hash)
               run: echo "SCCACHE_WEBDAV_KEY_PREFIX=cargo-${{ hashFiles('rust/Cargo.lock') }}" >> "$GITHUB_ENV"
 
@@ -899,9 +906,6 @@ jobs:
                   shared-key: 'v2-rust-ci'
                   workspaces: rust
                   save-if: ${{ github.ref == 'refs/heads/master' }}
-
-            - name: Check format
-              run: cargo fmt -- --check
 
             - name: Run clippy
               env:
@@ -923,7 +927,7 @@ jobs:
               # (which records cargo-shear as installed) but not the binary itself, so
               # without --force binstall short-circuits ("already installed") and the
               # next step fails with `error: no such command: shear`.
-              run: cargo binstall --no-confirm --force cargo-shear@1.1.12
+              run: cargo binstall --no-confirm --force --locked cargo-shear@1.1.12
 
             - name: Run cargo shear
               run: cargo shear

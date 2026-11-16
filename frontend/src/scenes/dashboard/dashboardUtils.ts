@@ -10,7 +10,6 @@ import type { Dayjs } from 'lib/dayjs'
 import { currentSessionId } from 'lib/internalMetrics'
 import posthog from 'lib/posthog-typed'
 import { accessLevelSatisfied } from 'lib/utils/accessControlUtils'
-import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
 import { objectClean } from 'lib/utils/objects'
 import { isDeterministicClientError, shouldCancelQuery } from 'lib/utils/requests'
 import { toParams } from 'lib/utils/url'
@@ -837,15 +836,4 @@ export function getEffectiveDateOverride(
     const tileHasDate = tileFilters?.date_from != null || tileFilters?.date_to != null
     const source = tileHasDate ? tileFilters : dashboardFilters
     return { dateFromOverride: source?.date_from, dateToOverride: source?.date_to }
-}
-
-const LAYOUT_EDIT_EVENT_SOURCES = new Set<DashboardEventSource>([
-    DashboardEventSource.SceneCommonButtons,
-    DashboardEventSource.CardEdgeHover,
-    DashboardEventSource.CardDragHandle,
-    DashboardEventSource.DashboardsList,
-])
-
-export function isLayoutEditEventSource(source: DashboardEventSource | null): boolean {
-    return source !== null && LAYOUT_EDIT_EVENT_SOURCES.has(source)
 }

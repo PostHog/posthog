@@ -1,13 +1,27 @@
+import { Counter } from 'prom-client'
+
 import { HogVMErrorKind, HogVMException, convertHogToJS } from '@posthog/hogvm'
 
 import { CyclotronInputType } from '~/cdp/schema/cyclotron'
 import { ACCESS_TOKEN_PLACEHOLDER } from '~/common/config/constants'
 import { logger } from '~/common/utils/logger'
 
-import { HogFunctionInvocationGlobals, HogFunctionInvocationGlobalsWithInputs, HogFunctionType } from '../types'
+import {
+    HogFunctionInvocationGlobals,
+    HogFunctionInvocationGlobalsWithInputs,
+    HogFunctionType,
+    IntegrationType,
+} from '../types'
 import { EncryptedFields } from '../utils/encryption-utils'
 import { HogConfigurationError, isHogVMErrorKind, withBytecodeContract } from '../utils/hog-error-classification'
 import { execHog } from '../utils/hog-exec'
+import {
+    INTEGRATION_REF_KEY,
+    IntegrationInputRef,
+    isIntegrationRef,
+    isSignedIntegrationRef,
+    markServerResolvedIntegration,
+} from '../utils/integration-input-refs'
 import { LiquidRenderBudget, LiquidRenderer } from '../utils/liquid'
 import { NATIVE_PUSH_TEMPLATE_ID, getDevicePushSubscriptionToken } from '../utils/push-subscription-utils'
 import { IntegrationManagerService } from './managers/integration-manager.service'
@@ -213,6 +227,99 @@ export class HogInputsService {
             .map((signature) => signedAccessTokenPlaceholder(base, signature))
     }
 
+    // IMPORTANT: Check the team ID is correct — never resolve an integration from another team.
+    private resolveIntegration(
+        integration: IntegrationType | null | undefined,
+        teamId: HogFunctionType['team_id']
+    ): Record<string, any> | null {
+        if (!integration || integration.team_id !== teamId) {
+            return null
+        }
+        // A `posthog` connection holds its creator's grant into another project, and only the creator
+        // may use it. A function runs for the whole team, so resolving one would hand that grant to
+        // every member who can edit or test functions.
+        if (integration.kind === 'posthog') {
+            return null
+        }
+        if (isWarehouseSourceIntegration(integration)) {
+            return null
+        }
+        return markServerResolvedIntegration({
+            $integration_id: integration.id,
+            ...integration.config,
+            ...integration.sensitive_config,
+            ...(integration.sensitive_config.access_token || integration.config?.access_token
+                ? {
+                      access_token: this.accessTokenPlaceholder(integration.id),
+                      access_token_raw: integration.sensitive_config.access_token ?? integration.config?.access_token,
+                  }
+                : {}),
+        })
+    }
+
+    /**
+     * Puts the resolved integration back in place of each reference that the job queue stored.
+     * Inputs of jobs queued before references existed hold the resolved values, so they pass through unchanged.
+     * A reference must carry a valid server signature, and a reference without one fails the invocation.
+     * Returns the same object when there is no reference to resolve.
+     */
+    public async resolveIntegrationRefs(
+        hogFunction: HogFunctionType,
+        inputs: Record<string, any>
+    ): Promise<Record<string, any>> {
+        // Only an integration input holds a value that the server resolved, and only with an integration the
+        // function config selects for that key. A reference elsewhere came from event data (a mapping can reuse an
+        // integration key for event JSON), and resolving it would put a secret where the event sender chose.
+        const configuredIds = configuredIntegrationIds(hogFunction)
+        const refEntries = Object.entries(inputs).filter(
+            ([key, value]) =>
+                configuredIds.has(key) &&
+                (isIntegrationRef(value) || (Array.isArray(value) && value.some(isIntegrationRef)))
+        )
+        if (refEntries.length === 0) {
+            return inputs
+        }
+
+        // Mapping B can use mapping A's integration key for event JSON, so the config check alone lets an event
+        // name an integration that the function selects elsewhere. The signature proves the server wrote the ref.
+        const isTrustedRef = (key: string, ref: IntegrationInputRef): boolean =>
+            Boolean(configuredIds.get(key)?.has(String(ref[INTEGRATION_REF_KEY]))) &&
+            isSignedIntegrationRef(this.encryptedFields, hogFunction.team_id, key, ref)
+
+        const ids = refEntries.flatMap(([key, value]) =>
+            (Array.isArray(value) ? value : [value])
+                .filter(isIntegrationRef)
+                .filter((ref) => isTrustedRef(key, ref))
+                .map((ref) => ref[INTEGRATION_REF_KEY])
+        )
+        const integrations = await this.integrationManager.getMany(ids)
+
+        // An empty value would reach the third party as a request with no credentials, so a reference that
+        // does not resolve fails the invocation.
+        const resolveRef = (key: string, value: unknown): unknown => {
+            if (!isIntegrationRef(value)) {
+                return value
+            }
+            const resolved = isTrustedRef(key, value)
+                ? this.resolveIntegration(integrations[value[INTEGRATION_REF_KEY]], hogFunction.team_id)
+                : null
+            if (!resolved) {
+                throw new HogConfigurationError(
+                    `The integration for input '${key}' could not be loaded. It may have been deleted. Select a connected integration for this input.`
+                )
+            }
+            return resolved
+        }
+
+        const resolvedInputs = { ...inputs }
+        for (const [key, value] of refEntries) {
+            resolvedInputs[key] = Array.isArray(value)
+                ? value.map((item) => resolveRef(key, item))
+                : resolveRef(key, value)
+        }
+        return resolvedInputs
+    }
+
     public async loadIntegrationInputs(
         hogFunction: HogFunctionType,
         newGlobals?: HogFunctionInvocationGlobalsWithInputs,
@@ -223,10 +330,7 @@ export class HogInputsService {
         const singleInputsToLoad: Record<string, number> = {}
         const multiInputsToLoad: Record<string, number[]> = {}
 
-        const allSchemas = [
-            ...(hogFunction.inputs_schema ?? []),
-            ...(hogFunction.mappings?.flatMap((m) => m.inputs_schema ?? []) ?? []),
-        ]
+        const allSchemas = allInputSchemas(hogFunction)
         const allInputs: Record<string, CyclotronInputType | null | undefined> = {
             ...hogFunction.inputs,
         }
@@ -258,34 +362,8 @@ export class HogInputsService {
         const integrations = await this.integrationManager.getMany(allIds)
         const returnInputs: Record<string, { value: Record<string, any> | Record<string, any>[] | null }> = {}
 
-        // IMPORTANT: Check the team ID is correct — never resolve an integration from another team.
-        const resolveIntegration = (id: number): Record<string, any> | null => {
-            const integration = integrations[id]
-            if (!integration || integration.team_id !== hogFunction.team_id) {
-                return null
-            }
-            // A `posthog` connection holds its creator's grant into another project, and only the creator
-            // may use it. A function runs for the whole team, so resolving one would hand that grant to
-            // every member who can edit or test functions.
-            if (integration.kind === 'posthog') {
-                return null
-            }
-            if (isWarehouseSourceIntegration(integration)) {
-                return null
-            }
-            return {
-                $integration_id: integration.id,
-                ...integration.config,
-                ...integration.sensitive_config,
-                ...(integration.sensitive_config.access_token || integration.config?.access_token
-                    ? {
-                          access_token: this.accessTokenPlaceholder(integration.id),
-                          access_token_raw:
-                              integration.sensitive_config.access_token ?? integration.config?.access_token,
-                      }
-                    : {}),
-            }
-        }
+        const resolveIntegration = (id: number): Record<string, any> | null =>
+            this.resolveIntegration(integrations[id], hogFunction.team_id)
 
         Object.entries(singleInputsToLoad).forEach(([key, id]) => {
             // Without this the template runs with an empty connection, and a URL built from it fails far from the cause.
@@ -325,6 +403,35 @@ export class HogInputsService {
 
         return returnInputs
     }
+}
+
+const allInputSchemas = (hogFunction: HogFunctionType): NonNullable<HogFunctionType['inputs_schema']> => [
+    ...(hogFunction.inputs_schema ?? []),
+    ...(hogFunction.mappings?.flatMap((m) => m.inputs_schema ?? []) ?? []),
+]
+
+// For each integration input key, the ids that the function config or any of its mappings selects.
+const configuredIntegrationIds = (hogFunction: HogFunctionType): Map<string, Set<string>> => {
+    const integrationKeys = new Set(
+        allInputSchemas(hogFunction)
+            .filter((schema) => schema.type === 'integration' || schema.type === 'integration_multi')
+            .map((schema) => schema.key)
+    )
+    const ids = new Map<string, Set<string>>([...integrationKeys].map((key) => [key, new Set<string>()]))
+    for (const inputs of [hogFunction.inputs, ...(hogFunction.mappings ?? []).map((m) => m.inputs)]) {
+        for (const [key, input] of Object.entries(inputs ?? {})) {
+            const keyIds = ids.get(key)
+            if (!keyIds) {
+                continue
+            }
+            for (const id of Array.isArray(input?.value) ? input.value : [input?.value]) {
+                if (typeof id === 'number' || (typeof id === 'string' && id.length > 0)) {
+                    keyIds.add(String(id))
+                }
+            }
+        }
+    }
+    return ids
 }
 
 // A row with the `warehouse_source_type` key holds data warehouse source credentials. They are never Hog function
@@ -406,6 +513,28 @@ export const formatHogInput = async (
     return bytecode
 }
 
+const liquidRenderFailures = new Counter({
+    name: 'cdp_liquid_render_failures_total',
+    help: 'Liquid inputs that failed to render, by reason',
+    labelNames: ['reason'],
+})
+
+const LIQUID_LIMIT_REASONS: [string, string][] = [
+    ['template render limit', 'time'],
+    ['memory alloc limit', 'memory'],
+    ['output limit', 'output'],
+    ['parse length limit', 'parse_length'],
+]
+
+// Exported at 0 from startup, so a restarted pod shows a counter reset instead of hiding the failures
+// it counts before its first scrape.
+for (const reason of [...LIQUID_LIMIT_REASONS.map(([, reason]) => reason), 'data', 'contract']) {
+    liquidRenderFailures.inc({ reason }, 0)
+}
+
+const liquidFailureReason = (message: string, kind: HogVMErrorKind): string =>
+    LIQUID_LIMIT_REASONS.find(([text]) => message.includes(text))?.[1] ?? kind
+
 /**
  * A parse error or a refused filter fails the template on every event. Any other render error is
  * the template meeting this event's values, so another event may pass. A budget is a limit.
@@ -453,7 +582,9 @@ export const formatLiquidInput = (
         } catch (error) {
             // The renderer's message names the template line the owner has to fix, so it stays as is.
             const message = error instanceof Error ? error.message : String(error)
-            throw new Error(message, { cause: new HogVMException(message, liquidErrorKind(error)) })
+            const kind = liquidErrorKind(error)
+            liquidRenderFailures.inc({ reason: liquidFailureReason(message, kind) })
+            throw new Error(message, { cause: new HogVMException(message, kind) })
         }
     }
 

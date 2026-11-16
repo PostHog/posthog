@@ -8,7 +8,7 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { resumeKeaLoadersErrors, silenceKeaLoadersErrors } from '~/initKea'
 import { initKeaTests } from '~/test/init'
 
-import { aeoPromptsList, aeoPromptsPartialUpdate, aeoPromptsTopics } from '../generated/api'
+import { aeoPromptsBulkImport, aeoPromptsList, aeoPromptsPartialUpdate, aeoPromptsTopics } from '../generated/api'
 import type { AEOPromptApi } from '../generated/api.schemas'
 import { PROMPTS_PAGE_SIZE, contentAutopilotPromptsLogic } from './contentAutopilotPromptsLogic'
 import { EXAMPLE_PROMPT_TOPICS, EXAMPLE_PROMPTS } from './contentAutopilotStoryFixtures'
@@ -17,13 +17,15 @@ jest.mock('../generated/api', () => ({
     aeoPromptsList: jest.fn(),
     aeoPromptsTopics: jest.fn(),
     aeoPromptsPartialUpdate: jest.fn(),
+    aeoPromptsBulkImport: jest.fn(),
 }))
 
-jest.mock('lib/lemon-ui/LemonToast/LemonToast', () => ({ lemonToast: { error: jest.fn() } }))
+jest.mock('lib/lemon-ui/LemonToast/LemonToast', () => ({ lemonToast: { error: jest.fn(), success: jest.fn() } }))
 
 const mockPromptsList = jest.mocked(aeoPromptsList)
 const mockPromptsTopics = jest.mocked(aeoPromptsTopics)
 const mockPromptsPartialUpdate = jest.mocked(aeoPromptsPartialUpdate)
+const mockPromptsBulkImport = jest.mocked(aeoPromptsBulkImport)
 
 describe('contentAutopilotPromptsLogic', () => {
     let logic: ReturnType<typeof contentAutopilotPromptsLogic.build>
@@ -39,7 +41,7 @@ describe('contentAutopilotPromptsLogic', () => {
         logic?.unmount()
     })
 
-    it('resets to the first page and sends the filters when the topic or archived filter changes', async () => {
+    it('resets to the first page and sends the filters when the topic, archived, needs improvement or branded filter changes', async () => {
         logic = contentAutopilotPromptsLogic()
         logic.mount()
         await expectLogic(logic).toFinishAllListeners()
@@ -68,6 +70,29 @@ describe('contentAutopilotPromptsLogic', () => {
             offset: 0,
             topic: '',
             include_archived: true,
+        })
+
+        logic.actions.setPromptsPage(2)
+        logic.actions.setNeedsImprovement(true)
+        await expectLogic(logic).toFinishAllListeners().toMatchValues({ promptsPage: 1 })
+        expect(mockPromptsList).toHaveBeenLastCalledWith(String(MOCK_DEFAULT_TEAM.id), {
+            limit: PROMPTS_PAGE_SIZE,
+            offset: 0,
+            topic: '',
+            include_archived: true,
+            needs_improvement: true,
+        })
+
+        logic.actions.setPromptsPage(2)
+        logic.actions.setPromptsBranded(false)
+        await expectLogic(logic).toFinishAllListeners().toMatchValues({ promptsPage: 1 })
+        expect(mockPromptsList).toHaveBeenLastCalledWith(String(MOCK_DEFAULT_TEAM.id), {
+            limit: PROMPTS_PAGE_SIZE,
+            offset: 0,
+            topic: '',
+            include_archived: true,
+            needs_improvement: true,
+            branded: false,
         })
     })
 
@@ -158,5 +183,41 @@ describe('contentAutopilotPromptsLogic', () => {
         expect(logic.values.prompts?.results[0].active).toBe(expectedActive)
         expect(logic.values.promptActiveUpdating).toEqual({})
         expect(lemonToast.error).toHaveBeenCalledTimes(succeeds ? 0 : 1)
+    })
+
+    it.each([
+        ['closes the dialog and reloads the list', true],
+        ['keeps the dialog open and shows why', false],
+    ])('sends one prompt per unique line, then %s', async (_name, succeeds) => {
+        if (succeeds) {
+            mockPromptsBulkImport.mockResolvedValue({ created: 2, updated: 0, skipped: 0 })
+        } else {
+            mockPromptsBulkImport.mockRejectedValue(
+                new ApiError('Bad request', 400, undefined, { detail: 'Prompt is too long' })
+            )
+        }
+        logic = contentAutopilotPromptsLogic()
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+        mockPromptsList.mockClear()
+
+        logic.actions.openAddPrompts()
+        logic.actions.addPrompts(
+            '  Best session replay tool?\n\nbest session replay tool?\nHow do I track signups?  ',
+            ' Replay '
+        )
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(mockPromptsBulkImport).toHaveBeenCalledWith(String(MOCK_DEFAULT_TEAM.id), {
+            prompts: [
+                { prompt: 'Best session replay tool?', topic: 'Replay' },
+                { prompt: 'How do I track signups?', topic: 'Replay' },
+            ],
+        })
+        expect(logic.values).toMatchObject({ addPromptsOpen: !succeeds, addPromptsSubmitting: false })
+        expect(mockPromptsList).toHaveBeenCalledTimes(succeeds ? 1 : 0)
+        expect(jest.mocked(lemonToast.error).mock.calls.map(([message]) => message)).toEqual(
+            succeeds ? [] : ['Prompt is too long']
+        )
     })
 })

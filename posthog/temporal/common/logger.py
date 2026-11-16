@@ -857,6 +857,8 @@ BATCH_EXPORT_WORKFLOW_TYPES = {
     "http-export",
     "redshift-export",
     "databricks-export",
+    "azure-blob-export",
+    "workflows-export",
 }
 
 

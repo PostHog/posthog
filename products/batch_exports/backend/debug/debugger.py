@@ -16,8 +16,9 @@ import pyarrow.fs as fs
 import pyarrow.ipc as ipc
 from rich.console import Console
 
+from posthog.integrations import IntegrationManager
 from posthog.models.event.new_events_schema import use_new_events_schema
-from posthog.models.integration import DatabricksIntegration
+from posthog.models.integration import DatabricksIntegration, GoogleCloudServiceAccountIntegration
 from posthog.temporal.common.clickhouse import ClickHouseClient
 
 from products.batch_exports.backend.models.batch_export import BatchExport, BatchExportDestination, BatchExportRun
@@ -25,13 +26,13 @@ from products.batch_exports.backend.service import (
     DESTINATION_WORKFLOWS,
     BaseBatchExportInputs,
     BatchExportField,
-    BigQueryBatchExportInputs,
     DatabricksBatchExportInputs,
     get_batch_export_model,
 )
 from products.batch_exports.backend.temporal.destinations.bigquery_batch_export import (
     BigQueryClient,
     bigquery_default_fields,
+    verify_impersonated_service_account_ownership,
 )
 from products.batch_exports.backend.temporal.destinations.databricks_batch_export import (
     DatabricksClient,
@@ -277,7 +278,7 @@ class BatchExportsDebugger:
             filters["id"] = id
 
         self.loaded_batch_exports = tuple(
-            BatchExport.objects.select_related("destination__integration").filter(team_id=self.team_id, **filters)
+            BatchExport.objects.select_related("destination").filter(team_id=self.team_id, **filters)
         )
         return self.loaded_batch_exports
 
@@ -527,8 +528,12 @@ class BatchExportsDebugger:
             case BatchExportDestination.Destination.DATABRICKS:
                 console.print("[bold green]Getting Databricks client...[/bold green]")
                 databricks_inputs = cast(DatabricksBatchExportInputs, self.batch_export_inputs)
-                assert self.batch_export.destination.integration is not None
-                integration = DatabricksIntegration(self.batch_export.destination.integration)
+                assert self.batch_export.destination.integration_id is not None
+                integration = DatabricksIntegration(
+                    await IntegrationManager.databricks.credentials.aget(
+                        self.batch_export.team_id, self.batch_export.destination.integration_id
+                    )
+                )
                 client = DatabricksClient(
                     server_hostname=integration.server_hostname,
                     http_path=databricks_inputs.http_path,
@@ -541,23 +546,17 @@ class BatchExportsDebugger:
                     yield databricks_client
             case BatchExportDestination.Destination.BIGQUERY:
                 console.print("[bold green]Getting BigQuery client...[/bold green]")
-                bigquery_inputs = cast(BigQueryBatchExportInputs, self.batch_export_inputs)
-                if (
-                    bigquery_inputs.private_key is None
-                    or bigquery_inputs.private_key_id is None
-                    or bigquery_inputs.token_uri is None
-                    or bigquery_inputs.client_email is None
-                    or bigquery_inputs.project_id is None
-                ):
-                    # TODO: Support integration model/service account impersonation.
-                    raise ValueError("Missing required values")
-                async with BigQueryClient.from_service_account_inputs(
-                    private_key=bigquery_inputs.private_key,
-                    private_key_id=bigquery_inputs.private_key_id,
-                    token_uri=bigquery_inputs.token_uri,
-                    client_email=bigquery_inputs.client_email,
-                    project_id=bigquery_inputs.project_id,
-                ) as bigquery_client:
+                assert self.batch_export.destination.integration_id is not None
+                google_cloud_integration = GoogleCloudServiceAccountIntegration(
+                    await IntegrationManager.google_cloud_service_account.credentials.aget(
+                        self.batch_export.team_id, self.batch_export.destination.integration_id
+                    )
+                )
+                if not google_cloud_integration.has_key():
+                    await verify_impersonated_service_account_ownership(
+                        google_cloud_integration.service_account_email, self.batch_export.team_id
+                    )
+                async with BigQueryClient.from_service_account_integration(google_cloud_integration) as bigquery_client:
                     yield bigquery_client
             case t:
                 raise NotImplementedError(f"get_client not yet implemented for destination: {t}")

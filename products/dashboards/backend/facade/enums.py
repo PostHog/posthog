@@ -8,9 +8,20 @@ it, and a data type that crosses the product boundary belongs here.
 
 from enum import StrEnum
 
+from posthog.enums import LabeledStrEnum
+
 
 class DashboardAccessMethod(StrEnum):
     HUMAN = "human"
     SHARED = "shared"
     EMBEDDED = "embedded"
     API = "api"
+
+
+class DashboardCreationMode(LabeledStrEnum):
+    """How a dashboard came to exist. Mirrors `Dashboard.CreationMode`."""
+
+    DEFAULT = "default", "Default"
+    TEMPLATE = "template", "Template"
+    DUPLICATE = "duplicate", "Duplicate"
+    UNLISTED = "unlisted", "Unlisted (product-embedded)"

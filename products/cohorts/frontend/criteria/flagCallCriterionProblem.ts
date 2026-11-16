@@ -10,7 +10,7 @@ export const CRITERIA_ACCEPTING_HIDDEN_EVENTS: string[] = [
     BehavioralEventType.PerformMultipleEvents,
 ]
 
-export const MAX_LOOKBACK_DAYS = 88
+export const MAX_LOOKBACK_DAYS = 90
 const MAX_LOOKBACK_HOURS = MAX_LOOKBACK_DAYS * 24
 const UNIT_MAX_HOURS: Record<string, number> = { h: 1, d: 24, w: 7 * 24, m: 31 * 24 }
 const RELATIVE_DATE_PATTERN = /^-(\d+)([hdwm])$/
@@ -21,7 +21,7 @@ export type FlagCallCriterionProblem = 'type' | 'window' | 'filters'
  * Why the batch calculation can't count every matching call for this "Feature flag called" criterion once flag calls
  * are only in flag_evaluations, or null.
  *
- * Mirrors the type, window and filter checks in `posthog/api/cohort.py`, which explain the 88-day limit and why the
+ * Mirrors the type, window and filter checks in `posthog/api/cohort.py`, which explain the 90-day limit and why the
  * API refuses a SQL expression filter on this event. The filter check also flags element filters, which the API
  * accepts.
  */

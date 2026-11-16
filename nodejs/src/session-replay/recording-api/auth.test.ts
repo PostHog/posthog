@@ -190,6 +190,31 @@ describe('createRecordingApiAuthMiddleware', () => {
     })
 })
 
+describe('dev signing keys', () => {
+    const base = { isProd: true, blocksJwtSecret: 'b', jwtSecret: 'k' }
+
+    it.each([
+        ['public', { blocksJwtSecret: 'dev-recording-api-blocks-jwt-secret' }, /dev RECORDING_API_BLOCKS_JWT_SECRET/],
+        ['all', { blocksJwtSecret: 'new,dev-recording-api-blocks-jwt-secret' }, /dev RECORDING_API_BLOCKS_JWT_SECRET/],
+        ['internal', { jwtSecret: 'dev-recording-api-jwt-secret' }, /dev RECORDING_API_JWT_SECRET/],
+    ] as const)('refuses a deployed %s process holding a dev key', (role, secrets, error) => {
+        expect(() => assertRecordingApiRoleAuthConfigured({ ...base, ...secrets, role, deployed: true })).toThrow(error)
+    })
+
+    // The local and E2E containers run the production image with the dev keys.
+    it('starts a production-image process that is not deployed with the dev keys', () => {
+        expect(() =>
+            assertRecordingApiRoleAuthConfigured({
+                ...base,
+                role: 'all',
+                deployed: false,
+                blocksJwtSecret: 'dev-recording-api-blocks-jwt-secret',
+                jwtSecret: 'dev-recording-api-jwt-secret',
+            })
+        ).not.toThrow()
+    })
+})
+
 describe('assertRecordingApiAuthConfigured', () => {
     const base = { isProd: true, jwtSecret: '' }
 

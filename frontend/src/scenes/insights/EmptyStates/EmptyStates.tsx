@@ -29,7 +29,7 @@ import { Link } from 'lib/lemon-ui/Link'
 import { LoadingBar } from 'lib/lemon-ui/LoadingBar'
 import { preflightLogic } from 'lib/logic/preflightLogic'
 import posthog from 'lib/posthog-typed'
-import { inStorybook, inStorybookTestRunner } from 'lib/utils/dom'
+import { inStorybook } from 'lib/utils/dom'
 import { GraphSeriesAddedSource, eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { getDefaultEventLabel, getDefaultEventName } from 'lib/utils/getAppContext'
 import { holidaysMatcher, isChristmas } from 'lib/utils/holidays'
@@ -357,7 +357,7 @@ export function StatelessInsightLoadingState({
     const [secondsElapsed, setSecondsElapsed] = useState(0)
 
     const [loadingMessageIndex, setLoadingMessageIndex] = useState(() =>
-        inStorybook() || inStorybookTestRunner() ? 0 : Math.floor(Math.random() * LOADING_MESSAGES.length)
+        inStorybook() ? 0 : Math.floor(Math.random() * LOADING_MESSAGES.length)
     )
     const { isVisible: isPageVisible } = usePageVisibility()
 
@@ -395,7 +395,7 @@ export function StatelessInsightLoadingState({
         }
 
         // Don't toggle loading messages in storybook, will make tests flaky if so
-        if (inStorybook() || inStorybookTestRunner()) {
+        if (inStorybook()) {
             return
         }
 
@@ -480,7 +480,7 @@ export function SlowQuerySuggestions({
     // way to fast-forward, so a story covering these suggestions would have to sit through
     // SLOW_LOADING_TIME of real loading before they render. Dropping the threshold in Storybook makes
     // them a consequence of the insight loading instead of a race against the clock.
-    const slowLoadingTime = inStorybook() || inStorybookTestRunner() ? 0 : SLOW_LOADING_TIME
+    const slowLoadingTime = inStorybook() ? 0 : SLOW_LOADING_TIME
 
     if (loadingTimeSeconds < slowLoadingTime) {
         return null

@@ -176,6 +176,8 @@ export interface AlertType extends AlertTypeBase {
     checks?: AlertCheck[]
     /** Whether the alert's creator can use the AI detector. Only set when a single alert was retrieved. */
     llm_detector_available?: boolean | null
+    /** Whether the alert can open PagerDuty incidents, which only the alerts platform sends. */
+    pagerduty_available?: boolean
     calculation_interval: AlertCalculationInterval
     snoozed_until?: string
     last_value?: number

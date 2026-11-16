@@ -80,8 +80,9 @@ class TestEmailIntegrationCrossTenantStaleVerification(BaseTest):
 
     @patch("products.workflows.backend.providers.SESProvider.delete_identity")
     @patch("products.workflows.backend.providers.SESProvider.create_email_domain")
+    @patch("products.workflows.backend.providers.SESProvider.get_mail_from_subdomain", return_value=None)
     def test_destroy_email_integration_skips_ses_delete_when_sibling_exists(
-        self, mock_create_email_domain, mock_delete_identity
+        self, _mock_get_mail_from, mock_create_email_domain, mock_delete_identity
     ):
         mock_create_email_domain.return_value = {"status": "success"}
         sibling_team = Team.objects.create(organization=self.organization, name="sibling team")

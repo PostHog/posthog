@@ -49,7 +49,7 @@ class LegalDocument(ModelActivityMixin, CreatedMetaFields, UpdatedMetaFields, UU
     class Meta:
         ordering = ["-created_at"]
         # An org has at most one BAA and at most one DPA. If they need a new one (e.g.,
-        # the company renamed), a staff member deletes the old row from Django admin.
+        # the company renamed), a staff member deletes the old row in PostHog Admin.
         constraints = [
             models.UniqueConstraint(
                 fields=["organization", "document_type"],

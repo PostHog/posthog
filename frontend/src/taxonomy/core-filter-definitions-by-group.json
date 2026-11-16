@@ -3326,6 +3326,10 @@
             "description": "Fires when the status of a support conversation ticket changes.",
             "label": "Conversation ticket status changed"
         },
+        "$conversation_ticket_tag_added": {
+            "description": "Fires when a tag is added to a support conversation ticket.",
+            "label": "Conversation ticket tag added"
+        },
         "$copy_autocapture": {
             "description": "Selected text automatically captured when a user copies or cuts.",
             "ignored_in_assistant": true,

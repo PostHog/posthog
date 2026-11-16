@@ -33,4 +33,5 @@ rules:
       owners: team-feature-flags
     - match:
           - '/advanced_activity_logs/test_*.py'
+          - '/scim/test/test_*.py'
       owners: team-platform-features

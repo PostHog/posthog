@@ -45,12 +45,6 @@ _SCORERS: dict[str, dict[str, OfflineScorer]] = {
             kind="boolean", version=UUID("01a1a29b-3447-794a-afcb-83778635c273")
         ),
     },
-    "reply_suggestions": {
-        "exit_code_zero": OfflineScorer(kind="boolean", version=UUID("01a1557d-49a7-7417-aa9f-4dbe00ec7b47")),
-        "no_unasked_buttons": OfflineScorer(kind="boolean", version=UUID("01a1557d-5b16-755e-ab88-b824e5103a97")),
-        "reply_offer": OfflineScorer(kind="boolean", version=UUID("01a1557d-5266-7853-a431-6213cfba1b5a")),
-        "suggested_replies_fit": OfflineScorer(kind="boolean", version=UUID("01a1557d-bcc0-7a96-8d22-4d6e91998d5d")),
-    },
     "untagged_question": {
         "untagged_question": OfflineScorer(kind="boolean", version=UUID("01a15a43-79f8-76bd-98ad-aaacc69b7059")),
         "no_unasked_answer": OfflineScorer(kind="boolean", version=UUID("01a15a43-8605-78ef-acf6-cc940d3876ab")),

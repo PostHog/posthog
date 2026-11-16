@@ -1,4 +1,5 @@
 import type { ProjectScope } from '@/api/reports'
+import type { NavPin } from '@/features/tabs/navPinStore'
 
 // Links that hand off to the web. Shortcut hrefs carry no project prefix, so the project goes in front.
 
@@ -10,8 +11,16 @@ export function viewWebUrl(scope: ProjectScope | null, href: string | null): str
     return `${scope.host}/project/${scope.projectId}${href.startsWith('/') ? href : `/${href}`}`
 }
 
-export function navListWebUrl(scope: ProjectScope | null, list: 'errors' | 'replay'): string | undefined {
-    return viewWebUrl(scope, list === 'errors' ? '/error_tracking' : '/replay/home')
+const NAV_LIST_PATHS: Record<NavPin, string> = {
+    errors: '/error_tracking',
+    replay: '/replay/home',
+    web_analytics: '/web',
+    live: '/web/live',
+}
+
+/** The web page of a list that can sit in the navigation. */
+export function navListWebUrl(scope: ProjectScope | null, list: NavPin): string | undefined {
+    return viewWebUrl(scope, NAV_LIST_PATHS[list])
 }
 
 /** A person at a chart point, by the person's UUID, as the web's `urls.personByUUID` builds it. */

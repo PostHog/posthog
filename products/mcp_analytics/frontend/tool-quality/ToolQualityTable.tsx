@@ -38,7 +38,7 @@ import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { formatPercentage } from 'lib/utils/numbers'
 import { pluralize } from 'lib/utils/strings'
 
-import { formatMs, formatNumber } from '../dashboard/formatters'
+import { DESTRUCTIVE_ERROR_RATE_PCT, formatMs, formatNumber } from '../dashboard/formatters'
 import {
     type SortState,
     type ToolQualitySortColumn,
@@ -51,7 +51,8 @@ import { QualityChangeMarker } from './QualityChangeMarker'
 import { SessionsCell } from './SessionsCell'
 import { TrendCell } from './TrendCell'
 
-const DESTRUCTIVE_ERROR_PCT = 5
+const TOOL_BUTTON_CLASS =
+    'cursor-pointer rounded-sm text-left font-mono focus-visible:outline-2 focus-visible:outline-offset-2 focus-visible:outline-ring'
 
 interface ColumnSpec {
     key: ToolQualitySortColumn
@@ -74,14 +75,14 @@ const SORTABLE_COLUMNS: ColumnSpec[] = [
         label: 'Error rate',
         align: 'right',
         tooltip:
-            'Percentage of calls that returned $mcp_is_error = true. An arrow marks a meaningful change versus the previous period, for tools with at least 20 calls in both.',
+            'Percentage of calls marked as failed. An arrow marks a meaningful change versus the previous period, for tools with at least 20 calls in both.',
     },
     {
         key: 'p95_duration_ms',
         label: 'p95',
         align: 'right',
         tooltip:
-            '95th-percentile $mcp_duration_ms. An arrow marks a meaningful change versus the previous period, for tools with at least 20 calls in both.',
+            '95th-percentile call duration: 95% of calls finished faster than this. An arrow marks a meaningful change versus the previous period, for tools with at least 20 calls in both.',
     },
     { key: 'users', label: 'Users', align: 'right', tooltip: 'Unique users who invoked this tool' },
     {
@@ -100,7 +101,7 @@ function ErrorRateBadge({ pct }: { pct: number }): JSX.Element {
         return <Badge variant="success">0%</Badge>
     }
     return (
-        <Badge variant={pct >= DESTRUCTIVE_ERROR_PCT ? 'destructive' : 'warning'}>
+        <Badge variant={pct >= DESTRUCTIVE_ERROR_RATE_PCT ? 'destructive' : 'warning'}>
             {formatPercentage(pct, { compact: true })}
         </Badge>
     )
@@ -151,6 +152,7 @@ function ToolRows(): JSX.Element {
         pinnedInterval,
     } = useValues(mcpAnalyticsToolQualityLogic)
     const { setSelectedTool } = useActions(mcpAnalyticsToolQualityLogic)
+    const toggleRow = (tool: string): void => setSelectedTool(tool === selectedTool ? null : tool)
 
     if (toolRowsPageLoading && toolRows.length === 0) {
         return (
@@ -177,13 +179,25 @@ function ToolRows(): JSX.Element {
                     key={row.tool}
                     data-state={row.tool === selectedTool ? 'selected' : undefined}
                     className="cursor-pointer"
-                    onClick={() => setSelectedTool(row.tool === selectedTool ? null : row.tool)}
+                    onClick={() => toggleRow(row.tool)}
                     data-attr="mcp-tool-quality-row"
                 >
                     <TableCell expand>
-                        <span className="font-mono">{row.tool}</span>
+                        <button
+                            type="button"
+                            className={TOOL_BUTTON_CLASS}
+                            aria-pressed={row.tool === selectedTool}
+                            onClick={(e) => {
+                                e.stopPropagation()
+                                toggleRow(row.tool)
+                            }}
+                        >
+                            {row.tool}
+                        </button>
                     </TableCell>
-                    <TableCell align="right">{formatNumber(row.total_calls)}</TableCell>
+                    <TableCell align="right" className="tabular-nums">
+                        {formatNumber(row.total_calls)}
+                    </TableCell>
                     <TableCell align="right">
                         <TrendCell totalCalls={row.total_calls} previousCalls={row.previous_calls} />
                     </TableCell>
@@ -199,7 +213,9 @@ function ToolRows(): JSX.Element {
                             <QualityChangeMarker change={p95Change(row)} />
                         </span>
                     </TableCell>
-                    <TableCell align="right">{formatNumber(row.users)}</TableCell>
+                    <TableCell align="right" className="tabular-nums">
+                        {formatNumber(row.users)}
+                    </TableCell>
                     <TableCell align="right">
                         <SessionsCell
                             sessions={row.sessions}

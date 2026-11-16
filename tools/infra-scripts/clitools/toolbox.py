@@ -23,10 +23,11 @@ from toolbox.user import get_current_user
 # `default_namespace` is where the pool lives when KUBE_NAMESPACE isn't set.
 #
 # `extra_selectors_by_namespace` ANDs onto the base
-# `app.kubernetes.io/name=<app_label>` selector. Keyed by namespace because the
-# golden-chart deployment co-locates the toolbox release's own pgbouncer pods
-# under the same `name` label, so we need `component=app` there to pick only
-# the main pool pods. The legacy `posthog` namespace doesn't need a
+# `app.kubernetes.io/name=<app_label>` selector when the wrapper looks for an
+# unclaimed pod. Keyed by namespace because the golden-chart deployment
+# co-locates the toolbox release's own pgbouncer pods under the same `name`
+# label, so we need `component=app` there to pick only the main pool pods.
+# The legacy `posthog` namespace doesn't need a
 # discriminator because its pgbouncers carry a different `name`.
 POOLS = {
     "toolbox-django": {

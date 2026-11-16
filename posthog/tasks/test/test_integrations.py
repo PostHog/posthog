@@ -41,7 +41,10 @@ class TestIntegrationsTasks(APIBaseTest):
         with patch("posthog.tasks.integrations.refresh_integration.delay") as refresh_integration_mock:
             refresh_integrations()
             # Both 3 and 4 should be refreshed
-            assert refresh_integration_mock.call_args_list == [((integration_3.id,),), ((integration_4.id,),)]
+            assert refresh_integration_mock.call_args_list == [
+                ((integration_3.id, self.team.id),),
+                ((integration_4.id, self.team.id),),
+            ]
 
     def test_refresh_integrations_excludes_resend(self) -> None:
         # Resend's refresh token is single-use and rotates on every refresh; the periodic sweep is
@@ -53,7 +56,7 @@ class TestIntegrationsTasks(APIBaseTest):
         with patch("posthog.tasks.integrations.refresh_integration.delay") as refresh_integration_mock:
             refresh_integrations()
 
-        assert refresh_integration_mock.call_args_list == [((eligible.id,),)]
+        assert refresh_integration_mock.call_args_list == [((eligible.id, self.team.id),)]
 
     def test_refresh_integration_skips_resend(self) -> None:
         # Defense in depth for a task enqueued before the sweep exclusion shipped: even if a Resend
@@ -61,7 +64,7 @@ class TestIntegrationsTasks(APIBaseTest):
         integration = self.create_integration("resend", config={"refreshed_at": time.time() - 3600})
 
         with patch("posthog.models.integration.oauth.OauthIntegration.refresh_access_token") as refresh_mock:
-            refresh_integration(integration.id)
+            refresh_integration(integration.id, self.team.id)
 
         assert refresh_mock.called is False
 
@@ -83,7 +86,19 @@ class TestIntegrationsTasks(APIBaseTest):
         with patch("posthog.tasks.integrations.refresh_integration.delay") as refresh_integration_mock:
             refresh_integrations()
 
-        assert refresh_integration_mock.call_args_list == [((eligible.id,),), ((backoff_elapsed.id,),)]
+        assert refresh_integration_mock.call_args_list == [
+            ((eligible.id, self.team.id),),
+            ((backoff_elapsed.id, self.team.id),),
+        ]
+
+    def test_refresh_integration_without_team_does_nothing(self) -> None:
+        # A task that a sweep enqueued before the team id existed cannot read a row.
+        integration = self.create_integration("slack", config={"refreshed_at": time.time() - 3600})
+
+        with patch("posthog.models.integration.oauth.OauthIntegration.refresh_access_token") as refresh_mock:
+            refresh_integration(integration.id)
+
+        assert refresh_mock.called is False
 
     def test_refresh_integration_skips_when_backed_off(self) -> None:
         integration = self.create_integration(
@@ -96,7 +111,7 @@ class TestIntegrationsTasks(APIBaseTest):
         )
 
         with patch("posthog.models.integration.oauth.OauthIntegration.refresh_access_token") as refresh_mock:
-            refresh_integration(integration.id)
+            refresh_integration(integration.id, self.team.id)
 
         assert refresh_mock.called is False
 
@@ -114,7 +129,7 @@ class TestIntegrationsTasks(APIBaseTest):
         integration = self.create_integration("github", config={"refreshed_at": refreshed_at, "expires_in": 3600})
 
         with patch("posthog.models.integration.github.GitHubIntegration.refresh_access_token") as refresh_mock:
-            refresh_integration(integration.id)
+            refresh_integration(integration.id, self.team.id)
 
         assert refresh_mock.called is expected_refreshed
 

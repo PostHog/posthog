@@ -15,6 +15,7 @@ from collections.abc import Sequence
 from typing import Any
 
 from django.conf import settings
+from django.db import transaction
 from django.utils import timezone
 
 import structlog
@@ -29,6 +30,8 @@ from posthog.temporal.common.client import sync_connect
 from posthog.temporal.common.utils import close_db_connections
 
 from products.aeo.backend.brand import brand_regex
+from products.aeo.backend.catalog import own_domains
+from products.aeo.backend.engines import own_domains_key
 from products.aeo.backend.models import AEOCitationCheck
 from products.aeo.backend.sentiment import aggregate_sentiment, brand_sentences
 
@@ -56,7 +59,14 @@ class _PendingAnswer:
     sentences: list[str]
 
 
-def _load_pending(inputs: AEOBrandSentimentInputs) -> list[_PendingAnswer]:
+@dataclasses.dataclass(frozen=True)
+class _PendingBatch:
+    answers: list[_PendingAnswer]
+    # The own domains the sentences were picked for. A score is written only while a check still carries it.
+    own_domains_key: str
+
+
+def _load_pending(inputs: AEOBrandSentimentInputs) -> _PendingBatch:
     """The run's unscored answers, then the team's other unscored answers from the backlog window,
     oldest first, capped so one activity never scans an unbounded history.
 
@@ -66,12 +76,14 @@ def _load_pending(inputs: AEOBrandSentimentInputs) -> list[_PendingAnswer]:
     Two concurrent runs can both pick up the same backlog row. The writes are idempotent (the same
     text scores the same), so that only costs a duplicate classification, and no transaction is
     held across the model call that a row lock could ride on."""
-    target_domains: list[str] = settings.AEO_TARGET_DOMAINS
+    target_domains = own_domains(inputs.team_id)
+    key = own_domains_key(target_domains)
     regex = brand_regex(target_domains)
     if regex is None:
-        return []
+        return _PendingBatch(answers=[], own_domains_key=key)
+    # A check with another key waits for the own-citation reconcile, which clears what it scored before.
     unscored = AEOCitationCheck.objects.for_team(inputs.team_id).filter(
-        check_failed=False, brand_sentiment__isnull=True, answer_text__iregex=regex
+        check_failed=False, brand_sentiment__isnull=True, own_domains_key=key, answer_text__iregex=regex
     )
     own_rows = list(unscored.filter(run_id=inputs.run_id).order_by("created_at").values_list("id", "answer_text"))
     backlog_rows = list(
@@ -84,15 +96,29 @@ def _load_pending(inputs: AEOBrandSentimentInputs) -> list[_PendingAnswer]:
         _PendingAnswer(check_id=str(check_id), sentences=brand_sentences(text, target_domains))
         for check_id, text in [*own_rows, *backlog_rows]
     ]
-    return [answer for answer in pending if answer.sentences]
+    return _PendingBatch(answers=[answer for answer in pending if answer.sentences], own_domains_key=key)
 
 
-def _write_scores(team_id: int, scored: Sequence[tuple[str, str, float]]) -> None:
-    rows = [
-        AEOCitationCheck(id=check_id, brand_sentiment=label, brand_sentiment_score=score)
-        for check_id, label, score in scored
-    ]
-    AEOCitationCheck.objects.for_team(team_id).bulk_update(rows, ["brand_sentiment", "brand_sentiment_score"])
+def _write_scores(team_id: int, own_domains_key: str, scored: Sequence[tuple[str, str, float]]) -> int:
+    """Write the scores of the checks that still carry the key they were picked with, and return how many.
+
+    The own domains can change while the model runs. The row locks order this write against the
+    reconcile, which re-keys a check and clears its score in one update."""
+    checks = AEOCitationCheck.objects.for_team(team_id)
+    with transaction.atomic():
+        current = {
+            str(check_id)
+            for check_id in checks.select_for_update()
+            .filter(id__in=[check_id for check_id, _, _ in scored], own_domains_key=own_domains_key)
+            .values_list("id", flat=True)
+        }
+        rows = [
+            AEOCitationCheck(id=check_id, brand_sentiment=label, brand_sentiment_score=score)
+            for check_id, label, score in scored
+            if check_id in current
+        ]
+        checks.bulk_update(rows, ["brand_sentiment", "brand_sentiment_score"])
+    return len(rows)
 
 
 @activity.defn
@@ -103,7 +129,8 @@ async def classify_aeo_brand_sentiment(inputs: AEOBrandSentimentInputs) -> dict[
     A missing model is a deployment problem, not a data problem, so the activity reports it and
     leaves the rows unscored instead of retrying: the next run picks nothing up either, and the
     rows read as "not scored yet" until the worker image carries the model."""
-    pending = await database_sync_to_async(_load_pending, thread_sensitive=False)(inputs)
+    batch = await database_sync_to_async(_load_pending, thread_sensitive=False)(inputs)
+    pending = batch.answers
     if not pending:
         return {"scored": 0, "answers": 0}
 
@@ -128,9 +155,11 @@ async def classify_aeo_brand_sentiment(inputs: AEOBrandSentimentInputs) -> dict[
         sentiment = aggregate_sentiment(sentence_scores)
         if sentiment is not None:
             scored.append((answer.check_id, sentiment.label, sentiment.score))
-    await database_sync_to_async(_write_scores, thread_sensitive=False)(inputs.team_id, scored)
-    logger.info("aeo_brand_sentiment_scored", team_id=inputs.team_id, run_id=inputs.run_id, scored=len(scored))
-    return {"scored": len(scored), "answers": len(pending)}
+    written = await database_sync_to_async(_write_scores, thread_sensitive=False)(
+        inputs.team_id, batch.own_domains_key, scored
+    )
+    logger.info("aeo_brand_sentiment_scored", team_id=inputs.team_id, run_id=inputs.run_id, scored=written)
+    return {"scored": written, "answers": len(pending)}
 
 
 @workflow.defn(name=WORKFLOW_NAME)

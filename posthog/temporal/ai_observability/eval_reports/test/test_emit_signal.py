@@ -9,7 +9,7 @@ import pytest_asyncio
 from asgiref.sync import sync_to_async
 
 from posthog.llm.gateway_client import GatewayNotConfiguredError
-from posthog.models import Organization, PropertyDefinition, Team, User
+from posthog.models import Organization, Team, User
 from posthog.temporal.ai_observability.eval_reports.emit_signal import (
     EmitEvalReportSignalInputs,
     EvalReportSignalSummary,
@@ -21,6 +21,7 @@ from posthog.temporal.ai_observability.eval_reports.emit_signal import (
 from products.access_control.backend.models.access_control import AccessControl
 from products.access_control.backend.models.property_access_control import PropertyAccessControl
 from products.access_control.backend.models.role import Role
+from products.event_definitions.backend.models import PropertyDefinition
 from products.signals.backend.models import SignalSourceConfig
 
 

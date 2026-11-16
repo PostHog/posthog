@@ -77,8 +77,8 @@ def _traffic(people_assigned_outside: int, *, window: timedelta = timedelta(days
     )
 
 
-def _pause_history(*, launched_at: datetime, paused_at: datetime | None) -> PauseHistory:
-    return PauseHistory(launched_at=launched_at, team_timezone="Europe/Berlin", paused_at=paused_at)
+def _pause_history(*, start_date: datetime, paused_at: datetime | None) -> PauseHistory:
+    return PauseHistory(start_date=start_date, team_timezone="Europe/Berlin", paused_at=paused_at)
 
 
 LAUNCHED_BEFORE_PAUSE_ENTRIES = datetime(2026, 8, 1, 9, 0, tzinfo=UTC)
@@ -87,11 +87,11 @@ PAUSED_AT = datetime(2026, 10, 12, 13, 4, tzinfo=UTC)
 ENDED_AT = datetime(2026, 10, 14, 8, 30, tzinfo=UTC)
 
 
-def _other(*, launched_at: datetime | None, ended_at: datetime | None = None) -> ExperimentOnFlag:
-    return ExperimentOnFlag(launched_at=launched_at, ended_at=ended_at, archived=False)
+def _other(*, start_date: datetime | None, ended_at: datetime | None = None) -> ExperimentOnFlag:
+    return ExperimentOnFlag(start_date=start_date, ended_at=ended_at, archived=False)
 
 
-DRAFT_ON_FLAG = _other(launched_at=None)
+DRAFT_ON_FLAG = _other(start_date=None)
 
 
 def _context(
@@ -188,7 +188,7 @@ class TestFlagState(TestCase):
                     active=True,
                     filters=MULTIVARIANT,
                     flag_called_after_end=True,
-                    other_experiments=(_other(launched_at=ENDED_AT - timedelta(days=3)),),
+                    other_experiments=(_other(start_date=ENDED_AT - timedelta(days=3)),),
                 ),
                 not_applicable(OTHER_EXPERIMENT_DECIDES),
             ),
@@ -200,7 +200,7 @@ class TestFlagState(TestCase):
                     filters=MULTIVARIANT,
                     flag_called_after_end=True,
                     other_experiments=(
-                        _other(launched_at=ENDED_AT + timedelta(days=1), ended_at=ENDED_AT + timedelta(days=5)),
+                        _other(start_date=ENDED_AT + timedelta(days=1), ended_at=ENDED_AT + timedelta(days=5)),
                     ),
                 ),
                 not_applicable(OTHER_EXPERIMENT_DECIDES),
@@ -213,7 +213,7 @@ class TestFlagState(TestCase):
                     filters=MULTIVARIANT,
                     flag_called_after_end=True,
                     other_experiments=(
-                        _other(launched_at=ENDED_AT - timedelta(days=30), ended_at=ENDED_AT - timedelta(days=20)),
+                        _other(start_date=ENDED_AT - timedelta(days=30), ended_at=ENDED_AT - timedelta(days=20)),
                     ),
                 ),
                 (ExperimentHealthFindingCode.FLAG_LIVE_AFTER_END, "ended_but_multiple_variants_rolled_out", None),
@@ -257,7 +257,7 @@ class TestFlagState(TestCase):
                     DRAFT,
                     active=True,
                     filters=MULTIVARIANT,
-                    other_experiments=(_other(launched_at=ENDED_AT - timedelta(days=3)),),
+                    other_experiments=(_other(start_date=ENDED_AT - timedelta(days=3)),),
                 ),
                 not_applicable(OTHER_EXPERIMENT_DECIDES),
             ),
@@ -316,7 +316,7 @@ class TestFlagState(TestCase):
                     RUNNING,
                     active=False,
                     filters=MULTIVARIANT,
-                    pause_history=_pause_history(launched_at=LAUNCHED_BEFORE_PAUSE_ENTRIES, paused_at=PAUSED_AT),
+                    pause_history=_pause_history(start_date=LAUNCHED_BEFORE_PAUSE_ENTRIES, paused_at=PAUSED_AT),
                 ),
                 ("paused_from_experiment", ExperimentHealthFindingSeverity.INFO, "The experiment is paused"),
             ),
@@ -326,7 +326,7 @@ class TestFlagState(TestCase):
                     RUNNING,
                     active=False,
                     filters=MULTIVARIANT,
-                    pause_history=_pause_history(launched_at=LAUNCHED_AFTER_PAUSE_ENTRIES, paused_at=None),
+                    pause_history=_pause_history(start_date=LAUNCHED_AFTER_PAUSE_ENTRIES, paused_at=None),
                 ),
                 (
                     "running_but_flag_disabled",
@@ -340,8 +340,8 @@ class TestFlagState(TestCase):
                     RUNNING,
                     active=False,
                     filters=MULTIVARIANT,
-                    pause_history=_pause_history(launched_at=LAUNCHED_AFTER_PAUSE_ENTRIES, paused_at=None),
-                    other_experiments=(_other(launched_at=LAUNCHED_AFTER_PAUSE_ENTRIES),),
+                    pause_history=_pause_history(start_date=LAUNCHED_AFTER_PAUSE_ENTRIES, paused_at=None),
+                    other_experiments=(_other(start_date=LAUNCHED_AFTER_PAUSE_ENTRIES),),
                 ),
                 (
                     "running_but_flag_disabled",
@@ -355,7 +355,7 @@ class TestFlagState(TestCase):
                     RUNNING,
                     active=False,
                     filters=MULTIVARIANT,
-                    pause_history=_pause_history(launched_at=LAUNCHED_BEFORE_PAUSE_ENTRIES, paused_at=None),
+                    pause_history=_pause_history(start_date=LAUNCHED_BEFORE_PAUSE_ENTRIES, paused_at=None),
                 ),
                 ("running_but_flag_disabled", ExperimentHealthFindingSeverity.WARNING, "The experiment is paused"),
             ),
@@ -460,7 +460,7 @@ class TestFlagState(TestCase):
                     RUNNING,
                     active=False,
                     filters=MULTIVARIANT,
-                    pause_history=_pause_history(launched_at=LAUNCHED_AFTER_PAUSE_ENTRIES, paused_at=PAUSED_AT),
+                    pause_history=_pause_history(start_date=LAUNCHED_AFTER_PAUSE_ENTRIES, paused_at=PAUSED_AT),
                 ),
                 "The experiment was paused on October 12, 2026 at 3:04 PM CEST, so the linked feature flag serves no "
                 "variants. Users exposed before the pause stay in the results. Their events during the pause can "

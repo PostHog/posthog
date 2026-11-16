@@ -15,6 +15,8 @@ import { humanFriendlyDuration } from 'lib/utils/durations'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { Scene } from 'scenes/sceneTypes'
 
+import { DashboardActivitySummary } from './DashboardActivitySummary'
+
 export const LastRefreshText = (): JSX.Element => {
     const { effectiveLastRefresh } = useValues(dashboardLogic)
     return (
@@ -65,7 +67,8 @@ const INTERVAL_OPTIONS = Array.from(REFRESH_INTERVAL_SECONDS, (value) => ({
 }))
 
 export function DashboardReloadAction(): JSX.Element {
-    const { itemsLoading, autoRefresh, blockRefresh, nextAllowedDashboardRefresh } = useValues(dashboardLogic)
+    const { dashboard, itemsLoading, autoRefresh, blockRefresh, nextAllowedDashboardRefresh } =
+        useValues(dashboardLogic)
     const { triggerDashboardRefresh, setAutoRefresh, setPageVisibility, cancelDashboardRefresh } =
         useActions(dashboardLogic)
 
@@ -88,6 +91,13 @@ export function DashboardReloadAction(): JSX.Element {
 
     return (
         <div className="relative flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 sm:flex-nowrap">
+            {dashboard && (
+                <DashboardActivitySummary
+                    dashboardId={dashboard.id}
+                    createdAt={dashboard.created_at}
+                    createdBy={dashboard.created_by}
+                />
+            )}
             <DashboardRefreshStatusText />
 
             <Shortcut

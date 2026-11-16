@@ -21,6 +21,7 @@ export const manifest: ProductManifest = {
         webAnalyticsLive: (): string => `/web/live`,
         webAnalyticsBotAnalytics: (): string => `/web/bot-analytics`,
         webAnalyticsContentAutopilot: (): string => `/web/content-autopilot`,
+        webAnalyticsContentAutopilotPrompt: (id: string): string => `/web/content-autopilot/prompts/${id}`,
         heatmaps: (params?: string): string =>
             `/heatmaps${params ? `?${params.startsWith('?') ? params.slice(1) : params}` : ''}`,
         heatmapNew: (params?: string): string =>
@@ -59,6 +60,7 @@ export const manifest: ProductManifest = {
     },
     routes: {
         '/web/content-autopilot': ['WebAnalytics', 'webAnalyticsContentAutopilot'],
+        '/web/content-autopilot/prompts/:promptId': ['WebAnalytics', 'webAnalyticsContentAutopilotPrompt'],
         '/heatmaps': ['Heatmaps', 'heatmaps'],
         '/heatmaps/new': ['HeatmapNew', 'heatmapNew'],
         '/heatmaps/recording': ['HeatmapRecording', 'heatmapRecording'],
@@ -79,7 +81,16 @@ export const manifest: ProductManifest = {
                 { name: 'Page reports', href: urls.webAnalyticsPageReports() },
                 { name: 'Live', href: urls.webAnalyticsLive() },
                 { name: 'Installation health', href: urls.webAnalyticsHealth() },
-                { name: 'Bots', href: urls.webAnalyticsBotAnalytics(), flag: FEATURE_FLAGS.WEB_ANALYTICS_BOT_ANALYSIS },
+                {
+                    name: 'AI visibility',
+                    href: urls.webAnalyticsContentAutopilot(),
+                    flag: FEATURE_FLAGS.WEB_ANALYTICS_CONTENT_AUTOPILOT,
+                },
+                {
+                    name: 'Bots',
+                    href: urls.webAnalyticsBotAnalytics(),
+                    flag: FEATURE_FLAGS.WEB_ANALYTICS_CONTENT_AUTOPILOT,
+                },
                 {
                     name: 'Search & AI',
                     href: urls.webAnalyticsPagePerformance(),

@@ -40,7 +40,7 @@ export function ActivitySceneHeader({
     if (!todayRailEnabled) {
         return (
             <>
-                <ActivitySceneTabs activeKey={activeKey} />
+                <ActivitySceneTabs activeKey={activeKey} className="mb-3" />
                 {banner}
                 <SceneTitleSection name={name} description={description} resourceType={resourceType} />
             </>
@@ -56,7 +56,7 @@ export function ActivitySceneHeader({
                 resourceType={resourceType}
                 forceBackTo={ACTIVITY_BREADCRUMB}
             />
-            <ActivitySceneTabs activeKey={activeKey} />
+            <ActivitySceneTabs activeKey={activeKey} className="mb-3" />
             {banner}
         </>
     )

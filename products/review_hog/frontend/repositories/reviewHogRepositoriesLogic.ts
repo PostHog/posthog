@@ -31,7 +31,7 @@ import { ReviewHogRepositoryOverviewRetrieveView } from 'products/review_hog/fro
 import { reviewHogSettingsLogic } from 'products/review_hog/frontend/reviewHogSettingsLogic'
 
 import type { ReviewProjectSettingsApi } from '../generated/api.schemas'
-import { MyChoiceValue, peopleKindFor } from './repositoryChoices'
+import { MyChoiceValue } from './repositoryChoices'
 import { currentProjectId, errorMessage, reviewHogProjectSettingsLogic } from './reviewHogProjectSettingsLogic'
 
 export const REPOSITORIES_PAGE_SIZE = 20
@@ -531,23 +531,25 @@ export const reviewHogRepositoriesLogic = kea<reviewHogRepositoriesLogicType>([
             },
             addException: async ({ entry }) => {
                 const project = values.projectSettings
-                const flashFor = project?.flash_for ?? 'off'
-                const kind = peopleKindFor(flashFor)
-                const people = kind ? (project?.people ?? []).filter((person) => person.kind === kind) : []
+                // Below "everyone" the exception turns the repository on, which any member may do. At "everyone" it
+                // copies the project rule with its except list, so adding it changes nothing yet.
+                const excepted =
+                    project?.flash_for === 'everyone'
+                        ? project.people.filter((person) => person.kind === 'excepted')
+                        : []
                 const saved = await writeRepository(
                     entry,
                     async () => {
-                        // The exception starts as a copy of the project rule, so adding it changes nothing yet.
                         const response = await reviewHogRepositoriesCreate(currentProjectId(), {
                             ...repositoryRef(entry),
-                            flash_for: flashFor,
+                            flash_for: 'everyone',
                         })
                         const repositoryId = response.repository?.id
-                        if (repositoryId && kind) {
-                            for (const person of people) {
+                        if (repositoryId) {
+                            for (const person of excepted) {
                                 await reviewHogRepositoriesPeopleCreate(currentProjectId(), repositoryId, {
                                     user_id: person.user.id,
-                                    kind,
+                                    kind: 'excepted',
                                 })
                             }
                         }
@@ -555,7 +557,7 @@ export const reviewHogRepositoriesLogic = kea<reviewHogRepositoriesLogicType>([
                     'Could not add the exception. Try again.'
                 )
                 if (saved) {
-                    posthog.capture('review hog repository exception added', { flash_for: flashFor })
+                    posthog.capture('review hog repository exception added', { flash_for: 'everyone' })
                 }
             },
             clearException: async ({ entry }) => {

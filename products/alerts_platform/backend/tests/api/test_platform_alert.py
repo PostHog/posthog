@@ -22,6 +22,14 @@ from posthog.models.utils import generate_random_token_personal, hash_key_value
 
 from products.access_control.backend.models.access_control import AccessControl
 from products.alerts_platform.backend.models import PlatformAlert, PlatformAlertConfiguration, PlatformAlertThread
+from products.alerts_platform.backend.presentation.views.platform_alert import create_serializers
+
+
+def test_the_create_schema_leaves_out_a_kind_whose_native_lifecycle_does_not_create() -> None:
+    # Insight has a native lifecycle for deletes only, so an insight create would always be refused.
+    assert "insight" not in create_serializers()
+    assert {"logs", "metrics"} <= create_serializers().keys()
+
 
 CONDITION = {"threshold_count": 10, "threshold_operator": "above", "window_minutes": 5}
 

@@ -1978,14 +1978,27 @@ class TestSubscriptionTemporal(APILicensedTest):
     def test_dashboard_tiles_filter_requires_dashboard_view_access(self):
         # Without a view-access check a member could pass any dashboard ID and enumerate its tiles'
         # subscriptions. Denying object access must 403, not leak the tile set.
-        self._create_subscription(title="On tile", insight=self._insight().id)
-        with patch(
-            "products.access_control.backend.facade.user_access_control.UserAccessControl.check_access_level_for_object",
-            return_value=False,
-        ):
-            res = self.client.get(
-                f"/api/projects/{self.team.id}/subscriptions/", {"dashboard_tiles": self.dashboard.id}
-            )
+        restricted = Dashboard.objects.create(team=self.team, name="Restricted dashboard")
+        tiled_insight = self._insight()
+        restricted.tiles.create(insight=tiled_insight)
+        self._create_subscription(title="On tile", insight=tiled_insight.id)
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}
+        ]
+        self.organization.save(update_fields=["available_product_features"])
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save(update_fields=["level"])
+        AccessControl.objects.create(
+            team=self.team,
+            resource="dashboard",
+            resource_id=str(restricted.id),
+            organization_member=self.organization_membership,
+            access_level="none",
+        )
+        cache.clear()
+
+        res = self.client.get(f"/api/projects/{self.team.id}/subscriptions/", {"dashboard_tiles": restricted.id})
+
         assert res.status_code == status.HTTP_403_FORBIDDEN, res.content
 
     def test_dashboard_tiles_filter_rejects_other_teams_dashboard(self):

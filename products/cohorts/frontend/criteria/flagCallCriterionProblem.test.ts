@@ -46,17 +46,17 @@ describe('flagCallCriterionProblem', () => {
         ['completed an event multiple times', { value: BehavioralEventType.PerformMultipleEvents }, null],
         ['a sequence', { value: BehavioralEventType.PerformSequenceEvents }, 'type'],
         ['completed an event for the first time', { value: BehavioralLifecycleType.PerformEventFirstTime }, 'type'],
-        // Window: a relative start at most 88 days back, with a month counted as 31 days
-        ['88 days', { time_value: 88 }, null],
-        ['89 days', { time_value: 89 }, 'window'],
+        // Window: a relative start at most 90 days back, with a month counted as 31 days
+        ['90 days', { time_value: 90 }, null],
+        ['91 days', { time_value: 91 }, 'window'],
         ['12 weeks', { time_value: 12, time_interval: TimeUnitType.Week }, null],
         ['13 weeks', { time_value: 13, time_interval: TimeUnitType.Week }, 'window'],
         ['2 months', { time_value: 2, time_interval: TimeUnitType.Month }, null],
         ['3 months', { time_value: 3, time_interval: TimeUnitType.Month }, 'window'],
         ['a year', { time_value: 1, time_interval: TimeUnitType.Year }, 'window'],
         ['an explicit start over a longer time value', { explicit_datetime: '-30d', time_value: 180 }, null],
-        ['2112 hours', { explicit_datetime: '-2112h' }, null],
-        ['2113 hours', { explicit_datetime: '-2113h' }, 'window'],
+        ['2160 hours', { explicit_datetime: '-2160h' }, null],
+        ['2161 hours', { explicit_datetime: '-2161h' }, 'window'],
         ['an absolute start', { explicit_datetime: '2026-09-01' }, 'window'],
         ['no window', { time_value: null, time_interval: null }, 'window'],
         // Filters: event property filters only, with or without a flag key

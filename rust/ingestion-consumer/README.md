@@ -67,6 +67,13 @@ The rebalance callbacks run inside `recv()`, on the loop's task. After every wak
 The strategy then removes those partitions' messages from the poll in progress and from its in-flight state: the batcher purges them, or Kafka delivers them again from the last commit.
 So a message the loop adds to a poll always belongs to the current assignment, and the poll is charged under the partition's current ledger generation.
 
+librdkafka can deliver a partition's last message twice under one assignment.
+An incremental rebalance pauses every assigned partition, and the fetch restarts from the application position, which does not yet include the message the consumer is reading.
+The collector keeps the last offset it added per partition and drops a message that repeats it, before the poll charges the ledger, so the first copy is the only one processed and committed.
+A revoke or assign clears the partition's entry, because Kafka then delivers from the committed offset.
+Any other offset out of order still reaches the ledger, which rejects it and stops the consumer.
+`ingestion_consumer_redelivered_messages_total{topic,partition}` counts the dropped messages, and each drop logs a warning with its offset.
+
 The consumer admits polls without waiting on any of them.
 The partition budget bounds each partition's replay exposure, and the in-flight limit bounds the whole pod: `CONSUMER_IN_FLIGHT_EVENTS` and `CONSUMER_IN_FLIGHT_BYTES` count the uncommitted charge of every partition, as the partition budget counts it.
 The limit is approximate: it stops reading, and the poll in progress still completes, so the uncommitted charge can pass the limit by one poll. One poll holds at most `CONSUMER_BATCH_SIZE` events and `CONSUMER_BATCH_SIZE_KB` plus one message; with the byte bound off, its bytes are bounded only by the batch size times the largest message.

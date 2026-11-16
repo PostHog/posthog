@@ -29,6 +29,8 @@ async function tick(): Promise<void> {
 }
 
 describe('push registration across session transitions', () => {
+    afterEach(() => jest.useRealTimers())
+
     beforeEach(async () => {
         await waitForPushHydration()
         setSessionTokens({
@@ -58,6 +60,68 @@ describe('push registration across session transitions', () => {
         unregister.mockReset().mockResolvedValue(undefined)
         permissions.mockReset().mockResolvedValue({ granted: true, status: 'granted', canAskAgain: true } as never)
         expoToken.mockReset().mockResolvedValue({ data: 'ExponentPushToken[new]' } as never)
+    })
+
+    test.each(['resolve', 'reject'] as const)(
+        'a stalled token request stops loading, allows a retry and ignores a late %s',
+        async (outcome) => {
+            jest.useFakeTimers()
+            let finishToken!: (token: Notifications.ExpoPushToken) => void
+            let failToken!: (error: Error) => void
+            expoToken.mockImplementationOnce(
+                () =>
+                    new Promise((resolve, reject) => {
+                        finishToken = resolve
+                        failToken = reject
+                    })
+            )
+            const syncing = syncPushRegistration('never')
+            await jest.advanceTimersByTimeAsync(0)
+            expect(usePushStore.getState().registering).toBe(true)
+
+            await jest.advanceTimersByTimeAsync(15_000)
+            expect(usePushStore.getState()).toMatchObject({
+                registering: false,
+                token: null,
+                error: 'Push request timed out',
+            })
+            await syncing
+            expect(register).not.toHaveBeenCalled()
+
+            await syncPushRegistration('always')
+            expect(usePushStore.getState()).toMatchObject({
+                registering: false,
+                token: 'ExponentPushToken[new]',
+                error: null,
+            })
+            if (outcome === 'resolve') {
+                finishToken({ type: 'expo', data: 'ExponentPushToken[late]' })
+            } else {
+                failToken(new Error('Late token failure'))
+            }
+            await jest.advanceTimersByTimeAsync(0)
+            expect(register).toHaveBeenCalledTimes(1)
+            expect(usePushStore.getState()).toMatchObject({ token: 'ExponentPushToken[new]', error: null })
+        }
+    )
+
+    test('sign out completes after a stalled token request times out', async () => {
+        jest.useFakeTimers()
+        expoToken.mockImplementationOnce(() => new Promise(() => undefined))
+        const syncing = syncPushRegistration('never')
+        await jest.advanceTimersByTimeAsync(0)
+        const cleanup = unregisterPush()
+
+        await jest.advanceTimersByTimeAsync(15_000)
+        expect(usePushStore.getState().registering).toBe(false)
+        await syncing
+        const recover = await cleanup
+        expect(register).not.toHaveBeenCalled()
+        expect(usePushStore.getState()).toMatchObject({ token: null, registeredFor: null, error: null })
+        setSessionTokens(null)
+        useAuthStore.setState({ status: 'signed_out', signedIn: false })
+        recover()
+        await jest.advanceTimersByTimeAsync(0)
     })
 
     test('sign out waits for a first registration POST and then deletes its possibly accepted token', async () => {

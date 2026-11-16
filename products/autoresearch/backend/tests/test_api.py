@@ -1134,7 +1134,7 @@ class TestAutoresearchPipelineAPI(TeamScopedTestMixin, APIBaseTest):
         body = resp.json()
         assert (body["used"], body["limit"]) == (1, limit)
         if limit:
-            assert body["next_slot_at"] == (started_at + timedelta(hours=24)).isoformat().replace("+00:00", "Z")
+            assert body["next_slot_at"] == (started_at + timedelta(hours=22)).isoformat().replace("+00:00", "Z")
         else:
             assert body["next_slot_at"] is None
         mock_run_training.assert_not_called()
@@ -1257,10 +1257,13 @@ class TestAutoresearchPipelineAPI(TeamScopedTestMixin, APIBaseTest):
         assert resp.json() == {
             "max_training_runs_per_day": 1,
             "training_runs_used": 1,
-            "next_slot_at": (started_at + timedelta(hours=24)).isoformat().replace("+00:00", "Z"),
+            "next_slot_at": (started_at + timedelta(hours=22)).isoformat().replace("+00:00", "Z"),
             "max_iterations_per_run": 10,
             "max_live_pipelines": 2,
             "live_pipelines": 1,
+            "max_training_runs_per_day_source": "default",
+            "max_iterations_per_run_source": "code",
+            "max_live_pipelines_source": "default",
         }
 
     # ──────────────────────────────────── update restrictions ─────────────────────────────────────

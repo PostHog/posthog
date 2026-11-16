@@ -86,7 +86,7 @@ export function BroadcastReviewStep(): JSX.Element {
     const { categories } = useValues(optOutCategoriesLogic())
     const category = categories.find((item) => item.id === emailSettings.messageCategoryId)
     const { props } = useMountedLogic(broadcastWizardLogic)
-    const { openInWorkflowEditor, setEmail } = useActions(broadcastWizardLogic)
+    const { editEmailContent, openInWorkflowEditor, setEmail } = useActions(broadcastWizardLogic)
     const { nonCohortAudience } = useValues(broadcastAudienceCohortsLogic(props))
     const { integrationsLoading } = useValues(integrationsLogic)
     const { loadIntegrations } = useActions(integrationsLogic)
@@ -208,7 +208,7 @@ export function BroadcastReviewStep(): JSX.Element {
                                 </div>
                             </div>
                         </div>
-                        <BroadcastEmailPreview showTestButton={false} />
+                        <BroadcastEmailPreview showTestButton={false} onModifyContent={editEmailContent} />
                     </ReviewRow>
                 )}
 

@@ -118,8 +118,8 @@ def promotion_event(
     """`champion_aucs` and `champion_eces` were scored by the incumbent on this candidate's holdout.
     The incumbent is the served model when it has `model_name`, else `none`.
 
-    Training never moves the served pointer, so `promoted` is always false. A person promotes
-    through `inbox_ranking_promote_job`, which captures `MODEL_PROMOTED_EVENT`.
+    Training never moves the served pointer, so `promoted` is always false. The daily serving
+    publish or `inbox_ranking_promote_job` moves it later and captures `MODEL_PROMOTED_EVENT`.
     The two recipe hashes are None for a version written before the hash existed."""
     return TrainingEvent(
         event=PROMOTION_DECIDED_EVENT,
@@ -245,10 +245,20 @@ def experiment_comparison_events(metadata: Mapping[str, Any]) -> list[TrainingEv
     ]
 
 
-def model_promoted_event(*, model_key: str, previous_key: str | None, reason: str, run_id: str) -> TrainingEvent:
+def model_promoted_event(
+    *, model_key: str, previous_key: str | None, reason: str, run_id: str, auto: bool
+) -> TrainingEvent:
+    """`auto` is true when the daily serving publish moved the pointer, and false for
+    `inbox_ranking_promote_job`. A read of served scores uses it to date each automatic swap."""
     return TrainingEvent(
         event=MODEL_PROMOTED_EVENT,
-        properties={"model_key": model_key, "previous_key": previous_key, "reason": reason, "run_id": run_id},
+        properties={
+            "model_key": model_key,
+            "previous_key": previous_key,
+            "reason": reason,
+            "run_id": run_id,
+            "auto": auto,
+        },
     )
 
 

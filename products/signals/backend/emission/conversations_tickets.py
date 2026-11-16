@@ -100,6 +100,8 @@ def conversations_ticket_emitter(team_id: int, record: dict[str, Any]) -> Signal
         description=signal_description,
         weight=1.0,
         extra=_build_extra(record),
+        # Retry the same snapshot with its accepted receipt; a new message starts new work.
+        idempotency_key=f"{ticket_id}:{record.get('last_message_at') or record.get('created_at')}",
     )
 
 
@@ -151,8 +153,9 @@ CONVERSATIONS_TICKETS_CONFIG = SignalSourceTableConfig(
     source_type="ticket",
     emitter=conversations_ticket_emitter,
     record_fetcher=conversations_ticket_fetcher,
+    record_processed_outputs=True,
     partition_field="created_at",
-    fields=REQUIRED_FIELDS + EXTRA_FIELDS,
+    fields=REQUIRED_FIELDS + EXTRA_FIELDS + ("last_message_at",),
     where_clause="status != 'resolved'",
     max_records=100,
     first_sync_lookback_days=30,

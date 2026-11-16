@@ -35,6 +35,8 @@ from posthog.egress.github.limiter import github_installation_pace_seconds, reme
 from posthog.egress.github.transport import GitHubRateLimitError, github_request, raise_if_github_rate_limited
 from posthog.egress.limiter.policies import Priority
 from posthog.github.merge_queue import MergeQueueState
+from posthog.integrations.backend.patching import changed_fields
+from posthog.integrations.contracts import IntegrationPatch
 from posthog.redis import get_client as get_redis_client
 from posthog.sync import database_sync_to_async_pool
 from posthog.utils import safe_cache_add, safe_cache_delete
@@ -235,6 +237,10 @@ class GitHubIntegrationError(Exception):
         super().__init__(message)
         # Needed, so retry wrappers can make decisions without reparsing the response.
         self.status_code = status_code
+
+
+class ReauthorizationRequired(Exception):
+    """The stored GitHub tokens cannot produce a usable access token; user must re-authorize."""
 
 
 def _jsonb_merge(column: str, patch: dict[str, Any]) -> Func:
@@ -582,9 +588,9 @@ class GitHubIntegrationBase:
         reloads).
 
         On failure the hook is called and then an exception is raised; the hook
-        is responsible for persisting any error state it needs.  On success the
-        hook is called *before* ``save()`` so it can mutate extra fields that
-        will be included in a single write.
+        is responsible for persisting any error state it needs.  On success
+        :meth:`_token_refreshed_patch` can add changes to the one write that
+        :meth:`_store_patch` makes.
         """
         # client_request records the call via the egress transport — no manual recording here,
         # or every refresh would count twice.
@@ -612,8 +618,7 @@ class GitHubIntegrationBase:
         except ValueError as e:
             raise Exception(f"Invalid expires_at format from GitHub: {e}")
 
-        config = {
-            **self.integration.config,
+        config: dict[str, Any] = {
             "expires_in": expires_in,
             "refreshed_at": int(time.time()),
         }
@@ -627,14 +632,32 @@ class GitHubIntegrationBase:
         # GitHub at any time, and the UI uses it to decide whether to list repositories at all.
         if isinstance(data.get("repository_selection"), str):
             config["repository_selection"] = data["repository_selection"]
-        config.pop(INSTALLATION_UNAVAILABLE_SINCE_CONFIG_KEY, None)
-        self.integration.config = config
-        self.integration.sensitive_config = {
-            **(self.integration.sensitive_config or {}),
-            "access_token": data["token"],
-        }
+        patch = IntegrationPatch(
+            config_patch=config,
+            config_remove=(INSTALLATION_UNAVAILABLE_SINCE_CONFIG_KEY,),
+            sensitive_config_patch={"access_token": data["token"]},
+        )
         self._on_token_refreshed()
-        self.integration.save()
+        self._store_patch(self._token_refreshed_patch(patch))
+
+    def _store_patch(self, patch: IntegrationPatch) -> None:
+        """Store `patch` on the row and keep `self.integration` current.
+
+        This base writes the `UserIntegration` row. `GitHubIntegration` stores the team row through
+        the integrations SDK.
+        """
+        changed = changed_fields(
+            config=self.integration.config, sensitive_config=self.integration.sensitive_config, errors="", patch=patch
+        )
+        if not changed:
+            return
+        for field_name, value in changed.items():
+            setattr(self.integration, field_name, value)
+        self.integration.save(update_fields=[*changed, "updated_at"])
+
+    def _token_refreshed_patch(self, patch: IntegrationPatch) -> IntegrationPatch:
+        """The patch that a successful token refresh stores. Override to add changes to the same write."""
+        return patch
 
     def mint_scoped_installation_token(
         self,
@@ -687,8 +710,7 @@ class GitHubIntegrationBase:
         dead installation on every run. Deliberately NOT the full ``_on_token_refresh_failed``
         hook: that one also stamps ``errors`` on transient failures, which would exclude the
         integration from team resolution over a passing GitHub 500."""
-        if self._disarm_proactive_refresh_if_installation_gone(response):
-            self.integration.save(update_fields=["config"])
+        self._disarm_proactive_refresh_if_installation_gone(response)
 
     @staticmethod
     def _installation_permanently_unavailable(response: requests.Response) -> bool:
@@ -723,23 +745,30 @@ class GitHubIntegrationBase:
         Also stamps ``installation_unavailable_since`` so callers can distinguish a dead installation's
         stale stored token from a usable one (see :meth:`installation_unavailable`).
         Self-healing: if the installation is later restored, a real API call 401s and ``api_request``'s
-        refresh-retry mints successfully, re-persists the fields, and clears the marker. Mutates
-        ``config`` in memory and returns whether anything changed; the caller owns the save.
+        refresh-retry mints successfully, re-persists the fields, and clears the marker. Stores the
+        change and returns whether anything changed.
         """
-        if not self._installation_permanently_unavailable(response):
+        patch = self._installation_gone_patch(response)
+        if patch is None:
             return False
-        config = {**self.integration.config}
-        changed = False
-        if "expires_in" in config or "refreshed_at" in config:
-            config.pop("expires_in", None)
-            config.pop("refreshed_at", None)
-            changed = True
-        if INSTALLATION_UNAVAILABLE_SINCE_CONFIG_KEY not in config:
-            config[INSTALLATION_UNAVAILABLE_SINCE_CONFIG_KEY] = int(time.time())
-            changed = True
-        if changed:
-            self.integration.config = config
-        return changed
+        self._store_patch(patch)
+        return True
+
+    def _installation_gone_patch(self, response: requests.Response) -> IntegrationPatch | None:
+        """The config change of :meth:`_disarm_proactive_refresh_if_installation_gone`, or None when there is none."""
+        if not self._installation_permanently_unavailable(response):
+            return None
+        config = self.integration.config
+        if INSTALLATION_UNAVAILABLE_SINCE_CONFIG_KEY in config and not (
+            "expires_in" in config or "refreshed_at" in config
+        ):
+            return None
+        marker = (
+            {}
+            if INSTALLATION_UNAVAILABLE_SINCE_CONFIG_KEY in config
+            else {INSTALLATION_UNAVAILABLE_SINCE_CONFIG_KEY: int(time.time())}
+        )
+        return IntegrationPatch(config_patch=marker, config_remove=("expires_in", "refreshed_at"))
 
     def installation_unavailable(self) -> bool:
         """Whether a failed mint marked this installation permanently gone (uninstalled or
@@ -806,13 +835,22 @@ class GitHubIntegrationBase:
         # anything a concurrent token refresh or installation webhook commits in between — a window a
         # re-read narrows but never closes. Let Postgres merge the two keys this method owns into the
         # stored value instead, so every other key survives whichever write lands last.
+        if not self._merge_config_keys(patch):
+            return False
+        return healed_account is not None
+
+    def _merge_config_keys(self, patch: dict[str, Any]) -> bool:
+        """Merge `patch` into the stored config without a read of the whole column. False when the row is gone.
+
+        `GitHubIntegration` merges the team row through the integrations SDK, which merges under a row lock.
+        """
         updated = (
             type(self.integration).objects.filter(pk=self.integration.pk).update(config=_jsonb_merge("config", patch))
         )
         if not updated:
             return False
         self.integration.config = {**self.integration.config, **patch}
-        return healed_account is not None
+        return True
 
     def _on_token_refresh_failed(self, response: requests.Response) -> None:
         """Called when the installation token refresh request fails.
@@ -826,14 +864,13 @@ class GitHubIntegrationBase:
             integration_id=self.integration.id,
             status_code=response.status_code,
         )
-        if self._disarm_proactive_refresh_if_installation_gone(response):
-            self.integration.save(update_fields=["config"])
+        self._disarm_proactive_refresh_if_installation_gone(response)
 
     def _on_token_refreshed(self) -> None:
-        """Called after a successful token refresh, before ``save()``.
+        """Called after a successful token refresh, before the new token is stored.
 
-        Override to clear errors, notify workers, increment counters, etc.
-        Mutations to ``self.integration`` will be included in the same save.
+        Override to notify workers, increment counters, etc. Add stored changes with
+        :meth:`_token_refreshed_patch`.
         """
         logger.info(
             "GitHubIntegration: refreshed installation access token",
@@ -3018,6 +3055,8 @@ class GitHubIntegrationBase:
         if should_refresh:
             try:
                 cached_repositories = self.sync_repository_cache()
+            except ReauthorizationRequired:
+                raise
             except Exception:
                 logger.warning(
                     "GitHubIntegration: failed to refresh repository cache",

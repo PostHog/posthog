@@ -22,6 +22,7 @@ from products.alerts.backend.platform_alert_backfill import (
     disable_platform_insight_alert_configurations,
     follow_insight_alert,
 )
+from products.alerts.backend.platform_insight_alert import INSIGHT_ROW_SETTINGS
 from products.alerts_platform.backend.facade.api import list_configurations
 from products.alerts_platform.backend.facade.contracts import SourceKind
 from products.product_analytics.backend.facade.models import Insight
@@ -65,7 +66,14 @@ class TestPlatformInsightAlertBackfill(APIBaseTest):
         real_time = self._alert(calculation_interval=AlertCalculationInterval.REAL_TIME.value)
         quarter_hourly = self._alert(calculation_interval=AlertCalculationInterval.EVERY_15_MINUTES.value)
         hourly = self._alert(calculation_interval=AlertCalculationInterval.HOURLY.value, schedule_start_time="09:30")
-        daily = self._alert(schedule_start_time="09:30")
+        daily = self._alert(
+            schedule_start_time="09:30",
+            created_by=self.user,
+            skip_weekend=True,
+            evaluation_delay_intervals=2,
+            investigation_agent_enabled=True,
+            investigation_inconclusive_action="suppress",
+        )
         detector = self._alert(detector_config={"type": "zscore"})
         ai_detector = self._alert(detector_config={"type": "llm"})
         unparseable = self._alert(schedule_start_time="25:99")
@@ -98,7 +106,16 @@ class TestPlatformInsightAlertBackfill(APIBaseTest):
             "comparison": {"type": "absolute_value"},
             "detector": None,
         }
+        assert {key: copies[daily.id].source_config[key] for key in INSIGHT_ROW_SETTINGS} == {
+            "config": {"type": "TrendsAlertConfig", "series_index": 0},
+            "skip_weekend": True,
+            "evaluation_delay_intervals": 2,
+            "investigation_agent_enabled": True,
+            "investigation_gates_notifications": False,
+            "investigation_inconclusive_action": "suppress",
+        }
         assert copies[detector.id].source_config["condition"]["detector"] == {"type": "zscore"}
+        assert (copies[daily.id].created_by_id, copies[detector.id].created_by_id) == (self.user.id, None)
 
     def test_a_sample_copies_the_same_alerts_on_every_run_and_widening_it_only_adds(self) -> None:
         inside = self._alert(id=UUID(int=5))
