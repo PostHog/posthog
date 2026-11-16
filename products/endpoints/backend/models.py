@@ -337,10 +337,10 @@ class EndpointVersion(UpdatedMetaFields, models.Model):
 
         nodes = getattr(self.saved_query, self.FREQUENCY_NODES_ATTR, None)
         if nodes is None:
-            nodes = Node.objects.filter(team_id=self.saved_query.team_id, saved_query_id=self.saved_query_id).only(
-                "properties"
-            )
-        return next((clamp for node in nodes if (clamp := get_plan_floor_clamp(node)) is not None), None)
+            nodes = Node.objects.filter(
+                team_id=self.team_id or self.endpoint.team_id, saved_query_id=self.saved_query_id
+            ).only("properties")
+        return next((clamp for node in nodes if (clamp := get_plan_floor_clamp(node.properties)) is not None), None)
 
     def _target_seconds_before_plan_floor_clamp(self) -> int | None:
         clamp = self.plan_floor_clamp

@@ -590,7 +590,7 @@ class TestMaybeReconcileDag(BaseTest):
             apply_saved_query_frequency_target(node.saved_query, saved)
 
         node.refresh_from_db()
-        clamp = get_plan_floor_clamp(node)
+        clamp = get_plan_floor_clamp(node.properties)
         self.assertEqual(clamp.previous_target if clamp is not None else None, expected)
 
     def test_a_pin_on_its_own_keeps_the_stored_target(self):
@@ -647,12 +647,17 @@ class TestMaybeReconcileDag(BaseTest):
         capture = background_capture.return_value
         node.refresh_from_db()
         self.assertEqual((get_declared_target(node), get_declared_pin(node)), (expected, True))
-        clamp = get_plan_floor_clamp(node)
+        clamp = get_plan_floor_clamp(node.properties)
         self.assertEqual(clamp.previous_target if clamp is not None else None, saved if expected != saved else None)
         activity = ActivityLog.objects.filter(scope="DataWarehouseSavedQuery", activity="sync_frequency_plan_floor")
         self.assertEqual(
             [
-                (row.item_id, row.user, row.detail["changes"][0]["before"], row.detail["changes"][0]["after"])
+                (
+                    row.item_id,
+                    row.user,
+                    (row.detail or {})["changes"][0]["before"],
+                    (row.detail or {})["changes"][0]["after"],
+                )
                 for row in activity
             ],
             [(str(node.saved_query_id), None, "0:15:00", "6:00:00")] if expected != saved else [],
