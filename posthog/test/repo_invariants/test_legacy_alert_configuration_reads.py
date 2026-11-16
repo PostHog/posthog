@@ -24,6 +24,7 @@ LEGACY_STRING = re.compile(
 # LogsAlertCheck.alert and LogsAlertEvent.alert point at the logs row. `alert` is too common a name to
 # match everywhere, so it counts only in a file that uses one of these models.
 LOGS_ROW_CHILDREN = ("LogsAlertCheck", "LogsAlertEvent")
+APP_MODEL_LABELS = {("alerts", "AlertConfiguration"), ("logs", "LogsAlertConfiguration")}
 LOGS_ROW_LOOKUP = re.compile(r"(?:^|__)alert(?:__|$)")
 SOURCE_MARKERS = ("AlertConfiguration", "alert_configuration", "alertconfiguration", *LOGS_ROW_CHILDREN)
 SCOPE_NODES = (ast.FunctionDef, ast.AsyncFunctionDef, ast.ClassDef)
@@ -168,6 +169,9 @@ class _Reader:
             return True
         if isinstance(node, ast.Attribute) and node.attr == "alert":
             return self.uses_logs_row_children and isinstance(node.ctx, ast.Load)
+        if isinstance(node, ast.Call) and _called_name(node) == "get_model":
+            labels = tuple(arg.value for arg in node.args if isinstance(arg, ast.Constant))
+            return labels in APP_MODEL_LABELS
         if isinstance(node, ast.keyword) and node.arg is not None:
             if self.uses_logs_row_children and node.arg.startswith("alert__"):
                 return True
@@ -186,9 +190,7 @@ class _Reader:
         if isinstance(parent, ast.Attribute) and parent.value is node:
             return parent.attr in MANAGERS
         if isinstance(parent, ast.Call) and node in parent.args:
-            func = parent.func
-            name = func.id if isinstance(func, ast.Name) else func.attr if isinstance(func, ast.Attribute) else ""
-            return name not in TYPE_ONLY_CALLS
+            return _called_name(parent) not in TYPE_ONLY_CALLS
         if isinstance(parent, ast.Tuple) and isinstance(self.parents.get(parent), ast.Call):
             call = self.parents[parent]
             if isinstance(call, ast.Call) and isinstance(call.func, ast.Name) and call.func.id in TYPE_ONLY_CALLS:
@@ -198,9 +200,19 @@ class _Reader:
     def _names_a_relation(self, parent: ast.AST | None) -> bool:
         if not isinstance(parent, ast.Call):
             return False
-        func = parent.func
-        name = func.attr if isinstance(func, ast.Attribute) else func.id if isinstance(func, ast.Name) else ""
-        return name in {"select_related", "prefetch_related", "Prefetch", "only", "values", "values_list"}
+        return _called_name(parent) in {
+            "select_related",
+            "prefetch_related",
+            "Prefetch",
+            "only",
+            "values",
+            "values_list",
+        }
+
+
+def _called_name(call: ast.Call) -> str:
+    func = call.func
+    return func.id if isinstance(func, ast.Name) else func.attr if isinstance(func, ast.Attribute) else ""
 
 
 def _annotations(tree: ast.AST) -> Iterator[ast.AST]:
@@ -313,6 +325,9 @@ def test_legacy_alert_configurations_are_read_only_by_listed_code() -> None:
         ("LogsAlertEvent.objects.select_related('alert').first().alert.name", ["<module>", "<module>"]),
         ("from m import LogsAlertCheck\nchecks.filter(alert__team_id=1)", ["<module>"]),
         ("result.alert.name", []),
+        ("apps.get_model('alerts', 'AlertConfiguration').objects.all()", ["<module>"]),
+        ("apps.get_model('logs', 'LogsAlertConfiguration')", ["<module>"]),
+        ("apps.get_model('alerts', 'AlertCheck')", []),
         ("Prefetch('alert')", []),
         ("Prefetch('insight__alertconfiguration_set')", ["<module>"]),
         ("class S:\n    class Meta:\n        model = AlertConfiguration", ["S.Meta"]),
