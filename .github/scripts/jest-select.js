@@ -178,12 +178,18 @@ function main() {
                         : 'running the full jest matrix'
                 console.log(`::notice::${candidate.reason.category} (${candidate.reason.detail}); ${behavior}`)
             }
+            const selective = candidate.mode === 'selective' && candidate.changedFiles.length > 0
             outputs = {
                 mode: candidate.mode,
-                changed_files: candidate.mode === 'selective' ? candidate.changedFiles.join(' ') : '',
+                changed_files: selective ? candidate.changedFiles.join(' ') : '',
                 // Drafts defer an untrusted selection to their ready run; the test step
-                // skips itself rather than running a matrix nothing selected.
+                // skips itself rather than running a matrix nothing selected. A shard with
+                // nothing to run also installs no dependencies, which is the bulk of an
+                // idle shard on this fanout.
                 should_run: String(candidate.mode !== 'skip'),
+                // A full run needs the workspace too; only a diff with no Jest sources
+                // and no fallback can skip the install entirely.
+                needs_dependencies: String(selective || candidate.mode === 'full'),
             }
         } else if (process.argv[2] === 'select') {
             const selection = selectTests(input, listRelatedTests)
