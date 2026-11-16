@@ -67,7 +67,7 @@ export function McpSharedFilters({
 }: McpSharedFiltersProps): JSX.Element {
     const { propertyFilters } = useValues(mcpAnalyticsFiltersLogic)
     const { setPropertyFilters } = useActions(mcpAnalyticsFiltersLogic)
-    const showLoadingBar = useDebouncedValue(refreshing, LOADING_FEEDBACK_DELAY_MS)
+    const showLoadingBar = useDebouncedValue(refreshing, LOADING_FEEDBACK_DELAY_MS, false)
 
     return (
         <div className={cn('relative w-full min-w-0', className)} data-attr={`${dataAttrPrefix}-property-filter`}>
@@ -126,7 +126,7 @@ export function McpSharedFilters({
             {showLoadingBar && (
                 <LoadingBar
                     wrapperClassName="absolute inset-x-0 top-full mt-1 max-w-none"
-                    className="h-1 rounded-none bg-border"
+                    className="h-1 rounded-none bg-transparent"
                 />
             )}
         </div>
