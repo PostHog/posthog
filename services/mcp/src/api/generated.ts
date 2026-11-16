@@ -131144,7 +131144,7 @@ export namespace Schemas {
      */
     detail_filters?: string;
     /**
-     * Upper bound on `created_at` (inclusive), ISO-8601.
+     * Upper bound on `created_at` (inclusive), as an ISO 8601 timestamp with a UTC offset, such as `2026-01-15T11:30:00Z`.
      */
     end_date?: string;
     /**
@@ -131207,7 +131207,7 @@ export namespace Schemas {
      */
     search_text?: string;
     /**
-     * Lower bound on `created_at` (inclusive), ISO-8601.
+     * Lower bound on `created_at` (inclusive), as an ISO 8601 timestamp with a UTC offset, such as `2026-01-15T10:30:00Z`.
      */
     start_date?: string;
     /**
@@ -132845,7 +132845,7 @@ export namespace Schemas {
      */
     detail_filters?: string;
     /**
-     * Upper bound on `created_at` (inclusive), ISO-8601.
+     * Upper bound on `created_at` (inclusive), as an ISO 8601 timestamp with a UTC offset, such as `2026-01-15T11:30:00Z`.
      */
     end_date?: string;
     /**
@@ -132908,7 +132908,7 @@ export namespace Schemas {
      */
     search_text?: string;
     /**
-     * Lower bound on `created_at` (inclusive), ISO-8601.
+     * Lower bound on `created_at` (inclusive), as an ISO 8601 timestamp with a UTC offset, such as `2026-01-15T10:30:00Z`.
      */
     start_date?: string;
     /**
