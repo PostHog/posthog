@@ -1,21 +1,20 @@
-"""The error baseline of an observation window: for each hour of the window, the errors in the same hour of each earlier
+"""The error baseline of an observation window: for each UTC hour of a day, the errors in the same hour of each earlier
 week.
 
 The error rate is the share of people (or groups) with an event that have at least one `$exception`. A single value
 can't be aligned by weekday and hour for a window that spans days, so the baseline keeps the counts of each hour and
-week. The window computes the baseline once, when it opens, and the score compares the errors after the edit with it.
+week. The window computes the baseline of each UTC day it covers once, and the score compares each bucket after the edit
+with the hour that the bucket starts in.
 
-A week is 168 hours from the window start. Across a daylight saving change, an earlier week is one hour off the local
-time of day.
+Hours are UTC clock hours. In a timezone with daylight saving time, an earlier week is one hour off the local time of
+day for part of the year.
 
-The query reads every event of each earlier week in the window's hours, because the denominator is every person (or
-group) with an event. People are counted per kind of actor of the watched flags: persons, or the groups of each group
-type.
+The query reads every event of each earlier week in the day, because the denominator is every person (or group) with
+an event. People are counted per kind of actor of the watched flags: persons, or the groups of each group type.
 """
 
-import math
 from collections.abc import Sequence
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, time, timedelta
 
 from posthog.hogql import ast
 from posthog.hogql.constants import MAX_SELECT_RETURNED_ROWS
@@ -29,7 +28,9 @@ from products.feature_flags.backend.flag_windows.query import actor_of, run_wind
 BASELINE_WEEKS = 4
 
 HOUR = timedelta(hours=1)
+DAY = timedelta(days=1)
 WEEK = timedelta(weeks=1)
+HOURS_PER_DAY = DAY // HOUR
 HOURS_PER_WEEK = WEEK // HOUR
 
 
@@ -51,38 +52,26 @@ class BaselineHour:
 def error_baseline(
     team: Team,
     group_type_indexes: Sequence[int | None],
-    start: datetime,
-    end: datetime,
+    day: date,
     weeks: int = BASELINE_WEEKS,
 ) -> dict[int | None, list[BaselineHour]]:
-    """The baseline of each hour of `[start, end)`, by kind of actor: None for persons, or the group type index. The
-    hours start at `start`, and the last one is a full hour even when `end` cuts it."""
+    """The baseline of each UTC hour of `day`, by kind of actor: None for persons, or the group type index."""
     if weeks < 1:
         raise ValueError(f"The baseline needs at least one earlier week, got {weeks}")
-    if start.tzinfo is None or end.tzinfo is None:
-        raise ValueError(f"The range needs timezone-aware times, got {start} to {end}")
-    # Arithmetic on two times in the same local timezone uses wall time, so a week across a daylight saving change
-    # would be 167 or 169 hours, and events would land in the wrong hour.
-    start, end = start.astimezone(UTC), end.astimezone(UTC)
-    if end <= start:
-        raise ValueError(f"The range must end after it starts, got {start} to {end}")
-    # Each earlier week must leave the range before the next week's copy of it starts, or one event would count twice.
-    if end - start > WEEK:
-        raise ValueError(f"The range must fit in one week, got {start} to {end}")
-    hours = math.ceil((end - start) / HOUR)
     # HogQL caps the rows of a query, and a capped result would drop the latest hours without an error.
-    if hours * weeks > MAX_SELECT_RETURNED_ROWS:
-        raise ValueError(f"The baseline holds {hours * weeks} hours, more than {MAX_SELECT_RETURNED_ROWS}")
+    if HOURS_PER_DAY * weeks > MAX_SELECT_RETURNED_ROWS:
+        raise ValueError(f"The baseline holds {HOURS_PER_DAY * weeks} hours, more than {MAX_SELECT_RETURNED_ROWS}")
     actor_kinds = list(dict.fromkeys(group_type_indexes))
     if not actor_kinds:
         return {}
 
-    origin = start - weeks * WEEK
+    midnight = datetime.combine(day, time(), tzinfo=UTC)
+    origin = midnight - weeks * WEEK
     counts = {
-        actor_kind: [[HourErrors(active=0, with_errors=0) for _ in range(weeks)] for _ in range(hours)]
+        actor_kind: [[HourErrors(active=0, with_errors=0) for _ in range(weeks)] for _ in range(HOURS_PER_DAY)]
         for actor_kind in actor_kinds
     }
-    for row in run_window_query(team, _query(actor_kinds, origin, hours, weeks), "flag_error_baseline_by_hour"):
+    for row in run_window_query(team, _query(actor_kinds, origin, weeks), "flag_error_baseline_by_hour"):
         week_from_origin, hour = divmod(int(row[0]), HOURS_PER_WEEK)
         values = iter(row[1:])
         for actor_kind in actor_kinds:
@@ -91,27 +80,29 @@ def error_baseline(
             )
     return {
         actor_kind: [
-            BaselineHour(start=start + hour * HOUR, weeks=tuple(by_week))
+            BaselineHour(start=midnight + hour * HOUR, weeks=tuple(by_week))
             for hour, by_week in enumerate(counts[actor_kind])
         ]
         for actor_kind in actor_kinds
     }
 
 
-def _query(actor_kinds: Sequence[int | None], origin: datetime, hours: int, weeks: int) -> ast.SelectQuery:
+def _query(actor_kinds: Sequence[int | None], origin: datetime, weeks: int) -> ast.SelectQuery:
     columns: list[ast.Expr] = []
     for actor_kind in actor_kinds:
         actor = actor_of(actor_kind)
         placeholders = {"actor": actor.expr, "present": actor.present}
         columns.append(parse_expr("uniqIf({actor}, {present})", placeholders=placeholders))
         columns.append(parse_expr("uniqIf({actor}, {present} AND event = '$exception')", placeholders=placeholders))
+    # The events table sorts each team's events by day, so a query reads every whole day that it touches. One UTC day
+    # per earlier week keeps the query to one day of events per week.
     in_earlier_weeks = ast.Or(
         exprs=[
             parse_expr(
                 "timestamp >= {start} AND timestamp < {end}",
                 placeholders={
                     "start": ast.Constant(value=origin + week * WEEK),
-                    "end": ast.Constant(value=origin + week * WEEK + hours * HOUR),
+                    "end": ast.Constant(value=origin + week * WEEK + DAY),
                 },
             )
             for week in range(weeks)
@@ -119,8 +110,7 @@ def _query(actor_kinds: Sequence[int | None], origin: datetime, hours: int, week
     )
     return ast.SelectQuery(
         select=[
-            # Hours count from the origin, not from clock hours, so they line up with the window's buckets in any
-            # timezone. Seconds would drop the fraction of the edit time and move events at an hour boundary.
+            # The elapsed time from a UTC midnight keeps the hours in UTC, whatever the team's timezone.
             ast.Alias(
                 alias="hour",
                 expr=parse_expr(
@@ -135,5 +125,5 @@ def _query(actor_kinds: Sequence[int | None], origin: datetime, hours: int, week
         group_by=[ast.Field(chain=["hour"])],
         order_by=[ast.OrderExpr(expr=ast.Field(chain=["hour"]), order="ASC")],
         # One row per hour and week. HogQL adds LIMIT 100 to a query without one.
-        limit=ast.Constant(value=hours * weeks),
+        limit=ast.Constant(value=HOURS_PER_DAY * weeks),
     )

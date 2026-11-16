@@ -1,6 +1,5 @@
-from datetime import UTC, datetime, timedelta
+from datetime import UTC, date, datetime, timedelta
 from typing import Any
-from zoneinfo import ZoneInfo
 
 from posthog.test.base import BaseTest, ClickhouseTestMixin, _create_event, flush_persons_and_events
 
@@ -8,9 +7,8 @@ from posthog.test.persons import create_person
 
 from products.feature_flags.backend.flag_windows.baseline import BaselineHour, HourErrors, error_baseline
 
-# Half past the hour, so that an implementation that counts clock hours reads the wrong events. Edit times carry
-# fractions of a second.
-START = datetime(2026, 10, 1, 12, 30, 0, 500000, tzinfo=UTC)
+DAY = date(2026, 10, 1)
+MIDNIGHT = datetime(2026, 10, 1, tzinfo=UTC)
 WEEK = timedelta(weeks=1)
 
 # (distinct id, event, time, event properties)
@@ -24,6 +22,13 @@ def _errors(active: int, with_errors: int) -> HourErrors:
 NONE = _errors(0, 0)
 
 
+def _day(weeks: int, by_hour: dict[int, tuple[HourErrors, ...]]) -> list[BaselineHour]:
+    return [
+        BaselineHour(start=MIDNIGHT + timedelta(hours=hour), weeks=by_hour.get(hour, (NONE,) * weeks))
+        for hour in range(24)
+    ]
+
+
 class TestErrorBaseline(ClickhouseTestMixin, BaseTest):
     def _send(self, events: list[Event]) -> None:
         for distinct_id in dict.fromkeys(distinct_id for distinct_id, _, _, _ in events):
@@ -34,56 +39,46 @@ class TestErrorBaseline(ClickhouseTestMixin, BaseTest):
             )
         flush_persons_and_events()
 
-    def test_each_hour_counts_the_people_with_events_and_with_errors_in_the_same_hour_of_each_earlier_week(
+    def test_each_utc_hour_counts_the_people_with_events_and_with_errors_in_the_same_hour_of_each_earlier_week(
         self,
     ) -> None:
+        # Hours in the team's timezone would put every event in the wrong hour.
+        self.team.timezone = "America/New_York"
+        self.team.save()
         self._send(
             [
-                ("person-1", "$pageview", START - WEEK + timedelta(minutes=10), {}),
-                ("person-1", "$exception", START - WEEK + timedelta(minutes=20), {}),
-                ("person-2", "$exception", START - WEEK + timedelta(minutes=70), {}),
+                ("person-1", "$pageview", MIDNIGHT - WEEK + timedelta(minutes=10), {}),
+                ("person-1", "$exception", MIDNIGHT - WEEK + timedelta(minutes=20), {}),
+                ("person-2", "$exception", MIDNIGHT - WEEK + timedelta(minutes=70), {}),
                 # People count once, however many events they send.
-                ("person-3", "$pageview", START - 2 * WEEK + timedelta(minutes=5), {}),
-                ("person-3", "$pageview", START - 2 * WEEK + timedelta(minutes=6), {}),
-                ("person-4", "$exception", START - 4 * WEEK + timedelta(minutes=119), {}),
-                # Just before the end of the first hour.
-                ("person-7", "$pageview", START - 3 * WEEK + timedelta(minutes=60, milliseconds=-300), {}),
-                # In the clock hour of the window start, but before the window start.
-                ("person-5", "$pageview", START - WEEK - timedelta(minutes=5), {}),
-                # After the window's hours.
-                ("person-5", "$pageview", START - WEEK + timedelta(minutes=120), {}),
-                # In the window itself, and in a week older than the baseline.
-                ("person-6", "$exception", START + timedelta(minutes=10), {}),
-                ("person-6", "$exception", START - 5 * WEEK + timedelta(minutes=10), {}),
+                ("person-3", "$pageview", MIDNIGHT - 2 * WEEK + timedelta(minutes=5), {}),
+                ("person-3", "$pageview", MIDNIGHT - 2 * WEEK + timedelta(minutes=6), {}),
+                ("person-4", "$pageview", MIDNIGHT - 3 * WEEK + timedelta(minutes=30), {}),
+                ("person-5", "$exception", MIDNIGHT - 4 * WEEK + timedelta(hours=23, minutes=59), {}),
+                # The days before and after the day in an earlier week.
+                ("person-6", "$pageview", MIDNIGHT - WEEK - timedelta(minutes=5), {}),
+                ("person-6", "$pageview", MIDNIGHT - WEEK + timedelta(hours=24, minutes=5), {}),
+                # The day itself, and a week older than the baseline.
+                ("person-7", "$exception", MIDNIGHT + timedelta(minutes=10), {}),
+                ("person-7", "$exception", MIDNIGHT - 5 * WEEK + timedelta(minutes=10), {}),
             ]
         )
 
-        baseline = error_baseline(self.team, [None], START, START + timedelta(minutes=90))
+        baseline = error_baseline(self.team, [None], DAY)
 
         assert baseline == {
-            None: [
-                BaselineHour(start=START, weeks=(_errors(1, 1), _errors(1, 0), _errors(1, 0), NONE)),
-                BaselineHour(start=START + timedelta(hours=1), weeks=(_errors(1, 1), NONE, NONE, _errors(1, 1))),
-            ]
+            None: _day(
+                weeks=4,
+                by_hour={
+                    0: (_errors(1, 1), _errors(1, 0), _errors(1, 0), NONE),
+                    1: (_errors(1, 1), NONE, NONE, NONE),
+                    23: (NONE, NONE, NONE, _errors(1, 1)),
+                },
+            )
         }
 
-    def test_a_range_in_a_local_timezone_counts_whole_weeks_across_a_daylight_saving_change(self) -> None:
-        # US daylight saving time ends on 2026-11-01, between the window and its earlier weeks.
-        start = datetime(2026, 11, 8, 12, 30, tzinfo=ZoneInfo("America/New_York"))
-        start_in_utc = start.astimezone(UTC)
-        self._send(
-            [
-                ("person-1", "$exception", start_in_utc - WEEK + timedelta(minutes=10), {}),
-                ("person-2", "$pageview", start_in_utc - 4 * WEEK + timedelta(minutes=10), {}),
-            ]
-        )
-
-        baseline = error_baseline(self.team, [None], start, start + timedelta(hours=1))
-
-        assert baseline == {None: [BaselineHour(start=start, weeks=(_errors(1, 1), NONE, NONE, _errors(1, 0)))]}
-
     def test_a_group_flag_counts_the_groups_on_the_events_next_to_the_persons(self) -> None:
-        hour_a_week_earlier = START - WEEK + timedelta(minutes=10)
+        hour_a_week_earlier = MIDNIGHT - WEEK + timedelta(minutes=10)
         self._send(
             [
                 ("person-1", "$pageview", hour_a_week_earlier, {"$group_0": "org-a"}),
@@ -94,9 +89,9 @@ class TestErrorBaseline(ClickhouseTestMixin, BaseTest):
             ]
         )
 
-        baseline = error_baseline(self.team, [0, None], START, START + timedelta(hours=1), weeks=1)
+        baseline = error_baseline(self.team, [0, None], DAY, weeks=1)
 
         assert baseline == {
-            0: [BaselineHour(start=START, weeks=(_errors(2, 1),))],
-            None: [BaselineHour(start=START, weeks=(_errors(4, 2),))],
+            0: _day(weeks=1, by_hour={0: (_errors(2, 1),)}),
+            None: _day(weeks=1, by_hour={0: (_errors(4, 2),)}),
         }
