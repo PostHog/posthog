@@ -2959,6 +2959,16 @@ export interface TeamRealtimeCohortsApi {
      * * `off` - Off
      * * `serving` - Serving */
     access: RealtimeCohortsAccessEnumApi
+    /**
+     * How many cohorts in this project have realtime on. Null when `access` is `off`.
+     * @nullable
+     */
+    cohorts_used: number | null
+    /**
+     * How many cohorts in this project the plan allows to have realtime on. Null when `access` is `off`, or when the plan sets no limit.
+     * @nullable
+     */
+    max_cohorts: number | null
 }
 
 export type FlagEvaluationsModeEnumApi = (typeof FlagEvaluationsModeEnumApi)[keyof typeof FlagEvaluationsModeEnumApi]
@@ -3806,6 +3816,8 @@ export interface ProjectBackwardCompatApi {
     readonly realtime_cohorts: TeamRealtimeCohortsApi
     /** Which table this project's feature flag usage data is read from. PostHog sets it for the whole organization. 0 reads the events table. 1 and 2 read the flag_evaluations table. */
     readonly flag_evaluations_mode: FlagEvaluationsModeEnumApi
+    /** Whether this project's events table holds none of its new $feature_flag_called events, so they can only be read from the flag_evaluations table. */
+    readonly flag_calls_only_in_flag_evaluations: boolean
     /** Host the PostHog SDKs send events to, set as their `api_host` option. It is `https://us.i.posthog.com` on US Cloud, `https://eu.i.posthog.com` on EU Cloud, and the instance URL when self-hosted. */
     readonly api_host: string
     revenue_analytics_config?: TeamRevenueAnalyticsConfigApi
@@ -4704,6 +4716,8 @@ export interface PatchedProjectBackwardCompatApi {
     readonly realtime_cohorts?: TeamRealtimeCohortsApi
     /** Which table this project's feature flag usage data is read from. PostHog sets it for the whole organization. 0 reads the events table. 1 and 2 read the flag_evaluations table. */
     readonly flag_evaluations_mode?: FlagEvaluationsModeEnumApi
+    /** Whether this project's events table holds none of its new $feature_flag_called events, so they can only be read from the flag_evaluations table. */
+    readonly flag_calls_only_in_flag_evaluations?: boolean
     /** Host the PostHog SDKs send events to, set as their `api_host` option. It is `https://us.i.posthog.com` on US Cloud, `https://eu.i.posthog.com` on EU Cloud, and the instance URL when self-hosted. */
     readonly api_host?: string
     revenue_analytics_config?: TeamRevenueAnalyticsConfigApi
