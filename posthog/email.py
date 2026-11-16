@@ -400,11 +400,8 @@ def _pin_to_workflows(idempotency_key: str) -> None:
 
 
 def _is_pinned_to_workflows(idempotency_key: str) -> bool:
-    try:
-        return bool(cache.get(f"email_workflows_pin:{idempotency_key}"))
-    except Exception as err:
-        logger.warning("email_workflows_pin_read_failed", error=str(err))
-        return False
+    # A failed read raises, because reading it as unpinned could send an email Workflows queued again over SMTP.
+    return bool(cache.get(f"email_workflows_pin:{idempotency_key}"))
 
 
 def _smtp_email_via_workflows(dest: dict[str, str], campaign_key: str, template_name: str) -> bool:
