@@ -3151,3 +3151,124 @@ class TestFileSystemInsightType(SimpleTestCase):
     )
     def test_insight_type(self, query_kind: str | None, legacy_type: str | None, expected: str) -> None:
         self.assertEqual(get_file_system_insight_type(query_kind, legacy_type), expected)
+
+
+TREE_READ_PATHS: list[tuple[str, str, dict[str, str]]] = [
+    ("list", "", {"limit": "10"}),
+    ("list_in_folder", "", {"parent": "Unfiled", "depth": "2", "limit": "10"}),
+    ("list_search", "", {"search": "Unfiled", "limit": "10"}),
+    ("typed_list", "", {"type": "dashboard", "limit": "10"}),
+    ("typed_list_by_created_at", "", {"type": "dashboard", "order_by": "-created_at", "limit": "10"}),
+    ("typed_list_by_last_viewed", "", {"type": "notebook", "order_by": "-last_viewed_at", "limit": "10"}),
+    ("recents", "", {"order_by": "-last_viewed_at", "limit": "10"}),
+    ("recents_search", "", {"order_by": "-last_viewed_at", "search": "welcome", "limit": "10"}),
+    ("search", "search/", {"search": "welcome"}),
+    ("unfiled", "unfiled/", {}),
+    ("frequent", "frequent/", {}),
+]
+
+
+SMALL_PROJECT = 100
+LARGE_PROJECT = 1000
+LINEAR_GROWTH_LIMIT = 1.5 * LARGE_PROJECT / SMALL_PROJECT
+WORKFLOW_REF = "0f1e2d3c-4b5a-4987-a6b5-c4d3e2f1a0b9"
+
+
+def _files_returned(body: Any) -> int:
+    if isinstance(body, list):
+        return len(body)
+    if "results" in body:
+        return len(body["results"])
+    return body["count"]
+
+
+class TestFileSystemReadsAtScale(APIBaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        self.organization.available_product_features = [
+            {"key": "access_control", "name": "access_control"},
+            {"key": "role_based_access", "name": "role_based_access"},
+        ]
+        self.organization.save()
+        self.items = 0
+        folders = ["Docs", "Docs/Dashboards", "Unfiled", "Unfiled/Insights", "Unfiled/Workflows"]
+        FileSystem.objects.bulk_create(
+            [FileSystem(team=self.team, path=path, depth=path.count("/") + 1, type="folder") for path in folders]
+        )
+        FileSystem.objects.create(
+            team=self.team, path="Unfiled/Workflows/Welcome flow", depth=3, type="hog_flow", ref=WORKFLOW_REF
+        )
+
+    def _grow_project_to(self, items: int) -> None:
+        new_items = range(self.items, items)
+        now = timezone.now()
+        FileSystem.objects.bulk_create(
+            [
+                FileSystem(team=self.team, path=path, depth=path.count("/") + 1, type=file_type, ref=f"{file_type}-{i}")
+                for i in new_items
+                for path, file_type in [
+                    (f"Unfiled/Insights/Welcome insight {i}", "insight"),
+                    (f"Docs/Welcome note {i}", "notebook"),
+                    (f"Docs/Dashboards/Welcome dashboard {i}", "dashboard"),
+                ]
+            ]
+        )
+        FileSystemViewLog.objects.bulk_create(
+            [
+                FileSystemViewLog(
+                    team=self.team,
+                    user=self.user,
+                    type="notebook",
+                    ref=f"notebook-{i}",
+                    viewed_at=now,
+                    view_days=[now.date(), (now - timedelta(days=1)).date()],
+                )
+                for i in new_items
+            ]
+        )
+        Insight.objects.bulk_create(
+            [Insight(team=self.team, name=f"Unfiled insight {i}", created_by=self.user) for i in new_items]
+        )
+        self.items = items
+        with connection.cursor() as cursor:
+            cursor.execute("ANALYZE posthog_filesystem, posthog_filesystemviewlog, posthog_dashboarditem")
+
+    def _tree_rows_read(self, action: str, params: dict[str, str]) -> int:
+        before = self._tree_rows_read_in_this_transaction()
+        response = self.client.get(f"/api/projects/{self.team.id}/file_system/{action}", params)
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+        self.assertGreater(_files_returned(response.json()), 0, f"{action or 'list'} {params} returned no files")
+        return self._tree_rows_read_in_this_transaction() - before
+
+    def _tree_rows_read_in_this_transaction(self) -> int:
+        with connection.cursor() as cursor:
+            cursor.execute(
+                "SELECT seq_tup_read + coalesce(idx_tup_fetch, 0) FROM pg_stat_xact_user_tables"
+                " WHERE relid = 'posthog_filesystem'::regclass"
+            )
+            row = cursor.fetchone()
+        assert row is not None
+        return row[0]
+
+    @parameterized.expand(
+        [
+            (f"{name}_flag_{'on' if flag_enabled else 'off'}", flag_enabled, action, params)
+            for name, action, params in TREE_READ_PATHS
+            for flag_enabled in (False, True)
+        ]
+    )
+    def test_tree_reads_grow_no_faster_than_the_project(
+        self, _name: str, flag_enabled: bool, action: str, params: dict[str, str]
+    ) -> None:
+        with patch("posthoganalytics.feature_enabled", return_value=flag_enabled):
+            self._grow_project_to(SMALL_PROJECT)
+            small = self._tree_rows_read(action, params)
+            self._grow_project_to(LARGE_PROJECT)
+            large = self._tree_rows_read(action, params)
+
+        self.assertLessEqual(
+            large,
+            LINEAR_GROWTH_LIMIT * max(small, 1),
+            f"{action or 'list'} {params} read {small} tree rows with {SMALL_PROJECT} items per type "
+            f"and {large} with {LARGE_PROJECT}, so it scans the tree once per row",
+        )
