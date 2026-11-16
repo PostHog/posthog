@@ -9,6 +9,7 @@ costs the chart and nothing else, because the card is complete without it.
 """
 
 import math
+import time
 import threading
 from collections import OrderedDict
 from datetime import datetime, timedelta
@@ -49,6 +50,13 @@ CHART_TITLE: Final = "Last 60 min"
 # the chart, not the message. Process-local, so no shared store can stall a delivery.
 CHART_READS_PER_PROCESS: Final = 2
 _chart_reads: Final = threading.BoundedSemaphore(CHART_READS_PER_PROCESS)
+# Reads started per second across the fleet. A read is cut off after HISTORY_QUERY_SECONDS, so this
+# also bounds how many run at once, whatever the number of workers.
+CHART_READS_PER_SECOND: Final = 5
+CHART_RATE_KEY: Final = "alerts:platform:metrics:charts:started"
+# Delivery's attempt is 15s, so a Redis that accepts and never answers must not hold it for the
+# default socket timeout.
+CHART_REDIS_SECONDS: Final = 0.5
 # Every group and destination of one evaluation renders from the same range query, so it runs once.
 _RESULT_CACHE_SIZE: Final = 8
 # Twice the most groups a configuration can hold. A range can match far more series than the instant
@@ -104,6 +112,23 @@ def _query_range(team_id: int, query: str, end: datetime) -> list[dict[str, Any]
     return result
 
 
+def _fleet_admits() -> bool:
+    """Whether the fleet has started fewer than its per-second chart reads. False when Redis cannot say."""
+    from posthog import redis  # noqa: PLC0415
+
+    key = f"{CHART_RATE_KEY}:{int(time.time())}"
+    try:
+        client = redis.get_client(socket_timeout=CHART_REDIS_SECONDS, socket_connect_timeout=CHART_REDIS_SECONDS)
+        pipeline = client.pipeline()
+        pipeline.incr(key)
+        pipeline.expire(key, 2)
+        started, _ = pipeline.execute()
+    except Exception:
+        logger.warning("metrics_alert_history_rate_unavailable", exc_info=True)
+        return False
+    return int(started) <= CHART_READS_PER_SECOND
+
+
 def _read_range(team_id: int, query: str, end: datetime) -> list[dict[str, Any]] | None:
     # Imported here because registration runs from ready(), before models and the query layer load.
     from posthog.clickhouse.client.connection import ClickHouseUser  # noqa: PLC0415
@@ -113,6 +138,10 @@ def _read_range(team_id: int, query: str, end: datetime) -> list[dict[str, Any]]
 
     if not _chart_reads.acquire(blocking=False):
         logger.info("metrics_alert_history_skipped_pool_full", team_id=team_id)
+        return None
+    if not _fleet_admits():
+        _chart_reads.release()
+        logger.info("metrics_alert_history_skipped_fleet_rate", team_id=team_id)
         return None
     try:
         team = Team.objects.get(id=team_id)
