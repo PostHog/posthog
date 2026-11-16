@@ -224,7 +224,11 @@ const meta: Meta = {
                 ],
                 '/api/projects/:team_id/canvases/': { results: CANVASES, next: null, count: CANVASES.length },
                 '/api/environments/:team_id/dashboards/': { results: DASHBOARDS, next: null, count: DASHBOARDS.length },
-                '/api/projects/:team_id/dashboards/': { results: DASHBOARDS, next: null, count: DASHBOARDS.length },
+                '/api/projects/:team_id/dashboards/': ({ request }) => {
+                    const pinnedOnly = new URL(request.url).searchParams.get('pinned') === 'true'
+                    const results = pinnedOnly ? DASHBOARDS.filter((dashboard) => dashboard.pinned) : DASHBOARDS
+                    return [200, { results, next: null, count: results.length }]
+                },
                 '/api/projects/:team_id/notebooks/': { results: NOTEBOOKS, next: null, count: NOTEBOOKS.length },
                 '/api/environments/:team_id/insights/': { results: INSIGHTS, next: null, count: INSIGHTS.length },
                 '/api/projects/:team_id/insights/': { results: INSIGHTS, next: null, count: INSIGHTS.length },

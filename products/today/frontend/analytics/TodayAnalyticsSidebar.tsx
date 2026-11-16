@@ -45,7 +45,7 @@ function AnalyticsItemIcon({ type }: { type: AnalyticsType }): JSX.Element {
 export function TodayAnalyticsSidebar(): JSX.Element {
     const { fromPostHog, recentAnalytics, searchQuery, isSectionOpen } = useValues(todayAnalyticsLogic)
     const { toggleSection, setSearchQuery } = useActions(todayAnalyticsLogic)
-    const { pinnedAnalytics, hasAnalyticsItems } = useValues(analyticsPinnedLogic)
+    const { pinnedAnalytics, teamPinnedDashboards, hasAnalyticsItems } = useValues(analyticsPinnedLogic)
     const { showPinHint } = useActions(analyticsPinnedLogic)
     const { shortcutDataLoading } = useValues(sidebarPinsLogic)
     const { movePinned } = useActions(sidebarPinsLogic)
@@ -102,6 +102,23 @@ export function TodayAnalyticsSidebar(): JSX.Element {
                       dataAttr: 'analytics-sidebar-pinned',
                       wrap: (row) => <SidebarRowEnter pinKey={pinned.key}>{row}</SidebarRowEnter>,
                   }
+        ),
+        ...teamPinnedDashboards.map(
+            (dashboard): SidebarNavigationItem => ({
+                value: `pinned:${dashboard.key}`,
+                label: dashboard.name,
+                icon: <AnalyticsItemIcon type="dashboard" />,
+                to: dashboard.href,
+                active: path === removeProjectIdIfPresent(dashboard.href),
+                action: (
+                    <SidebarPinButton
+                        target={{ type: 'dashboard', ref: dashboard.id, name: dashboard.name, href: dashboard.href }}
+                        dataAttr="analytics-sidebar-team-pinned-pin"
+                    />
+                ),
+                // pinned: autocapture data-attr for opens of team-pinned dashboards from the sidebar.
+                dataAttr: 'analytics-sidebar-team-pinned',
+            })
         ),
         recents: recentAnalytics.map((item) => ({
             value: `recent:${item.type}:${item.id}`,
@@ -165,8 +182,14 @@ export function TodayAnalyticsSidebar(): JSX.Element {
             navigation={{
                 lists,
                 reorder: {
-                    pinned: (fromIndex, toIndex) =>
-                        movePinned(pinnedAnalytics[fromIndex].shortcutId, pinnedAnalytics[toIndex].shortcutId),
+                    // Only the person's own pins have an order to change. Team pins sit after them and stay put.
+                    pinned: (fromIndex, toIndex) => {
+                        const from = pinnedAnalytics[fromIndex]
+                        const to = pinnedAnalytics[toIndex]
+                        if (from && to) {
+                            movePinned(from.shortcutId, to.shortcutId)
+                        }
+                    },
                 },
                 resolve: (item) => {
                     const target = resolveSidebarTarget(item.to, item.label, item.icon)

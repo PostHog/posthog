@@ -6,17 +6,30 @@ import { userLogic } from 'scenes/userLogic'
 import { projectTreeDataLogic } from '~/layout/panel-layout/ProjectTree/projectTreeDataLogic'
 import { sidebarPinsLogic } from '~/layout/today/sidebar/sidebarPinsLogic'
 import { useMocks } from '~/mocks/jest'
+import { dashboardsModel } from '~/models/dashboardsModel'
 import { initKeaTests } from '~/test/init'
+import { DashboardType } from '~/types'
 
 import { analyticsPinnedLogic } from './analyticsPinnedLogic'
 
 describe('analyticsPinnedLogic', () => {
     let requests: string[]
+    let teamPinnedDashboards: { id: number; name: string | null; pinned: boolean }[]
 
     beforeEach(() => {
         requests = []
+        teamPinnedDashboards = [
+            { id: 7, name: 'KPIs', pinned: true },
+            { id: 12, name: 'Revenue', pinned: true },
+            { id: 15, name: null, pinned: true },
+        ]
         useMocks({
             get: {
+                '/api/projects/:team_id/dashboards/': ({ request }) => {
+                    const pinnedOnly = new URL(request.url).searchParams.get('pinned') === 'true'
+                    const results = pinnedOnly ? teamPinnedDashboards : []
+                    return { results, count: results.length, next: null }
+                },
                 '/api/projects/:team_id/file_system/': ({ request }) => {
                     const params = new URL(request.url).searchParams
                     const type = params.get('type') ?? params.get('type__startswith')
@@ -112,6 +125,26 @@ describe('analyticsPinnedLogic', () => {
             'folder:Growth',
             'insight:abc123',
         ])
+    })
+
+    it('lists team-pinned dashboards the person has not pinned, and drops one unpinned from the dashboards list', async () => {
+        const logic = analyticsPinnedLogic()
+        logic.mount()
+        await expectLogic(logic).toDispatchActionsInAnyOrder([
+            'loadShortcutsSuccess',
+            'loadTeamPinnedDashboardListSuccess',
+        ])
+
+        expect(logic.values.teamPinnedDashboards).toEqual([
+            { key: 'dashboard:12', id: '12', name: 'Revenue', href: '/dashboard/12' },
+            { key: 'dashboard:15', id: '15', name: 'Untitled', href: '/dashboard/15' },
+        ])
+
+        teamPinnedDashboards = teamPinnedDashboards.filter((dashboard) => dashboard.id !== 12)
+        await expectLogic(logic, () =>
+            dashboardsModel.actions.unpinDashboardSuccess({ id: 12, pinned: false } as DashboardType)
+        ).toDispatchActions(['loadTeamPinnedDashboardListSuccess'])
+        expect(logic.values.teamPinnedDashboards.map((dashboard) => dashboard.key)).toEqual(['dashboard:15'])
     })
 
     it('shows the pin hint until it is closed or something is pinned', async () => {
