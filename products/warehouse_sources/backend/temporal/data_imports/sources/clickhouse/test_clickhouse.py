@@ -17,6 +17,7 @@ from django.conf import settings
 import pyarrow as pa
 import clickhouse_connect
 from clickhouse_connect.driver.exceptions import ClickHouseError, OperationalError, ProgrammingError
+from clickhouse_connect.driver.httpclient import HttpClient
 from parameterized import parameterized
 from sshtunnel import BaseSSHTunnelForwarderError
 
@@ -477,6 +478,16 @@ class TestClickHouseSourceRetryableErrors:
         retryable = source.get_retryable_errors()
         assert any(pattern in error_msg for pattern in retryable)
 
+    def test_arrow_stream_flatbuffer_error_is_classified_as_retryable(self, source):
+        # pyarrow raises `OSError("Invalid flatbuffers message.")` from its own IPC framing when
+        # the connection carrying `query_arrow_stream` drops before the first message's header can
+        # be verified — the same mid-transfer connection drop as "bytes for message body, got",
+        # just caught earlier in the read. Without this it would be reported as tracked exception
+        # noise on every occurrence instead of silently retried.
+        error_msg = "Invalid flatbuffers message."
+        retryable = source.get_retryable_errors()
+        assert any(pattern in error_msg for pattern in retryable)
+
 
 class TestGetClientTransientRetry:
     """`_get_client` retries a transient connection drop during connect in-process."""
@@ -532,6 +543,24 @@ class TestGetClientTransientRetry:
             with pytest.raises(ClickHouseConnectionError, match="did not return a valid ClickHouse response"):
                 self._connect()
         assert mock_get_client.call_count == 1
+        mock_sleep.assert_not_called()
+
+    @parameterized.expand(
+        [
+            ("single_integer_line", b"200\n"),
+            ("empty_body", b""),
+            ("html_page", b"<html><body>It works</body></html>\n"),
+            ("too_many_columns", b"a\tb\tc\n"),
+        ]
+    )
+    def test_wraps_non_clickhouse_probe_body(self, _name, body):
+        response = MagicMock(data=body, headers={})
+        with (
+            patch.object(ch_module.time, "sleep") as mock_sleep,
+            patch.object(HttpClient, "_raw_request", return_value=response),
+        ):
+            with pytest.raises(ClickHouseConnectionError, match="did not return a valid ClickHouse response"):
+                self._connect()
         mock_sleep.assert_not_called()
 
 
@@ -1129,6 +1158,24 @@ class TestGetRowsBatching:
             "label": ["a", None, "c"],
             "location": ["(1.5, 2.5)", "(0.0, 0.0)", "(3.0, 4.0)"],
         }
+
+    def test_treats_empty_arrow_response_as_zero_rows(self):
+        stream_client = MagicMock()
+        stream_client.query_arrow_stream.side_effect = pa.ArrowInvalid(
+            "Tried reading schema message, was null or length 0"
+        )
+
+        yielded = self._run_get_rows([], stream_client=stream_client)
+
+        assert yielded == []
+        stream_client.query_column_block_stream.assert_not_called()
+
+    def test_other_arrow_invalid_errors_are_not_treated_as_zero_rows(self):
+        stream_client = MagicMock()
+        stream_client.query_arrow_stream.side_effect = pa.ArrowInvalid("Invalid IPC stream: unsupported feature")
+
+        with pytest.raises(pa.ArrowInvalid, match="unsupported feature"):
+            self._run_get_rows([], stream_client=stream_client)
 
     def test_other_query_errors_do_not_fall_back_to_native(self):
         stream_client = MagicMock()

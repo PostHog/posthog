@@ -82,6 +82,7 @@ export function scorecardOf(
         ...invariantProperties(result),
         ...measurementProperties(result),
         admissions: result.admissions,
+        bars: result.bars,
         valve_timeline: result.timeline,
         evidence_dir: result.evidenceDir,
     }
