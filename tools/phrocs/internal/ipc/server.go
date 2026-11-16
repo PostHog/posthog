@@ -366,7 +366,9 @@ func dispatch(req request, mgr *process.Manager) any {
 		if !ok {
 			return processNotFound(mgr, req.Process)
 		}
-		if !p.IsRunning() {
+		// A crashed process may sit in autorestart backoff; stopping it
+		// cancels the scheduled restart.
+		if st := p.Status(); st == process.StatusStopped || st == process.StatusDone {
 			return map[string]any{"ok": true, "already": true}
 		}
 		p.Stop()

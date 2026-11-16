@@ -101,3 +101,15 @@ func TestMCPWaitReady_pollsUntilReady(t *testing.T) {
 		t.Errorf("wait_ready after %d polls: %q", calls, text)
 	}
 }
+
+func TestMCPWaitReady_noProcessesReturnsAtOnce(t *testing.T) {
+	stubQuery(t, func(map[string]any, time.Duration) (map[string]any, error) {
+		return map[string]any{"ok": true, "processes": map[string]any{}}, nil
+	})
+
+	text := callMCPTool(t, "wait_ready", map[string]any{"timeout_seconds": 60})
+
+	if text != "No processes are configured, so there is nothing to wait for." {
+		t.Errorf("wait_ready with no processes: %q", text)
+	}
+}

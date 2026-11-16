@@ -76,10 +76,14 @@ type procSummary struct {
 }
 
 func askPhrocs(cmd map[string]any) (map[string]any, error) {
-	resp, err := queryDetached(cmd, mcpQueryTimeout)
+	return askPhrocsWithin(cmd, mcpQueryTimeout)
+}
+
+func askPhrocsWithin(cmd map[string]any, timeout time.Duration) (map[string]any, error) {
+	resp, err := queryDetached(cmd, timeout)
 	if err != nil {
 		if isTimeout(err) {
-			return nil, fmt.Errorf("phrocs did not answer within %s", mcpQueryTimeout)
+			return nil, fmt.Errorf("phrocs did not answer within %s", timeout.Round(time.Millisecond))
 		}
 		return nil, errors.New("phrocs is not running. Start the dev environment with: ./bin/start")
 	}
@@ -269,15 +273,15 @@ func summaryText(sums []procSummary) string {
 	return strings.Join(lines, "\n")
 }
 
-func fetchSnapshots(process string, withMetrics bool) (map[string]any, error) {
+func fetchSnapshots(process string, withMetrics bool, timeout time.Duration) (map[string]any, error) {
 	if process != "" {
-		resp, err := askPhrocs(map[string]any{"cmd": "status", "process": process, "no_metrics": !withMetrics})
+		resp, err := askPhrocsWithin(map[string]any{"cmd": "status", "process": process, "no_metrics": !withMetrics}, timeout)
 		if err != nil {
 			return nil, err
 		}
 		return map[string]any{process: resp}, nil
 	}
-	resp, err := askPhrocs(map[string]any{"cmd": "status_all", "no_metrics": !withMetrics})
+	resp, err := askPhrocsWithin(map[string]any{"cmd": "status_all", "no_metrics": !withMetrics}, timeout)
 	if err != nil {
 		return nil, err
 	}
@@ -299,7 +303,7 @@ func getProcessStatus(_ context.Context, _ *mcp.CallToolRequest, in statusInput)
 		return nil, nil, fmt.Errorf("detail must be summary or full, got %q", in.Detail)
 	}
 	full := in.Detail == "full"
-	snaps, err := fetchSnapshots(in.Process, full)
+	snaps, err := fetchSnapshots(in.Process, full, mcpQueryTimeout)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -361,9 +365,14 @@ func waitReady(ctx context.Context, _ *mcp.CallToolRequest, in waitInput) (*mcp.
 	deadline := start.Add(time.Duration(timeout) * time.Second)
 
 	for {
-		snaps, err := fetchSnapshots(in.Process, false)
+		// Bound each request by the wait deadline so a stalled phrocs still
+		// yields the timeout verdict on time.
+		snaps, err := fetchSnapshots(in.Process, false, max(time.Until(deadline), time.Second))
 		if err != nil {
 			return nil, nil, err
+		}
+		if len(snaps) == 0 {
+			return textResult("No processes are configured, so there is nothing to wait for."), nil, nil
 		}
 		if snap := decodeSnapshot(snaps[in.Process]); in.Process != "" && snap.Status == "stopped" {
 			return textResult(fmt.Sprintf("%s is stopped. Start it with start_process first.", in.Process)), nil, nil
@@ -430,7 +439,6 @@ func newMCPServer() *mcp.Server {
 			"Start with get_process_status; it lists failed processes first with their last output line."},
 	)
 	closedWorld := false
-	notDestructive := false
 	readOnly := &mcp.ToolAnnotations{ReadOnlyHint: true, OpenWorldHint: &closedWorld}
 
 	mcp.AddTool(server, &mcp.Tool{
@@ -454,11 +462,13 @@ func newMCPServer() *mcp.Server {
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "start_process",
 		Description: "Start a process that is stopped, crashed or done. Does nothing if it is already running.",
-		Annotations: &mcp.ToolAnnotations{DestructiveHint: &notDestructive, IdempotentHint: true, OpenWorldHint: &closedWorld},
+		// Some configured processes are one-shot tasks such as a database
+		// reset, so starting one is neither safe nor free to repeat.
+		Annotations: &mcp.ToolAnnotations{OpenWorldHint: &closedWorld},
 	}, startProcess)
 	mcp.AddTool(server, &mcp.Tool{
 		Name:        "stop_process",
-		Description: "Stop a running process and wait for it to exit. Does nothing if it is not running.",
+		Description: "Stop a process and wait for it to exit. Also cancels a pending autorestart of a crashed process.",
 		Annotations: &mcp.ToolAnnotations{IdempotentHint: true, OpenWorldHint: &closedWorld},
 	}, stopProcess)
 	mcp.AddTool(server, &mcp.Tool{
