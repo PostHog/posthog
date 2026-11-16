@@ -84,12 +84,8 @@ def _screen(application_id: str) -> StageResult:
     review = _pending_review(application_id)
     if review is None:
         return _ALREADY_SETTLED
-    if domain_already_accepted(
-        review.domain,
-        organization_id=review.application.organization_id,
-        excluding_application_id=application_id,
-    ):
-        reason = f"Another client on {review.domain} from the same organization was accepted"
+    if domain_already_accepted(review.domain, excluding_application_id=application_id):
+        reason = f"Another client on {review.domain} was accepted"
         append_run_log(application_id, "screen", reason)
         return StageResult(
             outcome=ReviewOutcome.ACCEPT, stage=ProvisioningReviewStage.DOMAIN_ALREADY_ACCEPTED, reason=reason

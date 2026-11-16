@@ -19,7 +19,6 @@ from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 from posthog.api.oauth.provisioning_review import settle_review
 from posthog.egress.firecrawl import FirecrawlNotConfigured, FirecrawlScrape, FirecrawlScrapeFailed, FirecrawlSearch
 from posthog.llm.system_one import NoulAnswer, RefusalAnswer, SystemOneResult
-from posthog.models import Organization
 from posthog.models.oauth import OAuthAccessToken, OAuthApplication
 from posthog.models.oauth_provisioning import ProvisioningConfig
 from posthog.models.oauth_provisioning_review import (
@@ -28,6 +27,7 @@ from posthog.models.oauth_provisioning_review import (
     ProvisioningReviewStatus,
 )
 from posthog.temporal.cimd_provisioning_review.activities import _research, _screen
+from posthog.temporal.cimd_provisioning_review.benchmark import JudgedCase, load_cases, sweep
 from posthog.temporal.cimd_provisioning_review.judgment import (
     SCREEN_THRESHOLDS,
     PartnerJudgment,
@@ -97,6 +97,27 @@ class TestHomepageUrl(SimpleTestCase):
         assert _registration(client_uri).homepage_url() == expected
 
 
+class TestBenchmarkSweep(SimpleTestCase):
+    def test_best_thresholds_settle_the_most_cases_without_a_wrong_verdict(self):
+        cases = {case.name: case for case in load_cases()}
+        judged = [
+            JudgedCase(case=cases["lovable"], judgment=PartnerJudgment(model="jev", legitimate=0.97, malicious=0.01)),
+            JudgedCase(case=cases["replit"], judgment=PartnerJudgment(model="jev", legitimate=0.88, malicious=0.03)),
+            # A lookalike that looks real enough to pass a loose accept bar.
+            JudgedCase(
+                case=cases["stripe-lookalike"], judgment=PartnerJudgment(model="jev", legitimate=0.82, malicious=0.08)
+            ),
+            JudgedCase(
+                case=cases["random-string-domain"], judgment=PartnerJudgment(model="jev", legitimate=0.1, malicious=0.9)
+            ),
+        ]
+
+        best = sweep(judged, unsettled=ReviewOutcome.RESEARCH)[0]
+
+        assert best.safe
+        assert (best.accepted, best.rejected, best.escalated) == (2, 1, 1)
+
+
 def _search(query: str, **_: object) -> FirecrawlSearch:
     return FirecrawlSearch(query=query, results=())
 
@@ -151,12 +172,7 @@ class TestResearchDomain(SimpleTestCase):
             research_domain("example.com", homepage_url="https://example.com/")
 
 
-def _make_app(
-    client_id: str = "https://app.example.com/client.json",
-    *,
-    organization: Organization | None = None,
-    **provisioning: bool,
-) -> OAuthApplication:
+def _make_app(client_id: str = "https://app.example.com/client.json", **provisioning: bool) -> OAuthApplication:
     return OAuthApplication.objects.create(
         name="Example",
         client_id=client_id,
@@ -167,7 +183,6 @@ def _make_app(
         redirect_uris="https://app.example.com/callback",
         algorithm="RS256",
         is_provisioning_partner=True,
-        organization=organization,
         _provisioning_config=ProvisioningConfig(
             can_create_accounts=True, can_provision_resources=True, **provisioning
         ).model_dump(mode="json"),
@@ -240,31 +255,21 @@ class TestReviewStages(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("same_organization", "same", "example.com", False, True),
-            # A shared host serves documents that different tenants control, so the domain alone proves nothing.
-            ("different_organization", "other", "example.com", False, False),
-            ("unattested", None, "example.com", False, False),
+            ("same_domain", "example.com", False, True),
             # Blocking the accepted partner withdraws its vouching for the domain.
-            ("accepted_partner_disabled", "same", "example.com", True, False),
+            ("accepted_partner_disabled", "example.com", True, False),
             # IP hosts have no registrable domain, and one accepted IP client must not vouch for the rest.
-            ("no_registrable_domain", "same", "", False, False),
+            ("no_registrable_domain", "", False, False),
+            # PostHog serves customer-controlled documents under its own domain.
+            ("posthog_domain", "posthog.com", False, False),
         ]
     )
-    def test_screen_reuses_an_accepted_domain_only_for_the_same_owner(
-        self, _name, second_organization, domain, accepted_disabled, expected_shortcut
-    ):
-        other_organization = Organization.objects.create(name="Other")
-        accepted = _make_app(
-            client_id="https://app.example.com/client.json",
-            organization=self.organization,
-            active=True,
-            disabled=accepted_disabled,
-        )
+    def test_screen_reuses_an_accepted_domain(self, _name, domain, accepted_disabled, expected_shortcut):
+        accepted = _make_app(client_id="https://app.example.com/client.json", active=True, disabled=accepted_disabled)
         CIMDProvisioningReview.objects.create(
             application=accepted, domain=domain, status=ProvisioningReviewStatus.ACCEPTED
         )
-        organization = {"same": self.organization, "other": other_organization, None: None}[second_organization]
-        second = _make_app(client_id="https://staging.example.com/client.json", organization=organization)
+        second = _make_app(client_id="https://staging.example.com/client.json")
         CIMDProvisioningReview.objects.create(application=second, domain=domain)
         jev = _FakeSystemOne(legitimate=0.6, malicious=0.3)
 

@@ -10,7 +10,6 @@ import asyncio
 from collections.abc import Mapping
 from typing import Any
 from urllib.parse import urlencode
-from uuid import UUID
 
 from django.conf import settings
 from django.core.cache import cache
@@ -149,21 +148,20 @@ def ensure_review_running(app: OAuthApplication) -> CIMDProvisioningReview | Non
     return review
 
 
-def domain_already_accepted(domain: str, *, organization_id: UUID | None, excluding_application_id: str) -> bool:
-    """Whether the same owner already passed a review for another client on this domain.
+# PostHog serves documents that its own customers control under paths on these domains, such as
+# webhook responses, so one tenant's accepted client must not vouch for another tenant's.
+SHARED_POSTHOG_DOMAINS = frozenset({"posthog.com"})
 
-    A registrable domain alone does not prove one owner: a shared host serves documents that
-    different tenants control under its paths. So the earlier client must be attested to the same
-    PostHog organization, and still be an active partner. An IP host has no registrable domain, so
-    an empty domain never matches.
-    """
-    if not domain or organization_id is None:
+
+def domain_already_accepted(domain: str, *, excluding_application_id: str) -> bool:
+    """Whether another client on this registrable domain already passed a review and is still an
+    active partner. An IP host has no registrable domain, so an empty domain never matches."""
+    if not domain or domain in SHARED_POSTHOG_DOMAINS:
         return False
     return (
         CIMDProvisioningReview.objects.filter(
             domain=domain,
             status=ProvisioningReviewStatus.ACCEPTED,
-            application__organization_id=organization_id,
             application__is_provisioning_partner=True,
             application___provisioning_config__active=True,
         )
