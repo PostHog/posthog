@@ -144,7 +144,7 @@ def render_shared_insight_image(sharing_configuration: SharingConfiguration) -> 
 
 
 def unsubscribe(token: str) -> None:
-    """Remove the email in an unsubscribe token from its subscription. Raises jwt.DecodeError for a bad token."""
+    """Remove the email in an unsubscribe token from its subscription. Raises jwt.InvalidTokenError for a bad or expired token, and Subscription.DoesNotExist when its subscription is gone."""
     unsubscribe_using_token(token)
 
 
