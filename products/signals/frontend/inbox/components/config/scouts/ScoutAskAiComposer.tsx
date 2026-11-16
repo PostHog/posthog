@@ -4,8 +4,6 @@ import { useRef, useState } from 'react'
 import { IconSparkles } from '@posthog/icons'
 import { LemonButton, LemonInput } from '@posthog/lemon-ui'
 
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
-
 import { captureScoutAction } from '../../../inboxAnalytics'
 import { SCOUT_AI_STARTER_QUESTIONS, scoutAiLogic } from '../../../logics/scoutAiLogic'
 
@@ -18,8 +16,7 @@ export function ScoutAskAiComposer({
     scoutId: string
     skillName: string
     scoutName: string
-}): JSX.Element | null {
-    const hasPostHogAiAccess = useFeatureFlag('PHAI_SANDBOX_MODE')
+}): JSX.Element {
     const { isAsking, aiConsentDisabledReason } = useValues(scoutAiLogic)
     const { askScout } = useActions(scoutAiLogic)
     const [draft, setDraft] = useState('')
@@ -43,10 +40,6 @@ export function ScoutAskAiComposer({
         askScout({ scoutId, skillName, scoutName }, draft)
         setDraft('')
         setStarterId(null)
-    }
-
-    if (!hasPostHogAiAccess) {
-        return null
     }
 
     return (
