@@ -3187,6 +3187,23 @@ class TestToolbarAccessControl(APIBaseTest):
         if expected_status == status.HTTP_200_OK:
             self.assertEqual(response.json()["entitlements"]["toolbar_heatmaps"], True)
 
+    @parameterized.expand([("requested_team", status.HTTP_200_OK), ("current_team", status.HTTP_403_FORBIDDEN)])
+    @override_settings(IS_BEHIND_PROXY=False, TRUST_ALL_PROXIES=False)
+    def test_get_toolbar_entitlements_checks_ip_restrictions_of_the_answered_organization(
+        self, target: str, expected_status: int
+    ) -> None:
+        OrganizationIPRestrictions.objects.create(
+            organization=self.organization, ip_restrictions=["203.0.113.0/24"], enabled=True
+        )
+        other_organization = Organization.objects.create(name="Other")
+        other_team = Team.objects.create(organization=other_organization, name="Other")
+        OrganizationMembership.objects.create(user=self.user, organization=other_organization)
+        query = f"?team_id={other_team.pk}" if target == "requested_team" else ""
+
+        response = self.client.get(f"/api/user/toolbar_entitlements/{query}", REMOTE_ADDR="198.51.100.7")
+
+        self.assertEqual(response.status_code, expected_status)
+
     def test_get_toolbar_entitlements_denied_for_a_restricted_project(self) -> None:
         self.organization.available_product_features = [
             {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL}

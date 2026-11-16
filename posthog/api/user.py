@@ -2177,6 +2177,8 @@ class ToolbarEntitlementsView(APIView):
     authentication_classes = [SessionAuthentication]
     permission_classes = [IsAuthenticated]
     include_in_api_docs = True
+    # The team comes from ?team_id=, so the middleware's check of the current organization would judge the wrong one.
+    _ip_restrictions_use_view_scope = True
 
     @extend_schema(
         extensions={"x-product": "core"},
@@ -2201,10 +2203,10 @@ class ToolbarEntitlementsView(APIView):
         if not _user_can_access_toolbar(user, team):
             return JsonResponse({"error": "Unauthorized"}, status=403)
 
+        enforce_ip_restrictions(request, user, organization_id=str(team.organization_id))
         if team_id is not None:
-            # The middleware admitted the request for the user's current organization, which the requested team's
+            # Session authentication checked the current organization's verified domains, which the requested team's
             # organization may not be.
-            enforce_ip_restrictions(request, user, organization_id=str(team.organization_id))
             VerifiedDomainEnforcementPermission()._admits(request, team.organization)
 
         return JsonResponse({"entitlements": _toolbar_entitlements(team.organization)})
