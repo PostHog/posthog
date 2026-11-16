@@ -935,12 +935,6 @@ jobs:
                   OPENSSL_NO_VENDOR: '1'
               run: cargo clippy --all-targets --all-features -- -D warnings
 
-            - name: Run cargo check
-              env:
-                  # Use system OpenSSL instead of vendored to avoid assembly build issue (2026-01-13)
-                  OPENSSL_NO_VENDOR: '1'
-              run: cargo check --all-features
-
             - name: Restore cargo-binstall archive
               id: binstall-cache
               continue-on-error: true
