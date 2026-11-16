@@ -11,6 +11,8 @@ class IdentityProviderEmailVerification(UUIDModel):
     a different IdP, and needs its own proof.
     """
 
+    objects: models.Manager["IdentityProviderEmailVerification"]
+
     user = models.ForeignKey(
         "User",
         on_delete=models.CASCADE,
@@ -35,4 +37,4 @@ class IdentityProviderEmailVerification(UUIDModel):
         ]
 
     def __str__(self) -> str:
-        return f"{self.issuer} for user {self.user_id}"
+        return self.issuer
