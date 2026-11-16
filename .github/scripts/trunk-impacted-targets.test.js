@@ -1993,10 +1993,21 @@ test('a warehouse source vendor claims only the vendor lane, which every vendor 
             ].join('\n')
         )
         // Every vendor test collects the root and products/ conftest files too.
-        write('conftest.py', 'from posthog.test.junit import set_junit_report_location\n')
+        // The second import names a module, not a symbol, inside a function.
+        write(
+            'conftest.py',
+            [
+                'from posthog.test.junit import set_junit_report_location',
+                'def pytest_configure(config):',
+                '    from posthog.test import authentication_checks  # noqa: PLC0415',
+                '',
+            ].join('\n')
+        )
         write('products/conftest.py', 'from posthog.conftest import *  # noqa: F403\n')
         write(sdkImport, '')
         write('posthog/conftest.py', '')
+        write('posthog/test/__init__.py', '')
+        write('posthog/test/authentication_checks.py', '')
         write('posthog/test/junit.py', '')
         write('posthog/security/url_validation.py', '')
         write('products/warehouse_sources/backend/facade/api.py', '')
@@ -2004,6 +2015,8 @@ test('a warehouse source vendor claims only the vendor lane, which every vendor 
             'posthog/conftest.py',
             sdkImport,
             'posthog/security/url_validation.py',
+            'posthog/test/__init__.py',
+            'posthog/test/authentication_checks.py',
             'posthog/test/junit.py',
         ])
     } finally {
