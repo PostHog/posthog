@@ -3,7 +3,7 @@
 import datetime as dt
 from collections.abc import Callable, Iterator
 from functools import partial
-from time import monotonic, sleep
+from time import sleep
 from typing import Any, Literal, cast
 from uuid import UUID, uuid5
 
@@ -12,14 +12,11 @@ from django.core import exceptions
 from django.db import transaction
 
 from posthog.clickhouse.client import sync_execute
-from posthog.clickhouse.events_json import DISTRIBUTED_EVENTS_JSON_TABLE
-from posthog.clickhouse.workload import Workload
 from posthog.dataclasses import frozen
 from posthog.kafka_client.routing import get_producer
 from posthog.kafka_client.topics import KAFKA_EVENTS_JSON
 from posthog.models import Organization, OrganizationMembership, Team, User
-from posthog.models.deletion_targets import table_exists_via_sync_execute
-from posthog.models.event.sql import COPY_EVENTS_JSON_BETWEEN_TEAMS
+from posthog.models.instance_setting import get_instance_setting
 from posthog.models.utils import UUIDT, generate_random_token_project
 
 from products.cohorts.backend.models.cohort import Cohort
@@ -36,8 +33,6 @@ from .models import EVENT_IDENTIFY, SimEvent, SimPerson
 
 # Each flush waits at most 1 second, so one event waits at most about this many seconds for queue room.
 QUEUE_FULL_MAX_FLUSHES = 60
-
-NATIVE_SOURCE_WAIT_SECONDS = 300
 
 # Demo events go straight to ClickHouse and skip Node ingestion, so this module makes the
 # $experiment_exposure copies itself. Keep these values and the copy rule in sync with
@@ -101,6 +96,7 @@ class MatrixManager:
     _persons_created: int
     _person_distinct_ids_created: int
     _events_created: int
+    _native_events_created: int
     _groups_created: int
 
     def __init__(self, matrix: Matrix, *, use_pre_save: bool = False, print_steps: bool = False):
@@ -110,6 +106,7 @@ class MatrixManager:
         self._persons_created = 0
         self._person_distinct_ids_created = 0
         self._events_created = 0
+        self._native_events_created = 0
         self._groups_created = 0
 
     def ensure_account_and_save(
@@ -201,44 +198,6 @@ class MatrixManager:
             **kwargs,
         )
         return team
-
-    @staticmethod
-    def copy_native_events(source_team_id: int, target_team_id: int) -> None:
-        native_events_table_exists = table_exists_via_sync_execute(DISTRIBUTED_EVENTS_JSON_TABLE)
-        if not native_events_table_exists:
-            return
-        copy_params = {"source_team_id": source_team_id, "target_team_id": target_team_id}
-        # Cloud ingestion stores $feature_flag_called outside the native table, so the source is complete without it.
-        [[expected_count]] = sync_execute(
-            "SELECT count() FROM events WHERE team_id = %(source_team_id)s AND event != '$feature_flag_called'",
-            copy_params,
-            workload=Workload.OFFLINE,
-        )
-        deadline = monotonic() + NATIVE_SOURCE_WAIT_SECONDS
-        while True:
-            [[native_count]] = sync_execute(
-                "SELECT count() FROM events_json WHERE team_id = %(source_team_id)s AND event != '$feature_flag_called'",
-                copy_params,
-                workload=Workload.OFFLINE,
-            )
-            if native_count >= expected_count:
-                break
-            if monotonic() >= deadline:
-                raise TimeoutError(f"Native demo source {source_team_id} has {native_count}/{expected_count} events")
-            sleep(0.5)
-        sync_execute(COPY_EVENTS_JSON_BETWEEN_TEAMS, copy_params, workload=Workload.OFFLINE)
-
-    @staticmethod
-    def _schedule_native_events_copy(source_team_id: int, target_team_id: int) -> None:
-        from posthog.tasks.demo_create_data import (  # noqa: PLC0415 — posthog.tasks imports every Celery task module
-            copy_native_events_for_demo_team,
-        )
-
-        def enqueue() -> None:
-            copy_native_events_for_demo_team.apply_async(args=(source_team_id, target_team_id), retry=False)
-
-        # A failed publish must not fail demo creation, so on_commit logs the error instead of raising it.
-        transaction.on_commit(enqueue, robust=True)
 
     def run_on_team(self, team: Team, user: User):
         does_clickhouse_data_need_saving = True
@@ -341,7 +300,7 @@ class MatrixManager:
         delete_group_type_mappings(cls.MASTER_TEAM_ID)
 
     def _copy_analytics_data_from_master_team(self, target_team: Team):
-        from posthog.models.event.sql import COPY_EVENTS_BETWEEN_TEAMS
+        from posthog.models.event.sql import COPY_EVENTS_BETWEEN_TEAMS, COPY_EVENTS_JSON_BETWEEN_TEAMS
         from posthog.models.group.sql import COPY_GROUPS_BETWEEN_TEAMS
         from posthog.models.person.sql import COPY_PERSON_DISTINCT_ID2S_BETWEEN_TEAMS, COPY_PERSONS_BETWEEN_TEAMS
 
@@ -355,9 +314,11 @@ class MatrixManager:
         sync_execute(COPY_PERSONS_BETWEEN_TEAMS, copy_params)
         sync_execute(COPY_PERSON_DISTINCT_ID2S_BETWEEN_TEAMS, copy_params)
         sync_execute(COPY_EVENTS_BETWEEN_TEAMS, copy_params)
+        copy_native_events = get_instance_setting("DEMO_DATA_COPY_NATIVE_EVENTS")
+        if copy_native_events:
+            sync_execute(COPY_EVENTS_JSON_BETWEEN_TEAMS, copy_params)
         sync_execute(COPY_GROUPS_BETWEEN_TEAMS, copy_params)
         copy_group_type_mappings(self.MASTER_TEAM_ID, target_team.id, target_team.project_id)
-        self._schedule_native_events_copy(self.MASTER_TEAM_ID, target_team.pk)
 
     @classmethod
     def _sync_postgres_with_clickhouse_data(cls, source_team_id: int, target_team_id: int):
@@ -426,6 +387,9 @@ class MatrixManager:
                 )
             )
             self._events_created += 1
+            # Cloud ingestion keeps $feature_flag_called out of the native events table.
+            if to_save.name != EVENT_FEATURE_FLAG_CALLED:
+                self._native_events_created += 1
 
     @staticmethod
     def _save_sim_group(
@@ -442,6 +406,8 @@ class MatrixManager:
     def _wait_for_analytics_data(self, team_id: int) -> None:
         from posthog.models.person.sql import GET_PERSON_COUNT_FOR_TEAM, GET_PERSON_DISTINCT_ID2_COUNT_FOR_TEAM
 
+        wait_for_native_events = get_instance_setting("DEMO_DATA_COPY_NATIVE_EVENTS")
+        native_event_count = 0
         MAX_WAIT_ITERATIONS = 600
         for i in range(MAX_WAIT_ITERATIONS):
             person_count: int = sync_execute(GET_PERSON_COUNT_FOR_TEAM, {"team_id": team_id})[0][0]
@@ -454,6 +420,12 @@ class MatrixManager:
                 "SELECT count() FROM events WHERE team_id = %(team_id)s", {"team_id": team_id}
             )
             events_ready = event_count >= self._events_created
+            if wait_for_native_events:
+                [[native_event_count]] = sync_execute(
+                    "SELECT count() FROM events_json WHERE team_id = %(team_id)s AND event != %(excluded_event)s",
+                    {"team_id": team_id, "excluded_event": EVENT_FEATURE_FLAG_CALLED},
+                )
+                events_ready = events_ready and native_event_count >= self._native_events_created
             [[group_count]] = sync_execute(
                 "SELECT count() FROM groups WHERE team_id = %(team_id)s", {"team_id": team_id}
             )
@@ -461,7 +433,9 @@ class MatrixManager:
             persons_progress = f"{'✔' if persons_ready else '✘'} {person_count}/{self._persons_created}"
             person_distinct_ids_progress = f"{'✔' if person_distinct_ids_ready else '✘'} {person_distinct_id_count}/{self._person_distinct_ids_created}"
             event_progress = (
-                f"Events: {event_count}/{self._events_created}. Groups: {group_count}/{self._groups_created}"
+                f"Events: {event_count}/{self._events_created}. "
+                f"Native events: {native_event_count}/{self._native_events_created}. "
+                f"Groups: {group_count}/{self._groups_created}"
             )
             if persons_ready and person_distinct_ids_ready and events_ready and groups_ready:
                 if self.print_steps:

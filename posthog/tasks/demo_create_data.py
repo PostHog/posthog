@@ -7,16 +7,6 @@ from posthog.models.user import User
 from posthog.scoping_audit import skip_team_scope_audit
 
 
-@shared_task(ignore_result=True, soft_time_limit=600, time_limit=660)
-@skip_team_scope_audit
-def copy_native_events_for_demo_team(source_team_id: int, target_team_id: int) -> None:
-    from products.demo.backend.facade.api import (  # noqa: PLC0415 — keeps mimesis off the startup import path
-        MatrixManager,
-    )
-
-    MatrixManager.copy_native_events(source_team_id, target_team_id)
-
-
 @shared_task(ignore_result=True)
 @skip_team_scope_audit
 def create_data_for_demo_team(team_id: int, user_id: int, cache_key: str) -> None:

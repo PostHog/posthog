@@ -18,10 +18,9 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.clickhouse.client import sync_execute
 from posthog.kafka_client.topics import KAFKA_EVENTS_JSON
 from posthog.models import OrganizationMembership
-from posthog.tasks.demo_create_data import copy_native_events_for_demo_team
+from posthog.models.instance_setting import override_instance_config
 
 from products.demo.backend.logic.matrix.manager import (
-    NATIVE_SOURCE_WAIT_SECONDS,
     QUEUE_FULL_MAX_FLUSHES,
     MatrixManager,
     _EventToSave,
@@ -156,46 +155,12 @@ class TestMatrixManager(ClickhouseDestroyTablesMixin):
             >= 3
         )
 
-    @parameterized.expand(["copied", "enqueue_failed", "ingestion_delayed"])
-    def test_run_on_team_using_pre_save(self, native_result: str) -> None:
+    @parameterized.expand([("both_tables", True), ("legacy_table_only", False)])
+    def test_run_on_team_using_pre_save(self, _name: str, copy_native_events: bool) -> None:
         manager = MatrixManager(self.matrix, use_pre_save=True)
-        ingestion_delayed = native_result == "ingestion_delayed"
 
-        def execute_with_delayed_native_ingestion(query: str, *args: object, **kwargs: object) -> object:
-            if ingestion_delayed and "FROM events_json" in query:
-                return [(0,)]
-            return sync_execute(query, *args, **kwargs)
-
-        with (
-            patch(
-                "products.demo.backend.logic.matrix.manager.sync_execute",
-                side_effect=execute_with_delayed_native_ingestion,
-            ),
-            patch(
-                "products.demo.backend.logic.matrix.manager.NATIVE_SOURCE_WAIT_SECONDS",
-                0 if ingestion_delayed else NATIVE_SOURCE_WAIT_SECONDS,
-            ),
-            patch.object(
-                copy_native_events_for_demo_team, "apply_async", wraps=copy_native_events_for_demo_team.apply_async
-            ) as enqueue,
-            self.captureOnCommitCallbacks(execute=True),
-        ):
-            if native_result == "enqueue_failed":
-                enqueue.side_effect = ConnectionError("Task queue unavailable")
+        with override_instance_config("DEMO_DATA_COPY_NATIVE_EVENTS", copy_native_events):
             manager.run_on_team(self.team, self.user)
-            assert self.team.name == DummyMatrix.PRODUCT_NAME
-            copied = execute_hogql_query(
-                "SELECT count() FROM events WHERE properties.foo = 'bar'",
-                team=self.team,
-                modifiers=HogQLQueryModifiers(useNewEventsSchema=False),
-            )
-            assert copied.results[0][0] >= 3
-            assert (
-                sync_execute("SELECT count() FROM events_json WHERE team_id = %(team_id)s", {"team_id": self.team.pk})[
-                    0
-                ][0]
-                == 0
-            )
 
         for read_table, rows_the_copy_waits_for in (
             ("events", "1"),
@@ -213,17 +178,17 @@ class TestMatrixManager(ClickhouseDestroyTablesMixin):
             )
             source = [row for team_id, row in rows if team_id == 0]
             target = [row for team_id, row in rows if team_id == self.team.pk]
-            if read_table == "events_json" and native_result != "copied":
+            if read_table == "events_json" and not copy_native_events:
                 assert target == []
             else:
                 assert source
                 assert target == source
 
-        if native_result == "copied":
+        for use_new_events_schema in {False, copy_native_events}:
             copied = execute_hogql_query(
                 "SELECT count() FROM events WHERE properties.foo = 'bar'",
                 team=self.team,
-                modifiers=HogQLQueryModifiers(useNewEventsSchema=True),
+                modifiers=HogQLQueryModifiers(useNewEventsSchema=use_new_events_schema),
             )
             assert copied.results[0][0] >= 3
 
