@@ -310,6 +310,13 @@ class ExternalDataSchema(  # nosemgrep: semgrep.rules.security.prefer-uuid7-djan
     source = models.ForeignKey("warehouse_sources.ExternalDataSource", related_name="schemas", on_delete=models.CASCADE)
     table = models.ForeignKey("warehouse_sources.DataWarehouseTable", on_delete=models.SET_NULL, null=True, blank=True)
     should_sync = models.BooleanField(default=True)
+    # db_default because pods on the previous release insert rows without this column while a deploy runs.
+    live_query_enabled = models.BooleanField(
+        default=False,
+        db_default=False,
+        help_text="Whether this table is queryable live on a synced source with live queries on, without syncing it. "
+        "Synced tables are always queryable live.",
+    )
     auto_disabled_at = models.DateTimeField(
         null=True,
         blank=True,
@@ -1519,6 +1526,8 @@ class ExternalDataSchema(  # nosemgrep: semgrep.rules.security.prefer-uuid7-djan
         )
 
     def soft_delete(self):
+        # Discovery revives a deleted row when the table comes back, which must not bring back live queries.
+        self.live_query_enabled = False
         self.deleted = True
         self.deleted_at = timezone.now()
         self.save()
@@ -1542,6 +1551,8 @@ class ExternalDataSchema(  # nosemgrep: semgrep.rules.security.prefer-uuid7-djan
                 self.table.soft_delete()
 
             self.table_id = None
+            # The table's access rules go with it, so its source's rules must not take over for a live query.
+            self.live_query_enabled = False
             self.last_synced_at = None
             self.status = None
             self.save()
@@ -1940,6 +1951,10 @@ def update_should_sync(
         schema.save()
 
     if not schema.source.supports_scheduled_sync:
+        # A direct query source gets no import schedule, but some older ones still carry one. A disable
+        # must pause it, or the schedule keeps running imports for a schema that is turned off.
+        if should_sync is False and external_data_workflow_exists(schema_id):
+            pause_external_data_schedule(schema_id)
         return schema
 
     schedule_exists = external_data_workflow_exists(schema_id)
@@ -2690,6 +2705,10 @@ def sync_old_schemas_with_new_schemas(
         for s in schemas_to_check:
             if is_pinned_schema(s):
                 continue
+            if s.live_query_enabled:
+                # A table recreated upstream under the same name must not become queryable live without a new choice.
+                s.live_query_enabled = False
+                s.save(update_fields=["live_query_enabled", "updated_at"])
             # Only rows nobody enabled disappear entirely. A user-enabled row survives as visibly
             # disabled, because soft-deleting it would silently discard the user's selection (e.g.
             # a scope-gated table the source stopped offering before its first successful sync).

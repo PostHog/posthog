@@ -6,8 +6,9 @@ import type { Provenance } from './provenance'
 
 export const SCHEMA_VERSION = 1
 export const TARGET = 'local'
+export const ADAPTERS: readonly string[] = ['workflows']
 
-type Property = string | number | boolean | null | string[] | unknown[]
+type Property = string | number | boolean | null | readonly string[] | unknown[]
 
 export type ScorecardProperties = { run_id: string; ended_at: string } & Record<string, Property>
 
@@ -24,6 +25,22 @@ function invariantProperties(result: RunVerdict): Record<string, Property> {
     ])
 }
 
+function measurementProperties(result: RunVerdict): Record<string, Property> {
+    return Object.fromEntries(
+        result.measurements.flatMap(({ name, key, value, incomplete, censored }) => {
+            const property = ['m', name, key]
+                .filter((part) => part !== undefined)
+                .join('_')
+                .replace(/-/g, '_')
+            return [
+                [property, value],
+                ...(incomplete ? [[`${property}_incomplete`, true]] : []),
+                ...(censored ? [[`${property}_censored`, true]] : []),
+            ]
+        })
+    )
+}
+
 export function scorecardOf(
     result: RunVerdict,
     { card, profile }: LoadedCard,
@@ -38,6 +55,8 @@ export function scorecardOf(
     return {
         schema_version: SCHEMA_VERSION,
         run_id: result.runId,
+        adapters: ADAPTERS,
+        owners: [],
         card_id: result.cardId,
         card_version: card.version,
         card_hash: result.cardHash,
@@ -63,7 +82,11 @@ export function scorecardOf(
         units_offered: result.units?.offeredUnits ?? null,
         converged: result.convergence?.converged ?? null,
         unfinished_jobs: result.convergence?.unfinishedJobs ?? null,
+        janitor_resets: result.janitorResets ?? null,
         ...invariantProperties(result),
+        ...measurementProperties(result),
+        admissions: result.admissions,
+        bars: result.bars,
         valve_timeline: result.timeline,
         evidence_dir: result.evidenceDir,
     }

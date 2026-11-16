@@ -89,7 +89,7 @@ class XenditSource(ResumableSource[XenditSourceConfig, XenditResumeConfig]):
             releaseStatus=ReleaseStatus.GA,
             caption="""Enter your Xendit secret API key to sync your Xendit data into the PostHog Data warehouse.
 
-Create a key in the Xendit dashboard under **Settings > Developers > API keys**. Give it the **Transaction Read** permission to sync transactions, and **Accounts Read** if you also want to sync xenPlatform sub-accounts.""",
+Create a key in the Xendit dashboard under **Settings > Developers > API keys**. Give it the **Transaction Read** permission to sync transactions, and **Accounts Read** if you also want to sync xenPlatform sub-accounts. To sync disputes or bill payment products, also give it read access to disputes or bill payments.""",
             iconPath="/static/services/xendit.png",
             docsUrl="https://posthog.com/docs/cdp/sources/xendit",
             fields=cast(

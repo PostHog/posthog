@@ -1,4 +1,4 @@
-import { MOCK_DEFAULT_USER, MOCK_TEAM_ID } from 'lib/api.mock'
+import { MOCK_DEFAULT_TEAM, MOCK_DEFAULT_USER, MOCK_TEAM_ID } from 'lib/api.mock'
 
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
@@ -3142,22 +3142,21 @@ describe('sessionRecordingsPlaylistLogic', () => {
             localStorage.clear()
         })
 
-        it('returns filter_test_accounts as false when localStorage is empty', () => {
-            const result = getDefaultFilters()
-            expect(result.filter_test_accounts).toBe(false)
-        })
-
-        it('returns filter_test_accounts as true when localStorage has default_filter_test_accounts set to true', () => {
-            localStorage.setItem('default_filter_test_accounts', 'true')
-            const result = getDefaultFilters()
-            expect(result.filter_test_accounts).toBe(true)
-        })
-
-        it('returns filter_test_accounts as false when localStorage has default_filter_test_accounts set to false', () => {
-            localStorage.setItem('default_filter_test_accounts', 'false')
-            const result = getDefaultFilters()
-            expect(result.filter_test_accounts).toBe(false)
-        })
+        it.each([
+            { stored: null, teamDefault: false, expected: false },
+            { stored: null, teamDefault: true, expected: true },
+            { stored: 'true', teamDefault: false, expected: true },
+            { stored: 'false', teamDefault: true, expected: false },
+        ])(
+            'returns filter_test_accounts $expected when localStorage has $stored and the team default is $teamDefault',
+            ({ stored, teamDefault, expected }) => {
+                initKeaTests(true, { ...MOCK_DEFAULT_TEAM, test_account_filters_default_checked: teamDefault })
+                if (stored !== null) {
+                    localStorage.setItem('default_filter_test_accounts', stored)
+                }
+                expect(getDefaultFilters().filter_test_accounts).toBe(expected)
+            }
+        )
 
         it('returns date_from as -30d for person recordings', () => {
             const result = getDefaultFilters('person-uuid')

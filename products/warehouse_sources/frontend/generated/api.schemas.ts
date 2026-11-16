@@ -16,6 +16,7 @@
  * * `Databricks` - Databricks
  * * `AzureBlob` - Azure Blob
  * * `S3` - S3
+ * * `MotherDuck` - MotherDuck
  */
 export type ExternalDataDestinationTypeEnumApi =
     (typeof ExternalDataDestinationTypeEnumApi)[keyof typeof ExternalDataDestinationTypeEnumApi]
@@ -29,6 +30,7 @@ export const ExternalDataDestinationTypeEnumApi = {
     Databricks: 'Databricks',
     AzureBlob: 'AzureBlob',
     S3: 'S3',
+    MotherDuck: 'MotherDuck',
 } as const
 
 /**
@@ -70,7 +72,8 @@ export interface ExternalDataDestinationApi {
      * * `Postgres` - Postgres
      * * `Databricks` - Databricks
      * * `AzureBlob` - Azure Blob
-     * * `S3` - S3 */
+     * * `S3` - S3
+     * * `MotherDuck` - MotherDuck */
     type: ExternalDataDestinationTypeEnumApi
     /**
      * Human-readable name shown when picking destinations for a source or table.
@@ -133,7 +136,8 @@ export interface PatchedExternalDataDestinationApi {
      * * `Postgres` - Postgres
      * * `Databricks` - Databricks
      * * `AzureBlob` - Azure Blob
-     * * `S3` - S3 */
+     * * `S3` - S3
+     * * `MotherDuck` - MotherDuck */
     type?: ExternalDataDestinationTypeEnumApi
     /**
      * Human-readable name shown when picking destinations for a source or table.
@@ -492,6 +496,7 @@ export type ExternalDataSchemaApiSource = {
     readonly id?: string
     readonly source_type?: string
     readonly access_method?: string
+    readonly direct_query_enabled?: boolean
     readonly supports_column_selection?: boolean
     readonly supports_row_filters?: boolean
     readonly requires_exact_column_metadata?: boolean
@@ -520,6 +525,13 @@ export interface ExternalDataSchemaApi {
      */
     readonly table_id: string | null
     should_sync?: boolean
+    /** Whether this table is queryable live on a synced source with live queries on, without syncing it. Synced tables are always queryable live. */
+    live_query_enabled?: boolean
+    /**
+     * Why this table can't be made queryable live without syncing it, or null when it can.
+     * @nullable
+     */
+    readonly live_query_unavailable_reason: string | null
     /** @nullable */
     readonly last_synced_at: string | null
     /**
@@ -736,6 +748,7 @@ export type PatchedExternalDataSchemaApiSource = {
     readonly id?: string
     readonly source_type?: string
     readonly access_method?: string
+    readonly direct_query_enabled?: boolean
     readonly supports_column_selection?: boolean
     readonly supports_row_filters?: boolean
     readonly requires_exact_column_metadata?: boolean
@@ -764,6 +777,13 @@ export interface PatchedExternalDataSchemaApi {
      */
     readonly table_id?: string | null
     should_sync?: boolean
+    /** Whether this table is queryable live on a synced source with live queries on, without syncing it. Synced tables are always queryable live. */
+    live_query_enabled?: boolean
+    /**
+     * Why this table can't be made queryable live without syncing it, or null when it can.
+     * @nullable
+     */
+    readonly live_query_unavailable_reason?: string | null
     /** @nullable */
     readonly last_synced_at?: string | null
     /**
@@ -1340,6 +1360,8 @@ export interface ExternalDataSourceBulkUpdateSchemaApi {
     id: string
     /** Whether the schema should be queryable/synced. */
     should_sync?: boolean
+    /** Whether the table is queryable live without syncing it. Only for synced sources with live queries on, and not for tables with row filters or masked columns. */
+    live_query_enabled?: boolean
     /** Requested sync mode for the schema (incremental, full_refresh, append, cdc, or xmin).
      *
      * * `full_refresh` - full_refresh
@@ -2066,8 +2088,8 @@ export interface IncrementalFieldTableApi {
 
 export interface IncrementalFieldRecommendationsRequestApi {
     /**
-     * Tables from database_schema to get a recommended incremental field for.
-     * @maxItems 128
+     * Tables from database_schema to get a recommended incremental field for. One request is one model call: up to 8 tables with up to 32 candidate fields in total, or a single table of any size.
+     * @maxItems 8
      */
     tables: IncrementalFieldTableApi[]
 }
@@ -3033,6 +3055,7 @@ export type ExternalDataDestinationsConnectLinkRetrieveParams = {
      * * `Databricks` - Databricks
      * * `AzureBlob` - Azure Blob
      * * `S3` - S3
+     * * `MotherDuck` - MotherDuck
      * @minLength 1
      */
     destination_type: ExternalDataDestinationsConnectLinkRetrieveDestinationType
@@ -3058,6 +3081,7 @@ export const ExternalDataDestinationsConnectLinkRetrieveDestinationType = {
     Databricks: 'Databricks',
     AzureBlob: 'AzureBlob',
     S3: 'S3',
+    MotherDuck: 'MotherDuck',
 } as const
 
 export type ExternalDataDestinationsConnectLinkStatusRetrieveParams = {
@@ -3070,6 +3094,10 @@ export type ExternalDataDestinationsConnectLinkStatusRetrieveParams = {
 }
 
 export type ExternalDataSchemasListParams = {
+    /**
+     * Return one short row per table (id, name, source_id, should_sync, sync_type, status, last_synced_at and a truncated latest_error) instead of the full sync configuration. Use it to check table health.
+     */
+    compact?: boolean
     /**
      * Number of results to return per page.
      */
@@ -3147,6 +3175,14 @@ export type ExternalDataSchemasResyncCreate400 = {
 
 export type ExternalDataSourcesListParams = {
     /**
+     * Return source health only: id, created_at, source_type, prefix, description, access_method, status, latest_error, last_run_at, and one summary row per table (id, name, should_sync, status, last_synced_at, latest_error). Errors are cut to 500 characters. Connection settings and sync configuration are left out.
+     */
+    compact?: boolean
+    /**
+     * Include the `schemas` (tables) of each source. Set to false to get source-level fields only.
+     */
+    include_schemas?: boolean
+    /**
      * Number of results to return per page.
      */
     limit?: number
@@ -3160,6 +3196,17 @@ export type ExternalDataSourcesListParams = {
     search?: string
 }
 
+export type ExternalDataSourcesRetrieveParams = {
+    /**
+     * Return source health only: id, created_at, source_type, prefix, description, access_method, status, latest_error, last_run_at, and one summary row per table (id, name, should_sync, status, last_synced_at, latest_error). Errors are cut to 500 characters. Connection settings and sync configuration are left out.
+     */
+    compact?: boolean
+    /**
+     * Include the `schemas` (tables) of each source. Set to false to get source-level fields only.
+     */
+    include_schemas?: boolean
+}
+
 export type ExternalDataSourcesJobsListParams = {
     /**
      * ISO timestamp — only return jobs created after this date.
@@ -3169,6 +3216,10 @@ export type ExternalDataSourcesJobsListParams = {
      * ISO timestamp — only return jobs created before this date.
      */
     before?: string
+    /**
+     * Maximum number of jobs to return, from 1 to 100 (default 50). Jobs are newest first. To get the next page, pass the `created_at` of the last job as `before`.
+     */
+    limit?: number
     /**
      * Filter jobs by table schema names.
      */

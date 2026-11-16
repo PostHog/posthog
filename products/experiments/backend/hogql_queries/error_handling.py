@@ -11,6 +11,7 @@ import structlog
 from clickhouse_driver.errors import ServerException
 from rest_framework.exceptions import ValidationError
 
+from posthog.hogql.direct_sql.adapter import DirectQueryTimeoutError, DirectQueryUnavailableError
 from posthog.hogql.errors import ExposedHogQLError, InternalHogQLError
 
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
@@ -98,6 +99,11 @@ def classify_experiment_query_error(error: Exception) -> str:
     """
     if isinstance(error, (StatisticError, ZeroDivisionError)):
         return "insufficient_data"
+    # A warehouse-side failure is an ExposedHogQLError too, so it goes before the validation branch.
+    if isinstance(error, DirectQueryTimeoutError):
+        return "timeout"
+    if isinstance(error, DirectQueryUnavailableError):
+        return "server_error"
     if isinstance(error, (ValidationError, ExposedHogQLError)):
         return "validation_error"
     if isinstance(error, (ClickHouseQueryTimeOut, ClickHouseEstimatedQueryExecutionTimeTooLong)):

@@ -26,6 +26,7 @@ from posthog.models.scoping import team_scope
 from posthog.models.user_integration import UserIntegration
 from posthog.sync import database_sync_to_async
 from posthog.temporal.oauth import grants_scratchpad_write
+from posthog.test.cascade_delete import delete_skipping_empty_tables
 
 from products.signals.backend.artefact_schemas import (
     DISMISSAL_REASON_WRONG_REPO,
@@ -119,7 +120,7 @@ async def aorganization():
 
     yield organization
 
-    await sync_to_async(organization.delete)()
+    await sync_to_async(delete_skipping_empty_tables)(organization)
 
 
 @pytest_asyncio.fixture
@@ -131,7 +132,7 @@ async def ateam(aorganization):
 
     yield team
 
-    await sync_to_async(team.delete)()
+    await sync_to_async(delete_skipping_empty_tables)(team)
 
 
 def _build_research_output() -> ReportResearchOutput:
@@ -800,6 +801,55 @@ async def test_select_repository_activity_reuses_previous_selection(
         )
         latest = await SignalReportArtefact.objects.filter(report=report, type="repo_selection").alatest("created_at")
         assert RepoSelectionResult.model_validate_json(latest.content).repository is None
+
+
+@pytest.mark.asyncio
+@pytest.mark.django_db
+@pytest.mark.parametrize(
+    "cached_repository, cache_synced, reused",
+    [("posthog/posthog", True, True), ("example/new-app", True, False), (None, False, True)],
+    ids=["still_connected", "installation_replaced", "cache_never_synced"],
+)
+async def test_select_repository_activity_reselects_a_repository_the_installation_no_longer_reaches(
+    monkeypatch, ateam, cached_repository, cache_synced, reused
+):
+    # A team that replaces its GitHub installation keeps the old repository on every saved report,
+    # and reusing it sends research and implementation to a repository nothing can clone.
+    previous = RepoSelectionResult(repository="posthog/posthog", reason="Previously selected")
+    await Integration.objects.acreate(
+        team=ateam,
+        kind="github",
+        integration_id="123",
+        config={"installation_id": 123},
+        repository_cache=(
+            [{"id": 1, "name": cached_repository.split("/")[1], "full_name": cached_repository, "private": True}]
+            if cached_repository
+            else []
+        ),
+        repository_cache_updated_at=timezone.now() if cache_synced else None,
+    )
+    monkeypatch.setattr(
+        "products.signals.backend.temporal.agentic.select_repository.persisted_repo_selection",
+        lambda report_id: previous,
+    )
+    monkeypatch.setattr(
+        "products.signals.backend.temporal.agentic.select_repository._resolve_sandbox_user_id", lambda team_id: 1
+    )
+
+    async def fake_select_repo(*args, **kwargs):
+        return RepoSelectionResult(repository="example/new-app", reason="Selected again")
+
+    monkeypatch.setattr(
+        "products.signals.backend.temporal.agentic.select_repository.select_repository_for_report",
+        fake_select_repo,
+    )
+
+    with patch("products.signals.backend.temporal.agentic.select_repository.Heartbeater"):
+        result = await select_repository_activity(
+            SelectRepositoryInput(team_id=ateam.id, report_id=str(uuid4()), signals=_build_signals())
+        )
+
+    assert result.repository == ("posthog/posthog" if reused else "example/new-app")
 
 
 @pytest.mark.asyncio

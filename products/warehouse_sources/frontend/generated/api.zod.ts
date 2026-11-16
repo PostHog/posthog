@@ -19,12 +19,22 @@ export const externalDataDestinationsCreateBodyNameMax = 400
 
 export const ExternalDataDestinationsCreateBody = /* @__PURE__ */ zod.object({
     type: zod
-        .enum(['PostHogWarehouse', 'Redshift', 'Snowflake', 'BigQuery', 'Postgres', 'Databricks', 'AzureBlob', 'S3'])
+        .enum([
+            'PostHogWarehouse',
+            'Redshift',
+            'Snowflake',
+            'BigQuery',
+            'Postgres',
+            'Databricks',
+            'AzureBlob',
+            'S3',
+            'MotherDuck',
+        ])
         .describe(
-            '\* `PostHogWarehouse` - PostHog warehouse\n\* `Redshift` - Redshift\n\* `Snowflake` - Snowflake\n\* `BigQuery` - BigQuery\n\* `Postgres` - Postgres\n\* `Databricks` - Databricks\n\* `AzureBlob` - Azure Blob\n\* `S3` - S3'
+            '\* `PostHogWarehouse` - PostHog warehouse\n\* `Redshift` - Redshift\n\* `Snowflake` - Snowflake\n\* `BigQuery` - BigQuery\n\* `Postgres` - Postgres\n\* `Databricks` - Databricks\n\* `AzureBlob` - Azure Blob\n\* `S3` - S3\n\* `MotherDuck` - MotherDuck'
         )
         .describe(
-            'Where synced rows are written. The PostHog warehouse is managed for you, so you cannot create one here.\n\n\* `PostHogWarehouse` - PostHog warehouse\n\* `Redshift` - Redshift\n\* `Snowflake` - Snowflake\n\* `BigQuery` - BigQuery\n\* `Postgres` - Postgres\n\* `Databricks` - Databricks\n\* `AzureBlob` - Azure Blob\n\* `S3` - S3'
+            'Where synced rows are written. The PostHog warehouse is managed for you, so you cannot create one here.\n\n\* `PostHogWarehouse` - PostHog warehouse\n\* `Redshift` - Redshift\n\* `Snowflake` - Snowflake\n\* `BigQuery` - BigQuery\n\* `Postgres` - Postgres\n\* `Databricks` - Databricks\n\* `AzureBlob` - Azure Blob\n\* `S3` - S3\n\* `MotherDuck` - MotherDuck'
         ),
     name: zod
         .string()
@@ -60,12 +70,22 @@ export const externalDataDestinationsUpdateBodyNameMax = 400
 
 export const ExternalDataDestinationsUpdateBody = /* @__PURE__ */ zod.object({
     type: zod
-        .enum(['PostHogWarehouse', 'Redshift', 'Snowflake', 'BigQuery', 'Postgres', 'Databricks', 'AzureBlob', 'S3'])
+        .enum([
+            'PostHogWarehouse',
+            'Redshift',
+            'Snowflake',
+            'BigQuery',
+            'Postgres',
+            'Databricks',
+            'AzureBlob',
+            'S3',
+            'MotherDuck',
+        ])
         .describe(
-            '\* `PostHogWarehouse` - PostHog warehouse\n\* `Redshift` - Redshift\n\* `Snowflake` - Snowflake\n\* `BigQuery` - BigQuery\n\* `Postgres` - Postgres\n\* `Databricks` - Databricks\n\* `AzureBlob` - Azure Blob\n\* `S3` - S3'
+            '\* `PostHogWarehouse` - PostHog warehouse\n\* `Redshift` - Redshift\n\* `Snowflake` - Snowflake\n\* `BigQuery` - BigQuery\n\* `Postgres` - Postgres\n\* `Databricks` - Databricks\n\* `AzureBlob` - Azure Blob\n\* `S3` - S3\n\* `MotherDuck` - MotherDuck'
         )
         .describe(
-            'Where synced rows are written. The PostHog warehouse is managed for you, so you cannot create one here.\n\n\* `PostHogWarehouse` - PostHog warehouse\n\* `Redshift` - Redshift\n\* `Snowflake` - Snowflake\n\* `BigQuery` - BigQuery\n\* `Postgres` - Postgres\n\* `Databricks` - Databricks\n\* `AzureBlob` - Azure Blob\n\* `S3` - S3'
+            'Where synced rows are written. The PostHog warehouse is managed for you, so you cannot create one here.\n\n\* `PostHogWarehouse` - PostHog warehouse\n\* `Redshift` - Redshift\n\* `Snowflake` - Snowflake\n\* `BigQuery` - BigQuery\n\* `Postgres` - Postgres\n\* `Databricks` - Databricks\n\* `AzureBlob` - Azure Blob\n\* `S3` - S3\n\* `MotherDuck` - MotherDuck'
         ),
     name: zod
         .string()
@@ -101,13 +121,23 @@ export const externalDataDestinationsPartialUpdateBodyNameMax = 400
 
 export const ExternalDataDestinationsPartialUpdateBody = /* @__PURE__ */ zod.object({
     type: zod
-        .enum(['PostHogWarehouse', 'Redshift', 'Snowflake', 'BigQuery', 'Postgres', 'Databricks', 'AzureBlob', 'S3'])
+        .enum([
+            'PostHogWarehouse',
+            'Redshift',
+            'Snowflake',
+            'BigQuery',
+            'Postgres',
+            'Databricks',
+            'AzureBlob',
+            'S3',
+            'MotherDuck',
+        ])
         .describe(
-            '\* `PostHogWarehouse` - PostHog warehouse\n\* `Redshift` - Redshift\n\* `Snowflake` - Snowflake\n\* `BigQuery` - BigQuery\n\* `Postgres` - Postgres\n\* `Databricks` - Databricks\n\* `AzureBlob` - Azure Blob\n\* `S3` - S3'
+            '\* `PostHogWarehouse` - PostHog warehouse\n\* `Redshift` - Redshift\n\* `Snowflake` - Snowflake\n\* `BigQuery` - BigQuery\n\* `Postgres` - Postgres\n\* `Databricks` - Databricks\n\* `AzureBlob` - Azure Blob\n\* `S3` - S3\n\* `MotherDuck` - MotherDuck'
         )
         .optional()
         .describe(
-            'Where synced rows are written. The PostHog warehouse is managed for you, so you cannot create one here.\n\n\* `PostHogWarehouse` - PostHog warehouse\n\* `Redshift` - Redshift\n\* `Snowflake` - Snowflake\n\* `BigQuery` - BigQuery\n\* `Postgres` - Postgres\n\* `Databricks` - Databricks\n\* `AzureBlob` - Azure Blob\n\* `S3` - S3'
+            'Where synced rows are written. The PostHog warehouse is managed for you, so you cannot create one here.\n\n\* `PostHogWarehouse` - PostHog warehouse\n\* `Redshift` - Redshift\n\* `Snowflake` - Snowflake\n\* `BigQuery` - BigQuery\n\* `Postgres` - Postgres\n\* `Databricks` - Databricks\n\* `AzureBlob` - Azure Blob\n\* `S3` - S3\n\* `MotherDuck` - MotherDuck'
         ),
     name: zod
         .string()
@@ -180,6 +210,12 @@ export const externalDataSchemasUpdateBodyApiVersionMax = 128
 export const ExternalDataSchemasUpdateBody = /* @__PURE__ */ zod
     .object({
         should_sync: zod.boolean().optional(),
+        live_query_enabled: zod
+            .boolean()
+            .optional()
+            .describe(
+                'Whether this table is queryable live on a synced source with live queries on, without syncing it. Synced tables are always queryable live.'
+            ),
         sync_type: zod
             .union([
                 zod
@@ -315,6 +351,12 @@ export const externalDataSchemasPartialUpdateBodyApiVersionMax = 128
 export const ExternalDataSchemasPartialUpdateBody = /* @__PURE__ */ zod
     .object({
         should_sync: zod.boolean().optional(),
+        live_query_enabled: zod
+            .boolean()
+            .optional()
+            .describe(
+                'Whether this table is queryable live on a synced source with live queries on, without syncing it. Synced tables are always queryable live.'
+            ),
         sync_type: zod
             .union([
                 zod
@@ -663,6 +705,12 @@ export const ExternalDataSourcesBulkUpdateSchemasPartialUpdateBody = /* @__PURE_
             zod.object({
                 id: zod.uuid().describe('Schema identifier to update.'),
                 should_sync: zod.boolean().optional().describe('Whether the schema should be queryable\/synced.'),
+                live_query_enabled: zod
+                    .boolean()
+                    .optional()
+                    .describe(
+                        'Whether the table is queryable live without syncing it. Only for synced sources with live queries on, and not for tables with row filters or masked columns.'
+                    ),
                 sync_type: zod
                     .union([
                         zod
@@ -1268,7 +1316,7 @@ export const externalDataSourcesIncrementalFieldRecommendationsCreateBodyTablesI
 
 export const externalDataSourcesIncrementalFieldRecommendationsCreateBodyTablesItemIncrementalFieldsMax = 16
 
-export const externalDataSourcesIncrementalFieldRecommendationsCreateBodyTablesMax = 128
+export const externalDataSourcesIncrementalFieldRecommendationsCreateBodyTablesMax = 8
 
 export const ExternalDataSourcesIncrementalFieldRecommendationsCreateBody = /* @__PURE__ */ zod.object({
     tables: zod
@@ -1344,7 +1392,9 @@ export const ExternalDataSourcesIncrementalFieldRecommendationsCreateBody = /* @
             })
         )
         .max(externalDataSourcesIncrementalFieldRecommendationsCreateBodyTablesMax)
-        .describe('Tables from database_schema to get a recommended incremental field for.'),
+        .describe(
+            'Tables from database_schema to get a recommended incremental field for. One request is one model call: up to 8 tables with up to 32 candidate fields in total, or a single table of any size.'
+        ),
 })
 
 /**

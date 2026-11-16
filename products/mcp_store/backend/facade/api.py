@@ -12,9 +12,14 @@ from dataclasses import dataclass
 from typing import Any
 from urllib.parse import urlsplit
 
+from django.db import transaction
 from django.db.models import Q
+from django.utils import timezone
 
 import structlog
+
+from posthog.models.user import User
+from posthog.models.user_integration import slack_link_fits, slack_link_for
 
 from products.mcp_store.backend.agents import (
     BuiltInAgentKey,
@@ -42,11 +47,14 @@ from products.mcp_store.backend.gateway import (
     agent_grant_owner_label,
     agent_grant_proxy_path,
     installation_for_agent_access,
+    link_installation_to_gateway,
     reachable_agent_grants,
+    server_disabled_reason,
 )
 from products.mcp_store.backend.models import (
     MCPAuthType,
     MCPGatewayServer,
+    MCPMemberAutoConnectOptOut,
     MCPMemberServerRevocation,
     MCPServerInstallation,
     MCPServerInstallationTool,
@@ -61,6 +69,7 @@ from products.mcp_store.backend.policy import (
     legacy_state_for_caller,
 )
 from products.mcp_store.backend.proxy import record_tool_call_audit, resolve_call_decision, validate_installation_auth
+from products.mcp_store.backend.tasks import sync_installation_tools_task
 from products.mcp_store.backend.tools import (
     ToolCallError,
     ToolsFetchError,
@@ -224,7 +233,7 @@ def _is_oauth_ready(installation: MCPServerInstallation) -> bool:
     sensitive = installation.sensitive_configuration or {}
     if sensitive.get("needs_reauth"):
         return False
-    if not sensitive.get("access_token"):
+    if not installation.upstream_access_token():
         return False
     return True
 
@@ -310,7 +319,13 @@ def _mounts_for_agent_run(
         MCPServiceAccountServerAccess.objects.for_team(team_id)
         .filter(service_account=agent_account)
         .filter(reachable_agent_grants(team_id, credential_owner_id))
-        .select_related("gateway_server", "installation__template", "installation__gateway_server", "user")
+        .select_related(
+            "gateway_server",
+            "installation__template",
+            "installation__gateway_server",
+            "installation__linked_user_integration",
+            "user",
+        )
         .order_by("created_at", "id")
     )
 
@@ -406,7 +421,7 @@ def get_active_installations(team_id: int, user_id: int, *, include_shared: bool
             .filter(scope_filter)
             .filter(Q(gateway_server__isnull=True) | Q(gateway_server__is_team_enabled=True))
             .exclude(gateway_server__member_revocations__user_id=user_id)
-            .select_related("template")
+            .select_related("template", "linked_user_integration")
         )
     except Exception as e:
         logger.warning("Error fetching MCP installations", error=str(e), team_id=team_id)
@@ -432,6 +447,92 @@ def _connects_from_a_link(template: MCPServerTemplate) -> bool:
     if template.auth_type != MCPAuthType.OAUTH:
         return False
     return bool(template.oauth_credentials_source or (template.oauth_credentials or {}).get("client_id"))
+
+
+SLACK_MCP_URL = "https://mcp.slack.com/mcp"
+
+
+def _connectable_slack_template(team_id: int, user_id: int | None) -> MCPServerTemplate | None:
+    """The Slack MCP template that a token from PostHog's own Slack app can connect: on PostHog's app, available to
+    the team, turned on for it, not revoked for this member, and not removed by them before. The dev template runs
+    on another app, so it never qualifies."""
+    template = (
+        MCPServerTemplate.available_for_team(team_id)
+        .filter(url=SLACK_MCP_URL, oauth_credentials_source="slack_app")
+        .first()
+    )
+    if template is None or server_disabled_reason(team_id, template.url) is not None:
+        return None
+    if user_id is None:
+        return template
+    revoked = MCPMemberServerRevocation.objects.for_team(team_id).filter(
+        gateway_server__url=template.url, user_id=user_id
+    )
+    opted_out = MCPMemberAutoConnectOptOut.objects.for_team(team_id).filter(url=template.url, user_id=user_id)
+    return None if revoked.exists() or opted_out.exists() else template
+
+
+def slack_mcp_user_scopes(team_id: int, user_id: int | None) -> tuple[str, ...]:
+    """The exact user scopes a Slack account link asks for, so its token can connect the member's Slack MCP and holds
+    nothing the server may not read. Empty when the team cannot use the Slack MCP."""
+    template = _connectable_slack_template(team_id, user_id)
+    return tuple(template.oauth_scope_allowlist or ()) if template is not None else ()
+
+
+# The token keys of an installation that holds its own token. A linked installation has none of them.
+_OWN_TOKEN_KEYS = ("access_token", "refresh_token", "token_retrieved_at", "expires_in", "needs_reauth")
+
+
+def connect_slack_mcp_from_slack_link(team_id: int, user: User, *, slack_link_id: str) -> bool:
+    """Connect the member's Slack MCP through their Slack account link, so they skip a second Slack consent screen.
+    The installation points at the link and keeps no copy of its token, so an unlink also ends the access. A member
+    who removed a linked Slack MCP is not connected again, a working connection stays as it is, and one the member
+    turned off stays off. Returns whether the member is connected."""
+    template = _connectable_slack_template(team_id, user.id)
+    if template is None:
+        return False
+    link = slack_link_for(slack_link_id, user_id=user.id)
+    if link is None:
+        return False
+    if not slack_link_fits(link, template.oauth_scope_allowlist or ()):
+        return False
+    with transaction.atomic():
+        installation, _ = MCPServerInstallation.objects.get_or_create(
+            team_id=team_id,
+            user=user,
+            url=template.url,
+            scope="personal",
+            defaults={
+                "template": template,
+                "display_name": template.name,
+                "description": template.description,
+                "auth_type": template.auth_type,
+            },
+        )
+        if installation.is_enabled and _is_oauth_ready(installation):
+            return True
+        sensitive = {
+            key: value
+            for key, value in (installation.sensitive_configuration or {}).items()
+            if key not in _OWN_TOKEN_KEYS
+        }
+        installation.template = template
+        installation.linked_user_integration = link
+        installation.connected_from_link_at = timezone.now()
+        installation.sensitive_configuration = sensitive
+        installation.save(
+            update_fields=[
+                "template",
+                "linked_user_integration",
+                "connected_from_link_at",
+                "sensitive_configuration",
+                "updated_at",
+            ]
+        )
+        link_installation_to_gateway(installation, created_by=user)
+    transaction.on_commit(lambda: sync_installation_tools_task.delay(str(installation.id)))
+    # A server the member turned off gets its access back but stays off until they turn it on.
+    return installation.is_enabled
 
 
 def team_tools_not_connected(team_id: int, user_id: int) -> list[UnconnectedTeamTool]:
@@ -797,7 +898,7 @@ def member_installation_for_host(team_id: int, user_id: int, server_host: str) -
     candidates = (
         MCPServerInstallation.objects.filter(team_id=team_id, is_enabled=True, url__icontains=host)
         .filter(Q(user_id=user_id, scope="personal") | Q(scope="shared"))
-        .select_related("gateway_server")
+        .select_related("gateway_server", "template", "linked_user_integration")
         .order_by("created_at")
     )
     matching = [installation for installation in candidates if _installation_host(installation.url) == host]

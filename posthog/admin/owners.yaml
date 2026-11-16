@@ -1,0 +1,5 @@
+version: 1
+owners: []
+rules:
+    - match: ['/console/cimd_provisioning_review_tool.py', '/test_cimd_provisioning_review_tool.py']
+      owners: team-growth
