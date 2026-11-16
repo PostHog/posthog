@@ -96,6 +96,7 @@ from .model import (
     aget_integration_by_id,
     defer_repository_cache_fields,
 )
+from .motherduck import MotherDuckIntegration, MotherDuckIntegrationError
 from .oauth import (
     INSTAGRAM_OAUTH_SCOPE,
     OAUTH_CLIENT_CREDENTIAL_KEYS,
@@ -282,6 +283,8 @@ __all__ = [
     "DatabricksIntegration",
     "AzureBlobIntegrationError",
     "AzureBlobIntegration",
+    "MotherDuckIntegrationError",
+    "MotherDuckIntegration",
     "DuplicateNameError",
     "is_unique_aws_role_by_organization_id",
     "validate_aws_credentials",

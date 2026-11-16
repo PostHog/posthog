@@ -56,7 +56,7 @@ import {
     insertHogFunctionTemplate,
     insertIntegration,
 } from './_tests/fixtures'
-import { insertHogFlow } from './_tests/fixtures-hogflows'
+import { hideHogFlowsFromReplica, insertHogFlow } from './_tests/fixtures-hogflows'
 import { CdpApi } from './cdp-api'
 import { CdpCyclotronWorkerBatchResolve } from './consumers/cdp-cyclotron-worker-batch-resolve.consumer'
 import { CdpCyclotronWorkerEmailSandbox } from './consumers/cdp-cyclotron-worker-email-sandbox.consumer'
@@ -3088,6 +3088,33 @@ describe('Workflows E2E (email queue)', () => {
         return result.rows
     }
 
+    async function bulkEmailPickupsByOutcome(): Promise<Record<string, number>> {
+        const metric = register.getSingleMetric('cdp_cyclotron_job_lateness_seconds')
+        const samples = metric ? (await metric.get()).values : []
+        const pickups: Record<string, number> = {}
+        for (const sample of samples) {
+            if (
+                'metricName' in sample &&
+                sample.metricName === 'cdp_cyclotron_job_lateness_seconds_count' &&
+                sample.labels.queue === 'email' &&
+                sample.labels.priority === '1'
+            ) {
+                const outcome = String(sample.labels.outcome)
+                pickups[outcome] = (pickups[outcome] ?? 0) + sample.value
+            }
+        }
+        return pickups
+    }
+
+    async function bulkEmailPickupsSince(before: Record<string, number>): Promise<Record<string, number>> {
+        const now = await bulkEmailPickupsByOutcome()
+        return Object.fromEntries(
+            Object.entries(now)
+                .map(([outcome, count]) => [outcome, count - (before[outcome] ?? 0)])
+                .filter(([, count]) => count !== 0)
+        )
+    }
+
     function createGlobals(
         overrides: Partial<HogFunctionInvocationGlobals['event']> = {}
     ): HogFunctionInvocationGlobals {
@@ -3972,6 +3999,7 @@ describe('Workflows E2E (email queue)', () => {
             'set-email-sending-rate-limit'
         )
 
+        const pickupsBefore = await bulkEmailPickupsByOutcome()
         const events = [
             ...Array.from({ length: 8 }, (_, i) =>
                 createGlobals({ event: 'signup_a', uuid: new UUIDT().toString(), distinct_id: `person_a_${i}` } as any)
@@ -4016,6 +4044,7 @@ describe('Workflows E2E (email queue)', () => {
         for (const job of parkedA) {
             expect(job.transition_count).toBeLessThanOrEqual(4)
         }
+        expect(await bulkEmailPickupsSince(pickupsBefore)).toEqual({ processed: 4, parked: 7 })
     })
 
     it("a team over its tier cap does not hold up another team's emails", async () => {
@@ -4124,6 +4153,8 @@ describe('Workflows E2E (email queue)', () => {
                     timestamp: '2024-09-03T09:00:00Z',
                 } as any,
             })
+
+        const pickupsBefore = await bulkEmailPickupsByOutcome()
         const events = [
             ...Array.from({ length: 6 }, (_, i) =>
                 createGlobals({
@@ -4163,6 +4194,7 @@ describe('Workflows E2E (email queue)', () => {
             expect(new Date(job.scheduled).getTime()).toBeGreaterThan(Date.now() + 25 * 60 * 1000)
             expect(job.transition_count).toBeLessThanOrEqual(4)
         }
+        expect(await bulkEmailPickupsSince(pickupsBefore)).toEqual({ processed: 5, parked: 4 })
     })
 
     it('rate-limited variant processes emails end-to-end through the dedicated bucket', async () => {
@@ -5297,6 +5329,55 @@ describe('Workflows E2E: batch resolver dispatch via cdp-api', () => {
             [parentRunId]
         )
         expect(children.rows).toHaveLength(0)
+    })
+
+    it('a workflow the read replica has not caught up on yet still runs instead of failing as deleted', async () => {
+        const flow = await insertActiveBatchFlow()
+        const parentRunId = new UUIDT().toString()
+        const personIds = [new UUIDT().toString(), new UUIDT().toString()]
+        const statusPuts: Array<{ status: string }> = []
+
+        mockInternalFetch.mockImplementation((url: string, opts: any) => {
+            const body = url.includes('/user_blast_radius_persons')
+                ? JSON.stringify({ users_affected: personIds, cursor: null, has_more: false })
+                : '{}'
+            if (url.includes('/batch_jobs/') && url.endsWith('/status')) {
+                statusPuts.push(parseJSON(opts.body) as { status: string })
+            } else if (!url.includes('/user_blast_radius_persons')) {
+                return Promise.reject(new Error(`Unexpected internalFetch call to ${url}`))
+            }
+            return Promise.resolve({
+                status: 200,
+                headers: {},
+                json: () => Promise.resolve({}),
+                text: () => Promise.resolve(body),
+                dump: () => Promise.resolve(),
+            })
+        })
+
+        await supertest(app)
+            .post(`/api/projects/${team.id}/hog_flows/${flow.id}/batch_invocations/${parentRunId}`)
+            .send({ filters: { filter_test_accounts: false }, max_audience_size: 1000 })
+            .expect(200)
+
+        const replicaHidden = hideHogFlowsFromReplica(hub.postgres, [flow.id])
+        try {
+            resolverWorker = buildResolverConsumer()
+            await resolverWorker.start()
+
+            await waitForExpect(() => {
+                expect(statusPuts).toHaveLength(1)
+            }, 20000)
+        } finally {
+            replicaHidden.mockRestore()
+        }
+
+        expect(statusPuts[0]).toEqual({ status: 'completed' })
+        const children = await cyclotronPool.query(
+            `SELECT id FROM cyclotron_jobs WHERE queue_name = 'hogflow' AND parent_run_id = $1`,
+            [parentRunId]
+        )
+        expect(children.rows).toHaveLength(personIds.length)
     })
 
     it('Django down: resolver retries the terminal PUT instead of acking', async () => {

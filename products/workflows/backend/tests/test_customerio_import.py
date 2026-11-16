@@ -834,6 +834,7 @@ class TestWorkflowImportAPI(APIBaseTest):
             team=self.team,
             name="Beta list",
             cohort_type=CohortType.REALTIME,
+            realtime_enabled_at=timezone.now(),
             last_backfill_person_properties_at=datetime(2026, 1, 1, tzinfo=UTC),
             last_backfill_events_at=datetime(2026, 1, 1, tzinfo=UTC),
             filters={

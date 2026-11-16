@@ -838,7 +838,7 @@ export const getMessagingSuppressionsBulkAddSuppressionsCreateUrl = (projectId: 
 }
 
 /**
- * Suppress every address in the list. Addresses that already have an entry are skipped, so repeating a call is safe.
+ * Suppress every address in the list. An address that already has an entry keeps it, and a `bounce` also makes that entry block transactional email. Repeating a call is safe.
  * @summary Add multiple email addresses to the suppression list
  */
 export const messagingSuppressionsBulkAddSuppressionsCreate = async (
