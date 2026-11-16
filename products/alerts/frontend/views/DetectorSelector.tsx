@@ -34,6 +34,8 @@ import {
     getDefaultZScoreDetectorConfig,
     getDefaultWindow,
 } from '../logic/detectorConfigDefaults'
+import { getDefaultForecastDetectorConfig } from '../logic/forecastRules'
+import { ForecastConfig } from './ForecastConfig'
 
 interface DetectorSelectorProps {
     value: DetectorConfig | null
@@ -41,6 +43,8 @@ interface DetectorSelectorProps {
     calculationInterval?: AlertCalculationInterval
     /** Show the AI detector option. Off until the alerts-llm-detector flag is on for the account. */
     llmDetectorEnabled?: boolean
+    /** Show the forecast detector option. Off until the alerts-forecast-detector flag is on for the account. */
+    forecastDetectorEnabled?: boolean
     /** The insight has a breakdown. The AI detector judges one series, so it is hidden here. */
     hasBreakdown?: boolean
 }
@@ -69,6 +73,12 @@ const DETECTOR_OPTIONS: Array<{ value: string; label: string; tooltip: string }>
         label: 'Ensemble',
         tooltip:
             'Combine multiple detectors with AND/OR logic. Use AND to reduce false alarms (all detectors must agree) or OR to catch a wider range of anomalies (any detector flags).',
+    },
+    {
+        value: DetectorType.FORECAST,
+        label: 'Forecast',
+        tooltip:
+            'Forecasts each value from the values before it, and fires when the actual value falls outside the expected range. Pick this for metrics with a trend or a weekly pattern. Set separate rules for spikes and drops.',
     },
     {
         value: DetectorType.HBOS,
@@ -137,9 +147,11 @@ const MAX_LLM_INSTRUCTIONS_CHARS = 2000
 
 const SINGLE_DETECTOR_OPTIONS = DETECTOR_OPTIONS.filter((o) => o.value !== 'ensemble')
 
-// Every check of an ensemble scores every sub-detector, so one AI sub-detector would mean a
-// model call on every check. Left out until there's a budget model for it.
-const ENSEMBLE_SUB_DETECTOR_OPTIONS = SINGLE_DETECTOR_OPTIONS.filter((o) => o.value !== DetectorType.LLM)
+// Every check of an ensemble scores every sub-detector, so an AI or forecast sub-detector would
+// mean a model call on every check. Left out until there's a budget model for it.
+const ENSEMBLE_SUB_DETECTOR_OPTIONS = SINGLE_DETECTOR_OPTIONS.filter(
+    (o) => o.value !== DetectorType.LLM && o.value !== DetectorType.FORECAST
+)
 
 function getDefaultSingleConfigs(window: number): Record<string, SingleDetectorConfig> {
     return {
@@ -152,6 +164,7 @@ function getDefaultSingleConfigs(window: number): Record<string, SingleDetectorC
         },
         iqr: { type: 'iqr', multiplier: 1.5, window },
         llm: getDefaultLLMDetectorConfig(),
+        forecast: getDefaultForecastDetectorConfig(),
         threshold: { type: 'threshold' },
         ecod: { type: 'ecod', threshold: DEFAULT_ANOMALY_DETECTION_THRESHOLD, window },
         copod: { type: 'copod', threshold: DEFAULT_ANOMALY_DETECTION_THRESHOLD, window },
@@ -232,17 +245,26 @@ export function DetectorSelector({
     onChange,
     calculationInterval,
     llmDetectorEnabled = false,
+    forecastDetectorEnabled = false,
     hasBreakdown = false,
 }: DetectorSelectorProps): JSX.Element {
     const selectedType = getSelectedType(value)
     const defaultWindow = getDefaultWindow(calculationInterval)
     const defaultConfigs = getDefaultSingleConfigs(defaultWindow)
-    // An alert already saved with the AI detector keeps showing it even if the flag is turned
-    // off, so its own type never disappears from the picker it is selected in.
-    const llmAllowed = llmDetectorEnabled && !hasBreakdown && calculationInterval !== AlertCalculationInterval.REAL_TIME
-    const detectorOptions = DETECTOR_OPTIONS.filter(
-        (o) => o.value !== DetectorType.LLM || llmAllowed || selectedType === DetectorType.LLM
-    )
+    // An alert already saved with the AI or forecast detector keeps showing it even if the flag is
+    // turned off, so its own type never disappears from the picker it is selected in.
+    const isRealTime = calculationInterval === AlertCalculationInterval.REAL_TIME
+    const llmAllowed = llmDetectorEnabled && !hasBreakdown && !isRealTime
+    const forecastAllowed = forecastDetectorEnabled && !isRealTime
+    const detectorOptions = DETECTOR_OPTIONS.filter((o) => {
+        if (o.value === DetectorType.LLM) {
+            return llmAllowed || selectedType === DetectorType.LLM
+        }
+        if (o.value === DetectorType.FORECAST) {
+            return forecastAllowed || selectedType === DetectorType.FORECAST
+        }
+        return true
+    })
 
     const handleTypeChange = (type: string | null): void => {
         if (!type) {
@@ -516,6 +538,7 @@ function SingleDetectorConfigSection({
                     onChange={(updated) => onChange(updated as SingleDetectorConfig)}
                 />
             )}
+            {config.type === 'forecast' && <ForecastConfig config={config} onChange={onChange} />}
             {/* The AI and forecast detectors read the series as it is, so they have no preprocessing to
                 configure: differencing or smoothing would hide the shape they are meant to read. */}
             {config.type !== 'llm' && config.type !== 'forecast' && (

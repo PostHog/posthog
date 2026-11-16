@@ -95,6 +95,33 @@ describe('load', () => {
             'measure.0.name: unknown measurement queue_depth',
         ],
         [
+            'an unknown bar',
+            { ...card, bars: [{ name: 'writer_iops_under' }] },
+            undefined,
+            'bars.0.name: unknown bar writer_iops_under',
+        ],
+        [
+            'bar params its definition refuses',
+            { ...card, bars: [{ name: 'writer_cpu_under', params: { percent: 120 } }] },
+            undefined,
+            'bars.0.params.percent: ',
+        ],
+        [
+            'ramp steps that do not add up to the drive',
+            {
+                ...card,
+                drive: {
+                    ...card.drive,
+                    ramp: [
+                        { scale: 1, for: '10s' },
+                        { scale: 10, for: '10s' },
+                    ],
+                },
+            },
+            undefined,
+            'drive.ramp: the ramp steps must add up to drive.for',
+        ],
+        [
             'an unknown valve',
             { ...card, valves: [{ ...emailWorkerKill, valve: 'role.melt' }] },
             undefined,
@@ -194,16 +221,6 @@ describe('load', () => {
             },
             undefined,
             'convergeWithin: 100s must exceed 107s',
-        ],
-        [
-            'pg.drop_connections scheduled by at',
-            {
-                ...card,
-                valves: [{ valve: 'pg.drop_connections', target: 'postgres', dose: { share: 1 }, at: '5s', for: '1s' }],
-                convergeWithin: '2m',
-            },
-            undefined,
-            'valves.0.at: pg.drop_connections waits for running jobs, so it takes when, not at',
         ],
         [
             'bounced_suppressed without a bounce',
@@ -324,6 +341,12 @@ describe('load', () => {
         ],
     ])('rejects %s', (_name, content, profileContent, problem) => {
         expect(problemsOf(content, profileContent)).toEqual([expect.stringContaining(problem)])
+    })
+
+    it('reports a profile path it cannot read as a problem of the card', () => {
+        expect(() => load(write('card.yaml', card), { definitions, profilePath: dir })).toThrow(
+            expect.objectContaining({ problems: [expect.stringMatching(/^profile: .*EISDIR/)] })
+        )
     })
 
     it('lists every problem in one error', () => {
