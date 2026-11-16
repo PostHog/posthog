@@ -103,9 +103,14 @@ def bounded_labels(labels: dict[str, str], *, first: Sequence[str] = ()) -> dict
     The names in `first` are kept before the rest, so a label routing reads survives the cut. The
     grouping key is derived from the full values, so a cut label never merges two groups.
     """
-    ordered = [name for name in dict.fromkeys(first) if name in labels]
-    ordered += [name for name in labels if name not in ordered]
-    return {_bounded_label(name): _bounded_label(labels[name]) for name in ordered[:MAX_GROUP_LABELS]}
+    kept = [name for name in dict.fromkeys(first) if name in labels][:MAX_GROUP_LABELS]
+    chosen = set(kept)
+    for name in labels:
+        if len(kept) == MAX_GROUP_LABELS:
+            break
+        if name not in chosen:
+            kept.append(name)
+    return {_bounded_label(name): _bounded_label(labels[name]) for name in kept}
 
 
 # One delivery activity sends every message it holds, to every destination, inside its timeout. An
