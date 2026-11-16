@@ -19,7 +19,7 @@ from django_filters.rest_framework import DjangoFilterBackend
 from drf_spectacular.utils import OpenApiParameter, extend_schema
 from opentelemetry import trace
 from rest_framework import exceptions, serializers, status, viewsets
-from rest_framework.exceptions import ErrorDetail, PermissionDenied
+from rest_framework.exceptions import PermissionDenied
 from rest_framework.request import Request
 from rest_framework.response import Response
 from rest_framework.serializers import BaseSerializer
@@ -385,12 +385,12 @@ class HogFunctionMaskingSerializer(serializers.Serializer):
     def validate(self, attrs):
         # A PATCH makes nested serializers partial too, and masking is always stored as a whole object.
         missing = {
-            name: [ErrorDetail(field.error_messages["required"], code="required")]
+            name: [field.error_messages["required"]]
             for name, field in self.fields.items()
             if field.required and name not in attrs
         }
         if missing:
-            raise serializers.ValidationError(missing)
+            raise serializers.ValidationError(missing, code="required")
 
         attrs["bytecode"] = generate_template_bytecode(attrs["hash"], input_collector=set())
 
