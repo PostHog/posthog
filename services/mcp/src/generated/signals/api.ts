@@ -248,6 +248,7 @@ export const SignalsAnomaliesSearchRetrieveParams = () => zod.object({
 export const signalsAnomaliesSearchRetrieveQueryDateFromDefault = `-7d`
 
 export const signalsAnomaliesSearchRetrieveQueryGroupByDefault = `series`
+export const signalsAnomaliesSearchRetrieveQueryIncludePointsDefault = false
 export const signalsAnomaliesSearchRetrieveQueryLimitDefault = 25
 export const signalsAnomaliesSearchRetrieveQueryLimitMax = 100
 
@@ -276,6 +277,12 @@ export const SignalsAnomaliesSearchRetrieveQueryParams = () => zod.object({
         .default(signalsAnomaliesSearchRetrieveQueryGroupByDefault)
         .describe(
             '`series` returns one row per series in `series`. `insight` returns one row per insight in `insights`.\n\n\* `series` - Series\n\* `insight` - Insight'
+        ),
+    include_points: zod
+        .boolean()
+        .default(signalsAnomaliesSearchRetrieveQueryIncludePointsDefault)
+        .describe(
+            'Add `points` to each series row: its newest 400 scored buckets in the range, oldest first. Costs one more query. Has no effect with `group_by: insight`.'
         ),
     insight_id: zod.number().optional().describe('Only the series of this insight, by numeric id.'),
     interval: zod

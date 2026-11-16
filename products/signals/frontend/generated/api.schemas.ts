@@ -649,6 +649,18 @@ export interface AnomalyFlaggedPointApi {
     score: number | null
 }
 
+export interface AnomalySeriesPointApi {
+    /** The start of the scored bucket, in the project timezone. */
+    bucket_start: string
+    /**
+     * The series value of the bucket at scoring time.
+     * @nullable
+     */
+    value: number | null
+    /** Whether the detector flagged the bucket. */
+    flag: boolean
+}
+
 export interface AnomalySeriesApi {
     /** The numeric id of the insight. */
     insight_id: number
@@ -716,6 +728,8 @@ export interface AnomalySeriesApi {
     last_flagged_bucket: string | null
     /** Up to 5 flagged buckets in the range, newest first. */
     flagged_points: AnomalyFlaggedPointApi[]
+    /** Only with `include_points`. The newest 400 scored buckets of the series in the range, oldest first. A bucket that was not scored, or only has a warm-up row, has no point: it is unknown, not 0. Fewer points than `scored_buckets` means the cap left older buckets out. */
+    points?: AnomalySeriesPointApi[]
 }
 
 export interface AnomalyTopSeriesApi {
@@ -12608,6 +12622,10 @@ export type SignalsAnomaliesSearchRetrieveParams = {
      * @minLength 1
      */
     group_by?: SignalsAnomaliesSearchRetrieveGroupBy
+    /**
+     * Add `points` to each series row: its newest 400 scored buckets in the range, oldest first. Costs one more query. Has no effect with `group_by: insight`.
+     */
+    include_points?: boolean
     /**
      * Only the series of this insight, by numeric id.
      */

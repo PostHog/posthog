@@ -16402,6 +16402,18 @@ export namespace Schemas {
       Recent: 'recent',
     } as const;
 
+    export interface AnomalySeriesPoint {
+      /** The start of the scored bucket, in the project timezone. */
+      bucket_start: string;
+      /**
+         * The series value of the bucket at scoring time.
+         * @nullable
+         */
+      value: number | null;
+      /** Whether the detector flagged the bucket. */
+      flag: boolean;
+    }
+
     export interface AnomalySeries {
       /** The numeric id of the insight. */
       insight_id: number;
@@ -16469,6 +16481,8 @@ export namespace Schemas {
       last_flagged_bucket: string | null;
       /** Up to 5 flagged buckets in the range, newest first. */
       flagged_points: AnomalyFlaggedPoint[];
+      /** Only with `include_points`. The newest 400 scored buckets of the series in the range, oldest first. A bucket that was not scored, or only has a warm-up row, has no point: it is unknown, not 0. Fewer points than `scored_buckets` means the cap left older buckets out. */
+      points?: AnomalySeriesPoint[];
     }
 
     export interface AnomalySearchResponse {
@@ -145176,6 +145190,10 @@ export namespace Schemas {
      * @minLength 1
      */
     group_by?: SignalsAnomaliesSearchRetrieveGroupBy;
+    /**
+     * Add `points` to each series row: its newest 400 scored buckets in the range, oldest first. Costs one more query. Has no effect with `group_by: insight`.
+     */
+    include_points?: boolean;
     /**
      * Only the series of this insight, by numeric id.
      */
