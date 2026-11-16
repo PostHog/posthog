@@ -305,6 +305,8 @@ describe('cohortEditLogic', () => {
             await expectLogic(logic, () => {
                 logic.actions.switchRealtime(true)
             })
+                // Turning one cohort on can turn on several, and the usage line reads the team.
+                .toDispatchActions(['switchRealtimeSuccess', teamLogic.actionTypes.refreshCurrentTeam])
                 .toFinishAllListeners()
                 .toMatchValues({
                     cohort: partial({
@@ -316,6 +318,25 @@ describe('cohortEditLogic', () => {
                 })
             expect(criteriaGroupKeys()).toEqual(keysBeforeTurnOn)
         })
+
+        it.each([
+            // A cohort that is on holds a slot of the plan's limit, so it has to be possible to free it.
+            { state: 'is on', realtimeEnabled: true, expected: 'turn_off' },
+            { state: 'is off', realtimeEnabled: false, expected: null },
+        ])(
+            'offers $expected for a person property cohort that $state, outside the workflows rollout',
+            async ({ realtimeEnabled, expected }) => {
+                await initCohortLogic({ id: 1 })
+                await expectLogic(logic, () => {
+                    logic.actions.setCohort({
+                        ...mockCohort,
+                        cohort_type: 'realtime',
+                        realtime_enabled: realtimeEnabled,
+                        realtime: { ...readyRealtime, state: 'person_properties', ready_at: null },
+                    })
+                }).toMatchValues({ realtimeSwitchAction: expected })
+            }
+        )
 
         it('drops a readiness the save it crossed has already replaced', async () => {
             // A poll in flight answers for the definition before the save, so letting it land would

@@ -2959,6 +2959,21 @@ export interface TeamRealtimeCohortsApi {
      * * `off` - Off
      * * `serving` - Serving */
     access: RealtimeCohortsAccessEnumApi
+    /**
+     * How many cohorts in this project have realtime on. Null when `access` is `off`.
+     * @nullable
+     */
+    cohorts_used: number | null
+    /**
+     * How many cohorts in this project the plan allows to have realtime on. Null when `access` is `off`, or when the plan sets no limit.
+     * @nullable
+     */
+    max_cohorts: number | null
+    /**
+     * How many days back the criteria of a realtime cohort can look on the plan. Null when `access` is `off`.
+     * @nullable
+     */
+    max_history_days: number | null
 }
 
 export type FlagEvaluationsModeEnumApi = (typeof FlagEvaluationsModeEnumApi)[keyof typeof FlagEvaluationsModeEnumApi]

@@ -46,6 +46,11 @@ from posthog.user_permissions import UserPermissionsSerializerMixin
 from posthog.utils import get_instance_region, get_ip_address, get_week_start_for_country_code
 
 from products.access_control.backend.presentation.access_control import UserAccessControlSerializerMixin
+from products.cohorts.backend.realtime_limits import (
+    max_realtime_cohorts,
+    max_realtime_history_days,
+    realtime_cohorts_used,
+)
 from products.dashboards.backend.models import Dashboard
 from products.feature_flags.backend.facade.enums import FlagEvaluationsMode
 from products.feature_flags.backend.facade.flags import get_flag_evaluations_read_mode
@@ -96,11 +101,36 @@ class TeamRealtimeCohortsSerializer(serializers.Serializer):
         help_text="`serving` when the request's user sees realtime cohorts in this project: whether feature flags "
         "can target each cohort, and the control to turn realtime on and off for it. `off` otherwise.",
     )
+    cohorts_used = serializers.IntegerField(
+        allow_null=True,
+        help_text="How many cohorts in this project have realtime on. Null when `access` is `off`.",
+    )
+    max_cohorts = serializers.IntegerField(
+        allow_null=True,
+        help_text="How many cohorts in this project the plan allows to have realtime on. Null when `access` is `off`, "
+        "or when the plan sets no limit.",
+    )
+    max_history_days = serializers.IntegerField(
+        allow_null=True,
+        help_text="How many days back the criteria of a realtime cohort can look on the plan. Null when `access` is "
+        "`off`.",
+    )
 
 
-def realtime_cohorts_for_request(request: Request | None, team: Team) -> dict[str, str]:
-    serving = is_realtime_cohort_flag_targeting_enabled(request, team=team, only_evaluate_locally=True)
-    return {"access": RealtimeCohortsAccess.SERVING if serving else RealtimeCohortsAccess.OFF}
+def realtime_cohorts_for_request(request: Request | None, team: Team) -> dict[str, str | int | None]:
+    if not is_realtime_cohort_flag_targeting_enabled(request, team=team, only_evaluate_locally=True):
+        return {
+            "access": RealtimeCohortsAccess.OFF,
+            "cohorts_used": None,
+            "max_cohorts": None,
+            "max_history_days": None,
+        }
+    return {
+        "access": RealtimeCohortsAccess.SERVING,
+        "cohorts_used": realtime_cohorts_used(team.parent_team_id or team.id),
+        "max_cohorts": max_realtime_cohorts(team.organization),
+        "max_history_days": max_realtime_history_days(team.organization),
+    }
 
 
 REALTIME_COHORTS_FIELD_SCHEMA = TeamRealtimeCohortsSerializer(
@@ -294,7 +324,7 @@ class TeamSerializer(serializers.ModelSerializer, UserPermissionsSerializerMixin
         return get_flag_evaluations_read_mode(obj.organization_id)
 
     @extend_schema_field(REALTIME_COHORTS_FIELD_SCHEMA)
-    def get_realtime_cohorts(self, obj: Team) -> dict[str, str]:
+    def get_realtime_cohorts(self, obj: Team) -> dict[str, str | int | None]:
         return realtime_cohorts_for_request(self.context.get("request"), obj)
 
     @extend_schema_field(

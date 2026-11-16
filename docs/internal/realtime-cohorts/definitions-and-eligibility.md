@@ -105,9 +105,32 @@ A backfill for it in the meantime, such as a disaster-recovery run, is truncated
 A resave through `resave_cohorts` or team enablement rechecks every cohort, so it does take such a cohort off realtime.
 Keep `REALTIME_COHORT_MAX_HISTORY_DAYS` at or below the seeder's `SEEDER_MAX_LOOKBACK_DAYS`.
 
+`REALTIME_COHORT_MAX_HISTORY_DAYS` is the pipeline's own cap, and it is the same for every plan.
+The plan's history limit is a separate and lower limit, and it never changes `cohort_type` ([plan limits](#plan-limits)).
+
 The rule reads the criteria, plus the team's current day for the history limit.
 No team allowlist or rollout flag is involved, so any project can hold `realtime` cohorts, and the Rust services choose which teams they actually process.
 The rule also checks no composition, which matters later on this page.
+
+### Plan limits
+
+Two billing features limit what a project can have on.
+`products/cohorts/backend/realtime_limits.py` reads them from the organization's `available_product_features`.
+
+| Feature                    | Limit                                                | Without the feature |
+| -------------------------- | ---------------------------------------------------- | ------------------- |
+| `realtime_cohorts`         | Cohorts per project with realtime on                 | 10                  |
+| `realtime_cohorts_history` | Days back the criteria of a realtime cohort can look | 30                  |
+
+A feature with a null limit sets no limit.
+The history limit is never above `REALTIME_COHORT_MAX_HISTORY_DAYS`, also when the plan sets none.
+A cohort holds a slot while the pipeline loads it: it is `realtime`, on, not static and not deleted.
+
+The limits only gate turning realtime on.
+`cohort_enablement.py` refuses a turn-on that needs more slots than are left, or whose criteria look back further than the plan allows.
+The cohort API refuses the same for a criteria edit of a cohort that is on, before it saves, when the request's user sees realtime cohorts.
+A cohort that is on keeps running when the plan changes or its start date ages past the limit, and a rename that resends the same criteria is not judged again.
+The refusal is a `400` with code `realtime_limit_reached`, and it is captured as the `cohort realtime limit reached` event.
 
 Other writers can take `realtime` away after a save.
 The batch recalculation clears it when a cohort's count grows past the size cap, and a resave management command clears it for some nested references.

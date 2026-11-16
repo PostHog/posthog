@@ -7,7 +7,12 @@ from django.test import override_settings
 
 from parameterized import parameterized
 
-from products.cohorts.backend.cohort_enablement import RealtimeTurnOnRefused, turn_realtime_off, turn_realtime_on
+from products.cohorts.backend.cohort_enablement import (
+    RealtimeLimitReached,
+    RealtimeTurnOnRefused,
+    turn_realtime_off,
+    turn_realtime_on,
+)
 from products.cohorts.backend.models.backfill import (
     CohortBackfillKind,
     CohortBackfillRun,
@@ -64,6 +69,16 @@ class TestCohortEnablement(BaseTest):
             **{"cohort_type": CohortType.REALTIME, **kwargs},
         )
 
+    def _plan(self, features: list[dict] | None) -> None:
+        self.organization.available_product_features = [
+            {"name": feature["key"], **feature} for feature in features or []
+        ]
+        self.organization.save()
+
+    def _turn_on(self, cohort: Cohort) -> list[int]:
+        with mock.patch("posthog.tasks.calculate_cohort.trigger_cohort_backfill_run_task.apply_async"):
+            return turn_realtime_on(self.team.id, cohort.id, can_edit=lambda _: True)
+
     def test_turning_on_a_cohort_turns_on_what_it_nests_and_queues_both_builds(self) -> None:
         nested = self._cohort(PAGEVIEW_LEAF)
         already_on = self._cohort(PAGEVIEW_LEAF)
@@ -114,6 +129,88 @@ class TestCohortEnablement(BaseTest):
             turn_realtime_on(self.team.id, cohort.id, can_edit=lambda _: True)
 
         assert not Cohort.objects.filter(team=self.team, realtime_enabled_at__isnull=False).exists()
+
+    @parameterized.expand(
+        [
+            ("free_plan_at_its_limit", None, 10, 0, ("cohorts", 10, 10)),
+            ("free_plan_below_its_limit", None, 9, 0, 1),
+            (
+                "an_included_cohort_needs_a_slot_too",
+                [{"key": "realtime_cohorts", "limit": 12}],
+                10,
+                2,
+                ("cohorts", 12, 10),
+            ),
+            ("room_for_it_and_what_it_includes", [{"key": "realtime_cohorts", "limit": 13}], 10, 2, 3),
+            ("no_limit", [{"key": "realtime_cohorts", "limit": None}], 10, 2, 3),
+        ]
+    )
+    def test_a_turn_on_needs_a_slot_for_each_cohort_it_turns_on(
+        self, _name: str, features: list[dict] | None, already_on: int, included_off: int, expected: tuple | int
+    ) -> None:
+        self._plan(features)
+        for _ in range(already_on):
+            self._cohort(PAGEVIEW_LEAF, realtime_enabled_at=STAMPED_AT)
+        included = [
+            {"type": "cohort", "key": "id", "value": self._cohort(PAGEVIEW_LEAF).id} for _ in range(included_off)
+        ]
+        cohort = self._cohort(PAGEVIEW_LEAF, *included)
+
+        try:
+            outcome: tuple | int = len(self._turn_on(cohort))
+        except RealtimeLimitReached as error:
+            outcome = (error.limit, error.allowed, error.used)
+
+        assert outcome == expected
+        if isinstance(expected, tuple):
+            assert Cohort.objects.filter(team=self.team, realtime_enabled_at__isnull=False).count() == already_on
+
+    @parameterized.expand(
+        [("deleted", {"deleted": True}), ("static", {"is_static": True}), ("daily", {"cohort_type": None})]
+    )
+    def test_a_cohort_the_pipeline_does_not_load_holds_no_slot(self, _name: str, kwargs: dict) -> None:
+        for _ in range(9):
+            self._cohort(PAGEVIEW_LEAF, realtime_enabled_at=STAMPED_AT)
+        self._cohort(PAGEVIEW_LEAF, realtime_enabled_at=STAMPED_AT, **kwargs)
+
+        assert len(self._turn_on(self._cohort(PAGEVIEW_LEAF))) == 1
+
+    @parameterized.expand(
+        [
+            ("free_plan", None, 31, ("history_days", 30)),
+            ("free_plan_at_its_limit", None, 30, None),
+            ("paid_plan", [{"key": "realtime_cohorts_history", "limit": 365}], 365, None),
+            ("past_the_paid_plan", [{"key": "realtime_cohorts_history", "limit": 365}], 366, ("history_days", 365)),
+            ("no_limit_up_to_the_pipeline_cap", [{"key": "realtime_cohorts_history", "limit": None}], 400, None),
+            (
+                "plan_above_the_pipeline_cap",
+                [{"key": "realtime_cohorts_history", "limit": 500}],
+                401,
+                ("history_days", 400),
+            ),
+            (
+                "no_limit_past_the_pipeline_cap",
+                [{"key": "realtime_cohorts_history", "limit": None}],
+                401,
+                ("history_days", 400),
+            ),
+        ]
+    )
+    def test_a_turn_on_is_refused_when_the_criteria_look_back_further_than_the_plan_allows(
+        self, _name: str, features: list[dict] | None, days: int, refusal: tuple[str, int] | None
+    ) -> None:
+        self._plan(features)
+        nested = self._cohort({**PAGEVIEW_LEAF, "time_value": days})
+        cohort = self._cohort(PERSON_LEAF, {"type": "cohort", "key": "id", "value": nested.id})
+
+        try:
+            self._turn_on(cohort)
+            outcome = None
+        except RealtimeLimitReached as error:
+            outcome = (error.limit, error.allowed)
+
+        assert outcome == refusal
+        assert Cohort.objects.filter(team=self.team, realtime_enabled_at__isnull=False).count() == (0 if refusal else 2)
 
     @override_settings(FLAGS_REDIS_URL="redis://localhost:6379/0")
     def test_turning_off_clears_the_stamps_supersedes_the_build_and_rebuilds_the_flags_cache(self) -> None:

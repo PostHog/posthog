@@ -1056,7 +1056,7 @@ class ProjectBackwardCompatSerializer(
         return get_flag_evaluations_read_mode(obj.organization_id)
 
     @extend_schema_field(REALTIME_COHORTS_FIELD_SCHEMA)
-    def get_realtime_cohorts(self, obj: Project) -> dict[str, str]:
+    def get_realtime_cohorts(self, obj: Project) -> dict[str, str | int | None]:
         return realtime_cohorts_for_request(self.context.get("request"), obj.passthrough_team)
 
     @staticmethod
