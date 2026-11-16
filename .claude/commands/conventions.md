@@ -82,6 +82,7 @@ Hence the explicit separation between the data and view layers.
   - [react testing library](https://testing-library.com/docs/react-testing-library/intro/) tests are particularly useful for components with complex interactions or to guide future humans or agents when they're changing components without full context of the uses and edge cases
   - Add all new presentational elements and scenes to [our storybook](https://storybook.posthog.net/). Run `pnpm storybook` locally.
   - In web Storybook play functions, import `within` and `waitFor` from `@testing-library/dom`. The preview configures their async timeout; `storybook/test` uses a separate default.
+  - CI verifies new and changed story files before the required visual-regression check passes. A separate advisory job checks unchanged stories affected by the PR and reports instability without delaying that required check. See [Snapshots and visual review](https://github.com/PostHog/posthog/blob/master/common/storybook/docs/snapshots.md#baselines-and-visual-review) for the repeat counts and limits.
   - A story must render the same picture on every run. Read [Deterministic stories](../../docs/published/handbook/engineering/conventions/frontend-coding.md#deterministic-stories) when a story flakes or before you write one that loads data, measures itself, or uses timers.
 
 ---

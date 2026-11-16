@@ -995,11 +995,10 @@ jobs:
     flake-verification:
         name: Storybook flake verification
         runs-on: ubuntu-24.04
-        needs: [changes, build-storybook, select-stories]
+        needs: [changes, build-storybook]
         # Skipped on trunk-merge/**: the job diffs against the merge base to find changed stories,
         # which on a queue branch is the same set the PR's own run already verified.
-        # `!cancelled()` keeps the job running when select-stories is skipped (run-ci-frontend
-        # label) or fails. The affected list is then empty and only changed story files run.
+        # Changed files come from git, so this job can start before story selection finishes.
         if: |
             !cancelled()
             && needs.build-storybook.result == 'success'
@@ -1095,7 +1094,8 @@ jobs:
                   REPO: ${{ github.repository }}
                   BASE_SHA: ${{ github.event.pull_request.base.sha }}
                   HEAD_SHA: ${{ github.event.pull_request.head.sha }}
-                  AFFECTED_FILES_JSON: ${{ needs.select-stories.outputs.affected_files_json || '[]' }}
+                  # Empty even on old PR heads: their verifier then runs changed stories only.
+                  AFFECTED_FILES_JSON: '[]'
               # The merge base comes from the API because the depth-1 checkout cannot compute it.
               # It is resolved here, not in the script, because unrebased branches keep their old script.
               run: |
@@ -1121,6 +1121,163 @@ jobs:
               with:
                   name: flake-verification-diffs
                   path: |
+                      frontend/__snapshots__/__diff_output__/
+                      frontend/__snapshots__/__failures__/
+                  if-no-files-found: ignore
+                  retention-days: 5
+
+    affected-story-flakes:
+        name: Storybook affected-story flake report
+        continue-on-error: true
+        runs-on: ubuntu-24.04
+        needs: [changes, build-storybook, select-stories]
+        # This check only reports existing-story instability. Keep it independent of the
+        # required gate so its bounded investigation cannot delay a verified change.
+        if: |
+            !cancelled()
+            && needs.build-storybook.result == 'success'
+            && needs.changes.outputs.frontend == 'true'
+            && github.event_name == 'pull_request'
+            && needs.changes.outputs.merge_queue != 'true'
+            && needs.select-stories.outputs.affected_files_json != ''
+            && needs.select-stories.outputs.affected_files_json != '[]'
+        timeout-minutes: 25
+        container:
+            image: ghcr.io/posthog/playwright:v1.60.0@sha256:83192064c7510f7ee73dd63dc5f22a5e01a92c81a2e6a9c715d9e3fe55471fd9
+        env:
+            NODE_OPTIONS: --max-old-space-size=16384
+            OPT_OUT_CAPTURE: 1
+        steps:
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  ref: ${{ github.event.pull_request.head.sha }}
+                  repository: ${{ github.event.pull_request.head.repo.full_name }}
+
+            # A PR head can predate the affected-only mode. Read the verifier from the base
+            # branch so it stays compatible with the workflow running against that base.
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  ref: ${{ github.event.pull_request.base.ref }}
+                  repository: ${{ github.event.pull_request.base.repo.full_name }}
+                  path: flake-tools
+                  sparse-checkout: .github/scripts/verify-storybook-new-stories.sh
+                  sparse-checkout-cone-mode: false
+
+            - name: Install pnpm
+              uses: pnpm/action-setup@0e279bb959325dab635dd2c09392533439d90093 # v6.0.8
+
+            - name: Fix node-gyp permissions
+              run: find ~/setup-pnpm -name gyp_main.py -exec chmod +x {} +
+
+            - name: Mint setup-action GitHub token
+              id: setup-gh-token
+              if: github.event_name != 'pull_request' || github.event.pull_request.head.repo.full_name == github.repository
+              continue-on-error: true
+              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+              with:
+                  client-id: ${{ vars.GH_APP_POSTHOG_SETUP_ACTIONS_APP_ID }}
+                  private-key: ${{ secrets.GH_APP_POSTHOG_SETUP_ACTIONS_PRIVATE_KEY }}
+                  skip-token-revoke: true
+
+            - name: Set up Node.js
+              uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
+              with:
+                  node-version-file: .nvmrc
+                  token: ${{ steps.setup-gh-token.outputs.token || github.token }}
+
+            - name: Get pnpm store path
+              id: pnpm-store
+              run: echo "path=$(pnpm store path --silent)" >> $GITHUB_OUTPUT
+
+            - name: Restore pnpm cache
+              uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+              with:
+                  path: ${{ steps.pnpm-store.outputs.path }}
+                  key: pnpm-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml') }}
+                  restore-keys: pnpm-${{ runner.os }}-
+
+            - name: Get pnpm cache path
+              id: pnpm-cache
+              run: |
+                  if cache_path=$(pnpm cache path --silent 2>/dev/null); then
+                      case "$cache_path" in
+                          /*)
+                              if [ "$(printf '%s\n' "$cache_path" | wc -l)" -eq 1 ]; then
+                                  printf 'path=%s\n' "$cache_path" >> "$GITHUB_OUTPUT"
+                              fi
+                              ;;
+                      esac
+                  fi
+
+            - name: Restore pnpm lockfile verdict
+              id: pnpm-verdict
+              if: steps.pnpm-cache.outputs.path != ''
+              uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+              with:
+                  path: ${{ steps.pnpm-cache.outputs.path }}/lockfile-verified.jsonl
+                  key: pnpm-verdict-${{ runner.os }}-${{ hashFiles('pnpm-lock.yaml', 'pnpm-workspace.yaml', 'package.json') }}
+
+            - name: Install dependencies
+              run: pnpm --filter=@posthog/storybook... install --frozen-lockfile
+
+            - name: Download Storybook build artifact
+              uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+              with:
+                  name: storybook-build
+                  path: common/storybook/dist
+
+            - name: Serve Storybook
+              # Resolve http-server/wait-on from common/storybook's devDependencies (no global install).
+              run: |
+                  pnpm --filter=@posthog/storybook exec http-server dist --port 6006 --silent &
+                  pnpm --filter=@posthog/storybook exec wait-on http://127.0.0.1:6006 --timeout 30000
+
+            - name: Check affected stories for instability
+              id: flake-verify
+              env:
+                  HOME: /root
+                  STORYBOOK_VERIFY_PHASE: affected
+                  GH_TOKEN: ${{ github.token }}
+                  REPO: ${{ github.repository }}
+                  BASE_SHA: ${{ github.event.pull_request.base.sha }}
+                  HEAD_SHA: ${{ github.event.pull_request.head.sha }}
+                  AFFECTED_FILES_JSON: ${{ needs.select-stories.outputs.affected_files_json || '[]' }}
+              # The depth-1 checkout needs the API to resolve the merge base.
+              run: |
+                  git config --global --add safe.directory '*'
+                  skip() {
+                      echo "::warning::$1, so flake verification is skipped."
+                      exit 0
+                  }
+                  curl -fsS --retry 3 --connect-timeout 10 -o "$RUNNER_TEMP/compare.json" \
+                      -H "Authorization: Bearer $GH_TOKEN" -H 'Accept: application/vnd.github+json' \
+                      "https://api.github.com/repos/$REPO/compare/$BASE_SHA...$HEAD_SHA?per_page=1" \
+                      || skip "The GitHub API did not return the merge base of $BASE_SHA and $HEAD_SHA"
+                  MERGE_BASE=$(node -e 'process.stdout.write(require(process.argv[1]).merge_base_commit?.sha ?? "")' "$RUNNER_TEMP/compare.json") || MERGE_BASE=""
+                  [ -n "$MERGE_BASE" ] || skip "The compare response has no merge base for $BASE_SHA and $HEAD_SHA"
+                  git fetch --no-tags --depth=1 "https://github.com/$REPO" "$MERGE_BASE" \
+                      || skip "Could not fetch merge base $MERGE_BASE"
+                  echo "Diffing from merge base $MERGE_BASE (PR base is $BASE_SHA)"
+                  verifier=flake-tools/.github/scripts/verify-storybook-new-stories.sh
+                  if ! grep -q 'STORYBOOK_VERIFY_PHASE' "$verifier"; then
+                      echo "Affected-story flake check unavailable until its verifier lands on the base branch." >> "$GITHUB_STEP_SUMMARY"
+                      skip "The base branch verifier does not support the advisory phase yet"
+                  fi
+                  "$verifier" "$MERGE_BASE" 3
+
+            - name: Report incomplete advisory check
+              if: failure()
+              run: |
+                  echo "::warning::The affected-story flake check did not finish. Inspect this job's failed step and retry it."
+                  echo "Affected-story flake check incomplete. Inspect this job's failed step and retry it." >> "$GITHUB_STEP_SUMMARY"
+
+            - name: Upload affected-story flake evidence
+              if: ${{ !cancelled() }}
+              uses: actions/upload-artifact@b7c566a772e6b6bfb58ed0dc250532a479d7789f # v6.0.0
+              with:
+                  name: affected-story-flake-evidence
+                  path: |
+                      /tmp/storybook-verify-affected-run-*.log
                       frontend/__snapshots__/__diff_output__/
                       frontend/__snapshots__/__failures__/
                   if-no-files-found: ignore

@@ -144,6 +144,9 @@ Keep chart containers at a fixed size in stories, and avoid content around the c
 Look at both pictures before you change anything.
 The Flakiness tab in visual review lists the stories that flaked on the default branch, and each run shows the baseline and the variant image.
 The diff region usually names the cause: a strip at the bottom is a height race, an empty chart is a canvas reset, a shifted block is a width race, a skeleton is a late load.
+
+CI verifies new and changed story files before the required visual-regression check passes. A separate advisory job checks unchanged stories affected by the PR and reports instability without delaying that required check. See [Snapshots and visual review](https://github.com/PostHog/posthog/blob/master/common/storybook/docs/snapshots.md#baselines-and-visual-review) for the repeat counts and limits.
+
 Some "flakes" are a stale or wrong baseline. Compare the variant with the git history of `frontend/snapshots.yml` before you change the story.
 
 > Sync note: This file is also copied to posthog/posthog/.claude/commands/conventions.md for Claude Code. When updating this file, please also update the copy there.

@@ -593,6 +593,55 @@ const namedJobs = (file: string): Set<string> =>
 
 describe('CI workflow run plans', () => {
     it.each([
+        ['advisory failure', pullRequest(), false, '["frontend/src/example.stories.tsx"]', true, true],
+        ['ready PR', pullRequest(), false, '["frontend/src/example.stories.tsx"]', true, true],
+        ['fork PR', pullRequest({ fork: true }), false, '["frontend/src/example.stories.tsx"]', true, true],
+        ['empty selection', pullRequest(), false, '[]', true, false],
+        ['forced full PR', pullRequest({ labels: ['run-ci-frontend'] }), false, '[]', true, false],
+        ['merge queue', mergeQueue(), false, '[]', false, false],
+        ['master push', push(), false, '[]', false, false],
+        ['nightly', schedule(), false, '[]', false, false],
+        ['cancelled PR', pullRequest(), true, '["frontend/src/example.stories.tsx"]', false, false],
+    ] as const)('Storybook verification phases (%s)', (name, github, cancelled, affected, blocking, advisory) => {
+        const file = workflow('ci-storybook.yml')
+        const plan = planWorkflow(file, {
+            name,
+            github,
+            cancelled,
+            steps: {
+                ...allFiltersChanged(file),
+                changes: {
+                    ...allFiltersChanged(file).changes,
+                    filter: { outputs: { frontend: 'true', frontend_count: '2', frontend_generated_count: '0' } },
+                    exclude: { outputs: { outside_node_product_workspaces: 'true' } },
+                },
+                'affected-story-flakes': {
+                    'flake-verify': { outcome: name === 'advisory failure' ? 'failure' : 'success' },
+                },
+                'select-stories': {
+                    classify: {
+                        outputs: {
+                            affected_files_json: affected,
+                            mode: 'selective',
+                            should_run: 'true',
+                            matrix: '{"include":[{"browser":"chromium","shard":1,"shard_count":1}]}',
+                        },
+                    },
+                },
+            },
+        })
+        expect(plan.errors).toEqual([])
+        expect(runningJobs(plan).includes('flake-verification')).toBe(blocking)
+        expect(runningJobs(plan).includes('affected-story-flakes')).toBe(advisory)
+        expect(file.jobs.visual_regression_tests?.needs).not.toContain('affected-story-flakes')
+        expect(file.jobs.visual_regression_tests?.needs).toContain('flake-verification')
+        if (name === 'advisory failure') {
+            expect(plan.jobs['affected-story-flakes']?.outcome).toBe('failure')
+            expect(plan.jobs.visual_regression_tests?.result).toBe('success')
+        }
+    })
+
+    it.each([
         ['MCP-only PR', pullRequest(), 'false', 'false', '2', 2, 'success', false],
         ['MCP-only fork PR', pullRequest({ fork: true }), 'false', 'false', '2', 2, 'success', false],
         ['Rust CLI change', pullRequest(), 'true', 'false', '2', 2, 'success', true],

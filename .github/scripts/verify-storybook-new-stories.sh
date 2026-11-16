@@ -16,6 +16,9 @@ set -euo pipefail
 # files run twice in chromium and only warn, because a story that was already unstable
 # on master would otherwise block an unrelated PR.
 #
+# STORYBOOK_VERIFY_PHASE=affected runs only the advisory phase, in its own CI job.
+# The default keeps both phases for local callers.
+#
 # Example:
 #   .github/scripts/verify-storybook-new-stories.sh "$(git merge-base origin/master HEAD)" 3
 
@@ -26,6 +29,11 @@ fi
 
 BASE_SHA="$1"
 REPEAT_COUNT="${2:-3}"
+VERIFY_PHASE="${STORYBOOK_VERIFY_PHASE:-all}"
+case "$VERIFY_PHASE" in
+    all | affected) ;;
+    *) echo "Error: STORYBOOK_VERIFY_PHASE must be all or affected" >&2; exit 1 ;;
+esac
 # Bound the warn-only phase so it fits the job time budget next to the blocking phase.
 MAX_AFFECTED_FILES=10
 AFFECTED_PHASE_SECONDS=900
@@ -139,7 +147,7 @@ run_stories() {
 
 declare -a failed_runs=()
 
-if [ ${#stories_to_verify[@]} -gt 0 ]; then
+if [ "$VERIFY_PHASE" != affected ] && [ ${#stories_to_verify[@]} -gt 0 ]; then
     # Scale repeats down for large story sets so the job fits its time budget
     # (runs are sequential with --maxWorkers=1). Small PRs keep full verification;
     # mass refactors degrade to fewer passes instead of timing out.
@@ -207,6 +215,11 @@ if [ ${#affected_to_check[@]} -gt 0 ]; then
             fi
         fi
     fi
+    if [ "$affected_status" -ne 0 ]; then
+        echo "Affected-story flake check did not complete cleanly (exit $affected_status). See the affected-run logs." >> "${GITHUB_STEP_SUMMARY:-/dev/null}"
+    else
+        echo "Affected-story flake check passed for ${#affected_to_check[@]} files." >> "${GITHUB_STEP_SUMMARY:-/dev/null}"
+    fi
     if [ "$affected_status" -eq 124 ]; then
         echo "::notice title=Affected stories not fully checked::The check of unchanged affected stories stopped at its ${AFFECTED_PHASE_SECONDS}s budget."
     fi
@@ -217,4 +230,8 @@ if [ "${#failed_runs[@]}" -gt 0 ]; then
     exit 1
 fi
 
-echo "Flake verification passed"
+if [ "$VERIFY_PHASE" = affected ]; then
+    echo "Affected-story flake check finished (advisory)."
+else
+    echo "Flake verification passed"
+fi
