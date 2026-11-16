@@ -40,10 +40,10 @@ def _jwks() -> dict:
 
 
 class _CacheHeaderlessResponse:
-    """Stands in for the requests.Response the CIMD fetch returns, which is read only for
-    cache headers."""
+    """Stands in for the requests.Response the CIMD fetch returns, which is read only for its
+    headers."""
 
-    headers: dict[str, str] = {}
+    headers: dict[str, str] = {"Content-Type": "application/json"}
 
 
 @override_settings(SITE_URL="https://us.posthog.com")

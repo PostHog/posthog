@@ -114,7 +114,7 @@ def _mock_response(metadata: dict | None = None, status_code: int = 200, headers
 
     resp = MagicMock()
     resp.status_code = status_code
-    resp.headers = headers or {}
+    resp.headers = {"Content-Type": "application/json", **(headers or {})}
     resp.is_redirect = status_code in (301, 302, 303, 307, 308)
     resp.is_permanent_redirect = status_code in (301, 308)
     resp.close = MagicMock()
@@ -318,6 +318,29 @@ class TestFetchCimdMetadata(SimpleTestCase):
         with self.assertRaises(CIMDValidationError) as ctx:
             fetch_cimd_metadata(VALID_CIMD_URL)
         self.assertIn("does not match", str(ctx.exception))
+
+    @parameterized.expand(
+        [
+            ("provisioning_as_json", True, "application/json; charset=utf-8", True),
+            ("provisioning_as_html", True, "text/html; charset=utf-8", False),
+            ("provisioning_as_plain_text", True, "text/plain", False),
+            ("provisioning_without_a_type", True, None, False),
+            ("other_client_as_plain_text", False, "text/plain", True),
+        ]
+    )
+    @patch("posthog.api.oauth.cimd.requests.Session.get")
+    def test_a_provisioning_document_must_be_served_as_json(
+        self, _name, provisioning, content_type, accepted, mock_get, _url_mock
+    ):
+        resp = _mock_response(_make_metadata(com_posthog={"provisioning": True} if provisioning else None))
+        resp.headers = {} if content_type is None else {"Content-Type": content_type}
+        mock_get.return_value = resp
+
+        if accepted:
+            fetch_cimd_metadata(VALID_CIMD_URL)
+        else:
+            with self.assertRaisesRegex(CIMDValidationError, "Content-Type: application/json"):
+                fetch_cimd_metadata(VALID_CIMD_URL)
 
     @patch("posthog.api.oauth.cimd.requests.Session.get")
     def test_too_large(self, mock_get, _url_mock):

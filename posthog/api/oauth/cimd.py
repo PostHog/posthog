@@ -334,6 +334,10 @@ THROWAWAY_HOST_MESSAGE = (
     "Host your client metadata document on a domain you control and use that URL as your client_id."
 )
 
+PROVISIONING_CONTENT_TYPE_MESSAGE = (
+    "A metadata document that sets com.posthog.provisioning must be served with Content-Type: application/json."
+)
+
 THROWAWAY_JWKS_HOST_MESSAGE = (
     "PostHog doesn't accept a jwks_uri on this host, because it is not a host you control. "
     "Publish your JWKS on a domain you control and set that URL as jwks_uri in your client metadata."
@@ -601,8 +605,18 @@ def fetch_cimd_metadata(url: str) -> tuple[CIMDMetadataDocument, int]:
     if logo_uri is not None and usable_logo_uri(logo_uri) is None:
         metadata.pop("logo_uri", None)
 
+    # Pads, forges and paste sites serve the text a user typed as HTML or plain text, so a
+    # provisioning document that is not served as JSON is not from a server its client runs.
+    if _cimd_declares_provisioning(metadata) and not _is_json_media_type(response.headers.get("Content-Type")):
+        raise CIMDValidationError(PROVISIONING_CONTENT_TYPE_MESSAGE)
+
     cache_ttl = _parse_cache_ttl(response)
     return metadata, cache_ttl
+
+
+def _is_json_media_type(content_type: str | None) -> bool:
+    media_type = (content_type or "").split(";", 1)[0].strip().lower()
+    return media_type == "application/json" or (media_type.startswith("application/") and media_type.endswith("+json"))
 
 
 def _resolve_verification_token(
