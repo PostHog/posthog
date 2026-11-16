@@ -135,6 +135,7 @@ export type SettingId =
     | 'base-currency'
     | 'bounce-rate-duration'
     | 'bounce-rate-page-view-mode'
+    | 'business-knowledge-connect-agent'
     | 'business-knowledge-github-repos'
     | 'business-knowledge-learn-from-support'
     | 'business-model'
