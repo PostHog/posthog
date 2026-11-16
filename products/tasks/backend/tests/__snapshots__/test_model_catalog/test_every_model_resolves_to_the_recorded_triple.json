@@ -324,6 +324,13 @@
         },
         "moonshotai/kimi-k3": {
           "cost_multiplier": "1.5×",
+          "offered": false,
+          "reasoning_efforts": [],
+          "supports_1m_context": false,
+          "supports_fast_mode": false
+        },
+        "moonshotai/kimi-k3.1-pro": {
+          "cost_multiplier": "1×",
           "offered": true,
           "reasoning_efforts": [],
           "supports_1m_context": false,

@@ -330,9 +330,9 @@ const FALLBACK_GATEWAY_MODELS: GatewayModel[] = [
     supports_vision: false,
   },
   {
-    id: "moonshotai/kimi-k3",
+    id: "moonshotai/kimi-k3.1-pro",
     owned_by: "modal",
-    context_window: 262144,
+    context_window: 1048576,
     supports_vision: false,
   },
   {

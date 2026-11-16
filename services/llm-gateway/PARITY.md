@@ -4,6 +4,15 @@
 
 ⚠️ **Use `services/llm-gateway` temporarily** only when an active caller is blocked by a gap below.
 
+## Pending Kimi K3.1 Pro support
+
+The Kimi K3.1 Pro change targets `PostHog/ai-gateway` and does not change the Python gateway.
+It adds canonical `posthog/moonshotai/kimi-k3.1-pro`, mapped to Gradiated and Modal.
+The existing Gradiated team gate still applies; permitted teams try Gradiated first, with Modal as fallback.
+The PostHog Code catalog replaces K3 in new selections and retains K3 for saved sessions.
+These changes require the gateway code and configured US hosts before the new catalog is usable.
+They are pending and do not change the broader parity assessment below.
+
 ## Migration policy
 
 `services/llm-gateway` is under an unofficial code freeze. Everyone should move to the Go gateway unless they can name a contract it does not support.

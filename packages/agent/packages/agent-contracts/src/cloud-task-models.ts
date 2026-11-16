@@ -188,7 +188,9 @@ export function isCloudflareModel(model: GatewayModel): boolean {
 }
 
 export function isModalModelId(modelId: string): boolean {
-  return modelId === "moonshotai/kimi-k3";
+  return (
+    modelId === "moonshotai/kimi-k3" || modelId === "moonshotai/kimi-k3.1-pro"
+  );
 }
 
 export function isModalModel(model: GatewayModel): boolean {
