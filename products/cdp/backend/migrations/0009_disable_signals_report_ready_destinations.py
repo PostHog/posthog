@@ -1,6 +1,6 @@
 from collections import defaultdict
 
-from django.db import migrations
+from django.db import migrations, transaction
 
 import structlog
 
@@ -41,12 +41,16 @@ def disable_report_ready_destinations(apps, schema_editor):
         return
     from posthog.plugins.plugin_server_api import reload_hog_functions_on_workers  # noqa: PLC0415
 
-    for team_id, hog_function_ids in disabled_by_team.items():
-        try:
-            reload_hog_functions_on_workers(team_id=team_id, hog_function_ids=hog_function_ids)
-        except Exception:
-            # The workers also refresh on their own schedule, so a missed reload only delays the stop.
-            logger.exception("signals_report_ready_destination_reload_failed", team_id=team_id)
+    def reload_disabled() -> None:
+        for team_id, hog_function_ids in disabled_by_team.items():
+            try:
+                reload_hog_functions_on_workers(team_id=team_id, hog_function_ids=hog_function_ids)
+            except Exception:
+                # The workers also refresh on their own schedule, so a missed reload only delays the stop.
+                logger.exception("signals_report_ready_destination_reload_failed", team_id=team_id)
+
+    # A worker that reloads before the migration commits reads the old enabled state and caches it.
+    transaction.on_commit(reload_disabled, using=db_alias)
 
 
 class Migration(migrations.Migration):

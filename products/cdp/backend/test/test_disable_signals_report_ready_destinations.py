@@ -38,9 +38,12 @@ class TestDisableSignalsReportReadyDestinations(BaseTest):
         schema_editor = SimpleNamespace(connection=SimpleNamespace(alias="default"))
 
         with patch("posthog.plugins.plugin_server_api.publish_message") as publish:
-            # Twice, because bin/migrate retries a migration that failed part of the way.
-            MIGRATION.disable_report_ready_destinations(apps, schema_editor)
-            MIGRATION.disable_report_ready_destinations(apps, schema_editor)
+            with self.captureOnCommitCallbacks(execute=True):
+                # Twice, because bin/migrate retries a migration that failed part of the way.
+                MIGRATION.disable_report_ready_destinations(apps, schema_editor)
+                MIGRATION.disable_report_ready_destinations(apps, schema_editor)
+                # A worker told before the commit would read and cache the old enabled state.
+                publish.assert_not_called()
 
         enabled = {name: HogFunction.objects.get(id=row.id).enabled for name, row in rows.items()}
         assert enabled == {
