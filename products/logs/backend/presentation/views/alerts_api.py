@@ -1,5 +1,5 @@
 import datetime as dt
-from collections.abc import Callable, Collection, Sequence
+from collections.abc import Callable, Sequence
 from datetime import UTC, datetime
 from functools import cached_property
 from typing import Any, Final, Literal, TypedDict, cast, overload
@@ -38,12 +38,10 @@ from posthog.queryset_paging import stable_queryset_ordering
 from posthog.utils import relative_date_parse
 
 from products.alerts.backend.facade.destinations import (
-    build_alert_destination_config,
     configured_destination_template_ids,
     create_alert_destination_hog_functions,
     customize_source_destination,
     customized_alert_destination_ids,
-    destination_handles_event_kind,
     destination_template_id,
     list_alert_destination_groups,
     owned_alert_destination_ids,
@@ -63,10 +61,8 @@ from products.alerts_platform.backend.facade.api import (
     runtime_by_public_id,
 )
 from products.alerts_platform.backend.facade.contracts import (
-    AlertDestinationConfig,
     AlertDestinationData,
     AlertDestinationValidationError,
-    AlertEventKind,
     DestinationType,
     Grouping,
     GroupingMode,
@@ -88,12 +84,10 @@ from products.alerts_platform.backend.presentation.views.platform_alert import (
 from products.alerts_platform.backend.presentation.views.schedule_restriction import ScheduleRestrictionField
 from products.logs.backend.alert_check_query import AlertCheckQuery, BucketedCount
 from products.logs.backend.alert_destinations import (
-    EVENT_KIND_CONFIG,
-    EVENT_KINDS,
     LOGS_ALERT_EVENT_IDS,
-    LOGS_ALERT_SLACK_CONTEXT_ELEMENTS,
     LOGS_DESTINATION_TYPES,
-    EventKind,
+    build_logs_destination_configs,
+    logs_destination_event_kinds,
     row_event_kinds,
 )
 from products.logs.backend.alert_state_machine import (
@@ -1247,32 +1241,6 @@ def _validate_filters(filters: dict) -> None:
         )
 
 
-def _event_kinds_of(destination_type: str) -> list[EventKind]:
-    return [
-        kind
-        for kind in EVENT_KINDS
-        if destination_handles_event_kind(DestinationType(destination_type), EVENT_KIND_CONFIG[kind])
-    ]
-
-
-def _destination_configs(
-    alert_id: UUID, alert_name: str, data: AlertDestinationData, *, hears: Collection[AlertEventKind] | None = None
-) -> list[AlertDestinationConfig]:
-    """The HogFunctions a new destination of this type gets, one per event kind it sends. With `hears`,
-    only the kinds whose row event kind is among them."""
-    return [
-        build_alert_destination_config(
-            spec=EVENT_KIND_CONFIG[kind],
-            alert_id=str(alert_id),
-            alert_name=alert_name,
-            data=data,
-            slack_context_elements=LOGS_ALERT_SLACK_CONTEXT_ELEMENTS,
-        )
-        for kind in _event_kinds_of(data["type"])
-        if hears is None or set(row_event_kinds([kind])) & set(hears)
-    ]
-
-
 class LogsAlertConfigurationDetailSerializer(LogsAlertConfigurationSerializer):
     """One alert, with the destinations attached to it. The list endpoint leaves them out:
     reading a destination pulls its stored inputs, which run to several KB per row."""
@@ -1927,13 +1895,14 @@ class LogsAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         serializer = LogsAlertCreateDestinationSerializer(data=request.data)
         serializer.is_valid(raise_exception=True)
         data = cast(AlertDestinationData, serializer.validated_data)
-        event_kinds = _event_kinds_of(data["type"])
+        event_kinds = logs_destination_event_kinds(data["type"])
 
         with transaction.atomic():
             alert = self._get_locked_alert()
+            configs = build_logs_destination_configs(alert_id=str(alert.id), alert_name=alert.name, data=data)
             try:
                 hog_function_ids = create_alert_destination_hog_functions(
-                    _destination_configs(alert.id, alert.name, data),
+                    configs,
                     team_id=alert.team_id,
                     created_by_id=cast(User, request.user).id,
                     alert_id=str(alert.id),
@@ -2052,8 +2021,8 @@ class LogsAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     allowed_destination_types=LOGS_DESTINATION_TYPES,
                     destination_id=serializer.validated_data["destination_id"],
                     hog_function_ids=serializer.validated_data["hog_function_ids"],
-                    build_configs=lambda data, event_kinds: _destination_configs(
-                        alert.id, alert.name, data, hears=event_kinds
+                    build_configs=lambda data, event_kinds: build_logs_destination_configs(
+                        alert_id=str(alert.id), alert_name=alert.name, data=data, hears=event_kinds
                     ),
                     created_by_id=cast(User, request.user).id,
                 )
@@ -2091,7 +2060,9 @@ class LogsAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     allowed_event_ids=LOGS_ALERT_EVENT_IDS,
                     allowed_destination_types=LOGS_DESTINATION_TYPES,
                     hog_function_ids=serializer.validated_data["hog_function_ids"],
-                    row_event_kinds=lambda destination_type: row_event_kinds(_event_kinds_of(destination_type)),
+                    row_event_kinds=lambda destination_type: row_event_kinds(
+                        logs_destination_event_kinds(DestinationType(destination_type))
+                    ),
                 )
             except AlertDestinationValidationError as error:
                 raise as_drf_validation_error(error)

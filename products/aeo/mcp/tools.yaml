@@ -7,6 +7,15 @@ feature: aeo
 url_prefix: /web/ai-visibility
 ui_apps: {}
 tools:
+    aeo-brands-competitor-candidates:
+        operation: aeo_brands_competitor_candidates
+        enabled: false
+        disabled_reason: The route lands first; the tool is enabled once it is deployed everywhere
+        title: List likely competitors in the AI citation catalog
+        description: >
+            List suggested brands that recent answers to non-branded prompts both name and cite, so they are likely
+            competitors, most likely first. Confirm one as a competitor or ignore it with `aeo-brands-update`.
+        feature_flag: aeo-citation-tracking
     aeo-brands-create:
         operation: aeo_brands_create
         enabled: true

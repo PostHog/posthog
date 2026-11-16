@@ -40,6 +40,13 @@ from products.warehouse_sources.sources.sdk import (
     detect,
 )
 
+# Also returned as a live 410 once Langfuse Cloud stops serving /traces and /sessions on the
+# legacy versions' sunset date, instead of this config-time check on a v3-pinned source.
+LEGACY_TABLE_RETIRED_MESSAGE = (
+    "Langfuse retired the API for this table. Trace and session data is in the observations "
+    "table: group its rows by traceId or sessionId."
+)
+
 
 @SourceRegistry.register
 class LangfuseSource(ResumableSource[LangfuseSourceConfig, LangfuseResumeConfig]):
@@ -179,13 +186,16 @@ Find your project API keys in your Langfuse **Project settings > API Keys**. Set
             # host - typically a self-hosted instance running a Langfuse version that predates this
             # endpoint. Retrying never helps.
             "404 Client Error": "This Langfuse endpoint was not found on your host. Self-hosted instances on an older Langfuse version may not support it yet - upgrade your instance or remove this table from the sync.",
+            # Langfuse Cloud retired /traces and /sessions on LANGFUSE_LEGACY_SUNSET; a sync still
+            # pinned to v1/v2 now gets this on every attempt, not a transient blip.
+            "410 Client Error": LEGACY_TABLE_RETIRED_MESSAGE,
             HOST_NOT_ALLOWED_ERROR: "The Langfuse host is not allowed. Please use a publicly reachable instance URL.",
             HTTP_NOT_ALLOWED_ERROR: "The Langfuse host must use HTTPS. Please update the host to use https://.",
             RESPONSE_LIMIT_ERROR: "The Langfuse host returned a response that was too large or too slow to download. Check that the host points at a real Langfuse instance.",
             # PAGE_LIMIT_ERROR is intentionally absent: it is retryable, so a huge sync resumes
             # from its checkpoint on the next attempt instead of failing permanently.
             REPEATED_CURSOR_ERROR: "The Langfuse host repeated a pagination cursor, so the sync was stopped to avoid looping. Check that the host points at a real Langfuse instance.",
-            TABLE_NOT_IN_VERSION_ERROR: "Langfuse retired the API for this table. Trace and session data is in the observations table: group its rows by traceId or sessionId.",
+            TABLE_NOT_IN_VERSION_ERROR: LEGACY_TABLE_RETIRED_MESSAGE,
         }
 
     def get_retryable_errors(self) -> set[str]:

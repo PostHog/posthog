@@ -11,6 +11,7 @@ import pytz
 from posthog.schema import HogQLQuery
 
 from posthog.hogql.escape_sql import escape_clickhouse_identifier
+from posthog.hogql.printer.events_json_document import json_document_sql, json_value_sql
 
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import ClickHouseUser
@@ -171,10 +172,10 @@ def _latest_session_event_properties_between(
     )
     if use_new_events_schema(team.pk):
         property_names = sorted(_DIAGNOSTIC_PROPERTIES - {"$session_recording_remote_config"} - restricted_properties)
-        fields = ", ".join(f"toJSONString(properties.{escape_clickhouse_identifier(key)})" for key in property_names)
+        fields = ", ".join(json_value_sql(f"properties.{escape_clickhouse_identifier(key)}") for key in property_names)
         # The open-ended SDK debug prefix requires the temporary bag, limited to one event.
         native_query = f"""
-            SELECT {fields}, toJSONString(temporary_properties)
+            SELECT {fields}, {json_document_sql("temporary_properties")}
             FROM {DISTRIBUTED_EVENTS_JSON_TABLE}
             WHERE team_id = %(team_id)s
                 AND properties.`$session_id` = %(session_id)s
