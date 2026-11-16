@@ -13,7 +13,7 @@ use crate::{
         RawFrame,
     },
     issue_resolution::{Issue, IssueSeverity},
-    langs::native::DebugImage,
+    langs::{java::JavaInAppRules, native::DebugImage},
     modes::processing::normalization::{normalize_legacy_tags, normalize_wire_order},
     recursively_sanitize_properties,
     types::{
@@ -296,6 +296,28 @@ impl<S> ExceptionEvent<S> {
 impl ExceptionEvent<Parsed> {
     pub(crate) fn replace_exception_list(&mut self, exception_list: ExceptionList) {
         self.exception_list = exception_list;
+    }
+
+    /// Applied per event after resolution: resolved frames are cached by raw frame id and shared
+    /// across events, so per-event rules must not be baked into them.
+    pub(crate) fn apply_java_in_app_rules(&mut self) {
+        let Some(rules) = JavaInAppRules::from_properties(
+            self.props.get("$exception_in_app_includes"),
+            self.props.get("$exception_in_app_excludes"),
+        ) else {
+            return;
+        };
+        // The legacy-order list feeds the legacy fingerprint versions, which select in-app frames
+        // too, so both copies must agree.
+        let lists = std::iter::once(&mut self.exception_list)
+            .chain(self.state.legacy_order_resolved.as_mut());
+        for list in lists {
+            for exception in list.iter_mut() {
+                if let Some(Stacktrace::Resolved { frames }) = &mut exception.stack {
+                    frames.iter_mut().for_each(|frame| rules.apply(frame));
+                }
+            }
+        }
     }
 
     pub(crate) fn take_legacy_order_exception_list(&mut self) -> Option<ExceptionList> {
@@ -981,5 +1003,62 @@ mod tests {
         resolved.state.metadata.release = None;
         let grouping = resolved.grouping_rule_properties();
         assert!(grouping.get("$exception_release").is_none());
+    }
+
+    #[test]
+    fn java_in_app_rules_reclassify_both_resolved_lists() {
+        let java_frame = |class: &str, in_app: bool| {
+            serde_json::json!({
+                "raw_id": "java-v2:abc",
+                "mangled_name": "a",
+                "module": class,
+                "in_app": in_app,
+                "resolved_name": "onClick",
+                "lang": "java",
+                "resolved": true,
+            })
+        };
+        let list = || -> ExceptionList {
+            serde_json::from_value(serde_json::json!([{
+                "type": "Error",
+                "stacktrace": {"type": "resolved", "frames": [
+                    java_frame("com.app.Main", true),
+                    java_frame("com.app.vendored.Lib", true),
+                ]},
+            }]))
+            .unwrap()
+        };
+        let mut parsed = ExceptionEvent::<Parsed>::try_from(AnyEvent {
+            uuid: Uuid::now_v7(),
+            event: "$exception".to_string(),
+            team_id: 42,
+            timestamp: "2026-01-01T00:00:00Z".to_string(),
+            properties: serde_json::json!({
+                "$exception_list": [{"type": "Error"}],
+                "$exception_in_app_excludes": ["com.app.vendored"],
+            }),
+            others: HashMap::new(),
+        })
+        .unwrap();
+        parsed.replace_exception_list(list());
+        parsed.set_legacy_order_resolved(list());
+
+        parsed.apply_java_in_app_rules();
+
+        let in_app = |list: &ExceptionList| -> Vec<bool> {
+            list[0]
+                .stack
+                .as_ref()
+                .unwrap()
+                .get_frames()
+                .iter()
+                .map(|f| f.in_app)
+                .collect()
+        };
+        assert_eq!(in_app(&parsed.exception_list), [true, false]);
+        assert_eq!(
+            in_app(parsed.state.legacy_order_resolved.as_ref().unwrap()),
+            [true, false]
+        );
     }
 }

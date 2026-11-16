@@ -356,6 +356,64 @@ impl RawJavaFrame {
     }
 }
 
+// Upper bounds on the client-supplied in_app rules. They arrive as event properties, so an
+// SDK bug or a crafted event could otherwise make every frame scan an unbounded list.
+const MAX_IN_APP_RULES: usize = 100;
+const MAX_IN_APP_RULE_LEN: usize = 256;
+
+/// The SDK's inAppIncludes/inAppExcludes, sent as `$exception_in_app_includes` and
+/// `$exception_in_app_excludes` on events whose frames carry a proguard map_id.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct JavaInAppRules {
+    includes: Vec<String>,
+    excludes: Vec<String>,
+}
+
+impl JavaInAppRules {
+    pub fn from_properties(
+        includes: Option<&serde_json::Value>,
+        excludes: Option<&serde_json::Value>,
+    ) -> Option<Self> {
+        let rules = Self {
+            includes: parse_in_app_rules(includes),
+            excludes: parse_in_app_rules(excludes),
+        };
+        (!rules.includes.is_empty() || !rules.excludes.is_empty()).then_some(rules)
+    }
+
+    /// Re-runs the SDK's classification against the deobfuscated class name. The SDK could
+    /// only match the obfuscated runtime names, so its flag (and `resolved_in_app`'s
+    /// applicationId promotion) can contradict the user's own rules. Excludes win, matching the
+    /// SDK. With no includes, the SDK treats every non-excluded frame as in-app, which the
+    /// existing flag already reflects.
+    pub fn apply(&self, frame: &mut Frame) {
+        if frame.lang != "java" || frame.resolved_name.is_none() {
+            // Only frames proguard remapped have a class name the SDK never saw.
+            return;
+        }
+        let Some(class) = frame.module.as_deref() else {
+            return;
+        };
+        if self.excludes.iter().any(|p| class.starts_with(p.as_str())) {
+            frame.in_app = false;
+        } else if !self.includes.is_empty() {
+            frame.in_app = self.includes.iter().any(|p| class.starts_with(p.as_str()));
+        }
+    }
+}
+
+fn parse_in_app_rules(value: Option<&serde_json::Value>) -> Vec<String> {
+    value
+        .and_then(serde_json::Value::as_array)
+        .into_iter()
+        .flatten()
+        .filter_map(serde_json::Value::as_str)
+        .filter(|rule| !rule.is_empty() && rule.len() <= MAX_IN_APP_RULE_LEN)
+        .take(MAX_IN_APP_RULES)
+        .map(ToString::to_string)
+        .collect()
+}
+
 impl<'a> From<(&'a RawJavaFrame, StackFrame<'a>)> for Frame {
     fn from((raw, remapped): (&'a RawJavaFrame, StackFrame<'a>)) -> Self {
         let mut f = Frame {
@@ -963,5 +1021,88 @@ mod tests {
             assert!(!frame.resolved);
             assert_eq!(frame.in_app, raw_in_app);
         }
+    }
+
+    fn remapped_frame(class: &str, in_app: bool) -> Frame {
+        let raw = raw_frame("a1.d", in_app, None);
+        let mut frame: Frame = (&raw, 0).into();
+        frame.module = Some(class.to_string());
+        frame.resolved_name = Some("onClick".to_string());
+        frame
+    }
+
+    fn rules(includes: &[&str], excludes: &[&str]) -> JavaInAppRules {
+        JavaInAppRules::from_properties(
+            Some(&serde_json::json!(includes)),
+            Some(&serde_json::json!(excludes)),
+        )
+        .unwrap()
+    }
+
+    #[test]
+    fn client_in_app_rules_reclassify_remapped_frames() {
+        let rules = rules(
+            &["com.posthog.android.sample", "com.shared"],
+            &["com.posthog.android.sample.vendored"],
+        );
+        let cases = [
+            // (resolved class, flag after resolution, expected)
+            ("com.posthog.android.sample.Main", true, true),
+            // an exclude beats both the include and the applicationId promotion
+            ("com.posthog.android.sample.vendored.Lib", true, false),
+            // an include matched only after deobfuscation is promoted
+            ("com.shared.Util", false, true),
+            ("androidx.appcompat.app.AppCompatActivity", true, false),
+        ];
+        for (class, in_app, expected) in cases {
+            let mut frame = remapped_frame(class, in_app);
+            rules.apply(&mut frame);
+            assert_eq!(frame.in_app, expected, "{class}");
+        }
+    }
+
+    #[test]
+    fn client_in_app_rules_without_includes_only_apply_excludes() {
+        let rules = rules(&[], &["okhttp3"]);
+        for (class, expected) in [("okhttp3.RealCall", false), ("com.app.Main", true)] {
+            let mut frame = remapped_frame(class, true);
+            rules.apply(&mut frame);
+            assert_eq!(frame.in_app, expected, "{class}");
+        }
+    }
+
+    #[test]
+    fn client_in_app_rules_skip_frames_that_were_not_remapped() {
+        let rules = rules(&["com.app"], &["com.app"]);
+        let mut pass_through: Frame = (&raw_frame("com.app.Main", true, None), 0).into();
+        rules.apply(&mut pass_through);
+        assert!(pass_through.in_app);
+
+        let mut failed: Frame = (
+            &raw_frame("com.app.Main", true, Some("com.app@1+1")),
+            ProguardError::NoMapId,
+        )
+            .into();
+        rules.apply(&mut failed);
+        assert!(failed.in_app);
+    }
+
+    #[test]
+    fn client_in_app_rules_ignore_malformed_and_oversized_entries() {
+        assert_eq!(JavaInAppRules::from_properties(None, None), None);
+        assert_eq!(
+            JavaInAppRules::from_properties(
+                Some(&serde_json::json!("com.app")),
+                Some(&serde_json::json!([
+                    1,
+                    "",
+                    "x".repeat(MAX_IN_APP_RULE_LEN + 1)
+                ])),
+            ),
+            None
+        );
+        let many: Vec<String> = (0..MAX_IN_APP_RULES + 5).map(|i| format!("p{i}")).collect();
+        let rules = JavaInAppRules::from_properties(Some(&serde_json::json!(many)), None).unwrap();
+        assert_eq!(rules.includes.len(), MAX_IN_APP_RULES);
     }
 }

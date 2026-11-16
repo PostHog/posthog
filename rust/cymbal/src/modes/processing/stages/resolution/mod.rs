@@ -79,6 +79,7 @@ impl Stage for ResolutionStage {
         let resolved = resolved.map(
             |item, ()| {
                 item.map(|mut event| {
+                    event.apply_java_in_app_rules();
                     if drop_team_ids.contains(&event.team_id()) {
                         event.drop_code_variables();
                     } else {
