@@ -18,69 +18,33 @@ rules:
           finding with `# nosemgrep: no-pattern-lookup-from-outer-row -- <why the outer query stays small>`.
       languages: [python]
       severity: ERROR
-      pattern-either:
+      mode: taint
+      pattern-sources:
+          - pattern: OuterRef(...)
+          - pattern: models.OuterRef(...)
+      pattern-sanitizers:
+          - pattern: JSONArray(...)
+          - pattern: JSONObject(...)
+          - pattern: '[...]'
+      pattern-sinks:
           - patterns:
                 - pattern: $CALL(..., $LOOKUP=$VALUE, ...)
                 - metavariable-regex:
                       metavariable: $LOOKUP
                       regex: ^\w+__i?(contains|startswith|endswith|regex)$
-                - metavariable-pattern:
-                      metavariable: $VALUE
-                      patterns:
-                          - pattern-either:
-                                - pattern: OuterRef(...)
-                                - pattern: models.OuterRef(...)
-                          - pattern-not-inside: JSONArray(...)
-                          - pattern-not-inside: JSONObject(...)
-                          - pattern-not-inside: '[...]'
+                - focus-metavariable: $VALUE
           - patterns:
                 - pattern: '$CALL(..., **{$KEY: $VALUE}, ...)'
                 - metavariable-regex:
                       metavariable: $KEY
                       regex: ^["']\w+__i?(contains|startswith|endswith|regex)["']$
-                - metavariable-pattern:
-                      metavariable: $VALUE
-                      patterns:
-                          - pattern-either:
-                                - pattern: OuterRef(...)
-                                - pattern: models.OuterRef(...)
-                          - pattern-not-inside: JSONArray(...)
-                          - pattern-not-inside: JSONObject(...)
-                          - pattern-not-inside: '[...]'
-          - patterns:
-                - pattern-inside: |
-                      $PATTERN = <... OuterRef(...) ...>
-                      ...
-                - pattern-not-inside: |
-                      $PATTERN = JSONArray(...)
-                      ...
-                - pattern-not-inside: |
-                      $PATTERN = JSONObject(...)
-                      ...
-                - pattern-not-inside: |
-                      $PATTERN = [...]
-                      ...
-                - pattern: $CALL(..., $LOOKUP=<... $PATTERN ...>, ...)
-                - pattern-not: $CALL(..., $LOOKUP=JSONArray(...), ...)
-                - pattern-not: $CALL(..., $LOOKUP=JSONObject(...), ...)
-                - pattern-not: $CALL(..., $LOOKUP=[...], ...)
-                - metavariable-regex:
-                      metavariable: $LOOKUP
-                      regex: ^\w+__i?(contains|startswith|endswith|regex)$
+                - focus-metavariable: $VALUE
           - patterns:
                 - pattern: $LOOKUPCLASS($LHS, $VALUE)
                 - metavariable-regex:
                       metavariable: $LOOKUPCLASS
                       regex: ^(lookups\.)?I?(Contains|StartsWith|EndsWith|Regex)$
-                - metavariable-pattern:
-                      metavariable: $VALUE
-                      patterns:
-                          - pattern-either:
-                                - pattern: OuterRef(...)
-                                - pattern: models.OuterRef(...)
-                          - pattern-not-inside: JSONArray(...)
-                          - pattern-not-inside: JSONObject(...)
-                          - pattern-not-inside: '[...]'
+                - focus-metavariable: $VALUE
       paths:
           include:
               - ee/**/*.py

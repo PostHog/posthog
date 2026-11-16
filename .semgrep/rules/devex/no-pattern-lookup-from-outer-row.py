@@ -84,3 +84,28 @@ def suffix_held_in_a_variable(queryset):
     suffix = Concat(Value("/"), OuterRef("basename"))
     # ruleid: no-pattern-lookup-from-outer-row
     return queryset.filter(path__endswith=suffix)
+
+
+def qualified_outer_ref_held_in_a_variable(queryset):
+    prefix = Concat(models.OuterRef("path"), Value("/"))
+    # ruleid: no-pattern-lookup-from-outer-row
+    return queryset.filter(path__startswith=prefix)
+
+
+def variable_passed_as_an_unpacked_key(queryset):
+    prefix = Concat(OuterRef("path"), Value("/"))
+    # ruleid: no-pattern-lookup-from-outer-row
+    return queryset.filter(**{"path__startswith": prefix})
+
+
+def variable_passed_to_a_lookup_class(queryset):
+    prefix = Concat(OuterRef("path"), Value("/"))
+    # ruleid: no-pattern-lookup-from-outer-row
+    return queryset.filter(StartsWith(F("path"), prefix))
+
+
+def variable_reassigned_to_a_constant(queryset):
+    prefix = Concat(OuterRef("path"), Value("/"))
+    prefix = Value("fixed/")
+    # ok: no-pattern-lookup-from-outer-row
+    return queryset.filter(path__startswith=prefix)
