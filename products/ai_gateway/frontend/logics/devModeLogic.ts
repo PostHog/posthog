@@ -58,7 +58,7 @@ export function parseCliPick(searchParams: Record<string, any>): { capUsd: numbe
     }
 }
 
-export function pickError(
+export function describePickError(
     usage: DevTokenUsageApi | null,
     capUsd: number | null,
     ttlSeconds: number | null
@@ -282,7 +282,11 @@ export const devModeLogic = kea<devModeLogicType>([
             (usage: DevTokenUsageApi | null): number =>
                 usage?.tokens.filter((token) => token.status === 'live').length ?? 0,
         ],
-        pickError: [(s) => [s.usage, s.capUsd, s.ttlSeconds], pickError],
+        pickError: [
+            (s) => [s.usage, s.capUsd, s.ttlSeconds],
+            (usage: DevTokenUsageApi | null, capUsd: number | null, ttlSeconds: number | null): string | null =>
+                describePickError(usage, capUsd, ttlSeconds),
+        ],
         canMint: [
             (s) => [s.usage, s.remainingUsd, s.capUsd, s.pickError],
             (
