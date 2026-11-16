@@ -7,7 +7,6 @@ import structlog
 
 from posthog.integrations import CrossTeamFilter, IntegrationManager, IntegrationPatch, IntegrationRecord, UpdatedRows
 from posthog.models.integration.email import SES_SENDING_FAILED, SES_SENDING_STATUS_KEY
-from posthog.models.integration.row_writes import row_accessor
 from posthog.models.team import Team
 from posthog.ph_client import feature_enabled_or_false
 from posthog.tasks.email import send_email_sender_domain_sending_stopped
@@ -51,14 +50,14 @@ def _rolled_out(team_id: int) -> bool:
     return feature_enabled_or_false(
         SES_SENDER_HEALTH_FLAG,
         str(team.uuid),
-        groups={"organization": organization_id},
-        group_properties={"organization": {"id": organization_id}},
+        groups={"organization": organization_id, "project": str(team_id)},
+        group_properties={"organization": {"id": organization_id}, "project": {"id": str(team_id)}},
         send_feature_flag_events=False,
     )
 
 
 def _patch_domain(sender: IntegrationRecord, patch: IntegrationPatch) -> UpdatedRows:
-    return row_accessor(sender).update_where(
+    return IntegrationManager.email.credentials.update_where(
         sender.team_id,
         where={"domain": sender.config["domain"], "provider": "ses", "verified": True},
         patch=patch,
