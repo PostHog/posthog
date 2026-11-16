@@ -149,6 +149,7 @@ class ResourceType(StrEnum):
     INTERACTIVE_RUN = "interactive_run"
     INTERNAL_RUN = "internal_run"
     KNOWLEDGE_WRITER = "knowledge_writer"
+    LEGACY_ACCOUNT = "legacy_account"
     LEGAL_DOCUMENT = "legal_document"
     LINK = "link"
     LIVE_DEBUGGER = "live_debugger"

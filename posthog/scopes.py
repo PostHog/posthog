@@ -86,6 +86,7 @@ APIScopeObject = Literal[
     "interactive_run",
     "internal_run",
     "knowledge_writer",
+    "legacy_account",
     "legal_document",
     "link",  # Endpoints are gone; kept advertised until desktop OAuth clients stop requesting it.
     "live_debugger",  # Endpoints are gone; kept advertised until desktop OAuth clients stop requesting it.
@@ -193,6 +194,10 @@ INTERNAL_API_SCOPE_OBJECTS: frozenset[APIScopeObject] = frozenset(
         # OAuth app or logged-in session can queue one: PostHog's own scout is the only producer, and
         # a person resolves suggestions rather than writing them.
         "hog_flow_proposal",
+        # Keeps the legacy team secret token's single-account customer analytics access on its
+        # migrated PSAK mirror row (#63111). Minted server-side only, so no key can self-grant
+        # account writes, and the bulk account export stays closed to it.
+        "legacy_account",
         # Narrows `internal_run`: the run behind this token was started by a person
         # pressing a button, not by one of PostHog's own schedulers. Both markers are
         # minted server-side, so neither can be self-granted; the LLM gateway meters

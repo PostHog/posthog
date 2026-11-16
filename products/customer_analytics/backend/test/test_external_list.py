@@ -17,6 +17,7 @@ from rest_framework.test import APIClient
 
 from posthog.constants import AvailableFeature
 from posthog.models import Organization, OrganizationMembership, PersonalAPIKey, Team, User
+from posthog.models.project_secret_api_key import MIRRORED_LEGACY_TOKEN_MINTED_SCOPES
 from posthog.models.utils import generate_random_token_personal, generate_random_token_secret, hash_key_value
 from posthog.test.api_keys import create_project_secret_api_key
 from posthog.test.authentication_checks import covers_authentication
@@ -130,16 +131,16 @@ class TestExternalAccountListAPI(APIBaseTest):
 
     @override_settings(ACCEPT_TEAM_SECRET_TOKENS=False)
     def test_rejects_legacy_mirror_key(self):
-        # After the flip (#66179) the legacy token resolves as its mirror PSAK. The mirror
-        # keeps single-account access elsewhere but must not unlock this bulk export either.
+        # After the flip (#66179) the legacy token resolves as its mirror PSAK. The mirror's
+        # legacy_account:write scope keeps single-account access elsewhere but must not
+        # unlock this bulk export either.
         self.team.secret_api_token = generate_random_token_secret()
         self.team.save(update_fields=["secret_api_token"])
         create_project_secret_api_key(
             self.team,
             label="Migrated legacy secret API key",
-            scopes=["feature_flag:read", "support_ticket:read"],
+            scopes=MIRRORED_LEGACY_TOKEN_MINTED_SCOPES,
             value=self.team.secret_api_token,
-            is_legacy_mirror=True,
         )
 
         response = self._get(token=self.team.secret_api_token)

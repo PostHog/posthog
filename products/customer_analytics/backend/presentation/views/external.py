@@ -54,6 +54,7 @@ from posthog.auth import (
 )
 from posthog.ip_restrictions import enforce_ip_restrictions
 from posthog.models import Team
+from posthog.models.project_secret_api_key import MIRRORED_LEGACY_TOKEN_ACCOUNT_SCOPE
 from posthog.permissions import get_authenticator_scopes, is_authenticated_via_project_secret_api_key
 from posthog.rate_limit import PersonalOrProjectSecretApiKeyRateThrottle, ProjectSecretApiKeyTeamRateThrottle
 
@@ -249,12 +250,15 @@ def _authenticate_psak_team(request: Request, required_scope: str) -> tuple[Team
 
 
 def _mirrored_legacy_token_team(request: Request) -> Team | None:
-    """The mirror row IS the legacy token (#63111), so it keeps the token's single-account
-    powers after the legacy verifiers go away. It never unlocks the bulk account export,
-    which checks scopes directly and so keeps refusing it."""
+    """A PSAK that mirrors the team's legacy secret token (#63111) carries the internal
+    legacy_account:write scope, which keeps the token's single-account powers after the
+    legacy verifiers go away. It never unlocks the bulk account export, whose own scope
+    check does not accept it."""
     authenticator = cast(ProjectSecretAPIKeyAuthentication, request.successful_authenticator)
     psak = authenticator.project_secret_api_key
-    return psak.team if psak.is_legacy_mirror else None
+    if MIRRORED_LEGACY_TOKEN_ACCOUNT_SCOPE in (psak.scopes or []):
+        return psak.team
+    return None
 
 
 def _authenticate_team_or_psak(request: Request, psak_scope: str) -> tuple[Team, None] | tuple[None, Response]:

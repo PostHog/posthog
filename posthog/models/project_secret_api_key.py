@@ -51,11 +51,6 @@ class ProjectSecretAPIKey(ModelActivityMixin, models.Model):
 
     scopes: ArrayField = ArrayField(models.CharField(max_length=100), null=True)
 
-    # Marks the hashed mirror of a legacy team secret token (#63111). Surfaces that grant
-    # the legacy token powers its scopes do not cover key off this, never off the label,
-    # which a customer can duplicate. db_default: rust test fixtures insert raw rows.
-    is_legacy_mirror = models.BooleanField(default=False, db_default=False)
-
     class Meta:
         db_table = "posthog_projectsecretapikey"
         indexes = [
@@ -111,6 +106,13 @@ def delete_project_secret_api_keys_for_token(team_id: int, token: str) -> None:
 # The scopes the #63111 backfill granted; rotation must neither widen nor narrow access.
 MIRRORED_LEGACY_TOKEN_SCOPES = ["feature_flag:read", "support_ticket:read"]
 
+# Internal (never grantable) marker scope that keeps the legacy token's single-account
+# customer analytics access on its mirror row. Kept out of MIRRORED_LEGACY_TOKEN_SCOPES,
+# which rotation requires callers to HOLD — an ungrantable scope there would block rotation.
+MIRRORED_LEGACY_TOKEN_ACCOUNT_SCOPE = "legacy_account:write"
+
+MIRRORED_LEGACY_TOKEN_MINTED_SCOPES = [*MIRRORED_LEGACY_TOKEN_SCOPES, MIRRORED_LEGACY_TOKEN_ACCOUNT_SCOPE]
+
 MIRRORED_LEGACY_TOKEN_LABEL = "Migrated legacy secret API key"
 
 
@@ -124,6 +126,5 @@ def create_project_secret_api_key_for_token(team_id: int, token: str) -> None:
         label=f"{MIRRORED_LEGACY_TOKEN_LABEL} {secure_value[-8:]}",
         mask_value=mask_key_value(token),
         secure_value=secure_value,
-        scopes=MIRRORED_LEGACY_TOKEN_SCOPES,
-        is_legacy_mirror=True,
+        scopes=MIRRORED_LEGACY_TOKEN_MINTED_SCOPES,
     )

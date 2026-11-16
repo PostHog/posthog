@@ -15,6 +15,7 @@ from rest_framework.test import APIClient
 from posthog.models import Organization, Team, User
 from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.organization_ip_restrictions import OrganizationIPRestrictions
+from posthog.models.project_secret_api_key import MIRRORED_LEGACY_TOKEN_MINTED_SCOPES
 from posthog.models.utils import generate_random_token_secret
 from posthog.test.api_keys import create_project_secret_api_key
 from posthog.test.authentication_checks import covers_authentication
@@ -219,13 +220,13 @@ class TestExternalAccountAPI(APIBaseTest):
     @override_settings(ACCEPT_TEAM_SECRET_TOKENS=False)
     def test_kill_switch_off_mirror_row_keeps_single_account_access(self, method: str) -> None:
         # Flip semantics (#66179): a migrated legacy token resolves as its mirror PSAK, whose
-        # flag keeps the token's single-account read and write powers across both auth helpers.
+        # legacy_account:write scope keeps the token's single-account read and write powers
+        # across both auth helpers.
         create_project_secret_api_key(
             self.team,
             label="Migrated legacy secret API key",
-            scopes=["feature_flag:read", "support_ticket:read"],
+            scopes=MIRRORED_LEGACY_TOKEN_MINTED_SCOPES,
             value=self.team.secret_api_token,
-            is_legacy_mirror=True,
         )
         if method == "get":
             response = self._get()
@@ -240,9 +241,9 @@ class TestExternalAccountAPI(APIBaseTest):
             self.assertIsNotNone(self.account.churned_at)
 
     @override_settings(ACCEPT_TEAM_SECRET_TOKENS=False)
-    def test_kill_switch_off_unflagged_key_with_mirror_scopes_is_refused(self) -> None:
-        # The legacy token's powers come from the flag alone: a key that merely carries the
-        # mirror scopes (or copies the mirror label) still fails the account scope check.
+    def test_kill_switch_off_key_without_mirror_account_scope_is_refused(self) -> None:
+        # The powers come from the internal scope alone, which users cannot grant: a key
+        # that merely copies the mirror label and base scopes fails the account scope check.
         create_project_secret_api_key(
             self.team,
             label="Migrated legacy secret API key",

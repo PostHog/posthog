@@ -864,7 +864,7 @@ def team_api_test_factory():
             self.team.refresh_from_db()
             new_row = ProjectSecretAPIKey.objects.get(secure_value=hash_key_value(self.team.secret_api_token))
             self.assertEqual(new_row.team_id, self.team.id)
-            self.assertEqual(new_row.scopes, ["feature_flag:read", "support_ticket:read"])
+            self.assertEqual(new_row.scopes, ["feature_flag:read", "support_ticket:read", "legacy_account:write"])
 
             # Deleting the backup (the rotated-out primary) retires its row too.
             response = self.client.patch(f"/api/environments/{self.team.id}/delete_secret_token_backup/")
