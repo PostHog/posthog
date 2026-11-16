@@ -952,15 +952,13 @@ describe('runner through seed, drive and judge', () => {
         },
         30_000
     )
-    it('bounds duplicate sends by the jobs the janitor reset while the run was sampled', async () => {
+    it('records the jobs the janitor reset while the run was sampled, beside the card gate', async () => {
         janitor.resetsAfterFirstScrape = 3
 
         const result = await run('all')
 
-        expect(result.invariants).toContainEqual(
-            expect.objectContaining({ name: 'duplicate_sends', passed: true, observed: 0, gate: 3 })
-        )
-        expect(api.captured[0]?.properties).toMatchObject({ inv_duplicate_sends_gate: 3 })
+        expect(result.janitorResets).toBe(3)
+        expect(api.captured[0]?.properties).toMatchObject({ janitor_resets: 3, inv_duplicate_sends_gate: 0 })
     }, 30_000)
 
     it('fails a run whose intake role refused every unit, rather than calling it invalid', async () => {

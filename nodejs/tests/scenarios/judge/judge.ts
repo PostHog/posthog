@@ -9,6 +9,7 @@ import type { SeedState } from '../generator/generator'
 import type { CyclotronProbe } from '../probe/cyclotron-probe'
 import type { TruthHead, TruthPage, TruthRecord } from '../provider-edge'
 import { INVARIANTS, deliveryKey, residentBacklogIntact } from './invariants'
+import type { JudgeEvidence } from './invariants'
 
 export type IntakeAnswer =
     | { accepted: true }
@@ -38,13 +39,13 @@ export type InvariantResult = {
     unitIds: string[]
 }
 
-export type RunEvidence = { janitorResets: number }
+export type RunEvidence = Pick<JudgeEvidence, 'janitorResets'>
 
 export interface Judge {
     open(seed: Pick<SeedState, 'teamIds'>): Promise<void>
     record(unit: JournalEntry): void
     converge(withinMs: number, signal: AbortSignal): Promise<Convergence>
-    check(invariants: Named[], gates: Record<string, number>, run?: RunEvidence): Promise<InvariantResult[]>
+    check(invariants: Named[], gates: Record<string, number>, run: RunEvidence): Promise<InvariantResult[]>
     evidence(): { journal: JournalEntry[]; truth: TruthRecord[]; fetchRetries: number }
 }
 

@@ -4,7 +4,7 @@ import { z } from 'zod'
 
 import { internalFetch } from '~/common/utils/request'
 
-import type { Named } from '../cards'
+import type { CdpRole, Named } from '../cards'
 import type { Definition } from '../cards/definitions'
 import type { ObservationName } from '../environment/failover'
 import { ReplicaOf, nameOf } from '../environment/identity'
@@ -46,7 +46,7 @@ type Measured = { key?: string; incomplete?: true } & Value
 
 export type Measurement = { name: string; unit: string } & Measured
 
-export type MeasureEvidence = JudgeEvidence &
+export type MeasureEvidence = Omit<JudgeEvidence, 'janitorResets'> &
     Readonly<Sampled> &
     Readonly<Probed> & { sampledFrom: number; drive: DriveWindow; timeline: readonly ValveTimelineEntry[] }
 
@@ -84,17 +84,14 @@ const increaseOf = (ofReplica: readonly MetricSample[], read: Counter, since: nu
         return sum + read(lifetime.at(-1)!) - (startedWhileSampled ? 0 : read(lifetime[0]))
     }, 0)
 
-const cpuSecondsOf = (ofReplica: readonly MetricSample[], sampledFrom: number): number =>
-    increaseOf(ofReplica, ({ cpuSeconds }) => cpuSeconds, sampledFrom)
+const increaseAcrossReplicas = (replicas: readonly MetricSample[][], read: Counter, since: number): number =>
+    replicas.reduce((sum, ofReplica) => sum + increaseOf(ofReplica, read, since), 0)
 
-const JANITOR = 'cdp-cyclotron-v2-janitor'
+const JANITOR: z.infer<typeof CdpRole> = 'cdp-cyclotron-v2-janitor'
 
 export function janitorResetsOf({ samples, sampledFrom }: Pick<Sampled, 'samples'> & { sampledFrom: number }): number {
-    const ofJanitor = byRole(samples).get(JANITOR) ?? []
-    return [...Map.groupBy(ofJanitor, ({ replica }) => replica).values()].reduce(
-        (sum, ofReplica) => sum + increaseOf(ofReplica, ({ janitorStalled }) => janitorStalled, sampledFrom),
-        0
-    )
+    const replicas = replicasOf(byRole(samples).get(JANITOR) ?? [])
+    return increaseAcrossReplicas(replicas, ({ janitorStalled }) => janitorStalled, sampledFrom)
 }
 
 export const roleCpuSeconds: MeasurementDefinition = {
@@ -103,10 +100,10 @@ export const roleCpuSeconds: MeasurementDefinition = {
     unit: 's',
     measure: ({ samples, missed, sampledFrom }) =>
         [...byRole(samples)].map(([role, ofRole]) => {
-            const replicas = [...Map.groupBy(ofRole, ({ replica }) => replica).values()]
+            const replicas = replicasOf(ofRole)
             return {
                 key: role,
-                value: replicas.reduce((sum, ofReplica) => sum + cpuSecondsOf(ofReplica, sampledFrom), 0),
+                value: increaseAcrossReplicas(replicas, ({ cpuSeconds }) => cpuSeconds, sampledFrom),
                 ...(replicas.some((ofReplica) => lostCpu(ofReplica, missed)) ? { incomplete: true as const } : {}),
             }
         }),

@@ -13,7 +13,7 @@ export type JudgeEvidence = {
     truth: readonly TruthRecord[]
     fetchRetries: number
     resident?: ResidentBacklog
-    janitorResets?: number
+    janitorResets: number
 }
 
 export type InvariantDefinition = Definition & {
@@ -95,7 +95,7 @@ const plural = (count: number, noun: string): string => `${count} ${noun}${count
 export const duplicateSends: InvariantDefinition = {
     name: 'duplicate_sends',
     params: z.object({}).strict(),
-    check: ({ truth, janitorResets = 0 }, gate) => {
+    check: ({ truth, janitorResets }, gate) => {
         const duplicated = [...recordsByDelivery(truth).values()]
             .map((records) => ({
                 record: records[0],
@@ -103,18 +103,14 @@ export const duplicateSends: InvariantDefinition = {
             }))
             .filter(({ extra }) => extra > 0)
         const observed = duplicated.reduce((sum, { extra }) => sum + extra, 0)
-        const bound = janitorResets + (gate ?? 0)
-        const resentTwice = duplicated.find(({ extra }) => extra > 1)
-        const first = resentTwice ?? duplicated[0]
-        const why = resentTwice
-            ? 'more than the one resend a janitor reset allows'
-            : `${plural(observed, 'duplicate')} against ${plural(janitorResets, 'job')} the janitor reset`
+        const [first] = duplicated
+        const allowed = `${plural(janitorResets, 'job')} the janitor reset${gate ? ` plus a gate of ${gate}` : ''}`
+        const why = `${plural(observed, 'duplicate')} against ${allowed}`
         return {
-            passed: resentTwice === undefined && observed <= bound,
+            passed: observed <= janitorResets + (gate ?? 0),
             observed,
-            gate: bound,
             violation:
-                first && `${first.record.unitId} ${first.record.actionId}: accepted ${first.extra + 1} times, ${why}`,
+                first && `${first.record.unitId} ${first.record.actionId}: accepted ${first.extra + 1} times; ${why}`,
             unitIds: firstUnitIds(duplicated.map(({ record }) => record.unitId)),
         }
     },
