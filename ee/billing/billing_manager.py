@@ -61,8 +61,7 @@ BILLING_PROVIDER_WEBHOOK_SIGNATURE_HEADER = "X-PostHog-Billing-Provider-Signatur
 BILLING_PROVIDER_WEBHOOK_TIMESTAMP_HEADER = "X-PostHog-Billing-Provider-Timestamp"
 BILLING_PROVIDER_WEBHOOK_SIGNATURE_VERSION = "sha256"
 BILLING_TIMESERIES_REQUEST_TIMEOUT = (5, 30)
-# Every page load of an org that may owe money lists its invoices for the unpaid invoice banner, so a stalled
-# billing service must give up quickly rather than hold a worker.
+# The unpaid invoice banner lists invoices on page load, so a stalled billing service must not hold a worker.
 BILLING_INVOICES_REQUEST_TIMEOUT = (5, 15)
 # An export covers every project rather than the chart's top few, so it reads more and is
 # allowed longer. The person is waiting for a file, which tolerates a longer wait than a chart.

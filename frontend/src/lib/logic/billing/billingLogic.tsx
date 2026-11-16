@@ -905,7 +905,6 @@ export const billingLogic = kea<billingLogicType>([
                 setBillingAlert: (_, { billingAlert }) => billingAlert,
             },
         ],
-        // Closing the unpaid invoice banner hides it until the next page load, even when billing reloads.
         unpaidInvoiceAlertDismissed: [
             false,
             {
@@ -1953,8 +1952,7 @@ export const billingLogic = kea<billingLogicType>([
                 actions.resetUsageLimitApproachingKey()
             }
 
-            // An unpaid invoice outranks a usage warning. Reading the lazy value starts its only load, whose
-            // success runs this listener again.
+            // Reading the lazy value starts its only load, whose success runs this listener again.
             const unpaidInvoices =
                 values.canAccessBilling &&
                 !values.billing.has_active_subscription &&
