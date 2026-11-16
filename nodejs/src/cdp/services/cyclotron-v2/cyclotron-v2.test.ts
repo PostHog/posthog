@@ -5137,47 +5137,43 @@ describe('Cyclotron V2', () => {
             }
 
             it.each([
-                ['ack', QUEUE, 'completed', false, (job: CyclotronV2DequeuedJob) => job.ack()],
-                ['fail', QUEUE, 'failed', false, (job: CyclotronV2DequeuedJob) => job.fail()],
-                ['cancel', QUEUE, 'canceled', false, (job: CyclotronV2DequeuedJob) => job.cancel()],
-                ['reschedule', QUEUE, 'available', false, (job: CyclotronV2DequeuedJob) => job.reschedule()],
-                [
-                    'defer',
-                    QUEUE,
-                    'available',
-                    false,
-                    (job: CyclotronV2DequeuedJob) => job.defer({ scheduledAt: new Date() }),
-                ],
-                [
-                    'defer on the email queue',
-                    'email',
-                    'available',
-                    true,
-                    (job: CyclotronV2DequeuedJob) => job.defer({ scheduledAt: new Date() }),
-                ],
-                [
-                    'reschedule into the email queue',
-                    QUEUE,
-                    'available',
-                    true,
-                    (job: CyclotronV2DequeuedJob) => job.reschedule({ queueName: 'email' }),
-                ],
+                ['ack', 'completed', (job: CyclotronV2DequeuedJob) => job.ack()],
+                ['fail', 'failed', (job: CyclotronV2DequeuedJob) => job.fail()],
+                ['cancel', 'canceled', (job: CyclotronV2DequeuedJob) => job.cancel()],
+                ['reschedule', 'available', (job: CyclotronV2DequeuedJob) => job.reschedule()],
+                ['defer', 'available', (job: CyclotronV2DequeuedJob) => job.defer({ scheduledAt: new Date() })],
             ])(
                 'retries %s once on a fresh connection, so the job ends released and the janitor never resets it',
-                async (_operation, queueName, status, newDequeueSeq, release) => {
-                    const id = await manager.createJob({ teamId: 1, queueName })
-                    const before = await queryJob(id)
-                    const job = await dequeueOnDropTestPool({ releaseWriteRetry: true }, queueName)
+                async (_operation, status, release) => {
+                    const id = await manager.createJob({ teamId: 1, queueName: QUEUE })
+                    const job = await dequeueOnDropTestPool({ releaseWriteRetry: true })
 
                     expect(await interruptReleaseWrite(id, () => release(job), 'pg_terminate_backend')).toBe('released')
 
                     const row = await queryJob(id)
-                    expect({
-                        status: row.status,
-                        lock_id: row.lock_id,
-                        newDequeueSeq: row.dequeue_seq !== null && row.dequeue_seq !== before.dequeue_seq,
-                    }).toEqual({ status, lock_id: null, newDequeueSeq })
+                    expect({ status: row.status, lock_id: row.lock_id }).toEqual({ status, lock_id: null })
                     expect(await janitorResets(id)).toBe(0)
+                }
+            )
+
+            it.each([
+                ['an email defer', 'email', (job: CyclotronV2DequeuedJob) => job.defer({ scheduledAt: new Date() })],
+                [
+                    'a reschedule into the email queue',
+                    QUEUE,
+                    (job: CyclotronV2DequeuedJob) => job.reschedule({ queueName: 'email' }),
+                ],
+            ])(
+                'retries %s once, and the job dequeues behind an email job the team enqueued while it ran',
+                async (_operation, queueName, release) => {
+                    const [id] = await manager.bulkCreateJobs([{ teamId: 1, queueName }])
+                    const job = await dequeueOnDropTestPool({ releaseWriteRetry: true }, queueName)
+                    const [enqueuedWhileRunning] = await manager.bulkCreateJobs([{ teamId: 1, queueName: 'email' }])
+
+                    expect(await interruptReleaseWrite(id, () => release(job), 'pg_terminate_backend')).toBe('released')
+
+                    const [next] = await dequeueOneBatch(createWorker('email', { batchMaxSize: 1 }))
+                    expect(next.id).toBe(enqueuedWhileRunning)
                 }
             )
 
@@ -5192,7 +5188,7 @@ describe('Cyclotron V2', () => {
                 [
                     'the write outlived the heartbeat limit',
                     'pg_terminate_backend' as const,
-                    { releaseWriteRetry: true, releaseWriteHeartbeatLimitMs: 0 },
+                    { releaseWriteRetry: true, releaseWriteHeartbeatLimitMs: -1 },
                     1,
                 ],
                 ['the retry loses its connection too', 'pg_terminate_backend' as const, { releaseWriteRetry: true }, 2],
