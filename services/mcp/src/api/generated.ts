@@ -12482,6 +12482,7 @@ export namespace Schemas {
       valueColumn?: string | null;
       xAxisColumn?: string | null;
       xAxisLabel?: string | null;
+      xAxisSortOrder?: HeatmapSortOrder | null;
       yAxisColumn?: string | null;
       yAxisLabel?: string | null;
     }
@@ -26738,6 +26739,43 @@ export namespace Schemas {
       reason: string;
       /** Supporting evidence */
       evidence?: CapabilityStateEvidence;
+    }
+
+    export interface CatalogFlag {
+      /** ID of the feature flag. */
+      id: number;
+      /** Key of the feature flag. */
+      key: string;
+      /** True when the flag is enabled. */
+      active: boolean;
+      /** When the flag was created. */
+      created_at: string;
+    }
+
+    export interface CatalogFlagsResponse {
+      /** Flags the caller can see, newest first. */
+      results: CatalogFlag[];
+      /** True when more flags follow this page. */
+      has_more: boolean;
+    }
+
+    export interface CatalogRelease {
+      /** ID of the release. */
+      id: string;
+      /** Name of the release. */
+      name: string;
+      /** When the release was created. */
+      created_at: string;
+    }
+
+    export interface CatalogReleasesResponse {
+      /** Releases of the project, newest first. */
+      results: CatalogRelease[];
+      /**
+         * Pass as cursor to fetch the next page. Null when no more releases follow.
+         * @nullable
+         */
+      next_cursor: string | null;
     }
 
     export interface CatalogueEntry {
@@ -123828,6 +123866,11 @@ export namespace Schemas {
       template_id: string | null;
       /** The template's name. Empty when it was deleted. */
       template_name: string;
+      /**
+         * The email sent from code under a `template_key`, for a send that has no template. Null otherwise.
+         * @nullable
+         */
+      code_email_id: string | null;
       /** The domain the email was sent from. Empty before it was sent. */
       sending_domain: string;
       /** Whether the recipient opened the email. */
@@ -123878,6 +123921,11 @@ export namespace Schemas {
       template_id: string | null;
       /** The template's name. Empty when it was deleted. */
       template_name: string;
+      /**
+         * The email sent from code under a `template_key`, for a send that has no template. Null otherwise.
+         * @nullable
+         */
+      code_email_id: string | null;
       /** The domain the email was sent from. Empty before it was sent. */
       sending_domain: string;
       /** Whether the recipient opened the email. */
@@ -123912,6 +123960,16 @@ export namespace Schemas {
       key: string;
       /** The template name or the sending domain. Empty for a deleted template. */
       label: string;
+      /**
+         * The template that sent this row's emails. Null for a deleted template, emails sent from code, and a sending domain.
+         * @nullable
+         */
+      template_id: string | null;
+      /**
+         * The email sent from code under a `template_key`, for a row of sends that have no template. Null otherwise.
+         * @nullable
+         */
+      code_email_id: string | null;
       /** Emails that reached the email provider. */
       sent: number;
       /** Emails the recipient's mail server accepted. */
@@ -136729,6 +136787,10 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    /**
+     * Case-insensitive match on the feature name.
+     */
+    search?: string;
     };
 
     export type ElementsListParams = {
@@ -143971,6 +144033,44 @@ export namespace Schemas {
     search?: string;
     };
 
+    export type ReleasesCatalogFlagsRetrieveParams = {
+    /**
+     * How many flags to return, at most 100.
+     * @minimum 1
+     * @maximum 100
+     */
+    limit?: number;
+    /**
+     * How many flags to skip, newest first.
+     * @minimum 0
+     */
+    offset?: number;
+    /**
+     * Part of the flag key or name to match.
+     * @maxLength 200
+     */
+    search?: string;
+    };
+
+    export type ReleasesCatalogReleasesRetrieveParams = {
+    /**
+     * next_cursor of the previous page.
+     * @maxLength 100
+     */
+    cursor?: string;
+    /**
+     * How many releases to return, at most 100.
+     * @minimum 1
+     * @maximum 100
+     */
+    limit?: number;
+    /**
+     * Part of the release name to match.
+     * @maxLength 200
+     */
+    search?: string;
+    };
+
     export type ReviewHogRepositoryOverviewRetrieveParams = {
     /**
      * The GitHub App installation to list.
@@ -147009,6 +147109,12 @@ export namespace Schemas {
      * @minimum 0
      */
     offset?: number;
+    /**
+     * Only sends whose delivery status has this reason, such as `soft` for a soft bounce or `sending_paused` for a send skipped while sending was paused.
+     * @minLength 1
+     * @maxLength 64
+     */
+    reason?: string;
     /**
      * A `message_id` for an exact match, or part of the recipient's email address.
      */

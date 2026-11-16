@@ -42,6 +42,7 @@ from products.messaging.backend.models.email_status_sql import (
 )
 from products.messaging.backend.models.message_template import MessageTemplate
 from products.messaging.backend.models.transactional_email_key import TransactionalEmailKey
+from products.messaging.backend.services.code_emails import code_emails_by_workflow
 from products.messaging.backend.services.transactional_email_status import message_created_at
 from products.workflows.backend.facade.contracts import WorkflowViewAccess
 from products.workflows.backend.facade.message_assets import (
@@ -132,13 +133,24 @@ def _sees_no_sends(access: WorkflowViewAccess | None) -> bool:
     return access is not None and not access.can_view_deleted and not access.viewable_ids
 
 
-def _code_send_keys(team_id: int, workflow_ids: Sequence[str]) -> dict[str, str]:
-    """The `template_key` of each workflow behind a send from code, which has no template to name it."""
+@frozen
+class _CodeSends:
+    # The `template_key` of each workflow behind a send from code, which has no template to name it.
+    keys: dict[str, str]
+    code_email_ids: dict[str, str]
+
+
+def _code_sends(team_id: int, workflow_ids: Sequence[str]) -> _CodeSends:
     ids = [UUID(workflow_id) for workflow_id in set(workflow_ids) if _is_uuid(workflow_id)]
     if not ids:
-        return {}
+        return _CodeSends(keys={}, code_email_ids={})
     keys = TransactionalEmailKey.objects.for_team(team_id, canonical=True).filter(hog_flow_id__in=ids)
-    return {str(hog_flow_id): key for hog_flow_id, key in keys.values_list("hog_flow_id", "key")}
+    return _CodeSends(
+        keys={str(hog_flow_id): key for hog_flow_id, key in keys.values_list("hog_flow_id", "key")},
+        code_email_ids={
+            workflow_id: str(email.id) for workflow_id, email in code_emails_by_workflow(team_id, ids).items()
+        },
+    )
 
 
 def _is_uuid(value: str) -> bool:
@@ -151,7 +163,7 @@ def _is_uuid(value: str) -> bool:
 
 def _build_entries(team_id: int, rows: list[tuple]) -> list[TransactionalEmailLogEntry]:
     templates = _templates_by_workflow(team_id, [row[6] for row in rows])
-    code_send_keys = _code_send_keys(team_id, [row[6] for row in rows])
+    code_sends = _code_sends(team_id, [row[6] for row in rows])
     entries = []
     for row in rows:
         (message_id, queued_at, status, status_at, reason, recipient, workflow_id, domain, opened, clicked) = row
@@ -170,7 +182,8 @@ def _build_entries(team_id: int, rows: list[tuple]) -> list[TransactionalEmailLo
                 recipient=recipient,
                 workflow_id=workflow_id,
                 template_id=str(template.id) if template else None,
-                template_name=template.name if template else code_send_keys.get(workflow_id, ""),
+                template_name=template.name if template else code_sends.keys.get(workflow_id, ""),
+                code_email_id=None if template else code_sends.code_email_ids.get(workflow_id),
                 sending_domain=domain,
                 opened=bool(opened),
                 clicked=bool(clicked),
@@ -184,6 +197,7 @@ def list_transactional_emails(
     *,
     search: str | None = None,
     status: EmailDeliveryStatus | None = None,
+    reason: str | None = None,
     workflow_id: str | None = None,
     date_from: datetime | None = None,
     date_to: datetime | None = None,
@@ -220,6 +234,9 @@ def list_transactional_emails(
     if status:
         having.append("delivery_status = %(status)s")
         params["status"] = status.value
+    if reason:
+        having.append("delivery_reason = %(reason)s")
+        params["reason"] = reason
     if workflow_id:
         queued_filters.append("function_id = %(workflow_id)s")
         having.append("message_function_id = %(workflow_id)s")
@@ -232,7 +249,7 @@ def list_transactional_emails(
     candidates = f"SELECT created_at, message_id FROM {EMAIL_STATUS_EVENTS_TABLE} WHERE {queued}"
     if message_id:
         scope = "AND message_id = %(message_id)s"
-    elif status:
+    elif status or reason:
         # A delivery status comes from all of a message's rows, so this reads every message in the period.
         settings.update(_GROUP_AS_READ)
         scope = f"AND (created_at, message_id) IN ({candidates})" if search or workflow_id else ""
@@ -314,6 +331,8 @@ def get_transactional_email(
         distinct_id=asset.distinct_id if asset else "",
         # The stored copy opens through its workflow, so a deleted workflow's copy can't be shown.
         action_id=asset.action_id if asset and (access is None or entry.workflow_id in access.viewable_ids) else "",
+        # A send from code can override its code email's sensitive setting, and its stored copy follows the send, so
+        # the copy itself shows whether the content was withheld.
         sensitive=bool(template and template.sensitive),
     )
 
@@ -363,21 +382,28 @@ def transactional_email_stats(
     templates = (
         _templates_by_workflow(team_id, [row[0] for row in rows]) if group_by == EmailStatsGroupBy.TEMPLATE else {}
     )
-    code_send_keys = (
-        _code_send_keys(team_id, [row[0] for row in rows]) if group_by == EmailStatsGroupBy.TEMPLATE else {}
+    code_sends = (
+        _code_sends(team_id, [row[0] for row in rows])
+        if group_by == EmailStatsGroupBy.TEMPLATE
+        else _CodeSends(keys={}, code_email_ids={})
     )
     stats = []
     for key, sent, delivered, bounced, complained, opened, clicked, failed in rows:
         template = templates.get(key)
+        live_template = template if template and not template.deleted else None
         if group_by == EmailStatsGroupBy.TEMPLATE:
-            label = template.name if template and not template.deleted else code_send_keys.get(key, "")
+            label = live_template.name if live_template else code_sends.keys.get(key, "")
+            code_email_id = None if live_template else code_sends.code_email_ids.get(key)
             key = str(template.id) if template else key
         else:
             label = key
+            code_email_id = None
         stats.append(
             TransactionalEmailStatsRow(
                 key=key,
                 label=label,
+                template_id=str(live_template.id) if live_template else None,
+                code_email_id=code_email_id,
                 sent=sent,
                 delivered=delivered,
                 bounced=bounced,
