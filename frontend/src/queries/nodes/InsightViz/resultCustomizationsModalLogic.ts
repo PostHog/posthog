@@ -11,7 +11,7 @@ import {
     getTrendResultCustomizationKey,
 } from 'scenes/insights/utils'
 
-import { ResultCustomizationBy, TrendsFilter } from '~/queries/schema/schema-general'
+import { InsightQueryNode, ResultCustomizationBy, TrendsFilter } from '~/queries/schema/schema-general'
 import { FlattenedFunnelStepByBreakdown, InsightLogicProps } from '~/types'
 
 import { funnelDataLogic } from 'products/product_analytics/frontend/insights/funnels/funnelDataLogic'
@@ -57,7 +57,6 @@ export interface resultCustomizationsModalLogicValues {
         | WebStatsTableQuery
         | null // insightVizDataLogic
     getTrendsColorToken: (dataset: IndexedTrendResult) => [DataColorTheme | null, DataColorToken | null] // trendsDataLogic
-    getTrendsYAxisPosition: (dataset: IndexedTrendResult) => 'auto' | 'left' | 'right' | undefined // trendsDataLogic
     resultCustomizationBy: ResultCustomizationBy // trendsDataLogic
     trendsResultCustomizations:
         | Record<string, ResultCustomizationByValue>
@@ -110,7 +109,22 @@ export interface resultCustomizationsModalLogicMeta {
         yAxisPosition: (
             localYAxisPosition: 'auto' | 'left' | 'right' | null,
             dataset: FlattenedFunnelStepByBreakdown | IndexedTrendResult | null,
-            getTrendsYAxisPosition: (dataset: IndexedTrendResult) => 'auto' | 'left' | 'right' | undefined
+            resultCustomizationBy: ResultCustomizationBy,
+            trendsResultCustomizations:
+                | Record<string, ResultCustomizationByValue>
+                | Record<number, ResultCustomizationByPosition>
+                | undefined,
+            querySource:
+                | FunnelsQuery
+                | LifecycleQuery
+                | PathsQuery
+                | PathsV2Query
+                | RetentionQuery
+                | StickinessQuery
+                | TrendsQuery
+                | WebOverviewQuery
+                | WebStatsTableQuery
+                | null
         ) => 'auto' | 'left' | 'right'
         modalVisible: (dataset: FlattenedFunnelStepByBreakdown | IndexedTrendResult | null) => boolean
         colorToken: (
@@ -122,10 +136,10 @@ export interface resultCustomizationsModalLogicMeta {
             isTrends: boolean,
             isStickiness: boolean,
             isFunnels: boolean,
-            getTrendsColorToken: (dataset: IndexedTrendResult) => [DataColorTheme | null, DataColorToken | null],
+            getTrendsColorToken: (dataset: IndexedTrendResult) => [DataColorTheme | null, DataColorToken | null], // trendsDataLogic
             getFunnelsColorToken: (
                 dataset: FlattenedFunnelStepByBreakdown | FunnelStepWithConversionMetrics
-            ) => [DataColorTheme | null, DataColorToken | null],
+            ) => [DataColorTheme | null, DataColorToken | null], // funnelDataLogic
             dataset: FlattenedFunnelStepByBreakdown | IndexedTrendResult | null
         ) => DataColorToken | null
         resultCustomizations: (
@@ -162,12 +176,7 @@ export const resultCustomizationsModalLogic = kea<resultCustomizationsModalLogic
             insightVizDataLogic,
             ['isTrends', 'isStickiness', 'isFunnels', 'insightFilter', 'querySource'],
             trendsDataLogic(props),
-            [
-                'resultCustomizationBy',
-                'resultCustomizations as trendsResultCustomizations',
-                'getTrendsColorToken',
-                'getTrendsYAxisPosition',
-            ],
+            ['resultCustomizationBy', 'resultCustomizations as trendsResultCustomizations', 'getTrendsColorToken'],
             funnelDataLogic(props),
             ['resultCustomizations as funnelsResultCustomizations', 'getFunnelsColorToken'],
         ],
@@ -217,14 +226,32 @@ export const resultCustomizationsModalLogic = kea<resultCustomizationsModalLogic
 
     selectors({
         yAxisPosition: [
-            (s) => [s.localYAxisPosition, s.dataset, s.getTrendsYAxisPosition],
+            (s) => [
+                s.localYAxisPosition,
+                s.dataset,
+                s.resultCustomizationBy,
+                s.trendsResultCustomizations,
+                s.querySource,
+            ],
             (
                 localYAxisPosition: 'auto' | 'left' | 'right' | null,
                 dataset: FlattenedFunnelStepByBreakdown | IndexedTrendResult | null,
-                getTrendsYAxisPosition: (dataset: IndexedTrendResult) => 'auto' | 'left' | 'right' | undefined
+                resultCustomizationBy: ResultCustomizationBy,
+                trendsResultCustomizations:
+                    | Record<string, ResultCustomizationByValue>
+                    | Record<number, ResultCustomizationByPosition>
+                    | undefined,
+                querySource: InsightQueryNode | null
             ): 'auto' | 'left' | 'right' =>
                 localYAxisPosition ??
-                (dataset ? getTrendsYAxisPosition(dataset as IndexedTrendResult) : undefined) ??
+                (dataset
+                    ? getTrendResultCustomization(
+                          resultCustomizationBy,
+                          dataset as IndexedTrendResult,
+                          trendsResultCustomizations,
+                          querySource
+                      )?.yAxisPosition
+                    : undefined) ??
                 'auto',
         ],
         modalVisible: [
