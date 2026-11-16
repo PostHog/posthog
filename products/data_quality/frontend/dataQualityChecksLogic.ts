@@ -190,14 +190,14 @@ export interface dataQualityChecksLogicActions {
         checkId: string
         runs: DataQualityCheckRunApi[]
     }
+    setExpandedSuiteRunId: (suiteRunId: string | null) => {
+        suiteRunId: string | null
+    }
     setPollTimedOut: () => {
         value: true
     }
     setRunAllInFlight: (inFlight: boolean) => {
         inFlight: boolean
-    }
-    setExpandedSuiteRunId: (suiteRunId: string | null) => {
-        suiteRunId: string | null
     }
     setSuiteRunCheckRuns: (
         suiteRunId: string,
