@@ -307,6 +307,9 @@ rules:
           - '/frontend/src/lib/signals/*.test.*'
       owners: team-self-driving
     - match:
+          - '/frontend/src/lib/integrations/AdsAccountIdPickers.test.tsx'
+      owners: team-workflows
+    - match:
           - '/services/credentials-service/tests/integration/*.test.*'
           - '/services/credentials-service/tests/unit/*.test.*'
           - '/frontend/src/lib/integrations/credentialAccountsLogic.test.ts'
