@@ -1,5 +1,7 @@
 import { useActions, useValues } from 'kea'
 
+import { usableId } from 'lib/components/ViewTraceButton/usableId'
+import { ViewTraceButton } from 'lib/components/ViewTraceButton/ViewTraceButton'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
@@ -38,6 +40,7 @@ export function TraceSpansHost({ hostId, traceId, timestampHint }: TraceViewKey)
         return null
     }
     const datasetsEnabled = !!featureFlags[FEATURE_FLAGS.LLM_ANALYTICS_DATASETS]
+    const selectedEvent = selectedNodeLoad.status === 'ready' ? selectedNodeLoad.node.event : null
     return (
         <TraceSplitView
             tree={trace.tree}
@@ -64,13 +67,26 @@ export function TraceSpansHost({ hostId, traceId, timestampHint }: TraceViewKey)
                           onViewInThread: canViewInThread ? viewInThread : null,
                           messagesOpening,
                           onMessagesOpeningChange: setMessagesOpening,
-                          actions:
-                              datasetsEnabled && createdAt ? (
-                                  <SaveToDatasetButton
-                                      key={selectedNodeId}
-                                      step={{ traceId, nodeId: selectedNodeId, timestamp: createdAt }}
+                          actions: (
+                              <>
+                                  {/* Tracing shows each AI event as a span with the id `ai:<event uuid>`. */}
+                                  <ViewTraceButton
+                                      traceId={usableId(traceId)}
+                                      spanId={selectedEvent ? `ai:${selectedEvent.uuid}` : null}
+                                      timestamp={selectedEvent?.timestamp ?? createdAt}
+                                      label="Open in Tracing"
+                                      type="secondary"
+                                      size="xsmall"
+                                      data-attr="trace-view-open-in-tracing"
                                   />
-                              ) : null,
+                                  {datasetsEnabled && createdAt ? (
+                                      <SaveToDatasetButton
+                                          key={selectedNodeId}
+                                          step={{ traceId, nodeId: selectedNodeId, timestamp: createdAt }}
+                                      />
+                                  ) : null}
+                              </>
+                          ),
                           stepFeedback: selectedStepFeedback
                               ? {
                                     feedback: selectedStepFeedback,
