@@ -633,4 +633,39 @@ describe('scratchpadLogic', () => {
         expect(logic.values.fullContentByKey).toEqual({})
         expect(logic.values.expandedKeys).toEqual([TRUNCATED.key])
     })
+
+    it.each([
+        ['a deleted entry leaves every loaded list', 200, false],
+        ['a refused delete keeps the entry', 403, true],
+    ])('%s', async (_name, status, kept) => {
+        useMocks({
+            get: {
+                [SCRATCHPAD_URL]: ({ request }) => {
+                    const params = new URL(request.url).searchParams
+                    if (params.get('skill_name')) {
+                        return [200, [WHOLE]]
+                    }
+                    return [200, params.get('text') ? [WHOLE] : [TRUNCATED, WHOLE]]
+                },
+            },
+            post: {
+                [`${SCRATCHPAD_URL}discard/`]: () =>
+                    status === 200 ? [200, { deleted: true }] : [403, { detail: 'Requires editor access to skills.' }],
+            },
+        })
+        logic.actions.loadScoutEntries(SCOUT)
+        logic.actions.setSearchText('short')
+        await expectLogic(logic).toFinishAllListeners()
+
+        logic.actions.discardEntry(WHOLE.key)
+        await expectLogic(logic).toFinishAllListeners()
+
+        const keys = (entries: ScratchpadEntryApi[] | null | undefined): string[] =>
+            (entries ?? []).map((row) => row.key)
+        expect(keys(logic.values.entries).includes(WHOLE.key)).toBe(kept)
+        expect(keys(logic.values.searchResults).includes(WHOLE.key)).toBe(kept)
+        expect(keys(entriesForSkill(logic.values.scoutEntries, SCOUT)).includes(WHOLE.key)).toBe(kept)
+        expect(keys(logic.values.entries).includes(TRUNCATED.key)).toBe(true)
+        expect(logic.values.discardingKeys).toEqual([])
+    })
 })

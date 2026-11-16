@@ -4545,6 +4545,18 @@ export const SignalsScoutScratchpadRememberBody = /* @__PURE__ */ zod
     .describe('Request body for `remember`.')
 
 /**
+ * Delete one scout memory by its exact key, so no scout reads it again. Use this to prune entries a skill change left stale. Returns `deleted=false` if no entry has that key. Requires editor access to skills, because the scratchpad steers the scout agents.
+ * @summary Delete a scratchpad entry by key
+ */
+export const signalsScoutScratchpadDiscardBodyKeyMax = 300
+
+export const SignalsScoutScratchpadDiscardBody = /* @__PURE__ */ zod
+    .object({
+        key: zod.string().max(signalsScoutScratchpadDiscardBodyKeyMax).describe('Memory key to delete.'),
+    })
+    .describe('Request body for `forget`.')
+
+/**
  * Delete an entry by key. Returns `deleted=false` if no row matched.
  * @summary Forget a scratchpad entry by key
  */

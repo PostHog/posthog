@@ -1,6 +1,7 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonSkeleton, LemonTable, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
+import { IconTrash } from '@posthog/icons'
+import { LemonButton, LemonDialog, LemonSkeleton, LemonTable, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { dayjs } from 'lib/dayjs'
@@ -222,7 +223,8 @@ function StackedCell({
  * body arrives after the expand — until it lands the preview stays on screen under a skeleton.
  */
 function ExpandedEntry({ entry }: { entry: ScratchpadEntryApi }): JSX.Element {
-    const { fullContentByKey, loadingContentKeys } = useValues(scratchpadLogic)
+    const { fullContentByKey, loadingContentKeys, discardingKeys } = useValues(scratchpadLogic)
+    const { discardEntry } = useActions(scratchpadLogic)
 
     // `hasOwn` guards against a key like `constructor` resolving to an inherited prototype value.
     const content = Object.hasOwn(fullContentByKey, entry.key) ? fullContentByKey[entry.key] : entry.content
@@ -259,9 +261,37 @@ function ExpandedEntry({ entry }: { entry: ScratchpadEntryApi }): JSX.Element {
                         Open the run that created it
                     </Link>
                 )}
+                <LemonButton
+                    size="xsmall"
+                    status="danger"
+                    icon={<IconTrash />}
+                    loading={discardingKeys.includes(entry.key)}
+                    onClick={() => confirmDiscardEntry(entry.key, discardEntry)}
+                    data-attr="scout-memory-delete"
+                >
+                    Delete
+                </LemonButton>
             </div>
         </div>
     )
+}
+
+function confirmDiscardEntry(key: string, onDiscard: (key: string) => void): void {
+    LemonDialog.open({
+        title: 'Delete this memory?',
+        description: (
+            <span>
+                Scouts will no longer read <span className="font-mono text-[11px] break-all">{key}</span>. A scout can
+                write it again on a later run. This can't be undone.
+            </span>
+        ),
+        primaryButton: {
+            children: 'Delete',
+            status: 'danger',
+            onClick: () => onDiscard(key),
+        },
+        secondaryButton: { children: 'Cancel' },
+    })
 }
 
 function carriedDays(entry: ScratchpadEntryApi): number | null {

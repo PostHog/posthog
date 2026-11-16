@@ -3284,6 +3284,27 @@ export const signalsScoutScratchpadRemember = async (
     })
 }
 
+export const getSignalsScoutScratchpadDiscardUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/signals/scout/scratchpad/discard/`
+}
+
+/**
+ * Delete one scout memory by its exact key, so no scout reads it again. Use this to prune entries a skill change left stale. Returns `deleted=false` if no entry has that key. Requires editor access to skills, because the scratchpad steers the scout agents.
+ * @summary Delete a scratchpad entry by key
+ */
+export const signalsScoutScratchpadDiscard = async (
+    projectId: string,
+    forgetRequestApi: ForgetRequestApi,
+    options?: RequestInit
+): Promise<ForgetResponseApi> => {
+    return apiMutator<ForgetResponseApi>(getSignalsScoutScratchpadDiscardUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(forgetRequestApi),
+    })
+}
+
 export const getSignalsScoutScratchpadForgetUrl = (projectId: string) => {
     return `/api/projects/${projectId}/signals/scout/scratchpad/forget/`
 }
