@@ -25,6 +25,7 @@ import { AddCrossProjectTileModal } from './AddCrossProjectTileModal'
 import { CrossProjectDashboardGrid } from './CrossProjectDashboardGrid'
 import { CrossProjectDashboardLayoutActions } from './CrossProjectDashboardLayoutActions'
 import { crossProjectDashboardLogic } from './crossProjectDashboardLogic'
+import { CrossProjectDashboardRefreshAction } from './CrossProjectDashboardRefreshAction'
 import { openCrossProjectTileOverrideDialog } from './openCrossProjectTileOverrideDialog'
 import { QuillCrossProjectDashboardActions } from './QuillCrossProjectDashboardActions'
 
@@ -48,6 +49,7 @@ export function CrossProjectDashboardScene(): JSX.Element {
         missingPropertyKeys,
         layoutEditMode,
         gridLayouts,
+        refreshToken,
     } = useValues(crossProjectDashboardLogic)
     const {
         removeTile,
@@ -60,6 +62,7 @@ export function CrossProjectDashboardScene(): JSX.Element {
         setProperties,
         updateDashboard,
         deleteDashboard,
+        tileRefreshSettled,
     } = useActions(crossProjectDashboardLogic)
     const { requestOpenModal } = useActions(addCrossProjectTileLogic({ dashboardId: dashboard?.id ?? '' }))
     const todayRailNav = useFeatureFlag('TODAY_RAIL_NAV')
@@ -105,6 +108,7 @@ export function CrossProjectDashboardScene(): JSX.Element {
                                     { value: 'month', label: 'Month' },
                                 ]}
                             />
+                            <CrossProjectDashboardRefreshAction />
                             <CrossProjectDashboardLayoutActions />
                             <LemonButton
                                 type="primary"
@@ -179,6 +183,8 @@ export function CrossProjectDashboardScene(): JSX.Element {
                     tileProjects={tileProjects}
                     timezonesDiverge={timezonesDiverge}
                     dashboardFilters={dashboardFilters}
+                    refreshToken={refreshToken}
+                    onTileRefreshSettled={tileRefreshSettled}
                     layouts={gridLayouts}
                     layoutEditMode={layoutEditMode}
                     onEnterLayoutEdit={enterLayoutEdit}

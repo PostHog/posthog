@@ -46,6 +46,9 @@ export interface CrossProjectDashboardGridProps {
     timezonesDiverge: boolean
     missingPropertyKeys: Record<number, string[]>
     dashboardFilters: CrossProjectDashboardFilters
+    refreshToken: number
+    /** Passed to every tile as is, so it must keep its identity between renders. */
+    onTileRefreshSettled: (tileId: string) => void
     onLayoutsChange: (layouts: Partial<ResponsiveTileLayouts>) => void
     onSetTileColor: (tileId: string, color: InsightColor | null) => void
     onSetTileOverride: (tile: CrossProjectDashboardTileApi) => void
@@ -61,6 +64,8 @@ export function CrossProjectDashboardGrid({
     timezonesDiverge,
     missingPropertyKeys,
     dashboardFilters,
+    refreshToken,
+    onTileRefreshSettled,
     onLayoutsChange,
     onSetTileColor,
     onSetTileOverride,
@@ -252,6 +257,8 @@ export function CrossProjectDashboardGrid({
                                 showTimezone={timezonesDiverge}
                                 missingPropertyKeys={missingPropertyKeys[tile.project_id]}
                                 dashboardFilters={dashboardFilters}
+                                refreshToken={refreshToken}
+                                onRefreshSettled={onTileRefreshSettled}
                                 showResizeHandles={canEditLayout}
                                 canEnterEditModeFromEdge={canEnterEditModeFromEdge}
                                 onEnterEditModeFromEdge={onEnterEditModeFromEdge}

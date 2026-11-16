@@ -24,6 +24,7 @@ import type { IntervalType } from '~/types'
 import { addCrossProjectTileLogic } from './addCrossProjectTileLogic'
 import { crossProjectDashboardLogic } from './crossProjectDashboardLogic'
 import { QuillCrossProjectDashboardLayoutActions } from './QuillCrossProjectDashboardLayoutActions'
+import { QuillCrossProjectDashboardRefreshAction } from './QuillCrossProjectDashboardRefreshAction'
 
 const INTERVAL_OPTIONS: { value: IntervalType | null; label: string }[] = [
     { value: null, label: 'Default interval' },
@@ -65,6 +66,7 @@ export function QuillCrossProjectDashboardActions(): JSX.Element | null {
                     ))}
                 </SelectContent>
             </Select>
+            <QuillCrossProjectDashboardRefreshAction />
             <QuillCrossProjectDashboardLayoutActions />
             <Button variant="primary" onClick={requestOpenModal} data-attr="cross-project-add-tile">
                 <IconPlus />

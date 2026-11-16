@@ -287,4 +287,27 @@ describe('crossProjectDashboardLogic', () => {
         expect(mockedTilePartialUpdate).toHaveBeenCalledTimes(1)
         expect(logic.values.layoutSaving).toBe(false)
     })
+
+    // The button shows the refresh as running until the last tile answers, and a tile removed
+    // mid-refresh never answers.
+    it('keeps the refresh running until every tile has settled or been removed', async () => {
+        mockedRetrieve.mockImplementation(async () => ({
+            ...dashboardWith({}),
+            tiles: [TILE, { ...TILE, id: 'tile-2' }],
+        }))
+        mockedTileDestroy.mockResolvedValue(undefined)
+        await mountWith({})
+        expect(logic.values.tilesRefreshing).toBe(false)
+
+        logic.actions.refreshTiles()
+        expect(logic.values.refreshToken).toBe(1)
+        expect(logic.values.tilesRefreshing).toBe(true)
+
+        logic.actions.tileRefreshSettled('tile-1')
+        expect(logic.values.tilesRefreshing).toBe(true)
+
+        logic.actions.removeTile('tile-2')
+        expect(logic.values.tilesRefreshing).toBe(false)
+        await expectLogic(logic).toFinishAllListeners()
+    })
 })

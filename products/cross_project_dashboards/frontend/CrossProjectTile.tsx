@@ -1,5 +1,5 @@
 import clsx from 'clsx'
-import React, { useEffect, useState } from 'react'
+import React, { useEffect, useRef, useState } from 'react'
 
 import { LemonButton, LemonSkeleton, LemonTag } from '@posthog/lemon-ui'
 
@@ -26,7 +26,7 @@ const GridInsightCard = InsightCard as unknown as React.ForwardRefExoticComponen
 const UNAVAILABLE_COPY: Record<TileUnavailableReason, string> = {
     'no-access': 'You do not have access to this insight. Ask an admin of its project for access.',
     'not-found': 'This insight no longer exists. Remove the tile or point it at another insight.',
-    failed: 'This tile could not load. Refresh the page to try again.',
+    failed: 'This tile could not load. Refresh the dashboard to try again.',
 }
 
 /** The card reads only `id`, `filters_overrides` and `show_description`, and our id is a UUID where `DashboardTile` declares a number. */
@@ -50,6 +50,10 @@ export interface CrossProjectTileProps extends React.HTMLAttributes<HTMLDivEleme
     showTimezone?: boolean
     missingPropertyKeys?: string[]
     dashboardFilters?: CrossProjectDashboardFilters
+    /** Changes when the reader asks for a refresh. The tile then recalculates instead of reading the cache. */
+    refreshToken?: number
+    /** Called once per requested refresh, when its fetch answers or the tile gives up on it. Must keep its identity between renders. */
+    onRefreshSettled?: (tileId: string) => void
     canEnterEditModeFromEdge?: boolean
     onEnterEditModeFromEdge?: (event: React.MouseEvent<HTMLDivElement>, edge: EditModeEdge) => void
     onDragHandleMouseDown?: React.MouseEventHandler<HTMLDivElement>
@@ -66,6 +70,8 @@ function CrossProjectTileInternal(
         showTimezone,
         missingPropertyKeys,
         dashboardFilters,
+        refreshToken = 0,
+        onRefreshSettled,
         canEnterEditModeFromEdge,
         onEnterEditModeFromEdge,
         onDragHandleMouseDown,
@@ -87,11 +93,25 @@ function CrossProjectTileInternal(
     // Compared by value, so a re-render that rebuilds the filters object does not refetch the tile.
     const filtersKey = JSON.stringify(filters)
 
+    // Starts at the mounting token, so a tile added after a refresh still reads the cache.
+    const lastRefreshToken = useRef(refreshToken)
+
     useEffect(() => {
+        // The effect also runs for a filter change, and only a new token is a request to recalculate.
+        const forceRefresh = refreshToken !== lastRefreshToken.current
+        lastRefreshToken.current = refreshToken
         let cancelled = false
+        let settled = !forceRefresh
+        const settle = (): void => {
+            if (!settled) {
+                settled = true
+                onRefreshSettled?.(tile.id)
+            }
+        }
         setLoading(true)
         const parsed = filtersKey === '{}' ? undefined : JSON.parse(filtersKey)
-        void fetchCrossProjectTile(tile.project_id, tile.insight_id, parsed).then((result) => {
+        void fetchCrossProjectTile(tile.project_id, tile.insight_id, parsed, forceRefresh).then((result) => {
+            settle()
             if (cancelled) {
                 return
             }
@@ -101,8 +121,10 @@ function CrossProjectTileInternal(
         })
         return () => {
             cancelled = true
+            // A filter change or an unmount drops this fetch, and the dashboard must not wait on it.
+            settle()
         }
-    }, [tile.project_id, tile.insight_id, filtersKey])
+    }, [tile.id, tile.project_id, tile.insight_id, filtersKey, refreshToken, onRefreshSettled])
 
     // Each tile answers from one project, so the project has to stay visible: without it two
     // tiles side by side read as one combined number. An unreachable insight gets no label,

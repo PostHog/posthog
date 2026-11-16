@@ -35,13 +35,18 @@ function releaseSlot(): void {
     waiting.shift()?.()
 }
 
-/** The project's own insight endpoint applies the reader's access, quota and cache key, so a reader without access gets a 403. */
+/**
+ * The project's own insight endpoint applies the reader's access, quota and cache key, so a reader without access gets a 403.
+ *
+ * `blocking` answers from the cache while the cached result is still fresh, so only `forceRefresh` recalculates.
+ */
 export async function fetchCrossProjectTile(
     projectId: number,
     insightId: number,
-    filtersOverride?: Record<string, unknown>
+    filtersOverride?: Record<string, unknown>,
+    forceRefresh: boolean = false
 ): Promise<TileFetchResult> {
-    const params: InsightsRetrieveParams = { refresh: 'blocking' }
+    const params: InsightsRetrieveParams = { refresh: forceRefresh ? 'force_blocking' : 'blocking' }
     if (filtersOverride && Object.keys(filtersOverride).length > 0) {
         params.filters_override = JSON.stringify(filtersOverride)
     }

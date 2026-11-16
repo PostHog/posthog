@@ -61,9 +61,12 @@ export interface crossProjectDashboardLogicValues {
     missingPropertyKeysLoading: boolean
     pendingLayouts: Partial<ResponsiveTileLayouts> | null
     projectIds: number[]
+    refreshToken: number
+    refreshingTileIds: string[]
     savedLayouts: ResponsiveTileLayouts
     tileProjects: Record<number, CrossProjectTileProject>
     tiles: readonly CrossProjectDashboardTileApi[]
+    tilesRefreshing: boolean
     timezonesDiverge: boolean
 }
 
@@ -117,6 +120,9 @@ export interface crossProjectDashboardLogicActions {
             value: true
         }
     }
+    refreshTiles: () => {
+        value: true
+    }
     removeTile: (tileId: string) => {
         tileId: string
     }
@@ -162,6 +168,12 @@ export interface crossProjectDashboardLogicActions {
         overrides: CrossProjectDashboardFilters
         tileId: string
     }
+    tileRefreshSettled: (tileId: string) => {
+        tileId: string
+    }
+    tileRefreshesStarted: (tileIds: string[]) => {
+        tileIds: string[]
+    }
     updateDashboard: (details: CrossProjectDashboardDetails) => {
         details: CrossProjectDashboardDetails
     }
@@ -181,6 +193,7 @@ export interface crossProjectDashboardLogicMeta {
             tiles: readonly CrossProjectDashboardTileApi[],
             tileProjects: Record<number, CrossProjectTileProject>
         ) => boolean
+        tilesRefreshing: (refreshingTileIds: string[]) => boolean
         savedLayouts: (tiles: readonly CrossProjectDashboardTileApi[]) => ResponsiveTileLayouts
         hasUnsavedLayoutChanges: (
             layoutEditMode: boolean,
@@ -224,8 +237,22 @@ export const crossProjectDashboardLogic = kea<crossProjectDashboardLogicType>([
         setProperties: (properties: AnyPropertyFilter[]) => ({ properties }),
         updateDashboard: (details: CrossProjectDashboardDetails) => ({ details }),
         deleteDashboard: true,
+        refreshTiles: true,
+        tileRefreshesStarted: (tileIds: string[]) => ({ tileIds }),
+        tileRefreshSettled: (tileId: string) => ({ tileId }),
     }),
     reducers({
+        // Tiles fetch their own insight, so a refresh reaches them as a changed prop.
+        refreshToken: [0, { refreshTiles: (state) => state + 1 }],
+        // By id rather than a count, so a tile that settles twice or is removed mid-refresh cannot leave the count off.
+        refreshingTileIds: [
+            [] as string[],
+            {
+                tileRefreshesStarted: (_, { tileIds }) => tileIds,
+                tileRefreshSettled: (state, { tileId }) => state.filter((id) => id !== tileId),
+                removeTile: (state, { tileId }) => state.filter((id) => id !== tileId),
+            },
+        ],
         layoutEditMode: [false, { enterLayoutEdit: () => true, exitLayoutEdit: () => false }],
         layoutSaving: [
             false,
@@ -296,6 +323,7 @@ export const crossProjectDashboardLogic = kea<crossProjectDashboardLogicType>([
                 return zones.size > 1
             },
         ],
+        tilesRefreshing: [(s) => [s.refreshingTileIds], (refreshingTileIds: string[]) => refreshingTileIds.length > 0],
         savedLayouts: [(s) => [s.tiles], (tiles: readonly CrossProjectDashboardTileApi[]) => layoutsForTiles(tiles)],
         hasUnsavedLayoutChanges: [
             (s) => [s.layoutEditMode, s.savedLayouts, s.pendingLayouts],
@@ -408,6 +436,10 @@ export const crossProjectDashboardLogic = kea<crossProjectDashboardLogicType>([
                 if (saved) {
                     crossProjectDashboardTracking.edited(props.id, 'interval')
                 }
+            },
+            refreshTiles: () => {
+                actions.tileRefreshesStarted(values.tiles.map((tile) => tile.id))
+                crossProjectDashboardTracking.refreshed(props.id, values.tiles)
             },
             enterLayoutEdit: () => {
                 lemonToast.info('Now editing the dashboard. Press E or click Save to persist changes.')

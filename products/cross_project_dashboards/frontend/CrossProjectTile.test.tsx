@@ -148,6 +148,28 @@ describe('CrossProjectTile', () => {
             />
         )
 
-        await waitFor(() => expect(spy).toHaveBeenCalledWith(99, 3, { date_from: '-7d', interval: 'week' }))
+        await waitFor(() => expect(spy).toHaveBeenCalledWith(99, 3, { date_from: '-7d', interval: 'week' }, false))
+    })
+
+    // A filter change reruns the same fetch, and must keep reading the cache.
+    it('forces a recalculation only for a new refresh token, and reports when it settles', async () => {
+        const spy = jest
+            .spyOn(tileFetch, 'fetchCrossProjectTile')
+            .mockResolvedValue({ insight: { name: 'Signups' } as any, unavailable: null })
+        const onRefreshSettled = jest.fn()
+        const props = { tile: tile(), onRefreshSettled }
+
+        const { rerender } = render(<CrossProjectTile {...props} refreshToken={0} />)
+        await waitFor(() => expect(screen.getByText('Signups')).toBeInTheDocument())
+
+        rerender(<CrossProjectTile {...props} refreshToken={0} dashboardFilters={{ date_from: '-7d' }} />)
+        await waitFor(() => expect(spy).toHaveBeenCalledTimes(2))
+        expect(spy).toHaveBeenLastCalledWith(42, 7, { date_from: '-7d' }, false)
+        expect(onRefreshSettled).not.toHaveBeenCalled()
+
+        rerender(<CrossProjectTile {...props} refreshToken={1} dashboardFilters={{ date_from: '-7d' }} />)
+        await waitFor(() => expect(onRefreshSettled).toHaveBeenCalledWith('tile-1'))
+        expect(spy).toHaveBeenLastCalledWith(42, 7, { date_from: '-7d' }, true)
+        expect(onRefreshSettled).toHaveBeenCalledTimes(1)
     })
 })

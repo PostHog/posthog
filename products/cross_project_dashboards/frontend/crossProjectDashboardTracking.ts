@@ -8,6 +8,7 @@ const EVENTS = {
     created: 'cross project dashboard created',
     deleted: 'cross project dashboard deleted',
     edited: 'cross project dashboard edited',
+    refreshed: 'cross project dashboard refreshed',
     addInsightOpened: 'cross project dashboard add insight opened',
     insightAdded: 'cross project dashboard insight added',
     insightAddFailed: 'cross project dashboard insight add failed',
@@ -49,6 +50,9 @@ export const crossProjectDashboardTracking = {
     },
     edited: (dashboardId: string, change: CrossProjectDashboardChange): void => {
         posthog.capture(EVENTS.edited, { dashboard_id: dashboardId, change })
+    },
+    refreshed: (dashboardId: string, tiles: readonly TileReference[]): void => {
+        posthog.capture(EVENTS.refreshed, { dashboard_id: dashboardId, ...composition(tiles) })
     },
     addInsightOpened: (dashboardId: string, tiles: readonly TileReference[]): void => {
         posthog.capture(EVENTS.addInsightOpened, { dashboard_id: dashboardId, ...composition(tiles) })
