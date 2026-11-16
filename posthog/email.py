@@ -416,12 +416,12 @@ def _smtp_email_via_workflows(dest: dict[str, str], template_name: str) -> bool:
 
 
 def _send_rendered_via_workflows(
-    capture: ScopedCapture, dest: dict[str, str], campaign_key: str, template_name: str, email: _RenderedEmail
+    capture: ScopedCapture, dest: dict[str, str], campaign_key: str, template_name: str, rendered: _RenderedEmail
 ) -> dict[str, Any] | Literal["smtp"]:
     """Send a Django-rendered email through Workflows, or return "smtp" when Workflows certainly queued nothing."""
     idempotency_key = _workflows_idempotency_key(campaign_key, dest["raw_email"])
-    pinned = dest["raw_email"] in email.pinned
-    reply_to = email.reply_to or get_instance_setting("EMAIL_REPLY_TO")
+    pinned = dest["raw_email"] in rendered.pinned
+    reply_to = rendered.reply_to or get_instance_setting("EMAIL_REPLY_TO")
     try:
         # Celery owns the retries, and the short timeout keeps the MessagingRecord row lock brief.
         with Emails(
@@ -430,8 +430,8 @@ def _send_rendered_via_workflows(
             result = emails.send(
                 to=dest["raw_email"],
                 template_key=template_name,
-                subject=email.subject,
-                html=email.html,
+                subject=rendered.subject,
+                html=rendered.html,
                 from_=get_instance_setting("EMAIL_DEFAULT_FROM"),
                 reply_to=[reply_to] if reply_to else None,
                 distinct_id=dest.get("distinct_id") or None,
@@ -916,7 +916,7 @@ def _send_email_now(
         ):
             # Cache errors raise here, before any send, because a missed pin could send a queued email again over SMTP.
             pin_keys = {dest["raw_email"]: _workflows_pin_key(campaign_key, dest["raw_email"]) for dest in to}
-            pinned = frozenset(email for email, key in pin_keys.items() if cache.get(key))
+            pinned = frozenset(raw_email for raw_email, key in pin_keys.items() if cache.get(key))
             workflows_to = [
                 dest for dest in to if dest["raw_email"] in pinned or _smtp_email_via_workflows(dest, template_name)
             ]
