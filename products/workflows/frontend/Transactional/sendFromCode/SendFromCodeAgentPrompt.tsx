@@ -17,7 +17,7 @@ export function SendFromCodeAgentPrompt({
     from: string | null
     surface: SendFromCodeSurface
 }): JSX.Element {
-    const target = useSendFromCodeTarget()
+    const { projectToken, ...target } = useSendFromCodeTarget()
 
     return (
         <div className="flex items-start gap-4" data-attr="send-from-code-agent-prompt">
@@ -32,13 +32,19 @@ export function SendFromCodeAgentPrompt({
                     className="self-start"
                     icon={<IconCopy />}
                     data-attr="send-from-code-copy-agent-prompt"
+                    disabledReason={projectToken ? undefined : 'Loading your project'}
                     onClick={() => {
-                        void copyToClipboard(sendFromCodePrompt({ ...target, from }), 'prompt').then((copied) => {
-                            if (copied) {
-                                // pinned: analytics event name
-                                posthog.capture('transactional email agent prompt copied', { surface })
+                        if (!projectToken) {
+                            return
+                        }
+                        void copyToClipboard(sendFromCodePrompt({ ...target, projectToken, from }), 'prompt').then(
+                            (copied) => {
+                                if (copied) {
+                                    // pinned: analytics event name
+                                    posthog.capture('transactional email agent prompt copied', { surface })
+                                }
                             }
-                        })
+                        )
                     }}
                 >
                     Copy prompt for your agent

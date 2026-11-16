@@ -9,12 +9,14 @@ import { AccessControlLevel, AccessControlResourceType } from '~/types'
 import { FirstSendStatus } from './FirstSendStatus'
 import { SendFromCodeSetup } from './SendFromCodeSetup'
 import { SendingDomainRow } from './SendingDomainRow'
+import { useSendFromCodeGuideLink } from './useSendFromCodeGuideLink'
 
 export function SendFromCodeEmptyState(): JSX.Element {
     const canCreateTemplate = !getAccessControlDisabledReason(
         AccessControlResourceType.Workflow,
         AccessControlLevel.Editor
     )
+    useSendFromCodeGuideLink({ settled: true, offered: true })
 
     return (
         <div className="flex flex-col items-center py-8" data-attr="send-from-code-empty-state">

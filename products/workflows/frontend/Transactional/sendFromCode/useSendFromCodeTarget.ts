@@ -6,7 +6,7 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 export interface SendFromCodeTarget {
-    projectToken: string
+    projectToken: string | null
     host: string
     appHost: string | null
     sendUrl: string
@@ -20,7 +20,7 @@ export function useSendFromCodeTarget(): SendFromCodeTarget {
     const appOrigin = getBackendHost() ?? window.location.origin
     const host = apiHostOrigin(appOrigin)
     return {
-        projectToken: currentTeam?.api_token ?? '<ph_project_api_key>',
+        projectToken: currentTeam?.api_token ?? null,
         host,
         appHost: host === appOrigin ? host : null,
         sendUrl: `${appOrigin}/api/projects/${currentTeamIdStrict}/messaging/send/email/`,

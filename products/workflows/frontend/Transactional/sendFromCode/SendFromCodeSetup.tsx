@@ -1,5 +1,5 @@
 import { useValues } from 'kea'
-import { useState } from 'react'
+import { useId, useState } from 'react'
 
 import { IconChevronDown, IconChevronRight } from '@posthog/icons'
 import { LemonButton, LemonSkeleton } from '@posthog/lemon-ui'
@@ -18,10 +18,8 @@ export function SendFromCodeSetup({ surface }: { surface: SendFromCodeSurface })
     const { isCloudOrDev } = useValues(preflightLogic)
     const { sendingDomain, integrationsFailed } = useValues(sendingDomainLogic)
     const [codeShown, setCodeShown] = useState(false)
-
-    if (!sendingDomain && !integrationsFailed) {
-        return <LemonSkeleton className="h-24" />
-    }
+    const codeId = useId()
+    const domainLoading = !sendingDomain && !integrationsFailed
     const from = sendingDomain?.status === 'verified' ? sendingDomain.from : null
 
     return (
@@ -35,27 +33,35 @@ export function SendFromCodeSetup({ surface }: { surface: SendFromCodeSurface })
                     <h4 className="m-0 text-sm font-semibold">Or use your own coding agent</h4>
                 </>
             ) : null}
-            <SendFromCodeAgentPrompt from={from} surface={surface} />
-            <div className="flex flex-col gap-2 border-t pt-3">
-                <LemonButton
-                    type="tertiary"
-                    size="small"
-                    className="self-start"
-                    icon={codeShown ? <IconChevronDown /> : <IconChevronRight />}
-                    onClick={() => setCodeShown(!codeShown)}
-                    data-attr="send-from-code-show-code"
-                >
-                    {codeShown ? 'Hide the code' : 'Write the code yourself'}
-                </LemonButton>
-                {codeShown ? (
-                    <>
-                        <p className="m-0 text-sm text-secondary">
-                            Writing it by hand? Here's everything the send needs.
-                        </p>
-                        <SendFromCodeSnippet from={from} surface={surface} />
-                    </>
-                ) : null}
-            </div>
+            {domainLoading ? (
+                <LemonSkeleton className="h-24" />
+            ) : (
+                <>
+                    <SendFromCodeAgentPrompt from={from} surface={surface} />
+                    <div className="flex flex-col gap-2 border-t pt-3">
+                        <LemonButton
+                            type="tertiary"
+                            size="small"
+                            className="self-start"
+                            icon={codeShown ? <IconChevronDown /> : <IconChevronRight />}
+                            onClick={() => setCodeShown(!codeShown)}
+                            aria-expanded={codeShown}
+                            aria-controls={codeId}
+                            data-attr="send-from-code-show-code"
+                        >
+                            {codeShown ? 'Hide the code' : 'Write the code yourself'}
+                        </LemonButton>
+                        {codeShown ? (
+                            <div id={codeId} className="flex flex-col gap-2">
+                                <p className="m-0 text-sm text-secondary">
+                                    Writing it by hand? Here's everything the send needs.
+                                </p>
+                                <SendFromCodeSnippet from={from} surface={surface} />
+                            </div>
+                        ) : null}
+                    </div>
+                </>
+            )}
         </div>
     )
 }

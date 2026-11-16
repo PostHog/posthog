@@ -4,6 +4,7 @@ import '@testing-library/jest-dom'
 import { act, cleanup, fireEvent, render, screen, waitFor } from '@testing-library/react'
 import { Provider } from 'kea'
 import { router } from 'kea-router'
+import posthog from 'posthog-js'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -233,31 +234,59 @@ describe('TransactionalEmailsTable', () => {
         expect(screen.queryByText('Or use your own coding agent') !== null).toBe(wizardShown)
         expect(container.querySelector('[data-attr=send-from-code-snippet]')).not.toBeInTheDocument()
 
+        const writeText = jest.fn().mockResolvedValue(undefined)
+        Object.defineProperty(navigator, 'clipboard', { value: { writeText }, configurable: true })
+        fireEvent.click(container.querySelector('[data-attr=send-from-code-copy-agent-prompt]')!)
+        await waitFor(() => expect(writeText).toHaveBeenCalledTimes(1))
+        expect(writeText.mock.calls[0][0]).toContain('PostHog project token: phc_default-team-api-token')
+        expect(writeText.mock.calls[0][0]).toContain('Leave out the from address.')
+
         fireEvent.click(container.querySelector('[data-attr=send-from-code-show-code]')!)
 
         expect(container.querySelector('[data-attr=send-from-code-snippet]')).toHaveTextContent('Node.js')
     })
 
-    it('opens the guide when the domain-ready card links to it', async () => {
-        renderWithCodeSends({
-            '/api/projects/:team_id/messaging_templates/': {
-                results: [
-                    {
-                        id: 'template-1',
-                        name: 'Receipt',
-                        transactional_hog_flow_id: 'flow-1',
-                        has_draft: false,
-                        tags: [],
-                    },
-                ],
-            },
-        })
-        await screen.findByText(/Your code can send any email/)
-        act(() => router.actions.push(sendFromCodeGuideUrl()))
+    const receipt = {
+        id: 'template-1',
+        name: 'Receipt',
+        transactional_hog_flow_id: 'flow-1',
+        has_draft: false,
+        tags: [],
+    }
 
-        expect(await screen.findByText('Send an email from your code')).toBeInTheDocument()
-        expect(router.values.searchParams).toEqual({})
-    })
+    it.each([
+        ['opens the guide over the list', [receipt], [], 'Receipt', true, true],
+        [
+            'keeps the guide closed when the project already sends from code',
+            [receipt],
+            [codeEmail('welcome', AccessControlLevel.Editor)],
+            'Receipt',
+            false,
+            false,
+        ],
+        ['shows the empty tab, which holds the guide already', [], [], 'Send your first email from code', false, true],
+    ])(
+        'answers a link from the domain-ready card: %s',
+        async (_case, templates, codeEmails, landmark, modalOpens, guideShown) => {
+            const capture = jest.spyOn(posthog, 'capture')
+            renderWithCodeSends({
+                '/api/projects/:team_id/messaging_templates/': { results: templates },
+                '/api/projects/:team_id/transactional_code_emails/': codeEmails,
+            })
+            expect(await screen.findByText(landmark)).toBeInTheDocument()
+            await waitFor(() => expect(transactionalEmailsLogic.values.codeEmails).toHaveLength(codeEmails.length))
+            act(() => router.actions.push(sendFromCodeGuideUrl()))
+
+            await waitFor(() => expect(router.values.searchParams).toEqual({}))
+            expect(screen.queryByText('Send an email from your code') !== null).toBe(modalOpens)
+            expect(
+                capture.mock.calls.some(
+                    ([event, props]) => event === 'send from code guide opened' && props?.entry === 'domain_ready'
+                )
+            ).toBe(guideShown)
+            capture.mockRestore()
+        }
+    )
 
     it('offers sending from code only once the templates loaded', async () => {
         let releaseTemplates: () => void = () => {}

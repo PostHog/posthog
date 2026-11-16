@@ -31,7 +31,11 @@ export function SendFromCodeSnippet({
 }): JSX.Element {
     const target = useSendFromCodeTarget()
     const [sdk, setSdk] = useState<SendFromCodeSdk>('node')
-    const snippet = sendFromCodeSnippet(sdk, { ...target, from })
+    const snippet = sendFromCodeSnippet(sdk, {
+        ...target,
+        projectToken: target.projectToken ?? '<ph_project_api_key>',
+        from,
+    })
 
     return (
         <div className="flex flex-col gap-2 min-w-0" data-attr="send-from-code-snippet">
@@ -67,8 +71,9 @@ export function SendFromCodeSnippet({
                 Use a <Link to={urls.settings('environment-secret-api-keys')}>project secret API key</Link> with the{' '}
                 <code>transactional_email:write</code> scope, and keep it on your server. The template key names the
                 email: each key shows up in Transactional emails with its own metrics. The idempotency key stops one
-                email from going out twice. Use a new key for each email. PostHog retries delivery, so send again only
-                when the call gets no answer, and then with the same key.
+                email from going out twice. Use a new key for each email. Once PostHog accepts a send, it retries
+                delivery itself. When the call gets no answer, or an error that says to retry, send it again within 24
+                hours with the same key.
             </p>
         </div>
     )
