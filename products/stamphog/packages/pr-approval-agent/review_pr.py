@@ -207,7 +207,7 @@ def _describe_deny_category(category: str, files: list[str] | None = None) -> st
     """Name a denied category and the files that matched it, and for an owner-only one, the teams that stamphog approves there."""
     described = category
     if files:
-        shown = ", ".join(f"`{_sanitize_untrusted(f, max_len=120)}`" for f in files[:_DENY_FILES_SHOWN])
+        shown = ", ".join(f"`{_inline_path(f)}`" for f in files[:_DENY_FILES_SHOWN])
         more = f" and {len(files) - _DENY_FILES_SHOWN} more" if len(files) > _DENY_FILES_SHOWN else ""
         described += f" in {shown}{more}"
     teams = DENY_EXEMPT_AUTHOR_TEAMS.get(category)
@@ -217,6 +217,11 @@ def _describe_deny_category(category: str, files: list[str] | None = None) -> st
 
 
 _DENY_FILES_SHOWN = 3
+
+
+def _inline_path(path: str) -> str:
+    escaped = path.replace("\\", "\\\\").replace("\n", "\\n").replace("\t", "\\t").replace("`", "'")
+    return _sanitize_untrusted(escaped, max_len=120)
 
 
 # ── Pipeline ─────────────────────────────────────────────────────
@@ -558,7 +563,9 @@ class Pipeline:
             and not additions_lifted
         )
         is_test = test_only(categories) and not owner_exempted and not exception_lifted and not additions_lifted
-        ownership_resolvers = build_ownership(REPO_ROOT, POLICY.ownership)
+        ownership_resolvers = (
+            self._merge_base_ownership_resolvers() if additions_lifted else build_ownership(REPO_ROOT, POLICY.ownership)
+        )
         ownership = detect_ownership(file_paths, ownership_resolvers)
 
         tier = assign_tier(
@@ -606,6 +613,7 @@ class Pipeline:
             "manifest_script_changes": risky_manifests,
             "has_ci_changes": has_ci_workflow_changes(file_paths),
             "ownership": ownership,
+            "ownership_from_merge_base": additions_lifted,
             "folder_policy_prose": self.effective_policy.folder_prose,
             "assurance": {
                 **self._summarize_assurance(),
@@ -792,13 +800,39 @@ class Pipeline:
             return False, f"no attestation covers: {', '.join(unattested[:5])}"
         return True, "every file attested"
 
+    def _merge_base_ownership_resolvers(self) -> list:
+        merge_base = self.pr.merge_base_sha
+        try:
+            if not merge_base:
+                merge_base = subprocess.run(
+                    ["git", "merge-base", self.pr.base_sha, self.pr.head_sha],
+                    cwd=REPO_ROOT,
+                    capture_output=True,
+                    text=True,
+                    timeout=30,
+                    check=True,
+                ).stdout.strip()
+            return build_ownership(REPO_ROOT, POLICY.ownership, ref=merge_base)
+        except (OSError, subprocess.SubprocessError, RuntimeError):
+            return []
+
     def _summarize_ownership(self) -> str:
         """Build ownership context for the LLM (not a hard gate)."""
+        summary = self._summarize_resolved_ownership()
+        if self.classification.get("ownership_from_merge_base"):
+            summary += (
+                "; read at the merge base, because this PR adds lines to an ownership file. An added rule"
+                " that takes paths another team owns, or sets inherit: false or sensitive: false, needs"
+                " that team's review"
+            )
+        self.classification["ownership_summary"] = summary
+        return summary
+
+    def _summarize_resolved_ownership(self) -> str:
         ownership = self.classification["ownership"]
         individuals = ownership.get("individuals", [])
         if ownership["team_count"] == 0 and not individuals:
-            self.classification["ownership_summary"] = "no owned paths touched"
-            return self.classification["ownership_summary"]
+            return "no owned paths touched"
 
         teams = ownership["teams"]
         author = self.pr.author
@@ -822,9 +856,8 @@ class Pipeline:
         if ownership.get("cross_team"):
             parts.append("cross-team change")
 
-        self.classification["ownership_summary"] = "; ".join(parts)
         self.classification["author_on_owning_team"] = len(author_teams) > 0
-        return self.classification["ownership_summary"]
+        return "; ".join(parts)
 
     def _check_size(self) -> tuple[bool, str]:
         lines, files = substantive_size(self.pr.files)

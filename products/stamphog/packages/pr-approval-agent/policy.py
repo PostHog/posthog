@@ -564,7 +564,7 @@ def _parse_deny_exceptions(raw: object, deny: dict[str, DenyCategory]) -> dict[s
                 keyword = next(
                     (
                         pattern
-                        for scope in ("any", "paths")
+                        for scope in ("any", "paths", "edit_paths")
                         for pattern in deny[category].match.get(scope, ())
                         if _LITERAL_KEYWORD_RE.fullmatch(pattern) and pattern.lower() == requested.lower()
                     ),

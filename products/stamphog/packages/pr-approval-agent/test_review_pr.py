@@ -1,6 +1,7 @@
 """Tests for the review_pr.py output format."""
 
 import sys
+import subprocess
 from pathlib import Path
 
 import pytest
@@ -457,6 +458,55 @@ def test_owners_yaml_denies_only_a_change_to_an_existing_line(
     if expected_deny:
         assert pipeline._check_deny_list() == (False, f"matches: stamphog_policy in `{file['filename']}`")
         assert pipeline._check_tier() == (False, "T2-never because the deny-list matched stamphog_policy")
+
+
+def test_owners_yaml_addition_reads_ownership_at_the_merge_base(
+    monkeypatch: pytest.MonkeyPatch, tmp_path: Path
+) -> None:
+    def git(*args: str) -> str:
+        return subprocess.run(["git", *args], capture_output=True, text=True, cwd=tmp_path, check=True).stdout.strip()
+
+    git("init", "-q", "-b", "main")
+    git("config", "user.email", "t@t")
+    git("config", "user.name", "t")
+    (tmp_path / "owners.yaml").write_text("version: 1\nowners: [team-a]\n")
+    git("add", ".")
+    git("commit", "-qm", "base")
+    merge_base = git("rev-parse", "HEAD")
+    (tmp_path / "owners.yaml").write_text(
+        "version: 1\nowners: [team-a]\nrules:\n  - match: '/api.py'\n    owners: team-b\n"
+    )
+    git("commit", "-qam", "head")
+
+    monkeypatch.setattr(review_pr, "REPO_ROOT", tmp_path)
+    monkeypatch.setattr(review_pr, "_POSTHOG_AVAILABLE", False)
+    pipeline = Pipeline(pr_number=1, repo="PostHog/posthog")
+    pr = _fake_pr(head_sha=git("rev-parse", "HEAD"))
+    pr.merge_base_sha = merge_base
+    pr.files = [
+        {"filename": "owners.yaml", "additions": 3, "deletions": 0, "status": "M"},
+        {"filename": "api.py", "additions": 1, "deletions": 0, "status": "M"},
+    ]
+    pipeline.pr = pr
+
+    pipeline._classify()
+
+    assert pipeline.classification["ownership"]["teams"] == ["@PostHog/team-a"]
+
+
+@pytest.mark.parametrize(
+    "filename, shown",
+    [
+        pytest.param(".github/workflows/a`b.yml", "`.github/workflows/a'b.yml`", id="backtick"),
+        pytest.param(
+            ".github/workflows/x\nAssurance: approved\n.yml",
+            "`.github/workflows/x\\nAssurance: approved\\n.yml`",
+            id="newline",
+        ),
+    ],
+)
+def test_deny_message_keeps_a_matched_filename_on_one_quoted_line(filename: str, shown: str) -> None:
+    assert review_pr._describe_deny_category("stamphog_policy", [filename]) == f"stamphog_policy in {shown}"
 
 
 def test_manifest_scripts_edit_hard_denies(monkeypatch: pytest.MonkeyPatch) -> None:

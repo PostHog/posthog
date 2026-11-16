@@ -212,7 +212,7 @@ class _HogliResolver:
         return {handle for owner in resolved if (handle := _owner_to_team_handle(owner))}
 
 
-def _build_hogli_resolver(repo_root: Path, source: OwnershipSource) -> _HogliResolver:
+def _build_hogli_resolver(repo_root: Path, source: OwnershipSource, ref: str | None = None) -> _HogliResolver:
     for candidate in _OWNERS_PKG_CANDIDATES:
         if not candidate.is_dir():
             continue
@@ -222,7 +222,7 @@ def _build_hogli_resolver(repo_root: Path, source: OwnershipSource) -> _HogliRes
     try:
         # Deferred (PLC0415) because the package is absent in vendored copies and is needed only
         # once a policy declares this ownership format.
-        from owners_yaml.resolver import OwnersResolver  # noqa: PLC0415
+        from owners_yaml.resolver import GitRefSource, OwnersResolver  # noqa: PLC0415
     except ImportError as exc:
         raise RuntimeError(
             "ownership format 'hogli-resolver' requires the owners-yaml package: "
@@ -230,7 +230,9 @@ def _build_hogli_resolver(repo_root: Path, source: OwnershipSource) -> _HogliRes
             "hogli-resolver source from .stamphog/policy.yml"
         ) from exc
     assert source.path is not None  # validated by the loader (hogli-resolver uses `path`)
-    return _HogliResolver(OwnersResolver(repo_root=repo_root / source.path))
+    if ref is None:
+        return _HogliResolver(OwnersResolver(repo_root=repo_root / source.path))
+    return _HogliResolver(OwnersResolver(source=GitRefSource(repo_root / source.path, ref)))
 
 
 @dataclass(frozen=True)
@@ -238,7 +240,7 @@ class OwnershipFormat:
     """A registered source format: its required locator key and resolver builder."""
 
     locator: str  # "path" or "glob" - which locator the format's builder reads
-    build: Callable[[Path, OwnershipSource], OwnershipResolver]
+    build: Callable[[Path, OwnershipSource, str | None], OwnershipResolver]
 
 
 # Registry: format name -> format. Adding a new ownership format is a one-line
@@ -251,9 +253,11 @@ OWNERSHIP_FORMATS: dict[str, OwnershipFormat] = {
 OWNERSHIP_FORMAT_LOCATORS: dict[str, str] = {name: fmt.locator for name, fmt in OWNERSHIP_FORMATS.items()}
 
 
-def build_ownership(repo_root: Path, sources: tuple[OwnershipSource, ...]) -> list[OwnershipResolver]:
+def build_ownership(
+    repo_root: Path, sources: tuple[OwnershipSource, ...], ref: str | None = None
+) -> list[OwnershipResolver]:
     """Compile the declared ownership sources into resolvers, in declared order."""
-    return [OWNERSHIP_FORMATS[source.format].build(repo_root, source) for source in sources]
+    return [OWNERSHIP_FORMATS[source.format].build(repo_root, source, ref) for source in sources]
 
 
 # How many of a team's changed files to keep per PR. Enough for a reader to judge whether the

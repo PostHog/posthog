@@ -384,6 +384,7 @@ So a Cargo.lock bump hard-denies on its own but doesn't silence the scripts guar
 A category's `match.edit_paths` patterns deny like `match.paths`, except for a file whose change only adds lines: a modified or new file with no deleted line.
 A rename, a copy, a deletion, a type change or a binary file always matches.
 A file that only `edit_paths` let through still gets an agent review, so it never rides the allow-list to a T0 approval.
+That PR's ownership is read at the merge base, so a rule it adds cannot make its author an owner of the code it changes.
 The deny-list gate message names the files that matched each category, so a refused author knows which change to look at.
 
 Code that legitimately looks like a sensitive domain without touching one gets a `deny_exceptions` rule. The removed `exempt_path_prefixes` key fails the load with a pointer to it.
