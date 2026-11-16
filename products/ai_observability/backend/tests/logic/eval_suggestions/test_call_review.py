@@ -1,5 +1,6 @@
 import re
 import json
+from collections import Counter
 from dataclasses import replace
 from typing import Any
 
@@ -141,10 +142,13 @@ def test_the_rendering_stays_bounded_and_shows_each_system_prompt_once() -> None
     assert rendering.trace_ids == {
         key: {call.trace_id for call in calls if call.call_type == key} for key in (SUPPORT.key, ROUTER.key)
     }
-    assert rendering.calls_per_type == {
+    assert Counter(call.call_type for call in rendering.calls.values()) == {
         SUPPORT.key: call_review.REVIEW_CALLS // 2,
         ROUTER.key: call_review.REVIEW_CALLS // 2,
     }
+    # Each call alone carries its call type's system prompt and the same block the review read.
+    system, block = rendering.calls[1].text.split('\n\n<call number="1" ')
+    assert system.startswith("<system_prompt>\nSYSTEM-MARKER") and f'<call number="1" {block}' in rendering.text
 
 
 @parameterized.expand(
@@ -178,14 +182,28 @@ def _rendering() -> call_review.Rendering:
     return call_review.render([SUPPORT, ROUTER], call_review.select_calls(rows))
 
 
+# In _rendering, support calls are numbered 1, 3, 5, 7 and 9 to 14, and router calls 2, 4, 6 and 8.
+SUPPORT_LABELS = [
+    *[{"call": number, "verdict": "fail"} for number in (1, 3, 5, 7)],
+    *[{"call": number, "verdict": "pass"} for number in (9, 10, 11, 12)],
+    {"call": 13, "verdict": "N/A"},
+    {"call": 14, "verdict": "unsure"},
+]
+
+
 def _card(**overrides: Any) -> dict[str, Any]:
     return {
         "title": "Replies promise refund dates",
         "checks": "Checks whether a reply promises a refund date",
         "why": "The prompt says never to promise a date.",
         "call_types": ["T1"],
-        "failed": 4,
-        "of": 10,
+        # An unknown verdict, a call no one rendered, a router call and a second label for call 1 all drop.
+        "labels": [
+            *SUPPORT_LABELS,
+            {"call": 99, "verdict": "fail"},
+            {"call": 2, "verdict": "fail"},
+            {"call": 1, "verdict": "pass"},
+        ],
         "examples": [
             {"trace_id": "support-1", "what_went_wrong": "Promised the refund by Friday"},
             {"trace_id": "support-2", "what_went_wrong": "Promised 5 days"},
@@ -201,16 +219,21 @@ def _card(**overrides: Any) -> dict[str, Any]:
         ("unknown_call_type", _card(call_types=["T7"])),
         ("unknown_traces", _card(examples=[{"trace_id": "made-up", "what_went_wrong": "x"}])),
         ("traces_of_another_call_type", _card(examples=[{"trace_id": "route-1", "what_went_wrong": "x"}])),
-        ("too_few_failures", _card(failed=2)),
-        ("more_calls_than_shown", _card(call_types=["T2"], failed=3, of=10)),
+        ("too_few_failures", _card(labels=SUPPORT_LABELS[2:])),
+        ("failures_only_on_other_call_types", _card(labels=[{"call": n, "verdict": "fail"} for n in (2, 4, 6, 8)])),
     ]
 )
 def test_a_card_the_review_cannot_back_is_dropped(_name: str, bad: dict[str, Any]) -> None:
     cards = call_review.parse_cards({"cards": [bad, _card()]}, _rendering())
 
     assert [(card.title, [c.key for c in card.call_types], card.failed, card.of) for card in cards] == [
-        ("Replies promise refund dates", [SUPPORT.key], 4, 10)
+        ("Replies promise refund dates", [SUPPORT.key], 4, 8)
     ]
+    assert cards[0].labels == {
+        **dict.fromkeys((1, 3, 5, 7), "fail"),
+        **dict.fromkeys((9, 10, 11, 12), "pass"),
+        13: "na",
+    }
     assert [example.trace_id for example in cards[0].examples] == ["support-1", "support-2"]
 
 

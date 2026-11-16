@@ -10,6 +10,7 @@ import math
 import hashlib
 from collections import Counter
 from collections.abc import Sequence
+from dataclasses import asdict
 from typing import Any
 
 from posthog.dataclasses import frozen
@@ -27,6 +28,7 @@ from .adapters import AdaptedCheck
 from .call_review import ReviewCard
 from .call_review_queries import CallTypeRow
 from .coverage import EvalFix, fix_dedupe_key
+from .judge_calibration import Calibration
 from .measure import Measurement, Outcome, SampledTrace, TraceSample
 from .prices import MODEL_PRICES
 from .profile import StructuredGap, TeamProfile, normalize_segment_value
@@ -520,8 +522,8 @@ def review_dedupe_key(card: ReviewCard) -> str:
     return bounded_key(f"review:{keys}:{' '.join(words)}")
 
 
-def review_proposal(card: ReviewCard, profile: TeamProfile, *, judge_model: str) -> Proposal:
-    """A judge on the generations of the card's call types, with the review's own counts and examples."""
+def review_proposal(card: ReviewCard, profile: TeamProfile, *, judge_model: str, calibration: Calibration) -> Proposal:
+    """A judge on the generations of the card's call types, with the judge's counts and the review's examples."""
     filters = call_type_filters(card.call_types)
     # Call types are counted over the last day. Without a filter the judge runs on every generation of the week.
     weekly_units = 7 * sum(c.calls for c in card.call_types) if filters else profile.generations
@@ -542,6 +544,8 @@ def review_proposal(card: ReviewCard, profile: TeamProfile, *, judge_model: str)
             "output_type": "boolean",
             "output_config": {"allows_na": True},
             "target": "generation",
+            # How the judge matched the review's labels. Accepting the card leaves this out of the evaluation.
+            "calibration": asdict(calibration),
         },
         filters=filters,
         rollout_percentage=cost.rollout_percentage,

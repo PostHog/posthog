@@ -12,7 +12,7 @@ import json
 import time
 from collections import defaultdict
 from collections.abc import Sequence
-from typing import Any
+from typing import Any, Literal
 
 import structlog
 from anthropic import Anthropic, APIConnectionError, APIError, APIStatusError, InternalServerError, RateLimitError
@@ -49,7 +49,8 @@ MAX_CALL_OUTPUT_CHARS = 3000
 MAX_TITLE_CHARS = 80
 MAX_ATTRIBUTE_CHARS = 256
 TRIAGE_MAX_OUTPUT_TOKENS = 1024
-REVIEW_MAX_OUTPUT_TOKENS = 8000
+# Room for a verdict on every call each card covers, besides the cards themselves.
+REVIEW_MAX_OUTPUT_TOKENS = 12000
 TRIAGE_TIMEOUT_SECONDS = 60.0
 REVIEW_TIMEOUT_SECONDS = 300.0
 # Attempts per call. Retries run here rather than in the SDK, so every attempt that may have billed is counted.
@@ -65,6 +66,8 @@ TEXT_TYPES = frozenset({"text", "input_text", "output_text"})
 # A `<` that starts one of the rendering's own tags. Sampled text gets each one escaped, so a call cannot close its
 # tag and pose as the reviewer's instructions or as another call.
 _TAG_START = re.compile(r"<(?=\s*/?\s*(?:call|system_prompt))", re.IGNORECASE)
+Verdict = Literal["fail", "pass", "na"]
+_VERDICTS: dict[str, Verdict] = {"fail": "fail", "pass": "pass", "na": "na"}
 
 _TRIAGE_SYSTEM = """You choose which LLM calls of one product are worth a quality review.
 
@@ -90,7 +93,7 @@ Each card is an LLM judge that will grade single calls of its call types:
 - checks: one sentence that says what the judge checks.
 - why: one sentence that says why it matters, tied to the rule in the team's prompt that the failures break.
 - call_types: the ids (T1, T2, ...) of the call types it applies to.
-- failed and of: of the sampled calls of those call types, how many failed, out of how many you read.
+- labels: every call of those call types, by the number on its <call> tag, with the answer the judge should give it: fail, pass, or na when the question does not apply.
 - examples: 2 failing calls, by the trace id on their <call> tag, each with one line that says exactly what went wrong.
 - judge_prompt: the full prompt for the grader, which reads one call and answers pass, fail or N/A. Ask one yes/no question. Say exactly what counts as a pass, what counts as a fail, and when the question does not apply. End with 2 or 3 short examples you invent. Never copy text from the calls into it."""
 
@@ -109,13 +112,17 @@ class _Example(BaseModel):
     what_went_wrong: str = Field(min_length=1)
 
 
+class _Label(BaseModel):
+    call: int
+    verdict: str
+
+
 class _Card(BaseModel):
     title: str = Field(min_length=1)
     checks: str = Field(min_length=1)
     why: str = Field(min_length=1)
     call_types: list[str] = Field(min_length=1)
-    failed: int
-    of: int
+    labels: list[_Label]
     examples: list[_Example] = Field(min_length=1)
     judge_prompt: str = Field(min_length=1)
 
@@ -170,8 +177,17 @@ _REVIEW_TOOL: ToolParam = {
                         "checks": {"type": "string"},
                         "why": {"type": "string"},
                         "call_types": {"type": "array", "items": {"type": "string"}},
-                        "failed": {"type": "integer"},
-                        "of": {"type": "integer"},
+                        "labels": {
+                            "type": "array",
+                            "items": {
+                                "type": "object",
+                                "properties": {
+                                    "call": {"type": "integer"},
+                                    "verdict": {"type": "string", "enum": list(_VERDICTS)},
+                                },
+                                "required": ["call", "verdict"],
+                            },
+                        },
                         "examples": {
                             "type": "array",
                             "minItems": EXAMPLES_PER_CARD,
@@ -187,7 +203,7 @@ _REVIEW_TOOL: ToolParam = {
                         },
                         "judge_prompt": {"type": "string"},
                     },
-                    "required": ["title", "checks", "why", "call_types", "failed", "of", "examples", "judge_prompt"],
+                    "required": ["title", "checks", "why", "call_types", "labels", "examples", "judge_prompt"],
                 },
             },
         },
@@ -213,14 +229,21 @@ class SampledCall:
 
 
 @frozen
+class RenderedCall:
+    call_type: str
+    # The call's block as the review read it, after its call type's system prompt, which the review read once.
+    text: str
+
+
+@frozen
 class Rendering:
     text: str
     # Id shown to the model -> call type.
     call_types: dict[str, CallTypeRow]
     # Call type key -> traces of its rendered calls.
     trace_ids: dict[str, frozenset[str]]
-    # Call type key -> calls rendered.
-    calls_per_type: dict[str, int]
+    # Number shown to the model -> call.
+    calls: dict[int, RenderedCall]
 
 
 @frozen
@@ -235,6 +258,9 @@ class ReviewCard:
     checks: str
     why: str
     call_types: list[CallTypeRow]
+    # Call number -> the review's verdict, for the rendered calls of the card's call types.
+    labels: dict[int, Verdict]
+    # The review's fails among the labels, and the judge's once calibrated. `of` leaves out the na calls.
     failed: int
     of: int
     examples: list[ReviewExample]
@@ -414,6 +440,10 @@ def _call_type_tag(type_id: str, call_type: CallTypeRow) -> str:
     )
 
 
+def _system_section(system: str) -> str:
+    return _tagged("system_prompt", _clip(system, MAX_SYSTEM_PROMPT_CHARS)) if system else "No system prompt."
+
+
 def render(call_types: Sequence[CallTypeRow], calls: Sequence[SampledCall]) -> Rendering:
     """The calls as the review model reads them. Each call type's system prompt appears once, and the text stays
     within MAX_RENDERED_CHARS: each call gets an equal part of what the system prompts leave, and the last calls
@@ -425,11 +455,8 @@ def render(call_types: Sequence[CallTypeRow], calls: Sequence[SampledCall]) -> R
             systems.setdefault(call.call_type, call.system)
     header = ["# Call types"]
     for call_type in call_types:
-        system = systems.get(call_type.key, "")
         header.append(f"\n{_call_type_tag(ids[call_type.key], call_type)}")
-        header.append(
-            _tagged("system_prompt", _clip(system, MAX_SYSTEM_PROMPT_CHARS)) if system else "No system prompt."
-        )
+        header.append(_system_section(systems.get(call_type.key, "")))
         header.append("</call_type>")
     header.append("\n# Calls")
     head = "\n".join(header)
@@ -454,16 +481,19 @@ def render(call_types: Sequence[CallTypeRow], calls: Sequence[SampledCall]) -> R
     while blocks and len(head) + sum(len(block) + 1 for block in blocks) > MAX_RENDERED_CHARS:
         blocks.pop()
     kept = calls[: len(blocks)]
-    per_type: defaultdict[str, int] = defaultdict(int)
     traces: defaultdict[str, set[str]] = defaultdict(set)
     for call in kept:
-        per_type[call.call_type] += 1
         traces[call.call_type].add(call.trace_id)
     return Rendering(
         text="\n".join([head, *blocks]),
         call_types={ids[call_type.key]: call_type for call_type in call_types},
         trace_ids={key: frozenset(trace_ids) for key, trace_ids in traces.items()},
-        calls_per_type=dict(per_type),
+        calls={
+            number: RenderedCall(
+                call_type=call.call_type, text=f"{_system_section(systems.get(call.call_type, ''))}\n{block}"
+            )
+            for number, (call, block) in enumerate(zip(kept, blocks), start=1)
+        },
     )
 
 
@@ -487,10 +517,16 @@ def parse_triage(tool_input: dict[str, Any] | None, call_types: Sequence[CallTyp
     return Triage(excluded=answer.exclude, picked=[] if answer.exclude else picked[:MAX_PICKED_CALL_TYPES])
 
 
+def parse_verdict(value: Any) -> Verdict | None:
+    """A verdict as a model may write it, so "N/A" reads as na. None for anything else."""
+    return _VERDICTS.get(value.strip().lower().replace("/", "")) if isinstance(value, str) else None
+
+
 def parse_cards(tool_input: dict[str, Any] | None, rendering: Rendering) -> list[ReviewCard]:
     """The valid cards, at most MAX_CARDS. A card is dropped when it is malformed, names no call type the model was
-    shown, cites no trace that holds a rendered call of its call types, has fewer than MIN_CARD_FAILURES failures,
-    or counts more calls than its call types had."""
+    shown, cites no trace that holds a rendered call of its call types, or labels fewer than MIN_CARD_FAILURES of its
+    rendered calls as failing. A label on a call the card's call types did not render is dropped, and the first label
+    of a call wins."""
     raw_cards = (tool_input or {}).get("cards")
     if not isinstance(raw_cards, list):
         return []
@@ -507,8 +543,15 @@ def parse_cards(tool_input: dict[str, Any] | None, rendering: Rendering) -> list
             for example in card.examples
             if example.trace_id in traces
         ]
-        shown = sum(rendering.calls_per_type.get(call_type.key, 0) for call_type in call_types)
-        if not call_types or not examples or not (MIN_CARD_FAILURES <= card.failed <= card.of <= shown):
+        keys = {call_type.key for call_type in call_types}
+        labels: dict[int, Verdict] = {}
+        for label in card.labels:
+            rendered = rendering.calls.get(label.call)
+            verdict = parse_verdict(label.verdict)
+            if rendered is not None and rendered.call_type in keys and verdict is not None:
+                labels.setdefault(label.call, verdict)
+        failed = sum(1 for verdict in labels.values() if verdict == "fail")
+        if not call_types or not examples or failed < MIN_CARD_FAILURES:
             continue
         cards.append(
             ReviewCard(
@@ -516,8 +559,9 @@ def parse_cards(tool_input: dict[str, Any] | None, rendering: Rendering) -> list
                 checks=card.checks.strip(),
                 why=card.why.strip(),
                 call_types=call_types,
-                failed=card.failed,
-                of=card.of,
+                labels=labels,
+                failed=failed,
+                of=sum(1 for verdict in labels.values() if verdict != "na"),
                 examples=examples[:EXAMPLES_PER_CARD],
                 judge_prompt=card.judge_prompt.strip(),
             )
