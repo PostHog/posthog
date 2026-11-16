@@ -74,7 +74,7 @@ export function TraceSpansHost({ hostId, traceId, timestampHint }: TraceViewKey)
                                       traceId={usableId(traceId)}
                                       spanId={selectedEvent ? `ai:${selectedEvent.uuid}` : null}
                                       timestamp={selectedEvent?.timestamp ?? createdAt}
-                                      label="Open in Tracing"
+                                      label="Open distributed trace"
                                       type="secondary"
                                       size="xsmall"
                                       data-attr="trace-view-open-in-tracing"
