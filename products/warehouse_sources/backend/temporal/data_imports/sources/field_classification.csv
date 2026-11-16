@@ -155,6 +155,7 @@ Baseten,api_key,,,,,baseten
 Beacons,,,,,,beacons
 Beamer,api_key,,,,,beamer
 Beehiiv,api_key publication_id,,,,,beehiiv
+BetterAuth,,,,,,better-auth
 BetterStack,api_token,,,,,better-stack
 Bettermode,region client_id client_secret network_id,,,,,bettermode
 Bexio,api_token,,,,,bexio
