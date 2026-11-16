@@ -3,6 +3,7 @@ from typing import Any, cast
 
 from django import forms
 from django.db.models import Model
+from django.forms.forms import DeclarativeFieldsMetaclass
 from django.http import HttpRequest, HttpResponse
 
 from posthog.admin.console.member_email_migration import MemberEmailChange, MemberEmailMigration, RequestedEmailChange
@@ -45,6 +46,19 @@ class ChangeMemberEmailsForm(forms.Form):
     )
     reason = forms.CharField(widget=forms.Textarea(attrs={"rows": 3}), help_text="Goes into the audit log.")
 
+    @classmethod
+    def for_domains(cls, new_domains: list[str]) -> type["ChangeMemberEmailsForm"]:
+        """The form with the new domain as a choice between the organization's other verified domains."""
+        new_domain = forms.ChoiceField(
+            label="New domain",
+            required=False,
+            choices=[("", "Choose a domain"), *((domain, domain) for domain in new_domains)],
+            help_text=cls.base_fields["new_domain"].help_text,
+        )
+        return cast(
+            type[ChangeMemberEmailsForm], DeclarativeFieldsMetaclass(cls.__name__, (cls,), {"new_domain": new_domain})
+        )
+
     def clean_members(self) -> list[RequestedEmailChange]:
         requested = []
         invalid_lines = []
@@ -76,7 +90,7 @@ class ChangeMemberEmailsForm(forms.Form):
         cleaned_data = super().clean() or {}
         requested = cleaned_data.get("members") or []
         if not cleaned_data.get("new_domain") and any(request.new_email is None for request in requested):
-            self.add_error("new_domain", "Enter a new domain, or type a new email on every line.")
+            self.add_error("new_domain", "Choose a new domain, or type a new email on every line.")
         return cleaned_data
 
 
@@ -218,29 +232,32 @@ class OrganizationSignInPanel(Panel):
     def operations(self, obj: Model) -> list[Operation]:
         assert isinstance(obj, Organization)
         limit = ChangeMemberEmailsForm.MAX_MEMBERS
-        emails, total = MemberEmailMigration.eligible_emails(obj, limit=limit)
-        description = "Changes members' emails in bulk."
-        if total > limit:
-            description += (
-                f" The form lists the first {limit} of {total} members on verified domains."
-                " Paste the others to change them in later runs."
+        operations = []
+        # One operation for each verified domain that has members, so a form lists the members of one domain.
+        domains = sorted(MemberEmailMigration.verified_domains(obj))
+        for domain in domains:
+            emails, total = MemberEmailMigration.emails_on_domain(obj, domain, limit=limit)
+            if not emails:
+                continue
+            description = f"Changes the emails of {pluralize(total, 'member')} on {domain}."
+            if total > limit:
+                description += f" The form lists the first {limit}. Run it again for the rest."
+            operations.append(
+                Operation(
+                    # The key is part of the URL, which takes letters, digits and hyphens.
+                    key=f"change-emails-{re.sub(r'[^a-z0-9]+', '-', domain)}",
+                    label=f"Change emails on {domain}",
+                    handler=change_member_emails,
+                    preview=preview_member_email_changes,
+                    danger=True,
+                    description=description,
+                    form_class=ChangeMemberEmailsForm.for_domains([other for other in domains if other != domain]),
+                    form_initial={"members": "\n".join(emails)},
+                    undo_hint=(
+                        "There is no undo. To reverse it, run this again with the new emails and change them back. "
+                        "SSO links and sessions are not restored."
+                    ),
+                    pending_label="Changing emails",
+                )
             )
-        if not emails:
-            return []
-        return [
-            Operation(
-                key="change-member-emails",
-                label="Change member emails",
-                handler=change_member_emails,
-                preview=preview_member_email_changes,
-                danger=True,
-                description=description,
-                form_class=ChangeMemberEmailsForm,
-                form_initial={"members": "\n".join(emails)},
-                undo_hint=(
-                    "There is no undo. To reverse it, run this again with the new emails and change them back. "
-                    "SSO links and sessions are not restored."
-                ),
-                pending_label="Changing emails",
-            )
-        ]
+        return operations

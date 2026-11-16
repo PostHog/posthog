@@ -73,7 +73,7 @@ class TestChangeMemberEmails(BaseTest):
         for domain in ("old.example.com", "new.example.com"):
             OrganizationDomain.objects.create(organization=self.organization, domain=domain, verified_at=timezone.now())
         self.member = self._create_user("ada@old.example.com", first_name="Ada")
-        self.url = f"/admin/console/organizations/{self.organization.pk}/sign-in/change-member-emails/"
+        self.url = f"/admin/console/organizations/{self.organization.pk}/sign-in/change-emails-old-example-com/"
 
     def _preview(self, members: str, new_domain: str = "new.example.com", notify: bool = True):
         data = {"members": members, "new_domain": new_domain, "reason": "IdP migration"}
@@ -86,22 +86,30 @@ class TestChangeMemberEmails(BaseTest):
         assert preview.status_code == 200, preview.content.decode()
         return self.client.post(self.url, {"confirm_token": preview.context["confirm_token"]}, follow=True)
 
-    def test_form_lists_members_on_verified_domains(self, _send: MagicMock) -> None:
+    def test_each_form_lists_the_members_on_its_domain(self, _send: MagicMock) -> None:
         self._create_user("guest@other.example.com")
+        self._create_user("grace@new.example.com")
+        self._create_user("staff@old.example.com", is_staff=True)
 
-        response = self.client.get(self.url)
+        old_domain = self.client.get(self.url)
+        new_domain = self.client.get(self.url.replace("old-example-com", "new-example-com"))
 
-        assert response.status_code == 200
-        assert response.context["form"].initial["members"] == "ada@old.example.com"
+        assert old_domain.context["form"].initial["members"] == "ada@old.example.com"
+        assert [value for value, _ in old_domain.context["form"].fields["new_domain"].choices] == [
+            "",
+            "new.example.com",
+        ]
+        assert new_domain.context["form"].initial["members"] == "grace@new.example.com"
 
-    def test_form_says_when_it_lists_only_some_of_the_members(self, _send: MagicMock) -> None:
+    def test_the_next_run_lists_the_members_the_last_one_did_not(self, _send: MagicMock) -> None:
         self._create_user("grace@old.example.com")
 
         with patch.object(ChangeMemberEmailsForm, "MAX_MEMBERS", 1):
             response = self.client.get(self.url)
+            assert "lists the first 1" in response.context["operation"].description
+            self._change(response.context["form"].initial["members"])
 
-        assert response.context["form"].initial["members"] == "ada@old.example.com"
-        assert "the first 1 of 2 members" in response.context["operation"].description
+            assert self.client.get(self.url).context["form"].initial["members"] == "grace@old.example.com"
 
     def test_preview_shows_the_change_without_making_it(self, send: MagicMock) -> None:
         response = self._preview("ada@old.example.com")
@@ -257,13 +265,6 @@ class TestChangeMemberEmails(BaseTest):
         [
             ("no_listed_email_is_a_member", "outsider@old.example.com", "new.example.com", 400, "members"),
             ("the_new_domain_is_not_verified", "ada@old.example.com", "unverified.example.com", 400, "new_domain"),
-            (
-                "an_unverified_new_domain_no_line_uses",
-                "ada@old.example.com a.lovelace@new.example.com",
-                "unverified.example.com",
-                200,
-                None,
-            ),
         ]
     )
     def test_preview_refuses_only_what_it_cannot_change(
