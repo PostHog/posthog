@@ -42,19 +42,13 @@ import { Survey, SurveyQuestion, SurveyQuestionType, SurveyType } from '~/types'
 import { SurveyBranchingFlowModal } from './branching-flow/SurveyBranchingFlowModal'
 import { SurveyPublicContentNotice } from './components/SurveyPublicContentNotice'
 import { defaultSurveyFieldValues, INTRO_SCREEN_PAGE_INDEX, NewSurvey, SurveyQuestionLabel } from './constants'
-import { CopySurveyLink } from './CopySurveyLink'
+import { CopySurveyLink, getSurveyUrl } from './CopySurveyLink'
 import { HostedSurveyCanvas } from './hosted-canvas/HostedSurveyCanvas'
 import { getHostedSurveyPageKind } from './hosted-canvas/hostedSurveyPageKind'
 import { HostedSurveySettingsPanel } from './hosted-canvas/HostedSurveySettingsPanel'
 import { surveyLogic } from './surveyLogic'
 import { SurveyResponsesCollection } from './SurveyResponsesCollection'
 import { AddQuestionButton } from './wizard/AddQuestionButton'
-
-function getHostedSurveyUrl(surveyId: string): string {
-    const url = new URL(window.location.origin)
-    url.pathname = `/external_surveys/${surveyId}`
-    return url.toString()
-}
 
 function HostedSurveyQuestionRail({
     id,
@@ -465,7 +459,7 @@ export function HostedSurveyEdit({ id }: { id: string }): JSX.Element {
     const maxPageIndex = Math.max(survey.questions.length + (survey.appearance?.displayThankYouMessage ? 1 : 0) - 1, 0)
     const activePageIndex = Math.min(Math.max(selectedPageIndex ?? 0, getFirstPreviewPageIndex(survey)), maxPageIndex)
     const pageKind = getHostedSurveyPageKind(survey, activePageIndex)
-    const hostedSurveyUrl = id === 'new' ? null : getHostedSurveyUrl(id)
+    const hostedSurveyUrl = id === 'new' ? null : getSurveyUrl(id)
 
     const removeIntroScreen = (): void => {
         setSurveyValue('appearance', {

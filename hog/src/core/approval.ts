@@ -1,9 +1,9 @@
 import { z } from 'zod'
 
-import { ApiError } from '@/posthog/api'
+import { isTransient } from '@/posthog/api'
 
 import type { Context } from './context'
-import { HogError } from './errors'
+import { EXIT_NEEDS_PERSON, HogError } from './errors'
 import { parseJsonOrUndefined } from './json'
 import { escapeControls, type Output } from './output'
 import { hogFile } from './paths'
@@ -204,7 +204,8 @@ async function waitFor<Pending extends PendingApproval, Value>(
             throw new HogError(
                 `${errorCode(flow.noun)}_still_pending`,
                 `The ${flow.noun} is still waiting for approval.`,
-                `Run \`${flow.resume}\` again later. The link stays the same.`
+                `Run \`${flow.resume}\` again later. The link stays the same.`,
+                EXIT_NEEDS_PERSON
             )
         }
         await runtime.sleep(intervalSeconds * 1000)
@@ -249,7 +250,8 @@ async function waitFor<Pending extends PendingApproval, Value>(
                     new HogError(
                         `${errorCode(flow.noun)}_rejected`,
                         `The ${flow.noun} was rejected in the browser.`,
-                        `Run \`${flow.restart?.(pending) ?? flow.command}\` to start again.`
+                        `Run \`${flow.restart?.(pending) ?? flow.command}\` to start again.`,
+                        EXIT_NEEDS_PERSON
                     )
                 )
             case 'expired':
@@ -277,14 +279,6 @@ async function waitFor<Pending extends PendingApproval, Value>(
     return fail(expired(flow, pending))
 }
 
-function isTransient(error: HogError): boolean {
-    return (
-        error.code === 'network_error' ||
-        error.code === 'refresh_failed' ||
-        (error instanceof ApiError && (error.status === 429 || error.status >= 500))
-    )
-}
-
 function expired<Pending extends PendingApproval>(
     flow: Pick<ApprovalWait<Pending, unknown>, 'noun' | 'command' | 'restart'>,
     pending: Pending
@@ -292,7 +286,8 @@ function expired<Pending extends PendingApproval>(
     return new HogError(
         `${errorCode(flow.noun)}_expired`,
         `The ${flow.noun} request expired before it was approved.`,
-        `Run \`${flow.restart?.(pending) ?? flow.command}\` to start a new one.`
+        `Run \`${flow.restart?.(pending) ?? flow.command}\` to start a new one.`,
+        EXIT_NEEDS_PERSON
     )
 }
 
