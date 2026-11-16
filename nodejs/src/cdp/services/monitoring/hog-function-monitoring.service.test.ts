@@ -7,7 +7,10 @@ import { parseJSON } from '~/common/utils/json-parse'
 import { internalFetch } from '~/common/utils/request'
 import { InternalLogsProducer } from '~/logs/internal-logs-producer'
 
+import { createExampleInvocation } from '../../_tests/fixtures'
+import { HIDDEN_OUTPUT_MESSAGE } from '../../read-guarded-internal-events'
 import { LogEntry, MetricLogSource, MinimalAppMetric } from '../../types'
+import { createInvocationResult } from '../../utils/invocation-utils'
 import {
     HogFunctionMonitoringService,
     MonitoringOutput,
@@ -150,6 +153,30 @@ describe('HogFunctionMonitoringService', () => {
         timestamp: DateTime.fromISO('2026-10-27T12:00:00Z'),
         level: 'info',
         message: `team ${teamId}`,
+    })
+
+    it.each([
+        { event: '$signals_report_ready', hidden: true },
+        { event: '$activity_log_entry_created', hidden: false },
+    ])('hides the log text of a destination run on $event: $hidden', async ({ event, hidden }) => {
+        // log_entries is readable through HogQL with project query access, without the event's read access.
+        const invocation = createExampleInvocation({ team_id: 2 }, { event: { event } as any })
+        const result = createInvocationResult(
+            invocation,
+            {},
+            {
+                logs: [{ level: 'error', timestamp: DateTime.now(), message: 'Request failed: echoed report payload' }],
+            }
+        )
+
+        service.queueInvocationResults([result])
+        await service.flush()
+
+        const messages = produceMock.mock.calls
+            .map(([message]) => parseJSON(message.value.toString()) as Record<string, unknown>)
+            .filter((row) => row.log_source === 'hog_function')
+            .map((row) => row.message)
+        expect(messages).toEqual([hidden ? HIDDEN_OUTPUT_MESSAGE : 'Request failed: echoed report payload'])
     })
 
     it('sends accepted logs to the logs product with the log entry timestamps, and drains them on stop', async () => {

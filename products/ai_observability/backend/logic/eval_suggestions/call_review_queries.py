@@ -3,6 +3,8 @@
 from collections.abc import Sequence
 
 from posthog.hogql import ast
+from posthog.hogql.parser import parse_select
+from posthog.hogql.visitor import TraversingVisitor
 
 from posthog.dataclasses import frozen
 from posthog.models.team import Team
@@ -62,6 +64,7 @@ LIMIT {{limit}}
 # Candidates are chosen by a hash of their uuid, which spreads each call type's candidates over the day. The
 # subquery chooses them from ids and call types alone, so the sort never holds message bodies, and only the chosen
 # rows read their input and output. ai_events can store an event more than once, so both caps count each uuid once.
+# The subquery's `IN` runs as GLOBAL IN, see _calls_query.
 _CALLS_SQL = f"""
 SELECT
     toString(uuid) AS event_uuid,
@@ -112,6 +115,22 @@ ORDER BY cityHash64(event_uuid)
 LIMIT 1 BY event_uuid
 LIMIT {{max_rows}}
 """
+
+
+class _GlobalSubqueryIn(TraversingVisitor):
+    def visit_compare_operation(self, node: ast.CompareOperation) -> None:
+        if node.op == ast.CompareOperationOp.In and isinstance(node.right, ast.SelectQuery):
+            node.op = ast.CompareOperationOp.GlobalIn
+        super().visit_compare_operation(node)
+
+
+def _calls_query() -> ast.SelectQuery:
+    """_CALLS_SQL with its candidate subquery run once, on the node that starts the query. A plain `IN` over the
+    distributed ai_events table runs the subquery again on every shard, and HogQL has no GLOBAL IN syntax."""
+    query = parse_select(_CALLS_SQL)
+    assert isinstance(query, ast.SelectQuery)
+    _GlobalSubqueryIn().visit(query)
+    return query
 
 
 @frozen
@@ -179,7 +198,7 @@ def load_review_calls(
 ) -> list[ReviewCallRow]:
     rows = run_ai_events_query(
         team,
-        _CALLS_SQL,
+        _calls_query(),
         {
             **_placeholders(window, per_mille),
             "keys": ast.Constant(value=[call_type.key for call_type in call_types]),
