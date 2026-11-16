@@ -37,7 +37,8 @@ def request_onboarding(
         if state is not None and (state.completed or (start_only and state.root_ts is not None)):
             return
         start_delay_seconds = 0
-        if state is None:
+        # The work focus stores its outcome in the same field, so only a start or a thread says the onboarding began.
+        if state is None or (state.started_at is None and state.root_ts is None):
             if not may_start or not is_slack_app_onboarding_enabled(integration):
                 return
             update_onboarding(slack_workspace_id, slack_user_id, start=True)

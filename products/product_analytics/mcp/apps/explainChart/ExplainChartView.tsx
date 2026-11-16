@@ -63,6 +63,12 @@ function warningMessages(warnings: unknown[] = []): string[] {
 }
 
 function seriesNoteOf(data: ExplainChartData): string | null {
+    if (data.shape === 'funnel_steps') {
+        const breakdown = data.breakdowns[data.seriesIndex]
+        return data.breakdowns.length < 2 || breakdown === undefined
+            ? null
+            : `This follows ${breakdown}, one of the ${data.breakdowns.length} breakdown values on the funnel.`
+    }
     if (data.results.length < 2) {
         return null
     }

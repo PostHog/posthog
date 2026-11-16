@@ -11,6 +11,7 @@ from posthog.schema import (
     ChartSettings,
     ChartSettingsFormatting,
     DataVisualizationNode,
+    HogQLFilters,
     HogQLQuery,
     HogQLVariable,
     Settings,
@@ -159,7 +160,7 @@ class HogQLOutputParserMixin(HogQLDatabaseMixin):
     def _abuild_query_variables(self, query: str) -> dict[str, HogQLVariable]:
         return self._build_query_variables(query)
 
-    def _validate_hogql_query_sync(self, query: str) -> AssistantHogQLQuery:
+    def _validate_hogql_query_sync(self, query: str, filters: HogQLFilters | None = None) -> AssistantHogQLQuery:
         """
         Validate a HogQL query string and return AssistantHogQLQuery.
 
@@ -177,10 +178,8 @@ class HogQLOutputParserMixin(HogQLDatabaseMixin):
 
             finder = find_placeholders(parsed_query)
 
-            # Handle filter placeholders using the proper filter replacement system.
-            # Passing None for filters resolves all recognized filter placeholders to True (no-op).
             if finder.has_filters:
-                parsed_query = cast(ast.SelectQuery, replace_filters(parsed_query, None, self._team))
+                parsed_query = cast(ast.SelectQuery, replace_filters(parsed_query, filters, self._team))
 
             if any(field and field[0] == "variables" for field in finder.placeholder_fields):
                 variables = self._get_insight_variables(finder.placeholder_fields)
@@ -195,9 +194,9 @@ class HogQLOutputParserMixin(HogQLDatabaseMixin):
         return AssistantHogQLQuery(query=cleaned_query)
 
     @database_sync_to_async(thread_sensitive=False)
-    def _validate_hogql_query(self, query: str) -> AssistantHogQLQuery:
+    def _validate_hogql_query(self, query: str, filters: HogQLFilters | None = None) -> AssistantHogQLQuery:
         """Async wrapper for _validate_hogql_query_sync."""
-        return self._validate_hogql_query_sync(query)
+        return self._validate_hogql_query_sync(query, filters)
 
     @database_sync_to_async(thread_sensitive=False)
     def _quality_check_output(self, output: SQLSchemaGeneratorOutput):

@@ -2,7 +2,7 @@ import '@testing-library/jest-dom'
 
 import { render } from '@testing-library/react'
 
-import { makeTraceResource } from '../adapter/testFixtures'
+import { makeTraceResource } from '../testFixtures'
 import { TraceTree } from './TraceTree'
 
 describe('TraceTree', () => {
@@ -16,7 +16,7 @@ describe('TraceTree', () => {
                     selectedNodeId={null}
                     onSelectNode={() => {}}
                     onPrefetchNode={() => {}}
-                    evalOutcomes={{}}
+                    evalOutcomes={new Map()}
                 />
             )
 

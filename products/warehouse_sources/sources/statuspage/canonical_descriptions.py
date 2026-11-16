@@ -151,4 +151,57 @@ CANONICAL_DESCRIPTIONS: CanonicalDescriptions = {
             "updated_at": "Timestamp when the page access group was last updated.",
         },
     },
+    "component_uptime": {
+        "description": (
+            "Uptime per component that has uptime showcase turned on, over the API's default range: "
+            "the last 90 days, or since the component's start date when that is more recent."
+        ),
+        "docs_url": "https://developer.statuspage.io/#tag/components",
+        "columns": {
+            "id": "Identifier of the component.",
+            "page_id": _PAGE_ID_COLUMN,
+            "name": "Display name of the component.",
+            "range_start": "Start of the range used for the uptime calculation.",
+            "range_end": "End of the range used for the uptime calculation.",
+            "uptime_percentage": "Uptime percentage of the component over the range.",
+            "major_outage": "Seconds of major outage over the range.",
+            "partial_outage": "Seconds of partial outage over the range.",
+            "warnings": "Warnings about the uptime calculation, for example a changed range.",
+            "related_events": "Incidents related to the component over the range.",
+        },
+    },
+    "component_group_uptime": {
+        "description": (
+            "Uptime per component group that has at least one component with uptime showcase turned on, "
+            "over the API's default range: the last 90 days, or since the earliest component start date "
+            "in the group when that is more recent."
+        ),
+        "docs_url": "https://developer.statuspage.io/#tag/component-groups",
+        "columns": {
+            "id": "Identifier of the component group.",
+            "page_id": _PAGE_ID_COLUMN,
+            "name": "Display name of the component group.",
+            "range_start": "Start of the range used for the uptime calculation.",
+            "range_end": "End of the range used for the uptime calculation.",
+            "uptime_percentage": "Uptime percentage of the component group over the range.",
+            "major_outage": "Seconds of major outage over the range.",
+            "partial_outage": "Seconds of partial outage over the range.",
+            "warnings": "Warnings about the uptime calculation, for example a changed range.",
+            "related_events": "Incidents related to each component of the group over the range.",
+        },
+    },
+    "page_access_user_components": {
+        "description": "Components that each page access user can see on an audience-specific status page.",
+        "docs_url": "https://developer.statuspage.io/#tag/page-access-users",
+        "columns": {
+            "id": "Identifier of the component.",
+            "page_id": _PAGE_ID_COLUMN,
+            "page_access_user_id": "Identifier of the page access user (added by the connector).",
+            "name": "Display name of the component.",
+            "group_id": "Identifier of the component group this component belongs to, if any.",
+            "status": "Current status of the component.",
+            "created_at": "Timestamp when the component was created.",
+            "updated_at": "Timestamp when the component was last updated.",
+        },
+    },
 }

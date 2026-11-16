@@ -72,7 +72,7 @@ function aggregateFetchOptions(tab: TracingResultsTab): { fullRange: boolean; gr
     return { fullRange: true, groupByEndpoint: tab === 'endpoints' }
 }
 
-const TRACING_SCENE_TABS = ['viewer', 'sql'] as const
+const TRACING_SCENE_TABS = ['viewer', 'sql', 'alerts'] as const
 export type TracingSceneTab = (typeof TRACING_SCENE_TABS)[number]
 const DEFAULT_SCENE_TAB: TracingSceneTab = 'viewer'
 
@@ -148,6 +148,7 @@ export interface tracingSceneLogicValues {
     traceSessionId: string | null // tracingViewerLogic
     activeSceneTab: TracingSceneTab
     activeTracingTab: TracingResultsTab
+    availableSceneTabs: TracingSceneTab[]
     breadcrumbs: Breadcrumb[]
     displayMode: TracingDisplayMode
     endpointsViewEnabled: boolean
@@ -305,7 +306,7 @@ export interface tracingSceneLogicActions {
         editorTabId: string
     }
     selectSceneTab: (tab: TracingSceneTab) => {
-        tab: 'sql' | 'viewer'
+        tab: 'alerts' | 'sql' | 'viewer'
     }
     setActiveTracingTab: (tab: TracingResultsTab) => {
         tab: TracingResultsTab
@@ -314,7 +315,7 @@ export interface tracingSceneLogicActions {
         mode: TracingDisplayMode
     }
     setSceneTab: (tab: TracingSceneTab) => {
-        tab: 'sql' | 'viewer'
+        tab: 'alerts' | 'sql' | 'viewer'
     }
     syncUrl: () => {
         value: true
@@ -332,8 +333,12 @@ export interface tracingSceneLogicMeta {
             activeTracingTab: TracingResultsTab,
             filters: TracingFilters
         ) => TracingDisplayMode
-        sceneTabsEnabled: (featureFlags: FeatureFlagsSet) => boolean
-        activeSceneTab: (sceneTabsEnabled: boolean, sceneTab: 'sql' | 'viewer') => TracingSceneTab
+        availableSceneTabs: (featureFlags: FeatureFlagsSet) => TracingSceneTab[]
+        sceneTabsEnabled: (availableSceneTabs: ('alerts' | 'sql' | 'viewer')[]) => boolean
+        activeSceneTab: (
+            availableSceneTabs: ('alerts' | 'sql' | 'viewer')[],
+            sceneTab: 'alerts' | 'sql' | 'viewer'
+        ) => TracingSceneTab
     }
 }
 
@@ -510,14 +515,27 @@ export const tracingSceneLogic = kea<tracingSceneLogicType>([
                 return tab === 'traces' ? filters.viewMode : tab
             },
         ],
-        sceneTabsEnabled: [
+        // Each tab past the viewer has its own flag, and the tab bar shows once any of them is on.
+        availableSceneTabs: [
             (s) => [s.featureFlags],
-            (featureFlags: FeatureFlagsSet): boolean => !!featureFlags[FEATURE_FLAGS.TRACING_SCENE_TABS],
+            (featureFlags: FeatureFlagsSet): TracingSceneTab[] => [
+                DEFAULT_SCENE_TAB,
+                ...(featureFlags[FEATURE_FLAGS.TRACING_SCENE_TABS] ? (['sql'] as const) : []),
+                // The platform API serves traces alerts only with both flags on, so the tab needs both.
+                ...(featureFlags[FEATURE_FLAGS.PLATFORM_ALERTS] &&
+                featureFlags[FEATURE_FLAGS.PLATFORM_ALERTS_SOURCE_TRACES]
+                    ? (['alerts'] as const)
+                    : []),
+            ],
+        ],
+        sceneTabsEnabled: [
+            (s) => [s.availableSceneTabs],
+            (availableSceneTabs: TracingSceneTab[]): boolean => availableSceneTabs.length > 1,
         ],
         activeSceneTab: [
-            (s) => [s.sceneTabsEnabled, s.sceneTab],
-            (sceneTabsEnabled: boolean, sceneTab: TracingSceneTab): TracingSceneTab =>
-                sceneTabsEnabled ? sceneTab : DEFAULT_SCENE_TAB,
+            (s) => [s.availableSceneTabs, s.sceneTab],
+            (availableSceneTabs: TracingSceneTab[], sceneTab: TracingSceneTab): TracingSceneTab =>
+                availableSceneTabs.includes(sceneTab) ? sceneTab : DEFAULT_SCENE_TAB,
         ],
     }),
 
@@ -540,6 +558,9 @@ export const tracingSceneLogic = kea<tracingSceneLogicType>([
         selectSceneTab: ({ tab }) => {
             if (tab === 'sql' && values.sceneTab !== 'sql') {
                 posthog.capture('tracing sql tab opened')
+            }
+            if (tab === 'alerts' && values.sceneTab !== 'alerts') {
+                posthog.capture('tracing alerts tab opened')
             }
             actions.setSceneTab(tab)
             actions.syncUrl()
@@ -585,8 +606,8 @@ export const tracingSceneLogic = kea<tracingSceneLogicType>([
             ) {
                 actions.fetchAggregation(aggregateFetchOptions(values.activeTracingTab))
             }
-            // Flags can arrive after the URL parse, so a tab=sql deep link waits here for the verdict.
-            if (!values.sceneTabsEnabled && values.sceneTab !== DEFAULT_SCENE_TAB) {
+            // Flags can arrive after the URL parse, so a tab deep link waits here for the verdict.
+            if (!values.availableSceneTabs.includes(values.sceneTab)) {
                 actions.setSceneTab(DEFAULT_SCENE_TAB)
                 actions.syncUrl()
             }
@@ -775,10 +796,11 @@ export const tracingSceneLogic = kea<tracingSceneLogicType>([
                 hasChanges = true
             }
 
-            const sceneTabsDisabled = values.receivedFeatureFlags && !values.sceneTabsEnabled
-            const sceneTabFromUrl = sceneTabsDisabled
-                ? DEFAULT_SCENE_TAB
-                : (TRACING_SCENE_TABS.find((tab) => tab === searchParams.tab) ?? DEFAULT_SCENE_TAB)
+            const requestedTab = TRACING_SCENE_TABS.find((tab) => tab === searchParams.tab) ?? DEFAULT_SCENE_TAB
+            const sceneTabFromUrl =
+                values.receivedFeatureFlags && !values.availableSceneTabs.includes(requestedTab)
+                    ? DEFAULT_SCENE_TAB
+                    : requestedTab
             if (sceneTabFromUrl !== values.sceneTab) {
                 actions.setSceneTab(sceneTabFromUrl)
             }
@@ -811,7 +833,7 @@ export const tracingSceneLogic = kea<tracingSceneLogicType>([
                 cache.drawerChangeFromUrl = false
             }
 
-            if (sceneTabsDisabled && searchParams.tab !== undefined) {
+            if (sceneTabFromUrl !== requestedTab && searchParams.tab !== undefined) {
                 actions.syncUrl()
             }
         },

@@ -12,7 +12,7 @@ export function ResourceTagFilter({
 }: {
     filters: ResourceTagFilters
     onChange: (filters: ResourceTagFilters) => void
-    size?: 'small' | 'medium'
+    size?: 'xsmall' | 'small' | 'medium'
 }): JSX.Element {
     return (
         <div className="flex flex-wrap items-center gap-2">

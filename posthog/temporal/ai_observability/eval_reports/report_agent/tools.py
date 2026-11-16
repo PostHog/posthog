@@ -437,9 +437,7 @@ def _period_summary_dict(
         "result_rates": result_rates,
     }
     if output_type in ("boolean", "numeric", "categorical"):
-        summary["pass_rate"] = calculate_pass_rate(
-            result_counts, empty_as_none=empty_rates_as_none or output_type in ("numeric", "categorical")
-        )
+        summary["pass_rate"] = calculate_pass_rate(result_counts, empty_as_none=True)
     return summary
 
 

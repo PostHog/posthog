@@ -32,6 +32,21 @@ export interface KnowledgeDocumentWindowApi {
 }
 
 /**
+ * * `keyword` - Keyword
+ * * `semantic` - Semantic
+ * * `both` - Keyword and semantic
+ * * `context` - Surrounding context
+ */
+export type SearchMatchEnumApi = (typeof SearchMatchEnumApi)[keyof typeof SearchMatchEnumApi]
+
+export const SearchMatchEnumApi = {
+    Keyword: 'keyword',
+    Semantic: 'semantic',
+    Both: 'both',
+    Context: 'context',
+} as const
+
+/**
  * One ranked chunk from a business knowledge search.
  *
  * Output-only — the rows come from the ``search_knowledge_for_team`` logic
@@ -60,6 +75,18 @@ export interface KnowledgeSearchResultApi {
     readonly is_generated: boolean
     /** Fetched page URL. Empty for text and file sources. */
     readonly url: string
+    /** Why this chunk is in the result. `both`: the chunk matched the query words and the query meaning, the strongest evidence. `semantic`: it matched the meaning only. `keyword`: it shares words with the query, which can be a weak match for a long question. `context`: it did not match; it is a neighbour of a matching chunk, returned so the match reads in context.
+     *
+     * * `keyword` - Keyword
+     * * `semantic` - Semantic
+     * * `both` - Keyword and semantic
+     * * `context` - Surrounding context */
+    readonly matched_by: SearchMatchEnumApi
+    /**
+     * Semantic similarity between the query and this chunk, from 0 to 1, higher is closer. Null when the semantic index did not return this chunk.
+     * @nullable
+     */
+    readonly similarity: number | null
 }
 
 export interface KnowledgeGapSuggestionApi {
@@ -206,6 +233,15 @@ export interface PlaygroundChatListApi {
     updated_at: string
     /** True while an answer in this chat is still running. Another question in this chat returns 409 until it finishes. */
     has_open_turn: boolean
+}
+
+export interface PaginatedPlaygroundChatListListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: PlaygroundChatListApi[]
 }
 
 /**
@@ -699,6 +735,17 @@ export type BusinessKnowledgeGapSuggestionsListParams = {
      * When provided, returns per-ticket gap rows instead of aggregated view. Requires `ticket:read` scope in addition to `business_knowledge:read`.
      */
     ticket_id?: string
+}
+
+export type BusinessKnowledgePlaygroundChatsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
 }
 
 export type BusinessKnowledgeRepositoriesFileRetrieveParams = {

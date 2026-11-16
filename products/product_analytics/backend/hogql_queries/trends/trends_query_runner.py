@@ -1,3 +1,4 @@
+from collections import defaultdict
 from collections.abc import Callable, Sequence
 from copy import deepcopy
 from datetime import date, datetime, timedelta
@@ -14,6 +15,7 @@ from natsort import natsorted, ns
 
 from posthog.schema import (
     ActionsNode,
+    BaseMathType,
     BreakdownItem,
     BreakdownType,
     CachedTrendsQueryResponse,
@@ -25,6 +27,7 @@ from posthog.schema import (
     DataWarehouseNode,
     DayItem,
     EventsNode,
+    GroupMathType,
     GroupNode,
     HogQLQueryModifiers,
     HogQLQueryResponse,
@@ -34,6 +37,7 @@ from posthog.schema import (
     MetricSummary,
     MultipleBreakdownOptions,
     MultipleBreakdownType,
+    PropertyMathType,
     QueryTiming,
     ResolvedDateRangeResponse,
     Series,
@@ -53,6 +57,7 @@ from posthog.caching.insights_api import (
     REDUCED_MINIMUM_INSIGHT_REFRESH_INTERVAL,
 )
 from posthog.clickhouse.client.connection import ClickHouseUser, Workload
+from posthog.dataclasses import frozen
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner
 from posthog.hogql_queries.utils.breakdowns import (
     BREAKDOWN_NULL_DISPLAY,
@@ -114,6 +119,32 @@ def resolve_series_custom_name(
     if series.name and series.name != series_label:
         return series.name
     return None
+
+
+# Daily values of these add up to the range total, so any other math needs its total counted over the whole range.
+ADDITIVE_MATHS: frozenset[str | None] = frozenset(
+    {
+        None,
+        BaseMathType.TOTAL,
+        BaseMathType.FIRST_TIME_FOR_USER,
+        BaseMathType.FIRST_MATCHING_EVENT_FOR_USER,
+        GroupMathType.FIRST_TIME_FOR_GROUP,
+        GroupMathType.FIRST_MATCHING_EVENT_FOR_GROUP,
+        PropertyMathType.SUM,
+    }
+)
+
+
+@frozen
+class _ResultSeries:
+    order: int | None
+    compare_label: str | None
+
+
+@frozen
+class _ResultSeriesBreakdown:
+    series: _ResultSeries
+    breakdown_value_repr: str
 
 
 class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
@@ -440,14 +471,14 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
             date_ranges = [self.query_date_range]
             if self.query.compareFilter and self.query.compareFilter.compare:
                 date_ranges.append(self.query_previous_date_range)
-            resolved_query = resolve_marketing_cost_trend(
+            resolved = resolve_marketing_cost_trend(
                 query=self.query,
                 team=self.team,
                 date_ranges=date_ranges,
                 get_database=lambda: self.shared_database,
             )
             runner = TrendsQueryRunner(
-                query=resolved_query,
+                query=resolved.query,
                 team=self.team,
                 timings=self.timings,
                 modifiers=self.modifiers,
@@ -459,7 +490,10 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
             # The live fallback reads other warehouse tables, so it needs a database built with its own modifiers.
             if runner.modifiers == self.modifiers:
                 runner._shared_database = self._shared_database
-            return runner.calculate()
+            response = runner.calculate()
+            if resolved.warning is not None:
+                response.warnings = [*(response.warnings or []), resolved.warning]
+            return response
 
         queries = self.to_queries()
 
@@ -546,6 +580,10 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
 
         final_result, has_more = self.format_results(returned_results)
 
+        if self._metric_total_needs_range_query():
+            with self.timings.measure("metric_range_totals"):
+                self._apply_range_totals(final_result)
+
         timings_matrix[-1] = self.timings.to_list()
 
         timings: list[QueryTiming] = []
@@ -570,6 +608,69 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
             )
             if self.query.compareFilter is not None and self.query.compareFilter.compare
             else None,
+        )
+
+    def _metric_total_needs_range_query(self) -> bool:
+        trends_filter = self.query.trendsFilter
+        if trends_filter is None or trends_filter.display != ChartDisplayType.METRIC:
+            return False
+        if trends_filter.metricSummary not in (None, MetricSummary.TOTAL):
+            return False
+        return bool(trends_filter.formulaNodes) or any(
+            getattr(series, "math", None) not in ADDITIVE_MATHS for series in self.query.series
+        )
+
+    def _apply_range_totals(self, results: list[dict[str, Any]]) -> None:
+        query = self.query.model_copy(deep=True)
+        assert query.trendsFilter is not None
+        query.trendsFilter.display = ChartDisplayType.BOLD_NUMBER
+        runner = TrendsQueryRunner(
+            query=query,
+            team=self.team,
+            modifiers=self.modifiers,
+            limit_context=self.limit_context,
+            user=self.user,
+            workload=self.workload,
+            ch_user=self.ch_user,
+            hogql_settings=self.hogql_settings,
+        )
+        runner._shared_database = self._shared_database
+        # BoldNumber would resolve a daily range, so the totals would cover different days than the sparkline.
+        runner.query_date_range = self.query_date_range
+        runner.query_previous_date_range = self.query_previous_date_range
+        range_results = runner.calculate().results or []
+
+        totals = {self._range_total_key(item): item.get("aggregated_value") for item in range_results}
+        named_breakdowns = self._named_breakdowns_by_series(results)
+        range_named_breakdowns = self._named_breakdowns_by_series(range_results)
+        for item in results:
+            if (
+                self.breakdown_enabled
+                and self._is_other_breakdown(item["breakdown_value"])
+                and named_breakdowns[self._range_total_series(item)]
+                != range_named_breakdowns[self._range_total_series(item)]
+            ):
+                continue
+            total = totals.get(self._range_total_key(item))
+            if total is not None:
+                item["count"] = total
+
+    def _named_breakdowns_by_series(self, results: list[dict[str, Any]]) -> defaultdict[_ResultSeries, set[str]]:
+        named: defaultdict[_ResultSeries, set[str]] = defaultdict(set)
+        for item in results:
+            breakdown_value = item.get("breakdown_value")
+            if breakdown_value is not None and not self._is_other_breakdown(breakdown_value):
+                named[self._range_total_series(item)].add(repr(breakdown_value))
+        return named
+
+    @staticmethod
+    def _range_total_series(item: dict[str, Any]) -> _ResultSeries:
+        return _ResultSeries(order=item.get("order"), compare_label=item.get("compare_label"))
+
+    @classmethod
+    def _range_total_key(cls, item: dict[str, Any]) -> _ResultSeriesBreakdown:
+        return _ResultSeriesBreakdown(
+            series=cls._range_total_series(item), breakdown_value_repr=repr(item.get("breakdown_value"))
         )
 
     def format_results(self, returned_results: list[list[dict[str, Any]]]) -> tuple[list[dict[str, Any]], bool]:

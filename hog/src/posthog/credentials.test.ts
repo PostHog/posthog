@@ -5,6 +5,7 @@ import { fakeRuntime } from '@/testing'
 
 import { DEFAULT_HOST, resolveCredentials } from './credentials'
 import { parseHost, type Host } from './host'
+import { parseProjectId } from './ids'
 
 const ENV = { HOG_PERSONAL_API_KEY: 'phx_env', HOG_PROJECT_ID: '1', HOG_HOST: 'https://env.example.com' }
 const DOTENV = 'HOG_PERSONAL_API_KEY="phx_dotenv"\n# comment\nHOG_PROJECT_ID=2\n'
@@ -62,6 +63,15 @@ describe('resolveCredentials', () => {
     ] as const)('%s', async (_name, env, files, dotenvFile, host, apiKey, projectId, expectedHost) => {
         const credentials = await resolveCredentials(fakeRuntime({ env, files }), { dotenvFile, host })
         expect(credentials).toMatchObject({ key: { apiKey, projectId, host: expectedHost } })
+    })
+
+    test.each([
+        ['posthog.json gives an env key its project', { HOG_PERSONAL_API_KEY: 'phx_env' }, '7'],
+        ['HOG_PROJECT_ID beats posthog.json', { HOG_PERSONAL_API_KEY: 'phx_env', HOG_PROJECT_ID: '1' }, '1'],
+    ])('%s', async (_name, env, projectId) => {
+        const credentials = await resolveCredentials(fakeRuntime({ env }), { configProjectId: parseProjectId('7') })
+
+        expect(credentials).toMatchObject({ source: 'env', key: { projectId } })
     })
 
     test.each([

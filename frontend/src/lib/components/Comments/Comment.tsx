@@ -24,20 +24,14 @@ import { CommentType } from '~/types'
 
 import { CommentComposer } from './CommentComposer'
 import { CommentsLogicProps, CommentWithRepliesType, commentsLogic } from './commentsLogic'
-import { getCommentText, getRecordingLinkInfo, isViewingRecording, scopeSyncsToSlack } from './commentUtils'
+import {
+    getCommentAuthorName,
+    getCommentText,
+    getRecordingLinkInfo,
+    isViewingRecording,
+    scopeSyncsToSlack,
+} from './commentUtils'
 import { sendCommentToSlackLogic } from './sendCommentToSlackLogic'
-
-// Comments that came in from a synced Slack thread have no PostHog author; their Slack identity
-// rides in item_context.
-export function getCommentAuthorName(comment: CommentType): string {
-    if (comment.created_by) {
-        return comment.created_by.first_name ?? 'Unknown user'
-    }
-    if (comment.item_context?.from_slack) {
-        return comment.item_context.slack_author_name ?? 'Slack user'
-    }
-    return 'Unknown user'
-}
 
 export type CommentProps = {
     commentWithReplies: CommentWithRepliesType
@@ -187,7 +181,7 @@ const CommentEditingForm = ({ comment }: { comment: CommentType }): JSX.Element 
 }
 
 const CommentTopRow = ({ comment }: { comment: CommentType }): JSX.Element => {
-    const { disabledReasonFor } = useValues(commentsLogic)
+    const { disabledReasonFor, sendToSlackDisabledReasonFor } = useValues(commentsLogic)
     const { deleteComment, setEditingComment, sendEmojiReaction, setReplyingComment } = useActions(commentsLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const { openModal } = useActions(sendCommentToSlackLogic)
@@ -261,6 +255,7 @@ const CommentTopRow = ({ comment }: { comment: CommentType }): JSX.Element => {
                                       icon: <IconSlack />,
                                       label: 'Send to Slack',
                                       onClick: () => openModal(comment),
+                                      disabledReason: sendToSlackDisabledReasonFor(comment),
                                   },
                               ]
                             : []),

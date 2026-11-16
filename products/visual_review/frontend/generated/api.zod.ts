@@ -32,6 +32,15 @@ export const VisualReviewReposPartialUpdateBody = /* @__PURE__ */ zod.object({
         .describe(
             'Post the visual review debt digest to the Slack channels of the teams that own the snapshots. Off by default. The digest goes out every Monday morning.'
         ),
+    auto_quarantine_mode: zod
+        .union([
+            zod.enum(['off', 'preview', 'on']).describe('\* `off` - off\n\* `preview` - preview\n\* `on` - on'),
+            zod.null(),
+        ])
+        .optional()
+        .describe(
+            'Quarantine a snapshot that full runs on the default branch or in the merge queue prove flaky, and lift a quarantine once the last 500 default-branch runs render the snapshot unchanged. `off` (the default) does nothing. `preview` logs each finding and changes nothing. `on` quarantines the snapshot for 14 days and notifies the owning team, and lifts clean quarantines.\n\n\* `off` - off\n\* `preview` - preview\n\* `on` - on'
+        ),
 })
 
 /**

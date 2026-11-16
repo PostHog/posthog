@@ -1,0 +1,188 @@
+name: Dependency proof
+
+# Proves a bot's dependency update and posts the "Dependency proof" check run on the pull
+# request head. Everything here runs from the default branch: the triggering run only names a
+# head SHA, the pull request is looked up through the API, settings come from this commit, and
+# pnpm runs in the merge-base tree. Nothing from the pull request tree is executed.
+# The prover is .github/scripts/dependency_proof, and the trigger is dependency-proof-trigger.yml.
+
+on:
+    workflow_run:
+        workflows: [Dependency proof trigger]
+        types: [completed]
+
+# The group is keyed by the proved head. `github.head_ref || github.ref` is the default branch on every
+# `workflow_run`, which would put all pull requests in one group and drop pending runs, and a
+# dropped run leaves a required check missing.
+concurrency:
+    group: ${{ github.workflow }}-${{ github.event.workflow_run.head_sha }}
+    cancel-in-progress: true
+
+permissions: {}
+
+jobs:
+    # The only job that reads the GitHub API. It runs no package manager.
+    identify:
+        name: Identify the pull request
+        # `prove` fetches without a credential, which only a public repository allows, so the
+        # private mirror posts no proof.
+        if: github.repository == 'PostHog/posthog'
+        runs-on: ubuntu-24.04
+        timeout-minutes: 5
+        permissions:
+            contents: read
+            pull-requests: read
+        outputs:
+            pr: ${{ steps.identify.outputs.pr }}
+            merge_base: ${{ steps.identify.outputs.merge_base }}
+            eligible: ${{ steps.identify.outputs.eligible }}
+            refused: ${{ steps.identify.outputs.refused }}
+        steps:
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  persist-credentials: false
+                  sparse-checkout: |
+                      .github/scripts/dependency_proof
+                      .github/actions/setup-uv
+                  sparse-checkout-cone-mode: false
+
+            - uses: ./.github/actions/setup-uv
+              with:
+                  enable-cache: false
+
+            - name: Identify the pull request
+              id: identify
+              env:
+                  GITHUB_TOKEN: ${{ github.token }}
+                  REPOSITORY: ${{ github.repository }}
+                  BASE_BRANCH: ${{ github.event.repository.default_branch }}
+                  HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+              run: uv run --no-project --with pyyaml==6.0.3 python -I .github/scripts/dependency_proof/__main__.py identify
+
+    # pnpm resolves packages here, so this job holds no permission and no step is given a token.
+    prove:
+        name: Prove the dependency update
+        needs: identify
+        if: needs.identify.outputs.eligible == 'true'
+        runs-on: ubuntu-24.04
+        timeout-minutes: 20
+        permissions: {}
+        outputs:
+            files: ${{ steps.prove.outputs.files }}
+            blobs: ${{ steps.prove.outputs.blobs }}
+            refused: ${{ steps.prove.outputs.refused }}
+        steps:
+            # The prover reads the merge base and the head from the object database, so the
+            # working tree only needs the prover itself.
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  persist-credentials: false
+                  sparse-checkout: |
+                      .github/scripts/dependency_proof
+                      .github/actions/setup-uv
+                      .nvmrc
+                  sparse-checkout-cone-mode: false
+
+            - uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
+              with:
+                  node-version-file: .nvmrc
+
+            - uses: ./.github/actions/setup-uv
+              with:
+                  enable-cache: false
+
+            - name: Prove the update
+              id: prove
+              env:
+                  HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+                  WORKFLOW_SHA: ${{ github.sha }}
+                  MERGE_BASE_DIR: ${{ runner.temp }}/merge-base
+                  PULL_REQUEST: ${{ needs.identify.outputs.pr }}
+                  MERGE_BASE: ${{ needs.identify.outputs.merge_base }}
+              run: uv run --no-project --with pyyaml==6.0.3 python -I .github/scripts/dependency_proof/__main__.py prove
+
+    # stamphog waits for a completed check on every pull request that changes a dependency file, so
+    # every run posts one. A head with no eligible pull request gets a success that attests nothing.
+    # A refused update gets a neutral check, and the run passes because a refusal is an answer.
+    # A job that fails gets a neutral check too, and the run fails, so only a broken prover shows
+    # up red in the Actions tab.
+    publish:
+        name: Publish the Dependency proof check
+        needs: [identify, prove]
+        if: ${{ !cancelled() }}
+        runs-on: ubuntu-24.04
+        timeout-minutes: 5
+        permissions: {}
+        environment: dependency-proof
+        steps:
+            # The private mirror skips `identify`, so this job posts no check there. The guard is
+            # on the steps because a required-check gate may not skip itself.
+            - uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+              id: app-token
+              if: github.repository == 'PostHog/posthog'
+              with:
+                  client-id: ${{ vars.DEPENDENCY_PROOF_APP_ID }}
+                  private-key: ${{ secrets.DEPENDENCY_PROOF_APP_PRIVATE_KEY }}
+                  permission-checks: write
+
+            - name: Create the check run
+              env:
+                  GH_TOKEN: ${{ steps.app-token.outputs.token }}
+                  REPOSITORY: ${{ github.repository }}
+                  HEAD_SHA: ${{ github.event.workflow_run.head_sha }}
+                  WORKFLOW_SHA: ${{ github.sha }}
+                  RUN_URL: ${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}
+                  IDENTIFY_RESULT: ${{ needs.identify.result }}
+                  IDENTIFY_PR: ${{ needs.identify.outputs.pr }}
+                  IDENTIFY_MERGE_BASE: ${{ needs.identify.outputs.merge_base }}
+                  IDENTIFY_ELIGIBLE: ${{ needs.identify.outputs.eligible }}
+                  IDENTIFY_REFUSED: ${{ needs.identify.outputs.refused }}
+                  PROVE_RESULT: ${{ needs.prove.result }}
+                  PROVE_FILES: ${{ needs.prove.outputs.files }}
+                  PROVE_BLOBS: ${{ needs.prove.outputs.blobs }}
+                  PROVE_REFUSED: ${{ needs.prove.outputs.refused }}
+              run: |
+                  set -euo pipefail
+
+                  if [[ "$REPOSITORY" != "PostHog/posthog" ]]; then
+                      exit 0
+                  fi
+                  conclusion=neutral
+                  files='[]'
+                  blobs='{}'
+                  if [[ "$IDENTIFY_REFUSED" == "true" || "$PROVE_REFUSED" == "true" ]]; then
+                      title="The dependency update was refused"
+                  elif [[ "$IDENTIFY_RESULT" == "success" && "$IDENTIFY_ELIGIBLE" == "false" ]]; then
+                      conclusion=success
+                      title="Nothing to attest"
+                  elif [[ "$IDENTIFY_RESULT" == "success" && "$PROVE_RESULT" == "success" ]] \
+                      && proved_files="$(jq -ce 'select(type == "array" and length > 0 and all(.[]; type == "string"))' <<< "$PROVE_FILES")" \
+                      && proved_blobs="$(jq -ce 'select(type == "object" and all(.[]; . == null or (type == "string" and test("^[0-9a-f]{40}$"))))' <<< "$PROVE_BLOBS")"; then
+                      conclusion=success
+                      files="$proved_files"
+                      blobs="$proved_blobs"
+                      title="Attested $(jq length <<< "$files") dependency file(s)"
+                  else
+                      unproved=true
+                      title="The dependency update could not be proved"
+                  fi
+                  pr="$IDENTIFY_PR"
+                  merge_base="$IDENTIFY_MERGE_BASE"
+                  [[ "$pr" =~ ^[0-9]+$ ]] || pr=0
+                  [[ "$merge_base" =~ ^[0-9a-f]{40}$ ]] || merge_base=""
+                  marker="$(jq -cn --argjson files "$files" --argjson blobs "$blobs" --argjson pr "$pr" \
+                      --arg head_sha "$HEAD_SHA" --arg merge_base "$merge_base" --arg workflow_sha "$WORKFLOW_SHA" \
+                      '{files: $files, blobs: $blobs, pr: $pr, head_sha: $head_sha, merge_base: $merge_base, workflow_sha: $workflow_sha}')"
+                  jq -n --arg head_sha "$HEAD_SHA" --arg conclusion "$conclusion" --arg details_url "$RUN_URL" \
+                      --arg title "$title" --arg summary "<!-- stamphog:v1 $marker -->" \
+                      '{name: "Dependency proof", head_sha: $head_sha, status: "completed", conclusion: $conclusion,
+                        details_url: $details_url, output: {title: $title, summary: $summary}}' \
+                      | gh api --method POST "repos/$REPOSITORY/check-runs" --input - > /dev/null
+
+                  if [[ "$IDENTIFY_RESULT" != "success" ]]; then
+                      exit 1
+                  fi
+                  if [[ "$PROVE_RESULT" != "success" && "$PROVE_RESULT" != "skipped" ]]; then
+                      exit 1
+                  fi
+                  [[ "${unproved:-false}" == "false" ]]

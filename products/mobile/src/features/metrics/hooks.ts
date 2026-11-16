@@ -31,7 +31,7 @@ function useLiveMetricQuery<T>(
     const scope = useProjectScope()
     const result = useQuery({
         queryKey: queryKeys.run(scope, query),
-        queryFn: async ({ signal }): Promise<T | null> => parse(await runQuery(query, { signal })) ?? null,
+        queryFn: async ({ signal }): Promise<T | null> => parse(await runQuery(query, { signal, scope })) ?? null,
         enabled: active && scope !== null,
         staleTime: METRIC_STALE_MS,
         retry: retryUnlessMissing,

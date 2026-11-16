@@ -16,12 +16,14 @@ from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client.connection import Workload
 from posthog.models import Team, User
+from posthog.models.team.extensions import get_or_create_team_extension
 
 from products.access_control.backend.facade.user_access_control import UserAccessControl
 from products.signals.backend.constants import FIRST_REPORT_SCOUT, FIRST_REPORT_SCOUT_TIMEOUT_SECONDS
 from products.signals.backend.first_report_scout_types import FirstReportScoutResult, FirstReportStatus
 from products.signals.backend.models import SignalReport, SignalScoutRun, SignalTeamConfig
 from products.signals.backend.scout_harness.profile.schema import Inventory
+from products.signals.backend.scout_harness.run_gates import lane_has_live_run
 from products.signals.backend.scout_harness.tools.profile import get_project_profile
 from products.warehouse_sources.backend.facade import api as warehouse_sources
 
@@ -184,6 +186,25 @@ def build_first_report_context(team: Team, user: User) -> FirstReportContext:
     ):
         context.product_data[name] = _product_data_volume(team, user, table_path, timestamp)
     return context
+
+
+class FirstReportRunInProgress(Exception):
+    pass
+
+
+def lock_first_report_start(team: Team) -> None:
+    canonical_team = Team.objects.get(pk=team.parent_team_id) if team.parent_team_id else team
+    config = get_or_create_team_extension(canonical_team, SignalTeamConfig)
+    # The task creation transaction holds this lock through the scout bridge insert and commit.
+    SignalTeamConfig.objects.select_for_update().get(pk=config.pk, team_id=canonical_team.id)
+    runs = (
+        SignalScoutRun.objects.for_team(canonical_team.id)
+        .using("default")
+        .filter(skill_name=FIRST_REPORT_SCOUT)
+        .exclude(metadata__has_key="scout_trial")
+    )
+    if lane_has_live_run(runs):
+        raise FirstReportRunInProgress
 
 
 def set_first_report_state(team_id: int, status: str, *, activation_team_id: int | None = None) -> None:

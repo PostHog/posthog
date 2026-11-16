@@ -57,6 +57,10 @@ SIGNALS_LIGHTHOUSE_TEAM_IDS: set[int] = _parse_team_ids(
     os.getenv("SIGNALS_LIGHTHOUSE_TEAM_IDS", _DEFAULT_LIGHTHOUSE_TEAM_IDS)
 )
 
+SIGNALS_REPORT_LIST_SOURCE_METADATA_TIMEOUT_SECONDS: int = get_from_env(
+    "SIGNALS_REPORT_LIST_SOURCE_METADATA_TIMEOUT_SECONDS", 3, type_cast=int
+)
+
 # Turns on the buffer of MCP intents for activity summaries. The `activity-summary` flag payload
 # picks the teams and limits; this switch turns the request hook off without a deploy of new code.
 ACTIVITY_SUMMARY_MCP_BUFFER_ENABLED: bool = get_from_env(

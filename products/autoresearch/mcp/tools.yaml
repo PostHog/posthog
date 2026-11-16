@@ -91,9 +91,8 @@ tools:
             idempotent: true
         title: Read project limits
         description: >
-            Read the project's autoresearch limits and current usage: training runs in the last 24 hours against the
-            daily limit and when the next can start, the most experiments per run, and live pipelines against the live
-            pipeline limit.
+            Read the project's autoresearch limits and current usage: training runs against the daily limit and when the
+            next can start, the most experiments per run, and live pipelines against the live pipeline limit.
         feature_flag: autoresearch
     autoresearch-list:
         operation: autoresearch_list
@@ -516,10 +515,10 @@ tools:
             sandbox. After a run promotes a champion, the daily 02:00 UTC scoring job scores the inference population
             and emits autoresearch_prediction events. To score now instead, call autoresearch-score-create once. The run
             uses the pipeline's iterations_per_run unless you override iteration_budget for this run, and the project's
-            iteration limit per run can lower either. Returns 429 when the project has started its limit of training
-            runs in the last 24 hours, across all its pipelines: do not retry before next_slot_at in the response, and
-            tell the user when the next run can start. A manual run resets the clock for the next scheduled research
-            run. A pipeline with an action target also needs the action:read scope.
+            iteration limit per run can lower either. Returns 429 when the project has used its daily limit of training
+            runs, across all its pipelines: do not retry before next_slot_at in the response, and tell the user when the
+            next run can start. A manual run resets the clock for the next scheduled research run. A pipeline with an
+            action target also needs the action:read scope.
         feature_flag: autoresearch
     autoresearch-training-runs-artifacts-delete-create:
         operation: autoresearch_training_runs_artifacts_delete_create
@@ -730,6 +729,26 @@ tools:
                 - started_at
                 - completed_at
                 - created_at
+    autoresearch-training-runs-stop-create:
+        operation: autoresearch_training_runs_stop_create
+        enabled: false
+        disabled_reason: Enable after the stop route deploys, because the MCP server deploys before Django
+        scopes:
+            - autoresearch:write
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: false
+        title: Stop a training run
+        description: >
+            Stop a pending or running training run, for example one that started on a misconfigured pipeline. Get the
+            run id from autoresearch-training-runs-list. The run fails with a 'stopped' error, its sandbox is cancelled,
+            and no model is promoted from it, so the current champion keeps scoring. The iterations it recorded stay.
+            When this was the pipeline's first run, the pipeline goes back to draft, so autoresearch-partial-update can
+            change its target, horizon, lookback or populations before you call autoresearch-train-create again. The
+            stopped run still counts against the project's daily training limit. Returns 400 when the run already
+            finished, and 403 from inside a training sandbox. Confirm with the user before you stop a run.
+        feature_flag: autoresearch
     autoresearch-validate-create:
         operation: autoresearch_validate_create
         enabled: true
