@@ -26741,6 +26741,19 @@ export namespace Schemas {
       evidence?: CapabilityStateEvidence;
     }
 
+    export interface CatalogUser {
+      /** ID of the user. */
+      id: number;
+      /** UUID of the user. */
+      uuid: string;
+      /** First name of the user. */
+      first_name: string;
+      /** Last name of the user. */
+      last_name: string;
+      /** Email address of the user. */
+      email: string;
+    }
+
     export interface CatalogFlag {
       /** ID of the feature flag. */
       id: number;
@@ -26750,10 +26763,12 @@ export namespace Schemas {
       active: boolean;
       /** When the flag was created. */
       created_at: string;
+      /** Who created the flag, if known. */
+      created_by: CatalogUser | null;
     }
 
     export interface CatalogFlagsResponse {
-      /** Flags the caller can see, newest first. */
+      /** Flags the caller can see, in the requested order. */
       results: CatalogFlag[];
       /** True when more flags follow this page. */
       has_more: boolean;
@@ -26766,10 +26781,12 @@ export namespace Schemas {
       name: string;
       /** When the release was created. */
       created_at: string;
+      /** Who owns the release, if anyone. */
+      owner: CatalogUser | null;
     }
 
     export interface CatalogReleasesResponse {
-      /** Releases of the project, newest first. */
+      /** Releases of the project, in the requested order. */
       results: CatalogRelease[];
       /**
          * Pass as cursor to fetch the next page. Null when no more releases follow.
@@ -136818,6 +136835,10 @@ export namespace Schemas {
 
     export type EarlyAccessFeatureListParams = {
     /**
+     * Comma-separated user IDs. Only features created by one of them are listed.
+     */
+    created_by_id?: string;
+    /**
      * Comma-separated early access feature IDs, at most 200.
      */
     ids?: string;
@@ -136829,6 +136850,10 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    /**
+     * Sort by creation time: -created_at (default) for newest first, created_at for oldest first.
+     */
+    order?: string;
     /**
      * Case-insensitive match on the feature name.
      */
@@ -144077,16 +144102,29 @@ export namespace Schemas {
 
     export type ReleasesCatalogFlagsRetrieveParams = {
     /**
+     * Comma-separated user IDs. Only flags created by one of them are listed.
+     * @maxLength 1000
+     */
+    created_by?: string;
+    /**
      * How many flags to return, at most 100.
      * @minimum 1
      * @maximum 100
      */
     limit?: number;
     /**
-     * How many flags to skip, newest first.
+     * How many flags to skip.
      * @minimum 0
      */
     offset?: number;
+    /**
+     * Sort by creation time: -created_at for newest first, created_at for oldest first.
+     *
+     * * `-created_at` - Newest first
+     * * `created_at` - Oldest first
+     * @minLength 1
+     */
+    order?: string;
     /**
      * Part of the flag key or name to match.
      * @maxLength 200
@@ -144106,6 +144144,19 @@ export namespace Schemas {
      * @maximum 100
      */
     limit?: number;
+    /**
+     * Sort by creation time: -created_at for newest first, created_at for oldest first.
+     *
+     * * `-created_at` - Newest first
+     * * `created_at` - Oldest first
+     * @minLength 1
+     */
+    order?: string;
+    /**
+     * Comma-separated user IDs. Only releases owned by one of them are listed.
+     * @maxLength 1000
+     */
+    owner?: string;
     /**
      * Part of the release name to match.
      * @maxLength 200
