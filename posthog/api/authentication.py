@@ -20,7 +20,7 @@ from django.contrib.auth.tokens import PasswordResetTokenGenerator as DefaultPas
 from django.contrib.auth.views import redirect_to_login
 from django.core.exceptions import ValidationError
 from django.core.signing import BadSignature
-from django.db import transaction
+from django.db import IntegrityError, transaction
 from django.db.models import F, Q
 from django.http import Http404, HttpRequest, HttpResponse, JsonResponse
 from django.shortcuts import redirect, render
@@ -1214,14 +1214,14 @@ class TwoFactorPasskeyViewSet(NonCreatingViewSetMixin, viewsets.GenericViewSet):
 
 
 def _complete_idp_login(request: Request, user: User, pending: PendingIdPEmailVerification) -> None:
-    social = UserSocialAuth.objects.filter(provider=pending["provider"], uid=pending["uid"]).first()
-    if social is not None and social.user_id != user.pk:
+    try:
+        # `associate_user` runs after the gate, so the row is created only once the code accepted.
+        UserSocialAuth.objects.get_or_create(user=user, provider=pending["provider"], uid=pending["uid"])
+    except IntegrityError:
         raise serializers.ValidationError(
             {"detail": "This identity is linked to another account."}, code="identity_linked_elsewhere"
         )
-    if social is None:
-        # `associate_user` runs after the gate, so the row is created only once the code accepted.
-        UserSocialAuth.objects.create(user=user, provider=pending["provider"], uid=pending["uid"])
+    # nosemgrep: idor-lookup-without-user (the identity comes from the pending session, and its code was just verified)
     IdentityProviderEmailVerification.objects.update_or_create(
         provider=pending["provider"],
         issuer=pending["issuer"],
