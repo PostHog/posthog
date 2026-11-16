@@ -19,15 +19,10 @@ from posthog.dataclasses import frozen
 from posthog.models import Team
 from posthog.utils import absolute_uri
 
-from products.alerts_platform.backend.delivery.dispatch import deliver
+from products.alerts_platform.backend.delivery.dispatch import SendTally, deliver
 from products.alerts_platform.backend.delivery.evaluation import _TRANSPORTS
 from products.alerts_platform.backend.delivery.pagerduty import source_incident_key
-from products.alerts_platform.backend.delivery.thread_store import DatabaseThreadStore, ThreadBusy
-from products.alerts_platform.backend.delivery.transport import (
-    DeliveryError,
-    DestinationMisconfigured,
-    RefusedEverywhere,
-)
+from products.alerts_platform.backend.delivery.thread_store import DatabaseThreadStore
 from products.alerts_platform.backend.facade.contracts import (
     AlertDeliveryRequest,
     AlertDestinationData,
@@ -108,17 +103,14 @@ def send_handoff(request: AlertDeliveryRequest, targets: Sequence[HandoffTarget]
 
     thread_store = DatabaseThreadStore(request.team_id)
     project = MessageLink(label=team.name, url=absolute_uri(f"/project/{team.id}"))
-    sent = 0
-    busy: list[str] = []
-    failures: list[str] = []
-    retryable = False
+    tally = SendTally()
     for target in targets:
         transition = opening.get(target.send.grouping_key)
         transport_class = _TRANSPORTS.get(target.data.get("type"))
         if transition is None or transport_class is None or target.data.get("type") not in INCIDENT_DESTINATION_TYPES:
             continue
         action = IncidentAction.TRIGGER if target.send.gained else IncidentAction.RESOLVE
-        try:
+        with tally.attempt():
             deliver(
                 transport=transport_class(),
                 thread_store=thread_store,
@@ -133,26 +125,11 @@ def send_handoff(request: AlertDeliveryRequest, targets: Sequence[HandoffTarget]
                 source_incident_key=source_incident_key(request.destination_alert_id),
                 project=project,
             )
-        except ThreadBusy as error:
-            busy.append(str(error))
-        except DeliveryError as error:
-            failures.append(str(error))
-            retryable = retryable or not isinstance(error, DestinationMisconfigured)
-        except Exception as error:
-            # Named by class only, because an exception's text can carry a credential URL.
-            failures.append(type(error).__name__)
-            retryable = True
-        else:
-            sent += 1
-    if busy:
-        raise ThreadBusy("; ".join([*busy, *failures]))
-    if failures:
-        failed = DeliveryError if retryable else RefusedEverywhere
-        raise failed(f"{len(failures)} handoff send(s) failed: " + "; ".join(failures))
+    tally.raise_failures("handoff send")
     logger.info(
         "alerts_platform_handoff_delivered",
         configuration_id=request.configuration_id,
         evaluation_key=request.evaluation_key,
-        sent=sent,
+        sent=tally.sent,
     )
-    return sent
+    return tally.sent

@@ -313,5 +313,7 @@ def _firing_groups(team_id: int, configuration_ids: Collection[UUID] | None) -> 
     for configuration_id, grouping_key, started_at in rows.values_list(
         "configuration_id", "grouping_key", "firing_started_at"
     ):
-        firing.setdefault(configuration_id, {})[grouping_key] = started_at
+        # Never None: the filter above leaves those rows out.
+        if started_at is not None:
+            firing.setdefault(configuration_id, {})[grouping_key] = started_at
     return firing
