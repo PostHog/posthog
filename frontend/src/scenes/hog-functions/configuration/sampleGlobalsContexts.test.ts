@@ -12,6 +12,7 @@ const RECENT_ISSUE_ID = '01936e7f-d7ff-7314-b2d4-7627981e34f0'
 const RECENT_FINGERPRINT = 'recent-fingerprint-7f3a'
 const OLD_ISSUE_ID = '01936e7f-0000-7000-8000-000000000001'
 const OLD_FINGERPRINT = 'old-fingerprint-2c9e'
+const MERGED_INTO_ISSUE_ID = '01936e7f-1111-7000-8000-000000000002'
 const EXCEPTION_TIMESTAMP = '2026-11-01T12:00:00Z'
 const EXCEPTION_PROPERTIES = {
     deploy_tier: 'canary',
@@ -88,6 +89,10 @@ describe('SAMPLE_GLOBALS_CONTEXTS error-tracking', () => {
         initKeaTests()
     })
 
+    afterEach(() => {
+        jest.restoreAllMocks()
+    })
+
     it.each([
         [
             'a recently active issue with its latest exception properties, issue fields winning on a collision',
@@ -132,5 +137,35 @@ describe('SAMPLE_GLOBALS_CONTEXTS error-tracking', () => {
 
         expect(sample.event.distinct_id).toBe(expectedIssueId)
         expect(sample.event.properties).toEqual(expectedProperties)
+    })
+
+    it('samples the issue a fingerprint belongs to now, when its exceptions name an issue merged since', async () => {
+        useErrorTrackingApiMocks({
+            recentIssues: FOUND_RECENT_ISSUE,
+            exceptionByFingerprint: { [RECENT_FINGERPRINT]: FOUND_EXCEPTION },
+        })
+        const realFetch = globalThis.fetch
+        // MSW follows a 308 that has no Location header, but a browser returns it, so answer this request before MSW
+        jest.spyOn(globalThis, 'fetch').mockImplementation((input, init) => {
+            const url = new URL(String(input instanceof Request ? input.url : input), location.origin)
+            return url.pathname.endsWith(`/issues/${RECENT_ISSUE_ID}/`) &&
+                url.searchParams.get('fingerprint') === RECENT_FINGERPRINT
+                ? Promise.resolve(
+                      new Response(JSON.stringify({ issue_id: MERGED_INTO_ISSUE_ID }), {
+                          status: 308,
+                          headers: { 'Content-Type': 'application/json' },
+                      })
+                  )
+                : realFetch(input, init)
+        })
+
+        const sample = await SAMPLE_GLOBALS_CONTEXTS['error-tracking']!(exampleGlobals)
+
+        expect(sample.event.distinct_id).toBe(MERGED_INTO_ISSUE_ID)
+        expect(sample.event.properties).toEqual({
+            ...EXCEPTION_PROPERTIES,
+            ...issueFields(RECENT_FINGERPRINT),
+            exception_timestamp: EXCEPTION_TIMESTAMP,
+        })
     })
 })

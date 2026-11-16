@@ -1,4 +1,5 @@
 import api, { ApiConfig } from 'lib/api'
+import { ApiError } from 'lib/api-error'
 import { hogql } from 'lib/utils/hogql'
 
 import { NodeKind, ProductKey } from '~/queries/schema/schema-general'
@@ -14,6 +15,7 @@ import {
     errorTrackingFingerprintsList,
     errorTrackingIssuesRetrieve,
 } from 'products/error_tracking/frontend/generated/api'
+import type { ErrorTrackingIssueReadApi } from 'products/error_tracking/frontend/generated/api.schemas'
 
 import { performWideEventsQueryInTwoPhases } from '../sampleEventsQuery'
 
@@ -43,17 +45,34 @@ type SampleCandidate = { issueId: string; fingerprint: string }
 // The fingerprints API lists the oldest fingerprints first, so try recent issues.
 async function loadRecentlyActiveIssues(days: number): Promise<SampleCandidate[] | null> {
     try {
-        const response = await api.queryHogQL<[string, string][]>(
-            hogql`SELECT toString(issue_id), argMax(properties.$exception_fingerprint, timestamp) FROM events
-                WHERE event = '$exception' AND timestamp > now() - INTERVAL ${days} DAY AND issue_id IS NOT NULL
-                GROUP BY issue_id ORDER BY max(timestamp) DESC LIMIT 20`,
+        const response = await api.queryHogQL<[string | null, string | null][]>(
+            hogql`SELECT properties.$exception_issue_id, properties.$exception_fingerprint FROM events
+                WHERE event = '$exception' AND timestamp > now() - INTERVAL ${days} DAY
+                AND properties.$exception_issue_id IS NOT NULL AND properties.$exception_fingerprint IS NOT NULL
+                ORDER BY timestamp DESC LIMIT 100`,
             { productKey: ProductKey.ERROR_TRACKING, name: `hog_function_error_tracking_sample_issues_${days}d` }
         )
-        return response.results
-            .filter(([, fingerprint]) => fingerprint)
-            .map(([issueId, fingerprint]) => ({ issueId, fingerprint }))
+        const byFingerprint = new Map<string, SampleCandidate>()
+        for (const [issueId, fingerprint] of response.results) {
+            if (issueId && fingerprint && !byFingerprint.has(fingerprint)) {
+                byFingerprint.set(fingerprint, { issueId, fingerprint })
+            }
+        }
+        return [...byFingerprint.values()].slice(0, 20)
     } catch {
         return null
+    }
+}
+
+// An exception keeps the issue id it was ingested with, so ask for the issue that owns the fingerprint now.
+async function retrieveCurrentIssue(projectId: string, candidate: SampleCandidate): Promise<ErrorTrackingIssueReadApi> {
+    try {
+        return await errorTrackingIssuesRetrieve(projectId, candidate.issueId, { fingerprint: candidate.fingerprint })
+    } catch (error) {
+        if (error instanceof ApiError && error.status === 308 && typeof error.data?.issue_id === 'string') {
+            return await errorTrackingIssuesRetrieve(projectId, error.data.issue_id)
+        }
+        throw error
     }
 }
 
@@ -106,7 +125,7 @@ export const SAMPLE_GLOBALS_CONTEXTS: Partial<Record<HogFunctionConfigurationCon
             return exampleGlobals
         }
         const [issue, exceptionEvent] = await Promise.all([
-            errorTrackingIssuesRetrieve(projectId, candidate.issueId),
+            retrieveCurrentIssue(projectId, candidate),
             loadLatestExceptionEvent(candidate.fingerprint),
         ])
         const properties: Record<string, any> = {
