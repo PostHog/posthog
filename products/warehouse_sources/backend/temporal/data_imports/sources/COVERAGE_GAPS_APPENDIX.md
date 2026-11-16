@@ -13657,14 +13657,14 @@ Note: Coverage of the /api/sunshine surface is essentially complete: object_type
 
 ## Zenduty — gaps
 
-Today (12): `account_members`, `escalation_policies`, `incidents`, `maintenance_windows`, `postmortems`, `roles`, `schedules`, `services`, `slas`, `tags`, `team_members`, `teams`
+Today (16): `account_members`, `escalation_policies`, `incident_alerts`, `incident_responders`, `incidents`, `maintenance_windows`, `oncall`, `postmortems`, `priorities`, `roles`, `schedules`, `services`, `slas`, `tags`, `team_members`, `teams`
 
 Diffed against: <https://apidocs.zenduty.com/openapi.json>
 
-- [ ] `incidents/{incident_number}/alerts/` — the raw alerts that rolled up into each incident - core noise/alert-volume analysis (high)
-- [ ] `account/teams/{team_id}/oncall/ (v2)` — resolved on-call shifts per team; the headline output of schedules and escalation policies we already sync (high)
-- [ ] `incidents/{incident_number}/responders/ (v2)` — who was engaged on each incident - the membership table for responder load and MTTA analysis (high)
-- [ ] `account/teams/{team_id}/priority/` — lookup table resolving the priority ID carried on incidents (high)
+- [x] `incidents/{incident_number}/alerts/` — the raw alerts that rolled up into each incident - core noise/alert-volume analysis (high) → `incident_alerts` (full refresh, fan-out over `incidents`, off by default)
+- [x] `account/teams/{team_id}/oncall/ (v2)` — resolved on-call shifts per team; the headline output of schedules and escalation policies we already sync (high) → `oncall` (full refresh, fan-out over `teams`; current on-call per escalation policy rule, not shift history)
+- [x] `incidents/{incident_number}/responders/ (v2)` — who was engaged on each incident - the membership table for responder load and MTTA analysis (high) → `incident_responders` (full refresh, fan-out over `incidents`, off by default)
+- [x] `account/teams/{team_id}/priority/` — lookup table resolving the priority ID carried on incidents (high) → `priorities` (full refresh, fan-out over `teams`)
 - [ ] `incidents/{incident_number}/note/` — incident timeline notes, the qualitative record alongside postmortems we already sync (medium)
 - [ ] `incidents/{incident_number}/tags/` — incident-to-tag junction; we sync team tags but not which incidents carry them (medium)
 - [ ] `account/teams/{team_id}/schedules/{schedule_id}/overrides/` — schedule overrides explain why actual on-call differed from the rotation (medium)
