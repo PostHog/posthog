@@ -1,4 +1,5 @@
-import { mkdtempSync, rmSync } from 'fs'
+import { randomUUID } from 'crypto'
+import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'fs'
 import os from 'os'
 import path from 'path'
 
@@ -10,6 +11,8 @@ import { main, runCards } from './main'
 import { RunResult, Runner, createRunner } from './runner/runner'
 import { EXIT_CODE } from './runner/status'
 import { startFakeProjectApi } from './scorecard/fake-project-api'
+import { STORE_URL } from './store/client'
+import { TestStore, UNREACHABLE_STORE, startTestStore, storeEnvOf } from './store/test-store'
 
 const SMOKE = load(path.join(__dirname, 'cards', 'smoke.yaml'))
 
@@ -33,7 +36,9 @@ const passed = (cardId: string): RunResult => ({
 })
 
 const runnerEnv = (cacheHome: string, credentials: NodeJS.ProcessEnv = {}): NodeJS.ProcessEnv => ({
-    ...Object.fromEntries(Object.entries(process.env).filter(([name]) => !name.startsWith('SCENARIO_RUNS_'))),
+    ...Object.fromEntries(
+        Object.entries(process.env).filter(([name]) => !name.startsWith('SCENARIO_RUNS_') && name !== STORE_URL)
+    ),
     XDG_CACHE_HOME: cacheHome,
     ...credentials,
 })
@@ -154,6 +159,23 @@ describe('runCards', () => {
         expect(stdout).toEqual(expect.arrayContaining(printed))
     })
 
+    it('prints a failed store report and keeps the exit code of the run', async () => {
+        const runner: Runner = {
+            up: () => Promise.resolve(),
+            run: (loaded) =>
+                Promise.resolve({
+                    ...passed(loaded.card.id),
+                    recorded: true,
+                    storeError: 'the run store answered 503',
+                }),
+            down: () => Promise.resolve(),
+        }
+
+        expect(await runCards(runner, [SMOKE], new AbortController().signal)).toBe(EXIT_CODE.passed)
+        const stdout = jest.mocked(process.stdout.write).mock.calls.map(([text]) => text)
+        expect(stdout).toContain('store: the run store answered 503\n')
+    })
+
     it('refuses partial scorecard credentials before it starts the stack', async () => {
         jest.spyOn(processes, 'terminate').mockRejectedValue(new Error('The preflight test reached process cleanup.'))
         jest.spyOn(stack, 'startStack').mockRejectedValue(new Error('The preflight test reached the dev stack.'))
@@ -203,5 +225,100 @@ describe('runCards', () => {
         } finally {
             await api.close()
         }
+    })
+})
+
+describe('publish', () => {
+    let store: TestStore
+    let cacheHome: string
+    let stdout: jest.SpyInstance
+    let stderr: jest.SpyInstance
+
+    const runDirOf = (runId: string): string => path.join(cacheHome, 'posthog-scenarios', runId)
+
+    const saveRun = (runId: string, event: Record<string, unknown>): void => {
+        mkdirSync(runDirOf(runId), { recursive: true })
+        writeFileSync(path.join(runDirOf(runId), 'scorecard.json'), JSON.stringify({ runId, event }))
+    }
+
+    const eventOf = (runId: string): Record<string, unknown> => ({
+        schema_version: 1,
+        run_id: runId,
+        card_id: 'smoke',
+        status: 'passed',
+        status_reason: 'every invariant held',
+        started_at: '2026-01-01T00:00:00.000Z',
+        ended_at: '2026-01-01T00:00:01.000Z',
+        evidence_dir: '/tmp/scenario-evidence',
+    })
+
+    const printed = (spy: jest.SpyInstance): string => spy.mock.calls.map(([text]) => text).join('')
+
+    beforeAll(async () => {
+        store = await startTestStore('publish')
+    })
+
+    afterAll(() => store.close())
+
+    beforeEach(() => {
+        cacheHome = mkdtempSync(path.join(os.tmpdir(), 'scenario-publish-'))
+        stdout = jest.spyOn(process.stdout, 'write').mockReturnValue(true)
+        stderr = jest.spyOn(process.stderr, 'write').mockReturnValue(true)
+    })
+
+    afterEach(() => {
+        jest.restoreAllMocks()
+        rmSync(cacheHome, { recursive: true, force: true })
+    })
+
+    it('stores a run saved before runs named their adapters as a Workflows run, by id or by path', async () => {
+        const [byId, byPath] = [randomUUID(), randomUUID()]
+        saveRun(byId, eventOf(byId))
+        saveRun(byPath, eventOf(byPath))
+
+        const exitCode = await main(['publish', byId, runDirOf(byPath)], {
+            XDG_CACHE_HOME: cacheHome,
+            ...store.envOf(cacheHome),
+        })
+
+        expect(exitCode).toBe(EXIT_CODE.passed)
+        expect(await store.read(byId)).toMatchObject({ adapters: ['workflows'], owners: [], host: os.hostname() })
+        expect(await store.read(byPath)).toMatchObject({ scorecard: { ...eventOf(byPath), adapters: ['workflows'] } })
+        expect(printed(stdout)).toBe(`${byId}: stored\n${byPath}: stored\n`)
+    })
+
+    it('skips run directories without a scorecard under --all, and fails on one named outright', async () => {
+        const [saved, unsaved] = [randomUUID(), randomUUID()]
+        saveRun(saved, eventOf(saved))
+        mkdirSync(runDirOf(unsaved), { recursive: true })
+        mkdirSync(path.join(cacheHome, 'posthog-scenarios', 'logs'))
+        const env = { XDG_CACHE_HOME: cacheHome, ...store.envOf(cacheHome) }
+
+        expect(await main(['publish', '--all'], env)).toBe(EXIT_CODE.passed)
+        expect(printed(stdout)).toBe(`${saved}: stored\n`)
+
+        expect(await main(['publish', unsaved], env)).toBe(EXIT_CODE.writeFailed)
+        expect(printed(stderr)).toContain(
+            `${unsaved}: no scorecard at ${path.join(runDirOf(unsaved), 'scorecard.json')}`
+        )
+        expect(await store.read(unsaved)).toBeUndefined()
+    })
+
+    it.each<[string, (home: string) => NodeJS.ProcessEnv, number, RegExp]>([
+        ['no run store is set', (home) => ({ HOME: home }), EXIT_CODE.invalid, /Set SCENARIO_STORE_URL/],
+        [
+            'the run store is down',
+            (home) => storeEnvOf(home, UNREACHABLE_STORE),
+            EXIT_CODE.writeFailed,
+            /the run store did not answer/,
+        ],
+    ])('stores nothing and says why when %s', async (_story, envOf, code, said) => {
+        const runId = randomUUID()
+        saveRun(runId, eventOf(runId))
+
+        expect(await main(['publish', runId], { XDG_CACHE_HOME: cacheHome, ...envOf(cacheHome) })).toBe(code)
+
+        expect(printed(stderr)).toMatch(said)
+        expect(await store.read(runId)).toBeUndefined()
     })
 })

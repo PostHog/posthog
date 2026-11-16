@@ -8,6 +8,7 @@ import { parseJSON } from '~/common/utils/json-parse'
 
 import { FAILOVER_RELEASE_WITHIN_MS } from '../environment/failover'
 import { FakeProjectApi, startFakeProjectApi } from '../scorecard/fake-project-api'
+import { TestStore, UNREACHABLE_STORE, startTestStore, storeEnvOf } from '../store/test-store'
 import { FakeCloud, FakeCloudOptions, ReaderMinute } from './fake-cloud'
 import { PROFILE } from './fixtures'
 import { STOP_TIMEOUT_S, STOP_WAIT_MS } from './host'
@@ -1260,6 +1261,38 @@ describe('cloud controller', () => {
         expect(parseJSON(cloud.objects.get(key)!)).toMatchObject({ origin: 'cloud-manual', status: 'passed' })
         expect(out.join('\n')).toContain(`s3://test-evidence/${key}`)
         expect(api.captured).toEqual([])
+    })
+
+    describe('reporting to the run store', () => {
+        let store: TestStore
+
+        beforeAll(async () => {
+            store = await startTestStore('cloud')
+        })
+
+        afterAll(() => store.close())
+
+        it('stores the scorecard it publishes as a Workflows run', async () => {
+            const { controller } = prepare({ env: { ...api.credentials, ...store.envOf(dir) } })
+
+            await expect(main(['run', profilePath(), FAILOVER_CARD], controller)).resolves.toBe(0)
+
+            expect(await store.read(leasedRunId())).toMatchObject({
+                scorecard: published(),
+                adapters: ['workflows'],
+                owners: [],
+                target: 'cloud',
+            })
+            expect(out).toContain('Reported the run to the run store.')
+        })
+
+        it('keeps its exit code and warns when the run store is down', async () => {
+            const { controller } = prepare({ env: storeEnvOf(dir, UNREACHABLE_STORE) })
+
+            await expect(main(['run', profilePath(), FAILOVER_CARD], controller)).resolves.toBe(0)
+
+            expect(err.join('\n')).toMatch(/Could not report the run to the run store: the run store did not answer/)
+        })
     })
 
     it('deletes the stack by schedule when the controller dies after creating it', async () => {
