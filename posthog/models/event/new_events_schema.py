@@ -87,13 +87,16 @@ def events_route_scope(modifiers: "HogQLQueryModifiers") -> Iterator[None]:
 
 # A staff person's browser sends this cookie to read events_json on every request, impersonated sessions included.
 NEW_EVENTS_SCHEMA_COOKIE = "ph_new_events_schema"
-_person_switch: ContextVar[bool] = ContextVar("new_events_schema_person_switch", default=False)
+# One browser tab sends this header, "1" for events_json and "0" for the legacy table, and it wins over the cookie,
+# so two tabs of one browser can show the two tables side by side.
+NEW_EVENTS_SCHEMA_HEADER = "X-PostHog-New-Events-Schema"
+_person_switch: ContextVar[bool | None] = ContextVar("new_events_schema_person_switch", default=None)
 
 
 @contextmanager
-def new_events_schema_for_request() -> Iterator[None]:
-    """Every events read inside the block targets events_json, unless its query's modifier says otherwise."""
-    token = _person_switch.set(True)
+def new_events_schema_for_request(enabled: bool = True) -> Iterator[None]:
+    """Every events read inside the block targets the chosen table, unless its query's modifier says otherwise."""
+    token = _person_switch.set(enabled)
     try:
         yield
     finally:
@@ -104,7 +107,8 @@ def use_new_events_schema(team_id: int | None = None, modifiers: "HogQLQueryModi
     """Whether events reads target the native JSON events table (events_json) instead of the legacy events table.
 
     Four switches, each wider than the one before it: the query's useNewEventsSchema modifier, for one query;
-    a staff person's cookie, for every request from that browser (see new_events_schema_for_request);
+    a staff person's tab header or browser cookie, for every request from that tab or browser, which can also pin
+    the legacy table (see new_events_schema_for_request);
     CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA_TEAMS, for a project everywhere, background jobs included; and
     CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA, for every project. The instance settings are cached for up to 60s
     per worker. Nested reads inherit the running query's choice unless their own modifier overrides it.
@@ -116,8 +120,9 @@ def use_new_events_schema(team_id: int | None = None, modifiers: "HogQLQueryModi
     route = get_events_route()
     if route is not None and route.useNewEventsSchema is not None:
         return route.useNewEventsSchema
-    if _person_switch.get():
-        return True
+    person_switch = _person_switch.get()
+    if person_switch is not None:
+        return person_switch
     if settings.TEST and settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
         return True
     if get_instance_setting("CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA"):
