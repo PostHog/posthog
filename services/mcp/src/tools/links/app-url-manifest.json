@@ -1509,6 +1509,11 @@
         "params": ["id"],
         "scope": "project"
     },
+    "releaseCalendar": {
+        "template": "/releases/calendar",
+        "params": [],
+        "scope": "project"
+    },
     "releaseList": {
         "template": "/releases/list",
         "params": [],

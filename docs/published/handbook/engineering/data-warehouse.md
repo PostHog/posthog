@@ -26,6 +26,10 @@ The activity has a five-minute heartbeat timeout and permits up to ten attempts.
 
 **Send raw query** checks statement boundaries and read-only restrictions using the selected connection's SQL dialect. Quoted strings, identifiers, and comments follow that dialect, including backslashes in LIKE and regex patterns. Queries with unfinished quotes or comments are rejected before execution. For PostgreSQL, Redshift, and MySQL, quoting must have the same boundaries with and without session-level backslash escaping; use doubled quotes when embedding a quote in a string.
 
+## Built-in SQL tables
+
+SQL autocomplete includes qualified table names from the visible schema alongside the existing unqualified shortcuts. Typing a namespace such as `posthog.` completes its tables, including when part of the table name is already entered. Unknown unqualified table names suggest the matching visible `posthog.*` table when one exists.
+
 ## Model namespace reservation
 
 The shared PostHog catalog reserves `models.*` for authored data models. New warehouse tables, endpoint saved queries, and managed viewsets cannot claim that namespace. The bare name `models` is reserved for the namespace container; use a name such as `models.revenue` for a model. Names such as `models_v2` remain available. Saved queries with no origin are treated as authored models for compatibility.
@@ -76,6 +80,9 @@ The SQL editor keeps unrun edits in browser storage, scoped to the user, project
 SQL and Business intelligence drafts also retain selected variables and their values when you navigate away, including variables not yet referenced in the query. Saved queries include only referenced variables.
 An **Edited** label marks changes to a saved view or insight. **Discard changes** restores the saved copy already loaded in memory, then refreshes it from the server. The refresh preserves edits made after discarding.
 Views and insights can be saved or updated before running the SQL. Save and update buttons show a warning when the query has not been run successfully. Clicking opens a confirmation near the pointer: **Run latest** runs the current editor SQL without saving, **Show diff** compares it with the saved view or insight (or the latest run for a new query), and **Save anyway** saves without opening a diff. All three choices close the confirmation. The read-only diff lets you review and save the changes or cancel to continue editing. Managed Trino views still require a successful run to determine their columns. View updates use the same change check as the **Edited** label, including saved query filters. **Continue in a notebook** is in the update button's dropdown for saved views and insights.
+
+On an empty dashboard, **Write SQL** opens the SQL editor with that dashboard selected. **Save & add to dashboard** saves the insight, adds it to the dashboard, and returns to it. This shortcut requires permission to edit the dashboard.
+The insight picker keeps names readable at narrow widths. Scroll the table horizontally to reach additional columns and the add/remove controls.
 
 **Fix errors with AI** keeps its pending state and suggestion in the SQL tab that requested the fix. Other open tabs keep their own queries and can request independent fixes.
 
@@ -149,6 +156,13 @@ Direct connections group tables by schema. Search matches table and folder names
 **Related tables** exposes existing lazy joins, virtual tables, and configured warehouse joins as expandable nodes. Fields reached through a relation keep the original source and a qualified path, so adding a customer's field to a charges worksheet does not switch tables. PostHog property fields, including `person.properties` under events, expand into searchable, paginated property definitions. Numeric definitions become measures; other definitions become dimensions. Restricted and hidden properties are excluded. Warehouse relationships use the existing join configuration; the worksheet does not create joins or infer arbitrary JSON keys.
 
 **Search fields** also searches property definitions in the selected table and expanded related tables. Search for `$browser`, `$pathname`, or a custom property name to open matching property groups, then drag or double-click a property onto a shelf. Clearing the search restores each group's previous expansion and local search. Searching for a group's name, such as `properties`, shows all its definitions.
+
+## SQL heatmaps
+
+For a 2D heatmap, **X-axis order** in the Series settings sorts columns ascending or descending by their labels, with numeric labels in numeric order.
+Ascending order places numeric labels before text labels; descending order reverses both groups.
+**Query order** keeps the order in which values first appear in the results.
+Clicking a column header sorts rows by that column's values independently of the X-axis order.
 
 ## Calculated measures in BI mode
 
@@ -363,6 +377,10 @@ This changes setup recommendations and diagnostic actions, not report attributio
 4. Hit next and finish the import - `temporal-worker-data-warehouse` will then import the data into your local object storage
 
 ## Validating ad source metric imports
+
+The sync method form shows unavailable methods with an inline explanation, using the capabilities returned for each table.
+For Google Ads and Meta Ads tables that support neither incremental nor append only replication, it recommends full table replication for that table and stats tables such as `ad_stats` or `campaign_stats` for incremental performance data.
+Stats tables contain performance metrics and do not replace the dimension table's data.
 
 Meta Ads requests `video_play_actions` and `video_thruplay_watched_actions` on its campaign, ad set, ad, and supported breakdown statistics tables.
 Hourly statistics and `ad_stats_by_link_url` exclude both fields because these breakdowns do not support them.

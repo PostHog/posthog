@@ -281,6 +281,42 @@ describe('cohortEditLogic', () => {
             expect(criteriaGroupKeys()).toEqual(keysBeforePoll)
         })
 
+        it('merges a turn-on without discarding unsaved criteria', async () => {
+            let nextKey = 0
+            ;(uuidv4 as jest.Mock).mockImplementation(() => `criteria-key-${nextKey++}`)
+            const offRealtime: CohortRealtimeReadinessApi = { ...readyRealtime, state: 'off', ready_at: null }
+            useMocks({
+                get: { '/api/projects/:team_id/cohorts/:id/': { ...mockCohort, realtime: offRealtime } },
+                post: {
+                    '/api/projects/:team_id/cohorts/:id/realtime/': {
+                        ...mockCohort,
+                        realtime_enabled: true,
+                        realtime: buildingRealtime,
+                    },
+                },
+            })
+            await initCohortLogic({ id: 1 })
+            await expectLogic(logic, () => {
+                logic.actions.setCohort({ ...mockCohort, realtime: offRealtime })
+                logic.actions.setOuterGroupsType(FilterLogicalOperator.And)
+            }).toMatchValues({ realtimeSwitchAction: 'turn_on' })
+            const keysBeforeTurnOn = criteriaGroupKeys()
+
+            await expectLogic(logic, () => {
+                logic.actions.switchRealtime(true)
+            })
+                .toFinishAllListeners()
+                .toMatchValues({
+                    cohort: partial({
+                        realtime_enabled: true,
+                        realtime: buildingRealtime,
+                        filters: partial({ properties: partial({ type: FilterLogicalOperator.And }) }),
+                    }),
+                    realtimeSwitchAction: 'turn_off',
+                })
+            expect(criteriaGroupKeys()).toEqual(keysBeforeTurnOn)
+        })
+
         it('drops a readiness the save it crossed has already replaced', async () => {
             // A poll in flight answers for the definition before the save, so letting it land would
             // report the old build as ready and stop watching the one the save just started.

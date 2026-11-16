@@ -1,9 +1,12 @@
+import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
+
 import { Meta, StoryObj } from '@storybook/react'
 import { waitFor } from '@testing-library/dom'
 import userEvent from '@testing-library/user-event'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { App } from 'scenes/App'
+import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { mswDecorator } from '~/mocks/browser'
@@ -86,9 +89,13 @@ const meta: Meta = {
         mockDate: '2023-01-28', // To stabilize relative dates
         pageUrl: urls.featureFlags(),
         testOptions: { viewport: { width: 1300, height: 2000 } },
-        featureFlags: [FEATURE_FLAGS.REALTIME_COHORT_FLAG_TARGETING],
     },
     decorators: [
+        (Story) => {
+            teamLogic.mount()
+            teamLogic.actions.loadCurrentTeamSuccess({ ...MOCK_DEFAULT_TEAM, realtime_cohorts: { access: 'serving' } })
+            return <Story />
+        },
         mswDecorator({
             get: {
                 '/api/projects/:team_id/integrations': {},
@@ -292,14 +299,14 @@ export const RulesV2FeatureFlagEditDeepLink: Story = {
 export const NewRulesV2FeatureFlag: Story = {
     parameters: {
         pageUrl: urls.featureFlagNew({ format: 'rules_v2' }),
-        featureFlags: [FEATURE_FLAGS.REALTIME_COHORT_FLAG_TARGETING, FEATURE_FLAGS.FEATURE_FLAG_RULES_V2_EDITOR],
+        featureFlags: [FEATURE_FLAGS.FEATURE_FLAG_RULES_V2_EDITOR],
     },
 }
 
 export const EditRulesV2FeatureFlag: Story = {
     parameters: {
         pageUrl: `${urls.featureFlag(RULES_V2_FLAG_ID)}?edit=true`,
-        featureFlags: [FEATURE_FLAGS.REALTIME_COHORT_FLAG_TARGETING, FEATURE_FLAGS.FEATURE_FLAG_RULES_V2_EDITOR],
+        featureFlags: [FEATURE_FLAGS.FEATURE_FLAG_RULES_V2_EDITOR],
     },
 }
 
@@ -312,18 +319,14 @@ export const RulesV2FeatureFlagWithExperimentRules: Story = {
 export const EditRulesV2FeatureFlagWithExperimentRules: Story = {
     parameters: {
         pageUrl: `${urls.featureFlag(RULES_V2_EXPERIMENT_FLAG.id)}?edit=true`,
-        featureFlags: [FEATURE_FLAGS.REALTIME_COHORT_FLAG_TARGETING, FEATURE_FLAGS.FEATURE_FLAG_RULES_V2_EDITOR],
+        featureFlags: [FEATURE_FLAGS.FEATURE_FLAG_RULES_V2_EDITOR],
     },
 }
 
 export const StaleFeatureFlagWithAiAssessment: Story = {
     parameters: {
         pageUrl: urls.featureFlag(STALE_FLAG_ID),
-        featureFlags: [
-            FEATURE_FLAGS.REALTIME_COHORT_FLAG_TARGETING,
-            FEATURE_FLAGS.PHAI_SANDBOX_MODE,
-            FEATURE_FLAGS.FEATURE_FLAG_CLEANUP_ASSESSMENT,
-        ],
+        featureFlags: [FEATURE_FLAGS.PHAI_SANDBOX_MODE, FEATURE_FLAGS.FEATURE_FLAG_CLEANUP_ASSESSMENT],
     },
     play: async ({ canvasElement }) => {
         await waitFor(
