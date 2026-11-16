@@ -1,6 +1,6 @@
 import { useValues } from 'kea'
 
-import { LemonButton } from '@posthog/lemon-ui'
+import { LemonButton, LemonCard } from '@posthog/lemon-ui'
 
 import { emailDomainLogic } from '../emailDomainLogic'
 import { emailDomainSenderLogic } from '../emailDomainSenderLogic'
@@ -10,7 +10,10 @@ export function SendFromCodeNextCard(): JSX.Element {
     const { domain } = useValues(emailDomainSenderLogic)
     const { originConfig } = useValues(emailDomainLogic)
     return (
-        <section className="rounded-xl border border-accent bg-accent-highlight-secondary p-6 @md:p-8 flex flex-col gap-5">
+        <LemonCard
+            hoverEffect={false}
+            className="rounded-xl border-accent bg-accent-highlight-secondary @md:p-8 flex flex-col gap-5"
+        >
             <div className="flex items-start gap-4">
                 <HedgehogMailbox className="w-20 shrink-0" />
                 <div className="flex flex-col gap-1 min-w-0">
@@ -32,6 +35,6 @@ export function SendFromCodeNextCard(): JSX.Element {
             >
                 {originConfig.backLabel}
             </LemonButton>
-        </section>
+        </LemonCard>
     )
 }
