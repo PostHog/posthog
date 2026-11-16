@@ -240,22 +240,26 @@ class TestReviewStages(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("same_domain", "example.com", False, 0.9, True),
-            ("same_domain_shared_host", "example.com", False, 0.2, False),
-            # Blocking the accepted partner withdraws its vouching for the domain.
-            ("accepted_partner_disabled", "example.com", True, 0.9, False),
+            ("same_host", "example.com", "app.example.com", False, 0.9, True),
+            ("same_host_shared_service", "example.com", "app.example.com", False, 0.2, False),
+            # A hosting platform missing from the public suffix list gives each user a subdomain of one domain.
+            ("another_subdomain", "example.com", "tenant.example.com", False, 0.9, False),
+            # Blocking the accepted partner withdraws its vouching for the host.
+            ("accepted_partner_disabled", "example.com", "app.example.com", True, 0.9, False),
             # IP hosts have no registrable domain, and one accepted IP client must not vouch for the rest.
-            ("no_registrable_domain", "", False, 0.9, False),
+            ("no_registrable_domain", "", "app.example.com", False, 0.9, False),
             # PostHog serves customer-controlled documents under its own domain.
-            ("posthog_domain", "posthog.com", False, 0.9, False),
+            ("posthog_domain", "posthog.com", "app.example.com", False, 0.9, False),
         ]
     )
-    def test_screen_reuses_an_accepted_domain(self, _name, domain, accepted_disabled, own_site, expected_shortcut):
+    def test_screen_reuses_an_accepted_host(
+        self, _name, domain, second_host, accepted_disabled, own_site, expected_shortcut
+    ):
         accepted = _make_app(client_id="https://app.example.com/client.json", active=True, disabled=accepted_disabled)
         CIMDProvisioningReview.objects.create(
             application=accepted, domain=domain, status=ProvisioningReviewStatus.ACCEPTED
         )
-        second = _make_app(client_id="https://staging.example.com/client.json")
+        second = _make_app(client_id=f"https://{second_host}/staging-client.json")
         CIMDProvisioningReview.objects.create(application=second, domain=domain)
         jev = _FakeSystemOne(legitimate=0.5, malicious=0.02, own_site=own_site)
 

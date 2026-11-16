@@ -9,7 +9,7 @@ sessions. The pipeline that reaches the verdict is ``posthog/temporal/cimd_provi
 import asyncio
 from collections.abc import Mapping
 from typing import Any
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urlparse
 
 from django.conf import settings
 from django.core.cache import cache
@@ -153,23 +153,34 @@ def ensure_review_running(app: OAuthApplication) -> CIMDProvisioningReview | Non
 SHARED_POSTHOG_DOMAINS = frozenset({"posthog.com"})
 
 
-def domain_already_accepted(domain: str, *, excluding_application_id: str) -> bool:
-    """Whether another client on this registrable domain already passed a review and is still an
-    active partner. An IP host has no registrable domain, so an empty domain never matches."""
-    if not domain or domain in SHARED_POSTHOG_DOMAINS:
+def _client_id_host(client_id: str) -> str | None:
+    try:
+        return urlparse(client_id).hostname
+    except ValueError:
+        return None
+
+
+def host_already_accepted(client_id: str, *, domain: str, excluding_application_id: str) -> bool:
+    """Whether another client whose metadata document is on the same host already passed a review
+    and is still an active partner. The match is on the host, not the registrable domain, because a
+    hosting platform missing from the public suffix list gives every tenant a subdomain of one
+    registrable domain. An IP host has no registrable domain, so an empty domain never matches."""
+    host = _client_id_host(client_id)
+    if not host or not domain or domain in SHARED_POSTHOG_DOMAINS:
         return False
-    return (
+    accepted_client_ids = (
         CIMDProvisioningReview.objects.filter(
             domain=domain,
             status=ProvisioningReviewStatus.ACCEPTED,
             application__is_provisioning_partner=True,
             application___provisioning_config__active=True,
         )
-        # Blocking a partner after it was accepted withdraws its vouching for the domain too.
+        # Blocking a partner after it was accepted withdraws its vouching for the host too.
         .exclude(application___provisioning_config__disabled=True)
         .exclude(application_id=excluding_application_id)
-        .exists()
+        .values_list("application__client_id", flat=True)
     )
+    return any(_client_id_host(accepted) == host for accepted in accepted_client_ids)
 
 
 def _settleable_statuses(stage: ProvisioningReviewStage) -> frozenset[str]:

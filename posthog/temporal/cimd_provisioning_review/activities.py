@@ -1,10 +1,11 @@
 from collections.abc import Callable
+from urllib.parse import urlparse
 
 import structlog
 from temporalio import activity
 from temporalio.exceptions import ApplicationError
 
-from posthog.api.oauth.provisioning_review import append_run_log, domain_already_accepted, settle_review
+from posthog.api.oauth.provisioning_review import append_run_log, host_already_accepted, settle_review
 from posthog.egress.firecrawl import FirecrawlNotConfigured
 from posthog.llm.system_one import JsonValue, SystemOneNotConfigured
 from posthog.models.oauth_provisioning_review import (
@@ -80,16 +81,18 @@ def _logged_step[T](application_id: str, step: str, run: Callable[[], T]) -> T:
         raise
 
 
-def _reuses_accepted_domain(review: CIMDProvisioningReview, judgment: PartnerJudgment) -> bool:
-    """Another accepted client on the domain vouches for this one only when Jev also places this
-    document on the client's own site. On a shared host such as a public pad server, every tenant
-    shares the registrable domain, so the domain match alone proves nothing."""
+def _reuses_accepted_host(review: CIMDProvisioningReview, judgment: PartnerJudgment) -> bool:
+    """Another accepted client on the same host vouches for this one only when Jev also places this
+    document on the client's own site. A public pad server is one host for all of its users, so the
+    host match alone proves nothing."""
     return (
         judgment.own_site is not None
         and judgment.malicious is not None
         and judgment.own_site >= SCREEN_THRESHOLDS.accept_own_site_at_least
         and judgment.malicious <= SCREEN_THRESHOLDS.accept_malicious_at_most
-        and domain_already_accepted(review.domain, excluding_application_id=str(review.application_id))
+        and host_already_accepted(
+            review.application.client_id, domain=review.domain, excluding_application_id=str(review.application_id)
+        )
     )
 
 
@@ -102,8 +105,9 @@ def _screen(application_id: str) -> StageResult:
     review.screen_judgment = judgment.to_json()
     review.save(update_fields=["screen_judgment"])
     outcome = outcome_for(judgment, SCREEN_THRESHOLDS, unsettled=ReviewOutcome.RESEARCH)
-    if outcome == ReviewOutcome.RESEARCH and _reuses_accepted_domain(review, judgment):
-        reason = f"Another client on {review.domain} was accepted, and Jev places this document on its own site"
+    if outcome == ReviewOutcome.RESEARCH and _reuses_accepted_host(review, judgment):
+        host = urlparse(review.application.client_id).hostname
+        reason = f"Another client on {host} was accepted, and Jev places this document on its own site"
         append_run_log(application_id, "screen", f"Jev: {judgment.describe()}. {reason}")
         return StageResult(
             outcome=ReviewOutcome.ACCEPT, stage=ProvisioningReviewStage.DOMAIN_ALREADY_ACCEPTED, reason=reason
