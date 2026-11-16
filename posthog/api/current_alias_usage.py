@@ -1,6 +1,7 @@
 import hashlib
 from enum import StrEnum
 
+from django.conf import settings
 from django.core.cache import caches
 from django.http import HttpRequest
 
@@ -8,7 +9,8 @@ import structlog
 import posthoganalytics
 
 from posthog.clickhouse.query_tagging import get_query_tag_value
-from posthog.event_usage import get_request_analytics_properties, report_user_action, sanitize_header_value
+from posthog.event_usage import get_request_analytics_properties, sanitize_header_value
+from posthog.synthetic_user import SyntheticUser
 
 logger = structlog.get_logger(__name__)
 
@@ -20,6 +22,9 @@ CURRENT_ALIAS_USED_EVENT = "api current alias used"
 # One event per caller and route each day is enough to find who to contact, while the
 # metric keeps the full request volume.
 ATTRIBUTION_DEDUPE_SECONDS = 24 * 60 * 60
+# Session calls come from PostHog's own web app, which is fixed in code rather than through
+# outreach, so only credential callers get an attribution event. The metric counts every caller.
+UNATTRIBUTED_ACCESS_METHODS = frozenset({"session", "anonymous"})
 TOKEN_QUERY_PARAMS = ("token", "api_key")
 
 
@@ -78,21 +83,38 @@ def _record(request: HttpRequest, *, scope: CurrentAliasScope, route: str, statu
             },
         )
 
-    if not user.is_authenticated:
+    if access_method in UNATTRIBUTED_ACCESS_METHODS or scope == CurrentAliasScope.PERSONAL_API_KEY:
         return
 
-    api_key_mask = get_query_tag_value("api_key_mask")
     # Synthetic principals such as team secret tokens share one pk, so their distinct_id is what tells callers apart.
-    caller = getattr(user, "distinct_id", None) or user.pk
-    dedupe_parts = (caller, scope.value, route, method, access_method, token_in_query, api_key_mask)
+    distinct_id = getattr(user, "distinct_id", None)
+    if not distinct_id:
+        return
+    api_key_mask = get_query_tag_value("api_key_mask")
+    dedupe_parts = (distinct_id, scope.value, route, method, access_method, token_in_query, api_key_mask)
     dedupe_key = "current_alias_use:" + hashlib.sha256(repr(dedupe_parts).encode()).hexdigest()
     if not dedupe_cache.add(dedupe_key, True, timeout=ATTRIBUTION_DEDUPE_SECONDS):
         return
 
-    report_user_action(
-        user,
-        CURRENT_ALIAS_USED_EVENT,
-        {
+    # Read the ids from foreign key columns, so recording adds no query to the request it observes.
+    # Project secret keys authenticate as a SyntheticUser, which the request.user annotation does not include.
+    principal: object = request.user
+    if isinstance(principal, SyntheticUser):
+        team_id, organization_id = principal.team.pk, principal.team.organization_id
+    else:
+        team_id, organization_id = (
+            getattr(user, "current_team_id", None),
+            getattr(user, "current_organization_id", None),
+        )
+    groups = {"instance": settings.SITE_URL}
+    if organization_id:
+        groups["organization"] = str(organization_id)
+
+    posthoganalytics.capture(
+        distinct_id=distinct_id,
+        event=CURRENT_ALIAS_USED_EVENT,
+        properties={
+            **get_request_analytics_properties(request),
             "scope": scope.value,
             "route": route,
             "method": method,
@@ -102,6 +124,7 @@ def _record(request: HttpRequest, *, scope: CurrentAliasScope, route: str, statu
             "api_key_mask": api_key_mask,
             "api_key_label": get_query_tag_value("api_key_label"),
             "origin": sanitize_header_value(request.headers.get("Origin")),
+            "team_id": team_id,
         },
-        analytics_props=get_request_analytics_properties(request),
+        groups=groups,
     )

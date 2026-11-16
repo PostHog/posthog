@@ -3715,7 +3715,7 @@ class TestCurrentAliasUsage(APIBaseTest):
     def _alias_events(self, capture: MagicMock) -> list[Mapping[str, Any]]:
         return [call.kwargs for call in capture.call_args_list if call.kwargs.get("event") == CURRENT_ALIAS_USED_EVENT]
 
-    def test_reports_each_caller_once_per_route(self) -> None:
+    def test_reports_each_credential_caller_once_per_route(self) -> None:
         token = generate_random_token_personal()
         PersonalAPIKey.objects.create(
             user=self.user, label="Reporting script", secure_value=hash_key_value(token), scopes=["*"]
@@ -3723,15 +3723,17 @@ class TestCurrentAliasUsage(APIBaseTest):
 
         with patch("posthog.event_usage.posthoganalytics.capture") as capture:
             self.client.get("/api/projects/@current/")
-            self.client.get("/api/projects/@current/")
             self.client.logout()
+            self.client.get("/api/projects/@current/", HTTP_AUTHORIZATION=f"Bearer {token}")
             self.client.get("/api/projects/@current/", HTTP_AUTHORIZATION=f"Bearer {token}")
 
         events = self._alias_events(capture)
-        assert [(event["properties"]["access_method"], event["properties"]["route"]) for event in events] == [
-            ("session", "api/projects/{id}/"),
-            ("personal_api_key", "api/projects/{id}/"),
-        ]
-        assert all(event["distinct_id"] == self.user.distinct_id for event in events)
-        assert events[1]["properties"]["scope"] == CurrentAliasScope.PROJECT
-        assert events[1]["properties"]["api_key_label"] == "Reporting script"
+        assert len(events) == 1
+        assert events[0]["distinct_id"] == self.user.distinct_id
+        assert events[0]["groups"]["organization"] == str(self.organization.id)
+        assert {key: events[0]["properties"][key] for key in ("access_method", "route", "scope", "api_key_label")} == {
+            "access_method": "personal_api_key",
+            "route": "api/projects/{id}/",
+            "scope": CurrentAliasScope.PROJECT,
+            "api_key_label": "Reporting script",
+        }
