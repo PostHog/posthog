@@ -178,7 +178,6 @@ def project_events_table_choice(team_id: int) -> bool | None:
 
 def set_project_events_table_choice(team: "Team", use_new_events_table: bool | None) -> None:
     """Store the project's choice. Other workers read it once their cached choices expire, within a minute."""
-    # Deferred: this module is imported at django.setup(), before the models load.
     from posthog.models.team.team_events_table_config import TeamEventsTableConfig  # noqa: PLC0415
 
     TeamEventsTableConfig.objects.unscoped().update_or_create(
