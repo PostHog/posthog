@@ -18,7 +18,6 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.clickhouse.client import sync_execute
 from posthog.kafka_client.topics import KAFKA_EVENTS_JSON
 from posthog.models import OrganizationMembership
-from posthog.models.instance_setting import override_instance_config
 
 from products.demo.backend.logic.matrix.manager import (
     QUEUE_FULL_MAX_FLUSHES,
@@ -155,12 +154,10 @@ class TestMatrixManager(ClickhouseDestroyTablesMixin):
             >= 3
         )
 
-    @parameterized.expand([("both_tables", True), ("legacy_table_only", False)])
-    def test_run_on_team_using_pre_save(self, _name: str, copy_native_events: bool) -> None:
+    def test_run_on_team_using_pre_save(self) -> None:
         manager = MatrixManager(self.matrix, use_pre_save=True)
 
-        with override_instance_config("DEMO_DATA_COPY_NATIVE_EVENTS", copy_native_events):
-            manager.run_on_team(self.team, self.user)
+        manager.run_on_team(self.team, self.user)
 
         for read_table, rows_the_copy_waits_for in (
             ("events", "1"),
@@ -178,13 +175,10 @@ class TestMatrixManager(ClickhouseDestroyTablesMixin):
             )
             source = [row for team_id, row in rows if team_id == 0]
             target = [row for team_id, row in rows if team_id == self.team.pk]
-            if read_table == "events_json" and not copy_native_events:
-                assert target == []
-            else:
-                assert source
-                assert target == source
+            assert source
+            assert target == source
 
-        for use_new_events_schema in {False, copy_native_events}:
+        for use_new_events_schema in (False, True):
             copied = execute_hogql_query(
                 "SELECT count() FROM events WHERE properties.foo = 'bar'",
                 team=self.team,

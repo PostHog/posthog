@@ -16,7 +16,6 @@ from posthog.dataclasses import frozen
 from posthog.kafka_client.routing import get_producer
 from posthog.kafka_client.topics import KAFKA_EVENTS_JSON
 from posthog.models import Organization, OrganizationMembership, Team, User
-from posthog.models.instance_setting import get_instance_setting
 from posthog.models.utils import UUIDT, generate_random_token_project
 
 from products.cohorts.backend.models.cohort import Cohort
@@ -314,9 +313,7 @@ class MatrixManager:
         sync_execute(COPY_PERSONS_BETWEEN_TEAMS, copy_params)
         sync_execute(COPY_PERSON_DISTINCT_ID2S_BETWEEN_TEAMS, copy_params)
         sync_execute(COPY_EVENTS_BETWEEN_TEAMS, copy_params)
-        copy_native_events = get_instance_setting("DEMO_DATA_COPY_NATIVE_EVENTS")
-        if copy_native_events:
-            sync_execute(COPY_EVENTS_JSON_BETWEEN_TEAMS, copy_params)
+        sync_execute(COPY_EVENTS_JSON_BETWEEN_TEAMS, copy_params)
         sync_execute(COPY_GROUPS_BETWEEN_TEAMS, copy_params)
         copy_group_type_mappings(self.MASTER_TEAM_ID, target_team.id, target_team.project_id)
 
@@ -406,8 +403,6 @@ class MatrixManager:
     def _wait_for_analytics_data(self, team_id: int) -> None:
         from posthog.models.person.sql import GET_PERSON_COUNT_FOR_TEAM, GET_PERSON_DISTINCT_ID2_COUNT_FOR_TEAM
 
-        wait_for_native_events = get_instance_setting("DEMO_DATA_COPY_NATIVE_EVENTS")
-        native_event_count = 0
         MAX_WAIT_ITERATIONS = 600
         for i in range(MAX_WAIT_ITERATIONS):
             person_count: int = sync_execute(GET_PERSON_COUNT_FOR_TEAM, {"team_id": team_id})[0][0]
@@ -419,13 +414,11 @@ class MatrixManager:
             [[event_count]] = sync_execute(
                 "SELECT count() FROM events WHERE team_id = %(team_id)s", {"team_id": team_id}
             )
-            events_ready = event_count >= self._events_created
-            if wait_for_native_events:
-                [[native_event_count]] = sync_execute(
-                    "SELECT count() FROM events_json WHERE team_id = %(team_id)s AND event != %(excluded_event)s",
-                    {"team_id": team_id, "excluded_event": EVENT_FEATURE_FLAG_CALLED},
-                )
-                events_ready = events_ready and native_event_count >= self._native_events_created
+            [[native_event_count]] = sync_execute(
+                "SELECT count() FROM events_json WHERE team_id = %(team_id)s AND event != %(excluded_event)s",
+                {"team_id": team_id, "excluded_event": EVENT_FEATURE_FLAG_CALLED},
+            )
+            events_ready = event_count >= self._events_created and native_event_count >= self._native_events_created
             [[group_count]] = sync_execute(
                 "SELECT count() FROM groups WHERE team_id = %(team_id)s", {"team_id": team_id}
             )
