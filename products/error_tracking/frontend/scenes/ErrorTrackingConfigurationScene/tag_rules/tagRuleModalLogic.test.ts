@@ -48,7 +48,9 @@ describe('tagRuleModalLogic', () => {
             get: {
                 '/api/projects/:team_id/error_tracking/tag_rules/': () => ({ results: rules }),
                 '/api/projects/:team_id/error_tracking/issues/tag_definitions/': () => ({
-                    results: rules.map(({ key, label, description }) => ({ key, label, description })),
+                    results: rules
+                        .filter((rule) => !rule.disabled_data)
+                        .map(({ key, label, description }) => ({ key, label, description })),
                 }),
             },
             post: {
@@ -80,7 +82,7 @@ describe('tagRuleModalLogic', () => {
     // rule, as the modal's disabled banner says.
     it.each([
         [
-            'creates a new rule',
+            'creates a new rule after the existing ones',
             null,
             'POST',
             TAG_RULES_PATH,
@@ -88,7 +90,7 @@ describe('tagRuleModalLogic', () => {
                 label: 'Firefox users',
                 description: '',
                 filters: { type: FilterLogicalOperator.And, values: [browserFilter] },
-                order_key: 0,
+                order_key: persistedRule.order_key + 1,
             },
         ],
         [
@@ -101,6 +103,8 @@ describe('tagRuleModalLogic', () => {
     ])('%s and reloads the list', async (_, rule, method, path, body) => {
         const logic = tagRuleModalLogic()
         logic.mount()
+        const list = rulesLogic({ ruleType: ErrorTrackingRuleType.Tag })
+        await expectLogic(list, () => list.actions.loadRules()).toFinishAllListeners()
 
         if (rule) {
             logic.actions.openModal(rule)
@@ -116,7 +120,7 @@ describe('tagRuleModalLogic', () => {
 
         expect(requests).toEqual([{ method, path, body }])
         expect(logic.values.isOpen).toBe(false)
-        expect(rulesLogic({ ruleType: ErrorTrackingRuleType.Tag }).values.rules).toEqual([persistedRule])
+        expect(list.values.rules).toEqual([persistedRule])
     })
 
     // The issue list loads its label definitions once, and the query ignores a label that no longer exists. A filter on
@@ -124,25 +128,27 @@ describe('tagRuleModalLogic', () => {
     it.each(['the rule modal', 'the list'])(
         'clears an open issue list filter on a rule deleted from %s',
         async (deletedFrom) => {
+            const enabledRule = { ...persistedRule, disabled_data: null }
+            rules = [enabledRule]
             const options = issueQueryOptionsLogic({ logicKey: 'test' })
             options.mount()
             await expectLogic(issueTagDefinitionsLogic, () => {
                 issueTagDefinitionsLogic.mount()
             }).toFinishAllListeners()
-            options.actions.setIssueTag({ key: persistedRule.key, applied: true })
+            options.actions.setIssueTag({ key: enabledRule.key, applied: true })
 
             const logic = tagRuleModalLogic()
             logic.mount()
             const list = rulesLogic({ ruleType: ErrorTrackingRuleType.Tag })
             await expectLogic(list, () => list.actions.loadRules()).toFinishAllListeners()
-            expect(options.values.issueTag).toEqual({ key: persistedRule.key, applied: true })
+            expect(options.values.issueTag).toEqual({ key: enabledRule.key, applied: true })
 
             if (deletedFrom === 'the rule modal') {
-                logic.actions.openModal(persistedRule)
+                logic.actions.openModal(enabledRule)
                 await expectLogic(logic, () => logic.actions.deleteRule()).toFinishAllListeners()
             } else {
                 list.actions.startSelectingRules()
-                list.actions.toggleSelectedRule(persistedRule.id)
+                list.actions.toggleSelectedRule(enabledRule.id)
                 await expectLogic(list, () => list.actions.deleteSelectedRules()).toFinishAllListeners()
             }
 

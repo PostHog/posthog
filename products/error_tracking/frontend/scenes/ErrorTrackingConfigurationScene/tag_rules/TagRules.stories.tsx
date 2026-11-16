@@ -109,5 +109,6 @@ export const EditDisabledRule: Story = {
     play: async ({ canvasElement }) => {
         fireEvent.click(await within(canvasElement).findByText('Large orders'))
         await within(document.body).findByText('Edit tag rule')
+        await within(document.body).findByText(/maximum bytecode size/)
     },
 }
