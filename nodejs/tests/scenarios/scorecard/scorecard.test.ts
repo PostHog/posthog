@@ -37,6 +37,7 @@ const RESULT: RunResult = {
     origin: 'local-agent',
     units: { targetUnits: 60, offeredUnits: 58 },
     convergence: { converged: true, unfinishedJobs: 0, unrecorded: [], tookMs: 4000 },
+    janitorResets: 2,
     invariants: [
         {
             name: 'at_least_once',
@@ -53,6 +54,14 @@ const RESULT: RunResult = {
         { name: 'drain_seconds', value: null, unit: 's', censored: true },
     ],
     admissions: [{ name: 'host', passed: true, reason: 'host CPU 41% busy in the baseline, under the 80% ceiling' }],
+    bars: [
+        {
+            name: 'pickup_p99_under',
+            unit: 's',
+            passed: false,
+            breakingPoint: { scale: 10, at: '2026-01-05T10:01:00.000Z', offeredPerSecond: 40, key: 'email', value: 10 },
+        },
+    ],
     timeline: [],
     startedAt: '2026-01-05T10:00:00.000Z',
     endedAt: '2026-01-05T10:02:30.500Z',
@@ -124,6 +133,7 @@ describe('scorecard', () => {
                     units_offered: 58,
                     converged: true,
                     unfinished_jobs: 0,
+                    janitor_resets: 2,
                     inv_at_least_once_passed: false,
                     inv_at_least_once_observed: 2,
                     inv_at_least_once_gate: null,
@@ -141,6 +151,7 @@ describe('scorecard', () => {
                     m_drain_seconds: null,
                     m_drain_seconds_censored: true,
                     admissions: RESULT.admissions,
+                    bars: RESULT.bars,
                     valve_timeline: [],
                     evidence_dir: RESULT.evidenceDir,
                 },

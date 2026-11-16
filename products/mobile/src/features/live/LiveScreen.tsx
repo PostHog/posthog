@@ -1,6 +1,14 @@
 import { useFocusEffect } from 'expo-router'
 import { type ReactElement, useCallback, useEffect, useRef, useState } from 'react'
-import { Linking, RefreshControl, ScrollView, type ScrollViewInstance, Text, View } from 'react-native'
+import {
+    ActivityIndicator,
+    Linking,
+    RefreshControl,
+    ScrollView,
+    type ScrollViewInstance,
+    Text,
+    View,
+} from 'react-native'
 
 import type { ProjectScope } from '@/api/reports'
 import type { NavChrome } from '@/features/tabs/navPinStore'
@@ -379,6 +387,17 @@ function LiveBody({ chrome, scope, scrollTitle, toasts }: LiveBodyProps): ReactE
                         audience={detectedAudience}
                     />
                 )}
+                {feed.reading && feed.screenActive && !nothingYet ? (
+                    <View
+                        style={styles.updating}
+                        testID="live-updating"
+                        accessibilityRole="progressbar"
+                        accessibilityLabel="Updating live data"
+                    >
+                        <ActivityIndicator size="small" color={colors.tertiary} />
+                        <Text style={styles.status}>Updating…</Text>
+                    </View>
+                ) : null}
                 {content}
             </ScrollView>
             <LiveEventSheet
@@ -452,6 +471,7 @@ function LiveStatusLine({ status, state, screenActive, updatedAt }: LiveStatusLi
 }
 
 const useStyles = createStyles(({ colors }) => ({
+    updating: { flexDirection: 'row', alignItems: 'center', gap: 8, paddingHorizontal: 6, marginBottom: 12 },
     fill: {
         flex: 1,
     },

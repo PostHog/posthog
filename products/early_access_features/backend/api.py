@@ -548,6 +548,10 @@ class EarlyAccessFeatureViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             ids = parse_id_list(self.request.query_params.get("ids"), name="ids", parse=UUID)
             if ids is not None:
                 queryset = queryset.filter(id__in=ids)
+            search = self.request.query_params.get("search", "").strip()
+            if search:
+                queryset = queryset.filter(name__icontains=search)
+            queryset = queryset.order_by("-created_at", "-id")
         return queryset
 
     @extend_schema(
@@ -558,7 +562,14 @@ class EarlyAccessFeatureViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 location=OpenApiParameter.QUERY,
                 required=False,
                 description=f"Comma-separated early access feature IDs, at most {MAX_LISTED_IDS}.",
-            )
+            ),
+            OpenApiParameter(
+                "search",
+                OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                required=False,
+                description="Case-insensitive match on the feature name.",
+            ),
         ]
     )
     def list(self, request: Request, *args: Any, **kwargs: Any) -> Response:

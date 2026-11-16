@@ -184,6 +184,7 @@ const useStyles = createStyles(({ colors }) => ({
         height: HEADER_ROW_HEIGHT,
     },
     titleGroup: {
+        marginLeft: 7.5,
         height: HEADER_ROW_HEIGHT,
         flexDirection: 'row',
         alignItems: 'center',
