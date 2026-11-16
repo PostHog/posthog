@@ -92,7 +92,7 @@ from ee.hogai.tool_errors import MaxToolRetryableError
 logger = structlog.get_logger(__name__)
 
 _PROMPT_DATE_BOUND_RE = re.compile(
-    r"\b(?:today|yesterday|now)\s*\(\s*\)|\bINTERVAL\s+\d+\s+(?:SECOND|MINUTE|HOUR|DAY|WEEK|MONTH|QUARTER|YEAR)S?\b",
+    r"\b(?:today|yesterday|now)\s*\(\s*\)|[-+]\s*INTERVAL\s+\d+\s+(?:SECOND|MINUTE|HOUR|DAY|WEEK|MONTH|QUARTER|YEAR)S?\b",
     re.IGNORECASE,
 )
 

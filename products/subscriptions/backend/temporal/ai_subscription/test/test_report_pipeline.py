@@ -1128,12 +1128,22 @@ async def test_frozen_plan_reused_skips_planner_and_event_selection(
     assert result.query_plan_status == AIQueryPlanStatus.FROZEN
 
 
+@pytest.mark.parametrize(
+    "prompt",
+    [
+        pytest.param("x", id="plain_prompt"),
+        pytest.param(
+            "Run: SELECT toStartOfInterval(timestamp, INTERVAL 1 HOUR) AS h, count() FROM events WHERE {{date_range}} GROUP BY h",
+            id="interval_used_for_bucketing",
+        ),
+    ],
+)
 @patch(_SLO_CAPTURE)
 @patch(f"{_RP}.MaxChatOpenAI")
 @patch(f"{_RP}._run_steps", new_callable=AsyncMock)
 @patch(f"{_RP}.build_enriched_prompt")
 async def test_unfrozen_run_returns_plan_to_persist(
-    mock_bep: MagicMock, mock_run: AsyncMock, mock_chat: MagicMock, _mock_capture: MagicMock
+    mock_bep: MagicMock, mock_run: AsyncMock, mock_chat: MagicMock, _mock_capture: MagicMock, prompt: str
 ) -> None:
     # First run (no frozen plan): the freshly-planned QueryPlan is returned for the caller to persist,
     # so the next delivery is deterministic. The envelope must carry the plan AND the relevant_events it
@@ -1153,7 +1163,7 @@ async def test_unfrozen_run_returns_plan_to_persist(
         custom_layout=[ReportText(items=[ReportTextItem(kind="text", text="# Report")])],
     )
 
-    result = await generate_ai_report(team=MagicMock(), user=MagicMock(), prompt="x", window=_test_window())
+    result = await generate_ai_report(team=MagicMock(), user=MagicMock(), prompt=prompt, window=_test_window())
 
     assert result.plan_to_persist == {
         "version": AI_QUERY_PLAN_VERSION,
