@@ -10,7 +10,8 @@
 #
 # sqlx_databases: the sqlx databases the service reads or writes, as space-separated
 # migrate-entry names (persons, behavioral-cohorts, cyclotron-node, flags-read-store).
-# The build writes every migration version of these databases into the image, and the
+# The build writes every migration version of these databases into the image's
+# /app/schema-requirements.json (the Node manifest format), and the
 # deploy-time check (rust/bin/sqlx-schema-check) waits until they are applied.
 - image: capture
   dockerfile: ./rust/Dockerfile

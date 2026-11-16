@@ -111,7 +111,8 @@ RUN --mount=type=secret,id=posthog_upload_symbols_cli_api_key \
 
 FROM debian:bookworm-slim AS sqlx-requirements
 
-# The sqlx migration versions this image needs, for the deploy-time check in bin/sqlx-schema-check.
+# The schema requirements manifest of this image (the Node manifest format, sqlx entries only),
+# for the deploy-time check in bin/sqlx-schema-check.
 # SQLX_DATABASES comes from the image's sqlx_databases entry in .github/rust-images.yml.
 ARG SQLX_DATABASES=""
 WORKDIR /src
@@ -120,7 +121,7 @@ COPY behavioral_cohorts_migrations ./behavioral_cohorts_migrations
 COPY cyclotron-node-migrations ./cyclotron-node-migrations
 COPY flags_read_store_migrations ./flags_read_store_migrations
 COPY bin/write-sqlx-requirements ./write-sqlx-requirements
-RUN sh ./write-sqlx-requirements "$SQLX_DATABASES" /sqlx-requirements.txt /src
+RUN sh ./write-sqlx-requirements "$SQLX_DATABASES" /schema-requirements.json /src
 
 FROM debian:bookworm-slim AS runtime
 
@@ -154,7 +155,7 @@ WORKDIR /app
 
 USER nobody
 
-COPY --from=sqlx-requirements /sqlx-requirements.txt /app/sqlx-requirements.txt
+COPY --from=sqlx-requirements /schema-requirements.json /app/schema-requirements.json
 COPY --from=builder /app/target/release/$BIN /usr/local/bin
 ENTRYPOINT ["/bin/sh", "-c", "/usr/local/bin/$BIN"]
 

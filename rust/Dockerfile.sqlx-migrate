@@ -11,6 +11,7 @@ RUN apt-get update && \
     ca-certificates \
     libpq5 \
     postgresql-client \
+    jq \
     libssl3 \
     && rm -rf /var/lib/apt/lists/*
 

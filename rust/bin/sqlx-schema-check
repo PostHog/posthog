@@ -2,19 +2,20 @@
 # Deploy-time check: waits until every sqlx migration version that the app image needs is
 # applied, so new Rust code does not roll out against an older schema.
 #
-# Runs in the sqlx-migrate image (it has psql) as an Argo CD Sync hook before the app pods roll.
-# The requirements file comes from the app image (see write-sqlx-requirements), so a rollback
-# to an older image needs only the versions that the older image needs.
+# Runs in the sqlx-migrate image (it has psql and jq) as an Argo CD Sync hook before the app pods
+# roll. The manifest comes from the app image (see write-sqlx-requirements). It has the format of
+# the Node manifest (schema_version 1), with only "sqlx" requirements. A rollback to an older
+# image needs only the versions that the older image needs.
 #
 # Exit codes, the same as the Node schema check:
-#   0  every required version is applied (or shadow mode, or no requirements file)
+#   0  every required version is applied (or shadow mode, or no manifest)
 #   1  required versions are still missing, or recorded as failed, when the wait ends
-#   2  the check cannot see the state: a database URL is not set, the file is malformed,
+#   2  the check cannot see the state: a database URL is not set, the manifest is malformed,
 #      or psql fails on the last attempt
 # In shadow mode the script logs the result that it would return, and exits 0.
 #
 # Environment:
-#   SQLX_SCHEMA_CHECK_REQUIREMENTS      path of the requirements file
+#   SQLX_SCHEMA_CHECK_REQUIREMENTS      path of the manifest
 #   SQLX_SCHEMA_CHECK_MODE              shadow (default) or enforce
 #   SQLX_SCHEMA_CHECK_APP               app name for the log line
 #   SQLX_SCHEMA_CHECK_WAIT_SECONDS      total wait, default 540 in enforce mode and 0 in shadow mode
@@ -23,7 +24,7 @@
 #   FLAGS_READ_STORE_DATABASE_URL       the URL of each database that the file names
 set -uo pipefail
 
-REQUIREMENTS="${SQLX_SCHEMA_CHECK_REQUIREMENTS:-/shared/sqlx-requirements.txt}"
+REQUIREMENTS="${SQLX_SCHEMA_CHECK_REQUIREMENTS:-/shared/schema-requirements.json}"
 MODE="${SQLX_SCHEMA_CHECK_MODE:-shadow}"
 APP="${SQLX_SCHEMA_CHECK_APP:-unknown}"
 # Shadow mode checks once, so a pending migration cannot delay a rollout that it must not hold.
@@ -67,16 +68,17 @@ finish() {
     if [ "$MODE" != "enforce" ]; then
         final_exit=0
     fi
-    printf '{"event":"sqlx_schema_check","app":"%s","mode":"%s","result":"%s","would_exit":%s,"elapsed_seconds":%s,"missing":%s,"errors":%s}\n' \
-        "$APP" "$MODE" "$result" "$exit_code" "$elapsed" "$(json_list "${MISSING[@]}")" "$(json_list "${ERRORS[@]}")"
+    printf '{"event":"sqlx_schema_check","app":"%s","mode":"%s","result":"%s","would_exit":%s,"elapsed_seconds":%s,"digest":"%s","missing":%s,"errors":%s}\n' \
+        "$APP" "$MODE" "$result" "$exit_code" "$elapsed" "$DIGEST" "$(json_list "${MISSING[@]}")" "$(json_list "${ERRORS[@]}")"
     exit "$final_exit"
 }
 
 MISSING=()
 ERRORS=()
+DIGEST=""
 
 if [ ! -f "$REQUIREMENTS" ]; then
-    # An image built before the requirements file existed. It rolls out as before.
+    # An image built before the manifest existed. It rolls out as before.
     finish "no_requirements_file" 0
 fi
 
@@ -86,11 +88,23 @@ if [ "$MODE" != "shadow" ] && [ "$MODE" != "enforce" ]; then
     finish "error" 2
 fi
 
-DATABASES=$(grep -v '^#' "$REQUIREMENTS" | awk 'NF { print $1 }' | sort -u)
-if grep -v '^#' "$REQUIREMENTS" | awk 'NF && (NF != 2 || $2 !~ /^[0-9]+$/) { bad = 1 } END { exit !bad }'; then
-    ERRORS+=("malformed line in $REQUIREMENTS")
+# An unknown kind is an error, like in the Node parser: skipping it would report a pass for a
+# requirement that nothing checked.
+if ! jq -e '
+    .schema_version == 1
+    and (.requirements | type == "array")
+    and all(.requirements[];
+        .kind == "sqlx"
+        and (.database | type == "string")
+        and (.versions | type == "array" and length > 0 and all(.[]; type == "number" and . > 0 and . == floor)))
+    ' "$REQUIREMENTS" > /dev/null 2>&1; then
+    ERRORS+=("$REQUIREMENTS is not a schema_version 1 manifest with only sqlx requirements")
     finish "error" 2
 fi
+DIGEST=$(jq -r '.digest // ""' "$REQUIREMENTS")
+# One "<database> <version>" line per required version.
+REQUIRED=$(jq -r '.requirements[] | .database as $database | .versions[] | "\($database) \(.)"' "$REQUIREMENTS" | sort -u)
+DATABASES=$(echo "$REQUIRED" | awk 'NF { print $1 }' | sort -u)
 
 for database in $DATABASES; do
     if ! variable=$(url_variable "$database"); then
@@ -119,7 +133,7 @@ check_once() {
                 continue
             fi
         fi
-        required=$(awk -v db="$database" '!/^#/ && $1 == db { print $2 }' "$REQUIREMENTS" | sort -u)
+        required=$(echo "$REQUIRED" | awk -v db="$database" '$1 == db { print $2 }')
         while read -r version; do
             [ -n "$version" ] || continue
             if echo "$rows" | grep -qx "$version t"; then
